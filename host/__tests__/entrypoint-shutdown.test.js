@@ -108,6 +108,7 @@ function runBaselineTimeout() {
     `RECOVERY_FILTER_FILE='${recoveryFilter}'`,
     `CODEFLARE_RUNTIME_ROOT='${runtimeRoot}'`,
     `SYNC_RUNTIME_DIR='${syncRuntimeDir}'`,
+    'MANAGED_RESOURCE_POLICY=mutable',
     'RCLONE_FILTERS=()',
     'timeout() { return 124; }',
     'rclone() { case "$1" in delete) return 0;; *) return 1;; esac; }',
@@ -122,6 +123,51 @@ function runBaselineTimeout() {
   rmSync(fixture, { recursive: true, force: true });
   return { result, sentinelExists };
 }
+
+function runResyncTimeout(t, timeoutOperation) {
+  const fixture = mkdtempSync(join(tmpdir(), 'resync-timeout-'));
+  t.after(() => rmSync(fixture, { recursive: true, force: true }));
+  const syncDir = join(fixture, 'sync');
+  mkdirSync(join(syncDir, 'rclone'), { recursive: true });
+  writeFileSync(join(syncDir, 'rclone/home_user..r2_bucket.path1.lst'), '');
+  const script = [
+    `CODEFLARE_RUNTIME_ROOT=${JSON.stringify(fixture)}`,
+    'SYNC_RUNTIME_DIR="$CODEFLARE_RUNTIME_ROOT/sync"',
+    'USER_HOME="$CODEFLARE_RUNTIME_ROOT" R2_BUCKET_NAME=bucket MANAGED_RESOURCE_POLICY=mutable',
+    `TIMEOUT_OPERATION=${JSON.stringify(timeoutOperation)}`,
+    'RCLONE_FILTERS=() CYCLES=0',
+    'sleep() { :; }',
+    'bisync_with_r2() { CYCLES=$((CYCLES + 1)); if [ "$CYCLES" -gt 4 ]; then exit 99; fi; return 7; }',
+    'recover_vanished_files() { return 1; }',
+    'timeout() { if [ "$3" = "$TIMEOUT_OPERATION" ] && [ "$CYCLES" -eq 3 ]; then return 124; fi; return 0; }',
+    'update_sync_status() { printf "STATUS %s: %s\\n" "$1" "$2"; if [ "$1" = success ]; then exit 0; fi; }',
+    extractFunction('record_sync_disk_failure'),
+    extractFunction('establish_bisync_baseline'),
+    extractFunction('start_sync_daemon'),
+    'start_sync_daemon; wait "$SYNC_DAEMON_PID"',
+  ].join('\n');
+  return spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+}
+
+it('REQ-STOR-045 AC3: timed-out resync reports timeout and retries after one more failed cycle', (t) => {
+  const failedCycle = ['STATUS syncing: null', 'STATUS failed: Bisync exit code 7'];
+  for (const [operation, diagnostic] of [
+    ['bisync', 'Bisync baseline timed out after 600s'],
+    ['delete', 'Bisync baseline conflict cleanup timed out'],
+  ]) {
+    const result = runResyncTimeout(t, operation);
+    assert.equal(result.status, 0, result.stderr);
+    const statuses = result.stdout.split('\n').filter(line => line.startsWith('STATUS '));
+    assert.deepEqual(statuses, [
+      ...failedCycle, ...failedCycle, ...failedCycle,
+      'STATUS failed: Resync fallback triggered',
+      `STATUS timeout: ${diagnostic}`,
+      ...failedCycle,
+      'STATUS failed: Resync fallback triggered',
+      'STATUS success: null',
+    ], operation);
+  }
+});
 
 function shutdownTraps() {
   const start = entrypoint.indexOf('\nSHUTDOWN_RAN=0\n');
@@ -294,7 +340,7 @@ describe('REQ-OPS-010: Graceful container shutdown preserves data', () => {
 
   it('REQ-OPS-010 AC5: bisync-initialized flag is touched on the timeout path to ensure final bisync runs', () => {
     const timeout = runBaselineTimeout();
-    assert.equal(timeout.result.status, 0, timeout.result.stderr);
+    assert.equal(timeout.result.status, 124, timeout.result.stderr);
     assert.equal(timeout.sentinelExists, true, 'a baseline timeout must create the protected bisync sentinel');
 
     // Behavioral: the handler gates the final bisync on the sentinel — absent

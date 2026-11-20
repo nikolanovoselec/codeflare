@@ -98,6 +98,13 @@ vi.mock('@cloudflare/containers', () => ({
 
 // Now import the container class after mocks are set up
 import { container as ContainerClass } from '../../container/index';
+import { dispatchInternalRoute } from '../../container/container-router';
+import type { ContainerHost } from '../../container/container-config';
+
+// Test configuration-handler behavior after independent Start admission.
+function invokeConfigurationHandler(instance: ContainerClass, request: Request): Promise<Response> {
+  return dispatchInternalRoute(instance as unknown as ContainerHost, request)!;
+}
 
 // REQ-SESSION-019: Final-sync drain endpoint authentication
 // REQ-ENTERPRISE-017: AI Gateway Configured in the Setup Wizard
@@ -488,14 +495,14 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       mockStorage.put.mockImplementation(async (key: string, value: unknown) => { persisted.set(key, value); });
       let instance = new ContainerClass(mockCtx as any, mockEnv);
       await mockCtx.blockConcurrencyWhile.mock.results.at(-1)!.value;
-      const initial = await instance.fetch(new Request('http://container/_internal/setBucketName', {
+      const initial = await invokeConfigurationHandler(instance, new Request('http://container/_internal/setBucketName', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ bucketName: 'test-bucket', workspaceSyncEnabled: false }),
       }));
       expect(initial.status).toBe(200);
       expect(instance.envVars?.SYNC_POLICY_MODE).toBe('exclude');
       for (const syncPolicyMode of ['include', 'exclude', 'include']) {
-        const response = await instance.fetch(new Request('http://container/_internal/setBucketName', {
+        const response = await invokeConfigurationHandler(instance, new Request('http://container/_internal/setBucketName', {
           method: 'POST', headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ bucketName: 'test-bucket', syncPolicyMode, workspaceSyncEnabled: false }),
         }));
@@ -509,7 +516,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         expect(instance.envVars?.SYNC_MODE).toBe('none');
       }
       for (const syncPolicyMode of ['Include', null, true, '']) {
-        const response = await instance.fetch(new Request('http://container/_internal/setBucketName', {
+        const response = await invokeConfigurationHandler(instance, new Request('http://container/_internal/setBucketName', {
           method: 'POST', headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ bucketName: 'test-bucket', syncPolicyMode }),
         }));
@@ -752,7 +759,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         headers: { 'Content-Type': 'application/json' },
       });
 
-      const response = await instance.fetch(request);
+      const response = await invokeConfigurationHandler(instance, request);
       expect(response.status).toBe(200);
 
       const body = await response.json() as { success: boolean; bucketName: string };
@@ -774,7 +781,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         headers: { 'Content-Type': 'application/json' },
       });
 
-      const response = await instance.fetch(request);
+      const response = await invokeConfigurationHandler(instance, request);
       expect(response.status).toBe(409);
       // sessionId should still be stored even on 409
       expect(mockStorage.put).toHaveBeenCalledWith('_sessionId', 'sess1234');
@@ -806,7 +813,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         headers: { 'Content-Type': 'application/json' },
       });
 
-      const response = await instance.fetch(request);
+      const response = await invokeConfigurationHandler(instance, request);
       expect(response.status).toBe(400);
     });
 
@@ -819,7 +826,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         headers: { 'Content-Type': 'application/json' },
       });
 
-      const response = await instance.fetch(request);
+      const response = await invokeConfigurationHandler(instance, request);
 
       expect(response.status).toBe(400);
       await expect(response.json()).resolves.toEqual({
@@ -844,7 +851,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         headers: { 'Content-Type': 'application/json' },
       });
 
-      const response = await instance.fetch(request);
+      const response = await invokeConfigurationHandler(instance, request);
       expect(response.status).toBe(200);
 
       expect(mockStorage.put).toHaveBeenCalledWith('_sessionId', 'mysession123');
@@ -864,7 +871,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         headers: { 'Content-Type': 'application/json' },
       });
 
-      const response = await instance.fetch(request);
+      const response = await invokeConfigurationHandler(instance, request);
       expect(response.status).toBe(200);
 
       // SESSION_MODE should be in envVars
@@ -885,7 +892,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         headers: { 'Content-Type': 'application/json' },
       });
 
-      const response = await instance.fetch(request);
+      const response = await invokeConfigurationHandler(instance, request);
       expect(response.status).toBe(200);
 
       // Should default to 'default'
@@ -901,7 +908,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         headers: { 'Content-Type': 'application/json' },
       });
 
-      const response = await instance.fetch(request);
+      const response = await invokeConfigurationHandler(instance, request);
       expect(response.status).toBe(400);
     });
 
@@ -927,7 +934,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         headers: { 'Content-Type': 'application/json' },
       });
 
-      const response = await instance.fetch(request);
+      const response = await invokeConfigurationHandler(instance, request);
       expect(response.status).toBe(200);
 
       expect(mockStorage.put).toHaveBeenCalledWith('userTimezone', 'Europe/Zurich');
@@ -949,7 +956,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         headers: { 'Content-Type': 'application/json' },
       });
 
-      const response = await instance.fetch(request);
+      const response = await invokeConfigurationHandler(instance, request);
       expect(response.status).toBe(409);
 
       expect(mockStorage.put).toHaveBeenCalledWith('userTimezone', 'America/New_York');
@@ -976,7 +983,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
 
       // 200 is intentional: malformed values are silently dropped per the
       // sticky-once-set semantics in applyBucketName, not surfaced as a 400.
-      const response = await instance.fetch(request);
+      const response = await invokeConfigurationHandler(instance, request);
       expect(response.status).toBe(200);
 
       const putCalls = mockStorage.put.mock.calls.map((c: unknown[]) => c[0] as string);
@@ -1004,7 +1011,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         headers: { 'Content-Type': 'application/json' },
       });
 
-      const response = await instance.fetch(request);
+      const response = await invokeConfigurationHandler(instance, request);
       expect(response.status).toBe(409);
 
       const putCalls = mockStorage.put.mock.calls
@@ -1014,7 +1021,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect(instance.envVars?.USER_TIMEZONE).toBe('Europe/Zurich');
     });
 
-    it('proxies unknown routes via super.fetch when container is running', async () => {
+    it('proxies ordinary HTTP to the existing host without starting another process', async () => {
       mockContainerRuntime.running = true;
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'bucketName') return 'test-bucket';
@@ -1022,6 +1029,10 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         return null;
       });
 
+      mockTcpPortFetch.mockImplementation(async (request: Request) => {
+        if (new URL(request.url).pathname !== '/unknown-route') return new Response(null, { status: 404 });
+        return new Response('existing host');
+      });
       const instance = new ContainerClass(mockCtx as any, mockEnv);
       await vi.waitFor(() => expect(instance.envVars?.CONTAINER_AUTH_TOKEN).toBe('authorized-proxy-fixture'));
       const request = new Request('http://container/unknown-route', {
@@ -1030,7 +1041,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
 
       const response = await instance.fetch(request);
       expect(response.status).toBe(200);
-      expect(await response.text()).toBe('base fetch');
+      expect(await response.text()).toBe('existing host');
     });
   });
 
@@ -1682,19 +1693,16 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       const instance = new ContainerClass(mockCtx as any, mockEnv);
       await mockCtx.blockConcurrencyWhile.mock.results.at(-1)!.value;
       const upstreamState = { syncRequested: false };
-      const proto = Object.getPrototypeOf(Object.getPrototypeOf(instance));
-      const upstream = vi.spyOn(proto, 'fetch').mockImplementation(async () => {
+      mockTcpPortFetch.mockImplementation(async () => {
         upstreamState.syncRequested = true;
         return new Response('sync started', { status: 200 });
       });
-      try {
-        const response = await instance.fetch(new Request('http://container/internal/bisync-trigger', {
-          method: 'POST', headers: authorization ? { Authorization: authorization } : {},
-        }));
-        expect(response.status).toBe(503);
-        expect(await response.json()).toEqual({ error: 'Container authorization unavailable' });
-        expect(upstreamState.syncRequested).toBe(false);
-      } finally { upstream.mockRestore(); }
+      const response = await instance.fetch(new Request('http://container/internal/bisync-trigger', {
+        method: 'POST', headers: authorization ? { Authorization: authorization } : {},
+      }));
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ error: 'Container authorization unavailable' });
+      expect(upstreamState.syncRequested).toBe(false);
     });
 
     it('REQ-SEC-022 AC1: proxied non-internal request gets Authorization: Bearer <containerAuthToken> injected before super.fetch', async () => {
@@ -1713,22 +1721,15 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         expect(instance.envVars?.CONTAINER_AUTH_TOKEN).toBe(PRIOR_TOKEN);
       });
 
-      // Spy on the MockContainer (super) prototype's fetch and capture the
-      // Request the DO override forwards.
-      const proto = Object.getPrototypeOf(Object.getPrototypeOf(instance));
-      const superFetchSpy = vi.spyOn(proto, 'fetch')
-        .mockResolvedValue(new Response('proxied', { status: 200 }));
-
-      try {
-        const request = new Request('http://container/some-route', { method: 'GET' });
-        await instance.fetch(request);
-
-        expect(superFetchSpy).toHaveBeenCalledTimes(1);
-        const forwarded = superFetchSpy.mock.calls[0][0] as Request;
-        expect(forwarded.headers.get('Authorization')).toBe(`Bearer ${PRIOR_TOKEN}`);
-      } finally {
-        superFetchSpy.mockRestore();
-      }
+      mockTcpPortFetch.mockImplementation(async (forwarded: Request) => {
+        const authorized = forwarded.headers.get('Authorization') === `Bearer ${PRIOR_TOKEN}`;
+        return new Response(authorized ? 'proxied' : 'unauthorized', { status: authorized ? 200 : 401 });
+      });
+      const response = await instance.fetch(new Request('http://container/some-route', {
+        headers: { Authorization: 'Bearer caller-supplied' },
+      }));
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe('proxied');
     });
 
     it('should return JSON error body with correct Content-Type', async () => {

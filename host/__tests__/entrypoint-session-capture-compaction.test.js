@@ -188,7 +188,7 @@ describe('entrypoint session-capture compaction orchestration', () => {
   });
 
   it('runs at startup only after a genuinely successful baseline and before the daemon starts', () => {
-    for (const baselineStatus of ['success', 'timeout', 'failed']) {
+    for (const baselineResult of [0, 124, 1]) {
       const fx = fixture();
       const startup = extractFunction('complete_managed_curation_startup');
       const script = `
@@ -198,9 +198,8 @@ describe('entrypoint session-capture compaction orchestration', () => {
         SESSION_MODE=advanced
         CODEFLARE_SESSION_WORKSPACE=terminal
         CODEFLARE_RUNTIME_ROOT=${JSON.stringify(fx.runtime)}
-        SYNC_STATUS=pending
         CALLS=${JSON.stringify(fx.log)}
-        export RCLONE_CONFIG_RESULT STEP1_RESULT SESSION_MODE CODEFLARE_SESSION_WORKSPACE CODEFLARE_RUNTIME_ROOT SYNC_STATUS CALLS
+        export RCLONE_CONFIG_RESULT STEP1_RESULT SESSION_MODE CODEFLARE_SESSION_WORKSPACE CODEFLARE_RUNTIME_ROOT CALLS
         prepare_managed_resource_filter() { :; }
         relay_managed_pi_extensions() { :; }
         configure_pi_hermes_memory() { :; }
@@ -209,8 +208,7 @@ describe('entrypoint session-capture compaction orchestration', () => {
         ionice() { :; }
         establish_bisync_baseline() {
           printf 'BASELINE\\n' >> "$CALLS"
-          SYNC_STATUS=${JSON.stringify(baselineStatus)}
-          [ "$SYNC_STATUS" != failed ]
+          return ${baselineResult}
         }
         init_user_vault() { printf 'VAULT_INIT\\n' >> "$CALLS"; }
         run_daily_vault_session_compaction() { printf 'COMPACT\\n' >> "$CALLS"; }
@@ -225,10 +223,10 @@ describe('entrypoint session-capture compaction orchestration', () => {
       assert.equal(result.status, 0, result.stderr);
       assert.deepEqual(
         calls(fx),
-        baselineStatus === 'success'
+        baselineResult === 0
           ? ['BASELINE', 'VAULT_INIT', 'COMPACT', 'DAEMON']
           : ['BASELINE', 'VAULT_INIT', 'DAEMON'],
-        baselineStatus,
+        `baseline exit ${baselineResult}`,
       );
     }
   });

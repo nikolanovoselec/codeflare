@@ -1,4 +1,4 @@
-import type { SleepAfterOption } from '../types';
+import type { UserPreferences } from '../types';
 
 export interface SleepTimerInfo {
   remainingMs: number;
@@ -21,14 +21,14 @@ const SLEEP_AFTER_MS: Record<string, number> = {
 
 const DEFAULT_MS = 3_600_000; // 1h for new non-free sessions
 
-export function parseSleepAfterMs(opt: SleepAfterOption | undefined): number {
+export function parseSleepAfterMs(opt: UserPreferences['sleepAfter']): number {
   if (!opt) return DEFAULT_MS;
   return SLEEP_AFTER_MS[opt] ?? DEFAULT_MS;
 }
 
 export function getSleepTimerInfo(
   lastActiveAt: string | undefined,
-  sleepAfter: SleepAfterOption | undefined,
+  sleepAfter: UserPreferences['sleepAfter'],
 ): SleepTimerInfo | null {
   if (!lastActiveAt || !sleepAfter) return null;
 

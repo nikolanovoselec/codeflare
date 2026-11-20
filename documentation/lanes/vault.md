@@ -139,7 +139,7 @@ Linking convention enforced in the prompt: concepts go in `[[wikilinks]]` so gra
 
 Implements [REQ-MEM-009](../../sdd/spec/memory.md#req-mem-009-vault-graph-accumulates-monotonically-across-extractions) (monotonic vault graph accumulation across extractions).
 
-Vault extraction is prompt-cadenced rather than polled. Pi shares memory’s successful-progress counter and prefix rebase handling for capture, Vault checks and size-eligible trimming; pending jobs keep their independent delivery guards. Claude retains resumed-tail and crossed twenty-prompt epoch checks. Change detection remains a **content-hash manifest**, not a file mtime ([AD94](../decisions/README.md#ad94-content-hash-manifest-for-vault-extract-change-detection-mtime-is-reset-by-the-r2-restore)): the boot R2 restore rewrites every vault file's mtime to download-time, so mtime detection would re-extract unchanged content. The state:
+Vault extraction is prompt-cadenced rather than polled. Pi shares memory’s successful-progress counter and prefix rebase handling for capture, Vault checks and size-eligible trimming; pending jobs keep their independent delivery guards. Claude retains resumed-tail and crossed twenty-prompt epoch checks. A successful scan (including no changes) advances Claude's cadence counter. So does a skipped scan when the scanner or Vault is absent or an extraction marker is pending. A scanner error leaves the counter unchanged so the next real prompt can retry. A skipped scan is not evidence of unchanged content. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::arm_vault_check --> Change detection remains a **content-hash manifest**, not a file mtime ([AD94](../decisions/README.md#ad94-content-hash-manifest-for-vault-extract-change-detection-mtime-is-reset-by-the-r2-restore)): the boot R2 restore rewrites every vault file's mtime to download-time, so mtime detection would re-extract unchanged content. The state:
 
 | File | Written by | Used by |
 |---|---|---|
@@ -532,7 +532,7 @@ Manual verification for runtime-specific PDF handling. Claude's content/vision/c
 1. Claude AC1/AC2 - healthy PDF: drop a multi-page text PDF into `Raw/Pasted/`, trigger an eligible resumed-session or crossed 20-prompt hash check, then confirm content-derived graph nodes.
 2. Claude AC3 - citation edge: add a sibling Markdown note that wikilinks the same PDF, trigger the next eligible hash check, and confirm the edge.
 3. Pi AC4 - submit a PDF and confirm it produces only a metadata document node.
-4. AC5 failure isolation - drop a corrupt or password-protected PDF alongside a healthy changed file and confirm one unreadable PDF does not block the batch or manifest advancement.
+4. AC5 render-error isolation - use a corrupt or password-protected PDF whose bytes remain readable alongside a healthy changed file. Confirm the content-hash scan succeeds, the PDF yields metadata, the healthy file is extracted, and the successful batch advances the manifest. A scanner read failure is a separate retry case under REQ-VAULT-003 AC5.
 
 On Claude, the global graph should gain a `document` node plus concepts for visible titles, headings, and named entities; a sibling wikilink should receive a citation edge. On Pi, no visible PDF content or citation edge is inferred. A corrupt PDF emits only a bare document node while healthy sibling input still ingests.
 
@@ -874,7 +874,7 @@ AC2: Read installed CONFIG.md's space-lua treeview.exclusions block and compare 
 
 AC1: Inspect an authorized successful extraction's canonical chunk and cumulative graph, matching document/code node file_type and truthy source_file through global merge. Require preserved node identity in the shared schema, not merely valid JSON.
 
-AC2: Inspect that extraction's render/copy outcome, then open Raw/Graphs/Vault Graph.md and follow its visualization link through SilverBullet's .fs route. Require Raw/Graphs/vault-graph.html to reflect the inspected graph and load through that link. A successful graph publication with failed/stale best-effort visualization does not pass this manual AC. Do not rebuild or republish to obtain a method receipt.
+AC2: Inspect the extraction's render/copy attempt. After a successful copy, open `Raw/Graphs/Vault Graph.md` and follow its visualization link through SilverBullet's `.fs` route; require `Raw/Graphs/vault-graph.html` to load and reflect the inspected graph. If rendering or copying failed, record that the visualization was not refreshed separately from the graph publication result. A stale page alone does not establish that an attempt was made. Do not rebuild or republish to obtain evidence.
 
 <a id="req-vault-032-manual-qualification"></a>
 ### Archive ownership instruction review (REQ-VAULT-032)

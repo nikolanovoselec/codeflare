@@ -324,7 +324,7 @@ Session PATCH/stop overlap is rare, rate limit off-by-one is minor, `lastAccesse
 
 **Status:** Accepted (date not recorded)
 
-**Context:** Retained compact-record rationale: “Root needed for rclone mount.” The current Dockerfile root comment records the runtime privilege/isolation rationale; this is source support, not empirical proof of the platform network boundary. <!-- @impl: Dockerfile -->
+**Context:** Retained compact-record rationale: “Root needed for rclone mount.” The current Dockerfile root comment records the runtime privilege/isolation rationale; this is source support, not empirical proof of the platform network boundary. <!-- @impl: Dockerfile::SAST-false-positive -->
 
 **Decision:** Network isolation via DO proxy is sufficient.
 
@@ -743,7 +743,7 @@ Worker name derived from Host header for `.workers.dev` subdomains during first-
 
 **Category:** Redirect anchor
 
-**Context:** The retained redirect records the missing `USER` analyzer finding and network-isolation rationale. The current Dockerfile root comment explains the rclone/runtime privilege requirement; it does not empirically prove exploit containment. <!-- @impl: Dockerfile -->
+**Context:** The retained redirect records the missing `USER` analyzer finding and network-isolation rationale. The current Dockerfile root comment explains the rclone/runtime privilege requirement; it does not empirically prove exploit containment. <!-- @impl: Dockerfile::SAST-false-positive -->
 
 **Decision:** Follow the redirect or supersession recorded by this ADR.
 
@@ -846,7 +846,7 @@ The WebSocket upgrade handler in `terminal.ts` only requires the `Origin` header
 
 **Status:** Accepted (date not recorded)
 
-**Current-scope qualification (documentary, not a new acceptance):** The lastSyncedAt race account below is historical. `src/routes/stripe-webhook.ts::syncSubscriptionState` now obtains an ordered Timekeeper start token before fetching Stripe and applies/merges through the same coordinator; newer starts invalidate older applies. `lastSyncedAt` is metadata, not the stale-write guard. No original adoption date is inferred.
+**Current-scope qualification (documentary, not a new acceptance):** The lastSyncedAt race account below is historical. `src/routes/stripe-webhook.ts::syncSubscriptionState` now obtains an ordered Timekeeper start token before fetching Stripe and applies/merges through the same coordinator; newer starts invalidate older applies. `lastSyncedAt` is metadata, not the stale-write guard. The original metadata-only account below is historical for mode resolution: missing mode metadata can fall back to the configured Price slot, but the slot does not infer a tier. No original adoption date is inferred.
 
 **Context:** The retained rationale uses Stripe as snapshot truth rather than applying event payloads as state; the incident and lastSyncedAt account below remain historical. Current sync explains ordered-token refinement, not original incident proof. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState -->
 

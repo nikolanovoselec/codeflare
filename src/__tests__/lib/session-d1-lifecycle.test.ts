@@ -259,7 +259,7 @@ describe('REQ-SESSION-031: complete D1 session authority', () => {
       .toMatchObject({ lifecycleState: 'stopping', boundaryActivityId: 'review-one' });
     expect(await repository.confirmStopped('owner-a', 'session01', 1, 'stop-one', new Date().toISOString())).toBe(false);
     expect(await repository.start('owner-a', 'session01', new Date().toISOString())).toBeNull();
-    expect(await repository.deleteConfirmed('owner-a', 'session01')).toBe(false);
+    expect(await repository.deleteConfirmed('owner-a', 'session01', 1)).toBe(false);
     expect(await repository.acknowledgeBoundaryCancellation('owner-a', 'session01', 1, 'review-one')).toBe(true);
     expect(await repository.getSession('owner-a', 'session01')).toMatchObject({ lifecycleState: 'stopping', terminationIntentId: 'stop-one' });
   });

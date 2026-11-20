@@ -54,6 +54,16 @@ function baseState(): ContainerEnvState {
 
 const baseEnv: Env = {} as Env;
 
+it.each([
+  [null, null], ['scoped-access', null], [null, 'scoped-secret'],
+])('REQ-SESSION-003 AC2: an incomplete scoped R2 pair never uses deployment credentials (%s, %s)', (access, secret) => {
+  const vars = buildEnvVars({ ...baseState(), _r2AccessKeyId: access, _r2SecretAccessKey: secret }, {
+    R2_ACCESS_KEY_ID: 'deployment-access', R2_SECRET_ACCESS_KEY: 'deployment-secret',
+  } as Env);
+  expect(vars.R2_ACCESS_KEY_ID).toBe('');
+  expect(vars.R2_SECRET_ACCESS_KEY).toBe('');
+});
+
 // REQ-AGENT-012: Fast CLI Start (Configurable)
 // REQ-AGENT-018: Push & Deploy credential management UI
 // REQ-ENTERPRISE-023: Strict Gateway Egress Controller Transport

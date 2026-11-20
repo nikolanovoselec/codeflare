@@ -433,6 +433,9 @@ export class Timekeeper {
       const updated = 'cleanupBillingState' in patch
         ? {
             ...withoutBillingState(existing ?? {}),
+            ...(existing?.billingStatus === BILLING_STATUS.TRIALING
+              && patch.subscriptionId !== undefined
+              && patch.subscriptionId === existing.stripeSubscriptionId ? { trialUsed: true } : {}),
             billingStatus: patch.billingStatus,
             subscriptionTier: patch.subscriptionTier,
             accessTier: patch.accessTier,

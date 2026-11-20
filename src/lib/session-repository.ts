@@ -108,16 +108,17 @@ export class D1SessionRepository implements SessionAuthority {
     return result.results.map(fromRow);
   }
 
-  async start(ownerKey: string, sessionId: string, transitionedAt: string): Promise<D1Session | null> {
-    const result = await this.db.prepare(`UPDATE runtime_sessions SET lifecycle_state='starting',
+  async start(ownerKey: string, sessionId: string, transitionedAt: string, expectedGeneration?: number): Promise<D1Session | null> {
+    const row = await this.db.prepare(`UPDATE runtime_sessions SET lifecycle_state='starting',
       lifecycle_generation=lifecycle_generation+1, response_revision=response_revision+1,
       observation_sequence=-1, editor_ready=0, editor_ready_error=0,
       transitioned_at=?3, lifecycle_reason=NULL
       WHERE owner_key=?1 AND session_id=?2 AND lifecycle_state='stopped'
+        AND (?4 IS NULL OR lifecycle_generation=?4)
         AND termination_intent_id IS NULL AND boundary_activity_id IS NULL
-        AND EXISTS (SELECT 1 FROM session_cutover WHERE id=1 AND state='complete')`)
-      .bind(ownerKey, sessionId, transitionedAt).run();
-    return result.meta.changes === 1 ? this.getSession(ownerKey, sessionId) : null;
+        AND EXISTS (SELECT 1 FROM session_cutover WHERE id=1 AND state='complete')
+      RETURNING *`).bind(ownerKey, sessionId, transitionedAt, expectedGeneration ?? null).first<SessionRow>();
+    return row ? fromRow(row) : null;
   }
 
   /** Exceptional-path read only: a missing acknowledgement is not permission to signal. */
@@ -300,13 +301,14 @@ export class D1SessionRepository implements SessionAuthority {
     return result.meta.changes === 1;
   }
 
-  async updateReadiness(ownerKey: string, sessionId: string, generation: number, editorReady: boolean, editorReadyError: boolean): Promise<boolean> {
+  async updateReadiness(ownerKey: string, sessionId: string, generation: number, editorReady: boolean, editorReadyError: boolean,
+    runningOnly = false): Promise<boolean> {
     const result = await this.db.prepare(`UPDATE runtime_sessions SET
       editor_ready=?4, editor_ready_error=?5, response_revision=response_revision+1
       WHERE owner_key=?1 AND session_id=?2 AND lifecycle_generation=?3
         AND lifecycle_state IN ('starting','running','unreachable')
-        AND termination_intent_id IS NULL`)
-      .bind(ownerKey, sessionId, generation, editorReady ? 1 : 0, editorReadyError ? 1 : 0).run();
+        AND (?6=0 OR lifecycle_state='running') AND termination_intent_id IS NULL`)
+      .bind(ownerKey, sessionId, generation, editorReady ? 1 : 0, editorReadyError ? 1 : 0, runningOnly ? 1 : 0).run();
     return result.meta.changes === 1;
   }
 
@@ -335,8 +337,10 @@ export class D1SessionRepository implements SessionAuthority {
     return result.meta.changes;
   }
 
-  async deleteConfirmed(ownerKey: string, sessionId: string): Promise<boolean> {
-    const result = await this.db.prepare("DELETE FROM runtime_sessions WHERE owner_key=?1 AND session_id=?2 AND lifecycle_state='stopped' AND boundary_activity_id IS NULL").bind(ownerKey, sessionId).run();
+  async deleteConfirmed(ownerKey: string, sessionId: string, generation: number): Promise<boolean> {
+    const result = await this.db.prepare(`DELETE FROM runtime_sessions WHERE owner_key=?1 AND session_id=?2
+      AND lifecycle_generation=?3 AND lifecycle_state='stopped' AND boundary_activity_id IS NULL`)
+      .bind(ownerKey, sessionId, generation).run();
     return result.meta.changes === 1;
   }
 }

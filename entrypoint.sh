@@ -1131,7 +1131,8 @@ establish_bisync_baseline() {
         else
             SYNC_RESULT=$?
         fi
-        if cleanup_rclone_conflicts "$USER_HOME/" "r2:$R2_BUCKET_NAME/" "$SYNC_RESULT" "$((BISYNC_DEADLINE - SECONDS))" >> "$BASELINE_OUTPUT" 2>&1; then
+        local TRANSFER_RESULT=$SYNC_RESULT
+        if cleanup_rclone_conflicts "$USER_HOME/" "r2:$R2_BUCKET_NAME/" "$TRANSFER_RESULT" "$((BISYNC_DEADLINE - SECONDS))" >> "$BASELINE_OUTPUT" 2>&1; then
             SYNC_RESULT=0
         else
             SYNC_RESULT=$?
@@ -1152,10 +1153,16 @@ establish_bisync_baseline() {
             return 0
         elif [ $SYNC_RESULT -eq 124 ]; then
             rm -f "$BASELINE_OUTPUT"
-            echo "[entrypoint] WARNING: Bisync baseline timed out after ${BISYNC_TIMEOUT}s" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log >&2
+            if [ "$TRANSFER_RESULT" -eq 124 ]; then
+                SYNC_ERROR="Bisync baseline timed out after ${BISYNC_TIMEOUT}s"
+            else
+                SYNC_ERROR="Bisync baseline conflict cleanup timed out"
+            fi
+            echo "[entrypoint] WARNING: $SYNC_ERROR" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log >&2
+            # Still allow shutdown to attempt its best-effort final sync.
             touch $CODEFLARE_RUNTIME_ROOT/sync/bisync-initialized
             SYNC_STATUS="timeout"
-            return 0  # Don't fail, just skip daemon
+            return 124
         fi
 
         # Check if vanishing file caused the failure — recover and retry
@@ -1370,11 +1377,11 @@ run_vault_session_compaction_after_sync() {
 }
 
 # ============================================================================
-# Background sync daemon - bisync every 60 seconds, SIGUSR1-interruptible
+# Background sync daemon - bisync every 15 minutes, or after 2 minutes on failure
 #
-# Manual triggers (storage-panel Sync-now, upload-side auto-trigger)
-# arrive as SIGUSR1 sent by host /internal/bisync-trigger to the daemon
-# PID at $CODEFLARE_RUNTIME_ROOT/sync/sync-daemon.pid. The trap toggles BISYNC_REQUESTED
+# The host /internal/bisync-trigger sends SIGUSR1 for ordinary triggers or
+# SIGUSR2 for explicit disk-space recovery to the protected sync-daemon.pid.
+# The trap toggles BISYNC_REQUESTED
 # (interrupts the idle sleep) or BISYNC_RERUN_REQUESTED (queues exactly
 # one rerun after the current cycle), depending on whether a bisync is
 # mid-flight. N signals during one cycle coalesce to exactly one rerun
@@ -1524,16 +1531,24 @@ start_sync_daemon() {
             if [ $CONSECUTIVE_FAILURES -ge 3 ]; then
                 echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') 3 consecutive failures — falling back to --resync" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log >&2
                 update_sync_status "failed" "Resync fallback triggered"
+                local SYNC_ERROR=""
                 if establish_bisync_baseline; then
                     echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Resync fallback succeeded — resuming normal sync" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log >&2
                     CONSECUTIVE_FAILURES=0
                     update_sync_status "success" "null"
                 else
-                    local LAST_ERRORS
-                    LAST_ERRORS=$(grep -i 'error\|fatal\|failed' $CODEFLARE_RUNTIME_ROOT/sync/sync.log | tail -3)
-                    echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') RESYNC FAILED — will retry next cycle. Recent errors:" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log >&2
-                    echo "$LAST_ERRORS" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log >&2
-                    update_sync_status "failed" "${SYNC_ERROR:-Resync fallback failed}"
+                    case $? in
+                        124)
+                            update_sync_status "timeout" "$SYNC_ERROR"
+                            ;;
+                        *)
+                            local LAST_ERRORS
+                            LAST_ERRORS=$(grep -i 'error\|fatal\|failed' $CODEFLARE_RUNTIME_ROOT/sync/sync.log | tail -3)
+                            echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') RESYNC FAILED — will retry next cycle. Recent errors:" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log >&2
+                            echo "$LAST_ERRORS" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log >&2
+                            update_sync_status "failed" "${SYNC_ERROR:-Resync fallback failed}"
+                            ;;
+                    esac
                     CONSECUTIVE_FAILURES=2  # retry resync after 1 more failure instead of 3
                 fi
             fi
@@ -5088,12 +5103,10 @@ complete_managed_curation_startup() {
             echo "[entrypoint] Establishing bisync baseline in background (deprioritized: nice 19 / ionice idle)..."
             BASELINE_SUCCEEDED=0
             if establish_bisync_baseline; then
-                if [ "${SYNC_STATUS:-}" = "success" ]; then
-                    BASELINE_SUCCEEDED=1
-                    echo "[entrypoint] Bisync baseline established, starting daemon..."
-                else
-                    echo "[entrypoint] Bisync baseline did not complete successfully; session compaction deferred" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
-                fi
+                BASELINE_SUCCEEDED=1
+                echo "[entrypoint] Bisync baseline established, starting daemon..."
+            elif [ "$?" -eq 124 ]; then
+                echo "[entrypoint] Bisync baseline did not complete successfully; session compaction deferred" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
             else
                 echo "[entrypoint] WARNING: Bisync baseline failed — starting daemon anyway (daemon has its own recovery)" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
             fi

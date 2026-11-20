@@ -28,6 +28,7 @@ type StartupStage = 'stopped' | 'starting' | 'syncing' | 'mounting' | 'verifying
 
 interface StartupResponse {
   stage: StartupStage;
+  generation?: number;
   progress: number;
   message: string;
   details: Record<string, unknown>;
@@ -164,7 +165,8 @@ app.get('/startup-status', async (c) => {
   };
 
   const response: {
-    stage: 'stopped' | 'starting' | 'syncing' | 'mounting' | 'verifying' | 'ready' | 'error';
+    stage: StartupStage;
+    generation?: number;
     progress: number;
     message: string;
     details: {
@@ -194,6 +196,15 @@ app.get('/startup-status', async (c) => {
     const repository = new D1SessionRepository(c.env.USAGE_DB);
     const session = await repository.getSession(bucketName, sessionId);
     const sessionWorkspace = resolveSessionWorkspace(session?.workspace);
+    response.generation = session?.lifecycleGeneration;
+    const ownsReady = async () => {
+      if (session?.lifecycleState !== 'running') return false;
+      const current = await repository.getSession(bucketName, sessionId);
+      return current?.lifecycleGeneration === session.lifecycleGeneration
+        && current.lifecycleState === 'running' && !current.terminationIntentId;
+    };
+    const awaitStartClaim = () => c.json({ ...response, stage: 'starting' as const, progress: 20,
+      message: 'Waiting for the current start...', details: { ...response.details, editorReady: false } });
 
     // Populate response details now that we have context
     response.details.bucketName = bucketName;
@@ -277,15 +288,10 @@ app.get('/startup-status', async (c) => {
       if (syncStatus === 'failed') {
         return c.json(buildSyncFailedResponse(response, healthData, cStatus));
       }
-      if (session) {
-        await repository.updateReadiness(
-          bucketName,
-          sessionId,
-          session.lifecycleGeneration,
-          healthData.editorReady === true,
-          healthData.editorReadyTimedOut === true,
-        );
-      }
+      if (!session || !await ownsReady() || !await repository.updateReadiness(
+        bucketName, sessionId, session.lifecycleGeneration,
+        healthData.editorReady === true, healthData.editorReadyTimedOut === true, true,
+      )) return awaitStartClaim();
       if (healthData.editorReady === true) {
         return c.json(buildReadyResponse(response, syncStatus, healthData, cStatus, false));
       }
@@ -325,7 +331,8 @@ app.get('/startup-status', async (c) => {
 
     if (terminalServerReady) {
       if (healthData.prewarmReady !== false) {
-        // Fully ready — pre-warm done (or old container without pre-warm support)
+        // A healthy port isn't evidence that it belongs to this Start claim.
+        if (!await ownsReady()) return awaitStartClaim();
         return c.json(buildReadyResponse(response, syncStatus, healthData, cStatus));
       }
 

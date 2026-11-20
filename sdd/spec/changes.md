@@ -4,6 +4,24 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-20: Keep session credentials scoped and legacy preferences readable
+
+- [REQ-SESSION-003](session-lifecycle.md#req-session-003-r2-bucket-mounted-and-synced-on-start) leaves direct storage unavailable if the bucket-scoped credential pair is incomplete, rather than passing deployment credentials to the container.
+- [REQ-SESSION-014](session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings) accepts the saved `5m` timeout in preference responses without making it a new selectable preset.
+- [REQ-SESSION-006](session-lifecycle.md#req-session-006-user-can-stop-restart-and-delete-sessions) keeps a delayed Start from marking a later run ready. Stop waits for pending startup to settle before confirming exit. Delete uses the existing Stop path when needed and removes only the captured stopped generation.
+
+## 2026-11-20: Retain trial history on subscription deletion
+
+- [REQ-SUB-005](subscription.md#req-sub-005-trial-is-compute-based-not-time-based) records trial use when Stripe deletes the same subscription while its stored state is trialing. Stale deletions cannot alter a replacement subscription or its trial history.
+
+## 2026-11-20: Verify D1 inventory before provisioning
+
+- [REQ-OPS-056](operations.md#req-ops-056-non-destructive-d1-deployment-boundary) distinguishes a valid empty database inventory from blank or malformed output. An invalid initial listing blocks creation; an invalid post-create listing blocks binding and migration.
+
+## 2026-11-20: Preserve sync retry after a baseline timeout
+
+- [REQ-STOR-045](storage.md#req-stor-045-bisync-baseline-recovery) reports a timed-out baseline rebuild as timeout, then retries the rebuild after one more failed cycle. Only a completed rebuild reports success; shutdown still has its best-effort final sync backstop.
+
 ## 2026-11-20: Keep active app sessions signed in across HTTP routes
 
 - REQ-AUTH-008 renews eligible SaaS and onboarding sessions on static and proxied HTTP responses as well as API responses. Renewal preserves logout, existing cookies and WebSocket upgrades; responses carrying a renewed credential are never cacheable.

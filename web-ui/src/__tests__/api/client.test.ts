@@ -368,7 +368,7 @@ describe('API Client', () => {
   // API Endpoint Tests
   // ==========================================================================
   describe('REQ-SESSION-014: supported preference response wire', () => {
-    it.each(['8h', '12h'] as const)('accepts %s in GET and PATCH responses without expanding the PATCH request', async sleepAfter => {
+    it.each(['5m', '8h', '12h'] as const)('accepts %s in GET and PATCH responses without expanding the PATCH request', async sleepAfter => {
       const reply = { sleepAfter, sessionMode: 'advanced', fastStartEnabled: true };
       mockFetch.mockResolvedValueOnce(Response.json(reply));
       expect(await getPreferences()).toEqual(reply);
@@ -592,7 +592,7 @@ describe('API Client', () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         status: 200,
-        text: () => Promise.resolve(''),
+        text: () => Promise.resolve('{"generation":7}'),
       });
 
       // Mock startup status - ready immediately
@@ -600,7 +600,7 @@ describe('API Client', () => {
         ok: true,
         status: 200,
         text: () => Promise.resolve(JSON.stringify({
-          stage: 'ready',
+          stage: 'ready', generation: 7,
           progress: 100,
           message: 'Container ready',
           details: {
@@ -659,7 +659,7 @@ describe('API Client', () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         status: 200,
-        text: () => Promise.resolve(''),
+        text: () => Promise.resolve('{"generation":7}'),
       });
 
       // Mock ready status
@@ -667,7 +667,7 @@ describe('API Client', () => {
         ok: true,
         status: 200,
         text: () => Promise.resolve(JSON.stringify({
-          stage: 'ready',
+          stage: 'ready', generation: 7,
           progress: 100,
           message: 'Ready',
           details: {
@@ -702,7 +702,7 @@ describe('API Client', () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         status: 200,
-        text: () => Promise.resolve(''),
+        text: () => Promise.resolve('{"generation":7}'),
       });
 
       // First poll - error
@@ -734,6 +734,48 @@ describe('API Client', () => {
       cleanup();
     });
 
+    it.each(['another generation', 'no acknowledgement'] as const)('REQ-SESSION-018 AC4: does not complete Start from %s', async scenario => {
+      const complete = vi.fn();
+      const progress = vi.fn();
+      const failure = vi.fn();
+      if (scenario === 'no acknowledgement') mockFetch.mockRejectedValueOnce(new Error('response lost'));
+      else mockFetch.mockResolvedValueOnce(Response.json({ generation: 7 }));
+      mockFetch.mockResolvedValueOnce(Response.json({ stage: 'mounting', progress: 90, message: 'Mounting', details: {
+        bucketName: 'test-bucket', container: 'container-abc', path: '/workspace',
+      } }));
+      mockFetch.mockResolvedValueOnce(Response.json({ stage: 'ready', generation: 8, progress: 100, message: 'Ready', details: {
+        bucketName: 'test-bucket', container: 'container-abc', path: '/workspace',
+      } }));
+      const cancel = startSession('session00123', progress, complete, failure);
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(progress.mock.calls.map(([update]) => update.stage)).toEqual(['creating', 'mounting']);
+      expect(complete).not.toHaveBeenCalled();
+      expect(failure).toHaveBeenCalledWith(expect.any(String), 'SESSION_START_UNCONFIRMED');
+      cancel();
+    });
+
+    it('REQ-SESSION-018 AC4: a cancelled startup poll cannot complete after a replacement begins', async () => {
+      const completed: string[] = [];
+      let deliverOld!: (value: Response) => void;
+      const ready = (generation: number) => Response.json({ stage: 'ready', generation, progress: 100, message: 'Container ready', details: {
+        bucketName: 'test-bucket', container: 'container-abc', path: '/workspace', containerStatus: 'running',
+        syncStatus: 'success', terminalServerOk: true,
+      } });
+      mockFetch.mockResolvedValueOnce(Response.json({ generation: 7 }));
+      mockFetch.mockImplementationOnce(() => new Promise<Response>(resolve => { deliverOld = resolve; }));
+      const cancelOld = startSession('session00123', () => {}, () => completed.push('old'), error => { throw Error(error); });
+      await vi.advanceTimersByTimeAsync(0);
+      cancelOld();
+      mockFetch.mockResolvedValueOnce(Response.json({ generation: 8 }));
+      mockFetch.mockResolvedValueOnce(ready(8));
+      const cancelNew = startSession('session00123', () => {}, () => completed.push('replacement'), error => { throw Error(error); });
+      await vi.advanceTimersByTimeAsync(0);
+      deliverOld(ready(7));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(completed).toEqual(['replacement']);
+      cancelNew();
+    });
+
     it('REQ-IDE-049 AC3: Retry waits past the prior editor timeout for the active probe', async () => {
       const onProgress = vi.fn();
       const onComplete = vi.fn();
@@ -747,7 +789,7 @@ describe('API Client', () => {
       };
 
       mockFetch
-        .mockResolvedValueOnce({ ok: true, status: 200, text: () => Promise.resolve('') })
+        .mockResolvedValueOnce({ ok: true, status: 200, text: () => Promise.resolve('{"generation":7}') })
         .mockResolvedValueOnce({
           ok: true,
           status: 200,
@@ -770,7 +812,7 @@ describe('API Client', () => {
           ok: true,
           status: 200,
           text: () => Promise.resolve(JSON.stringify({
-            stage: 'ready', progress: 100, message: 'Container ready', details,
+            stage: 'ready', generation: 7, progress: 100, message: 'Container ready', details,
           })),
         });
 
@@ -828,7 +870,7 @@ describe('API Client', () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         status: 200,
-        text: () => Promise.resolve(''),
+        text: () => Promise.resolve('{"generation":7}'),
       });
 
       // Error without error field
@@ -867,7 +909,7 @@ describe('API Client', () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         status: 200,
-        text: () => Promise.resolve(''),
+        text: () => Promise.resolve('{"generation":7}'),
       });
 
       // First poll - starting (not ready)
@@ -915,7 +957,7 @@ describe('API Client', () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         status: 200,
-        text: () => Promise.resolve(''),
+        text: () => Promise.resolve('{"generation":7}'),
       });
 
       // Poll with full details
@@ -923,7 +965,7 @@ describe('API Client', () => {
         ok: true,
         status: 200,
         text: () => Promise.resolve(JSON.stringify({
-          stage: 'ready',
+          stage: 'ready', generation: 7,
           progress: 100,
           message: 'Container ready',
           details: {
@@ -1006,7 +1048,7 @@ describe('API Client', () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         status: 200,
-        text: () => Promise.resolve(''),
+        text: () => Promise.resolve('{"generation":7}'),
       });
 
       // Poll with sync failure
@@ -1014,7 +1056,7 @@ describe('API Client', () => {
         ok: true,
         status: 200,
         text: () => Promise.resolve(JSON.stringify({
-          stage: 'ready',
+          stage: 'ready', generation: 7,
           progress: 100,
           message: 'Container ready',
           details: {
@@ -1061,7 +1103,7 @@ describe('API Client', () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         status: 200,
-        text: () => Promise.resolve(''),
+        text: () => Promise.resolve('{"generation":7}'),
       });
 
       // Poll with sync skipped
@@ -1069,7 +1111,7 @@ describe('API Client', () => {
         ok: true,
         status: 200,
         text: () => Promise.resolve(JSON.stringify({
-          stage: 'ready',
+          stage: 'ready', generation: 7,
           progress: 100,
           message: 'Container ready',
           details: {
@@ -1115,7 +1157,7 @@ describe('API Client', () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         status: 200,
-        text: () => Promise.resolve(''),
+        text: () => Promise.resolve('{"generation":7}'),
       });
 
       // Poll with sync in progress - then ready
@@ -1169,7 +1211,7 @@ describe('API Client', () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         status: 200,
-        text: () => Promise.resolve(''),
+        text: () => Promise.resolve('{"generation":7}'),
       });
 
       // Poll with healthy container
@@ -1177,7 +1219,7 @@ describe('API Client', () => {
         ok: true,
         status: 200,
         text: () => Promise.resolve(JSON.stringify({
-          stage: 'ready',
+          stage: 'ready', generation: 7,
           progress: 100,
           message: 'Container ready',
           details: {
@@ -1223,7 +1265,7 @@ describe('API Client', () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         status: 200,
-        text: () => Promise.resolve(''),
+        text: () => Promise.resolve('{"generation":7}'),
       });
 
       // Poll with terminal not ready yet

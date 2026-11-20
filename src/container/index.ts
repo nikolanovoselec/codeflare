@@ -73,7 +73,7 @@ import {
   ensureVaultKey as configEnsureVaultKey,
   type ContainerHost,
 } from './container-config';
-import { captureMetricsExecution, type MetricsPin } from './container-metrics';
+import { captureMetricsExecution, CONTAINER_POLL_BUDGET_MS, raceBudget, type MetricsPin } from './container-metrics';
 import { dispatchInternalRoute } from './container-router';
 import { bindReviewSessionHuman, openReviewSessionHuman } from './review-session-human';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
@@ -86,6 +86,7 @@ import {
   stopSession as lifecycleStopSession,
   killSession as lifecycleKillSession,
   type SessionStopRequest,
+  SESSION_LAUNCH_GENERATION_KEY,
   onStop as lifecycleOnStop,
   onError as lifecycleOnError,
   type LifecycleHost,
@@ -119,6 +120,10 @@ type ExitEvidence = { owner: string; session: string; generation: number; termin
 export class container extends Container<Env> implements ContainerEnvState {
   #sdkCredentialQueues = new Map<string, Promise<void>>();
   logger = createLogger('container');
+  private sessionStartInFlight?: SessionStopRequest & {
+    cancellation: AbortController; startup: { ready: boolean }; completion: Promise<void>;
+  };
+  private sessionConfigurationInFlight?: Promise<Response>;
   private sessionStopInFlight?: SessionStopRequest & { completion: Promise<void> };
   private sessionKillInFlight?: SessionStopRequest & { completion: Promise<void> };
 
@@ -971,25 +976,15 @@ export class container extends Container<Env> implements ContainerEnvState {
       const forwarded = await this.forwardExisting(request);
       return forwarded.webSocket ? this.relayWebSocket(forwarded, { terminalKeepalive: pathname === '/terminal' }) : forwarded;
     }
+    if (pathname === '/_internal/setBucketName' && request.method === 'POST') {
+      return this.configureSessionStart(request);
+    }
     const internal = dispatchInternalRoute(this.host, request);
     if (internal) return internal;
 
-    // Note on POST /internal/bisync-trigger (REQ-STOR-015): the Worker
-    // fan-out at /api/sessions/sync calls this DO with that path. It is
-    // intentionally NOT in the internal route table (no leading underscore)
-    // so it falls through to the standard forward path below: the DO
-    // injects the container auth token and super.fetch() routes it to
-    // the host server's matching handler. The 503 short-circuit on a
-    // hibernated container is the hibernation-safety guarantee for the
-    // Sync-now feature - no DO-side state, no daemon-PID cache, all
-    // decisions made at call time against ctx.container?.running.
-
-    // Reject non-internal requests when the container is not running.
-    // This prevents WebSocket reconnect attempts from waking a hibernated
-    // container via super.fetch() (which triggers the SDK's startIfNotRunning).
-    // The in-memory running flag can transiently read false for a live workload,
-    // so only the Worker's persisted-state admission gate may emit authoritative
-    // 4503. Keep this inner gate retryable without forwarding to super.fetch().
+    // Sync now and ordinary HTTP requests may reach the existing private port
+    // but cannot enter the SDK's implicit start path. A false running hint at
+    // this inner gate is retryable, not authoritative 4503.
     if (!this.ctx.container?.running) {
       if (request.headers.get('Upgrade')?.toLowerCase() === 'websocket') {
         const pair = new WebSocketPair();
@@ -1003,21 +998,13 @@ export class container extends Container<Env> implements ContainerEnvState {
       });
     }
 
-    // Use super.fetch() for reliable container proxying (handles startup
-    // readiness, WebSocket upgrades, and container networking). The SDK's
-    // sleepAfter timer is pinned to 24h (see class field comment) and plays
-    // no role in idle detection - collectMetrics() owns that decision.
     if (!this._containerAuthToken) {
       return new Response(JSON.stringify({ error: 'Container authorization unavailable' }), {
         status: 503,
         headers: { 'Content-Type': 'application/json' },
       });
     }
-    const authedRequest = new Request(request, {
-      headers: new Headers(request.headers),
-    });
-    authedRequest.headers.set('Authorization', `Bearer ${this._containerAuthToken}`);
-    return super.fetch(authedRequest);
+    return this.forwardExisting(request);
   }
 
   /**
@@ -1031,8 +1018,22 @@ export class container extends Container<Env> implements ContainerEnvState {
    */
   /** Called when the container starts successfully. */
   override async onStart(): Promise<void> {
-    await lifecycleOnStart(this.lifecycleHost);
-    await this.monitorExistingRuntime();
+    const launch = this.sessionStartInFlight;
+    if (!launch) {
+      await lifecycleOnStart(this.lifecycleHost, undefined, this._operatorContainerProfile !== undefined);
+      await this.monitorExistingRuntime();
+      return;
+    }
+    if (launch.cancellation.signal.aborted) return;
+    const pin = { ownerKey: launch.bucket, sessionId: launch.sessionId, generation: launch.generation };
+    try {
+      await lifecycleOnStart(this.lifecycleHost, pin);
+      await this.monitorExistingRuntime(false, pin);
+      launch.startup.ready = true;
+    } catch {
+      // The SDK runs this hook inside blockConcurrencyWhile. Reject the RPC
+      // after the hook returns, without resetting the DO and its pending Stop.
+    }
   }
 
   /**
@@ -1046,8 +1047,8 @@ export class container extends Container<Env> implements ContainerEnvState {
    * run its CA-trust block — was too late: the entrypoint found no cert, skipped
    * trust, and every agent's intercepted-TLS handshake to api.openai.com then
    * failed with "Connection error" (the interceptor was never even reached).
-   * The SDK applies its own pre-start interception at this same point; all start
-   * paths (explicit start + containerFetch auto-start) funnel through here.
+   * The SDK also applies its own pre-start interception. Ordinary Start and the
+   * separate Operator path both prepare interception before invoking the SDK.
    *
    * Which transports wire (and their guards) is data-driven: see the registry
    * in container-interception.ts. Enterprise transports are a no-op unless
@@ -1058,10 +1059,117 @@ export class container extends Container<Env> implements ContainerEnvState {
   override async startAndWaitForPorts(
     ...args: Parameters<Container<Env>['startAndWaitForPorts']>
   ): Promise<void> {
+    if (this.sessionStartInFlight) throw new Error('Another session start is in progress');
+    await this.prepareNativeStart();
+    await super.startAndWaitForPorts(...args);
+  }
+
+  private async prepareNativeStart(): Promise<void> {
     await refreshMcpPortalConfiguration(this.host);
     this.updateEnvVars();
     await wireContainerInterception(this.interceptionHost);
-    await super.startAndWaitForPorts(...args);
+  }
+
+  private async configureSessionStart(request: Request): Promise<Response> {
+    const conflict = () => Response.json({ error: 'Session configuration no longer authorized' }, { status: 412 });
+    const value = request.headers.get('X-Codeflare-Start-Generation');
+    if (value === null || !/^\d+$/.test(value) || !Number.isSafeInteger(Number(value))) return conflict();
+    const body = await request.clone().json().catch(() => null) as { bucketName?: unknown; sessionId?: unknown } | null;
+    const { bucketName, sessionId } = body ?? {};
+    if (typeof bucketName !== 'string' || typeof sessionId !== 'string'
+      || this.env.CONTAINER.idFromName(`${bucketName}-${sessionId}`).toString() !== this.ctx.id.toString()) return conflict();
+    if (this.sessionConfigurationInFlight || this.sessionStartInFlight || this.sessionStopInFlight || this.sessionKillInFlight) return conflict();
+    const completion = Promise.resolve().then(async () => {
+      const repository = new D1SessionRepository(this.env.USAGE_DB);
+      const current = await repository.getSession(bucketName, sessionId);
+      if (!current || current.lifecycleGeneration !== Number(value) || current.terminationIntentId
+        || current.lifecycleState === 'starting' || current.lifecycleState === 'stopping'
+        || this.sessionStopInFlight || this.sessionKillInFlight || this._operatorContainerProfile
+        || (this._bucketName && this._bucketName !== bucketName) || (this._sessionId && this._sessionId !== sessionId)) return conflict();
+      if (current.lifecycleState === 'stopped') {
+        if (this.ctx.container?.running) return conflict();
+      } else if (!this._bucketName || await this.ctx.storage.get<number>('lifecycleGeneration') !== current.lifecycleGeneration) {
+        return conflict();
+      }
+      if (this.sessionStopInFlight || this.sessionKillInFlight) return conflict();
+      const response = await dispatchInternalRoute(this.host, request)!;
+      if (current.lifecycleState !== 'stopped' || (response.status !== 200 && response.status !== 409)) return response;
+      if (this._bucketName !== bucketName || this._sessionId !== sessionId) return conflict();
+      // Keep configuration and the claim under the same reservation. A second
+      // request for the previous generation cannot overwrite the winner's config.
+      await this.ctx.storage.put(SESSION_LAUNCH_GENERATION_KEY, current.lifecycleGeneration + 1);
+      if (this.sessionStopInFlight || this.sessionKillInFlight) return conflict();
+      const claimed = await repository.start(bucketName, sessionId, new Date().toISOString(), current.lifecycleGeneration);
+      if (!claimed) return conflict();
+      // Own the launch before acknowledgement. It waits for this configuration
+      // reservation to settle, but does not depend on its RPC caller returning.
+      void this.launchSession({ bucket: bucketName, sessionId, generation: claimed.lifecycleGeneration }).catch(() => {
+        this.logger.warn('Session start not confirmed', { sessionId, lifecycleGeneration: claimed.lifecycleGeneration });
+      });
+      const headers = new Headers(response.headers);
+      headers.set('X-Codeflare-Start-Claim', String(claimed.lifecycleGeneration));
+      return new Response(response.body, { status: response.status, headers });
+    }).finally(() => { this.sessionConfigurationInFlight = undefined; });
+    this.sessionConfigurationInFlight = completion;
+    this.ctx.waitUntil(completion);
+    return completion;
+  }
+
+  /** Join the DO-owned Start; an RPC arriving after completion cannot re-dispatch it. */
+  async startSession(input: SessionStopRequest): Promise<void> {
+    const { bucket, sessionId, generation } = input;
+    const launch = this.sessionStartInFlight;
+    if (launch?.bucket === bucket && launch.sessionId === sessionId && launch.generation === generation) {
+      return launch.completion;
+    }
+    const current = await new D1SessionRepository(this.env.USAGE_DB).getSession(bucket, sessionId);
+    if (this._bucketName !== bucket || this._sessionId !== sessionId
+      || current?.lifecycleGeneration !== generation || current.lifecycleState !== 'running' || current.terminationIntentId) {
+      throw new Error('Session start not confirmed');
+    }
+  }
+
+  private async launchSession(input: SessionStopRequest): Promise<void> {
+    const { bucket, sessionId, generation } = input;
+    if (this.env.CONTAINER.idFromName(`${bucket}-${sessionId}`).toString() !== this.ctx.id.toString()) {
+      throw new Error('Session start address mismatch');
+    }
+    if (this.sessionStartInFlight) throw new Error('Session lifecycle operation is in progress');
+    const cancellation = new AbortController();
+    const startup = { ready: false };
+    const epoch = this._teardownEpoch;
+    const repository = new D1SessionRepository(this.env.USAGE_DB);
+    const stillAdmitted = async () => {
+      const session = await repository.getSession(bucket, sessionId);
+      if (cancellation.signal.aborted || this._teardownEpoch !== epoch
+          || this._bucketName !== bucket || this._sessionId !== sessionId
+          || session?.lifecycleGeneration !== generation || session.lifecycleState !== 'starting'
+          || session.terminationIntentId) throw new Error('Session start superseded');
+    };
+    const configure = this.sessionConfigurationInFlight;
+    const completion = Promise.resolve().then(async () => {
+      await configure;
+      await stillAdmitted();
+      await this.prepareNativeStart();
+      await stillAdmitted();
+      if (this.ctx.container?.running) throw new Error('Unexpected existing session process');
+      await super.startAndWaitForPorts({ cancellationOptions: { abort: cancellation.signal } });
+      if (cancellation.signal.aborted || !startup.ready) throw new Error('Session start not confirmed');
+    }).finally(() => { this.sessionStartInFlight = undefined; });
+    this.sessionStartInFlight = { ...input, cancellation, startup, completion };
+    this.ctx.waitUntil(completion);
+    await completion;
+  }
+
+  private async quiesceSessionStart(): Promise<void> {
+    const launch = this.sessionStartInFlight;
+    const configure = this.sessionConfigurationInFlight;
+    if (!launch && !configure) return;
+    launch?.cancellation.abort();
+    // SDK 0.3.7 can already be past a cancellation check before native launch.
+    // Wait for any outstanding launch or configuration before destroying.
+    const settled = await raceBudget(Promise.allSettled([launch?.completion, configure]), CONTAINER_POLL_BUDGET_MS);
+    if (!settled) throw new Error('Session start has not settled; retry termination');
   }
 
   async collectMetrics(delivered?: MetricsPin): Promise<void> {
@@ -1112,7 +1220,8 @@ export class container extends Container<Env> implements ContainerEnvState {
       await this.sessionKillInFlight.completion;
       return;
     }
-    await lifecycleDestroy(this.lifecycleHost, context, onNativeExit);
+    await lifecycleDestroy(this.lifecycleHost, context, onNativeExit,
+      (this.sessionStartInFlight || this.sessionConfigurationInFlight) ? () => this.quiesceSessionStart() : undefined);
   }
 
   /** Own claim through confirmation even if the invoking Worker disconnects. */
@@ -1162,7 +1271,8 @@ export class container extends Container<Env> implements ContainerEnvState {
       await pending.completion;
       return;
     }
-    const completion: Promise<void> = Promise.resolve().then(() => lifecycleKillSession(this.lifecycleHost, input))
+    const completion: Promise<void> = Promise.resolve().then(() =>
+      lifecycleKillSession(this.lifecycleHost, input, () => this.quiesceSessionStart()))
       .then(() => {
         const stop = this.sessionStopInFlight;
         if (stop?.bucket === input.bucket && stop.sessionId === input.sessionId && stop.generation === input.generation) {

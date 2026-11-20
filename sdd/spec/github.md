@@ -43,7 +43,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Constraints:**
 
-- Scopes: the OAuth App's `scope` is derived per connect from the requested tier (default `repo gist read:org workflow`; see [REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise) AC6 and [REQ-GITHUB-013](#req-github-013-connected-github-tokens-grant-gist-access)); the GitHub App's equivalent permissions are fixed at registration and ignore the tier.
+- Scopes: the OAuth App's `scope` is derived per connect from the requested tier (default `repo gist read:org workflow`; see [REQ-GITHUB-317](#req-github-317-additive-github-connection-and-scope-contract) AC4 and [REQ-GITHUB-013](#req-github-013-connected-github-tokens-grant-gist-access)); the GitHub App's equivalent permissions are fixed at registration and ignore the tier.
 - Enterprise GitHub Apps must be **internal** to the customer's enterprise.
 - GitHub connection controls use OAuth without manual token paste on the dashboard ([REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise)); Settings → Integrations manages owner Cloudflare connections independently of administrator Browser Run credentials ([REQ-BROWSER-007](browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)).
 - Keep non-Enterprise deploy-key PAT behavior; Enterprise direct-credential denial changes neither provider resolution nor legacy handling.
@@ -67,7 +67,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 **Acceptance Criteria:**
 
 1. Connection-status inspection reports connection state, connected account login and credential source without exposing the token. <!-- @impl: src/routes/github.ts::app --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-002: reports connected with login + source when a token exists) -->
-2. Repository listing returns searchable, paginated repositories the user can access, including personal and permitted organization repositories, fetched server-side with the stored token; the token never reaches the browser. <!-- @impl: src/routes/github.ts::REPOS_PER_PAGE --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-002: proxies the user repos with the stored token and never returns the token) -->
+2. The server fetches repository pages with the stored token, including accessible personal and organization repositories. The client filters loaded pages only; clear a zero-match filter to reveal Load more. The token never reaches the browser. <!-- @impl: src/routes/github.ts::REPOS_PER_PAGE --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-002: proxies the user repos with the stored token and never returns the token) -->
 3. GitHub and Storage share the dashboard's right-column panel area under [REQ-GITHUB-012](#req-github-012-responsive-github-and-storage-panel-allocation). The backend and no-tier dashboard gates belong to [REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise). <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace -->
 4. Not-connected shows a Connect GitHub action; connected shows the account, refresh, Disconnect, and searchable repo list. Controls must follow the [shared primitive contract](../../documentation/lanes/terminal-and-ide.md#github-and-storage-workspace). <!-- @impl: web-ui/src/components/github/ConnectedHeader.tsx::ConnectedHeader --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (GitHubPanel Component) -->
 5. On narrow/mobile layouts, the panel shows one flippable GitHub or storage face at a time. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-002 AC5: flips one GitHub/storage face at a time on mobile) -->
@@ -129,7 +129,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 **Acceptance Criteria:**
 
 1. Clone offers running sessions first and a separated new-session option; all rows share the option layout and left edge, while running rows use their session agent icon and subtitle. <!-- @impl: web-ui/src/components/github/ClonePickerOptionRow.tsx::ClonePickerOptionRow --> <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @impl: web-ui/src/components/github/ClonePickerSessionRow.tsx::ClonePickerSessionRow --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (renders the running group before the new-session group through shared option rows) -->
-2. On session creation, the `clone` field clones the repo before the agent starts; for a running session, an authenticated clone targets that live session. <!-- @test: src/__tests__/routes/github.test.ts (forwards to the container /internal/git-clone and relays a 200) --> <!-- @manual -->
+2. On session creation, startup attempts the `clone` before normal agent release. The degraded prewarm fallback can start the agent before clone completes. A running-session clone instead targets the authenticated live session. <!-- @test: src/__tests__/routes/github.test.ts (forwards to the container /internal/git-clone and relays a 200) --> <!-- @manual -->
 3. The validated repository basename is preserved verbatim as a direct child of the normalized user workspace; cloning refuses an existing target with a clear message. <!-- @impl: host/src/git-clone.ts::resolveGitClone --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-004: resolveGitClone validation + dir computation) -->
 4. Both live-session and new-session clone actions omit a ref and clone the repository's default branch. <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (selecting a running session clones with {repo, sessionId} and NO ref) --> <!-- @impl: host/src/git-clone.ts::buildCloneArgs -->
 5. The cloned working tree is ephemeral by default and participates in workspace sync when the user has it enabled. <!-- @impl: host/src/git-clone.ts::resolveGitClone --> <!-- @manual -->
@@ -159,9 +159,9 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Acceptance Criteria:**
 
-1. Resume re-applies every repository tracked for the session ([REQ-GITHUB-016](#req-github-016-tracked-repository-restoration)), starting with the repository the session was created from, before agent startup. <!-- @impl: src/container/container-router.ts::dispatchInternalRoute --> <!-- @impl: src/container/container-env.ts::applyPrefsOnRestart --> <!-- @test: src/__tests__/container/container-router.test.ts (REQ-GITHUB-014 AC1: restores the clone directive when a stopped session resumes with a fresh container) -->
+1. Resume re-applies the tracked repository list with the original repository first. Attempts follow [REQ-GITHUB-016](#req-github-016-tracked-repository-restoration); the degraded prewarm fallback does not wait for them to finish. <!-- @impl: src/container/container-router.ts::dispatchInternalRoute --> <!-- @impl: src/container/container-env.ts::applyPrefsOnRestart --> <!-- @test: src/__tests__/container/container-router.test.ts (REQ-GITHUB-014 AC1: restores the clone directive when a stopped session resumes with a fresh container) -->
 2. Startup is blocked if the session's clone configuration cannot be restored. <!-- @impl: src/routes/container/lifecycle-init.ts::configureContainerDO --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (REQ-GITHUB-014 AC2: blocks resume when clone restoration returns an unexpected status) --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (REQ-GITHUB-014 AC2: blocks resume when clone restoration cannot reach the container) -->
-3. When a target is missing, startup makes one clone attempt per tracked repository before agent autostart, within the restore budget of [REQ-GITHUB-016](#req-github-016-tracked-repository-restoration). <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-014 AC3: preserves a validated .git basename, branches safely, and keeps argv separated) -->
+3. Before normal agent release, startup makes one clone attempt per missing tracked target within the restore budget of [REQ-GITHUB-016](#req-github-016-tracked-repository-restoration). <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-014 AC3: preserves a validated .git basename, branches safely, and keeps argv separated) -->
 4. A failed clone attempt is logged. <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-014 AC4+AC5: logs a clone failure and continues startup successfully) -->
 5. A failed clone attempt does not block startup. <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-014 AC4+AC5: logs a clone failure and continues startup successfully) -->
 6. An existing target remains unchanged. <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-014 AC6+AC7: rejects option-leading refs and refuses an existing target without invoking git) -->
@@ -195,7 +195,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Constraints:**
 
-- Repository-panel admission to the inventory follows [REQ-GITHUB-319](#req-github-319-repository-panel-clone-handoff).
+- The inventory limit does not restrict which repositories the user may clone or how many they may clone. Repository-panel tracking follows [REQ-GITHUB-319](#req-github-319-repository-panel-clone-handoff).
 - Repository identities reported from a container are untrusted input and are revalidated before reaching a clone.
 - Inventory collection inspects at most 20 workspace directories within an eight-second aggregate deadline; an incomplete scan is withheld so it cannot prune prior tracking.
 
@@ -211,22 +211,22 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 ### REQ-GITHUB-319: Repository-panel clone handoff
 
-**Intent:** A successful repository-panel clone survives an immediate stop without waiting for a later inventory report.
+**Intent:** Persist the bounded restore inventory for repository-panel clones without waiting for a later inventory report or limiting cloning.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. A successful repository-panel clone is persisted on the session before success is returned. <!-- @impl: src/routes/github.ts::app.post('/clone', --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-015 AC3: tracks the repository on the session as soon as the clone succeeds) --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-015 AC6: does not return clone success when session persistence fails) -->
-2. A repository-panel clone persisted immediately before a stop is included in the next resume directive. <!-- @impl: src/routes/github.ts::app.post('/clone', --> <!-- @impl: src/lib/clone-targets.ts::buildCloneTargets --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-015 AC3: tracks the repository on the session as soon as the clone succeeds) -->
+1. Before returning success for a panel clone, persist the validated inventory after adding the clone and applying the stable order and 20-entry bound. A full inventory does not block cloning. <!-- @impl: src/routes/github.ts::app.post('/clone', --> <!-- @impl: src/lib/clone-targets.ts::normalizeTrackedClones --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-015 AC3: tracks the repository on the session as soon as the clone succeeds) --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-015 AC6: does not return clone success when session persistence fails) --> <!-- @test: src/__tests__/lib/clone-targets.test.ts (REQ-GITHUB-015 AC4: retains at most 20 repositories) -->
+2. A panel clone retained in the persisted inventory immediately before a stop is included in the next resume directive. Overflow is intentionally omitted from automatic restore via that inventory. <!-- @impl: src/lib/clone-targets.ts::buildCloneTargets --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-015 AC3: tracks the repository on the session as soon as the clone succeeds) -->
 
-**Constraints:** Inventory bounds and identity validation from [REQ-GITHUB-015](#req-github-015-workspace-repository-tracking) remain in force.
+**Constraints:** Inventory bounds and identity validation from [REQ-GITHUB-015](#req-github-015-workspace-repository-tracking) remain in force. The separate creation-time clone directive is governed by [REQ-GITHUB-014](#req-github-014-clone-created-session-resume).
 
 **Priority:** P1
 
 **Dependencies:** [REQ-GITHUB-004](#req-github-004-clone-a-repository-into-a-session), [REQ-GITHUB-015](#req-github-015-workspace-repository-tracking)
 
-**Verification:** Automated: [github.test.ts](../../src/__tests__/routes/github.test.ts)
+**Verification:** Automated: [github.test.ts](../../src/__tests__/routes/github.test.ts), [clone-targets.test.ts](../../src/__tests__/lib/clone-targets.test.ts)
 
 **Status:** Implemented
 
@@ -272,7 +272,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Acceptance Criteria:**
 
-1. A GitHub disconnect attempts provider revocation for App/OAuth sources. <!-- @impl: src/lib/github-token.ts::disconnectGithub --> <!-- @test: src/__tests__/routes/github.test.ts (revokes + clears the token and returns success) --> <!-- @test: src/__tests__/lib/github-token.test.ts (revokes at GitHub and clears the field for an app/oauth token) -->
+1. GitHub disconnect attempts App/OAuth revocation using the currently selected provider. The connection does not record its issuing client, so a provider or client change can prevent revocation. <!-- @impl: src/lib/github-token.ts::disconnectGithub --> <!-- @test: src/__tests__/routes/github.test.ts (revokes + clears the token and returns success) --> <!-- @test: src/__tests__/lib/github-token.test.ts (revokes at GitHub and clears the field for an app/oauth token) -->
 2. Disconnect clears local GitHub fields even when provider configuration, network access, or revocation fails. <!-- @impl: src/lib/github-token.ts::disconnectGithub --> <!-- @test: src/__tests__/lib/github-token.test.ts (REQ-GITHUB-005 AC2: provider failure clears GitHub fields while preserving unrelated deploy keys) --> <!-- @test: src/__tests__/lib/github-token.test.ts (fails open and clears an OAuth token when provider revocation returns non-success) --> <!-- @test: src/__tests__/lib/github-token.test.ts (fails open and clears an OAuth token when provider revocation rejects) -->
 3. Disconnect removes an otherwise empty deploy-keys entry. <!-- @impl: src/lib/github-token.ts::disconnectGithub --> <!-- @test: src/__tests__/lib/github-token.test.ts (fails open and clears an OAuth token when provider configuration is unavailable) -->
 4. A manually-pasted PAT is cleared but not sent to the GitHub revoke endpoint. <!-- @impl: src/lib/github-token.ts::disconnectGithub --> <!-- @test: src/__tests__/lib/github-token.test.ts (does NOT call GitHub revoke for a manually-pasted PAT but still clears it) -->
@@ -297,13 +297,13 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Acceptance Criteria:**
 
-1. A connected token in an ordinary non-enterprise human session is present in the container environment exactly as a manually pasted PAT; restricted operator containers instead receive only the non-secret placeholder in every mode. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-GITHUB-003 / REQ-GITHUB-006: emits the real GH_TOKEN unchanged in non-enterprise mode) -->
+1. Startup projects a connected token for an ordinary non-Enterprise human session in the same environment field as a manually pasted PAT. Restricted Operators get no token or only the non-secret placeholder in every mode. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-GITHUB-003 / REQ-GITHUB-006: emits the real GH_TOKEN unchanged in non-enterprise mode) -->
 2. In enterprise mode the container receives the same non-secret GitHub credential placeholder for every user, never the real token; the real token is injected at egress per [REQ-GITHUB-003](#req-github-003-enterprise-egress-injected-github-credentials). <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-GITHUB-003 / REQ-GITHUB-006: emits a NON-SECRET placeholder GH_TOKEN in enterprise mode (real token never enters the container)) -->
 
 **Constraints:**
 
 - In ordinary non-Enterprise human sessions, this is leakage hygiene, not containment: the agent can read its own user's token.
-- Restricted Operators never receive the real token in any mode; outbound substitution remains owner-bound, and disconnected sessions receive no `GH_TOKEN`.
+- Restricted Operators never receive the real token in any mode; outbound substitution remains owner-bound. A disconnected session's next start omits `GH_TOKEN`; this does not rewrite a running process environment.
 
 **Priority:** P1
 
@@ -415,7 +415,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 **Acceptance Criteria:**
 
 1. The active provider is resolved from the Setup KV values, decrypting the secret, before any env-var fallback; KV-first precedence follows [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage) AC5. <!-- @impl: src/lib/github-token.ts::getProviderFromKv --> <!-- @test: src/__tests__/lib/github-token.test.ts (enterprise KV config wins over deploy env vars) -->
-2. An unreadable secret makes its Setup provider unconfigured; environment fallback follows [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage) AC5. <!-- @manual -->
+2. If the saved secret cannot be decrypted with a configured key, the Setup provider is unavailable and environment fallback follows [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage) AC5. A raised KV read error fails provider resolution rather than selecting another provider. <!-- @impl: src/lib/github-token.ts::getGithubProvider --> <!-- @impl: src/lib/kv-crypto.ts::getAndDecrypt --> <!-- @test: src/__tests__/lib/github-token.test.ts (REQ-GITHUB-008 AC4: unreadable Setup ciphertext uses only an available environment provider (fallback=%s)) --> <!-- @test: src/__tests__/lib/github-token.test.ts (REQ-GITHUB-008 AC4: encrypted Setup secret without a configured key propagates the KV JSON rejection without mutation) -->
 
 **Constraints:** None.
 

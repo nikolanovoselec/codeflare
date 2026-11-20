@@ -563,13 +563,12 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Acceptance Criteria:**
 
-1. Every container start atomically replaces Plan Mode configuration with inherited thinking, retained implementation-plan context, and the exact Codeflare discovery-tool profile. <!-- @impl: entrypoint.sh::configure_pi_plan_mode --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-152 AC5/AC6: overwrites Plan Mode settings with the Codeflare policy on every start) -->
+1. Startup attempts an atomic whole-document replacement of Plan Mode configuration with inherited thinking, retained implementation-plan context, and the exact Codeflare discovery-tool profile. A write failure logs a warning and does not stop startup. <!-- @impl: entrypoint.sh::configure_pi_plan_mode --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-152 AC5/AC6: overwrites Plan Mode settings with the Codeflare policy on every start) -->
 2. The managed profile excludes general questionnaires, arbitrary command execution, delegation, task mutation, MCP routing, advisor calls, export defaults, and keyboard shortcuts. <!-- @impl: entrypoint.sh::configure_pi_plan_mode --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-152 AC5/AC6: overwrites Plan Mode settings with the Codeflare policy on every start) -->
 3. A live `/plan` workflow supports read-only discovery, structured questions, explicit completion, and implementation handoff. <!-- @manual: Reload Pi, enter and exit `/plan`, complete a plan, and confirm implementation restores the prior tool set. -->
 
 **Constraints:**
 
-- Startup replaces the whole settings document.
 - Pathless export uses upstream `PLAN.md`.
 
 **Priority:** P1
@@ -945,7 +944,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 1. Session creation accepts an optional coding-agent selection. <!-- @impl: src/routes/session/crud.ts::CreateSessionBody --> <!-- @test: src/__tests__/routes/session-agent-type.test.ts (REQ-AGENT-002 AC2: POST /api/sessions accepts all seven valid agent types) -->
 2. Invalid agent types are rejected at session creation. <!-- @impl: src/types.ts::AgentTypeSchema --> <!-- @test: src/__tests__/routes/session-agent-type.test.ts (REQ-AGENT-002 AC2: POST /api/sessions accepts all seven valid agent types) -->
 3. The selected agent type is persisted in the session record. <!-- @test: src/__tests__/routes/session-agent-type.test.ts (REQ-AGENT-002: Agent Selection at Session Creation) --> <!-- @manual -->
-4. The UI defaults to the agent type used in the user's most recent session. <!-- @test: src/__tests__/routes/session-agent-type.test.ts (REQ-AGENT-002: Agent Selection at Session Creation) --> <!-- @manual -->
+4. Among available choices, the UI highlights the saved last explicitly selected agent without selecting it automatically. Creating a session without an explicit agent does not replace that preference. <!-- @impl: web-ui/src/components/CreateSessionDialog.tsx::CreateSessionDialog --> <!-- @impl: web-ui/src/components/Layout.tsx::handleCreateSession --> <!-- @impl: web-ui/src/stores/session.ts::createSessionWithClone --> <!-- @test: web-ui/src/__tests__/components/CreateSessionDialog.test.tsx (highlights last used agent type) --> <!-- @manual -->
 5. When `agentType` is omitted, creation leaves a sparse record for installed Claude Code and otherwise records the first selectable coding agent or Bash. <!-- @impl: src/routes/session/crud.ts::app --> <!-- @test: src/__tests__/routes/session-agent-type.test.ts (REQ-AGENT-002 AC5: session created without agentType has no agentType field in response) --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (REQ-AGENT-002 AC5: an omitted agentType falls back to the first installed coding agent) -->
 6. The session-creation UI renders a `beta` badge on agents in preview status: `antigravity` and `opencode` carry the badge; all other agents (Claude Code, Codex, Copilot, Pi, Bash) render without one. <!-- @impl: web-ui/src/components/CreateSessionDialog.tsx::CreateSessionDialog --> <!-- @test: web-ui/src/__tests__/components/CreateSessionDialog.test.tsx (Agent type selection) -->
 7. Session creation rejects a valid agent type whose shared launcher is omitted from the deployment image. <!-- @impl: src/routes/session/crud.ts::app --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (REQ-AGENT-002 AC7: omitted agentType '%s' is rejected) -->
@@ -1045,7 +1044,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 - [REQ-TERM-035](terminal.md#req-term-035-terminal-readiness-follows-mode-and-workspace) owns terminal readiness after launch.
 - Suppress agent CLI auto-update checks at session start.
 - Each agent has its own mechanism for suppressing auto-updates.
-- Autostart completes after initial R2 sync and before the bisync baseline.
+- Normal startup prepares tab autostart after initial R2 restore and before launching the bisync baseline. Host agent launch runs independently; the baseline does not wait for agent readiness.
 
 **Priority:** P0
 
@@ -1157,7 +1156,8 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 **Constraints:**
 
 - Only tiers whose allowed-session-modes list includes Pro can use Pro mode (see [REQ-SUB-014](subscription.md#req-sub-014-session-mode-gating-by-tier)).
-- When a user is promoted to a Pro-eligible tier, Pro mode becomes their persisted default if they had not already selected a mode; an existing explicit Standard preference is preserved while Pro entitlement advances. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (REQ-AGENT-004: promotion preserves explicit %s preference while granting Pro) -->
+- After a provider mode change to Pro, successful reconciliation saves Pro for a user without a mode preference and preserves an explicit Standard preference. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (REQ-AGENT-004: promotion preserves explicit %s preference while granting Pro) -->
+- A direct admin tier assignment initializes Pro only for `advanced`, `max`, or `unlimited` and only if no preference is saved. The tier's allowed-mode policy still determines actual access. <!-- @impl: src/routes/users.ts::app -->
 - Mode-driven seed updates follow [REQ-AGENT-249](#req-agent-249-session-mode-seed-reconciliation).
 
 **Priority:** P1
@@ -1427,7 +1427,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 - Cleanup uses explicit managed keys and bounded scans of generated seed prefixes for stale managed markers and authorized exclusive-policy roots.
 - Scans must honor mode, ownership markers, protected runtime paths, and authorized roots without broadly deleting unrelated user objects.
-- Partial delete failures produce warnings but do not fail the overall operation.
+- Baked-only cleanup reports partial delete failures as warnings. When an active or prior managed release or prior managed digest exists, incomplete cleanup fails recreation and withholds applied-state publication. Protected policy publication also requires successful cleanup. <!-- @impl: src/routes/storage/seed.ts::app --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-010 AC5: cleanup warnings fail the endpoint without replacing a protected applied identity) -->
 - Container must perform a bisync cycle to pull the updated R2 files into the local filesystem.
 - Manual recreation uses the rate limit in [REQ-SEC-019](security.md#req-sec-019-per-endpoint-rate-limit-policy) AC6.
 - Starter-documentation recreation lives in [REQ-AGENT-032](#req-agent-032-starter-documentation-manually-recreatable-from-settings).
@@ -1541,17 +1541,17 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Acceptance Criteria:**
 
-1. A single declarative manifest is the source of truth for all preseed files and their session-mode assignments. <!-- @manual -->
-2. The manifest organizes entries by type: rules (including the discipline triad: spec-discipline, documentation-discipline, tdd-discipline), agents, commands, skills (including SDD scaffolding templates), and plugins (memory and hook plugins). <!-- @impl: preseed/agents/claude/manifest.json::plugins/codeflare-hooks --> <!-- @manual -->
+1. The declarative Claude and Pi manifests define the preseed files and their session-mode assignments; the generator combines them into one validated runtime payload. <!-- @impl: scripts/agent-seed-core.mjs::manifest.json --> <!-- @manual -->
+2. The manifests organize entries by type: rules (including the discipline triad: spec-discipline, documentation-discipline, tdd-discipline), agents, commands, skills (including SDD scaffolding templates), and plugins (memory and hook plugins). <!-- @impl: preseed/agents/claude/manifest.json::plugins/codeflare-hooks --> <!-- @manual -->
 3. Each entry declares the session modes (default, advanced, or both) it applies to. <!-- @manual -->
-4. The seed generator is manifest-driven and ignores files not in the manifest. <!-- @manual -->
+4. The seed generator ignores files not admitted by the manifests. <!-- @manual -->
 5. The generator produces a runtime payload the Worker consumes at session start. <!-- @manual -->
 6. Within a single mode, no two preseed entries may share the same storage key. <!-- @manual -->
 7. Variant-per-mode keys (same storage key, different content per mode) are excluded from cleanup when the mode changes. <!-- @impl: src/lib/r2-seed.ts::deleteNonModeConfigs --> <!-- @manual -->
 
 **Constraints:**
 
-- All preseed file additions, removals, and re-categorizations flow through the manifest.
+- All preseed file additions, removals, and re-categorizations flow through the owning manifest.
 - The generated output is a build artifact and is never hand-edited.
 
 **Priority:** P1
@@ -1602,7 +1602,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 2. The complete specialist reports are cross-referenced and deduplicated. <!-- @manual -->
 3. Canonical findings are filtered against accepted architecture decisions. <!-- @manual -->
 4. A sequential Reality Filter evaluates every still-active finding; concrete evidence that a recorded revisit trigger is met reopens evaluation even without source changes. <!-- @impl: preseed/agents/claude/commands/review.md::Q1: Repeat-offender drop --> <!-- @impl: preseed/agents/pi/skills/review/SKILL.md::Q1: Repeat-offender drop --> <!-- @manual: Supply an unchanged-file deferral with a recorded trigger; verify met-trigger evidence causes re-evaluation, while unknown evidence is not invented or treated as proof of expiry. -->
-5. Optional external verification covers HIGH and CRITICAL findings. <!-- @manual -->
+5. Optional external verification covers HIGH and CRITICAL findings other than those produced only by the deep reviewer. Deep-only findings retain their behavioral verification and continue to triage without an external call. <!-- @impl: preseed/agents/claude/commands/review.md::Skipped - no non-DEEP HIGH/CRITICAL findings to verify. --> <!-- @impl: preseed/agents/pi/skills/review/SKILL.md::Skipped - no non-DEEP HIGH/CRITICAL findings to verify. --> <!-- @manual -->
 
 **Constraints:**
 
@@ -1710,7 +1710,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Settings panel has LLM Keys section with masked password inputs for OpenAI and Gemini. <!-- @impl: src/routes/llm-keys.ts::app --> <!-- @test: src/__tests__/routes/llm-keys.test.ts (LLM Keys routes / REQ-AGENT-020 (LLM API key storage) / REQ-AGENT-009 (LLM API Key Storage endpoint shape, KV path, encryption-at-rest, masking, GET behaviour)) -->
+1. Outside Enterprise, Settings shows masked OpenAI and Gemini password inputs when the account is eligible for Pro and has selected it. <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel --> <!-- @impl: web-ui/src/components/settings/LlmKeysSection.tsx::LlmKeysSection --> <!-- @impl: src/routes/llm-keys.ts::app --> <!-- @test: src/__tests__/routes/llm-keys.test.ts (LLM Keys routes / REQ-AGENT-020 (LLM API key storage) / REQ-AGENT-009 (LLM API Key Storage endpoint shape, KV path, encryption-at-rest, masking, GET behaviour)) -->
 2. Keys validated before saving. <!-- @test: src/__tests__/routes/llm-keys.test.ts (LLM Keys routes / REQ-AGENT-020 (LLM API key storage) / REQ-AGENT-009 (LLM API Key Storage endpoint shape, KV path, encryption-at-rest, masking, GET behaviour)) --> <!-- @manual -->
 3. Each provider's Disconnect action removes only its saved key and updates that row after success; failed removal preserves the connected state. No separate bulk-clear control is shown. <!-- @impl: web-ui/src/components/settings/LlmKeysSection.tsx::handleDisconnectOpenai --> <!-- @impl: web-ui/src/components/settings/LlmKeysSection.tsx::handleDisconnectGemini --> <!-- @test: web-ui/src/__tests__/components/settings/LlmKeysSection.test.tsx (REQ-AGENT-020 AC3: per-provider Disconnect removes keys without a bulk action) --> <!-- @test: web-ui/src/__tests__/components/settings/LlmKeysSection.test.tsx (REQ-AGENT-020 AC3: failed Disconnect preserves both connected providers) -->
 4. Keys are displayed using only the masks returned by the server, never the submitted full values. <!-- @impl: web-ui/src/components/settings/LlmKeysSection.tsx::LlmKeysSection --> <!-- @test: web-ui/src/__tests__/components/settings/LlmKeysSection.test.tsx (LlmKeysSection / REQ-AGENT-020) -->
@@ -1831,7 +1831,7 @@ None.
 3. Ambient query capability holds across all session modes. <!-- @impl: Dockerfile::graphifyy --> <!-- @manual -->
 4. Claude tolerates graphless startup, rebinding its queries when the active graph becomes available. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-mcp-lazy.py::_load_active_context --> <!-- @test: host/__tests__/graphify-mcp-lazy.test.js (REQ-AGENT-023: AC4 starts graphless and rebinds fresh query contexts without restarting MCP) --> <!-- @manual -->
 5. Claude and Pi full-semantic extraction scope each semantic-cache write to the files actually dispatched in the current uncached set, preventing a model-attributed out-of-scope node from replacing another file's complete cache entry. <!-- @impl: preseed/agents/claude/skills/graphify/references/extraction-spec.md::Step B3 - Collect, cache, and merge --> <!-- @impl: preseed/agents/pi/skills/graphify/references/build.md::Step 3 — merge chunks into Graphify semantic cache and local fragment --> <!-- @manual -->
-6. Startup restores a missing Graphify command path without replacing an existing destination. <!-- @impl: entrypoint.sh::ensure_graphify_cli_path --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-023: restores a missing Graphify CLI path without replacing an existing destination) -->
+6. Startup restores a missing Graphify command or a dangling command symlink, without replacing an existing resolvable destination. <!-- @impl: entrypoint.sh::ensure_graphify_cli_path --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-023: restores a missing Graphify CLI path without replacing an existing destination) -->
 
 **Constraints:**
 
@@ -2161,7 +2161,7 @@ None.
 4. A supplied valid account replaces the transient hint, explicit null clears it, and omission in a partial update preserves it without inventing a selection for older senders or fresh instances. <!-- @impl: src/container/container-env.ts::applyPrefsOnRestart --> <!-- @impl: src/container/container-router.ts::handleSetBucketName --> <!-- @impl: src/container/container-lifecycle.ts::clearOperationalMemory --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-AGENT-029: independent selected OAuth account environment) --> <!-- @test: src/__tests__/container/container-router.test.ts (REQ-AGENT-029: selected OAuth account HTTP receiver) --> <!-- @test: src/__tests__/container/lifecycle.test.ts (REQ-AGENT-029 AC6: completed authorized %s followed by legacy reuse does not re-emit an old OAuth account) -->
 5. Eligible OAuth sessions receive the hint outside Enterprise and without Browser Run configuration. The hint does not change Browser Run account or token settings or credential routing. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-AGENT-029: independent selected OAuth account environment) -->
 6. Restricted Operator environments omit the hint. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-AGENT-029: independent selected OAuth account environment) -->
-7. Delivered guidance separates Browser Run from the owner's OAuth management account and treats the potentially stale hint as metadata, not authorization. It preserves explicit user targets, directs managed account discovery when needed, and limits the Wrangler account override to one command. <!-- @impl: preseed/agents/claude/skills/deploy-credentials/SKILL.md --> <!-- @manual -->
+7. Delivered guidance separates Browser Run from the owner's OAuth management account and treats the potentially stale hint as metadata, not authorization. It preserves explicit user targets, directs managed account discovery when needed, and limits the Wrangler account override to one command. <!-- @impl: preseed/agents/claude/skills/deploy-credentials/SKILL.md::Cloudflare account purpose --> <!-- @manual -->
 
 **Constraints:** The hint contains no credential or refresh token, grants no permission, adds no persistence or migration, and is not refreshed into existing shells.
 
@@ -2187,7 +2187,7 @@ None.
 2. `model` field is removed from frontmatter for non-CC agents where the target runtime resolves model selection independently. <!-- @impl: scripts/agent-seed-core.mjs::adaptAgentFrontmatter --> <!-- @manual -->
 3. Path references use target-specific configuration locations, including Pi's native subagent location. <!-- @impl: scripts/agent-seed-core.mjs::adaptPaths --> <!-- @manual -->
 4. File extensions match each supported agent's conventions. <!-- @manual -->
-5. Pi subagent transforms emit compatible frontmatter for tools, prompt mode, extension/skill and context inheritance, and background defaults; agent definitions declare context-mode helpers under Pi-native names. <!-- @impl: scripts/agent-seed-core.mjs::adaptPiSkillContent --> <!-- @manual -->
+5. Pi subagent transforms emit supported tool and prompt-mode metadata, including background defaults for extraction and Pi-native names for context tools. Context inheritance follows the native invocation contract; the emitted `extensions` field does not control skill or extension inheritance. <!-- @impl: scripts/agent-seed-core.mjs::prompt_mode: replace --> <!-- @manual -->
 
 **Constraints:**
 
@@ -2266,7 +2266,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. The "Recreate starter documentation" button requests recreation of the starter documentation. <!-- @impl: src/routes/storage/seed.ts::app --> <!-- @test: src/__tests__/routes/storage-seed.test.ts (Storage Seed Routes / REQ-AGENT-032 (starter docs manually recreatable)) -->
+1. The "Recreate Docs & Examples" button requests recreation of the starter documentation. <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @impl: src/routes/storage/seed.ts::app --> <!-- @test: src/__tests__/routes/storage-seed.test.ts (Storage Seed Routes / REQ-AGENT-032 (starter docs manually recreatable)) -->
 2. After successful reseeding, later stats reads for the user's bucket do not reuse pre-seed cached totals. <!-- @test: src/__tests__/routes/storage-seed.test.ts (invalidates storage-stats KV cache after successful getting-started seed) --> <!-- @manual -->
 
 **Constraints:**

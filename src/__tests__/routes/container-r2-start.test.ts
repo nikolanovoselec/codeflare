@@ -12,6 +12,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { AccessUser, DeployKeys, Env } from '../../types';
+import { withMockStartClaim } from '../helpers/mock-session-stop';
 import { createMockKV } from '../helpers/mock-kv';
 import { createTestApp } from '../helpers/test-app';
 
@@ -19,11 +20,12 @@ const PROJECTION_ALL = 'v1:claude-code,codex,copilot,antigravity,opencode,pi';
 
 // Hoisted shared test state
 const testState = vi.hoisted(() => ({
+  kv: null as ReturnType<typeof createMockKV> | null,
   container: null as {
     fetch: ReturnType<typeof vi.fn>;
     destroy: ReturnType<typeof vi.fn>;
     getState: ReturnType<typeof vi.fn>;
-    startAndWaitForPorts: ReturnType<typeof vi.fn>;
+    startSession: ReturnType<typeof vi.fn>;
   } | null,
   createBucketResult: { success: true, created: false } as { success: boolean; error?: string; created?: boolean },
   seedResult: { written: [], skipped: [] } as { written: string[]; skipped: string[] },
@@ -38,7 +40,7 @@ const testState = vi.hoisted(() => ({
 }));
 
 vi.mock('@cloudflare/containers', () => ({
-  getContainer: vi.fn(() => testState.container),
+  getContainer: vi.fn(() => withMockStartClaim(testState.container!, testState.kv!)),
 }));
 
 vi.mock('../../lib/r2-admin', () => ({
@@ -129,13 +131,14 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
       ),
       destroy: vi.fn().mockResolvedValue(undefined),
       getState: vi.fn().mockResolvedValue({ status: 'stopped' }),
-      startAndWaitForPorts: vi.fn().mockResolvedValue(undefined),
+      startSession: vi.fn().mockResolvedValue(undefined),
     };
   }
 
   beforeEach(() => {
     vi.clearAllMocks();
     mockKV = createMockKV();
+    testState.kv = mockKV;
     testState.container = makeContainer();
     testState.createBucketResult = { success: true, created: false };
     testState.seedResult = { written: [], skipped: [] };

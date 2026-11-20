@@ -30,10 +30,10 @@
 
 Codeflare uses eight stable tier IDs. Deployments may edit commercial values, but IDs and compatibility semantics remain part of the contract.
 
-| ID | Default display | Hours/month | Sessions | Modes | Storage | Login |
+| ID | Default display | Hours/month | Sessions | Modes | Storage | Default `canLogin` |
 |---|---|---:|---:|---|---:|---|
 | `blocked` | Blocked | 0 | 0 | — | 0 | no |
-| `pending` | Pending | 0 | 0 | — | 0 | yes, activation flow only |
+| `pending` | Pending | 0 | 0 | — | 0 | yes |
 | `free` | Free | 4h | 1 | Standard | 250 MB | yes |
 | `trial` | Trial | 5h | 2 | Standard | 500 MB | yes |
 | `standard` | Starter | 40h | 1 | Standard, Pro | 500 MB | yes |
@@ -41,7 +41,7 @@ Codeflare uses eight stable tier IDs. Deployments may edit commercial values, bu
 | `max` | Max | 160h | 3 | Standard, Pro | 2 GB | yes |
 | `unlimited` | Custom | unlimited | 5 | Standard, Pro | unlimited | yes |
 
-`tiers:config` in KV stores deployment overrides. `getTierConfig()` caches the result for sixty seconds. Absent data and caught KV read/JSON-parse failures use source-defined defaults; stored admin values take priority while missing fields merge from defaults. Stored shape is not validated here: valid JSON with an invalid shape can throw during the merge outside the read catch. The provider returns display prices; admin configuration owns Standard and Pro Stripe price slots. <!-- @impl: src/lib/subscription.ts::getTierConfig -->
+`tiers:config` in KV stores deployment overrides. `getTierConfig()` caches the result for sixty seconds. Absent data and caught KV read/JSON-parse failures use source-defined defaults; stored admin values take priority while missing fields merge from defaults. Stored shape is not validated here: valid JSON with an invalid shape can throw during the merge outside the read catch. Display prices prefer provider values and fall back to saved numeric prices when unavailable. Admin configuration owns Standard and Pro Stripe price slots. The shipped `isDefault` flag selects a fallback tier configuration, not identity admission. In SaaS, blocked and pending identities can authenticate to the status flow but cannot use active application APIs; blocked users cannot activate a plan. <!-- @impl: src/lib/subscription.ts::getTierConfig -->
 
 ### Effective entitlement
 
@@ -62,7 +62,7 @@ When Stripe is intentionally not configured, selectable non-contact tiers are pr
 
 ### Stripe signal-and-sync
 
-Webhooks are authenticated signals. Checkout completion and subscription updates call `syncSubscriptionState()` to fetch current provider state. It resolves the user, obtains a monotonic per-user synchronization-start token from Timekeeper, and permits only the newest-started in-flight synchronization to apply. It preserves unrelated user fields; `lastSyncedAt` is recorded but is not ordering authority. Subscription deletion instead uses the same coordinator to apply billing cleanup and canceled/free/default state directly, without fetching a subscription snapshot. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState -->
+Webhooks are authenticated signals. Checkout completion and subscription updates call `syncSubscriptionState()` to fetch current provider state. It resolves the user, obtains a monotonic per-user synchronization-start token from Timekeeper, and permits only the newest-started in-flight synchronization to apply. It preserves unrelated user fields; `lastSyncedAt` is recorded but is not ordering authority. Subscription deletion instead uses the same coordinator to apply billing cleanup and canceled/free/default state directly, without fetching a subscription snapshot. An accepted deletion of the same stored trialing subscription records `trialUsed` in that write, so a later checkout does not offer another trial. Rejected deletions do not change trial history. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState --> <!-- @impl: src/timekeeper/index.ts::handleBillingSyncApply -->
 
 Price metadata supplies mode when present; otherwise configured Standard/Pro price slots can recover mode only. Snapshot tier fields are written only when non-null; a missing snapshot tier preserves the prior tier, not inferred price-slot entitlement. On subscribed-mode changes, non-deletion synchronization reconciles the selected permitted mode: promotion preserves an explicit Standard selection and initializes Pro only when no mode is selected. Tier-only or same-mode entitlement changes do not enter that reconciliation branch. Downgrade/termination still reconcile Standard; deletion separately attempts default-mode reconciliation and preference reset after coordinated cleanup.
 
@@ -91,14 +91,14 @@ One Timekeeper Durable Object owns each user's in-flight usage accumulator. A pi
 
 Positive historical accounting stages state and marker-cache changes until persistence succeeds, so a failed transaction does not publish speculative in-memory totals. The FIFO marker cache holds at most 128 keys; eviction reloads durable markers without recounting distinct sessions, independently of durable cleanup.
 
-Pending usage is decremented only after a successful KV write. Timekeeper identity mismatch fails closed with 403. Usage accumulates in every mode; SaaS additionally owns quota/trial decisions. Timekeeper is an accounting and quota signal, not an atomic session-admission reservation. D1 history may lag this live path and never overrides quota truth.
+Pending usage is decremented only after a successful KV write. A flush credits the batch to the live KV periods current at flush time. Live usage reads add pending usage to matching daily and monthly KV totals; a failed KV read reports pending usage alone. A failed flush requests a retry after 30 seconds, but the shared alarm may wake sooner. Timekeeper identity mismatch fails closed with 403. Healthy session metrics report in every deployment mode; recovery and stopping ticks do not. Timekeeper makes quota and trial decisions for SaaS. It is an accounting and quota signal, not an atomic session-admission reservation. D1 history is separate and never overrides quota truth. <!-- @impl: src/timekeeper/index.ts::alarm --> <!-- @impl: src/timekeeper/index.ts::handleGetUsage -->
 
 <a id="paygate-enforcement"></a>
 ## Enforcement
 
 ### Session-start quota gate
 
-`POST /api/container/start` resolves effective tier, reads monthly usage, and returns HTTP 402 `QUOTA_EXCEEDED` when a finite quota is exhausted. It skips commercial quota enforcement outside SaaS, in Enterprise, and in explicit stress mode. A failed usage KV read does not reject the start on quota uncertainty; the consequence is temporary overuse/cost exposure, not cross-user access. This is distinct from session-authority failure, which fails Start closed. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits -->
+`POST /api/container/start` resolves effective tier and compares flushed current-month KV usage to its finite quota, returning HTTP 402 `QUOTA_EXCEEDED` at or above the cap. Pending Timekeeper usage and historical D1 totals are not part of the Start check. It skips commercial quota enforcement outside SaaS, in Enterprise, and in explicit stress mode. A failed usage KV read does not reject the start on quota uncertainty; the consequence is temporary overuse/cost exposure, not cross-user access. This is distinct from session-authority failure, which fails Start closed. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits -->
 
 ### Mid-session quota response
 
@@ -117,7 +117,7 @@ The frontend renders `QUOTA_EXCEEDED`, disables starts at the observed session l
 ## Administrative Operations
 
 <a id="admin-subscription-management"></a>
-Administrators manage six editable tiers; blocked and pending remain protected system states. The editor covers compute, sessions, storage, Standard/Pro provider price IDs, advanced-mode availability, trial quota, and description. Provider-returned display prices are read-only. `PUT /api/admin/tiers` validates the complete tier array and writes `tiers:config`; cache propagation is bounded by the sixty-second TTL. <!-- @impl: web-ui/src/components/admin/SubscriptionManagement.tsx::SubscriptionManagement -->
+Administrators manage six editable tiers; blocked and pending remain protected system states. The editor covers compute, sessions, storage, Standard/Pro provider price IDs, advanced-mode availability, trial quota, and description. Provider-returned display prices are read-only. `PUT /api/admin/tiers` validates the complete tier array and writes `tiers:config`. The 60-second TTL bounds when a subsequent lookup in that isolate will attempt a fresh KV read; it does not guarantee global propagation or that the first refresh sees the write. <!-- @impl: web-ui/src/components/admin/SubscriptionManagement.tsx::SubscriptionManagement -->
 
 Changing a user to `advanced`, `max`, or `unlimited` may initialize the next-session preference to advanced, but effective authorization follows the complete policy above. [Authentication](authentication.md#approval-and-activation) owns user transitions. [Configuration](configuration.md#routine-administration) owns the routine Administration shell and Environment review/apply experience, not entitlement.
 

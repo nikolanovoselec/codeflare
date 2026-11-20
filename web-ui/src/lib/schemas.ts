@@ -215,7 +215,7 @@ export const UserPreferencesSchema = z.object({
   fastStartEnabled: z.boolean().optional(),
   sessionMode: SessionModeSchema.optional(),
   defaultWorkspace: SessionWorkspaceSchema.optional(),
-  sleepAfter: z.enum(['15m', '30m', '1h', '2h', '4h', '8h', '12h']).optional(),
+  sleepAfter: z.enum(['5m', '15m', '30m', '1h', '2h', '4h', '8h', '12h']).optional(),
   userTimezone: z.string().optional(),
   managedEnvironmentApplied: z.object({
     digest: z.string().regex(/^[0-9a-f]{64}$/),
@@ -287,6 +287,7 @@ export const InitStageSchema = z.enum(['creating', 'starting', 'syncing', 'mount
 
 export const StartupStatusResponseSchema = z.object({
   stage: InitStageSchema,
+  generation: z.number().int().nonnegative().optional(),
   progress: z.number(),
   message: z.string(),
   details: z.object({

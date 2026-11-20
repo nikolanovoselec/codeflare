@@ -276,7 +276,7 @@ export interface UserPreferences {
   fastStartEnabled?: boolean;
   sessionMode?: SessionMode;
   defaultWorkspace?: SessionWorkspace;
-  sleepAfter?: SleepAfterOption;
+  sleepAfter?: SleepAfterOption | '5m';
   /** REQ-MEM-001 AC4: user's IANA timezone captured from the browser. */
   userTimezone?: string;
   /** Server-owned stamp for the last fully applied verified managed release. */
@@ -356,6 +356,7 @@ export interface InitProgress {
 // Startup status response from polling endpoint
 export interface StartupStatusResponse {
   stage: InitStage;
+  generation?: number;
   progress: number;
   message: string;
   details: {

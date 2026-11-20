@@ -436,7 +436,7 @@ export async function getStartupStatus(sessionId: string): Promise<StartupStatus
 export function startSession(
   id: string,
   onProgress: (progress: InitProgress) => void,
-  onComplete: () => void,
+  onComplete: (generation: number) => void,
   onError: (error: string, code?: string) => void,
   options: { retryEditorTimeout?: boolean } = {},
 ): () => void {
@@ -447,9 +447,13 @@ export function startSession(
   let cancelled = false;
   let pollInterval: ReturnType<typeof setInterval> | null = null;
   const startedAt = Date.now();
+  const cancel = () => {
+    cancelled = true;
+    if (pollInterval) clearInterval(pollInterval);
+  };
 
   const startPolling = async () => {
-    // First, trigger container start
+    let generation: number | undefined;
     try {
       // Send initial creating stage
       onProgress({
@@ -460,9 +464,11 @@ export function startSession(
         startedAt,
       });
 
-      // Trigger container start with the actual session ID
-      await fetchApi(`/container/start?sessionId=${id}`, { method: 'POST' });
+      const claim = await fetchApi(`/container/start?sessionId=${id}`, { method: 'POST' },
+        z.object({ generation: z.number().int().nonnegative() }));
+      generation = claim?.generation;
     } catch (err) {
+      if (cancelled) return;
       // Differentiate definitive failures from transient errors.
       // The backend uses ctx.waitUntil() - container may have started despite client error.
       // For transient errors, proceed to polling; polling will timeout naturally if container didn't start.
@@ -489,30 +495,46 @@ export function startSession(
 
       try {
         const status = await getStartupStatus(id);
+        if (cancelled) return;
         consecutiveErrors = 0;
+        // If a different run now owns the session, let the dashboard reload
+        // authoritative state instead of completing or failing that run here.
+        if (generation !== undefined && status.generation !== undefined && status.generation > generation) {
+          cancel();
+          onError('A newer Start replaced this request.', 'SESSION_START_UNCONFIRMED');
+          return;
+        }
+        if (generation !== undefined && status.generation !== undefined && status.generation !== generation) return;
+        if (status.stage === 'ready' && (generation === undefined || status.generation !== generation)) {
+          cancel();
+          onError('This Start could not be confirmed.', 'SESSION_START_UNCONFIRMED');
+          return;
+        }
 
         const progress = mapStartupDetailsToProgress(status);
         progress.startedAt = startedAt;
         onProgress(progress);
+        if (cancelled) return;
 
-        if (status.stage === 'ready') {
-          if (pollInterval) clearInterval(pollInterval);
-          onComplete();
+        if (status.stage === 'ready' && generation !== undefined) {
+          cancel();
+          onComplete(generation);
         } else if (status.stage === 'error') {
           const isPriorEditorTimeout = ignorePriorEditorTimeout
             && status.error === 'VS Code did not become ready. Retry starting the session.';
           if (!isPriorEditorTimeout) {
-            if (pollInterval) clearInterval(pollInterval);
+            cancel();
             onError(status.error || 'Container startup failed');
           }
         } else {
           ignorePriorEditorTimeout = false;
         }
       } catch (err) {
+        if (cancelled) return;
         consecutiveErrors++;
         logger.error('Polling error:', err);
         if (consecutiveErrors >= MAX_STARTUP_POLL_ERRORS) {
-          if (pollInterval) clearInterval(pollInterval);
+          cancel();
           onError('Polling failed after too many consecutive errors');
           return;
         }
@@ -522,17 +544,11 @@ export function startSession(
     // Initial poll
     await poll();
 
-    // Continue polling at regular intervals
-    pollInterval = setInterval(poll, STARTUP_POLL_INTERVAL_MS);
+    if (!cancelled) pollInterval = setInterval(poll, STARTUP_POLL_INTERVAL_MS);
   };
 
-  startPolling().catch((err) => onError(err instanceof Error ? err.message : String(err)));
-
-  // Return cleanup function
-  return () => {
-    cancelled = true;
-    if (pollInterval) clearInterval(pollInterval);
-  };
+  startPolling().catch((err) => { if (!cancelled) onError(err instanceof Error ? err.message : String(err)); });
+  return cancel;
 }
 
 export async function stopSession(id: string): Promise<void> {

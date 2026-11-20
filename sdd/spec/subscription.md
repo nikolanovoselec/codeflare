@@ -42,9 +42,8 @@ Tiers, billing, usage tracking, and quotas.
 
 **Constraints:**
 
-- Exactly one tier carries the default-tier flag and determines the tier for users without a recorded tier.
-- The `blocked` tier denies login.
-- The `pending` tier permits login and access to the subscribe page.
+- The shipped table has one default flag, used for tier-configuration lookup rather than identity admission. A missing identity tier follows [REQ-SUB-011](#req-sub-011-graceful-degradation-without-stripe).
+- In SaaS, `blocked` and `pending` visitors may authenticate and see their subscription status. Both are denied active application APIs; `blocked` also cannot activate a plan. <!-- @impl: src/routes/github-auth.ts::app --> <!-- @impl: src/middleware/auth.ts::requireActiveUser -->
 
 **Priority:** P0
 
@@ -72,8 +71,8 @@ Tiers, billing, usage tracking, and quotas.
 
 **Constraints:**
 
-- These are default values; admins can override all operational parameters via the management panel.
-- Prices are not hardcoded; they come from Stripe via the admin-configured price ID associated with each tier.
+- Administration edits the operational fields exposed by its panel, not the blocked/pending system tiers or Custom's fixed compute/storage controls.
+- Checkout uses the configured Stripe Price. Displayed prices prefer provider values and may fall back to saved numeric prices.
 
 **Priority:** P0
 
@@ -100,8 +99,8 @@ Tiers, billing, usage tracking, and quotas.
 
 **Constraints:**
 
-- Free-tier auto-sleep is locked to a fixed short timeout; users cannot extend it from the UI.
-- Free tier is limited to a single concurrent session.
+- Non-Enterprise Free runtime idle enforcement remains fixed at 15 minutes even if an administrator saves a longer preference.
+- Free defaults to one concurrent session. Start uses the configured tier cap and best-effort admission under [REQ-SESSION-007](session-lifecycle.md#req-session-007-running-session-count-limited-per-tier).
 
 **Priority:** P0
 
@@ -128,7 +127,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Constraints:**
 
-- Tier and mode metadata must be present on the payment-provider price objects before deploy; the system reads metadata, not separate configuration.
+- Keep tier metadata on Stripe Prices; an absent snapshot tier preserves the stored tier. Mode metadata takes precedence; when absent, the configured Standard/Pro Price slot can supply the mode without inferring a tier. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState -->
 - With a configured payment provider, tiers without a configured external price are hidden from the subscribe page; without a provider, payment-free direct choices follow [REQ-SUB-011](#req-sub-011-graceful-degradation-without-stripe).
 - Record the customer-to-email mapping at checkout completion for user resolution by subsequent webhooks.
 
@@ -207,7 +206,7 @@ Tiers, billing, usage tracking, and quotas.
 3. Timekeeper enforces the trial compute cap as the active quota while the subscription is in trial state. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/index.test.ts (ends the provider trial at its distinct trial cap before the monthly cap) -->
 4. When the trial compute cap is consumed, Timekeeper ends the trial early at the payment provider, triggering the first real charge. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/index.test.ts (ends the provider trial at its distinct trial cap before the monthly cap) -->
 5. If the first charge succeeds, the full monthly compute quota unlocks. If payment produces `past_due`, paid access remains through a valid future `billingPeriodEnd`; an absent, invalid, or expired period end downgrades to free. <!-- @impl: src/lib/subscription.ts::getEffectiveTier --> <!-- @test: src/__tests__/lib/subscription.test.ts (past_due + future billingPeriodEnd keeps paid tier (grace period)) --> <!-- @test: src/__tests__/lib/subscription.test.ts (past_due + expired billingPeriodEnd downgrades to free) -->
-6. A trial-used marker is recorded when the subscription transitions out of trial state so users cannot loop subscribe-cancel-resubscribe to obtain unlimited free trials. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState --> <!-- @test: src/__tests__/routes/stripe-webhook-sync.test.ts (syncSubscriptionState) -->
+6. Record trial use when a subscription transitions out of trial, including an accepted deletion of the same subscription while the stored state is trialing. A rejected deletion never changes trial history. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState --> <!-- @impl: src/timekeeper/index.ts::handleBillingSyncApply --> <!-- @test: src/__tests__/routes/stripe-webhook-sync.test.ts (syncSubscriptionState) --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (REQ-SUB-005 AC6: deletion trial history follows the guarded subscription ($scenario)) -->
 
 **Constraints:**
 
@@ -233,16 +232,16 @@ Tiers, billing, usage tracking, and quotas.
 **Acceptance Criteria:**
 
 1. Each user has exactly one authoritative in-flight usage accumulator. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)) -->
-2. Each running session reports its monotonic total to its owner's usage accumulator on a short fixed cadence in every deployment mode. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SUB-006 AC2 + REQ-SUB-007 AC5: records usage outside SaaS without enforcing a quota response) -->
+2. Healthy session metrics report cumulative usage to the owner's accumulator on the normal 60-second cadence in every deployment mode. Recovery probes, uncertain projections, and stopping ticks do not report usage. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SUB-006 AC2 + REQ-SUB-007 AC5: records usage outside SaaS without enforcing a quota response) -->
 3. Timekeeper computes per-session deltas, accumulates pending usage in memory, and periodically flushes it to durable storage. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)) -->
-4. Timekeeper exposes a usage-read interface that returns flushed-plus-pending totals for live consumption. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)) -->
-5. The durable record tracks rolling daily, weekly, monthly, yearly, and all-time totals with automatic rollovers. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)) -->
-6. The flush handler retries on durable-storage write failure on a fixed 30-second interval (not exponential backoff). <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)) -->
+4. Timekeeper returns current flushed daily and monthly KV usage plus pending usage. If the KV read fails, the response reports pending usage alone. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)) -->
+5. The live KV serving record tracks daily, weekly, monthly, yearly, and all-time totals. Each flush credits its batch to the UTC periods current at flush time; the historical D1 projection is separate. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)) -->
+6. A failed live KV flush requests a retry after 30 seconds without exponential backoff. An earlier shared alarm can attempt the flush sooner. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)) -->
 7. Pending usage is cleared only after a durable-storage write succeeds. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)) -->
 
 **Constraints:**
 
-- Usage tracking always runs regardless of deployment or stress-test mode; billing and quota enforcement remain SaaS-only.
+- Deployment and stress mode do not gate normal usage reports. SaaS quota enforcement is separate.
 - Multiple concurrent sessions from the same user all ping the same Timekeeper instance.
 
 **Priority:** P0
@@ -263,12 +262,12 @@ Tiers, billing, usage tracking, and quotas.
 
 **Acceptance Criteria:**
 
-1. Session-start handlers read the user's current monthly usage and compare it to the tier's monthly compute allotment before provisioning a container. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)) -->
+1. Before provisioning a container, Start compares the user's flushed current-month KV usage with the effective tier's compute allotment. Pending Timekeeper usage and historical D1 totals are not part of this comparison. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)) -->
 2. The comparison is skipped for tiers with no compute cap (unlimited). <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)) -->
-3. When usage exceeds the allotment, the handler returns a 402 response with a machine-readable quota-exceeded code. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)) -->
+3. When the recorded usage reaches or exceeds the allotment, Start returns HTTP 402 with `QUOTA_EXCEEDED`. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)) -->
 4. In SaaS mode, when the frontend's usage state has a positive monthly quota and usage reaches or exceeds it, Layout displays a non-dismissible quota-exceeded banner with an upgrade link to `/app/subscribe`; this banner is absent outside SaaS mode. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/src/stores/session-usage.ts::getUsageWarningLevel --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (offers the subscription upgrade from the SaaS quota-exceeded banner) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (AC3: surfaces no usage banner outside SaaS mode even at 100% usage) -->
 5. Quota enforcement is skipped in non-billed deployment modes and in stress-test mode. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/index.test.ts (REQ-SUB-007 AC5 + REQ-SUB-022 AC1: accumulates the durable monthly total without enforcing quota outside SaaS) -->
-6. Enforcement fails open on durable-storage errors so a transient backing-store outage does not lock all users out. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)) -->
+6. A live usage KV read failure skips the quota check. D1 session-authority failure still fails Start closed. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)) -->
 
 **Constraints:**
 
@@ -294,12 +293,12 @@ Tiers, billing, usage tracking, and quotas.
 **Acceptance Criteria:**
 
 1. When Timekeeper's ping response indicates the user has exceeded quota, the Container DO initiates a graceful stop rather than a hard kill. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SUB-008 AC1: calls stop("SIGTERM") when Timekeeper /ping returns quotaExceeded=true) -->
-2. The graceful stop signal allows the container to run its shutdown handler (including the final sync) before exiting. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (collectMetrics) -->
+2. Quota stop attempts the bounded agent-event drain and authenticated final sync before SIGTERM. A failed or timed-out sync does not prevent stop; the signal handler is only a best-effort backstop. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-011 AC6 / REQ-SESSION-032 AC1: quota-stop drains final agent events, then final sync, then stop) -->
 3. The ping response carries both the cumulative monthly usage and the quota-exceeded flag in a single round trip. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)) -->
 
 **Constraints:**
 
-- Mid-session eviction must allow the final sync to complete.
+- Final-sync order and deadline follow [REQ-SESSION-011](session-lifecycle.md#req-session-011-graceful-shutdown-with-final-sync).
 - Check quota on each ping cycle, not continuously.
 
 **Priority:** P0
@@ -325,7 +324,7 @@ Tiers, billing, usage tracking, and quotas.
 2. Subscription Management edits only persisted operational limits, descriptions, allowed modes, and external price IDs; identity, policy, ordering, defaults, and provider prices remain read-only. <!-- @impl: web-ui/src/components/admin/SubscriptionManagement.tsx::SubscriptionManagement --> <!-- @test: web-ui/src/__tests__/components/admin/SubscriptionManagement.test.tsx (SubscriptionManagement (Admin)) --> <!-- @test: web-ui/src/__tests__/components/admin/SubscriptionManagement.test.tsx (REQ-SUB-009 AC2: saves changed operational fields and reads them back without changing protected tier fields) -->
 3. Tier-configuration reads return the persisted admin configuration when present and fall back to the hardcoded defaults when absent. <!-- @impl: src/lib/subscription.ts::getTierConfig --> <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-009: getTierConfig KV-first with default fallback) -->
 4. Admin-saved values always take priority over defaults; absent fields fall back to defaults, present fields override. <!-- @impl: src/lib/subscription.ts::getTierConfig --> <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-009: getTierConfig KV-first with default fallback) -->
-5. The admin tier-update endpoint validates its input against a schema that covers every persisted tier property, so a save never silently drops a field. <!-- @impl: src/routes/admin/tiers.ts::PutTiersBodySchema --> <!-- @test: src/__tests__/routes/admin-tiers.test.ts (PUT /admin/tiers — REQ-SUB-009) --> <!-- @test: src/__tests__/routes/admin-tiers.test.ts (REQ-SUB-009 AC5: saves and reads back every configurable tier field without dropping values) -->
+5. The admin tier-update endpoint validates and preserves every field in the current tier schema. Fields outside that schema are not persisted by the update. <!-- @impl: src/routes/admin/tiers.ts::PutTiersBodySchema --> <!-- @test: src/__tests__/routes/admin-tiers.test.ts (PUT /admin/tiers — REQ-SUB-009) --> <!-- @test: src/__tests__/routes/admin-tiers.test.ts (REQ-SUB-009 AC5: saves and reads back every configurable tier field without dropping values) -->
 6. All tier-management endpoints are admin-gated. <!-- @test: src/__tests__/routes/admin-tiers.test.ts (REQ-SUB-009 AC6: returns 403 when user is not admin) --> <!-- @manual -->
 
 **Constraints:**
@@ -531,13 +530,13 @@ Tiers, billing, usage tracking, and quotas.
 
 **Acceptance Criteria:**
 
-1. On any mode change, the agent-config reconciler runs to seed the new mode's config set - recreating the new mode's skills and removing the previous mode's - and the session-mode preference (the UI mode) flips. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (auto-recreate on downgrade) -->
+1. On a subscribed-mode change, reconcile the permitted selected mode's agent configs with overwrite and cleanup, then persist that mode as the session preference. On promotion preserve an explicit Standard selection; an unset preference takes the newly subscribed mode. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (calls reconcileAgentConfigs when mode changes from advanced to default) --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (REQ-AGENT-004: promotion preserves explicit %s preference while granting Pro) -->
 2. On subscription termination, after resetting the persisted tier to free, the agent-config reconciler runs with the default mode to restore Standard configs. <!-- @impl: src/routes/stripe-webhook.ts::handleSubscriptionDeleted --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (handleCheckoutCompleted / REQ-SUB-005 (Stripe webhook syncs subscription state) / REQ-SUB-015 (webhook handlers for updated/deleted/canceled)) -->
 
 **Constraints:**
 
 - Auto-reconcile failure is non-fatal: a reconciliation error does not block the webhook from acknowledging.
-- Only actual subscription termination triggers reconciliation; scheduled cancellation retains Pro configuration through the paid period.
+- Scheduled cancellation does not trigger termination reconciliation; retain Pro configuration through the paid period.
 
 **Priority:** P1
 

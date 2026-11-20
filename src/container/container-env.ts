@@ -342,13 +342,13 @@ export function buildEnvVars(
   // Strict Gateway egress (REQ-ENTERPRISE-016): the real R2 key must NEVER enter the
   // container — emit a non-secret placeholder so rclone runs in signed mode while the
   // EgressController strips it and re-signs with the Worker-held user-scoped key at the R2 boundary
-  // (egress-controller.ts). Only when strict is active; non-enterprise / strict-off keep
-  // the real key (rclone connects to R2 directly, byte-identical to today).
-  const realAccessKeyId = state._r2AccessKeyId || env.R2_ACCESS_KEY_ID || '';
-  const realSecretAccessKey = state._r2SecretAccessKey || env.R2_SECRET_ACCESS_KEY || '';
+  // (egress-controller.ts). Direct storage uses only a complete session-scoped
+  // pair. Missing credentials leave sync unavailable, never deployment-scoped.
+  const { _r2AccessKeyId: scopedAccessKeyId, _r2SecretAccessKey: scopedSecretAccessKey } = state;
   const mediatedR2 = state._strictEgress || restrictedOperator;
-  const accessKeyId = mediatedR2 ? ENTERPRISE_R2_KEY_PLACEHOLDER : realAccessKeyId;
-  const secretAccessKey = mediatedR2 ? ENTERPRISE_R2_KEY_PLACEHOLDER : realSecretAccessKey;
+  const [accessKeyId, secretAccessKey] = mediatedR2
+    ? [ENTERPRISE_R2_KEY_PLACEHOLDER, ENTERPRISE_R2_KEY_PLACEHOLDER]
+    : scopedAccessKeyId && scopedSecretAccessKey ? [scopedAccessKeyId, scopedSecretAccessKey] : ['', ''];
   const accountId = state._r2AccountId || env.R2_ACCOUNT_ID || '';
   const endpoint = state._r2Endpoint || env.R2_ENDPOINT || '';
 

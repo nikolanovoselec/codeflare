@@ -119,10 +119,10 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Acceptance Criteria:**
 
-1. Public contact submissions validate name (1-100), email, company (optional, ≤200), topic from the shared declared enum, and message (10-4000); invalid input is rejected with 400. <!-- @impl: src/lib/contact-topics.ts::CONTACT_TOPICS --> <!-- @test: src/__tests__/routes/public-contact.test.ts (Public contact route (REQ-LANDING-002)) -->
-2. The endpoint is available when SaaS mode or onboarding mode is active and returns 404 otherwise; the waitlist endpoint stays onboarding-only. <!-- @test: src/__tests__/routes/public-contact.test.ts (Public contact route (REQ-LANDING-002)) --> <!-- @manual -->
-3. Submissions require a passing Turnstile verification; failures are rejected with a CAPTCHA validation error. <!-- @impl: src/routes/public/index.ts::requireVerifiedSubmission --> <!-- @test: src/__tests__/routes/public-contact.test.ts (Public contact route (REQ-LANDING-002)) -->
-4. Accepted submissions are relayed as email to all admin users with reply-to set to the submitter, and every user-controlled field is HTML-escaped before rendering into the email body. <!-- @test: src/__tests__/routes/public-contact.test.ts (Public contact route (REQ-LANDING-002)) --> <!-- @manual -->
+1. Public contact submissions validate name (1-100), email, company (optional, ≤200), topic from the shared declared enum, and message (10-4000); invalid input is rejected with 400. <!-- @impl: src/routes/public/index.ts::ContactRequestSchema --> <!-- @impl: src/lib/contact-topics.ts::CONTACT_TOPICS --> <!-- @test: src/__tests__/routes/public-contact.test.ts (Public contact route (REQ-LANDING-002)) -->
+2. The endpoint is available when SaaS mode or onboarding mode is active and returns 404 otherwise; the waitlist endpoint stays onboarding-only. <!-- @impl: src/routes/public/index.ts::app --> <!-- @impl: src/routes/public/index.ts::requireOnboardingMode --> <!-- @test: src/__tests__/routes/public-contact.test.ts (Public contact route (REQ-LANDING-002)) --> <!-- @manual -->
+3. Submissions require a passing Turnstile verification. An unsuccessful verdict returns a CAPTCHA validation error; a verifier transport or decoding failure still blocks delivery but is not a validation verdict. <!-- @impl: src/routes/public/index.ts::requireVerifiedSubmission --> <!-- @impl: src/lib/turnstile.ts::verifyTurnstileToken --> <!-- @test: src/__tests__/routes/public-contact.test.ts (rejects failed Turnstile verification with a CAPTCHA error) -->
+4. Accepted submissions are relayed as email to all admin users with reply-to set to the submitter, and every user-controlled field is HTML-escaped before rendering into the email body. <!-- @impl: src/routes/public/index.ts::requireVerifiedSubmission --> <!-- @impl: src/routes/public/index.ts::app --> <!-- @impl: src/routes/public/index.ts::sendNotificationEmail --> <!-- @test: src/__tests__/routes/public-contact.test.ts (Public contact route (REQ-LANDING-002)) --> <!-- @manual -->
 5. The contact path persists only rate-limit bookkeeping, never submission content. <!-- @impl: src/routes/public/index.ts::app --> <!-- @manual -->
 6. Public contact-configuration reads expose the Turnstile site key under the same mode gate for the landing form widget. <!-- @impl: src/routes/public/index.ts::app --> <!-- @test: src/__tests__/routes/public-contact.test.ts (returns the Turnstile site key in SaaS mode) -->
 7. Accepted-contact and verification-failure application logs omit submitter email (including masked email), name, company, topic and message. <!-- @impl: src/routes/public/index.ts::app --> <!-- @test: src/__tests__/routes/public-contact.test.ts (REQ-LANDING-002 AC5: contact logs omit personal data on verification success=%s) --> <!-- @manual -->
@@ -185,7 +185,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 **Acceptance Criteria:**
 
 1. The sitemap omits the public login route. <!-- @impl: src/lib/seo.ts::SITEMAP_PATHS --> <!-- @test: src/__tests__/lib/seo.test.ts (buildSitemapXml) -->
-2. Every served login asset response carries `X-Robots-Tag: noindex, nofollow`. <!-- @impl: src/index.ts::fetch --> <!-- @test: src/__tests__/index.test.ts (REQ-LANDING-008: marks the public login response noindex without blocking the asset) -->
+2. Login documents served at `/login` or `/login/` carry `X-Robots-Tag: noindex, nofollow`. The prerendered onboarding login document also declares `noindex, nofollow` in its HTML, including when served from its build path. <!-- @impl: src/index.ts::dispatch --> <!-- @impl: landing/src/pages/login.astro::robots --> <!-- @test: src/__tests__/index.test.ts (REQ-LANDING-008: marks the public login response noindex without blocking the asset) --> <!-- @test: landing/src/__tests__/login-page.test.ts (is excluded from search indexing (auth URLs carry ?status / ?error)) -->
 3. Public `robots.txt` leaves the login route crawlable so search crawlers can observe the exclusion directive. <!-- @impl: src/lib/seo.ts::buildRobotsTxt --> <!-- @test: src/__tests__/lib/seo.test.ts (advertises the marketing surface + sitemap while excluding private routes) -->
 
 **Constraints:** None.
@@ -194,7 +194,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-003](#req-landing-003-landing-social-share-and-search-metadata)
 
-**Verification:** Automated: [index.test.ts](../../src/__tests__/index.test.ts), [seo.test.ts](../../src/__tests__/lib/seo.test.ts)
+**Verification:** Automated: [index.test.ts](../../src/__tests__/index.test.ts), [seo.test.ts](../../src/__tests__/lib/seo.test.ts), [login-page.test.ts](../../landing/src/__tests__/login-page.test.ts)
 
 **Status:** Implemented
 
@@ -210,7 +210,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 1. The landing page uses a dark color scheme and canvas before external styles load, including during cross-document navigation. <!-- @impl: landing/src/layouts/BaseLayout.astro::viewport --> <!-- @test: landing/src/__tests__/index-page.test.ts (REQ-LANDING-004: dark first paint (anti-flash contract)) -->
 2. Landing builds use the fingerprinted-asset caching policy in [REQ-OPS-175](operations.md#req-ops-175-worker-served-build-asset-caching). <!-- @impl: src/index.ts::dispatch --> <!-- @test: src/__tests__/index.test.ts (REQ-LANDING-004: immutable /_astro/ asset caching) -->
-3. Every same-origin full-page navigation between the landing and login pages opts into a cross-document view transition. <!-- @test: landing/src/__tests__/index-page.test.ts (REQ-LANDING-004: dark first paint (anti-flash contract)) --> <!-- @manual -->
+3. Both prerendered landing and onboarding login documents opt into cross-document transitions for same-origin full-page navigation between them. The [SaaS login SPA](authentication.md#req-auth-020-onboarding-mode-landing-integrated-login-shell) retains the dark first paint without opting in. <!-- @impl: landing/src/styles/global.css::view-transition --> <!-- @impl: src/index.ts::dispatch --> <!-- @manual -->
 4. Landing-built marketing and login content stays hidden over the dark canvas until the shared stylesheet and both critical local fonts have loaded. <!-- @impl: src/lib/design-ready.ts::DESIGN_READY_SCRIPT --> <!-- @impl: landing/src/layouts/BaseLayout.astro::data-design-ready --> <!-- @test: landing/src/__tests__/design-ready.script.test.ts (REQ-LANDING-004: final-design first paint gate) --> <!-- @test: landing/src/__tests__/index-page.test.ts (REQ-LANDING-004: dark first paint (anti-flash contract)) --> <!-- @test: landing/src/__tests__/login-page.test.ts (inherits the shared final-design gate before exposing the login shell) --> <!-- @test: src/__tests__/index.test.ts (REQ-LANDING-004 AC4: landing response authorizes only the integrity-pinned design-ready script) -->
 5. Without JavaScript, the complete server-rendered page remains visible and usable rather than inheriting the loading gate. <!-- @impl: landing/src/layouts/BaseLayout.astro::data-design-ready --> <!-- @test: landing/src/__tests__/index-page.test.ts (REQ-LANDING-004: dark first paint (anti-flash contract)) -->
 

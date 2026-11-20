@@ -331,10 +331,11 @@ export async function ensureBucketAndSeed(params: {
  * @throws ContainerError if setBucketName fails on a needed bucket update or clone restoration
  */
 export async function configureContainerDO(params: ContainerConfigPayload & {
+  generation: number;
   container: { fetch: (req: Request) => Promise<Response> };
   containerId: string;
   logger: Logger;
-}): Promise<{ needsBucketUpdate: boolean; setBucketBody: string }> {
+}): Promise<{ needsBucketUpdate: boolean; claimedGeneration?: number }> {
   const { container, bucketName, containerId, logger } = params;
 
   const storedBucketName = await getStoredBucketName(container, logger, containerId);
@@ -348,11 +349,12 @@ export async function configureContainerDO(params: ContainerConfigPayload & {
       container.fetch(
         new Request('http://container/_internal/setBucketName', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'X-Codeflare-Start-Generation': String(params.generation) },
           body: setBucketBody,
         })
       )
     );
+    if (response.status === 412) throw new ContainerError('set_bucket_name');
     if (response.status !== 200 && response.status !== 409) {
       throw new Error(`setBucketName returned ${response.status}`);
     }
@@ -360,7 +362,14 @@ export async function configureContainerDO(params: ContainerConfigPayload & {
       await new Promise(resolve => setTimeout(resolve, BUCKET_NAME_SETTLE_DELAY_MS));
     }
     logger.info('Set bucket name', { bucketName, previousBucketName: storedBucketName });
+    const claim = response.headers.get('X-Codeflare-Start-Claim');
+    if (claim !== null && claim !== String(params.generation + 1)) throw new ContainerError('set_bucket_name');
+    // Only the DO's exact claim authorizes native startup. 409 alone is
+    // merely a same-bucket configuration acknowledgement.
+    return { needsBucketUpdate: response.status === 200 && needsBucketUpdate,
+      ...(claim !== null && { claimedGeneration: Number(claim) }) };
   } catch (error) {
+    if (error instanceof ContainerError) throw error;
     if (needsBucketUpdate || params.gitCloneRepo || params.gitCloneTargets?.trim()) {
       logger.error('Failed to configure container before start', toError(error));
       throw new ContainerError('set_bucket_name', toErrorMessage(error));
@@ -368,5 +377,5 @@ export async function configureContainerDO(params: ContainerConfigPayload & {
     logger.warn('Failed to store sessionId via setBucketName', { sessionId: params.sessionId });
   }
 
-  return { needsBucketUpdate, setBucketBody };
+  return { needsBucketUpdate };
 }

@@ -192,7 +192,7 @@ async function fixture(initial: 'missing' | 'expired' | 'valid' = 'missing') {
       workspaceSyncEnabled: false, fastStartEnabled: false, sessionWorkspace: 'terminal', terminalMode: 'classic' });
     process.running = true;
     bootId = 'restarted-compute';
-    await onStart(host);
+    await onStart(host, { ownerKey: owner.bucket, sessionId: owner.sessionId, generation: claimed.lifecycleGeneration });
     // A replacement process gets a new wire; existing wires keep their generation.
     send = wireNativeProcess(claimed.lifecycleGeneration);
   };
@@ -510,7 +510,7 @@ describe('warm terminal native Pi authority', () => {
       };
       return statement;
     };
-    const starting = onStart(f.host);
+    const starting = onStart(f.host, { ownerKey: owner.bucket, sessionId: owner.sessionId, generation: 1 });
     const observedStart = starting.then(
       () => ({ ok: true }),
       error => ({ ok: false, error }),
@@ -558,7 +558,7 @@ describe('warm terminal native Pi authority', () => {
     f.records.set('lifecycleGeneration', 2);
     await f.storage.put(SHUTDOWN_REQUESTED_KEY, Date.now());
     f.host._shutdownStartedAt = Date.now();
-    await expect(onStart(f.host)).rejects.toThrow();
+    await expect(onStart(f.host, { ownerKey: owner.bucket, sessionId: owner.sessionId, generation: 1 })).rejects.toThrow();
     f.host._shutdownStartedAt = 0;
     await expect(openReviewSessionHuman(f.host, ref)).rejects.toThrow();
     for (const login of nativeLogins) await expectDenied(await f.send(login.url, {}, login));

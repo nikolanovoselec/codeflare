@@ -60,16 +60,17 @@ export async function validateSessionAndCheckLimits(params: {
   accessTier?: string;
   billingStatus?: string;
   billingPeriodEnd?: string;
-}): Promise<Session> {
+}): Promise<Session & { lifecycleGeneration: number }> {
   const { env, bucketName, sessionId, maxSessions, subscriptionTier, accessTier, billingStatus, billingPeriodEnd } = params;
 
   const repository = new D1SessionRepository(env.USAGE_DB);
   const d1Session = await repository.getSession(bucketName, sessionId);
   if (!d1Session) throw new NotFoundError('Session', sessionId);
-  const sessionData: Session = {
+  const sessionData = {
     id: d1Session.sessionId, name: d1Session.name, userId: d1Session.ownerKey,
+    lifecycleGeneration: d1Session.lifecycleGeneration,
     createdAt: d1Session.createdAt, lastAccessedAt: d1Session.lastAccessedAt,
-    status: d1Session.lifecycleState === 'running' ? 'running' : 'stopped',
+    status: d1Session.lifecycleState === 'running' ? 'running' as const : 'stopped' as const,
     agentType: d1Session.agentType, workspace: d1Session.workspace,
     terminalMode: d1Session.terminalMode, tabConfig: d1Session.tabConfig, clone: d1Session.clone, clones: d1Session.clones,
   };

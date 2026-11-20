@@ -224,9 +224,9 @@ app.post('/clone', cloneRateLimiter, async (c) => {
     return c.json({ error: 'Container not running', code: 'NOT_RUNNING' }, 503);
   }
 
-  // REQ-GITHUB-015 AC3: track a successful panel clone immediately, so a stop
-  // in the ~1 metrics tick before the container reports its workspace still
-  // restores the repository. A failed clone tracks nothing.
+  // REQ-GITHUB-319: persist the bounded restore inventory before reporting clone
+  // success. The cap applies to tracking only: an overflow clone can succeed
+  // without appearing in the automatic restore directive.
   if (upstream.status === 200) {
     const latestSession = await repository.getSession(c.get('bucketName'), sessionId);
     if (!latestSession) return c.json({ error: 'Session not found', code: 'SESSION_NOT_FOUND' }, 404);

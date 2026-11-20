@@ -94,6 +94,31 @@ describe('D1 production authority outcomes', () => {
     expect(await repository().getSession('authority-owner', 'session01')).toMatchObject({ responseRevision: 3, observationSequence: 4, cpu: '4%' });
   });
 
+  it('REQ-SESSION-018 AC2: a delayed Start cannot claim a later stopped generation', async () => {
+    const repo = repository();
+    await repo.create(input());
+    expect(await repo.start('authority-owner', 'session01', time, 0)).toMatchObject({ lifecycleGeneration: 1 });
+    await repo.claimStop('authority-owner', 'session01', 'stop-one', time, 1);
+    expect(await repo.confirmStopped('authority-owner', 'session01', 1, 'stop-one', time)).toBe(true);
+    expect(await repo.start('authority-owner', 'session01', time, 0)).toBeNull();
+    expect(await repo.getSession('authority-owner', 'session01')).toMatchObject({ lifecycleState: 'stopped', lifecycleGeneration: 1 });
+    expect(await repo.start('authority-owner', 'session01', time, 1)).toMatchObject({ lifecycleState: 'starting', lifecycleGeneration: 2 });
+  });
+
+  it('REQ-SESSION-018 AC4: startup readiness cannot write after termination has claimed the run', async () => {
+    const repo = repository();
+    await repo.create(input());
+    await repo.start('authority-owner', 'session01', time, 0);
+    expect(await repo.updateReadiness('authority-owner', 'session01', 1, true, false, true)).toBe(false);
+    expect(await repo.project('authority-owner', 'session01', 1, 0, { lifecycleState: 'running', observedAt: time })).toBe(true);
+    expect(await repo.updateReadiness('authority-owner', 'session01', 1, true, false, true)).toBe(true);
+    await repo.claimStop('authority-owner', 'session01', 'stop-one', time, 1);
+    const stopping = await repo.getSession('authority-owner', 'session01');
+    expect(stopping).toMatchObject({ lifecycleState: 'stopping' });
+    expect(await repo.updateReadiness('authority-owner', 'session01', 1, false, true, true)).toBe(false);
+    expect(await repo.getSession('authority-owner', 'session01')).toEqual(stopping);
+  });
+
   it('REQ-SESSION-018 AC5: accepted boundary, Stop and exit transitions advance durable response revisions', async () => {
     const repo = repository();
     await repo.create(input());
@@ -128,7 +153,7 @@ describe('D1 production authority outcomes', () => {
     await repo.create(input());
     await repo.start('authority-owner', 'session01', time);
     await repo.project('authority-owner', 'session01', 1, 0, { lifecycleState: 'running', observedAt: time });
-    expect(await repo.deleteConfirmed('authority-owner', 'session01')).toBe(false);
+    expect(await repo.deleteConfirmed('authority-owner', 'session01', 1)).toBe(false);
     expect(await repo.claimStop('authority-owner', 'session01', 'stop-one', time, 1)).toMatchObject({ lifecycleState: 'stopping', lifecycleGeneration: 1 });
     expect(await repo.start('authority-owner', 'session01', time)).toBeNull();
     expect(await repository().getSession('authority-owner', 'session01')).toMatchObject({
@@ -145,7 +170,11 @@ describe('D1 production authority outcomes', () => {
     expect(await repository().getSession('authority-owner', 'session01')).toEqual(restarted);
     await repo.claimStop('authority-owner', 'session01', 'stop-two', time, 2);
     expect(await repo.confirmStopped('authority-owner', 'session01', 2, 'stop-two', time)).toBe(true);
-    expect(await repo.deleteConfirmed('authority-owner', 'session01')).toBe(true);
+    expect(await repo.deleteConfirmed('authority-owner', 'session01', 1)).toBe(false);
+    expect(await repository().getSession('authority-owner', 'session01')).toMatchObject({
+      lifecycleState: 'stopped', lifecycleGeneration: 2,
+    });
+    expect(await repo.deleteConfirmed('authority-owner', 'session01', 2)).toBe(true);
     expect(await repo.project('authority-owner', 'session01', 2, 100, { observedAt: time })).toBe(false);
     expect(await repo.updateReadiness('authority-owner', 'session01', 2, true, false)).toBe(false);
     expect(await repo.updateTrackedClones('authority-owner', 'session01', [{ repo: 'example/late' }], { generation: 2, sequence: 101 })).toBe(false);

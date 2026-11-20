@@ -90,6 +90,7 @@ describe('REQ-SESSION-006: User can stop, restart, and delete sessions', () => {
   }
 
   function createCrudApp() {
+    containerState.container!.stopSession.mockImplementation(createMockSessionStop(mockKV, () => containerState.container!.destroy()));
     return createTestApp({
       routes: [{ path: '/sessions', handler: crudRoutes }],
       mockKV,
@@ -159,18 +160,22 @@ describe('REQ-SESSION-006: User can stop, restart, and delete sessions', () => {
   // AC2 (destroy clears DO storage identifiers) and AC3 (SIGTERM poll + super.destroy):
   //   covered behaviorally by src/__tests__/container/index.test.ts (destroy describe).
 
-  // AC5: DELETE /api/sessions/:id calls container.destroy() then removes KV record
-  describe('REQ-SESSION-006 AC5: delete calls container.destroy then removes KV record', () => {
-    it('calls container.destroy on delete', async () => {
-      seedSession({ status: 'stopped' });
+  describe('REQ-SESSION-006 AC5: Delete waits for the original generation to stop', () => {
+    it('deletes a running session only after its DO confirms exit', async () => {
+      seedSession({ status: 'running' });
       const app = createCrudApp();
-
-      await app.request(`/sessions/${SESSION_ID}`, { method: 'DELETE' });
-
-      expect(containerState.container!.destroy).toHaveBeenCalled();
+      const key = `session:${BUCKET}:${SESSION_ID}`;
+      let stateDuringDestroy: unknown;
+      containerState.container!.destroy.mockImplementationOnce(async () => {
+        stateDuringDestroy = await mockKV.get(key, 'json');
+      });
+      const response = await app.request(`/sessions/${SESSION_ID}`, { method: 'DELETE' });
+      expect(response.status).toBe(200);
+      expect(stateDuringDestroy).toMatchObject({ status: 'stopping', terminationGeneration: 0 });
+      expect(await mockKV.get(key, 'json')).toBeNull();
     });
 
-    it('removes session from KV after delete', async () => {
+    it('deletes an already stopped session without requesting another native destruction', async () => {
       seedSession({ status: 'stopped' });
       const app = createCrudApp();
 
@@ -179,17 +184,40 @@ describe('REQ-SESSION-006: User can stop, restart, and delete sessions', () => {
       expect(res.status).toBe(200);
       const stored = await mockKV.get(`session:${BUCKET}:${SESSION_ID}`, 'json');
       expect(stored).toBeNull();
+      expect(containerState.container!.destroy).not.toHaveBeenCalled();
     });
 
     it('returns failure and preserves the session record when destruction is unconfirmed', async () => {
-      seedSession({ status: 'stopped' });
+      seedSession({ status: 'running' });
       containerState.container!.destroy.mockRejectedValue(new Error('destruction unconfirmed'));
       const app = createCrudApp();
 
       const res = await app.request(`/sessions/${SESSION_ID}`, { method: 'DELETE' });
 
       expect(res.status).toBe(500);
-      expect(await mockKV.get(`session:${BUCKET}:${SESSION_ID}`, 'json')).not.toBeNull();
+      expect(await mockKV.get(`session:${BUCKET}:${SESSION_ID}`, 'json')).toMatchObject({ status: 'stopping' });
+    });
+
+    it('REQ-SESSION-006 AC5: a delayed Delete preserves a newer stopped generation', async () => {
+      seedSession({ status: 'running' });
+      const app = createCrudApp();
+      const key = `session:${BUCKET}:${SESSION_ID}`;
+      const container = containerState.container!;
+      const stop = createMockSessionStop(mockKV, container.destroy);
+      container.stopSession.mockImplementationOnce(async (input) => {
+        await stop(input);
+        // Before the Worker receives the old Stop result, a later execution
+        // can start and stop again, leaving an equally stopped but newer row.
+        const original = await mockKV.get(key, 'json') as Session;
+        mockKV._set(key, { ...original, lifecycleGeneration: 1, name: 'Replacement' });
+      });
+
+      const response = await app.request(`/sessions/${SESSION_ID}`, { method: 'DELETE' });
+
+      expect(response.status).toBe(500);
+      expect(await mockKV.get(key, 'json')).toMatchObject({
+        status: 'stopped', lifecycleGeneration: 1, name: 'Replacement',
+      });
     });
 
     it('returns 404 when deleting non-existent session', async () => {

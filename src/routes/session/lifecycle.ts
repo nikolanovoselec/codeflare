@@ -42,11 +42,8 @@ const sessionKillRateLimiter = createRateLimiter({
 });
 
 /**
- * Rate limiter for manual fan-out sync trigger (REQ-STOR-015 AC7).
- * 6/min matches the destructive-action pattern of session-stop / session-
- * delete. The Sync-now button is a user-driven action that should be
- * rare in normal use; 6/min covers reasonable usage without enabling
- * trigger spam against multiple containers.
+ * Rate limiter for manual fan-out sync (REQ-STOR-015 AC4):
+ * six requests per user per minute, using the same limiter pattern as stop/delete.
  */
 const sessionsSyncRateLimiter = createRateLimiter({
   windowMs: 60_000,
@@ -208,10 +205,9 @@ app.get('/ancillary-status', async (c) => {
 /**
  * POST /api/sessions/sync
  *
- * User-driven Sync-now button (REQ-STOR-015 AC1). Thin wrapper over
- * `fanOutBisyncTrigger`; the helper holds the enumeration + fan-out
- * logic so the upload-side auto-trigger (REQ-STOR-015 AC4) can share
- * it without duplication.
+ * User-driven Sync now (REQ-STOR-015 AC1/AC7). The helper enumerates
+ * the authenticated owner's workload-owning sessions and returns per-session
+ * trigger results. R2 uploads do not call this route or trigger fan-out.
  */
 app.post('/sync', sessionsSyncRateLimiter, async (c) => {
   const bucketName = c.get('bucketName');

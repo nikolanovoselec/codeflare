@@ -324,7 +324,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Acceptance Criteria:**
 
-1. Authentication is resolved in strict priority order: (a) service token, (b) SaaS session credential, (c) CF Access JWT, (d) pre-setup header fallback. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-011: Auth resolution order) -->
+1. Authentication checks the configured service secret first, then the session credential in configured SaaS or onboarding OAuth, then the CF Access JWT, then the eligible pre-setup email-header fallback. The separate CF Access client-ID policy is [REQ-SEC-014](security.md#req-sec-014-saas-service-token-header-not-trusted-in-saas-mode). <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @impl: src/lib/access.ts::validateSessionOidc --> <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-011: Auth resolution order) -->
 2. Once a method succeeds, subsequent methods are not checked. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-011: Auth resolution order) -->
 3. Once a method's branch is entered, it does not fall through to the next method on failure. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-011: Auth resolution order) -->
 
@@ -674,7 +674,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. The onboarding login offers a GitHub sign-in. <!-- @test: landing/src/__tests__/login-page.test.ts (GitHub is the single primary action and links to the OAuth entry route) -->
+1. The onboarding login offers a GitHub sign-in. <!-- @impl: landing/src/components/LoginCard.astro::LOGIN.github.href --> <!-- @test: landing/src/__tests__/login-page.test.ts (GitHub is the single primary action and links to the OAuth entry route) -->
 2. Non-approved onboarding GitHub users have their access request recorded and are redirected to the requested state. New users receive pending records; existing users retain their stored tiers, including blocked status. <!-- @impl: src/routes/github-auth.ts::onboardingAccessRequest --> <!-- @impl: src/lib/user-record.ts::updateUserRecord --> <!-- @test: src/__tests__/routes/onboarding-login.test.ts (REQ-AUTH-020 / REQ-AUTH-021: onboarding login + access-request) -->
 3. The onboarding access-request branch never runs in SaaS mode or enterprise mode. <!-- @impl: src/routes/github-auth.ts::onboardingAccessRequest --> <!-- @test: src/__tests__/routes/onboarding-login.test.ts (REQ-AUTH-020 / REQ-AUTH-021: onboarding login + access-request) -->
 4. Onboarding trusts its app-owned session credential only in session-OIDC mode. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @impl: src/lib/onboarding.ts::isSessionOidcMode --> <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-021: valid codeflare_session authenticates in onboarding mode (SAAS inactive)) -->
@@ -805,7 +805,7 @@ None.
 
 1. When the Enterprise-mode binding is set and admin Access groups are configured, a non-admin user who belongs to **any** configured admin group is elevated to `admin` for the request, granting access to admin-gated routes. <!-- @impl: src/middleware/auth.ts::requireAdmin --> <!-- @impl: src/lib/access.ts::resolveAdminAccessGroup --> <!-- @test: src/__tests__/middleware/auth.test.ts (Auth Middleware) -->
 2. A non-admin user who is in none of the configured admin groups still receives `403` from admin-gated routes. <!-- @impl: src/middleware/auth.ts::requireAdmin --> <!-- @test: src/__tests__/middleware/auth.test.ts (requireAdmin — enterprise admin-by-group (REQ-ENTERPRISE-014)) -->
-3. Admin-group checks run only on admin-gated paths and short-circuit for users already resolved as administrators. <!-- @impl: src/lib/access.ts::resolveAdminAccessGroup --> <!-- @test: src/__tests__/middleware/auth.test.ts (Auth Middleware) -->
+3. Admin-group elevation checks run only on admin-gated paths and short-circuit for users already resolved as administrators. <!-- @impl: src/middleware/auth.ts::requireAdmin --> <!-- @impl: src/lib/access.ts::resolveAdminAccessGroup --> <!-- @test: src/__tests__/middleware/auth.test.ts (Auth Middleware) -->
 4. An active user-access gate admits members of either user or admin groups. Admin groups alone never arm the gate, so entry remains open without configured user groups. <!-- @impl: src/lib/access.ts::resolveOrProvisionEnterpriseUser --> <!-- @test: src/__tests__/lib/enterprise-jit-provisioning.test.ts (REQ-ENTERPRISE-010: Access-gated JIT provisioning) -->
 5. Runtime admin-group reads are Enterprise-only; non-Enterprise admin authorization remains byte-identical to its prior behavior. <!-- @manual -->
 

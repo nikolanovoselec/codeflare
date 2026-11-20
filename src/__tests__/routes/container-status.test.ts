@@ -43,6 +43,9 @@ describe('Container Status Routes', () => {
 
   beforeEach(() => {
     mockKV = createMockKV();
+    mockKV._set('session:test-bucket:abcdef1234567890abcdef12', {
+      id: 'abcdef1234567890abcdef12', name: 'Session', status: 'running', lifecycleGeneration: 1,
+    });
     testState.container = createMockContainer();
     vi.clearAllMocks();
   });
@@ -391,7 +394,7 @@ describe('Container Status Routes', () => {
       const app = createStatusApp();
       mockKV._set('session:test-bucket:abcdef1234567890abcdef12', {
         id: 'abcdef1234567890abcdef12', name: 'Editor', userId: 'test-bucket',
-        workspace: 'vscode', createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+        workspace: 'vscode', status: 'running', createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
       });
       testState.container!.getState.mockResolvedValue({ status: 'running' });
       testState.container!.fetch.mockResolvedValue(new Response(JSON.stringify({
@@ -412,7 +415,7 @@ describe('Container Status Routes', () => {
       const app = createStatusApp();
       mockKV._set('session:test-bucket:abcdef1234567890abcdef12', {
         id: 'abcdef1234567890abcdef12', name: 'Editor', userId: 'test-bucket',
-        workspace: 'vscode', editorReady: false,
+        workspace: 'vscode', status: 'running', editorReady: false,
         createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
       });
       testState.container!.getState.mockResolvedValue({ status: 'running' });
@@ -433,7 +436,7 @@ describe('Container Status Routes', () => {
       const key = 'session:test-bucket:abcdef1234567890abcdef12';
       const session = {
         id: 'abcdef1234567890abcdef12', name: 'Editor', userId: 'test-bucket',
-        workspace: 'vscode' as const, editorReady: false,
+        workspace: 'vscode' as const, status: 'running', editorReady: false,
         createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
       };
       mockKV._set(key, session);
@@ -451,12 +454,26 @@ describe('Container Status Routes', () => {
       expect(stored).toMatchObject({ name: 'Renamed concurrently', editorReady: true, metrics: { cpu: '42%' } });
     });
 
+    it('REQ-SESSION-018 AC4: readiness from an old run does not mark its replacement ready', async () => {
+      const app = createStatusApp();
+      const key = 'session:test-bucket:abcdef1234567890abcdef12';
+      const workspace = { id: 'abcdef1234567890abcdef12', workspace: 'vscode', editorReady: false };
+      mockKV._set(key, { ...workspace, status: 'running', lifecycleGeneration: 7 });
+      testState.container!.fetch.mockImplementation(async () => {
+        mockKV._set(key, { ...workspace, status: 'starting', lifecycleGeneration: 8 });
+        return Response.json({ syncStatus: 'success', editorReady: true });
+      });
+      const response = await app.request(`/container/startup-status${sessionQuery}`);
+      expect(await response.json()).toMatchObject({ stage: 'starting' });
+      expect(await mockKV.get(key, 'json')).toMatchObject({ lifecycleGeneration: 8, editorReady: false });
+    });
+
     it('REQ-IDE-050 AC1: does not recreate a session deleted while readiness resolves', async () => {
       const app = createStatusApp();
       const key = 'session:test-bucket:abcdef1234567890abcdef12';
       mockKV._set(key, {
         id: 'abcdef1234567890abcdef12', name: 'Editor', userId: 'test-bucket',
-        workspace: 'vscode', editorReady: false,
+        workspace: 'vscode', status: 'running', editorReady: false,
         createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
       });
       testState.container!.getState.mockResolvedValue({ status: 'running' });
@@ -469,7 +486,7 @@ describe('Container Status Routes', () => {
 
       const response = await app.request(`/container/startup-status${sessionQuery}`);
 
-      expect((await response.json() as { stage: string }).stage).toBe('ready');
+      expect((await response.json() as { stage: string }).stage).not.toBe('ready');
       expect(await mockKV.get(key, 'json')).toBeNull();
     });
 
@@ -477,7 +494,7 @@ describe('Container Status Routes', () => {
       const app = createStatusApp();
       mockKV._set('session:test-bucket:abcdef1234567890abcdef12', {
         id: 'abcdef1234567890abcdef12', name: 'Editor', userId: 'test-bucket',
-        workspace: 'vscode', createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+        workspace: 'vscode', status: 'running', createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
       });
       testState.container!.getState.mockResolvedValue({ status: 'running' });
       testState.container!.fetch.mockResolvedValue(new Response(JSON.stringify({
@@ -497,7 +514,7 @@ describe('Container Status Routes', () => {
       const app = createStatusApp();
       mockKV._set('session:test-bucket:abcdef1234567890abcdef12', {
         id: 'abcdef1234567890abcdef12', name: 'Editor', userId: 'test-bucket',
-        workspace: 'vscode', editorReady: false,
+        workspace: 'vscode', status: 'running', editorReady: false,
         createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
       });
       testState.container!.getState.mockResolvedValue({ status: 'running' });

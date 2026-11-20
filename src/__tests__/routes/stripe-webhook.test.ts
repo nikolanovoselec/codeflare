@@ -510,6 +510,26 @@ describe('handleSubscriptionUpdated', () => {
 // customer.subscription.deleted - ordered canceled/free apply (CF-004)
 // ---------------------------------------------------------------------------
 describe('handleSubscriptionDeleted', () => {
+  it.each([
+    { scenario: 'matching trial', status: 'trialing', storedId: 'sub_deleted', deletedId: 'sub_deleted', trialUsed: true, applied: true },
+    { scenario: 'replaced trial', status: 'trialing', storedId: 'sub_replacement', deletedId: 'sub_deleted', trialUsed: undefined, applied: false },
+    { scenario: 'missing subscription identity', status: 'trialing', storedId: undefined, deletedId: undefined, trialUsed: undefined, applied: true },
+    { scenario: 'non-trial subscription', status: 'active', storedId: 'sub_deleted', deletedId: 'sub_deleted', trialUsed: undefined, applied: true },
+  ])('REQ-SUB-005 AC6: deletion trial history follows the guarded subscription ($scenario)', async ({
+    status, storedId, deletedId, trialUsed, applied,
+  }) => {
+    seedCustomer('cus_trial', 'trial-delete@example.com', { billingStatus: status, stripeSubscriptionId: storedId });
+
+    const res = await postWebhook(createApp(), buildEvent('customer.subscription.deleted', { id: deletedId, customer: 'cus_trial' }));
+
+    expect(res.status).toBe(200);
+    const user = await mockKV.get('user:trial-delete@example.com', 'json') as Record<string, unknown>;
+    expect(user.trialUsed).toBe(trialUsed);
+    expect(user.billingStatus).toBe(applied ? 'canceled' : status);
+    expect(user.stripeSubscriptionId).toBe(applied ? undefined : storedId);
+    expect(user.subscriptionTier).toBe(applied ? 'free' : 'standard');
+  });
+
   it('REQ-SUB-015 AC3: a deletion prevents an older in-flight update from restoring entitlements', async () => {
     seedCustomer('cus_del_ordered', 'ordered-delete@example.com', {
       subscriptionTier: 'advanced', accessTier: 'advanced', subscribedMode: 'advanced',

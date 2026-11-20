@@ -65,6 +65,17 @@ export function createMockSessionD1(kv: MockKV): D1Database {
         bind(...values: unknown[]) { args = values; return statement; },
         async first() {
           if (sql.includes('SELECT state FROM session_cutover')) return { state: 'complete' };
+          if (/SET\s+lifecycle_state='starting'/.test(sql) && sql.includes('RETURNING')) {
+            const session = await get(args[0], args[1]);
+            if (!session || session.status !== 'stopped' || session.terminationIntentId || session.boundaryActivityId
+                || (args[3] != null && (session.lifecycleGeneration ?? 0) !== args[3])) return null;
+            session.status = 'starting'; session.lifecycleGeneration = (session.lifecycleGeneration ?? 0) + 1;
+            session.observationSequence = -1; session.responseRevision = (session.responseRevision ?? 0) + 1;
+            session.editorReady = false; session.editorReadyError = false;
+            session.transitionedAt = args[2]; session.lifecycleReason = undefined;
+            await put(args[0], session);
+            return row(String(args[0]), session);
+          }
           if (sql.includes('runtime_sessions')) {
             const session = await get(args[0], args[1]);
             return session ? row(String(args[0]), session) : null;
@@ -82,7 +93,13 @@ export function createMockSessionD1(kv: MockKV): D1Database {
           }
           if (sql.includes('DELETE FROM runtime_sessions')) {
             if (args.length === 1) { const found = await kv.list({ prefix: `session:${String(args[0])}:` }); for (const x of found.keys) await kv.delete(x.name); return { success: true, meta: { changes: found.keys.length } }; }
-            const exists = await get(args[0], args[1]); if (exists) await kv.delete(key(args[0], args[1])); return { success: true, meta: { changes: exists ? 1 : 0 } };
+            const session = await get(args[0], args[1]);
+            const canDelete = session && (!sql.includes("lifecycle_state='stopped'") || (
+              (session.status ?? 'stopped') === 'stopped' && !session.boundaryActivityId
+              && (session.lifecycleGeneration ?? 0) === args[2]
+            ));
+            if (canDelete) await kv.delete(key(args[0], args[1]));
+            return { success: true, meta: { changes: canDelete ? 1 : 0 } };
           }
           const session = await get(args[0], args[1]);
           if (!session) return { success: true, meta: { changes: 0 } };
@@ -123,11 +140,6 @@ export function createMockSessionD1(kv: MockKV): D1Database {
                 || (session.lifecycleGeneration ?? 0) !== args[2] || session.boundaryActivityId) return { success: true, meta: { changes: 0 } };
             session.terminationSignalAcceptedAt ??= args[4];
           }
-          else if (/SET\s+lifecycle_state='starting'/.test(sql)) {
-            if (session.status !== 'stopped' || session.terminationIntentId) return { success: true, meta: { changes: 0 } };
-            session.status = 'starting'; session.lifecycleGeneration = (session.lifecycleGeneration ?? 0) + 1; session.observationSequence = -1;
-            session.editorReady = false; session.editorReadyError = false;
-          }
           else if (/SET\s+lifecycle_state='stopping'/.test(sql)) {
             if (!['starting', 'running', 'unreachable'].includes(session.status) || session.terminationIntentId
               || (sql.includes('lifecycle_generation=?5') && args[4] != null && (session.lifecycleGeneration ?? 0) !== args[4])) {
@@ -163,7 +175,11 @@ export function createMockSessionD1(kv: MockKV): D1Database {
             if (args[4] === 'lastStartedAt') session.lastStartedAt = args[5];
             if (args[4] === 'lastActiveAt' || (args[3] === 'running' && args[4] === 'lastStartedAt')) session.lastActiveAt = args[5];
           }
-          if (sql.includes('editor_ready=?4')) { session.editorReady = args[3] === 1; session.editorReadyError = args[4] === 1; }
+          if (sql.includes('editor_ready=?4')) {
+            if (args[5] === 1 && ((session.lifecycleGeneration ?? 0) !== args[2] || session.terminationIntentId
+              || session.status !== 'running')) return { success: true, meta: { changes: 0 } };
+            session.editorReady = args[3] === 1; session.editorReadyError = args[4] === 1;
+          }
           if (sql.includes('clones_json=?3')) {
             if (args[3] != null && ((session.lifecycleGeneration ?? 0) !== args[3]
                 || Number(args[4]) <= (session.observationSequence ?? -1)

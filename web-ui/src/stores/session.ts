@@ -650,19 +650,39 @@ function startSession(id: string): Promise<void> {
     );
     updateSessionStatus(id, 'initializing');
 
+    const releaseUnconfirmedStart = (error: string) => {
+      startupCleanups.delete(id);
+      setState(produce((s) => {
+        delete s.initializingSessionIds[id];
+        delete s.initProgressBySession[id];
+      }));
+      const current = state.sessions.find((candidate) => candidate.id === id);
+      if (current?.status === 'initializing') updateSessionStatus(id, current.lifecycle ?? 'stopped');
+      void loadSessions();
+      reject(new Error(error));
+    };
+
     const cleanup = api.startSession(
       id,
       (progress) => {
+        if (progress.stage === 'ready') return; // The completion callback verifies current ownership.
         setState(
           produce((s) => {
             s.initProgressBySession[id] = progress;
           })
         );
       },
-      () => {
+      (generation) => {
+        const index = state.sessions.findIndex((session) => session.id === id);
+        const current = state.sessions[index];
+        if (!current || isLocallyStopping(id) || localKillAttempts.has(id)
+          || (current.generation !== undefined && current.generation > generation)
+          || (current.generation === generation && (current.lifecycle === 'stopped' || current.lifecycle === 'stopping'))) {
+          releaseUnconfirmedStart('This Start was superseded.');
+          return;
+        }
         startupCleanups.delete(id);
         updateSessionStatus(id, 'running');
-        const index = state.sessions.findIndex((session) => session.id === id);
         if (index !== -1 && state.sessions[index].workspace === 'vscode') {
           setState('sessions', index, 'editorReady', true);
           setState('sessions', index, 'editorReadyError', false);
@@ -676,6 +696,10 @@ function startSession(id: string): Promise<void> {
         resolve();
       },
       (error, code) => {
+        if (code === 'SESSION_START_UNCONFIRMED') {
+          releaseUnconfirmedStart(error);
+          return;
+        }
         startupCleanups.delete(id);
         setState(
           produce((s) => {

@@ -1,24 +1,11 @@
 /**
- * Sync fan-out helper (REQ-STOR-015 AC1 + AC4).
+ * Sync now fan-out (REQ-STOR-015 AC1–AC3, AC7). The manual route reads
+ * the owner's workload-owning sessions from D1 and forwards a trigger to
+ * each Container DO. R2 uploads do not trigger fan-out.
  *
- * Enumerates a user's running sessions and forwards POST
- * /internal/bisync-trigger to each Container DO. Used by:
- *
- * - POST /api/sessions/sync (foreground, user-driven Sync-now button)
- * - Upload-side auto-trigger after R2 PUT (background via
- *   executionCtx.waitUntil)
- *
- * Hibernation safety: stateless. No Worker-side cache, no DO-side
- * cache. Each call freshly enumerates KV (which is authoritative for
- * session status per REQ-STOR-014) and freshly forwards to each
- * Container DO. Hibernated DOs / sleeping containers return 503,
- * which is translated to 'not-running' so the caller can mark the
- * session as "skipped" rather than "failed".
- *
- * Fan-out correctness: under the existing `--conflict-resolve newer`
- * semantics in entrypoint.sh, the merge is commutative and associative
- * on absolute mtime. Parallel and serial fan-out produce the same
- * final R2 state per file. See AD56.
+ * A 503 becomes `not-running`; one failed request cannot prevent the
+ * other sessions from attempting sync. Bisync's newest-file-wins rule
+ * does not guarantee convergence for equal or racing mtimes (AD56).
  */
 import { getContainer } from '@cloudflare/containers';
 import type { Env } from '../types';
@@ -42,8 +29,8 @@ export interface SyncSessionResult {
 }
 
 /**
- * Enumerate the authenticated user's running sessions and fan-out the
- * bisync trigger. Per-session failures are isolated (REQ-STOR-015 AC3).
+ * Fan out the bisync trigger to the authenticated owner's workload-owning
+ * sessions. Per-session failures are isolated (REQ-STOR-015 AC3).
  */
 export async function fanOutBisyncTrigger(
   env: Pick<Env, 'KV' | 'USAGE_DB' | 'CONTAINER'>,

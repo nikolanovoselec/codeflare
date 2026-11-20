@@ -1358,7 +1358,7 @@ describe('Session Store', () => {
         createdAt: new Date().toISOString(),
         lastAccessedAt: new Date().toISOString(),
       });
-      let completeStart: (() => void) | undefined;
+      let completeStart: ((generation: number) => void) | undefined;
       vi.mocked(api.startSession).mockImplementation((_id, _progress, onComplete) => {
         completeStart = onComplete;
         return () => {};
@@ -1369,7 +1369,7 @@ describe('Session Store', () => {
 
       expect(sessionStore.activeSessionId).toBeNull();
       expect(sessionStore.getTerminalsForSession('clone-editor')).toBeNull();
-      completeStart?.();
+      completeStart?.(1);
       await creating;
 
       expect(sessionStore.activeSessionId).toBeNull();
@@ -1389,7 +1389,7 @@ describe('Session Store', () => {
         createdAt: new Date().toISOString(),
         lastAccessedAt: new Date().toISOString(),
       });
-      let completeStart: (() => void) | undefined;
+      let completeStart: ((generation: number) => void) | undefined;
       vi.mocked(api.startSession).mockImplementation((_id, _progress, onComplete) => {
         completeStart = onComplete;
         return () => {};
@@ -1399,7 +1399,7 @@ describe('Session Store', () => {
       await vi.waitFor(() => expect(api.startSession).toHaveBeenCalled());
 
       expect(sessionStore.activeSessionId).toBe('clone-terminal');
-      completeStart?.();
+      completeStart?.(1);
       await creating;
 
       expect(sessionStore.getTerminalsForSession('clone-terminal')).not.toBeNull();
@@ -1846,7 +1846,7 @@ describe('Session Store', () => {
         maxSessions: 3,
       } as never);
       await sessionStore.loadSessions();
-      let completeStart: (() => void) | undefined;
+      let completeStart: ((generation: number) => void) | undefined;
       vi.mocked(api.startSession).mockImplementation((_id, _progress, onComplete) => {
         completeStart = onComplete;
         return () => {};
@@ -1855,12 +1855,39 @@ describe('Session Store', () => {
       const starting = sessionStore.startSession('session-1');
       expect(sessionStore.sessions[0].editorReady).toBe(false);
       expect(sessionStore.isSessionInitializing('session-1')).toBe(true);
-      completeStart?.();
+      completeStart?.(1);
       await starting;
 
       expect(sessionStore.sessions[0]).toMatchObject({ status: 'running', editorReady: true });
       expect(sessionStore.isSessionInitializing('session-1')).toBe(false);
       expect(sessionStore.getTerminalsForSession('session-1')).toBeNull();
+    });
+
+    it.each([
+      { generation: 8, lifecycle: 'starting' as const },
+      { generation: 7, lifecycle: 'stopping' as const },
+    ])('REQ-SESSION-018 AC4: a late Ready cannot override accepted $lifecycle authority', async ({ generation, lifecycle }) => {
+      const editor = { id: 'session-1', name: 'Editor', workspace: 'vscode' as const, editorReady: false,
+        createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString() };
+      mockGetSessions.mockResolvedValue([{ ...editor, status: 'stopped', lifecycle: 'stopped', generation: 6, revision: 1 }]);
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {} });
+      await sessionStore.loadSessions();
+      let complete!: (generation: number) => void;
+      vi.mocked(api.startSession).mockImplementation((_id, _progress, onComplete) => {
+        complete = onComplete;
+        return () => {};
+      });
+      const start = sessionStore.startSession(editor.id);
+      const replacement = { ...editor, generation, lifecycle, status: lifecycle, revision: 4 };
+      mockGetSessions.mockResolvedValue([replacement]);
+      await sessionStore.loadSessions();
+      expect(sessionStore.sessions[0]).toMatchObject({ generation, lifecycle });
+      const staleReady = expect(start).rejects.toThrow('superseded');
+      complete(7);
+      await staleReady;
+      expect(sessionStore.sessions[0]).toMatchObject({ generation, lifecycle, editorReady: false });
+      expect(sessionStore.isSessionInitializing(editor.id)).toBe(false);
+      expect(sessionStore.getTerminalsForSession(editor.id)).toBeNull();
     });
 
     it('REQ-IDE-049 AC3: marks a failed VS Code start as an editor-timeout retry', async () => {
