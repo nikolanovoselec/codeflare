@@ -1535,7 +1535,7 @@ describe('Setup Store / REQ-ENTERPRISE-022', () => {
       expect(mockFetch).toHaveBeenCalledWith('/api/users', expect.any(Object));
     });
 
-    // Regression: in enterprise mode GET /api/users returns 403 (REQ-ENTERPRISE-009).
+    // Regression: in enterprise mode GET /api/users returns 403 (REQ-ENTERPRISE-308).
     // loadExistingConfig must source admins + the Access group from the prefill endpoint
     // and never call /api/users, otherwise the throw aborts the prefill and the stored
     // ENTERPRISE_ACCESS_GROUP is silently cleared on the next save.

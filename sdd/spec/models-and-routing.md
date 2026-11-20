@@ -16,13 +16,13 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Acceptance Criteria:**
 
-1. The container DO routes outbound HTTPS for the real LLM provider host (`api.openai.com`) through a session-bound Worker interceptor. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-004: compat fallback on REST 404 (dual transport — AD74 amendment)) -->
+1. In Enterprise mode, the Worker mediates outbound HTTPS to the real LLM provider host (`api.openai.com`) under the requesting session's authority. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-004: compat fallback on REST 404 (dual transport — AD74 amendment)) -->
 2. The interceptor receives Worker-resolved gateway coordinates and credentials without exposing them through the container or a public route. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-017: AI Gateway URL/token resolved from props (wizard) with env fallback) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-004: enabled personal permission preserves sanctioned Dynamic Route routing) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-004: enabled personal permission preserves sanctioned managed Native Route routing) -->
 3. Streaming responses are preserved end-to-end. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-004: streaming passthrough (no buffering)) --> <!-- @test: src/__tests__/lib/target-capability-runtime.test.ts (delivers a real public delta while later text, terminal events and EOF are withheld) -->
 4. Forwarded requests stamp gateway ID plus user email or bucket fallback; up to four matched groups become deterministic metadata tags, and the session's first configured matching group controls route restrictions. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @impl: src/lib/access.ts::resolveRouteCatalog --> <!-- @impl: src/lib/access.ts::resolveSessionAccessGroup --> <!-- @test: src/__tests__/llm-interceptor.test.ts (AC4: stamps cf-aig-metadata with props.user verbatim (the user email)) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (AC5: a client-supplied cf-aig-gateway-id is overwritten with the interceptor-derived gateway id) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (stamps one group_<sanitized>_<hash>=1 tag per matched group and NO scalar group key) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (truncates to 4 group tags (user + 4 = CF 5-tag cap) deterministically in configured order and warns) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (maps using the matched group catalog/default (group overrides global)) -->
 5. The container's placeholder credential (`Authorization` / `x-api-key`) is stripped before forwarding so it never reaches the gateway; gateway auth is stamped separately. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-004: placeholder-auth stripping) -->
 6. For sanctioned Gateway routing, the interceptor maps only the known provider host (`api.openai.com`); an unmapped host (including `api.anthropic.com`, which is not an enterprise agent host) fails closed (400) and an unconfigured/unparseable gateway fails closed (503) — neither forwards anywhere. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-004 / REQ-ENTERPRISE-006 AC4: fail-closed guards) -->
-7. When the Enterprise-mode binding is unset, the DO never wires interception, the interceptor is never instantiated, and agent LLM traffic follows the current direct-key path, byte-identical to current behavior. <!-- @impl: src/container/index.ts::startAndWaitForPorts --> <!-- @test: src/__tests__/container/enterprise-llm.test.ts (does NOT wire interception on a non-enterprise start (SaaS start path byte-identical)) -->
+7. With the Enterprise-mode binding unset, agent LLM traffic follows the existing direct-key path byte-for-byte without Enterprise interception. <!-- @impl: src/container/index.ts::startAndWaitForPorts --> <!-- @test: src/__tests__/container/enterprise-llm.test.ts (does NOT wire interception on a non-enterprise start (SaaS start path byte-identical)) -->
 
 **Constraints:**
 
@@ -454,7 +454,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Acceptance Criteria:**
 
-1. Worker/browser share strict parsing; outer document schemas remain v1. <!-- @impl: src/lib/ai-capability-discovery/contract.ts::parseCapabilitySummary --> <!-- @test: src/__tests__/lib/independent-capability-authority.test.ts (round-trips per-mapping evidence and authorizes verified tools without input cache evidence) --> <!-- @test: src/__tests__/lib/independent-capability-authority.test.ts (rejects malformed or extra evidence without restoring a grade (%j)) -->
+1. Worker and browser apply the same strict validation; outer document schemas remain v1. <!-- @impl: src/lib/ai-capability-discovery/contract.ts::parseCapabilitySummary --> <!-- @test: src/__tests__/lib/independent-capability-authority.test.ts (round-trips per-mapping evidence and authorizes verified tools without input cache evidence) --> <!-- @test: src/__tests__/lib/independent-capability-authority.test.ts (rejects malformed or extra evidence without restoring a grade (%j)) -->
 2. V2 authority requires complete tools/replay and exact profile semantic-group/alias coverage with the correct mapped operation; duplicate, missing or extra rows/levels fail closed. <!-- @impl: src/lib/ai-capability-discovery/contract.ts::capabilityEvidenceMatches --> <!-- @test: src/__tests__/lib/independent-capability-authority.test.ts (binds evidence levels and transport to the actual immutable profile rather than trusting capability booleans) --> <!-- @test: src/__tests__/lib/independent-capability-authority.test.ts (REQ-ENTERPRISE-095: grants only complete canonical semantic groups and refuses missing, extra, duplicate or misgrouped evidence) -->
 3. Cache is optional. <!-- @impl: src/lib/ai-capability-discovery/contract.ts::capabilityEvidenceMatches --> <!-- @test: src/__tests__/routes/target-capability-discovery.test.ts (REQ-ENTERPRISE-035/043: lets an administrator activate verified tools without cache reuse and save an Off preference through real receipt authority) -->
 4. Strict legacy v1 decoding preserves original qualification and current adapter/canary rules; formerly ineligible evidence cannot gain authority from v2 policy or load/rebind. <!-- @impl: src/lib/ai-capability-discovery/contract.ts::legacyCapabilityQualifies --> <!-- @test: src/__tests__/lib/independent-capability-authority.test.ts (retains legacy failed evidence for reading without upgrading it to current usable authority) -->
@@ -819,7 +819,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 **Acceptance Criteria:**
 
 1. The Worker assigns a server-owned target UUID and derives its stable opaque `cf-native-<uuid>` handle from that UUID. <!-- @impl: src/lib/native-ai-targets.ts::reconcileNativeTargets --> <!-- @impl: src/lib/native-ai-targets.ts::nativeTargetHandle --> <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-054: administrator confirmation issues server identity, persists authority, and leaves it unchanged on route-only Save) -->
-2. The versioned Worker KV document persists raw provider-configuration identity and any validated BYOK alias. <!-- @impl: src/lib/native-ai-targets.ts::reconcileNativeTargets --> <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-054: administrator confirmation issues server identity, persists authority, and leaves it unchanged on route-only Save) -->
+2. The versioned native-target document preserves the raw provider-configuration identity and any validated BYOK alias across save and reload. <!-- @impl: src/lib/native-ai-targets.ts::reconcileNativeTargets --> <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-054: administrator confirmation issues server identity, persists authority, and leaves it unchanged on route-only Save) -->
 
 **Constraints:** The document contains at most 64 unique targets and keeps exact provider authority Worker-only.
 
@@ -1027,7 +1027,10 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 3. The OpenAI GPT-5.6 built-in exposes only the `off` mapping `reasoning_effort: none`; each exact model still requires target verification. <!-- @impl: src/lib/reasoning-profiles.ts::BUILT_IN_REASONING_PROFILES --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (REQ-ENTERPRISE-048: ships live-evidenced native profiles without overstating reasoning controls) -->
 4. GPT-6 Astra remains excluded from the profile. <!-- @impl: src/lib/reasoning-profiles.ts::BUILT_IN_REASONING_PROFILES --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (REQ-ENTERPRISE-048: ships live-evidenced native profiles without overstating reasoning controls) -->
 
-**Constraints:** Provider-default profiles do not claim Off, Medium, High, or signed-thinking semantics. Built-in catalog metadata does not replace the exact-target verification and runtime enforcement in [REQ-ENTERPRISE-052](#req-enterprise-052-native-provider-verification-and-runtime-enforcement).
+**Constraints:**
+
+- Provider-default profiles do not claim Off, Medium, High, or signed-thinking semantics.
+- Built-in catalog metadata does not replace exact-target verification and runtime enforcement in [REQ-ENTERPRISE-052](#req-enterprise-052-native-provider-verification-and-runtime-enforcement).
 
 **Priority:** P1
 
@@ -1396,6 +1399,32 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 ## Container publication and startup
 
+### REQ-ENTERPRISE-314: Effective AI Gateway credentials
+
+**Intent:** Runtime inference uses the authorized saved Gateway configuration and fails closed instead of substituting fallback secrets for unreadable credentials.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Gateway configuration prefers saved fields and permits deployment fallback only when saved state is absent; unreadable saved credentials fail closed without throwing. <!-- @impl: src/lib/aig-config.ts::getAigConfig --> <!-- @test: src/__tests__/lib/aig-config.test.ts (env fallback: with KV unset, the deploy-secret env values are used) --> <!-- @test: src/__tests__/lib/aig-config.test.ts (fails closed without throwing when a saved credential cannot be decrypted) -->
+2. Each session's LLM interceptor receives the resolved gateway URL, optional account-API gateway name, and token, with deployment fallback only for absent properties under AC1. <!-- @impl: src/container/container-interception.ts::llm --> <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-017: AI Gateway URL/token resolved from props (wizard) with env fallback) -->
+
+**Constraints:**
+
+- URL and token resolve independently; sources may mix only when that particular saved field is absent.
+- Unreadable saved credentials deny inference. The resolved token stays Worker-side under [REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) AC4.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-ENTERPRISE-017](setup.md#req-enterprise-017-ai-gateway-configured-in-the-setup-wizard), [REQ-ENTERPRISE-006](setup.md#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var)
+
+**Verification:** Automated: [aig-config.test.ts](../../src/__tests__/lib/aig-config.test.ts), [llm-interceptor.test.ts](../../src/__tests__/llm-interceptor.test.ts)
+
+**Status:** Implemented
+
+---
+
 ### REQ-ENTERPRISE-005: Container-Side Enterprise Routing (CA Trust + Constant Base-URLs)
 
 **Intent:** Agents in Enterprise Mode must be work-ready against the AI Gateway with zero manual login and zero injected credentials, so the container only learns it is in enterprise mode and configures itself to use the intercepted provider hosts.
@@ -1405,7 +1434,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 **Acceptance Criteria:**
 
 1. Enterprise containers receive the active flag plus configured non-secret catalog, default, reasoning (including explicit empty reasoning), and context-window hints resolved from the session's first matching group or global fallback; gateway coordinates, credentials, and resolved model IDs remain absent. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @test: src/__tests__/container/container-env-llm.test.ts (REQ-ENTERPRISE-005: enterprise env injection (flag-on emit)) --> <!-- @test: src/__tests__/container/container-env-llm.test.ts (REQ-ENTERPRISE-005: emits an explicit empty reasoning hint for a provider-default enterprise snapshot) -->
-2. When the Enterprise-mode binding is `active`, the Cloudflare containers CA enters the system trust store and Node/Python CA settings are prepended to shell startup configuration, so PTY-spawned agent shells inherit them and all agent HTTPS clients trust intercepted TLS connections. <!-- @impl: entrypoint.sh::CF_CA_SRC --> <!-- @test: host/__tests__/entrypoint-enterprise-ca-copilot.test.js (REQ-ENTERPRISE-005 AC2: NODE_EXTRA_CA_CERTS in .bashrc points at the CF_CA_SRC path) -->
+2. With Enterprise mode `active`, the system trust store includes the Cloudflare containers CA. Node and Python clients inherit that trust in PTY-launched agent shells, and agent HTTPS clients validate intercepted TLS. <!-- @impl: entrypoint.sh::CF_CA_SRC --> <!-- @test: host/__tests__/entrypoint-enterprise-ca-copilot.test.js (REQ-ENTERPRISE-005 AC2: NODE_EXTRA_CA_CERTS in .bashrc points at the CF_CA_SRC path) -->
 3. Enterprise Copilot receives persistent-shell BYOK base URL, placeholder, default route, and prompt/output limits; startup overwrites stale defaults. It exposes only the default dynamic route, which maps on egress, and route changes require relaunch. <!-- @impl: entrypoint.sh::COPILOT_BYOK_TMP --> <!-- @test: host/__tests__/entrypoint-enterprise-ca-copilot.test.js (REQ-ENTERPRISE-005 AC3: COPILOT_MODEL in .bashrc equals the ENTERPRISE_DEFAULT_ROUTE value) -->
 4. The container never receives the AI Gateway URL, gateway token or mediated Gateway per-session secrets; routing to the gateway is done entirely by the DO's outbound interception ([REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway)). <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env-llm.test.ts (REQ-ENTERPRISE-005: enterprise env injection (flag-on emit)) -->
 5. When the Enterprise-mode binding is unset, that binding is not emitted, no agent configuration block runs, and the container env is byte-identical to current behavior. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env-llm.test.ts (REQ-ENTERPRISE-005: enterprise env injection (flag-on emit)) --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-005 AC5: outer Enterprise gate skips Pi provider config when mode is unset) -->
@@ -1414,7 +1443,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Constraints:**
 
-- The placeholder credential is a fixed non-secret constant; the interceptor strips it before forwarding ([REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) AC5), so it never reaches the gateway.
+- The placeholder credential is a fixed non-secret constant; the interceptor strips it before forwarding ([REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) AC5); the placeholder never reaches the gateway.
 - `ENTERPRISE_MODE` rides the existing container env pipeline ([REQ-AGENT-031](agents.md#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity)); no per-agent login step is added.
 - Route catalog, default, and reasoning values are non-secret container hints; slash-free handles map Worker-side, and backend keys remain in the gateway.
 - Only the allowlisted enterprise agents ([REQ-ENTERPRISE-003](agents.md#req-enterprise-003-agent-allowlist-in-enterprise-mode)) are configured; `bash` needs no LLM configuration.

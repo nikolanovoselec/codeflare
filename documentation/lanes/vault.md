@@ -111,6 +111,8 @@ Two classes of path are hidden from the SilverBullet client listing/sync ([REQ-V
 <a id="capture-path-req-vault-002"></a>
 ### Capture Path (REQ-VAULT-002)
 
+For [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault) AC1, Claude's user-visible capture notice is the hook's `systemMessage`; first-message graph guidance uses a separate `additionalContext` field and does not ask the model to spawn capture. Launch alone does not advance the successful capture counter (AC6).
+
 On Claude, the `memory-capture.sh` UserPromptSubmit hook fires every 20 real user messages and immediately on the first prompt with an uncaptured resumed-session tail. It writes a `.vars` carrier naming only the uncaptured window and capture file, then launches `run-memory-capture.sh` detached. The main session spends nothing: it does not dispatch a subagent, wait, or read the result. The runner prefilters the transcript slice, builds one self-contained request, and runs the capture as a headless `claude -p` bounded to six turns, with fidelity selected by `CODEFLARE_MEMORY_MODEL` (default `sonnet`) per [AD58](../decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) and [AD124](../decisions/README.md#ad124-bounded-re-delivery-replaces-the-memory-capture-hard-block). That capture runs `memory-agent-prompt.md` end to end:
 
 1. Receives the marker-framed transcript inline in `CAPTURE_REQUEST`; no carrier, transcript path, or chunk directory must be opened. This avoids truncated persistent tool results and repeated input paging.
@@ -307,7 +309,7 @@ SilverBullet's client registers a Service Worker for offline caching. Browsers m
 
 Serving the native worker (not the former key-shim) is the AD69 fix for codeflare#445: the native worker carries SilverBullet's sync engine and its persistent `sb_files_*` local-sync store, so the editor indexes incrementally and keeps a resumable local copy instead of re-indexing the whole vault over HTTP on every cold load. The worker bytes are identical across sessions and contain zero user data (the bucket-stable vault encryption key is posted in via `postMessage` from the auth-gated bootstrap-hop page to the worker's native `set-encryption-key` handler, never baked into the JS source), so bypassing auth on this exact request is safe.
 
-Under enterprise Cloudflare Access the host-wide Access app would 302 this credential-less registration fetch to the IdP login before the Worker runs; the setup wizard auto-provisions a higher-precedence bypass app scoped to the SW path so the request reaches this short-circuit ([REQ-ENTERPRISE-006](../../sdd/spec/setup.md#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var) AC6).
+Under enterprise Cloudflare Access the host-wide Access app would 302 this credential-less registration fetch to the IdP login before the Worker runs; the setup wizard auto-provisions a higher-precedence bypass app scoped to the SW path so the request reaches this short-circuit ([REQ-ENTERPRISE-313](../../sdd/spec/setup.md#req-enterprise-313-enterprise-access-application-scope) AC2).
 
 The native worker precaches the shell `/` plus its `/.client/*` static assets via `cache.addAll(...)` during `install`. That precache of `/` runs BEFORE the bootstrap-hop sets the `codeflare_vault_bootstrap` cookie, so the shell-path 302-to-hop would otherwise make `cache.addAll` reject atomically and hang the SW install. `handleVaultRequest` suppresses that redirect for Service-Worker-context fetches, identified by `isServiceWorkerContextFetch` (`Sec-Fetch-Mode` header present and != `navigate` - the browser only sets `navigate` on top-level document loads).
 
@@ -579,7 +581,7 @@ This is a manual verification method for [REQ-MEM-035](../../sdd/spec/memory.md#
 
 ### First-prompt and post-compaction retrieval
 
-`memory-inject.ts` is the Pi counterpart of the Claude `memory-context-inject.sh` hook: on the first real prompt it extracts keywords, scores unified graph nodes, and injects top matches as a turn message from `before_agent_start`. Ranking, node cap, rendered shape, and the atomic one-shot sentinel under `/tmp/.memory-counter/` match Claude. No match leaves the sentinel unspent. Pi skips child sessions and synthetic prompts. <!-- @impl: preseed/agents/pi/extensions/memory-inject.ts::registerMemoryInject -->
+`memory-inject.ts` is the Pi counterpart of the Claude `memory-context-inject.sh` hook: on the first real prompt it extracts keywords, scores unified graph nodes, and injects top matches as a turn message from `before_agent_start`. Ranking, node cap, rendered shape, and the atomic one-shot sentinel under `/tmp/.memory-counter/` match Claude. Claude uses `head -c 200`; Pi slices through `PROMPT_SCAN_CHARS = 200`, measured in UTF-16 code units ([REQ-MEM-013](../../sdd/spec/memory.md#req-mem-013-proactive-memory-injection-on-first-prompt) AC6). No match leaves the sentinel unspent. Pi skips child sessions and synthetic prompts. <!-- @impl: preseed/agents/pi/extensions/memory-inject.ts::registerMemoryInject -->
 
 The unified graph is the injection source; a per-repository graph is not a substitute for cumulative conversation and user-note evidence. Whole-graph parsing is guarded by configurable `MEMORY_INJECT_MAX_GRAPH_BYTES`: default 104857600 bytes (100 MiB), accepting positive decimal overrides from 1 through 1073741824 bytes (1 GiB) in both runtimes. Invalid values fall back to the default. This bounds input JSON, not resident-memory allocation or latency. <!-- @impl: preseed/agents/pi/extensions/memory-inject.ts::registerMemoryInject -->
 
@@ -827,10 +829,9 @@ AC5: Follow the existing “Single-active-repo invariant” numbered repo-resolu
 AC1: Inspect Dockerfile's SilverBullet download version and zip SHA256 check in the exact image build log; match that build's immutable image identity to the deployed fixture and installed /usr/local/bin/silverbullet version. Pass only when the server (not the similarly named CLI) came from the version/digest-verified archive. No new download, image build or deployment is authorized by this procedure; unavailable image provenance blocks identity acceptance.
 
 <a id="req-vault-006-manual-qualification"></a>
-### Shutdown elapsed observation (REQ-VAULT-006)
+### Shutdown elapsed observation (REQ-SESSION-025)
 
-
-AC3: With separately authorized Stop of a disposable session containing only synced fixture notes, correlate the entrypoint “Shutdown complete (elapsed: …s)” record with that stop and its final-sync outcome; retain elapsed duration and terminal outcome, not note contents. Missing or uncorrelated elapsed logging fails this AC. An elapsed line alone proves neither successful persistence nor correct watchdog/destroy coordination; preserve those existing automated and finalization obligations. Do not change timeout budgets.
+[REQ-SESSION-025](../../sdd/spec/session-lifecycle.md#req-session-025-lifecycle-recovery-is-observably-correlated) AC6: With separately authorized Stop of a disposable session containing only synced fixture notes, correlate the entrypoint “Shutdown complete (elapsed: …s)” record with that stop and its final-sync outcome; retain elapsed duration and terminal outcome, not note contents. Missing or uncorrelated elapsed logging fails this AC. An elapsed line alone proves neither successful persistence nor correct watchdog/destroy coordination; preserve those existing automated and finalization obligations. Do not change timeout budgets.
 
 <a id="req-vault-007-manual-qualification"></a>
 ### Vault preseed delivery review (REQ-VAULT-007)

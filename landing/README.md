@@ -71,7 +71,7 @@ Use existing approved targets and content. Protected access, authentication, del
 
 ### Landing responsive navigation acceptance
 
-For REQ-LANDING-001 AC5–AC7, inspect mobile, tablet and desktop breakpoints with normal motion, reduced motion and JavaScript disabled. Trigger terminal proofs, capability text, orchestration, reveals and flare; complete resting content must remain present without JavaScript and readable under reduced motion. Keyboard-traverse navigation, trust, disclosures, contact, sign-in and footer controls. Pass only if destinations are correct and sections/controls remain distinct and visible without clipping, overlap or hidden content at every width. Do not submit contact or authenticate without separate approval.
+For [REQ-LANDING-001](../sdd/spec/landing.md#req-landing-001-public-landing-content-and-interaction) AC2–AC4, inspect mobile, tablet and desktop breakpoints with normal motion, reduced motion and JavaScript disabled. Trigger terminal proofs, capability text, orchestration, reveals and flare; complete resting content must remain present without JavaScript and readable under reduced motion. Keyboard-traverse navigation, trust, disclosures, contact, sign-in and footer controls. Pass only if destinations are correct and sections/controls remain distinct and visible without clipping, overlap or hidden content at every width. Do not submit contact or authenticate without separate approval.
 
 ### Landing mobile metadata acceptance
 

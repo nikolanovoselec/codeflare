@@ -1817,7 +1817,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
   });
 
   // =========================================================================
-  // REQ-SUB-018 AC3 / AC6 — usage quota banner surfacing + dismissibility
+  // REQ-SUB-018 AC1 / AC4 — usage quota banner surfacing + dismissibility
   //
   // usageWarning() === getUsageWarningLevel(); the banners render only in SaaS
   // mode. We drive getUsageWarningLevel per threshold and assert the matching
@@ -1936,7 +1936,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
   });
 
   // =========================================================================
-  // REQ-VAULT-019 AC4 — vault open-intent is cleared when authoritative
+  // REQ-VAULT-036 AC1 — vault open-intent is cleared when authoritative
   // session status says the target session has stopped. View departure alone
   // is not a stop and must preserve the running session's in-memory Vault state.
   // =========================================================================

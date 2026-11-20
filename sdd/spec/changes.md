@@ -4,6 +4,10 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-20: Keep active app sessions signed in across HTTP routes
+
+- REQ-AUTH-008 renews eligible SaaS and onboarding sessions on static and proxied HTTP responses as well as API responses. Renewal preserves logout, existing cookies and WebSocket upgrades; responses carrying a renewed credential are never cacheable.
+
 ## 2026-11-20: Re-authorize a Cloudflare integration
 
 - REQ-AGENT-018 and REQ-AGENT-028 label the connected Account ID and add Re-authorize to Settings. Select a permission tier to continue without disconnecting; Cancel leaves the connection unchanged.
@@ -19,7 +23,7 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 ## 2026-11-19: Temporary native Codex prompt-prefix backport
 
-- REQ-AGENT-238 carries upstream Pi PR 12319 in both installed library and bundled CLI paths, keeping the initial system prompt in the input prefix while preserving WebSocket continuation semantics.
+- [REQ-AGENT-261](agents.md#req-agent-261-codex-prompt-prefix-backport-preparation) carries upstream Pi PR 12319 in both installed library and bundled CLI paths, keeping the initial system prompt in the input prefix while preserving WebSocket continuation semantics ([REQ-AGENT-238](agents.md#req-agent-238-native-codex-prompt-prefix-compatibility)).
 - Image and post-update preparation share the guarded backport. Pristine upstream that already includes the fix, or has incompatible bytes, fails tests and Pi shadow-pin admission before publication; receipt-verified local reapplication remains separate. No dependency version, provider credentials or user settings change, and no live cache-hit or deployment acceptance is inferred.
 
 ## 2026-11-19: Compact Operator recovery controls
@@ -73,9 +77,9 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 ## 2026-11-19: Enterprise credential boundary and independent native context
 
-- REQ-ENTERPRISE-009 AC8 disables the complete authenticated deploy-keys router in Enterprise, including administrators, before parsing, credential access or provider work. Non-Enterprise PAT support and both managed GitHub providers remain unchanged; no legacy cleanup is included.
-- REQ-AGENT-029 AC5–8 carries the owner's selected OAuth account as non-secret startup metadata, separately from administrator Browser Run. Explicit clears, partial omission, transport validation and Operator exclusion preserve credential routing and account authority.
-- REQ-MEM-035 AC6 strengthens proactive scoped recall; REQ-MEM-036 replaces full-file context injection and its incompatible size budgets with native policy-only search. Keep lifecycle/path/native-binding qualification, foreground ownership, workspace scope, final writes and the old requirement fragment.
+- REQ-ENTERPRISE-306 disables the complete authenticated deploy-keys router in Enterprise, including administrators, before parsing, credential access or provider work. Non-Enterprise PAT support and both managed GitHub providers remain unchanged; no legacy cleanup is included.
+- REQ-AGENT-240 carries the owner's selected OAuth account as non-secret startup metadata, separately from administrator Browser Run. Explicit clears, partial omission, transport validation and Operator exclusion preserve credential routing and account authority.
+- REQ-MEM-036 AC6 strengthens proactive scoped recall; REQ-MEM-036 replaces full-file context injection and its incompatible size budgets with native policy-only search. Keep lifecycle/path/native-binding qualification, foreground ownership, workspace scope, final writes and the old requirement fragment.
 - Test-only source was preserved before runtime changes. Source/readiness and supplemental checks are not exact-revision CI, signed publication, deployment or runtime acceptance evidence.
 - Shadow-pin preparation qualifies the existing Goal/Plan transforms for 0.55.1/0.60.1 and Impeccable 4.10.0 with additive engine 0.1.27 support, preserving prior engines and evidence/idle/traversal guards. Current shipped pins remain unchanged until their normal bump PRs. Context-mode manifest updates now target only the named dependency, preserving unrelated same-version overrides.
 
@@ -178,7 +182,7 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 ## 2026-11-11
 
-- Separate Installed manual actions from automatic configuration, add profile-backed Dispatcher/Conductor role help and expose the existing explicit current-session activation flow. Saved settings remain distinct from acknowledgement, which does not confirm displayed settings; automatic activation uses verified package support, not display names, while authority, expiry and no-replay boundaries remain unchanged ([REQ-OPERATOR-099](operators.md#req-operator-099-installed-review-invocation-and-presentation), [REQ-OPERATOR-209](operators.md#req-operator-209-installed-schema-and-scheduling-safeguards), [REQ-OPERATOR-061](operators.md#req-operator-061-prospective-admin-session-renovate-scan)).
+- Separate Installed manual actions from automatic configuration, add profile-backed Dispatcher/Conductor role help and expose the existing explicit current-session activation flow. Saved settings remain distinct from acknowledgement, which does not confirm displayed settings; automatic activation uses verified package support, not display names, while authority, expiry and no-replay boundaries remain unchanged ([REQ-OPERATOR-099](operators.md#req-operator-099-installed-review-invocation-and-presentation), [REQ-OPERATOR-209](operators.md#req-operator-209-installed-schema-and-scheduling-safeguards), [REQ-OPERATOR-226](operators.md#req-operator-226-installed-role-and-activation-projection), [REQ-OPERATOR-061](operators.md#req-operator-061-prospective-admin-session-renovate-scan)).
 
 - Add Cloudflare-only Integrations to Settings and Administration in every deployment mode, with GitHub retained on the dashboard. Enterprise management APIs use separate Worker-held owner grants without borrowing administrator Browser credentials or changing LLM routing ([REQ-AGENT-018](agents.md#req-agent-018-integrations-connection-management-ui), [REQ-AGENT-064](agents.md#req-agent-064-connect-to-cloudflare-via-oauth), [REQ-AGENT-078](agents.md#req-agent-078-cloudflare-oauth-token-refreshed-at-the-apicloudflarecom-boundary), [REQ-BROWSER-008](browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container)).
 
@@ -192,7 +196,7 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 - Format Operator run and diagnostic timestamps using browser-preferred regions and the saved timezone while preserving original ISO instants and native hour-cycle choices ([REQ-OPERATOR-086](operators.md#req-operator-086-dropdown-runs-and-installed-workspace), [REQ-OPERATOR-084](operators.md#req-operator-084-activity-causal-diagnosis)).
 
-- Retain owner-bound MCP return feedback, refresh Settings status and offer non-destructive reauthorization with truthful saved-authorization wording. Fixed-stage OAuth diagnostics preserve credential privacy and do not certify hosted completion or renewal ([REQ-AGENT-226](mcp.md#req-agent-226-worker-owned-mcp-portal-authorization), [REQ-AGENT-228](mcp.md#req-agent-228-owner-pi-mcp-configuration-and-discovery), [REQ-AGENT-019](agents.md#req-agent-019-branded-settings-ui)).
+- Retain owner-bound MCP return feedback, refresh Settings status and offer non-destructive reauthorization with truthful saved-authorization wording. Fixed-stage OAuth diagnostics preserve credential privacy and do not certify hosted completion or renewal ([REQ-AGENT-226](mcp.md#req-agent-226-worker-owned-mcp-portal-authorization), [REQ-AGENT-228](mcp.md#req-agent-228-owner-pi-mcp-configuration-and-discovery), [REQ-AGENT-251](mcp.md#req-agent-251-owner-bound-mcp-settings-return-and-status)).
 
 ## 2026-11-09
 

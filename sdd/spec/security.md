@@ -44,8 +44,8 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Constraints:**
 
-- Pre-setup configuration endpoints required before first-run completion are intentionally public to allow initial configuration without authentication ([AD10](../../documentation/decisions/README.md#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation)).
-- A dedicated service-token authentication path is checked first in all modes for E2E testing.
+- Pre-setup configuration endpoints required before first-run completion are intentionally public ([AD10](../../documentation/decisions/README.md#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation)).
+- A dedicated service-token authentication path is checked first in all modes.
 
 **Priority:** P0
 
@@ -158,10 +158,10 @@ Security requirements for authentication enforcement, credential isolation, encr
 1. All R2 object operations (read, write, head, multipart) use SSE-C headers when an operator encryption key is configured. <!-- @impl: src/lib/r2-sse.ts::getSseHeaders --> <!-- @test: src/__tests__/lib/r2-sse.test.ts (r2-sse / REQ-SEC-005 (R2 credentials never logged or exposed)) --> <!-- @test: src/__tests__/routes/storage-upload.test.ts (REQ-SEC-005: %s emits SSE-C only for the committed encrypted regime) -->
 2. The SSE-C scheme uses AES-256; the request carries the customer-provided key and a key-hash so the storage layer can verify integrity. <!-- @impl: src/lib/r2-sse.ts::getSseHeaders --> <!-- @test: src/__tests__/lib/r2-sse.test.ts (returns 3 SSE-C headers when ENCRYPTION_KEY is set) -->
 3. The encryption key is propagated from Worker to Durable Object to container as part of the session environment. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE feeds capture pipeline) / REQ-AGENT-031 (LLM API keys + agent-specific keys propagated to container env)) -->
-4. In containers, the sync configuration is extended with SSE-C settings so all R2 traffic carries the customer-provided key. <!-- @impl: entrypoint.sh::create_rclone_config --> <!-- @test: host/__tests__/entrypoint-governed-sync.test.js (REQ-ENTERPRISE-018: rclone.conf under Governed Mode (entrypoint.sh create_rclone_config)) -->
+4. In containers, R2 traffic subject to SSE-C carries the customer-provided key. <!-- @impl: entrypoint.sh::create_rclone_config --> <!-- @test: host/__tests__/entrypoint-governed-sync.test.js (REQ-ENTERPRISE-018: rclone.conf under Governed Mode (entrypoint.sh create_rclone_config)) -->
 5. All bidirectional sync operations (initial restore, periodic sync, shutdown sync) transparently encrypt and decrypt without user action. <!-- @impl: entrypoint.sh::create_rclone_config --> <!-- @manual: Use the SSE-C case in session replacement storage acceptance to observe encrypted initial restore, periodic and shutdown transfers, and same-bucket restored digests without a prompt. -->
 6. Files are visible in the R2 dashboard (names, sizes, metadata) but contents are unreadable without the key. <!-- @impl: src/lib/r2-sse.ts::getSseHeaders --> <!-- @test: src/__tests__/lib/r2-sse.test.ts (returns 3 SSE-C headers when ENCRYPTION_KEY is set) -->
-7. When no operator encryption key is configured, R2 operations proceed without SSE-C (no code path changes). <!-- @impl: src/lib/r2-sse.ts::getSseHeaders --> <!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE feeds capture pipeline) / REQ-AGENT-031 (LLM API keys + agent-specific keys propagated to container env)) -->
+7. When no operator encryption key is configured, ordinary R2 operations proceed without SSE-C. <!-- @impl: src/lib/r2-sse.ts::getSseHeaders --> <!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE feeds capture pipeline) / REQ-AGENT-031 (LLM API keys + agent-specific keys propagated to container env)) -->
 
 **Constraints:**
 
@@ -255,10 +255,11 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Constraints:**
 
-- Headers are applied in owning response paths; 101 upgrades retain the protocol no-op exception. The MCP OAuth callback retains `Referrer-Policy: no-referrer`.
+- Headers are applied in owning response paths; 101 upgrades retain the protocol no-op exception.
+- The MCP OAuth callback retains `Referrer-Policy: no-referrer`.
 - Preflight (OPTIONS) responses receive HSTS directly in the CORS middleware.
 - Coverage of non-standard response paths (redirect responses, helper-emitted responses) lives in [REQ-SEC-021](#req-sec-021-hsts-coverage-on-redirect-response-paths).
-- Proxied SilverBullet vault content uses `X-Frame-Options: SAMEORIGIN` and `Content-Security-Policy: frame-ancestors 'self'` so same-origin prewarm works while cross-site framing stays blocked.
+- Proxied SilverBullet vault content uses `X-Frame-Options: SAMEORIGIN` and `Content-Security-Policy: frame-ancestors 'self'` to permit same-origin prewarm and block cross-site framing.
 - Vault route-validation errors and `/api/vault/:sid/status` still carry the full default security header set.
 
 **Priority:** P0
@@ -289,7 +290,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 **Constraints:**
 
 - Validation errors return structured error responses with a stable validation error code and HTTP 400.
-- Validation rules are enforced independently at each tier (Worker and UI) due to separate build pipelines.
+- Validation rules are enforced independently at each tier (Worker and UI).
 
 **Priority:** P0
 
@@ -310,7 +311,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 **Acceptance Criteria:**
 
 1. Storage paths are URI-decoded before the parent-directory traversal check so encoded traversal sequences are caught. <!-- @impl: src/routes/storage/validation.ts::validateKey --> <!-- @test: src/__tests__/security/storage-security.test.ts (REQ-SEC-010 AC1/AC2: URI-decoded traversal attacks are caught) -->
-2. A single URI-decode catches single-encoded parent-directory sequences (`..`); a double-encoded sequence (`%252E%252E`) decodes only once to an inert literal segment (`%2E%2E`) that is used verbatim as an R2 object key and never re-decoded. The URL owner encodes raw segments and verifies final parsed bucket/path identity before signing or fetching. <!-- @impl: src/lib/r2-client.ts::getR2Url --> <!-- @test: src/__tests__/lib/r2-client.test.ts (REQ-SEC-010: final signed URL identity) --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (REQ-SEC-010: migration refuses literal dot normalization before object I/O) --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (REQ-SEC-010: migration preserves leading slash and escaped object identity at fetch and copy) --> <!-- @impl: src/routes/storage/validation.ts::validateKey --> <!-- @test: src/__tests__/security/storage-security.test.ts (REQ-SEC-010 AC2: double-encoded %252E%252E decodes once to an inert literal, used verbatim and never re-decoded) -->
+2. Decode once: reject encoded parent-directory segments (`..`), but use double-encoded `%252E%252E` as inert literal `%2E%2E` in the R2 key without re-decoding. URL owners encode raw segments and verify final parsed bucket/path identity before signing or fetching. <!-- @impl: src/lib/r2-client.ts::getR2Url --> <!-- @test: src/__tests__/lib/r2-client.test.ts (REQ-SEC-010: final signed URL identity) --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (REQ-SEC-010: migration refuses literal dot normalization before object I/O) --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (REQ-SEC-010: migration preserves leading slash and escaped object identity at fetch and copy) --> <!-- @impl: src/routes/storage/validation.ts::validateKey --> <!-- @test: src/__tests__/security/storage-security.test.ts (REQ-SEC-010 AC2: double-encoded %252E%252E decodes once to an inert literal, used verbatim and never re-decoded) -->
 3. Malformed URI encoding is rejected with a validation error. <!-- @impl: src/routes/storage/validation.ts::validateKey --> <!-- @test: src/__tests__/security/storage-security.test.ts (REQ-SEC-010 AC3: malformed URI encoding throws ValidationError) -->
 4. The validator returns the decoded key. URL owners preserve literal percent/escaped segments, Unicode and query/fragment characters as object bytes; unrepresentable literal-dot normalization is refused before object I/O. Migration separately preserves legal leading slashes. <!-- @impl: src/lib/r2-migration.ts::objectUrl --> <!-- @test: src/__tests__/lib/r2-client.test.ts (REQ-SEC-010: final signed URL identity) --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (REQ-SEC-010: migration refuses literal dot normalization before object I/O) --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (REQ-SEC-010: migration preserves leading slash and escaped object identity at fetch and copy) --> <!-- @impl: src/routes/storage/validation.ts::validateKey --> <!-- @test: src/__tests__/security/storage-security.test.ts (REQ-SEC-010 AC4: validateKey returns decoded key for callers) -->
 5. The browse endpoint validates the prefix parameter against parent-directory traversal. <!-- @impl: src/routes/storage/validation.ts::validateKey --> <!-- @test: src/__tests__/routes/storage-browse.test.ts (rejects prefix with path traversal (..) with 400) -->
@@ -352,7 +353,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 - Image scanning is part of the deploy pipeline, not a runtime check.
 - The vulnerability-exception allowlist is reviewed periodically.
 - Retire a tuple when its runtime dependency is patched; absence then passes, while recurrence is an unexpected finding. <!-- @test: host/__tests__/trivy-exception-gate.test.js (accepts a patched image without the retired npm brace finding) --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (rejects recurrence of the retired npm brace vulnerability) --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (accepts a patched image without the retired basic-ftp finding) --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (rejects recurrence of the retired basic-ftp finding with scanner identities) -->
-- Identical-input deploys reuse the already-pushed (already-scanned) image without rescanning; the input-hash tag carries a weekly salt, so any reused image was scanned green within the past seven days.
+- Identical-input deploys reuse the already-pushed (already-scanned) image without rescanning; the input-hash tag carries a weekly salt and reused images require a green scan within the past seven days.
 
 **Priority:** P1
 
@@ -447,7 +448,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Priority:** P0
 
-**Dependencies:** [REQ-SEC-022](#req-sec-022-terminal-server-bearer-authentication), [REQ-AUTH-018](authentication.md#req-auth-018-user-management-admin-panel)
+**Dependencies:** [REQ-SEC-022](#req-sec-022-terminal-server-bearer-authentication), [REQ-AUTH-026](authentication.md#req-auth-026-admin-user-offboarding)
 
 **Verification:** Automated: [deploy-requires-tests.test.js](../../host/__tests__/deploy-requires-tests.test.js), [user-cleanup.test.ts](../../src/__tests__/lib/user-cleanup.test.ts), [notifications.test.ts](../../src/__tests__/routes/notifications.test.ts); Manual: [Notification device and deployment acceptance](../../documentation/lanes/security.md#notification-device-and-deployment-acceptance)
 
@@ -495,7 +496,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. File download responses use one sanitized Content-Disposition builder for attachment and permitted inline responses without changing the fetched object key. <!-- @impl: src/routes/storage/download.ts::buildContentDisposition --> <!-- @test: src/__tests__/security/storage-security.test.ts (REQ-SEC-013: Content-Disposition is built safely) --> <!-- @test: src/__tests__/routes/storage-download.test.ts (REQ-SEC-013: %s preserves Unicode object identity and emits no HTTP controls) -->
+1. Attachment and permitted inline responses apply the same Content-Disposition sanitization without changing the fetched object key. <!-- @impl: src/routes/storage/download.ts::buildContentDisposition --> <!-- @test: src/__tests__/security/storage-security.test.ts (REQ-SEC-013: Content-Disposition is built safely) --> <!-- @test: src/__tests__/routes/storage-download.test.ts (REQ-SEC-013: %s preserves Unicode object identity and emits no HTTP controls) -->
 2. The legacy filename fallback replaces quotes/backslashes and percent-encodes non-Latin-1 characters; RFC 5987 `filename*` retains the full sanitized Unicode name. <!-- @impl: src/routes/storage/download.ts::buildContentDisposition --> <!-- @test: src/__tests__/security/storage-security.test.ts (REQ-SEC-013: Content-Disposition is built safely) -->
 3. C0, DEL and C1 controls are replaced with underscores in suggested filenames; constructed headers contain no raw HTTP controls. <!-- @impl: src/routes/storage/download.ts::buildContentDisposition --> <!-- @test: src/__tests__/security/storage-security.test.ts (REQ-SEC-013: Content-Disposition is built safely) --> <!-- @test: src/__tests__/security/storage-security.test.ts (REQ-SEC-013 AC3: removes HTTP controls without losing Unicode identity) -->
 
@@ -607,6 +608,8 @@ Security requirements for authentication enforcement, credential isolation, encr
 4. General resource-protection endpoints use fail-open rate limiting (per [AD6](../../documentation/decisions/README.md#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity)). <!-- @impl: src/lib/rate-limit-core.ts::checkRateLimit --> <!-- @test: src/__tests__/middleware/rate-limit-fallback.test.ts (rate-limit fallback on KV failure / REQ-SEC-007 AC2 (KV primary, in-memory fallback with periodic cleanup) / REQ-SEC-019 AC4 (general resource-protection endpoints fail open)) -->
 5. In stress-test deployment mode, HTTP and WebSocket rate limits are bypassed with one shared warning per worker instance. <!-- @impl: src/middleware/rate-limit.ts::warnStressTestBypass --> <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @test: src/__tests__/middleware/rate-limit.test.ts (createRateLimiter / REQ-SEC-007 AC1 (factory keyed by bucketName with CF-Connecting-IP fallback) / REQ-SEC-007 AC2 (KV primary + in-memory fallback with TTL) / REQ-SEC-007 AC3 (429 with RATE_LIMIT_ERROR) / REQ-SEC-007 AC4 (X-RateLimit headers) / REQ-SEC-019 AC5 (STRESS_TEST_MODE bypass)) --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (REQ-SEC-019: permits 30 upgrades, isolates users, resets at 60 seconds, and bypasses only the stress limiter) -->
 
+6. Manual starter-documentation and agent-config recreation use the storage-seed rate limit of three requests per 60 seconds per owner. <!-- @impl: src/routes/storage/seed.ts::storageSeedRateLimiter = maxRequests: 3 --> <!-- @impl: src/routes/storage/seed.ts::app --> <!-- @test: src/__tests__/routes/storage-seed-rate-limit.test.ts (REQ-AGENT-032 AC2: storage-seed rate limiter (3/min)) --> <!-- @test: src/__tests__/routes/rate-limits.test.ts (POST /seed/getting-started - storage-seed (3/min)) -->
+
 **Constraints:**
 
 - Stress-test mode must not be active in SaaS deployments; the combination returns 503 to all requests.
@@ -616,7 +619,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-007](#req-sec-007-rate-limiting-infrastructure)
 
-**Verification:** Automated: [WebSocket rate limit](../../src/__tests__/routes/terminal-ws.test.ts), [session admission](../../src/__tests__/routes/container-lifecycle.test.ts), [failure policy](../../src/__tests__/middleware/rate-limit-fallback.test.ts), [stress bypass](../../src/__tests__/middleware/rate-limit.test.ts)
+**Verification:** Automated: [WebSocket rate limit](../../src/__tests__/routes/terminal-ws.test.ts), [session admission](../../src/__tests__/routes/container-lifecycle.test.ts), [failure policy](../../src/__tests__/middleware/rate-limit-fallback.test.ts), [stress bypass](../../src/__tests__/middleware/rate-limit.test.ts), [storage-seed rate limit](../../src/__tests__/routes/storage-seed-rate-limit.test.ts), [endpoint limits](../../src/__tests__/routes/rate-limits.test.ts)
 
 **Status:** Implemented
 
@@ -679,34 +682,111 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ### REQ-ENTERPRISE-009: Enterprise Backend Route Hardening
 
-**Intent:** Hiding a SaaS or admin surface in the frontend is not sufficient; in Enterprise Mode the corresponding routes must fail closed so the disabled capabilities cannot be reached by direct API call, URL manipulation, or a stray external event.
+**Intent:** Enterprise prevents direct use of hidden self-service subscription and access routes while retaining session preference updates. Admin routes follow [REQ-ENTERPRISE-308](#req-enterprise-308-enterprise-administration-route-boundary); payment routes follow [REQ-ENTERPRISE-307](#req-enterprise-307-enterprise-stripe-route-boundary).
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. When the Enterprise-mode binding is set, user-management reads, replacements, deletions and partial updates return 403 without mutation; user administration is delegated entirely to Cloudflare Access. <!-- @impl: src/routes/users.ts::app --> <!-- @test: src/__tests__/routes/enterprise-route-hardening.test.ts (REQ-ENTERPRISE-009 AC1: /api/users fails closed in enterprise mode) -->
-2. In enterprise mode, checkout, portal and subscription-switch billing actions return 403 before their route-specific limiters; billing-status reads return empty/disabled state without contacting Stripe. <!-- @impl: src/routes/billing.ts::default --> <!-- @test: src/__tests__/routes/billing.test.ts (DEEP-22-004: enterprise billing guards precede action limiters) -->
-3. In enterprise mode, self-serve subscription and access-request operations return 403 before their route-specific limiters and send no email. <!-- @impl: src/routes/auth.ts::default --> <!-- @test: src/__tests__/routes/auth-subscribe.test.ts (DEEP-22-005: SaaS subscribe requests remain rate-limited) --> <!-- @test: src/__tests__/routes/auth-subscribe.test.ts (DEEP-22-005: enterprise subscribe guard remains 403 after the SaaS limiter budget) --> <!-- @test: src/__tests__/routes/auth-subscribe.test.ts (DEEP-22-005: enterprise request-access guard runs before its fail-closed limiter) -->
-4. In enterprise mode, the Stripe webhook route acknowledges the event before the SaaS limiter without mutating any user's tier or billing state, so a late or stray Stripe event cannot downgrade an enterprise user. <!-- @impl: src/routes/stripe-webhook.ts::default --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (DEEP-22-006: enterprise webhook acknowledgement precedes limiter) -->
-5. When the Enterprise-mode binding is set, the admin tier/subscription configuration routes return 403 (there is a single effective tier, `unlimited`, for all users). <!-- @impl: src/routes/admin/tiers.ts::isEnterpriseMode --> <!-- @test: src/__tests__/routes/enterprise-route-hardening.test.ts (REQ-ENTERPRISE-009 AC5: admin tier config routes 403 in enterprise mode) -->
-6. When the Enterprise-mode binding is set, preferences updates are not fail-closed: the SaaS advanced-mode entitlement gate is bypassed so any user may select Pro, and effective session mode is forced to Pro regardless of stored value. <!-- @impl: src/lib/session-mode.ts::clampSessionModeToTier --> <!-- @impl: src/lib/session-mode.ts::resolveSessionMode --> <!-- @test: src/__tests__/routes/enterprise-route-hardening.test.ts (REQ-ENTERPRISE-009 AC6: PATCH /api/preferences is not fail-closed in enterprise mode) --> <!-- @test: src/__tests__/routes/preferences-enterprise.test.ts (AC2 (REQ-ENTERPRISE-001): PATCH response reports advanced under enterprise while persisting the raw preference) -->
-7. When the Enterprise-mode binding is unset, these routes retain their ordinary authorization, validation and response contracts: admin user and tier reads return their normal JSON, billing actions reach ordinary Stripe configuration checks, subscription requests retain eligible signup/email behavior, unsigned Stripe webhooks are rejected, and preferences persist the requested eligible session mode. Enterprise-only refusals do not replace those paths. <!-- @impl: src/lib/subscription.ts::isEnterpriseMode --> <!-- @test: src/__tests__/routes/enterprise-route-hardening.test.ts (REQ-ENTERPRISE-009 AC7: flag unset is byte-identical to current behavior) -->
-
-8. Authenticated Enterprise GET, PUT and DELETE requests to `/api/deploy-keys` return 403 for every role, including administrators, before route-specific parsing, credential reads, provider validation or mutations. Both configured GitHub provider types remain supported through their managed connection flows; the direct router neither discloses, substitutes nor clears credentials. <!-- @impl: src/routes/deploy-keys.ts::app --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (REQ-ENTERPRISE-009 AC8: enterprise deploy credentials are disabled) -->
+1. In Enterprise, self-serve subscription and access requests return 403 before their route-specific limiters and send no email. <!-- @impl: src/routes/auth.ts::default --> <!-- @test: src/__tests__/routes/enterprise-route-hardening.test.ts (REQ-ENTERPRISE-009 AC3: self-serve auth routes 403 with no email) --> <!-- @test: src/__tests__/routes/auth-subscribe.test.ts (DEEP-22-005: enterprise subscribe guard remains 403 after the SaaS limiter budget) --> <!-- @test: src/__tests__/routes/auth-subscribe.test.ts (DEEP-22-005: enterprise request-access guard runs before its fail-closed limiter) -->
+2. Enterprise users can select Pro in preferences without the SaaS advanced-mode entitlement check. <!-- @impl: src/routes/preferences.ts::app --> <!-- @test: src/__tests__/routes/enterprise-route-hardening.test.ts (accepts a sessionMode change from a non-Pro user without a 403/400) -->
+3. Enterprise forces effective session mode to Pro regardless of the saved preference. <!-- @impl: src/lib/session-mode.ts::resolveSessionMode --> <!-- @test: src/__tests__/routes/preferences-enterprise.test.ts (AC2 (REQ-ENTERPRISE-001): PATCH response reports advanced under enterprise while persisting the raw preference) -->
+4. With the Enterprise binding unset, eligible subscription requests retain ordinary authorization, validation, signup, and email. <!-- @impl: src/routes/auth.ts::app --> <!-- @test: src/__tests__/routes/auth-subscribe.test.ts (DEEP-22-005: SaaS subscribe requests remain rate-limited) --> <!-- @test: src/__tests__/routes/enterprise-route-hardening.test.ts (POST /api/auth/subscribe to free tier succeeds and sends email) -->
+5. With the Enterprise binding unset, preferences retain ordinary authorization, validation, and persistence of the requested eligible session mode. <!-- @impl: src/routes/preferences.ts::app --> <!-- @test: src/__tests__/routes/enterprise-route-hardening.test.ts (PATCH /api/preferences persists sessionMode when the flag is unset) -->
 
 **Constraints:**
 
-- This boundary prevents new direct credential substitution; it does not migrate, enumerate, revoke or invalidate previously stored credentials.
 - All guards consult the single `isEnterpriseMode(env)` resolver ([REQ-ENTERPRISE-001](subscription.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode) AC4); no route reads the raw binding.
-- Action endpoints fail closed with 403; the read-only billing-status endpoint returns an empty state (200) so non-enterprise clients that still poll it do not error.
 - These guards are defense-in-depth behind the frontend suppression in [REQ-ENTERPRISE-008](setup.md#req-enterprise-008-enterprise-frontend-surface-suppression); neither layer alone is sufficient.
 
 **Priority:** P2
 
 **Dependencies:** [REQ-ENTERPRISE-001](subscription.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-002](subscription.md#req-enterprise-002-subscription-ui-hidden-and-subscribe-route-guarded), [REQ-ENTERPRISE-008](setup.md#req-enterprise-008-enterprise-frontend-surface-suppression)
 
-**Verification:** Automated: [auth-subscribe.test.ts](../../src/__tests__/routes/auth-subscribe.test.ts), [billing.test.ts](../../src/__tests__/routes/billing.test.ts), [enterprise-route-hardening.test.ts](../../src/__tests__/routes/enterprise-route-hardening.test.ts), [preferences-enterprise.test.ts](../../src/__tests__/routes/preferences-enterprise.test.ts), [stripe-webhook.test.ts](../../src/__tests__/routes/stripe-webhook.test.ts), [deploy-keys.test.ts](../../src/__tests__/routes/deploy-keys.test.ts)
+**Verification:** Automated: [auth-subscribe.test.ts](../../src/__tests__/routes/auth-subscribe.test.ts), [enterprise-route-hardening.test.ts](../../src/__tests__/routes/enterprise-route-hardening.test.ts), [preferences-enterprise.test.ts](../../src/__tests__/routes/preferences-enterprise.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-308: Enterprise administration route boundary
+
+**Intent:** Enterprise disables direct user and tier administration through the application, including when a client calls hidden routes directly.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Enterprise user-management reads, replacements, deletions and partial updates return 403 without mutation; Cloudflare Access owns user administration. <!-- @impl: src/routes/users.ts::app --> <!-- @test: src/__tests__/routes/enterprise-route-hardening.test.ts (REQ-ENTERPRISE-009 AC1: /api/users fails closed in enterprise mode) -->
+2. Enterprise admin tier and subscription configuration routes return 403; the only effective tier is `unlimited` per [REQ-ENTERPRISE-001](subscription.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode). <!-- @impl: src/routes/admin/tiers.ts::app --> <!-- @test: src/__tests__/routes/enterprise-route-hardening.test.ts (REQ-ENTERPRISE-009 AC5: admin tier config routes 403 in enterprise mode) -->
+3. With the Enterprise binding unset, admin user and tier reads retain ordinary authorization, validation, and JSON responses. <!-- @impl: src/routes/users.ts::app --> <!-- @impl: src/routes/admin/tiers.ts::app --> <!-- @test: src/__tests__/routes/enterprise-route-hardening.test.ts (GET /api/users works for an admin (200, not 403)) --> <!-- @test: src/__tests__/routes/enterprise-route-hardening.test.ts (GET /api/admin/tiers works for an admin (200, not 403)) -->
+
+**Constraints:**
+
+- Consult the shared Enterprise-mode resolver, not the raw binding.
+- The guards supplement [REQ-ENTERPRISE-008](setup.md#req-enterprise-008-enterprise-frontend-surface-suppression); neither layer alone suffices.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-ENTERPRISE-001](subscription.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-008](setup.md#req-enterprise-008-enterprise-frontend-surface-suppression)
+
+**Verification:** Automated: [enterprise-route-hardening.test.ts](../../src/__tests__/routes/enterprise-route-hardening.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-307: Enterprise Stripe route boundary
+
+**Intent:** Enterprise disables SaaS billing effects while preserving successful polling and webhook acknowledgement.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. In Enterprise, checkout, portal, and subscription-switch actions return 403 before their route-specific limiters. <!-- @impl: src/routes/billing.ts::app --> <!-- @test: src/__tests__/routes/billing.test.ts (DEEP-22-004: enterprise billing guards precede action limiters) -->
+2. In Enterprise, billing-status reads return an empty disabled state with 200 without contacting Stripe. <!-- @impl: src/routes/billing.ts::app --> <!-- @test: src/__tests__/routes/enterprise-route-hardening.test.ts (GET /api/billing/status returns 200 all-null without contacting Stripe) -->
+3. In Enterprise, the Stripe webhook acknowledges before the SaaS limiter without mutating any user's tier or billing state. <!-- @impl: src/routes/stripe-webhook.ts::app --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (DEEP-22-006: enterprise webhook acknowledgement precedes limiter) --> <!-- @test: src/__tests__/routes/enterprise-route-hardening.test.ts (acks {received:true} without verifying the signature or mutating KV) -->
+4. With the Enterprise binding unset, billing actions retain their ordinary authorization and Stripe configuration checks, and unsigned Stripe webhooks remain rejected. <!-- @impl: src/routes/billing.ts::app --> <!-- @impl: src/routes/stripe-webhook.ts::app --> <!-- @test: src/__tests__/routes/enterprise-route-hardening.test.ts (billing action routes reach normal logic, not the enterprise guard) --> <!-- @test: src/__tests__/routes/enterprise-route-hardening.test.ts (Stripe webhook without a signature 400s (no enterprise short-circuit)) -->
+
+**Constraints:**
+
+- Use the shared Enterprise-mode resolver; do not read the raw binding in the route.
+- Billing-status polling remains successful for clients that still poll it.
+- These guards supplement [Enterprise frontend suppression](setup.md#req-enterprise-008-enterprise-frontend-surface-suppression); neither layer alone suffices.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-ENTERPRISE-001](subscription.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-002](subscription.md#req-enterprise-002-subscription-ui-hidden-and-subscribe-route-guarded), [REQ-ENTERPRISE-008](setup.md#req-enterprise-008-enterprise-frontend-surface-suppression)
+
+**Verification:** Automated: [billing.test.ts](../../src/__tests__/routes/billing.test.ts), [enterprise-route-hardening.test.ts](../../src/__tests__/routes/enterprise-route-hardening.test.ts), [stripe-webhook.test.ts](../../src/__tests__/routes/stripe-webhook.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-306: Enterprise direct deploy credential boundary
+
+**Intent:** Enterprise permits managed credential connections, not direct deploy credential management.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Authenticated Enterprise `GET`, `PUT` and `DELETE` requests to `/api/deploy-keys` return 403 for all roles, including administrators, before route-specific parsing, credential reads, provider validation or mutations. The direct router neither discloses, substitutes nor clears credentials. <!-- @impl: src/routes/deploy-keys.ts::app --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (REQ-ENTERPRISE-009 AC8: enterprise deploy credentials are disabled) -->
+2. Both configured GitHub provider types remain supported through their managed connection flows. <!-- @impl: src/lib/github-token.ts::getGithubProvider --> <!-- @impl: src/routes/github-auth.ts::app --> <!-- @test: src/__tests__/lib/github-token.test.ts (enterprise resolves the GitHub App provider + credentials from KV by type) --> <!-- @test: src/__tests__/lib/github-token.test.ts (enterprise resolves the OAuth App provider from KV when type is oauth) -->
+
+**Constraints:**
+
+- The denial does not migrate, enumerate, revoke or invalidate previously stored credentials.
+- Use the shared Enterprise-mode resolver; do not read the raw binding in the route.
+- This guard remains a backstop to [Enterprise frontend surface suppression](setup.md#req-enterprise-008-enterprise-frontend-surface-suppression); neither layer alone suffices.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-ENTERPRISE-001](subscription.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-008](setup.md#req-enterprise-008-enterprise-frontend-surface-suppression), [REQ-GITHUB-001](github.md#req-github-001-github-token-capture-and-storage)
+
+**Verification:** Automated: [deploy-keys.test.ts](../../src/__tests__/routes/deploy-keys.test.ts), [github-token.test.ts](../../src/__tests__/lib/github-token.test.ts)
 
 **Status:** Implemented
 
@@ -714,23 +794,20 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ### REQ-ENTERPRISE-016: Strict Gateway Egress
 
-**Intent:** An enterprise admin can force the container's **direct-internet** HTTP/HTTPS egress through the customer's Cloudflare (Zero Trust) Gateway — over the Workers VPC `EGRESS` binding — with one setup-wizard toggle, so every agent call to the outside world is subject to the account's existing egress policies. Only THIS deployment's own R2 and non-Browser account-scoped Cloudflare API destinations are exempt and egress direct. Browser Run REST and CDP use Gateway when strict is ON, including own-account Browser endpoints; any OTHER account's host also rides Gateway, closing the cross-account exfiltration channel ([AD86](../../documentation/decisions/README.md#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network)). A deployment with the toggle OFF (the default) is byte-identical to today.
+**Intent:** Strict policy routes direct-internet HTTP/HTTPS through the customer's Cloudflare Gateway without altering the customer's policy. With strict policy off, transport and configuration retain their existing behavior.
 
 **Applies To:** System
 
 **Acceptance Criteria:**
 
-1. Enterprise setup presents a default-off strict-egress toggle, persists explicit active or inactive values, and never writes it outside enterprise mode. <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep --> <!-- @impl: web-ui/src/stores/setup.ts::setupStore --> <!-- @impl: src/routes/setup/index.ts::strictGatewayEgress --> <!-- @test: web-ui/src/__tests__/components/ConfigureStep.test.tsx (Strict gateway egress toggle (REQ-ENTERPRISE-016)) --> <!-- @test: web-ui/src/__tests__/stores/setup.test.ts (strict gateway egress (REQ-ENTERPRISE-016)) --> <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (REQ-ENTERPRISE-016: persists the toggle as active when true (EGRESS bound)) --> <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (REQ-ENTERPRISE-016: persists the toggle as inactive when false) --> <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (REQ-ENTERPRISE-016: never writes the toggle in non-enterprise mode (regression)) -->
-2. Enabling strict egress is rejected before any write when `EGRESS` is unbound. <!-- @impl: src/routes/setup/index.ts::strictGatewayEgress --> <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (REQ-ENTERPRISE-016: refuses to enable the toggle when EGRESS is unbound (no brick)) -->
-3. Setup prefill round-trips strict-egress policy: active stored policy prefills true, an absent key prefills false, and non-enterprise prefill omits it. <!-- @impl: src/routes/setup/handlers.ts::handlers --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (REQ-ENTERPRISE-016: strict gateway egress prefill) -->
-4. Non-Enterprise deployments disable strict egress without reading policy. Enterprise deployments disable it only for successfully read absent or explicitly inactive policy; active, unreadable, unbound or invalid policy enables strict egress without throwing. <!-- @impl: src/lib/controller-egress.ts::hasStrictGatewayEgress --> <!-- @test: src/__tests__/lib/controller-egress.test.ts (REQ-ENTERPRISE-016: hasStrictGatewayEgress) -->
-5. Strict egress registers a pre-start catch-all below per-host interceptors; disabled and non-enterprise modes register no catch-all. <!-- @impl: src/container/container-interception.ts::strictEgress --> <!-- @impl: src/container/container-interception.ts::wireContainerInterception --> <!-- @test: src/__tests__/container/enterprise-llm.test.ts (enterprise LLM interception wiring (REQ-ENTERPRISE-011)) -->
-6. Disabled or non-enterprise mode leaves GitHub transport, container egress, and configuration behavior unchanged. <!-- @impl: src/lib/controller-egress.ts::hasStrictGatewayEgress --> <!-- @impl: src/container/container-interception.ts::wireContainerInterception --> <!-- @test: src/__tests__/container/enterprise-llm.test.ts (REQ-ENTERPRISE-016: does NOT wire the EgressController and omits strict from props when the toggle is OFF (byte-identical per-host path)) --> <!-- @test: src/__tests__/container/enterprise-llm.test.ts (REQ-ENTERPRISE-016: leaves enableInternet at the platform default (not false) when strict egress is OFF) --> <!-- @test: src/__tests__/container/enterprise-llm.test.ts (REQ-ENTERPRISE-016: leaves enableInternet at the platform default (not false) on a non-enterprise start) --> <!-- @test: src/__tests__/github-interceptor.test.ts (uses global fetch (not EGRESS) when strict is off, even with the binding present) -->
-7. Strict startup disables the container's direct-internet access. <!-- @impl: src/container/index.ts::container --> <!-- @test: src/__tests__/container/enterprise-llm.test.ts (REQ-ENTERPRISE-016: forces enableInternet=false when strict egress is ON) -->
+1. Non-Enterprise deployments disable strict egress without reading policy. Enterprise deployments disable it only for successfully read absent or explicitly inactive policy; active, unreadable, unbound or invalid policy enables strict egress without throwing. <!-- @impl: src/lib/controller-egress.ts::hasStrictGatewayEgress --> <!-- @test: src/__tests__/lib/controller-egress.test.ts (REQ-ENTERPRISE-016: hasStrictGatewayEgress) -->
+2. Strict egress registers a pre-start catch-all below per-host interceptors; disabled and non-enterprise modes register no catch-all. <!-- @impl: src/container/container-interception.ts::strictEgress --> <!-- @impl: src/container/container-interception.ts::wireContainerInterception --> <!-- @test: src/__tests__/container/enterprise-llm.test.ts (enterprise LLM interception wiring (REQ-ENTERPRISE-011)) -->
+3. Disabled or non-enterprise mode leaves GitHub transport, container egress, and configuration behavior unchanged. <!-- @impl: src/lib/controller-egress.ts::hasStrictGatewayEgress --> <!-- @impl: src/container/container-interception.ts::wireContainerInterception --> <!-- @test: src/__tests__/container/enterprise-llm.test.ts (REQ-ENTERPRISE-016: does NOT wire the EgressController and omits strict from props when the toggle is OFF (byte-identical per-host path)) --> <!-- @test: src/__tests__/container/enterprise-llm.test.ts (REQ-ENTERPRISE-016: leaves enableInternet at the platform default (not false) when strict egress is OFF) --> <!-- @test: src/__tests__/container/enterprise-llm.test.ts (REQ-ENTERPRISE-016: leaves enableInternet at the platform default (not false) on a non-enterprise start) --> <!-- @test: src/__tests__/github-interceptor.test.ts (uses global fetch (not EGRESS) when strict is off, even with the binding present) -->
+4. Strict startup disables the container's direct-internet access. <!-- @impl: src/container/index.ts::container --> <!-- @test: src/__tests__/container/enterprise-llm.test.ts (REQ-ENTERPRISE-016: forces enableInternet=false when strict egress is ON) -->
 
 **Constraints:**
 
-- Store the global toggle as `active`/`inactive`; read KV directly, never session configuration.
+- Read deployment-wide policy directly from KV, never session configuration; [REQ-ENTERPRISE-310](setup.md#req-enterprise-310-configure-strict-gateway-egress) owns Setup writes and prefill.
 - Per-host LLM/GitHub precede the transparent catch-all; SDK denied/allowed-host precedence stays unchanged.
 - Customer Gateway policies remain authoritative and unmodified.
 - Only own R2 and non-Browser account-scoped APIs bypass `EGRESS`; both own Browser namespaces require Gateway or refuse ([AD86](../../documentation/decisions/README.md#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network)). <!-- @impl: src/lib/controller-egress.ts::isAccountScopedDestination -->
@@ -746,7 +823,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-ENTERPRISE-001](subscription.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-004](models-and-routing.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-006](setup.md#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var), [REQ-ENTERPRISE-012](setup.md#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list), [REQ-BROWSER-008](browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container)
 
-**Verification:** Automated: [ConfigureStep.test.tsx](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx), [setup.test.ts](../../web-ui/src/__tests__/stores/setup.test.ts), [setup-enterprise-groups.test.ts](../../src/__tests__/routes/setup-enterprise-groups.test.ts), [handlers.test.ts](../../src/__tests__/routes/setup/handlers.test.ts), [controller-egress.test.ts](../../src/__tests__/lib/controller-egress.test.ts), [enterprise-llm.test.ts](../../src/__tests__/container/enterprise-llm.test.ts), [github-interceptor.test.ts](../../src/__tests__/github-interceptor.test.ts)
+**Verification:** Automated: [controller-egress.test.ts](../../src/__tests__/lib/controller-egress.test.ts), [enterprise-llm.test.ts](../../src/__tests__/container/enterprise-llm.test.ts), [github-interceptor.test.ts](../../src/__tests__/github-interceptor.test.ts)
 
 **Status:** Implemented
 
@@ -764,7 +841,7 @@ Task #114 excludes both Browser namespaces in the existing selector after [21 ob
 
 **Acceptance Criteria:**
 
-1. Except scoped R2 re-signing, the owner-authorized [MCP portal boundary](mcp.md#req-agent-229-worker-mediated-mcp-portal-transport) and parent-approved [Access JWT stamping](operators.md#req-operator-019-automatic-human-access-jwt-stamping), ordinary strict forwarding preserves caller authorization and cookies, strips only hop-by-hop headers, adds no identity and does not follow redirects. JWT stamping strips caller-supplied assertions and adds only current verified human authority to eligible HTTPS destinations after network authorization; it grants no destination access or new authority. <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @test: src/__tests__/egress-controller.test.ts (REQ-ENTERPRISE-016 / AD86: EgressController account-scoped exemption (own account direct, all else Gateway) / REQ-ENTERPRISE-026) -->
+1. Except scoped R2 re-signing, the owner-authorized [MCP portal boundary](mcp.md#req-agent-229-worker-mediated-mcp-portal-transport) and parent-approved [Access JWT stamping](operators.md#req-operator-019-automatic-human-access-jwt-stamping), ordinary strict forwarding preserves caller authorization and cookies, strips only hop-by-hop headers, adds no identity and does not follow redirects. <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @test: src/__tests__/egress-controller.test.ts (REQ-ENTERPRISE-016 / AD86: EgressController account-scoped exemption (own account direct, all else Gateway) / REQ-ENTERPRISE-026) -->
 2. Only own-account R2 and non-Browser Cloudflare account APIs bypass strict Gateway routing; own-account Browser Rendering and Browser Run, plus every other account, use Gateway for REST/CDP even without the specialized Browser handler. <!-- @impl: src/lib/controller-egress.ts::isAccountScopedDestination --> <!-- @test: src/__tests__/lib/controller-egress.test.ts (REQ-ENTERPRISE-016 / AD86: isAccountScopedDestination (own account only)) --> <!-- @test: src/__tests__/lib/controller-egress.test.ts (own-account %s fallback uses Gateway or 503, never direct or administrator identity) --> <!-- @test: src/__tests__/egress-controller.test.ts (bridges own-account CDP through Gateway with a fresh client and bidirectional text/binary) -->
 3. **WebSocket proxying (bridged).** WebSocket upgrades reaching the strict-egress catch-all are forwarded **transparently** through the account-scoped selector, then **bridged** through a fresh client/server pair that forwards messages, closure, and errors in both directions. <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @impl: src/lib/controller-egress.ts::controllerFetch --> <!-- @test: src/__tests__/egress-controller.test.ts (REQ-ENTERPRISE-016: EgressController bridges WebSocket upgrades (catch-all fallback)) -->
 4. **Container holds no real R2 key (strict only).** When strict is active, a non-secret placeholder R2 access key/secret is emitted into the container instead of the real key. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @impl: src/lib/constants.ts::ENTERPRISE_R2_KEY_PLACEHOLDER --> <!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE feeds capture pipeline) / REQ-AGENT-031 (LLM API keys + agent-specific keys propagated to container env)) -->
@@ -774,6 +851,7 @@ Task #114 excludes both Browser namespaces in the existing selector after [21 ob
 **Constraints:**
 
 - Ordinary `EgressController` traffic remains transparent; configured MCP portals delegate credential handling exclusively to [REQ-AGENT-229](mcp.md#req-agent-229-worker-mediated-mcp-portal-transport).
+- [REQ-OPERATOR-019](operators.md#req-operator-019-automatic-human-access-jwt-stamping) strips caller assertions and adds only current verified human authority to eligible HTTPS requests after network authorization, granting neither destination access nor new authority.
 - Only this deployment's own R2 and non-Browser account-scoped Cloudflare API destinations bypass `env.EGRESS`; both Browser namespaces and other accounts ride Gateway.
 - Namespace recognition never authorizes administrator authentication.
 - Gateway refusals remain refusals, never a direct or alternate-identity retry.
@@ -807,19 +885,41 @@ Task #114 implementation candidate follows [21 observed RED failures](https://gi
 3. An accepted request is re-signed only with the session's bucket-scoped credential; the placeholder signature is discarded and deployment-wide R2 credentials are never used. <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @impl: src/container/container-interception.ts::strictEgress --> <!-- @test: src/__tests__/egress-controller.test.ts (re-signs the bound bucket with scoped credentials and trusted parent SSE-C while preserving streaming) -->
 4. Re-signing preserves the streaming payload hash and replaces caller-provided SSE-C headers with trusted parent-owned values. <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @test: src/__tests__/egress-controller.test.ts (re-signs the bound bucket with scoped credentials and trusted parent SSE-C while preserving streaming) -->
 5. Missing scoped credentials return `503 EGRESS_R2_NOT_CONFIGURED` before any upstream send and never fall back to deployment-wide credentials. <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @test: src/__tests__/egress-controller.test.ts (fails closed when scoped credentials are missing instead of falling back to deployment credentials) -->
-6. A validated complete replacement pair becomes the authority for subsequent intercepted requests, including after a Durable Object wake or in an already-wired warm container. <!-- @impl: src/container/container-router.ts::handleSetBucketName --> <!-- @impl: src/container/container-interception.ts::refreshStrictEgressInterception --> <!-- @test: src/__tests__/container/container-router.test.ts (restores scoped R2 credentials from the validated restart payload after a Durable Object wake) --> <!-- @test: src/__tests__/container/container-router.test.ts (REQ-ENTERPRISE-026: refreshes warm strict interception with a changed scoped pair) -->
-7. The in-memory pair changes only after a complete validated replacement is installed as the warm catch-all; otherwise the prior pair remains unchanged. <!-- @impl: src/container/container-router.ts::handleSetBucketName --> <!-- @impl: src/container/container-interception.ts::refreshStrictEgressInterception --> <!-- @test: src/__tests__/container/container-router.test.ts (rejects invalid restart credentials without replacing the in-memory scoped pair) --> <!-- @test: src/__tests__/container/container-router.test.ts (rejects a partial restart credential pair without mutating prior credentials: %o) --> <!-- @test: src/__tests__/container/container-router.test.ts (REQ-ENTERPRISE-026: preserves the prior pair when warm catch-all replacement fails) -->
 
 **Constraints:**
 
+- Credential installation and replacement follow [REQ-ENTERPRISE-311](#req-enterprise-311-strict-r2-credential-replacement).
 - Scoped credentials and the bound bucket remain Worker-side interceptor props; the strict container receives placeholders only.
 - Governed Mode controls SSE-C behavior, not R2 signer authority.
 
 **Priority:** P0
 
-**Dependencies:** [REQ-ENTERPRISE-016](#req-enterprise-016-strict-gateway-egress), [REQ-SEC-003](security.md#req-sec-003-per-user-r2-tokens-scoped-to-user-bucket)
+**Dependencies:** [REQ-ENTERPRISE-016](#req-enterprise-016-strict-gateway-egress), [REQ-SEC-003](security.md#req-sec-003-per-user-r2-tokens-scoped-to-user-bucket), [REQ-ENTERPRISE-311](#req-enterprise-311-strict-r2-credential-replacement)
 
-**Verification:** Automated: [egress-controller.test.ts](../../src/__tests__/egress-controller.test.ts), [container-router.test.ts](../../src/__tests__/container/container-router.test.ts)
+**Verification:** Automated: [egress-controller.test.ts](../../src/__tests__/egress-controller.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-311: Strict R2 credential replacement
+
+**Intent:** Strict interception moves to a validated replacement pair only after its installation succeeds.
+
+**Applies To:** System
+
+**Acceptance Criteria:**
+
+1. A validated complete replacement pair becomes the authority for subsequent intercepted requests, including after a Durable Object wake or in an already-wired warm container. <!-- @impl: src/container/container-router.ts::handleSetBucketName --> <!-- @impl: src/container/container-interception.ts::refreshStrictEgressInterception --> <!-- @test: src/__tests__/container/container-router.test.ts (restores scoped R2 credentials from the validated restart payload after a Durable Object wake) --> <!-- @test: src/__tests__/container/container-router.test.ts (REQ-ENTERPRISE-026: refreshes warm strict interception with a changed scoped pair) -->
+2. The in-memory pair changes only after a complete validated replacement is installed as the warm catch-all; otherwise the prior pair remains unchanged. <!-- @impl: src/container/container-router.ts::handleSetBucketName --> <!-- @impl: src/container/container-interception.ts::refreshStrictEgressInterception --> <!-- @test: src/__tests__/container/container-router.test.ts (rejects invalid restart credentials without replacing the in-memory scoped pair) --> <!-- @test: src/__tests__/container/container-router.test.ts (rejects a partial restart credential pair without mutating prior credentials: %o) --> <!-- @test: src/__tests__/container/container-router.test.ts (REQ-ENTERPRISE-026: preserves the prior pair when warm catch-all replacement fails) -->
+
+**Constraints:** Credential replacement grants no other bucket or deployment-wide authority under [REQ-ENTERPRISE-026](#req-enterprise-026-strict-r2-interception-preserves-user-bucket-authority).
+
+**Priority:** P0
+
+**Dependencies:** [REQ-ENTERPRISE-016](#req-enterprise-016-strict-gateway-egress), [REQ-SEC-003](#req-sec-003-per-user-r2-tokens-scoped-to-user-bucket)
+
+**Verification:** Automated: [container-router.test.ts](../../src/__tests__/container/container-router.test.ts)
 
 **Status:** Implemented
 
@@ -833,8 +933,8 @@ Task #114 implementation candidate follows [21 observed RED failures](https://gi
 
 **Acceptance Criteria:**
 
-1. Strict GitHub egress swaps only the upstream transport to the strict-egress binding; credential injection, no-spoof scoping, manual redirects, and response hygiene remain unchanged. Toggle-off traffic uses global fetch. <!-- @impl: src/github-interceptor.ts::GitHubInterceptor --> <!-- @test: src/__tests__/github-interceptor.test.ts (REQ-ENTERPRISE-016: strict gateway egress transport swap / REQ-ENTERPRISE-024) -->
-2. LLM interception does NOT swap — AI Gateway (`api.cloudflare.com` / `gateway.ai.cloudflare.com`) is a platform-native Cloudflare primitive, so its upstream forward ALWAYS egresses direct via global `fetch`, independent of the toggle and strict-egress binding ([AD86](../../documentation/decisions/README.md#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network)). <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-016 / AD86: AI Gateway is platform-native — always direct egress, never cf1:network) -->
+1. With strict egress enabled, upstream GitHub traffic uses the configured Gateway; with it off, traffic goes direct. Credential injection, no-spoof scoping, manual redirects and response hygiene are unchanged. <!-- @impl: src/github-interceptor.ts::GitHubInterceptor --> <!-- @test: src/__tests__/github-interceptor.test.ts (REQ-ENTERPRISE-016: strict gateway egress transport swap / REQ-ENTERPRISE-024) -->
+2. Intercepted AI Gateway requests to `api.cloudflare.com` and `gateway.ai.cloudflare.com` go directly to the platform service, independent of the strict-egress setting and binding ([AD86](../../documentation/decisions/README.md#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network)). <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-016 / AD86: AI Gateway is platform-native — always direct egress, never cf1:network) -->
 
 **Constraints:**
 

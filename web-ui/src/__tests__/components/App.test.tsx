@@ -439,7 +439,7 @@ describe('REQ-AGENT-226 AC6: authenticated app portal recovery', () => {
       expect(providerNavigation).toEqual(outcome === 'changed-owner' ? ['/app/'] : []);
     });
 
-  // REQ-OPERATOR-033 AC5/7: exercise the real mounted App authentication resume,
+  // REQ-OPERATOR-217 AC1–2: exercise the real mounted App authentication resume,
   // real activity resources and diagnostic lifetime, not a test-only owner prop.
   const activity = (name: string) => ({ activityId: `${name}-run`, operatorId: 'dispatcher', operatorName: `${name} private run`,
     context: `${name}/private`, executionStatus: 'completed', cleanupStatus: 'released', collectionStatus: 'consumed',

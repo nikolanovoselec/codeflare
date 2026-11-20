@@ -148,7 +148,7 @@ app.post('/checkout', requireIdentity, async (c, next) => {
 
 // GET /billing/status — returns live billing state from Stripe (source of truth)
 app.get('/status', requireIdentity, async (c) => {
-  // REQ-ENTERPRISE-009: enterprise has no billing — return an empty/disabled state
+  // REQ-ENTERPRISE-307 AC2: enterprise has no billing — return an empty/disabled state
   // (200, not 403) so any client still polling the endpoint does not error.
   if (isEnterpriseMode(c.env)) {
     return c.json({

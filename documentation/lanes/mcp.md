@@ -31,7 +31,7 @@ The interceptor refreshes matching grants outside Pi when a usable refresh token
 
 Recovery runs on authenticated app entry/resume and visible checks, independently of Settings. It serializes browser authorization, preserves a canonical session return path, and prevents failed/cancelled returns from looping. Fixed return outcomes survive URL cleanup into the same owner's Settings; late or foreign-owner responses cannot replace the current surface. Existing session ownership checks still govern restoration. Provider login, consent or MFA may require interaction; no cookies or credentials are copied into Pi. <!-- @impl: web-ui/src/lib/mcp-portal-recovery.ts::createMcpPortalRecovery -->
 
-Settings refreshes status when the panel/MCP section opens or authorization returns. It shows loading, error and empty states, portal identity, an **Authorization saved** badge and separate Connect/**Re-authorize**/Disconnect actions. Return notices do not override API status or certify tool readiness. Existing authorization is retained while the owner corrects provider access; no setup-help category or upstream health probe is introduced. <!-- @impl: web-ui/src/components/settings/McpPortalsSection.tsx::McpPortalsSection -->
+Under [REQ-AGENT-251](../../sdd/spec/mcp.md#req-agent-251-owner-bound-mcp-settings-return-and-status), Settings refreshes status when the panel/MCP section opens or authorization returns. It shows loading, error and empty states, portal identity, an **Authorization saved** badge and separate Connect/**Re-authorize**/Disconnect actions. Return notices do not override API status or certify tool readiness. Existing authorization is retained while the owner corrects provider access; no setup-help category or upstream health probe is introduced. <!-- @impl: web-ui/src/components/settings/McpPortalsSection.tsx::McpPortalsSection -->
 
 Dynamic client registration is preferred when supported. A CIMD-only issuer must be able to fetch the fixed `/auth/mcp/client-metadata` document externally. Its anonymous Worker handler does not bypass host-wide Cloudflare Access; verify reachability before hosted acceptance. Codeflare does not provision an Access bypass or change grants automatically. <!-- @impl: src/lib/mcp-portal-token.ts::beginMcpPortalConnect -->
 
@@ -43,7 +43,7 @@ Credentials remain Worker-only. Never copy portal tokens, browser cookies or Acc
 
 ## Discover and execute
 
-Use the installed [MCP portal router](../../preseed/agents/pi/skills/mcp-portals/SKILL.md), then load only its connection, discovery or execution topic as needed.
+Use the installed [MCP portal router](../../preseed/agents/pi/skills/mcp-portals/SKILL.md), then load only its connection, discovery or execution topic as needed ([REQ-AGENT-256](../../sdd/spec/mcp.md#req-agent-256-progressive-portal-guidance)).
 
 1. Establish catalogue coverage for the entire configured, owner-approved portal set. Reuse valid cached discovery; connect when access or missing metadata requires it.
 2. Inspect each portal's live wrapper schemas. Pi wrapper discovery is not discovery of remote inner methods.

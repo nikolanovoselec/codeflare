@@ -42,9 +42,9 @@ Tiers, billing, usage tracking, and quotas.
 
 **Constraints:**
 
-- Exactly one tier carries the default-tier flag so users with no recorded tier always resolve deterministically.
+- Exactly one tier carries the default-tier flag and determines the tier for users without a recorded tier.
 - The `blocked` tier denies login.
-- The `pending` tier permits login so pending users can reach the subscribe page.
+- The `pending` tier permits login and access to the subscribe page.
 
 **Priority:** P0
 
@@ -123,23 +123,72 @@ Tiers, billing, usage tracking, and quotas.
 
 1. When the payment provider is configured, the direct-subscribe endpoint rejects paid tiers with a clear "checkout required" error; only the free tier remains directly subscribable. <!-- @impl: src/routes/auth.ts::isStripeConfigured --> <!-- @test: src/__tests__/routes/auth-subscribe.test.ts (POST /auth/subscribe) -->
 2. The checkout endpoint creates a hosted checkout session pre-populated with the visitor's email and the tier/mode metadata, and returns the externally-hosted checkout URL. <!-- @impl: src/lib/stripe.ts::createCheckoutSession --> <!-- @test: src/__tests__/routes/billing.test.ts (POST /billing/checkout / REQ-SUB-020 (multi-currency pricing from CF-IPCountry) / REQ-SUB-004 (Stripe checkout session creation)) -->
-3. After payment, the provider sends a checkout-completed webhook that records the checkout outcome and triggers an authoritative state sync. <!-- @impl: src/routes/stripe-webhook.ts::handleCheckoutCompleted --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (handleCheckoutCompleted / REQ-SUB-005 (Stripe webhook syncs subscription state) / REQ-SUB-015 (webhook handlers for updated/deleted/canceled)) -->
+3. After payment, the provider sends a checkout-completed webhook under [REQ-SUB-035](#req-sub-035-signed-billing-webhook-lifecycle) that records the checkout outcome and triggers authoritative state sync. <!-- @impl: src/routes/stripe-webhook.ts::handleCheckoutCompleted --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (handleCheckoutCompleted / REQ-SUB-005 (Stripe webhook syncs subscription state) / REQ-SUB-015 (webhook handlers for updated/deleted/canceled)) -->
 4. The frontend polls the auth-status endpoint after the checkout redirect on a fixed interval with no bounded total wait (the poll has no deadline and continues until activation is observed) so subscription activation feels immediate to the user. <!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (REQ-SUB-004 AC4: post-checkout activation polling) --> <!-- @manual -->
-5. The webhook handler covers the three relevant lifecycle events: checkout completion, subscription update, and subscription deletion. <!-- @test: src/__tests__/routes/billing.test.ts (POST /public/stripe/webhook) --> <!-- @manual -->
-6. The webhook endpoint is publicly reachable but enforces signed-payload verification with a short timestamp tolerance. <!-- @impl: src/lib/stripe.ts::verifyWebhookSignature --> <!-- @test: src/__tests__/lib/stripe.test.ts (rejects missing timestamp) -->
-7. Successful webhook handling writes a 72-hour event-ID KV marker; a visible marker suppresses replay, while concurrent deliveries and propagation lag can still reprocess an event. Durable per-checkout receipts separately suppress checkout metadata and notice replay without a 72-hour expiry. Checkout metadata applies with the provider snapshot, preserving same-subscription date/trial history; the original provider creation date is preferred, with first processing time as the fallback when absent. Stale different-subscription updates/deletions and timestamp-older replacement checkouts cannot overwrite the current subscription. Notices are claimed before best-effort sending, so interruption or provider failure can omit them. An unavailable initial subscription snapshot remains retryable without partial checkout activation. Transient stale-token checkout rejection returns retryable failure without a processed marker; confirmed completed or permanently superseded checkouts remain successful no-ops. This is not a billing-wide exactly-once guarantee or an atomic KV/DO/provider transaction. <!-- @test: src/__tests__/routes/billing.test.ts (deduplicates visible successful events for 72 hours and leaves failed handling retryable) --> <!-- @manual --> <!-- @impl: src/routes/stripe-webhook.ts::handleCheckoutCompleted --> <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (REQ-SUB-004 AC7: checkout replay after visible marker expiry preserves date and sends no repeated notices) --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (REQ-SUB-004 AC7: a replayed old checkout or deletion cannot reset a replacement subscription) --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (returns 500 without checkout fields when fetchSubscription returns null) --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (REQ-SUB-004 AC7: stale duplicate plus newer provider failure leaves checkout retryable until an apply succeeds) --> <!-- @test: src/__tests__/timekeeper/index.test.ts (REQ-SUB-004 AC7: checkout receipts suppress reapplication and retain subscription date/trial history) -->
 
 **Constraints:**
 
 - Tier and mode metadata must be present on the payment-provider price objects before deploy; the system reads metadata, not separate configuration.
 - With a configured payment provider, tiers without a configured external price are hidden from the subscribe page; without a provider, payment-free direct choices follow [REQ-SUB-011](#req-sub-011-graceful-degradation-without-stripe).
-- The customer-to-email mapping is recorded on checkout completion so subsequent webhooks can resolve the user.
+- Record the customer-to-email mapping at checkout completion for user resolution by subsequent webhooks.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system), [REQ-SUB-003](#req-sub-003-free-tier-requires-no-payment)
 
-**Verification:** Automated: [index.test.ts](../../src/__tests__/timekeeper/index.test.ts), [auth-subscribe.test.ts](../../src/__tests__/routes/auth-subscribe.test.ts), [billing.test.ts](../../src/__tests__/routes/billing.test.ts), [stripe-webhook.test.ts](../../src/__tests__/routes/stripe-webhook.test.ts), [SubscribePage.test.tsx](../../web-ui/src/__tests__/components/SubscribePage.test.tsx), [stripe.test.ts](../../src/__tests__/lib/stripe.test.ts); Manual: [Checkout and provider lifecycle acceptance](../../documentation/lanes/billing.md#checkout-and-provider-lifecycle-acceptance)
+**Verification:** Automated: [auth-subscribe.test.ts](../../src/__tests__/routes/auth-subscribe.test.ts), [billing.test.ts](../../src/__tests__/routes/billing.test.ts), [stripe-webhook.test.ts](../../src/__tests__/routes/stripe-webhook.test.ts), [SubscribePage.test.tsx](../../web-ui/src/__tests__/components/SubscribePage.test.tsx); Manual: [Checkout and provider lifecycle acceptance](../../documentation/lanes/billing.md#checkout-and-provider-lifecycle-acceptance)
+
+**Status:** Implemented
+
+---
+
+### REQ-SUB-035: Signed billing webhook lifecycle
+
+**Intent:** Public Stripe event intake verifies authenticity and suppresses known successful replay without claiming exactly-once delivery.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The webhook handler covers the three relevant lifecycle events: checkout completion, subscription update, and subscription deletion. <!-- @test: src/__tests__/routes/billing.test.ts (POST /public/stripe/webhook) --> <!-- @manual -->
+2. The webhook endpoint is publicly reachable but enforces signed-payload verification with a short timestamp tolerance. <!-- @impl: src/lib/stripe.ts::verifyWebhookSignature --> <!-- @test: src/__tests__/lib/stripe.test.ts (rejects missing timestamp) -->
+3. Successful webhook handling records the event ID for 72 hours. A visible marker suppresses replay; concurrent delivery or propagation lag can still cause reprocessing. <!-- @impl: src/routes/stripe-webhook.ts::app --> <!-- @test: src/__tests__/routes/billing.test.ts (deduplicates visible successful events for 72 hours and leaves failed handling retryable) --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (REQ-SUB-004 AC7: stale duplicate plus newer provider failure leaves checkout retryable until an apply succeeds) --> <!-- @manual -->
+
+**Constraints:** Event-marker suppression is not a billing-wide exactly-once guarantee or an atomic KV/DO/provider transaction.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-SUB-004](#req-sub-004-paid-tiers-integrate-with-stripe-checkout)
+
+**Verification:** Automated: [billing.test.ts](../../src/__tests__/routes/billing.test.ts), [stripe-webhook.test.ts](../../src/__tests__/routes/stripe-webhook.test.ts), [stripe.test.ts](../../src/__tests__/lib/stripe.test.ts); Manual: [Checkout provider lifecycle conditions](../../documentation/lanes/billing.md#checkout-provider-lifecycle-conditions)
+
+**Status:** Implemented
+
+---
+
+### REQ-SUB-032: Checkout completion and replay
+
+**Intent:** Checkout completion retains the authoritative subscription state and remains safe to retry after the webhook event marker expires.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Durable per-checkout receipts suppress checkout metadata and notice replay without the event marker's 72-hour expiry. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (REQ-SUB-004 AC7: checkout replay after visible marker expiry preserves date and sends no repeated notices) --> <!-- @test: src/__tests__/timekeeper/index.test.ts (REQ-SUB-004 AC7: checkout receipts suppress reapplication and retain subscription date/trial history) -->
+2. Checkout metadata applies with the provider snapshot, preserving same-subscription date and trial history. Use the original provider creation timestamp when present; otherwise use the timestamp from the first processing attempt that successfully applies the checkout. <!-- @impl: src/routes/stripe-webhook.ts::handleCheckoutCompleted --> <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState --> <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (REQ-SUB-004 AC7: stale duplicate plus newer provider failure leaves checkout retryable until an apply succeeds) --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (REQ-SUB-004 AC7: checkout replay after visible marker expiry preserves date and sends no repeated notices) --> <!-- @test: src/__tests__/timekeeper/index.test.ts (REQ-SUB-004 AC7: checkout receipts suppress reapplication and retain subscription date/trial history) --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (REQ-SUB-032 AC2: a timestamp-free checkout uses the successful retry time) -->
+3. Stale updates or deletions for a different subscription, and timestamp-older replacement checkouts, cannot overwrite the current subscription. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (REQ-SUB-004 AC7: a replayed old checkout or deletion cannot reset a replacement subscription) --> <!-- @test: src/__tests__/timekeeper/index.test.ts (REQ-SUB-004 AC7: late deletion and update for a different subscription preserve current billing state) -->
+4. Claim checkout notices before best-effort sending; interruption or provider failure can omit delivery. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @impl: src/routes/stripe-webhook.ts::handleCheckoutCompleted --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (REQ-SUB-004 AC7: checkout replay after visible marker expiry preserves date and sends no repeated notices) --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (admin notification failure does not break the webhook) -->
+5. An unavailable initial snapshot remains retryable without partial activation; a transient stale-token rejection remains retryable without writing a processed marker. Confirmed completed or permanently superseded checkouts are successful no-ops. <!-- @impl: src/routes/stripe-webhook.ts::handleCheckoutCompleted --> <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState --> <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (returns 500 without checkout fields when fetchSubscription returns null) --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (REQ-SUB-004 AC7: stale duplicate plus newer provider failure leaves checkout retryable until an apply succeeds) --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (REQ-SUB-004 AC7: checkout replay after visible marker expiry preserves date and sends no repeated notices) --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (REQ-SUB-004 AC7: a replayed old checkout or deletion cannot reset a replacement subscription) -->
+
+**Notes:** Hosted inspection is documented under [Checkout provider lifecycle conditions](../../documentation/lanes/billing.md#checkout-provider-lifecycle-conditions).
+
+**Constraints:** Checkout receipts do not guarantee billing-wide exactly-once side effects or an atomic KV/DO/provider transaction.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-SUB-035](#req-sub-035-signed-billing-webhook-lifecycle), [REQ-SUB-015](#req-sub-015-stripe-webhook-signal-and-sync-pattern)
+
+**Verification:** Automated: [stripe-webhook.test.ts](../../src/__tests__/routes/stripe-webhook.test.ts), [index.test.ts](../../src/__tests__/timekeeper/index.test.ts)
 
 **Status:** Implemented
 
@@ -162,8 +211,8 @@ Tiers, billing, usage tracking, and quotas.
 
 **Constraints:**
 
-- Early trial termination is gated by an idempotency flag so the per-session ping cycle cannot issue duplicate provider calls.
-- The webhook stale-write guard uses strict timestamp ordering so events sharing the same second are not silently discarded.
+- Early trial termination uses an idempotency flag; session pings cannot issue duplicate provider calls.
+- The webhook stale-write guard uses strict timestamp ordering; events sharing a second are not silently discarded.
 
 **Priority:** P1
 
@@ -183,8 +232,8 @@ Tiers, billing, usage tracking, and quotas.
 
 **Acceptance Criteria:**
 
-1. Exactly one Timekeeper Durable Object instance exists per user. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)) -->
-2. Container DOs ping their user's Timekeeper with a monotonic per-session total on a short fixed cadence in every deployment mode. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SUB-006 AC2 + REQ-SUB-007 AC5: records usage outside SaaS without enforcing a quota response) -->
+1. Each user has exactly one authoritative in-flight usage accumulator. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)) -->
+2. Each running session reports its monotonic total to its owner's usage accumulator on a short fixed cadence in every deployment mode. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SUB-006 AC2 + REQ-SUB-007 AC5: records usage outside SaaS without enforcing a quota response) -->
 3. Timekeeper computes per-session deltas, accumulates pending usage in memory, and periodically flushes it to durable storage. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)) -->
 4. Timekeeper exposes a usage-read interface that returns flushed-plus-pending totals for live consumption. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)) -->
 5. The durable record tracks rolling daily, weekly, monthly, yearly, and all-time totals with automatic rollovers. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)) -->
@@ -223,8 +272,8 @@ Tiers, billing, usage tracking, and quotas.
 
 **Constraints:**
 
-- The quota check uses the effective tier (after billing-status downgrades), not the stored tier, so a lapsed payment downgrades enforcement in lockstep.
-- A 402 status code is used (not 403) to distinguish quota exhaustion from access denial.
+- The quota check uses the effective tier after billing-status downgrades, never the stored tier.
+- Quota exhaustion returns 402, not 403.
 
 **Priority:** P0
 
@@ -250,8 +299,8 @@ Tiers, billing, usage tracking, and quotas.
 
 **Constraints:**
 
-- Mid-session eviction must allow the final sync to complete; abrupt termination would lose user data.
-- The quota check happens on each ping cycle, not continuously, so enforcement granularity matches the ping cadence.
+- Mid-session eviction must allow the final sync to complete.
+- Check quota on each ping cycle, not continuously.
 
 **Priority:** P0
 
@@ -340,7 +389,8 @@ Tiers, billing, usage tracking, and quotas.
 
 **Constraints:**
 
-- For raw effective-tier resolver inputs with neither `subscriptionTier` nor legacy `accessTier`, the fallback is `pending`, including without billing fields (except the explicit enterprise-mode override). This does not imply every existing identity with absent persisted tier fields becomes pending: identity resolution can normalize legacy records before middleware supplies resolver inputs.
+- Raw effective-tier inputs missing both `subscriptionTier` and legacy `accessTier` fall back to `pending`, even without billing fields, except for the Enterprise override.
+- Identity resolution can normalize legacy records before the middleware resolves effective tier; missing persisted tier fields do not necessarily make an existing identity pending.
 - A legacy access-tier field is preserved alongside the subscription tier; resolution prefers the new field and falls back to the legacy one.
 
 **Priority:** P1
@@ -371,8 +421,8 @@ Tiers, billing, usage tracking, and quotas.
 
 **Constraints:**
 
-- Free, unlimited, pending, and blocked tiers are exempt from billing-driven downgrades (none have an active billing cycle to expire).
-- Billing-state comparisons go through typed constants, not raw string literals, so a renamed status value is a compile-time error.
+- Free, unlimited, pending, and blocked tiers are exempt from billing-driven downgrades.
+- Billing-state comparisons use typed constants, not raw string literals; a renamed status value must fail compilation.
 - The billing-status vocabulary is closed: active, trialing, past-due, canceled.
 
 **Priority:** P0
@@ -432,7 +482,8 @@ Tiers, billing, usage tracking, and quotas.
 
 **Constraints:**
 
-- In SaaS mode, the effective session mode is the saved preference (Standard when absent), clamped to the effective tier's allowed modes. The user record's `subscribedMode` is distinct provider/admin subscription metadata, not sole authority for Pro access; non-SaaS and enterprise mode resolution remain unchanged.
+- In SaaS mode, the effective session mode is the saved preference (Standard when absent), clamped to the effective tier's allowed modes.
+- The user record's `subscribedMode` is distinct provider/admin subscription metadata, not sole authority for Pro access; non-SaaS and enterprise mode resolution remain unchanged.
 - Just-in-time provisioned users default to Standard mode.
 
 **Priority:** P0
@@ -456,22 +507,42 @@ Tiers, billing, usage tracking, and quotas.
 1. Webhooks are treated as signals that trigger a fresh fetch from the payment provider, not as the authoritative data source themselves. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (handleCheckoutCompleted / REQ-SUB-005 (Stripe webhook syncs subscription state) / REQ-SUB-015 (webhook handlers for updated/deleted/canceled)) -->
 2. The state-sync routine fetches the latest subscription (with price items expanded) directly from the payment provider. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (handleCheckoutCompleted / REQ-SUB-005 (Stripe webhook syncs subscription state) / REQ-SUB-015 (webhook handlers for updated/deleted/canceled)) -->
 3. Subscription updates and terminations are ordered per user so a later-started termination atomically clears billing fields, applies canceled/free/default state, and prevents an older in-flight update from restoring entitlements. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState --> <!-- @impl: src/routes/stripe-webhook.ts::handleSubscriptionDeleted --> <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/routes/stripe-webhook-sync.test.ts (DEEP-22-002: an older in-flight provider result cannot overwrite a later-started sync) --> <!-- @test: src/__tests__/routes/stripe-webhook-sync.test.ts (serializes a newer sync while an older apply is delayed after its guard) --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (REQ-SUB-015 AC3: a deletion prevents an older in-flight update from restoring entitlements) --> <!-- @test: src/__tests__/timekeeper/index.test.ts (REQ-SUB-015 AC3: canceled/free cleanup rejects an older paid apply) -->
-4. Persisted updates are built from the fetched snapshot; the persisted tier is updated only when price tier-metadata is present, so absent metadata preserves the existing tier. The subscribed mode is resolved per AC6. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState --> <!-- @test: src/__tests__/routes/stripe-webhook-sync.test.ts (syncSubscriptionState) -->
-5. The Timekeeper coordinator performs the token check and read-merge-write as one serialized operation, preserving unrelated user fields without serializing undefined patch values. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/routes/stripe-webhook-sync.test.ts (syncSubscriptionState) -->
-6. On any mode change, the agent-config reconciler runs to seed the new mode's config set - recreating the new mode's skills and removing the previous mode's - and the session-mode preference (the UI mode) flips. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (auto-recreate on downgrade) -->
-7. On subscription termination, after resetting the persisted tier to free, the agent-config reconciler runs with the default mode to restore Standard configs. <!-- @impl: src/routes/stripe-webhook.ts::handleSubscriptionDeleted --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (handleCheckoutCompleted / REQ-SUB-005 (Stripe webhook syncs subscription state) / REQ-SUB-015 (webhook handlers for updated/deleted/canceled)) -->
+4. Persisted updates are built from the fetched snapshot; the persisted tier is updated only when price tier-metadata is present, so absent metadata preserves the existing tier. Mode changes follow [REQ-SUB-034](#req-sub-034-subscription-driven-agent-configuration). <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState --> <!-- @test: src/__tests__/routes/stripe-webhook-sync.test.ts (syncSubscriptionState) -->
+5. The Timekeeper checks the synchronization token and applies the update as one serialized operation, preserving unrelated user fields and never storing undefined patch values. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/routes/stripe-webhook-sync.test.ts (syncSubscriptionState) -->
 
-**Constraints:**
-
-- Sync ordering uses per-user monotonic tokens, including for starts in the same millisecond.
-- Auto-reconcile failure is non-fatal: a reconciliation error does not block the webhook from acknowledging.
-- Cancellation scheduled for the end of the billing period does not trigger reconciliation; only the actual termination event does, so users retain Pro configs through the end of their paid period.
+**Constraints:** Sync ordering uses per-user monotonic tokens, including for starts in the same millisecond.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-SUB-004](#req-sub-004-paid-tiers-integrate-with-stripe-checkout), [REQ-SUB-012](#req-sub-012-billing-status-enforcement-effective-tier)
 
 **Verification:** Automated: [stripe-webhook-sync.test.ts](../../src/__tests__/routes/stripe-webhook-sync.test.ts), [stripe-webhook.test.ts](../../src/__tests__/routes/stripe-webhook.test.ts), [index.test.ts](../../src/__tests__/timekeeper/index.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-SUB-034: Subscription-driven agent configuration
+
+**Intent:** Actual subscription mode transitions reconcile the agent environment without turning a scheduled cancellation into an early downgrade.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. On any mode change, the agent-config reconciler runs to seed the new mode's config set - recreating the new mode's skills and removing the previous mode's - and the session-mode preference (the UI mode) flips. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (auto-recreate on downgrade) -->
+2. On subscription termination, after resetting the persisted tier to free, the agent-config reconciler runs with the default mode to restore Standard configs. <!-- @impl: src/routes/stripe-webhook.ts::handleSubscriptionDeleted --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (handleCheckoutCompleted / REQ-SUB-005 (Stripe webhook syncs subscription state) / REQ-SUB-015 (webhook handlers for updated/deleted/canceled)) -->
+
+**Constraints:**
+
+- Auto-reconcile failure is non-fatal: a reconciliation error does not block the webhook from acknowledging.
+- Only actual subscription termination triggers reconciliation; scheduled cancellation retains Pro configuration through the paid period.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-SUB-015](#req-sub-015-stripe-webhook-signal-and-sync-pattern)
+
+**Verification:** Automated: [stripe-webhook.test.ts](../../src/__tests__/routes/stripe-webhook.test.ts)
 
 **Status:** Implemented
 
@@ -524,7 +595,7 @@ Tiers, billing, usage tracking, and quotas.
 **Constraints:**
 
 - Must comply with the platform-wide rate-limiting constraint ([CON-SEC-004](constraints.md#con-sec-004-rate-limiting-on-all-mutation-endpoints)).
-- The inquiry payload includes the user's email and selected tier so the recipient has the context to reply.
+- The inquiry payload includes the user's email and selected tier for the recipient.
 
 **Priority:** P2
 
@@ -536,9 +607,35 @@ Tiers, billing, usage tracking, and quotas.
 
 ---
 
-### REQ-SUB-018: Usage dashboard page
+<a id="req-sub-018-usage-dashboard-page"></a>
+### REQ-SUB-018: Monthly quota warning banners
 
-**Intent:** Users with a billed compute quota can see current utilization and actionable threshold warnings.
+**Intent:** Users with a billed compute quota receive actionable threshold warnings outside the Usage page.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Layout-level warning banners surface at the 80%, 95%, and 100% utilization thresholds. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-SUB-018 AC3/AC6 (usage quota banners)) -->
+2. The 80% and 95% banners include a dismiss control that hides the banner until the next monthly quota rollover; dismissal is persisted per calendar month so a page reload does not resurface the warning, and the warning returns automatically when the quota resets. <!-- @impl: web-ui/src/stores/session-usage.ts::setDismissedQuotaLevel --> <!-- @test: web-ui/src/__tests__/stores/session-usage.test.ts (session-usage dismissed quota level / REQ-SUB-018 (usage banner dismiss persistence per UTC month)) -->
+3. Dismissing the 95% banner also hides the 80% banner. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-SUB-018 AC5: a dismissed 95% warning also hides the lower 80% warning) -->
+4. The 100% quota-exceeded banner is not dismissible. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (AC6: the 80% and 95% banners carry a dismiss control; the 100% banner does not) -->
+
+**Constraints:** Banners project quota state; server-side start admission remains authoritative.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-SUB-006](#req-sub-006-real-time-usage-tracking-via-timekeeper-do)
+
+**Verification:** Automated: [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx), [session-usage.test.ts](../../web-ui/src/__tests__/stores/session-usage.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-SUB-033: Usage dashboard page
+
+**Intent:** Users with a billed compute quota can see current utilization alongside their plan context.
 
 **Applies To:** User
 
@@ -546,11 +643,7 @@ Tiers, billing, usage tracking, and quotas.
 
 1. When the usage response carries a monthly quota, the page renders the quota stat and progress bar. <!-- @impl: web-ui/src/components/UsagePage.tsx::UsagePage --> <!-- @test: web-ui/src/__tests__/components/UsagePage.test.tsx (UsagePage / REQ-SUB-018 AC1 / REQ-SUB-022 AC4 (usage stat and quota rendering)) -->
 2. The page polls the usage endpoint for real-time Timekeeper data and accepts the endpoint's durable-store fallback. <!-- @impl: web-ui/src/components/UsagePage.tsx::UsagePage --> <!-- @test: src/__tests__/routes/usage.test.ts (GET /api/usage / REQ-SUB-018 AC2 (real-time Timekeeper DO with KV fallback)) --> <!-- @test: web-ui/src/__tests__/components/UsagePage.test.tsx (REQ-SUB-018 AC2: polling refreshes the displayed usage at the next interval) -->
-3. Layout-level warning banners surface at the 80%, 95%, and 100% utilization thresholds. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Layout Component / REQ-AUTH-014 (session expiry handling on 401)) -->
-4. The 80% and 95% banners include a dismiss control that hides the banner until the next monthly quota rollover; dismissal is persisted per calendar month so a page reload does not resurface the warning, and the warning returns automatically when the quota resets. <!-- @impl: web-ui/src/stores/session-usage.ts::setDismissedQuotaLevel --> <!-- @test: web-ui/src/__tests__/stores/session-usage.test.ts (session-usage dismissed quota level / REQ-SUB-018 (usage banner dismiss persistence per UTC month)) -->
-5. Dismissing the 95% banner also hides the 80% banner because reaching 95% implies the 80% threshold. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Layout Component / REQ-AUTH-014 (session expiry handling on 401)) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-SUB-018 AC5: a dismissed 95% warning also hides the lower 80% warning) -->
-6. The 100% (quota-exceeded) banner is not dismissible because it explains why new sessions cannot start. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Layout Component / REQ-AUTH-014 (session expiry handling on 401)) -->
-7. The page shows a centered tier-and-mode label only for metered SaaS plans; non-SaaS and custom unmetered plans show usage time without a plan label. <!-- @impl: web-ui/src/components/UsagePage.tsx::UsagePage --> <!-- @test: web-ui/src/__tests__/components/UsagePage.test.tsx (UsagePage / REQ-SUB-018 AC1 / REQ-SUB-022 AC4 (usage stat and quota rendering)) -->
+3. The page shows a centered tier-and-mode label only for metered SaaS plans; non-SaaS and custom unmetered plans show usage time without a plan label. <!-- @impl: web-ui/src/components/UsagePage.tsx::UsagePage --> <!-- @test: web-ui/src/__tests__/components/UsagePage.test.tsx (UsagePage / REQ-SUB-018 AC1 / REQ-SUB-022 AC4 (usage stat and quota rendering)) -->
 
 **Constraints:** Non-SaaS personal usage visibility is owned by [REQ-SUB-022](#req-sub-022-cross-mode-personal-usage-data); account-menu actions are owned by [REQ-SUB-023](#req-sub-023-deployment-mode-account-actions).
 
@@ -558,7 +651,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-006](#req-sub-006-real-time-usage-tracking-via-timekeeper-do)
 
-**Verification:** Automated: [usage.test.ts](../../src/__tests__/routes/usage.test.ts), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx), [UsagePage.test.tsx](../../web-ui/src/__tests__/components/UsagePage.test.tsx), [session-usage.test.ts](../../web-ui/src/__tests__/stores/session-usage.test.ts)
+**Verification:** Automated: [usage.test.ts](../../src/__tests__/routes/usage.test.ts), [UsagePage.test.tsx](../../web-ui/src/__tests__/components/UsagePage.test.tsx)
 
 **Status:** Implemented
 
@@ -713,7 +806,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Priority:** P2
 
-**Dependencies:** [REQ-SUB-018](#req-sub-018-usage-dashboard-page)
+**Dependencies:** [REQ-SUB-033](#req-sub-033-usage-dashboard-page)
 
 **Verification:** Automated: [SubscribePage.test.tsx](../../web-ui/src/__tests__/components/SubscribePage.test.tsx)
 
@@ -730,7 +823,7 @@ Tiers, billing, usage tracking, and quotas.
 **Acceptance Criteria:**
 
 1. Each positive Timekeeper delta updates durable UTC day, ISO week, UTC month, and UTC year accumulators and counts each distinct positive-runtime session once per period. <!-- @impl: src/timekeeper/accounting.ts::applyPositiveDelta --> <!-- @test: src/__tests__/timekeeper/accounting.test.ts (AccountingStateV2 (REQ-SUB-025)) --> <!-- @test: src/__tests__/timekeeper/accounting-integration.test.ts (REQ-SUB-025 AC1/2: failed commit leaves retry totals and distinct-session counts unchanged) -->
-2. One versioned sub-4-KB accounting state replaces legacy accounting keys atomically. Accounting state and marker-cache memory publish only after successful persistence; failed transactions leave retry accounting unchanged. Incremental historical accounting performs one accounting-state write with zero additional KV reads on the normal ping path; retained SaaS live-quota and entitlement KV reads are separate and remain required. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/accounting-integration.test.ts (Timekeeper AccountingStateV2 integration (REQ-SUB-025)) --> <!-- @test: src/__tests__/timekeeper/accounting-load.test.ts (historical accounting operation fixture (REQ-OPS-057 AC6)) --> <!-- @test: src/__tests__/timekeeper/accounting-integration.test.ts (REQ-SUB-025 AC1/2: failed commit leaves retry totals and distinct-session counts unchanged) -->
+2. One versioned state under 4 KB atomically replaces legacy keys. Publish state and marker cache after persistence; failure preserves retry accounting. Normal historical pings add one accounting-state write and no KV reads beyond required SaaS live-quota and entitlement reads. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/accounting-integration.test.ts (Timekeeper AccountingStateV2 integration (REQ-SUB-025)) --> <!-- @test: src/__tests__/timekeeper/accounting-load.test.ts (historical accounting operation fixture (REQ-OPS-057 AC6)) --> <!-- @test: src/__tests__/timekeeper/accounting-integration.test.ts (REQ-SUB-025 AC1/2: failed commit leaves retry totals and distinct-session counts unchanged) -->
 3. The existing alarm performs five-minute KV work and one hash-phased 15-minute D1 duty; no second alarm exists. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @impl: src/timekeeper/accounting.ts::historyPhase --> <!-- @test: src/__tests__/timekeeper/alarm-history.test.ts (Timekeeper single-alarm history duty (REQ-SUB-025)) -->
 4. Current absolute accumulators and closed-period outbox entries retry independently from KV checkpoints, and sequence-guarded D1 upserts cannot double-count. <!-- @impl: src/lib/admin-usage.ts::writeUsageHistory --> <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (historical usage D1 guards (REQ-SUB-025, REQ-SUB-026)) --> <!-- @test: src/__tests__/timekeeper/alarm-history.test.ts (Timekeeper single-alarm history duty (REQ-SUB-025)) -->
 5. Session markers store only domain-separated hashes, use a FIFO in-memory cache bounded to 128 keys and separate durable cleanup, and survive restart and period rollover. Evicted markers are reloaded from durable storage without recounting a session. <!-- @impl: src/timekeeper/accounting.ts::hashSessionId --> <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/accounting.test.ts (AccountingStateV2 (REQ-SUB-025)) --> <!-- @test: src/__tests__/timekeeper/accounting-integration.test.ts (REQ-SUB-025 AC5: evicted markers are read durably, including after restart, without recounting a session) -->
@@ -761,9 +854,9 @@ Tiers, billing, usage tracking, and quotas.
 
 **Acceptance Criteria:**
 
-1. Admin-only organization and user-detail routes work in every deployment mode and accept the shared closed-period UTC query parameters: period, start, sort, direction, cursor, limit, and format. Only the organization route returns JSON or downloadable CSV. The user-detail route returns the requested user's detail as JSON, including when the shared parser accepts `format=csv`. <!-- @impl: src/routes/admin/usage.ts::default --> <!-- @impl: web-ui/src/components/admin/AnalyticsPage.tsx::AnalyticsPage --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (admin organization usage routes (REQ-SUB-026)) --> <!-- @test: web-ui/src/__tests__/components/AnalyticsPage.test.tsx (Analytics historical usage presentation) --> <!-- @manual -->
+1. In every deployment mode, only admins can query organization or user detail by UTC closed-period parameters: period, start, sort, direction, cursor, limit, and format. Organization results offer JSON or downloadable CSV; the requested user's detail is JSON even for `format=csv`. <!-- @impl: src/routes/admin/usage.ts::default --> <!-- @impl: web-ui/src/components/admin/AnalyticsPage.tsx::AnalyticsPage --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (admin organization usage routes (REQ-SUB-026)) --> <!-- @test: web-ui/src/__tests__/components/AnalyticsPage.test.tsx (Analytics historical usage presentation) --> <!-- @manual -->
 2. Opaque versioned cursors bind the complete filter and use the stable opaque user identifier for deterministic tie-breaking; malformed or mismatched cursors are rejected. <!-- @impl: src/routes/admin/usage.ts::decodeCursor --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (admin organization usage routes (REQ-SUB-026)) --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (filters the requested period and paginates equal totals without losing tied owners) -->
-3. JSON and CSV share one query and row mapper, with identical filtering and ordering; CSV ignores pagination only. <!-- @impl: src/lib/admin-usage.ts::queryAdminUsageRows --> <!-- @impl: src/routes/admin/usage.ts::usageCsv --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (admin organization usage routes (REQ-SUB-026)) -->
+3. JSON and CSV return the same filtered rows in the same order; only CSV omits pagination. <!-- @impl: src/lib/admin-usage.ts::queryAdminUsageRows --> <!-- @impl: src/routes/admin/usage.ts::usageCsv --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (admin organization usage routes (REQ-SUB-026)) -->
 4. The opaque user identifier is stable lowercase hex SHA-256 over a versioned, domain-separated normalized-email input and exposes neither email nor bucket identity. <!-- @impl: src/lib/admin-usage.ts::userKeyForEmail --> <!-- @test: src/__tests__/lib/admin-usage.test.ts (historical usage helpers (REQ-SUB-025)) -->
 5. User deletion writes a D1 tombstone before live cleanup; failure returns typed `503` and leaves live data unchanged. <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData --> <!-- @impl: src/lib/admin-usage.ts::tombstoneUsageUser --> <!-- @test: src/__tests__/lib/user-cleanup.test.ts (cleanupUserData) -->
 6. Deleted users retain named aggregate history for 60 months; explicit same-email provisioning reactivates ownership without erasing prior history. <!-- @impl: src/lib/admin-usage.ts::reactivateUsageUser --> <!-- @impl: src/lib/access.ts::resolveOrProvisionUser --> <!-- @impl: src/lib/usage-report-scheduler.ts::runUsageRetention --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (historical usage D1 guards (REQ-SUB-025, REQ-SUB-026)) --> <!-- @test: src/__tests__/lib/usage-report-scheduler.test.ts (usage report retention cutoffs (REQ-SUB-026, REQ-SUB-028)) -->
@@ -775,7 +868,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-SUB-025](#req-sub-025-durable-historical-usage-accounting), [REQ-AUTH-018](authentication.md#req-auth-018-admin-user-management)
+**Dependencies:** [REQ-SUB-025](#req-sub-025-durable-historical-usage-accounting), [REQ-AUTH-026](authentication.md#req-auth-026-admin-user-offboarding)
 
 **Verification:** Automated: [admin-usage.test.ts](../../src/__tests__/routes/admin-usage.test.ts), [AnalyticsPage.test.tsx](../../web-ui/src/__tests__/components/AnalyticsPage.test.tsx), [admin-usage.test.ts](../../src/__tests__/lib/admin-usage.test.ts), [user-cleanup.test.ts](../../src/__tests__/lib/user-cleanup.test.ts), [usage-report-claims.test.ts](../../src/__tests__/lib/usage-report-claims.test.ts), [usage-report-scheduler.test.ts](../../src/__tests__/lib/usage-report-scheduler.test.ts); Manual: [Integration analytics and report presentation acceptance](../../documentation/lanes/billing.md#integration-analytics-and-report-presentation-acceptance)
 
@@ -792,7 +885,7 @@ Tiers, billing, usage tracking, and quotas.
 **Acceptance Criteria:**
 
 1. Revisioned settings accept disabled-by-default state, at most 25 normalized recipients, day 1 through 31, whole local hour, and canonical IANA timezone. <!-- @impl: src/lib/usage-reports.ts::normalizeReportSettings --> <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @test: src/__tests__/lib/usage-reports.test.ts (usage report settings and schedule (REQ-SUB-027)) -->
-2. Informational summaries and exact CSVs for the selected report month are regenerated from current persisted usage during delivery recovery and sent as separate recipient messages with an 8 MiB attachment limit. Recovery does not change the authoritative usage ledger or payment accounting; report bytes are not immutable per dispatch. <!-- @impl: src/lib/usage-report-scheduler.ts::recoverReportDeliveries --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (REQ-SUB-027 AC2: recovery regenerates current persisted usage but keeps identity and records provider rejection as failure) --> <!-- @impl: src/lib/usage-reports.ts::buildReportArtifacts --> <!-- @impl: src/lib/email.ts::sendUsageReportEmail --> <!-- @test: src/__tests__/lib/usage-report-delivery.test.ts (usage report artifacts and email boundary (REQ-SUB-027)) -->
+2. On delivery recovery, regenerate the month's summaries and exact CSVs from current persisted usage and send separate recipient messages with an 8 MiB attachment limit. Report bytes may change per dispatch; authoritative usage and payment accounting do not. <!-- @impl: src/lib/usage-report-scheduler.ts::recoverReportDeliveries --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (REQ-SUB-027 AC2: recovery regenerates current persisted usage but keeps identity and records provider rejection as failure) --> <!-- @impl: src/lib/usage-reports.ts::buildReportArtifacts --> <!-- @impl: src/lib/email.ts::sendUsageReportEmail --> <!-- @test: src/__tests__/lib/usage-report-delivery.test.ts (usage report artifacts and email boundary (REQ-SUB-027)) -->
 3. Scheduled and test dispatches use distinct identities, one row per recipient, conditional claims, random claim tokens, bounded leases, and at most three attempts. <!-- @impl: src/lib/usage-report-scheduler.ts::createReportDispatch --> <!-- @impl: src/lib/usage-report-scheduler.ts::claimReportDelivery --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (usage report delivery claims (REQ-SUB-027)) --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (persists one recipient row per dispatch and keeps test dispatch identities independent) -->
 4. Stale claim tokens cannot complete reclaimed rows; deterministic Resend idempotency suppresses the remaining ambiguous duplicate window. <!-- @impl: src/lib/usage-report-scheduler.ts::completeReportDelivery --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (usage report delivery claims (REQ-SUB-027)) -->
 5. The 15-minute scheduler independently recovers pending, failed, and lease-expired scheduled or test rows; request-attached background work is only the test-send fast path. <!-- @impl: src/index.ts::scheduled --> <!-- @impl: src/lib/usage-report-scheduler.ts::runUsageReportScheduler --> <!-- @impl: src/routes/admin/usage-reports.ts::default --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (scheduled recovery sends failed, expired and test rows independently of request work while respecting leases and attempts) --> <!-- @test: src/__tests__/routes/admin-usage-reports.test.ts (admin usage report routes (REQ-SUB-027)) -->
@@ -936,7 +1029,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Constraints:**
 
-- The flag is read at deploy time from a Worker binding, not from request data, so it cannot be toggled per request.
+- The deploy-time Worker binding selects the flag; request data cannot override it.
 - When the flag is unset there is no new code path: every enterprise branch is gated behind the resolver returning false.
 - Successful enterprise upgrade stamps preserve the latest stored preference fields they do not own. <!-- @impl: src/routes/container/lifecycle-init.ts::ensureBucketAndSeed --> <!-- @impl: src/routes/storage/seed.ts::updatedPreferences --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (REQ-ENTERPRISE-001 constraint: enterprise upgrade preserves preferences changed while reconciliation is running) --> <!-- @test: src/__tests__/routes/storage-seed.test.ts (REQ-ENTERPRISE-001 constraint: enterprise reseed preserves preferences changed during reconciliation) -->
 - Enterprise deployment-variable values, rollout, and rollback procedures are owned by the private [Enterprise deployment runbook](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/deployment/enterprise.md); this public specification records only runtime behavior.

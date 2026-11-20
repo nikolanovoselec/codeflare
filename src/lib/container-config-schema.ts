@@ -10,7 +10,7 @@ import { z } from 'zod';
 import { syncPolicyModeSchema } from './sync-policy';
 import { ManagedResourcePolicySchema } from '../types';
 
-/** REQ-AGENT-029 AC6: omission preserves, null clears, and non-null hints are 32-hex IDs. */
+/** REQ-AGENT-240 AC2/4: omission preserves, null clears, and non-null hints are 32-hex IDs. */
 export const CloudflareOauthAccountIdSchema = z.string().length(32).regex(/^[0-9a-f]{32}$/i).nullable().optional();
 
 export const SetBucketNameBodySchema = z.object({

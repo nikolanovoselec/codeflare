@@ -76,6 +76,7 @@ describe('Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)', () =>
     });
   }
 
+  // REQ-ENTERPRISE-306 AC1: Enterprise direct deploy credential boundary.
   describe('REQ-ENTERPRISE-009 AC8: enterprise deploy credentials are disabled', () => {
     const replacementPayloads = [
       { label: 'GitHub replacement', payload: { githubToken: 'synthetic-personal-github-token' } },

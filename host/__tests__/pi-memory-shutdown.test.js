@@ -1,4 +1,4 @@
-// REQ-MEM-035 AC7: host-owned graceful shutdown, not a process-tree kill.
+// REQ-MEM-035 AC6: host-owned graceful shutdown, not a process-tree kill.
 // Exercise only disposable Node processes and receipts in a fresh /tmp tree.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';

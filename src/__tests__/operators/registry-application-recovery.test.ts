@@ -547,7 +547,7 @@ describe('Root-authenticated exact-head vacancy', () => {
   }));
 });
 
-// REQ-OPERATOR-061 AC4/6, 210 AC2–5, 211: real state/CAS/vacancy
+// REQ-OPERATOR-061 AC3/5, 210 AC2–5, 211: real state/CAS/vacancy
 // transactions; external original facts remain controlled by the established
 // recovery fixture. Exact equality below is the public privacy wire contract.
 describe('owner-neutral explicitly nonprivate coordination', () => {

@@ -335,7 +335,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       getAndDecrypt<DeployKeys>(c.env.KV, getDeployKeysKey(bucketName), cryptoKey),
     ]));
 
-    // REQ-AGENT-029 AC5: capture only the original owner's selected OAuth account,
+    // REQ-AGENT-240 AC1: capture only the original owner's selected OAuth account,
     // before the independent Browser Run projection replaces the effective fields.
     // This is advisory startup metadata, not a token refresh or authorization check.
     const selectedOauthAccount = CloudflareOauthAccountIdSchema.safeParse(deployKeys?.cloudflareAccountId);

@@ -61,7 +61,7 @@ export interface InterceptionHost {
   _managedResourcePolicy?: ManagedResourcePolicy;
   _managedResourcePathsDigest?: string | null;
   _r2SseDisabled?: boolean;
-  /** REQ-ENTERPRISE-016 AC3: resolved once in the DO constructor — never re-read per start. */
+  /** REQ-ENTERPRISE-016 AC1: resolved once in the DO constructor — never re-read per start. */
   _strictEgress?: boolean;
   /** Present only for a parent-bound operator session; never read from requests. */
   _operatorPolicy?: OperatorPolicy;

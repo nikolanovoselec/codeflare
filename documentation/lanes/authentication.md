@@ -67,7 +67,7 @@ For onboarding sign-in assets, `ONBOARDING_LANDING_PAGE=active` together with `S
 
 The Worker creates a signed OAuth state carrying a nonce and bounded return target, redirects to GitHub, validates the callback state, exchanges the code, and accepts only a verified primary email. Callback-local provider credentials are used only for that flow and are not returned to the browser. Successful authentication issues `codeflare_session` with `HttpOnly`, `Secure`, and `SameSite=Lax`; the session has a one-hour lifetime and is refreshed when less than fifteen minutes remain. <!-- @impl: src/routes/github-auth.ts::app -->
 
-State signature, expiry, account binding and spent-nonce checks reject invalid states and sequential replay. The current KV read/write pair does not atomically exclude concurrent callbacks carrying different valid provider codes. [Issue #1386](https://github.com/nikolanovoselec/codeflare/issues/1386) records this additional limitation and the deferred complete application-owned auth/authz migration to D1; no nonce-only migration is part of cleanup. Provider errors fail the callback; they do not fall back to Cloudflare Access inside the same request.
+Per-source-IP callback rate limiting bounds attempts to replay intercepted state. State signature, expiry, account binding and spent-nonce checks reject invalid states and sequential replay. The current KV read/write pair does not atomically exclude concurrent callbacks carrying different valid provider codes. [Issue #1386](https://github.com/nikolanovoselec/codeflare/issues/1386) records this additional limitation and the deferred complete application-owned auth/authz migration to D1; no nonce-only migration is part of cleanup. Provider errors fail the callback; they do not fall back to Cloudflare Access inside the same request.
 <!-- @impl: src/routes/github-auth.ts::app -->
 
 <a id="auth-flow"></a>
@@ -130,7 +130,9 @@ The Access flow diagram illustrates Access-backed SaaS activation. Enterprise ad
 
 Browser JavaScript cannot read either authentication cookie. API requests carry credentials automatically. Session refresh reissues the same secure cookie attributes; identity is normalized before durable lookup.
 
-**Known non-Enterprise limitation:** SaaS/onboarding session-cookie renewal currently runs inside Hono; early terminal, Vault, IDE and static-response paths can bypass it. This is not an Enterprise CF Access session-refresh gap: Enterprise browser authentication is managed by Access, and this app-owned cookie refresher is inactive. Upstream provider credentials refreshed or injected by container interceptors are a separate mechanism. The non-Enterprise correction is deferred outside cleanup.
+The Worker applies [REQ-AUTH-008](../../sdd/spec/authentication.md#req-auth-008-session-cookie-auto-refresh) after routing ordinary HTTP responses in configured non-Enterprise SaaS and onboarding modes, including static assets and Vault/IDE proxies. It verifies the app-owned session cookie and renews only while the token is valid and less than 15 minutes remain. The renewed cookie retains its existing scope and secure attributes. Browser cache hits produce no Worker response; WebSocket upgrades and open socket traffic do not renew. Cloudflare Access and provider credentials managed by container interceptors are separate. <!-- @impl: src/index.ts::renewSessionCookie -->
+
+A response that explicitly issues or clears the app session cookie wins over renewal. Renewal appends its cookie without replacing other cookies or buffering the body, and sets `Cache-Control: no-store` without CDN cache-control overrides. A response with no renewal keeps its existing cache behavior. A renewal failure leaves the original response intact.
 
 ### Logout
 
@@ -148,7 +150,7 @@ Authenticated API clients treat explicit 401, manual/opaque redirects, and HTML 
 
 Service automation uses `X-Service-Auth` only when the optional Worker `SERVICE_AUTH_SECRET` is configured. Environment-specific source-secret mapping and GitHub Environment placement belong to private [Deployment testing](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/verification/deployment-testing.md).
 
-Current source checks this header before user authentication, compares it in constant time, and returns an admin automation identity when it matches. The stress-mode, SaaS-mode, and hostname restrictions accepted in [AD68](../decisions/README.md#ad68-service-token-admin-bypass-must-be-environment-gated-and-hostname-restricted) are **not implemented** and remain tracked by issue #130. This path must therefore be treated as a privileged residual risk, not described as environment-gated hardening. <!-- @impl: src/lib/access.ts::validateServiceAuthHeader -->
+Current source checks this header before user authentication, compares it in constant time to avoid secret-dependent timing, and returns an admin automation identity when it matches. This path supports deployment end-to-end checks. The stress-mode, SaaS-mode, and hostname restrictions accepted in [AD68](../decisions/README.md#ad68-service-token-admin-bypass-must-be-environment-gated-and-hostname-restricted) are **not implemented** and remain tracked by issue #130. This path must therefore be treated as a privileged residual risk, not described as environment-gated hardening. <!-- @impl: src/lib/access.ts::validateServiceAuthHeader -->
 
 The automation identity carries an explicit active tier for protected app APIs. Ordinary users without a recognized tier remain pending. <!-- @impl: src/lib/access.ts::validateServiceAuthHeader --> <!-- @impl: src/middleware/auth.ts::requireActiveUser -->
 
@@ -355,7 +357,7 @@ Use existing disposable targets and identities with current authorization for pr
 
 ### Logout mode acceptance
 
-For REQ-AUTH-001 AC4 and REQ-AUTH-009 AC1/AC4, use approved signed-in SaaS/onboarding OIDC and Access deployments. Activate the account Logout control and inspect redacted navigation. Pass only if each starts at `/auth/logout`, the backend selects `/auth/github/logout` for session-OIDC or the configured Access logout endpoint otherwise, clears the session and ends at the mode-appropriate login page with security headers. Service authentication cannot substitute for human logout; an OIDC return target must not go through Access.
+For REQ-AUTH-009 AC1/AC4, use approved signed-in SaaS/onboarding OIDC and Access deployments. Activate the account Logout control and inspect redacted navigation. Pass only if each starts at `/auth/logout`, the backend selects `/auth/github/logout` for session-OIDC or the configured Access logout endpoint otherwise, clears the session and ends at the mode-appropriate login page with security headers. Service authentication cannot substitute for human logout; an OIDC return target must not go through Access.
 
 ### Verified primary email acceptance
 
@@ -371,9 +373,9 @@ For REQ-AUTH-007 AC3/AC5 and REQ-AUTH-015 AC3/AC4, use existing approved pending
 
 ### Session refresh acceptance
 
-This procedure targets non-Enterprise SaaS/onboarding sessions, not Enterprise CF Access. The known early-return limitation above remains unresolved; this method does not certify universal current coverage. For REQ-AUTH-008 AC1/AC3/AC4, allow an approved SaaS session to age naturally into the final fifteen minutes of its one-hour lifetime. Observe ordinary application/API responses without copying cookies. An observed refresh passes only if it retains secure cookie attributes, grants a fresh one-hour lifetime and leaves the UI uninterrupted without redirects or re-authentication.
+Use approved non-Enterprise SaaS and onboarding sessions. In separate observations, let a session age into the final fifteen minutes and inspect an API response, a network-fetched asset, or authorized Vault/IDE HTTP traffic. A renewal passes if the original response remains usable and the cookie retains its scope and security attributes with a new one-hour lifetime; record attributes and timing, not token values. Repeat with a fresh session to confirm no renewal and unchanged asset caching.
 
-Trace `src/index.ts` dispatch and post-handler middleware, including early-return terminal/Vault/IDE paths. The every-response requirement fails if any eligible response bypasses refresh. Do not narrow it to Hono routes, forge cookies, replay expired sessions or treat one successful response as universal proof.
+Trace the exported Worker fetch boundary for route coverage. Renewal must not undo a logout, introduce a redirect, cache a renewed credential, or alter a successful WebSocket upgrade. Open socket traffic and browser cache hits do not exercise the renewal boundary. Do not forge cookies, replay expired sessions, or treat one response as universal or deployed acceptance.
 
 ### Protected login first-paint acceptance
 
@@ -385,9 +387,11 @@ For REQ-AUTH-017 AC2, use an approved existing identity with no Gravatar. Open H
 
 ### Admin user panel acceptance
 
-For REQ-AUTH-023 AC1–AC4 and REQ-AUTH-018 AC1/AC2/AC4/AC5, use approved SaaS and onboarding admin deployments with existing disposable users across tiers and known capacity. Open `/admin/users`, compare tier headings and current/maximum counts, then search for a known user.
+For REQ-AUTH-023 AC1–AC4 and REQ-AUTH-018 AC1–AC3, use approved SaaS and onboarding admin deployments with existing disposable users across tiers and known capacity. Open `/admin/users`, compare tier headings and current/maximum counts, then search for a known user.
 
-With separately approved mutations, approve pending users, change SaaS tier/session mode, use onboarding Approve/Block and bulk approval, and delete only an explicitly authorized disposable user. Pass each operation only when its successful response updates visible state; onboarding approval must grant unlimited/advanced full access. Preserve admin-only/mode gates. A disappeared row does not establish AC3's independent cleanup/security contract or resolve residual failures.
+With separately approved mutations, approve pending users, change SaaS tier/session mode, and use onboarding Approve/Block and bulk approval. Pass each operation only when its successful response updates visible state; onboarding approval must grant unlimited/advanced full access. Preserve admin-only/mode gates.
+
+For [REQ-AUTH-026](../../sdd/spec/authentication.md#req-auth-026-admin-user-offboarding) AC1, delete only an explicitly authorized disposable user and verify a successful response updates the displayed state. A disappeared row does not establish AC2–3's independent cleanup and revocation outcomes.
 
 ### Account status API acceptance
 
@@ -397,7 +401,7 @@ POST `/api/user/ensure-r2-token`: require ready on success, 503 for incomplete s
 
 ### Admin group mode isolation acceptance
 
-For REQ-ENTERPRISE-014 AC7, require approved Enterprise/non-Enterprise targets, administrator/non-administrator identities and an owner-identified same-input pre-change baseline. Compare Setup prefill/configure bytes and admin authorization in each mode, redacting credentials consistently. Pass only if group reads/writes are Enterprise-gated and non-Enterprise shapes/authorization remain unchanged.
+For [REQ-ENTERPRISE-014](../../sdd/spec/authentication.md#req-enterprise-014-admin-access-via-cloudflare-access-groups) AC5 and [REQ-ENTERPRISE-312](../../sdd/spec/setup.md#req-enterprise-312-admin-access-group-configuration) AC3, require approved Enterprise/non-Enterprise targets, administrator/non-administrator identities and an owner-identified same-input pre-change baseline. Compare Setup prefill/configure bytes and admin authorization in each mode, redacting credentials consistently. Pass only if group reads/writes are Enterprise-gated and non-Enterprise shapes/authorization remain unchanged.
 
 No durable role write may result from request-local elevation. Missing/invalid tokens, unsafe Access domains or provider failures must never elevate. Missing baselines or mode targets mean blocked acceptance, not a fabricated historical snapshot or permission to change roles/configuration. Definition of this method does not establish its execution.
 
@@ -415,7 +419,7 @@ Exhaustive requirement status remains in active SDD domains. This is navigation,
 | Verified SaaS JIT | [REQ-AUTH-007](../../sdd/spec/authentication.md#req-auth-007-jit-user-provisioning-in-saas-mode) | `src/lib/access.ts::resolveOrProvisionUser`; access/JIT suites |
 | Enterprise JIT and entry group | [REQ-ENTERPRISE-010](../../sdd/spec/authentication.md#req-enterprise-010-access-gated-jit-user-provisioning) | `src/lib/access.ts::resolveOrProvisionEnterpriseUser`; Enterprise access-group suites |
 | Activation/subscription handoff | [REQ-SETUP-009](../../sdd/spec/setup.md#req-setup-009-subscribe-page-with-tier-selection), [Subscription SDD](../../sdd/spec/subscription.md) | auth/billing routes; subscribe/checkout suites |
-| Offboarding | [REQ-GITHUB-005](../../sdd/spec/github.md#req-github-005-disconnect-and-offboarding-revocation), user cleanup requirements | user cleanup and specialist owners; cleanup/revocation suites |
+| Offboarding | [REQ-AUTH-026](../../sdd/spec/authentication.md#req-auth-026-admin-user-offboarding), [REQ-GITHUB-005](../../sdd/spec/github.md#req-github-005-disconnect-and-offboarding-revocation) (ordinary disconnect) | user cleanup and specialist owners; cleanup/revocation suites |
 
 <a id="specification-coverage"></a>
 ## Related Documentation

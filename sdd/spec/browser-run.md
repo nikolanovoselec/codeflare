@@ -48,7 +48,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Constraints:**
 
-- The skill is seeded through the preseed manifest pipeline ([REQ-AGENT-006](agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth)); the MCP server itself is wired in `entrypoint.sh` behind the advanced-mode + Cloudflare-token gate, matching the existing advanced-only MCP gating so Standard sessions are unaffected.
+- The skill is seeded through the preseed manifest pipeline ([REQ-AGENT-006](agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth)); the MCP server itself is wired in `entrypoint.sh` only in advanced mode with a Cloudflare token; Standard sessions are unaffected.
 - The token must carry the `Browser Rendering - Edit` scope ([REQ-BROWSER-002](#req-browser-002-browser-rendering-scope-in-the-cloudflare-token-template)).
 
 **Priority:** P2
@@ -130,7 +130,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 1. Advanced Claude seeds `browser-e2e`, which uses interactive `chrome-devtools` to verify the user's deployed app and returns an evidence-backed pass/fail verdict for each acceptance criterion. <!-- @manual -->
 2. Advanced Pi seeds `browser-e2e` for full-flow navigate, click, screenshot, and mobile-resize verification through the MCP proxy; native markdown and scrape tools remain the cheap read-only path, matching Claude capability. <!-- @manual -->
 3. Both skills scope targets to public / deployed URLs (Browser Run is remote and cannot reach localhost or private hosts) and to the user's own app under test, and both state that deterministic invariants remain in the CI suite. <!-- @manual -->
-4. Both skills are manifest-seeded and expose the interactive and cheap-read Browser Run surfaces defined by [REQ-BROWSER-001](#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp), [REQ-BROWSER-003](#req-browser-003-pi-native-browser-run-wrapper), [REQ-BROWSER-005](#req-browser-005-claude-browser-run-mcp-server-read-surface-parity), and [REQ-BROWSER-006](#req-browser-006-pi-interactive-browser-via-chrome-devtools-through-the-pi-mcp-adapter). <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
+4. Advanced sessions in both supported agents receive the skills exposing the interactive and cheap-read Browser Run surfaces defined by [REQ-BROWSER-001](#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp), [REQ-BROWSER-003](#req-browser-003-pi-native-browser-run-wrapper), [REQ-BROWSER-005](#req-browser-005-claude-browser-run-mcp-server-read-surface-parity), and [REQ-BROWSER-006](#req-browser-006-pi-interactive-browser-via-chrome-devtools-through-the-pi-mcp-adapter). <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
 
 **Constraints:**
 
@@ -229,21 +229,21 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 1. Enterprise setup accepts an admin-global Browser Rendering token and account ID. <!-- @impl: src/routes/setup/index.ts::app --> <!-- @test: web-ui/src/__tests__/components/ConfigureStep.test.tsx (Browser Rendering token (enterprise admin-global)) -->
 2. Configured at-rest encryption protects token storage; otherwise the accepted [AD32](../../documentation/decisions/README.md#ad32-encryption_key-is-optional) plaintext fallback applies. <!-- @impl: src/lib/kv-crypto.ts::encryptAndStore --> <!-- @test: src/__tests__/lib/kv-crypto.test.ts (encryptAndStore / REQ-SEC-006 AC7 (real updates always encrypt directly)) --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (REQ-BROWSER-007 AC1–3: saves and logically reads back a token after blank Save ($storage)) -->
 3. Prefill reveals only token presence, and a blank save preserves the existing value. <!-- @impl: src/routes/setup/handlers.ts::handlers --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (REQ-BROWSER-007: admin Browser Rendering token prefill (masked)) --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (REQ-BROWSER-007 AC1–3: saves and logically reads back a token after blank Save ($storage)) -->
-4. Enterprise Settings exposes configured owner Cloudflare integrations independently of administrator Browser Run configuration. <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel --> <!-- @test: web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx (REQ-AGENT-018/064: Integrations is not Enterprise-suppressed) -->
-5. Enterprise containers receive only non-secret Browser Rendering identity placeholders; the real token remains outside the container ([REQ-BROWSER-008](#req-browser-008-browser-rendering-token-interception-never-in-the-container)). <!-- @impl: src/lib/browser-render-token.ts::applyEnterpriseBrowserToken --> <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/lib/browser-render-token.test.ts (REQ-BROWSER-008: enterprise + configured sets the PLACEHOLDER (never the real token) + admin account, preserves githubToken) -->
-6. When no Browser Rendering token is configured, none of the browser-run surface is seeded to the agents: the `chrome-devtools` + `browser-run` MCP servers are not registered and the Pi native extension registers no tools (already gated). <!-- @impl: entrypoint.sh::PLUGIN_DIR --> <!-- @manual -->
+4. Enterprise containers receive only non-secret Browser Rendering identity placeholders; the real token remains outside the container ([REQ-BROWSER-008](#req-browser-008-browser-rendering-token-interception-never-in-the-container)). <!-- @impl: src/lib/browser-render-token.ts::applyEnterpriseBrowserToken --> <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/lib/browser-render-token.test.ts (REQ-BROWSER-008: enterprise + configured sets the PLACEHOLDER (never the real token) + admin account, preserves githubToken) -->
+5. When no Browser Rendering token is configured, none of the browser-run surface is seeded to the agents: the `chrome-devtools` + `browser-run` MCP servers are not registered and the Pi native extension registers no tools (already gated). <!-- @impl: entrypoint.sh::PLUGIN_DIR --> <!-- @manual -->
 
 **Constraints:**
 
-- The admin token is shared across all enterprise users, so it must be scoped to `Browser Rendering - Edit` only ([REQ-BROWSER-002](#req-browser-002-browser-rendering-scope-in-the-cloudflare-token-template)); the wizard copy states this.
+- The admin token is shared across all Enterprise users and must be scoped to `Browser Rendering - Edit` only ([REQ-BROWSER-002](#req-browser-002-browser-rendering-scope-in-the-cloudflare-token-template)); the wizard copy states this.
 - The skill-strip mirrors the consult-llm skill removal in `configure_consult_llm` (the same "no provider → no skill" parity, [REQ-AGENT-031](agents.md#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity)).
+- Enterprise owner Cloudflare OAuth and its Settings visibility remain independent under [REQ-AGENT-064](agents.md#req-agent-064-connect-to-cloudflare-via-oauth) AC6.
 - Routine Administration preserves this optional complete-pair behavior through [REQ-SETUP-017](setup.md#req-setup-017-mode-aware-administration-configuration-read); it adds no enable flag, delete workflow, or Worker-binding transport.
 
 **Priority:** P2
 
 **Dependencies:** [REQ-BROWSER-001](#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp), [REQ-BROWSER-002](#req-browser-002-browser-rendering-scope-in-the-cloudflare-token-template), [REQ-GITHUB-001](github.md#req-github-001-github-token-capture-and-storage), [REQ-SETUP-006](setup.md#req-setup-006-setup-streams-progress-via-ndjson)
 
-**Verification:** Automated: [setup/handlers.test.ts](../../src/__tests__/routes/setup/handlers.test.ts), [admin-configuration-runs.test.ts](../../src/__tests__/routes/admin-configuration-runs.test.ts), [kv-crypto.test.ts](../../src/__tests__/lib/kv-crypto.test.ts), [enterprise-surface-suppression.test.tsx](../../web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx); Manual: [Browser read registration observation](../../documentation/lanes/preseed.md#browser-read-registration-observation)
+**Verification:** Automated: [setup/handlers.test.ts](../../src/__tests__/routes/setup/handlers.test.ts), [admin-configuration-runs.test.ts](../../src/__tests__/routes/admin-configuration-runs.test.ts), [kv-crypto.test.ts](../../src/__tests__/lib/kv-crypto.test.ts); Manual: [Browser read registration observation](../../documentation/lanes/preseed.md#browser-read-registration-observation)
 
 **Status:** Implemented
 

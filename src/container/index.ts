@@ -646,7 +646,7 @@ export class container extends Container<Env> implements ContainerEnvState {
         });
       }
 
-      // Resolve strict Gateway egress once (REQ-ENTERPRISE-016 AC4) so buildEnvVars emits
+      // Resolve strict Gateway egress once (REQ-ENTERPRISE-016 AC1) so buildEnvVars emits
       // placeholder R2 creds and the interception registry wires the catch-all without
       // a per-request KV read. Enterprise unreadable/invalid policy resolves true, keeping
       // strict transport and raw-network denial even if Browser owner-reference lookup fails.

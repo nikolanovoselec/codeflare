@@ -35,18 +35,18 @@ None. Authentication is foundational; other domains depend on it.
 1. When GitHub OAuth is not configured, authentication is handled by Cloudflare Access; the Worker verifies CF Access JWTs against the deployment's CF Access JWKS endpoint. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/lib/jwt.test.ts (JWT verification / REQ-AUTH-003 (CF Access JWT validation + JWKS caching)) -->
 2. When the deployment is configured as SaaS with GitHub OAuth, the Worker manages the entire OAuth flow and issues its own session cookies signed against an operator-provided JWT secret. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @impl: src/routes/github-auth.ts::app --> <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-001: SaaS mode mutual exclusivity) -->
 3. The two modes are mutually exclusive at runtime: when the Direct GitHub OAuth branch is entered, CF Access is never checked. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-001: SaaS mode mutual exclusivity) -->
-4. The frontend always calls a single logout endpoint; the backend dispatches to the correct logout flow based on mode. <!-- @test: src/__tests__/routes/auth-redirects.test.ts (GET /logout / REQ-AUTH-009 (logout dispatches by mode)) --> <!-- @manual -->
 
 **Constraints:**
 
 - Once GitHub OAuth is configured, missing required credentials cause a fail-loud authentication error; authentication failure never falls back to CF Access.
 - CF Access identity headers are not trusted by the configured GitHub OAuth branch; unconfigured deployments retain [AD38](../../documentation/decisions/README.md#ad38-github-oidc-replaces-cf-access-in-saas-mode)'s Access selection.
+- Mode-specific logout uses [REQ-AUTH-009](#req-auth-009-logout-dispatches-by-mode) AC1/AC4.
 
 **Priority:** P0
 
 **Dependencies:** None.
 
-**Verification:** Automated: [auth-gaps.test.ts](../../src/__tests__/lib/auth-gaps.test.ts), [jwt.test.ts](../../src/__tests__/lib/jwt.test.ts); Manual: [Logout mode acceptance](../../documentation/lanes/authentication.md#logout-mode-acceptance)
+**Verification:** Automated: [auth-gaps.test.ts](../../src/__tests__/lib/auth-gaps.test.ts), [jwt.test.ts](../../src/__tests__/lib/jwt.test.ts)
 
 **Status:** Implemented
 
@@ -60,7 +60,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Acceptance Criteria:**
 
-1. In SaaS mode, the anonymous root serves the marketing landing owned by [REQ-LANDING-001](landing.md#req-landing-001-mode-aware-public-landing-serving); the SPA app/login entry presents the provider chooser with a "Continue with GitHub" control. Signed-in active users retain the `/app/` redirect and pending/blocked users the `/app/subscribe` redirect. <!-- @impl: src/index.ts::default --> <!-- @test: src/__tests__/index.test.ts (REQ-LANDING-001: serves the static landing at / in SaaS mode (unauthenticated)) --> <!-- @impl: web-ui/src/components/LoginPage.tsx::LoginPage --> <!-- @test: web-ui/src/__tests__/components/LoginPage.test.tsx (should render provider buttons after loading) --> <!-- @test: src/__tests__/routes/github-auth.test.ts (GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)) -->
+1. In SaaS mode, the anonymous root serves the marketing landing under [REQ-LANDING-017](landing.md#req-landing-017-mode-aware-landing-dispatch); the SPA app/login entry presents the provider chooser with a "Continue with GitHub" control. Signed-in active users retain the `/app/` redirect and pending/blocked users the `/app/subscribe` redirect. <!-- @impl: src/index.ts::default --> <!-- @test: src/__tests__/index.test.ts (REQ-LANDING-001: serves the static landing at / in SaaS mode (unauthenticated)) --> <!-- @impl: web-ui/src/components/LoginPage.tsx::LoginPage --> <!-- @test: web-ui/src/__tests__/components/LoginPage.test.tsx (should render provider buttons after loading) --> <!-- @test: src/__tests__/routes/github-auth.test.ts (GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)) -->
 2. The login endpoint initiates a GitHub OAuth flow with a signed, self-contained state token (no cookie required during the redirect). <!-- @impl: src/lib/oauth-state.ts::signOauthState --> <!-- @test: src/__tests__/routes/github-auth.test.ts (GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)) -->
 3. The OAuth callback validates the state token, rejecting tokens not issued by this server, issued more than 30 minutes ago, or already redeemed. <!-- @impl: src/lib/oauth-state.ts::verifyOauthState --> <!-- @impl: src/lib/oauth-state.ts::claimOauthNonce --> <!-- @test: src/__tests__/routes/github-auth.test.ts (GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)) -->
 4. Valid callbacks create a session and redirect active users to workspaces or pending/blocked users to subscriptions; the exchanged GitHub access token exists only during callback and is never persisted. <!-- @impl: src/routes/github-auth.ts::app --> <!-- @test: src/__tests__/routes/github-auth.test.ts (GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)) -->
@@ -74,7 +74,7 @@ None. Authentication is foundational; other domains depend on it.
 
 - User-initiated OAuth rejections (e.g. access denied) are handled gracefully; unexpected errors surface as system errors.
 - No CF Access resources (apps, groups, policies) are created when SaaS OAuth is active.
-- The callback endpoint is rate-limited per source IP to bound brute-force replay attempts on intercepted state tokens; the window and threshold are operational tuning parameters.
+- The callback endpoint is rate-limited per source IP; the window and threshold are operational tuning parameters.
 
 **Priority:** P0
 
@@ -98,7 +98,6 @@ None. Authentication is foundational; other domains depend on it.
 2. After IdP authentication, CF Access issues a session credential that the Worker validates on every request. <!-- @impl: src/lib/jwt.ts::verifyAccessJWT --> <!-- @test: src/__tests__/lib/jwt.test.ts (JWT verification / REQ-AUTH-003 (CF Access JWT validation + JWKS caching)) -->
 3. The Worker verifies the credential signature against the CF Access JWKS endpoint. <!-- @impl: src/lib/jwt.ts::verifyAccessJWT --> <!-- @test: src/__tests__/lib/jwt.test.ts (JWT verification / REQ-AUTH-003 (CF Access JWT validation + JWKS caching)) -->
 4. User email is extracted from the credential claims, normalized, and resolved from persistent storage. <!-- @impl: src/lib/jwt.ts::verifyAccessJWT --> <!-- @impl: src/lib/access.ts::normalizeEmail --> <!-- @impl: src/lib/access.ts::resolveUserFromKV --> <!-- @test: src/__tests__/lib/jwt.test.ts (JWT verification / REQ-AUTH-003 (CF Access JWT validation + JWKS caching)) -->
-5. The setup wizard provisions a CF Access Application covering all protected paths and creates Access Groups scoped to admin and regular user roles. <!-- @impl: src/routes/setup/access.ts::handleCreateAccessApp --> <!-- @test: src/__tests__/routes/setup/access.test.ts (Setup Access) -->
 
 **Constraints:**
 
@@ -108,13 +107,13 @@ None. Authentication is foundational; other domains depend on it.
 - Cache misses own their network requests rather than sharing request-bound promises.
 - An unfinished or failed request cannot stall another verifier.
 - Earlier completions cannot overwrite a newer or reset snapshot. <!-- @impl: src/lib/jwt.ts::getPublicKeys --> <!-- @test: src/__tests__/lib/jwt.test.ts (REQ-AUTH-003: request-owned JWKS reads and completed snapshots) -->
-- Admin-only deployments (no regular users) are supported.
+- Access application and role provisioning belongs to [REQ-SETUP-012](setup.md#req-setup-012-setup-wizard-step-sequence) AC6.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-AUTH-001](#req-auth-001-two-authentication-modes)
 
-**Verification:** Automated: [jwt.test.ts](../../src/__tests__/lib/jwt.test.ts), [access.test.ts](../../src/__tests__/routes/setup/access.test.ts); Manual: [Access redirect acceptance](../../documentation/lanes/authentication.md#access-redirect-acceptance)
+**Verification:** Automated: [jwt.test.ts](../../src/__tests__/lib/jwt.test.ts); Manual: [Access redirect acceptance](../../documentation/lanes/authentication.md#access-redirect-acceptance)
 
 **Status:** Implemented
 
@@ -136,7 +135,7 @@ None. Authentication is foundational; other domains depend on it.
 **Constraints:**
 
 - Service token auth is the highest priority in the resolution order (checked before cookies or JWTs).
-- Constant-time comparison prevents timing attacks on the secret.
+- Compare the service-auth secret in constant time.
 - The secret source varies by deployment mode but is unified under a single shared secret name at runtime. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/lib/access.test.ts (REQ-AUTH-004 AC4: service-auth secret unified under one runtime name across modes) -->
 
 **Priority:** P0
@@ -163,8 +162,8 @@ None. Authentication is foundational; other domains depend on it.
 
 **Constraints:**
 
-- Outside the app-owned OIDC modes (SaaS and onboarding), the active-user check does not enforce tier (backward compatibility with pre-subscription deployments).
-- Users with no tier field are treated as active for backward compatibility.
+- Outside the app-owned OIDC modes (SaaS and onboarding), the active-user check does not enforce tier.
+- Users with no tier field are treated as active.
 
 **Priority:** P0
 
@@ -186,7 +185,7 @@ None. Authentication is foundational; other domains depend on it.
 
 1. All email addresses are trimmed (leading/trailing whitespace removed) and lowercased before use. <!-- @impl: src/lib/access.ts::resolveUserFromKV --> <!-- @test: src/__tests__/lib/access.test.ts (authenticateRequest() / REQ-AUTH-006 AC1/AC2 (trim+lowercase email before KV lookup, role resolution, bucket derivation)) -->
 2. Normalization is applied before KV lookup, role resolution, bucket name derivation, and CF Access group membership operations. <!-- @impl: src/lib/access.ts::resolveUserFromKV --> <!-- @test: src/__tests__/lib/access.test.ts (authenticateRequest() / REQ-AUTH-006 AC1/AC2 (trim+lowercase email before KV lookup, role resolution, bucket derivation)) -->
-3. User storage resources resolve through a strongly consistent Durable Object ownership claim: unambiguous legacy names are retained, later collisions receive a deterministic digest-suffixed name, and ambiguous legacy collisions are denied. <!-- @impl: src/lib/access.ts::resolveBucketName --> <!-- @test: src/__tests__/lib/access.test.ts (resolveBucketName / REQ-AUTH-006 tenant isolation) -->
+3. User storage resources resolve through a strongly consistent ownership claim: unambiguous legacy names are retained, later collisions receive a deterministic digest-suffixed name, and ambiguous legacy collisions are denied. <!-- @impl: src/lib/access.ts::resolveBucketName --> <!-- @test: src/__tests__/lib/access.test.ts (resolveBucketName / REQ-AUTH-006 tenant isolation) -->
 
 **Constraints:**
 
@@ -233,29 +232,27 @@ None. Authentication is foundational; other domains depend on it.
 
 ### REQ-AUTH-008: Session cookie auto-refresh
 
-**Intent:** SaaS-mode session credentials are automatically refreshed before expiry so users do not experience session interruption during active use.
+**Intent:** Active SaaS and onboarding sessions can renew before expiry, including when the user is working outside the main API surface.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Global middleware checks the SaaS session credential's remaining lifetime on every response. <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-008: Session cookie auto-refresh) --> <!-- @manual -->
-2. When less than 15 minutes remain on the 1-hour TTL, a fresh credential is issued with a new 1-hour expiry and returned on the response. <!-- @impl: src/lib/session-jwt.ts::shouldRefreshJWT --> <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-008: Session cookie auto-refresh) -->
-3. The refresh is transparent to the user (no redirect, no re-authentication). <!-- @test: src/__tests__/session-refresh-transparent.test.ts (REQ-AUTH-008 AC3: SaaS session refresh is transparent (no redirect / no re-auth)) --> <!-- @manual -->
-4. The refresh occurs on any response, not just specific routes. <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-008: Session cookie auto-refresh) --> <!-- @manual -->
+1. Every ordinary Worker HTTP response is eligible for session renewal, including static assets and proxied Vault and Browser IDE HTTP responses. <!-- @impl: src/index.ts::fetch --> <!-- @test: src/__tests__/session-refresh-transparent.test.ts (renews proxied %s HTTP without losing the body or existing cookies) --> <!-- @test: src/__tests__/session-refresh-transparent.test.ts (makes a fingerprinted %s asset private only when issuing renewal) --> <!-- @manual -->
+2. A valid session with less than 15 minutes remaining receives a credential for the same identity with a new one-hour lifetime. <!-- @impl: src/index.ts::renewSessionCookie --> <!-- @impl: src/lib/session-jwt.ts::shouldRefreshJWT --> <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-008: Session cookie auto-refresh) --> <!-- @test: src/__tests__/session-refresh-transparent.test.ts (renews proxied %s HTTP without losing the body or existing cookies) -->
+3. Renewal preserves the response's status, body and unrelated cookies without introducing a redirect or re-authentication. <!-- @impl: src/index.ts::renewSessionCookie --> <!-- @test: src/__tests__/session-refresh-transparent.test.ts (REQ-AUTH-008 AC3: SaaS session refresh is transparent (no redirect / no re-auth)) --> <!-- @test: src/__tests__/session-refresh-transparent.test.ts (renews proxied %s HTTP without losing the body or existing cookies) --> <!-- @manual -->
+4. Only the valid app-owned session cookie in configured non-Enterprise SaaS or onboarding mode can renew. <!-- @impl: src/index.ts::renewSessionCookie --> <!-- @test: src/__tests__/session-refresh-transparent.test.ts (does not renew with %s) -->
+5. A response that already issues or clears the session cookie retains that cookie instead of renewing the incoming session. <!-- @impl: src/index.ts::renewSessionCookie --> <!-- @test: src/__tests__/session-refresh-transparent.test.ts (keeps the logout redirect and clearing cookie instead of renewing the incoming session) -->
+6. Responses carrying a renewed credential are not cacheable; renewal does not change cache behavior for other responses. <!-- @impl: src/index.ts::renewSessionCookie --> <!-- @test: src/__tests__/session-refresh-transparent.test.ts (makes a fingerprinted %s asset private only when issuing renewal) --> <!-- @test: src/__tests__/session-refresh-transparent.test.ts (renews proxied %s HTTP without losing the body or existing cookies) -->
+7. WebSocket upgrades pass through unchanged without issuing a renewal cookie. <!-- @impl: src/index.ts::renewSessionCookie --> <!-- @test: src/__tests__/session-refresh-transparent.test.ts (returns the original terminal upgrade with its attached socket and no renewal) -->
 
-**Notes:** Non-Enterprise SaaS/onboarding responses that return before the current middleware, including terminal, Vault, IDE and static responses, can bypass renewal; Enterprise CF Access sessions are Access-managed rather than renewed by this mechanism. The non-Enterprise correction is deferred outside cleanup and interceptor-managed provider credentials are separate; [Identity & Access](../../documentation/lanes/authentication.md) owns these boundaries.
-
-**Constraints:**
-
-- Only applies to SaaS-mode session credentials.
-- CF Access sessions are managed by CF Access's own policy and are not refreshed by the Worker.
+**Constraints:** Cloudflare Access manages its own sessions; the Worker does not renew them.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AUTH-002](#req-auth-002-saas-mode-uses-direct-github-oauth)
 
-**Verification:** Automated: [auth-gaps.test.ts](../../src/__tests__/lib/auth-gaps.test.ts); Manual: [Session refresh acceptance](../../documentation/lanes/authentication.md#session-refresh-acceptance)
+**Verification:** Automated: [auth-gaps.test.ts](../../src/__tests__/lib/auth-gaps.test.ts), [session-refresh-transparent.test.ts](../../src/__tests__/session-refresh-transparent.test.ts); Manual: [Session refresh acceptance](../../documentation/lanes/authentication.md#session-refresh-acceptance)
 
 **Status:** Implemented
 
@@ -272,14 +269,14 @@ None. Authentication is foundational; other domains depend on it.
 1. The frontend triggers logout via a single endpoint, irrespective of deployment mode. <!-- @test: src/__tests__/routes/auth-redirects.test.ts (onboarding mode with OAuth configured redirects to the GitHub logout route, not CF Access) --> <!-- @manual -->
 2. GitHub-OIDC logout clears the app session and returns to login without using the Cloudflare Access logout endpoint. <!-- @impl: src/routes/auth-redirects.ts::app --> <!-- @test: src/__tests__/routes/auth-redirects.test.ts (onboarding mode with OAuth configured redirects to the GitHub logout route, not CF Access) -->
 3. In CF Access mode, the backend redirects through CF Access's system logout endpoint so CF Access clears its own credential. <!-- @impl: src/routes/auth-redirects.ts::app --> <!-- @test: src/__tests__/routes/auth-redirects.test.ts (onboarding mode with OAuth configured redirects to the GitHub logout route, not CF Access) -->
-4. The dispatch decision is made by the backend based on the current deployment configuration, not by the frontend. <!-- @test: src/__tests__/routes/auth-redirects.test.ts (onboarding mode with OAuth configured redirects to the GitHub logout route, not CF Access) --> <!-- @manual -->
+4. The dispatch decision is made by the backend based on the current deployment configuration, not by the frontend. <!-- @test: src/__tests__/routes/auth-redirects.test.ts (onboarding mode with OAuth configured redirects to the GitHub logout route, not CF Access) --> <!-- @test: src/__tests__/routes/auth-redirects.test.ts (GET /logout / REQ-AUTH-009 (logout dispatches by mode)) --> <!-- @manual -->
 
 **Constraints:**
 
 - Logout redirect responses carry the full security header set.
 - Operator catalog denial recovery navigates natively to `/auth/logout`; SPA navigation to `/` cannot substitute for session renewal. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-management.test.tsx (REQ-AUTH-009/REQ-OPERATOR-049: denied catalog %i offers native session renewal without operator details) -->
 - After logout, the user always lands on the appropriate login page for the deployment mode.
-- The CF Access logout endpoint rejects a `returnTo` pointing at an onboarding/SaaS origin as an invalid redirect URL, so any mode issuing a `codeflare_session` must use the GitHub logout path instead.
+- Any mode issuing a `codeflare_session` must use the GitHub logout path rather than Cloudflare Access logout.
 
 **Priority:** P0
 
@@ -354,9 +351,9 @@ None. Authentication is foundational; other domains depend on it.
 
 **Acceptance Criteria:**
 
-1. When a user is JIT-provisioned on first login, a welcome email is submitted through that user's existing Timekeeper ownership boundary. <!-- @impl: src/lib/access.ts::resolveOrProvisionUser --> <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/lib/access.test.ts (resolveOrProvisionUser — strongly consistent welcome email claim / REQ-AUTH-012) -->
-2. Login awaits the Timekeeper submission so the delivery claim remains within the Worker request lifetime; provider failure is logged without failing login. <!-- @impl: src/lib/access.ts::queueWelcomeEmail --> <!-- @test: src/__tests__/lib/access.test.ts (resolveOrProvisionUser — strongly consistent welcome email claim / REQ-AUTH-012) -->
-3. The Timekeeper serializes each user's claim; an accepted provider response is persisted and cannot produce another send. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/lib/access.test.ts (resolveOrProvisionUser — strongly consistent welcome email claim / REQ-AUTH-012) -->
+1. First-login provisioning submits a welcome email within the newly provisioned user's existing ownership boundary. <!-- @impl: src/lib/access.ts::resolveOrProvisionUser --> <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/lib/access.test.ts (resolveOrProvisionUser — strongly consistent welcome email claim / REQ-AUTH-012) -->
+2. Login awaits the welcome submission within the request lifetime; provider failure is logged without failing login. <!-- @impl: src/lib/access.ts::queueWelcomeEmail --> <!-- @test: src/__tests__/lib/access.test.ts (resolveOrProvisionUser — strongly consistent welcome email claim / REQ-AUTH-012) -->
+3. Welcome delivery claims serialize per user; durable provider acceptance prevents another send. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/lib/access.test.ts (resolveOrProvisionUser — strongly consistent welcome email claim / REQ-AUTH-012) -->
 4. A rejected or unconfigured-provider send remains unclaimed and retryable on a later login, using the same deterministic provider idempotency key. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @impl: src/lib/email.ts::sendEmail --> <!-- @test: src/__tests__/lib/access.test.ts (resolveOrProvisionUser — strongly consistent welcome email claim / REQ-AUTH-012) -->
 
 **Constraints:**
@@ -415,7 +412,7 @@ None.
 
 **Constraints:**
 
-- Top-level sign-in uses history-replacing navigation so Back cannot reopen the expired app.
+- Top-level sign-in uses history-replacing navigation; Back must not reopen the expired app.
 
 **Priority:** P1
 
@@ -435,22 +432,41 @@ None.
 
 **Acceptance Criteria:**
 
-1. The onboarding page shows four steps: idle timeout selector, **Connect GitHub** (OAuth), **Connect Cloudflare** (OAuth), and agent subscription. The GitHub and Cloudflare steps reuse the shared OAuth connect card ([REQ-GITHUB-007](github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise), [REQ-AGENT-064](agents.md#req-agent-064-connect-to-cloudflare-via-oauth)) — no manual token paste. <!-- @impl: web-ui/src/components/OnboardingPage.tsx::OnboardingPage --> <!-- @test: web-ui/src/__tests__/components/OnboardingPage.test.tsx (OnboardingPage / REQ-AUTH-015 (onboarding-mode public landing page)) -->
+1. Onboarding has four steps: idle timeout, **Connect GitHub**, **Connect Cloudflare**, and [agent subscription](#req-auth-025-guided-setup-agent-subscription-cards). Both connection steps share OAuth cards under [REQ-GITHUB-007](github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise) and [REQ-AGENT-064](agents.md#req-agent-064-connect-to-cloudflare-via-oauth), without manual token paste. <!-- @impl: web-ui/src/components/OnboardingPage.tsx::OnboardingPage --> <!-- @test: web-ui/src/__tests__/components/OnboardingPage.test.tsx (OnboardingPage / REQ-AUTH-015 (onboarding-mode public landing page)) -->
 2. The idle timeout step explains compute usage and lets users choose their auto-sleep duration. Free-tier users see a locked 15m selector with upgrade hint; paying users can select 15m-4h. <!-- @impl: web-ui/src/components/OnboardingPage.tsx::OnboardingPage --> <!-- @test: web-ui/src/__tests__/components/OnboardingPage.test.tsx (REQ-AUTH-015 AC2: the idle-timeout selector offers the paying 15m-4h options) -->
 3. First-time users are auto-redirected to onboarding. <!-- @test: web-ui/src/__tests__/components/auth-007-app-redirect.test.tsx (REQ-AUTH-007 AC5: first-time active user redirected to onboarding) --> <!-- @manual -->
 4. Once onboarding has been completed, the user is not redirected there again. <!-- @test: web-ui/src/__tests__/components/auth-007-app-redirect.test.tsx (REQ-AUTH-007 AC5: first-time active user redirected to onboarding) --> <!-- @manual -->
-5. The agent-subscription step mirrors the six installable agents: Claude Code, Codex, Antigravity, GitHub Copilot, OpenCode, and Pi. <!-- @impl: web-ui/src/components/OnboardingPage.tsx::CODING_AGENTS --> <!-- @test: web-ui/src/__tests__/components/OnboardingPage.test.tsx (renders the six installable coding agents and replaces Gemini with Antigravity) -->
-6. Every agent card identifies the provider families whose subscriptions the agent can use. <!-- @impl: web-ui/src/components/OnboardingPage.tsx::CODING_AGENTS --> <!-- @test: web-ui/src/__tests__/components/OnboardingPage.test.tsx (shows provider-family subscription support on every coding agent card) -->
 
-**Constraints:**
-
-None.
+**Constraints:** None.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AUTH-007](#req-auth-007-jit-user-provisioning-in-saas-mode), [REQ-SESSION-014](session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings), [REQ-AGENT-064](agents.md#req-agent-064-connect-to-cloudflare-via-oauth)
 
 **Verification:** Automated: [OnboardingPage.test.tsx](../../web-ui/src/__tests__/components/OnboardingPage.test.tsx); Manual: [Provisioning and onboarding acceptance](../../documentation/lanes/authentication.md#provisioning-and-onboarding-acceptance)
+
+**Status:** Implemented
+
+---
+
+### REQ-AUTH-025: Guided Setup agent subscription cards
+
+**Intent:** First-time users see which installable agents accept their provider subscriptions.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The agent-subscription step mirrors the six installable agents: Claude Code, Codex, Antigravity, GitHub Copilot, OpenCode, and Pi. <!-- @impl: web-ui/src/components/OnboardingPage.tsx::CODING_AGENTS --> <!-- @test: web-ui/src/__tests__/components/OnboardingPage.test.tsx (renders the six installable coding agents and replaces Gemini with Antigravity) -->
+2. Every agent card identifies the provider families whose subscriptions the agent can use. <!-- @impl: web-ui/src/components/OnboardingPage.tsx::CODING_AGENTS --> <!-- @test: web-ui/src/__tests__/components/OnboardingPage.test.tsx (shows provider-family subscription support on every coding agent card) -->
+
+**Constraints:** None.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AUTH-015](#req-auth-015-guided-onboarding-flow)
+
+**Verification:** Automated: [OnboardingPage.test.tsx](../../web-ui/src/__tests__/components/OnboardingPage.test.tsx)
 
 **Status:** Implemented
 
@@ -512,24 +528,46 @@ None.
 <a id="req-auth-018-admin-user-management"></a>
 ### REQ-AUTH-018: User management admin panel
 
-**Intent:** Admins can approve access, configure tiers and request user deletion without CLI tools. Approval changes a user's tier; onboarding bulk approval grants the same full-access tier as its per-user approval control.
+**Intent:** Admins can approve access and configure tiers without CLI tools. Approval changes a user's tier; onboarding bulk approval grants the same full-access tier as its per-user approval control.
 
 **Applies To:** Admin
 
 **Acceptance Criteria:**
 
-1. An admin can approve pending users. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @manual: Exercise search, approval, tier change, and deletion from the admin user page and confirm each successful action updates the displayed user state. -->
-2. An admin can change tiers. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @manual: Exercise search, approval, tier change, and deletion from the admin user page and confirm each successful action updates the displayed user state. -->
-3. Deleting a user removes all owned settings, sessions, notification enrollments, R2 data, and scoped tokens. Confirm container cleanup, then provider revocation while user data and scoped access remain; only afterward revoke scoped tokens and remove storage/local state, with the user record last. <!-- @test: src/__tests__/lib/user-cleanup.test.ts (REQ-AUTH-018 AC3 / REQ-SEC-003 AC6: provider %s preserves storage authority until revocation and retry converges) --> <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData --> <!-- @impl: src/lib/user-cleanup.ts::deleteUserKvEntries --> <!-- @test: src/__tests__/routes/users.test.ts (Users Routes / REQ-AUTH-018 (user management admin panel)) --> <!-- @test: src/__tests__/lib/user-cleanup.test.ts (REQ-AUTH-018 AC3: follows paginated push-subscription cursors until complete) -->
-4. An admin can request user deletion. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @manual: Exercise search, approval, tier change, and deletion from the admin user page and confirm each successful action updates the displayed user state. -->
-5. In onboarding mode the bulk action approves all pending users to the same full-access tier as the per-user Approve control. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @manual: Compare SaaS and onboarding deployments and confirm their user controls and bulk-approval outcomes match the criterion. -->
+1. An admin can approve pending users. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @manual: Approve a pending user from the admin page and confirm the displayed state updates. -->
+2. An admin can change tiers. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @manual: Change a tier from the admin page and confirm the displayed state updates. -->
+3. In onboarding mode the bulk action approves all pending users to the same full-access tier as the per-user Approve control. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @manual: Compare SaaS and onboarding deployments and confirm their user controls and bulk-approval outcomes match the criterion. -->
 
-**Notes:** SaaS/onboarding grouping, search, approval, tier/session-mode changes, capacity, deletion presentation and bulk approval have the linked manual procedure; manual execution is not claimed. Push-subscription and fail-closed offboarding outcomes have automated assertions.
+**Notes:** SaaS/onboarding grouping, search and capacity are covered by [REQ-AUTH-023](#req-auth-023-admin-user-browsing-and-mode-specific-controls); offboarding is covered by [REQ-AUTH-026](#req-auth-026-admin-user-offboarding).
 
 **Constraints:**
 
 - Tier mutation approves access only in app-owned OIDC modes gated by `isSessionOidcMode`.
 - Enterprise mode returns 403 through [REQ-ENTERPRISE-009](security.md#req-enterprise-009-enterprise-backend-route-hardening); default CF Access mode has no tier-gated access and returns 400.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AUTH-005](#req-auth-005-three-tier-authorization-middleware)
+
+**Verification:** Manual: [Admin user panel acceptance](../../documentation/lanes/authentication.md#admin-user-panel-acceptance)
+
+**Status:** Implemented
+
+---
+
+### REQ-AUTH-026: Admin user offboarding
+
+**Intent:** Administrators can request deletion without CLI tools, with ordered cleanup that preserves the authority needed for an authorized retry.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. An admin can request user deletion. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @manual: Request deletion of an explicitly authorized disposable user from the admin page and confirm a successful result updates the displayed state. -->
+2. Deleting a user removes all owned settings, sessions, notification enrollments, R2 data, and scoped tokens. Confirm container cleanup, then provider revocation while user data and scoped access remain; only afterward revoke scoped tokens and remove storage/local state, with the user record last. <!-- @test: src/__tests__/lib/user-cleanup.test.ts (REQ-AUTH-018 AC3 / REQ-SEC-003 AC6: provider %s preserves storage authority until revocation and retry converges) --> <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData --> <!-- @impl: src/lib/user-cleanup.ts::deleteUserKvEntries --> <!-- @test: src/__tests__/routes/users.test.ts (Users Routes / REQ-AUTH-018 (user management admin panel)) --> <!-- @test: src/__tests__/lib/user-cleanup.test.ts (REQ-AUTH-018 AC3: follows paginated push-subscription cursors until complete) -->
+3. User offboarding uses strict GitHub App/OAuth revocation: failure retains outstanding provider credentials, storage and scoped access for authorized retry. Ordinary disconnect and manual PAT behavior remain unchanged. <!-- @impl: src/lib/github-token.ts::disconnectGithub --> <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData --> <!-- @test: src/__tests__/lib/user-cleanup.test.ts (REQ-AUTH-018 AC3 / REQ-SEC-003 AC6: provider %s preserves storage authority until revocation and retry converges) -->
+
+**Constraints:** [REQ-GITHUB-005](github.md#req-github-005-disconnect-and-offboarding-revocation) owns ordinary disconnect and manual PAT handling.
 
 **Priority:** P1
 
@@ -608,8 +646,8 @@ None.
 **Acceptance Criteria:**
 
 1. When the onboarding binding is `active` and the SaaS binding is not `active`, sign-in requests receive the dedicated onboarding login assets. <!-- @impl: src/index.ts::fetch --> <!-- @test: src/__tests__/routes/onboarding-login.test.ts (REQ-AUTH-020 / REQ-AUTH-021: onboarding login + access-request) -->
-2. The landing-built login page uses the shared landing design tokens, preloaded fonts and login navigation chrome. <!-- @impl: landing/src/pages/login.astro::BaseLayout --> <!-- @test: landing/src/__tests__/login-page.test.ts (onboarding login page (REQ-AUTH-020 / REQ-AUTH-021)) -->
-3. The landing-built login page omits landing-only WebGL/motion hooks for stable first paint. <!-- @impl: landing/src/layouts/BaseLayout.astro::canonical --> <!-- @test: landing/src/__tests__/login-page.test.ts (inherits the shared nav and font preloads while omitting landing-only motion hooks) -->
+2. The onboarding login shares the landing appearance with preloaded fonts and login navigation. <!-- @impl: landing/src/pages/login.astro::BaseLayout --> <!-- @test: landing/src/__tests__/login-page.test.ts (onboarding login page (REQ-AUTH-020 / REQ-AUTH-021)) -->
+3. The onboarding login first paints without the marketing page's WebGL or motion effects. <!-- @impl: landing/src/layouts/BaseLayout.astro::canonical --> <!-- @test: landing/src/__tests__/login-page.test.ts (inherits the shared nav and font preloads while omitting landing-only motion hooks) -->
 4. In SaaS mode, the login page is unchanged and continues to serve the existing SPA login. <!-- @impl: src/index.ts::fetch --> <!-- @test: src/__tests__/routes/onboarding-login.test.ts (REQ-AUTH-020 / REQ-AUTH-021: onboarding login + access-request) -->
 5. The landing-built login remains on the dark canvas until its shared stylesheet and critical fonts are ready. <!-- @impl: landing/src/layouts/BaseLayout.astro::data-design-ready --> <!-- @test: landing/src/__tests__/login-page.test.ts (inherits the shared final-design gate before exposing the login shell) -->
 
@@ -619,7 +657,7 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AUTH-013](#req-auth-013-custom-branded-login-page), [REQ-LANDING-001](landing.md#req-landing-001-mode-aware-public-landing-serving), [REQ-LANDING-004](landing.md#req-landing-004-first-paint-stability-and-immutable-asset-caching)
+**Dependencies:** [REQ-AUTH-013](#req-auth-013-custom-branded-login-page), [REQ-LANDING-001](landing.md#req-landing-001-public-landing-content-and-interaction), [REQ-LANDING-017](landing.md#req-landing-017-mode-aware-landing-dispatch), [REQ-LANDING-004](landing.md#req-landing-004-first-paint-stability-and-immutable-asset-caching)
 
 **Verification:** Automated: [wrangler-static-assets.test.js](../../host/__tests__/wrangler-static-assets.test.js), [login-page.test.ts](../../landing/src/__tests__/login-page.test.ts), [onboarding-login.test.ts](../../src/__tests__/routes/onboarding-login.test.ts)
 
@@ -635,16 +673,18 @@ None.
 
 **Acceptance Criteria:**
 
-1. The page offers a GitHub sign-in and enterprise SSO request controls that deep-link to the contact form. <!-- @impl: landing/src/scripts/contact-controller.ts::pickDeepLinkTopic --> <!-- @test: landing/src/__tests__/login-page.test.ts (onboarding login page (REQ-AUTH-020 / REQ-AUTH-021)) -->
+1. The onboarding login offers a GitHub sign-in. <!-- @test: landing/src/__tests__/login-page.test.ts (GitHub is the single primary action and links to the OAuth entry route) -->
 2. Non-approved onboarding GitHub users have their access request recorded and are redirected to the requested state. New users receive pending records; existing users retain their stored tiers, including blocked status. <!-- @impl: src/routes/github-auth.ts::onboardingAccessRequest --> <!-- @impl: src/lib/user-record.ts::updateUserRecord --> <!-- @test: src/__tests__/routes/onboarding-login.test.ts (REQ-AUTH-020 / REQ-AUTH-021: onboarding login + access-request) -->
 3. The onboarding access-request branch never runs in SaaS mode or enterprise mode. <!-- @impl: src/routes/github-auth.ts::onboardingAccessRequest --> <!-- @test: src/__tests__/routes/onboarding-login.test.ts (REQ-AUTH-020 / REQ-AUTH-021: onboarding login + access-request) -->
-4. Onboarding trusts and refreshes its app-owned session credential only in session-OIDC mode. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @impl: src/lib/onboarding.ts::isSessionOidcMode --> <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-021: valid codeflare_session authenticates in onboarding mode (SAAS inactive)) -->
+4. Onboarding trusts its app-owned session credential only in session-OIDC mode. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @impl: src/lib/onboarding.ts::isSessionOidcMode --> <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-021: valid codeflare_session authenticates in onboarding mode (SAAS inactive)) -->
 5. Active-tier middleware applies in onboarding; pending visitors with sessions remain gated out of app APIs. <!-- @impl: src/middleware/auth.ts::requireActiveUser --> <!-- @test: src/__tests__/middleware/auth-saas.test.ts (REQ-AUTH-021: blocks pending users with 403 PENDING in onboarding mode (SAAS inactive)) -->
 6. First-request notification and confirmation emails for non-approved onboarding GitHub users are best-effort. <!-- @impl: src/routes/github-auth.ts::onboardingAccessRequest --> <!-- @impl: src/lib/email.ts::sendAccessRequestConfirmation --> <!-- @test: src/__tests__/routes/onboarding-login.test.ts (REQ-AUTH-020 / REQ-AUTH-021: onboarding login + access-request) -->
+7. The onboarding login's enterprise SSO request controls deep-link to the contact form. <!-- @impl: landing/src/scripts/contact-controller.ts::pickDeepLinkTopic --> <!-- @test: landing/src/__tests__/login-page.test.ts (every SSO button is a CTA deep-linking to the contact form, never a real auth route) -->
 
 **Constraints:**
 
 - Enterprise SSO controls are contact-form deep links, not identity providers.
+- Renewal is limited to eligible session-OIDC responses under [REQ-AUTH-008](#req-auth-008-session-cookie-auto-refresh).
 - The GitHub OAuth App callback URL must match the deployment domain.
 - Email delivery is best-effort via `sendEmail`.
 
@@ -666,22 +706,20 @@ None.
 
 **Acceptance Criteria:**
 
-1. The API client's 401 handler on protected application or administration paths performs a hard navigation to the deployment root and throws a tagged API error; it never returns a non-resolving promise, so bootstrap always settles. <!-- @impl: web-ui/src/api/fetch-helper.ts::ApiError --> <!-- @test: web-ui/src/__tests__/api/fetch-helper-401-redirect.test.ts (REQ-AUTH-022 AC1: 401 on an authed page redirects + throws (never hangs)) -->
+1. An API 401 on a protected application or administration path hard-navigates to the deployment root and rejects the pending request, so bootstrap settles rather than hanging. <!-- @impl: web-ui/src/api/fetch-helper.ts::ApiError --> <!-- @test: web-ui/src/__tests__/api/fetch-helper-401-redirect.test.ts (REQ-AUTH-022 AC1: 401 on an authed page redirects + throws (never hangs)) -->
 2. Bootstrap expiry starts top-level sign-in and replaces the loading shell with a non-empty redirecting state, including when the 401 lacks API-helper metadata. <!-- @impl: web-ui/src/App.tsx::AppContent --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (REQ-AUTH-022 AC2: expired-session 401 shows the redirecting state, not a hung/blank or error page) -->
 3. The application root renders a non-empty state for every mode including `redirect`, so a pending hard navigation never shows a blank document. <!-- @impl: web-ui/src/App.tsx::RootPage --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (REQ-AUTH-022 AC3: RootPage renders a non-empty redirect state (no blank document)) -->
 4. A top-level error boundary wraps the app; an unhandled bootstrap/render error renders a recovery fallback (reload control) instead of a blank document. <!-- @impl: web-ui/src/App.tsx::App --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (REQ-AUTH-022 AC4: top-level ErrorBoundary catches a render throw) -->
 5. Access 3xx, opaque or status-zero redirects, and HTML login responses on either successful or unsuccessful authenticated API requests settle through the same clean sign-in recovery as an explicit 401. <!-- @impl: web-ui/src/api/fetch-helper.ts::baseFetch --> <!-- @impl: web-ui/src/api/fetch-helper.ts::isHtmlResponse --> <!-- @test: web-ui/src/__tests__/api/fetch-helper-401-redirect.test.ts (REQ-AUTH-022 AC5: Access response shapes navigate the top-level app instead of stranding it ($label)) -->
 6. A hidden-to-visible transition or persisted bfcache `pageshow` revalidates the authenticated user once; overlapping resume events are deduplicated, expiry replaces the loaded app with the existing redirecting state, and valid sessions continue unchanged. <!-- @impl: web-ui/src/App.tsx::App --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (REQ-AUTH-022 AC6: restored app resume revalidates once and preserves valid sessions) -->
-7. Fingerprinted application CSS and JavaScript requests execute the Worker asset path and receive immutable browser caching only for successful non-HTML assets, preventing an expired Access session from replacing a restored document's styles while keeping SPA fallback HTML revalidating. <!-- @impl: src/index.ts::fetch --> <!-- @test: src/__tests__/index.test.ts (REQ-AUTH-022 AC7: serves fingerprinted Vite app assets with immutable caching) -->
+7. The restored application uses the Worker-served fingerprinted-asset caching policy in [REQ-OPS-175](operations.md#req-ops-175-worker-served-build-asset-caching). <!-- @impl: src/index.ts::dispatch --> <!-- @test: src/__tests__/index.test.ts (REQ-AUTH-022 AC7: serves fingerprinted Vite app assets with immutable caching) -->
 
 **Constraints:**
 
-- Redirect uses `location.replace`, not `href`, so the dead page is not left in history.
+- Redirect uses `location.replace`, not `href`, and leaves no dead page in history.
 - API responses declared `text/html` or beginning with an HTML document root are treated as login responses, except HTTP 5xx server errors: HTML server errors retain their original status and surface a safe non-HTML error without an auth-redirect flag or navigation. <!-- @impl: web-ui/src/api/fetch-helper.ts::baseFetch --> <!-- @test: web-ui/src/__tests__/api/fetch-helper-401-redirect.test.ts (REQ-AUTH-022 AC5 / REQ-AUTH-014 AC1: server failures on %s) -->
 - Behavior is deployment-mode agnostic (CF Access, SaaS, onboarding); resume revalidation runs only inside the authenticated app shell.
 - Resume checks are deduplicated and event listeners are removed with the app lifecycle.
-- Only fingerprinted build assets are immutable; HTML and missing-asset SPA fallbacks remain revalidating.
-- Wrangler static-asset configuration keeps Worker-first routing enabled for authenticated app assets.
 - The redirecting/fallback states are asserted by structure (testids/branch), not by UI copy (mandate #2).
 
 **Priority:** P1
@@ -740,9 +778,10 @@ None.
 **Constraints:**
 
 - Codeflare trusts a valid Access JWT as proof that the customer's Access policy authorized the user; it does not re-implement IdP authentication.
-- `ENTERPRISE_ACCESS_GROUP` is configured during the setup wizard and stored in KV, alongside the existing setup Access config, so an admin changes it by re-running setup.
-- The legacy Access verifier returns the IdP-verified `email`, which is the persisted JIT account key; it does not return or persist JWT `sub`. An email change at the IdP yields a new account (consistent with the existing SaaS JIT behavior).
-- The group check runs once at provisioning; the resulting record is the cache, so steady-state requests incur no `get-identity` call.
+- `ENTERPRISE_ACCESS_GROUP` is configured during the setup wizard and stored in KV alongside the existing Setup Access configuration; an admin changes it by rerunning Setup.
+- The legacy Access verifier returns the IdP-verified `email` as the persisted JIT account key and never returns or persists JWT `sub`.
+- An email change at the IdP yields a new account.
+- Check group membership once at provisioning and cache the result in the record; steady-state requests do not call `get-identity`.
 - This REQ uses only the deployment's existing Cloudflare Access auth mode; it adds no new identity-provider integration (consistent with this domain's Out of Scope).
 
 **Priority:** P1
@@ -767,22 +806,21 @@ None.
 2. A non-admin user who is in none of the configured admin groups still receives `403` from admin-gated routes. <!-- @impl: src/middleware/auth.ts::requireAdmin --> <!-- @test: src/__tests__/middleware/auth.test.ts (requireAdmin — enterprise admin-by-group (REQ-ENTERPRISE-014)) -->
 3. Admin-group checks run only on admin-gated paths and short-circuit for users already resolved as administrators. <!-- @impl: src/lib/access.ts::resolveAdminAccessGroup --> <!-- @test: src/__tests__/middleware/auth.test.ts (Auth Middleware) -->
 4. An active user-access gate admits members of either user or admin groups. Admin groups alone never arm the gate, so entry remains open without configured user groups. <!-- @impl: src/lib/access.ts::resolveOrProvisionEnterpriseUser --> <!-- @test: src/__tests__/lib/enterprise-jit-provisioning.test.ts (REQ-ENTERPRISE-010: Access-gated JIT provisioning) -->
-5. Admin groups persist as comma-joined setup state through the setup configuration endpoint; an empty list deletes the key. They are excluded from per-group routing: only user Access-group keys may carry routing entries. <!-- @impl: src/lib/kv-keys.ts::SETUP_KEYS --> <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (REQ-ENTERPRISE-014: persists the admin access groups comma-joined) --> <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (REQ-ENTERPRISE-014: clears the admin access-group key when the array is empty) --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (REQ-ENTERPRISE-014: GET /prefill splits the stored admin-group CSV back into an array) -->
-6. Setup renders optional admin-group chips beside unchanged email admins, round-trips them through prefill, and excludes them from per-group routing cards. <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep --> <!-- @impl: web-ui/src/stores/setup.ts::setupStore --> <!-- @test: web-ui/src/__tests__/stores/setup.test.ts (Setup Store) -->
-7. All reads/writes are inside the existing Enterprise-mode gate; in non-enterprise modes the Setup request/response shape and admin authorization are byte-identical to before. <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (REQ-ENTERPRISE-014: ignores adminAccessGroup in non-enterprise mode (regression)) --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (GET /prefill omits the enterprise extras when ENTERPRISE_MODE is unset (regression)) --> <!-- @manual -->
+5. Runtime admin-group reads are Enterprise-only; non-Enterprise admin authorization remains byte-identical to its prior behavior. <!-- @manual -->
 
 **Constraints:**
 
 - Elevation lives only on the request's Hono context; no KV `role:'admin'` record is written for a group-admin.
 - Revocation is immediate and leaves no durable elevation residue.
 - The email-based admin list remains the durable admin source.
+- Admin groups grant no model-routing authority; only user Access-group keys may carry routing entries.
 - The live get-identity check fails CLOSED (treated as non-member) on any missing token, non-`*.cloudflareaccess.com` domain, or fetch error — an admin gate must never elevate on uncertainty.
 
 **Priority:** P2
 
-**Dependencies:** [REQ-ENTERPRISE-010](#req-enterprise-010-access-gated-jit-user-provisioning), [REQ-ENTERPRISE-012](setup.md#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list)
+**Dependencies:** [REQ-ENTERPRISE-010](#req-enterprise-010-access-gated-jit-user-provisioning), [REQ-ENTERPRISE-312](setup.md#req-enterprise-312-admin-access-group-configuration)
 
-**Verification:** Automated: [enterprise-jit-provisioning.test.ts](../../src/__tests__/lib/enterprise-jit-provisioning.test.ts), [auth.test.ts](../../src/__tests__/middleware/auth.test.ts), [setup-enterprise-groups.test.ts](../../src/__tests__/routes/setup-enterprise-groups.test.ts), [handlers.test.ts](../../src/__tests__/routes/setup/handlers.test.ts), [setup.test.ts](../../web-ui/src/__tests__/stores/setup.test.ts); Manual: [Admin group mode isolation acceptance](../../documentation/lanes/authentication.md#admin-group-mode-isolation-acceptance)
+**Verification:** Automated: [enterprise-jit-provisioning.test.ts](../../src/__tests__/lib/enterprise-jit-provisioning.test.ts), [auth.test.ts](../../src/__tests__/middleware/auth.test.ts); Manual: [Admin group mode isolation acceptance](../../documentation/lanes/authentication.md#admin-group-mode-isolation-acceptance)
 
 **Status:** Implemented
 

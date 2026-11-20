@@ -66,7 +66,7 @@ const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
 app.use('*', authMiddleware);
 
-// REQ-ENTERPRISE-009 AC8: deny direct credential management for every Enterprise
+// REQ-ENTERPRISE-306 AC1: deny direct credential management for every Enterprise
 // role before parsing, credential I/O or provider validation.
 app.use('*', async (c, next) => {
   if (isEnterpriseMode(c.env)) {
@@ -159,7 +159,7 @@ app.put('/', mutationRateLimiter, async (c) => {
   // Cloudflare account ID: explicit selection (only valid when token is set).
   // Re-validate the supplied ID against the token's account list so an
   // arbitrary value can't be stored without proving the token can access it
-  // (avoids SSRF-like probing - REQ-AGENT-029 AC2 / REQ-AGENT-020 AC2).
+  // (avoids SSRF-like probing - REQ-AGENT-010 AC6 / REQ-AGENT-020 AC2).
   if (body.cloudflareAccountId === null) {
     delete updated.cloudflareAccountId;
   } else if (typeof body.cloudflareAccountId === 'string') {

@@ -93,7 +93,7 @@ For mediated platform routes, boundary interceptors resolve credentials from the
 <a id="github-token-handling"></a>
 ### GitHub credentials
 
-Manual deploy-credential management is non-Enterprise only. In Enterprise, the backend rejects authenticated GET, PUT and DELETE requests to `/api/deploy-keys` with `403 FORBIDDEN`, including administrators, before route-specific parsing, credential reads, provider validation or mutation. It discloses no credential fields and cannot replace or clear managed GitHub App/OAuth App connections or Cloudflare credentials, including through mixed payloads. Frontend suppression is not authorization; this router guard enforces the boundary independently ([REQ-ENTERPRISE-009](../../sdd/spec/security.md#req-enterprise-009-enterprise-backend-route-hardening) AC8). <!-- @impl: src/routes/deploy-keys.ts::app -->
+Manual deploy-credential management is non-Enterprise only. In Enterprise, the backend rejects authenticated GET, PUT and DELETE requests to `/api/deploy-keys` with `403 FORBIDDEN`, including administrators, before route-specific parsing, credential reads, provider validation or mutation. It discloses no credential fields and cannot replace or clear managed GitHub App/OAuth App connections or Cloudflare credentials, including through mixed payloads. Frontend suppression is not authorization; this router guard enforces the boundary independently ([REQ-ENTERPRISE-306](../../sdd/spec/security.md#req-enterprise-306-enterprise-direct-deploy-credential-boundary) AC1). <!-- @impl: src/routes/deploy-keys.ts::app -->
 
 The denial prevents new substitution through this direct API; it does not enumerate, migrate, revoke or invalidate stored credentials and is not universal data-loss prevention. The administrator-configured GitHub App or OAuth App and its managed Connect, disconnect and refresh flows remain unchanged.
 
@@ -146,7 +146,7 @@ Gateway routing enables applicable policy/AV/DLP inspection of eligible REST req
 
 Own-account R2 accepts only the session's exact bound bucket in path-style or virtual-hosted form. `EgressController` re-signs with that user's memory-only bucket-scoped credential; another bucket or missing credentials fail before any send, and deployment-wide R2 credentials are never a fallback. <!-- @impl: src/container/container-interception.ts::strictEgress --> <!-- @impl: src/egress-controller.ts::EgressController --> See [REQ-ENTERPRISE-026](../../sdd/spec/security.md#req-enterprise-026-strict-r2-interception-preserves-user-bucket-authority) and [REQ-SEC-003](../../sdd/spec/security.md#req-sec-003-per-user-r2-tokens-scoped-to-user-bucket).
 
-Validated credential rotation replaces the strict catch-all before later traffic. <!-- @impl: src/container/container-interception.ts::refreshStrictEgressInterception -->
+Validated credential rotation replaces the strict catch-all before later traffic ([REQ-ENTERPRISE-311](../../sdd/spec/security.md#req-enterprise-311-strict-r2-credential-replacement)). <!-- @impl: src/container/container-interception.ts::refreshStrictEgressInterception -->
 
 Gateway policy remains customer-owned. Codeflare does not create or weaken external allow/deny/DLP rules. Hostname policy cannot eliminate every DNS-rebinding or allowed-provider abuse scenario; account/path interception and provider policy remain defense in depth.
 

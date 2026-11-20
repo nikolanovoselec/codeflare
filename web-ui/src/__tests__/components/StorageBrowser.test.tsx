@@ -969,7 +969,7 @@ describe('StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-shee
       expect(globalThis.fetch).not.toHaveBeenCalled();
     });
 
-    // REQ-ENTERPRISE-019 AC4 baseline: with downloads enabled the control is not
+    // REQ-ENTERPRISE-019 AC2 baseline: with downloads enabled the control is not
     // blocked and behaves exactly as before — clicking it performs the download.
     it('with downloads enabled, the download control is not blocked and clicking it triggers the download', async () => {
       mockDownloadsDisabled = false;

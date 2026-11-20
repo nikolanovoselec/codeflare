@@ -423,7 +423,7 @@ async function hydrateExistingConfig(): Promise<boolean> {
 
     if (statusRes.configured) {
       // Enterprise reconfiguration: GET /api/users returns 403 in enterprise mode
-      // (REQ-ENTERPRISE-009), so admins and the Access group come from the setup
+      // (REQ-ENTERPRISE-308), so admins and the Access group come from the setup
       // prefill instead. Calling getUsers() here would throw and abort the whole
       // prefill, leaving enterpriseAccessGroup blank and silently clearing the
       // stored value on the next save. The non-enterprise path below is unchanged.

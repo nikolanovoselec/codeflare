@@ -48,7 +48,7 @@ export interface ContainerEnvState {
   _githubToken: string | null;
   _cloudflareApiToken: string | null;
   _cloudflareAccountId: string | null;
-  /** REQ-AGENT-029 AC5–6: non-secret owner selection, held only for startup. */
+  /** REQ-AGENT-240 AC1/4: non-secret owner selection, held only for startup. */
   _cloudflareOauthAccountId: string | null;
   _encryptionKey: string | null;
   _sessionMode: string;
@@ -474,7 +474,7 @@ export function buildEnvVars(
     // the wizard-configured Browser Rendering account (browser-run builds its API URL from it,
     // and the interceptor matches that account). Emitted in both modes when present.
     ...(state._cloudflareAccountId && { CLOUDFLARE_ACCOUNT_ID: state._cloudflareAccountId }),
-    // REQ-AGENT-029 AC5/7: independent owner metadata, even without Browser Run.
+    // REQ-AGENT-240 AC1/5: independent owner metadata, even without Browser Run.
     ...(!restrictedOperator && state._cloudflareOauthAccountId && {
       CLOUDFLARE_OAUTH_ACCOUNT_ID: state._cloudflareOauthAccountId,
     }),
@@ -615,7 +615,7 @@ export async function applyBucketName(
   if (r2Creds?.githubToken) state._githubToken = r2Creds.githubToken;
   if (r2Creds?.cloudflareApiToken) state._cloudflareApiToken = r2Creds.cloudflareApiToken;
   if (r2Creds?.cloudflareAccountId) state._cloudflareAccountId = r2Creds.cloudflareAccountId;
-  // REQ-AGENT-029 AC6: partial omission preserves; explicit null clears. Never persist.
+  // REQ-AGENT-240 AC4: partial omission preserves; explicit null clears. Never persist.
   if (r2Creds?.cloudflareOauthAccountId !== undefined) {
     state._cloudflareOauthAccountId = r2Creds.cloudflareOauthAccountId;
   }

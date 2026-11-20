@@ -47,17 +47,18 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 **Acceptance Criteria:**
 
-1. The vault directory tree is included in rclone sync; within its derived-graph output directory the cumulative graph, extraction manifest and durable `vault-extract-initialized` record are re-included, not regenerable graph-data or visualization intermediates. The initialization record preserves the first-initialization boundary required by [REQ-VAULT-026](#req-vault-026-vault-extract-change-detection-survives-container-restart-content-hash-manifest). <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (advanced mode: includes the vault tree AND its vault-graph.json despite the global graphify-out exclude (REQ-MEM-004 AC1 / REQ-VAULT-001 AC1)) -->
+1. Vault sync preserves the eligible tree, including the cumulative graph, extraction manifest and durable `vault-extract-initialized` record, but excludes regenerable graph-data and visualization intermediates. The initialization record preserves the first-initialization boundary required by [REQ-VAULT-026](#req-vault-026-vault-extract-change-detection-survives-container-restart-content-hash-manifest). <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (advanced mode: includes the vault tree AND its vault-graph.json despite the global graphify-out exclude (REQ-MEM-004 AC1 / REQ-VAULT-001 AC1)) -->
 2. The ephemeral global-graph workspace directory is excluded from sync so the merged graph is regenerated on boot from per-source graph artifacts rather than carrying stale state across sessions. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2 sync) / REQ-MEM-006 (advanced-only) / REQ-VAULT-001 (vault filter order) / REQ-STOR-004 (static excludes)) -->
 3. The vault initializer creates raw-sessions, raw-pasted, notes, references, graphify-out, and SilverBullet config subdirectories on every boot. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync + idempotent init) / REQ-VAULT-007 (preseeded plugs)) -->
-4. The vault initializer runs after the bisync baseline is established and before the daemon launch block so the empty skeleton never overwrites R2-restored content. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync + idempotent init) / REQ-VAULT-007 (preseeded plugs)) -->
-5. The vault initializer creates persistent Uploads and Temporary folders alongside the vault; both are R2-synced and visible in the storage panel. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: web-ui/src/__tests__/lib/special-folders.test.ts (SPECIAL_FOLDERS registry / REQ-VAULT-001 AC6 (R2 panel surfaces special folders)) -->
+4. Vault initialization follows the sync baseline and precedes the periodic sync service, without overwriting restored content with the empty skeleton. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync + idempotent init) / REQ-VAULT-007 (preseeded plugs)) -->
+5. The vault initializer creates Uploads and Temporary alongside the vault. <!-- @impl: entrypoint.sh::init_user_vault -->
 6. The storage panel surfaces Workspace, Vault, Uploads, and Temporary as special folders with path-and-purpose tooltips. <!-- @impl: web-ui/src/lib/special-folders.ts::SPECIAL_FOLDERS --> <!-- @test: web-ui/src/__tests__/lib/special-folders.test.ts (SPECIAL_FOLDERS registry / REQ-VAULT-001 AC6 (R2 panel surfaces special folders)) -->
 
 **Constraints:**
 
 - The vault shares the user's existing R2 bucket; there is no separate vault bucket.
 - Vault content is per-user (each user has their own R2 bucket).
+- Uploads and Temporary sync eligibility follows [REQ-STOR-011](storage.md#req-stor-011-sync-mode-controls-workspace-scope) AC4; Storage visibility follows AC6.
 - The vault directory must live at a non-hidden basename,.
 
 **Priority:** P0
@@ -80,17 +81,20 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 1. The capture agent writes one markdown file per batch into the vault's raw-sessions subdirectory using a dated filename and the YAML-frontmatter + Context/Decisions/Observations/References template. <!-- @manual -->
 2. Concept references use wikilink syntax; file paths, code symbols, and PR/issue references stay as prose. <!-- @manual -->
-3. The capture worker writes the note and emits chunk JSON matching the graph builder's schema inline; graph materialization and publication belong to the launcher publisher, without another inference call. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/build-memory-graph.py::build_graph --> <!-- @manual -->
-4. After the capture worker exits, the launcher publisher merges its graph contribution into the cumulative Vault graph and publishes it to the unified global graph as `user_vault` under the shared multi-writer lock. Only successful publication advances capture state and cleans up the request carrier; failure retains delivery state for the owning request lifecycle to retry. <!-- @manual -->
-5. If extraction fails, the markdown file stays on disk; Vault hash checks exclude the session capture directory, so memory delivery recovery remains owned by its bounded request lifecycle rather than starting a Vault extraction. <!-- @manual -->
+3. The capture worker emits chunk JSON matching the graph builder's schema inline; graph materialization and publication belong to the launcher publisher, without another inference call. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/build-memory-graph.py::build_graph --> <!-- @manual -->
+4. After worker exit, under the shared multi-writer lock, the launcher merges into cumulative Vault and publishes `user_vault` to the unified global graph. Only successful publication advances capture state and removes the request carrier; failure retains delivery state for owner-lifecycle retry. <!-- @manual -->
+5. If extraction fails, the markdown file stays on disk for bounded memory-delivery recovery. <!-- @manual -->
 6. The historical MCP memory subsystem has been removed entirely; the capture agent does not invoke it, and no legacy JSONL graph is read. <!-- @manual -->
 
 **Notes:** Codeflare ships no LLM provider key for the CLI and the capture agent already IS the LLM, so re-invoking the CLI would duplicate inference cost with no benefit; the capture pipeline is documented in [Vault](../../documentation/lanes/vault.md#capture-path-req-vault-002).
 
 **Constraints:**
 
-- The launcher owns the capture request carrier and dedup lifecycle; the worker does not delete the trigger as its first step or advance capture state. Publication failure retains the carrier for bounded delivery recovery.
-- The image-owned compactor automatically performs daily UTC deterministic cold-capture compaction after successful natural sync, recording the day complete only after success or no cold sources: prepare the archive, relocate and publish graph provenance under the shared lock, delete only verified unchanged manifest sources, then bisync the result. Agents must not edit the archive or delete captures; machine-only archive ownership and the sync contract remain as specified by [REQ-MEM-023](memory.md#req-mem-023-cold-session-captures-compact-without-losing-memory).
+- The launcher owns the request carrier and dedup lifecycle; workers neither delete the trigger at startup nor advance capture state.
+- Publication failure retains the carrier for bounded delivery recovery; [REQ-VAULT-032](#req-vault-032-session-archive-ownership-and-extraction-boundary) AC3 excludes session captures from unrelated Vault extraction.
+- After successful natural sync, the image-owned compactor runs deterministic cold-capture compaction daily in UTC; mark the day complete only after success or no cold sources.
+- Prepare the archive, relocate and publish graph provenance under the shared lock, delete only verified unchanged manifest sources, then bisync.
+- Agents cannot edit the archive or delete captures; [REQ-MEM-023](memory.md#req-mem-023-cold-session-captures-compact-without-losing-memory) owns machine-only archives and sync.
 - The headless extraction CLI is bypassed, with no extra inference, per [REQ-MEM-001](memory.md#req-mem-001-conversation-context-automatically-captured-to-vault) AC6.
 
 **Priority:** P0
@@ -113,10 +117,10 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 1. Generated, vendored, internal, captured, and preseed-managed content is excluded from Vault change detection. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-manifest.py::_excluded --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::VAULT_GENERATED_PREFIXES --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::VAULT_PRESEED_ROOT_FILES --> <!-- @test: src/__tests__/lib/vault-manifest-detection.test.ts (REQ-VAULT-032 AC3: excludes individual captures and Archive.md from semantic extraction) --> <!-- @test: src/__tests__/lib/vault-manifest-detection.test.ts (excludes the four codeflare-authoritative root pages from the manifest) --> <!-- @test: src/__tests__/lib/vault-manifest-detection.test.ts (REQ-VAULT-026 AC5: Claude and Pi commit equivalent manifest content) -->
 2. Change detection compares each vault file's content hash against a durable manifest (REQ-VAULT-026), not a file mtime, so a container restart that resets every file's mtime does not misreport the vault as changed. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-manifest.py::collect --> <!-- @impl: preseed/agents/pi/extensions/vault-manifest-fs.ts::collectVaultFileHashes --> <!-- @test: src/__tests__/lib/vault-manifest-detection.test.ts (THE ORACLE: an R2-style restore (rewrite every file, fresh mtime, identical bytes) yields ZERO changes) -->
-3. The hook handler exits immediately when the trigger marker is absent or when an in-flight sentinel exists and is younger than 30 minutes. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-monitor-hook.sh::PROMPT_FILE --> <!-- @test: host/__tests__/vault-monitor-hook-behavior.test.js (vault-monitor-hook.sh behavior (real) / REQ-VAULT-003 AC3 (hook fast-exit + 30-min in-flight sentinel TTL)) -->
-4. The vault-extract subagent deletes the trigger marker first (dedup gate), extracts per changed file, merges via the shared global-graph add command, commits the content-hash manifest and refreshes the ephemeral dedup timestamp only after successful manifest commit, and removes the in-flight sentinel last. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-extract-prompt.md::LAST_MARKER --> <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-manifest.py::cmd_commit --> <!-- @manual: Follow the Claude extraction failure-preservation method in the Vault lane. -->
-5. If any extract-merge-advance step fails, the committed manifest remains unchanged. Failed listing or file extraction, including all-files-failed, is not empty success; a successful empty scan is cleanup-only. Claude executes merge/publication/commit in one Bash call to preserve the failure flag; supported PDF metadata fallback remains valid. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-extract-prompt.md::EXTRACT_FAILED --> <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-manifest.py::cmd_commit --> <!-- @manual: Follow the Claude extraction failure-preservation method in the Vault lane. -->
-6. Preseed-page rewrites never register as vault changes: the four pages are excluded from the manifest (AC1) and unchanged bytes never register under content-hash detection (REQ-VAULT-026), which replaces the old high-water-marker bump-after-preseed-write mechanism. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: src/__tests__/lib/agent-seed-pi-memory.test.ts (Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/004)) -->
+3. Claude immediately skips dispatch when no extraction is pending or when an existing extraction has been in flight for less than 30 minutes. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-monitor-hook.sh::PROMPT_FILE --> <!-- @test: host/__tests__/vault-monitor-hook-behavior.test.js (vault-monitor-hook.sh behavior (real) / REQ-VAULT-003 AC3 (hook fast-exit + 30-min in-flight sentinel TTL)) -->
+4. Claude consumes the pending request before extracting each changed file, merges and publishes the cumulative graph, commits the content-hash manifest before refreshing dedup state, and clears the in-flight guard last. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-extract-prompt.md::LAST_MARKER --> <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-manifest.py::cmd_commit --> <!-- @manual: Follow the Claude extraction failure-preservation method in the Vault lane. -->
+5. If any extract-merge-advance step fails, the committed manifest remains unchanged. Failed listing or file extraction, including all-files-failed, is not empty success; a successful empty scan is cleanup-only. Supported PDF metadata fallback remains valid. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-extract-prompt.md::EXTRACT_FAILED --> <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-manifest.py::cmd_commit --> <!-- @manual: Follow the Claude extraction failure-preservation method in the Vault lane. -->
+6. Vault change detection excludes the four preseed root pages. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: src/__tests__/lib/agent-seed-pi-memory.test.ts (Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/004)) -->
 7. Pi vault extraction is inert in child sessions, so background monitor transcripts never receive extraction follow-ups. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::isChildSession --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (keeps all handlers inert in child sessions) -->
 
 **Constraints:**
@@ -148,7 +152,7 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 **Acceptance Criteria:**
 
 1. The first real-user prompt of a resumed session with an uncaptured memory tail performs one Vault content-hash check. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::RESUME_VAULT_CHECK --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @test: host/__tests__/memory-capture-hook.test.js (resume hash-checks Vault and arms extraction only when content changed) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (captures only the uncaptured tail and hash-checks Vault on the first resumed prompt) -->
-2. Claude checks each crossed twenty-prompt epoch; Pi reuses the memory-counter trigger, including resume and transcript rebase. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::VAULT_EVERY --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @test: host/__tests__/memory-capture-hook.test.js (hash-checks Vault at prompt 20 without starting memory capture early) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (hash-checks after twenty new memory prompts and launches only when Vault content changed) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-VAULT-031 AC2: shared memory cadence checks companions while capture remains pending) -->
+2. Claude checks each crossed twenty-prompt epoch; Pi reuses the memory-counter trigger, including resume and transcript rebase. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::VAULT_EVERY --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @test: host/__tests__/memory-capture-hook.test.js (hash-checks Vault at prompt 20 without starting memory capture early) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (hash-checks after twenty new memory prompts and launches only when Vault content changed) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-VAULT-031 AC2: shared memory cadence checks companions while capture remains pending) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-002 AC4: baselines the first prompt and arms all three jobs only after twenty new prompts) -->
 3. Claude advances its successful Vault-check counter after the manifest scanner succeeds, including when no content changed. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::arm_vault_check --> <!-- @test: host/__tests__/memory-capture-hook.test.js (advances the Vault check counter when a successful scan finds no changes) -->
 4. A failed manifest scan does not block the active user prompt. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::arm_vault_check --> <!-- @test: host/__tests__/memory-capture-hook.test.js (retries the Vault hash check on the next prompt after a partial file-read failure) -->
 5. A failed manifest scan leaves the successful-check counter unchanged. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::arm_vault_check --> <!-- @test: host/__tests__/memory-capture-hook.test.js (retries the Vault hash check on the next prompt after a partial file-read failure) -->
@@ -190,7 +194,8 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 **Constraints:**
 
-- The global-graph add is hash-keyed and idempotent. After CLI success, equal-hash checkout changes atomically rebind only manifest `source_path` under the same lock, retaining other fields and global graph bytes; no graph rebuild is required.
+- The global-graph add is hash-keyed and idempotent.
+- After CLI success, equal-hash checkout changes atomically rebind only manifest `source_path` under the same lock, retaining other fields and global graph bytes without a rebuild.
 - The per-source tag is what distinguishes vault nodes from per-repo nodes in the unified graph; each source carries one stable tag.
 - The global manifest uses each repository's directory basename without branch granularity.
 - A branch change is a reconciliation trigger, not a rebuild trigger: it re-evaluates which tags belong in the global graph, and rebuilding a graph's contents stays an explicit action.
@@ -217,10 +222,10 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 **Acceptance Criteria:**
 
 1. The container image installs the SilverBullet server binary pinned by version and digest so the running editor is identical across deploys. <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)) --> <!-- @manual -->
-2. The container entrypoint supervises the editor on a localhost-only port with a short-interval restart loop so an editor crash never requires a container restart. <!-- @impl: entrypoint.sh::start_silverbullet_supervisor --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)) -->
+2. The editor listens only on localhost and recovers promptly after a crash without restarting the container. <!-- @impl: entrypoint.sh::start_silverbullet_supervisor --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)) -->
 3. A vault request reaches the session container only after authentication, origin allowlisting, active-tier user checks, session ownership, and container health all succeed. <!-- @impl: src/routes/vault/index.ts::handleVaultRequest --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)) -->
 4. WebSocket upgrades for live-edit sync are rate-limited under the same per-user budget as terminal WebSockets so a separate budget cannot be discovered. <!-- @impl: src/routes/vault/index.ts::handleVaultRequest --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)) -->
-5. The in-container terminal server exposes an HTTP branch that strips the vault path prefix and forwards to the localhost editor, plus a WebSocket upgrade passthrough scoped to vault paths only. <!-- @impl: host/src/upgrade-dispatcher.ts::handleVaultUpgrade --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)) -->
+5. Prefixed Vault HTTP requests reach the localhost editor without the prefix; editor WebSocket forwarding applies only to Vault paths. <!-- @impl: host/src/upgrade-dispatcher.ts::handleVaultUpgrade --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)) -->
 
 **Constraints:**
 
@@ -246,21 +251,21 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 **Acceptance Criteria:**
 
-1. The Container DO attempts the authoritative final-sync drain before SIGTERM, with up to 120 seconds inside the shared 135-second teardown deadline. Its audited failed or timed-out outcomes remain visible and do not prevent stop. The entrypoint's watchdog-bounded final bisync is a best-effort trap backstop, not a separately guaranteed drain window. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010: Graceful container shutdown preserves data) -->
+1. Before SIGTERM, attempt the authoritative drain for up to 120 seconds within the shared 135-second teardown deadline. Audit failures and timeouts without blocking stop; the watchdog-bounded final bisync trap is best-effort, not a separate guaranteed window. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010: Graceful container shutdown preserves data) -->
 2. The shutdown handler also terminates the vault-monitor daemon and the editor supervisor so neither lingers past container shutdown. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010: Graceful container shutdown preserves data) -->
-3. The shutdown elapsed time is logged so operators can tune the watchdog over time if user edit volumes grow large enough to need more headroom. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @manual -->
-4. The Container DO shares one 135-second teardown deadline across the pre-SIGTERM drain, audit and stop; the drain receives at most 120 seconds and at most the remaining teardown time, leaving only the remaining deadline for process exit. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
-5. The container's stop handler logs the total shutdown elapsed time so operators have telemetry on whether the budget is right. <!-- @impl: src/container/container-lifecycle.ts::onStop --> <!-- @impl: src/container/index.ts::onStop --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
+3. The Container DO shares one 135-second teardown deadline across the pre-SIGTERM drain, audit and stop; the drain receives at most 120 seconds and at most the remaining teardown time, leaving only the remaining deadline for process exit. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
 
 **Constraints:**
 
-- Drain and stop remain coordinated within the shared 135-second deadline; the post-SIGTERM trap is not promised an additional 120 seconds. Failed, timed-out or abruptly interrupted sync can lose writes not yet persisted.
+- Drain and stop share the 135-second deadline; the post-SIGTERM trap has no separate 120-second budget.
+- Failed, timed-out or abruptly interrupted sync can lose unpersisted writes.
+- [REQ-SESSION-025](session-lifecycle.md#req-session-025-lifecycle-recovery-is-observably-correlated) AC6–7 own elapsed shutdown logging.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-SESSION-009](session-lifecycle.md#req-session-009-container-destroy-wipes-session-state), [REQ-SESSION-011](session-lifecycle.md#req-session-011-graceful-shutdown-with-final-sync), [REQ-STOR-005](storage.md#req-stor-005-graceful-shutdown-performs-final-sync)
 
-**Verification:** Automated: [entrypoint-shutdown.test.js](../../host/__tests__/entrypoint-shutdown.test.js), [index.test.ts](../../src/__tests__/container/index.test.ts); Manual: [REQ-VAULT-006 procedure](../../documentation/lanes/vault.md#req-vault-006-manual-qualification)
+**Verification:** Automated: [entrypoint-shutdown.test.js](../../host/__tests__/entrypoint-shutdown.test.js), [index.test.ts](../../src/__tests__/container/index.test.ts)
 
 **Status:** Implemented
 
@@ -275,16 +280,16 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 **Acceptance Criteria:**
 
 1. Advanced Claude preseed registers the Vault plugin, extraction prompt, capture rule, and capture and operations skills; default mode registers none. <!-- @manual -->
-2. The container image stages the editor preseed assets under a build-time preseed root so the vault initializer can install editor config from there without baking it into every R2 sync. <!-- @manual -->
-3. A build-time generator (run as prebuild) embeds the manifest contents into the runtime agent-seed module, which is what the Worker ships to the container at boot. <!-- @manual -->
+2. The image supplies editor preseed assets for local initialization without adding those assets to every R2 sync. <!-- @manual -->
+3. The Worker delivers the candidate release's manifest-derived Vault seed to the container at startup. <!-- @manual -->
 4. The Claude memory rule is updated to document the vault-only capture path. <!-- @manual -->
 5. Each boot restores baseline editor plugs from image preseed into the Codeflare-managed Vault plug directory. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync + idempotent init) / REQ-VAULT-007 (preseeded plugs)) -->
 
 **Constraints:**
 
 - Default-mode sessions do not receive the vault plugin; the editor is an advanced-tier feature.
-- The vault skeleton is created at runtime, not baked into the image, so a returning session never overwrites restored content.
-- The codeflare-managed plug subdirectory is reserved for codeflare-managed plugs; user-installed plugs live under sibling subdirectories so codeflare's overwrite-on-boot never clobbers user state.
+- Create the Vault skeleton at runtime, not in the image, without overwriting restored content on return.
+- Reserve the managed plug directory for Codeflare plugs; sibling user plug directories are never overwritten at boot.
 
 **Priority:** P0
 
@@ -307,7 +312,7 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 1. The Worker derives the vault key deterministically from the server master secret and the user's bucket name, with no user passphrase, returning the same key for a given bucket on every call. <!-- @impl: src/routes/vault/crypto.ts::getVaultEncryptionKey --> <!-- @test: src/__tests__/routes/vault-crypto.test.ts (getVaultEncryptionKey (REQ-VAULT-021 bucket-derived key)) -->
 2. The key is stable across sessions for a given bucket — enabling the IndexedDB cache to persist and decrypt on subsequent container boots (per [REQ-VAULT-021](#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key)) — and is never rotated. <!-- @impl: src/routes/vault/crypto.ts::getVaultEncryptionKey --> <!-- @test: src/__tests__/routes/vault-crypto.test.ts (getVaultEncryptionKey (REQ-VAULT-021 bucket-derived key)) -->
 3. The Worker's vault-config proxy derives the key in-Worker (no Durable-Object round-trip) and merges it, plus the enable-encryption flag, into the editor's runtime boot config. <!-- @impl: src/routes/vault/index.ts::handleVaultRequest --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)) -->
-4. The editor uses the vault key to symmetrically encrypt its per-vault IndexedDB store via its built-in encrypted-KV wrapper. <!-- @impl: src/routes/vault/native-sw.ts::VAULT_NATIVE_SERVICE_WORKER_JS --> <!-- @manual -->
+4. The editor symmetrically encrypts each Vault's IndexedDB payloads with its Vault key. <!-- @impl: src/routes/vault/native-sw.ts::VAULT_NATIVE_SERVICE_WORKER_JS --> <!-- @manual -->
 
 **Constraints:**
 
@@ -333,9 +338,9 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 **Acceptance Criteria:**
 
-1. A state-changing request to a vault path with no Origin header is treated as same-origin and proceeds through CSRF synthesis. The synthesis adds the XHR-marker header so the downstream auth CSRF guard does not reject the write. <!-- @impl: src/lib/vault-view.ts::maybeSynthesizeCsrfHeader --> <!-- @impl: src/lib/vault-view.ts::maybeIssueCsrfCookie --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)) --> <!-- @test: src/__tests__/routes/vault-auth-chain.test.ts (REQ-VAULT-009: forwards a no-Origin upload with intact bytes and synthesized CSRF headers) -->
+1. A state-changing Vault request without an Origin header is treated as same-origin for the downstream CSRF check; authentication and the remaining request guards still apply. <!-- @impl: src/lib/vault-view.ts::maybeSynthesizeCsrfHeader --> <!-- @impl: src/lib/vault-view.ts::maybeIssueCsrfCookie --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)) --> <!-- @test: src/__tests__/routes/vault-auth-chain.test.ts (REQ-VAULT-009: forwards a no-Origin upload with intact bytes and synthesized CSRF headers) -->
 2. A state-changing request with an Origin header that fails the allowlist still returns a 403; the missing-Origin fallback does not widen the allowlist. <!-- @impl: src/lib/vault-view.ts::inferOriginValidated --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)) -->
-3. The forward chain preserves the request body bytes end-to-end (no double-read, no disturbed stream) on both the with-Origin and the no-Origin paths. <!-- @impl: src/lib/vault-view.ts::maybeSynthesizeCsrfHeader --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)) --> <!-- @test: src/__tests__/routes/vault-auth-chain.test.ts (REQ-VAULT-009: forwards a no-Origin upload with intact bytes and synthesized CSRF headers) -->
+3. Forwarding preserves request body bytes end-to-end both with and without an Origin header. <!-- @impl: src/lib/vault-view.ts::maybeSynthesizeCsrfHeader --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)) --> <!-- @test: src/__tests__/routes/vault-auth-chain.test.ts (REQ-VAULT-009: forwards a no-Origin upload with intact bytes and synthesized CSRF headers) -->
 4. Existing read-only and preflight requests behave unchanged; only state-changing methods enter the fallback path. <!-- @impl: src/lib/vault-view.ts::inferOriginValidated --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)) -->
 
 **Constraints:**
@@ -370,8 +375,8 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 **Constraints:**
 
 - The three authoritative config pages (CONFIG, README, STYLES) are kept current.
-- The configuration page is a runtime contract, not user content; that is why it lives in the always-overwrite tier and not in the user-editable tier.
-- The editor's binary hardcodes the lowercase index page name, so the supervisor must explicitly tell the editor to load the title-cased preseed index page at.
+- The runtime configuration page is Codeflare-owned and always overwritten, not user-editable content.
+- The supervisor explicitly selects the title-cased preseed index page.
 - The seed-only-if-absent rule for the vault graph file exists.
 - The stale-graph-artifact removal exists.
 
@@ -449,7 +454,7 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 **Acceptance Criteria:**
 
-1. The app shell passes a Vault opener to the header only for active advanced-mode sessions. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating (CF-075 / REQ-VAULT-012 / REQ-VAULT-018 / REQ-VAULT-019 / REQ-VAULT-020)) --> <!-- @test: web-ui/src/__tests__/components/preferences-hydration.test.tsx (REQ-SESSION-014 / REQ-VAULT-033 / REQ-IDE-003: HTTP preference hydration) -->
+1. The header offers a Vault opener only for an active advanced-mode session. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating (CF-075 / REQ-VAULT-012 / REQ-VAULT-018 / REQ-VAULT-019 / REQ-VAULT-020)) --> <!-- @test: web-ui/src/__tests__/components/preferences-hydration.test.tsx (REQ-SESSION-014 / REQ-VAULT-033 / REQ-IDE-003: HTTP preference hydration) -->
 2. On a cold available control, the first click prepares the current session's proxied editor and arms the control; the second click opens it. An already armed/ready control opens on the first click. <!-- @impl: web-ui/src/components/Layout.tsx::handleVaultOpen --> <!-- @impl: web-ui/src/components/VaultButton.tsx::VaultButton --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating (CF-075 / REQ-VAULT-012 / REQ-VAULT-018 / REQ-VAULT-019 / REQ-VAULT-020)) -->
 
 **Constraints:**
@@ -477,12 +482,12 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 1. Every Vault HTML response rewrites its base href to the session proxy path so relative assets survive deep-page reloads. <!-- @impl: src/lib/vault-view.ts::rewriteVaultBaseHref --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)) -->
 2. Except for the required Vault configuration and filesystem-listing transformations, non-HTML responses (JS bundles, images, manifests, markdown page bodies, JSON API replies, binary assets) pass through unchanged; HTML rewriting applies only to HTML responses. <!-- @impl: src/routes/vault/index.ts::handleVaultRequest --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)) --> <!-- @test: src/__tests__/routes/vault-auth-chain.test.ts (REQ-VAULT-013: dispatch preserves %s response bytes and upstream headers) -->
-3. When the body is rewritten, both the content-length and content-encoding headers are dropped because the rewrite path auto-decompresses upstream compression, and the original headers would otherwise trigger a browser decoding failure. <!-- @impl: src/lib/vault-view.ts::rewriteVaultHtmlResponse --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)) -->
+3. Rewriting the response body drops both original Content-Length and Content-Encoding headers. <!-- @impl: src/lib/vault-view.ts::rewriteVaultHtmlResponse --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)) -->
 4. A successful HTML response lacking the expected base href logs a warning on root and deep routes. <!-- @impl: src/lib/vault-view.ts::rewriteVaultHtmlResponse --> <!-- @test: src/__tests__/routes/vault-html-direct.test.ts (warns when a successful deep SPA HTML response has no rewritable base href (REQ-VAULT-013 AC4)) -->
 
 **Constraints:**
 
-- The editor honors a URL-prefix environment variable for rendering the base tag; the prefix is per-session, so the per-response Worker rewrite is the per-session adapter.
+- The Worker rewrites each HTML response's base tag to the session prefix; the editor also supports a base-tag prefix environment variable.
 
 **Priority:** P0
 
@@ -512,9 +517,9 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 **Constraints:**
 
-- Under the writer lock, the current graph hash is validated hexadecimal and paired with its source path, preventing malformed or same-basename checkout matches ([REQ-VAULT-004](#req-vault-004-unified-global-graph-merges-vault-and-active-repos)).
-- The graphify skill's commit step is one of the write sites and must include a locked global-add call so a fresh build lands in the global graph.
-- The reconciliation targets an invariant rather than replaying one transition, so drift self-heals on the next tool call instead of persisting until the graph is observed answering from the wrong repository.
+- Under the writer lock, match a validated hexadecimal graph hash with its source path; malformed hashes and basename-only matches never qualify ([REQ-VAULT-004](#req-vault-004-unified-global-graph-merges-vault-and-active-repos)).
+- The Graphify skill's commit step publishes a fresh build to the global graph through a locked global-add call.
+- Reconcile the global-graph invariant, not a recorded transition; repair drift on the next tool call.
 
 **Priority:** P0
 
@@ -689,7 +694,8 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 **Constraints:**
 
-- Machine-owned `Raw/Sessions/` captures remain hidden from SilverBullet listing and client sync/index during prewarm as at all other times, per [REQ-VAULT-015](#req-vault-015-vault-idb-lifecycle-and-listing-filters); protected client-mutation boundaries remain unchanged. Priority indexing is out of scope.
+- Machine-owned `Raw/Sessions/` captures remain hidden from SilverBullet listing and client sync/index during prewarm as at all other times, per [REQ-VAULT-015](#req-vault-015-vault-idb-lifecycle-and-listing-filters); protected client-mutation boundaries remain unchanged.
+- Priority indexing is out of scope.
 - The generic shell bridge stays inert unless the prewarm query and identifier are valid.
 - Sync-complete evidence must come from the current canonical controller, not another worker or the client's unscoped completion flag.
 - Controller replacement resets sync evidence and the readiness streak.
@@ -748,18 +754,40 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 1. Auth-gated encryption-key recoverability is verified at the cold-path arming poll before the control greens, so a green control opens without re-verifying the key on click. <!-- @impl: web-ui/src/lib/vault-local-readiness.ts::checkVaultKeyRecoverable --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-019 AC1 + REQ-VAULT-022 AC1: a cold-path armed click opens without re-verification) -->
 2. If the key is not recoverable, the control enters a non-openable preparing state. <!-- @impl: web-ui/src/components/VaultButton.tsx::VaultButton --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating (CF-075 / REQ-VAULT-012 / REQ-VAULT-018 / REQ-VAULT-019 / REQ-VAULT-020)) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-019 AC2: completed prewarm cannot arm or open a Vault without a recoverable key) -->
 3. When the prewarm proof and key recoverability both hold, the cold-path arming poll marks the control armed (green) and the next click opens it synchronously inside the click gesture. <!-- @impl: web-ui/src/components/Layout.tsx::handleVaultOpen --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating (CF-075 / REQ-VAULT-012 / REQ-VAULT-018 / REQ-VAULT-019 / REQ-VAULT-020)) -->
-4. Open intent clears when the tab opens or authoritative session status is no longer running. <!-- @impl: web-ui/src/components/Layout.tsx::handleVaultOpen --> <!-- @impl: web-ui/src/components/Layout.tsx::pruneNonRunningSessionState --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-019 AC4 (vault open-intent clearing)) -->
-5. Temporary mobile visibility-return deactivation does not clear preparation intent while authoritative session status remains running. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-019 AC5: temporary mobile deactivation preserves intent and remounts preparation) -->
 
 **Constraints:**
 
-- The key check runs after browser prewarm.
+- Run the key check after browser prewarm.
+- Preserve [REQ-VAULT-036](#req-vault-036-vault-open-intent-lifecycle) during session and visibility changes.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-VAULT-018](#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger)
 
 **Verification:** Automated: [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx), [vault-local-readiness.test.ts](../../web-ui/src/__tests__/lib/vault-local-readiness.test.ts), [VaultButton.test.tsx](../../web-ui/src/__tests__/components/VaultButton.test.tsx)
+
+**Status:** Implemented
+
+---
+
+### REQ-VAULT-036: Vault open intent lifecycle
+
+**Intent:** Preserve a user's in-progress Vault preparation through a temporary mobile visibility change, but clear it after opening or authoritative stop.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Open intent clears when the tab opens or authoritative session status is no longer running. <!-- @impl: web-ui/src/components/Layout.tsx::handleVaultOpen --> <!-- @impl: web-ui/src/components/Layout.tsx::pruneNonRunningSessionState --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-019 AC4 (vault open-intent clearing)) -->
+2. Temporary mobile visibility-return deactivation does not clear preparation intent while authoritative session status remains running. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-019 AC5: temporary mobile deactivation preserves intent and remounts preparation) -->
+
+**Constraints:** Retained intent does not bypass the key proof required by [REQ-VAULT-019](#req-vault-019-vault-key-recoverable-open-gate).
+
+**Priority:** P0
+
+**Dependencies:** [REQ-VAULT-018](#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger)
+
+**Verification:** Automated: [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx)
 
 **Status:** Implemented
 
@@ -774,7 +802,7 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 **Acceptance Criteria:**
 
 1. The on-demand prewarm started by the user's click does not steal focus from the terminal or dismiss the mobile keyboard, even when terminal input is focused or the keyboard is open. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-020: click 1 starts the prewarm even when terminal input is focused) -->
-2. The prewarm shell installs a valid-token-only focus/select/window-focus guard before SilverBullet app scripts run. <!-- @impl: src/lib/vault-browser-scripts.ts::VAULT_PREWARM_FOCUS_GUARD_SOURCE --> <!-- @impl: src/lib/vault-view.ts::injectVaultPrewarmFocusGuard --> <!-- @test: src/__tests__/lib/vault-browser-bundle.test.ts (installs the focus guard from the bundled injected bytes) -->
+2. Only a valid-token prewarm suppresses script-driven element focus, input selection and window focus before SilverBullet scripts run. <!-- @impl: src/lib/vault-browser-scripts.ts::VAULT_PREWARM_FOCUS_GUARD_SOURCE --> <!-- @impl: src/lib/vault-view.ts::injectVaultPrewarmFocusGuard --> <!-- @test: src/__tests__/lib/vault-browser-bundle.test.ts (installs the focus guard from the bundled injected bytes) -->
 3. The parent hidden iframe returns focus to the previously focused terminal/input whenever the iframe holds parent focus, including a same-origin steal that produces no window `blur` or document `focusin` event. <!-- @impl: web-ui/src/lib/vault-prewarm.ts::startVaultPrewarm --> <!-- @test: web-ui/src/__tests__/lib/vault-prewarm.test.ts (REQ-MOB-014 / REQ-VAULT-020: vault browser prewarm protocol) -->
 4. The focus reclaim stops once prewarm tears down. <!-- @impl: web-ui/src/lib/vault-prewarm.ts::startVaultPrewarm --> <!-- @test: web-ui/src/__tests__/lib/vault-prewarm.test.ts (stops focusout + poll focus reclaim after teardown) -->
 5. When detaching the prewarm iframe orphans the top-level document, window focus and the terminal input are re-asserted after the iframe is removed; the reassert is inert when the window kept focus. <!-- @impl: web-ui/src/lib/vault-prewarm.ts::startVaultPrewarm --> <!-- @test: web-ui/src/__tests__/lib/vault-prewarm.test.ts (re-asserts window focus and re-focuses the terminal AFTER detaching when removal orphaned the document (REQ-VAULT-020 AC5)) -->
@@ -782,7 +810,7 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 **Constraints:**
 
 - The focus guard stays inert unless the prewarm query and identifier are valid.
-- Removing the prewarm iframe orphans the top-level document (`document.hasFocus()` false) even when the terminal already holds the active element, killing terminal input until a reload; the orphan is caused by the removal so it can only be repaired afterward.
+- Repair a detach-induced top-level focus orphan only after iframe removal, even if the terminal input is already the active element.
 
 **Priority:** P0
 
@@ -815,7 +843,7 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 - The bucket-derived key protects only the browser-local IndexedDB cache (SilverBullet's "primary" space); the "secondary" store (container FS → R2) is not encrypted with it and is unaffected at rest.
 - The bucket-stable key relaxes per-session forward secrecy of the local cache (a later session can decrypt a prior session's leftover cache) — accepted tradeoff, supersedes [AD83](../../documentation/decisions/README.md#ad83-vault-indexeddb-cannot-be-persisted-across-sessions-by-keying-the-encryption-key-to-the-r2-bucket).
 - The bucket token carries no PII: it is a hash of the bucket name, never the bucket name or email itself.
-- The serving URL and routing cookie are identical for every session of one user, so a second session in another tab overwrites the cookie and takes over serving (same bucket, no cross-tenant leak).
+- One user's sessions share the serving URL and routing cookie; a second tab's session replaces the cookie and takes over serving within the same bucket, never across tenants.
 
 **Priority:** P1
 
@@ -841,7 +869,8 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 **Constraints:**
 
-- The deterministic preseed-mtime stamp (REQ-VAULT-023 AC1) only equalizes the SECONDARY-side mtime for CONFIG/README/STYLES; it cannot fix a PRIMARY-side (client save) conflict, which is why `Index.md` moved to create-if-missing (REQ-VAULT-023 AC3) instead of being covered by the stamp.
+- AC1 stamps only secondary mtimes for CONFIG, README, and STYLES; it cannot resolve primary-side client-save conflicts.
+- `Index.md` remains create-if-missing under AC3, without the stamp.
 
 **Priority:** P1
 
@@ -866,7 +895,7 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 **Constraints:**
 
-- The deterministic preseed-mtime stamp (REQ-VAULT-023 AC1) only equalizes the SECONDARY-side mtime for CONFIG/README/STYLES; it cannot fix a PRIMARY-side (client save) conflict, which is why `Index.md` moved to create-if-missing (REQ-VAULT-023 AC3) instead of being covered by the stamp.
+- [REQ-VAULT-023](#req-vault-023-bucket-stable-vault-store-persistence-and-content-bootstrap) AC1 and AC3 own the limits of mtime stamping and dashboard preservation.
 
 **Priority:** P1
 
@@ -920,8 +949,8 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 1. Successful bootstrap arms the current canonical controller and awaits its native encryption-key acknowledgement before persisting browser encryption completion and redirecting to the editor. <!-- @impl: src/lib/vault-view.ts::injectVaultBootstrapHopHtml --> <!-- @impl: src/lib/vault-browser-scripts.ts::VAULT_COMPLETE_BOOTSTRAP_SOURCE --> <!-- @test: src/__tests__/lib/vault-browser-bundle.test.ts (removes stale workers, registers the canonical worker, persists encryption, and redirects) -->
 2. On failure, including browser-storage rejection, the bootstrap-hop page shows an error and aborts without setting the bootstrap-completed cookie or redirecting to the shell. <!-- @impl: src/lib/vault-view.ts::injectVaultBootstrapHopHtml --> <!-- @impl: src/lib/vault-browser-scripts.ts::VAULT_COMPLETE_BOOTSTRAP_SOURCE --> <!-- @test: src/__tests__/lib/vault-browser-bundle.test.ts (does not complete bootstrap when encryption enablement cannot persist) -->
 3. Subsequent shell-path requests bypass the bootstrap hop via the cookie, and no passphrase prompt is shown to the user. <!-- @impl: src/lib/vault-view.ts::VAULT_BOOTSTRAP_COOKIE --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)) -->
-4. The service worker retains its in-memory encryption key for its natural lifetime; the codeflare graft neuters the upstream proactive flush that wiped the key 5s after the last client disconnected. <!-- @impl: src/routes/vault/native-sw.ts::graftVaultKeyRecovery --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-024 AC4 / REQ-VAULT-025 AC4: the served worker retains real AES across the registered zero-client interval) -->
-5. The service worker recovers its key only when genuinely gone after idle termination: the injected recovery helper re-fetches it from the auth-gated key endpoint at both key-empty failure points. <!-- @impl: src/routes/vault/native-sw.ts::graftVaultKeyRecovery --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-024 AC5: an encryption-key query recovers and returns the server AES key through the registered handler) --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-024 AC5: config recovers AES and configures encrypted storage through the registered handler) --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-024 AC5: real logout preparation and cancellation suppress pending recovery without inventing logout state) --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-024 AC5: real logout generation transition during pending %s recovery fences publication and configuration) -->
+4. The service worker retains its encryption key for its lifetime, including when the last client has been disconnected for more than five seconds. <!-- @impl: src/routes/vault/native-sw.ts::graftVaultKeyRecovery --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-024 AC4 / REQ-VAULT-025 AC4: the served worker retains real AES across the registered zero-client interval) -->
+5. After idle termination, the restarted worker attempts authenticated key retrieval only when the key is genuinely missing and before either key-empty path fails. <!-- @impl: src/routes/vault/native-sw.ts::graftVaultKeyRecovery --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-024 AC5: an encryption-key query recovers and returns the server AES key through the registered handler) --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-024 AC5: config recovers AES and configures encrypted storage through the registered handler) --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-024 AC5: real logout preparation and cancellation suppress pending recovery without inventing logout state) --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-024 AC5: real logout generation transition during pending %s recovery fences publication and configuration) -->
 6. Every Vault open enters the encryption bootstrap flow rather than navigating directly to the editor shell. <!-- @impl: web-ui/src/components/Layout.tsx::openVaultTab --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-024 AC6: the open click navigates the new tab to the bootstrap-hop URL, not the bare shell) -->
 7. Non-GET requests cannot enter bootstrap completion. <!-- @impl: src/routes/vault/index.ts::isBootstrapHopRequest --> <!-- @test: src/__tests__/routes/vault.test.ts (REQ-VAULT-024 AC7: only GET enters bootstrap completion) -->
 
@@ -954,7 +983,7 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 **Acceptance Criteria:**
 
 1. Change detection reports a vault file changed exactly when its sha256 differs from, or is absent in, the persisted manifest; a file's mtime is never consulted, so rewriting every file with identical bytes (what an R2 restore does) yields zero changes. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-manifest.py::cmd_changed --> <!-- @test: src/__tests__/lib/vault-manifest-detection.test.ts (THE ORACLE: an R2-style restore (rewrite every file, fresh mtime, identical bytes) yields ZERO changes) -->
-2. The extraction manifest is allow-listed through the derived-output sync exclusion, round-trips to R2 and survives container restart, preserving changed-since-last-extraction state across boots. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (advanced mode: includes the vault tree AND its vault-graph.json despite the global graphify-out exclude (REQ-MEM-004 AC1 / REQ-VAULT-001 AC1)) --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-VAULT-026 AC2: durable extraction manifest bytes survive local baseline and ordinary bisync restore) -->
+2. The extraction manifest round-trips to R2 and survives container restart despite the derived-output exclusion, preserving changed-since-last-extraction state across boots. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (advanced mode: includes the vault tree AND its vault-graph.json despite the global graphify-out exclude (REQ-MEM-004 AC1 / REQ-VAULT-001 AC1)) --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-VAULT-026 AC2: durable extraction manifest bytes survive local baseline and ordinary bisync restore) -->
 3. For a vault that did not exist at boot, the manifest is baselined before the R2-persisted durable initialization record is written. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (baselines only the first durable Vault initialization and leaves a later missing manifest full-delta eligible (REQ-VAULT-026 AC3/AC4/AC7)) -->
 4. On every later boot the manifest is restored from R2 and never re-baselined; a missing or corrupt restored manifest therefore behaves as an empty high-water mark so every user file remains extraction-eligible. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (treats a later missing or corrupt restored manifest as a full delta instead of rebaselining current Vault bytes) -->
 5. Claude and Pi commit equivalent manifest content and the same exclusion set for the same Vault contents, skipping file and directory symlinks, including contained, outside and dangling links; no outside target is attributed through a link. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-manifest.py::cmd_commit --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildVaultManifest --> <!-- @test: src/__tests__/lib/vault-manifest-detection.test.ts (REQ-VAULT-026 AC5: Claude and Pi commit equivalent manifest content) -->
@@ -965,9 +994,9 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 **Constraints:**
 
-- The manifest's own mtime is irrelevant — only its JSON contents are read — so the R2 restore resetting the manifest file's mtime (like every other file's) is harmless.
+- Read only the manifest's JSON contents; ignore its mtime, including after R2 restore.
 - `vault-extract.last` remains as an ephemeral within-session dedup timestamp for the hook's vars-staleness guard only; it is no longer the change-detection source of truth.
-- The manifest is stdlib-computed (sha256 of bytes) so eligible prompt-cadenced checks stay cheap; no graphify/networkx dependency.
+- Compute SHA-256 over file bytes with the standard library, without Graphify or NetworkX.
 
 **Priority:** P0
 
@@ -989,7 +1018,7 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 **Acceptance Criteria:**
 
 1. The Pi root exposes each Vault extraction as one public background `subagent` request with inherited context disabled, and never invokes a private spawn service. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (coalesces edits before launch and freezes the request after its first exact call) -->
-2. After reload, the Pi root reconstructs a Vault request's exact failed-call count from durable root-session JSONL and resumes at the next delivery attempt. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionTranscriptFacts --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-VAULT-027 AC2: reconstructs Vault retry state from root JSONL after reload) -->
+2. After reload, the Pi root reconstructs the Vault request's exact failed-call count from its durable session history and resumes at the next delivery attempt. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionTranscriptFacts --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-VAULT-027 AC2: reconstructs Vault retry state from root JSONL after reload) -->
 3. Vault edits detected before launch coalesce into the pending request. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::refreshPendingVaultRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (coalesces edits before launch and freezes the request after its first exact call) -->
 4. For nonempty changed-file work, the committed manifest advances only when the matching request-specific post-commit chunk parses and validates against the canonical Graphify extraction schema and the staged bytes validate; empty, malformed, schema-invalid, or uncorrelated chunks leave it unchanged. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::isGraphifyExtractionChunk --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::vaultSuccessQualifies --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeVaultSuccess --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (rejects an empty, malformed, or schema-invalid correlated chunk before manifest promotion) -->
 5. A crash after manifest promotion but before cleanup is recovered idempotently. <!-- @impl: preseed/agents/pi/extensions/vault-manifest-fs.ts::promoteVaultManifest --> <!-- @test: src/__tests__/lib/vault-manifest-detection.test.ts (REQ-VAULT-027: recovers rename-before-cleanup only when committed bytes match) -->

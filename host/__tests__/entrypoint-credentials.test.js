@@ -8,8 +8,7 @@
 // only when GH_TOKEN is set — assertion is on the stub's recorded call,
 // not on the source text.
 //
-// REQ-AGENT-029 AC4: see the "AC4 is not entrypoint.sh shell logic" note
-// at the bottom — it is intentionally NOT given a fake test.
+// REQ-AGENT-010 AC5 is covered at the deploy-keys route, not in entrypoint.sh.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -140,7 +139,7 @@ describe('entrypoint.sh deploy-credential wiring (real) / REQ-AGENT-029 (deploy 
   });
 
   // -------------------------------------------------------------------------
-  // REQ-AGENT-029 AC4 — CLOUDFLARE_ACCOUNT_ID auto-resolution from the API
+  // REQ-AGENT-010 AC5 — CLOUDFLARE_ACCOUNT_ID auto-resolution from the API
   // token.
   //
   // legit-non-testable AS ENTRYPOINT.SH SHELL LOGIC: this AC's behavior is

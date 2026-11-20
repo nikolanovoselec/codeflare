@@ -36,7 +36,7 @@ const PutTiersBodySchema = z.array(TierConfigSchema).length(8);
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authMiddleware);
 
-// REQ-ENTERPRISE-009: tier/subscription config is meaningless in enterprise mode (all
+// REQ-ENTERPRISE-308 AC2: tier/subscription config is meaningless in enterprise mode (all
 // users are unlimited). Fail closed on read and write. No-op when ENTERPRISE_MODE is unset.
 app.use('*', async (c, next) => {
   if (isEnterpriseMode(c.env)) {
