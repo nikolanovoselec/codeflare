@@ -1853,6 +1853,7 @@ describe('Session Store', () => {
       const starting = sessionStore.startSession(id);
       try {
         render(() => createComponent(Show, {
+          keyed: true,
           get when() { return sessionStore.isSessionInitializing(id); },
           get children() {
             return createComponent(InitProgress, {
