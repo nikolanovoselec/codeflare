@@ -17,6 +17,15 @@ const paths = { user: join(memoryDir, 'USER.md'), global: join(memoryDir, 'MEMOR
   workspace: join(workspaceMemoryDir, 'MEMORY.md'), lesson: join(memoryDir, 'failures.md') };
 const facts = JSON.parse(readFileSync(join(home, 'facts.json'), 'utf8'));
 const markdown = () => Object.fromEntries(Object.entries(paths).map(([name, path]) => [name, readFileSync(path, 'utf8')]));
+function readMarkdownWhileSaving(key) {
+  try {
+    return readFileSync(paths[key], 'utf8');
+  } catch (error) {
+    // Hermes may move the old file aside before publishing its replacement.
+    if (error.code !== 'ENOENT') throw error;
+    return undefined;
+  }
+}
 const text = message => typeof message.content === 'string' ? message.content
   : (message.content ?? []).map(part => part.type === 'text' ? part.text : '').join('\n');
 const wireText = body => body.messages.map(text).join('\n');
@@ -268,13 +277,17 @@ async function run() {
     await promptText(f, `For this observatory work: ${facts.user}`);
     await promptText(f, `The calibration reference is: ${facts.global}`);
     await promptText(f, `The current shared workspace uses: ${facts.workspace} Prior import finding: ${facts.lesson}`);
-    await until(() => Object.keys(paths).every(key => markdown()[key].includes(facts[key])), 'background review to save all four genuine facts');
+    await until(() => Object.keys(paths).every(key => readMarkdownWhileSaving(key)?.includes(facts[key])),
+      'background review to save all four genuine facts');
     reviewSaved = true;
     await verifySearch(f);
     expectedModel = 'fixture-after-switch';
     await f.session.setModel(f.nextModel);
     await promptText(f, `Actually, use this preference instead: ${facts.corrected}`);
-    await until(() => markdown().user.includes(facts.corrected) && !markdown().user.includes(facts.user), 'stock correction replacement');
+    await until(() => {
+      const user = readMarkdownWhileSaving('user');
+      return user?.includes(facts.corrected) && !user.includes(facts.user);
+    }, 'stock correction replacement');
     correctionSaved = true;
     assert.deepEqual(primaryMemoryWrites, []);
     assert.ok(!f.session.messages.some(message => message.role === 'assistant' && message.content.some(part => part.type === 'toolCall')),
