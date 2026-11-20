@@ -50,7 +50,7 @@ Under [REQ-STOR-025](../../sdd/spec/storage.md#req-stor-025-managed-deployment-c
 
 Signed immutable assets are content-addressed under `releases/<bundle-sha256>/`. Repository-and-key trust boundaries select them through `configs/<configuration-fingerprint>/active.json` with conditional create/update semantics. <!-- @impl: src/lib/remote-curation-cache.ts::createR2ManagedReleaseCache -->
 
-Under [REQ-STOR-024 AC5-AC7](../../sdd/spec/storage.md#req-stor-024-managed-release-application), user reconciliation reads only verified releases from the disposable cache and never GitHub. Without prior history it can still remove exact current-release paths excluded by mode or inactive ownership; signed retirements cover globally removed paths. Arbitrary historical paths absent from available verified inventories remain undiscoverable. A cacheless disable therefore fails before bucket mutation and retains applied state. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
+Under [REQ-STOR-024 AC5/AC6](../../sdd/spec/storage.md#req-stor-024-managed-release-application), user reconciliation reads only verified releases from the disposable cache and never GitHub. Without prior history it can still remove exact current-release paths excluded by mode or inactive ownership; signed retirements cover globally removed paths. Arbitrary historical paths absent from available verified inventories remain undiscoverable. A cacheless disable fails before bucket mutation and retains applied state under [REQ-STOR-022](../../sdd/spec/storage.md#req-stor-022-restore-baked-state-after-disabling-curation) AC4. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
 
 A user's applied release digest, exact managed-extension-manifest digest, sequence, mode, and canonical agent projection live in preferences. Pending targets carry the same projection. Legacy records without it remain retryable and force one full pass rather than guessing what the bucket contains. <!-- @impl: src/types.ts::UserPreferences -->
 
@@ -483,7 +483,7 @@ Use an authorized isolated bucket with a prepared inventory exceeding one listin
 3. Separately warm the cache before a successful upload, delete and authorized tutorial recreation. The next stats read within that cache window reflects each mutation; timeout-driven refresh alone cannot qualify invalidation.
 4. On a cache hit, compare the returned quota with the cached fixture and use existing authorized observations to confirm no tier-configuration resolution. If those observations are unavailable, record BLOCKED for that internal predicate rather than inferring it from latency.
 
-The ancillary-consumer method is the linked route test, not hot batch polling. These manual checks cover AC1/3/4; authored steps are not passing evidence.
+The ancillary-consumer method is the linked route test, not hot batch polling. The manual checks cover AC1 (complete inventory), AC5 (expiry), AC3 (invalidation) and AC4 (cached quota); authored steps are not passing evidence.
 
 ### REQ-STOR-015 per-user sync limit acceptance
 

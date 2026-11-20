@@ -181,10 +181,9 @@ jobs:
        && github.event.workflow_run.head_repository.full_name == github.repository))
     runs-on: ubuntu-24.04
     timeout-minutes: 5
-    # production is locked to main (the guard step below rejects it elsewhere);
-    # enterprise and enterprise integration are separate single-tenant envs that may
-    # be deployed from any branch (e.g. develop) for iteration; everything else off
-    # non-main -> integration.
+    # The guard below locks production to main. Explicit Enterprise targets are
+    # resolved separately from integration; GitHub environment rules govern admission.
+    # The enterprise environment permits main and develop only.
     environment: ${{ (github.ref == 'refs/heads/main' && (inputs.environment || 'production')) || (inputs.environment == 'enterprise' && 'enterprise') || (inputs.environment == 'enterprise integration' && 'enterprise integration') || 'integration' }}
     outputs:
       # The authority for what actually deploys. run-name and the concurrency

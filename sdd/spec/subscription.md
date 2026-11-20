@@ -385,7 +385,8 @@ Tiers, billing, usage tracking, and quotas.
 1. When the payment provider is not configured, all selectable subscription tiers can be activated via the direct-subscribe endpoint without an external payment step. <!-- @impl: src/routes/auth.ts::app --> <!-- @test: src/__tests__/routes/auth-subscribe.test.ts (accepts tier=free) --> <!-- @test: src/__tests__/routes/auth-subscribe.test.ts (accepts tier=standard) --> <!-- @test: src/__tests__/routes/auth-subscribe.test.ts (accepts tier=max) --> <!-- @test: src/__tests__/routes/auth-subscribe.test.ts (accepts tier=unlimited) --> <!-- @test: src/__tests__/routes/auth-subscribe.test.ts (accepts tier=advanced (now a subscribable tier)) --> <!-- @test: src/__tests__/routes/auth-subscribe.test.ts (sets subscriptionTier on user KV record) --> <!-- @manual -->
 2. Payment-less activation removes all provider-owned billing-state fields while preserving unrelated user fields; persisted records contain no `undefined` patch values. <!-- @impl: src/routes/auth.ts::default --> <!-- @test: src/__tests__/routes/auth-subscribe.test.ts (DEEP-18-001/004: payment-less activation removes stale billing state without undefined values) -->
 3. The effective-tier resolver does not downgrade paid tiers when billing fields are absent and the payment provider is not configured. <!-- @impl: src/lib/subscription.ts::getEffectiveTier --> <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-011 AC3: getEffectiveTier does not downgrade paid tier when billingStatus is null) -->
-4. Without a configured provider, the subscribe page presents selectable non-contact tiers as payment-free direct choices, even with saved positive prices or provider price identifiers. The API projects zero displayed mode prices without mutating stored administration prices or identifiers; Custom/contact retains its contact CTA. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage --> <!-- @impl: src/routes/auth.ts::app --> <!-- @test: src/__tests__/routes/auth.test.ts (REQ-SUB-011 AC1/4: stored positive prices without provider produce payment-free selectable comparisons, without changing configuration) --> <!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (REQ-SUB-011 AC4: payment-free tier projection activates directly despite retained Stripe price identifiers) -->
+4. Without a configured provider, the subscribe page presents selectable non-contact tiers as payment-free direct choices, even with saved positive prices or provider price identifiers; Custom/contact retains its contact CTA. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage --> <!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (REQ-SUB-011 AC4: payment-free tier projection activates directly despite retained Stripe price identifiers) -->
+5. Without a configured provider, the API projects zero displayed mode prices without mutating stored administration prices or identifiers. <!-- @impl: src/routes/auth.ts::app --> <!-- @test: src/__tests__/routes/auth.test.ts (REQ-SUB-011 AC1/4: stored positive prices without provider produce payment-free selectable comparisons, without changing configuration) -->
 
 **Constraints:**
 
@@ -642,16 +643,16 @@ Tiers, billing, usage tracking, and quotas.
 **Acceptance Criteria:**
 
 1. When the usage response carries a monthly quota, the page renders the quota stat and progress bar. <!-- @impl: web-ui/src/components/UsagePage.tsx::UsagePage --> <!-- @test: web-ui/src/__tests__/components/UsagePage.test.tsx (UsagePage / REQ-SUB-018 AC1 / REQ-SUB-022 AC4 (usage stat and quota rendering)) -->
-2. The page polls the usage endpoint for real-time Timekeeper data and accepts the endpoint's durable-store fallback. <!-- @impl: web-ui/src/components/UsagePage.tsx::UsagePage --> <!-- @test: src/__tests__/routes/usage.test.ts (GET /api/usage / REQ-SUB-018 AC2 (real-time Timekeeper DO with KV fallback)) --> <!-- @test: web-ui/src/__tests__/components/UsagePage.test.tsx (REQ-SUB-018 AC2: polling refreshes the displayed usage at the next interval) -->
+2. The page polls the usage endpoint and renders the returned usage data. <!-- @impl: web-ui/src/components/UsagePage.tsx::UsagePage --> <!-- @test: web-ui/src/__tests__/components/UsagePage.test.tsx (REQ-SUB-018 AC2: polling refreshes the displayed usage at the next interval) -->
 3. The page shows a centered tier-and-mode label only for metered SaaS plans; non-SaaS and custom unmetered plans show usage time without a plan label. <!-- @impl: web-ui/src/components/UsagePage.tsx::UsagePage --> <!-- @test: web-ui/src/__tests__/components/UsagePage.test.tsx (UsagePage / REQ-SUB-018 AC1 / REQ-SUB-022 AC4 (usage stat and quota rendering)) -->
 
-**Constraints:** Non-SaaS personal usage visibility is owned by [REQ-SUB-022](#req-sub-022-cross-mode-personal-usage-data); account-menu actions are owned by [REQ-SUB-023](#req-sub-023-deployment-mode-account-actions).
+**Constraints:** The page accepts live or fallback values from [REQ-SUB-022](#req-sub-022-cross-mode-personal-usage-data), which also owns non-SaaS visibility; account-menu actions are owned by [REQ-SUB-023](#req-sub-023-deployment-mode-account-actions).
 
 **Priority:** P2
 
 **Dependencies:** [REQ-SUB-006](#req-sub-006-real-time-usage-tracking-via-timekeeper-do)
 
-**Verification:** Automated: [usage.test.ts](../../src/__tests__/routes/usage.test.ts), [UsagePage.test.tsx](../../web-ui/src/__tests__/components/UsagePage.test.tsx)
+**Verification:** Automated: [UsagePage.test.tsx](../../web-ui/src/__tests__/components/UsagePage.test.tsx)
 
 **Status:** Implemented
 
@@ -750,6 +751,7 @@ Tiers, billing, usage tracking, and quotas.
 2. The usage endpoint returns personal usage statistics in every deployment mode. <!-- @impl: src/routes/usage.ts::app --> <!-- @test: src/__tests__/routes/usage.test.ts (REQ-SUB-022 AC2-AC3: returns live usage with no billing quota outside SaaS mode) -->
 3. A non-SaaS usage response carries `null` instead of a billing quota. <!-- @impl: src/routes/usage.ts::app --> <!-- @test: src/__tests__/routes/usage.test.ts (REQ-SUB-022 AC2-AC3: returns live usage with no billing quota outside SaaS mode) -->
 4. The usage page renders today's and this month's stat cards when no billing quota exists. <!-- @impl: web-ui/src/components/UsagePage.tsx::UsagePage --> <!-- @test: web-ui/src/__tests__/components/UsagePage.test.tsx (REQ-SUB-022 AC4: renders only personal usage times outside SaaS) -->
+5. The usage endpoint prefers live Timekeeper totals and falls back to durable usage when Timekeeper is unavailable. <!-- @impl: src/routes/usage.ts::app --> <!-- @test: src/__tests__/routes/usage.test.ts (falls back to KV record when Timekeeper DO returns non-200) --> <!-- @test: src/__tests__/routes/usage.test.ts (falls back to KV when TIMEKEEPER binding is absent) -->
 
 **Constraints:** Usage recording and display do not authorize quota, trial, or billing enforcement outside SaaS mode.
 
@@ -823,24 +825,46 @@ Tiers, billing, usage tracking, and quotas.
 **Acceptance Criteria:**
 
 1. Each positive Timekeeper delta updates durable UTC day, ISO week, UTC month, and UTC year accumulators and counts each distinct positive-runtime session once per period. <!-- @impl: src/timekeeper/accounting.ts::applyPositiveDelta --> <!-- @test: src/__tests__/timekeeper/accounting.test.ts (AccountingStateV2 (REQ-SUB-025)) --> <!-- @test: src/__tests__/timekeeper/accounting-integration.test.ts (REQ-SUB-025 AC1/2: failed commit leaves retry totals and distinct-session counts unchanged) -->
-2. One versioned state under 4 KB atomically replaces legacy keys. Publish state and marker cache after persistence; failure preserves retry accounting. Normal historical pings add one accounting-state write and no KV reads beyond required SaaS live-quota and entitlement reads. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/accounting-integration.test.ts (Timekeeper AccountingStateV2 integration (REQ-SUB-025)) --> <!-- @test: src/__tests__/timekeeper/accounting-load.test.ts (historical accounting operation fixture (REQ-OPS-057 AC6)) --> <!-- @test: src/__tests__/timekeeper/accounting-integration.test.ts (REQ-SUB-025 AC1/2: failed commit leaves retry totals and distinct-session counts unchanged) -->
-3. The existing alarm performs five-minute KV work and one hash-phased 15-minute D1 duty; no second alarm exists. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @impl: src/timekeeper/accounting.ts::historyPhase --> <!-- @test: src/__tests__/timekeeper/alarm-history.test.ts (Timekeeper single-alarm history duty (REQ-SUB-025)) -->
-4. Current absolute accumulators and closed-period outbox entries retry independently from KV checkpoints, and sequence-guarded D1 upserts cannot double-count. <!-- @impl: src/lib/admin-usage.ts::writeUsageHistory --> <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (historical usage D1 guards (REQ-SUB-025, REQ-SUB-026)) --> <!-- @test: src/__tests__/timekeeper/alarm-history.test.ts (Timekeeper single-alarm history duty (REQ-SUB-025)) -->
-5. Session markers store only domain-separated hashes, use a FIFO in-memory cache bounded to 128 keys and separate durable cleanup, and survive restart and period rollover. Evicted markers are reloaded from durable storage without recounting a session. <!-- @impl: src/timekeeper/accounting.ts::hashSessionId --> <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/accounting.test.ts (AccountingStateV2 (REQ-SUB-025)) --> <!-- @test: src/__tests__/timekeeper/accounting-integration.test.ts (REQ-SUB-025 AC5: evicted markers are read durably, including after restart, without recounting a session) -->
-6. The first successful D1 commit establishes history from its earliest included live-captured snapshot, without backfilling legacy quota counters. <!-- @impl: src/lib/admin-usage.ts::writeUsageHistory --> <!-- @impl: src/timekeeper/accounting.ts::createAccountingState --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (REQ-SUB-025 AC6: first successful history commit records the earliest included live snapshot without legacy backfill) -->
-7. Retention keeps 400 days, 60 ISO weeks, 60 months, and five years using exact calendar cutoffs. <!-- @impl: src/lib/usage-report-scheduler.ts::retentionCutoffs --> <!-- @test: src/__tests__/lib/usage-report-scheduler.test.ts (usage report retention cutoffs (REQ-SUB-026, REQ-SUB-028)) -->
+2. One versioned state under 4 KB atomically replaces legacy keys. Publish state and marker cache after persistence; failure preserves retry accounting. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/accounting-integration.test.ts (Timekeeper AccountingStateV2 integration (REQ-SUB-025)) --> <!-- @test: src/__tests__/timekeeper/accounting-integration.test.ts (REQ-SUB-025 AC1/2: failed commit leaves retry totals and distinct-session counts unchanged) -->
+3. Hash-only session markers survive restart and period rollover; evicted entries reload from durable storage without recounting a session. <!-- @impl: src/timekeeper/accounting.ts::hashSessionId --> <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/accounting.test.ts (AccountingStateV2 (REQ-SUB-025)) --> <!-- @test: src/__tests__/timekeeper/accounting-integration.test.ts (REQ-SUB-025 AC5: evicted markers are read durably, including after restart, without recounting a session) -->
+4. Normal historical pings add one accounting-state write and no KV reads beyond required SaaS live-quota and entitlement reads. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/accounting-load.test.ts (historical accounting operation fixture (REQ-OPS-057 AC6)) -->
 
 **Constraints:**
 
 - Timekeeper remains live quota owner.
-- D1 failure never blocks quota persistence or enforcement.
+- D1 failure never blocks quota persistence or enforcement; [REQ-SUB-036](#req-sub-036-historical-usage-projection-to-d1) owns D1 projection.
+- Marker identities are domain-separated hashes; the FIFO cache holds at most 128 keys and durable cleanup is independent of eviction (see [Usage Accounting](../../documentation/lanes/billing.md#usage-accounting)).
 - Personal usage and quota behavior remain compatible. <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO) -->
 
 **Priority:** P0
 
 **Dependencies:** [REQ-SUB-006](#req-sub-006-real-time-usage-tracking-via-timekeeper-do), [REQ-SUB-022](#req-sub-022-cross-mode-personal-usage-data), [REQ-OPS-056](operations.md#req-ops-056-non-destructive-d1-deployment-boundary)
 
-**Verification:** Automated: [accounting.test.ts](../../src/__tests__/timekeeper/accounting.test.ts), [accounting-integration.test.ts](../../src/__tests__/timekeeper/accounting-integration.test.ts), [accounting-load.test.ts](../../src/__tests__/timekeeper/accounting-load.test.ts), [alarm-history.test.ts](../../src/__tests__/timekeeper/alarm-history.test.ts), [usage-report-claims.test.ts](../../src/__tests__/lib/usage-report-claims.test.ts), [usage-report-scheduler.test.ts](../../src/__tests__/lib/usage-report-scheduler.test.ts), [index.test.ts](../../src/__tests__/timekeeper/index.test.ts)
+**Verification:** Automated: [accounting.test.ts](../../src/__tests__/timekeeper/accounting.test.ts), [accounting-integration.test.ts](../../src/__tests__/timekeeper/accounting-integration.test.ts), [accounting-load.test.ts](../../src/__tests__/timekeeper/accounting-load.test.ts), [index.test.ts](../../src/__tests__/timekeeper/index.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-SUB-036: Historical usage projection to D1
+
+**Intent:** Project live-captured usage to historical records independently of quota persistence and without inventing earlier history.
+
+**Applies To:** System
+
+**Acceptance Criteria:**
+
+1. The existing alarm performs five-minute KV work and one hash-phased 15-minute D1 duty; no second alarm exists. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @impl: src/timekeeper/accounting.ts::historyPhase --> <!-- @test: src/__tests__/timekeeper/alarm-history.test.ts (Timekeeper single-alarm history duty (REQ-SUB-025)) -->
+2. Current absolute accumulators and closed-period outbox entries retry independently from KV checkpoints, and sequence-guarded D1 upserts cannot double-count. <!-- @impl: src/lib/admin-usage.ts::writeUsageHistory --> <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (historical usage D1 guards (REQ-SUB-025, REQ-SUB-026)) --> <!-- @test: src/__tests__/timekeeper/alarm-history.test.ts (Timekeeper single-alarm history duty (REQ-SUB-025)) -->
+3. The first successful D1 commit establishes history from its earliest included live-captured snapshot, without backfilling legacy quota counters. <!-- @impl: src/lib/admin-usage.ts::writeUsageHistory --> <!-- @impl: src/timekeeper/accounting.ts::createAccountingState --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (REQ-SUB-025 AC6: first successful history commit records the earliest included live snapshot without legacy backfill) -->
+
+**Constraints:** D1 failure never blocks quota persistence or enforcement.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SUB-025](#req-sub-025-durable-historical-usage-accounting), [REQ-OPS-056](operations.md#req-ops-056-non-destructive-d1-deployment-boundary)
+
+**Verification:** Automated: [alarm-history.test.ts](../../src/__tests__/timekeeper/alarm-history.test.ts), [usage-report-claims.test.ts](../../src/__tests__/lib/usage-report-claims.test.ts)
 
 **Status:** Implemented
 
@@ -848,19 +872,17 @@ Tiers, billing, usage tracking, and quotas.
 
 ### REQ-SUB-026: Admin organization analytics and deletion history
 
-**Intent:** Administrators can inspect stable organization usage while deleted-user history remains truthful and bounded.
+**Intent:** Administrators can inspect stable, bounded organization and per-user usage history.
 
 **Applies To:** Admin
 
 **Acceptance Criteria:**
 
 1. In every deployment mode, only admins can query organization or user detail by UTC closed-period parameters: period, start, sort, direction, cursor, limit, and format. Organization results offer JSON or downloadable CSV; the requested user's detail is JSON even for `format=csv`. <!-- @impl: src/routes/admin/usage.ts::default --> <!-- @impl: web-ui/src/components/admin/AnalyticsPage.tsx::AnalyticsPage --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (admin organization usage routes (REQ-SUB-026)) --> <!-- @test: web-ui/src/__tests__/components/AnalyticsPage.test.tsx (Analytics historical usage presentation) --> <!-- @manual -->
-2. Opaque versioned cursors bind the complete filter and use the stable opaque user identifier for deterministic tie-breaking; malformed or mismatched cursors are rejected. <!-- @impl: src/routes/admin/usage.ts::decodeCursor --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (admin organization usage routes (REQ-SUB-026)) --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (filters the requested period and paginates equal totals without losing tied owners) -->
-3. JSON and CSV return the same filtered rows in the same order; only CSV omits pagination. <!-- @impl: src/lib/admin-usage.ts::queryAdminUsageRows --> <!-- @impl: src/routes/admin/usage.ts::usageCsv --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (admin organization usage routes (REQ-SUB-026)) -->
+2. Opaque versioned cursors bind the complete filter; malformed or mismatched cursors are rejected. <!-- @impl: src/routes/admin/usage.ts::decodeCursor --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (admin organization usage routes (REQ-SUB-026)) -->
+3. JSON and CSV return the same filtered rows in the same order, using stable opaque user IDs to break ties. Only CSV omits pagination. <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (filters the requested period and paginates equal totals without losing tied owners) --> <!-- @impl: src/lib/admin-usage.ts::queryAdminUsageRows --> <!-- @impl: src/routes/admin/usage.ts::usageCsv --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (admin organization usage routes (REQ-SUB-026)) -->
 4. The opaque user identifier is stable lowercase hex SHA-256 over a versioned, domain-separated normalized-email input and exposes neither email nor bucket identity. <!-- @impl: src/lib/admin-usage.ts::userKeyForEmail --> <!-- @test: src/__tests__/lib/admin-usage.test.ts (historical usage helpers (REQ-SUB-025)) -->
-5. User deletion writes a D1 tombstone before live cleanup; failure returns typed `503` and leaves live data unchanged. <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData --> <!-- @impl: src/lib/admin-usage.ts::tombstoneUsageUser --> <!-- @test: src/__tests__/lib/user-cleanup.test.ts (cleanupUserData) -->
-6. Deleted users retain named aggregate history for 60 months; explicit same-email provisioning reactivates ownership without erasing prior history. <!-- @impl: src/lib/admin-usage.ts::reactivateUsageUser --> <!-- @impl: src/lib/access.ts::resolveOrProvisionUser --> <!-- @impl: src/lib/usage-report-scheduler.ts::runUsageRetention --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (historical usage D1 guards (REQ-SUB-025, REQ-SUB-026)) --> <!-- @test: src/__tests__/lib/usage-report-scheduler.test.ts (usage report retention cutoffs (REQ-SUB-026, REQ-SUB-028)) -->
-7. Responses disclose `dataSince` and result-owned `historyUpdatedAt` without claiming global outbox freshness. <!-- @impl: src/routes/admin/usage.ts::default --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (admin organization usage routes (REQ-SUB-026)) -->
+5. Responses disclose `dataSince` and result-owned `historyUpdatedAt` without claiming global outbox freshness. <!-- @impl: src/routes/admin/usage.ts::default --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (admin organization usage routes (REQ-SUB-026)) -->
 
 **Notes:** Historical usage and report architecture is documented in [AD150](../../documentation/decisions/README.md#ad150-d1-owns-historical-usage-and-report-delivery-records).
 
@@ -868,9 +890,32 @@ Tiers, billing, usage tracking, and quotas.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-SUB-025](#req-sub-025-durable-historical-usage-accounting), [REQ-AUTH-026](authentication.md#req-auth-026-admin-user-offboarding)
+**Dependencies:** [REQ-SUB-036](#req-sub-036-historical-usage-projection-to-d1), [REQ-SUB-037](#req-sub-037-historical-usage-owner-lifecycle)
 
-**Verification:** Automated: [admin-usage.test.ts](../../src/__tests__/routes/admin-usage.test.ts), [AnalyticsPage.test.tsx](../../web-ui/src/__tests__/components/AnalyticsPage.test.tsx), [admin-usage.test.ts](../../src/__tests__/lib/admin-usage.test.ts), [user-cleanup.test.ts](../../src/__tests__/lib/user-cleanup.test.ts), [usage-report-claims.test.ts](../../src/__tests__/lib/usage-report-claims.test.ts), [usage-report-scheduler.test.ts](../../src/__tests__/lib/usage-report-scheduler.test.ts); Manual: [Integration analytics and report presentation acceptance](../../documentation/lanes/billing.md#integration-analytics-and-report-presentation-acceptance)
+**Verification:** Automated: [admin-usage.test.ts](../../src/__tests__/routes/admin-usage.test.ts), [AnalyticsPage.test.tsx](../../web-ui/src/__tests__/components/AnalyticsPage.test.tsx), [admin-usage.test.ts](../../src/__tests__/lib/admin-usage.test.ts); Manual: [Integration analytics and report presentation acceptance](../../documentation/lanes/billing.md#integration-analytics-and-report-presentation-acceptance)
+
+**Status:** Implemented
+
+---
+
+### REQ-SUB-037: Historical usage owner lifecycle
+
+**Intent:** Preserve recorded usage history through authorized offboarding and reprovisioning without admitting writes for deleted owners.
+
+**Applies To:** System
+
+**Acceptance Criteria:**
+
+1. User deletion writes a D1 tombstone before live cleanup; failure returns typed `503` and leaves live data unchanged. <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData --> <!-- @impl: src/lib/admin-usage.ts::tombstoneUsageUser --> <!-- @test: src/__tests__/lib/user-cleanup.test.ts (resolves ownership, then writes a D1 tombstone before live cleanup) --> <!-- @test: src/__tests__/lib/user-cleanup.test.ts (fails closed with typed 503 evidence and leaves live data unchanged when tombstoning fails) -->
+2. Explicit same-email provisioning reactivates ownership without erasing prior history. <!-- @impl: src/lib/admin-usage.ts::reactivateUsageUser --> <!-- @impl: src/lib/access.ts::resolveOrProvisionUser --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (keeps newer history, blocks deleted owners, and resumes the same owner after reactivation) -->
+
+**Constraints:** Historical ownership changes do not alter authorization or cleanup ordering under [REQ-AUTH-026](authentication.md#req-auth-026-admin-user-offboarding).
+
+**Priority:** P1
+
+**Dependencies:** [REQ-SUB-036](#req-sub-036-historical-usage-projection-to-d1), [REQ-AUTH-026](authentication.md#req-auth-026-admin-user-offboarding)
+
+**Verification:** Automated: [user-cleanup.test.ts](../../src/__tests__/lib/user-cleanup.test.ts), [usage-report-claims.test.ts](../../src/__tests__/lib/usage-report-claims.test.ts)
 
 **Status:** Implemented
 
@@ -885,11 +930,12 @@ Tiers, billing, usage tracking, and quotas.
 **Acceptance Criteria:**
 
 1. Revisioned settings accept disabled-by-default state, at most 25 normalized recipients, day 1 through 31, whole local hour, and canonical IANA timezone. <!-- @impl: src/lib/usage-reports.ts::normalizeReportSettings --> <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @test: src/__tests__/lib/usage-reports.test.ts (usage report settings and schedule (REQ-SUB-027)) -->
-2. On delivery recovery, regenerate the month's summaries and exact CSVs from current persisted usage and send separate recipient messages with an 8 MiB attachment limit. Report bytes may change per dispatch; authoritative usage and payment accounting do not. <!-- @impl: src/lib/usage-report-scheduler.ts::recoverReportDeliveries --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (REQ-SUB-027 AC2: recovery regenerates current persisted usage but keeps identity and records provider rejection as failure) --> <!-- @impl: src/lib/usage-reports.ts::buildReportArtifacts --> <!-- @impl: src/lib/email.ts::sendUsageReportEmail --> <!-- @test: src/__tests__/lib/usage-report-delivery.test.ts (usage report artifacts and email boundary (REQ-SUB-027)) -->
-3. Scheduled and test dispatches use distinct identities, one row per recipient, conditional claims, random claim tokens, bounded leases, and at most three attempts. <!-- @impl: src/lib/usage-report-scheduler.ts::createReportDispatch --> <!-- @impl: src/lib/usage-report-scheduler.ts::claimReportDelivery --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (usage report delivery claims (REQ-SUB-027)) --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (persists one recipient row per dispatch and keeps test dispatch identities independent) -->
+2. Delivery recovery regenerates the month's summaries and exact CSVs from current persisted usage. Report bytes may change per dispatch; authoritative usage and payment accounting do not. <!-- @impl: src/lib/usage-report-scheduler.ts::recoverReportDeliveries --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (REQ-SUB-027 AC2: recovery regenerates current persisted usage but keeps identity and records provider rejection as failure) --> <!-- @impl: src/lib/usage-reports.ts::buildReportArtifacts --> <!-- @test: src/__tests__/lib/usage-report-delivery.test.ts (usage report artifacts and email boundary (REQ-SUB-027)) -->
+3. Delivery uses conditional claims, random claim tokens, bounded leases, and at most three attempts. <!-- @impl: src/lib/usage-report-scheduler.ts::claimReportDelivery --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (usage report delivery claims (REQ-SUB-027)) -->
 4. Stale claim tokens cannot complete reclaimed rows; deterministic Resend idempotency suppresses the remaining ambiguous duplicate window. <!-- @impl: src/lib/usage-report-scheduler.ts::completeReportDelivery --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (usage report delivery claims (REQ-SUB-027)) -->
 5. The 15-minute scheduler independently recovers pending, failed, and lease-expired scheduled or test rows; request-attached background work is only the test-send fast path. <!-- @impl: src/index.ts::scheduled --> <!-- @impl: src/lib/usage-report-scheduler.ts::runUsageReportScheduler --> <!-- @impl: src/routes/admin/usage-reports.ts::default --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (scheduled recovery sends failed, expired and test rows independently of request work while respecting leases and attempts) --> <!-- @test: src/__tests__/routes/admin-usage-reports.test.ts (admin usage report routes (REQ-SUB-027)) -->
 6. Delivery history reports pending, sending, accepted, or failed provider-acceptance state without inventing provider delivery state or IDs. <!-- @impl: src/routes/admin/usage-reports.ts::default --> <!-- @impl: web-ui/src/components/admin/ReportsPage.tsx::ReportsPage --> <!-- @test: src/__tests__/routes/admin-usage-reports.test.ts (admin usage report routes (REQ-SUB-027)) --> <!-- @manual -->
+7. On delivery recovery, reports send separate messages per recipient with an 8 MiB attachment limit. <!-- @impl: src/lib/email.ts::sendUsageReportEmail --> <!-- @test: src/__tests__/lib/usage-report-delivery.test.ts (usage report artifacts and email boundary (REQ-SUB-027)) -->
 
 **Notes:** Historical usage and report architecture is documented in [AD150](../../documentation/decisions/README.md#ad150-d1-owns-historical-usage-and-report-delivery-records).
 
@@ -918,6 +964,8 @@ Tiers, billing, usage tracking, and quotas.
 
 1. Retention runs at most once per UTC day, and only the winning execution prunes eligible history. <!-- @impl: src/lib/usage-report-scheduler.ts::runUsageRetention --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (REQ-SUB-028 AC1: daily retention claim) -->
 2. If any prune fails, the daily claim and all pruning roll back so a later execution can retry. <!-- @impl: src/lib/usage-report-scheduler.ts::runUsageRetention --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (REQ-SUB-028 AC2: retention rollback) -->
+3. Retention keeps 400 days, 60 ISO weeks, 60 months, and five years using exact calendar cutoffs. <!-- @impl: src/lib/usage-report-scheduler.ts::retentionCutoffs --> <!-- @test: src/__tests__/lib/usage-report-scheduler.test.ts (usage report retention cutoffs (REQ-SUB-026, REQ-SUB-028)) -->
+4. Deleted users retain named aggregate history for 60 months. <!-- @impl: src/lib/usage-report-scheduler.ts::runUsageRetention --> <!-- @test: src/__tests__/lib/usage-report-scheduler.test.ts (usage report retention cutoffs (REQ-SUB-026, REQ-SUB-028)) -->
 
 **Notes:** Historical usage and report architecture is documented in [AD150](../../documentation/decisions/README.md#ad150-d1-owns-historical-usage-and-report-delivery-records).
 
@@ -925,9 +973,9 @@ Tiers, billing, usage tracking, and quotas.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-SUB-025](#req-sub-025-durable-historical-usage-accounting), [REQ-SUB-026](#req-sub-026-admin-organization-analytics-and-deletion-history), [REQ-SUB-027](#req-sub-027-monthly-organization-usage-reports)
+**Dependencies:** [REQ-SUB-036](#req-sub-036-historical-usage-projection-to-d1), [REQ-SUB-026](#req-sub-026-admin-organization-analytics-and-deletion-history), [REQ-SUB-027](#req-sub-027-monthly-organization-usage-reports)
 
-**Verification:** Automated: [usage-report-claims.test.ts](../../src/__tests__/lib/usage-report-claims.test.ts)
+**Verification:** Automated: [usage-report-claims.test.ts](../../src/__tests__/lib/usage-report-claims.test.ts), [usage-report-scheduler.test.ts](../../src/__tests__/lib/usage-report-scheduler.test.ts)
 
 **Status:** Implemented
 
@@ -954,7 +1002,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-SUB-025](#req-sub-025-durable-historical-usage-accounting), [REQ-SUB-026](#req-sub-026-admin-organization-analytics-and-deletion-history)
+**Dependencies:** [REQ-SUB-036](#req-sub-036-historical-usage-projection-to-d1), [REQ-SUB-026](#req-sub-026-admin-organization-analytics-and-deletion-history)
 
 **Verification:** Automated: [admin-usage.test.ts](../../src/__tests__/routes/admin-usage.test.ts), [AdministrationOverview.test.tsx](../../web-ui/src/__tests__/components/AdministrationOverview.test.tsx), [AnalyticsPage.test.tsx](../../web-ui/src/__tests__/components/AnalyticsPage.test.tsx), [usage-report-claims.test.ts](../../src/__tests__/lib/usage-report-claims.test.ts)
 
@@ -971,9 +1019,11 @@ Tiers, billing, usage tracking, and quotas.
 **Acceptance Criteria:**
 
 1. Scheduled report dispatches use the latest closed UTC month. <!-- @impl: src/lib/usage-reports.ts::latestClosedMonth --> <!-- @impl: src/lib/usage-report-scheduler.ts::runUsageReportScheduler --> <!-- @test: src/__tests__/lib/usage-reports.test.ts (usage report settings and schedule (REQ-SUB-027)) --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (persists the previous UTC month when a dispatch is due at %s) -->
-2. Test report dispatches use the current UTC month; the test-send UI describes that period. <!-- @impl: web-ui/src/components/admin/ReportsPage.tsx::ReportsPage --> <!-- @impl: src/routes/admin/usage-reports.ts::default --> <!-- @test: src/__tests__/routes/admin-usage-reports.test.ts (admin usage report routes (REQ-SUB-027)) -->
+2. Test report dispatches use the current UTC month. <!-- @impl: src/routes/admin/usage-reports.ts::default --> <!-- @test: src/__tests__/routes/admin-usage-reports.test.ts (admin usage report routes (REQ-SUB-027)) -->
 3. Delivery schedules apply last-valid-day and DST rules. <!-- @impl: src/lib/usage-reports.ts::nextReportDelivery --> <!-- @test: src/__tests__/lib/usage-reports.test.ts (usage report settings and schedule (REQ-SUB-027)) -->
 4. A settings revision cannot consume the next due instant owned by another revision. <!-- @impl: src/lib/usage-report-scheduler.ts::runUsageReportScheduler --> <!-- @test: src/__tests__/lib/usage-report-scheduler.test.ts (usage report scheduling recovery (REQ-SUB-027)) -->
+5. Test and scheduled dispatches use distinct identities and persist one row per recipient per dispatch. <!-- @impl: src/lib/usage-report-scheduler.ts::createReportDispatch --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (persists one recipient row per dispatch and keeps test dispatch identities independent) -->
+6. The test-send UI describes the report period as the current UTC month. <!-- @impl: web-ui/src/components/admin/ReportsPage.tsx::ReportsPage --> <!-- @manual -->
 
 **Constraints:** Scheduling uses the existing 15-minute Worker schedule and deployment-scoped usage database.
 
@@ -981,7 +1031,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-027](#req-sub-027-monthly-organization-usage-reports)
 
-**Verification:** Automated: [usage-reports.test.ts](../../src/__tests__/lib/usage-reports.test.ts), [admin-usage-reports.test.ts](../../src/__tests__/routes/admin-usage-reports.test.ts), [usage-report-scheduler.test.ts](../../src/__tests__/lib/usage-report-scheduler.test.ts), [usage-report-claims.test.ts](../../src/__tests__/lib/usage-report-claims.test.ts)
+**Verification:** Automated: [usage-reports.test.ts](../../src/__tests__/lib/usage-reports.test.ts), [admin-usage-reports.test.ts](../../src/__tests__/routes/admin-usage-reports.test.ts), [usage-report-scheduler.test.ts](../../src/__tests__/lib/usage-report-scheduler.test.ts), [usage-report-claims.test.ts](../../src/__tests__/lib/usage-report-claims.test.ts); Manual: [Integration analytics and report presentation acceptance](../../documentation/lanes/billing.md#integration-analytics-and-report-presentation-acceptance)
 
 **Status:** Implemented
 
@@ -1011,6 +1061,29 @@ Tiers, billing, usage tracking, and quotas.
 ---
 
 <a id="req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode"></a>
+### REQ-ENTERPRISE-315: Enterprise Pro seed migration
+
+**Intent:** Enterprise users become current only after their bucket has successfully applied the Pro agent configuration.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. An Enterprise user remains upgrade-pending until the bucket's Pro agent configuration reconciles successfully, including initial reconciliation for a new bucket. Only then is the stored mode marked Pro. <!-- @impl: src/routes/container/lifecycle-init.ts::ensureBucketAndSeed --> <!-- @impl: src/routes/session/lifecycle.ts::preseedNeedsUpgrade --> <!-- @impl: src/routes/storage/seed.ts::updatedPreferences --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (REQ-ENTERPRISE-001 AC6: enterprise upgrade reconcile for pre-existing users) --> <!-- @test: src/__tests__/routes/session-ancillary-status.test.ts (REQ-ENTERPRISE-001 AC6: ancillary polling requires enterprise Pro reconciliation for stored mode %s with current baked inputs) --> <!-- @test: src/__tests__/routes/storage-seed.test.ts (enterprise: reconciles as advanced and stamps sessionMode alongside lastPreseedHash) -->
+2. If initial or upgrade reconciliation fails, the preference is not stamped and the upgrade retries on the next trigger. <!-- @impl: src/routes/container/lifecycle-init.ts::ensureBucketAndSeed --> <!-- @impl: src/routes/storage/seed.ts::updatedPreferences --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (DEEP-18-007/008: a failed new-bucket reconcile leaves Pro unstamped for retry) --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (enterprise: a failed upgrade reconcile does NOT stamp the preference (retries next start) and the start still succeeds) --> <!-- @test: src/__tests__/routes/storage-seed.test.ts (enterprise: a failed reconcile returns 500 and does NOT stamp sessionMode or lastPreseedHash) -->
+
+**Constraints:** Successful upgrade stamps preserve the latest preference fields they do not own. <!-- @impl: src/routes/container/lifecycle-init.ts::ensureBucketAndSeed --> <!-- @impl: src/routes/storage/seed.ts::updatedPreferences --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (REQ-ENTERPRISE-001 constraint: enterprise upgrade preserves preferences changed while reconciliation is running) --> <!-- @test: src/__tests__/routes/storage-seed.test.ts (REQ-ENTERPRISE-001 constraint: enterprise reseed preserves preferences changed during reconciliation) -->
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode)
+
+**Verification:** Automated: [container-r2-start.test.ts](../../src/__tests__/routes/container-r2-start.test.ts), [session-ancillary-status.test.ts](../../src/__tests__/routes/session-ancillary-status.test.ts), [storage-seed.test.ts](../../src/__tests__/routes/storage-seed.test.ts)
+
+**Status:** Implemented
+
+---
+
 ### REQ-ENTERPRISE-001: ENTERPRISE_MODE Forces Unlimited Tier and Pro Mode
 
 **Intent:** A deploy-time Enterprise-mode flag must turn a deployment into a single-tenant enterprise instance where every user gets full access without subscription friction.
@@ -1024,21 +1097,20 @@ Tiers, billing, usage tracking, and quotas.
 3. When the Enterprise-mode binding is set, monthly Timekeeper quota enforcement is disabled. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (REQ-ENTERPRISE-001 AC3: enterprise users are never blocked by the monthly compute quota) --> <!-- @test: src/__tests__/timekeeper/index.test.ts (REQ-ENTERPRISE-001 AC3: enterprise pings retain accounting beyond SaaS quota without enforcement) -->
 4. The flag is read from a single resolver; all callers consult the resolver rather than reading the raw binding. <!-- @impl: src/lib/subscription.ts::isEnterpriseMode --> <!-- @manual: Search production source for raw ENTERPRISE_MODE reads and confirm only the resolver owns binding interpretation. -->
 5. When the Enterprise-mode binding is unset, tier resolution, session-mode resolution, and subscription enforcement are byte-identical to current behavior across the Default, Onboarding, and SaaS deployment modes. <!-- @impl: src/lib/subscription.ts::isEnterpriseMode --> <!-- @test: src/__tests__/routes/preferences-enterprise.test.ts (Preferences Routes under ENTERPRISE_MODE / REQ-ENTERPRISE-001 + REQ-ENTERPRISE-003) -->
-6. An enterprise user remains upgrade-pending until the bucket's agent configuration is successfully reconciled to Pro, including the initial reconciliation for a newly created bucket, after which the stored mode is marked Pro. <!-- @impl: src/routes/container/lifecycle-init.ts::ensureBucketAndSeed --> <!-- @impl: src/routes/session/lifecycle.ts::preseedNeedsUpgrade --> <!-- @impl: src/routes/storage/seed.ts::updatedPreferences --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (REQ-ENTERPRISE-001 AC6: enterprise upgrade reconcile for pre-existing users) --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (DEEP-18-007/008: a failed new-bucket reconcile leaves Pro unstamped for retry) --> <!-- @test: src/__tests__/routes/session-ancillary-status.test.ts (REQ-ENTERPRISE-001 AC6: ancillary polling requires enterprise Pro reconciliation for stored mode %s with current baked inputs) --> <!-- @test: src/__tests__/routes/storage-seed.test.ts (enterprise: reconciles as advanced and stamps sessionMode alongside lastPreseedHash) -->
-7. If either initial or upgrade reconciliation fails, the preference is not stamped and the upgrade retries on the next trigger. <!-- @impl: src/routes/container/lifecycle-init.ts::ensureBucketAndSeed --> <!-- @impl: src/routes/storage/seed.ts::updatedPreferences --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (DEEP-18-007/008: a failed new-bucket reconcile leaves Pro unstamped for retry) --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (enterprise: a failed upgrade reconcile does NOT stamp the preference (retries next start) and the start still succeeds) --> <!-- @test: src/__tests__/routes/storage-seed.test.ts (enterprise: a failed reconcile returns 500 and does NOT stamp sessionMode or lastPreseedHash) -->
+
 
 **Constraints:**
 
 - The deploy-time Worker binding selects the flag; request data cannot override it.
 - When the flag is unset there is no new code path: every enterprise branch is gated behind the resolver returning false.
-- Successful enterprise upgrade stamps preserve the latest stored preference fields they do not own. <!-- @impl: src/routes/container/lifecycle-init.ts::ensureBucketAndSeed --> <!-- @impl: src/routes/storage/seed.ts::updatedPreferences --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (REQ-ENTERPRISE-001 constraint: enterprise upgrade preserves preferences changed while reconciliation is running) --> <!-- @test: src/__tests__/routes/storage-seed.test.ts (REQ-ENTERPRISE-001 constraint: enterprise reseed preserves preferences changed during reconciliation) -->
+- [REQ-ENTERPRISE-315](#req-enterprise-315-enterprise-pro-seed-migration) owns successful applied-mode publication, separate from effective tier and mode resolution.
 - Enterprise deployment-variable values, rollout, and rollback procedures are owned by the private [Enterprise deployment runbook](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/deployment/enterprise.md); this public specification records only runtime behavior.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system), [REQ-SUB-014](#req-sub-014-session-mode-gating-by-tier), [REQ-AGENT-004](agents.md#req-agent-004-two-session-modes-standard-and-pro)
 
-**Verification:** Automated: [enterprise-mode.test.ts](../../src/__tests__/lib/enterprise-mode.test.ts), [session-mode.test.ts](../../src/__tests__/lib/session-mode.test.ts), [preferences-enterprise.test.ts](../../src/__tests__/routes/preferences-enterprise.test.ts), [container-lifecycle.test.ts](../../src/__tests__/routes/container-lifecycle.test.ts), [container-lifecycle-helpers.test.ts](../../src/__tests__/routes/container-lifecycle-helpers.test.ts), [container-r2-start.test.ts](../../src/__tests__/routes/container-r2-start.test.ts), [session-ancillary-status.test.ts](../../src/__tests__/routes/session-ancillary-status.test.ts), [storage-seed.test.ts](../../src/__tests__/routes/storage-seed.test.ts), [index.test.ts](../../src/__tests__/timekeeper/index.test.ts); Manual: [Enterprise binding ownership review](../../documentation/lanes/billing.md#enterprise-binding-ownership-review)
+**Verification:** Automated: [enterprise-mode.test.ts](../../src/__tests__/lib/enterprise-mode.test.ts), [session-mode.test.ts](../../src/__tests__/lib/session-mode.test.ts), [preferences-enterprise.test.ts](../../src/__tests__/routes/preferences-enterprise.test.ts), [container-lifecycle.test.ts](../../src/__tests__/routes/container-lifecycle.test.ts), [container-lifecycle-helpers.test.ts](../../src/__tests__/routes/container-lifecycle-helpers.test.ts), [index.test.ts](../../src/__tests__/timekeeper/index.test.ts); Manual: [Enterprise binding ownership review](../../documentation/lanes/billing.md#enterprise-binding-ownership-review)
 
 **Status:** Implemented
 

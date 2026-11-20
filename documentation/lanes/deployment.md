@@ -52,7 +52,9 @@ Read-only method for [REQ-OPS-001](../../sdd/spec/operations.md#req-ops-001-depl
 
 For AC2 inspect separate retained native dispatch records for production, integration, enterprise and enterprise integration. Compare each actual environment input with **Resolve deploy target** / **Log resolved parameters**, job environment and **Deploy summary**. Production must resolve from `main`; inspect **Block production deploys from non-main branches**. Confirm the exact-tree verification path and completed deployment, not only the dispatch menu. Missing an environment's completed record is BLOCKED for that observation; wrong target/tree or a passing non-main production promotion is FAIL. Reuse the [pipeline contract](ci-cd.md#deploy-workflow-detail), including explicit-run fail-closed behavior, inline fallback, serialization and outcome safeguards.
 
-For AC5 inspect **Deploy worker** / **Resolve KV namespace** at that same revision. Correlate successful namespace listing with the resolved `${WORKER_NAME}-kv` title and reported namespace identity, then inspect the script's substitution of `id = "placeholder"` in `wrangler.toml`. Existing matching namespaces must be reused; creation applies only after a successful list returns no match. Correlate subsequent **Deploy to Cloudflare** binding output where retained. No deployed config artifact is promised by this workflow; if application of the resolved identity cannot be established from retained output/source, that part remains BLOCKED, not inferred from a green summary.
+For [REQ-ENTERPRISE-006 AC5](../../sdd/spec/setup.md#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var), inspect GitHub's `enterprise` environment branch policy: only `main` and `develop` are admitted. `enterprise integration` is a separate target with its own policy. A ref can select a target without being admitted to deploy. Compare retained records where available; do not dispatch a run to test admission.
+
+For AC5 of REQ-OPS-001 inspect **Deploy worker** / **Resolve KV namespace** at that same revision. Correlate successful namespace listing with the resolved `${WORKER_NAME}-kv` title and reported namespace identity, then inspect the script's substitution of `id = "placeholder"` in `wrangler.toml`. Existing matching namespaces must be reused; creation applies only after a successful list returns no match. Correlate subsequent **Deploy to Cloudflare** binding output where retained. No deployed config artifact is promised by this workflow; if application of the resolved identity cannot be established from retained output/source, that part remains BLOCKED, not inferred from a green summary.
 
 Accept list/reuse and list/no-match/create branches separately from existing approved records. In retained failure records, failed listing must stop without guessing or creating, and unresolved identity must stop before Worker promotion. Wrong binding or promotion after resolution failure is FAIL. Missing branch or rejection records is BLOCKED for those observations. Setup-route mock-KV tests do not establish this deployment behavior; no namespace may be created or modified to fill the evidence gap here.
 
@@ -66,7 +68,7 @@ For [OPS-007/012/014](../../sdd/spec/operations.md), apply [pipeline prerequisit
 
 | Scope | Required observation |
 |---|---|
-| OPS-007 AC1/2/5; OPS-014 AC1–3 | Compare resolved profile CPU/memory/disk and canonical defaults with effective provider configuration. Match the pushed image digest and binding, with no deploy-time rebuild. Wrong allocation/binding fails. |
+| OPS-007 AC1/2/5; OPS-014 AC1–3/6 | Compare resolved profile CPU/memory/disk and canonical defaults with effective provider configuration. Match the emitted content-addressed tag, pushed digest and final binding, with no deploy-time rebuild. Wrong allocation/binding fails. |
 | OPS-007 AC3; OPS-012 AC1–4 | Compare retained default and positive-integer override cases across profiles. Effective cap follows the override independently of profile. Existing zero/negative/noninteger cases reject before promotion; missing cases are unavailable. |
 | OPS-007 AC4 | Compare resolved regular/admin limits with observed admission records. This is best-effort admission, not an atomic concurrency reservation or hard isolation guarantee. |
 | OPS-014 AC4/5 | Compare same-input cache-bust and baseline records: affected agent layer rebuilds while unrelated layers remain cached, then rollout binds that image. Repository SSH remains disabled/key-free; persistent identity provisioning is private-owned. |
@@ -253,7 +255,7 @@ The operator procedure, migration bounds, pause/resume behavior, verification, r
 
 ### REQ-OPS-011 preserved clauses
 
-The authoritative Node source, immutable indices and Linux amd64 manifest boundary are [REQ-OPS-011 AC5](../../sdd/spec/agents.md#req-ops-011-container-base-image-is-debian-bookworm-slim); deployment evidence must cover that boundary plus the existing image build, packaged smoke, CVE scan, provenance and push gates.
+The authoritative Node source, immutable indices and Linux amd64 manifest boundary are [REQ-OPS-011 AC4](../../sdd/spec/agents.md#req-ops-011-container-base-image-is-debian-bookworm-slim); deployment evidence must cover that boundary plus the existing image build, packaged smoke, CVE scan, provenance and push gates.
 
 ### REQ-OPS-054 preserved clauses
 

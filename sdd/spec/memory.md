@@ -29,6 +29,28 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 
 ---
 
+### REQ-MEM-038: Claude capture launch notice
+
+**Intent:** Users can see that a detached Claude capture started without asking the foreground model to launch it.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Each Claude capture launch notifies the user rather than sending the active model a launch instruction. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::emit_context --> <!-- @test: host/__tests__/memory-capture-hook.test.js (names the first launch and the file the capture will write) --> <!-- @test: host/__tests__/memory-capture-hook.test.js (counts the retry it is announcing) -->
+
+**Constraints:** The active model never owns the capture launch; first-message graph guidance is independent.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault)
+
+**Verification:** Automated: [memory-capture-hook.test.js](../../host/__tests__/memory-capture-hook.test.js)
+
+**Status:** Implemented
+
+---
+
 ### REQ-MEM-001: Conversation context automatically captured to vault
 
 **Intent:** Important conversation context (decisions, debugging insights, observations) must be extracted from the transcript and persisted to the vault without manual intervention. This REQ covers the hook trigger, message-counting filter, and the capture pipeline. Hook plumbing (tilde expansion, vars file shape, first-message graphify hint, timezone resolution) is split into [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing).
@@ -37,7 +59,7 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 
 **Acceptance Criteria:**
 
-1. Each Claude capture trigger starts a detached capture and notifies the user without instructing the active model to launch it. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::emit_context --> <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::launch_capture --> <!-- @test: host/__tests__/memory-capture-hook.test.js (names the first launch and the file the capture will write) --> <!-- @test: host/__tests__/memory-capture-hook.test.js (arms a request carrying the capture path the publisher will verify) -->
+1. Each Claude capture trigger starts a detached capture without instructing the active model to launch it. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::launch_capture --> <!-- @test: host/__tests__/memory-capture-hook.test.js (arms a request carrying the capture path the publisher will verify) -->
 2. Pi excludes tool results and known synthetic agent envelopes from its real-user count while preserving genuine code-like prompts. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::isSyntheticPrompt --> <!-- @test: src/__tests__/lib/agent-seed-pi-memory.test.ts (REQ-MEM-001 AC2: Pi excludes synthetic envelopes and preserves genuine code-like prompts) -->
 3. Each triggered Claude capture receives bounded uncaptured user/assistant content from the durable transcript. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/prefilter-transcript.sh::is_synthetic_marker --> <!-- @test: host/__tests__/memory-capture-pipeline.test.js (prefilter-transcript.sh (REQ-MEM-001 AC3) / REQ-VAULT-002 (conversation captures land in vault as markdown)) -->
 4. Capture-file timestamps use the configured user timezone, then the process timezone, then UTC, per [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing) AC4. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/assert-iso-ts.sh::RESOLVED --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::captureTimestamp --> <!-- @test: host/__tests__/memory-iso-ts-script.test.js (assert-iso-ts.sh / REQ-MEM-010 AC5+AC6+AC7) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (prefers USER_TIMEZONE over TZ when both are present) -->
@@ -54,7 +76,7 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 - Claude uses Sonnet with medium reasoning per [AD58](../../documentation/decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad).
 - Pi uses its provider-neutral model lever with medium reasoning per [AD103](../../documentation/decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs).
 - Capture agents produce graph output directly; the headless extraction CLI is not invoked.
-- First-message graph guidance remains separate from capture notifications ([REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing) AC3).
+- First-message graph guidance ([REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing) AC3) remains separate from capture notifications ([REQ-MEM-038](#req-mem-038-claude-capture-launch-notice)).
 - Claude keeps its durable retry carrier until cumulative merge and global publication succeed; failures remain retryable without advancing capture progress.
 - Pi requires an exact successful call plus post-commit note and graph-chunk artifacts before advancing its root-owned counter.
 - Claude reads hook-provided transcript JSONL; Pi reads persisted session messages.
@@ -127,7 +149,8 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 - Counter state MUST use ephemeral, session-scoped storage.
 - `CURRENT_COUNT` alone distinguishes first runs: 1 means a brand-new transcript containing only the submitted prompt; greater values mean prior prompts persisted from a resumed session.
 - Fresh/resume detection uses prompt history and counter state, not timestamps or mtimes.
-- First-message guidance follows [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing) AC3. Pi Vault checks and size-eligible maintenance share the capture baseline under [REQ-VAULT-031](vault.md#req-vault-031-vault-hash-checks-follow-successful-prompt-cadence) and [REQ-MEM-028](#req-mem-028-pi-active-transcript-size-retention).
+- First-message guidance follows [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing) AC3.
+- Pi Vault checks and size-eligible maintenance share the capture baseline under [REQ-VAULT-031](vault.md#req-vault-031-vault-hash-checks-follow-successful-prompt-cadence) and [REQ-MEM-028](#req-mem-028-pi-active-transcript-size-retention).
 
 **Priority:** P0
 
@@ -361,7 +384,7 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 **Acceptance Criteria:**
 
 1. The hook tolerates tilde-prefixed transcript paths. <!-- @test: host/__tests__/memory-capture-hook.test.js (expands ~ in transcript_path to $HOME) --> <!-- @manual -->
-2. The capture request retains small durable retry state until successful publication. The model receives self-contained inline metadata and prefiltered uncaptured user/assistant content within their bounds, not a raw transcript path to retrieve. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/run-memory-capture.sh::TASK --> <!-- @test: host/__tests__/run-memory-capture.test.js (hands the model a prepared payload instead of the raw transcript) --> <!-- @test: host/__tests__/memory-capture-hook.test.js (memory-capture.sh - input gating / REQ-MEM-002 (capture triggers every 20 user messages)) --> <!-- @manual -->
+2. The model receives bounded self-contained inline metadata and prefiltered uncaptured user/assistant content, not a raw transcript path to retrieve. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/run-memory-capture.sh::TASK --> <!-- @test: host/__tests__/run-memory-capture.test.js (hands the model a prepared payload instead of the raw transcript) --> <!-- @manual -->
 3. On the first message of a new container session, the hook injects graph-query guidance before the agent responds. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::MEMORY_SCAN --> <!-- @test: host/__tests__/memory-capture-hook.test.js (AC7 boundary - missing counter + transcript with exactly 1 prompt is brand-new (no capture)) -->
 4. The hook resolves the capture timezone from the user preference ([REQ-SESSION-016](session-lifecycle.md#req-session-016-user-timezone-propagated-from-preferences-to-container-env)), falling back to the container default and finally to UTC. <!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE feeds capture pipeline) / REQ-AGENT-031 (LLM API keys + agent-specific keys propagated to container env)) --> <!-- @manual -->
 5. The capture timestamp is validated against the current wall clock and rejected if fabricated, missing a timezone offset, or mismatching the resolved timezone. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/assert-iso-ts.sh::RESOLVED --> <!-- @test: host/__tests__/memory-iso-ts-script.test.js (assert-iso-ts.sh / REQ-MEM-010 AC5+AC6+AC7) -->
@@ -377,7 +400,7 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 
 **Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-SESSION-016](session-lifecycle.md#req-session-016-user-timezone-propagated-from-preferences-to-container-env)
 
-**Verification:** Automated: [memory-capture-hook.test.js](../../host/__tests__/memory-capture-hook.test.js), [container-env.test.ts](../../src/__tests__/container/container-env.test.ts), [memory-iso-ts-script.test.js](../../host/__tests__/memory-iso-ts-script.test.js); Manual: [Memory hook and short prompt acceptance](../../documentation/lanes/vault.md#memory-hook-and-short-prompt-acceptance)
+**Verification:** Automated: [memory-capture-hook.test.js](../../host/__tests__/memory-capture-hook.test.js), [run-memory-capture.test.js](../../host/__tests__/run-memory-capture.test.js), [container-env.test.ts](../../src/__tests__/container/container-env.test.ts), [memory-iso-ts-script.test.js](../../host/__tests__/memory-iso-ts-script.test.js); Manual: [Memory hook and short prompt acceptance](../../documentation/lanes/vault.md#memory-hook-and-short-prompt-acceptance)
 
 **Status:** Implemented
 
@@ -417,7 +440,7 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 
 1. In default mode, only baseline agent permissions are applied; capture hooks are not registered. <!-- @impl: entrypoint.sh::SETTINGS_CONFIG --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (settings.json configuration / REQ-AGENT-015 (/review command)) -->
 2. If no session mode has been explicitly set, the default mode applies unless [Enterprise policy](subscription.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode) forces Pro. <!-- @impl: src/lib/session-mode.ts::resolveSessionMode --> <!-- @test: src/__tests__/lib/session-mode.test.ts (resolveSessionMode / REQ-AGENT-004 (two session modes: default and advanced; default when prefs unset; honors persisted sessionMode)) --> <!-- @test: src/__tests__/lib/session-mode.test.ts (resolveSessionMode / REQ-ENTERPRISE-001 AC2 (enterprise forces Pro regardless of the stored preference)) -->
-3. Agent configuration reconciles on initial bucket creation, explicit "Recreate AI agent skills & rules", a persisted session-mode preference change, subscription-driven mode change, and the one-time enterprise Pro upgrade at session start ([REQ-ENTERPRISE-001](subscription.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode) AC6). <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @impl: src/routes/preferences.ts::app --> <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState --> <!-- @impl: src/routes/container/lifecycle-init.ts::ensureBucketAndSeed --> <!-- @test: src/__tests__/routes/preferences.test.ts (sessionMode preference / REQ-MEM-011 (sessionMode preference persistence + preseed reconciliation)) --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (REQ-MEM-011 AC3: reconcileAgentConfigs gated on the new-bucket trigger) --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (REQ-ENTERPRISE-001 AC6: enterprise upgrade reconcile for pre-existing users) -->
+3. Agent configuration reconciles on initial bucket creation, explicit "Recreate AI agent skills & rules", a persisted session-mode preference change, subscription-driven mode change, and the one-time Enterprise Pro upgrade at session start ([REQ-ENTERPRISE-315](subscription.md#req-enterprise-315-enterprise-pro-seed-migration) AC1). <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @impl: src/routes/preferences.ts::app --> <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState --> <!-- @impl: src/routes/container/lifecycle-init.ts::ensureBucketAndSeed --> <!-- @test: src/__tests__/routes/preferences.test.ts (sessionMode preference / REQ-MEM-011 (sessionMode preference persistence + preseed reconciliation)) --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (REQ-MEM-011 AC3: reconcileAgentConfigs gated on the new-bucket trigger) --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (REQ-ENTERPRISE-001 AC6: enterprise upgrade reconcile for pre-existing users) -->
 4. On a mode change, mode-appropriate managed files are written and out-of-mode files are removed under existing [ownership rules](storage.md#req-stor-021-managed-content-ownership); unrelated user files remain untouched. Desired managed paths may be overwritten, and active [exclusive-policy roots](storage.md#req-stor-032-exclusive-managed-resource-boundaries) retain their authorized cleanup semantics. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/routes/preferences.test.ts (sessionMode preference / REQ-MEM-011 (sessionMode preference persistence + preseed reconciliation)) -->
 5. Successful managed mode-change publication preserves unrelated preference fields in its publication snapshot. <!-- @impl: src/routes/preferences.ts::default --> <!-- @test: src/__tests__/routes/preferences.test.ts (REQ-MEM-011 AC5: target journaling preserves concurrent preference changes) --> <!-- @test: src/__tests__/routes/preferences.test.ts (REQ-MEM-011 AC5: preserves a preference update during applied digest preparation) -->
 6. A managed mode change does not publish applied state when its publication snapshot contains a different selected mode or managed state. <!-- @impl: src/routes/preferences.ts::default --> <!-- @test: src/__tests__/routes/preferences.test.ts (REQ-MEM-011 AC6: final publication snapshot rejects a concurrent mode change) --> <!-- @test: src/__tests__/routes/preferences.test.ts (REQ-MEM-011 AC6: aborts stale reconciliation without reverting a concurrent mode update) -->
@@ -452,6 +475,7 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 4. After six launches the request latches, consumes no further launch, and the hook falls silent until a replacement may arm. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::LATCH_FILE --> <!-- @test: host/__tests__/memory-capture-hook.test.js (latches after the sixth delivery and stops reminding) -->
 5. A prompt arriving while a capture is still running spends no launch, and leaves an outstanding request intact. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::capture_running --> <!-- @test: host/__tests__/memory-capture-hook.test.js (spends no attempt on a prompt that arrives while a capture is running) -->
 6. No hook blocks tool calls on behalf of memory capture. <!-- @impl: entrypoint.sh::SETTINGS_CONFIG --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (advanced mode registers each managed hook on its own event type) -->
+7. The outstanding capture request retains small durable retry state until successful publication, subject to AC4's bounded replacement rule. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::VARS_FILE --> <!-- @test: host/__tests__/memory-capture-hook.test.js (re-delivers an outstanding request on the next prompt instead of dropping it) --> <!-- @test: host/__tests__/memory-capture-pipeline.test.js (publish-memory-capture.sh (REQ-MEM-001 AC6)) --> <!-- @manual -->
 
 **Constraints:**
 
@@ -462,7 +486,7 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 
 **Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-002](#req-mem-002-capture-triggers-every-20-user-messages-and-on-resume)
 
-**Verification:** Automated: [entrypoint-hooks-merge.test.js](../../host/__tests__/entrypoint-hooks-merge.test.js), [memory-capture-hook.test.js](../../host/__tests__/memory-capture-hook.test.js)
+**Verification:** Automated: [entrypoint-hooks-merge.test.js](../../host/__tests__/entrypoint-hooks-merge.test.js), [memory-capture-hook.test.js](../../host/__tests__/memory-capture-hook.test.js), [memory-capture-pipeline.test.js](../../host/__tests__/memory-capture-pipeline.test.js); Manual: [Memory hook and short prompt acceptance](../../documentation/lanes/vault.md#memory-hook-and-short-prompt-acceptance)
 
 **Status:** Implemented
 
@@ -512,10 +536,12 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 3. At most one successful injection is admitted per session, with eligibility consumed only after a successful graph query and independently of the capture count. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-context-inject.sh::COUNTER_DIR --> <!-- @test: host/__tests__/memory-context-inject.test.js (AC3: fires at most once per session (sentinel directory prevents re-fire)) -->
 4. Prompts shorter than 20 characters are skipped (insufficient signal for keyword extraction). <!-- @test: host/__tests__/memory-context-inject.test.js (AC4: skips prompts shorter than 20 characters) --> <!-- @manual -->
 5. The unified graph is the only source queried; no per-repo graph is accepted as a substitute for it. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-context-inject.sh::GLOBAL_GRAPH --> <!-- @impl: preseed/agents/pi/extensions/memory-inject.ts::resolveGraphPath --> <!-- @test: src/__tests__/lib/pi-memory-inject.test.ts (AC5: reads the unified graph only, and only within the ceiling) --> <!-- @test: src/__tests__/lib/pi-memory-inject.test.ts (AC5: substitutes no repo graph even when one sits in the working directory) -->
-6. Pi injects first-real-prompt results under the shared ranking, node cap and once-per-session guard. Keyword preselection uses Claude’s first 200 bytes versus Pi’s first 200 UTF-16 code units; multibyte keyword selection need not match. <!-- @impl: preseed/agents/pi/extensions/memory-inject.ts::registerMemoryInject --> <!-- @impl: preseed/agents/pi/extensions/memory-inject-helpers.ts::selectNodes --> <!-- @test: src/__tests__/lib/pi-memory-inject.test.ts (AC1: injects matched nodes into the turn as a message) --> <!-- @test: src/__tests__/lib/pi-memory-inject.test.ts (AC3: fires at most once per session) --> <!-- @test: src/__tests__/lib/pi-memory-inject.test.ts (AC2: at most ten nodes are carried) -->
+6. Pi injects first-real-prompt results under the shared ranking, node cap and once-per-session guard. <!-- @impl: preseed/agents/pi/extensions/memory-inject.ts::registerMemoryInject --> <!-- @impl: preseed/agents/pi/extensions/memory-inject-helpers.ts::selectNodes --> <!-- @test: src/__tests__/lib/pi-memory-inject.test.ts (AC1: injects matched nodes into the turn as a message) --> <!-- @test: src/__tests__/lib/pi-memory-inject.test.ts (AC3: fires at most once per session) --> <!-- @test: src/__tests__/lib/pi-memory-inject.test.ts (AC2: at most ten nodes are carried) -->
 7. An oversized graph does not consume injection eligibility; a later prompt may qualify when the graph is readable again. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-context-inject.sh::MAX_GRAPH_BYTES --> <!-- @test: host/__tests__/memory-context-inject.test.js (AC7: skips a graph past the ceiling without spending the session sentinel) -->
 
 **Constraints:**
+
+- Keyword preselection uses Claude’s first 200 bytes and Pi’s first 200 UTF-16 code units; multibyte keyword selection need not match. <!-- @impl: preseed/agents/pi/extensions/memory-inject-helpers.ts::PROMPT_SCAN_CHARS -->
 
 - The JSON ceiling defaults to 104857600 bytes (100 MiB); both runtimes accept positive decimal overrides from 1 through 1073741824 bytes (1 GiB), without guaranteeing resident-memory use or latency.
 - Apply the 100 MiB guard when the override is invalid or out of range. <!-- @test: src/__tests__/lib/pi-memory-inject.test.ts (REQ-MEM-013: accepts only positive decimal overrides up to 1 GiB) --> <!-- @test: host/__tests__/memory-context-inject.test.js (AC7: an out-of-range numeric ceiling falls back instead of voiding the guard) --> <!-- @test: src/__tests__/lib/pi-memory-inject.test.ts (AC5: an injected ceiling is not outranked by the ambient environment) -->
@@ -545,13 +571,13 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 
 **Acceptance Criteria:**
 
-1. When a session resumes from compaction, the most recent session extracts are injected as additionalContext, newest first, bounded by a configurable count. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/post-compaction-recall.sh::EXTRACT_COUNT --> <!-- @test: host/__tests__/post-compaction-recall.test.js (AC1: injects the N most recent extracts newest-first as SessionStart context) -->
+1. Post-compaction recall selects the most recent session extracts newest first under the configured count. Pi and Claude use the same selection, bounds and injected wording; Claude injects them as additionalContext. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/post-compaction-recall.sh::EXTRACT_COUNT --> <!-- @test: host/__tests__/post-compaction-recall.test.js (AC1: injects the N most recent extracts newest-first as SessionStart context) -->
 2. Recency is decided by the capture instant carried in the extract name rather than by modification time or by that name's text, so neither a file sync that rewrites timestamps nor a change of UTC offset can reorder or starve the selection. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/post-compaction-recall.sh::sort_key --> <!-- @test: host/__tests__/post-compaction-recall.test.js (AC2: orders by filename even when mtime disagrees) --> <!-- @test: host/__tests__/post-compaction-recall.test.js (AC2: orders by captured instant across a UTC-offset change) -->
 3. No context is injected for a session that did not resume from compaction, so sessions that never lost context pay nothing. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/post-compaction-recall.sh::SOURCE --> <!-- @test: host/__tests__/post-compaction-recall.test.js (AC3: stays silent unless the session started from compaction) -->
 4. Each extract's complete rendered contribution—title, source path, section bodies, and any truncation marker—fits one UTF-8 byte budget. Both runtimes reserve the exact Source path before title/body bytes and omit a block when even minimal source metadata cannot fit. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/post-compaction-recall.sh::PER_FILE_BYTES --> <!-- @impl: preseed/agents/pi/extensions/post-compaction-recall-helpers.ts::recallBlock --> <!-- @test: host/__tests__/memory-context-inject.test.js (REQ-MEM-019 AC4: charges title, multibyte source path, body, and marker to one extract budget) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (bounds complete Pi injection and recall output with multibyte metadata) -->
 5. Content dropped by that bound is marked as truncated, with the exact multibyte source path retained so the remainder stays reachable. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/post-compaction-recall.sh::PER_FILE_BYTES --> <!-- @impl: preseed/agents/pi/extensions/post-compaction-recall-helpers.ts::recallBlock --> <!-- @test: host/__tests__/memory-context-inject.test.js (REQ-MEM-019 AC4: charges title, multibyte source path, body, and marker to one extract budget) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (bounds complete Pi injection and recall output with multibyte metadata) -->
-6. The Pi runtime covers the same boundary at its own compaction event, selecting and bounding the same extracts with identical injected wording and delivering them as a message persisted in the session, and never inside a child session. <!-- @impl: preseed/agents/pi/extensions/post-compaction-recall.ts::registerPostCompactionRecall --> <!-- @impl: preseed/agents/pi/extensions/post-compaction-recall.ts::buildRecall --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::captureFilenameAt --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (delivers the recall on compaction as a persisted follow-up) --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (stays out of a child session) --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (AC1: builds the digest newest-first, bounded by the extract count) --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (AC6: selects a filename produced by Pi capture alongside Claude extracts) -->
-7. Only the narrative and decision sections are injected; the rest is reachable through the emitted source path. A heading inside a fenced block is content, not a section heading. <!-- @impl: preseed/agents/pi/extensions/post-compaction-recall-helpers.ts::recallBlock --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (AC1: carries Context and Decisions, and never Observations) --> <!-- @test: host/__tests__/post-compaction-recall.test.js (does not end a section at a "## " line inside a fenced block) -->
+6. Pi delivers recall as a persisted message on its compaction event, never in a child session. <!-- @impl: preseed/agents/pi/extensions/post-compaction-recall.ts::registerPostCompactionRecall --> <!-- @impl: preseed/agents/pi/extensions/post-compaction-recall.ts::buildRecall --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::captureFilenameAt --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (delivers the recall on compaction as a persisted follow-up) --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (stays out of a child session) --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (AC1: builds the digest newest-first, bounded by the extract count) --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (AC6: selects a filename produced by Pi capture alongside Claude extracts) -->
+7. Only the narrative and decision sections are injected, with fenced headings treated as section content. The rest is reachable through the emitted source path. <!-- @impl: preseed/agents/pi/extensions/post-compaction-recall-helpers.ts::recallBlock --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (AC1: carries Context and Decisions, and never Observations) --> <!-- @test: host/__tests__/post-compaction-recall.test.js (does not end a section at a "## " line inside a fenced block) -->
 
 **Notes:** Claude and Pi carry separate implementations for differing injection surfaces. Recall delivery is documented at [memory delivery](../../documentation/lanes/vault.md#first-prompt-and-post-compaction-retrieval).
 
@@ -764,7 +790,7 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 1. For each daily UTC compaction run, capture recency is derived from the leading calendar date in each session filename; files dated before the same UTC calendar date in the prior month are cold, while newer or unrecognized names remain hot. <!-- @impl: scripts/compact-session-captures.mjs::selectColdCaptures --> <!-- @test: host/__tests__/session-capture-compaction.test.js (REQ-MEM-023 AC1: accepts only actual capture timestamp shapes and compares their calendar days) -->
 2. Cumulative provenance moves to the archive without changing graph identities or evidence, and separate captures remain distinct. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py::relocate_node_link_provenance --> <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::relocate_node_link_provenance --> <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009: archived edge evidence survives relocation, repetition, and later merges) -->
 3. The complete cumulative Vault contribution is relocated and republished before source deletion and bisync. <!-- @impl: entrypoint.sh::run_daily_vault_session_compaction --> <!-- @test: host/__tests__/entrypoint-session-capture-compaction.test.js (archives, relocates, deletes, and bisyncs once per UTC day) -->
-4. Agent retrieval checks individual hot captures before archived history; agents never edit the machine archive or delete captures themselves. <!-- @impl: preseed/agents/claude/skills/vault-operations/SKILL.md::Reading --> <!-- @impl: preseed/agents/pi/skills/vault-operations/SKILL.md::Reading --> <!-- @manual -->
+4. Agent retrieval checks individual hot captures before archived history. Archive edits and capture deletion by agents are forbidden under [REQ-VAULT-032](vault.md#req-vault-032-session-archive-ownership-and-extraction-boundary) AC5. <!-- @impl: preseed/agents/claude/skills/vault-operations/SKILL.md::Reading --> <!-- @impl: preseed/agents/pi/skills/vault-operations/SKILL.md::Reading --> <!-- @manual -->
 5. Daily compaction runs in every session mode without an enable flag. <!-- @impl: entrypoint.sh::run_daily_vault_session_compaction --> <!-- @test: host/__tests__/entrypoint-session-capture-compaction.test.js (runs in the default session mode without a feature flag) -->
 
 **Constraints:**
@@ -992,15 +1018,17 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 
 **Acceptance Criteria:**
 
-1. Advanced Pi loads the pinned upstream memory package through the normal managed dependency path, with policy-only prompting, configured-provider extraction, bounded review windows and no vendor source patch. That startup retires only the exact obsolete managed-adapter exclusion, preserving default-mode behavior, other exclusions and unrelated package/settings values. <!-- @impl: entrypoint.sh::configure_pi_packages_and_review_inventory --> <!-- @impl: preseed/agents/pi/extensions/hermes-memory-runtime.ts::hermesMemoryRuntime --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-MEM-035 AC1: stock Hermes package delivery) --> <!-- @test: host/__tests__/pi-hermes-native.test.js (REQ-MEM-035: AC1/AC5 real foreground review and correction persist facts without primary memory writes; helper stays read-isolated) -->
+1. Advanced Pi loads the pinned upstream memory package through the normal managed dependency path, with policy-only prompting, configured-provider extraction, bounded review windows and no vendor source patch. <!-- @impl: entrypoint.sh::configure_pi_packages_and_review_inventory --> <!-- @impl: preseed/agents/pi/extensions/hermes-memory-runtime.ts::hermesMemoryRuntime --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-MEM-035 AC1: stock Hermes package delivery) --> <!-- @test: host/__tests__/pi-hermes-native.test.js (REQ-MEM-035: AC1/AC5 real foreground review and correction persist facts without primary memory writes; helper stays read-isolated) -->
 2. Global user, knowledge and lesson Markdown plus the shared workspace memory remain under the user's Vault. Database, sidecar, recovery and coordination-lock contents stay under the existing excluded cache tree; no new synchronization exclusion is introduced. <!-- @impl: entrypoint.sh::configure_pi_hermes_memory --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: AC2 existing rclone rules transfer canonical Markdown but no cache, sidecars, locks or alias copies) -->
-3. Between restore and foreground loading, idempotent cache/configuration preparation preserves Markdown and valid preferences, defaulting manual consolidation to chunked operation without enabling automatic consolidation; malformed configuration or filesystem ownership conflicts are reported without overwriting data or using synchronized database storage. <!-- @impl: entrypoint.sh::configure_pi_hermes_memory --> <!-- @impl: entrypoint.sh::complete_managed_curation_startup --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (Pi Hermes startup (actual entrypoint helper)) -->
+3. Between restore and foreground loading, idempotent cache/configuration preparation preserves Markdown and valid preferences. Malformed configuration or filesystem ownership conflicts are reported without overwriting data or using synchronized database storage. <!-- @impl: entrypoint.sh::configure_pi_hermes_memory --> <!-- @impl: entrypoint.sh::complete_managed_curation_startup --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (Pi Hermes startup (actual entrypoint helper)) -->
 4. Empty-cache startup rebuilds searchable global and current-workspace facts from canonical Markdown without a model request or separate all-repository scan. Historical session backfill stays disabled; warm startup reuses local search state. <!-- @impl: preseed/agents/pi/extensions/hermes-memory-runtime.ts::hermesMemoryRuntime --> <!-- @impl: preseed/agents/pi/extensions/hermes-memory-runtime.ts::workspaceMemoryApi --> <!-- @test: host/__tests__/pi-hermes-native.test.js (REQ-MEM-035: AC4 Markdown-only cold recovery and warm native SQLite reuse need no model requests or repository/history sweep) -->
-5. Foreground sessions retain automatic review, corrections and permitted memory tools. Ordinary in-process helper sessions do not run those personal-memory writers; the upstream internal extraction subprocess remains supported. Missing/incompatible upstream code does not claim successful activation or trigger a runtime dependency installation. <!-- @impl: preseed/agents/pi/extensions/hermes-memory-runtime.ts::attachHermesMemoryToForeground --> <!-- @test: host/__tests__/pi-hermes-memory.test.js (REQ-MEM-035: AC5 foreground ownership gates stock writers/tools and drains shutdown before release) --> <!-- @test: host/__tests__/pi-hermes-native.test.js (REQ-MEM-035: AC1/AC5 real foreground review and correction persist facts without primary memory writes; helper stays read-isolated) -->
+5. Foreground sessions retain automatic review, corrections and permitted memory tools. Ordinary in-process helper sessions do not run those personal-memory writers; the upstream internal extraction subprocess remains supported. <!-- @impl: preseed/agents/pi/extensions/hermes-memory-runtime.ts::attachHermesMemoryToForeground --> <!-- @test: host/__tests__/pi-hermes-memory.test.js (REQ-MEM-035: AC5 foreground ownership gates stock writers/tools and drains shutdown before release) --> <!-- @test: host/__tests__/pi-hermes-native.test.js (REQ-MEM-035: AC1/AC5 real foreground review and correction persist facts without primary memory writes; helper stays read-isolated) -->
 6. During an authorized container stop, the authoritative final-sync path allows foreground Pi's bounded graceful shutdown before syncing its final writes. Timeout/failure is reported rather than represented as successful capture; existing overall shutdown deadlines remain intact. <!-- @impl: host/src/pi-memory-shutdown.ts::shutdownPiMemoryOwners --> <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: host/__tests__/pi-memory-shutdown.test.js (REQ-MEM-035 AC7: bounded foreground owner shutdown) --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (REQ-MEM-035 AC7: foreground shutdown before authoritative final sync) -->
+7. Advanced startup retires only the exact obsolete managed-adapter exclusion; default-mode behavior, other exclusions and unrelated packages and settings remain unchanged. <!-- @impl: entrypoint.sh::configure_pi_packages_and_review_inventory --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-MEM-035: Advanced startup removes the obsolete managed Hermes exclusion without changing user settings) --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-MEM-035: default startup preserves the managed Hermes exclusion and user settings) --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-MEM-035: Advanced startup removes only the exact managed absolute negative Hermes selector) -->
 
 **Constraints:**
 - One stable workspace scope, not one index per clone.
+- Missing or incompatible upstream code neither claims successful activation nor triggers runtime dependency installation.
 - Preserve existing task, historical capture and graph ownership.
 - No SQLite backups, new memory service, local embedding model, vendor patch or user-data deletion on bootstrap conflict.
 - Previously uploaded cache cleanup requires its own exact-key authorization.
@@ -1018,6 +1046,52 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 ---
 
 <a id="req-mem-036-fresh-bounded-pi-fact-context-on-every-request"></a>
+### REQ-MEM-039: Native memory tools and safe updates
+
+**Intent:** Foreground Pi can search and update saved facts explicitly without changing unrelated memory or leaking secrets.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Foreground Pi delivers stock Hermes policy-only guidance and native memory search/write tools. <!-- @impl: preseed/agents/pi/extensions/hermes-memory-runtime.ts::hermesMemoryRuntime --> <!-- @test: host/__tests__/pi-hermes-memory.test.js (REQ-MEM-035: AC5 foreground ownership gates stock writers/tools and drains shutdown before release) -->
+2. Add, search and remove preserve unrelated facts. <!-- @impl: preseed/agents/pi/extensions/hermes-memory-runtime.ts::workspaceMemoryApi --> <!-- @test: host/__tests__/pi-hermes-native.test.js (REQ-MEM-036: policy-only stores above 5000 units remain searchable and support explicit add/replace/remove without losing original facts) -->
+3. Pi guidance directs native tool activation and add or replace for explicit durable corrections, never secrets. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @test: host/__tests__/agent-seed-core.test.js (REQ-MEM-035 AC1/AC6: advanced Pi receives the memory owner and explicit native tool guidance) -->
+
+**Constraints:** Recalled facts confer no authority; foreground ownership and ordinary helper restrictions remain intact.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-MEM-035](#req-mem-035-durable-pi-facts-with-disposable-local-search)
+
+**Verification:** Automated: [pi-hermes-memory.test.js](../../host/__tests__/pi-hermes-memory.test.js), [pi-hermes-native.test.js](../../host/__tests__/pi-hermes-native.test.js), [agent-seed-core.test.js](../../host/__tests__/agent-seed-core.test.js)
+
+**Status:** Implemented
+
+---
+
+### REQ-MEM-040: Native memory consolidation startup defaults
+
+**Intent:** New Hermes settings get bounded manual consolidation without automatic consolidation.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Startup defaults manual consolidation to chunked operation without enabling automatic consolidation, preserving explicit valid preferences. <!-- @impl: entrypoint.sh::configure_pi_hermes_memory --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (Pi Hermes startup (actual entrypoint helper)) -->
+
+**Constraints:** Preparation never overwrites malformed settings or resolves filesystem ownership conflicts by overwriting data.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-MEM-035](#req-mem-035-durable-pi-facts-with-disposable-local-search)
+
+**Verification:** Automated: [pi-hermes-startup.test.js](../../host/__tests__/pi-hermes-startup.test.js)
+
+**Status:** Implemented
+
+---
+
 ### REQ-MEM-036: Search-based Pi fact recall
 
 **Intent:** Native policy-only memory remains searchable as it grows, without a second full-file injector or misleading size-limit warnings.
@@ -1026,13 +1100,14 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 
 **Acceptance Criteria:**
 
-1. Foreground Pi uses stock Hermes policy-only guidance and memory search/write tools. Initial, subsequent and immediate post-compaction model requests do not automatically include complete personal-memory files through a Codeflare context injector. <!-- @impl: preseed/agents/pi/extensions/hermes-memory-runtime.ts::hermesMemoryRuntime --> <!-- @test: host/__tests__/pi-hermes-native.test.js (REQ-MEM-036: managed native requests omit unsolicited stored facts and size warnings initially, subsequently and after automatic compaction; explicit search recalls them) -->
-2. Explicit memory search recalls saved user, global and shared-workspace facts, including corrections and files larger than 5,000 UTF-16 units. Add/search/remove operations preserve unrelated facts; fresh processes reconstruct recall under the existing local search-cache contract. <!-- @impl: preseed/agents/pi/extensions/hermes-memory-runtime.ts::workspaceMemoryApi --> <!-- @test: host/__tests__/pi-hermes-native.test.js (REQ-MEM-036: policy-only stores above 5000 units remain searchable and support explicit add/replace/remove without losing original facts) -->
+1. Initial, subsequent and immediate post-compaction model requests do not automatically include complete personal-memory files through a Codeflare context injector. <!-- @impl: preseed/agents/pi/extensions/hermes-memory-runtime.ts::hermesMemoryRuntime --> <!-- @test: host/__tests__/pi-hermes-native.test.js (REQ-MEM-036: managed native requests omit unsolicited stored facts and size warnings initially, subsequently and after automatic compaction; explicit search recalls them) -->
+2. Explicit memory search recalls saved user, global and shared-workspace facts, including corrections and files larger than 5,000 UTF-16 units. Fresh processes reconstruct recall under the existing local search-cache contract. <!-- @impl: preseed/agents/pi/extensions/hermes-memory-runtime.ts::workspaceMemoryApi --> <!-- @test: host/__tests__/pi-hermes-native.test.js (REQ-MEM-036: policy-only stores above 5000 units remain searchable and support explicit add/replace/remove without losing original facts) -->
 3. Retrieved facts remain untrusted reference data, never new instructions, permission or authorization. Current user instructions and verified source outrank recalled facts; normal prompt/tool/image and conversation handling remains Pi-owned. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
-4. Stored memory is not truncated, evicted or rewritten to satisfy the retired 5,000/15,000 context budgets, and crossing those budgets produces no repeated context-size degradation warnings. Actual initialization or persistence failures remain reported and fail closed under REQ-MEM-035. <!-- @impl: preseed/agents/pi/extensions/hermes-memory-runtime.ts::hermesMemoryRuntime --> <!-- @test: host/__tests__/pi-hermes-native.test.js (REQ-MEM-036: managed native requests omit unsolicited stored facts and size warnings initially, subsequently and after automatic compaction; explicit search recalls them) --> <!-- @test: host/__tests__/pi-hermes-native.test.js (REQ-MEM-036: policy-only stores above 5000 units remain searchable and support explicit add/replace/remove without losing original facts) -->
+4. Stored memory is not truncated, evicted or rewritten to satisfy the retired 5,000/15,000 context budgets. <!-- @impl: preseed/agents/pi/extensions/hermes-memory-runtime.ts::hermesMemoryRuntime --> <!-- @test: host/__tests__/pi-hermes-native.test.js (REQ-MEM-036: policy-only stores above 5000 units remain searchable and support explicit add/replace/remove without losing original facts) -->
 5. Foreground ownership, ordinary helper-session isolation, stable workspace scope, graceful shutdown and historical capture/Graphify/Smart Compact ownership remain unchanged. No replacement full-file or automatic-query subsystem is introduced. <!-- @impl: preseed/agents/pi/extensions/hermes-memory-runtime.ts::attachHermesMemoryToForeground --> <!-- @test: host/__tests__/pi-hermes-memory.test.js (REQ-MEM-035: AC5 foreground ownership gates stock writers/tools and drains shutdown before release) -->
 
-6. Pi guidance directs capability activation and memory search/add/replace: look up specific facts within scope before context-dependent planning, action, or repeated questions rather than assuming facts are loaded. Persist explicit durable corrections, not secrets; recalled text grants no authority. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @test: host/__tests__/agent-seed-core.test.js (REQ-MEM-035 AC1/AC6: advanced Pi receives the memory owner and explicit native tool guidance) -->
+6. Pi guidance directs capability activation and native memory search for specific scoped facts before context-dependent planning, action or repeated questions rather than assuming facts are loaded. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @test: host/__tests__/agent-seed-core.test.js (REQ-MEM-035 AC1/AC6: advanced Pi receives the memory owner and explicit native tool guidance) -->
+7. Crossing the retired 5,000/15,000 context budgets produces no repeated context-size degradation warnings. Actual initialization or persistence failures remain reported and fail closed under [REQ-MEM-035](#req-mem-035-durable-pi-facts-with-disposable-local-search). <!-- @impl: preseed/agents/pi/extensions/hermes-memory-runtime.ts::hermesMemoryRuntime --> <!-- @test: host/__tests__/pi-hermes-native.test.js (REQ-MEM-036: managed native requests omit unsolicited stored facts and size warnings initially, subsequently and after automatic compaction; explicit search recalls them) -->
 
 **Constraints:**
 - Recall is search-driven, not a promise of automatic recall or deterministic model obedience.

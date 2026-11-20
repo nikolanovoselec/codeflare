@@ -84,8 +84,9 @@ For [OPS-020/055/025](../../sdd/spec/operations.md), inspect existing shadow-pin
 | OPS-020 integrity | Inspect authoritative checksum verification. Where unavailable, invalidate the old checksum for review rather than trust it. Actionlint resolves and verifies `checksums.txt`. Existing same-tool/version branches skip without another branch, PR or mutation. |
 | OPS-055 | Herdr PR couples version, commit, checksum, provenance and launcher without workflow edits. Inspect duplicate-release skip. |
 | OPS-174 | Inspect exact-version complete-image API checks, including scroll/status schemas. Incompatible-candidate refusal needs an actual retained rejection. |
-| OPS-025 AC1–5 | Compare coupled plugin/runtime/prewarm pins, owning locks, manifest/install identities and embedded seed. Actual commands must show lifecycle-disabled lock generation. Runtime integrity and shared toolchain pins move together; unrelated dependencies remain unchanged. Candidate CI rejects generated drift. |
+| OPS-025 AC1–5 | Compare coupled plugin/runtime/prewarm pins, owning locks, manifest/install identities and embedded seed. Actual commands must show lifecycle-disabled lock generation. Runtime integrity and shared toolchain pins move together; unrelated dependencies remain unchanged. |
 | OPS-025 AC6 | Compare actual latest-pinned Goal/Plan transform success and rejection before publication. A rejected candidate leaves no PR. Fake commands, source assertions or accepted-only records do not establish this case. |
+| OPS-025 AC7 | Inspect the candidate check outcome for generated-artifact drift; an accepted bump does not establish refusal on drift. |
 
 Candidate-transform and complete-image qualifications remain distinct from source-shape tests.
 

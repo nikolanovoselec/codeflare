@@ -1957,7 +1957,7 @@ Alternative 2 — Run bare `graphify update` without a wrapper. Rejected because
 
 
 
-**Related REQ:** [REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify) (knowledge-graph capability via graphify), [REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch) (graphify build-mode dispatch).
+**Related REQ:** [REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify) (knowledge-graph capability via graphify), [REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch) (graphify build-mode dispatch), [REQ-AGENT-270](../../sdd/spec/agents.md#req-agent-270-graphify-semantic-worker-handoff) (semantic worker handoff).
 
 ---
 
@@ -3613,7 +3613,7 @@ The subprocess is also time-bounded, and the bound is validated rather than mere
 
 **Category:** Architecture, Cost
 
-**Status:** Accepted (2026-07-26). Implements [REQ-AGENT-105](../../sdd/spec/agents.md#req-agent-105-review-lane-turn-economy).
+**Status:** Accepted (2026-07-26). Implements [REQ-AGENT-105](../../sdd/spec/agents.md#req-agent-105-review-lane-turn-economy). [REQ-AGENT-269](../../sdd/spec/agents.md#req-agent-269-scoped-review-evidence-delivery) owns caller-side packet delivery.
 
 **Current-scope qualification (documentary, not a new acceptance):** Current `preseed/agents/claude/agents/spec-reviewer.md` embeds the conditional policies instead of fetching them in wave one, explicitly reversing that cost choice. Wave completeness and advisory budgets remain. Separate retained spec-2 F038/C0076 base-only packet preparation and F039/C0077 whole-block evidence-shedding gaps are not resolved by embedding; missing-evidence recovery remains required and resolved JSON retention is not universal. Original benchmark history is unchanged.
 
@@ -4016,7 +4016,7 @@ The fixed seed-v1 resource boundary is shared by compiler and Worker: <!-- @impl
 
 The dashboard compares the already-verified active release descriptor plus the user's resolved mode with applied state without re-expanding an unchanged payload; the existing five-minute resolver verifies and caches the latest compatible release. <!-- @impl: src/lib/managed-release-active.ts::getActiveManagedRelease --> <!-- @impl: src/routes/session/lifecycle.ts::default --> Without a compatible verified active descriptor it reports UPDATE PENDING even when an older protected release remains applied. With a descriptor and no owning session it reports UPGRADING and calls the dedicated automatic agent-config upgrade route. While any session owns the bucket it reports UPDATE PENDING, leaves that session unchanged, and blocks another start until the final owner stops.
 
-A `sessionMode` preference change enforces this update-pending gate only when a managed release has ever been applied or is currently active; an unconfigured deployment's plain sessionMode change is unaffected. When a managed environment is involved, a failed auto-reconcile propagates instead of being swallowed. Non-conflict failures restore user-facing pre-request preferences while retaining the target journal for repair. A conflict observed before publication instead preserves the newer preference record and blocks the stale applied stamp. <!-- @impl: src/routes/preferences.ts::default -->
+A `sessionMode` preference change enforces this update-pending gate only when a managed release has ever been applied or is currently active; an unconfigured deployment's plain sessionMode change is unaffected. When a managed environment is involved, a failed auto-reconcile propagates instead of being swallowed. On non-conflict failures, the Worker attempts to restore pre-request preferences while retaining the target journal for repair. Restoration is best effort: a failed rollback read or write is logged and does not replace the original reconciliation error or imply successful apply. A conflict observed before publication instead preserves the newer preference record and blocks the stale applied stamp. <!-- @impl: src/routes/preferences.ts::default -->
 
 Automatic reconciliation compares the active target with the exact applied gzip when that cached history is available, retaining only per-path content fingerprints. Missing valid applied history uses marker-resumable full-target planning. Otherwise, it writes added or release-changed target paths through at most six concurrent R2 operations. A release-identical path is untouched even when a user edit removed its marker. <!-- @impl: src/lib/r2-seed.ts::buildManagedAutomaticPlan --> <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest -->
 
@@ -4126,7 +4126,7 @@ Subagent activation includes its result and steering controls. <!-- @impl: prese
 
 **Consequences:** VS Code sessions become editor-ready without duplicate host PTYs, while Terminal startup remains unchanged. Startup status has workspace-specific readiness semantics, and restart must clear stale editor readiness before a replacement container begins warming.
 
-**Related REQs:** [REQ-IDE-003](../../sdd/spec/browser-ide.md#req-ide-003-ide-lifecycle-and-availability), [REQ-IDE-047](../../sdd/spec/browser-ide.md#req-ide-047-bash-first-browser-ide-terminals), and [REQ-IDE-048](../../sdd/spec/browser-ide.md#req-ide-048-default-workspace-and-dashboard-owned-vs-code-sessions).
+**Related REQs:** [REQ-IDE-003](../../sdd/spec/browser-ide.md#req-ide-003-ide-lifecycle-and-availability) AC1 (editor startup), [REQ-IDE-047](../../sdd/spec/browser-ide.md#req-ide-047-bash-first-browser-ide-terminals), and [REQ-IDE-048](../../sdd/spec/browser-ide.md#req-ide-048-default-workspace-and-dashboard-owned-vs-code-sessions) AC3 (host prewarm).
 
 ---
 
@@ -4310,7 +4310,7 @@ Pi no longer infers completion from `agent_settled`, stop reasons, interactive l
 
 **Consequences:** History starts empty without legacy-quota backfill. The first successful D1 commit establishes history from its earliest included live-captured snapshot, retaining earlier outbox captures across delayed commits rather than changing their timestamps. D1 outages do not block quota enforcement, while deleted-user tombstone failure blocks destructive live cleanup so a late writer cannot recreate history. Reporting and retention reuse the same database and transaction boundary. The design adds no ORM, queue, workflow, cache, coordinator Durable Object, or second database. Account-specific database IDs stay outside Git.
 
-**Related REQs:** [REQ-SUB-025](../../sdd/spec/subscription.md#req-sub-025-durable-historical-usage-accounting), [REQ-SUB-026](../../sdd/spec/subscription.md#req-sub-026-admin-organization-analytics-and-deletion-history), [REQ-SUB-027](../../sdd/spec/subscription.md#req-sub-027-monthly-organization-usage-reports), [REQ-SUB-028](../../sdd/spec/subscription.md#req-sub-028-historical-usage-and-report-retention), [REQ-OPS-056](../../sdd/spec/operations.md#req-ops-056-non-destructive-d1-deployment-boundary).
+**Related REQs:** [REQ-SUB-025](../../sdd/spec/subscription.md#req-sub-025-durable-historical-usage-accounting), [REQ-SUB-036](../../sdd/spec/subscription.md#req-sub-036-historical-usage-projection-to-d1), [REQ-SUB-037](../../sdd/spec/subscription.md#req-sub-037-historical-usage-owner-lifecycle), [REQ-SUB-026](../../sdd/spec/subscription.md#req-sub-026-admin-organization-analytics-and-deletion-history), [REQ-SUB-027](../../sdd/spec/subscription.md#req-sub-027-monthly-organization-usage-reports), [REQ-SUB-028](../../sdd/spec/subscription.md#req-sub-028-historical-usage-and-report-retention), [REQ-OPS-056](../../sdd/spec/operations.md#req-ops-056-non-destructive-d1-deployment-boundary).
 
 ---
 

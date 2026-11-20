@@ -60,7 +60,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Acceptance Criteria:**
 
-1. In SaaS mode, the anonymous root serves the marketing landing under [REQ-LANDING-017](landing.md#req-landing-017-mode-aware-landing-dispatch); the SPA app/login entry presents the provider chooser with a "Continue with GitHub" control. Signed-in active users retain the `/app/` redirect and pending/blocked users the `/app/subscribe` redirect. <!-- @impl: src/index.ts::default --> <!-- @test: src/__tests__/index.test.ts (REQ-LANDING-001: serves the static landing at / in SaaS mode (unauthenticated)) --> <!-- @impl: web-ui/src/components/LoginPage.tsx::LoginPage --> <!-- @test: web-ui/src/__tests__/components/LoginPage.test.tsx (should render provider buttons after loading) --> <!-- @test: src/__tests__/routes/github-auth.test.ts (GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)) -->
+1. In SaaS mode the SPA app/login entry presents the provider chooser with a `Continue with GitHub` control. <!-- @impl: web-ui/src/components/LoginPage.tsx::LoginPage --> <!-- @test: web-ui/src/__tests__/components/LoginPage.test.tsx (should render provider buttons after loading) -->
 2. The login endpoint initiates a GitHub OAuth flow with a signed, self-contained state token (no cookie required during the redirect). <!-- @impl: src/lib/oauth-state.ts::signOauthState --> <!-- @test: src/__tests__/routes/github-auth.test.ts (GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)) -->
 3. The OAuth callback validates the state token, rejecting tokens not issued by this server, issued more than 30 minutes ago, or already redeemed. <!-- @impl: src/lib/oauth-state.ts::verifyOauthState --> <!-- @impl: src/lib/oauth-state.ts::claimOauthNonce --> <!-- @test: src/__tests__/routes/github-auth.test.ts (GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)) -->
 4. Valid callbacks create a session and redirect active users to workspaces or pending/blocked users to subscriptions; the exchanged GitHub access token exists only during callback and is never persisted. <!-- @impl: src/routes/github-auth.ts::app --> <!-- @test: src/__tests__/routes/github-auth.test.ts (GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)) -->
@@ -68,7 +68,7 @@ None. Authentication is foundational; other domains depend on it.
 6. The OAuth handshake works on browsers that drop or partition cross-site cookies during the github.com bounce-back, including iOS WebKit (Safari, Brave) in standard, private, and ephemeral browsing modes. <!-- @impl: src/lib/oauth-state.ts::signOauthState --> <!-- @test: src/__tests__/routes/github-auth.test.ts (GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)) -->
 7. Only verified primary GitHub emails are accepted. <!-- @test: src/__tests__/routes/github-auth.test.ts (redirects to /?error=no-verified-email when no verified email) --> <!-- @manual -->
 
-**Notes:** Root-serving evidence belongs to `index.test.ts` and the landing owner; `LoginPage` owns the provider control, while the OAuth-route suite supports the handshake rather than rendered page copy. State replay tracking uses a non-atomic read/write pair; concurrent callbacks with different valid provider codes can pass the same state check. Complete application-owned auth/authz consolidation into D1 is deferred to [issue #1386](https://github.com/nikolanovoselec/codeflare/issues/1386), not a cleanup-authorized nonce-only migration; [Identity & Access](../../documentation/lanes/authentication.md) owns the current boundary.
+**Notes:** Anonymous and signed-in root dispatch are owned by [REQ-LANDING-017](landing.md#req-landing-017-mode-aware-landing-dispatch), not by the OAuth callback or the provider chooser. State replay tracking uses a non-atomic read/write pair; concurrent callbacks with different valid provider codes can pass the same state check. Complete application-owned auth/authz consolidation into D1 is deferred to [issue #1386](https://github.com/nikolanovoselec/codeflare/issues/1386), not a cleanup-authorized nonce-only migration; [Identity & Access](../../documentation/lanes/authentication.md) owns the current boundary.
 
 **Constraints:**
 
@@ -80,7 +80,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** [REQ-AUTH-001](#req-auth-001-two-authentication-modes)
 
-**Verification:** Automated: [github-auth.test.ts](../../src/__tests__/routes/github-auth.test.ts), [index.test.ts](../../src/__tests__/index.test.ts), [LoginPage.test.tsx](../../web-ui/src/__tests__/components/LoginPage.test.tsx); Manual: [Verified primary email acceptance](../../documentation/lanes/authentication.md#verified-primary-email-acceptance)
+**Verification:** Automated: [github-auth.test.ts](../../src/__tests__/routes/github-auth.test.ts), [LoginPage.test.tsx](../../web-ui/src/__tests__/components/LoginPage.test.tsx); Manual: [Verified primary email acceptance](../../documentation/lanes/authentication.md#verified-primary-email-acceptance)
 
 **Status:** Implemented
 
@@ -507,9 +507,10 @@ None.
 
 **Acceptance Criteria:**
 
-1. User avatar from Gravatar displayed in header and dashboard. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Header Component / REQ-VAULT-012 (vault button render and readiness gating) / REQ-AUTH-016 (header user dropdown)) --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (REQ-AUTH-017 AC1: renders the Gravatar belonging to the displayed user) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AUTH-017 AC1: renders the Gravatar belonging to the dashboard user) -->
+1. The header displays the current user's Gravatar. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (REQ-AUTH-017 AC1: renders the Gravatar belonging to the displayed user) -->
 2. Falls back to the account-shield icon when no Gravatar exists. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @manual: Use an address with no Gravatar and confirm both Header and Dashboard render the account-shield fallback. -->
 3. The hashed normalized email is used for the Gravatar lookup. <!-- @impl: web-ui/src/lib/gravatar.ts::getGravatarUrl --> <!-- @test: web-ui/src/__tests__/lib/gravatar.test.ts (getGravatarUrl / REQ-AUTH-017 AC3 (MD5 of email used for Gravatar lookup)) -->
+4. The dashboard displays the current user's Gravatar. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AUTH-017 AC1: renders the Gravatar belonging to the dashboard user) -->
 
 **Constraints:**
 

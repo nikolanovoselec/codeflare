@@ -571,7 +571,7 @@ Qualification must distinguish automatic capture from manual saves: use genuine 
 
 ### Native policy-only recall acceptance
 
-This is a manual verification method for [REQ-MEM-035](../../sdd/spec/memory.md#req-mem-035-durable-pi-facts-with-disposable-local-search) and [REQ-MEM-036](../../sdd/spec/memory.md#req-mem-036-search-based-pi-fact-recall), not a recorded passing result or a promise of deterministic model obedience. Use only an authorized advanced-runtime activation and authorized disposable data where mutations or provider traces are needed. Record the exact source/image and managed release identities, runtime/mode, restart boundaries and observed results. Missing observations remain unavailable, not passing.
+This is a manual verification method for [REQ-MEM-035](../../sdd/spec/memory.md#req-mem-035-durable-pi-facts-with-disposable-local-search), [REQ-MEM-036](../../sdd/spec/memory.md#req-mem-036-search-based-pi-fact-recall) and [REQ-MEM-039](../../sdd/spec/memory.md#req-mem-039-native-memory-tools-and-safe-updates), not a recorded passing result or a promise of deterministic model obedience. Use only an authorized advanced-runtime activation and authorized disposable data where mutations or provider traces are needed. Record the exact source/image and managed release identities, runtime/mode, restart boundaries and observed results. Missing observations remain unavailable, not passing.
 
 1. **Delivered guidance and loading:** Inspect the delivered Constitution and effective package registration. Require the existing recall rule to say saved facts are not assumed to be in context, recall precedes context-dependent planning/action and repeated-information questions, queries use concrete scoped terms, and current instructions/source outrank recalled data. Confirm native search/write tools are registered after the authorized full Pi restart, with only the adapter initializing Hermes. Confirm default-mode delivery is unchanged. Source/generated-instruction inspection proves policy delivery, not model compliance.
 2. **Recall and data preservation:** Search an existing nonsecret fact without restating its value. Use an existing greater-than-5,000-unit store or an explicitly authorized disposable store; do not pad, consolidate or delete user memories to stage the check. In an authorized disposable scope, add/find/replace/find/remove a unique marker through native tools; verify the removed marker is not returned and original unrelated facts and Markdown are preserved. Open the foreground session in a clone and verify the shared `workspace` scope remains searchable while ordinary tool cwd stays the clone.
@@ -581,7 +581,7 @@ This is a manual verification method for [REQ-MEM-035](../../sdd/spec/memory.md#
 
 ### First-prompt and post-compaction retrieval
 
-`memory-inject.ts` is the Pi counterpart of the Claude `memory-context-inject.sh` hook: on the first real prompt it extracts keywords, scores unified graph nodes, and injects top matches as a turn message from `before_agent_start`. Ranking, node cap, rendered shape, and the atomic one-shot sentinel under `/tmp/.memory-counter/` match Claude. Claude uses `head -c 200`; Pi slices through `PROMPT_SCAN_CHARS = 200`, measured in UTF-16 code units ([REQ-MEM-013](../../sdd/spec/memory.md#req-mem-013-proactive-memory-injection-on-first-prompt) AC6). No match leaves the sentinel unspent. Pi skips child sessions and synthetic prompts. <!-- @impl: preseed/agents/pi/extensions/memory-inject.ts::registerMemoryInject -->
+`memory-inject.ts` is the Pi counterpart of the Claude `memory-context-inject.sh` hook: on the first real prompt it extracts keywords, scores unified graph nodes, and injects top matches as a turn message from `before_agent_start`. Ranking, node cap, rendered shape, and the atomic one-shot sentinel under `/tmp/.memory-counter/` match Claude. Claude uses `head -c 200`; Pi slices through `PROMPT_SCAN_CHARS = 200`, measured in UTF-16 code units ([REQ-MEM-013](../../sdd/spec/memory.md#req-mem-013-proactive-memory-injection-on-first-prompt) Constraints). No match leaves the sentinel unspent. Pi skips child sessions and synthetic prompts. <!-- @impl: preseed/agents/pi/extensions/memory-inject.ts::registerMemoryInject -->
 
 The unified graph is the injection source; a per-repository graph is not a substitute for cumulative conversation and user-note evidence. Whole-graph parsing is guarded by configurable `MEMORY_INJECT_MAX_GRAPH_BYTES`: default 104857600 bytes (100 MiB), accepting positive decimal overrides from 1 through 1073741824 bytes (1 GiB) in both runtimes. Invalid values fall back to the default. This bounds input JSON, not resident-memory allocation or latency. <!-- @impl: preseed/agents/pi/extensions/memory-inject.ts::registerMemoryInject -->
 
@@ -595,11 +595,12 @@ Both runtimes rank capture recency by the instant encoded in `YYYY-MM-DDTHH-MM-S
 
 ### Memory hook and short-prompt acceptance
 
-Use existing authorized advanced-runtime records at one candidate revision for [MEM-010/013](../../sdd/spec/memory.md). Separate source review from runtime observations. Missing cases are unavailable, not passing. Do not fabricate transcripts/carriers, reset sentinels, change clocks/preferences, replay capture, or alter counters, Goal state or user data.
+Use existing authorized advanced-runtime records at one candidate revision for [MEM-010/013/020](../../sdd/spec/memory.md). Separate source review from runtime observations. Missing cases are unavailable, not passing. Do not fabricate transcripts/carriers, reset sentinels, change clocks/preferences, replay capture, or alter counters, Goal state or user data.
 
 | Contract | Action and required outcome |
 |---|---|
-| REQ-MEM-010 AC1/2 | Compare a tilde-path case with `$HOME` expansion. Trace hook-to-runner JSON carrying path/date/counts/offsets; inline hook context is not the carrier. The runner's later self-contained transcript request is distinct. Retry state survives until successful locked merge/publication. |
+| REQ-MEM-010 AC1/2 | Compare a tilde-path case with `$HOME` expansion. Trace hook-to-runner JSON carrying path/date/counts/offsets; inline hook context is not the carrier. The runner's later self-contained transcript request is distinct. |
+| REQ-MEM-020 AC7 | Trace outstanding request state separately from its payload; retry state survives until successful locked merge/publication under the bounded replacement rule. |
 | REQ-MEM-010 AC4 | Compare preference-set, preference-absent/container-TZ-set and both-absent cases through environment, hook and timestamp assertion. Require preference, container default, then UTC precedence, with correct offset and wall-clock validation. |
 | REQ-MEM-013 AC4 | Inspect an existing first-real-prompt trace shorter than 20 characters in each supported advanced runtime. No context injection/query or spent injection sentinel; a later eligible prompt remains eligible. Initial graph guidance and capture counters are not injection evidence. |
 
@@ -847,7 +848,7 @@ AC2/AC3: Inspect the same release's prebuild/generated agent-seed evidence and i
 
 AC4: In a disposable browser profile and advanced fixture, create a harmless uniquely identifiable note through SilverBullet, wait for its normal save/sync, then inspect that vault's sb_data_* and sb_files_* IndexedDB records in browser Application tools. Record only whether payload records use the native encrypted-KV representation and whether the harmless marker is absent from stored payload bytes; store names/metadata alone are not encrypted-content proof.
 
-Close/reopen normally through the Vault button and require correct decrypted note content. Do not expose config/key values, rotate keys, clear databases or use personal notes. If the representation cannot be distinguished with available tools, mark encryption unverified rather than treating a failed text search as proof. This checks offline-at-rest protection only, not authenticated-tab secrecy.
+AC4/AC5: Close/reopen normally through the Vault button; require correct decrypted note content and no passphrase prompt on initial or subsequent open. Do not expose config/key values, rotate keys, clear databases or use personal notes. If the representation cannot be distinguished with available tools, mark encryption unverified rather than treating a failed text search as proof. This checks offline-at-rest protection only, not authenticated-tab secrecy.
 
 <a id="req-vault-012-manual-qualification"></a>
 ### Vault dashboard ordering (REQ-VAULT-012)
@@ -881,7 +882,7 @@ AC2: Inspect that extraction's render/copy outcome, then open Raw/Graphs/Vault G
 
 AC1: Read both delivered memory-capture agent definitions: Claude capture_file and Pi captureFilename must accept only the request-owned individual capture and explicitly forbid Archive.md, replacement/merging or deleting captures.
 
-AC2: Read both delivered vault-operations hard rules and retrieval guidance: hot captures first, archive only fallback, no archive edits or capture deletion.
+AC2/AC5: Read both delivered vault-operations guides. Check retrieval order (hot captures first, archive only as fallback) separately from the prohibition on archive edits and capture deletion.
 
 AC4: Read both delivered Vault-extract prompts: Raw/Sessions is excluded as semantic input, archive provenance in existing graph evidence is retained, and the archive is never read to regenerate that evidence. Record the exact delivered content revision and each positive/refusal instruction; do not launch capture/extraction or modify the archive. Source-only evidence leaves runtime delivery unverified.
 
