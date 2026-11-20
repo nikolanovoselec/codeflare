@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor } from '@solidjs/testing-library';
+import { ApiError } from '../../api/fetch-helper';
+import UploadQueue from '../../components/storage/UploadQueue';
 
 // Mock the API modules BEFORE importing the store
 vi.mock('../../api/storage', () => ({
@@ -614,6 +617,57 @@ describe('Storage Store', () => {
       // Final state should be complete with 100% progress
       expect(storageStore.uploads[0].progress).toBe(100);
       expect(storageStore.uploads[0].status).toBe('complete');
+    });
+
+    function prepareMultipartFailure(fileName = 'large.bin') {
+      mockShouldUseMultipart.mockReturnValue(true);
+      mockSplitIntoParts.mockReturnValue([new Blob(['part'])]);
+      mockInitiateMultipartUpload.mockResolvedValue({ key: `workspace/${decodeURIComponent(fileName)}`, uploadId: 'upload-held' });
+      mockUploadPart.mockResolvedValue({ etag: 'abc' });
+      mockBrowseStorage.mockResolvedValue({ objects: [], prefixes: [], isTruncated: false });
+      const abort = vi.mocked(storageApi.abortMultipartUpload).mockReset().mockResolvedValue(undefined);
+      const upload = () => storageStore.uploadFiles([{ file: new File(['part'], fileName), relativePath: fileName }], 'workspace/');
+      return { abort, upload };
+    }
+
+    it.each([false, true])('REQ-STOR-008 AC6: pre-completion failure preserves refused parts=%s', async refused => {
+      const { abort, upload } = prepareMultipartFailure();
+      const error = new ApiError('Part failed', 409, 'Conflict');
+      if (refused) error.code = 'MULTIPART_RESTART_REQUIRED';
+      mockUploadPart.mockRejectedValueOnce(error);
+      await upload();
+      expect(storageStore.uploads[0]).toMatchObject({ status: 'error', error: 'Part failed' });
+      if (refused) expect(abort).not.toHaveBeenCalled();
+      else expect(abort).toHaveBeenCalledWith('workspace/large.bin', 'upload-held');
+    });
+
+    it('REQ-STOR-008 AC7: only confirmed recovery aborts the unconfirmed upload, and failed recovery stays available', async () => {
+      const { abort, upload } = prepareMultipartFailure('large%2520file.bin');
+      mockCompleteMultipartUpload.mockRejectedValueOnce(new Error('Response lost'));
+      const recovery = deferred<void>();
+      abort.mockReturnValueOnce(recovery.promise);
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValue(true);
+      try {
+        await upload();
+        render(UploadQueue);
+        const button = () => screen.getByRole('button', { name: 'Abort upload' });
+        expect(screen.getByText(/completion could not be confirmed/i)).toBeInTheDocument();
+        expect(abort).not.toHaveBeenCalled();
+        fireEvent.click(button());
+        expect(abort).not.toHaveBeenCalled();
+        fireEvent.click(button());
+        expect(abort).toHaveBeenCalledWith('workspace/large%2520file.bin', 'upload-held');
+        expect(button()).toBeDisabled();
+        recovery.reject(new Error('Recovery unavailable'));
+        await waitFor(() => expect(button()).toBeEnabled());
+        expect(screen.getByText('Recovery unavailable')).toBeInTheDocument();
+        fireEvent.click(button());
+        await waitFor(() => expect(screen.queryByRole('button', { name: 'Abort upload' })).not.toBeInTheDocument());
+        expect(screen.getByText('aborted')).toBeInTheDocument();
+      } finally {
+        cleanup();
+        confirm.mockRestore();
+      }
     });
 
     it('should mark upload as error on failure', async () => {

@@ -1,5 +1,6 @@
 import { createStore, produce } from 'solid-js/store';
 import * as storageApi from '../api/storage';
+import { ApiError } from '../api/fetch-helper';
 import { getStartupStatus, getUser } from '../api/client';
 import { shouldUseMultipart, splitIntoParts, fileToBase64 } from '../lib/file-upload';
 import { DASHBOARD_LIST_FRESHNESS_MS, STORAGE_BROWSE_RETRY_DELAY_MS, UPLOAD_DISMISS_DELAY_MS } from '../lib/constants';
@@ -17,8 +18,9 @@ interface UploadItem {
   fileName: string;
   relativePath: string;
   progress: number;
-  status: 'pending' | 'uploading' | 'complete' | 'error';
+  status: 'pending' | 'uploading' | 'complete' | 'error' | 'aborted';
   error?: string;
+  recovery?: { key: string; uploadId: string; aborting?: boolean };
 }
 
 interface StorageStats {
@@ -192,6 +194,7 @@ async function pollSessionSyncCompletion(sessionIds: string[]): Promise<void> {
 }
 
 const [state, setState] = createStore<StorageState>({ ...initialState });
+let nextUploadId = 0;
 
 export const storageStore = {
   get objects() { return state.objects; },
@@ -377,8 +380,8 @@ export const storageStore = {
   },
 
   async uploadFiles(files: FileWithPath[], destPrefix: string) {
-    const uploadItems: UploadItem[] = files.map((f, i) => ({
-      id: `upload-${Date.now()}-${i}`,
+    const uploadItems: UploadItem[] = files.map(f => ({
+      id: `upload-${++nextUploadId}`,
       fileName: f.file.name,
       relativePath: f.relativePath,
       progress: 0,
@@ -399,13 +402,14 @@ export const storageStore = {
         if (item) item.status = 'uploading';
       }));
 
-      let multipartKey: string | undefined;
-      let multipartUploadId: string | undefined;
+      let multipart: { key: string; uploadId: string } | undefined;
+      let completing = false;
       try {
         if (shouldUseMultipart(fileWithPath.file)) {
           const initResult = await storageApi.initiateMultipartUpload(key);
-          multipartKey = initResult.key;
-          multipartUploadId = initResult.uploadId;
+          // Every multipart endpoint normalizes the submitted key once. Reuse
+          // that input, not the normalized response, for exact recovery.
+          multipart = { key, uploadId: initResult.uploadId };
           const parts = splitIntoParts(fileWithPath.file);
           const completedParts: { partNumber: number; etag: string }[] = [];
 
@@ -420,6 +424,7 @@ export const storageStore = {
             }));
           }
 
+          completing = true;
           await storageApi.completeMultipartUpload(key, initResult.uploadId, completedParts);
         } else {
           const content = await fileToBase64(fileWithPath.file);
@@ -442,21 +447,40 @@ export const storageStore = {
           }));
         }, UPLOAD_DISMISS_DELAY_MS);
       } catch (err) {
-        // Abort incomplete multipart upload to avoid orphaned parts
-        if (multipartKey && multipartUploadId) {
-          storageApi.abortMultipartUpload(multipartKey, multipartUploadId).catch(() => {});
+        const restartRequired = err instanceof ApiError && err.code === 'MULTIPART_RESTART_REQUIRED';
+        // Do not delete refused parts or automatically recover an uncertain Complete.
+        if (multipart && !completing && !restartRequired) {
+          void storageApi.abortMultipartUpload(multipart.key, multipart.uploadId).catch(() => {});
         }
         setState(produce((s) => {
           const item = s.uploads.find((u) => u.id === uploadId);
           if (item) {
             item.status = 'error';
             item.error = err instanceof Error ? err.message : String(err);
+            if (completing && multipart && !restartRequired) item.recovery = multipart;
           }
         }));
       }
     }
 
     await storageStore.browse();
+  },
+
+  async abortUnconfirmedUpload(id: string) {
+    const recovery = state.uploads.find(upload => upload.id === id)?.recovery;
+    if (!recovery || recovery.aborting) return;
+    const { key, uploadId } = recovery;
+    const isUpload = (upload: UploadItem) => upload.id === id;
+    setState('uploads', isUpload, 'recovery', { key, uploadId, aborting: true });
+    try {
+      await storageApi.abortMultipartUpload(key, uploadId);
+      setState('uploads', isUpload, { status: 'aborted', recovery: undefined, error: undefined });
+    } catch (error) {
+      setState('uploads', isUpload, {
+        recovery: { key, uploadId, aborting: false },
+        error: error instanceof Error ? error.message : 'Unable to confirm abort.',
+      });
+    }
   },
 
   async deleteSelected() {
