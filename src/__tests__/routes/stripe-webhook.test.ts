@@ -263,6 +263,36 @@ describe('handleCheckoutCompleted / REQ-SUB-005 (Stripe webhook syncs subscripti
     expect(user.stripeSubscriptionId).toBe('sub_checkout_1');
   });
 
+  it('REQ-SUB-032 AC2: a timestamp-free checkout uses the successful retry time', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+      const body = buildEvent('checkout.session.completed', {
+        id: 'cs_retry_time', customer: 'cus_retry_time', subscription: 'sub_retry_time',
+        metadata: { email: 'retry-time@example.com' },
+      });
+      const userKey = 'user:retry-time@example.com';
+      const app = createApp();
+      vi.mocked(fetchSubscription).mockResolvedValueOnce(null).mockResolvedValueOnce(
+        mockSubscriptionSnapshot({ customerId: 'cus_retry_time', subscriptionId: 'sub_retry_time' }),
+      );
+
+      expect((await postWebhook(app, body)).status).toBe(500);
+      expect(await mockKV.get(userKey, 'json')).toBeNull();
+
+      const retryTime = new Date('2026-01-01T00:02:00Z');
+      vi.setSystemTime(retryTime);
+      expect((await postWebhook(app, body)).status).toBe(200);
+      expect(await mockKV.get(userKey, 'json')).toMatchObject({
+        checkoutSessionId: 'cs_retry_time',
+        stripeSubscriptionId: 'sub_retry_time',
+        subscribedAt: retryTime.toISOString(),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('calls syncSubscriptionState which updates tier from Stripe API', async () => {
     vi.mocked(fetchSubscription).mockResolvedValue(mockSubscriptionSnapshot({
       customerId: 'cus_sync_check', subscriptionId: 'sub_sync_check',
