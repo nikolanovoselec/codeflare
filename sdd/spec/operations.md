@@ -591,7 +591,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Acceptance Criteria:**
 
 1. An unresolved idle-timeout preference falls back to the maximum supported twelve hours, preserving user work. <!-- @impl: src/container/container-metrics.ts::parseSleepAfterMs --> <!-- @impl: src/container/container-metrics.ts::SLEEP_AFTER_FALLBACK_MS = 43_200_000 --> <!-- @test: src/__tests__/lib/sleep-timer-defaults.test.ts (parseSleepAfterMs - fail-safe direction) -->
-2. Every idle-check tick resolves the persisted preference afresh; a valid change takes effect within that cycle regardless of which code path wrote it. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/routes/session-sleep-timeout.test.ts (REQ-SESSION-014: User-configurable auto-sleep timeout in Settings) -->
+2. Every idle-check tick resolves the persisted DO preference afresh; a valid change to that value takes effect within that cycle. Saving the account preference is separate: Start transfers it to the DO under [REQ-SESSION-014](session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings). <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (refreshes idleTimeoutPref from storage on every tick) -->
 3. Previously resolved preferences may inform diagnostics or comparison, but never authorize a later idle decision. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (refreshes idleTimeoutPref from storage on every tick) -->
 4. A missing, unsupported, malformed or failed read selects 12h for the current idle decision, never a shorter stale value. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: src/container/container-metrics.ts::parseSleepAfterMs --> <!-- @test: src/__tests__/lib/sleep-timer-defaults.test.ts (parseSleepAfterMs - fail-safe direction) --> <!-- @test: src/__tests__/container-metrics.test.ts (idle decision diagnostic contract: $provenance / $decision) -->
 5. An idle check logs the first or changed missing/invalid preference fallback for that session generation. A failed storage read logs a warning on each failed check. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (idle decision diagnostic contract: $provenance / $decision) -->
@@ -602,7 +602,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-006](#req-ops-006-idle-containers-stop-metered-container-resources), [REQ-OPS-016](#req-ops-016-sleepafter-preference-persistence-and-lifecycle)
 
-**Verification:** Automated: [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts), [sleep-timer-defaults.test.ts](../../src/__tests__/lib/sleep-timer-defaults.test.ts), [session-sleep-timeout.test.ts](../../src/__tests__/routes/session-sleep-timeout.test.ts)
+**Verification:** Automated: [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts), [sleep-timer-defaults.test.ts](../../src/__tests__/lib/sleep-timer-defaults.test.ts)
 
 **Status:** Implemented
 

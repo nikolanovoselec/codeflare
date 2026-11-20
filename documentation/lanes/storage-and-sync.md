@@ -403,7 +403,7 @@ Content-Type + `nosniff`) rather than downloading it.
 
 ### Append-only pagination ([REQ-STOR-018](../../sdd/spec/storage.md#req-stor-018-file-browser-pagination-is-append-only-and-recoverable))
 
-The Worker returns R2's continuation token and defaults each browser request to a 200-object page. While a page is truncated, the list keeps a visible continuation action available even when its content is too short to scroll; reaching the real `.storage-drop-zone` bottom invokes the same action automatically. The store requests one continuation at a time and appends only unseen object keys/prefixes in response order. A browse generation and prefix snapshot reject late success/failure from older navigation; continuation failure leaves existing rows and the token intact for explicit retry. <!-- @impl: web-ui/src/stores/storage.ts::loadMore --> <!-- @impl: web-ui/src/components/storage/FileList.tsx::FileList -->
+The Worker returns one page from the signed-in owner's bucket, with R2's continuation token when present. The default maximum is 200 entries per request. <!-- @impl: src/routes/storage/browse.ts::app --> <!-- @impl: src/lib/r2-client.ts::parseListObjectsXml --> While a page is truncated, the list keeps a visible continuation action available even when its content is too short to scroll; reaching the real `.storage-drop-zone` bottom invokes the same action automatically. The store requests one continuation at a time and appends only unseen object keys/prefixes in response order. A browse generation and prefix snapshot reject late success/failure from older navigation; continuation failure leaves existing rows and the token intact for explicit retry. <!-- @impl: web-ui/src/stores/storage.ts::loadMore --> <!-- @impl: web-ui/src/components/storage/FileList.tsx::FileList -->
 
 The first continuation attempt sets a sticky `paginationStarted` flag for that page-one generation, including on failure. The 30-second timer then stops replacing the accumulated listing but continues refreshing quota/statistics; explicit navigation/manual refresh starts a new generation and resets pagination state. The footer reuses the existing spinner and shows a local retry action without hiding loaded rows. <!-- @impl: web-ui/src/components/StorageBrowser.tsx::StorageBrowser -->
 
@@ -453,7 +453,7 @@ Wrong totals, over-limit admission or cross-user state is FAIL. Missing trace ac
 
 1. Upload known nonempty bytes with authenticated `POST /api/storage/upload` JSON `{key, content}`, where content is base64. Independently download the encoded exact key. PASS requires matching bytes, key and reported size; rejection does not qualify storage.
 2. Prepare a small text object with an actual supported text Content-Type; simple upload stores octet-stream, so a filename suffix is insufficient. Preview through `GET /api/storage/preview?key=...`; PASS requires JSON text content and matching metadata.
-3. Preview a non-text fixture. PASS requires binary metadata without a text-content payload. Wrong bytes, absent qualifying text or leaked binary-as-text fails. The inline-download viewer is not this JSON preview endpoint.
+3. Preview non-text and oversized text fixtures. Both must return metadata without inline content. The automated boundary cases cover an exact 1 MiB body and a stream exceeding 1 MiB despite a missing or smaller HEAD length. This is the JSON preview endpoint, not the inline-download viewer.
 
 ### REQ-STOR-008 multipart and shared limit acceptance
 
@@ -480,7 +480,7 @@ Use an authorized isolated bucket with a prepared inventory exceeding one listin
 
 1. Request `GET /api/storage/stats` with an absent or aged-out stats entry so the endpoint has to list the prepared inventory. PASS requires complete inventory counts and bytes across pages; a fresh cache hit does not exercise listing.
 2. Make an authorized external fixture-object change without using an invalidating application endpoint. Before cache expiry, the stats read retains cached totals; after expiry, it reflects the change. Wrong totals or indefinite stale results fail.
-3. Separately warm the cache before a successful upload, delete and authorized tutorial recreation. The next stats read within that cache window reflects each mutation; timeout-driven refresh alone cannot qualify invalidation.
+3. Separately warm the cache before successful upload, delete, and authorized tutorial recreation. The next stats read within the cache window must reflect each change. Automated cases also check that a failure after dispatching prefix deletes clears the aggregate while a listing failure before any delete leaves it alone.
 4. On a cache hit, compare the returned quota with the cached fixture and use existing authorized observations to confirm no tier-configuration resolution. If those observations are unavailable, record BLOCKED for that internal predicate rather than inferring it from latency.
 
 The ancillary-consumer method is the linked route test, not hot batch polling. The manual checks cover AC1 (complete inventory), AC5 (expiry), AC3 (invalidation) and AC4 (cached quota); authored steps are not passing evidence.

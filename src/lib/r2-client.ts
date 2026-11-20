@@ -45,7 +45,7 @@ export function getR2Url(endpoint: string, bucketName: string, key?: string): st
  * Parse an S3 ListObjectsV2 XML response into a StorageListResult.
  * Uses regex extraction since Workers runtime lacks DOMParser.
  */
-export function parseListObjectsXml(xml: string): StorageListResult {
+export function parseListObjectsXml(xml: string, requireCompletePage = false): StorageListResult {
   const isTruncated = /<IsTruncated>true<\/IsTruncated>/i.test(xml);
 
   const tokenMatch = xml.match(/<NextContinuationToken>([^<]*)<\/NextContinuationToken>/);
@@ -78,6 +78,31 @@ export function parseListObjectsXml(xml: string): StorageListResult {
     prefixes.push(decodeXmlEntities(prefixMatch[1]));
   }
 
+  if (requireCompletePage) {
+    const malformed = () => new Error('Incomplete or malformed ListObjectsV2 response');
+    const root = xml.match(/^\s*(?:<\?xml[^?]*\?>\s*)?<ListBucketResult(?:\s[^>]*)?>([\s\S]*)<\/ListBucketResult>\s*$/);
+    if (!root || /<\/?ListBucketResult\b/.test(root[1])) throw malformed();
+    const body = root[1];
+    // Count all occurrences, not only well-formed fields: a valid field must
+    // not hide an additional malformed field with the same name.
+    const hasTagCount = (fragment: string, tag: string, count: number) =>
+      (fragment.match(new RegExp(`<${tag}\\b`, 'gi')) ?? []).length === count
+      && (fragment.match(new RegExp(`</${tag}\\b`, 'gi')) ?? []).length === count;
+    const truncation = [...body.matchAll(/<IsTruncated>(true|false)<\/IsTruncated>/gi)];
+    const tokens = [...body.matchAll(/<NextContinuationToken>([^<]*)<\/NextContinuationToken>/g)];
+    if (!hasTagCount(body, 'IsTruncated', 1) || truncation.length !== 1
+      || !hasTagCount(body, 'NextContinuationToken', isTruncated ? 1 : 0)
+      || (isTruncated && (tokens.length !== 1 || !nextContinuationToken?.trim()))) throw malformed();
+    // Listing without a delimiter should contain every object, including folder markers.
+    const contents = [...body.matchAll(contentsRegex)];
+    if (!hasTagCount(body, 'Contents', contents.length) || contents.length !== objects.length
+      || contents.some(([, block]) => !/<Size>\d+<\/Size>/.test(block)
+        || !['Key', 'Size', 'LastModified'].every(tag => hasTagCount(block, tag, 1)))
+      || objects.some(({ size }) => !Number.isSafeInteger(size) || size < 0)) throw malformed();
+    const keyCounts = [...body.matchAll(/<KeyCount>(\d+)<\/KeyCount>/g)];
+    if (!hasTagCount(body, 'KeyCount', keyCounts.length) || keyCounts.length > 1
+      || (keyCounts.length === 1 && Number(keyCounts[0][1]) !== objects.length)) throw malformed();
+  }
   return { objects, prefixes, isTruncated, nextContinuationToken };
 }
 
@@ -144,6 +169,7 @@ export async function emptyR2Bucket(
   bucketName: string,
   prefix?: string,
   fetcher: typeof fetch = fetch,
+  onDeleteDispatched?: () => void,
 ): Promise<number> {
   let totalDeleted = 0;
   let continuationToken: string | undefined;
@@ -187,6 +213,8 @@ export async function emptyR2Bucket(
         headers: { 'Content-Type': 'application/xml' },
         body: deleteXml,
       });
+      // Even a failed or missing response can follow partial deletion.
+      onDeleteDispatched?.();
       const deleteRes = await fetcher(deleteSigned);
       if (!deleteRes.ok) {
         throw new Error(`DeleteObjects failed: HTTP ${deleteRes.status}`);

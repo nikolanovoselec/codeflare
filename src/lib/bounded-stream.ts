@@ -1,3 +1,9 @@
+export class StreamLimitExceededError extends Error {
+  constructor(label: string, limit: number, readonly observedBytes: number) {
+    super(`${label} exceeds ${limit} bytes`);
+  }
+}
+
 export type BoundedStreamObservation = { type: 'chunk'; offset: number; bytes: Uint8Array }
   | { type: 'eof'; bytes: number } | { type: 'error'; error: unknown } | { type: 'cancel'; reason: string };
 const observeSafely = (observe: ((event: BoundedStreamObservation) => void) | undefined, event: BoundedStreamObservation) => {
@@ -35,7 +41,7 @@ export async function readBoundedStream(
       if (total > limit) {
         observeSafely(observe, { type: 'cancel', reason: `${label} exceeds ${limit} bytes` });
         void reader.cancel(`${label} exceeds ${limit} bytes`).catch(() => undefined);
-        throw new Error(`${label} exceeds ${limit} bytes`);
+        throw new StreamLimitExceededError(label, limit, total);
       }
       chunks.push(value);
     }
@@ -67,7 +73,7 @@ export async function readBoundedResponse(
   if (Number.isFinite(declaredLength) && declaredLength > limit) {
     observeSafely(observe, { type: 'cancel', reason: `${label} exceeds ${limit} bytes` });
     void response.body?.cancel(`${label} exceeds ${limit} bytes`).catch(() => undefined);
-    throw new Error(`${label} exceeds ${limit} bytes`);
+    throw new StreamLimitExceededError(label, limit, declaredLength);
   }
   return readBoundedStream(response.body, limit, label, signal, observe);
 }
