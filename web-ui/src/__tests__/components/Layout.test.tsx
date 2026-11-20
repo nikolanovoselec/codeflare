@@ -328,7 +328,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     expect(window.location.search).toBe('');
   });
 
-  it('REQ-AGENT-239 AC2: a failed Cloudflare return offers retry in Integrations without disconnecting', async () => {
+  it('REQ-AGENT-239 AC4: a failed Cloudflare return offers retry in Integrations without disconnecting', async () => {
     navigationRendering.realSettingsPanel = true;
     appAuth.getUser.mockResolvedValue({ email: 'owner@example.com', role: 'user', authenticated: true });
     cloudflare.getStatus.mockResolvedValue({ configured: true, connected: true, accountId: 'saved' });
@@ -343,7 +343,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     expect(window.location.search).toBe('');
   });
 
-  it('REQ-AGENT-239 AC3: a no-accounts return explains how to retry without disconnecting', async () => {
+  it('REQ-AGENT-239 AC5: a no-accounts return explains how to retry without disconnecting', async () => {
     navigationRendering.realSettingsPanel = true;
     appAuth.getUser.mockResolvedValue({ email: 'owner@example.com', role: 'user', authenticated: true });
     cloudflare.getStatus.mockResolvedValue({ configured: true, connected: true, accountId: 'saved' });

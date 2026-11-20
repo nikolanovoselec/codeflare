@@ -233,6 +233,34 @@ describe('App onboarding routing', () => {
     cleanup();
   });
 
+  it.each([
+    ['select-account', '?cloudflare=select-account'],
+    ['error', '?cloudflare=error'],
+    ['no-accounts', '?cloudflare=no-accounts'],
+    ['unknown', ''],
+  ])('preserves only recognized Cloudflare returns when redirecting to Guided Setup (%s)', async (outcome, query) => {
+    getSetupStatusMock.mockResolvedValue({ configured: true });
+    getUserMock.mockResolvedValue({ email: 'owner@example.com', authenticated: true, role: 'user',
+      saasMode: true, onboardingComplete: false });
+    window.history.replaceState({}, '', `/app/?cloudflare=${outcome}&unrelated=discard`);
+    const location = window.location;
+    const destinations: string[] = [];
+    Object.defineProperty(window, 'location', { configurable: true, value: {
+      get href() { return location.href; },
+      set href(target: string) { destinations.push(target); },
+      get pathname() { return location.pathname; }, get search() { return location.search; },
+      get hash() { return location.hash; }, get origin() { return location.origin; },
+      toString: () => location.href,
+    } });
+    try {
+      render(() => <App />);
+      await waitFor(() => expect(destinations).toEqual([`/app/onboarding${query}`]));
+    } finally {
+      cleanup();
+      Object.defineProperty(window, 'location', { configurable: true, value: location });
+    }
+  });
+
   it('renders OnboardingLanding at / route', async () => {
     render(() => <App />);
 

@@ -11,6 +11,7 @@ import { terminalStore } from './stores/terminal';
 import { AGENT_OPTIONS, ENTERPRISE_AGENT_TYPES } from './lib/agent-catalog';
 import { logger } from './lib/logger';
 import { createMcpPortalRecovery, type McpReturnOutcome } from './lib/mcp-portal-recovery';
+import { parseCloudflareReturn } from './lib/cloudflare-oauth-return';
 import './styles/app.css';
 
 // Lazy-load the onboarding landing page (only needed when onboarding mode is active)
@@ -162,7 +163,8 @@ const AppContent: Component = () => {
       // Enterprise users are auto-provisioned and never run the self-serve
       // onboarding/waitlist flow — route them straight to the app home (AC5).
       if (!user.enterpriseMode && user.saasMode && !user.onboardingComplete) {
-        window.location.href = '/app/onboarding';
+        const outcome = parseCloudflareReturn(new URLSearchParams(window.location.search).get('cloudflare'));
+        window.location.href = outcome ? `/app/onboarding?cloudflare=${outcome}` : '/app/onboarding';
         return;
       }
       recoverPortals(user.email);

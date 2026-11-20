@@ -650,7 +650,7 @@ When the client is unconfigured, `/api/cloudflare/connect` returns `503 CLOUDFLA
 
 The callback re-derives session identity and verifies bucket-bound, single-use OAuth state before exchanging the code. After resolving accessible accounts, it saves the new grant and keeps a valid prior selection or selects the sole accessible account ([REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth)).
 
-If the saved grant has no selected account, `select-account` opens Settings → Integrations. A failed lookup (`error`) or a grant with no accessible accounts (`no-accounts`) leaves the previous connection intact and opens Integrations for retry ([REQ-AGENT-239](../../sdd/spec/agents.md#req-agent-239-cloudflare-oauth-account-selection-and-retry)). The callback never mints a session cookie. Register this exact callback URL.
+`select-account` means the new grant is saved but needs an account choice. `error` from a failed account lookup and `no-accounts` leave the saved connection intact. Dashboard returns show choices or retry guidance in Integrations; users still in Guided Setup see them on its Cloudflare card ([REQ-AGENT-239](../../sdd/spec/agents.md#req-agent-239-cloudflare-oauth-account-selection-and-retry)). The callback never mints a session cookie. Register this exact callback URL.
 
 ## Public (Unauthenticated)
 

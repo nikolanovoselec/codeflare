@@ -271,6 +271,13 @@ describe('GET /auth/cloudflare/connect/callback', () => {
       ok({ success: true, result: [{ id: 'a', name: 'A' }], result_info: { page: 1, per_page: 1, total_count: 2 } }),
       ok({ success: true, result: [], result_info: { page: 2, per_page: 1, total_count: 2 } }),
     ]],
+    ['pagination without a completion bound', 'error', [
+      ok({ success: true, result: [{ id: 'a', name: 'A' }], result_info: { page: 1, count: 1 } }),
+    ]],
+    ['page lengths that add up but do not match the page size', 'error', [
+      ok({ success: true, result: [{ id: 'a', name: 'A' }], result_info: { page: 1, per_page: 2, total_count: 3 } }),
+      ok({ success: true, result: [{ id: 'b', name: 'B' }, { id: 'c', name: 'C' }], result_info: { page: 2, per_page: 2, total_count: 3 } }),
+    ]],
     ['no accessible accounts', 'no-accounts', [ok({ success: true, result: [] })]],
   ] as const)('REQ-AGENT-239 AC2/3: %s leaves the existing grant usable', async (_scenario, outcome, pages) => {
     configureClient();
@@ -280,6 +287,7 @@ describe('GET /auth/cloudflare/connect/callback', () => {
     const app = createTestApp(BASE_ENV);
     const state = await validState();
     const callback = await app.request(`/auth/cloudflare/connect/callback?code=abc&state=${encodeURIComponent(state)}`);
+    mockFetch.mockReset(); // A rejected first page leaves later responses unused.
     expect(callback.status).toBe(302);
     expect(new URL(callback.headers.get('location')!).searchParams.get('cloudflare')).toBe(outcome);
     expect(await (await app.request('/api/cloudflare/status')).json()).toEqual({

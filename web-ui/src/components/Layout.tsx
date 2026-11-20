@@ -22,6 +22,7 @@ import { requestBrowserStoragePersistence } from '../lib/browser-storage-persist
 import { dashboardPath, parseSessionPath, sessionPath } from '../lib/session-path';
 import { createBrowserIdeWindowOpener } from '../lib/browser-ide-window';
 import { isMountedLifecycle } from '../lib/session-presentation';
+import { parseCloudflareReturn, type CloudflareReturnOutcome } from '../lib/cloudflare-oauth-return';
 
 type ViewState = 'dashboard' | 'expanding' | 'terminal' | 'collapsing';
 
@@ -76,7 +77,7 @@ const Layout: Component<LayoutProps> = (props) => {
   const usageWarning = () => getUsageWarningLevel();
   const [terminalError, setTerminalError] = createSignal<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = createSignal(false);
-  const [cloudflareReturn, setCloudflareReturn] = createSignal<'select-account' | 'error' | 'no-accounts'>();
+  const [cloudflareReturn, setCloudflareReturn] = createSignal<CloudflareReturnOutcome>();
   const [isStoragePanelOpen, setIsStoragePanelOpen] = createSignal(false);
   const [showTilingOverlay, setShowTilingOverlay] = createSignal(false);
   const [viewState, setViewState] = createSignal<ViewState>('dashboard');
@@ -368,8 +369,8 @@ const Layout: Component<LayoutProps> = (props) => {
   onMount(() => {
     if (window.location.pathname === dashboardPath()) {
       const query = new URLSearchParams(window.location.search);
-      const outcome = query.get('cloudflare');
-      if (outcome === 'select-account' || outcome === 'error' || outcome === 'no-accounts') {
+      const outcome = parseCloudflareReturn(query.get('cloudflare'));
+      if (outcome) {
         query.delete('cloudflare');
         const rest = query.toString();
         window.history.replaceState(window.history.state, '', `${dashboardPath()}${rest ? `?${rest}` : ''}${window.location.hash}`);

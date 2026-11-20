@@ -171,7 +171,11 @@ export async function fetchCloudflareAccounts(accessToken: string): Promise<Clou
       || (info?.per_page !== undefined && pageSize !== undefined && pageSize !== info.per_page)) break;
     total ??= info?.total_count;
     pageSize ??= info?.per_page;
-    if (pageSize !== undefined && result.length > pageSize) break;
+    if (info && total === undefined && pageSize === undefined) break;
+    if (pageSize !== undefined) {
+      if (result.length > pageSize || accounts.size !== (page - 1) * pageSize) break;
+      if (total !== undefined && result.length !== Math.min(pageSize, total - accounts.size)) break;
+    }
     for (const account of result) {
       if (accounts.has(account.id)) throw new Error('Cloudflare accounts API repeated an account');
       accounts.set(account.id, account);
@@ -179,7 +183,7 @@ export async function fetchCloudflareAccounts(accessToken: string): Promise<Clou
     if (total !== undefined) {
       if (accounts.size === total) return [...accounts.values()];
       if (accounts.size > total || result.length === 0) break;
-    } else if (pageSize === undefined || result.length < pageSize) {
+    } else if (!info || (pageSize !== undefined && result.length < pageSize)) {
       return [...accounts.values()];
     }
   }

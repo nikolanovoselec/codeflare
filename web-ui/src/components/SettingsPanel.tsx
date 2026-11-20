@@ -25,6 +25,7 @@ import {
   setAgentNotificationsEnabled,
 } from '../lib/agent-notifications';
 import type { AgentNotificationEnablement } from '../lib/agent-notifications';
+import { cloudflareRetryMessage, type CloudflareReturnOutcome } from '../lib/cloudflare-oauth-return';
 // SubscriptionManagement moved to standalone admin page at /admin/subscriptions
 import '../styles/settings-panel.css';
 
@@ -33,7 +34,7 @@ interface SettingsPanelProps {
   onClose: () => void;
   currentUserEmail?: string;
   mcpReturnOutcome?: import('../lib/mcp-portal-recovery').McpReturnOutcome;
-  cloudflareReturn?: 'select-account' | 'error' | 'no-accounts';
+  cloudflareReturn?: CloudflareReturnOutcome;
   currentUserRole?: 'admin' | 'user';
   currentUserAccessTier?: import('../types').AccessTier;
   enterpriseMode?: boolean;
@@ -453,10 +454,8 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
             isOpen={openGroup() === 'deploy'}
             onToggle={() => handleAccordionClick('deploy')}
           >
-            <Show when={props.cloudflareReturn === 'error' || props.cloudflareReturn === 'no-accounts'}>
-              <p class="settings-hint type-hint" role="alert">{props.cloudflareReturn === 'no-accounts'
-                ? 'No Cloudflare accounts were authorized. Choose a Cloudflare account you can access and try again.'
-                : 'Cloudflare authorization could not be completed. Try again.'}</p>
+            <Show when={cloudflareRetryMessage(props.cloudflareReturn)}>
+              {(message) => <p class="settings-hint type-hint" role="alert">{message()}</p>}
             </Show>
             <DeployKeysSection />
           </AccordionSection>

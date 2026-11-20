@@ -30,7 +30,7 @@ vi.mock('../../components/ScrambleText', () => ({
 }));
 
 describe('OnboardingPage / REQ-AUTH-015 (onboarding-mode public landing page)', () => {
-  let mockLocation: { href: string };
+  let mockLocation: { href: string; search: string };
   let originalLocation: Location;
 
   beforeEach(() => {
@@ -39,7 +39,7 @@ describe('OnboardingPage / REQ-AUTH-015 (onboarding-mode public landing page)', 
     mockGetCloudflareStatus.mockResolvedValue({ configured: true, connected: false });
 
     originalLocation = window.location;
-    mockLocation = { href: '' };
+    mockLocation = { href: '', search: '' };
     Object.defineProperty(window, 'location', { value: mockLocation, writable: true });
   });
 
@@ -80,6 +80,30 @@ describe('OnboardingPage / REQ-AUTH-015 (onboarding-mode public landing page)', 
     expect(await cloudflare.findByTestId('cloudflare-connected-badge')).toBeVisible();
     expect(cloudflare.getByRole('button', { name: 'Disconnect' })).toBeEnabled();
     expect(cloudflare.queryByRole('button', { name: 'Re-authorize' })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['error', 'Cloudflare authorization could not be completed. Try again.'],
+    ['no-accounts', 'No Cloudflare accounts were authorized. Choose a Cloudflare account you can access and try again.'],
+  ])('offers retry beside Cloudflare Connect after an OAuth %s return', async (outcome, message) => {
+    mockLocation.search = `?cloudflare=${outcome}`;
+    render(() => <OnboardingPage />);
+    const cloudflare = within(await screen.findByTestId('onboarding-cloudflare-section'));
+    expect(cloudflare.getByRole('alert')).toHaveTextContent(message);
+    expect(cloudflare.getByRole('button', { name: 'Connect Cloudflare' })).toBeEnabled();
+    expect(cloudflare.queryByRole('button', { name: 'Re-authorize' })).not.toBeInTheDocument();
+  });
+
+  it('shows the existing Cloudflare account picker on a Guided Setup account-selection return', async () => {
+    mockLocation.search = '?cloudflare=select-account';
+    mockGetCloudflareStatus.mockResolvedValue({ configured: true, connected: true,
+      accounts: [{ id: 'a', name: 'Account A' }, { id: 'b', name: 'Account B' }] });
+    render(() => <OnboardingPage />);
+    const cloudflare = within(await screen.findByTestId('onboarding-cloudflare-section'));
+    const picker = within(cloudflare.getByRole('combobox'));
+    expect(picker.getByRole('option', { name: 'Account A' })).toHaveValue('a');
+    expect(picker.getByRole('option', { name: 'Account B' })).toHaveValue('b');
+    expect(cloudflare.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   // REQ-AGENT-028: both provider parents own the recommended default and selected-tier navigation.
