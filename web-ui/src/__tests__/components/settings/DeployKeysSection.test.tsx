@@ -122,10 +122,40 @@ describe('DeployKeysSection (Settings Integrations)', () => {
       ['a', 'Acct A'], ['b', 'Acct B'],
     ]);
     fireEvent.change(picker, { target: { value: 'b' } });
-    expect(await screen.findByTestId('cloudflare-identity')).toHaveTextContent('b');
+    expect(await screen.findByText('Account ID')).toBeVisible();
+    expect(screen.getByTestId('cloudflare-identity')).toHaveTextContent('b');
     expect(screen.getByRole('combobox')).toHaveValue('b');
     expect(mockSelectCloudflareAccount).toHaveBeenCalledWith('b');
     expect(screen.queryByTestId('cloudflare-connect-btn')).not.toBeInTheDocument();
+  });
+
+  it('REQ-AGENT-018 AC5 / REQ-AGENT-028 AC4: re-authorizes only with a newly chosen permission tier and without disconnecting', async () => {
+    mockGetCloudflareStatus.mockResolvedValue({ configured: true, connected: true, accountId: 'selected-account' });
+    render(() => <DeployKeysSection />);
+    const reauthorize = await screen.findByRole('button', { name: 'Re-authorize' });
+    expect(screen.getByRole('button', { name: 'Disconnect' })).toBeEnabled();
+    expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument();
+
+    fireEvent.click(reauthorize);
+    const confirm = screen.getByRole('button', { name: 'Continue to Cloudflare' });
+    expect(confirm).toBeDisabled();
+    expect(screen.getAllByRole('radio').every(radio => !(radio as HTMLInputElement).checked)).toBe(true);
+    expect(location.href).toBe('');
+    fireEvent.click(screen.getByRole('radio', { name: 'Advanced' }));
+    expect(confirm).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(await screen.findByRole('button', { name: 'Re-authorize' })).toHaveFocus();
+    expect(location.href).toBe('');
+    expect(screen.getByRole('status')).toHaveTextContent('Connected');
+    expect(screen.getByTestId('cloudflare-identity')).toHaveTextContent('selected-account');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Re-authorize' }));
+    const retry = screen.getByRole('button', { name: 'Continue to Cloudflare' });
+    expect(retry).toBeDisabled();
+    fireEvent.click(screen.getByRole('radio', { name: 'Minimal' }));
+    fireEvent.click(retry);
+    expect(location.href).toBe('/api/cloudflare/connect?tier=minimal');
+    expect(mockDisconnectCloudflare).not.toHaveBeenCalled();
   });
 
   it('waits for disconnect then refreshes to an available but disconnected provider', async () => {

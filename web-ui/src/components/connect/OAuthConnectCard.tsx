@@ -1,4 +1,4 @@
-import { Component, Show, For } from 'solid-js';
+import { Component, Show, For, createSignal } from 'solid-js';
 import { mdiCheck } from '@mdi/js';
 import Icon from '../Icon';
 import Select from '../ui/Select';
@@ -29,7 +29,7 @@ interface OAuthConnectCardProps {
   /** 'github' | 'cloudflare' — scopes every data-testid so a page with both is unambiguous. */
   provider: string;
   /** mdi icon path. */
-  icon: string;
+  icon?: string;
   /** Display name (passed in — the component embeds no provider copy). */
   name: string;
   status: OAuthConnectStatus;
@@ -38,9 +38,10 @@ interface OAuthConnectCardProps {
   onDisconnect: () => void;
   /** Connected identity (GitHub login / Cloudflare account name). */
   identity?: string;
+  identityLabel?: string;
   /** Non-secret connection selector shown before connecting (for multi-portal cards). */
   description?: string;
-  /** Scope-tier selector shown in the disconnected state; feeds the OAuth scope param. */
+  /** Scope-tier selector for Connect and, in Settings, Re-authorize. */
   tierOptions?: OAuthTierOptions;
   /** Account picker shown in the connected state (Cloudflare multi-account). */
   accounts?: OAuthAccountOption[];
@@ -56,11 +57,41 @@ interface OAuthConnectCardProps {
  * than calling fetch — popup-blocker-safe because it fires in the click gesture.
  */
 const OAuthConnectCard: Component<OAuthConnectCardProps> = (props) => {
-  const href = () => {
-    if (!props.tierOptions) return props.connectUrl;
+  const [reauthorizing, setReauthorizing] = createSignal(false);
+  const [reauthorizationTier, setReauthorizationTier] = createSignal<ScopeTier>();
+  let reauthorizeButton: HTMLButtonElement | undefined;
+  let reauthorizePrompt: HTMLParagraphElement | undefined;
+
+  const href = (tier?: ScopeTier) => {
+    if (!tier) return props.connectUrl;
     const sep = props.connectUrl.includes('?') ? '&' : '?';
-    return `${props.connectUrl}${sep}tier=${encodeURIComponent(props.tierOptions.selected)}`;
+    return `${props.connectUrl}${sep}tier=${encodeURIComponent(tier)}`;
   };
+
+  const TierSelector: Component<{
+    tiers: OAuthTierOptions['tiers'];
+    selected?: ScopeTier;
+    onSelect: OAuthTierOptions['onSelect'];
+  }> = (tier) => (
+    <div class="oauth-connect-tier" data-testid={`${props.provider}-tier`}>
+      <div class="oauth-connect-tier-control" role="radiogroup" aria-label="Access level">
+        <For each={TIER_ORDER}>
+          {(t) => (
+            <label class={`oauth-connect-tier-option ${tier.selected === t ? 'oauth-connect-tier-option--selected' : ''}`}>
+              <input type="radio" name={`${props.provider}-tier`} value={t} checked={tier.selected === t}
+                onChange={() => tier.onSelect(t)} data-testid={`${props.provider}-tier-${t}`} />
+              {tier.tiers[t].label}
+            </label>
+          )}
+        </For>
+      </div>
+      <Show when={tier.selected}>
+        {(selected) => <span class="oauth-connect-tier-desc" data-testid={`${props.provider}-tier-desc`}>
+          {tier.tiers[selected()].description}
+        </span>}
+      </Show>
+    </div>
+  );
 
   const DisconnectButton: Component = () => (
     <button
@@ -77,7 +108,7 @@ const OAuthConnectCard: Component<OAuthConnectCardProps> = (props) => {
   return (
     <div class={`oauth-connect-card${props.compact ? ' settings-connection-card' : ''}${props.class ? ` ${props.class}` : ''}`} data-testid={`${props.provider}-connect-card`} data-status={props.status}>
       <div class="oauth-connect-head">
-        <Icon path={props.icon} size={28} class="oauth-connect-icon" />
+        <Show when={props.icon}>{(icon) => <Icon path={icon()} size={28} class="oauth-connect-icon" />}</Show>
         <span class="oauth-connect-name">{props.name}</span>
         <Show when={props.status === 'connected'}>
           <span class={props.compact ? 'settings-connection-status' : 'oauth-connect-badge'}
@@ -92,11 +123,15 @@ const OAuthConnectCard: Component<OAuthConnectCardProps> = (props) => {
         <Show when={props.identity || (props.accounts && props.accounts.length > 0)}>
           <div class="oauth-connect-body">
             <Show when={props.identity}>
-              <span class="oauth-connect-identity" data-testid={`${props.provider}-identity`}>{props.identity}</span>
+              <div class="oauth-connect-identity">
+                <Show when={props.identityLabel}><span class="settings-connection-identity-label">{props.identityLabel}</span></Show>
+                <span data-testid={`${props.provider}-identity`}>{props.identity}</span>
+              </div>
             </Show>
             <Show when={props.accounts && props.accounts.length > 0}>
               <Select
                 class="oauth-connect-account"
+                ariaLabel={props.compact ? `${props.name} account` : undefined}
                 value={props.selectedAccountId ?? ''}
                 options={(props.accounts ?? []).map((a) => ({ value: a.id, label: a.name }))}
                 onChange={(v) => props.onSelectAccount?.(v)}
@@ -107,7 +142,37 @@ const OAuthConnectCard: Component<OAuthConnectCardProps> = (props) => {
       </Show>
 
       <Show when={props.status === 'connected' && props.compact}>
-        <div class="settings-connection-actions"><DisconnectButton /></div>
+        <Show when={reauthorizing() ? props.tierOptions : undefined} fallback={
+          <div class="settings-connection-actions">
+            <Show when={props.tierOptions}>
+              <button type="button" class="settings-action settings-action--accent" ref={reauthorizeButton}
+                onClick={() => {
+                  setReauthorizationTier(undefined);
+                  setReauthorizing(true);
+                  queueMicrotask(() => reauthorizePrompt?.focus());
+                }}>Re-authorize</button>
+            </Show>
+            <DisconnectButton />
+          </div>
+        }>
+          {(tier) => <>
+            <p class="settings-hint type-hint" tabindex={-1} ref={reauthorizePrompt}>
+              Choose the access level to request from {props.name}.
+            </p>
+            <TierSelector tiers={tier().tiers} selected={reauthorizationTier()} onSelect={setReauthorizationTier} />
+            <div class="settings-connection-actions">
+              <button type="button" class="settings-action settings-action--accent" disabled={!reauthorizationTier()}
+                onClick={() => {
+                  const selected = reauthorizationTier();
+                  if (selected) window.location.href = href(selected);
+                }}>Continue to {props.name}</button>
+              <button type="button" class="settings-action" onClick={() => {
+                setReauthorizing(false);
+                queueMicrotask(() => reauthorizeButton?.focus());
+              }}>Cancel</button>
+            </div>
+          </>}
+        </Show>
       </Show>
 
       <Show when={props.status === 'connecting'}>
@@ -119,43 +184,16 @@ const OAuthConnectCard: Component<OAuthConnectCardProps> = (props) => {
       <Show when={props.status === 'disconnected'}>
         <div class="oauth-connect-body">
           <Show when={props.description}><span class="oauth-connect-identity">{props.description}</span></Show>
-          <Show when={props.tierOptions}>
-            {(tier) => (
-              <div class="oauth-connect-tier" data-testid={`${props.provider}-tier`}>
-                <div class="oauth-connect-tier-control" role="radiogroup" aria-label="Access level">
-                  <For each={TIER_ORDER}>
-                    {(t) => (
-                      <label
-                        class={`oauth-connect-tier-option ${tier().selected === t ? 'oauth-connect-tier-option--selected' : ''}`}
-                      >
-                        <input
-                          type="radio"
-                          name={`${props.provider}-tier`}
-                          value={t}
-                          checked={tier().selected === t}
-                          onChange={() => tier().onSelect(t)}
-                          data-testid={`${props.provider}-tier-${t}`}
-                        />
-                        {tier().tiers[t].label}
-                      </label>
-                    )}
-                  </For>
-                </div>
-                <span class="oauth-connect-tier-desc" data-testid={`${props.provider}-tier-desc`}>
-                  {tier().tiers[tier().selected].description}
-                </span>
-              </div>
-            )}
-          </Show>
+          <Show when={props.tierOptions}>{(tier) => <TierSelector {...tier()} />}</Show>
           <button
             type="button"
             class="oauth-connect-btn oauth-connect-btn--connect"
             aria-label={props.description ? `Connect ${props.name} ${props.description}` : undefined}
             data-testid={`${props.provider}-connect-btn`}
-            data-href={href()}
-            onClick={() => { window.location.href = href(); }}
+            data-href={href(props.tierOptions?.selected)}
+            onClick={() => { window.location.href = href(props.tierOptions?.selected); }}
           >
-            <Icon path={props.icon} size={16} />
+            <Show when={props.icon}>{(icon) => <Icon path={icon()} size={16} />}</Show>
             <span>Connect {props.name}</span>
           </button>
         </div>

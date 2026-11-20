@@ -1,5 +1,4 @@
 import { Component, Show, createSignal, onMount } from 'solid-js';
-import { mdiCloud } from '@mdi/js';
 import OAuthConnectCard from '../connect/OAuthConnectCard';
 import { createConnections } from '../../lib/oauth-connections';
 import { cloudflareConnectUrl } from '../../api/cloudflare';
@@ -34,10 +33,10 @@ const DeployKeysSection: Component = () => {
         <OAuthConnectCard
           compact
           provider="cloudflare"
-          icon={mdiCloud}
           name="Cloudflare"
           status={conn.cloudflare().status}
           identity={conn.cloudflare().identity}
+          identityLabel="Account ID"
           connectUrl={cloudflareConnectUrl()}
           onDisconnect={() => { void conn.disconnectCloudflare(); }}
           accounts={conn.cloudflare().accounts}

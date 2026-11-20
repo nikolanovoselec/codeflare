@@ -19,10 +19,10 @@ beforeEach(() => {
 afterEach(() => { cleanup(); window.history.replaceState({}, '', window.location.pathname); });
 
 describe('Settings MCP connections', () => {
-  it('REQ-AGENT-228 AC4 / REQ-AGENT-226 AC7: saved authorization offers a non-destructive Authorize again separately from Disconnect', async () => {
+  it('REQ-AGENT-228 AC4 / REQ-AGENT-226 AC7: saved authorization offers a non-destructive Re-authorize separately from Disconnect', async () => {
     render(() => <McpPortalsSection {...{ currentUserEmail: 'owner@example.test', isActive: true, returnOutcome: 'reconnect' as const }} />);
     expect(await screen.findByRole('alert')).toHaveTextContent('Portal authorization could not be completed');
-    const retry = await screen.findByRole('button', { name: 'Authorize again Model Context Protocol portal alpha' });
+    const retry = await screen.findByRole('button', { name: 'Re-authorize Model Context Protocol portal alpha' });
     expect(screen.getByTestId('mcp-alpha-connected-badge')).toHaveTextContent('Authorization saved');
     expect(screen.queryByText('Connected', { exact: true })).not.toBeInTheDocument();
     // Intentional user-copy contract: saved authorization never certifies tools or requires a Pi restart.
@@ -97,7 +97,7 @@ describe('Settings MCP connections', () => {
     expect(within(connections).getByText('beta')).toBeVisible();
     const alpha = within(screen.getByRole('group', { name: 'alpha' }));
     const beta = within(screen.getByRole('group', { name: 'beta' }));
-    expect(alpha.getByRole('button', { name: 'Authorize again Model Context Protocol portal alpha' })).toBeEnabled();
+    expect(alpha.getByRole('button', { name: 'Re-authorize Model Context Protocol portal alpha' })).toBeEnabled();
     expect(alpha.getByRole('button', { name: 'Disconnect Model Context Protocol portal alpha' })).toBeEnabled();
     expect(beta.getByRole('button', { name: 'Connect Model Context Protocol portal beta' })).toBeEnabled();
     expect(screen.getByText('Connect MCP portals to use their tools in your sessions.')).toBeVisible();

@@ -21,7 +21,7 @@
 
 An administrator registers unique portal names and public HTTPS destinations through Administration → Environment. [Configuration](configuration.md#mcp-portal-registration) specifies URL validation and supported options. Registration contains no credential field; saving neither authenticates an owner nor provisions resources, starts compute or restarts a session. Names identify connections, not tool relevance. ([REQ-AGENT-227](../../sdd/spec/mcp.md#req-agent-227-instance-administration-of-mcp-portals))
 
-The owner opens Settings → Model Context Protocol and chooses **Connect** for the intended portal. Login, consent and MFA occur in the browser. Each owner connects independently; an administrator's grant is not shared with users or Operators. **Authorize again** starts the same owner flow without deleting saved authorization; **Disconnect** remains a separate selected-owner/portal action. **Authorization saved** does not certify live upstream access or tool readiness. ([REQ-AGENT-226](../../sdd/spec/mcp.md#req-agent-226-worker-owned-mcp-portal-authorization), [REQ-AGENT-228](../../sdd/spec/mcp.md#req-agent-228-owner-pi-mcp-configuration-and-discovery))
+The owner opens Settings → Model Context Protocol and chooses **Connect** for the intended portal. Login, consent and MFA occur in the browser. Each owner connects independently; an administrator's grant is not shared with users or Operators. **Re-authorize** starts the same owner flow without deleting saved authorization; **Disconnect** remains a separate selected-owner/portal action. **Authorization saved** does not certify live upstream access or tool readiness. ([REQ-AGENT-226](../../sdd/spec/mcp.md#req-agent-226-worker-owned-mcp-portal-authorization), [REQ-AGENT-228](../../sdd/spec/mcp.md#req-agent-228-owner-pi-mcp-configuration-and-discovery))
 
 ## Owner authorization and recovery
 
@@ -31,7 +31,7 @@ The interceptor refreshes matching grants outside Pi when a usable refresh token
 
 Recovery runs on authenticated app entry/resume and visible checks, independently of Settings. It serializes browser authorization, preserves a canonical session return path, and prevents failed/cancelled returns from looping. Fixed return outcomes survive URL cleanup into the same owner's Settings; late or foreign-owner responses cannot replace the current surface. Existing session ownership checks still govern restoration. Provider login, consent or MFA may require interaction; no cookies or credentials are copied into Pi. <!-- @impl: web-ui/src/lib/mcp-portal-recovery.ts::createMcpPortalRecovery -->
 
-Settings refreshes status when the panel/MCP section opens or authorization returns. It shows loading, error and empty states, portal identity, an **Authorization saved** badge and separate Connect/**Authorize again**/Disconnect actions. Return notices do not override API status or certify tool readiness. Existing authorization is retained while the owner corrects provider access; no setup-help category or upstream health probe is introduced. <!-- @impl: web-ui/src/components/settings/McpPortalsSection.tsx::McpPortalsSection -->
+Settings refreshes status when the panel/MCP section opens or authorization returns. It shows loading, error and empty states, portal identity, an **Authorization saved** badge and separate Connect/**Re-authorize**/Disconnect actions. Return notices do not override API status or certify tool readiness. Existing authorization is retained while the owner corrects provider access; no setup-help category or upstream health probe is introduced. <!-- @impl: web-ui/src/components/settings/McpPortalsSection.tsx::McpPortalsSection -->
 
 Dynamic client registration is preferred when supported. A CIMD-only issuer must be able to fetch the fixed `/auth/mcp/client-metadata` document externally. Its anonymous Worker handler does not bypass host-wide Cloudflare Access; verify reachability before hosted acceptance. Codeflare does not provision an Access bypass or change grants automatically. <!-- @impl: src/lib/mcp-portal-token.ts::beginMcpPortalConnect -->
 
@@ -70,7 +70,7 @@ CI test results, a signed managed release, installed artifact identity, delibera
 | Observation | Action | Expected result |
 |---|---|---|
 | No configured portals | Ask an authorized administrator to inspect Environment registration | Settings reflects saved names/URLs; no owner grant is invented |
-| Authorization saved, but tools unavailable | Inspect allowed servers/upstream authorization; use Authorize again when needed | Report missing coverage honestly; retry authorization without Disconnect |
+| Authorization saved, but tools unavailable | Inspect allowed servers/upstream authorization; use Re-authorize when needed | Report missing coverage honestly; retry authorization without Disconnect |
 | Expired matching grant | Allow normal authenticated recovery; complete requested provider login/consent | The existing session stays selected; no Pi credential or MCP write is replayed |
 | New, changed or disconnected portal | Explicitly Connect the intended destination | No old or unrelated grant is adopted |
 | CIMD issuer cannot fetch metadata | Inspect host-wide Access reachability using the owning deployment runbook | Metadata is reachable under the approved policy; no automatic bypass is created |
@@ -90,7 +90,7 @@ In an approved environment, connect one test owner's portal through Settings, co
 
 Let the test issuer expire the grant and resume the authenticated app with Settings closed; cancel a separate authorization return. Expect current-grant renewal or explicit provider interaction, retained session navigation, no cancellation loop and no replay of a preceding MCP write. Disconnect the selected test connection and verify another owner's/portal's connection is unchanged; an unsuccessful provider revocation must not restore local connection state. Record only sanitized outcomes, never codes, verifiers, tokens or cookies.
 
-Reopen Settings and re-expand MCP without remounting the app; expect fresh saved-authorization state. A failed/cancelled return must remain visible after the URL is cleaned, and Authorize again must leave the existing grant intact until successful replacement. A successful return notice must not override a disconnected API response or certify tool access.
+Reopen Settings and re-expand MCP without remounting the app; expect fresh saved-authorization state. A failed/cancelled return must remain visible after the URL is cleaned, and Re-authorize must leave the existing grant intact until successful replacement. A successful return notice must not override a disconnected API response or certify tool access.
 
 This exercises [REQ-AGENT-226](../../sdd/spec/mcp.md#req-agent-226-worker-owned-mcp-portal-authorization) and [REQ-AGENT-229](../../sdd/spec/mcp.md#req-agent-229-worker-mediated-mcp-portal-transport).
 

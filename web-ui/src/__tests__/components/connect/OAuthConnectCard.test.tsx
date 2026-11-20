@@ -97,6 +97,7 @@ describe.each([false, true])('OAuthConnectCard (compact=%s)', compact => {
       expect(screen.getByTestId('cloudflare-connected-badge')).toBeInTheDocument();
       expect(screen.getByTestId('cloudflare-identity')).toHaveTextContent('acme-co');
       expect(screen.queryByTestId('cloudflare-connect-btn')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Re-authorize' })).not.toBeInTheDocument();
       fireEvent.click(screen.getByTestId('cloudflare-disconnect-btn'));
       expect(onDisconnect).toHaveBeenCalled();
     });

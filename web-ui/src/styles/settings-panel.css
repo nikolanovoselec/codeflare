@@ -1041,8 +1041,16 @@
   row-gap: var(--space-1);
 }
 
+.settings-panel .settings-connection-card > .oauth-connect-head:not(:has(> .oauth-connect-icon)) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .settings-connection-card .settings-connection-status {
   grid-column: 1 / -1;
+}
+
+.settings-connection-actions .settings-action--accent {
+  justify-self: start;
 }
 
 .settings-connection-actions .oauth-connect-disconnect {
@@ -1056,6 +1064,18 @@
 
 .settings-connection-card .oauth-connect-identity {
   overflow-wrap: anywhere;
+}
+
+.settings-connection-identity-label {
+  display: block;
+  margin-bottom: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.settings-connection-card .oauth-connect-tier-option:has(:focus-visible) {
+  outline: 2px solid var(--color-text-primary);
+  outline-offset: -2px;
 }
 
 .settings-connection-card .provider-row-connect-btn {

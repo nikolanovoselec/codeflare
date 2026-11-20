@@ -100,11 +100,11 @@ const McpPortalsSection: Component<McpPortalsSectionProps> = (props) => {
           </div>
           <div class="mcp-portal-actions">
             <Show when={portal.connected}>
-              <button type="button" class="oauth-connect-btn settings-action"
+              <button type="button" class="oauth-connect-btn settings-action settings-action--accent"
                 disabled={busy().includes(portal.name)}
-                aria-label={`Authorize again Model Context Protocol portal ${portal.name}`}
+                aria-label={`Re-authorize Model Context Protocol portal ${portal.name}`}
                 data-href={mcpPortalConnectUrl(portal.name)}
-                onClick={() => { window.location.href = mcpPortalConnectUrl(portal.name); }}>Authorize again</button>
+                onClick={() => { window.location.href = mcpPortalConnectUrl(portal.name); }}>Re-authorize</button>
             </Show>
             <button type="button" class={portal.connected ? 'oauth-connect-disconnect' : 'oauth-connect-btn oauth-connect-btn--connect settings-action settings-action--accent'}
               disabled={busy().includes(portal.name)} aria-busy={busy().includes(portal.name)}
