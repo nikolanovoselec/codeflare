@@ -128,13 +128,21 @@ describe('OnboardingPage / REQ-AUTH-015 (onboarding-mode public landing page)', 
 
   it('reloads missing Cloudflare accounts in Guided Setup without restarting OAuth', async () => {
     mockLocation.search = '?cloudflare=select-account';
+    let finishRead!: (value: { configured: true; connected: true; accounts: { id: string; name: string }[] }) => void;
     mockGetCloudflareStatus.mockResolvedValueOnce({ configured: true, connected: true })
-      .mockResolvedValueOnce({ configured: true, connected: true, accounts: [{ id: 'a', name: 'Account A' }] });
+      .mockImplementationOnce(() => new Promise(resolve => { finishRead = resolve; }));
     render(() => <OnboardingPage />);
     const cloudflare = within(await screen.findByTestId('onboarding-cloudflare-section'));
     expect(cloudflare.queryByRole('combobox')).not.toBeInTheDocument();
-    fireEvent.click(cloudflare.getByRole('button', { name: 'Retry loading accounts' }));
+    const retry = cloudflare.getByRole('button', { name: 'Retry loading accounts' });
+    retry.focus();
+    fireEvent.click(retry);
+    const skip = screen.getByRole('link', { name: 'Skip and continue to Codeflare' });
+    skip.focus();
+    finishRead({ configured: true, connected: true, accounts: [{ id: 'a', name: 'Account A' }] });
     expect(within(await cloudflare.findByRole('combobox')).getByRole('option', { name: 'Account A' })).toHaveValue('a');
+    await Promise.resolve();
+    expect(skip).toHaveFocus();
     expect(cloudflare.queryByRole('button', { name: 'Retry loading accounts' })).not.toBeInTheDocument();
     expect(mockLocation.href).toBe('');
     expect(mockDisconnectCloudflare).not.toHaveBeenCalled();

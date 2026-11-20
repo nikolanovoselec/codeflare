@@ -1,4 +1,4 @@
-import { Component, Show, For, createSignal } from 'solid-js';
+import { Component, Show, For, createSignal, onCleanup } from 'solid-js';
 import { mdiCheck } from '@mdi/js';
 import Icon from '../Icon';
 import Select from '../ui/Select';
@@ -69,6 +69,32 @@ const OAuthConnectCard: Component<OAuthConnectCardProps> = (props) => {
   const connectedActionsClass = () => props.compact ? 'settings-connection-actions' : 'oauth-connect-body';
   let reauthorizeButton: HTMLButtonElement | undefined;
   let reauthorizePrompt: HTMLParagraphElement | undefined;
+  let accountPicker: HTMLSelectElement | undefined;
+  let stopWatchingRetryFocus: (() => void) | undefined;
+  onCleanup(() => stopWatchingRetryFocus?.());
+
+  const reloadAccounts = async (button: HTMLButtonElement, retry: () => Promise<void>) => {
+    if (reloadingAccounts()) return;
+    const doc = button.ownerDocument;
+    let keepFocus = doc.activeElement === button;
+    const focusMoved = (event: FocusEvent) => {
+      if (event.target !== button) keepFocus = false;
+    };
+    doc.addEventListener('focusin', focusMoved);
+    const stopWatching = () => doc.removeEventListener('focusin', focusMoved);
+    stopWatchingRetryFocus = stopWatching;
+    setReloadingAccounts(true);
+    try {
+      await retry();
+      // A focusable busy button retains focus until the picker replaces it.
+      if (keepFocus && !button.isConnected && props.onRetryAccounts && accountPicker?.isConnected
+        && doc.activeElement === doc.body) accountPicker.focus();
+    } finally {
+      stopWatching();
+      stopWatchingRetryFocus = undefined;
+      setReloadingAccounts(false);
+    }
+  };
 
   const href = (tier?: ScopeTier) => {
     if (!tier) return props.connectUrl;
@@ -140,6 +166,7 @@ const OAuthConnectCard: Component<OAuthConnectCardProps> = (props) => {
             <Show when={props.accounts && props.accounts.length > 0}>
               <Select
                 class="oauth-connect-account"
+                ref={(element) => { accountPicker = element; }}
                 ariaLabel={props.compact ? `${props.name} account` : undefined}
                 value={props.selectedAccountId ?? ''}
                 options={(props.accounts ?? []).map((a) => ({ value: a.id, label: a.name }))}
@@ -151,12 +178,8 @@ const OAuthConnectCard: Component<OAuthConnectCardProps> = (props) => {
         <Show when={!props.selectedAccountId && !props.accounts?.length ? props.onRetryAccounts : undefined}>
           {(retry) => <div class="oauth-connect-recovery">
             <p class="oauth-connect-identity" role="status">{props.name} accounts could not be loaded.</p>
-            <button type="button" class={primaryActionClass()} disabled={reloadingAccounts()}
-              onClick={async () => {
-                if (reloadingAccounts()) return;
-                setReloadingAccounts(true);
-                try { await retry()(); } finally { setReloadingAccounts(false); }
-              }}>Retry loading accounts</button>
+            <button type="button" class={primaryActionClass()} aria-disabled={reloadingAccounts()}
+              onClick={(event) => { void reloadAccounts(event.currentTarget, retry()); }}>Retry loading accounts</button>
           </div>}
         </Show>
       </Show>

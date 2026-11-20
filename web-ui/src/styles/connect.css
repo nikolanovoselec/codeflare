@@ -103,7 +103,8 @@
   width: 100%;
 }
 
-.oauth-connect-recovery .oauth-connect-btn:disabled {
+.oauth-connect-recovery .oauth-connect-btn:disabled,
+.oauth-connect-recovery button[aria-disabled="true"] {
   opacity: 0.5;
   cursor: not-allowed;
 }
