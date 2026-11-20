@@ -662,10 +662,14 @@ function startSession(id: string): Promise<void> {
       reject(new Error(error));
     };
 
+    let readyProgress: InitProgress | undefined;
     const cleanup = api.startSession(
       id,
       (progress) => {
-        if (progress.stage === 'ready') return; // The completion callback verifies current ownership.
+        if (progress.stage === 'ready') {
+          readyProgress = progress; // Publish only after checking generation ownership below.
+          return;
+        }
         setState(
           produce((s) => {
             s.initProgressBySession[id] = progress;
@@ -692,6 +696,7 @@ function startSession(id: string): Promise<void> {
           }));
         } else {
           initializeTerminalsForSession(id);
+          if (readyProgress) setState('initProgressBySession', id, readyProgress);
         }
         resolve();
       },

@@ -531,7 +531,7 @@ None.
 **Acceptance Criteria:**
 
 1. The pane does not focus while readiness remains unacknowledged. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-043 AC2-AC3: keeps one unfocused startup attachment through ready) -->
-2. OPEN displays a renderable selected terminal pane without requiring a page reload. <!-- @impl: web-ui/src/components/Terminal.tsx::Terminal --> <!-- @test: web-ui/src/__tests__/components/Terminal.test.tsx (REQ-TERM-043 AC4, AC7; REQ-TERM-044 AC2: OPEN creates and focuses a fresh renderable terminal) -->
+2. Ready for the current Start makes OPEN available. OPEN displays a renderable selected terminal pane without requiring a page reload. <!-- @impl: web-ui/src/stores/session.ts::startSession --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-TERM-043: matching Ready shows Open and releases startup on click) --> <!-- @impl: web-ui/src/components/Terminal.tsx::Terminal --> <!-- @test: web-ui/src/__tests__/components/Terminal.test.tsx (REQ-TERM-043 AC4, AC7; REQ-TERM-044 AC2: OPEN creates and focuses a fresh renderable terminal) -->
 3. OPEN leaves terminal panes belonging to other sessions unchanged. <!-- @impl: web-ui/src/components/Layout.tsx::handleOpenSessionById --> <!-- @impl: web-ui/src/components/Terminal.tsx::Terminal --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-TERM-043 AC6: OPEN dismisses readiness without directly manipulating transport) --> <!-- @test: web-ui/src/__tests__/components/Terminal.test.tsx (REQ-TERM-043 AC6: OPEN leaves foreign-session terminal instances unchanged) -->
 4. After OPEN, the selected terminal pane receives focus. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/components/Terminal.test.tsx (REQ-TERM-043 AC4, AC7; REQ-TERM-044 AC2: OPEN creates and focuses a fresh renderable terminal) -->
 
@@ -541,7 +541,7 @@ None.
 
 **Dependencies:** [REQ-TERM-046](#req-term-046-visible-terminal-startup-connection)
 
-**Verification:** Automated: [useTerminal.test.ts](../../web-ui/src/__tests__/hooks/useTerminal.test.ts), [Terminal.test.tsx](../../web-ui/src/__tests__/components/Terminal.test.tsx), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx)
+**Verification:** Automated: [useTerminal.test.ts](../../web-ui/src/__tests__/hooks/useTerminal.test.ts), [Terminal.test.tsx](../../web-ui/src/__tests__/components/Terminal.test.tsx), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts)
 
 **Status:** Implemented
 

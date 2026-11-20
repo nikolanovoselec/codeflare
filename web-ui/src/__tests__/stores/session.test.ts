@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@solidjs/testing-library';
+import { createComponent, Show } from 'solid-js';
+import InitProgress from '../../components/InitProgress';
 
 const terminalLifecycle = vi.hoisted(() => ({
   ownedSessionIds: new Set<string>(),
@@ -1834,6 +1837,41 @@ describe('Session Store', () => {
       expect(sessionStore.isSessionInitializing('session-1')).toBe(false);
     });
 
+    it('REQ-TERM-043: matching Ready shows Open and releases startup on click', async () => {
+      const id = 'terminal-ready-session';
+      mockGetSessions.mockResolvedValue([{
+        id, name: 'Terminal', workspace: 'terminal', status: 'stopped', lifecycle: 'stopped', generation: 6, revision: 1,
+        createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      }]);
+      await sessionStore.loadSessions();
+      const ready = { stage: 'ready', progress: 100, message: 'Container ready' } as const;
+      let deliverReady!: () => void;
+      vi.mocked(api.startSession).mockImplementation((_id, onProgress, onComplete) => {
+        deliverReady = () => { onProgress(ready); onComplete(7); };
+        return () => {};
+      });
+      const starting = sessionStore.startSession(id);
+      try {
+        render(() => createComponent(Show, {
+          get when() { return sessionStore.isSessionInitializing(id); },
+          get children() {
+            return createComponent(InitProgress, {
+              sessionName: 'Terminal',
+              get progress() { return sessionStore.getInitProgressForSession(id); },
+              onOpen: () => sessionStore.dismissInitProgressForSession(id),
+            });
+          },
+        }));
+        expect(screen.queryByRole('button', { name: 'Open' })).not.toBeInTheDocument();
+        deliverReady();
+        await starting;
+        expect(screen.getByText('Container ready')).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+        expect(screen.queryByTestId('init-progress')).not.toBeInTheDocument();
+        expect(sessionStore.sessions.find(session => session.id === id)?.status).toBe('running');
+      } finally { cleanup(); }
+    });
+
     it('REQ-IDE-048 AC2 + REQ-IDE-050 AC1: completes VS Code startup without creating terminal state', async () => {
       sessionStore.initializeTerminalsForSession('session-1');
       expect(sessionStore.getTerminalsForSession('session-1')).not.toBeNull();
@@ -1873,8 +1911,12 @@ describe('Session Store', () => {
       mockGetBatchSessionStatus.mockResolvedValue({ statuses: {} });
       await sessionStore.loadSessions();
       let complete!: (generation: number) => void;
-      vi.mocked(api.startSession).mockImplementation((_id, _progress, onComplete) => {
-        complete = onComplete;
+      vi.mocked(api.startSession).mockImplementation((_id, onProgress, onComplete) => {
+        complete = (generation) => {
+          onProgress({ stage: 'ready', progress: 100, message: 'Stale ready' });
+          expect(sessionStore.getInitProgressForSession(editor.id)).toBeNull();
+          onComplete(generation);
+        };
         return () => {};
       });
       const start = sessionStore.startSession(editor.id);
