@@ -97,9 +97,15 @@ describe.each([false, true])('OAuthConnectCard (compact=%s)', compact => {
       expect(screen.getByTestId('cloudflare-connected-badge')).toBeInTheDocument();
       expect(screen.getByTestId('cloudflare-identity')).toHaveTextContent('acme-co');
       expect(screen.queryByTestId('cloudflare-connect-btn')).not.toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: 'Re-authorize' })).not.toBeInTheDocument();
       fireEvent.click(screen.getByTestId('cloudflare-disconnect-btn'));
       expect(onDisconnect).toHaveBeenCalled();
+    });
+
+    it.runIf(!compact)('keeps Re-authorize out of connected onboarding cards with tier options', () => {
+      render(() => <OAuthConnectCard {...card} status="connected"
+        tierOptions={{ tiers: GITHUB_TIERS, selected: 'recommended', onSelect: vi.fn() }} />);
+      expect(screen.getByRole('button', { name: 'Disconnect' })).toBeEnabled();
+      expect(screen.queryByRole('button', { name: 'Re-authorize' })).not.toBeInTheDocument();
     });
 
     it('renders an account picker and routes selection when accounts are provided', () => {

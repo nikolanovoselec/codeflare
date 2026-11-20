@@ -81,23 +81,32 @@ function readConnection(dk: DeployKeys | null): CloudflareConnection | null {
 
 /**
  * Persist a Cloudflare connection into the deploy-keys entry, preserving the
- * GitHub fields. Shared write path for the OAuth flow.
+ * GitHub fields. On a new grant, only select an account proven accessible by it.
  */
 export async function storeCloudflareConnection(
   env: Env,
   bucketName: string,
   conn: CloudflareConnection,
-): Promise<void> {
+  accessibleAccounts?: readonly CloudflareAccount[],
+): Promise<string | undefined> {
   const existing = (await readDeployKeys(env, bucketName)) ?? {};
+  const previousAccountId = existing.cloudflareAccountId ?? undefined;
+  let accountId = conn.accountId ?? previousAccountId;
+  if (accessibleAccounts) {
+    accountId = accessibleAccounts.length === 1
+      ? accessibleAccounts[0].id
+      : accessibleAccounts.find(account => account.id === previousAccountId)?.id;
+  }
   const updated: DeployKeys = {
     ...existing,
     cloudflareApiToken: conn.accessToken,
     cloudflareTokenSource: conn.source,
     cloudflareRefreshToken: conn.refreshToken ?? null,
     cloudflareTokenExpiresAt: conn.expiresAt ?? null,
-    cloudflareAccountId: conn.accountId ?? existing.cloudflareAccountId ?? null,
+    cloudflareAccountId: accountId ?? null,
   };
   await writeDeployKeys(env, bucketName, updated);
+  return accountId;
 }
 
 /** Remove all Cloudflare fields; delete the entry entirely if nothing else remains. */
@@ -351,9 +360,8 @@ export async function applyCloudflareOAuthToken(
 
 /**
  * Exchange an authorization code, persist the connection, and resolve the
- * account. Returns the connection plus the accessible accounts: when exactly one
- * account exists it is auto-selected and persisted; with several, the caller
- * routes the user to account selection.
+ * account. Auto-select the sole accessible account or retain a previous selection
+ * that the new grant can still access; otherwise let the user choose.
  */
 export async function connectCloudflare(
   env: Env,
@@ -371,10 +379,8 @@ export async function connectCloudflare(
   } catch (err) {
     logger.warn('Cloudflare account resolution failed after connect', { err: String(err) });
   }
-  if (accounts.length === 1) conn.accountId = accounts[0].id;
-
-  await storeCloudflareConnection(env, bucketName, conn);
-  return { accounts, accountId: conn.accountId };
+  const accountId = await storeCloudflareConnection(env, bucketName, conn, accounts);
+  return { accounts, accountId };
 }
 
 /**

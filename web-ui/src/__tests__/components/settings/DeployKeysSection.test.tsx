@@ -139,7 +139,10 @@ describe('DeployKeysSection (Settings Integrations)', () => {
     fireEvent.click(reauthorize);
     const confirm = screen.getByRole('button', { name: 'Continue to Cloudflare' });
     expect(confirm).toBeDisabled();
-    expect(screen.getAllByRole('radio').every(radio => !(radio as HTMLInputElement).checked)).toBe(true);
+    expect(screen.getAllByRole('radio')).toHaveLength(3);
+    for (const name of ['Minimal', 'Recommended', 'Advanced']) {
+      expect(screen.getByRole('radio', { name })).not.toBeChecked();
+    }
     expect(location.href).toBe('');
     fireEvent.click(screen.getByRole('radio', { name: 'Advanced' }));
     expect(confirm).toBeEnabled();

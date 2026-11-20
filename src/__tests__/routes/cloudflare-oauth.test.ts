@@ -229,6 +229,39 @@ describe('GET /auth/cloudflare/connect/callback', () => {
     expect(res.headers.get('location')).toContain('cloudflare=select-account');
   });
 
+  it.each([
+    ['b', 'connected', 'b'],
+    ['inaccessible', 'select-account', undefined],
+  ] as const)('REQ-AGENT-064 AC3: reauthorization routes and reports the account for a prior selection of %s', async (previous, outcome, selected) => {
+    configureClient();
+    const state = await validState();
+    const accounts = [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }];
+    mockKV._set(KEY, { cloudflareApiToken: 'old-token', cloudflareTokenSource: 'oauth', cloudflareAccountId: previous } satisfies DeployKeys);
+    mockFetch
+      .mockResolvedValueOnce(ok({ access_token: 'replacement', refresh_token: 'new-refresh', expires_in: 3_600 }))
+      .mockResolvedValueOnce(ok({ success: true, result: accounts }));
+    const app = createTestApp(BASE_ENV);
+    const callback = await app.request(`/auth/cloudflare/connect/callback?code=abc&state=${encodeURIComponent(state)}`);
+    expect(callback.status).toBe(302);
+    expect(callback.headers.get('location')).toContain(`cloudflare=${outcome}`);
+
+    if (!selected) mockFetch.mockResolvedValueOnce(ok({ success: true, result: accounts }));
+    const status = await app.request('/api/cloudflare/status');
+    expect(status.status).toBe(200);
+    const body = await status.json();
+    const connected = { configured: true, connected: true, source: 'oauth' };
+    if (selected) {
+      expect(body).toEqual({ ...connected, accountId: selected });
+    } else {
+      expect(body).toEqual({ ...connected, accounts });
+      mockFetch.mockResolvedValueOnce(ok({ success: true, result: accounts }));
+      const pick = await app.request('/api/cloudflare/account', { method: 'POST',
+        headers: { 'content-type': 'application/json' }, body: JSON.stringify({ accountId: 'a' }) });
+      expect(pick.status).toBe(200);
+      expect(await (await app.request('/api/cloudflare/status')).json()).toEqual({ ...connected, accountId: 'a' });
+    }
+  });
+
   it('redirects expired on an invalid state and never exchanges a code', async () => {
     configureClient();
     const res = await createTestApp(BASE_ENV).request(

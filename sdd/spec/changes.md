@@ -4,6 +4,11 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-20: Re-authorize a Cloudflare integration
+
+- REQ-AGENT-018 and REQ-AGENT-028 label the connected Account ID and add Re-authorize to Settings. Select a permission tier to continue without disconnecting; Cancel leaves the connection unchanged.
+- REQ-AGENT-064 keeps the previously selected account only if the new grant can access it. If no selection is valid, Codeflare selects the sole accessible account or offers account selection.
+
 ## 2026-11-19: Resolve local Review before GitHub discovery
 
 - REQ-OPERATOR-053 adds a bounded, ordinary-session-owned enrollment read on the existing owner transport. Empty/disabled enrollment and another known repository's Action select the existing local engine before GitHub discovery; legacy unknown names and unreadable configuration cannot establish absence. Verified enrollment retains its canonical repository name. A remote candidate still requires the existing exact-PR, Action, Conductor and human-authority checks.
