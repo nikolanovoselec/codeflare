@@ -578,7 +578,7 @@ All preseed content is deployed via the manifest pipeline:
    (`default`, `advanced`, or both)
 3. The seed compiler reads manifested files, applies every agent transform, and
    writes the generated runtime module.
-4. On first bucket creation, `reconcileAgentConfigs()` writes files for the resolved mode and deployment-selected coding agents to R2.
+4. If Start creates the bucket, `reconcileAgentConfigs()` seeds the resolved mode and deployment-selected coding agents. Browse-triggered creation uses the stored mode (or the Enterprise override) and the baked inventory without a deployment agent selection. Neither path overwrites existing files or runs cleanup during this first seed. <!-- @impl: src/routes/container/lifecycle-init.ts::ensureBucketAndSeed --> <!-- @impl: src/routes/storage/browse.ts::app -->
 5. **Recreate skills & rules** runs a full selected-target reconcile and removes exact generated paths owned by inactive agents.
 6. The Worker's ancillary status route constructs upgrade identity and compares stored state; the frontend consumes that projection. Active managed releases compare digest, sequence, resolved mode, agent projection and resource policy (including required applied digests/pending targets). Only inactive curation compares baked content hash/projection. An owning session blocks upgrade; discovery errors fail closed without an upgrade offer.
 7. Bisync pulls from R2 to container config directories
@@ -756,7 +756,7 @@ Use the installed Pi SDK and native MCP adapter in an in-memory session with an 
 3. After each phase, repeat provider readback. Require no newly acquired session while status/discovery succeeds; record cold-cache state, installed versions and observations. Account for concurrent writers instead of attributing their sessions to this test.
 4. Shut down only the isolated adapter and remove its temporary files. Never close an unrelated provider session or copy credentials into a fixture.
 
-This observes a bounded installed-runtime execution, not every future adapter version. The provider session endpoint is an observation surface; listing MCP tools alone is not.
+This observes cold discovery only. MCP transport connection is also distinct from browser acquisition: the Chrome server acquires the browser when it handles the first browser-dependent tool call. A cold-discovery run that does not connect or call a tool does not verify those later phases. Listing MCP tools alone is not provider evidence.
 
 #### Browser read registration observation
 
@@ -766,7 +766,7 @@ For BROWSER-003 AC6, native Pi skill materialization is owned by the Pi manifest
 
 For BROWSER-005 AC2/AC4, reuse [Claude Browser Run observation](#claude-browser-run-observation) for existing gate/startup comparisons, and the [Claude decision order](../../preseed/agents/claude/skills/browser-run/SKILL.md#decision-order-cheapest-that-does-the-job). The supplemental registration owner is the top-level advanced/complete-credential Browser Run block, specifically `BROWSER_RUN_MCP_CLAUDE`, not `configure_consult_llm`. <!-- @impl: entrypoint.sh::BROWSER_RUN_MCP_CLAUDE --> Privately verify `browser-run` uses `node /opt/codeflare/browser-run-mcp/index.mjs` and its scoped environment matches the configured token/account source; record only equality/presence booleans. Correlate image identity and existing image-build import-smoke evidence with delivered files; do not install or launch a replacement server. Discover and exercise all three read MCP tools with the approved public target and bounded selectors, following the canonical skill. PASS requires correct image delivery, gated registration, scoped values and cheap-read-before-interaction guidance. Missing evidence is BLOCKED; mismatches are FAIL. REST observations do not qualify CDP authentication.
 
-For BROWSER-007 AC5, additionally reuse Claude's denied-state registration comparison on the same candidate revision and inspect both runtimes' delivered `browser-run`/`browser-e2e` skill inventories. A missing-token state must have neither owned Claude MCP registration, no Pi interactive registration, no native read tools and neither skill. Preserve unrelated server definitions. PASS requires every absence and preservation comparison; unexpected exposure is FAIL. A tool absent only from an initial abbreviated list is not proof: inspect native discovery and configured MCP catalogues separately. This checks seeding/registration, not resource acquisition, and does not resolve BROWSER-006 AC7.
+For BROWSER-007 AC5, additionally reuse Claude's denied-state registration comparison on the same candidate revision and inspect both runtimes' delivered `browser-run`/`browser-e2e` skill inventories. A missing-token state must have neither owned Claude MCP registration, no Pi interactive registration, no native read tools and neither skill. Preserve unrelated server definitions. PASS requires every absence and preservation comparison; unexpected exposure is FAIL. A tool absent only from an initial abbreviated list is not proof: inspect native discovery and configured MCP catalogues separately. This checks the startup-exposed surface, not whether the files existed in the seed before startup or whether a browser was acquired. It does not resolve BROWSER-006 AC7.
 
 ### Inline editor result delivery
 

@@ -268,7 +268,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 - CPU is billed on active usage only; Memory and disk are billed on provisioned resources during active time.
 - R2 storage is billed by GB-month, with a free tier covering small workspaces.
 - Cost scales per active session, not per user.
-- Idle defaults, selectable presets and legacy/free-tier policies live in [REQ-SESSION-004](session-lifecycle.md#req-session-004-idle-containers-sleep-after-configurable-timeout) and [REQ-SESSION-014](session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings).
+- Idle defaults, selectable presets and legacy-value handling live in [REQ-SESSION-004](session-lifecycle.md#req-session-004-idle-containers-sleep-after-configurable-timeout) and [REQ-SESSION-014](session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings).
 - Idle-timeout persistence + lifecycle mechanics live in [REQ-OPS-016](#req-ops-016-sleepafter-preference-persistence-and-lifecycle).
 - Idle-timeout fail-safe invariants live in [REQ-OPS-017](#req-ops-017-sleepafter-fail-safe-invariants).
 
@@ -536,7 +536,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 1. Deployment binds the selected image: a freshly pushed registry tag or the verified digest of a reused image. The deploy step does not rebuild it. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
 2. Container resource sizing is applied per the configured tier (low, default/saas, or high). <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
 3. All tiers default to 10 concurrent instances; the cap is overridable per deployment. <!-- @manual -->
-4. Cache bust bypasses registry reuse and supplies the current commit SHA to agent installation layers. A changed token invalidates affected layers while leaving unrelated BuildKit caching available; rerunning the same token does not guarantee a fresh layer. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
+4. Cache bust bypasses registry reuse and supplies the current commit SHA to agent installation layers. A changed token invalidates affected layers while leaving unrelated BuildKit caching available; rerunning the same token does not guarantee a fresh layer. <!-- @impl: .github/workflows/deploy.yml::cache_bust --> <!-- @impl: .github/workflows/container-image.yml::Write cache buster (force fresh npm install layers) --> <!-- @impl: Dockerfile::.cache-bust --> <!-- @manual -->
 5. Source-controlled container configuration disables SSH and contains no authorized key. <!-- @impl: wrangler.toml::containers.ssh --> <!-- @test: host/__tests__/container-ssh-config.test.js (keeps SSH disabled when the repository secret is absent) -->
 6. The image workflow captures the content-addressed tag for downstream binding. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual -->
 
@@ -549,7 +549,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-002](#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push)
 
-**Verification:** Automated: [index.test.ts](../../src/__tests__/container/index.test.ts), [container-ssh-config.test.js](../../host/__tests__/container-ssh-config.test.js); Manual: [Allocation and image binding acceptance](../../documentation/lanes/deployment.md#allocation-and-image-binding-acceptance)
+**Verification:** Automated: [container-ssh-config.test.js](../../host/__tests__/container-ssh-config.test.js); Manual: [Allocation and image binding acceptance](../../documentation/lanes/deployment.md#allocation-and-image-binding-acceptance)
 
 **Status:** Implemented
 

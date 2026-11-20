@@ -352,13 +352,13 @@ None. Authentication is foundational; other domains depend on it.
 **Acceptance Criteria:**
 
 1. First-login provisioning submits a welcome email within the newly provisioned user's existing ownership boundary. <!-- @impl: src/lib/access.ts::resolveOrProvisionUser --> <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/lib/access.test.ts (resolveOrProvisionUser — strongly consistent welcome email claim / REQ-AUTH-012) -->
-2. Login awaits the welcome submission within the request lifetime; provider failure is logged without failing login. <!-- @impl: src/lib/access.ts::queueWelcomeEmail --> <!-- @test: src/__tests__/lib/access.test.ts (resolveOrProvisionUser — strongly consistent welcome email claim / REQ-AUTH-012) -->
+2. Login awaits Timekeeper's welcome submission result. A rejected response or thrown submission is logged without failing login. <!-- @impl: src/lib/access.ts::queueWelcomeEmail --> <!-- @test: src/__tests__/lib/access.test.ts (resolveOrProvisionUser — strongly consistent welcome email claim / REQ-AUTH-012) -->
 3. Welcome delivery claims serialize per user; durable provider acceptance prevents another send. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/lib/access.test.ts (resolveOrProvisionUser — strongly consistent welcome email claim / REQ-AUTH-012) -->
 4. A rejected or unconfigured-provider send remains unclaimed and retryable on a later login, using the same deterministic provider idempotency key. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @impl: src/lib/email.ts::sendEmail --> <!-- @test: src/__tests__/lib/access.test.ts (resolveOrProvisionUser — strongly consistent welcome email claim / REQ-AUTH-012) -->
 
 **Constraints:**
 
-- Timekeeper submission is awaited within the login request lifetime; provider failure must be logged without failing login.
+- The nonfatal failure path covers submission to Timekeeper, not earlier configuration and owner resolution.
 - Email content must not expose internal system details.
 
 **Priority:** P2
@@ -433,9 +433,9 @@ None.
 **Acceptance Criteria:**
 
 1. Onboarding has four steps: idle timeout, **Connect GitHub**, **Connect Cloudflare**, and [agent subscription](#req-auth-025-guided-setup-agent-subscription-cards). Both connection steps share OAuth cards under [REQ-GITHUB-007](github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise) and [REQ-AGENT-064](agents.md#req-agent-064-connect-to-cloudflare-via-oauth), without manual token paste. <!-- @impl: web-ui/src/components/OnboardingPage.tsx::OnboardingPage --> <!-- @test: web-ui/src/__tests__/components/OnboardingPage.test.tsx (OnboardingPage / REQ-AUTH-015 (onboarding-mode public landing page)) -->
-2. The idle timeout step explains compute usage and lets users choose their auto-sleep duration. Free-tier users see a locked 15m selector with upgrade hint; paying users can select 15m-4h. <!-- @impl: web-ui/src/components/OnboardingPage.tsx::OnboardingPage --> <!-- @test: web-ui/src/__tests__/components/OnboardingPage.test.tsx (REQ-AUTH-015 AC2: the idle-timeout selector offers the paying 15m-4h options) -->
-3. First-time users are auto-redirected to onboarding. <!-- @test: web-ui/src/__tests__/components/auth-007-app-redirect.test.tsx (REQ-AUTH-007 AC5: first-time active user redirected to onboarding) --> <!-- @manual -->
-4. Once onboarding has been completed, the user is not redirected there again. <!-- @test: web-ui/src/__tests__/components/auth-007-app-redirect.test.tsx (REQ-AUTH-007 AC5: first-time active user redirected to onboarding) --> <!-- @manual -->
+2. Guided Setup explains compute usage and lets users choose 1h, 2h, 4h, 8h, or 12h. It defaults to 1h when unset and displays a saved legacy duration without offering it as a new selection. <!-- @impl: web-ui/src/components/OnboardingPage.tsx::OnboardingPage --> <!-- @test: web-ui/src/__tests__/components/OnboardingPage.test.tsx (REQ-AUTH-015 AC2: offers the shared idle presets and saves a new selection) --> <!-- @test: web-ui/src/__tests__/components/OnboardingPage.test.tsx (REQ-AUTH-015 AC2: Guided Setup shows a saved legacy timeout without offering it for selection) -->
+3. The app redirects a first-time active user in non-Enterprise SaaS to Guided Setup. Pending users go to subscription first. <!-- @impl: web-ui/src/App.tsx::AppContent --> <!-- @test: web-ui/src/__tests__/components/auth-007-app-redirect.test.tsx (REQ-AUTH-007 AC5: first-time active user redirected to onboarding) --> <!-- @manual -->
+4. The app skips the automatic Guided Setup redirect once the account response confirms persisted onboarding completion. <!-- @impl: web-ui/src/App.tsx::AppContent --> <!-- @test: web-ui/src/__tests__/components/auth-007-app-redirect.test.tsx (REQ-AUTH-007 AC5: first-time active user redirected to onboarding) --> <!-- @manual -->
 
 **Constraints:** None.
 
@@ -617,11 +617,11 @@ None.
 
 **Acceptance Criteria:**
 
-1. The authenticated user response returns identity, account status and SaaS billing-effective allowed session modes without creating resources. <!-- @impl: src/routes/user-profile.ts::app --> <!-- @test: src/__tests__/routes/user-profile.test.ts (User Profile Routes) --> <!-- @test: src/__tests__/routes/user-profile.test.ts (REQ-SUB-014 / REQ-AUTH-019: projects billing-effective configured modes ($billingStatus, $subscribedMode)) -->
+1. The profile handler returns identity, account status, and SaaS billing-effective allowed session modes without itself creating a bucket or token. The preceding authentication path can still provision identity. <!-- @impl: src/routes/user-profile.ts::app --> <!-- @test: src/__tests__/routes/user-profile.test.ts (User Profile Routes) --> <!-- @test: src/__tests__/routes/user-profile.test.ts (REQ-SUB-014 / REQ-AUTH-019: projects billing-effective configured modes ($billingStatus, $subscribedMode)) -->
 2. Completing onboarding marks the user's stored record onboarding-complete so later logins skip the onboarding redirect; it is a no-op when the user has no stored record yet. <!-- @test: src/__tests__/routes/user-profile.test.ts (User Profile Routes) --> <!-- @manual -->
-3. Token-status inspection reports whether a scoped R2 token already exists for the current user. <!-- @test: src/__tests__/routes/user-profile.test.ts (User Profile Routes) --> <!-- @manual -->
+3. Token-status inspection reports whether a cached scoped R2 credential entry exists for the current user. It does not expose the credential or verify it with the provider. <!-- @test: src/__tests__/routes/user-profile.test.ts (User Profile Routes) --> <!-- @manual -->
 4. Ensuring storage readiness creates the user's scoped R2 token when absent, returning ready on success, 503 when account setup is incomplete and 500 on provisioning failure. <!-- @test: src/__tests__/routes/user-profile.test.ts (User Profile Routes) --> <!-- @manual -->
-5. Every endpoint requires authentication; unauthenticated requests are rejected with 401. <!-- @test: src/__tests__/routes/user-profile.test.ts (User Profile Routes) --> <!-- @manual -->
+5. Every endpoint requires active-user authentication. Missing identity returns 401 after earlier request guards; a rejected CSRF check on a write returns 403 first. <!-- @test: src/__tests__/routes/user-profile.test.ts (User Profile Routes) --> <!-- @manual -->
 6. Requests to ensure a scoped R2 token are rate-limited per user to bound token-provisioning abuse. <!-- @test: src/__tests__/routes/rate-limits.test.ts (POST /user/ensure-r2-token - ensure-r2-token (5/min)) --> <!-- @manual -->
 
 **Constraints:**
@@ -646,11 +646,11 @@ None.
 
 **Acceptance Criteria:**
 
-1. When the onboarding binding is `active` and the SaaS binding is not `active`, sign-in requests receive the dedicated onboarding login assets. <!-- @impl: src/index.ts::fetch --> <!-- @test: src/__tests__/routes/onboarding-login.test.ts (REQ-AUTH-020 / REQ-AUTH-021: onboarding login + access-request) -->
+1. After setup, `/login` and `/login/` in onboarding without SaaS serve the dedicated landing login when the asset is available; missing output falls back to the SPA policy. <!-- @impl: src/index.ts::fetch --> <!-- @test: src/__tests__/routes/onboarding-login.test.ts (REQ-AUTH-020 / REQ-AUTH-021: onboarding login + access-request) -->
 2. The onboarding login shares the landing appearance with preloaded fonts and login navigation. <!-- @impl: landing/src/pages/login.astro::BaseLayout --> <!-- @test: landing/src/__tests__/login-page.test.ts (onboarding login page (REQ-AUTH-020 / REQ-AUTH-021)) -->
-3. The onboarding login first paints without the marketing page's WebGL or motion effects. <!-- @impl: landing/src/layouts/BaseLayout.astro::canonical --> <!-- @test: landing/src/__tests__/login-page.test.ts (inherits the shared nav and font preloads while omitting landing-only motion hooks) -->
+3. The onboarding login first paints without initializing the marketing page's WebGL or motion effects. <!-- @impl: landing/src/layouts/BaseLayout.astro::flareFluid --> <!-- @impl: landing/src/layouts/BaseLayout.astro::landingScripts --> <!-- @test: landing/src/__tests__/login-page.test.ts (inherits the shared nav and font preloads while omitting landing-only motion hooks) -->
 4. In SaaS mode, the login page is unchanged and continues to serve the existing SPA login. <!-- @impl: src/index.ts::fetch --> <!-- @test: src/__tests__/routes/onboarding-login.test.ts (REQ-AUTH-020 / REQ-AUTH-021: onboarding login + access-request) -->
-5. The landing-built login remains on the dark canvas until its shared stylesheet and critical fonts are ready. <!-- @impl: landing/src/layouts/BaseLayout.astro::data-design-ready --> <!-- @test: landing/src/__tests__/login-page.test.ts (inherits the shared final-design gate before exposing the login shell) -->
+5. With JavaScript enabled, the landing-built login holds the dark canvas until its shared stylesheet and critical fonts load. Without JavaScript it shows the server-rendered content. <!-- @impl: landing/src/layouts/BaseLayout.astro::data-design-ready --> <!-- @test: landing/src/__tests__/login-page.test.ts (inherits the shared final-design gate before exposing the login shell) --> <!-- @test: landing/src/__tests__/design-ready.script.test.ts (keeps the document hidden through stylesheet and critical-font loading, then reveals once) -->
 
 **Constraints:**
 
@@ -679,8 +679,8 @@ None.
 3. The onboarding access-request branch never runs in SaaS mode or enterprise mode. <!-- @impl: src/routes/github-auth.ts::onboardingAccessRequest --> <!-- @test: src/__tests__/routes/onboarding-login.test.ts (REQ-AUTH-020 / REQ-AUTH-021: onboarding login + access-request) -->
 4. Onboarding trusts its app-owned session credential only in session-OIDC mode. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @impl: src/lib/onboarding.ts::isSessionOidcMode --> <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-021: valid codeflare_session authenticates in onboarding mode (SAAS inactive)) -->
 5. Active-tier middleware applies in onboarding; pending visitors with sessions remain gated out of app APIs. <!-- @impl: src/middleware/auth.ts::requireActiveUser --> <!-- @test: src/__tests__/middleware/auth-saas.test.ts (REQ-AUTH-021: blocks pending users with 403 PENDING in onboarding mode (SAAS inactive)) -->
-6. First-request notification and confirmation emails for non-approved onboarding GitHub users are best-effort. <!-- @impl: src/routes/github-auth.ts::onboardingAccessRequest --> <!-- @impl: src/lib/email.ts::sendAccessRequestConfirmation --> <!-- @test: src/__tests__/routes/onboarding-login.test.ts (REQ-AUTH-020 / REQ-AUTH-021: onboarding login + access-request) -->
-7. The onboarding login's enterprise SSO request controls deep-link to the contact form. <!-- @impl: landing/src/scripts/contact-controller.ts::pickDeepLinkTopic --> <!-- @test: landing/src/__tests__/login-page.test.ts (every SSO button is a CTA deep-linking to the contact form, never a real auth route) -->
+6. After first recording the request stamp, the callback attempts the administrator notification and user confirmation independently. Either email can fail without blocking the redirect. A request already stamped is not sent again on ordinary retry. <!-- @impl: src/routes/github-auth.ts::onboardingAccessRequest --> <!-- @impl: src/lib/email.ts::sendAccessRequestConfirmation --> <!-- @test: src/__tests__/routes/onboarding-login.test.ts (REQ-AUTH-020 / REQ-AUTH-021: onboarding login + access-request) -->
+7. The onboarding login's enterprise SSO request controls deep-link to the contact form. <!-- @impl: landing/src/components/SsoAccordion.astro::LOGIN.sso.cta.href --> <!-- @impl: landing/src/scripts/contact-controller.ts::pickDeepLinkTopic --> <!-- @test: landing/src/__tests__/login-page.test.ts (every SSO button is a CTA deep-linking to the contact form, never a real auth route) -->
 
 **Constraints:**
 
@@ -707,12 +707,12 @@ None.
 
 **Acceptance Criteria:**
 
-1. An API 401 on a protected application or administration path hard-navigates to the deployment root and rejects the pending request, so bootstrap settles rather than hanging. <!-- @impl: web-ui/src/api/fetch-helper.ts::ApiError --> <!-- @test: web-ui/src/__tests__/api/fetch-helper-401-redirect.test.ts (REQ-AUTH-022 AC1: 401 on an authed page redirects + throws (never hangs)) -->
+1. An API 401 on a protected application or administration path hard-navigates to the deployment root and rejects the pending request, so bootstrap settles rather than hanging. <!-- @impl: web-ui/src/api/fetch-helper.ts::baseFetch --> <!-- @impl: web-ui/src/api/fetch-helper.ts::redirectExpiredSession --> <!-- @test: web-ui/src/__tests__/api/fetch-helper-401-redirect.test.ts (REQ-AUTH-022 AC1: 401 on an authed page redirects + throws (never hangs)) -->
 2. Bootstrap expiry starts top-level sign-in and replaces the loading shell with a non-empty redirecting state, including when the 401 lacks API-helper metadata. <!-- @impl: web-ui/src/App.tsx::AppContent --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (REQ-AUTH-022 AC2: expired-session 401 shows the redirecting state, not a hung/blank or error page) -->
 3. The application root renders a non-empty state for every mode including `redirect`, so a pending hard navigation never shows a blank document. <!-- @impl: web-ui/src/App.tsx::RootPage --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (REQ-AUTH-022 AC3: RootPage renders a non-empty redirect state (no blank document)) -->
-4. A top-level error boundary wraps the app; an unhandled bootstrap/render error renders a recovery fallback (reload control) instead of a blank document. <!-- @impl: web-ui/src/App.tsx::App --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (REQ-AUTH-022 AC4: top-level ErrorBoundary catches a render throw) -->
+4. A top-level error boundary renders a reload control for render failures caught by the boundary. Bootstrap request failures use the separate recovery path in [REQ-AUTH-024](#req-auth-024-bootstrap-service-error-recovery). <!-- @impl: web-ui/src/App.tsx::App --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (REQ-AUTH-022 AC4: top-level ErrorBoundary catches a render throw) -->
 5. Access 3xx, opaque or status-zero redirects, and HTML login responses on either successful or unsuccessful authenticated API requests settle through the same clean sign-in recovery as an explicit 401. <!-- @impl: web-ui/src/api/fetch-helper.ts::baseFetch --> <!-- @impl: web-ui/src/api/fetch-helper.ts::isHtmlResponse --> <!-- @test: web-ui/src/__tests__/api/fetch-helper-401-redirect.test.ts (REQ-AUTH-022 AC5: Access response shapes navigate the top-level app instead of stranding it ($label)) -->
-6. A hidden-to-visible transition or persisted bfcache `pageshow` revalidates the authenticated user once; overlapping resume events are deduplicated, expiry replaces the loaded app with the existing redirecting state, and valid sessions continue unchanged. <!-- @impl: web-ui/src/App.tsx::App --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (REQ-AUTH-022 AC6: restored app resume revalidates once and preserves valid sessions) -->
+6. A hidden-to-visible transition or persisted bfcache `pageshow` revalidates the authenticated user once; overlapping resume events are deduplicated, expiry replaces the loaded app with the existing redirecting state, and valid sessions continue unchanged. <!-- @impl: web-ui/src/App.tsx::revalidateAuthAfterResume --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (REQ-AUTH-022 AC6: restored app resume revalidates once and preserves valid sessions) -->
 7. The restored application uses the Worker-served fingerprinted-asset caching policy in [REQ-OPS-175](operations.md#req-ops-175-worker-served-build-asset-caching). <!-- @impl: src/index.ts::dispatch --> <!-- @test: src/__tests__/index.test.ts (REQ-AUTH-022 AC7: serves fingerprinted Vite app assets with immutable caching) -->
 
 **Constraints:**
@@ -743,7 +743,7 @@ None.
 
 1. Bootstrap network and server failures render a recoverable service-error state with the existing Retry control, not an expired-session or access-denied state. <!-- @impl: web-ui/src/App.tsx::AppContent --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (REQ-AUTH-024 AC1/AC2: bootstrap service failures remain recoverable without claiming expired authentication) -->
 2. Retry restores the authenticated application after the account service recovers. <!-- @impl: web-ui/src/App.tsx::AppContent --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (REQ-AUTH-024 AC1/AC2: bootstrap service failures remain recoverable without claiming expired authentication) -->
-3. A genuine forbidden response remains access-denied and never mounts the protected application. <!-- @impl: web-ui/src/App.tsx::AppContent --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (keeps a forbidden account separate from a recoverable service failure) -->
+3. In production, an ordinary forbidden response renders Access denied without mounting the protected application. Pending and blocked entitlement responses route to subscription instead; Access login responses follow the sign-in recovery path. <!-- @impl: web-ui/src/App.tsx::AppContent --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (keeps a forbidden account separate from a recoverable service failure) -->
 
 **Constraints:**
 

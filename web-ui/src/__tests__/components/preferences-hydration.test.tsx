@@ -63,7 +63,7 @@ async function openSettings() {
 
 function mount() {
   window.history.replaceState({}, '', `/app/session/${sessionId}`);
-  return render(() => <Layout userName="owner@example.com" userRole="user" userAccessTier="advanced" />);
+  return render(() => <Layout userName="owner@example.com" userRole="user" />);
 }
 
 beforeEach(async () => {

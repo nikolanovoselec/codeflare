@@ -27,7 +27,6 @@ function renderSection(overrides: {
   canUseAdvanced?: boolean;
   canChangeSleepAfter?: boolean;
   sleepAfter?: string;
-  isFreeUser?: boolean;
   onSleepAfterChange?: (value: string) => void;
   seedUpdateActive?: boolean;
   onSessionModeChange?: ModeChange;
@@ -49,7 +48,6 @@ function renderSection(overrides: {
     notificationAvailable: () => true,
     sleepAfter: () => overrides.sleepAfter ?? '1h',
     canChangeSleepAfter: () => overrides.canChangeSleepAfter ?? true,
-    isFreeUser: () => overrides.isFreeUser ?? false,
     recreateDocsLoading: () => false,
     recreateDocsMessage: () => null,
     recreateDocsError: () => null,
@@ -95,12 +93,6 @@ describe('REQ-SESSION-014: supported idle presets and preserved legacy values', 
     expect(current.textContent).toBe(`Current ${sleepAfter.replace('m', ' minutes')}`);
     expect(Array.from(select.options).filter(option => !option.disabled).map(option => option.value))
       .toEqual(['1h', '2h', '4h', '8h', '12h']);
-  });
-
-  it('keeps the free-plan fixed 15-minute timeout and disabled control', () => {
-    renderSection({ sleepAfter: '15m', isFreeUser: true, canChangeSleepAfter: false });
-    expect(screen.getByLabelText('Sleep after inactivity')).toBeDisabled();
-    expect(screen.getByTestId('settings-sleep-after-hint')).toHaveTextContent('Fixed at 15 minutes on the Free plan.');
   });
 });
 

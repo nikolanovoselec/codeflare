@@ -76,8 +76,8 @@ type SubscribePhase = 'home' | 'tiers';
 /** Per-tier feature bullets. Use '{sessions}' as placeholder — replaced at render
  *  time with the actual maxSessions value from tier config (admin-configurable). */
 const TIER_FEATURES: Record<string, string[]> = {
-  free: ['All agents, ready instantly', 'Persistent cloud storage', 'GitHub & Cloudflare deploy'],
-  standard: ['Everything in Free', 'Unlocks Pro mode', 'Configurable idle timeout', 'Priority support'],
+  free: ['All agents, ready instantly', 'Persistent cloud storage', 'GitHub & Cloudflare deploy', 'Configurable idle timeout'],
+  standard: ['Everything in Free', 'Unlocks Pro mode', 'Priority support'],
   advanced: ['Everything in Starter', 'Run {sessions} sessions at once', 'Work across parallel branches', 'Priority support'],
   max: ['Everything in Advanced', 'Run {sessions} sessions at once', '4x the compute of Starter', 'OpenClaw Integration'],
   unlimited: ['Everything in Max', 'Unlimited compute hours', 'Run {sessions} sessions at once', 'OpenClaw Integration', 'Dedicated support'],

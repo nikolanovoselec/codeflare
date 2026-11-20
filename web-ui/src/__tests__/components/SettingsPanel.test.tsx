@@ -169,7 +169,7 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
       for (const tier of ['free', 'standard', 'advanced', 'max', 'unlimited'] as const) {
         sessionStoreState.preferences = { sessionMode: mode };
         mockGetUser.mockResolvedValue({ email: 'owner@example.com', authenticated: true, subscriptionTier: tier, subscribedMode: mode });
-        render(() => <SettingsPanel isOpen={true} onClose={() => {}} currentUserRole="user" currentUserAccessTier="standard" enterpriseMode={enterprise} />);
+        render(() => <SettingsPanel isOpen={true} onClose={() => {}} currentUserRole="user" enterpriseMode={enterprise} />);
         const header = screen.getByRole('button', { name: /Model Context Protocol.*Connect portals/ });
         fireEvent.click(header);
         expect(header).toHaveAttribute('aria-expanded', 'true');
@@ -905,6 +905,20 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
       fireEvent.click(screen.getByTestId('accordion-header-session'));
       const select = await screen.findByTestId('settings-sleep-after-select');
       expect(select).not.toBeDisabled();
+    });
+
+    it('REQ-SESSION-014 AC3: a Free user can change auto-sleep in Settings', async () => {
+      mockGetUser.mockResolvedValue({
+        email: 'free@example.com', authenticated: true, bucketName: 'test',
+        accessTier: 'free', hasSubscribed: true,
+      });
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} currentUserRole="user" />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
+      const select = await screen.findByLabelText('Sleep after inactivity');
+      await waitFor(() => expect(select).toBeEnabled());
+      expect(select).toHaveValue('1h');
+      fireEvent.change(select, { target: { value: '8h' } });
+      expect(sessionStoreState.updatePreferences).toHaveBeenCalledWith({ sleepAfter: '8h' });
     });
 
     it('renders "Administration" group heading for admins', () => {

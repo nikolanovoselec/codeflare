@@ -53,7 +53,6 @@ function pruneNonRunningSessionState<T>(
 interface LayoutProps {
   userName?: string;
   userRole?: 'admin' | 'user';
-  userAccessTier?: import('../types').AccessTier;
   userSubscriptionTier?: import('../types').SubscriptionTier;
   onboardingActive?: boolean;
   enterpriseMode?: boolean;
@@ -898,7 +897,7 @@ const Layout: Component<LayoutProps> = (props) => {
       </div>
 
       {/* Settings Panel - slides in from right */}
-      <SettingsPanel isOpen={isSettingsOpen()} onClose={handleSettingsClose} currentUserEmail={props.userName} currentUserRole={props.userRole} currentUserAccessTier={props.userAccessTier} enterpriseMode={props.enterpriseMode} mcpReturnOutcome={props.mcpReturnOutcome} cloudflareReturn={cloudflareReturn()} />
+      <SettingsPanel isOpen={isSettingsOpen()} onClose={handleSettingsClose} currentUserEmail={props.userName} currentUserRole={props.userRole} enterpriseMode={props.enterpriseMode} mcpReturnOutcome={props.mcpReturnOutcome} cloudflareReturn={cloudflareReturn()} />
 
       {/* Storage Panel - slides in from right */}
       <StoragePanel isOpen={isStoragePanelOpen()} onClose={handleStoragePanelClose} />

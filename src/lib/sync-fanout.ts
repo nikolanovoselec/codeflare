@@ -53,11 +53,9 @@ export async function fanOutBisyncTrigger(
         try {
           const containerId = getContainerId(bucketName, sessionId);
           const container = getContainer(env.CONTAINER, containerId);
-          // Path intentionally NOT in the DO's typed INTERNAL_ROUTES table (no
-          // leading underscore) so the DO's fetch() override forwards
-          // through super.fetch() with auth injection. The host's
-          // /internal/bisync-trigger handler sends SIGUSR1 to the
-          // bisync daemon.
+          // This host route falls through the DO's internal dispatcher and
+          // forwards to the existing private port with the lifecycle bearer.
+          // The host signals the daemon; 202 acknowledges admission only.
           const res = await container.fetch(
             new Request('http://container/internal/bisync-trigger', {
               method: 'POST',

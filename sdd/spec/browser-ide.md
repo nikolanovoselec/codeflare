@@ -1135,12 +1135,12 @@ A full code-server browser editor for an advanced running session. The editor op
 **Constraints:**
 
 - User extensions execute arbitrary root-capable container code; code-server admits proposed APIs broadly.
-- Open VSX is the sole gallery; Microsoft Marketplace and private or user-configured galleries are unsupported.
+- Open VSX is the only supported gallery. Microsoft Marketplace and private or user-configured galleries are unsupported; the native host's gallery configuration mechanism is not a Codeflare allowlist.
 - code-server disables VSIX signatures; TLS to Open VSX is the transport boundary.
-- The mode-0600 version-1 regular manifest is bounded to 64 KiB, 50 lowercase IDs, and 32 KiB of settings.
+- The version-1 regular manifest is bounded to 64 KiB, 50 lowercase IDs, and 32 KiB of settings. Atomic writers use mode 0600; readers do not use that mode as an admission check.
 - Records require `version`; optional platform, UTC RFC3339 timestamp, and lowercase hexadecimal SHA-256 fields are bounded; unknown fields are invalid.
 - Capture follows [REQ-IDE-062](#req-ide-062-user-extension-intent-capture).
-- Managed `extensions.allowed` retains wildcard allowance plus one explicit Codeflare entry.
+- Managed `extensions.allowed` retains wildcard allowance and a fixed Codeflare entry. Verified company IDs are additive under [REQ-IDE-042](#req-ide-042-additive-company-extension-reconciliation).
 - Package bytes, enablement, keybindings, snippets, extension storage, SecretStorage, Accounts, policy UI, and extra coordination are excluded.
 - Whole-file newest-wins convergence follows the existing R2 bisync contract.
 
@@ -1277,7 +1277,7 @@ A full code-server browser editor for an advanced running session. The editor op
 1. Every Browser IDE inventory receives the managed wildcard user-extension allowance. <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-040 AC1: every inventory applies the managed user-extension allowance) -->
 2. Profile preparation replaces a stale user value with that managed allowance. <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::prepareBaseOpenVscodeSettings --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-002 AC7 + REQ-IDE-016 AC2 + REQ-IDE-040 AC2: settings preparation preserves safe UI preferences but replaces stale managed inventory settings) -->
 
-**Constraints:** `extensions.allowed` retains wildcard allowance plus one explicit Codeflare entry; fresh installs and lazy restoration share that prepared profile, while Codeflare does not own or bypass a stricter code-server operator policy.
+**Constraints:** Fresh installs and lazy restoration share the prepared allowance: wildcard and fixed Codeflare entries, plus verified company IDs under [REQ-IDE-042](#req-ide-042-additive-company-extension-reconciliation). Codeflare does not own or bypass a stricter code-server operator policy.
 
 **Priority:** P1
 

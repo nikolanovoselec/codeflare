@@ -19,28 +19,8 @@ export function countsTowardSessionLimit(status: string | undefined): boolean {
     || status === 'initializing' || status === 'r' || status === 'i';
 }
 
-/**
- * Resolve the effective per-session idle-timeout value from the user's tier
- * and stored preference.
- *
- * REQ-SESSION-014 AC2: the "free" tier is locked to 15m regardless of any
- * stored preference; all other tiers honor the stored sleepAfter (or default
- * to 1h when no preference was ever set).
- *
- * Exported so the spec-anchored unit test in
- * src/__tests__/routes/session-sleep-timeout.test.ts can call it directly
- * without spinning up the full /api/container/start integration harness.
- */
-export function resolveEffectiveSleepAfter(
-  effectiveTier: string,
-  storedSleepAfter: string | undefined,
-  env?: Pick<Env, 'ENTERPRISE_MODE'>,
-): string {
-  // Enterprise deploys: honor the stored preference (or 1h default), never the
-  // free-tier 15m lock. No-op when the flag is unset, leaving the path below
-  // unchanged.
-  if (isEnterpriseMode(env)) return storedSleepAfter || '1h';
-  if (effectiveTier === 'free') return '15m';
+/** New sessions honor the saved timeout or default to one hour across all tiers. */
+export function resolveEffectiveSleepAfter(storedSleepAfter: string | undefined): string {
   return storedSleepAfter || '1h';
 }
 

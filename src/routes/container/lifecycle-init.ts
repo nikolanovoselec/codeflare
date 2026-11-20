@@ -28,10 +28,8 @@ import { codingAgentProjectionIdentity } from '../../../scripts/ci/coding-agent-
  * Extracted to avoid duplication between initial set and post-destroy re-set.
  *
  * sleepAfter is REQUIRED here (not defaulted). The /start route resolves the
- * effective value from `(effectiveTier === 'free' ? '15m' : preferences.sleepAfter || '1h')`
- * and passes it explicitly. A missing sleepAfter at this layer would mean the
- * resolution skipped a code path and we should fail loudly rather than ship a
- * silent '30m' default that lies to the user about their configured 2h pref.
+ * effective value from stored preferences or the one-hour default and passes
+ * it explicitly. A missing value here is an error, not a second default.
  */
 function buildSetBucketNameBody(params: ContainerConfigPayload): string {
   if (!params.sleepAfter) {

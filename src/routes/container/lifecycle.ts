@@ -249,9 +249,8 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     const workspaceSyncEnabled = preferences.workspaceSyncEnabled === true;
     const syncPolicyMode = await readSyncPolicyMode(c.env.KV);
     const fastStartEnabled = preferences.fastStartEnabled !== false;
-    // Free tier: locked to 15m idle timeout. All other tiers: user preference or 30m default.
     const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd, c.env);
-    const sleepAfter = resolveEffectiveSleepAfter(effectiveTier, preferences.sleepAfter, c.env);
+    const sleepAfter = resolveEffectiveSleepAfter(preferences.sleepAfter);
     // context-mode preseed plugin: hard-gated to the unlimited (Custom) tier
     // in Pro session mode. Any other combination strips the context-mode
     // subtree from the R2 seed before bisync touches the bucket, so the

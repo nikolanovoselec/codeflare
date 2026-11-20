@@ -99,7 +99,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Constraints:**
 
-- Non-Enterprise Free runtime idle enforcement remains fixed at 15 minutes even if an administrator saves a longer preference.
+- Free uses the common idle preference and one-hour default under [REQ-SESSION-014](session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings).
 - Free defaults to one concurrent session. Start uses the configured tier cap and best-effort admission under [REQ-SESSION-007](session-lifecycle.md#req-session-007-running-session-count-limited-per-tier).
 
 **Priority:** P0
@@ -128,7 +128,7 @@ Tiers, billing, usage tracking, and quotas.
 **Constraints:**
 
 - Keep tier metadata on Stripe Prices; an absent snapshot tier preserves the stored tier. Mode metadata takes precedence; when absent, the configured Standard/Pro Price slot can supply the mode without inferring a tier. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState -->
-- With a configured payment provider, tiers without a configured external price are hidden from the subscribe page; without a provider, payment-free direct choices follow [REQ-SUB-011](#req-sub-011-graceful-degradation-without-stripe).
+- When Stripe is configured, the tier-list endpoint keeps Custom and choices configured with a zero monthly price visible without an external price ID. Other choices need a Standard Price ID to appear. Payment-free direct choices without Stripe follow [REQ-SUB-011](#req-sub-011-graceful-degradation-without-stripe). <!-- @impl: src/routes/auth.ts::app -->
 - Record the customer-to-email mapping at checkout completion for user resolution by subsequent webhooks.
 
 **Priority:** P1

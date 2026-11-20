@@ -4,6 +4,11 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-20: Use one idle-timeout policy across plans
+
+- [REQ-SESSION-014](session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings) gives Free, paid, and Enterprise the same 1h default and 1h/2h/4h/8h/12h presets, while preserving saved preferences. Guided Setup keeps its selector and matches Settings.
+- [REQ-LANDING-001](landing.md#req-landing-001-public-landing-content-and-interaction) records the existing 900px breakpoint for the header section shortcuts. Landing behavior is unchanged.
+
 ## 2026-11-20: Keep session credentials scoped and legacy preferences readable
 
 - [REQ-SESSION-003](session-lifecycle.md#req-session-003-r2-bucket-mounted-and-synced-on-start) leaves direct storage unavailable if the bucket-scoped credential pair is incomplete, rather than passing deployment credentials to the container.

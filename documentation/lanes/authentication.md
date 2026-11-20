@@ -395,9 +395,9 @@ For [REQ-AUTH-026](../../sdd/spec/authentication.md#req-auth-026-admin-user-offb
 
 ### Account status API acceptance
 
-For REQ-AUTH-019 AC2–AC6, require owner-supplied existing disposable states: stored/absent user records, token absent/present, incomplete setup and provisioning failure. Separately authorize writes/provider calls. POST `/api/user/onboarding-complete` and read back completion; an absent record must remain absent. GET `/api/user/r2-status` must report token readiness without exposing a token.
+For REQ-AUTH-019 AC2–AC6, require owner-supplied disposable states: stored/absent user records, cached token absent/present, incomplete setup and provisioning failure. Separately authorize writes/provider calls. POST `/api/user/onboarding-complete` and read back completion; the handler does not create a record if none exists after authentication. Do not conflate that handler check with JIT provisioning. GET `/api/user/r2-status` must report cached credential presence without returning the credential or claiming provider validation.
 
-POST `/api/user/ensure-r2-token`: require ready on success, 503 for incomplete setup and 500 for provisioning failure. Verify unauthenticated requests receive 401 and the per-user five-per-minute limit returns 429 without another provisioning operation. Pass only when every required branch is observed. Missing states block that branch; do not manufacture them through credential/KV changes, new infrastructure or fault harnesses.
+POST `/api/user/ensure-r2-token`: require ready on success, 503 for incomplete setup, and 500 for provisioning failure. To verify 401 for absent identity, satisfy earlier request guards; a failed write CSRF check returns 403 first. With working limiting and no stress bypass, verify that request six in a minute for the same owner returns 429 without another provisioning operation. Missing states block that branch; do not manufacture them through credential/KV changes, new infrastructure, or fault harnesses.
 
 ### Admin group mode isolation acceptance
 

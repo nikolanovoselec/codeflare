@@ -173,6 +173,27 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
     };
   }
 
+  it.each([
+    ['free', false, undefined, '1h'],
+    ['free', false, '12h', '12h'],
+    ['free', false, '15m', '15m'],
+    ['standard', false, undefined, '1h'],
+    ['standard', false, '30m', '30m'],
+    ['free', true, undefined, '1h'],
+    ['free', true, '2h', '2h'],
+  ] as const)('REQ-SESSION-014 AC2: %s Start (Enterprise=%s, saved=%s) forwards %s', async (tier, enterprise, saved, expected) => {
+    if (saved) mockKV._set('user-prefs:test-bucket', { sleepAfter: saved });
+    testState.saasMode = !enterprise;
+    const fetch = createApp(enterprise ? { ENTERPRISE_MODE: 'active' } : { SAAS_MODE: 'active' }, {
+      email: 'test@example.com', authenticated: true, role: 'user', accessTier: tier, subscriptionTier: tier,
+    });
+    const response = await fetch('/container/start?sessionId=abcdef1234567890abcdef12', { method: 'POST' });
+    expect(response.status, await response.clone().text()).toBe(200);
+    const config = testState.container!.fetch.mock.calls.map(([request]) => request)
+      .find(request => new URL(request.url).pathname === '/_internal/setBucketName');
+    expect(await config?.clone().json()).toMatchObject({ sleepAfter: expected });
+  });
+
   describe('REQ-AGENT-029: selected OAuth account startup snapshot', () => {
     const browserAccountA = 'a'.repeat(32);
     const oauthAccountB = 'b'.repeat(32);

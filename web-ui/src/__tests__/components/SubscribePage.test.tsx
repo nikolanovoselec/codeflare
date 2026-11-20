@@ -509,9 +509,9 @@ describe('SubscribePage / REQ-SETUP-009 (subscribe page redirect for pending use
       });
     });
 
-    it('paid tiers include Configurable idle timeout', async () => {
+    it('Free includes Configurable idle timeout', async () => {
       await openTierView();
-      fireEvent.click(screen.getByTestId('lifeline-stop-standard'));
+      fireEvent.click(screen.getByTestId('lifeline-stop-free'));
 
       // Advance timers to let scramble animation resolve (uses requestAnimationFrame)
       await vi.advanceTimersByTimeAsync(500);

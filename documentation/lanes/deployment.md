@@ -71,7 +71,7 @@ For [OPS-007/012/014](../../sdd/spec/operations.md), apply [pipeline prerequisit
 | OPS-007 AC1/2/5; OPS-014 AC1–3/6 | Compare resolved profile CPU/memory/disk and canonical defaults with effective provider configuration. Match the emitted content-addressed tag, pushed digest and final binding, with no deploy-time rebuild. Wrong allocation/binding fails. |
 | OPS-007 AC3; OPS-012 AC1–4 | Compare retained default and positive-integer override cases across profiles. Effective cap follows the override independently of profile. Existing zero/negative/noninteger cases reject before promotion; missing cases are unavailable. |
 | OPS-007 AC4 | Compare resolved regular/admin limits with observed admission records. This is best-effort admission, not an atomic concurrency reservation or hard isolation guarantee. |
-| OPS-014 AC4/5 | Compare same-input cache-bust and baseline records: affected agent layer rebuilds while unrelated layers remain cached, then rollout binds that image. Repository SSH remains disabled/key-free; persistent identity provisioning is private-owned. |
+| OPS-014 AC4/5 | In retained runs, confirm the nonempty cache-bust token bypassed registry reuse. Compare changed-token builds for invalidation of the affected agent layer; unrelated layer reuse is permitted, not required, and the same token need not rebuild. Match the bound image to the selected output. Repository SSH remains disabled/key-free; persistent identity provisioning is private-owned. |
 
 ### Idle metering and identity lifecycle acceptance
 
