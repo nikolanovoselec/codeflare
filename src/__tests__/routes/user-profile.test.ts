@@ -6,6 +6,7 @@ import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { AppError, AuthError } from '../../lib/error-types';
 import { AuthVariables } from '../../middleware/auth';
 import { createMockKV } from '../helpers/mock-kv';
+import { getDefaultTiers, resetTierConfigCache } from '../../lib/subscription';
 
 // Mock authenticateRequest to control auth behavior
 const mockAuthenticateRequest = vi.hoisted(() => vi.fn());
@@ -25,6 +26,7 @@ describe('User Profile Routes', () => {
 
   beforeEach(() => {
     mockKV = createMockKV();
+    resetTierConfigCache();
     vi.clearAllMocks();
   });
 
@@ -51,6 +53,27 @@ describe('User Profile Routes', () => {
   }
 
   describe('GET /user', () => {
+    it.each([
+      { billingStatus: 'active', subscribedMode: 'default', configuredModes: ['default', 'advanced'], expected: ['default', 'advanced'] },
+      { billingStatus: 'canceled', subscribedMode: 'advanced', configuredModes: ['default', 'advanced'], expected: ['default'] },
+      { billingStatus: 'active', subscribedMode: 'advanced', configuredModes: ['default'], expected: ['default'] },
+    ])('REQ-SUB-014 / REQ-AUTH-019: projects billing-effective configured modes ($billingStatus, $subscribedMode)', async ({ billingStatus, subscribedMode, configuredModes, expected }) => {
+      mockAuthenticateRequest.mockResolvedValue({
+        user: { email: 'test@example.com', authenticated: true, role: 'user',
+          accessTier: 'advanced', subscriptionTier: 'advanced', billingStatus, subscribedMode },
+        bucketName: 'codeflare-abc123',
+      });
+      mockKV._set('user:test@example.com', { subscribedMode });
+      mockKV._set('tiers:config', getDefaultTiers().map(tier => tier.id === 'advanced'
+        ? { ...tier, sessionModes: configuredModes } : tier));
+      const app = createApp({ SAAS_MODE: 'active' });
+      const res = await app.request('/user');
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ allowedModes: expected, subscribedMode });
+      // Identity projection is read-only, including stale provider metadata.
+      expect(await mockKV.get('user:test@example.com', 'json')).toEqual({ subscribedMode });
+    });
+
     it('returns authenticated user info', async () => {
       mockAuthenticateRequest.mockResolvedValue({
         user: { email: 'test@example.com', authenticated: true, role: 'user' },

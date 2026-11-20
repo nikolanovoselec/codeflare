@@ -175,6 +175,26 @@ describe('PUT /admin/tiers — REQ-SUB-009', () => {
     expect(stored.find((t) => t.id === 'advanced')!.maxStorageBytes).toBe(2_000_000_000);
   });
 
+  it('REQ-SUB-009 AC5: saves and reads back every configurable tier field without dropping values', async () => {
+    const { app, mockKV } = createApp();
+    const tiers = buildValidTiers().map((tier) => tier.id === 'advanced' ? {
+      ...tier, displayName: 'Independent label', monthlySeconds: 98765, maxSessions: 4,
+      sessionModes: ['default'] as const, canLogin: false, order: 12, isDefault: false,
+      priceMonthly: 1234, advancedPriceMonthly: 2345, trialQuotaHours: 7,
+      maxStorageBytes: 3456789, description: 'Retain this description',
+      stripePriceId: 'price_test_primary', stripeAdvancedPriceId: 'price_test_advanced',
+    } : tier);
+    const response = await app.request('/admin/tiers', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(tiers),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ success: true });
+    expect(await mockKV.get('tiers:config', 'json')).toEqual(tiers);
+    const readback = await app.request('/admin/tiers');
+    expect(readback.status).toBe(200);
+    expect(await readback.json()).toEqual({ tiers });
+  });
+
   it('REQ-SUB-009 AC5: null maxStorageBytes (unlimited) is accepted and persisted', async () => {
     const { app, mockKV } = createApp();
     const tiers = buildValidTiers().map((t) =>

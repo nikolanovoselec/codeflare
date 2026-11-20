@@ -1,29 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createMockKV } from '../helpers/mock-kv';
 import { createMockSessionD1 } from '../helpers/mock-session-d1';
-import { getBucketName } from '../../lib/access';
+import { createLogger, type Logger } from '../../lib/logger';
 import { env, runInDurableObject } from 'cloudflare:test';
 import type { DurableObject as NativeDurableObject } from 'cloudflare:workers';
-import { OperatorActivity } from '../../operators/activity';
 
 // Shared, hoisted call-order log so the mocked base Container can record when
 // super.startAndWaitForPorts() runs relative to interceptOutboundHttps() — used
 // by the REQ-ENTERPRISE-004 pre-start interception-ordering test below.
-const { callOrder, scanRuntime } = vi.hoisted(() => ({ callOrder: [] as string[],
-  scanRuntime: { enabled: false, result: null as unknown } }));
-vi.mock('../../operators/runtime', async importOriginal => ({
-  ...await importOriginal<typeof import('../../operators/runtime')>(),
-  driveDispatcherRuntime: async (input: { activity: {
-    beginDrive: () => Promise<{ ok: boolean; state?: { generation: number } }>;
-    commitDrive: (generation: number, update: unknown) => Promise<unknown> } }) => {
-    if (!scanRuntime.enabled) throw Error('Unexpected Dispatcher runtime');
-    const begun = await input.activity.beginDrive();
-    if (!begun.ok || !begun.state) return { ok: false, reason: 'not-admitted' };
-    await input.activity.commitDrive(begun.state.generation, { schemaVersion: 1,
-      status: 'completed', checkpoint: null, result: scanRuntime.result });
-    return { ok: true };
-  },
-}));
+const lifecycleSerialization = vi.hoisted(() => ({ enabled: false }));
+const callOrder = vi.hoisted(() => [] as string[]);
 
 /**
  * Container DO class tests.
@@ -50,14 +36,22 @@ vi.mock('../../lib/r2-config', () => ({
   getR2Config: vi.fn().mockResolvedValue({ accountId: 'test-account', endpoint: 'https://r2.test' }),
 }));
 
-vi.mock('../../lib/logger', () => ({
-  createLogger: vi.fn(() => ({
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    child: vi.fn().mockReturnThis(),
-  })),
-}));
+vi.mock('../../lib/logger', async importOriginal => {
+  const actual = await importOriginal<typeof import('../../lib/logger')>();
+  return {
+    ...actual,
+    createLogger: vi.fn((...args: Parameters<typeof actual.createLogger>) => {
+      const real = actual.createLogger(...args);
+      return {
+        debug: vi.fn((...values: Parameters<typeof real.debug>) => { if (lifecycleSerialization.enabled) real.debug(...values); }),
+        info: vi.fn((...values: Parameters<typeof real.info>) => { if (lifecycleSerialization.enabled) real.info(...values); }),
+        warn: vi.fn((...values: Parameters<typeof real.warn>) => { if (lifecycleSerialization.enabled) real.warn(...values); }),
+        error: vi.fn((...values: Parameters<typeof real.error>) => { if (lifecycleSerialization.enabled) real.error(...values); }),
+        child: vi.fn().mockReturnThis(),
+      };
+    }),
+  };
+});
 
 // Mock the @cloudflare/containers module
 vi.mock('@cloudflare/containers', () => ({
@@ -136,6 +130,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     storage: typeof mockStorage;
     id: { toString: () => string };
     blockConcurrencyWhile: ReturnType<typeof vi.fn>;
+    waitUntil: ReturnType<typeof vi.fn>;
     container: typeof mockContainerRuntime;
   };
   let mockEnv: any;
@@ -165,6 +160,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       storage: mockStorage,
       id: { toString: () => 'test-do-id-hex' },
       blockConcurrencyWhile: vi.fn(async (fn: () => Promise<void>) => fn()),
+      waitUntil: vi.fn(),
       container: mockContainerRuntime,
     };
     mockEnv = {
@@ -176,612 +172,216 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     };
   });
 
-  describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
-    function scheduler(interval = 900) {
-      const stored = new Map<string, unknown>();
-      mockStorage.get.mockImplementation(async (key: string) => stored.get(key));
-      mockStorage.put.mockImplementation(async (key: string, value: unknown) => { stored.set(key, value); });
-      const binding = { installationId: 'dispatcher-install', registrationId: 'scan-generation-one',
-        bucket: 'owner-bucket', sessionId: 'session0001', sessionGeneration: 3 };
-      let current: Record<string, unknown> | null = { ...binding, repository: 'acme/updates', repositoryId: 424242,
-        baseBranch: 'trunk', automaticRuns: true, repetitionIntervalSeconds: interval,
-        activatedAt: '2026-09-28T00:00:00.000Z', human: { email: 'admin@example.test' } };
-      const reads: Request[] = [], admissions: unknown[] = [];
-      mockEnv.CONTAINER = { idFromName: () => ({ toString: () => 'test-do-id-hex' }) };
-      mockEnv.OPERATOR_ACTIVITY = {};
-      mockEnv.OPERATOR_REGISTRY = { getByName: () => ({
-        retainedProspectiveRenovateRetryTargets: async () => [],
-        currentProspectiveRenovateRegistration: async (id: string) => current?.registrationId === id ? current : null,
-        reserveProspectiveRenovateActivity: async (input: unknown) => { admissions.push(input); return { ok: false }; },
-      }) };
-      let readHook: (() => Promise<void>) | undefined;
-      (mockCtx as any).exports = { GitHubInterceptor: () => ({ fetch: async (request: Request) => {
-        reads.push(request); await readHook?.();
-        return request.url.endsWith('/repos/acme/updates') ? Response.json({ id: 424242,
-          full_name: 'acme/updates', default_branch: 'trunk' }) : Response.json([]);
-      } }) };
-      const instance = new ContainerClass(mockCtx as any, mockEnv);
-      type Row = { taskId: string; callback: string; payload: unknown; type: 'delayed'; time: number; delayInSeconds: number };
-      const rows: Row[] = [{ taskId: 'metrics', callback: 'collectMetrics', payload: '', type: 'delayed',
-        time: Math.floor(Date.now() / 1000) + 60, delayInSeconds: 60 }];
-      let lost = false, sequence = 0;
-      vi.spyOn(instance, 'listSchedules').mockImplementation(async method => rows.filter(row => !method || row.callback === method) as never);
-      vi.spyOn(instance, 'deleteSchedules').mockImplementation(method => {
-        for (let index = rows.length - 1; index >= 0; index--) if (rows[index].callback === method) rows.splice(index, 1);
-      });
-      vi.spyOn(instance, 'schedule').mockImplementation(async (delay, callback, payload) => {
-        const row: Row = { taskId: `task-${++sequence}`, callback, payload, type: 'delayed',
-          time: Math.floor(Date.now() / 1000) + Number(delay), delayInSeconds: Number(delay) };
-        rows.push(row);
-        if (lost) { lost = false; throw Error('accepted schedule response lost'); }
-        return row as never;
-      });
-      const scans = () => rows.filter(row => row.callback === 'scanRenovate');
-      const deliver = async (row: Row) => {
-        if (Date.now() < row.time * 1000) throw Error('not due');
-        await (instance.scanRenovate as unknown as (payload: unknown) => Promise<void>)(row.payload);
-        const index = rows.indexOf(row); if (index >= 0) rows.splice(index, 1);
-      };
-      return { instance, binding, rows, reads, admissions, scans, deliver,
-        change: (patch: Record<string, unknown> | null) => { current = patch === null ? null : { ...current, ...patch }; },
-        loseAck: () => { lost = true; }, onRead: (hook: () => Promise<void>) => { readHook = hook; } };
-    }
-    it.each([900, 7200, 3600])('delivers a registered %i-second scan and one same-interval successor without touching metrics', async interval => {
-      const f = scheduler(interval), now = Date.now();
-      const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
-      try {
-        expect(await f.instance.armRenovateScan(f.binding)).toEqual({ ok: true });
-        expect(f.scans().map(row => row.time)).toEqual([Math.floor(now / 1000) + interval]);
-        await expect(f.deliver(f.scans()[0])).rejects.toThrow('not due');
-        expect(f.reads).toEqual([]);
-        clock.mockReturnValue(f.scans()[0].time * 1000);
-        await f.deliver(f.scans()[0]);
-        expect(f.reads.map(request => request.url)).toEqual(['https://api.github.com/repos/acme/updates',
-          'https://api.github.com/repos/acme/updates/pulls?state=open&per_page=100&page=1']);
-        expect(f.scans().map(row => row.time)).toEqual([Math.floor(Date.now() / 1000) + interval]);
-        expect(f.rows.find(row => row.taskId === 'metrics')).toMatchObject({ callback: 'collectMetrics', delayInSeconds: 60 });
-      } finally { clock.mockRestore(); }
-    });
-    it.each([900, 7200])('reconciles lost acknowledgement at %i seconds without duplication or postponement', async interval => {
-      const f = scheduler(interval); f.loseAck();
-      const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now());
-      try {
-        await expect(f.instance.armRenovateScan(f.binding)).rejects.toThrow();
-        const accepted = structuredClone(f.scans());
-        clock.mockReturnValue(Date.now() + 10_000);
-        expect(await Promise.all([f.instance.armRenovateScan(f.binding), f.instance.armRenovateScan(f.binding)]))
-          .toEqual([{ ok: true }, { ok: true }]);
-        expect(f.scans()).toEqual(accepted);
-      } finally { clock.mockRestore(); }
-    });
-    it('automatic off makes an already-delivered callback inert with no protected reads admission or successor', async () => {
-      const f = scheduler(); await f.instance.armRenovateScan(f.binding);
-      const due = f.scans()[0]; f.change(null);
-      const clock = vi.spyOn(Date, 'now').mockReturnValue(due.time * 1000);
-      try { await f.deliver(due); } finally { clock.mockRestore(); }
-      expect(f.reads).toEqual([]); expect(f.admissions).toEqual([]); expect(f.scans()).toEqual([]);
-    });
-    it('explicit new-generation activation replaces the due row and an old delivered payload cannot borrow the new arm', async () => {
-      const f = scheduler(); await f.instance.armRenovateScan(f.binding);
-      const old = f.scans()[0], newer = { ...f.binding, registrationId: 'scan-generation-two' };
-      const clock = vi.spyOn(Date, 'now').mockReturnValue(old.time * 1000);
-      try {
-        f.change({ registrationId: newer.registrationId, repetitionIntervalSeconds: 7200 });
-        expect(await f.instance.armRenovateScan(newer)).toEqual({ ok: true });
-        const accepted = structuredClone(f.scans());
-        expect(accepted.map(row => row.time)).toEqual([Math.floor(Date.now() / 1000) + 7200]);
-        await f.deliver(old);
-        expect(f.reads).toEqual([]); expect(f.admissions).toEqual([]); expect(f.scans()).toEqual(accepted);
-      } finally { clock.mockRestore(); }
-    });
-    it('a payload-less legacy callback cannot execute the latest armed registration', async () => {
-      const f = scheduler(); await f.instance.armRenovateScan(f.binding);
-      const accepted = structuredClone(f.scans());
-      await (f.instance.scanRenovate as unknown as (payload?: unknown) => Promise<void>)();
-      expect(f.reads).toEqual([]); expect(f.admissions).toEqual([]); expect(f.scans()).toEqual(accepted);
-    });
-    it('a delivered old scan cannot rearm its stale generation after activation wins during metadata I/O', async () => {
-      const f = scheduler(); await f.instance.armRenovateScan(f.binding);
-      const old = f.scans()[0]; let changed = false;
-      const clock = vi.spyOn(Date, 'now').mockReturnValue(old.time * 1000);
-      try {
-        f.onRead(async () => {
-          if (changed) return; changed = true;
-          f.change({ registrationId: 'scan-generation-two', repetitionIntervalSeconds: 7200 });
-          await f.instance.armRenovateScan({ ...f.binding, registrationId: 'scan-generation-two' });
-        });
-        await f.deliver(old).catch(() => {});
-        expect(f.admissions).toEqual([]);
-        expect(f.scans().map(row => row.delayInSeconds)).toEqual([7200]);
-      } finally { clock.mockRestore(); }
-    });
-  });
-
-  it.each(['preparation', 'start'])('REQ-OPERATOR-061 AC2/7: a lost %s acknowledgement retains original Activity and actor at later configured scans', async lost => {
-    const stored = new Map<string, unknown>();
-    mockStorage.get.mockImplementation(async (key: string) => stored.get(key));
-    mockStorage.put.mockImplementation(async (key: string, value: unknown) => { stored.set(key, value); });
-    mockEnv.ENCRYPTION_KEY = btoa('k'.repeat(32));
-    const human = { subject: 'admin', email: 'admin@example.test', issuer: 'https://owner.cloudflareaccess.com',
-      audiences: ['audience'], issuedAt: Math.floor(Date.now() / 1000) - 20,
-      expiresAt: Math.floor(Date.now() / 1000) + 14_400 };
-    const pin = { installationId: 'dispatcher-install', registrationId: 'original-admin',
-      bucket: getBucketName(human.email, mockEnv.CLOUDFLARE_WORKER_NAME), sessionId: 'session0001', sessionGeneration: 3 };
-    const actor = { registrationId: pin.registrationId, bucket: pin.bucket,
-      sessionId: pin.sessionId, sessionGeneration: pin.sessionGeneration };
-    mockEnv.CONTAINER = {
-      idFromName: () => ({ toString: () => 'test-do-id-hex' }),
-      get: () => ({ claimBucketOwner: async (email: string) => email === human.email ? 'owned' : 'conflict' }),
-      getByName: (name: string) => ({ getPersonalPiSession: async (ref: { bucket: string; sessionId: string; email: string }) => {
-        if (name !== `${pin.bucket}-${pin.sessionId}` || ref.bucket !== actor.bucket
-          || ref.sessionId !== actor.sessionId || ref.email !== human.email) throw Error('Foreign source Host');
-        return { generation: actor.sessionGeneration };
-      } }),
-    };
-    const current = { ...pin, repository: 'acme/updates', repositoryId: 424242, baseBranch: 'trunk',
-      repetitionIntervalSeconds: 900, controlsRevision: 1, installationRevision: 1, operatorRevision: 1,
-      releaseId: 'release', bundleDigest: 'c'.repeat(64), activatedAt: '2026-09-28T00:00:00.000Z', human, accessJwt: 'a-jwt' };
-    const retained = { repositoryId: 424242, pullRequest: 1300, head: 'a'.repeat(40), createdAt: '2026-09-27T00:00:00.000Z' };
-    let reservedId: string | undefined;
-    let state: 'absent' | 'prepared' | 'queued' = 'absent';
-    const history: Array<{ activityId: string; effect: string; invocation?: string }> = [];
-    const selection = { controlsRevision: 1,
-      installation: { id: pin.installationId, operatorId: 'dispatcher', revision: 1, enabled: true,
-        releaseId: 'release', policy: { capabilities: ['fetch'], resourceProfileId: null },
-        configurationJson: JSON.stringify({ renovate: { repository: current.repository, automaticRuns: true, repetitionIntervalSeconds: 900 } }) },
-      operator: { operatorId: 'dispatcher', profile: 'dispatcher', revision: 1,
-        policy: { capabilities: ['fetch'], resourceProfileId: null }, invokers: { users: [human.email], groups: [] } },
-      release: { id: 'release', bundleDigest: current.bundleDigest },
-      manifestJson: JSON.stringify({ id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion: '4' }) };
-    mockEnv.OPERATOR_REGISTRY = { getByName: () => ({
-      resolveManagementExecution: async () => ({ ok: true, value: selection }),
-      currentProspectiveRenovateRegistration: async () => current,
-      retainedProspectiveRenovateRetryTargets: async () => [retained],
-      reserveProspectiveRenovateActivity: async (input: { activityId: string; pullRequest: number }) => {
-        if (input.pullRequest !== retained.pullRequest) throw Error('Cutoff exception widened');
-        reservedId ??= input.activityId;
-        return { ok: true, activityId: reservedId, actor };
+  async function captureLifecycleSerialization() {
+    const { setLogLevel } = await import('../../lib/logger');
+    const lines: string[] = [];
+    const capture = (value: unknown) => { lines.push(String(value)); };
+    const log = vi.spyOn(console, 'log').mockImplementation(capture);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(capture);
+    const error = vi.spyOn(console, 'error').mockImplementation(capture);
+    setLogLevel('info');
+    lifecycleSerialization.enabled = true;
+    return {
+      lines,
+      entries: () => lines.map(line => JSON.parse(line) as { message: string; data?: Record<string, unknown> }),
+      restore: () => {
+        lifecycleSerialization.enabled = false;
+        setLogLevel('silent');
+        log.mockRestore(); warn.mockRestore(); error.mockRestore();
       },
-      readProspectiveRenovateAdmission: async (id: string) => ({ ...retained, activityId: id, actor }),
-    }) };
-    mockEnv.OPERATOR_ACTIVITY = { getByName: (id: string) => {
-      if (id !== reservedId) throw Error('Replacement Activity');
-      return { bindProspectiveRenovateAdmission: async () => true,
-        bindDispatcherOwnerSource: async (source: { bucket: string; sessionId: string; sessionGeneration: number }) => source.bucket === actor.bucket
-          && source.sessionId === actor.sessionId && source.sessionGeneration === actor.sessionGeneration,
-        getRuntimePlan: async () => null,
-        getBrowserDetail: async () => state === 'absent' ? null : ({ executionStatus: state }),
-        prepareAuthorized: async (intent: { activityId: string }, _context: unknown, invocation: string) => {
-          state = 'prepared'; history.push({ activityId: intent.activityId, effect: 'prepared', invocation });
-          if (lost === 'preparation') throw Error('Accepted preparation acknowledgement lost');
-          return { ok: true };
-        },
-        start: async () => { state = 'queued'; history.push({ activityId: id, effect: 'started' });
-          throw Error('Accepted start acknowledgement lost'); },
-      };
-    } };
-    (mockCtx as any).exports = { GitHubInterceptor: () => ({ fetch: async (request: Request) =>
-      request.url.endsWith('/repos/acme/updates') ? Response.json({ id: 424242, full_name: 'acme/updates', default_branch: 'trunk' })
-        : Response.json([{ number: 1300, state: 'open', draft: false, created_at: retained.createdAt,
-          user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' }, head: { sha: retained.head },
-          base: { ref: 'trunk', sha: 'b'.repeat(40), repo: { id: 424242, full_name: 'acme/updates' } } }]) }) };
-    const session = new ContainerClass(mockCtx as any, mockEnv);
-    const rows: Array<{ payload: unknown; delay: number }> = [];
-    vi.spyOn(session, 'listSchedules').mockResolvedValue([]);
-    vi.spyOn(session, 'deleteSchedules').mockImplementation(() => {});
-    vi.spyOn(session, 'schedule').mockImplementation(async (delay, _method, payload) => {
-      rows.push({ payload, delay: Number(delay) });
-      return { taskId: 'scan', callback: 'scanRenovate', payload, type: 'delayed',
-        time: Math.floor(Date.now() / 1000) + Number(delay), delayInSeconds: Number(delay) };
-    });
-    expect(await session.armRenovateScan(pin)).toEqual({ ok: true });
-    const now = Date.now(), clock = vi.spyOn(Date, 'now');
-    try {
-      clock.mockReturnValue(now + 900_000);
-      await session.scanRenovate(pin);
-      const originalHistory = structuredClone(history);
-      expect(originalHistory).toEqual([{ activityId: reservedId, effect: 'prepared',
-        invocation: JSON.stringify({ repository: current.repository }) },
-        ...(lost === 'start' ? [{ activityId: reservedId, effect: 'started' }] : [])]);
-      clock.mockReturnValue(now + 1_800_000);
-      await session.scanRenovate(pin);
-      expect(history).toEqual(originalHistory);
-      expect(state).toBe(lost === 'preparation' ? 'prepared' : 'queued');
-      expect(rows.map(row => row.delay)).toEqual([900, 900, 900]);
-    } finally { clock.mockRestore(); }
-  });
-
-  it('REQ-OPERATOR-061: a lost scheduler acknowledgement is reconciled without creating another hourly callback', async () => {
-    const saved = new Map<string, unknown>();
-    mockStorage.get.mockImplementation(async (key: string) => saved.get(key));
-    mockStorage.put.mockImplementation(async (key: string, value: unknown) => { saved.set(key, value); });
-    mockEnv.CONTAINER = { idFromName: (name: string) => ({ toString: () =>
-      name === 'owner-bucket-session0001' ? 'test-do-id-hex' : 'foreign-do' }) };
-    mockEnv.OPERATOR_ACTIVITY = {};
-    mockEnv.OPERATOR_REGISTRY = { getByName: () => ({
-      retainedProspectiveRenovateRetryTargets: async () => [],
-      currentProspectiveRenovateRegistration: async () => ({ repository: 'nikolanovoselec/komodo', repositoryId: 973175879, baseBranch: 'main', repetitionIntervalSeconds: 3600, installationId: 'dispatcher-install',
-        registrationId: 'registered-admin', bucket: 'owner-bucket', sessionId: 'session0001', sessionGeneration: 3 }),
-    }) };
-    const instance = new ContainerClass(mockCtx as any, mockEnv);
-    const scheduled: Array<{ callback: string; due: number; payload?: unknown }> = [];
-    vi.spyOn(instance, 'listSchedules').mockImplementation(async () => scheduled as never);
-    vi.spyOn(instance, 'schedule').mockImplementation(async (_delay, callback, payload) => {
-      scheduled.push({ callback, due: Date.now() + 3_600_000, payload });
-      throw Error('Scheduler accepted callback but response was lost');
-    });
-    const binding = { registrationId: 'registered-admin', installationId: 'dispatcher-install',
-      bucket: 'owner-bucket', sessionId: 'session0001', sessionGeneration: 3 };
-    await expect(instance.armRenovateScan(binding)).rejects.toThrow();
-    const retries = await Promise.all([instance.armRenovateScan(binding), instance.armRenovateScan(binding)]);
-    expect(retries).toEqual([{ ok: true }, { ok: true }]);
-    expect(scheduled).toEqual([{ callback: 'scanRenovate', due: expect.any(Number), payload: expect.any(Object) }]);
-    // Overlapping first-time activation requests start with no persisted row.
-    const fresh = new ContainerClass(mockCtx as any, mockEnv);
-    const initiallyEmpty: Array<{ callback: string; due: number; payload?: unknown }> = [];
-    vi.spyOn(fresh, 'listSchedules').mockImplementation(async () => initiallyEmpty as never);
-    vi.spyOn(fresh, 'schedule').mockImplementation(async (_delay, callback, payload) => {
-      await Promise.resolve();
-      initiallyEmpty.push({ callback, due: Date.now() + 3_600_000, payload });
-      return { taskId: 'future', callback, payload, type: 'delayed',
-        time: Math.floor(Date.now() / 1000) + 3600, delayInSeconds: 3600 };
-    });
-    expect(await Promise.all([fresh.armRenovateScan(binding), fresh.armRenovateScan(binding)]))
-      .toEqual([{ ok: true }, { ok: true }]);
-    expect(initiallyEmpty).toEqual([{ callback: 'scanRenovate', due: expect.any(Number), payload: expect.any(Object) }]);
-    // SDK still exposes its due row during the callback and deletes it afterward.
-    await (fresh.scanRenovate as unknown as (payload: unknown) => Promise<void>)(initiallyEmpty[0].payload);
-    initiallyEmpty.shift(); // SDK deletion of the previously due row.
-    expect(initiallyEmpty).toEqual([{ callback: 'scanRenovate', due: expect.any(Number), payload: expect.any(Object) }]);
-  });
-
-  it('REQ-OPERATOR-061: an armed admin-session callback scans complete post-cutoff Komodo pages', async () => {
-    const stored = new Map<string, unknown>();
-    mockStorage.get.mockImplementation(async (key: string) => stored.get(key));
-    mockStorage.put.mockImplementation(async (key: string, value: unknown) => { stored.set(key, value); });
-    const activatedAt = '2026-09-28T00:00:00.000Z';
-    mockEnv.ENCRYPTION_KEY = btoa('k'.repeat(32));
-    const seen: Array<{ pullRequest: number; activityId: string }> = [];
-    let reservedActivityId: string | undefined;
-    const unauthorizedEffects: string[] = [];
-    let uncertainStatus: 'queued' | 'running' = 'queued';
-    const reserve = async (input: { pullRequest: number; activityId: string; createdAt: string }) => {
-      seen.push({ pullRequest: input.pullRequest, activityId: input.activityId });
-      if (input.pullRequest === 1302) reservedActivityId ??= input.activityId;
-      return { ok: input.pullRequest === 1302, activityId: reservedActivityId ?? input.activityId,
-        actor: { registrationId: 'active-admin', bucket: 'owner-bucket', sessionId: 'session0001', sessionGeneration: 3 } };
     };
-    mockEnv.CONTAINER = { idFromName: (name: string) => ({ toString: () =>
-      name === 'owner-bucket-session0001' ? 'test-do-id-hex' : 'foreign-do' }) };
-    mockEnv.OPERATOR_REGISTRY = { getByName: () => ({
-      resolveManagementExecution: async () => ({ ok: true, value: {
-        controlsRevision: 1, installation: { id: 'dispatcher-install', operatorId: 'dispatcher', revision: 1,
-          configurationJson: JSON.stringify({ renovate: { repository: 'nikolanovoselec/komodo', automaticRuns: true, repetitionIntervalSeconds: 3600 } }),
-          enabled: true, policy: { capabilities: ['fetch'], resourceProfileId: null }, releaseId: 'release' },
-        operator: { operatorId: 'dispatcher', revision: 1, profile: 'dispatcher',
-          invokers: { users: ['admin@example.test'], groups: [] } },
-        release: { id: 'release', bundleDigest: 'c'.repeat(64) }, manifestJson: JSON.stringify({ id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion: '3' }),
-      } }),
-      retainedProspectiveRenovateRetryTargets: async () => [],
-      currentProspectiveRenovateRegistration: async () => ({ repository: 'nikolanovoselec/komodo', repositoryId: 973175879, baseBranch: 'main', repetitionIntervalSeconds: 3600, controlsRevision: 1, installationRevision: 1, operatorRevision: 1, releaseId: 'release', bundleDigest: 'c'.repeat(64), activatedAt, installationId: 'dispatcher-install',
-        registrationId: 'active-admin', bucket: 'owner-bucket', sessionId: 'session0001', sessionGeneration: 3,
-        human: { subject: 'admin', email: 'admin@example.test', issuer: 'https://owner.cloudflareaccess.com',
-          audiences: ['audience'], issuedAt: Math.floor(Date.now() / 1000) - 10,
-          expiresAt: Math.floor(Date.now() / 1000) + 14_400 }, accessJwt: 'sealed-jwt' }),
-      reserveProspectiveRenovateActivity: reserve,
-      readProspectiveRenovateAdmission: async (id: string) => id === reservedActivityId ? {
-        activityId: id, repository: 'nikolanovoselec/komodo', baseBranch: 'main', repositoryId: 973175879, pullRequest: 1302, head: 'c'.repeat(40),
-        actor: { registrationId: 'active-admin', bucket: 'owner-bucket', sessionId: 'session0001',
-          sessionGeneration: 3 },
-      } : null,
-    }) };
-    mockEnv.OPERATOR_ACTIVITY = { getByName: (id: string) => {
-      if (id !== reservedActivityId) throw Error('Uncertain admission identity changed');
-      return { bindProspectiveRenovateAdmission: async () => true,
-        getBrowserDetail: async () => ({ executionStatus: uncertainStatus }),
-        getRuntimePlan: async () => null,
-        prepareAuthorized: async () => { uncertainStatus = 'running'; unauthorizedEffects.push('replacement-preparation');
-          return { ok: true }; },
-        start: async () => { uncertainStatus = 'running'; unauthorizedEffects.push('replacement-start'); },
-        publishRenovateAssessment: async () => { unauthorizedEffects.push('publication'); },
-      };
-    } };
-    (mockCtx as any).exports = { GitHubInterceptor: () => ({ fetch: async (request: Request) => {
-      const url = new URL(request.url), page = Number(url.searchParams.get('page'));
-      if (url.pathname === '/repos/nikolanovoselec/komodo') return Response.json({ id: 973175879,
-        full_name: 'nikolanovoselec/komodo', default_branch: 'main' });
-      if (url.pathname === '/repos/nikolanovoselec/komodo/pulls') return Response.json(page === 1
-        ? [...Array.from({ length: 99 }, (_, index) => ({ number: index + 1,
-          state: 'open', created_at: activatedAt, updated_at: '2026-09-29T00:00:00.000Z',
-          body: 'Release notes and update links '.repeat(40),
-          user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' },
-          head: { sha: 'a'.repeat(40) }, draft: false, base: { ref: 'main', sha: 'b'.repeat(40), repo: { id: 973175879, full_name: 'nikolanovoselec/komodo' } } })),
-          { number: 1302, created_at: '2026-09-28T00:00:00.001Z', state: 'open',
-            user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' },
-            head: { sha: 'c'.repeat(40) }, draft: false, base: { ref: 'main', sha: 'b'.repeat(40), repo: { id: 973175879, full_name: 'nikolanovoselec/komodo' } } }]
-        : [{ number: 1303, created_at: '2026-09-28T00:00:00.002Z', state: 'open',
-          user: { id: 1, login: 'renovate[bot]', type: 'Bot' }, head: { sha: 'd'.repeat(40) },
-          draft: false, base: { ref: 'main', sha: 'b'.repeat(40), repo: { id: 973175879, full_name: 'nikolanovoselec/komodo' } } },
-        { number: 1304, created_at: '2026-09-28T00:00:00.003Z', state: 'open',
-          user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' }, head: { sha: 'e'.repeat(40) },
-          draft: false, base: { ref: 'release', sha: 'b'.repeat(40), repo: { id: 973175879, full_name: 'nikolanovoselec/komodo' } } }]);
-      throw Error(`Unexpected GitHub read ${url.pathname}`);
-    } }) };
-    const instance = new ContainerClass(mockCtx as any, mockEnv);
-    let deliver: (() => Promise<void>) | undefined;
-    vi.spyOn(instance, 'schedule').mockImplementation(async (delay, method, payload) => {
-      const due = Date.now() + Number(delay) * 1000;
-      deliver = async () => {
-        if (Date.now() < due) throw Error('Scheduled scan not due');
-        await (instance as unknown as Record<string, (payload: unknown) => Promise<void>>)[method](payload);
-      };
-      return { taskId: 'prospective-scan', callback: method, payload,
-        type: 'delayed', time: Math.floor(due / 1000), delayInSeconds: Number(delay) };
+  }
+
+  describe('REQ-SETUP-004 + REQ-ENTERPRISE-086: durable operation owners', () => {
+    function ownerFixture() {
+      const values = new Map<string, unknown>();
+      mockStorage.get.mockImplementation(async (key: string) => values.get(key));
+      mockStorage.put.mockImplementation(async (key: string, value: unknown) => { values.set(key, structuredClone(value)); });
+      mockStorage.delete.mockImplementation(async (key: string) => values.delete(key));
+      const kv = createMockKV();
+      mockEnv.KV = kv;
+      mockEnv.USAGE_DB = createMockSessionD1(kv);
+      return { kv, instance: new ContainerClass(mockCtx as any, mockEnv),
+        restart: () => new ContainerClass(mockCtx as any, mockEnv) };
+    }
+
+    it('REQ-SETUP-004: concurrent configure cannot both publish; interrupted same-task retry recovers without takeover', async () => {
+      const f = ownerFixture();
+      const setup = await import('../../routes/setup/index');
+      let finish!: (success: boolean) => Promise<void>;
+      const writes: string[] = [];
+      const run = vi.spyOn(setup, 'runSetupConfiguration').mockImplementation((input, lifetime) => {
+        writes.push(input.body.customDomain);
+        finish = lifetime.settled;
+        return new Response('running');
+      });
+      const input = { requestUrl: 'https://worker.example.test/api/setup/configure', body: {
+        customDomain: 'one.example.test', allowedUsers: ['admin@example.test'], adminUsers: ['admin@example.test'],
+      } };
+      try {
+        expect((await f.instance.configureDeployment(input)).status).toBe(200);
+        const rejected = await f.instance.configureDeployment(input);
+        expect(await rejected.text()).toMatch(/already in progress/);
+        expect(writes).toEqual(['one.example.test']);
+        await finish(false); // task failed: not authority to apply a different payload
+        const different = await f.instance.configureDeployment({ ...input, body: { ...input.body, customDomain: 'two.example.test' } });
+        expect(await different.text()).toMatch(/same configuration/);
+        const restarted = f.restart();
+        expect((await restarted.configureDeployment(input)).status).toBe(200);
+        expect(writes).toEqual(['one.example.test', 'one.example.test']);
+        // A new DO incarnation may resume the same durable authority even if no terminal callback ran.
+        const afterCrash = f.restart();
+        const foreign = await afterCrash.configureDeployment({ ...input, body: { ...input.body, customDomain: 'two.example.test' } });
+        expect(await foreign.text()).toMatch(/same configuration/);
+        expect((await afterCrash.configureDeployment(input)).status).toBe(200);
+        await finish(true);
+        expect((await afterCrash.configureDeployment({ ...input, body: { ...input.body, customDomain: 'two.example.test' } })).status).toBe(200);
+        expect(writes.at(-1)).toBe('two.example.test');
+        await finish(true);
+      } finally { run.mockRestore(); }
     });
-    const arm = (instance as unknown as { armRenovateScan: (input: unknown) => Promise<{ ok: boolean }> }).armRenovateScan;
-    expect(await arm.call(instance, { registrationId: 'active-admin', installationId: 'dispatcher-install',
-      bucket: 'owner-bucket', sessionId: 'session0001', sessionGeneration: 3 })).toMatchObject({ ok: true });
-    expect(deliver).toBeDefined();
-    const activatedClock = Date.now();
-    const clock = vi.spyOn(Date, 'now');
-    clock.mockReturnValue(activatedClock + 3_600_001);
-    try { await deliver?.(); }
-    finally { clock.mockRestore(); }
-    expect(seen).toEqual([{ pullRequest: 1302, activityId: expect.any(String) }]);
-    // An existing uncertain/prepared Activity has no plan. A later callback
-    // must leave it untouched, not manufacture a replacement or publish.
-    const repeatClock = vi.spyOn(Date, 'now').mockReturnValue(activatedClock + 7_200_001);
-    try { await deliver?.(); } finally { repeatClock.mockRestore(); }
-    expect(seen.map(row => row.pullRequest)).toEqual([1302, 1302]);
-    expect(reservedActivityId).toBe(seen[0].activityId);
-    expect(uncertainStatus).toBe('queued');
-    expect(unauthorizedEffects).toEqual([]);
-    seen.length = 0;
-    let continuationUnavailable = false;
-    (mockCtx as any).exports.GitHubInterceptor = () => ({ fetch: async (request: Request) => {
-      const url = new URL(request.url);
-      if (url.pathname === '/repos/nikolanovoselec/komodo') return Response.json({ id: 973175879,
-        full_name: 'nikolanovoselec/komodo', default_branch: 'main' });
-      if (url.searchParams.get('page') === '2') {
-        continuationUnavailable = true;
-        return new Response('unavailable', { status: 503 });
-      }
-      return Response.json(Array.from({ length: 100 }, (_, index) => ({ number: index + 1,
-        created_at: '2026-09-28T00:00:00.001Z', state: 'open',
-        user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' },
-        head: { sha: 'c'.repeat(40) }, draft: false, base: { ref: 'main', sha: 'b'.repeat(40), repo: { id: 973175879, full_name: 'nikolanovoselec/komodo' } } })));
-    } });
-    const nextClock = vi.spyOn(Date, 'now').mockReturnValue(activatedClock + 10_800_001);
-    try { await deliver?.().catch(() => {}); }
-    finally { nextClock.mockRestore(); }
-    expect(continuationUnavailable).toBe(true);
-    expect(seen).toEqual([]);
-    // Even a valid candidate on the first page is not admitted when a
-    // subsequent page exceeds the scan-specific byte bound.
-    (mockCtx as any).exports.GitHubInterceptor = () => ({ fetch: async (request: Request) => {
-      const url = new URL(request.url);
-      if (url.pathname === '/repos/nikolanovoselec/komodo') return Response.json({ id: 973175879,
-        full_name: 'nikolanovoselec/komodo', default_branch: 'main' });
-      const rows = Array.from({ length: 100 }, (_, index) => ({ number: 1302 + index,
-        created_at: '2026-09-28T00:00:00.001Z', state: 'open',
-        user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' },
-        head: { sha: 'c'.repeat(40) }, draft: false, base: { ref: 'main', sha: 'b'.repeat(40), repo: { id: 973175879, full_name: 'nikolanovoselec/komodo' } } }));
-      return Response.json(url.searchParams.get('page') === '1' ? rows
-        : [{ ...rows[0], body: 'x'.repeat(2 * 1024 * 1024 + 1) }]);
-    } });
-    const hugeClock = vi.spyOn(Date, 'now').mockReturnValue(activatedClock + 14_400_001);
-    try { await deliver?.().catch(() => {}); } finally { hugeClock.mockRestore(); }
-    expect(seen).toEqual([]);
+
+    it('REQ-ENTERPRISE-086: lost completion response gates migration until explicit abort confirms recovery', async () => {
+      const f = ownerFixture();
+      const client = await import('../../lib/r2-client');
+      const canonicalBytes = 'keep this object';
+      let object = canonicalBytes;
+      let generation = 0;
+      const fetcher = vi.spyOn(client, 'createR2Client').mockReturnValue({ fetch: async (url: string, init?: RequestInit) => {
+        if (url.endsWith('?uploads')) return new Response('<InitiateMultipartUploadResult><UploadId>uncertain</UploadId></InitiateMultipartUploadResult>');
+        if (init?.method === 'POST') throw new Error('completion response lost');
+        if (init?.method === 'DELETE' && new URL(url).searchParams.has('uploadId')) return new Response(null, { status: 404 });
+        if (init?.method === 'DELETE') object = '';
+        return new Response(null, { status: 503 });
+      } } as any);
+      const migration = await import('../../lib/r2-migration');
+      const drive = vi.spyOn(migration, 'advanceMigrationChunk').mockImplementation(async (_env, _bucket, deps) => {
+        generation += 1;
+        await deps.beforeReady?.({ status: 'ready', regime: 'plain', generation });
+        f.kv._set('r2-regime:bucket', { status: 'ready', regime: 'plain', generation });
+      });
+      try {
+        expect((await f.instance.runBucketMultipart({ bucketName: 'bucket', key: 'draft.md', action: 'initiate' })).status).toBe(200);
+        await expect(f.instance.runBucketMultipart({ bucketName: 'bucket', key: 'draft.md', action: 'complete', uploadId: 'uncertain', parts: [{ partNumber: 1, etag: 'abc' }] })).rejects.toThrow();
+        f.kv._set('r2-regime:bucket', { status: 'migrating', regime: 'sse-c', generation: 0, drained: false });
+        await f.instance.advanceBucketMigration('bucket');
+        expect(generation).toBe(0);
+        expect(await f.kv.get('r2-regime:bucket', 'json')).toMatchObject({ status: 'migrating', drained: false });
+        const aborted = await f.instance.runBucketMultipart({ bucketName: 'bucket', key: 'draft.md', action: 'abort', uploadId: 'uncertain' });
+        expect(aborted.status).toBe(200);
+        await f.instance.advanceBucketMigration('bucket');
+        expect(generation).toBe(1);
+        expect(object).toBe(canonicalBytes);
+      } finally { fetcher.mockRestore(); drive.mockRestore(); }
+    });
+
+    it('REQ-ENTERPRISE-086: in-flight completion settles before migration; stale/unknown IDs preserve parts and request restart', async () => {
+      const f = ownerFixture();
+      const client = await import('../../lib/r2-client');
+      let complete!: () => void;
+      let completing!: () => void;
+      const entered = new Promise<void>(resolve => { completing = resolve; });
+      const gate = new Promise<void>(resolve => { complete = resolve; });
+      const objects = new Map<string, string>();
+      let generation = 0;
+      let initiations = 0;
+      const parts = new Set(['managed-stale', 'untracked']);
+      const fetcher = vi.spyOn(client, 'createR2Client').mockReturnValue({ fetch: async (url: string, init?: RequestInit) => {
+        if (url.endsWith('?uploads')) return new Response(`<InitiateMultipartUploadResult><UploadId>${++initiations === 1 ? 'managed-1' : 'managed-stale'}</UploadId></InitiateMultipartUploadResult>`);
+        if (init?.method === 'DELETE') { parts.delete(new URL(url).searchParams.get('uploadId')!); return new Response(null, { status: 204 }); }
+        if (url.includes('uploadId=managed-1') && init?.method === 'POST') {
+          completing(); await gate; objects.set('draft.md', 'retained bytes');
+          return new Response('<CompleteMultipartUploadResult><ETag>"abc"</ETag></CompleteMultipartUploadResult>');
+        }
+        return new Response(null, { status: 503 });
+      } } as any);
+      const migration = await import('../../lib/r2-migration');
+      const drive = vi.spyOn(migration, 'advanceMigrationChunk').mockImplementation(async (_env, _bucket, deps) => {
+        expect(objects.get('draft.md')).toBe('retained bytes');
+        generation += 1;
+        await deps.beforeReady?.({ status: 'ready', regime: 'plain', generation });
+        f.kv._set('r2-regime:bucket', { status: 'ready', regime: 'plain', generation });
+      });
+      try {
+        const initiated = await f.instance.runBucketMultipart({ bucketName: 'bucket', key: 'draft.md', action: 'initiate' });
+        expect(await initiated.json()).toMatchObject({ uploadId: 'managed-1' });
+        expect((await f.instance.runBucketMultipart({ bucketName: 'bucket', key: 'held.md', action: 'initiate' })).status).toBe(200);
+        const completion = f.instance.runBucketMultipart({ bucketName: 'bucket', key: 'draft.md', action: 'complete', uploadId: 'managed-1', parts: [{ partNumber: 1, etag: 'abc' }] });
+        await entered;
+        const advancing = f.instance.advanceBucketMigration('bucket');
+        await Promise.resolve();
+        expect(generation).toBe(0);
+        complete();
+        expect((await completion).status).toBe(200);
+        await advancing;
+        // Eventual KV consistency cannot resurrect a pre-flip upload generation.
+        f.kv._set('r2-regime:bucket', { status: 'ready', regime: 'sse-c', generation: 0 });
+        for (const uploadId of ['managed-stale', 'untracked']) {
+          const refused = await f.instance.runBucketMultipart({ bucketName: 'bucket', key: 'held.md', action: 'complete', uploadId, parts: [{ partNumber: 1, etag: 'abc' }] });
+          expect(refused.status).toBe(409);
+          expect(await refused.json()).toMatchObject({ code: 'MULTIPART_RESTART_REQUIRED' });
+          expect(objects.get('draft.md')).toBe('retained bytes');
+          expect([...parts]).toEqual(['managed-stale', 'untracked']);
+        }
+      } finally { fetcher.mockRestore(); drive.mockRestore(); }
+    });
   });
 
-  it.each(['valid', 'empty', 'extra-target', 'duplicate-target', 'wrong-head', 'foreign-pr', 'wrong-repository'])('REQ-OPERATOR-061/048: a winning scan retains repository-only admission and fences %s simulated singleton collection without parent publication', async resultCase => {
-    const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
-    await runInDurableObject(namespace.getByName(`container-fixture-${crypto.randomUUID()}`), async (_instance, native) => {
-      const stored = new Map<string, unknown>();
+  describe('REQ-OPERATOR-061: retired Container Renovate callbacks', () => {
+    const binding = { installationId: 'dispatcher-install', registrationId: 'original-admin',
+      bucket: 'owner-bucket', sessionId: 'session0001', sessionGeneration: 3 };
+
+    it.each([
+      ['valid-looking', binding],
+      ['foreign owner', { ...binding, bucket: 'foreign-owner', sessionGeneration: 4 }],
+      ['forged authority', { ...binding, human: { role: 'admin' }, automaticRuns: true }],
+      ['missing', undefined], ['malformed', { registrationId: 42 }],
+    ])('%s arm and delivered callback cannot discover, admit, publish or rearm', async (_name, input) => {
+      const stored = new Map<string, unknown>([
+        ['renovate:scan', { ...binding, activatedAt: '2026-09-28T00:00:00.000Z' }],
+        ['usageSeconds', 120], ['sleepAfter', '30m'],
+      ]);
+      const before = structuredClone(stored);
       mockStorage.get.mockImplementation(async (key: string) => stored.get(key));
       mockStorage.put.mockImplementation(async (key: string, value: unknown) => { stored.set(key, value); });
-      mockEnv.ENCRYPTION_KEY = btoa('k'.repeat(32));
-      mockEnv.LOADER = {};
-      const bucket = getBucketName('admin@example.test', mockEnv.CLOUDFLARE_WORKER_NAME);
-      mockEnv.KV = { get: async (key: string) => key === 'user:admin@example.test'
-        ? JSON.stringify({ role: 'admin' }) : null };
-      mockEnv.USAGE_DB = { prepare: () => ({ bind: (...args: unknown[]) => ({ first: async () =>
-        args[0] === bucket && args[1] === 'session0001' ? {
-          owner_key: bucket, session_id: 'session0001', lifecycle_state: 'running', lifecycle_generation: 3,
-          created_at: new Date().toISOString(), last_accessed_at: new Date().toISOString(),
-          workspace: 'default', terminal_mode: 'terminal', name: 'Admin session', response_revision: 0,
-          observation_sequence: 0, editor_ready: 1, editor_ready_error: 0,
-        } : null }) }) };
-      const human = { subject: 'admin', email: 'admin@example.test', issuer: 'https://owner.cloudflareaccess.com',
-        audiences: ['audience'], issuedAt: Math.floor(Date.now() / 1000) - 20,
-        expiresAt: Math.floor(Date.now() / 1000) + 14_400 };
-      const bundle = { schemaVersion: 1, sourceCommit: 'f'.repeat(40),
-        versions: { runtime: '2.1.0', vitePlugin: '2.1.0', agents: '0.20.1' },
-        className: 'FlueDispatcherAgent', compatibilityDate: '2026-09-10',
-        compatibilityFlags: ['nodejs_compat'], mainModule: 'index.js',
-        modules: { 'index.js': { js: 'export default class FlueDispatcherAgent {}' } } };
-      const bundleBytes = new TextEncoder().encode(JSON.stringify(bundle));
-      const bundleDigest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bundleBytes)))
-        .map(byte => byte.toString(16).padStart(2, '0')).join('');
-      const selection = { controlsRevision: 1, installation: { id: 'dispatcher-install', operatorId: 'dispatcher',
-        revision: 1, enabled: true, releaseId: 'release',
-        configurationJson: JSON.stringify({ renovate: { repository: 'acme/updates', automaticRuns: true, repetitionIntervalSeconds: 3600 } }), policy: { capabilities: ['fetch'], resourceProfileId: null } },
-        operator: { id: 'dispatcher', operatorId: 'dispatcher', revision: 1, profile: 'dispatcher',
-          policy: { capabilities: ['fetch'], resourceProfileId: null },
-          invokers: { users: [human.email], groups: [] } },
-        release: { id: 'release', bundleDigest, sourceCommit: bundle.sourceCommit }, manifestJson: JSON.stringify({
-          id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion: '3' }) };
-      let reservedActivityId: string | null = null;
-      const registry = { resolveManagementExecution: async () => ({ ok: true, value: selection }),
-        getManagementBundle: async () => bundleBytes,
-        admitManagement: async (request: object) => ({ ok: true, value: { ...request,
-          admittedAt: Date.now(), selection } }), upsertOwnedActivity: async () => {},
-        retainedProspectiveRenovateRetryTargets: async () => [],
-        currentProspectiveRenovateRegistration: async () => ({ repository: 'acme/updates', repositoryId: 424242, baseBranch: 'trunk', repetitionIntervalSeconds: 3600, controlsRevision: 1, installationRevision: 1, operatorRevision: 1, releaseId: 'release', bundleDigest, registrationId: 'registered-admin',
-          activatedAt: '2026-09-28T00:00:00.000Z', installationId: 'dispatcher-install', bucket,
-          sessionId: 'session0001', sessionGeneration: 3, human, accessJwt: 'sealed-admin' }),
-        reserveProspectiveRenovateActivity: async (input: { activityId: string }) => {
-          reservedActivityId ??= input.activityId;
-          return { ok: true, activityId: reservedActivityId,
-            actor: { registrationId: 'registered-admin', bucket,
-              sessionId: 'session0001', sessionGeneration: 3 } };
-        },
-        readProspectiveRenovateAdmission: async (id: string) => id !== reservedActivityId ? null : ({ activityId: id,
-          installationId: 'dispatcher-install', repository: 'acme/updates', baseBranch: 'trunk', repositoryId: 424242, pullRequest: 1302,
-          controlsRevision: 1, installationRevision: 1, operatorRevision: 1, releaseId: 'release', bundleDigest,
-          head: 'c'.repeat(40), ownerKey: await (await import('../../operators/browser-activity')).operatorOwnerKey(human),
-          activatedAt: '2026-09-28T00:00:00.000Z', createdAt: '2026-09-28T00:00:00.001Z',
-          actor: { registrationId: 'registered-admin', bucket, sessionId: 'session0001',
-            sessionGeneration: 3, subject: human.subject, email: human.email, issuer: human.issuer,
-            audiences: human.audiences } }),
+      mockStorage.delete.mockImplementation(async (key: string) => stored.delete(key));
+      mockStorage.deleteAll.mockImplementation(async () => { stored.clear(); });
+      const effects: string[] = [];
+      const forbidden = (effect: string): never => { effects.push(effect); throw Error(`Retired callback attempted ${effect}`); };
+      mockEnv.OPERATOR_REGISTRY = { getByName: () => forbidden('registry discovery/admission') };
+      mockEnv.OPERATOR_ACTIVITY = { getByName: () => forbidden('activity start/publication') };
+      mockEnv.CONTAINER = { getByName: () => forbidden('source session') };
+      (mockCtx as any).exports = { GitHubInterceptor: () => ({ fetch: () => forbidden('GitHub') }) };
+      const rows = [
+        { taskId: 'metrics', callback: 'collectMetrics', payload: '', time: 100 },
+        { taskId: 'historical-scan', callback: 'scanRenovate', payload: binding, time: 100 },
+      ];
+      const originalRows = structuredClone(rows);
+      const create = async () => {
+        const instance = new ContainerClass(mockCtx as any, mockEnv);
+        await mockCtx.blockConcurrencyWhile.mock.results.at(-1)?.value;
+        vi.spyOn(instance, 'listSchedules').mockImplementation(async () => rows as never);
+        vi.spyOn(instance, 'schedule').mockImplementation(async () => forbidden('schedule'));
+        vi.spyOn(instance, 'deleteSchedules').mockImplementation(() => { rows.length = 0; forbidden('delete schedules'); });
+        return instance;
       };
-      mockEnv.CONTAINER = {
-        idFromName: (name: string) => ({ toString: () => name === `${bucket}-session0001` ? 'test-do-id-hex' : 'foreign-do' }),
-        get: () => ({ claimBucketOwner: async (email: string) => email === human.email ? 'owned' : 'conflict' }),
-        getByName: (name: string) => ({ getPersonalPiSession: async (ref: { bucket: string; sessionId: string; email: string }) => {
-          if (name !== `${bucket}-session0001` || ref.bucket !== bucket
-            || ref.sessionId !== 'session0001' || ref.email !== human.email) throw Error('Foreign source Host');
-          return { generation: 3 };
-        } }),
-      };
-      mockEnv.OPERATOR_REGISTRY = { getByName: () => registry };
-      const writes: string[] = [];
-      Object.defineProperty(native, 'exports', { configurable: true, value: { GitHubInterceptor: () => ({
-        fetch: async (request: Request) => {
-          const url = new URL(request.url);
-          if (request.method === 'POST' && url.pathname.endsWith('/comments')) {
-            writes.push('comment');
-            return Response.json({ id: 801 });
-          }
-          if (url.pathname === '/user') return Response.json({ id: 9, login: 'admin' });
-          if (url.pathname === '/repos/acme/updates' || url.pathname === '/repos/acme/updates/') return Response.json({
-            id: 424242, full_name: 'acme/updates', default_branch: 'trunk',
-            permissions: { admin: true } });
-          if (url.pathname === '/repos/acme/updates/pulls/1302') return Response.json({
-            number: 1302, state: 'open', mergeable: true, mergeable_state: 'clean',
-            created_at: '2026-09-28T00:00:00.001Z', user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' },
-            head: { sha: 'c'.repeat(40) }, base: { sha: 'b'.repeat(40), ref: 'trunk', repo: { id: 424242, full_name: 'acme/updates' } } });
-          if (url.pathname.endsWith('/comments')) return Response.json(writes.map(() => ({ id: 801,
-            body: `<!-- Codeflare Renovate ${'activity-id'} -->`, user: { id: 9, login: 'admin' } })));
-          throw Error(`Unexpected publisher GitHub route ${url.pathname}`);
-        },
-      }) } });
-      const activity = new OperatorActivity(native, mockEnv);
-      let loseAcceptedStart = true;
-      const activityTransport = new Proxy(activity, { get(target, key) {
-        if (key === 'start') return async (capability: string) => {
-          const result = await target.start(capability);
-          if (result.ok && loseAcceptedStart) {
-            loseAcceptedStart = false;
-            throw Error('Accepted start response lost');
-          }
-          return result;
-        };
-        const value = Reflect.get(target, key);
-        return typeof value === 'function' ? value.bind(target) : value;
-      } });
-      mockEnv.OPERATOR_ACTIVITY = { idFromName: () => native.id, getByName: (id: string) => {
-        if (reservedActivityId && id !== reservedActivityId) throw Error('New Activity identity after reservation');
-        return activityTransport;
-      } };
-      const pending: Promise<unknown>[] = [];
-      (mockCtx as any).waitUntil = (work: Promise<unknown>) => { pending.push(work); };
-      scanRuntime.enabled = true;
-      const terminal = { pullRequest: 1302, headSha: 'c'.repeat(40), decision: 'DO_NOT_MERGE',
-        comment: 'Missing authoritative upgrade evidence.', outcome: 'NOT_MERGED' };
-      scanRuntime.result = { repository: resultCase === 'wrong-repository' ? 'foreign/repo' : 'acme/updates', results:
-        resultCase === 'empty' ? [] : resultCase === 'duplicate-target' ? [terminal, terminal]
-          : resultCase === 'extra-target' ? [terminal, { ...terminal, pullRequest: 1303 }]
-          : [{ ...terminal, ...(resultCase === 'wrong-head' ? { headSha: 'd'.repeat(40) } : {}),
-            ...(resultCase === 'foreign-pr' ? { pullRequest: 1303 } : {}) }] };
-      (mockCtx as any).exports = { OperatorRuntimeCapability: () => ({ fetch: async () => Response.json({}) }),
-        GitHubInterceptor: () => ({ fetch: async (request: Request) => {
-        const url = new URL(request.url);
-        if (url.pathname === '/repos/acme/updates') return Response.json({ id: 424242,
-          full_name: 'acme/updates', default_branch: 'trunk' });
-        if (url.pathname === '/repos/acme/updates/pulls') return Response.json(url.searchParams.get('page') === '1'
-          ? [{ number: 1302, state: 'open', created_at: '2026-09-28T00:00:00.001Z',
-            user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' },
-            head: { sha: 'c'.repeat(40) }, draft: false, base: { ref: 'trunk', sha: 'b'.repeat(40), repo: { id: 424242, full_name: 'acme/updates' } } }] : []);
-        throw Error('Unexpected GitHub route');
-      } }) };
-      const originalFetch = globalThis.fetch;
-      globalThis.fetch = async (_request, init) => {
-        const cookie = new Headers(init?.headers).get('Cookie');
-        return cookie === 'CF_Authorization=sealed-admin'
-          ? Response.json({ id: human.subject, email: human.email, groups: [] })
-          : new Response(null, { status: 401 });
-      };
+      const network = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => forbidden('network'));
       try {
-      const session = new ContainerClass(mockCtx as any, mockEnv);
-      let deliver: (() => Promise<void>) | undefined;
-      vi.spyOn(session, 'schedule').mockImplementation(async (delay, method, payload) => {
-        const due = Date.now() + Number(delay) * 1000;
-        deliver = async () => {
-          if (Date.now() < due) throw Error('Scheduled scan not due');
-          await (session as unknown as Record<string, (payload: unknown) => Promise<void>>)[method](payload);
-        };
-        return { taskId: 'prospective-scan', callback: method, payload,
-          type: 'delayed', time: Math.floor(due / 1000), delayInSeconds: Number(delay) };
-      });
-      const armed = await (session as unknown as { armRenovateScan: (input: unknown) => Promise<unknown> })
-        .armRenovateScan({ registrationId: 'registered-admin', installationId: 'dispatcher-install',
-          bucket, sessionId: 'session0001', sessionGeneration: 3 });
-      expect(armed).toMatchObject({ ok: true });
-      expect(deliver).toBeDefined();
-      const activatedClock = Date.now();
-      const clock = vi.spyOn(Date, 'now').mockReturnValue(activatedClock + 3_600_001);
-      try { await deliver?.(); await Promise.all(pending.splice(0)); }
-      finally { clock.mockRestore(); }
-      const detail = await activity.getBrowserDetail();
-      expect(detail).toMatchObject({ operatorId: 'dispatcher', activityId: reservedActivityId });
-      expect(['queued', 'running', 'completed']).toContain(detail?.executionStatus);
-      const pinned = await activity.getRuntimePlan();
-      expect(pinned).toMatchObject({ invocationJson: JSON.stringify({
-        repository: 'acme/updates' }),
-        executionContext: { owner: { subject: human.subject, email: human.email } } });
-      // Seed only simulated SDK settlement, then exercise actual Activity collection.
-      // This is a focused scanner/collector test, not native compiled journey or effect evidence.
-      const saved = await native.storage.get<{ drive: { generation: number }; receipt: { intentDigest: string } }>('admission');
-      await native.storage.put('admission', { ...saved, drive: { generation: saved!.drive.generation,
-        status: 'waiting', checkpoint: { submissionId: 'submission-1',
-          inputDigest: saved!.receipt.intentDigest, artifactDigest: bundleDigest }, result: null } });
-      await native.storage.put('dispatcher:lease', { generation: saved!.drive.generation,
-        artifactDigest: bundleDigest, inputDigest: saved!.receipt.intentDigest,
-        expiresAt: Date.now() + 15_000_000, submissionId: 'submission-1', settledSubmissionId: 'submission-1',
-        status: 'settled' });
-      await native.storage.put(`dispatcher:result:${saved!.drive.generation}`, scanRuntime.result);
-      Object.defineProperties(native, {
-        facets: { configurable: true, value: { get: () => ({
-          _cf_initAsFacet: async () => {},
-          fetch: async () => { throw new Error('Durable collection must not refetch SDK history'); },
-        }) } },
-        exports: { configurable: true, value: { ...(native as unknown as { exports: object }).exports,
-          OperatorDispatcherCapability: () => ({ fetch: async () => new Response() }),
-          OperatorDispatcherTail: () => ({ tail: async () => {} }) } },
-      });
-      mockEnv.LOADER = { get: () => ({ getDurableObjectClass: () => ({}) }) };
-      expect((await activity.getBrowserDetail())?.executionStatus).toBe('waiting');
-      // The same-head reservation is never replaced on the next valid hourly callback.
-      const nextClock = vi.spyOn(Date, 'now').mockReturnValue(activatedClock + 7_200_001);
-      try { await deliver?.(); await Promise.all(pending.splice(0)); }
-      finally { nextClock.mockRestore(); }
-      expect((await activity.getBrowserDetail())?.activityId).toBe(detail?.activityId);
-      if (resultCase === 'valid') {
-        expect((await activity.getBrowserDetail())?.executionStatus).toBe('completed');
-        expect((await activity.getBrowserDetail())?.result).toEqual(scanRuntime.result);
-      } else {
-        expect((await activity.getBrowserDetail())?.executionStatus).not.toBe('completed');
-        expect((await activity.getBrowserDetail())?.result).toBeNull();
-      }
-      expect(writes).toEqual([]);
-      const publishClock = vi.spyOn(Date, 'now').mockReturnValue(activatedClock + 10_800_001);
-      try { await deliver?.(); await Promise.all(pending.splice(0)); }
-      finally { publishClock.mockRestore(); }
-      expect(writes).toEqual([]);
-      if (resultCase === 'valid') expect((await activity.getBrowserDetail())?.executionStatus).toBe('completed');
-      else expect((await activity.getBrowserDetail())?.executionStatus).not.toBe('completed');
-      } finally { globalThis.fetch = originalFetch; scanRuntime.enabled = false; scanRuntime.result = null; }
+        let instance = await create();
+        expect(await Promise.all([instance.armRenovateScan(input), instance.armRenovateScan(input)]))
+          .toEqual([{ ok: false }, { ok: false }]);
+        await instance.scanRenovate(input);
+        expect(stored).toEqual(before);
+        expect(rows).toEqual(originalRows);
+        // Reconstruction and delivery of a persisted callback do not revive it.
+        instance = await create();
+        expect(await instance.armRenovateScan(binding)).toEqual({ ok: false });
+        await instance.scanRenovate(binding);
+        await instance.scanRenovate();
+        expect(stored).toEqual(before);
+        expect(rows).toEqual(originalRows);
+        expect(effects).toEqual([]);
+      } finally { network.mockRestore(); }
     });
   });
 
@@ -1418,18 +1018,19 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       mockContainerRuntime.running = true;
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'bucketName') return 'test-bucket';
+        if (key === 'containerAuthToken') return 'authorized-proxy-fixture';
         return null;
       });
 
       const instance = new ContainerClass(mockCtx as any, mockEnv);
-
+      await vi.waitFor(() => expect(instance.envVars?.CONTAINER_AUTH_TOKEN).toBe('authorized-proxy-fixture'));
       const request = new Request('http://container/unknown-route', {
         method: 'GET',
       });
 
       const response = await instance.fetch(request);
-      // super.fetch() handles proxying (SDK manages readiness + networking)
-      expect(response).toBeDefined();
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe('base fetch');
     });
   });
 
@@ -1555,6 +1156,239 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       return instance;
     }
 
+    function observeOwnedExitWork() {
+      const rejected: unknown[] = [];
+      const emitted: Array<{ level: string; message: string; data: Record<string, unknown> }> = [];
+      // Handle the actual promise registered with the DO owner immediately.
+      mockCtx.waitUntil.mockImplementation((completion: Promise<unknown>) => {
+        void Promise.resolve(completion).then(() => undefined, error => { rejected.push(error); });
+      });
+      const logger = (context: Record<string, unknown> = {}): Logger => ({
+        debug: (message, data) => { emitted.push({ level: 'debug', message, data: { ...context, ...data } }); },
+        info: (message, data) => { emitted.push({ level: 'info', message, data: { ...context, ...data } }); },
+        warn: (message, data) => { emitted.push({ level: 'warn', message, data: { ...context, ...data } }); },
+        error: (message, _error, data) => { emitted.push({ level: 'error', message, data: { ...context, ...data } }); },
+        child: data => logger({ ...context, ...data }),
+      });
+      vi.mocked(createLogger).mockImplementationOnce(() => logger());
+      return {
+        emitted,
+        async expectFailure(error: Error) {
+          await vi.waitFor(() => expect(rejected).toContain(error));
+        },
+      };
+    }
+
+    function deferExitConfirmation(mode: 'rejected' | 'refused') {
+      const original = mockEnv.USAGE_DB as D1Database;
+      let blocked = true;
+      mockEnv.USAGE_DB = {
+        prepare(sql: string) {
+          const statement = original.prepare(sql);
+          // Boundary fault injection only; outcomes never assert SQL text.
+          if (!sql.includes("SET lifecycle_state='stopped'")) return statement;
+          return { bind(...values: unknown[]) {
+            const bound = statement.bind(...values);
+            return { run: async () => {
+              if (!blocked) return bound.run();
+              if (mode === 'rejected') throw Error('exit persistence unavailable');
+              return { success: true, meta: { changes: 0 } };
+            } };
+          } };
+        },
+      };
+      return () => { blocked = false; };
+    }
+
+    function seedExitIncident(kv: ReturnType<typeof createMockKV>, key: string, generation: number, incidentId: string | null) {
+      kv._set(key, {
+        id: sessionId, userId: owner, status: incidentId ? 'unreachable' : 'running', lifecycleGeneration: generation,
+        ...(incidentId ? { unreachableIncidentId: incidentId,
+          unreachableFirstObservedAt: '2026-01-01T00:00:00.000Z', unreachableDeadlineMs: 2_000_000_000_000 } : {}),
+        createdAt: '2026-01-01T00:00:00.000Z', lastAccessedAt: '2026-01-01T00:00:00.000Z',
+      });
+    }
+
+    const exitRetryCases = (['rejected', 'refused'] as const).flatMap(mode =>
+      [null, 'original-exit-incident'].map(incidentId => ({ mode, incidentId })));
+
+    describe.each(['resolved', 'rollout'] as const)('attached %s exit scheduling ownership', completion => {
+      it.each(exitRetryCases)(
+        'REQ-SESSION-026 AC1-3: $mode confirmation with incident $incidentId rejects owned completion and remains retryable',
+        async ({ mode, incidentId }) => {
+          const observed = observeOwnedExitWork();
+          const { instance, kv, key, persisted, resolveExit, rejectExit } = await attachedMonitor(21);
+          seedExitIncident(kv, key, 21, incidentId);
+          persisted.set('usageSeconds', 23);
+          const allowConfirmation = deferExitConfirmation(mode);
+          const unavailable = Error('required exit alarm unavailable');
+          const schedule = vi.spyOn(instance, 'schedule').mockRejectedValue(unavailable);
+          try {
+            if (completion === 'rollout') rejectExit(Error('Runtime signalled the container to exit due to a new version rollout: 143'));
+            else resolveExit();
+            await observed.expectFailure(unavailable);
+            expect(observed.emitted.map(entry => entry.data)).toContainEqual(expect.objectContaining({
+              sessionId, lifecycleGeneration: 21, incidentId, errorClass: 'schedule_failed',
+            }));
+            expect(persisted.get('monitoredExitGeneration')).toEqual({ owner, session: sessionId, generation: 21 });
+            expect(persisted.get('lifecycleGeneration')).toBe(21);
+            expect(persisted.get('usageSeconds')).toBe(23);
+            expect(await kv.get(key, 'json')).toMatchObject({
+              status: 'stopping', lifecycleGeneration: 21, terminationGeneration: 21,
+              terminationIntentId: 'monitored-exit-21', ...(incidentId ? { unreachableIncidentId: incidentId } : {}),
+            });
+            allowConfirmation();
+            schedule.mockRestore();
+            await reconstruct();
+            expect(await kv.get(key, 'json')).toMatchObject({ status: 'stopped', lifecycleGeneration: 21 });
+            expect(persisted.has('monitoredExitGeneration')).toBe(false);
+            expect(persisted.get('usageSeconds')).toBe(23);
+          } finally { schedule.mockRestore(); }
+        },
+      );
+    });
+
+    it.each(exitRetryCases)(
+      'REQ-SESSION-026 AC1-3: reconstruction $mode confirmation with incident $incidentId owns retry failure without poisoning startup',
+      async ({ mode, incidentId }) => {
+        const { kv, key, persisted } = await attachedMonitor(22);
+        seedExitIncident(kv, key, 22, incidentId);
+        const evidence = { owner, session: sessionId, generation: 22 };
+        persisted.set('monitoredExitGeneration', evidence);
+        persisted.set('usageSeconds', 23);
+        const allowConfirmation = deferExitConfirmation(mode);
+        const observed = observeOwnedExitWork();
+        const unavailable = Error('restored exit alarm unavailable');
+        const schedule = vi.spyOn(ContainerClass.prototype, 'schedule').mockRejectedValue(unavailable);
+        try {
+          // Startup remains usable; required work rejects through its separate DO completion.
+          const restored = await reconstruct();
+          await observed.expectFailure(unavailable);
+          expect(observed.emitted.map(entry => entry.data)).toContainEqual(expect.objectContaining({
+            sessionId, lifecycleGeneration: 22, incidentId, errorClass: 'schedule_failed',
+          }));
+          expect(persisted.get('monitoredExitGeneration')).toEqual(evidence);
+          expect(persisted.get('lifecycleGeneration')).toBe(22);
+          expect(persisted.get('usageSeconds')).toBe(23);
+          expect(await kv.get(key, 'json')).toMatchObject({
+            status: 'stopping', lifecycleGeneration: 22, terminationGeneration: 22,
+            terminationIntentId: 'monitored-exit-22', ...(incidentId ? { unreachableIncidentId: incidentId } : {}),
+          });
+          expect(restored._sessionId).toBe(sessionId);
+          allowConfirmation();
+          schedule.mockRestore();
+          await reconstruct();
+          expect(await kv.get(key, 'json')).toMatchObject({ status: 'stopped', lifecycleGeneration: 22 });
+          expect(persisted.has('monitoredExitGeneration')).toBe(false);
+          expect(persisted.get('usageSeconds')).toBe(23);
+        } finally { schedule.mockRestore(); }
+      },
+    );
+
+    it.each(exitRetryCases)(
+      'REQ-SESSION-026 AC1-3: metrics caller receives $mode exit-retry alarm failure with observed incident $incidentId',
+      async ({ mode, incidentId }) => {
+        const observed = observeOwnedExitWork();
+        const { instance, kv, key, persisted } = await attachedMonitor(24);
+        seedExitIncident(kv, key, 24, incidentId);
+        persisted.set('monitoredExitGeneration', { owner, session: sessionId, generation: 24 });
+        persisted.set('usageSeconds', 23);
+        const allowConfirmation = deferExitConfirmation(mode);
+        const unavailable = Error('metrics exit alarm unavailable');
+        const schedule = vi.spyOn(instance, 'schedule').mockRejectedValue(unavailable);
+        try {
+          await expect(instance.collectMetrics({ ownerKey: owner, sessionId, generation: 24 })).rejects.toBe(unavailable);
+          expect(observed.emitted.map(entry => entry.data)).toContainEqual(expect.objectContaining({
+            sessionId, lifecycleGeneration: 24, incidentId, errorClass: 'schedule_failed',
+          }));
+          expect(await kv.get(key, 'json')).toMatchObject({ status: 'stopping', lifecycleGeneration: 24, terminationIntentId: 'monitored-exit-24' });
+          expect(persisted.get('monitoredExitGeneration')).toEqual({ owner, session: sessionId, generation: 24 });
+          expect(persisted.get('usageSeconds')).toBe(23);
+          allowConfirmation();
+          schedule.mockRestore();
+          await reconstruct();
+          expect(await kv.get(key, 'json')).toMatchObject({ status: 'stopped', lifecycleGeneration: 24 });
+          expect(persisted.has('monitoredExitGeneration')).toBe(false);
+          expect(persisted.get('usageSeconds')).toBe(23);
+        } finally { schedule.mockRestore(); }
+      },
+    );
+
+    it('REQ-SESSION-026: a transient metrics retry-alarm failure preserves its existing second chance and exit ownership', async () => {
+      const { instance, kv, key, persisted } = await attachedMonitor(25);
+      persisted.set('monitoredExitGeneration', { owner, session: sessionId, generation: 25 });
+      const allowConfirmation = deferExitConfirmation('refused');
+      const queue: unknown[] = [];
+      let unavailable = true;
+      const schedule = vi.spyOn(instance, 'schedule').mockImplementation(async (_delay, _method, payload) => {
+        if (unavailable) { unavailable = false; throw Error('transient scheduler outage'); }
+        queue.push(payload);
+        return {} as Awaited<ReturnType<typeof instance.schedule>>;
+      });
+      try {
+        await expect(instance.collectMetrics({ ownerKey: owner, sessionId, generation: 25 })).resolves.toBeUndefined();
+        expect(queue).toContainEqual({ ownerKey: owner, sessionId, generation: 25 });
+        expect(await kv.get(key, 'json')).toMatchObject({ status: 'stopping', lifecycleGeneration: 25 });
+        expect(persisted.get('monitoredExitGeneration')).toEqual({ owner, session: sessionId, generation: 25 });
+        allowConfirmation();
+        schedule.mockRestore();
+        await reconstruct();
+        expect(await kv.get(key, 'json')).toMatchObject({ status: 'stopped', lifecycleGeneration: 25 });
+      } finally { schedule.mockRestore(); }
+    });
+
+    it('REQ-SESSION-026: alarm unavailability does not poison a working reconstruction without pending exit work', async () => {
+      const { kv, key, persisted } = await attachedMonitor(23);
+      let resolveRestoredExit!: () => void;
+      mockContainerRuntime.monitor.mockImplementation(() => new Promise<void>(resolve => { resolveRestoredExit = resolve; }));
+      const schedule = vi.spyOn(ContainerClass.prototype, 'schedule').mockRejectedValue(Error('alarm unavailable'));
+      try {
+        const restored = await reconstruct();
+        mockTcpPortFetch.mockResolvedValueOnce(new Response('surviving workload'));
+        const response = await restored.forwardExisting(new Request('http://container/health'));
+        expect(response.status).toBe(200);
+        expect(await response.text()).toBe('surviving workload');
+        expect(await kv.get(key, 'json')).toMatchObject({ status: 'running', lifecycleGeneration: 23 });
+        expect(persisted.has('monitoredExitGeneration')).toBe(false);
+        resolveRestoredExit();
+        await vi.waitFor(async () => expect(await kv.get(key, 'json')).toMatchObject({ status: 'stopped', lifecycleGeneration: 23 }));
+      } finally { schedule.mockRestore(); }
+    });
+
+    it.each([
+      { completion: 'resolved' as const, reason: 'unknown' },
+      { completion: 'exit-137' as const, reason: 'unknown' },
+      { completion: 'explicit-rollout' as const, reason: 'platform' },
+    ])('REQ-SESSION-025 AC1-2: $completion exit preserves observed incident without inventing an initiator', async ({ completion, reason }) => {
+      const capture = await captureLifecycleSerialization();
+      try {
+        const f = await attachedMonitor(17);
+        seedExitIncident(f.kv, f.key, 17, 'monitor-incident-17');
+        expect(capture.entries().filter(entry => entry.message === 'process_exit_confirmed')).toEqual([]);
+        if (completion === 'resolved') f.resolveExit();
+        else f.rejectExit(new Error(completion === 'explicit-rollout'
+          ? 'Runtime signalled the container to exit due to a new version rollout: 143'
+          : 'container exited with unexpected exit code: 137'));
+        await vi.waitFor(async () => expect(await f.kv.get(f.key, 'json')).toMatchObject({ status: 'stopped' }));
+        expect((await f.kv.get(f.key, 'json') as Record<string, unknown>).unreachableIncidentId).toBeUndefined();
+        expect(capture.entries()).toContainEqual(expect.objectContaining({ message: 'process_exit_confirmed', data: expect.objectContaining({
+          sessionId, lifecycleGeneration: 17, incidentId: 'monitor-incident-17', terminationIntentId: 'monitored-exit-17', reason,
+        }) }));
+      } finally { capture.restore(); }
+    });
+
+    it('REQ-SESSION-025 AC1: stale monitored-exit authority cannot emit confirmation for a replacement', async () => {
+      const capture = await captureLifecycleSerialization();
+      try {
+        const f = await attachedMonitor(17);
+        f.kv._set(f.key, { id: sessionId, userId: owner, status: 'running', lifecycleGeneration: 18 });
+        const { confirmMonitoredExit } = await import('../../container/container-lifecycle');
+        expect(await confirmMonitoredExit(mockCtx as any, mockEnv, owner, sessionId, 17)).toBe(false);
+        expect(await f.kv.get(f.key, 'json')).toMatchObject({ status: 'running', lifecycleGeneration: 18 });
+        expect(capture.entries().filter(entry => entry.message === 'process_exit_confirmed')).toEqual([]);
+      } finally { capture.restore(); }
+    });
+
     it('REQ-SESSION-024: an old scheduled generation cannot observe or signal the replacement', async () => {
       const { instance, kv, key, persisted } = await attachedMonitor(12);
       persisted.set('lifecycleGeneration', 13);
@@ -1576,7 +1410,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       await vi.waitFor(() => expect(rejectExit).toBeDefined());
       rejectExit(new Error('network connection lost'));
       await vi.waitFor(() => expect((reconstructed as any).logger.warn).toHaveBeenCalledWith(
-        'Container monitor failed', { error: 'network connection lost' },
+        'Container monitor failed', { sessionId, lifecycleGeneration: 12, incidentId: null, errorClass: 'monitor_failed' },
       ));
       expect((await kv.get(key, 'json') as { status: string }).status).toBe('running');
       expect(persisted.has('monitoredExitGeneration')).toBe(false);
@@ -1841,6 +1675,28 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect(body).toHaveProperty('bucketName');
     });
 
+    it.each([undefined, 'Bearer caller-supplied'])('REQ-SEC-022 AC1: missing lifecycle credentials refuse protected forwarding (%s)', async (authorization) => {
+      mockContainerRuntime.running = true;
+      // No restored configuration: a bucket would generate a lifecycle token during hydration.
+      mockStorage.get.mockResolvedValue(null);
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await mockCtx.blockConcurrencyWhile.mock.results.at(-1)!.value;
+      const upstreamState = { syncRequested: false };
+      const proto = Object.getPrototypeOf(Object.getPrototypeOf(instance));
+      const upstream = vi.spyOn(proto, 'fetch').mockImplementation(async () => {
+        upstreamState.syncRequested = true;
+        return new Response('sync started', { status: 200 });
+      });
+      try {
+        const response = await instance.fetch(new Request('http://container/internal/bisync-trigger', {
+          method: 'POST', headers: authorization ? { Authorization: authorization } : {},
+        }));
+        expect(response.status).toBe(503);
+        expect(await response.json()).toEqual({ error: 'Container authorization unavailable' });
+        expect(upstreamState.syncRequested).toBe(false);
+      } finally { upstream.mockRestore(); }
+    });
+
     it('REQ-SEC-022 AC1: proxied non-internal request gets Authorization: Bearer <containerAuthToken> injected before super.fetch', async () => {
       mockContainerRuntime.running = true;
       const PRIOR_TOKEN = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
@@ -1893,6 +1749,305 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
   });
 
   describe('destroy', () => {
+    // Supplied DO storage: public reads observe actual SUT writes/deletes.
+    async function destroyFixture(withIdentity = true) {
+      const stored = new Map<string, unknown>(withIdentity ? [
+        ['bucketName', 'test-bucket'], ['_sessionId', 'sess123'],
+        ['lifecycleGeneration', 7], ['observationSequence', 6],
+        ['containerAuthToken', 'destroy-wire-token'],
+      ] : []);
+      const storage = {
+        get: async (key: string) => stored.get(key),
+        put: async (key: string, value: unknown) => { stored.set(key, structuredClone(value)); },
+        delete: async (key: string | string[]) => {
+          for (const item of typeof key === 'string' ? [key] : key) stored.delete(item);
+        },
+      };
+      mockStorage.get.mockImplementation(storage.get);
+      mockStorage.put.mockImplementation(storage.put);
+      mockStorage.delete.mockImplementation(storage.delete);
+      let ready = Promise.resolve();
+      mockCtx.blockConcurrencyWhile.mockImplementation((work: () => Promise<void>) => {
+        ready = work();
+        return ready;
+      });
+      const wire: Array<{ path: string; method: string; authorization: string | null }> = [];
+      const fetch = async (input: string | Request, init?: RequestInit) => {
+        const request = new Request(input, init);
+        const path = new URL(request.url).pathname;
+        wire.push({ path, method: request.method, authorization: request.headers.get('Authorization') });
+        return Response.json(path === '/internal/agent-events/drain'
+          ? { hostNow: Date.now(), events: [] } : { synced: true });
+      };
+      mockTcpPortFetch.mockImplementation(fetch);
+      mockContainerRuntime.running = true;
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await ready;
+      let started = false;
+      mockContainerRuntime.start.mockImplementation(() => { started = true; });
+      vi.spyOn(instance, 'stop').mockImplementation(async () => { mockContainerRuntime.running = false; });
+      return { instance, storage, fetch, wire, started: () => started };
+    }
+
+    it('REQ-SESSION-025 AC1-2: user Stop retains final-sync context and confirms only after native completion', async () => {
+      const capture = await captureLifecycleSerialization();
+      let resolveNative!: () => void;
+      try {
+        const kv = createMockKV();
+        const key = 'session:test-bucket:sess123';
+        kv._set(key, { id: 'sess123', userId: 'test-bucket', status: 'unreachable',
+          lifecycleGeneration: 7, unreachableIncidentId: 'stop-incident-7',
+          unreachableFirstObservedAt: '2026-01-01T00:00:00.000Z', unreachableDeadlineMs: 120_000 });
+        mockEnv.USAGE_DB = createMockSessionD1(kv);
+        mockEnv.CONTAINER = { idFromName: () => mockCtx.id };
+        const f = await destroyFixture();
+        let providerReached!: () => void;
+        const providerRequested = new Promise<void>(resolve => { providerReached = resolve; });
+        const nativeCompletion = new Promise<void>(resolve => { resolveNative = resolve; });
+        vi.spyOn(f.instance, 'superDestroy').mockImplementation(() => { providerReached(); return nativeCompletion; });
+        let drainObserved = false;
+        mockTcpPortFetch.mockImplementation(async (input: string | Request, init?: RequestInit) => {
+          const request = new Request(input, init);
+          if (new URL(request.url).pathname !== '/internal/final-sync') return f.fetch(input, init);
+          expect(await f.storage.get('_sessionId')).toBeUndefined();
+          expect(await f.storage.get('bucketName')).toBeUndefined();
+          expect(await f.storage.get('containerAuthToken')).toBeUndefined();
+          expect(request.method).toBe('POST');
+          expect(request.headers.get('Authorization')).toBe('Bearer destroy-wire-token');
+          drainObserved = true;
+          return Response.json({ synced: true });
+        });
+        const stop = f.instance.stopSession({ bucket: 'test-bucket', sessionId: 'sess123', generation: 7 });
+        const settled = stop.then(() => ({ ok: true as const }), error => ({ ok: false as const, error }));
+        try {
+          await providerRequested;
+          expect(drainObserved).toBe(true);
+          const stopping = await kv.get(key, 'json') as { terminationIntentId: string; status: string };
+          expect(stopping.status).toBe('stopping');
+          expect(stopping.terminationIntentId).toEqual(expect.any(String));
+          const context = { sessionId: 'sess123', lifecycleGeneration: 7,
+            incidentId: 'stop-incident-7', terminationIntentId: stopping.terminationIntentId };
+          const correlation = { ...context, reason: 'user' };
+          // Audit outcome reasons retain their existing meaning; initiator classification belongs to the transition log.
+          expect(await f.storage.get('finalSyncAudit')).toMatchObject({ ...context, outcome: 'completed', httpStatus: 200 });
+          expect(capture.entries()).toContainEqual(expect.objectContaining({
+            data: expect.objectContaining({ ...correlation, outcome: 'completed', httpStatus: 200 }),
+          }));
+          expect(capture.entries().filter(entry => entry.message === 'process_exit_confirmed')).toEqual([]);
+          resolveNative();
+          expect(await settled).toEqual({ ok: true });
+          expect(await kv.get(key, 'json')).toMatchObject({ status: 'stopped', lifecycleGeneration: 7 });
+          expect(capture.entries()).toContainEqual(expect.objectContaining({ message: 'process_exit_confirmed', data: expect.objectContaining(correlation) }));
+          expect(JSON.stringify(capture.lines)).not.toContain('destroy-wire-token');
+          expect(f.started()).toBe(false);
+        } finally { resolveNative(); await settled; }
+      } finally { capture.restore(); }
+    });
+
+    it('REQ-SESSION-025 AC1-2: direct destroy retains available context without inventing authenticated user provenance', async () => {
+      const capture = await captureLifecycleSerialization();
+      try {
+        const f = await destroyFixture();
+        await f.instance.destroy();
+        expect(await f.storage.get('_sessionId')).toBeUndefined();
+        expect(await f.storage.get('finalSyncAudit')).toMatchObject({ sessionId: 'sess123', lifecycleGeneration: 7, outcome: 'completed', httpStatus: 200 });
+        expect(capture.entries()).toContainEqual(expect.objectContaining({ data: expect.objectContaining({
+          sessionId: 'sess123', lifecycleGeneration: 7, reason: 'unknown', outcome: 'completed',
+        }) }));
+        expect(mockContainerRuntime.running).toBe(false);
+        expect(f.started()).toBe(false);
+      } finally { capture.restore(); }
+    });
+
+    it.each(['host-reason', 'fetch-error', 'cleanup-error', 'stop-error', 'provider-error'] as const)(
+      'REQ-SESSION-025 AC4: teardown %s retains safe diagnostics and best-effort/exit authority', async stage => {
+        const capture = await captureLifecycleSerialization();
+        const sensitive = 'Bearer cf-sensitive-token transcript-fragment terminal-fragment /home/user/private/customer.txt';
+        try {
+          const f = await destroyFixture();
+          let nativeReached = false;
+          const stopSignals: Array<Parameters<typeof f.instance.stop>[0]> = [];
+          vi.spyOn(f.instance, 'superDestroy').mockImplementation(async () => {
+            nativeReached = true;
+            if (stage === 'provider-error') throw Error(sensitive);
+          });
+          if (stage === 'cleanup-error') {
+            mockStorage.delete.mockImplementation(async (key: string | string[]) => {
+              if (key === 'bucketName') throw Error(sensitive);
+              return f.storage.delete(key);
+            });
+          }
+          if (stage === 'stop-error') {
+            vi.spyOn(f.instance, 'stop').mockImplementation(async signal => { stopSignals.push(signal); throw Error(sensitive); });
+          }
+          let authenticatedDrain = false;
+          mockTcpPortFetch.mockImplementation(async (input: string | Request, init?: RequestInit) => {
+            const request = new Request(input, init);
+            if (new URL(request.url).pathname !== '/internal/final-sync') return f.fetch(input, init);
+            expect(request.headers.get('Authorization')).toBe('Bearer destroy-wire-token');
+            authenticatedDrain = true;
+            if (stage === 'fetch-error') throw Error(sensitive);
+            return stage === 'host-reason' ? Response.json({ synced: false, reason: sensitive }, { status: 504 }) : Response.json({ synced: true });
+          });
+          if (stage === 'provider-error') {
+            await expect(f.instance.destroy()).rejects.toThrow(sensitive);
+            expect(capture.entries().filter(entry => entry.message === 'process_exit_confirmed')).toEqual([]);
+          } else if (stage === 'cleanup-error') {
+            await expect(f.instance.destroy()).rejects.toThrow('Operational storage cleanup incomplete');
+          } else await expect(f.instance.destroy()).resolves.toBeUndefined();
+          expect(authenticatedDrain).toBe(true);
+          expect(nativeReached).toBe(true);
+          if (stage === 'cleanup-error') {
+            expect(await f.storage.get('bucketName')).toBe('test-bucket');
+            expect(await f.storage.get('shutdownRequested')).toEqual(expect.any(Number));
+            expect(await f.storage.get('containerAuthToken')).toBeUndefined();
+            expect((await f.instance.fetch(new Request('http://container/workspace'))).status).toBe(503);
+          }
+          if (stage === 'stop-error') expect(stopSignals).toContain('SIGTERM');
+          const audit = await f.storage.get('finalSyncAudit');
+          const outcome = stage === 'host-reason' ? 'incomplete' : stage === 'fetch-error' ? 'errored' : 'completed';
+          expect(audit).toMatchObject({ sessionId: 'sess123', lifecycleGeneration: 7, outcome });
+          if (stage === 'host-reason') expect(audit).toMatchObject({ httpStatus: 504 });
+          expect(capture.entries()).toContainEqual(expect.objectContaining({ data: expect.objectContaining({
+            sessionId: 'sess123', lifecycleGeneration: 7, outcome,
+            ...(stage === 'host-reason' || stage === 'fetch-error' ? { errorClass: expect.any(String) } : {}),
+          }) }));
+          const serialized = JSON.stringify({ logs: capture.lines, audit });
+          for (const forbidden of ['cf-sensitive-token', 'transcript-fragment', 'terminal-fragment', '/home/user/private/customer.txt', 'destroy-wire-token']) expect(serialized).not.toContain(forbidden);
+          expect(f.started()).toBe(false);
+        } finally { capture.restore(); }
+      },
+    );
+
+    it('REQ-SESSION-009 AC1: public destroy removes the forwarding credential and subsequent fetch stays unavailable without starting', async () => {
+      const f = await destroyFixture();
+      const socket = () => new Request('http://container/terminal', { headers: { Upgrade: 'websocket' } });
+      expect((await f.instance.fetch(socket())).status).toBe(200);
+      await f.instance.destroy();
+      expect((await f.instance.fetch(socket())).status).toBe(503);
+      const response = await f.instance.fetch(new Request('http://container/workspace'));
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ error: 'Container not running' });
+      const bucket = await f.instance.fetch(new Request('http://container/_internal/getBucketName'));
+      expect(await bucket.json()).toEqual({ bucketName: null });
+      expect(await f.storage.get('containerAuthToken')).toBeUndefined();
+      expect(await f.storage.get('_sessionId')).toBeUndefined();
+      expect(f.started()).toBe(false);
+    });
+
+    it('REQ-SESSION-009 AC4: a delivered metrics callback after public destroy leaves schedules and service effects unchanged', async () => {
+      const f = await destroyFixture();
+      type Task = { taskId: string; callback: string; payload: unknown; type: 'delayed'; time: number; delayInSeconds: number };
+      let tasks: Task[] = [{ taskId: 'queued', callback: 'collectMetrics', payload: {}, type: 'delayed', time: 0, delayInSeconds: 60 }];
+      vi.spyOn(f.instance, 'listSchedules').mockImplementation(async method => tasks.filter(task => !method || task.callback === method) as never);
+      vi.spyOn(f.instance, 'deleteSchedules').mockImplementation(method => { tasks = tasks.filter(task => task.callback !== method); });
+      vi.spyOn(f.instance, 'schedule').mockImplementation(async (delay, callback, payload) => {
+        const task: Task = { taskId: 'rearmed', callback: String(callback), payload, type: 'delayed', time: 0, delayInSeconds: Number(delay) };
+        tasks.push(task);
+        return task as never;
+      });
+      await f.instance.destroy();
+      expect(await f.instance.listSchedules('collectMetrics')).toEqual([]);
+      const effects: string[] = [];
+      mockEnv.USAGE_DB = { prepare: () => { effects.push('d1'); throw Error('Destroyed session reached D1'); } };
+      mockContainerRuntime.start.mockImplementation(() => { effects.push('start'); });
+      mockContainerRuntime.signal.mockImplementation(() => { effects.push('signal'); });
+      mockContainerRuntime.destroy.mockImplementation(() => { effects.push('force'); });
+      vi.spyOn(f.instance, 'stop').mockImplementation(async () => { effects.push('stop'); });
+      const wireBefore = [...f.wire];
+      await f.instance.collectMetrics({ ownerKey: 'test-bucket', sessionId: 'sess123', generation: 7 });
+      expect(await f.instance.listSchedules('collectMetrics')).toEqual([]);
+      expect(f.wire).toEqual(wireBefore);
+      expect(effects).toEqual([]);
+      expect(await f.storage.get('observationSequence')).toBe(6);
+    });
+
+    it('REQ-SESSION-011 AC1 / REQ-SESSION-019 AC1: authenticated final-sync completion precedes SIGTERM even with a transient false running flag', async () => {
+      const f = await destroyFixture();
+      mockContainerRuntime.running = false;
+      let reached!: () => void;
+      const requested = new Promise<void>(resolve => { reached = resolve; });
+      let complete!: (response: Response) => void;
+      const response = new Promise<Response>(resolve => { complete = resolve; });
+      const order: string[] = [];
+      mockTcpPortFetch.mockImplementation(async (input: string | Request, init?: RequestInit) => {
+        const request = new Request(input, init);
+        if (new URL(request.url).pathname === '/internal/final-sync') {
+          expect(request.method).toBe('POST');
+          expect(request.headers.get('Authorization')).toBe('Bearer destroy-wire-token');
+          order.push('authenticated-final-sync');
+          reached();
+          return response;
+        }
+        return Response.json({ hostNow: Date.now(), events: [] });
+      });
+      vi.spyOn(f.instance, 'stop').mockImplementation(async signal => {
+        order.push(String(signal));
+        mockContainerRuntime.running = false;
+      });
+      const completion = f.instance.destroy();
+      await requested;
+      expect(order).toEqual(['authenticated-final-sync']);
+      mockContainerRuntime.running = true;
+      order.push('sync-completed');
+      complete(Response.json({ synced: true }));
+      await completion;
+      expect(order).toEqual(['authenticated-final-sync', 'sync-completed', 'SIGTERM']);
+      expect(await f.storage.get('finalSyncAudit')).toEqual(expect.objectContaining({ outcome: 'completed', httpStatus: 200 }));
+    });
+
+    it('REQ-SESSION-019 AC1: missing token emits no outgoing request and leaves a readable bounded teardown audit', async () => {
+      const f = await destroyFixture(false);
+      const entered = Date.now();
+      await expect(f.instance.destroy()).resolves.toBeUndefined();
+      expect(f.wire).toEqual([]);
+      const audit = await f.storage.get('finalSyncAudit') as { at: number; outcome: string; reason: string; running: boolean };
+      expect(audit).toEqual({ outcome: 'errored', reason: 'missing-auth-token', at: expect.any(Number), running: true });
+      expect(audit.at).toBeGreaterThanOrEqual(entered);
+      expect(audit.at).toBeLessThanOrEqual(entered + 135_000);
+      expect(mockContainerRuntime.running).toBe(false);
+      expect(f.started()).toBe(false);
+    });
+
+    it.each(['storage-fence', 'storage-read', 'storage-delete', 'final-sync', 'response-body', 'audit-write', 'stop', 'provider'] as const)(
+      'REQ-SESSION-011 AC5: an awaited %s stall cannot extend the shared 135-second teardown deadline', async stage => {
+        vi.useFakeTimers();
+        try {
+          const f = await destroyFixture(stage !== 'storage-read');
+          let reached!: () => void;
+          const stalled = new Promise<void>(resolve => { reached = resolve; });
+          const hang = <T,>(): Promise<T> => { reached(); return new Promise<T>(() => {}); };
+          const { put, get } = f.storage;
+          const { fetch } = f;
+          if (stage === 'storage-fence' || stage === 'audit-write') {
+            mockStorage.put.mockImplementation(async (key: string, value: unknown) =>
+              key === (stage === 'storage-fence' ? 'shutdownRequested' : 'finalSyncAudit') ? hang<void>() : put(key, value));
+          }
+          if (stage === 'storage-read') mockStorage.get.mockImplementation(async (key: string) => key === 'containerAuthToken' ? hang<unknown>() : get(key));
+          if (stage === 'storage-delete') mockStorage.delete.mockImplementation(() => hang<void>());
+          if (stage === 'final-sync' || stage === 'response-body') {
+            mockTcpPortFetch.mockImplementation(async (input: string | Request, init?: RequestInit) => {
+              if (new URL(new Request(input, init).url).pathname !== '/internal/final-sync') return fetch(input, init);
+              if (stage === 'final-sync') return hang<Response>();
+              reached();
+              return new Response(new ReadableStream<Uint8Array>({ start() {} }));
+            });
+          }
+          if (stage === 'stop') vi.spyOn(f.instance, 'stop').mockImplementation(() => hang<void>());
+          if (stage === 'provider') vi.spyOn(f.instance, 'superDestroy').mockImplementation(() => hang<void>());
+          let result = 'pending';
+          const completion = f.instance.destroy().then(() => { result = 'resolved'; }, error => { result = (error as Error).message; });
+          await stalled;
+          await vi.advanceTimersByTimeAsync(134_999);
+          expect(result).toBe('pending');
+          await vi.advanceTimersByTimeAsync(1);
+          await completion;
+          expect(result).toBe('teardown deadline exceeded');
+          expect(f.started()).toBe(false);
+        } finally { vi.useRealTimers(); }
+      },
+    );
+
     // Most existing tests in this block assert storage cleanup, not the new
     // graceful-shutdown polling. Default to !running so the override skips the
     // 25 s SIGTERM-and-poll branch; tests that need the graceful path opt in.
@@ -1920,7 +2075,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       });
       const instance = new ContainerClass(mockCtx as any, mockEnv);
 
-      await expect(instance.destroy()).resolves.toBeUndefined();
+      await expect(instance.destroy()).rejects.toThrow('Operational storage cleanup incomplete');
 
       const deletedKeys = mockStorage.delete.mock.calls.map((call) => call[0]);
       expect(deletedKeys).toContain('metricsTransportRecovery');
@@ -2212,7 +2367,11 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     // by the "errored" sibling test below; this case guards the reachable non-OK
     // branch (e.g. a fast 503/non-2xx) and the body-capture plumbing. The 504 here
     // is illustrative of the res.ok===false mapping, not the timeout race.
-    it('REQ-SESSION-011: a non-OK final-sync response is audited as "incomplete" with the session id + http status/reason, and the delete still proceeds', async () => {
+    it.each([
+      { reason: 'timeout', status: 504 },
+      { reason: 'pi-shutdown-timeout', status: 503 },
+      { reason: 'pi-shutdown-unconfirmed', status: 503 },
+    ])('REQ-SESSION-011: a non-OK final-sync response is audited as "incomplete" with the session id + http status/reason, and the delete still proceeds ($reason)', async ({ reason, status }) => {
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'bucketName') return 'test-bucket';
         if (key === '_sessionId') return 'sess123';
@@ -2223,7 +2382,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
 
       mockTcpPortFetch.mockImplementation(async (url: string) => {
         if (typeof url === 'string' && url.includes('/internal/final-sync')) {
-          return new Response(JSON.stringify({ synced: false, reason: 'timeout' }), { status: 504 });
+          return new Response(JSON.stringify({ synced: false, reason }), { status });
         }
         return new Response('', { status: 200 });
       });
@@ -2244,10 +2403,10 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       const auditPut = mockStorage.put.mock.calls.find((c) => c[0] === 'finalSyncAudit');
       expect(auditPut).toBeDefined();
       const event = auditPut![1] as { outcome: string; sessionId?: string; httpStatus?: number; reason?: string };
-      expect(event.outcome).toBe('incomplete'); // 504 is res.ok===false -> not completed
+      expect(event.outcome).toBe('incomplete'); // Non-2xx never means completed capture or sync.
       expect(event.sessionId).toBe('sess123'); // captured before the storage-clear nulls _sessionId
-      expect(event.httpStatus).toBe(504);
-      expect(event.reason).toBe('timeout');
+      expect(event.httpStatus).toBe(status);
+      expect(event.reason).toBe(reason);
     });
 
     // This is the AUTHORITATIVE ceiling path post budget-inversion fix: when the
@@ -2283,7 +2442,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect(superDestroySpy).toHaveBeenCalled();
       expect(loggerWarn).toHaveBeenCalledWith(
         'Forced destroy failed or exceeded teardown deadline',
-        { error: forcedError.message },
+        { sessionId: null, lifecycleGeneration: null, incidentId: null, reason: 'unknown', errorClass: 'native_destroy_failed' },
       );
     });
 
@@ -2310,14 +2469,14 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         expect(superDestroySpy).toHaveBeenCalled();
         expect(loggerWarn).toHaveBeenCalledWith(
           'Forced destroy failed or exceeded teardown deadline',
-          { error: 'teardown deadline exceeded' },
+          { sessionId: null, lifecycleGeneration: null, incidentId: null, reason: 'unknown', errorClass: 'teardown_deadline_exceeded' },
         );
 
         rejectForcedDestroy(new Error('late provider rejection'));
         await vi.advanceTimersByTimeAsync(0);
         expect(loggerWarn).toHaveBeenCalledWith(
           'Forced destroy failed after teardown deadline',
-          { error: 'late provider rejection' },
+          { sessionId: null, lifecycleGeneration: null, incidentId: null, reason: 'unknown', errorClass: 'native_destroy_failed' },
         );
       } finally {
         vi.useRealTimers();

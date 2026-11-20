@@ -1,9 +1,11 @@
 ---
 name: vault-note-capture
-description: When user says "take a note", "note this down", "write it down", "save this", "remember this", "make a note of this" (or paraphrase), write a markdown note to ~/Vault/Notes/<Category>/. Invoke this skill on those phrases.
+description: "Save ordinary notes to Vault; in Pi, use planning for implementation plans."
 ---
 
 # Vault note capture
+
+In Pi, implementation-plan requests, including saving a plan to Vault, load `planning` before any write. It owns plan structure, the `Notes/Plans/` destination and approval boundaries. Preserve an existing approved plan when asked only to save it; do not replan it or convert it to an ordinary note. Use this skill for ordinary note requests such as “take a note”, “write this down” or “remember this”.
 
 The user keeps cross-session notes in `~/Vault/Notes/` (a SilverBullet space; persisted to R2; ingested into the unified graphify graph by the vault-monitor daemon). When they ask you to capture something, write a file - don't just acknowledge.
 

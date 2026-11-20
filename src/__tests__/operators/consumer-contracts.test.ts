@@ -27,6 +27,20 @@ describe('REQ-OPERATOR-009: reusable bounded consumer contracts', () => {
     ]) expect(() => parseOperatorConsumerInvocation(invalid)).toThrow(/invalid consumer invocation/i);
   });
 
+  it('accepts exactly 8 MiB combined and refuses individually valid attachments above that aggregate', () => {
+    const base = consumerContractFixtures[1];
+    const attachments = [
+      { ...base.attachments[0], name: 'first', size: 4 * 1024 * 1024 },
+      { ...base.attachments[0], name: 'second', size: 4 * 1024 * 1024 },
+    ];
+    expect(parseOperatorConsumerInvocation({ ...base, attachments }).attachments).toEqual(attachments);
+    const over = [attachments[0], { ...attachments[1], size: attachments[1].size + 1 }];
+    for (const item of over) {
+      expect(parseOperatorConsumerInvocation({ ...base, attachments: [item] }).attachments).toEqual([item]);
+    }
+    expect(() => parseOperatorConsumerInvocation({ ...base, attachments: over })).toThrow(/invalid consumer invocation/i);
+  });
+
   it('reconciles exact run identity and rejects changed immutable source, revision or inputs', () => {
     const original = parseOperatorConsumerInvocation(consumerContractFixtures[0]);
     expect(reconcileOperatorConsumerInvocation(original, structuredClone(original))).toEqual(original);

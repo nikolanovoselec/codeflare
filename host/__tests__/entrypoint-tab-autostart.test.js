@@ -71,7 +71,7 @@ function runHarness({ tabConfig, env = {}, dir = mkdtempSync(join(tmpdir(), 'tab
   };
 }
 
-function runGeneratedBashrc(dir, command) {
+function runGeneratedBashrc(dir, command, manualTab = '') {
   const bin = join(dir, 'bin');
   const log = join(dir, 'agent.log');
   mkdirSync(bin, { recursive: true });
@@ -84,7 +84,7 @@ function runGeneratedBashrc(dir, command) {
       `export PATH="${bin}:/usr/local/bin:/usr/bin:/bin:$PATH"`,
     ),
   );
-  const shell = `env HOME=${dir} AGENT_LOG=${log} TERMINAL_ID=1 TERMINAL_APP_STARTED= MANUAL_TAB= bash --noprofile --rcfile ${bashrcPath} -ic 'printf shell-survived'`;
+  const shell = `env HOME=${dir} AGENT_LOG=${log} TERMINAL_ID=1 TERMINAL_APP_STARTED= MANUAL_TAB=${manualTab} bash --noprofile --rcfile ${bashrcPath} -ic 'printf shell-survived'`;
   const result = spawnSync('script', ['-qfec', shell, '/dev/null'], { encoding: 'utf8', timeout: 10_000 });
   return {
     result,
@@ -124,9 +124,19 @@ describe('entrypoint.sh configure_tab_autostart / REQ-AGENT-003 (Agent CLI auto-
 
   // REQ-AGENT-003 AC3: MANUAL_TAB=1 short-circuits autostart for user-created tabs.
   it('AC3: generated .bashrc guards autostart with the MANUAL_TAB skip branch', () => {
-    const { bashrc } = runHarness();
-    assert.match(bashrc, /MANUAL_TAB/,
-      'autostart block must check MANUAL_TAB so user-created tabs skip the case block');
+    const { dir, result } = runHarness();
+    try {
+      assert.equal(result.status, 0, result.stderr);
+      const manual = runGeneratedBashrc(dir, 'claude', '1');
+      assert.equal(manual.result.status, 0, manual.result.stderr);
+      assert.match(manual.result.stdout, /shell-survived/);
+      assert.equal(existsSync(join(dir, 'agent.log')), false, 'manual tab must not launch the agent');
+      const automatic = runGeneratedBashrc(dir, 'claude');
+      assert.equal(automatic.result.status, 0, automatic.result.stderr);
+      assert.ok(automatic.args.includes('--dangerously-skip-permissions'), 'control tab must launch the recording agent');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('AC1 dynamic: TAB_CONFIG with id=1 command=lazygit emits the lazygit launch for tab 1 (overrides the default claude)', () => {

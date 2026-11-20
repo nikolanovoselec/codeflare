@@ -8,6 +8,7 @@ import OperatorActivityResult from './OperatorActivityResult';
 import OperatorActivityDiagnostics from './OperatorActivityDiagnostics';
 import { acknowledgeOperatorActivities, cancelOperatorActivity, getOperatorActivity, listOperatorActivities,
   piAuthFailureTitle, piLoginRecoveryCopy, type OperatorActivityDetail } from '../api/operator-activities';
+import { formatOperatorTime, formatOperatorTimestamp } from '../lib/operator-time';
 import '../styles/operator-dropdown.css';
 
 interface Props { enabled: boolean }
@@ -17,6 +18,7 @@ const reasoningLabel = (level: string | null) => level === null ? 'Provider defa
 
 /** REQ-OPERATOR-086: four nested views inside the existing anchored, owner-scoped dropdown. */
 const OperatorActivityButton: Component<Props> = props => {
+  let active = true;
   const [open, setOpen] = createSignal(false);
   const [segment, setSegment] = createSignal<'Runs' | 'Installed'>('Runs');
   const [installedVisited, setInstalledVisited] = createSignal(false);
@@ -31,8 +33,12 @@ const OperatorActivityButton: Component<Props> = props => {
   const [operator, setOperator] = createSignal('');
   const [activities, { refetch }] = createResource(() => [props.enabled, cursor()] as const, async ([enabled, after]) => {
     if (!enabled) return { items: [], nextCursor: null, workingCount: 0, unreadCount: 0, latestSequence: 0 };
-    try { const value = await listOperatorActivities(after); setLoadError(false); setLoadedAt(Date.now()); return value; }
-    catch { setLoadError(true); return null; }
+    try {
+      const value = await listOperatorActivities(after);
+      if (!active) return null;
+      setLoadError(false); setLoadedAt(Date.now()); return value;
+    }
+    catch { if (active) setLoadError(true); return null; }
   });
   const [selected, setSelected] = createSignal<string | null>(null);
   const [diagnostics, setDiagnostics] = createSignal(false);
@@ -80,8 +86,8 @@ const OperatorActivityButton: Component<Props> = props => {
     queueMicrotask(() => panel?.focus());
     void (async () => {
       const page = await refetch();
-      if (!page?.unreadCount) return;
-      try { await acknowledgeOperatorActivities(page.latestSequence); await refetch(); }
+      if (!active || !page?.unreadCount) return;
+      try { await acknowledgeOperatorActivities(page.latestSequence); if (active) await refetch(); }
       catch { /* Failed acknowledgment must leave unread visible. */ }
     })();
   };
@@ -99,6 +105,7 @@ const OperatorActivityButton: Component<Props> = props => {
     window.addEventListener('resize', closeOnResize);
   });
   onCleanup(() => {
+    active = false;
     document.removeEventListener('keydown', keydown); document.removeEventListener('mousedown', clickOutside);
     window.removeEventListener('resize', closeOnResize);
   });
@@ -106,9 +113,9 @@ const OperatorActivityButton: Component<Props> = props => {
   const stale = (value: string | number) => Date.now() - updatedDate(value).getTime() > 2 * 60_000;
   const cancel = async (id: string) => {
     setCancelling(id); setActionMessage('');
-    try { await cancelOperatorActivity(id); await refetch(); }
-    catch { setActionMessage('Cancellation not confirmed. Refresh before acting.'); }
-    finally { setCancelling(undefined); }
+    try { await cancelOperatorActivity(id); if (active) await refetch(); }
+    catch { if (active) setActionMessage('Cancellation not confirmed. Refresh before acting.'); }
+    finally { if (active) setCancelling(undefined); }
   };
   const changeSegment = (value: 'Runs' | 'Installed') => {
     if (locked()) return;
@@ -153,11 +160,12 @@ const OperatorActivityButton: Component<Props> = props => {
                       <div><strong>{item.operatorName || item.operatorId}</strong><span class="operator-run-status" data-status={item.executionStatus}>{item.executionStatus}</span></div>
                       <Show when={item.authFailure}>{failure => <p>{piAuthFailureTitle(failure())}</p>}</Show>
                       <div><Show when={item.context || item.source}><p>{item.context || item.source}</p></Show><Show when={item.version}><small>{item.version}</small></Show></div>
-                      <small>Updated {updatedDate(item.updatedAt).toLocaleString()}<Show when={stale(item.updatedAt) && workingStates.has(item.executionStatus)}> · Last observation may be stale</Show></small>
+                      <small>Updated {formatOperatorTimestamp(updatedDate(item.updatedAt))}<Show when={stale(item.updatedAt) && workingStates.has(item.executionStatus)}> · Last observation may be stale</Show></small>
                       <Show when={item.resultSummary} fallback={<small>Outcome details unavailable</small>}>{counts => <div class="operator-run-outcomes"><span>{counts().merged} merged</span><span>{counts().notMerged} not merged</span><Show when={counts().deferred}><span>{counts().deferred} deferred</span></Show><Show when={counts().unknown}><span>{counts().unknown} unknown</span></Show></div>}</Show>
                       <Show when={item.progress}><p>{item.progress}</p></Show><Show when={item.attention && !item.authFailure}><span class="operator-activity-attention">Needs attention</span></Show>
                       <nav><button type="button" aria-label={`View ${item.activityId}`} onClick={() => select(item.activityId)}>View details</button><Show when={item.sessionId}>{id => <a href={`/app?session=${encodeURIComponent(id())}`}>Open session</a>}</Show>
-                        <Show when={workingStates.has(item.executionStatus) && item.executionStatus !== 'unknown'}><button type="button" disabled={cancelling() === item.activityId} aria-label={`Cancel ${item.activityId}`} onClick={() => void cancel(item.activityId)}>Cancel</button></Show></nav>
+                        <Show when={workingStates.has(item.executionStatus) && item.executionStatus !== 'unknown'
+                          && !(item.executionStatus === 'cancel-requested' && ['stopped', 'released'].includes(item.cleanupStatus))}><button type="button" disabled={cancelling() === item.activityId} aria-label={`Cancel ${item.activityId}`} onClick={() => void cancel(item.activityId)}>Cancel</button></Show></nav>
                     </article>}</For>
                   </Show></div>
                   <OperatorActivityPages label="Run pages" hasNewer={previous().length > 0} hasNext={!!activities()?.nextCursor}
@@ -175,7 +183,7 @@ const OperatorActivityButton: Component<Props> = props => {
                     <div class="operator-run-metadata"><p>Cleanup: {value().cleanupStatus === 'released' ? 'SDK release confirmed' : value().cleanupStatus}</p><p>Collection: {value().collectionStatus}</p>
                       <Show when={value().attention && !value().authFailure}><p class="operator-activity-attention">Needs attention</p></Show><Show when={value().progress}><p>Progress: {value().progress}</p></Show><Show when={value().checkpoint != null}><p>Checkpoint saved. Work may still be in progress.</p></Show>
                       <p>Activity ID: <span class="operator-full-id">{value().activityId}</span></p><button type="button" onClick={() => void copyId()}>Copy activity ID</button>
-                      <small>Updated {updatedDate(value().updatedAt).toLocaleString()}<Show when={stale(value().updatedAt) && workingStates.has(value().executionStatus)}> · Last observation may be stale</Show></small></div>
+                      <small>Updated {formatOperatorTimestamp(updatedDate(value().updatedAt))}<Show when={stale(value().updatedAt) && workingStates.has(value().executionStatus)}> · Last observation may be stale</Show></small></div>
                     <button type="button" aria-expanded={diagnostics()} onClick={() => setDiagnostics(value => !value)}>{diagnostics() ? 'Hide diagnostics' : 'View diagnostics'}</button><Show when={diagnostics()}><OperatorActivityDiagnostics activityId={value().activityId} openOnMount /></Show>
                   </div>}
                 </Show></Show>
@@ -186,7 +194,7 @@ const OperatorActivityButton: Component<Props> = props => {
             <OperatorInstalled locked={setLocked} opened={id => { select(id); setSegment('Runs'); void refetch(); }} />
           </div></Show>
           <Show when={actionMessage()}><p class="operator-dropdown-notice" role="status">{actionMessage()}</p></Show>
-          <footer><small>{loadError() ? 'Update unavailable' : loadedAt() ? `Updated ${new Date(loadedAt()!).toLocaleTimeString()}` : 'Waiting for update'}</small><button type="button" aria-label="Refresh runs" disabled={locked()} onClick={() => { void refetch(); if (selected()) void refetchDetail(); }}>Refresh</button></footer>
+          <footer><small>{loadError() ? 'Update unavailable' : loadedAt() ? `Updated ${formatOperatorTime(loadedAt()!)}` : 'Waiting for update'}</small><button type="button" aria-label="Refresh runs" disabled={locked()} onClick={() => { void refetch(); if (selected()) void refetchDetail(); }}>Refresh</button></footer>
         </section>
       </Show></Portal>
     </div>

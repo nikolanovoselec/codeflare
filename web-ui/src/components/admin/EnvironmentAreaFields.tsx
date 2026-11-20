@@ -59,8 +59,10 @@ const EnvironmentAreaFields: Component<Props> = (props) => {
       <Show when={jwtMode() === 'all'}><p class="admin-form-wide" role="alert">All sends the invoking human Access assertion to every otherwise allowed HTTPS destination. Recipients may echo or disclose it.</p></Show>
     </Match>
     <Match when={props.section === 'dataGovernance'}>
-      {toggle('governedMode', 'Enable governed storage encryption')}
-      {toggle('viewOnlyStorage', 'Disable storage downloads')}
+      <Show when={props.mode === 'enterprise'}>
+        {toggle('governedMode', 'Enable governed storage encryption')}
+        {toggle('viewOnlyStorage', 'Disable storage downloads')}
+      </Show>
       <div class="admin-form-wide">
         <label class="admin-toggle-field"><input name="syncPolicyMode" type="checkbox"
           checked={current().syncPolicyMode === 'include'} aria-describedby="sync-policy-help" /><span>Save only approved locations</span></label>
@@ -133,7 +135,10 @@ export function environmentValues(section: ConfigurationSection, mode: Administr
         mode, destinations: mode === 'list' ? split(data.get('jwtStampingDestinations')) : [],
       } };
     }
-    case 'dataGovernance': return { governedMode: checked(data, 'governedMode'), viewOnlyStorage: checked(data, 'viewOnlyStorage'), syncPolicyMode: checked(data, 'syncPolicyMode') ? 'include' : 'exclude' };
+    case 'dataGovernance': return {
+      ...(mode === 'enterprise' && { governedMode: checked(data, 'governedMode'), viewOnlyStorage: checked(data, 'viewOnlyStorage') }),
+      syncPolicyMode: checked(data, 'syncPolicyMode') ? 'include' : 'exclude',
+    };
     case 'managedEnvironment': return checked(data, 'enabled') ? { enabled: true, repository: value(data, 'repository'), personalAccessToken: value(data, 'personalAccessToken'), publicKey: value(data, 'publicKey'), immutableResources: checked(data, 'immutableResources'), disableUserCreatedResources: checked(data, 'disableUserCreatedResources') } : { enabled: false };
     case 'github': return { providerType: value(data, 'providerType'), appClientId: value(data, 'appClientId'), appReplacementSecret: value(data, 'appReplacementSecret'), oauthClientId: value(data, 'oauthClientId'), oauthReplacementSecret: value(data, 'oauthReplacementSecret') };
     case 'cloudflareConnection': return { clientId: value(data, 'clientId'), replacementSecret: value(data, 'replacementSecret') };

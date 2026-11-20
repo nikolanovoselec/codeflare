@@ -5,7 +5,7 @@
 //
 // REQ-OPS-003: PR checks run lint, test, typecheck and security audit.
 import { spawnSync } from 'node:child_process';
-import { chmodSync, copyFileSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, matchesGlob, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -220,11 +220,11 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(testWorkflow.jobs.summary.needs).toContain('impeccable-engine');
   });
 
-  it('REQ-OPS-058 AC6-AC7: configures the native source regression without a container build and with a one-minute timeout', () => {
+  it('REQ-OPS-058 AC6-AC7: configures the native source regression without a container build and with a one-minute probe timeout', () => {
     const { testWorkflow } = readCacheWorkflowContract();
     const job = testWorkflow.jobs['impeccable-engine'];
 
-    expect(job['timeout-minutes']).toBe(1);
+    expect(job['timeout-minutes']).toBe(2);
     expect(job.steps).toEqual([
       {
         uses: expect.stringMatching(/^actions\/checkout@[0-9a-f]{40}$/),
@@ -235,6 +235,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
       },
       {
         name: 'Verify the pinned patched engine source',
+        'timeout-minutes': 1,
         run: 'python3 scripts/ci/impeccable-engine-source.py',
       },
     ]);
@@ -280,19 +281,44 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(matchesAny('documentation/lanes/container.md', piPatterns)).toBe(false);
   });
 
-  it('caches the exact Pi prompt runtime without enabling package scripts', () => {
+  it('installs a pristine lock-matched Pi prompt runtime without executing package scripts', () => {
     const workflow = parseYaml(readFileSync(join(REPO, '.github/workflows/test.yml'), 'utf8')) as {
-      jobs: { 'pi-prompt': { steps: Array<{ uses?: string; with?: Record<string, string> }> } };
+      jobs: { 'pi-prompt': { steps: Array<{ run?: string; 'working-directory'?: string }> } };
     };
     const install = workflow.jobs['pi-prompt'].steps.find(
-      (step) => step.uses === '$/.github/actions/install-deps' && step.with?.directory === 'preseed/agents/pi',
+      (step) => step['working-directory'] === 'preseed/agents/pi' && step.run,
     );
-    expect(install?.with).toEqual({
-      directory: 'preseed/agents/pi',
-      'key-prefix': 'pi-prompt',
-      'ignore-scripts': 'true',
-    });
+    expect(install?.run).toBeTypeOf('string');
 
+    const packageDirectory = join(work, 'preseed/agents/pi');
+    const staleRuntime = join(packageDirectory, 'node_modules/cached-patched-runtime');
+    mkdirSync(staleRuntime, { recursive: true });
+    writeFileSync(join(staleRuntime, 'package.json'), JSON.stringify({ name: 'cached-patched-runtime', version: '1.0.0' }));
+    const manifest = {
+      name: 'pi-ci-install-fixture', version: '1.0.0',
+      scripts: { install: `node -e "require('node:fs').writeFileSync('lifecycle-ran', 'yes')"` },
+    };
+    const lock = {
+      name: manifest.name, version: manifest.version, lockfileVersion: 3,
+      packages: { '': { name: manifest.name, version: manifest.version, hasInstallScript: true } },
+    };
+    writeFileSync(join(packageDirectory, 'package.json'), JSON.stringify(manifest));
+    writeFileSync(join(packageDirectory, 'package-lock.json'), JSON.stringify(lock));
+    const result = spawnSync('bash', ['-e', '-c', install!.run!], {
+      cwd: packageDirectory,
+      encoding: 'utf8',
+      env: {
+        ...process.env, npm_config_offline: 'true', npm_config_cache: join(work, 'npm-cache'),
+        npm_config_ignore_scripts: 'false',
+      },
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(existsSync(staleRuntime)).toBe(false);
+    expect(existsSync(join(packageDirectory, 'lifecycle-ran'))).toBe(false);
+    expect(JSON.parse(readFileSync(join(packageDirectory, 'package-lock.json'), 'utf8'))).toEqual(lock);
+  });
+
+  it('preserves the shared cached installer package-script opt-out', () => {
     const action = parseYaml(readFileSync(join(REPO, '.github/actions/install-deps/action.yml'), 'utf8')) as {
       runs: { steps: Array<{ id?: string; uses?: string; if?: string; run?: string; with?: { path?: string } }> };
     };
@@ -341,7 +367,13 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
       name: 'Audit pinned extension dependencies',
       if: dependencyGate,
       'timeout-minutes': 1,
-      run: 'npm audit --package-lock-only --audit-level=high',
+      env: { GH_TOKEN: '${{ github.token }}' },
+      run: [
+        'audit_status=0',
+        'npm audit --package-lock-only --audit-level=high --json > "$RUNNER_TEMP/browser-ide-npm-audit.json" || audit_status=$?',
+        'node ../../scripts/ci/check-browser-ide-audit.mjs "$RUNNER_TEMP/browser-ide-npm-audit.json" "$audit_status"',
+        '',
+      ].join('\n'),
       'working-directory': 'openvscode/agent-sidebar',
     });
   });
@@ -574,7 +606,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(JSON.stringify(testWorkflow)).not.toContain('container-build-cache:linux-amd64');
     expect(JSON.stringify(testWorkflow)).not.toContain('Log in to GHCR for shared BuildKit cache');
     expect(sharedCacheLogin(imageJob.steps)).toMatchObject({
-      uses: 'docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6',
+      uses: 'docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550',
       with: {
         registry: 'ghcr.io',
         username: '${{ github.actor }}',

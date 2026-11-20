@@ -213,6 +213,7 @@ describe('REQ-SUB-009: getTierConfig KV-first with default fallback', () => {
     expect(config.find((t) => t.id === 'standard')!.monthlySeconds).toBe(144000);
   });
 
+  // REQ-STOR-006 AC5: persisted legacy tiers inherit new storage-field defaults.
   it('REQ-SUB-009 AC4: admin-stored values take priority via merge (stored overrides default)', async () => {
     // Simulate stored config missing a new field (maxStorageBytes added after deploy)
     const storedWithoutStorage = getDefaultTiers().map(({ maxStorageBytes: _ms, ...rest }) => rest);
@@ -234,6 +235,14 @@ describe('REQ-SUB-009: getTierConfig KV-first with default fallback', () => {
     expect(config.find((t) => t.id === 'advanced')!.monthlySeconds).toBe(500000);
     // Other tiers unaffected
     expect(config.find((t) => t.id === 'standard')!.monthlySeconds).toBe(144000);
+  });
+
+  it('REQ-SUB-001 AC4: renamed display labels preserve canonical selection identifiers', async () => {
+    mockKV._set('tiers:config', getDefaultTiers().map((tier) => ({ ...tier, displayName: `Renamed ${tier.id}` })));
+    const config = await getTierConfig(mockKV as unknown as KVNamespace);
+    expect(config.map((tier) => tier.id)).toEqual(getDefaultTiers().map((tier) => tier.id));
+    expect(config.find((tier) => tier.id === 'standard')).toMatchObject({ id: 'standard', displayName: 'Renamed standard', isDefault: true });
+    expect(config.find((tier) => tier.id === 'Renamed standard')).toBeUndefined();
   });
 
   it('REQ-SUB-009 constraint: migrates legacy "Team" displayName to "Custom" for unlimited tier', async () => {
@@ -273,38 +282,40 @@ describe('REQ-SUB-010: Tier Config 60-second cache', () => {
   });
 
   it('REQ-SUB-010 AC1/AC2: second call within TTL window returns cached config without KV read', async () => {
-    // First call populates cache
-    await getTierConfig(mockKV as unknown as KVNamespace);
-    const getCallsAfterFirst = mockKV.get.mock.calls.length;
+    const initial = await getTierConfig(mockKV as unknown as KVNamespace);
+    mockKV._set('tiers:config', getDefaultTiers().map((tier) => tier.id === 'standard'
+      ? { ...tier, monthlySeconds: 12345 } : tier));
 
     // Second call within 59 seconds should NOT call KV.get again
     vi.advanceTimersByTime(59_000);
-    await getTierConfig(mockKV as unknown as KVNamespace);
-
-    expect(mockKV.get.mock.calls.length).toBe(getCallsAfterFirst);
+    expect(await getTierConfig(mockKV as unknown as KVNamespace)).toEqual(initial);
   });
 
   it('REQ-SUB-010 AC3: call after TTL expiry reads from KV again', async () => {
-    // First call
-    await getTierConfig(mockKV as unknown as KVNamespace);
-    const getCallsAfterFirst = mockKV.get.mock.calls.length;
-
-    // Advance past 60s TTL
-    vi.advanceTimersByTime(61_000);
-    await getTierConfig(mockKV as unknown as KVNamespace);
-
-    // KV.get must have been called again after TTL expiry
-    expect(mockKV.get.mock.calls.length).toBeGreaterThan(getCallsAfterFirst);
+    const initial = await getTierConfig(mockKV as unknown as KVNamespace);
+    mockKV._set('tiers:config', getDefaultTiers().map((tier) => tier.id === 'standard'
+      ? { ...tier, monthlySeconds: 12345 } : tier));
+    vi.advanceTimersByTime(60_000);
+    const refreshed = await getTierConfig(mockKV as unknown as KVNamespace);
+    expect(refreshed.find((tier) => tier.id === 'standard')!.monthlySeconds).toBe(12345);
+    expect(refreshed.find((tier) => tier.id === 'free')).toEqual(initial.find((tier) => tier.id === 'free'));
   });
 
-  it('REQ-SUB-010 AC4: resetTierConfigCache forces next call to read from KV', async () => {
-    await getTierConfig(mockKV as unknown as KVNamespace);
-    const callsAfterFirst = mockKV.get.mock.calls.length;
+  it('REQ-SUB-010 AC4: next lookup returns updated tier values after local cache reset', async () => {
+    const stored = getDefaultTiers();
+    mockKV._set('tiers:config', stored);
+    const initial = await getTierConfig(mockKV as unknown as KVNamespace);
+    expect(initial.find((tier) => tier.id === 'standard')!.monthlySeconds).toBe(144000);
+
+    mockKV._set('tiers:config', stored.map((tier) => tier.id === 'standard'
+      ? { ...tier, monthlySeconds: 99999, maxSessions: 3 } : tier));
+    const cached = await getTierConfig(mockKV as unknown as KVNamespace);
+    expect(cached.find((tier) => tier.id === 'standard')).toMatchObject({ monthlySeconds: 144000, maxSessions: 1 });
 
     resetTierConfigCache();
-    await getTierConfig(mockKV as unknown as KVNamespace);
-
-    expect(mockKV.get.mock.calls.length).toBeGreaterThan(callsAfterFirst);
+    const refreshed = await getTierConfig(mockKV as unknown as KVNamespace);
+    expect(refreshed.find((tier) => tier.id === 'standard')).toMatchObject({ monthlySeconds: 99999, maxSessions: 3 });
+    expect(refreshed.find((tier) => tier.id === 'free')).toEqual(initial.find((tier) => tier.id === 'free'));
   });
 });
 

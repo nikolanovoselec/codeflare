@@ -5,6 +5,9 @@ export const REVIEWED_IMPECCABLE_NATIVE_ENGINES = Object.freeze({
   '4.6.0': '0.1.15',
   '4.7.0': '0.1.16',
   '4.8.0': '0.1.18',
+  '4.8.2': '0.1.21',
+  '4.9.1': '0.1.24',
+  '4.10.0': '0.1.27',
 });
 
 export function reviewedImpeccableEngine(skillVersion) {
@@ -38,6 +41,9 @@ if [ ! -x "$engine" ]; then
 fi
 export IMPECCABLE_SKILL_DIR=$(CDPATH= cd -- "$dir/.." && pwd)
 export IMPECCABLE_SELF="$0"
+export IMPECCABLE_NO_SWITCH_SYNC=1
+export IMPECCABLE_NO_TELEMETRY=1
+export IMPECCABLE_PRO=off
 exec "$engine" "$@"
 `;
 }

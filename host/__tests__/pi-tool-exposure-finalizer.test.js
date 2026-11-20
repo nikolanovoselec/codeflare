@@ -62,7 +62,7 @@ test('REQ-AGENT-191 AC7: blocks goal_wait execution including after reactivation
 test('REQ-AGENT-191 AC7: preserves execution of all other tools', async () => {
   const runtime = fixture();
   const tools = ['read', 'bash', 'edit', 'write', 'capability', 'goal_complete',
-    'goal_blocked', 'plan_mode_question', 'plan_mode_complete', 'subagent',
+    'goal_blocked', 'goal_progress', 'plan_mode_question', 'plan_mode_complete', 'subagent',
     'graphify_query', 'codeflare_submit_inline_result', 'custom_tool'];
   for (const name of tools) assert.equal(await runtime.call(name), undefined);
   assert.deepEqual(runtime.executed, tools);

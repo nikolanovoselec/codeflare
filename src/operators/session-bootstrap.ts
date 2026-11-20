@@ -5,7 +5,7 @@ import { getOrImportKey } from '../lib/kv-crypto';
 import { getPreferencesKey } from '../lib/kv-keys';
 import { createLogger } from '../lib/logger';
 import { getActiveManagedRelease, hasPendingManagedReconciliation } from '../lib/managed-release-active';
-import { hasHealthyContainer, drainContainers } from '../lib/migration-containers';
+import { hasOwningSessionContainer } from '../lib/session-helpers';
 import { advanceMigration, planRegimeReconcile } from '../lib/r2-migration';
 import { resolveEffectiveSessionMode } from '../lib/session-mode';
 import { getEffectiveTier, isEnterpriseMode } from '../lib/subscription';
@@ -64,14 +64,16 @@ export async function bootstrapOperatorSession(input: {
   const mode = await resolveEffectiveSessionMode(preferences ?? null, user, env);
   const projectionIdentity = codingAgentProjectionIdentity(env.CODING_AGENTS);
   const active = await getActiveManagedRelease(env);
-  const regime = await planRegimeReconcile(env, bucketName, () => hasHealthyContainer(env, bucketName));
+  const regime = await planRegimeReconcile(env, bucketName, () => hasOwningSessionContainer(env, bucketName));
   if (regime.pending) throw new Error('Operator bootstrap bucket update pending');
   if (regime.migrating) {
     await advanceMigration(env, bucketName, {
-      hasHealthyContainer: () => hasHealthyContainer(env, bucketName),
-      drainContainers: () => drainContainers(env, bucketName),
+      hasHealthyContainer: () => hasOwningSessionContainer(env, bucketName),
+      drainContainers: async () => {
+        if (await hasOwningSessionContainer(env, bucketName)) throw new Error('Session workload owns the bucket');
+      },
     });
-    const observed = await planRegimeReconcile(env, bucketName, () => hasHealthyContainer(env, bucketName));
+    const observed = await planRegimeReconcile(env, bucketName, () => hasOwningSessionContainer(env, bucketName));
     if (observed.migrating || observed.pending) throw new Error('Operator bootstrap bucket update pending');
   }
 

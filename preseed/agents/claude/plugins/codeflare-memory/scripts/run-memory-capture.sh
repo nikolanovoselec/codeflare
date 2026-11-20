@@ -153,8 +153,9 @@ fi
 
 if ! jq -Rs --arg sid "$SESSION_ID" --arg ts "$(jq -r '.capture_timestamp // empty' "$VARS_FILE")" \
           --arg cf "$CAPTURE_FILE" --arg cc "$(jq -r '.current_count // 0' "$VARS_FILE")" \
+          --arg fingerprint "$(jq -r '.transcript_fingerprint // empty' "$VARS_FILE")" \
      '{session_id:$sid, current_count:($cc|tonumber? // 0), capture_timestamp:$ts,
-       capture_file:$cf, transcript:.}' \
+       capture_file:$cf, transcript_fingerprint:$fingerprint, transcript:.}' \
      < "$JOINED" > "$REQUEST"; then
   echo "run-memory-capture: could not build the request payload" >&2
   exit 4
@@ -222,6 +223,7 @@ fi
 TASK=$(jq -r --arg frame "$FRAME" '"CAPTURE_REQUEST (inline; there is no file to read)",
   "session_id: \(.session_id)",
   "current_count: \(.current_count)",
+  "transcript_fingerprint: \(.transcript_fingerprint)",
   "capture_timestamp: \(.capture_timestamp)",
   "capture_file: \(.capture_file)",
   "",

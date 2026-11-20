@@ -14,11 +14,9 @@
  * use a dual-regime fallback (resolveReadRegime) so a partially-migrated bucket stays
  * readable, and any stray cross-regime object self-heals via the `mixed-recovery` status.
  *
- * Concurrency: advanceMigration runs in waitUntil on every dashboard poll, so overlapping
- * invocations are expected. `leaseExpiresAt` is a per-chunk in-flight lock claimed at chunk
- * start and released on completion; a crashed chunk's lease expires after MIGRATION_LEASE_MS
- * and the next poll takes over. The lock is best-effort (KV has no CAS) — the idempotent
- * source-HEAD skip + verify-rescan make concurrent advances converge correctly regardless.
+ * Concurrency: advanceMigration delegates to the existing bucket-owner DO, serializing engine
+ * chunks with platform multipart operations. The KV lease remains a resumable checkpoint, not
+ * the exclusion authority. Direct R2 writers must be quiescent during this maintenance boundary.
  */
 import type { Env } from '../types';
 import { createR2Client, getR2Url, parseListObjectsXml } from './r2-client';
@@ -58,7 +56,7 @@ export type { R2SseRegime, RegimeState } from './r2-regime-state';
 const logger = createLogger('r2-migration');
 
 type MigrateR2Env = Pick<Env, 'R2_ACCESS_KEY_ID' | 'R2_SECRET_ACCESS_KEY' | 'ENCRYPTION_KEY'>;
-type DriverEnv = MigrateR2Env & Pick<Env, 'KV' | 'R2_ACCOUNT_ID' | 'R2_ENDPOINT' | 'CLOUDFLARE_API_TOKEN'>;
+type DriverEnv = MigrateR2Env & Pick<Env, 'KV' | 'R2_ACCOUNT_ID' | 'R2_ENDPOINT' | 'CLOUDFLARE_API_TOKEN' | 'CONTAINER' | 'USAGE_DB'>;
 
 /** S3 single-request CopyObject caps at 5 GB; larger objects need UploadPartCopy. Agent config/vault/transcripts are tiny, so we record + skip an oversized object rather than wedge the whole migration. */
 const COPY_OBJECT_MAX_BYTES = 5 * 1024 * 1024 * 1024;
@@ -140,7 +138,15 @@ function encodeCopySource(bucketName: string, key: string): string {
 }
 /** Object URL with the key per-segment-encoded so keys containing #/?/space/unicode resolve correctly. */
 function objectUrl(endpoint: string, bucketName: string, key: string): string {
-  return `${getR2Url(endpoint, bucketName)}/${encodeKey(key)}`;
+  const base = getR2Url(endpoint, bucketName);
+  const encoded = encodeKey(key);
+  const url = `${base}/${encoded}`;
+  // Migration keys come from R2, including legal leading slashes. Preserve them
+  // exactly, but refuse literal dot segments that an HTTP URL cannot represent.
+  if (new URL(url).pathname !== `${new URL(base).pathname}/${encoded}`) {
+    throw new Error('R2 URL changes object identity');
+  }
+  return url;
 }
 
 /** Capture the source object's preservable metadata so a REPLACE copy stays lossless. */
@@ -232,12 +238,14 @@ async function reEncryptObject(
     throw new Error(`reEncryptObject: source HEAD "${key}" failed: HTTP ${srcHead.status}`);
   }
   const etag = srcHead.headers.get('etag');
+  const validEtag = (value: string | null): value is string => value !== null && /^"[\x21\x23-\x7e\x80-\xff]+"$/.test(value);
+  if (!validEtag(etag)) throw new Error(`reEncryptObject: source HEAD "${key}" has no valid ETag`);
 
   const copyRes = await fetchWithTimeout(client, url, {
     method: 'PUT',
     headers: {
       'x-amz-copy-source': encodeCopySource(bucketName, key),
-      ...(etag ? { 'x-amz-copy-source-if-match': etag } : {}),
+      'x-amz-copy-source-if-match': etag,
       'x-amz-metadata-directive': 'REPLACE',
       ...capturePreservedMetadata(srcHead.headers),
       ...getSseCopyHeaders(env, from === 'plain'),
@@ -249,42 +257,61 @@ async function reEncryptObject(
   }
   // CopyObject can return 200 with an embedded <Error> — require a CopyObjectResult + ETag and no Error.
   const body = await copyRes.text();
-  if (/<Error[ >]/i.test(body) || !/<CopyObjectResult/i.test(body) || !/<ETag>/i.test(body)) {
+  const result = body.match(/^\s*(?:<\?xml(?:\s+[A-Za-z_][\w:.-]*=(?:"[^"]*"|'[^']*'))*\s*\?>\s*)?<CopyObjectResult(?:\s+[A-Za-z_][\w:.-]*=(?:"[^"]*"|'[^']*'))*\s*>([\s\S]*)<\/CopyObjectResult>\s*$/);
+  const fields = result ? [...result[1].matchAll(/<([A-Za-z_][\w:.-]*)>([^<]*)<\/\1>/g)] : [];
+  let cursor = 0;
+  let malformed = !result;
+  for (const field of fields) {
+    if (result![1].slice(cursor, field.index).trim()) malformed = true;
+    cursor = field.index! + field[0].length;
+  }
+  if (result?.[1].slice(cursor).trim()) malformed = true;
+  const tags = fields.filter(field => field[1] === 'ETag');
+  const resultEtag = tags.length === 1 ? decodeXmlEntities(tags[0][2].trim()) : null;
+  if (malformed || fields.some(field => field[1] === 'Error') || !validEtag(resultEtag)) {
     throw new Error(`reEncryptObject: CopyObject "${key}" returned 200 with an error/invalid body`);
   }
   return 'migrated';
 }
 
 /**
- * Best-effort abort of every in-flight multipart upload before a migration. Their parts were
+ * One capped multipart preparation page before migration; failed discovery/abort fails closed. Their parts were
  * written in the pre-flip regime; left dangling, a post-migration /complete (or the client's
- * retry) would assemble a stray object in the wrong regime. Failures are swallowed — the verify
- * pass + read self-heal are the correctness backstop; this is defense-in-depth.
+ * retry) could assemble a stray object in the wrong regime. Platform completions are separately
+ * generation-fenced by the bucket DO. Direct R2 writers must be quiescent for maintenance.
  */
 async function abortInFlightMultiparts(env: MigrateR2Env, bucketName: string, endpoint: string): Promise<void> {
   const client = createR2Client(env);
   // Bounded in BOTH per-op AND aggregate wall-clock: this runs inside the same waitUntil window (before
   // the first page on the first invocation), so it must not consume the budget and strand the lease.
   // The list is capped (`max-uploads`) and the aborts run with the same bounded concurrency as a page
-  // (not a sequential await-loop), so the whole drain is ≈ list + one concurrent batch. Any uploads
-  // beyond the cap are left for the verify-rescan + read self-heal (a stray assembled by a late
-  // /complete reads back via the dual-regime fallback) — this is defense-in-depth, not the backstop.
-  // Failures are swallowed.
-  const listRes = await fetchWithTimeout(client, `${getR2Url(endpoint, bucketName)}?uploads&max-uploads=100`, { method: 'GET' }, LIST_TIMEOUT_MS, 'abortMultiparts list').catch(() => null);
-  if (!listRes || !listRes.ok) return;
+  // (not a sequential await-loop). IDs beyond this cap cannot later complete through the platform
+  // after its durable generation fence advances; direct R2 writers require maintenance quiescence.
+  // Dual-regime reads and preservation-first self-heal remain independent recovery safeguards.
+  // A capped pass is not universal tracking of arbitrary direct R2 writers.
+  const listRes = await fetchWithTimeout(client, `${getR2Url(endpoint, bucketName)}?uploads&max-uploads=100`, { method: 'GET' }, LIST_TIMEOUT_MS, 'multipart discovery');
+  if (!listRes.ok) throw new Error(`Multipart discovery failed: HTTP ${listRes.status}`);
   const xml = await listRes.text();
+  if (!/^\s*(?:<\?xml[^?]*\?>\s*)?<ListMultipartUploadsResult(?:\s[^<>]*)?(?:\s*\/>|>[\s\S]*<\/ListMultipartUploadsResult>)\s*$/.test(xml)) {
+    throw new Error('Multipart discovery returned an invalid response');
+  }
   const uploads: Array<{ key: string; uploadId: string }> = [];
   const re = /<Upload>([\s\S]*?)<\/Upload>/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(xml)) !== null) {
     const key = m[1].match(/<Key>([\s\S]*?)<\/Key>/)?.[1];
     const uploadId = m[1].match(/<UploadId>([\s\S]*?)<\/UploadId>/)?.[1];
-    if (key && uploadId) uploads.push({ key: decodeXmlEntities(key), uploadId: decodeXmlEntities(uploadId) });
+    if (!key || !uploadId) throw new Error('Multipart discovery returned an invalid upload');
+    uploads.push({ key: decodeXmlEntities(key), uploadId: decodeXmlEntities(uploadId) });
   }
-  await mapConcurrent(uploads, MIGRATION_CONCURRENCY, async (u) => {
-    await fetchWithTimeout(client, `${objectUrl(endpoint, bucketName, u.key)}?uploadId=${encodeURIComponent(u.uploadId)}`, { method: 'DELETE' }, HEAD_TIMEOUT_MS, `abortMultipart ${u.key}`)
-      .catch(() => {});
+  if ((xml.match(/<Upload(?:\s|>)/g) ?? []).length !== uploads.length || uploads.length > 100) throw new Error('Multipart discovery returned an invalid upload list');
+  const confirmed = await mapConcurrent(uploads, MIGRATION_CONCURRENCY, async (u) => {
+    try {
+      const response = await fetchWithTimeout(client, `${objectUrl(endpoint, bucketName, u.key)}?uploadId=${encodeURIComponent(u.uploadId)}`, { method: 'DELETE' }, HEAD_TIMEOUT_MS, `multipart abort ${u.key}`);
+      return response.ok || response.status === 404;
+    } catch { return false; }
   });
+  if (confirmed.some(ok => !ok)) throw new Error('Multipart abort could not be confirmed; migration preparation will retry');
 }
 
 /**
@@ -527,11 +554,33 @@ export async function planRegimeReconcile(
  * page, then releases the lease. The regime marker flips to the target — and generation
  * bumps — only after a full migrate pass AND a full verify pass.
  */
+/** Platform multipart operations and migration share the same existing bucket-owner DO. */
+export function getBucketStorageOwner(env: Pick<Env, 'CONTAINER'>, bucketName: string) {
+  return env.CONTAINER.getByName(`storage:${bucketName}`) as unknown as {
+    runBucketMultipart(input: import('../routes/storage/upload').BucketMultipartOperation | Request): Promise<Response>;
+    advanceBucketMigration(bucketName: string): Promise<void>;
+  };
+}
+
 export async function advanceMigration(
   env: DriverEnv,
   bucketName: string,
-  deps: { drainContainers: () => Promise<void>; hasHealthyContainer: () => Promise<boolean> },
+  _deps: { drainContainers: () => Promise<void>; hasHealthyContainer: () => Promise<boolean> },
 ): Promise<void> {
+  try {
+    await getBucketStorageOwner(env, bucketName).advanceBucketMigration(bucketName);
+  } catch (error) {
+    logger.error('Bucket migration admission unavailable; retaining migration state', error instanceof Error ? error : new Error(String(error)), { bucketName });
+  }
+}
+
+export async function advanceMigrationChunk(
+  env: DriverEnv,
+  bucketName: string,
+  deps: { drainContainers: () => Promise<void>; hasHealthyContainer: () => Promise<boolean>; beforeReady?: (state: RegimeState) => Promise<void> },
+): Promise<void> {
+  // Keep the existing callback key compatible; callers supply authoritative D1 ownership, not a health hint.
+  const hasOwningContainer = deps.hasHealthyContainer;
   // Hoisted so the catch can release ONLY our own lease (mirrors commit's identity check).
   let myLease: number | undefined;
   try {
@@ -554,11 +603,9 @@ export async function advanceMigration(
       return;
     }
 
-    // D1 (no force-kill): never drain a running session from a background poll. Guards both a normal
-    // migration (a container could have raced /start before the gate engaged) AND a read-triggered
-    // mixed-recovery (which bypasses planRegimeReconcile's health check). If a container is healthy
-    // and we have not drained yet, defer — a later poll runs once the session stops.
-    if (!(state.drained ?? false) && await deps.hasHealthyContainer()) return;
+    // Prior drain progress cannot authorize mutation while a session now owns the bucket.
+    // D1 uncertainty throws into the existing retry path; an unhealthy owner still owns its workload.
+    if (await hasOwningContainer()) return;
 
     // Claim the lease for this chunk; `myLease` is the optimistic-lock value re-checked at commit.
     // Re-read immediately before claiming: another poll may have finished (→ ready) or claimed the
@@ -578,12 +625,15 @@ export async function advanceMigration(
 
     let drained = state.drained ?? false;
     if (!drained) {
-      // Bound the drain so a hung destroy can't blow the waitUntil window. D1 already ensured no
-      // container is healthy, so a timed-out drain is safe to proceed past — the verify-rescan +
-      // read self-heal are the backstop for any straggler.
+      // Preserve bounded best-effort drain recovery, but never treat its failure as ownership proof.
       await withTimeout(deps.drainContainers(), DRAIN_TIMEOUT_MS, 'drainContainers').catch((e) =>
-        logger.warn('drainContainers did not finish in time; proceeding (verify-rescan is the backstop)', { bucketName, error: String(e) }),
+        logger.warn('drainContainers did not finish; rechecking D1 ownership before proceeding', { bucketName, error: String(e) }),
       );
+    }
+    // Recheck after lease admission/drain, including already-drained chunks. Refusal releases our
+    // lease through the existing catch; it must precede multipart aborts and object mutations.
+    if (await hasOwningContainer()) throw new Error('Session workload owns the bucket');
+    if (!drained) {
       await abortInFlightMultiparts(env, bucketName, endpoint);
       drained = true;
     }
@@ -595,6 +645,7 @@ export async function advanceMigration(
     const commit = async (s: RegimeState, hold: boolean): Promise<boolean> => {
       const current = await getRegimeState(env, bucketName);
       if (current.leaseExpiresAt !== myLease) return false;
+      if (s.status === 'ready') await deps.beforeReady?.(s);
       await setRegimeState(env, bucketName, hold ? { ...s, leaseExpiresAt: myLease } : release(s));
       return true;
     };

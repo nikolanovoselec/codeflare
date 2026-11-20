@@ -54,8 +54,9 @@ function buildSetBucketNameBody(params: ContainerConfigPayload): string {
     workspaceSyncEnabled: params.workspaceSyncEnabled,
     syncPolicyMode: parseStoredSyncPolicyMode(params.syncPolicyMode),
     fastStartEnabled: params.fastStartEnabled,
-    ...(params.llmKeys?.openaiApiKey && { openaiApiKey: params.llmKeys.openaiApiKey }),
-    ...(params.llmKeys?.geminiApiKey && { geminiApiKey: params.llmKeys.geminiApiKey }),
+    // Fresh startup snapshot: null revokes; omission is reserved for partial updates.
+    openaiApiKey: params.llmKeys?.openaiApiKey ?? null,
+    geminiApiKey: params.llmKeys?.geminiApiKey ?? null,
     // REQ-AGENT-029 AC2: this start-time payload is an authoritative snapshot.
     // Send absent deploy credentials as explicit null so a restart clears stale
     // in-memory values in the container DO. The receiver reserves omission for
@@ -63,6 +64,7 @@ function buildSetBucketNameBody(params: ContainerConfigPayload): string {
     githubToken: params.deployKeys?.githubToken ?? null,
     cloudflareApiToken: params.deployKeys?.cloudflareApiToken ?? null,
     cloudflareAccountId: params.deployKeys?.cloudflareAccountId ?? null,
+    cloudflareOauthAccountId: params.cloudflareOauthAccountId ?? null,
     ...(params.encryptionKey && { encryptionKey: params.encryptionKey }),
     // REQ-ENTERPRISE-018: forward the bucket's Governed Mode regime so the container's
     // rclone drops SSE-C and enables checksums. Always sent as a definite boolean (like
@@ -359,7 +361,7 @@ export async function configureContainerDO(params: ContainerConfigPayload & {
     }
     logger.info('Set bucket name', { bucketName, previousBucketName: storedBucketName });
   } catch (error) {
-    if (needsBucketUpdate || params.gitCloneRepo) {
+    if (needsBucketUpdate || params.gitCloneRepo || params.gitCloneTargets?.trim()) {
       logger.error('Failed to configure container before start', toError(error));
       throw new ContainerError('set_bucket_name', toErrorMessage(error));
     }

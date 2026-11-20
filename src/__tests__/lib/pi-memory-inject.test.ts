@@ -11,6 +11,7 @@ import {
 } from '../../../preseed/agents/pi/extensions/memory-inject-helpers';
 import {
   buildInjection,
+  configuredCeiling,
   MEMORY_INJECT_TYPE,
   registerMemoryInject,
   resolveGraphPath,
@@ -61,6 +62,15 @@ function fakePi(): {
 }
 
 describe('Pi first-prompt memory injection (REQ-MEM-013)', () => {
+  it('REQ-MEM-013: accepts only positive decimal overrides up to 1 GiB', () => {
+    for (const invalid of ['0', '-1', '1073741825', '9007199254740992', '1e9', ' 500 ', '']) {
+      expect(configuredCeiling(invalid)).toBe(104857600);
+    }
+    expect(configuredCeiling('1')).toBe(1);
+    expect(configuredCeiling('134217728')).toBe(134217728);
+    expect(configuredCeiling('1073741824')).toBe(1073741824);
+  });
+
   it('AC1: keywords are unique words of four characters or more from the prompt head', () => {
     const keywords = extractKeywords('Fix the VAULT route, and the container proxy!! vault vault');
 
@@ -99,10 +109,20 @@ describe('Pi first-prompt memory injection (REQ-MEM-013)', () => {
     expect(renderInjection(selectNodes(NODES, ['zzzznomatch']))).toBeNull();
   });
 
-  it('AC4: a prompt below the character floor is skipped before the graph is read', () => {
+  it('AC4: a matching short prompt preserves the sentinel for a later eligible prompt', () => {
     const deps = workspace();
+    const { pi, fire } = fakePi();
+    registerMemoryInject(pi, deps);
 
-    expect(buildInjection(deps, 'too short')).toBeNull();
+    expect(buildInjection(deps, 'vault')).toBeNull();
+    expect(fire('vault')).toBeUndefined();
+    expect(existsSync(join(deps.sentinelDir, 'sess-1.inject-lock'))).toBe(false);
+    // The same keyword and graph now produce context: absence above cannot be
+    // explained by an unrelated/nonmatching graph fixture.
+    const result = fire('vault '.repeat(4));
+    expect(result?.message?.content).toContain('handleVaultRequest');
+    expect(result?.message?.details).toEqual({ graph: deps.globalGraph });
+    expect(existsSync(join(deps.sentinelDir, 'sess-1.inject-lock'))).toBe(true);
   });
 
   it('AC5: reads the unified graph only, and only within the ceiling', () => {

@@ -1,7 +1,7 @@
 ---
 name: doc-enforce-truth
 description: SDD documentation truth-check / source-of-truth enforcement — the canonical cross-agent contract. Runs Pass 8 (verification truth-check), Pass 9 (Implements-vs-AC cross-walk), Pass 10 (stale code-block detection), Pass 11 (content-preservation on trim), Pass 12 (stranger cold-read), Pass 15 (doc source-anchor truth-check, ALWAYS runs). Invoked conditionally by doc-enforce when Implemented REQ docs are touched OR scope=all.
-version: 4.0.0
+version: 4.1.0
 ---
 
 # Documentation Enforcement — Truth-check passes
@@ -35,12 +35,12 @@ Returns findings array + auto-fix actions. Writes evidence-count rows back to th
 
 For every `**Verification:** <test-file>` field, open the cited file and check:
 
-1. The section's `**Implements:** REQ-X-NNN` ID appears in a `describe`/`test`/`it` block name within the cited file.
-2. At least one content-word token (>=4 chars, stopwords excluded) from the section's `**Threat:**` or `**Mitigation:**` prose appears anywhere in the cited file.
+1. Locate actual eligible blocks through exact anchors, block names or immediately preceding REQ traceability comments; reuse the spec pass's evidence when available.
+2. Read the relevant production exercise and observable assertions. ID/token presence locates candidates; it cannot establish the claimed outcome. Controlled collaborators do not invalidate a real owning-path outcome, and synthetic evidence does not qualify unexercised hosted behavior.
 
-Neither match: MEDIUM `verification-field-cites-unrelated-test`. The cited file existing on disk is necessary but not sufficient.
+Unrelated or unestablished outcomes: MEDIUM `verification-field-cites-unrelated-test`, with the precise missing scope. Never rename tests or broaden an evidence claim to make the field pass.
 
-Multiple files (comma- or `+`-separated) evaluated independently; if at least one passes, the field passes; first file is load-bearing.
+Check linked files independently for their stated scope; an unrelated target cannot borrow credibility from another file. Concrete manual procedures remain legitimate methods, not execution receipts.
 
 Auto-fix in `auto`/`unleashed`: rewrite failing field to `**Verification:** {kept-files}` (drop unrelated). If every file failed, replace with `**Verification:** audit pending — see documentation/.doc-coverage.md` and append entry.
 
@@ -73,13 +73,15 @@ Auto-fix in `auto`/`unleashed`: for shape-drift, regenerate from source. Never d
 When the spine proposes a Pass 1 trim, tokenise removed content clause-by-clause. For each removed clause, check whether its content tokens reappear in: the kept body, surrounding prose, parent section's `**Rationale:**`/`**Consequences:**`/`**Context:**`, or linked ADR body.
 
 Three outcomes:
-- All removed clauses match elsewhere: trim commits as-is.
-- Some clauses are context-loss but relocation exists (adjacent paragraph, ADR, parent prose): promote with leading `Trimmed from <bullet/section> on <date>:` marker, then commit. Commit body lists `trimmed N clauses; preserved K; promoted M to {target}`.
-- Clauses are context-loss with no relocation target: trim is REVERTED. MEDIUM `trim-would-lose-load-bearing-content` listing the bullet and clauses. Cap violation persists; content preserved.
+- Each removed clause retains its complete meaning in its owner: permit the trim.
+- A relocation is needed: preserve the clause naturally in adjacent prose, its normative owner or linked ADR; record the mapping in the commit body, not a dated trim marker.
+- No safe destination/equivalence is established: withdraw only the proposed trim and emit MEDIUM `trim-would-lose-load-bearing-content`. Preserve both content and cap finding.
+
+Subject/token matches are not preservation proof. Compare scope, quantifiers, conditions, exceptions, permissions, identity, ordering, bounds/defaults, retention and failure/recovery behavior. Never resolve a doc/spec conflict by quietly selecting implementation as the intended contract.
 
 ## Pass 12 — Stranger cold-read
 
-For each top-level canonical file, dispatch a fresh subagent (`general-purpose` subtype; **not** `doc-updater`, must come in cold) with: (i) only the contents of the one doc file, (ii) a simulated task. Default task registry:
+For each top-level canonical file, the root obtains a fresh background reader (`general-purpose`, not `doc-updater`) with only that document and a simulated task. A report-only reviewer consumes supplied cold-read evidence or reports the missing pass for its caller; it never spawns nested agents. Explicitly prohibit commands, network/service calls, other file reads and mutations: the reader returns what it would do from the text, never executes the task. This is comprehension evidence, not runtime acceptance. Default task registry:
 
 | File | Simulated task |
 |---|---|
@@ -94,7 +96,7 @@ For each top-level canonical file, dispatch a fresh subagent (`general-purpose` 
 
 Subagent reports `succeeded` / `partial` / `failed`. Partial and failed: MEDIUM `stranger-cold-read-gap` naming the specific information the doc failed to surface.
 
-Project-overridable via `documentation/.cold-read-tasks.yml`. Pass runs at most once per PR-boundary trigger (caches on commit SHA + file mtime). No auto-fix; signal only; written to `documentation/.doc-coverage.md` under `## Cold-read gaps`.
+Project-overridable via `documentation/.cold-read-tasks.yml`. Review runs at most once per trigger using its supplied cache. Clean reuses one result per unchanged document content/task; unrelated commits do not trigger another read. The root records partial/failed results as precise gaps, not new investigation campaigns. No auto-fix; findings retain their severity and existing coverage owner.
 
 ## Pass 15 — Doc source-anchor truth-check (ALWAYS runs)
 

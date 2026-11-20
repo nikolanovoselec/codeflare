@@ -447,12 +447,14 @@ export function registerActiveSessionTranscriptTrimming(pi: ExtensionAPI, io: ty
           checkpoint?.(authorized, "before", ctx);
           const prepared:any=await runTrimWorker({action:"activation",request:authorized,branchIds:branch,sessionInfo},signal);
           // Short owner-only commit fence: no transcript parse/reduction/copy here.
-          if(!valid() || signal?.aborted || !isDeepStrictEqual(branch,ctx.sessionManager.getBranch().map(e=>e.id))
-            || pathIdentity(authorized.file,io)!==prepared.pathIdentity
-            || sourceIdentity(io.lstatSync(authorized.file))!==prepared.sourceIdentity
-            || prepared.finalFile!==join(authorized.directory,"activation.jsonl") || !ownedDirectory(authorized,io)
+          if(!valid() || signal?.aborted)throw new Error("activation-canceled-or-session-changed");
+          const currentBranch=ctx.sessionManager.getBranch().map(e=>e.id);
+          if(branch.some((id,i)=>currentBranch[i]!==id))throw new Error("branch-changed");
+          if(pathIdentity(authorized.file,io)!==prepared.pathIdentity)throw new Error("source-path-changed");
+          if(sourceIdentity(io.lstatSync(authorized.file))!==prepared.sourceIdentity)throw new Error("source-changed");
+          if(prepared.finalFile!==join(authorized.directory,"activation.jsonl") || !ownedDirectory(authorized,io)
             || pathIdentity(prepared.finalFile,io).length===0
-            || trimSourceIdentity(io.lstatSync(prepared.finalFile))!==prepared.finalIdentity)throw new Error("source-or-session-changed");
+            || trimSourceIdentity(io.lstatSync(prepared.finalFile))!==prepared.finalIdentity)throw new Error("candidate-changed");
           const dir=io.openSync(dirname(authorized.file),"r");
           try {
             io.renameSync(prepared.finalFile,authorized.file);

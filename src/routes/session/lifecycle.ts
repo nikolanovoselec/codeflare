@@ -16,7 +16,6 @@ import type { SessionStopRequest } from '../../container/container-lifecycle';
 import { getPreferencesKey, getTimekeeperKey, getUtcDateString, getUtcMonthString } from '../../lib/kv-keys';
 import { PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import { planRegimeReconcile, advanceMigration } from '../../lib/r2-migration';
-import { hasHealthyContainer } from '../../lib/migration-containers';
 import { hasOwningSessionContainer } from '../../lib/session-helpers';
 import { isSaasModeActive } from '../../lib/onboarding';
 import { getTierConfig, getEffectiveTierForUser, isEnterpriseMode } from '../../lib/subscription';
@@ -180,7 +179,7 @@ app.get('/ancillary-status', async (c) => {
   const { state: regimeState, migrating: bucketMigrating, pending: bucketMigrationPending } = await planRegimeReconcile(
     c.env,
     bucketName,
-    () => hasHealthyContainer(c.env, bucketName),
+    () => hasOwningSessionContainer(c.env, bucketName),
   );
   const migrationTotal = regimeState.total ?? 0;
   const bucketMigrationPercent = bucketMigrating && !regimeState.halted && migrationTotal > 0 && regimeState.processed != null
@@ -192,7 +191,7 @@ app.get('/ancillary-status', async (c) => {
         drainContainers: async () => {
           if (await hasOwningSessionContainer(c.env, bucketName)) throw new Error('Session workload owns the bucket');
         },
-        hasHealthyContainer: () => hasHealthyContainer(c.env, bucketName),
+        hasHealthyContainer: () => hasOwningSessionContainer(c.env, bucketName),
       }));
     } catch { /* no execution context in direct unit requests */ }
   }

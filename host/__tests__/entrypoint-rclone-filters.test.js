@@ -611,6 +611,7 @@ const durablePaths = [
 ];
 const fallbackPaths = ['unknown-home/new-file', '.unknown-sdk/auth.json', 'nested/.claude/settings.json'];
 const transientPaths = [
+  'workspace/repo/node_modules/package/index.js',
   '.config/other/auth.json', '.cache/nested/durable-looking.json',
   '.cache/root-state', '.venv/pyvenv.cfg', '.venv-tools/bin/python',
   '.impeccable/update-check.json', '.impeccable/staleness-check.json',
@@ -696,6 +697,44 @@ repair_hook_exec_bits() { :; }
 }
 
 describe('REQ-STOR-002/004/011/031/032: production persistence policy matrix', () => {
+  it('REQ-AGENT-217 AC5: native preparation excludes only retired root stock from a real local baseline', t => {
+    const fx = persistenceFixture(t, { policy: 'mutable' });
+    const stock = '{"mcpServers":{"personal":{"command":"personal-server"}}}';
+    fx.put(fx.home, '.pi/agent/mcp.json', stock);
+    fx.put(fx.remote, '.pi/agent/mcp.json', 'retired remote must not return');
+    for (const path of ['.pi/agent/mcp.json.migrated.saved', '.pi/agent/nested/mcp.json', '.pi/agent/nested/mcp-adapter.json']) {
+      fx.put(fx.home, path, `retained ${path}`);
+    }
+    const source = readFileSync(ENTRYPOINT, 'utf8');
+    const start = source.indexOf('configure_pi_mcp_adapter() {');
+    const end = source.indexOf('\n}', start) + 2;
+    assert.ok(start >= 0 && end > start);
+    fx.run(`${source.slice(start, end)}\nconfigure_pi_mcp_adapter ${JSON.stringify(resolve(__dirname, '../../preseed/agents/pi/extensions/00-mcp-adapter-config.ts'))}\nestablish_bisync_baseline`);
+    assert.equal(existsSync(join(fx.home, '.pi/agent/mcp.json')), false);
+    assert.equal(readFileSync(join(fx.remote, '.pi/agent/mcp.json'), 'utf8'), 'retired remote must not return');
+    assert.deepEqual(JSON.parse(readFileSync(join(fx.remote, '.pi/agent/mcp-adapter.json'), 'utf8')).mcpServers.personal, { command: 'personal-server' });
+    assert.equal(readFileSync(join(fx.remote, '.pi/agent/mcp.json.migrated'), 'utf8'), stock);
+    for (const path of ['.pi/agent/mcp.json.migrated.saved', '.pi/agent/nested/mcp.json', '.pi/agent/nested/mcp-adapter.json']) {
+      assert.equal(readFileSync(join(fx.remote, path), 'utf8'), `retained ${path}`);
+    }
+  });
+
+  it('REQ-VAULT-026 AC2: durable extraction manifest bytes survive local baseline and ordinary bisync restore', t => {
+    const fx = persistenceFixture(t, { policy: 'mutable' });
+    const path = 'Vault/graphify-out/vault-extract-manifest.json';
+    const manifest = '{"files":{"Notes/persisted.md":{"sha256":"synthetic-content-hash"}}}\n';
+    fx.put(fx.remote, path, manifest);
+    fx.put(fx.remote, 'Vault/Notes/unchanged.md', 'unchanged user note');
+    fx.run('initial_sync_from_r2\nestablish_bisync_baseline');
+    assert.equal(readFileSync(join(fx.home, path), 'utf8'), manifest);
+    const updated = '{"files":{"Notes/updated.md":{"sha256":"updated-content-hash"}}}\n';
+    fx.put(fx.remote, path, updated);
+    fx.run('bisync_with_r2 ""');
+    assert.equal(readFileSync(join(fx.home, path), 'utf8'), updated);
+    assert.equal(readFileSync(join(fx.remote, path), 'utf8'), updated);
+    assert.equal(readFileSync(join(fx.home, 'Vault/Notes/unchanged.md'), 'utf8'), 'unchanged user note');
+    assert.equal(readFileSync(join(fx.remote, 'Vault/Notes/unchanged.md'), 'utf8'), 'unchanged user note');
+  });
   for (const syncPolicyMode of ['include', 'exclude']) {
     for (const sessionMode of ['default', 'advanced']) for (const syncMode of ['none', 'metadata', 'full']) {
       for (const curation of [false, true]) for (const immutable of [false, true]) {

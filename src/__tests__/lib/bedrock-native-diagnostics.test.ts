@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { adaptBedrockAnthropicResponse, type BedrockReplayState } from '../../lib/bedrock-anthropic-native-adapter';
+import { buildBedrockAnthropicRequest, adaptBedrockAnthropicResponse, type BedrockReplayState } from '../../lib/bedrock-anthropic-native-adapter';
 import { setLogLevel } from '../../lib/logger';
 import { bedrockChunkFrame as frame, bedrockEventFrame, bedrockToolResponse, readOpenAiToolTurn } from '../helpers/bedrock-eventstream';
 
@@ -38,6 +38,25 @@ const reason = (stop_reason: string) => frame({ type: 'message_delta', delta: { 
 // Structured logs are an intentional privacy/diagnostic wire contract. Every
 // diagnostic assertion is paired with the actual unchanged provider-wire outcome.
 describe('REQ-OPERATOR-063: complete native inference diagnostic wire', () => {
+  it.each(['invoke', 'eventstream'] as const)('REQ-ENTERPRISE-079 AC2: %s enabled raw logs omit private thinking while replay stays exact', async transport => capture(async events => {
+    const blocks = [
+      { type: 'thinking', thinking: 'PRIVATE_NONEMPTY_THINKING', signature: 'PRIVATE_SIGNATURE' },
+      { type: 'redacted_thinking', data: 'PRIVATE_REDACTED_REPLAY' },
+      { type: 'tool_use', id: 'fixture_call', name: 'lookup', input: { value: 'PUBLIC_TOOL_VALUE' } },
+    ];
+    const storage = replay();
+    storage.diagnosticContext = { activityId: 'activity', generation: 1, loggingEnabled: true };
+    const first = await readOpenAiToolTurn(await adaptBedrockAnthropicResponse(bedrockToolResponse(blocks, transport), transport, storage, true));
+    expect(first.finishes).toEqual(['tool_calls']);
+    const next = await buildBedrockAnthropicRequest({ messages: [{ role: 'user', content: 'Lookup' }, first.message,
+      { role: 'tool', tool_call_id: first.message.tool_calls[0].id, content: 'result' }] }, storage);
+    expect(next.messages[1].content).toEqual(blocks);
+    const raw = events.filter(event => event.module === 'operator-execution');
+    expect(raw.length).toBeGreaterThan(0);
+    expect(JSON.stringify(raw)).not.toMatch(/PRIVATE_NONEMPTY_THINKING|PRIVATE_SIGNATURE|PRIVATE_REDACTED_REPLAY/);
+    expect(JSON.stringify(raw)).toContain('PUBLIC_TOOL_VALUE');
+  }));
+
   it.each([true, false])('REQ-OPERATOR-079: disabled native logging preserves successful=%s provider completion', async success => capture(async events => {
     const storage = replay();
     storage.diagnosticContext = { activityId: 'activity', generation: 1, loggingEnabled: false };
@@ -48,6 +67,7 @@ describe('REQ-OPERATOR-063: complete native inference diagnostic wire', () => {
     else { expect(text).toContain('NATIVE_BEDROCK_STREAM_ERROR'); expect(text).not.toMatch(/"finish_reason":"[^"]+"/); }
     expect(text).toContain('data: [DONE]');
     expect(observations(events)).toEqual([]);
+    expect(events.filter(event => event.module === 'operator-execution')).toEqual([]);
   }));
   it.each([true, false])('REQ-OPERATOR-090: native stream logging=%s preserves bytes without reconstructible credential fragments', async loggingEnabled => capture(async events => {
     const secret = 'worker-native-sensitive-material-492';

@@ -10,10 +10,11 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import {
-  mkdirSync, writeFileSync, existsSync, readFileSync, copyFileSync, chmodSync, symlinkSync, unlinkSync,
+  mkdirSync, writeFileSync, existsSync, readFileSync, copyFileSync, chmodSync, unlinkSync,
 } from 'node:fs';
 import { tempDir } from './helpers/temp-dirs.js';
 import { join, resolve, dirname } from 'node:path';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -209,6 +210,32 @@ describe('memory-capture.sh - first-run baseline + resume detection / REQ-MEM-01
   });
 });
 
+describe('REQ-MEM-026 AC2: Claude durable retained-prefix recovery', () => {
+  for (const scenario of ['larger count', 'rewritten prefix', 'legacy without fingerprint', 'matching prefix']) {
+    it(`recovers only qualified durable progress: ${scenario}`, () => {
+      const fx = makeFixture();
+      const lines = [realUserLine('retained first'), realUserLine('uncaptured tail')];
+      const transcriptPath = writeTranscript(fx.home, [toolResultLine(), ...lines]);
+      const notes = join(fx.home, 'Vault', 'Raw', 'Sessions');
+      mkdirSync(notes, { recursive: true });
+      const count = scenario === 'larger count' ? 1013 : 1;
+      const fingerprint = createHash('sha256').update(
+        (scenario === 'rewritten prefix' ? realUserLine('old first') : lines[0]) + '\n',
+      ).digest('hex');
+      writeFileSync(join(notes, 'capture.md'), `---\nsession_id: retained-session\ncaptured_prompt_count: ${count}\n${
+        scenario === 'legacy without fingerprint' ? '' : `captured_prompt_fingerprint: ${fingerprint}\n`
+      }---\n# durable note\n`);
+      const result = runHook(fx, { transcriptPath, sessionId: 'retained-session' });
+      assert.equal(result.status, 0, result.stderr);
+      const request = JSON.parse(readFileSync(join(fx.counterDir, 'retained-session.vars'), 'utf8'));
+      assert.equal(Number(request.last_line), scenario === 'matching prefix' ? 2 : 1);
+      assert.equal(request.transcript_fingerprint,
+        createHash('sha256').update(lines.join('\n') + '\n').digest('hex'));
+      assert.match(readFileSync(join(notes, 'capture.md'), 'utf8'), /# durable note/);
+    });
+  }
+});
+
 // REQ-MEM-002 AC3/AC4/AC5 (delta logic: <20 silent, >=20 fires, counter advances)
 describe('memory-capture.sh - user-message counting', () => {
   it('hash-checks Vault at prompt 20 without starting memory capture early', () => {
@@ -255,8 +282,12 @@ describe('memory-capture.sh - user-message counting', () => {
     const fx = makeFixture();
     installVaultManifest(fx);
     writeFileSync(join(fx.home, 'Vault', 'Notes', 'retry.md'), 'changed\n');
-    const unreadable = join(fx.home, 'Vault', 'Notes', 'vanished.md');
-    symlinkSync('missing-target.md', unreadable);
+    // A closed Unix socket remains an unopenable filename even when CI runs
+    // as root. Symlinks are deliberately skipped now and cannot model failure.
+    const unreadable = join(fx.home, 'Vault', 'Notes', 'unreadable.socket');
+    const socket = spawnSync('python3', ['-c',
+      'import socket,sys; s=socket.socket(socket.AF_UNIX); s.bind(sys.argv[1]); s.close()', unreadable]);
+    assert.equal(socket.status, 0);
     writeFileSync(join(fx.counterDir, 'sess-vault-retry'), '19\n1\n');
     const vaultCounter = join(fx.counterDir, 'sess-vault-retry.vault-count');
     writeFileSync(vaultCounter, '0\n');
@@ -367,13 +398,17 @@ describe('memory-capture.sh - tilde expansion', () => {
     const fx = makeFixture();
     writeFileSync(join(fx.counterDir, 'sess-tilde'), '0\n0\n');
     const realPath = join(fx.home, 'transcript.jsonl');
-    writeFileSync(realPath, realUserLine('hi') + '\n');
+    writeFileSync(realPath, Array.from({ length: 20 }, (_, i) => realUserLine(`eligible prompt ${i}`)).join('\n') + '\n');
     const r = runHook(fx, {
       transcriptPath: '~/transcript.jsonl',
       sessionId: 'sess-tilde',
     });
     assert.equal(r.status, 0,
       'tilde-prefixed path must resolve to a real file (no error)');
+    const carrier = JSON.parse(readFileSync(join(fx.counterDir, 'sess-tilde.vars'), 'utf-8'));
+    assert.equal(carrier.transcript, realPath);
+    assert.equal(carrier.current_count, '20');
+    assert.equal(carrier.attempts, 1);
   });
 });
 

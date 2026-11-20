@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { isAllowedOrigin, resetCorsOriginsCache } from '../../lib/cors-cache';
 import { createMockKV } from '../helpers/mock-kv';
 import type { Env } from '../../types';
@@ -140,6 +140,23 @@ describe('cors-cache / REQ-SETUP-007 (custom-domain CORS cache invalidation)', (
     });
 
     describe('cache behavior', () => {
+      it('REQ-SETUP-007 AC6: expires old origin authority at five minutes', async () => {
+        const now = vi.spyOn(Date, 'now').mockReturnValue(1_800_000_000_000);
+        try {
+          const env = createEnv();
+          mockKV._store.set('setup:custom_domain', 'old.example.com');
+          expect(await isAllowedOrigin('https://old.example.com', env)).toBe(true);
+          mockKV._store.set('setup:custom_domain', 'new.example.com');
+          now.mockReturnValue(1_800_000_299_999);
+          expect(await isAllowedOrigin('https://old.example.com', env)).toBe(true);
+          expect(await isAllowedOrigin('https://new.example.com', env)).toBe(false);
+          now.mockReturnValue(1_800_000_300_000);
+          expect(await isAllowedOrigin('https://old.example.com', env)).toBe(false);
+          expect(await isAllowedOrigin('https://new.example.com', env)).toBe(true);
+        } finally {
+          now.mockRestore();
+        }
+      });
       it('caches KV origins so subsequent calls do not re-read KV', async () => {
         const env = createEnv({ ALLOWED_ORIGINS: '.workers.dev' });
         mockKV._store.set('setup:custom_domain', 'claude.example.com');

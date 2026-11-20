@@ -60,7 +60,7 @@ import { repairRepeatedCompleteToolNames } from './lib/openai-sse-tool-name-repa
 import { nativeProviderSelector } from './lib/native-ai-targets';
 import { exposeGeminiThoughtSignatures, restoreGeminiThoughtSignatures } from './lib/gemini-thought-signature-adapter';
 import { adaptBedrockAnthropicResponse, bedrockAnthropicGatewayPath, buildBedrockAnthropicRequest, selectBedrockAnthropicTransport, type BedrockAnthropicTransport, type BedrockReplayState } from './lib/bedrock-anthropic-native-adapter';
-import { inferenceDiagnostic, type InferenceDiagnosticContext } from './lib/inference-diagnostics';
+import { inferenceDiagnostic, inferenceDiagnosticLocal, type InferenceDiagnosticWireContext } from './lib/inference-diagnostics';
 import { emitRaw } from '../host/src/operator-raw-logging';
 import { encryptForKV, getAndDecrypt, getOrImportKey } from './lib/kv-crypto';
 import { prepareJwtStampedRequest, type JwtStampingAuthority, type JwtStampingPolicy } from './operators/jwt-stamping';
@@ -150,7 +150,7 @@ interface InterceptorProps extends PersonalPiProps {
   jwtAuthority?: JwtStampingAuthority;
   /** Parent-owned selection; child payload cannot widen or replace it. */
   operatorInference?: { activityId: string; operatorId: string; policy: OperatorPolicy;
-    trusted: { routeId: string; reasoningLevel: string | null }; diagnosticContext?: InferenceDiagnosticContext };
+    trusted: { routeId: string; reasoningLevel: string | null }; diagnosticContext?: InferenceDiagnosticWireContext };
 }
 
 /**
@@ -331,7 +331,7 @@ function applyEffectiveReasoning(payload: Record<string, unknown>, profile: Norm
 export class LlmInterceptor extends WorkerEntrypoint<Env> {
   override async fetch(request: Request): Promise<Response> {
     const props = (this.ctx as unknown as { props?: InterceptorProps }).props;
-    const parentContext = props?.operatorInference?.diagnosticContext;
+    const parentContext = inferenceDiagnosticLocal(props?.operatorInference?.diagnosticContext, work => this.ctx.waitUntil(work));
     const token = props?.token ?? this.env.AIG_TOKEN;
     const context = parentContext ? { ...parentContext,
       credentials: [...(parentContext.credentials ?? []), ...(token ? [token] : [])] } : undefined;
@@ -353,7 +353,7 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
     const personal = await forwardPersonalPi(request, this.env, props);
     if (personal) return personal;
     const aigToken = props?.token ?? this.env.AIG_TOKEN;
-    const parentDiagnostic = props?.operatorInference?.diagnosticContext;
+    const parentDiagnostic = inferenceDiagnosticLocal(props?.operatorInference?.diagnosticContext, work => this.ctx.waitUntil(work));
     const diagnosticContext = parentDiagnostic ? { ...parentDiagnostic,
       credentials: [...(parentDiagnostic.credentials ?? []), ...(aigToken ? [aigToken] : [])] } : undefined;
     const gw = gatewayCoordinates({

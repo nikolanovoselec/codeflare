@@ -14,7 +14,7 @@ import { DEFAULT_ROUTE_CONTEXT_WINDOW } from '../lib/constants';
 import { authorizeDispatcherPlan, type createDispatcherOperation } from './operator-runtime-capability';
 import { DispatcherRefusal } from './dispatcher-refusal';
 import { sdkServiceFailureSchema, type SdkServiceFailure } from './dispatcher-diagnostics-wire';
-import { emitRaw } from '../../host/src/operator-raw-logging';
+import { emitRaw, type RawLogContext } from '../../host/src/operator-raw-logging';
 import { PiAuthRequiredError, safePiAuthFailure } from './pi-auth-failure';
 import type { PersonalPiProps } from '../lib/personal-pi-forwarding';
 import { isPersonalPiDestination } from '../lib/personal-pi-destinations';
@@ -26,6 +26,7 @@ export interface SdkInput {
   current(): Promise<boolean>;
   signal?: AbortSignal;
   observeFailure?: (failure: SdkServiceFailure) => void;
+  raw?: RawLogContext;
   exports?: Parameters<typeof createDispatcherOperation>[0]['exports'] & {
     EgressController?: (input: { props: { strict: boolean; operatorDispatcherNative?: PersonalPiProps['operatorDispatcherNative'] } }) => Fetcher;
   };
@@ -77,7 +78,7 @@ function failure(input: SdkInput, error: unknown): never {
       if (classification) input.observeFailure(classification);
     }
   } catch { /* Diagnostics never settle SDK work. */ }
-  emitRaw({ activityId: input.plan.activityId, generation: input.generation,
+  emitRaw(input.raw ?? { activityId: input.plan.activityId, generation: input.generation,
     loggingEnabled: 'selection' in input.plan.receipt && input.plan.receipt.selection.operator.policy.loggingEnabled !== false },
   'sdk-service-failure', () => error);
   let conflict = false;
@@ -114,8 +115,10 @@ export async function readDispatcherSdkConfiguration(input: SdkInput): Promise<R
     }
     const scope = storageScope(input, owner);
     if (await metadata(input, scope).claimBucketOwner(scope.email, false) !== 'owned') throw new Error('SDK storage owner denied');
+    // Full owner/source checks enclose the read; each protected R2 boundary
+    // still checks current grants, connection and generation without rediscovery.
     const files = await readDispatcherSdkFiles({ ...scope, env: input.env, signal: input.signal,
-      current: async () => { await sameOwner(input, owner); return true; } });
+      current: () => input.current() });
     await sameOwner(input, owner);
     return { source: 'pi-native', ...files,
       ...(input.plan.configuredSelection ? { selection: input.plan.configuredSelection } : {}) };
@@ -183,6 +186,8 @@ export async function forwardDispatcherSdkHttp(input: SdkInput & {
     AbortSignal.timeout(Math.max(1, input.plan.deadline - Date.now()))]);
   const request = new Request(url, { method: input.request.method, headers, body, redirect: 'manual', signal });
   await sameOwner(input, owner);
+  emitRaw(input.raw, 'sdk-http-request', () => ({ url: request.url, method: request.method, headers: request.headers, body }),
+    () => ({ method: request.method, wireCaptured: true }));
   let response: Response;
   const transportCredentials: string[] = [];
   if (input.selection.source === 'managed') {

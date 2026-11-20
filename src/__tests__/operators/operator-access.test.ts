@@ -99,6 +99,7 @@ async function enabledInstallation(request: RequestApi, operator: { id: string; 
 beforeEach(() => { actor.email = 'manager@example.test'; actor.role = 'user'; actor.groups = ['operators']; });
 afterEach(() => vi.unstubAllGlobals());
 
+// REQ-OPERATOR-101: Operator budget policy.
 describe('REQ-OPERATOR-045: delegated management and invocation', () => {
   it.each(['conductor', 'dispatcher'] as const)('persists %s execution logging independently of installation restrictions and Environment limits', async profile => withApi(async request => {
     vi.stubGlobal('fetch', (await createOperatorGitHubFixture({ repositoryName: 'release-operator', profile })).fetcher);

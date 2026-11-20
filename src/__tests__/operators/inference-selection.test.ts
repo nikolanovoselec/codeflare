@@ -35,6 +35,18 @@ describe('REQ-OPERATOR-007: operator inference intersection', () => {
       .toEqual({ routeId: 'production', reasoningLevel: 'high' });
   });
 
+  it.each(['route', 'source', 'reasoning'] as const)('REQ-OPERATOR-014: empty %s approval denies an otherwise eligible explicit inference selection', (kind) => {
+    const inference = kind === 'route'
+      ? { ...policy.inference, routeIds: [], defaultRouteId: null }
+      : kind === 'source'
+        ? { ...policy.inference, allowedSources: [] }
+        : { ...policy.inference, reasoningLevels: [], defaultReasoningLevel: null };
+    expect(() => resolveOperatorInference({ eligible, policy: { inference },
+      trusted: { routeId: 'production', reasoningLevel: 'high' } }))
+      .toThrow(kind === 'route' ? /route.*not eligible/i
+        : kind === 'source' ? /source.*not eligible/i : /reasoning.*not eligible/i);
+  });
+
   it('keeps provider-default distinct from Off when no reasoning default is selected', () => {
     const providerDefault = { ...policy, inference: { ...policy.inference, defaultReasoningLevel: null } };
     expect(resolveOperatorInference({ eligible, policy: providerDefault })).toEqual({ routeId: 'production', reasoningLevel: null });

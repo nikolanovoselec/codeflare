@@ -22,6 +22,60 @@ export default class BackendTimingReporter {
     }
   }
 
+  // Emit before hooks and immediately after each result, not only at run end:
+  // a forcibly terminated suite must leave its active case and first failure.
+  // Only identity and fixed failure metadata cross this wire, never raw errors.
+  testProgress(testCase, phase, details = {}) {
+    process.stdout.write(`\nBACKEND_TEST ${JSON.stringify({
+      phase,
+      file: relative(process.cwd(), testCase.module.moduleId).replaceAll('\\', '/'),
+      id: testCase.id,
+      name: testCase.fullName,
+      ...details,
+    })}\n`);
+  }
+
+  onTestCaseReady(testCase) {
+    this.testProgress(testCase, 'start');
+  }
+
+  onTestCaseResult(testCase) {
+    const { state, errors } = testCase.result();
+    const durationMs = testCase.diagnostic()?.duration;
+    let failure;
+    if (state === 'failed' && !this.failureRecorded) {
+      this.failureRecorded = true;
+      failure = this.failureMetadata(errors?.[0]);
+    }
+    this.testProgress(testCase, 'finish', { state, durationMs, ...(failure ? { failure } : {}) });
+  }
+
+  failureMetadata(error) {
+    let name, message, stack;
+    try {
+      name = typeof error?.name === 'string' ? error.name : '';
+      message = typeof error?.message === 'string' ? error.message : '';
+      stack = typeof error?.stack === 'string' ? error.stack
+        : typeof error?.stackStr === 'string' ? error.stackStr : '';
+    } catch { return { classification: 'unavailable', coordinates: [] }; }
+    const classification = name === 'AssertionError' ? 'assertion'
+      : /timed out|timeout/i.test(message) ? 'timeout'
+      : /Cannot perform I\/O on behalf of a different request/i.test(message) ? 'cross-request-io'
+      : /connection (lost|closed|reset)|RPC.*(disconnected|closed|failed)|fetch failed|ProxyWorker/i.test(message) ? 'transport-rejection'
+      : 'other';
+    const coordinates = [];
+    for (const line of stack.split('\n')) {
+      if (!/^\s+at\s/.test(line)) continue;
+      const match = line.match(/(?:file:\/\/)?(\/[^\s?#)]+\.[cm]?[jt]sx?):(\d+):(\d+)\)?$/);
+      if (!match) continue;
+      const file = relative(process.cwd(), match[1]).replaceAll('\\', '/');
+      if (file.startsWith('../') || file.startsWith('/')) continue;
+      coordinates.push({ file, line: Number(match[2]), column: Number(match[3]) });
+      if (coordinates.length === 4) break;
+    }
+    return { classification, coordinates };
+  }
+
   cpuError(error) {
     process.stdout.write(`BACKEND_CPU_ERROR ${JSON.stringify({ code: error?.code ?? 'profile-failed' })}\n`);
     this.cpuSession?.disconnect();

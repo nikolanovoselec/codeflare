@@ -1,4 +1,4 @@
-// REQ-VAULT-015 AC3+AC4 (as reconciled by REQ-VAULT-023): dashboard-side
+// REQ-VAULT-034 AC1+AC2 (as reconciled by REQ-VAULT-035): dashboard-side
 // bookkeeping cleanup for the SilverBullet vault.
 //
 // What this file owns:
@@ -12,13 +12,13 @@
 //     sid is not in activeSessionIds, drop the markers. Handles sessions deleted
 //     from another tab or after a browser crash.
 //
-// REQ-VAULT-023 reconciliation (load-bearing): the SilverBullet IndexedDB
+// REQ-VAULT-035 reconciliation (load-bearing): the SilverBullet IndexedDB
 // stores (`sb_data_*` / `sb_files_*`) and the vault service worker are NO LONGER
 // per-session. They are derived from the bucket-stable URL `/api/vault/<token>/`
 // and the bucket-derived key, so ALL of a user's sessions share ONE persistent
 // store + SW. Deleting that store on a per-session DELETE or orphan sweep would
 // erase the next session's vault and force a full re-index — the exact
-// cross-session persistence REQ-VAULT-023 exists to provide. So this cleanup
+// cross-session persistence REQ-VAULT-035 exists to provide. So this cleanup
 // deletes NEITHER the recorded IndexedDB databases NOR the service worker; it
 // only removes the per-session localStorage markers (pure bookkeeping). The
 // per-session IDB leak that the original REQ-VAULT-015 AC3/AC4 deletion fought
@@ -86,10 +86,10 @@ function removeSessionMarkers(ls: Storage, sid: string): void {
 }
 
 /**
- * REQ-VAULT-015 AC3 (reconciled by REQ-VAULT-023): remove the per-session vault
+ * REQ-VAULT-034 AC1 (reconciled by REQ-VAULT-035): remove the per-session vault
  * localStorage markers on session DELETE. Does NOT delete the bucket-stable
  * IndexedDB stores or the vault service worker — those persist across sessions
- * by design (REQ-VAULT-023).
+ * by design (REQ-VAULT-035).
  */
 export async function cleanupSessionVaultCache(sid: string): Promise<void> {
   // Fail-closed input validation: an empty `sid` would compute
@@ -101,11 +101,11 @@ export async function cleanupSessionVaultCache(sid: string): Promise<void> {
 }
 
 /**
- * REQ-VAULT-015 AC4 (reconciled by REQ-VAULT-023): remove the localStorage
+ * REQ-VAULT-034 AC2 (reconciled by REQ-VAULT-035): remove the localStorage
  * markers for sessions no longer in `activeSessionIds`. Called after an
  * authoritative session-list fetch succeeds; catches sessions deleted from
  * another tab or after a browser crash. Does NOT delete the bucket-stable
- * IndexedDB stores or the vault service worker (see REQ-VAULT-023 note above).
+ * IndexedDB stores or the vault service worker (see REQ-VAULT-035 note above).
  *
  * `listSessionMarkers` snapshots keys before iteration so the `removeItem`
  * call below cannot race the underlying live `localStorage` key index.

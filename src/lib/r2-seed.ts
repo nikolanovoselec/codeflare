@@ -1551,6 +1551,8 @@ export async function reconcileAgentConfigs(
     projectionIdentity?: string;
     /** Explicit only for managed-environment reconciliation; omission preserves legacy seed behavior. */
     resourcePolicy?: ManagedResourcePolicy;
+    /** Reauthorize cleanup and policy publication for manual full-target reconciliation. */
+    beforeCleanup?: () => Promise<void>;
     /** Dashboard-owned automatic upgrade. Omission preserves every existing caller. */
     automatic?: ManagedAutomaticReconcileOptions;
   }
@@ -1670,7 +1672,7 @@ export async function reconcileAgentConfigs(
   const warnings: string[] = [...cleanupPreflight.warnings];
 
   if (options.cleanup) {
-    await options.automatic?.beforeCleanup?.();
+    await (options.beforeCleanup ?? options.automatic?.beforeCleanup)?.();
     deleted.push(...await deleteExactInactiveConfigs(
       env,
       bucketName,
@@ -1739,6 +1741,10 @@ export async function reconcileAgentConfigs(
     });
   }
 
+  if (policy && warnings.length > 0) {
+    throw new Error(`Managed cleanup did not complete: ${warnings[0]}`);
+  }
+  await (options.beforeCleanup ?? options.automatic?.beforeCleanup)?.();
   if (policy) {
     await writeAndVerifyManagedPolicy(env, bucketName, endpoint, policy, options.r2SseDisabled);
   } else if (options.resourcePolicy === 'mutable') {

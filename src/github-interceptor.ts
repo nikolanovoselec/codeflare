@@ -29,6 +29,7 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { forwardPersonalPi, type PersonalPiProps } from './lib/personal-pi-forwarding';
 import type { Env } from './types';
+import { isEnterpriseMode } from './lib/subscription';
 import { getValidGithubToken } from './lib/github-token';
 import { decideOperatorGithub } from './operators/interception-policy';
 import type { OperatorPolicy } from './operators/policy';
@@ -263,11 +264,17 @@ export class GitHubInterceptor extends WorkerEntrypoint<Env> {
     const prRead = /^\/repos\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/pulls\/([1-9][0-9]*)$/.exec(url.pathname);
     const submitted = request.headers.get('x-codeflare-operator-boundary-input');
     const resultActivity = request.headers.get('x-codeflare-operator-boundary-result');
-    const watching = this.env.ENTERPRISE_MODE === 'active' && !props?.operatorPolicy && props?.sessionId
+    const selectionMode = request.headers.get('x-codeflare-operator-boundary-select');
+    const selectionRequested = selectionMode === '1' || selectionMode === 'check';
+    // An applicability GET must establish an active Action before touching its
+    // remote session authority. Push observation and result reads remain unchanged.
+    const discoveringSelection = selectionRequested && resultActivity === null
+      && request.method === 'GET' && url.hostname === apiHost && Boolean(prRead) && !props?.operatorPolicy;
+    const watching = isEnterpriseMode(this.env) && !props?.operatorPolicy && props?.sessionId
       && ((request.method === 'POST' && url.hostname === gitWebHost(this.env) && pushPath)
         || (request.method === 'POST' && url.hostname === apiHost && url.pathname === '/graphql')
         || (request.method === 'GET' && url.hostname === apiHost && prRead && (submitted || resultActivity)));
-    const boundarySession = watching
+    const boundarySession = watching && !discoveringSelection
       ? (this.env.CONTAINER.getByName(getContainerId(bucket, props.sessionId!)) as unknown as BoundarySession)
       : null;
     const pinnedGeneration = props?.lifecycleGeneration;
@@ -347,7 +354,8 @@ export class GitHubInterceptor extends WorkerEntrypoint<Env> {
       } else observedPush.abort();
     }
     const api = (path: string) => send(new Request(`https://${apiHost}${path}`, {
-      headers: { authorization: `Bearer ${token}`, 'x-github-api-version': GITHUB_API_VERSION },
+      headers: { authorization: `Bearer ${token}`, 'x-github-api-version': GITHUB_API_VERSION,
+        'user-agent': 'Codeflare' },
       redirect: 'manual', signal: AbortSignal.timeout(3_000),
     }));
     const apiJson = async (path: string): Promise<unknown> => {
@@ -466,14 +474,12 @@ export class GitHubInterceptor extends WorkerEntrypoint<Env> {
         return Response.json(published, { headers: { 'cache-control': 'no-store' } });
       } catch { return unavailable(); }
     }
-    const selectionMode = request.headers.get('x-codeflare-operator-boundary-select');
-    const selectionRequested = selectionMode === '1' || selectionMode === 'check';
     let selection: 'local' | 'remote' | 'unavailable' | null = selectionRequested ? 'unavailable' : null;
     let selectedActivity: string | null = null;
     let selectionConsumed = false;
-    if (selectionRequested && body && upstream.status === 200 && submitted
-      && submitted.length <= 16_000 && boundaryGeneration && prRead && props?.sessionId
-      && request.method === 'GET' && url.hostname === apiHost && !props.operatorPolicy) {
+    if (selectionRequested && isEnterpriseMode(this.env) && body && upstream.status === 200 && submitted
+      && submitted.length <= 16_000 && prRead
+      && request.method === 'GET' && url.hostname === apiHost && !props?.operatorPolicy) {
       try {
         const input = parseBoundedBoundaryInput(JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(
           Uint8Array.from(atob(submitted), char => char.charCodeAt(0)))) as unknown);
@@ -490,35 +496,46 @@ export class GitHubInterceptor extends WorkerEntrypoint<Env> {
           || metadata.base?.repo?.id !== input.repositoryId
           || !/^(main|master|develop)$/.test(metadata.base?.ref ?? '')
           || !/^[a-f0-9]{40}$/i.test(metadata.base?.sha ?? '')) throw Error('PR moved');
-        const sessionId = props.sessionId;
-        const session = boundarySession!;
-        const ref = { bucket, sessionId, email: props.user };
-        if (await session.getReviewLifecycleGeneration(ref) !== boundaryGeneration) throw Error('Session moved');
-        const sealed = await session.openReviewHuman(ref);
-        const authority = await requireOperatorHumanContext(new Request(url, {
-          headers: { 'cf-access-jwt-assertion': sealed.accessJwt },
-        }), this.env, props.user);
-        if (authority.human.subject !== sealed.human.subject) throw Error('Human changed');
-        selection = await selectVerifiedBoundaryAction(this.env, authority.human, {
+        const remote: { context?: { session: BoundarySession; sessionId: string; generation: number;
+          authority: Awaited<ReturnType<typeof requireOperatorHumanContext>> } } = {};
+        selection = await selectVerifiedBoundaryAction(this.env, async () => {
+          if (!props?.sessionId || typeof pinnedGeneration !== 'number'
+            || !Number.isSafeInteger(pinnedGeneration) || pinnedGeneration <= 0) throw Error('Session authority unavailable');
+          const sessionId = props.sessionId;
+          const session = this.env.CONTAINER.getByName(getContainerId(bucket, sessionId)) as unknown as BoundarySession;
+          const ref = { bucket, sessionId, email: props.user };
+          if (await session.getReviewLifecycleGeneration(ref) !== pinnedGeneration) throw Error('Session moved');
+          const sealed = await session.openReviewHuman(ref);
+          const authority = await requireOperatorHumanContext(new Request(url, {
+            headers: { 'cf-access-jwt-assertion': sealed.accessJwt },
+          }), this.env, props.user);
+          if (authority.human.subject !== sealed.human.subject) throw Error('Human changed');
+          remote.context = { session, sessionId, generation: pinnedGeneration, authority };
+          return authority.human;
+        }, {
           owner: prRead[1], repository: prRead[2], repositoryId: input.repositoryId,
           baseRef: metadata.base!.ref!, baseSha: metadata.base!.sha!,
         }, api);
-        if (selection === 'remote' && selectionMode === '1') {
-          const ready = await session.stageBoundaryInput({ sessionId, generation: boundaryGeneration,
-            input, owner: prRead[1], repository: prRead[2], ref: `refs/heads/${metadata.head.ref}` });
-          if (ready) {
-            try { await prepare(ready, session, sessionId, boundaryGeneration); }
-            catch { /* Remote remains exclusive even when preparation is uncertain. */ }
+        if (selection === 'remote') {
+          if (!remote.context) throw Error('Remote authority unavailable');
+          const { session, sessionId, generation, authority } = remote.context;
+          if (selectionMode === '1') {
+            const ready = await session.stageBoundaryInput({ sessionId, generation,
+              input, owner: prRead[1], repository: prRead[2], ref: `refs/heads/${metadata.head.ref}` });
+            if (ready) {
+              try { await prepare(ready, session, sessionId, generation); }
+              catch { /* Remote remains exclusive even when preparation is uncertain. */ }
+            }
           }
-        }
-        if (selection === 'remote' && this.env.OPERATOR_REGISTRY) {
-          const prepared = await this.env.OPERATOR_REGISTRY.getByName('registry')
-            .getBoundaryPreparation(input.repositoryId, input.pullRequest);
-          if (prepared && ['prepared', 'claimed'].includes(prepared.phase)
-            && prepared.ownerKey === await operatorOwnerKey(authority.human)
-            && prepared.revision.head === input.targetHead && prepared.repositoryId === input.repositoryId
-            && prepared.pullRequest === input.pullRequest && /^[A-Za-z0-9_-]{1,128}$/.test(prepared.activityId)) {
-            selectedActivity = prepared.activityId;
+          if (this.env.OPERATOR_REGISTRY) {
+            const prepared = await this.env.OPERATOR_REGISTRY.getByName('registry')
+              .getBoundaryPreparation(input.repositoryId, input.pullRequest);
+            if (prepared && ['prepared', 'claimed'].includes(prepared.phase)
+              && prepared.ownerKey === await operatorOwnerKey(authority.human)
+              && prepared.revision.head === input.targetHead && prepared.repositoryId === input.repositoryId
+              && prepared.pullRequest === input.pullRequest && /^[A-Za-z0-9_-]{1,128}$/.test(prepared.activityId)) {
+              selectedActivity = prepared.activityId;
+            }
           }
         }
       } catch {
@@ -529,7 +546,7 @@ export class GitHubInterceptor extends WorkerEntrypoint<Env> {
       }
     }
     if (body && !selectionRequested && submitted && submitted.length <= 16_000 && boundaryGeneration && !props?.operatorPolicy && props?.sessionId
-      && this.env.ENTERPRISE_MODE === 'active' && url.hostname === apiHost && request.method === 'GET'
+      && isEnterpriseMode(this.env) && url.hostname === apiHost && request.method === 'GET'
       && prRead && upstream.status === 200) {
       try {
         const bytes = Uint8Array.from(atob(submitted), char => char.charCodeAt(0));

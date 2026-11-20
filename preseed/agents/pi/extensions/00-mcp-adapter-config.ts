@@ -527,9 +527,9 @@ function configuredMcpClient(directory: string): McpClient | undefined {
       if (negative && /[*?\[\]{}]/.test(rawSource)) { uncertain = true; continue; }
       const source = negative && !isAbsolute(rawSource) ? resolve(directory, rawSource) : rawSource;
       // These exact managed exclusions disable non-client extensions only.
-      // Settled startup adds the Review pair after curation delivery; neither
-      // can exclude a client's package entrypoint. Keep other negatives closed.
-      if (negative && ["mcp-portal-oauth.ts", "review-enforcement.ts", "operator-review-remote.ts"]
+      // Review handlers and the optional Hermes wrapper are not MCP clients.
+      // Keep other negatives closed rather than guessing their ownership.
+      if (negative && ["mcp-portal-oauth.ts", "review-enforcement.ts", "operator-review-remote.ts", "hermes-memory-runtime.ts"]
         .some(name => source === join(directory, "extensions", name)
           || source === join("/home/user/.pi/agent/extensions", name))) continue;
       const known = identify(source);

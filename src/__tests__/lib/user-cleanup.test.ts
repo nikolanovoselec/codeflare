@@ -9,10 +9,6 @@ vi.mock('../../lib/access', () => ({
 }));
 
 const mockDeleteScopedR2Token = vi.hoisted(() => vi.fn());
-vi.mock('../../lib/cloudflare-token', () => ({
-  disconnectCloudflare: vi.fn(async () => undefined),
-}));
-
 vi.mock('../../lib/r2-admin', () => ({
   deleteScopedR2Token: mockDeleteScopedR2Token,
 }));
@@ -73,6 +69,7 @@ describe('cleanupUserData', () => {
 
   beforeEach(() => {
     mockKV = createMockKV();
+    mockKV._store.set('setup:account_id', 'test-account-id');
     globalThis.fetch = mockFetch;
     mockFetch.mockResolvedValue(new Response('{}', { status: 200 }));
     mockDeleteScopedR2Token.mockResolvedValue(undefined);
@@ -300,16 +297,21 @@ describe('cleanupUserData', () => {
     expect(mockKV.delete).toHaveBeenCalledWith(`r2token:${email}`);
   });
 
-  it('gracefully handles R2 bucket deletion failure (logged, not thrown)', async () => {
+  it('REQ-AUTH-018 AC3: bucket failure preserves retry records and refuses success', async () => {
     mockKV._store.set('setup:account_id', 'test-account-id');
 
     // Bucket delete returns error (no objects emptied = only 1 attempt)
     mockFetch.mockResolvedValueOnce(new Response('BucketNotEmpty', { status: 409 }));
 
-    const result = await cleanupUserData(email, createEnv());
-
-    expect(result.bucketDeleted).toBe(false);
-    // Should NOT throw
+    mockKV._set(`user:${email}`, { role: 'user' });
+    mockKV._set(`r2token:${email}`, { tokenId: 'retry-token' });
+    await expect(cleanupUserData(email, createEnv())).rejects.toThrow();
+    expect(await mockKV.get(`user:${email}`)).not.toBeNull();
+    expect(await mockKV.get(`r2token:${email}`, 'json')).toMatchObject({ tokenId: 'retry-token' });
+    mockFetch.mockResolvedValueOnce(new Response(null, { status: 404 }));
+    await cleanupUserData(email, createEnv());
+    expect(await mockKV.get(`user:${email}`)).toBeNull();
+    expect(await mockKV.get(`r2token:${email}`)).toBeNull();
   });
 
   it('retries bucket deletion when objects were emptied and first DELETE returns BucketNotEmpty', async () => {
@@ -330,7 +332,7 @@ describe('cleanupUserData', () => {
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 
-  it('gracefully handles container destroy failure (continues with other sessions)', async () => {
+  it('REQ-AUTH-018 AC3: failed container cleanup retains session recovery rows', async () => {
     mockKV._set(`session:${bucketName}:abcdef0123456789`, { id: 'abcdef0123456789', name: 'S1', userId: email, createdAt: '', lastAccessedAt: '' });
     mockKV._set(`session:${bucketName}:fedcba9876543210`, { id: 'fedcba9876543210', name: 'S2', userId: email, createdAt: '', lastAccessedAt: '' });
     mockKV._store.set('setup:account_id', 'test-account-id');
@@ -340,12 +342,22 @@ describe('cleanupUserData', () => {
       .mockRejectedValueOnce(new Error('Container not found'))
       .mockResolvedValueOnce(undefined);
 
-    const result = await cleanupUserData(email, createEnv());
+    await expect(cleanupUserData(email, createEnv())).rejects.toThrow();
+    expect(await mockKV.get(`session:${bucketName}:abcdef0123456789`)).not.toBeNull();
+    expect(await mockKV.get(`session:${bucketName}:fedcba9876543210`)).not.toBeNull();
+  });
 
-    // Both sessions should still be cleaned from KV
-    expect(result.deletedSessions).toBe(2);
-    expect(mockKV.delete).toHaveBeenCalledWith(`session:${bucketName}:abcdef0123456789`);
-    expect(mockKV.delete).toHaveBeenCalledWith(`session:${bucketName}:fedcba9876543210`);
+  it('REQ-AUTH-018 AC3: remote revoke failure retains credentials and user for a convergent retry', async () => {
+    mockKV._store.set('setup:account_id', 'test-account-id');
+    mockKV._set(`user:${email}`, { role: 'user' });
+    mockKV._set(`r2token:${email}`, { tokenId: 'retry-token', bucketName });
+    mockDeleteScopedR2Token.mockRejectedValueOnce(new Error('remote unavailable'));
+    await expect(cleanupUserData(email, createEnv())).rejects.toThrow();
+    expect(await mockKV.get(`r2token:${email}`, 'json')).toMatchObject({ tokenId: 'retry-token' });
+    expect(await mockKV.get(`user:${email}`)).not.toBeNull();
+    await cleanupUserData(email, createEnv());
+    expect(await mockKV.get(`r2token:${email}`)).toBeNull();
+    expect(await mockKV.get(`user:${email}`)).toBeNull();
   });
 
   it('reads r2token BEFORE deleting it (Block D can use token data)', async () => {
@@ -382,25 +394,22 @@ describe('cleanupUserData', () => {
     expect(deleteIdx).toBeGreaterThan(getIdx);
   });
 
-  it('skips R2 bucket deletion when accountId is missing', async () => {
-    // No setup:account_id in KV
-
-    const result = await cleanupUserData(email, createEnv());
-
-    expect(result.bucketDeleted).toBe(false);
+  it('REQ-AUTH-018 AC3: missing cleanup authority refuses deletion and preserves user', async () => {
+    mockKV._store.delete('setup:account_id');
+    mockKV._set(`user:${email}`, { role: 'user' });
+    await expect(cleanupUserData(email, createEnv())).rejects.toThrow();
+    expect(await mockKV.get(`user:${email}`)).not.toBeNull();
     // No fetch calls for bucket deletion
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it('skips R2 bucket deletion when CLOUDFLARE_API_TOKEN is missing', async () => {
+  it('REQ-AUTH-018 AC3: missing API authority cannot report successful cleanup', async () => {
     mockKV._store.set('setup:account_id', 'test-account-id');
 
-    const result = await cleanupUserData(email, createEnv({ CLOUDFLARE_API_TOKEN: '' } as Partial<Env>));
-
-    expect(result.bucketDeleted).toBe(false);
+    await expect(cleanupUserData(email, createEnv({ CLOUDFLARE_API_TOKEN: '' } as Partial<Env>))).rejects.toThrow();
   });
 
-  it('gracefully handles r2token KV delete failure (FIX-2)', async () => {
+  it('REQ-AUTH-018 AC3: local credential cleanup failure is not success', async () => {
     mockKV._store.set('setup:account_id', 'test-account-id');
     mockKV._set(`r2token:${email}`, {
       tokenId: 'tok-1',
@@ -419,12 +428,92 @@ describe('cleanupUserData', () => {
 
     mockFetch.mockResolvedValueOnce(new Response('{}', { status: 200 }));
 
-    // Should NOT throw - the r2token KV delete failure is caught
-    const result = await cleanupUserData(email, createEnv());
-
-    // Token API deletion should still have succeeded
-    expect(result.tokenDeleted).toBe(true);
+    await expect(cleanupUserData(email, createEnv())).rejects.toThrow('KV delete failed');
+    expect(await mockKV.get(`r2token:${email}`)).not.toBeNull();
   });
+
+  it.each(['success', 'github', 'cloudflare'] as const)(
+    'REQ-AUTH-018 AC3 / REQ-SEC-003 AC6: provider %s preserves storage authority until revocation and retry converges', async failure => {
+      // Real provider helpers read this shared KV entry (not an R2 object).
+      const credentials = {
+        githubToken: 'gho_retry', githubTokenSource: 'oauth',
+        cloudflareApiToken: 'cf_access', cloudflareTokenSource: 'oauth',
+        cloudflareRefreshToken: 'cf_refresh', cloudflareAccountId: 'user-account',
+      };
+      mockKV._set(`deploy-keys:${bucketName}`, credentials);
+      mockKV._set(`user:${email}`, { role: 'user' });
+      mockKV._set(`r2token:${email}`, { tokenId: 'retry-token', bucketName });
+      mockKV._store.set('setup:cloudflare_oauth_client_id', 'cf-client');
+      mockKV._set('setup:cloudflare_oauth_client_secret', { secret: 'cf-secret' });
+      const env = createEnv({ OAUTH_CLIENT_ID: 'oauth-cid', OAUTH_CLIENT_SECRET: 'oauth-sec' });
+      const providerActive = { github: true, cloudflare: true };
+      const bucketObjects = new Map([['workspace/retry.txt', 'retained user bytes']]);
+      let bucketExists = true;
+      let scopedTokenActive = true;
+      let destroyedBeforeRevocation = false;
+      let failedProvider: string | null = failure === 'success' ? null : failure;
+      const observeDestruction = () => {
+        destroyedBeforeRevocation ||= providerActive.github || providerActive.cloudflare;
+      };
+      mockDeleteScopedR2Token.mockImplementation(async () => {
+        observeDestruction();
+        scopedTokenActive = false;
+      });
+      mockEmptyR2Bucket.mockImplementation(async () => {
+        observeDestruction();
+        bucketObjects.clear();
+        return 0;
+      });
+      mockFetch.mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes('/applications/oauth-cid/token')) {
+          expect(JSON.parse(String(init?.body))).toEqual({ access_token: 'gho_retry' });
+          if (failedProvider === 'github') return new Response(null, { status: 503 });
+          providerActive.github = false;
+          return new Response(null, { status: 204 });
+        }
+        if (url === 'https://dash.cloudflare.com/oauth2/revoke') {
+          const body = new URLSearchParams(String(init?.body));
+          expect(body.get('token')).toBe('cf_refresh');
+          if (failedProvider === 'cloudflare') return new Response(null, { status: 503 });
+          providerActive.cloudflare = false;
+          return new Response(null, { status: 200 });
+        }
+        if (url.endsWith(`/r2/buckets/${bucketName}`)) {
+          observeDestruction();
+          bucketExists = false;
+          return new Response(null, { status: 200 });
+        }
+        throw new Error(`Unexpected fixture request: ${url}`);
+      });
+
+      if (failure !== 'success') {
+        await expect(cleanupUserData(email, env)).rejects.toThrow();
+        expect(providerActive[failure]).toBe(true);
+        expect(bucketExists).toBe(true);
+        expect(bucketObjects.get('workspace/retry.txt')).toBe('retained user bytes');
+        expect(scopedTokenActive).toBe(true);
+        expect(await mockKV.get(`r2token:${email}`, 'json')).toMatchObject({ tokenId: 'retry-token' });
+        expect(await mockKV.get(`user:${email}`)).not.toBeNull();
+        expect(await mockKV.get(`deploy-keys:${bucketName}`, 'json')).toMatchObject(
+          failure === 'github' ? credentials : {
+            cloudflareApiToken: 'cf_access', cloudflareRefreshToken: 'cf_refresh',
+          },
+        );
+        failedProvider = null;
+      }
+
+      await expect(cleanupUserData(email, env)).resolves.toMatchObject({ bucketDeleted: true, tokenDeleted: true });
+      expect(providerActive).toEqual({ github: false, cloudflare: false });
+      expect(destroyedBeforeRevocation).toBe(false);
+      expect(bucketExists).toBe(false);
+      expect(bucketObjects.size).toBe(0);
+      expect(scopedTokenActive).toBe(false);
+      expect(await mockKV.get(`deploy-keys:${bucketName}`)).toBeNull();
+      expect(await mockKV.get(`r2token:${email}`)).toBeNull();
+      expect(await mockKV.get(`user:${email}`)).toBeNull();
+    },
+  );
 
   // REQ-GITHUB-005: offboarding revokes the user's GitHub token AT GitHub (same
   // revoke+clear as POST /api/github/disconnect), not just a local KV delete.
@@ -447,18 +536,18 @@ describe('cleanupUserData', () => {
     expect(mockKV.delete).toHaveBeenCalledWith(`deploy-keys:${bucketName}`);
   });
 
-  it('REQ-GITHUB-005: a failed GitHub revocation does not block local offboarding', async () => {
-    mockKV._store.set('setup:account_id', 'test-account-id');
-    mockKV._set(`user:${email}`, { role: 'user', addedBy: 'enterprise-jit' });
-    mockKV._set(`deploy-keys:${bucketName}`, { githubToken: 'gho_secret', githubTokenSource: 'oauth' });
-    mockFetch.mockImplementation((input: string | URL | Request) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-      return Promise.resolve(new Response('{}', { status: url.includes('/applications/') ? 404 : 200 }));
-    });
-
-    await cleanupUserData(email, createEnv({ OAUTH_CLIENT_ID: 'oauth-cid', OAUTH_CLIENT_SECRET: 'oauth-sec' } as Partial<Env>));
-
-    expect(mockFetch.mock.calls.some((call) => String(call[0]).includes('/applications/oauth-cid/token'))).toBe(true);
+  it('REQ-AUTH-018 AC3: offboarding retains provider retry credentials and user after failed revocation', async () => {
+    mockKV._set(`user:${email}`, { role: 'user' });
+    mockKV._set(`deploy-keys:${bucketName}`, { githubToken: 'gho_retry', githubTokenSource: 'oauth' });
+    mockFetch.mockImplementation((input: string | URL | Request) => Promise.resolve(new Response('{}', {
+      status: String(input).includes('/applications/') ? 503 : 200,
+    })));
+    const env = createEnv({ OAUTH_CLIENT_ID: 'oauth-cid', OAUTH_CLIENT_SECRET: 'oauth-sec' } as Partial<Env>);
+    await expect(cleanupUserData(email, env)).rejects.toThrow();
+    expect(await mockKV.get(`deploy-keys:${bucketName}`, 'json')).toMatchObject({ githubToken: 'gho_retry' });
+    expect(await mockKV.get(`user:${email}`)).not.toBeNull();
+    mockFetch.mockResolvedValue(new Response('{}', { status: 200 }));
+    await cleanupUserData(email, env);
     expect(await mockKV.get(`deploy-keys:${bucketName}`)).toBeNull();
     expect(await mockKV.get(`user:${email}`)).toBeNull();
   });

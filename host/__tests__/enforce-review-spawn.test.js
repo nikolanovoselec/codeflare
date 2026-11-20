@@ -165,14 +165,33 @@ function round(fx, options = {}) {
   }
   const ci = 'ci-1';
   const ciResult = options.ciResult ?? 'success';
-  entries.push(
-    call(ci, 'Agent', {
-      subagent_type: 'ci-monitor',
-      run_in_background: true,
-      prompt: JSON.stringify({ repo: 'owner/repo', pr: 42, head: fx.head, cwd: fx.repo }),
-    }),
-    notification(ci, 'Completed', `<result>CI_RESULT ${ciResult}\npr=42 head=${fx.head} repo=owner/repo</result>`),
-  );
+  const ciInput = {
+    subagent_type: 'ci-monitor', run_in_background: true,
+    prompt: JSON.stringify({ repo: 'owner/repo', pr: 42, head: fx.head, cwd: fx.repo }),
+  };
+  let ciName = 'Agent';
+  let ciRole = 'assistant';
+  if (options.ciMalformed === 'wrong-tool') ciName = 'Bash';
+  if (options.ciMalformed === 'wrong-role') ciRole = 'user';
+  if (options.ciMalformed === 'foreground') ciInput.run_in_background = false;
+  if (options.ciMalformed === 'wrong-agent') ciInput.subagent_type = 'code-reviewer';
+  if (options.ciMalformed === 'quoted-json') ciInput.prompt = `echo '${ciInput.prompt}' ci-monitor`;
+  if (['cwd', 'repo', 'pr', 'head'].includes(options.ciMalformed)) {
+    const request = JSON.parse(ciInput.prompt);
+    request[options.ciMalformed] = { cwd: '/wrong', repo: 'owner/wrong', pr: 43, head: 'f'.repeat(40) }[options.ciMalformed];
+    ciInput.prompt = JSON.stringify(request);
+  }
+  const ciCall = call(ci, ciName, ciInput);
+  ciCall.message.role = ciRole;
+  entries.push(ciCall);
+  if (options.ciMalformed !== 'missing-receipt') entries.push(toolResult(ci, options.ciMalformed === 'failed-receipt'));
+  const terminal = notification(options.ciMalformed === 'wrong-terminal-id' ? 'unrelated-ci' : ci, 'Completed',
+    `<result>CI_RESULT ${ciResult}\npr=42 head=${fx.head} repo=owner/repo</result>`);
+  if (options.ciMalformed === 'assistant-terminal') terminal.message.role = 'assistant';
+  if (options.ciMalformed === 'embedded-identity') terminal.message.content =
+    `<task-notification><tool-use-id>${ci}</tool-use-id><status>Completed</status><result>CI_RESULT success extra\nnot-pr=42 head=${fx.head} repo=owner/repo suffix</result></task-notification>`;
+  if (options.ciTextBlocks) terminal.message.content = [{ type: 'text', text: `${terminal.message.content}\nRead the output file for details.` }];
+  entries.push(terminal);
   if (options.withTriage !== false) {
     const proposedFix = options.formattedCi ? `\`CI_RESULT ${ciResult}\`` : `CI_RESULT ${ciResult}`;
     entries.push(triage(ciResult === 'failure' || ciResult === 'timeout'
@@ -193,13 +212,26 @@ afterEach(() => {
 
 describe('Claude current-round completion enforcement', () => {
   it('writes marker immediately before separate FIX reminder after terminal triage', () => {
-    const fx = setup();
-    start(fx);
-    round(fx);
-    const result = stop(fx);
-    assert.equal(result.status, 2);
-    assert.match(result.stderr, /Review complete for repo:feature\. FIX:/);
-    assert.equal(markerStatus(fx), 'complete');
+    for (const ciTextBlocks of [false, true]) {
+      const fx = setup();
+      start(fx);
+      round(fx, { ciTextBlocks });
+      const result = stop(fx);
+      assert.equal(result.status, 2);
+      assert.match(result.stderr, /Review complete for repo:feature\. FIX:/);
+      assert.equal(markerStatus(fx), 'complete');
+    }
+  });
+
+  it('REQ-AGENT-170 AC1: requires structured successful background CI launch and its exact terminal identity', () => {
+    for (const ciMalformed of ['wrong-tool', 'wrong-role', 'foreground', 'wrong-agent', 'quoted-json', 'cwd', 'repo', 'pr', 'head',
+      'missing-receipt', 'failed-receipt', 'wrong-terminal-id', 'assistant-terminal', 'embedded-identity']) {
+      const fx = setup();
+      start(fx);
+      round(fx, { ciMalformed });
+      assert.equal(stop(fx).status, 0, ciMalformed);
+      assert.notEqual(markerStatus(fx), 'complete', ciMalformed);
+    }
   });
 
   it('does not reuse completed lane launches after the exact PR head advances', () => {

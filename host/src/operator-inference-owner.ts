@@ -8,6 +8,7 @@ import { OperatorInferenceRefusal, type OperatorInferenceOwner,
   type OperatorInferenceOwnerResolver } from './operator-inference.js';
 
 const OWNER_CONTEXT_URL = 'https://operator.internal/v1/dispatcher/owner-context';
+const OWNER_RAW_URL = 'https://operator.internal/v1/dispatcher/owner-raw';
 const MAX_METADATA_BYTES = 64 * 1024;
 const MAX_CONTEXT_BYTES = 16 * 1024;
 const CONTEXT_TIMEOUT_MS = 10_000;
@@ -115,6 +116,30 @@ export function createOperatorInferenceOwnerResolver(options: OperatorInferenceO
     // Deliberately do not forward schema, paths, principal, session, selection,
     // options, transcript, URL or any other HTTP input to the authority service.
     const metadata = { activityId: input.activityId, generation: input.generation };
+    if (loggingContext?.loggingEnabled === true) {
+      // Install before the first lookup can fail. Only the authenticated parent
+      // transport supplies this context; request data never supplies a sink.
+      loggingContext.privateArchive = (stage, value) => {
+        // emitRaw has already made an inert full snapshot, before console
+        // redaction. Retention is detached from execution expiry/cancellation.
+        const incomplete = () => {
+          try { console.log(JSON.stringify({ module: 'operator-execution', message: 'raw-capture-incomplete',
+            data: { ...metadata, stage, status: 'incomplete' } })); } catch { /* Output cannot change execution. */ }
+        };
+        void send(OWNER_RAW_URL, { method: 'POST', redirect: 'error',
+          signal: AbortSignal.timeout(CONTEXT_TIMEOUT_MS),
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ ...metadata, stage, value }),
+        }).then(async response => {
+          if (response.status === 200) {
+            const receipt: unknown = await response.json();
+            if (record(receipt) && receipt.status === 'complete' && id(receipt.captureId)
+              && receipt.termination === 'complete' && ['records', 'segments', 'bytes'].every(key => positive(receipt[key]))) return;
+          } else await response.body?.cancel();
+          incomplete();
+        }).catch(incomplete);
+      };
+    }
     const lookup = async (deadline?: number): Promise<OperatorInferenceOwnerContext> => {
       const remaining = deadline === undefined ? CONTEXT_TIMEOUT_MS : Math.min(CONTEXT_TIMEOUT_MS, deadline - Date.now());
       if (callerSignal.aborted || remaining <= 0) throw new OperatorInferenceRefusal(403);

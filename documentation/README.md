@@ -6,7 +6,7 @@ This documentation is organized into **lanes** - each file targets a specific au
 
 The specification (`sdd/`) defines required system behavior. This documentation describes public implementation behavior and default-mode operation. Together they form a closed loop: requirements drive implementation, implementation is documented, and documentation links back to requirements.
 
-[Model Context Protocol](../sdd/spec/mcp.md) owns MCP portal and client requirements. Its operational guidance stays in [Configuration](lanes/configuration.md), [API Reference](lanes/api-reference.md) and [Preseed System](lanes/preseed.md); browser-specific behavior remains in [Browser Run](../sdd/spec/browser-run.md).
+The [Model Context Protocol specification](../sdd/spec/mcp.md) owns portal and client requirements. [Model Context Protocol](lanes/mcp.md) owns connection, authorization, discovery, execution and recovery guidance; Configuration, API Reference and Agent Environment retain their adjacent responsibilities. Browser automation remains separate under [Browser Run](../sdd/spec/browser-run.md).
 
 ## Documentation Principles
 
@@ -18,7 +18,7 @@ The specification (`sdd/`) defines required system behavior. This documentation 
 
 4. **Decisions recorded** - Architecture decisions are captured as numbered ADRs in `decisions/README.md` with context, rationale, and trade-offs. Code comments and documentation reference ADR numbers rather than re-explaining the reasoning.
 
-5. **Durable ownership** - The sixteen lanes in the Lane Index are the canonical owners. Extend the existing owner before proposing another lane.
+5. **Durable ownership** - The lanes in the Lane Index are the canonical owners. Extend the existing owner before proposing another lane.
 
 6. **Reference, not campaign history** - Lanes describe current behavior and qualified limitations. Exact CI receipts, deployment observations and dated measurements remain in existing Git, PR and CI records; architecture rationale belongs in the ADR ledger. Do not create execution-report lanes.
 
@@ -32,7 +32,7 @@ When public workflows or consumers change, update the owning document in the [pr
 
 **Private operations:** a task that reads or changes a non-default deployment secret, variable, operator token-permission matrix, GitHub Environment, customer-account prerequisite, provider registration, promotion check, migration procedure, or rollback runbook also owns an update in `codeflare-private`. If it is not already available, clone it with `gh repo clone nikolanovoselec/codeflare-private`. Read its [documentation contract](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/governance/documentation-contract.md), update the owning private document, and deliver that repository through its own review history. Never copy real credentials or customer identifiers into either repository. Never duplicate private operational values in public `code`, `sdd/`, or `documentation/`; keep public behavior and REQ/ADR backlinks here and link to the private owner.
 
-**Managed curation:** to add or change a deployment-managed skill, rule, hook, agent, script, plugin, or company extension requirement, clone [codeflare-curation](https://github.com/nikolanovoselec/codeflare-curation) and push the change there. That private repository is the runtime master for Managed Environment content; `preseed/agents/**` in this repository is only the image-baked fallback baseline, and editing it does not change what deployments with Managed Environment curation active receive. Edit the fallback here only when the task is explicitly about it. Compiler, transform, seed ABI, and Pi runtime-lock changes are the exception: they land in this repository first, and only then does the curation repo advance its compiler pin. See [Managed curation ownership](lanes/preseed.md#managed-curation-ownership).
+**Managed curation:** [codeflare-curation](https://github.com/nikolanovoselec/codeflare-curation) is the runtime master for Managed Environment content; Codeflare's `preseed/` is the independent image-baked fallback. Shared skills, rules, agents, hooks, prompts and Pi extensions require aligned changes in both sources, with affected manifests, modes and generated output checked, as directed by [AGENTS.md](../AGENTS.md) and [Contributing](../CONTRIBUTING.md). Public contributors identify affected copies for maintainer coordination; private repository access is not a contribution prerequisite. Editing the baked fallback alone does not update an active managed deployment. Compiler, transform, seed ABI and Pi runtime-lock changes land in Codeflare first, then curation advances its compiler pin. Verify signed managed publication and runtime activation separately from source alignment; none is implied by another. See [Managed curation ownership](lanes/preseed.md#managed-curation-ownership).
 
 ## Pending delivery
 
@@ -50,30 +50,56 @@ When public workflows or consumers change, update the owning document in the [pr
 
 | Document | Owns | Audience |
 |----------|------|----------|
-| [Architecture](lanes/architecture.md) | System topology, state authority, cross-component flows and failure boundaries | Operators, Developers |
+| [Agent Environment](lanes/preseed.md) | Manifests, modes, compiler projection, baked fallback, managed curation and agent adaptation | Developers |
 | [API Reference](lanes/api-reference.md) | Endpoint authorization, request/response/error contracts and limits | Developers |
-| [Identity & Access](lanes/authentication.md) | Verified identity, authentication, authorization, account admission, provisioning and offboarding | Operators, Developers, Security |
-| [Configuration & Administration](lanes/configuration.md) | Settings, defaults, precedence, redaction and administrative editing workflows | Operators, Developers |
+| [Architecture](lanes/architecture.md) | System topology, state authority, cross-component flows and failure boundaries | Operators, Developers |
 | [Billing & Usage](lanes/billing.md) | Entitlement, subscriptions, live quota accounting, historical usage, reports and retention | Operators, Developers |
+| [CI & Testing](lanes/ci-cd.md) | Verification routing, pipeline gates, security-probe methodology and safe load testing | Developers, Operators, Security |
+| [Configuration & Administration](lanes/configuration.md) | Settings, defaults, precedence, redaction and administrative editing workflows | Operators, Developers |
+| [Deployment](lanes/deployment.md) | Default promotion, acceptance, rollback and public target boundaries | Operators, Developers |
+| [Identity & Access](lanes/authentication.md) | Verified identity, authentication, authorization, account admission, provisioning and offboarding | Operators, Developers, Security |
+| [Model Context Protocol](lanes/mcp.md) | Portal connection, owner authorization, discovery, execution and recovery | Users, Administrators, Developers |
+| [Models & Routing](lanes/models-and-routing.md) | Target identity, routing, discovery, evidence, reasoning, replay, caching and runtime publication | Operators, Developers |
+| [Operators](lanes/operators.md) | Packages, installations, grants, admission, activities, parent capabilities and publication fencing | Operators, Developers, Security |
 | [Security](lanes/security.md) | Threats, trust boundaries, controls, exceptions and residual risks | Operators, Developers, Security |
 | [Sessions & Runtime](lanes/container.md) | Image and process orchestration, D1 session authority, startup, recovery, idle policy and teardown | Operators, Developers |
 | [Storage & Sync](lanes/storage-and-sync.md) | R2/local authority, reconciliation, conflicts, persistence and encryption-regime integration | Operators, Developers |
-| [Agent Environment](lanes/preseed.md) | Manifests, modes, compiler projection, baked fallback, managed curation and agent adaptation | Developers |
-| [Models & Routing](lanes/models-and-routing.md) | Target identity, routing, discovery, evidence, reasoning, replay, caching and runtime publication | Operators, Developers |
-| [Operators](lanes/operators.md) | Packages, installations, grants, admission, activities, parent capabilities and publication fencing | Operators, Developers, Security |
 | [Terminal & IDE](lanes/terminal-and-ide.md) | Workspace interactions, terminal/editor connectivity and mobile compatibility | Operators, Developers |
-| [Vault & Memory](lanes/vault.md) | Notes, editor behavior, capture, recall, extraction and knowledge-graph publication | Operators, Developers |
-| [CI & Testing](lanes/ci-cd.md) | Verification routing, pipeline gates, security-probe methodology and safe load testing | Developers, Operators, Security |
-| [Deployment](lanes/deployment.md) | Default promotion, acceptance, rollback and public target boundaries | Operators, Developers |
 | [Troubleshooting](lanes/troubleshooting.md) | Symptom-led diagnosis, corrective action, verification and escalation | Operators |
+| [Vault & Memory](lanes/vault.md) | Notes, editor behavior, capture, recall, extraction and knowledge-graph publication | Operators, Developers |
+
+## Specification coverage
+
+Each specification domain has an explicit documentation owner. Shared lanes cover related operational concerns; package references retain package-local guidance. These links identify ownership, not completed acceptance.
+
+| Specification domain | Documentation owner(s) |
+|---|---|
+| [Agents](../sdd/spec/agents.md) | [Agent Environment](lanes/preseed.md) |
+| [Authentication](../sdd/spec/authentication.md) | [Identity & Access](lanes/authentication.md), [Security](lanes/security.md) |
+| [Browser IDE](../sdd/spec/browser-ide.md) | [Terminal & IDE](lanes/terminal-and-ide.md), [Browser IDE agents](../openvscode/README.md) |
+| [Browser Run](../sdd/spec/browser-run.md) | [API Reference](lanes/api-reference.md), [Agent Environment](lanes/preseed.md), [Configuration](lanes/configuration.md) |
+| [GitHub](../sdd/spec/github.md) | [Identity & Access](lanes/authentication.md), [API Reference](lanes/api-reference.md) |
+| [Landing](../sdd/spec/landing.md) | [Landing package](../landing/README.md), [Architecture](lanes/architecture.md) |
+| [Memory](../sdd/spec/memory.md) | [Vault & Memory](lanes/vault.md) |
+| [Model Context Protocol](../sdd/spec/mcp.md) | [Model Context Protocol](lanes/mcp.md) |
+| [Models & Routing](../sdd/spec/models-and-routing.md) | [Models & Routing](lanes/models-and-routing.md) |
+| [Operations](../sdd/spec/operations.md) | [CI & Testing](lanes/ci-cd.md), [Deployment](lanes/deployment.md) |
+| [Operators](../sdd/spec/operators.md) | [Operators](lanes/operators.md) |
+| [Security](../sdd/spec/security.md) | [Security](lanes/security.md) |
+| [Session Lifecycle](../sdd/spec/session-lifecycle.md) | [Sessions & Runtime](lanes/container.md), [Terminal & IDE](lanes/terminal-and-ide.md) |
+| [Setup & Administration](../sdd/spec/setup.md) | [Configuration & Administration](lanes/configuration.md), [Deployment](lanes/deployment.md) |
+| [Storage](../sdd/spec/storage.md) | [Storage & Sync](lanes/storage-and-sync.md) |
+| [Subscription](../sdd/spec/subscription.md) | [Billing & Usage](lanes/billing.md) |
+| [Terminal](../sdd/spec/terminal.md) | [Terminal & IDE](lanes/terminal-and-ide.md) |
+| [Vault](../sdd/spec/vault.md) | [Vault & Memory](lanes/vault.md) |
 
 ## Package Reference Index
 
 | Package reference | Owns | System contracts remain in |
 |---|---|---|
-| [Landing](../landing/README.md) | Landing source map, browser behavior, build order, package verification | [Architecture](lanes/architecture.md), [API Reference](lanes/api-reference.md), [Security](lanes/security.md) |
 | [Browser IDE agents](../openvscode/README.md) | Extension inventories, package composition, local verification | [Sessions & Runtime](lanes/container.md), [Terminal & IDE](lanes/terminal-and-ide.md), [Security](lanes/security.md) |
 | [Claude IDE configuration](../openvscode/claude/README.md) | Claude projection files and managed settings | [Browser IDE agents](../openvscode/README.md) and [Container](lanes/container.md) |
+| [Landing](../landing/README.md) | Landing source map, browser behavior, build order, package verification | [Architecture](lanes/architecture.md), [API Reference](lanes/api-reference.md), [Security](lanes/security.md) |
 | [Pi packages](references/pi-packages.md) | Locked package inventory, entrypoints, compatibility transforms and prewarm gates | [Agent Environment](lanes/preseed.md), [Sessions & Runtime](lanes/container.md) |
 
 ## Change Routing

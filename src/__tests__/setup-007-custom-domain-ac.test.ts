@@ -1,3 +1,4 @@
+import { createMockSetupNamespace } from './helpers/mock-factories';
 /**
  * AC-coverage tests for REQ-SETUP-007: Custom domain with DNS validation.
  *
@@ -9,6 +10,7 @@
  *   AC5: Custom domain stored in KV as setup:custom_domain (lowercased)
  *   AC6: Dynamic origins cached in-memory for 5 minutes with KV as source of truth
  *   AC7: Post-setup workers.dev URL used only for initial setup; traffic routes via custom domain
+ *   AC8: DNS record name derived relative to the resolved zone (create, update, duplicate recovery; apex -> @)
  *
  * Framework: vitest (src/__tests__/**\/*.test.ts)
  */
@@ -201,6 +203,7 @@ describe('REQ-SETUP-007: Custom domain with DNS validation', () => {
         CLOUDFLARE_WORKER_NAME: TEST_WORKER_NAME,
         ...envOverrides,
       } as Env;
+      c.env.CONTAINER = createMockSetupNamespace(c.env);
       return next();
     });
     app.route('/api/setup', setupRoutes);
@@ -513,5 +516,161 @@ describe('REQ-SETUP-007: Custom domain with DNS validation', () => {
     // workers.dev URL is distinct from custom domain URL
     expect(summary.workersDevUrl).toContain('workers.dev');
     expect(summary.customDomainUrl).toBe('https://claude.example.com');
+  });
+
+  type DnsRequest = { method: string; url: string; body: { type?: string; name?: string } | null };
+  type ExistingRecord = { id: string; type: string; content: string; proxied: boolean };
+
+  const parseDnsBody = (raw: unknown): DnsRequest['body'] => {
+    if (typeof raw !== 'object' || raw === null) return null;
+    const { type, name } = raw as { type?: unknown; name?: unknown };
+    return {
+      type: typeof type === 'string' ? type : undefined,
+      name: typeof name === 'string' ? name : undefined,
+    };
+  };
+
+  const existingCname = (): ExistingRecord => ({
+    id: 'dns-existing-1',
+    type: 'CNAME',
+    content: 'stale-target.workers.dev',
+    proxied: false,
+  });
+
+  const jsonResponse = (payload: unknown, status = 200): Response =>
+    new Response(JSON.stringify(payload), { status, headers: jsonHeaders });
+
+  /**
+   * Runs the custom-domain step through POST /api/setup/configure against a mocked
+   * Cloudflare API whose zones endpoint answers ONLY for the true zone name.
+   * `lookupResults` are returned, in order, by successive DNS record lookups
+   * (the last entry repeats); `createError` makes the DNS create answer with a CF error code.
+   */
+  async function runCustomDomainSetup(options: {
+    customDomain: string;
+    zoneName: string;
+    lookupResults: ExistingRecord[][];
+    createErrorCode?: number;
+  }): Promise<{ success: boolean; dnsRequests: DnsRequest[] }> {
+    const { customDomain, zoneName, lookupResults, createErrorCode } = options;
+    const dnsRequests: DnsRequest[] = [];
+    let lookupCount = 0;
+    globalThis.fetch = createUrlMockFetch({
+      ...baseFlowMocks(),
+      '/zones?name=': (url: string) =>
+        url.endsWith(`name=${zoneName}`) ? mockResponses.zoneLookup() : mockResponses.zoneNotFound(),
+      '/workers/subdomain': mockResponses.subdomainLookup,
+      '~/dns_records': (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET';
+        if (method === 'GET') {
+          const index = Math.min(lookupCount, lookupResults.length - 1);
+          lookupCount += 1;
+          return jsonResponse({ success: true, result: lookupResults[index] ?? [] });
+        }
+        const body = parseDnsBody(JSON.parse(String(init?.body ?? 'null')));
+        dnsRequests.push({ method, url, body });
+        if (method === 'POST' && createErrorCode !== undefined) {
+          return jsonResponse(
+            { success: false, errors: [{ code: createErrorCode, message: 'duplicate' }] },
+            400
+          );
+        }
+        return mockResponses.dnsRecordCreate();
+      },
+      '/workers/routes': mockResponses.workerRouteCreate,
+      ...accessAppFlowMocks(),
+    });
+
+    const res = await createTestApp().request('https://codeflare.test.workers.dev/api/setup/configure', {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ ...standardBody, customDomain }),
+    });
+    const summary = getNdjsonSummary(await readNdjson(res));
+    return { success: summary.success === true, dnsRequests };
+  }
+
+  const sentNames = (requests: DnsRequest[]): (string | undefined)[] => requests.map((r) => r.body?.name);
+  const doubledNames = ['app.sub', 'app.sub.sub.example.com'];
+
+  it('REQ-SETUP-007 AC2: record is created as "app" for app.sub.example.com in zone sub.example.com', async () => {
+    const { success, dnsRequests } = await runCustomDomainSetup({
+      customDomain: 'app.sub.example.com',
+      zoneName: 'sub.example.com',
+      lookupResults: [[]],
+    });
+    expect(success, 'setup must succeed for a three-label zone').toBe(true);
+    const creates = dnsRequests.filter((r) => r.method === 'POST');
+    expect(creates.map((r) => r.body?.name),
+      'WHAT: create body name must be the hostname relative to the resolved zone ("app"). WHY: "app.sub" resolves to app.sub.sub.example.com, a wrong record. HOW: derive the name from the zone the wizard resolved.'
+    ).toEqual(['app']);
+    for (const doubled of doubledNames) {
+      expect(sentNames(dnsRequests), `no DNS request may name ${doubled}`).not.toContain(doubled);
+    }
+  });
+
+  it('REQ-SETUP-007 AC2: existing record keeps the name "app" on re-run in zone sub.example.com', async () => {
+    const { success, dnsRequests } = await runCustomDomainSetup({
+      customDomain: 'app.sub.example.com',
+      zoneName: 'sub.example.com',
+      lookupResults: [[existingCname()]],
+    });
+    expect(success, 'setup must succeed on re-run').toBe(true);
+    const updates = dnsRequests.filter((r) => r.method === 'PUT');
+    expect(updates.map((r) => r.url.endsWith('/dns_records/dns-existing-1'))).toEqual([true]);
+    expect(updates.map((r) => r.body?.name),
+      'WHAT: update body name must be "app". WHY: the existing correct record must not be renamed to app.sub.sub.example.com. HOW: use the zone-relative name for update.'
+    ).toEqual(['app']);
+    for (const doubled of doubledNames) {
+      expect(sentNames(dnsRequests), `no DNS request may name ${doubled}`).not.toContain(doubled);
+    }
+  });
+
+  it('REQ-SETUP-007 AC2: multi-label relative name a.b is kept for a.b.sub.example.com in zone sub.example.com', async () => {
+    const { success, dnsRequests } = await runCustomDomainSetup({
+      customDomain: 'a.b.sub.example.com',
+      zoneName: 'sub.example.com',
+      lookupResults: [[]],
+    });
+    expect(success).toBe(true);
+    expect(sentNames(dnsRequests),
+      'WHAT: create body name must be "a.b". WHY: the whole zone-relative part of the hostname is the record name, not just its first label. HOW: strip only the zone suffix from the hostname.'
+    ).toEqual(['a.b']);
+  });
+
+  it('REQ-SETUP-007 AC2: two-label zone keeps the name "app" for app.example.com', async () => {
+    const { success, dnsRequests } = await runCustomDomainSetup({
+      customDomain: 'app.example.com',
+      zoneName: 'example.com',
+      lookupResults: [[]],
+    });
+    expect(success).toBe(true);
+    expect(sentNames(dnsRequests)).toEqual(['app']);
+  });
+
+  it('REQ-SETUP-007 AC2: hostname equal to the zone name uses the apex name "@"', async () => {
+    const { success, dnsRequests } = await runCustomDomainSetup({
+      customDomain: 'sub.example.com',
+      zoneName: 'sub.example.com',
+      lookupResults: [[]],
+    });
+    expect(success).toBe(true);
+    expect(sentNames(dnsRequests),
+      'WHAT: apex create body name must be "@". WHY: hostname equals the resolved zone. HOW: return "@" when hostname === zone name.'
+    ).toEqual(['@']);
+  });
+
+  it('REQ-SETUP-007 AC2: duplicate-create recovery update also sends the name "app" in zone sub.example.com', async () => {
+    const { success, dnsRequests } = await runCustomDomainSetup({
+      customDomain: 'app.sub.example.com',
+      zoneName: 'sub.example.com',
+      lookupResults: [[], [existingCname()]],
+      createErrorCode: 81057,
+    });
+    expect(success, 'duplicate recovery must succeed').toBe(true);
+    expect(dnsRequests.map((r) => r.method)).toEqual(['POST', 'PUT']);
+    expect(sentNames(dnsRequests),
+      'WHAT: both the create attempt and the recovery update must send "app". WHY: recovery must not rename the record to a doubled name. HOW: share one derived record name across create, update and recovery.'
+    ).toEqual(['app', 'app']);
   });
 });

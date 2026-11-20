@@ -33,6 +33,8 @@ vi.mock('../../middleware/auth', async importOriginal => ({
 const domain = 'live-identity.cloudflareaccess.com', issuer = `https://${domain}`;
 const email = 'manager@example.test', subject = 'manager-subject', audience = 'operators-live-identity';
 const head = 'a'.repeat(40), base = 'b'.repeat(40), mergeBase = 'c'.repeat(40), workflowSha = 'd'.repeat(40);
+const runtimeSha = 'e'.repeat(40);
+const jobWorkflowRef = `nikolanovoselec/codeflare/.github/workflows/boundary-runtime.yml@${runtimeSha}`;
 const workflowSource = 'name: Boundary Reviews\non: pull_request_target\njobs: {}\n';
 const workflowDigest = '5d25cbe537cab5e78efad44b51b472c4e278ca6510342b3eb34914dc6ee4e95d';
 const request = { repositoryId: 138, pullRequest: 34, head, base, mergeBase, runId: 87, runAttempt: 1 };
@@ -165,8 +167,9 @@ async function fixture(test: (f: {
     expect(await owner.setManagementControls({ revision: 0, managers: { users: [email], groups: [] },
       ceiling: { capabilities: ['fetch'], resourceProfileIds: [] }, boundaryActions: [{ repositoryId: 138,
         installationId: 'review-install', workflowId: 531, workflowPath: '.github/workflows/boundary-reviews.yml',
-        protectedRef: 'refs/heads/main', workflowDigest, events: ['pull_request_target'] }] },
-    { email, expiresAt: Date.now() + 300_000 })).toMatchObject({ ok: true });
+        protectedRef: 'refs/heads/main', workflowDigest, events: ['pull_request_target'],
+        verified: true, runtimeSha }] },
+    { email, expiresAt: Date.now() + 300_000 }, true)).toMatchObject({ ok: true });
     ctx.storage.sql.exec('INSERT INTO operator_catalog VALUES(?,?,?,?,?,?)', 'review-operator', 'conductor', 'internal', 1,
       'review-operator', JSON.stringify({ id: 'review-operator', revision: 1, sourceRevision: 1, profile: 'conductor',
         realm: 'internal', repositoryId: 138, repositoryUrl: 'https://github.com/owner/repo',
@@ -219,7 +222,7 @@ async function fixture(test: (f: {
       aud: `https://enterprise.example.test/operator-webhook/v1/activities/claims/${operation}`,
       iat: now - 10, nbf: now - 10, exp: now + 300, repository: 'owner/repo', repository_id: '138',
       event_name: 'pull_request_target', workflow_ref: 'owner/repo/.github/workflows/boundary-reviews.yml@refs/heads/main',
-      workflow_sha: workflowSha, run_id: '87', run_attempt: '1' });
+      workflow_sha: workflowSha, job_workflow_ref: jobWorkflowRef, run_id: '87', run_attempt: '1' });
     await test({ setFault: value => { fault = value; }, setToken: value => { accessJwt = value; }, token: initialToken, registry, kv,
       activityId, startCapability: prepared.startCapability, activity,
       reauthenticate: () => activity.reauthenticate(humanContext.human, accessJwt),
@@ -297,7 +300,7 @@ describe('REQ-OPERATOR-045 AC3 / T01: invalid live identity never becomes empty-
     'REQ-OPERATOR-045: %s cannot satisfy stable group eligibility while a verified admin still accesses the catalog',
     async fault => fixture(async f => {
       const controls = await f.registry.getManagementControls();
-      expect(await f.registry.setManagementControls({ ...controls,
+      expect(await f.registry.setManagementControls({ revision: controls.revision, ceiling: controls.ceiling,
         managers: { users: [], groups: [{ issuer, id: 'Operators' }, { issuer, id: 'operators@example.test' }] } },
       { email, expiresAt: Date.now() + 300_000 })).toMatchObject({ ok: true });
       f.setFault(fault);
@@ -353,11 +356,13 @@ describe('REQ-OPERATOR-045 AC3 / T01: invalid live identity never becomes empty-
       for (const [fault, reason, status] of outcomes) {
         warnings.length = 0; f.setFault(fault);
         expect((await f.request('/operators')).status).toBe(403);
+        const message = status === 503 ? 'Operator Access identity unavailable' : 'Operator human authentication denied';
         const diagnostics = warnings.map(value => JSON.parse(value) as { message: string; data: unknown })
-          .filter(value => value.message === 'Operator human authentication denied');
-        // Intentional diagnostic wire contract: only stage, closed reason and HTTP status are observable.
+          .filter(value => value.message === message);
+        // Intentional diagnostic wire contract: closed reason/status and a closed classification only for 503.
         expect(diagnostics.map(value => value.data)).toEqual([
-          { stage: 'identity', reason, ...(status === undefined ? {} : { status }) },
+          { stage: 'identity', reason, ...(status === undefined ? {} : { status }),
+            ...(status === 503 ? { classification: 'unclassified' } : {}) },
         ]);
         const serialized = JSON.stringify(diagnostics);
         for (const privateValue of [f.token, email, subject, issuer, 'unrelated-identity-metadata']) {

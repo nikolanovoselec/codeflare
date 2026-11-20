@@ -462,64 +462,34 @@ export function reviewRange(input: { repo: string; ackHead?: string; head: strin
   }
 }
 
-// Lane-specific and deliberately not unified: spec-reviewer counts a subject
-// that CONTAINS its tags, doc-updater one that STARTS WITH them. That asymmetry
-// is what each lane document says, and collapsing it here would silently change
-// when a limit fires. Mirrors ROUND_RULES in the Claude lane-triage; REQ-AGENT-040
-// AC7 requires both runtimes to decide a range identically.
-const ROUND_RULES: Record<string, { tags: string[]; match: (subject: string, tag: string) => boolean; tree: string }> = {
-  "spec-reviewer": {
-    tags: ["[autonomous]", "[unleashed]", "[spec-reviewer]"],
-    match: (subject, tag) => subject.includes(tag),
-    tree: "sdd/",
-  },
-  "doc-updater": {
-    tags: ["[doc-updater]", "[autonomous]", "[unleashed]"],
-    match: (subject, tag) => subject.startsWith(tag),
-    tree: "documentation/",
-  },
-};
-const BULK_PREFIXES = ["[sdd-init]", "[sdd-clean]", "[sdd-triage]"];
-const RS = "\x1e";
+type RoundLimitEvidence = { counted: number; gate: "stop" | "continue" };
 
-/**
- * True when this lane has already been round-tripped five times, which its own
- * document defines as a no-op. Answering it from git costs nothing; answering it
- * by spawning the agent buys a full startup to be told the same thing. Every
- * failure returns false, so doubt costs a lane rather than skipping a review.
- */
-export function roundLimitReached(repo: string, lane: ReviewLane): boolean {
-  const rule = ROUND_RULES[lane];
-  if (!rule) return false;
-  let raw = "";
+// One executable owns both runtimes' count, prefix/reset/merge window and verdict.
+// Missing or unreadable gate evidence costs a review, never suppression.
+export function roundLimitReached(repo: string, lane: ReviewLane, autonomyOverride = false,
+  onDecision?: (lane: ReviewLane, evidence: RoundLimitEvidence) => void): boolean {
+  const tree = lane === "spec-reviewer" ? "sdd" : lane === "doc-updater" ? "documentation" : undefined;
+  if (!tree) return false;
   try {
-    raw = execFileSync("git", ["log", "-6", `--format=${RS}%H %s`, "--name-only"], {
-      cwd: repo,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    });
+    const gate = join(homedir(), ".pi/agent/skills/spec-enforce/scripts/round-limit.mjs");
+    const raw = execFileSync(process.execPath, [gate, "--repo", repo, "--lane", tree,
+      ...(autonomyOverride ? ["fully-autonomous"] : [])], {
+      cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 10_000,
+    }).trim();
+    const match = /^counted=(\d+) gate=(stop|continue)$/.exec(raw);
+    if (!match) return false;
+    const evidence: RoundLimitEvidence = { counted: Number(match[1]), gate: match[2] as "stop" | "continue" };
+    onDecision?.(lane, evidence);
+    return evidence.gate === "stop";
   } catch {
     return false;
   }
-  let counted = 0;
-  for (const record of raw.split(RS)) {
-    if (!record.trim()) continue;
-    const [header, ...fileLines] = record.split("\n");
-    const subject = header.slice(header.indexOf(" ") + 1).trim();
-    const touchedLane = fileLines.some((file) => file.trim().startsWith(rule.tree));
-    if (BULK_PREFIXES.some((prefix) => subject.startsWith(prefix))) continue;
-    if (!rule.tags.some((tag) => rule.match(subject, tag))) {
-      if (touchedLane) break;
-      continue;
-    }
-    if (touchedLane) counted += 1;
-  }
-  return counted >= 5;
 }
 
 export function requiredReviewLanes(
   // `prover` overrides the seeded prover path; production passes nothing.
-  input: { repo: string; ackHead?: string; head: string; prover?: string },
+  input: { repo: string; ackHead?: string; head: string; prover?: string; autonomyOverride?: boolean;
+    onRoundLimit?: (lane: ReviewLane, evidence: RoundLimitEvidence) => void },
 ): ReviewLane[] {
   if (input.ackHead === input.head && fullSha(input.head)) return [];
   const range = reviewRange(input);
@@ -539,7 +509,7 @@ export function requiredReviewLanes(
       spec: anchorCitesChanged(input.repo, "sdd", behavioural),
       docs: anchorCitesChanged(input.repo, "documentation", behavioural),
     });
-    return lanes.filter((lane) => !roundLimitReached(input.repo, lane));
+    return lanes.filter((lane) => !roundLimitReached(input.repo, lane, input.autonomyOverride, input.onRoundLimit));
   } catch {
     return [...ALL_REVIEW_LANES];
   }

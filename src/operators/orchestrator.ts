@@ -1,14 +1,12 @@
-import { configuredRenovateInvocation, prospectiveRenovatePackageSupported } from './renovate-run-settings';
 import { z } from 'zod';
 import { captureError, type Boundary, type ReasonCode } from './dispatcher-diagnostics-wire';
 import type { Env } from '../types';
-import type { VerifiedHumanAccessClaims } from '../lib/jwt';
 import { AppError, ValidationError } from '../lib/error-types';
 import { canInvokeOperator, loadEnterpriseRouteConfig, requireOperatorHumanContext,
   resolveBucketName, resolveSessionAccessGroup } from '../lib/access';
-import { createOperatorExecutionContext, openOperatorExecutionAccess } from './execution-context';
+import { createOperatorExecutionContext, openOperatorExecutionAccess, type OperatorExecutionAuthority } from './execution-context';
 import { openOperatorSecret } from './protected-secrets';
-import { parseDispatcherBundle, parseOperatorBundle, parseOperatorManifest } from './distribution';
+import { parseDispatcherBundle, parseOperatorBundle, parsePinnedOperatorManifest } from './distribution';
 import { fetchOperatorBundle } from './distribution-client';
 import { driveDispatcherRuntime, driveOperatorRuntime } from './runtime';
 import { dispatcherCapacities, pickDispatcherCapacities } from './dispatcher-capacity-limits';
@@ -59,9 +57,7 @@ export interface PreparedOperatorActivity {
 }
 
 /** Request-attached preparation only; it creates no scheduler or child session. */
-export async function prepareOperatorActivity(input: unknown, authority: {
-  human: VerifiedHumanAccessClaims; accessJwt: string;
-}, env: Env, parentReservation?: { activityId: string; boundary?: BoundaryActivityBinding; expectedManagement?: {
+export async function prepareOperatorActivity(input: unknown, authority: OperatorExecutionAuthority, env: Env, parentReservation?: { activityId: string; boundary?: BoundaryActivityBinding; prospectiveAdmissionId?: string; expectedManagement?: {
   controlsRevision: number; installationRevision: number; operatorRevision: number;
   releaseId: string; bundleDigest: string;
 } }): Promise<PreparedOperatorActivity> {
@@ -72,7 +68,7 @@ export async function prepareOperatorActivity(input: unknown, authority: {
   }
   // Only the parent passes a Registry-reserved ID. The caller's invocation cannot choose it.
   const activityId = parentReservation?.activityId ?? crypto.randomUUID();
-  let bounded = boundedInvocation(parsed.data.invocation);
+  const bounded = boundedInvocation(parsed.data.invocation);
   const registry = env.OPERATOR_REGISTRY.getByName('registry');
   const installationId = 'installationId' in parsed.data ? parsed.data.installationId : null;
   const requestedOperatorId = 'operatorId' in parsed.data ? parsed.data.operatorId : null;
@@ -103,9 +99,6 @@ export async function prepareOperatorActivity(input: unknown, authority: {
   const operatorId = managementSelection ? managementSelection.operator.operatorId : requestedOperatorId!;
   if (operatorId === 'codeflare-gate1-fixture') {
     throw new AppError('NOT_FOUND', 404, 'Operator is not available for execution');
-  }
-  if (managementSelection?.operator.profile === 'dispatcher' && prospectiveRenovatePackageSupported(managementSelection.manifestJson)) {
-    bounded = configuredRenovateInvocation(managementSelection.installation.configurationJson, bounded);
   }
   const usesConsumerContract = managementSelection?.operator.profile === 'conductor';
   const deadline = authority.human.expiresAt * 1000;
@@ -195,7 +188,7 @@ export async function prepareOperatorActivity(input: unknown, authority: {
   const invocationJson = JSON.stringify(invocation);
   const intentDigest = await createOperatorIntentDigest(operatorId, activityId, invocationJson);
   const executionContext = await createOperatorExecutionContext({ activityId, operatorId,
-    artifactDigest, policyDigest, human: authority.human, accessJwt: authority.accessJwt }, env);
+    artifactDigest, policyDigest, ...authority }, env);
   const intent = managementSelection ? {
     operatorId, installationId: installationId!, activityId, intentDigest,
     expectedRevision: managementSelection.operator.revision,
@@ -205,28 +198,14 @@ export async function prepareOperatorActivity(input: unknown, authority: {
   } : { operatorId, activityId, intentDigest, expectedRevision: legacySelection!.revision,
     deadline, startExpiresAt, startVerifier };
   const activity = env.OPERATOR_ACTIVITY.getByName(activityId);
-  const prepared = parentReservation?.boundary
-    ? await activity.prepareAuthorized(intent, executionContext, invocationJson, parentReservation.boundary)
-    : await activity.prepareAuthorized(intent, executionContext, invocationJson);
+  const prepared = parentReservation?.prospectiveAdmissionId !== undefined
+    ? await activity.prepareAuthorized(intent, executionContext, invocationJson,
+      parentReservation.boundary, parentReservation.prospectiveAdmissionId)
+    : parentReservation?.boundary
+      ? await activity.prepareAuthorized(intent, executionContext, invocationJson, parentReservation.boundary)
+      : await activity.prepareAuthorized(intent, executionContext, invocationJson);
   if (!prepared.ok) throw new AppError('CONFLICT', 409, 'Operator activity could not be prepared');
   return { activityId, startCapability, startExpiresAt };
-}
-
-function parsePinnedManifest(manifestJson: string, endpoint: string) {
-  let stored: Record<string, unknown>;
-  try {
-    const value = JSON.parse(manifestJson) as unknown;
-    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid manifest');
-    stored = value as Record<string, unknown>;
-  } catch { throw new ValidationError('Invalid pinned operator manifest'); }
-  const storedArtifact = stored.artifact;
-  if (!storedArtifact || typeof storedArtifact !== 'object' || Array.isArray(storedArtifact)) {
-    throw new ValidationError('Invalid pinned operator manifest');
-  }
-  const { url, ...artifact } = storedArtifact as Record<string, unknown>;
-  const manifest = parseOperatorManifest(JSON.stringify({ ...stored, artifact }), endpoint);
-  if (url !== manifest.artifact.url) throw new ValidationError('Invalid pinned operator manifest');
-  return manifest;
 }
 
 export type OperatorCapabilityBinder = (activityId: string, generation: number, driveDeadline: number) => Fetcher;
@@ -294,7 +273,7 @@ export async function runOperatorActivity(
       const authority = await openOperatorExecutionAccess(plan.executionContext, env);
       const connectionSecret = await openOperatorSecret(distribution.connectionSecretCiphertext, env,
         { purpose: 'connection', recordId: plan.receipt.operatorId });
-      const manifest = parsePinnedManifest(plan.receipt.manifestJson, distribution.endpoint);
+      const manifest = parsePinnedOperatorManifest(plan.receipt.manifestJson, distribution.endpoint);
       if (manifest.id !== plan.receipt.operatorId || manifest.artifact.sha256 !== plan.receipt.artifactDigest) {
         throw new Error('Pinned runtime identity mismatch');
       }

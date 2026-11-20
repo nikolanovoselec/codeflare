@@ -67,30 +67,30 @@ describe('REQ-OPS-003 AC5: bounded npm security lock pins', () => {
 
       const lock = JSON.parse(readFileSync(lockPath, 'utf8'));
       const patched = lock.packages['node_modules/vendor/node_modules/brace-expansion'];
-      assert.equal(patched.version, '5.0.12');
+      assert.equal(patched.version, '5.0.13');
       assert.equal(
         patched.integrity,
-        'sha512-YovQ3rzhaLMIrDjNDMkNS01tea93qhEhG5xy8f6+R0l+dw3Ki+5sCoIoI942iuLZTHWogWktgwVDhU09iNEimQ==',
+        'sha512-Vh3dmFbc4wZeox7M9I/0L9GfFd83Su4+yCck/OF9Gi/P/dAHn0RT7X4K9R7gMNMhDck3DvhR6QXsnQdjjgwNvQ==',
       );
       assert.deepEqual(lock.packages['node_modules/vendor-7/node_modules/undici'], {
-        version: '7.30.1',
-        resolved: 'https://registry.npmjs.org/undici/-/undici-7.30.1.tgz',
-        integrity: 'sha512-03KrMbjIFDWQR5RNPrSw3bd1r12JpyFQl9/yxjUbJtqkjmllqC5lFjZh6ujeuJCKr8EOQvRW872Oy/az+nLYxg==',
+        version: '7.30.2',
+        resolved: 'https://registry.npmjs.org/undici/-/undici-7.30.2.tgz',
+        integrity: 'sha512-mLyPQnHwUxaM/rideoK/+KL8DaAJLRl4aBCfmX444aCSLnIaomqPLtNRe2jdCYcsk5wZzXrDIQC8ZeYNRAYyIA==',
         license: 'MIT',
         engines: { node: '>=20.18.1' },
       });
       assert.deepEqual(lock.packages['node_modules/vendor-8/node_modules/undici'], {
-        version: '8.12.3',
-        resolved: 'https://registry.npmjs.org/undici/-/undici-8.12.3.tgz',
-        integrity: 'sha512-+fdndUTwBP86cVjihTp21hZHo7d6oj1c/47XPA3lL8mM0XHs+C4EkcjmgRsFnFk2f/UONGDy9ItBItmXsLOQHw==',
+        version: '8.12.4',
+        resolved: 'https://registry.npmjs.org/undici/-/undici-8.12.4.tgz',
+        integrity: 'sha512-8Mx+uNKKER2bA4AdtedkqRbwUCIJFr2nJckXRe5yrDqzePqwLP7VNcctN8/XdmDSbF7mS+jJKIszlL+vbam1VA==',
         license: 'MIT',
         engines: { node: '>=22.19.0' },
         dev: true,
       });
       assert.deepEqual(lock.packages['node_modules/vendor/node_modules/ip-address'], {
-        version: '10.7.5',
-        resolved: 'https://registry.npmjs.org/ip-address/-/ip-address-10.7.5.tgz',
-        integrity: 'sha512-t2v0rkILYv9WXmSL7TpAaU3HXgaFYOPUcH3QHgwQ++gpJuH3bqyMy4Fvt/DJCTKwzH3Cf+bAp5W/mFL39KPLzA==',
+        version: '10.7.6',
+        resolved: 'https://registry.npmjs.org/ip-address/-/ip-address-10.7.6.tgz',
+        integrity: 'sha512-00LYkM6byILa9eQIx6qoaXCM40xTLd56AZ4vyaPW3YTyb49VZYPo5xsiAq4tuQ54GH4R7gVdYScJ1B7B77PuTg==',
         license: 'MIT',
         engines: { node: '>= 12' },
       });

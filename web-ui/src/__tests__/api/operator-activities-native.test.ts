@@ -7,6 +7,7 @@ const summary = { activityId: 'native-activity', operatorId: 'operator', executi
   cleanupStatus: 'pending', collectionStatus: 'unavailable', attention: true,
   sessionId: null, source: null, updatedAt: 1 };
 
+// REQ-OPERATOR-105: Dispatcher inference context.
 describe('REQ-OPERATOR-007/047: native Activity functional browser wire', () => {
   it.each(['installation', 'inherited'] as const)('retains %s reasoning and login recovery in Runs without diagnostics', reasoningSource => {
     const wire = { ...summary, inferenceSelection: { ...nativeSelection, reasoningSource },

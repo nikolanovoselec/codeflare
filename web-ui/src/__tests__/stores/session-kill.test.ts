@@ -2,14 +2,17 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Like session.test.ts, model the mounted runtime through the terminal store's
 // public ownership behavior. Hoisted factory state is initialized before imports.
-const runtime = vi.hoisted(() => ({ ownedSessionIds: new Set<string>() }));
+const runtime = vi.hoisted(() => ({
+  ownedSessionIds: new Set<string>(),
+  stoppedCallback: null as ((id: string) => void) | null,
+}));
 vi.mock('../../stores/terminal', () => ({
   terminalStore: {
     dispose: vi.fn(),
     disposeSession: (id: string) => { runtime.ownedSessionIds.delete(id); },
     ownsSession: (id: string) => runtime.ownedSessionIds.has(id),
     triggerLayoutResize: vi.fn(),
-    registerSessionStoppedCallback: vi.fn(),
+    registerSessionStoppedCallback: (callback: (id: string) => void) => { runtime.stoppedCallback = callback; },
   },
   sendInputToTerminal: vi.fn(() => false),
   registerProcessNameCallback: vi.fn(),
@@ -221,6 +224,38 @@ describe('REQ-SESSION-038: session KILL through the public store and HTTP bounda
       ]);
     },
   );
+
+  it('REQ-SESSION-006 AC7 / TERM-045 AC6: 4503 cannot short-circuit local KILL confirmation', async () => {
+    const originalTabs = tabs(target);
+    const killReply = deferred<Response>();
+    replyToKill = () => killReply.promise;
+    const killing = killSession(target);
+    try {
+      runtime.stoppedCallback?.(target);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(row(target)).toMatchObject({ status: 'stopping', generation: 4, revision: 10 });
+      expect(terminalStore.ownsSession?.(target)).toBe(true);
+      expect(tabs(target)).toEqual(originalTabs);
+      expect(terminalStore.ownsSession?.(other)).toBe(true);
+      killReply.resolve(new Response(null, { status: 204 }));
+      await killing;
+      // HTTP acceptance is still not exit evidence.
+      runtime.stoppedCallback?.(target);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(row(target)?.status).toBe('stopping');
+      expect(terminalStore.ownsSession?.(target)).toBe(true);
+      project(target, 'stopped', 11);
+      await sessionStore.refreshSessionStatuses();
+      expect(row(target)).toMatchObject({ status: 'stopped', lifecycle: 'stopped', generation: 4, revision: 11 });
+      expect(terminalStore.ownsSession?.(target)).toBe(false);
+      expect(tabs(target)).toEqual(originalTabs);
+      expect(terminalStore.ownsSession?.(other)).toBe(true);
+      expect(mutations).toEqual([{ method: 'POST', path: killPath }]);
+    } finally {
+      killReply.resolve(new Response(null, { status: 204 }));
+      await killing;
+    }
+  });
 
   it.each(['failed', 'ambiguous'] as const)(
     'AC4/AC5/AC7: a %s KILL shows failure, preserves the session/runtime and permits same-session retry', async outcome => {

@@ -304,7 +304,10 @@ export class PiRpcBackend {
     this.#turn?.cancellation.abort();
     this.#startupCancellation.abort();
     if (this.#starting && !this.running) await this.#session.dispose();
-    await this.#promptWrite?.catch(() => undefined);
+    if (this.#promptWrite) {
+      await this.stop();
+      return;
+    }
     await this.#sendAbort();
     const turn = this.#turn;
     if (turn?.promptId && !turn.completed) {

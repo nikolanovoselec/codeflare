@@ -4,7 +4,8 @@ import { test } from 'node:test';
 import { SECURITY_PIN_OWNERS, currentSecurityVersion, updateNpmSecurityPins } from '../../scripts/ci/update-npm-security-pins.mjs';
 
 const floor = 'scripts/apply-npm-security-lock-pins.mjs';
-const paths = ['Dockerfile', floor, 'package.json', 'preseed/agents/pi/package.json', 'preseed/npm-tools/package.json',
+const imageSmoke = 'scripts/ci/smoke-openvscode-sidebar-image.mjs';
+const paths = ['Dockerfile', floor, imageSmoke, 'package.json', 'preseed/agents/pi/package.json', 'preseed/npm-tools/package.json',
   'preseed/agents/claude/browser-run-mcp/package.json', '.github/npm-tools/wrangler/package.json'];
 const files = () => Object.fromEntries(paths.map(path => [path, readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8')]));
 function candidate(name, version) {
@@ -43,6 +44,28 @@ test('REQ-OPS-020: security override and floor bumps are forward-only, same-majo
   assert.deepEqual(before, files(), 'rejected candidates never write repository inputs');
 });
 
+
+// Intentional version-pin contract: installation and runtime verification must authorize the same release.
+for (const id of ['basic-ftp', 'follow-redirects']) {
+  test(`REQ-OPS-020: ${id} installation and image-smoke pins advance together`, () => {
+    const before = files();
+    const current = currentSecurityVersion(before, id);
+    const prefix = `('${id}/package.json').version, '`;
+    const smokeVersion = source => source.split(prefix)[1]?.split("'")[0];
+    assert.equal(smokeVersion(before[imageSmoke]), current);
+    const [major, minor] = current.split('.').map(Number);
+    const version = `${major}.${minor + 1}.0`;
+    const next = updateNpmSecurityPins(before, id, current, candidate(id, version));
+    assert.equal(currentSecurityVersion(next, id), version);
+    assert.equal(smokeVersion(next[imageSmoke]), version);
+    assert.deepEqual(before, files(), 'pin calculation does not mutate source artifacts');
+
+    const stale = { ...before, [imageSmoke]: before[imageSmoke].replace(`${prefix}${current}'`, `${prefix}0.0.0'`) };
+    const snapshot = { ...stale };
+    assert.throws(() => updateNpmSecurityPins(stale, id, current, candidate(id, version)), /image smoke version/);
+    assert.deepEqual(stale, snapshot, 'a stale smoke pin cannot partially advance an installation');
+  });
+}
 
 for (const [id, owner] of Object.entries(SECURITY_PIN_OWNERS)) {
   test(`REQ-OPS-020: ${id} has one observable forward update path`, () => {

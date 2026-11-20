@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, cleanup, waitFor } from '@solidjs/testing-library';
 import { mdiXml } from '@mdi/js';
 import SetupWizard from '../../components/setup/SetupWizard';
+import ProgressStep from '../../components/setup/ProgressStep';
 
 // Mock the API client
 vi.mock('../../api/client', () => ({
@@ -23,6 +24,11 @@ vi.mock('../../stores/setup', () => ({
     detectToken: vi.fn(),
     loadExistingConfig: vi.fn().mockResolvedValue(true),
     nextStep: vi.fn(),
+    configure: vi.fn(),
+    configureSteps: [] as Array<{ step: string; status: string }>,
+    setupComplete: false,
+    configuring: false,
+    configureError: null,
   },
 }));
 
@@ -44,6 +50,20 @@ describe('SetupWizard', () => {
 
   afterEach(() => {
     cleanup();
+    Object.assign(setupStore, { configureSteps: [] });
+  });
+
+  it('REQ-ENTERPRISE-017 AC6: renders friendly labels for the executed enterprise configuration tasks', () => {
+    Object.assign(setupStore, { configureSteps: [
+      'configure_access_groups', 'configure_model_routing', 'configure_ai_gateway',
+      'configure_browser_rendering', 'configure_strict_egress',
+    ].map(step => ({ step, status: 'success' })) });
+    const view = render(() => <ProgressStep />);
+    expect(view.getByRole('heading', { name: 'Configuring Codeflare' })).toBeVisible();
+    for (const label of ['Applying Access groups', 'Configuring model routing', 'Configuring AI Gateway',
+      'Enabling Browser Rendering', 'Enabling strict Gateway egress']) {
+      expect(view.getByText(label)).toBeVisible();
+    }
   });
 
   describe('operator shell states', () => {

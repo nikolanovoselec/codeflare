@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, cleanup, waitFor } from '@solidjs/testing-library';
+import { render, screen, fireEvent, cleanup, waitFor, within } from '@solidjs/testing-library';
 import OnboardingPage from '../../components/OnboardingPage';
 
 // api/client: only the non-connect endpoints OnboardingPage still uses.
@@ -13,6 +13,7 @@ vi.mock('../../api/client', () => ({
 // Connect now flows through the OAuth status/disconnect APIs (via createConnections).
 const mockGetGithubStatus = vi.fn();
 const mockGetCloudflareStatus = vi.fn();
+const mockDisconnectCloudflare = vi.fn().mockResolvedValue({ success: true });
 vi.mock('../../api/github', () => ({
   getGithubStatus: () => mockGetGithubStatus(),
   disconnectGithub: vi.fn().mockResolvedValue({ success: true }),
@@ -20,7 +21,7 @@ vi.mock('../../api/github', () => ({
 }));
 vi.mock('../../api/cloudflare', () => ({
   getCloudflareStatus: () => mockGetCloudflareStatus(),
-  disconnectCloudflare: vi.fn().mockResolvedValue({ success: true }),
+  disconnectCloudflare: () => mockDisconnectCloudflare(),
   selectCloudflareAccount: vi.fn().mockResolvedValue({ success: true, accountId: 'a' }),
   cloudflareConnectUrl: () => '/api/cloudflare/connect',
 }));
@@ -30,7 +31,7 @@ vi.mock('../../components/ScrambleText', () => ({
 }));
 
 describe('OnboardingPage / REQ-AUTH-015 (onboarding-mode public landing page)', () => {
-  let mockLocation: { href: string };
+  let mockLocation: { href: string; search: string };
   let originalLocation: Location;
 
   beforeEach(() => {
@@ -39,7 +40,7 @@ describe('OnboardingPage / REQ-AUTH-015 (onboarding-mode public landing page)', 
     mockGetCloudflareStatus.mockResolvedValue({ configured: true, connected: false });
 
     originalLocation = window.location;
-    mockLocation = { href: '' };
+    mockLocation = { href: '', search: '' };
     Object.defineProperty(window, 'location', { value: mockLocation, writable: true });
   });
 
@@ -73,21 +74,110 @@ describe('OnboardingPage / REQ-AUTH-015 (onboarding-mode public landing page)', 
     expect(screen.getByTestId('github-identity')).toHaveTextContent('octocat');
   });
 
-  it('shows the Cloudflare card connected when the status reports a connection', async () => {
+  it('REQ-AGENT-018 AC5: connected Guided Setup offers Cloudflare Disconnect but not Re-authorize', async () => {
     mockGetCloudflareStatus.mockResolvedValue({ configured: true, connected: true, accountId: 'acct-1' });
     render(() => <OnboardingPage />);
-    await waitFor(() => {
-      expect(screen.getByTestId('cloudflare-connected-badge')).toBeInTheDocument();
-    });
+    const cloudflare = within(await screen.findByTestId('onboarding-cloudflare-section'));
+    expect(await cloudflare.findByTestId('cloudflare-connected-badge')).toBeVisible();
+    expect(cloudflare.getByRole('button', { name: 'Disconnect' })).toBeEnabled();
+    expect(cloudflare.queryByRole('button', { name: 'Re-authorize' })).not.toBeInTheDocument();
+    expect(cloudflare.queryByRole('button', { name: 'Retry authorization' })).not.toBeInTheDocument();
   });
 
+  it.each([
+    ['error', 'Cloudflare authorization could not be completed. Try again.'],
+    ['no-accounts', 'No Cloudflare accounts were authorized. Choose a Cloudflare account you can access and try again.'],
+  ])('offers retry beside Cloudflare Connect after an OAuth %s return', async (outcome, message) => {
+    mockLocation.search = `?cloudflare=${outcome}`;
+    render(() => <OnboardingPage />);
+    const cloudflare = within(await screen.findByTestId('onboarding-cloudflare-section'));
+    expect(cloudflare.getByRole('alert')).toHaveTextContent(message);
+    expect(cloudflare.getByRole('button', { name: 'Connect Cloudflare' })).toBeEnabled();
+    expect(cloudflare.queryByRole('button', { name: 'Re-authorize' })).not.toBeInTheDocument();
+  });
+
+  it.each(['error', 'no-accounts'])('retries OAuth %s with a saved Guided Setup grant only after explicit tier selection', async (outcome) => {
+    mockLocation.search = `?cloudflare=${outcome}`;
+    mockGetCloudflareStatus.mockResolvedValue({ configured: true, connected: true, accountId: 'saved' });
+    render(() => <OnboardingPage />);
+    const cloudflare = within(await screen.findByTestId('onboarding-cloudflare-section'));
+    const retry = () => cloudflare.getByRole('button', { name: 'Retry authorization' });
+    expect(cloudflare.getByRole('alert')).toBeVisible();
+    fireEvent.click(retry());
+    const proceed = () => cloudflare.getByRole('button', { name: 'Continue to Cloudflare' });
+    expect(proceed()).toBeDisabled();
+    for (const name of ['Minimal', 'Recommended', 'Advanced']) {
+      expect(cloudflare.getByRole('radio', { name })).not.toBeChecked();
+    }
+    expect(mockLocation.href).toBe('');
+    fireEvent.click(cloudflare.getByRole('radio', { name: 'Advanced' }));
+    fireEvent.click(cloudflare.getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(retry()).toHaveFocus());
+    expect(cloudflare.getByText('saved', { exact: true })).toBeVisible();
+    expect(cloudflare.queryByRole('button', { name: 'Re-authorize' })).not.toBeInTheDocument();
+    expect(mockLocation.href).toBe('');
+    expect(mockDisconnectCloudflare).not.toHaveBeenCalled();
+
+    fireEvent.click(retry());
+    expect(proceed()).toBeDisabled();
+    fireEvent.click(cloudflare.getByRole('radio', { name: 'Minimal' }));
+    fireEvent.click(proceed());
+    expect(mockLocation.href).toBe('/api/cloudflare/connect?tier=minimal');
+    expect(mockDisconnectCloudflare).not.toHaveBeenCalled();
+  });
+
+  it.each(['another control', 'the page body'])('reloads missing Cloudflare accounts without restarting OAuth or reclaiming focus from %s', async (destination) => {
+    mockLocation.search = '?cloudflare=select-account';
+    let finishRead!: (value: { configured: true; connected: true; accounts: { id: string; name: string }[] }) => void;
+    mockGetCloudflareStatus.mockResolvedValueOnce({ configured: true, connected: true })
+      .mockImplementationOnce(() => new Promise(resolve => { finishRead = resolve; }));
+    render(() => <OnboardingPage />);
+    const cloudflare = within(await screen.findByTestId('onboarding-cloudflare-section'));
+    expect(cloudflare.queryByRole('combobox')).not.toBeInTheDocument();
+    const retry = cloudflare.getByRole('button', { name: 'Retry loading accounts' });
+    retry.focus();
+    fireEvent.click(retry);
+    const focusTarget = destination === 'another control'
+      ? screen.getByRole('link', { name: 'Skip and continue to Codeflare' }) : document.body;
+    if (focusTarget === document.body) retry.blur();
+    else focusTarget.focus();
+    expect(document.activeElement).toBe(focusTarget);
+    finishRead({ configured: true, connected: true, accounts: [{ id: 'a', name: 'Account A' }] });
+    expect(within(await cloudflare.findByRole('combobox')).getByRole('option', { name: 'Account A' })).toHaveValue('a');
+    await waitFor(() => expect(cloudflare.queryByRole('button', { name: 'Retry loading accounts' })).not.toBeInTheDocument());
+    expect(document.activeElement).toBe(focusTarget);
+    expect(mockLocation.href).toBe('');
+    expect(mockDisconnectCloudflare).not.toHaveBeenCalled();
+  });
+
+  it('shows the existing Cloudflare account picker on a Guided Setup account-selection return', async () => {
+    mockLocation.search = '?cloudflare=select-account';
+    mockGetCloudflareStatus.mockResolvedValue({ configured: true, connected: true,
+      accounts: [{ id: 'a', name: 'Account A' }, { id: 'b', name: 'Account B' }] });
+    render(() => <OnboardingPage />);
+    const cloudflare = within(await screen.findByTestId('onboarding-cloudflare-section'));
+    const picker = within(cloudflare.getByRole('combobox'));
+    expect(picker.getByRole('option', { name: 'Account A' })).toHaveValue('a');
+    expect(picker.getByRole('option', { name: 'Account B' })).toHaveValue('b');
+    expect(cloudflare.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  // REQ-AGENT-028: both provider parents own the recommended default and selected-tier navigation.
   it('shows the connect affordance (with the connect URL) for both providers when disconnected', async () => {
     render(() => <OnboardingPage />);
     await waitFor(() => {
       expect(screen.getByTestId('github-connect-btn')).toBeInTheDocument();
     });
-    expect(screen.getByTestId('github-connect-btn').getAttribute('data-href')).toContain('/api/github/connect');
-    expect(screen.getByTestId('cloudflare-connect-btn').getAttribute('data-href')).toContain('/api/cloudflare/connect');
+    for (const provider of ['github', 'cloudflare']) {
+      expect(screen.getByTestId(`${provider}-tier-recommended`)).toBeChecked();
+      fireEvent.click(screen.getByTestId(`${provider}-connect-btn`));
+      expect(mockLocation.href).toBe(`/api/${provider}/connect?tier=recommended`);
+      fireEvent.click(screen.getByTestId(`${provider}-tier-minimal`));
+      expect(screen.getByTestId(`${provider}-tier-minimal`)).toBeChecked();
+      expect(screen.getByTestId(`${provider}-tier-recommended`)).not.toBeChecked();
+      fireEvent.click(screen.getByTestId(`${provider}-connect-btn`));
+      expect(mockLocation.href).toBe(`/api/${provider}/connect?tier=minimal`);
+    }
   });
 
   it('renders the six installable coding agents and replaces Gemini with Antigravity', async () => {

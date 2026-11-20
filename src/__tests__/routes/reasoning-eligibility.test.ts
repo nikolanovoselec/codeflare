@@ -196,7 +196,7 @@ describe('REQ-ENTERPRISE-047/-048 native target authority', () => {
     expect(await confirmed.json()).toMatchObject({ classification: 'Administrator-confirmed', assignable: true, verification: { method: 'administrator', current: true } });
   });
 
-  it('REQ-ENTERPRISE-066: accepts a disabled native provider target before routes or access policies exist', async () => {
+  it('REQ-ENTERPRISE-066: saves a disabled native provider target before routes or access policies exist without granting access', async () => {
     const f = setup();
     const validated = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({
       gatewayUrl: accountApiUrl,
@@ -215,6 +215,16 @@ describe('REQ-ENTERPRISE-047/-048 native target authority', () => {
       { label: 'Claude draft', provider: 'aws-bedrock', enabled: false },
     ]);
     expect(f.kv.put).not.toHaveBeenCalled();
+    const context = { mode: 'enterprise' as const, requestUrl: 'https://codeflare.example.com', resultingRevision: 1 };
+    await executeConfigurationTask(f.env, 'configure_ai_gateway', validated.values!, context);
+    await executeConfigurationTask(f.env, 'configure_model_routing', validated.values!, context);
+    const saved = parseNativeAiTargets(await f.kv.get(SETUP_KEYS.NATIVE_AI_TARGETS));
+    expect(saved.targets).toHaveLength(1);
+    expect(saved.targets[0]).toMatchObject({ label: 'Claude draft', provider: 'aws-bedrock', enabled: false, profileRef: bedrockProfileRef });
+    expect(saved.targets[0].verification).toBeUndefined();
+    expect((await loadEnterpriseRouteConfig(f.env, ['engineering'])).routeCatalog).toEqual([]);
+    expect((await loadEnterpriseRouteConfig(f.env, ['unmatched'])).routeCatalog).toEqual([]);
+    expect(providerCalls).toBe(0);
   });
 
   it('REQ-ENTERPRISE-055: rejects invalid native target data before any routing write', async () => {
@@ -504,9 +514,17 @@ describe('REQ-ENTERPRISE-042 draft gateway connection', () => {
     const encrypted = await encryptForKV(JSON.stringify({ token: savedToken }), await importEncryptionKey(f.env.ENCRYPTION_KEY), SETUP_KEYS.AIG_TOKEN);
     f.kv._store.set(SETUP_KEYS.AIG_TOKEN, encrypted);
     const before = new Map(f.kv._store);
-    const response = await f.post('catalog', { gateway: { gatewayUrl } });
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ connection: { status: 'ready' } });
+    for (const [path, expected] of [
+      ['catalog', { connection: { status: 'ready' } }],
+      ['routes/working/inventory', { route: 'working', routeVersion: version }],
+    ] as const) {
+      const response = await f.post(path, { gateway: { gatewayUrl } });
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body).toMatchObject(expected);
+      expect(JSON.stringify(body)).not.toContain(savedToken);
+      expect(JSON.stringify(body)).not.toContain(encrypted);
+    }
     expect(fetch).toHaveBeenCalled();
     for (const [input, init] of vi.mocked(fetch).mock.calls) {
       expect(new Headers(input instanceof Request ? input.headers : init?.headers).get('authorization')).toBe(`Bearer ${savedToken}`);
@@ -514,6 +532,41 @@ describe('REQ-ENTERPRISE-042 draft gateway connection', () => {
     expect(f.kv._store).toEqual(before);
     expect(f.kv.put).not.toHaveBeenCalled();
   });
+  it('REQ-ENTERPRISE-033: selected and custom-profile checks reuse the encrypted saved connection without exposing credentials', async () => {
+    const f = setup();
+    f.env.ENCRYPTION_KEY = Buffer.alloc(32, 1).toString('base64');
+    const savedToken = 'saved-verification-token';
+    const encrypted = await encryptForKV(JSON.stringify({ token: savedToken }), await importEncryptionKey(f.env.ENCRYPTION_KEY), SETUP_KEYS.AIG_TOKEN);
+    f.kv._store.set(SETUP_KEYS.AIG_TOKEN, encrypted);
+    // Gateway coordinates are stored as raw text, not JSON-encoded strings.
+    f.kv._store.set(SETUP_KEYS.AIG_GATEWAY_URL, gatewayUrl);
+    const base = getBuiltInProfile(profileRef.id)!;
+    const draft = normalizeCustomProfile({ schemaVersion: 1, id: 'custom-encrypted-connection', name: 'Encrypted connection draft', revision: 1,
+      enabled: true, supportedLevels: base.supportedLevels, removePaths: base.removePaths, levels: base.levels,
+      aliases: base.aliases, offSemantics: base.offSemantics });
+    for (const extra of [{}, { profileRef: { id: draft.id, revision: draft.revision, hash: draft.hash }, profileDraft: draft }]) {
+      vi.mocked(fetch).mockClear();
+      const callsBefore = providerCalls;
+      const response = await f.check(extra);
+      expect(response.status).toBe(200);
+      const body = await response.json() as any;
+      expect(body.checkId).toEqual(expect.any(String));
+      expect(body).toMatchObject({ classification: 'Verified', assignable: true });
+      expect(providerCalls).toBeGreaterThan(callsBefore);
+      // Inspect the actual outbound wire, not a mocked credential resolver.
+      for (const [input, init] of vi.mocked(fetch).mock.calls) {
+        const url = input instanceof Request ? input.url : String(input);
+        const headers = new Headers(input instanceof Request ? input.headers : init?.headers);
+        expect(url.startsWith(accountApiUrl)).toBe(true);
+        expect(headers.get('authorization')).toBe(`Bearer ${savedToken}`);
+      }
+      for (const privateValue of [savedToken, encrypted, token]) expect(JSON.stringify(body)).not.toContain(privateValue);
+      expect(f.kv._store.get(SETUP_KEYS.AIG_TOKEN)).toBe(encrypted);
+      expect(f.kv._store.has(SETUP_KEYS.REASONING_CONFIGURATION)).toBe(false);
+      expect(f.kv._store.has(SETUP_KEYS.NATIVE_AI_TARGETS)).toBe(false);
+    }
+  });
+
   it('does not substitute a deployment token for an unreadable saved encrypted credential', async () => {
     const f = setup(); f.kv._set(SETUP_KEYS.AIG_TOKEN, 'v1:corrupted');
     expect((await getAigConfig(f.env)).token).toBeUndefined();
@@ -900,6 +953,7 @@ describe('REQ-ENTERPRISE-043 server-issued verification', () => {
   });
 });
 
+// REQ-ENTERPRISE-044/098: current ownership; historical test title unchanged.
 describe('REQ-ENTERPRISE-044 minimum routing and optional fallback', () => {
   it('saves one verified group route despite inactive drafts and invalid inactive context inputs', async () => {
     const f = setup(); const body = await (await f.check()).json() as any;

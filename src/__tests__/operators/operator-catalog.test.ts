@@ -26,7 +26,7 @@ vi.mock('../../lib/access', async importOriginal => ({
 import worker from '../../index';
 
 afterEach(() => { identity.email = 'manager@example.test'; identity.role = 'user'; identity.groups = [];
-  identity.issuer = 'https://access.example.test'; vi.unstubAllGlobals(); });
+  identity.issuer = 'https://access.example.test'; vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 const policy = { capabilities: [], resourceProfileId: null };
 const registration = { repositoryUrl: 'https://github.com/acme/review-operator', githubPat: 'acquisition-only-pat',
@@ -227,14 +227,58 @@ describe('REQ-OPERATOR-086 AC5: installed activity catalog visibility', () => {
 });
 
 describe('REQ-OPERATOR-043: catalog and independently configured installations', () => {
-  it('creates distinct operator and installation identities', async () => withManagementApi(async request => {
+  it('REQ-OPERATOR-043 AC6: a forced registration collision preserves the original catalog, credential and ACLs', async () => withManagementApi(async (request, ctx) => {
+    vi.stubGlobal('fetch', (await createOperatorGitHubFixture()).fetcher);
+    await configureControls(request);
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue('11111111-1111-4111-8111-111111111111');
+    const original = await request('/operators', 'POST', registration);
+    expect(original.status).toBe(201);
+    const before = await (await request('/operators?limit=50')).json();
+    const snapshot = () => ['operator_catalog', 'operator_acl', 'operator_invoker_acl']
+      .map(table => ctx.storage.sql.exec(`SELECT * FROM ${table} ORDER BY 1,2`).toArray());
+    const stored = snapshot();
+    const replacement = { ...registration, realm: 'external', githubPat: 'different-credential',
+      managers: { users: ['other@example.test'], groups: [] }, invokers: { users: ['other@example.test'], groups: [] } };
+    // A foreign-only proposed ACL is hidden before acquisition or ID allocation.
+    expect((await request('/operators', 'POST', replacement)).status).toBe(404);
+    expect(snapshot()).toEqual(stored);
+    // Keep this caller authorized on the proposed record so the forced ID reaches collision handling.
+    const collision = await request('/operators', 'POST', { ...replacement,
+      managers: { users: ['manager@example.test', 'other@example.test'], groups: [] } });
+    expect(collision.status).toBe(409);
+    expect(await (await request('/operators?limit=50')).json()).toEqual(before);
+    expect(snapshot()).toEqual(stored);
+    identity.email = 'other@example.test';
+    expect((await request('/operators?limit=50')).status).toBe(404);
+  }));
+
+  it('creates distinct operator and installation identities', async () => withManagementApi(async (request, ctx) => {
     vi.stubGlobal('fetch', (await createOperatorGitHubFixture()).fetcher);
     await configureControls(request);
     const registered = await request('/operators', 'POST', registration);
     expect(registered.status).toBe(201);
     const operator = await registered.json() as { operatorId: string; revision: number; enabled: boolean };
     expect(operator).toMatchObject({ operatorId: expect.any(String), revision: expect.any(Number), enabled: false });
-    expect(await (await request('/operators?limit=50')).json()).toMatchObject({ items: [expect.objectContaining({ operatorId: operator.operatorId })], cursor: null });
+    const acquisition = await new OperatorRegistry(ctx, {}).getManagementAcquisition(operator.operatorId);
+    expect(acquisition.ok).toBe(true);
+    if (!acquisition.ok) throw new Error('Registered acquisition is missing');
+    const ciphertext = acquisition.value.githubPatCiphertext;
+    expect(ciphertext).toEqual(expect.any(String));
+    expect(ciphertext.length).toBeGreaterThan(0);
+    expect(ciphertext).not.toBe(registration.githubPat);
+
+    const catalogResponse = await request('/operators?limit=50');
+    expect(catalogResponse.status).toBe(200);
+    const catalog = await catalogResponse.json();
+    expect(catalog).toMatchObject({
+      items: [expect.objectContaining({
+        operatorId: operator.operatorId,
+        source: expect.objectContaining({ credentialConfigured: true }),
+      })],
+      cursor: null,
+    });
+    expect(JSON.stringify(catalog)).not.toContain(registration.githubPat);
+    expect(JSON.stringify(catalog)).not.toContain(ciphertext);
     identity.email = 'ungranted@example.test';
     expect((await request('/operators?limit=50')).status).toBe(404);
     identity.email = 'manager@example.test';
@@ -247,6 +291,19 @@ describe('REQ-OPERATOR-043: catalog and independently configured installations',
     const detail = await request(`/operators/${operator.operatorId}`);
     expect(detail.status).toBe(200);
     const current = await detail.json() as { operator: { revision: number } };
+    expect(current).toMatchObject({
+      operator: {
+        operatorId: operator.operatorId,
+        source: { credentialConfigured: true },
+      },
+      releases: expect.any(Array),
+      installations: [expect.objectContaining({
+        id: firstInstallation.id,
+        name: 'production',
+      })],
+    });
+    expect(JSON.stringify(current)).not.toContain(registration.githubPat);
+    expect(JSON.stringify(current)).not.toContain(ciphertext);
     const second = await request(`/operators/${operator.operatorId}/installations`, 'POST', { name: 'staging', policy, revision: current.operator.revision });
     expect(second.status).toBe(201);
     const secondInstallation = await second.json() as { id: string; revision: number; releaseId: string | null; enabled: boolean };
@@ -267,6 +324,7 @@ describe('REQ-OPERATOR-043: catalog and independently configured installations',
     const currentRevision = (await current.json() as { operator: { revision: number } }).operator.revision;
     const first = await request(`/operators/${operator.id}/installations`, 'POST', { name: 'inactive', policy, revision: currentRevision });
     expect(first.status).toBe(201);
+    const sibling = await first.json() as { id: string };
     const next = await request(`/operators/${operator.id}`);
     const nextRevision = (await next.json() as { operator: { revision: number } }).operator.revision;
     const second = await request(`/operators/${operator.id}/installations`, 'POST', { name: 'active', policy, revision: nextRevision });
@@ -275,7 +333,23 @@ describe('REQ-OPERATOR-043: catalog and independently configured installations',
     const promoted = await request(`/installations/${active.id}/promote`, 'POST', { releaseId: release.id, revision: active.revision });
     expect(promoted.status).toBe(200);
     const pinned = await promoted.json() as { revision: number };
-    const enabled = await request(`/installations/${active.id}/enable`, 'POST', { enabled: true, revision: pinned.revision });
+    // REQ-OPERATOR-043 AC3: read the untouched sibling through the public detail API.
+    const afterPromotion = await request(`/operators/${operator.id}`);
+    expect(afterPromotion.status).toBe(200);
+    expect((await afterPromotion.json() as { installations: Array<{ id: string }> }).installations
+      .find(item => item.id === sibling.id)).toEqual(sibling);
+    const configured = await request(`/installations/${active.id}/configure`, 'POST', {
+      policy, configuration: { lane: 'active-only' }, revision: pinned.revision,
+    });
+    expect(configured.status).toBe(200);
+    const configuredInstallation = await configured.json() as { revision: number };
+    expect(configuredInstallation).toMatchObject({ id: active.id, releaseId: release.id,
+      configuration: { lane: 'active-only' } });
+    const afterConfiguration = await request(`/operators/${operator.id}`);
+    expect(afterConfiguration.status).toBe(200);
+    expect((await afterConfiguration.json() as { installations: Array<{ id: string }> }).installations
+      .find(item => item.id === sibling.id)).toEqual(sibling);
+    const enabled = await request(`/installations/${active.id}/enable`, 'POST', { enabled: true, revision: configuredInstallation.revision });
     expect(enabled.status).toBe(200);
     const enabledRevision = (await enabled.json() as { revision: number }).revision;
     const sourceRow = ctx.storage.sql.exec<{ data: string; manifest: string }>('SELECT data,manifest FROM operator_releases WHERE id=?', release.id).one();
@@ -314,6 +388,37 @@ describe('REQ-OPERATOR-043: catalog and independently configured installations',
     ctx.storage.sql.exec('UPDATE operator_releases SET data=? WHERE id=?',
       JSON.stringify({ ...JSON.parse(sourceRow.data), approved: false }), release.id);
     expect(await registry.resolveManagementConfiguration(active.id)).toEqual({ ok: false, reason: 'artifact-unapproved' });
+  }));
+
+  it('enumerates populated operator catalog pages without skipping, duplicating or exposing hidden records', () => withManagementApi(async (request, ctx) => {
+    vi.stubGlobal('fetch', (await createOperatorGitHubFixture()).fetcher);
+    await configureControls(request);
+    const visible: string[] = [], hidden: string[] = [];
+    for (let index = 0; index < 7; index++) {
+      const allowed = index % 2 === 0;
+      const response = await request('/operators', 'POST', { ...registration,
+        managers: { users: ['manager@example.test', ...(allowed ? ['reader@example.test'] : [])], groups: [] } });
+      expect(response.status).toBe(201);
+      const operator = await response.json() as { id: string };
+      (allowed ? visible : hidden).push(operator.id);
+    }
+    const registry = new OperatorRegistry(ctx, { ENCRYPTION_KEY: btoa('k'.repeat(32)) });
+    let cursor: string | null = null;
+    const seen: string[] = [], sizes: number[] = [];
+    for (let page = 0; page < 4; page++) {
+      const value = await registry.listManagementOperators({ email: 'reader@example.test',
+        issuer: 'https://access.example.test', groups: [], platformAdmin: false, limit: 2, cursor });
+      sizes.push(value.items.length);
+      seen.push(...value.items.map(item => item.id));
+      cursor = value.cursor;
+      if (!cursor) break;
+      expect(cursor).toBe(value.items.at(-1)!.id);
+    }
+    expect(sizes).toEqual([2, 2]);
+    expect(cursor).toBeNull();
+    expect(seen).toEqual(visible.sort());
+    expect(new Set(seen).size).toBe(visible.length);
+    for (const id of hidden) expect(seen).not.toContain(id);
   }));
 
   it('returns only authorized catalog records in bounded cursor pages', async () => withManagementApi(async request => {

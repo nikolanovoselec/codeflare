@@ -5,6 +5,7 @@ import { bindingSchema, counter, digestSchema, diagnosticBytes, canonicalDiagnos
 import { DIAGNOSTIC_INDEX, indexSchema, eventKey, capsuleKey, capsuleSchema, readDiagnosticHealth, sameBinding,
   diagnosticPointers, type FenceReason } from './dispatcher-diagnostics-store';
 import type { DispatcherOperationDiagnostics } from './dispatcher-runtime-diagnostics';
+import { publicSdkSourceMatches } from './dispatcher-public-diagnostics';
 
 export class DiagnosticReadError extends Error {
   constructor(public readonly status: 400 | 404 | 409 | 503, public readonly code: string) { super(code); }
@@ -12,7 +13,7 @@ export class DiagnosticReadError extends Error {
 export interface DiagnosticReadState {
   ownerKey?: string; activityId: string; binding: DiagnosticBinding; bindingValid: boolean;
   expectedIndex: boolean; logging: boolean; status?: string; operations: number | null;
-  provenance: SdkProvenance | null; rootDigest?: string; submissionId?: string | null; fence?: FenceReason;
+  provenance: SdkProvenance | null; publicSdkVersion?: string; rootDigest?: string; submissionId?: string | null; fence?: FenceReason;
   recorderUnavailable?: boolean; sdkRetired?: boolean;
 }
 export type OperationRecord = DispatcherOperationDiagnostics['records'][number] & {
@@ -54,7 +55,7 @@ export async function readActivityDiagnostics(input: {
       || before.fence?.code === 'platform-evidence-required') && !gapList.includes('platform-evidence-required')) gapList.push('platform-evidence-required');
     // Retirement is not an outbox closure witness: cleanup may capture a later
     // child record after the last execution-owned watermark observation.
-    const retiredSdk = before.sdkRetired && before.logging && !!before.provenance;
+    const retiredSdk = before.sdkRetired && before.logging && !!(before.provenance || before.publicSdkVersion);
     const retirementTailUnwitnessed = retiredSdk && index?.sdkImport === 'host-persisted' && gapList.length === 0;
     if (retiredSdk && index && index.sdkImport !== 'legacy' && !gapList.includes('sdk-import-incomplete')) gapList.push('sdk-import-incomplete');
     const knownLoss = !!index && (index.evictedRoutine > 0 || index.droppedFailure > 0 || index.droppedTerminal > 0
@@ -103,8 +104,9 @@ export async function readActivityDiagnostics(input: {
     const readEvent = async (id: string): Promise<DiagnosticEvent> => {
       const record = eventSchema.parse(await input.storage.get(eventKey(Number(id.slice(2))))); ensureLive();
       if (record.id !== id || record.generation > before.binding.generation || diagnosticBytes(record) > 4096
-        || (record.owner === 'sdk' || record.source.frames.length > 0)
-          && (!before.provenance || !sourceMatches(record.source, before.provenance))) {
+        || (record.publicSdk ? !publicSdkSourceMatches(record, before.publicSdkVersion)
+          : (record.owner === 'sdk' || record.source.frames.length > 0)
+            && (!before.provenance || !sourceMatches(record.source, before.provenance)))) {
         throw new DiagnosticReadError(503, 'DIAGNOSTICS_UNAVAILABLE');
       }
       return record;
@@ -165,12 +167,13 @@ export async function readActivityDiagnostics(input: {
         : recoveredFailure ? 'recovered-failure' : recoveryUnretained ? 'evidence-incomplete'
           : failure ? 'observed-failure' : incomplete ? 'evidence-incomplete' : 'no-failure-observed';
       response = { ...common(), capture: unavailable ? 'unavailable' : !before.logging ? 'disabled' : index ? 'enabled' : 'legacy',
-        provenance: { hostRevision: null, sdkBaseRuntime: before.provenance?.basePackages.find(pkg => pkg.name === '@flue/runtime')?.version ?? null,
+        provenance: { hostRevision: null, sdkBaseRuntime: before.publicSdkVersion ?? before.provenance?.basePackages.find(pkg => pkg.name === '@flue/runtime')?.version ?? null,
           sdkBaseAgents: before.provenance?.basePackages.find(pkg => pkg.name === 'agents')?.version ?? null, patchSetDigest: before.provenance?.patchSetDigest ?? null },
         capabilities: boundaries.map(boundary => ({ boundary, availability: boundary === 'platform' ? 'platform-required'
-          : ['canonical-commit', 'delivery', 'submission', 'release', 'model', 'recovery', 'settlement'].includes(boundary) && !before.provenance ? 'legacy'
+          : ['canonical-commit', 'delivery', 'submission', 'release', 'model', 'recovery', 'settlement'].includes(boundary)
+            && !before.provenance && !(before.publicSdkVersion && boundary !== 'release') ? 'legacy'
             : before.logging ? 'supported' : 'unavailable', persistence: unavailable || !before.logging ? 'unavailable'
-              : before.provenance && health.sdkImport === 'pending' ? 'pending' : 'host-persisted' })),
+              : (before.provenance || before.publicSdkVersion) && health.sdkImport === 'pending' ? 'pending' : 'host-persisted' })),
         sdkBinding: before.rootDigest && before.submissionId ? { status: 'available', rootDigest: before.rootDigest,
           submissionDigest: hashDiagnostic(before.submissionId) } : { status: 'unavailable', reason: 'unbound' },
         fence: fenced ?? null, diagnosis: { state,

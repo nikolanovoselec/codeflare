@@ -4,7 +4,7 @@ Codeflare is the agentic engineering engine: it runs autonomous AI coding agents
 
 ## Principles
 
-1. **Isolation per session** -- Every session runs in its own container. No shared shells, no cross-session access. An agent can `rm -rf /` and the only victim is itself.
+1. **Isolation per session** -- Every session has its own container processes, shells, transport and authorization boundary. Same-owner sessions intentionally share persistent R2 files; process isolation is not persistent-file isolation or protection from an agent deleting its owner's synced files. Cross-tenant access remains forbidden.
 
 2. **Files persist, containers don't** -- Selected files persist in R2; containers and local disk are ephemeral. Lifecycle sync, the manual Sync-now trigger, and a bounded final drain reduce loss, but sync is periodic rather than transactional and abrupt failure can lose changes not yet persisted. Git remains the preferred source-code authority.
 
@@ -12,7 +12,7 @@ Codeflare is the agentic engineering engine: it runs autonomous AI coding agents
 
 4. **Mobile-first** -- Strongly optimized for phone and tablet use. Touch input, virtual keyboard handling, swipe gestures for arrow key navigation, scroll stability fixes for Samsung/Android quirks. The best commits happen from places without desks.
 
-5. **Scale Container metering down** -- Containers stop after a configurable idle timeout (15m-4h, input-aware). Once Codeflare's stop completes and the Container sleeps, Container vCPU, provisioned-memory, and local-disk metering ends; ephemeral local disk returns fresh. Other Cloudflare platform usage can still incur charges.
+5. **Scale Container metering down** -- Containers stop after a configurable, input-aware idle timeout. Once Codeflare's stop completes and the Container sleeps, Container vCPU, provisioned-memory, and local-disk metering ends; ephemeral local disk returns fresh. Other Cloudflare platform usage can still incur charges.
 
 6. **Agent-aware parity** -- Multiple agents share the container infrastructure, while manifests and runtime adapters deliver only capabilities each agent supports. Claude and Pi carry the richest advanced workflow surfaces; other agents intentionally differ where commands, skills, tools, or transport are unavailable.
 
@@ -67,6 +67,10 @@ When a public behavior change affects one of these operator contracts, update bo
 | [Terminal](spec/terminal.md) | PTY/WebSocket, classic/Herdr ownership, MultiView, notifications and mobile compatibility | P0 | Active |
 | [Vault](spec/vault.md) | Notes/editor, ingestion, extraction transactions and knowledge-graph publication | P2 | Active |
 
+The Operators domain owns generic identity/grants, registry/package contracts, atomic coordination, protected transport, exact SDK receipt/lifecycle/collection, capture and scheduling mechanics. Dispatcher owns all Renovate discovery/admission, retry, phase, result and effect policy for both manual and automatic triggers; relocated REQ-OPERATOR fragments are redirects to that owner, not local requirements. The [API reference](../documentation/lanes/api-reference.md#application-workflow-control) specifies opaque planning, state/CAS and exact completed/failed SDK evidence; business interpretation and authoring procedures are operator-owned. Root permits initial no-work completion without SDK admission; after SDK work, final completion requires successful settlement. Checkpoints retain their existing admitted allowance through collection. Historical inspection streams complete values to authorized encrypted capture without a history cutoff; compact decision proofs never replace originals or independent readback. Runtime and hosted qualification remain pending.
+
+Conductor's [requirements](https://github.com/nikolanovoselec/codeflare-operator-conductor/blob/develop/sdd/spec/conductor.md) and [Review guide](https://github.com/nikolanovoselec/codeflare-operator-conductor/blob/develop/documentation/review.md) own Review packet/lane/reviewer policy, result/history/rebuttal/reassessment semantics, publication format and operating procedure. Root retains only its implemented identity, credential, resource, container/Pi, boundary-claim, evidence, receipt and publication-fence obligations under the existing REQ-OPERATOR anchors. Mixed policy clauses redirect to existing Conductor requirements rather than creating duplicates. Fixed `review-*` helpers and the protected-Action compatibility publisher still exist in Root; documentation ownership does not claim they moved or establish live Conductor qualification. Existing local Pi `/review` policy and triage/FIX are not migrated.
+
 The Operators domain also owns its normative registry/package/capability contract appendix. Concrete wire schemas remain contracts; they are not a separate implementation-phase domain. Enterprise-only conditions remain explicit in their owning requirements rather than forming a catchall specification.
 
 ## Support files
@@ -80,6 +84,7 @@ The `sdd/spec/` directory also holds these non-domain files (no `REQ-*` of their
 | [changes.md](spec/changes.md) | Current product changelog (user-facing spec changes) |
 | [changes-archive-2026-07.md](spec/changes-archive-2026-07.md) | Archived product changelog through 2026-07-17 |
 | [changes-archive-2026-08.md](spec/changes-archive-2026-08.md) | Safety backup before the 2026-08 SDD cleanup |
+| [changes-archive-2026-11.md](spec/changes-archive-2026-11.md) | Complete preserved changelog snapshot before the November cleanup |
 | [config.yml](spec/config.yml) | SDD autonomy mode and enforcement config |
 | `.review-queue.md` | Live PR-boundary review queue (open findings only) |
 
@@ -107,3 +112,4 @@ One support file lives at the `sdd/` root (the path is the `/review` skill's tri
 4. Keep changed `@impl` and `@test` anchors adjacent to the acceptance criteria they support.
 5. Update owned documentation and `spec/changes.md` with the behavior change.
 6. Do not mark a touched requirement Implemented while any changed acceptance criterion is partial or unsupported.
+7. Verification names real linked automated suites and/or concrete manual procedures, never execution history; Dependencies lists only linked prerequisite REQ/CON IDs or `None.`. Follow the [canonical field contract](../preseed/agents/claude/skills/spec-enforce/SKILL.md#req-rendering-template-binding), preserve misplaced obligations in their proper owner, and never treat formatting as completion evidence.

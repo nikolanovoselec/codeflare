@@ -104,7 +104,7 @@ const PI_SKILL_DESCRIPTION_OVERRIDES = new Map([
   ['sandbox-migrate-to-next', 'Migrate Cloudflare Sandbox apps from stable to the 1.0 preview.'],
   ['ship', 'Ship, deploy, publish, or push a project to GitHub and Cloudflare.'],
   ['turnstile-spin', 'Set up Cloudflare Turnstile widgets and server-side siteverify validation.'],
-  ['vault-note-capture', 'Capture a note when the user says note, save, write down, or remember this.'],
+  ['vault-note-capture', 'Save ordinary notes to Vault; in Pi, use planning for implementation plans.'],
   ['vault-operations', 'Operate the persistent /home/user/Vault layout, sync, and graph safely.'],
   ['web-perf', 'Audit web performance and Core Web Vitals with Chrome DevTools.'],
   ['workers-best-practices', 'Review Cloudflare Workers for production correctness, security, and efficiency.'],

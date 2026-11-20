@@ -5,9 +5,10 @@ import { LlmInterceptor } from '../../llm-interceptor';
 import { GitHubInterceptor } from '../../github-interceptor';
 import { EgressController } from '../../egress-controller';
 import { SETUP_KEYS } from '../../lib/kv-keys';
-import { storeCloudflareConnection } from '../../lib/cloudflare-token';
+import { clearCloudflareConnection, storeCloudflareConnection } from '../../lib/cloudflare-token';
 import { createMockKV } from '../helpers/mock-kv';
 import type { Env } from '../../types';
+import type { OperatorPolicy } from '../../operators/policy';
 import { executeBrowserAction } from '../../../preseed/agents/pi/extensions/browser-run-helpers';
 
 afterEach(() => vi.restoreAllMocks());
@@ -17,22 +18,29 @@ afterEach(() => vi.restoreAllMocks());
 async function registered({ enterprise = true, strict = false, token = 'admin-browser-token',
   account = 'acc', bucket = 'user-bucket', containerToken = 'codeflare-oauth',
   upstream = undefined as Response | undefined, inspectedUpstream = undefined as Response | undefined,
-  gatewayBound = true, connected = true } = {}) {
+  gatewayBound = true, gatewayThrows = false, connected = true, ownerAccount = 'owner-account', oauthConfigured = true,
+  source = 'oauth' as 'oauth' | 'pat', operatorPolicy = undefined as InterceptionHost['_operatorPolicy'] } = {}) {
   const kv = createMockKV();
   if (token) kv._set(SETUP_KEYS.BROWSER_RENDER_TOKEN, { token });
   if (account) kv._store.set(SETUP_KEYS.BROWSER_RENDER_ACCOUNT_ID, account);
+  if (oauthConfigured) {
+    kv._store.set(SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_ID, 'configured-client');
+    kv._set(SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_SECRET, { secret: 'configured-client-secret' });
+  }
   const direct: Request[] = [];
   const inspected: Request[] = [];
   const env = { KV: kv, ENTERPRISE_MODE: enterprise ? 'active' : undefined,
     EGRESS: gatewayBound ? { fetch: async (request: Request) => {
       inspected.push(request);
+      if (gatewayThrows) throw new Error('Gateway unavailable');
       return inspectedUpstream ?? new Response('gateway-response');
     } } : undefined } as unknown as Env;
   vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
     direct.push(input as Request);
     return upstream ?? new Response('browser-response');
   });
-  if (connected) await storeCloudflareConnection(env, 'user-bucket', { accessToken: 'owner-oauth-token', source: 'oauth',
+  if (connected) await storeCloudflareConnection(env, 'user-bucket', { accessToken: 'owner-oauth-token',
+    accountId: ownerAccount, source,
     expiresAt: Date.now() + 3_600_000 });
   const handlers = new Map<string, { fetch(request: Request): Promise<Response> }>();
   const entrypoints = { CloudflareBrowserInterceptor, LlmInterceptor, GitHubInterceptor, EgressController };
@@ -42,7 +50,7 @@ async function registered({ enterprise = true, strict = false, token = 'admin-br
     ctx: { exports, container: { interceptOutboundHttps: (host: string, handler: { fetch(request: Request): Promise<Response> }) => {
       handlers.set(host, handler);
     } } }, _bucketName: bucket || null, _sessionId: null, _userEmail: null, _userGroups: [],
-    _cloudflareApiToken: containerToken, _strictEgress: strict,
+    _cloudflareApiToken: containerToken, _strictEgress: strict, _operatorPolicy: operatorPolicy,
   } as unknown as InterceptionHost);
   const send = (path: string, upgrade = false) => {
     const request = new Request(`https://api.cloudflare.com${path}`, { headers: {
@@ -55,7 +63,7 @@ async function registered({ enterprise = true, strict = false, token = 'admin-br
     const handler = handlers.get(new URL(request.url).hostname) ?? handlers.get('*');
     return handler ? handler.fetch(request) : fetch(request);
   };
-  return { send, sendRequest, direct, inspected };
+  return { send, sendRequest, direct, inspected, env };
 }
 
 it.each([false, true])('REQ-BROWSER-008 AC2: registered Browser dispatch precedes strict catch-all with strict=%s', async strict => {
@@ -213,4 +221,151 @@ it.each([
   expect(request.headers.get('authorization')).toBe(gateway ? 'Bearer provider-token' : 'Bearer caller-cloudflare-token');
   expect(request.headers.get('cf-aig-authorization')).toBe(gateway ? 'Bearer caller-cloudflare-token' : null);
   expect(options.strict ? f.direct : f.inspected).toEqual([]);
+});
+
+// Enterprise keeps the Browser marker/account in the container. Ordinary API
+// requests select a separate owner connection at the Worker boundary, not from
+// that marker's administrator credentials or from a request-supplied owner.
+it.each(['oauth', 'pat'] as const)('REQ-AGENT-078/REQ-BROWSER-008: registered Enterprise %s owner grant is independent of admin Browser configuration', async source => {
+  for (const strict of [false, true]) {
+    for (const configuredBrowser of [false, true]) {
+      const f = await registered({ strict, source,
+        token: configuredBrowser ? 'admin-browser-token' : '', account: configuredBrowser ? 'acc' : '',
+      });
+      const url = 'https://api.cloudflare.com/client/v4/accounts/owner-account/workers/scripts/example';
+      const response = await f.sendRequest(new Request(url, {
+        method: 'PUT', headers: { authorization: 'Bearer codeflare-enterprise',
+          'content-type': 'application/javascript', 'x-bucket': 'foreign-owner' }, body: 'export default {};',
+      }));
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe(strict ? 'gateway-response' : 'browser-response');
+      const outgoing = strict ? f.inspected : f.direct;
+      expect(outgoing.map(request => ({ url: request.url, method: request.method,
+        authorization: request.headers.get('authorization'), redirect: request.redirect }))).toEqual([{
+        url, method: 'PUT', authorization: 'Bearer owner-oauth-token', redirect: 'manual',
+      }]);
+      expect(await outgoing[0].text()).toBe('export default {};');
+      expect(outgoing[0].headers.get('content-type')).toBe('application/javascript');
+      expect(strict ? f.direct : f.inspected).toEqual([]);
+    }
+  }
+});
+
+it('REQ-AGENT-078: registered Enterprise owner API accepts absent auth without borrowing admin Browser identity', async () => {
+  const f = await registered();
+  const url = 'https://api.cloudflare.com/client/v4/accounts';
+  expect((await f.sendRequest(new Request(url))).status).toBe(200);
+  expect(f.direct.map(request => ({ url: request.url, authorization: request.headers.get('authorization') }))).toEqual([
+    { url, authorization: 'Bearer owner-oauth-token' },
+  ]);
+});
+
+it.each([
+  { reason: 'no owner grant', connected: false, bucket: 'user-bucket', account: 'owner-account', status: 401 },
+  { reason: 'admin Browser account without an owner grant', connected: false, bucket: 'user-bucket', account: 'acc', status: 401 },
+  { reason: 'foreign parent owner', connected: true, bucket: 'foreign-owner', account: 'owner-account', status: 401 },
+  { reason: 'missing parent owner', connected: true, bucket: '', account: 'owner-account', status: 401 },
+])('REQ-AGENT-078/REQ-BROWSER-008: Enterprise $reason cannot fall back to admin credentials', async ({ connected, bucket, account, status }) => {
+  for (const strict of [false, true]) {
+    const f = await registered({ strict, connected, bucket });
+    const response = await f.sendRequest(new Request(`https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts`, {
+      headers: { authorization: 'Bearer codeflare-enterprise', 'x-bucket': 'user-bucket' },
+    }));
+    expect(response.status).toBe(status);
+    expect(f.direct).toEqual([]);
+    expect(f.inspected).toEqual([]);
+  }
+});
+
+it.each([401, 403])('REQ-AGENT-078: Enterprise owner API preserves upstream %s without replay or admin fallback', async status => {
+  for (const strict of [false, true]) {
+    const refusal = new Response('owner API refusal', { status });
+    const f = await registered({ strict, upstream: refusal, inspectedUpstream: refusal });
+    const response = await f.send('/client/v4/accounts/owner-account/workers/scripts');
+    expect(response.status).toBe(status);
+    expect(await response.text()).toBe('owner API refusal');
+    expect((strict ? f.inspected : f.direct).map(request => request.headers.get('authorization'))).toEqual(['Bearer owner-oauth-token']);
+    expect(strict ? f.direct : f.inspected).toEqual([]);
+  }
+});
+
+it('REQ-AGENT-078: strict Enterprise owner API fails closed without EGRESS despite a valid owner grant', async () => {
+  const f = await registered({ strict: true, gatewayBound: false });
+  const response = await f.send('/client/v4/accounts/owner-account/workers/scripts');
+  expect(response.status).toBe(503);
+  expect(await response.json()).toMatchObject({ code: 'EGRESS_UNAVAILABLE' });
+  expect(f.direct).toEqual([]);
+  expect(f.inspected).toEqual([]);
+});
+
+it('REQ-OPERATOR-004: registered restricted Operator cannot inherit the parent Cloudflare connection', async () => {
+  const operatorPolicy: OperatorPolicy = { schemaVersion: 1, networkHosts: ['api.cloudflare.com'],
+    github: { repositories: [], methods: [] }, storage: { readPrefixes: [], writePrefixes: [] },
+    inference: { routeIds: [], defaultRouteId: null, reasoningLevels: [], defaultReasoningLevel: null, inheritUserDefaults: false } };
+  const f = await registered({ strict: true, operatorPolicy });
+  const response = await f.send('/client/v4/accounts/owner-account/workers/scripts');
+  expect(response.status).toBe(403);
+  expect(await response.json()).toMatchObject({ code: 'OPERATOR_BROWSER_DENIED' });
+  expect(f.direct).toEqual([]);
+  expect(f.inspected).toEqual([]);
+});
+
+it('REQ-AGENT-078: registered Enterprise owner API refreshes the Worker-held connection at request time', async () => {
+  const f = await registered({ strict: true });
+  await storeCloudflareConnection(f.env, 'user-bucket', { source: 'oauth', accessToken: 'expired-owner-token',
+    refreshToken: 'owner-refresh-token', expiresAt: Date.now() - 60_000, accountId: 'owner-account' });
+  await f.env.KV.put(SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_ID, 'configured-client');
+  await f.env.KV.put(SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_SECRET, JSON.stringify({ secret: 'configured-client-secret' }));
+  const tokenRequests: Request[] = [];
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const request = input instanceof Request ? input : new Request(input, init);
+    if (request.url === 'https://dash.cloudflare.com/oauth2/token') {
+      tokenRequests.push(request);
+      return Response.json({ access_token: 'fresh-owner-token', refresh_token: 'rotated-owner-refresh', expires_in: 3600 });
+    }
+    f.direct.push(request);
+    return new Response('unsafe direct API');
+  });
+  const response = await f.send('/client/v4/accounts/owner-account/workers/scripts');
+  expect(response.status).toBe(200);
+  expect(await response.text()).toBe('gateway-response');
+  expect(f.inspected.map(request => request.headers.get('authorization'))).toEqual(['Bearer fresh-owner-token']);
+  expect(f.direct).toEqual([]);
+  expect(tokenRequests.map(request => request.url)).toEqual(['https://dash.cloudflare.com/oauth2/token']);
+  const form = new URLSearchParams(await tokenRequests[0].text());
+  expect(form.get('grant_type')).toBe('refresh_token');
+  expect(form.get('refresh_token')).toBe('owner-refresh-token');
+});
+
+it('REQ-AGENT-078/REQ-BROWSER-008: owner disconnect after registration leaves admin Browser usable but cannot authorize management', async () => {
+  const f = await registered({ strict: true });
+  await clearCloudflareConnection(f.env, 'user-bucket');
+  // Another user's live grant cannot replace the disconnected parent's grant.
+  await storeCloudflareConnection(f.env, 'foreign-owner', {
+    accessToken: 'foreign-owner-secret', source: 'pat', accountId: 'owner-account',
+  });
+  const response = await f.sendRequest(new Request('https://api.cloudflare.com/client/v4/accounts/owner-account/workers/scripts', {
+    headers: { 'x-bucket': 'foreign-owner' },
+  }));
+  expect(response.status).toBe(401);
+  expect(f.direct).toEqual([]);
+  expect(f.inspected).toEqual([]);
+  expect((await f.send('/client/v4/accounts/acc/browser-rendering/snapshot')).status).toBe(200);
+  expect(f.inspected.map(request => request.headers.get('authorization'))).toEqual(['Bearer admin-browser-token']);
+});
+
+it('REQ-AGENT-078: a persisted legacy owner grant does not require an OAuth client registration', async () => {
+  const f = await registered({ source: 'pat', oauthConfigured: false, token: '', account: '' });
+  const response = await f.send('/client/v4/accounts/owner-account/workers/scripts');
+  expect(response.status).toBe(200);
+  expect(f.direct.map(request => request.headers.get('authorization'))).toEqual(['Bearer owner-oauth-token']);
+  expect(f.inspected).toEqual([]);
+});
+
+it('REQ-AGENT-078: strict Enterprise owner API does not retry directly when EGRESS throws', async () => {
+  const f = await registered({ strict: true, gatewayThrows: true });
+  const response = await f.send('/client/v4/accounts/owner-account/workers/scripts');
+  expect(response.status).toBe(502);
+  expect(f.direct).toEqual([]);
+  expect(f.inspected.map(request => request.headers.get('authorization'))).toEqual(['Bearer owner-oauth-token']);
 });

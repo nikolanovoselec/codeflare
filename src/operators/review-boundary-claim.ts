@@ -21,9 +21,10 @@ const DISCOVERY_PATH = '/operator-webhook/v1/activities/claims/discovery';
 const PUBLICATION_PATH = '/operator-webhook/v1/activities/claims/publication';
 const PREPARATION_PATH = '/operator-webhook/v1/activities/claims/publication-preparation';
 function pinnedRuntime(action: Pick<BoundaryActionBinding, 'verified' | 'runtimeSha'>) {
-  return action.verified && action.runtimeSha ? {
-    jobWorkflowRef: `nikolanovoselec/codeflare/.github/workflows/boundary-runtime.yml@${action.runtimeSha}`,
-  } : {};
+  if (action.verified !== true || !SHA.test(action.runtimeSha ?? '')) {
+    throw new Error('Verified boundary runtime required');
+  }
+  return { jobWorkflowRef: `nikolanovoselec/codeflare/.github/workflows/boundary-runtime.yml@${action.runtimeSha}` };
 }
 export interface BoundaryActionClaimRequest {
   repositoryId: number; pullRequest: number; head: string; base: string; mergeBase: string;
@@ -258,6 +259,7 @@ export async function claimVerifiedBoundaryAction(env: Env, oidcToken: string,
     if (!action || action.workflowId !== prepared.workflowId || action.workflowDigest !== prepared.workflowDigest
       || action.controlsRevision !== prepared.controlsRevision
       || !action.events.includes('pull_request_target')) return { status: 'stale' };
+    if (action.verified !== true || !SHA.test(action.runtimeSha ?? '')) return { status: 'denied' };
     // The deployment audience comes only from the validated managed domain, never Host or payload.
     const domain = await env.KV.get(SETUP_KEYS.CUSTOM_DOMAIN);
     if (!domain || !/^(?=.{1,253}$)(?!-)[a-z0-9-]{1,63}(?<!-)(?:\.(?!-)[a-z0-9-]{1,63}(?<!-))*$/i.test(domain)) {
@@ -341,6 +343,7 @@ export async function verifyCurrentClaimedBoundaryPacket(env: Env, activityId: s
     if (!prepared || prepared.phase !== 'claimed' || prepared.activityId !== activityId
       || prepared.contextDigest !== guard.contextDigest || !guard.workflowSha || !SHA.test(guard.workflowSha)
       || prepared.claimedWorkflowSha !== guard.workflowSha || !action
+      || action.verified !== true || !SHA.test(action.runtimeSha ?? '')
       || action.workflowId !== prepared.workflowId || action.workflowDigest !== prepared.workflowDigest
       || action.controlsRevision !== prepared.controlsRevision || !await currentBoundaryActor(env, prepared)) return false;
     const token = await getValidGithubToken(env, guard.session.bucket);

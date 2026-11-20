@@ -1,8 +1,8 @@
-// REQ-VAULT-015 AC3+AC4 (as reconciled by REQ-VAULT-023): vault-cache removes
+// REQ-VAULT-034 AC1+AC2 (as reconciled by REQ-VAULT-035): vault-cache removes
 // the per-session localStorage markers on session DELETE and orphan sweep, and
 // MUST NOT delete the bucket-stable SilverBullet IndexedDB stores or unregister
 // the bucket-stable service worker — those persist across sessions by design
-// (REQ-VAULT-023), so tearing them down on a per-session event would erase the
+// (REQ-VAULT-035), so tearing them down on a per-session event would erase the
 // next session's vault and force a full re-index.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -48,7 +48,7 @@ describe('cleanupSessionVaultCache (REQ-VAULT-015 AC3 / REQ-VAULT-023)', () => {
   beforeEach(() => { vi.restoreAllMocks(); });
   afterEach(() => { clearGlobals(); });
 
-  // REQ-VAULT-023: the IndexedDB store is bucket-stable and shared across all of
+  // REQ-VAULT-035: the IndexedDB store is bucket-stable and shared across all of
   // a user's sessions; per-session DELETE must NOT delete it.
   it('does NOT delete the recorded sb_ IndexedDB stores (bucket-stable persistence)', async () => {
     const sid = 'abcdef12';
@@ -60,7 +60,7 @@ describe('cleanupSessionVaultCache (REQ-VAULT-015 AC3 / REQ-VAULT-023)', () => {
     expect(deleteDatabase).not.toHaveBeenCalled();
   });
 
-  // REQ-VAULT-023: the vault SW is bucket-stable; per-session DELETE must NOT
+  // REQ-VAULT-035: the vault SW is bucket-stable; per-session DELETE must NOT
   // unregister it (the next session reuses it for a fast open).
   it('does NOT unregister the vault service worker', async () => {
     const sid = 'abcdef12';

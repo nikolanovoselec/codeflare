@@ -10,7 +10,8 @@ import { storageStore } from './stores/storage';
 import { terminalStore } from './stores/terminal';
 import { AGENT_OPTIONS, ENTERPRISE_AGENT_TYPES } from './lib/agent-catalog';
 import { logger } from './lib/logger';
-import { createMcpPortalRecovery } from './lib/mcp-portal-recovery';
+import { createMcpPortalRecovery, type McpReturnOutcome } from './lib/mcp-portal-recovery';
+import { parseCloudflareReturn } from './lib/cloudflare-oauth-return';
 import './styles/app.css';
 
 // Lazy-load the onboarding landing page (only needed when onboarding mode is active)
@@ -54,12 +55,13 @@ const AppContent: Component = () => {
   const [enterpriseMode, setEnterpriseMode] = createSignal<boolean | undefined>();
   const [operatorManagementEligible, setOperatorManagementEligible] = createSignal(false);
   const [loading, setLoading] = createSignal(true);
-  const [authError, setAuthError] = createSignal<string | null>(null);
+  const [authError, setAuthError] = createSignal<{ kind: 'access' | 'service'; message: string } | null>(null);
   const [redirecting, setRedirecting] = createSignal(false);
   let initialAuthSettled = false;
   let resumeCheckInFlight = false;
   let wasHidden = document.visibilityState === 'hidden';
   let disposed = false;
+  const [mcpReturnOutcome, setMcpReturnOutcome] = createSignal<McpReturnOutcome | undefined>(undefined, { equals: false });
   let recoveryOwner: string | undefined;
   let portalRecovery: ReturnType<typeof createMcpPortalRecovery> | undefined;
 
@@ -77,8 +79,9 @@ const AppContent: Component = () => {
     if (disposed || redirecting()) return;
     if (!portalRecovery || owner !== recoveryOwner) {
       portalRecovery?.dispose();
+      if (owner !== recoveryOwner) setMcpReturnOutcome(undefined);
       recoveryOwner = owner;
-      portalRecovery = createMcpPortalRecovery(owner, url => window.location.assign(url), markAuthRedirect);
+      portalRecovery = createMcpPortalRecovery(owner, url => window.location.assign(url), markAuthRedirect, setMcpReturnOutcome);
     }
     void portalRecovery.check();
   };
@@ -90,6 +93,17 @@ const AppContent: Component = () => {
     portalRecovery = undefined;
     try {
       const user = await getUser();
+      if (disposed || redirecting()) return;
+      if (user.email !== userName()) {
+        // Layout remounts cannot fence module-global session/storage/workspace
+        // caches. Retire the old shell before a full document reinitialization;
+        // never publish B into a runtime that still contains A's cached state.
+        setRedirecting(true);
+        sessionStore.stopAllPolling();
+        terminalStore.disposeAll();
+        window.location.assign('/app/');
+        return;
+      }
       recoverPortals(user.email);
     } catch (err) {
       markAuthRedirect(err);
@@ -120,6 +134,7 @@ const AppContent: Component = () => {
 
     try {
       const user = await getUser();
+      if (disposed) return;
       setUserName(user.email);
       setUserRole(user.role);
       setUserAccessTier(user.accessTier);
@@ -148,7 +163,8 @@ const AppContent: Component = () => {
       // Enterprise users are auto-provisioned and never run the self-serve
       // onboarding/waitlist flow — route them straight to the app home (AC5).
       if (!user.enterpriseMode && user.saasMode && !user.onboardingComplete) {
-        window.location.href = '/app/onboarding';
+        const outcome = parseCloudflareReturn(new URLSearchParams(window.location.search).get('cloudflare'));
+        window.location.href = outcome ? `/app/onboarding?cloudflare=${outcome}` : '/app/onboarding';
         return;
       }
       recoverPortals(user.email);
@@ -176,7 +192,9 @@ const AppContent: Component = () => {
         setUserName('dev@localhost');
         setUserRole('admin');
       } else {
-        setAuthError('Authentication required. Please refresh the page.');
+        setAuthError(err instanceof ApiError && err.status === 403
+          ? { kind: 'access', message: 'You do not have permission to access this application.' }
+          : { kind: 'service', message: 'Your account could not be loaded. Please try again.' });
       }
     } finally {
       initialAuthSettled = true;
@@ -215,14 +233,14 @@ const AppContent: Component = () => {
         <Show
           when={!authError()}
           fallback={
-            <div class="app-auth-error">
-              <h1>Authentication Error</h1>
-              <p>{authError()}</p>
+            <div class="app-auth-error" role="alert" data-testid={`bootstrap-${authError()?.kind}-error`}>
+              <h1>{authError()?.kind === 'access' ? 'Access denied' : 'Unable to load account'}</h1>
+              <p>{authError()?.message}</p>
               <button type="button" onClick={() => window.location.reload()}>Retry</button>
             </div>
           }
         >
-          <Layout userName={userName()} userRole={userRole()} userAccessTier={userAccessTier()} userSubscriptionTier={userSubscriptionTier()} onboardingActive={onboardingActive()} enterpriseMode={enterpriseMode()} operatorManagementEligible={operatorManagementEligible()} />
+          <Layout userName={userName()} userRole={userRole()} userAccessTier={userAccessTier()} userSubscriptionTier={userSubscriptionTier()} onboardingActive={onboardingActive()} enterpriseMode={enterpriseMode()} operatorManagementEligible={operatorManagementEligible()} mcpReturnOutcome={mcpReturnOutcome()} />
         </Show>
       </Show>
     </Show>

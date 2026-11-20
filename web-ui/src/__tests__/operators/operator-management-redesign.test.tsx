@@ -12,6 +12,11 @@ const operator = { id: 'operator-1', revision: 3, name: 'Conductor Review', desc
 const release = { id: 'release-1', operatorId: 'operator-1', githubReleaseId: 456, sourceCommit: 'abc', manifestDigest: 'a'.repeat(64),
   bundleDigest: 'b'.repeat(64), interfaceVersion: 1, approved: true, name: 'Conductor Review', description: operator.description,
   tagName: 'v0.1.2', publishedAt: '2026-09-25T12:00:00Z' };
+const application = { controlVersion: 1 };
+const inputSchema = { type: 'object', properties: {
+  repository: { type: 'string', title: 'Repository' },
+  pullRequest: { type: 'integer', title: 'Pull request number', minimum: 1 },
+} };
 const installed = { id: 'installation-1', operatorId: 'operator-1', name: 'default', releaseId: release.id, revision: 2, enabled: true, policy };
 const choices = { users: ['owner@example.test'], groups: [], unresolvedGroups: ['not-verified'], capabilities: ['session', 'storage'],
   resourceProfileIds: ['review-profile'], ceiling: { capabilities: ['session', 'storage'], resourceProfileIds: ['review-profile'] } };
@@ -82,18 +87,18 @@ describe('REQ-OPERATOR-049: operator task hierarchy', () => {
     expect(technical).toHaveTextContent(/not the installed release version/);
   });
 
-  it('presents Renovate Manager only for the verified first-party Dispatcher', async () => {
+  it('presents the metadata package name unchanged even for the historical first-party Dispatcher', async () => {
     serve = () => json({ items: [{ ...operator, repositoryId: 1380652724,
       repositoryUrl: 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher',
       profile: 'dispatcher', name: 'Renovate Dispatcher' }], cursor: null });
     render(() => <OperatorManagement />);
-    const row = (await screen.findByRole('button', { name: 'Manage Renovate Manager' })).closest('li')!;
-    expect(within(row).getByText('Renovate Manager', { selector: 'strong' })).toBeInTheDocument();
+    const row = (await screen.findByRole('button', { name: 'Manage Renovate Dispatcher' })).closest('li')!;
+    expect(within(row).getByText('Renovate Dispatcher', { selector: 'strong' })).toBeInTheDocument();
     expect(within(row).getByText('Dispatcher')).toBeInTheDocument();
     expect(row).not.toHaveTextContent('(Dispatcher)');
   });
 
-  it('does not assign the first-party name to a third-party Dispatcher or a mismatched repository identity', async () => {
+  it('does not rewrite package names according to repository identity', async () => {
     const impersonators = [
       { ...operator, id: 'third-party', name: 'Renovate Dispatcher', profile: 'dispatcher', repositoryId: 818,
         repositoryUrl: 'https://github.com/acme/renovate-dispatcher' },
@@ -106,23 +111,25 @@ describe('REQ-OPERATOR-049: operator task hierarchy', () => {
     expect(screen.queryByRole('button', { name: 'Manage Renovate Manager' })).not.toBeInTheDocument();
   });
 
-  it('REQ-OPERATOR-058: carries a user-chosen editable repository and PR to the guided Dispatcher form without preparing activity', async () => {
+  it('REQ-OPERATOR-058: opens declared input fields only in the application form without preparing activity', async () => {
     const dispatcher = { ...operator, name: 'Renovate Dispatcher', profile: 'dispatcher',
       repositoryUrl: 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher', repositoryId: 1380652724 };
     let preparations = 0;
     serve = (url, init) => {
       if (url.pathname === '/api/operator-activities' && init?.method === 'POST') preparations++;
-      if (url.pathname.endsWith('/preview')) return json({ name: 'Renovate Dispatcher', version: 'v0.1.2', guidedAssessment: true, guidedMode: 'legacy-pull-request', requiresSourceHost: false });
-      if (url.pathname.endsWith('/operator-1')) return json({ operator: dispatcher, releases: [{ ...release, name: 'Renovate Dispatcher' }], installations: [installed], grants: { managers: grant, invokers: { users: [], groups: [] } } });
+      if (url.pathname.endsWith('/preview')) return json({ name: 'Renovate Dispatcher', version: 'v0.1.2', application, inputSchema, guidedAssessment: false, guidedMode: null, requiresSourceHost: false });
+      if (url.pathname.endsWith('/operator-1')) return json({ operator: dispatcher, releases: [{ ...release, application, name: 'Renovate Dispatcher' }], installations: [installed], grants: { managers: grant, invokers: { users: [], groups: [] } } });
       return json({ items: [dispatcher], cursor: null });
     };
     render(() => <OperatorManagement />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Manage Renovate Manager' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Manage Renovate Dispatcher' }));
     await screen.findByRole('region', { name: 'Installed version' });
-    fireEvent.input(screen.getByRole('textbox', { name: 'Repository to assess' }), { target: { value: 'selected/repository' } });
-    fireEvent.input(screen.getByRole('spinbutton', { name: 'Pull request to assess' }), { target: { value: '1299' } });
-    fireEvent.click(screen.getByRole('link', { name: 'Assess a pull request' }));
-    expect(await screen.findByRole('textbox', { name: 'Repository' })).toHaveValue('selected/repository');
+    expect(screen.queryByRole('textbox', { name: 'Repository to assess' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('spinbutton', { name: 'Pull request to assess' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('link', { name: 'Run operator' }));
+    expect(await screen.findByRole('textbox', { name: 'Repository' })).toHaveValue('');
+    expect(screen.getByRole('spinbutton', { name: 'Pull request number' })).toHaveValue(null);
+    fireEvent.input(screen.getByRole('spinbutton', { name: 'Pull request number' }), { target: { value: '1299' } });
     expect(screen.getByRole('spinbutton', { name: 'Pull request number' })).toHaveValue(1299);
     expect(preparations).toBe(0);
     fireEvent.input(screen.getByRole('textbox', { name: 'Repository' }), { target: { value: 'changed/repository' } });
@@ -134,13 +141,13 @@ describe('REQ-OPERATOR-049: operator task hierarchy', () => {
     const dispatcher = { ...operator, name: 'Renovate Dispatcher', profile: 'dispatcher',
       repositoryUrl: 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher', repositoryId: 1380652724 };
     serve = url => url.pathname.endsWith('/operator-1')
-      ? json({ operator: dispatcher, releases: [{ ...release, name: 'Renovate Dispatcher' }], installations: [installed], grants: { managers: grant, invokers: { users: [], groups: [] } } })
-      : url.pathname.endsWith('/preview') ? json({ name: 'Renovate Dispatcher', version: 'v0.1.2', guidedAssessment: true, guidedMode: 'legacy-pull-request', requiresSourceHost: false })
+      ? json({ operator: dispatcher, releases: [{ ...release, application, name: 'Renovate Dispatcher' }], installations: [installed], grants: { managers: grant, invokers: { users: [], groups: [] } } })
+      : url.pathname.endsWith('/preview') ? json({ name: 'Renovate Dispatcher', version: 'v0.1.2', application, inputSchema, guidedAssessment: false, guidedMode: null, requiresSourceHost: false })
       : json({ items: [dispatcher], cursor: null });
     render(() => <OperatorManagement />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Manage Renovate Manager' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Manage Renovate Dispatcher' }));
     await screen.findByRole('region', { name: 'Installed version' });
-    fireEvent.click(screen.getByRole('link', { name: 'Assess a pull request' }));
+    fireEvent.click(screen.getByRole('link', { name: 'Run operator' }));
     expect(await screen.findByRole('textbox', { name: 'Repository' })).toHaveValue('');
     expect(screen.getByRole('spinbutton', { name: 'Pull request number' })).toHaveValue(null);
   });
@@ -282,7 +289,7 @@ describe('REQ-OPERATOR-049: operator task hierarchy', () => {
     fireEvent.click(within(capabilities).getByRole('checkbox', { name: /Scoped storage/i }));
     fireEvent.click(within(capabilities).getByRole('button', { name: 'Save operator capabilities' }));
     await waitFor(() => expect(saved).toEqual({ revision: 3, capabilities: ['session'], loggingEnabled: true }));
-    expect(await screen.findByRole('button', { name: 'Enable' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Activate' })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: 'Installation restrictions' })).toHaveTextContent(/storage.*unavailable/i);
   });
 

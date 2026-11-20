@@ -482,6 +482,8 @@ export interface ContainerConfigPayload {
   managedResourcePathsDigest?: string;
   llmKeys?: LlmKeys;
   deployKeys?: DeployKeys;
+  /** REQ-AGENT-029 AC5–6: transient owner OAuth selection, independent of Browser Run. */
+  cloudflareOauthAccountId?: string | null;
   /** REQ-ENTERPRISE-004: the user's matched Access groups, one cf-aig-metadata tag per group. */
   userGroups?: string[];
   /** REQ-ENTERPRISE-005 (revised): the full dynamic-route catalog (Pi models.json lists all). */

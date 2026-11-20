@@ -8,9 +8,10 @@ import { getAllUsers } from '../lib/access-policy';
 import { SETUP_KEYS } from '../lib/kv-keys';
 import { operatorCapabilityChoices } from '../operators/distribution';
 import { inferencePolicySchema } from '../operators/policy';
+import { recoveryEntries, parseRecoveryCursor, RECOVERY_CURSOR_MAX_CHARS } from '../operators/application-recovery';
 import { OperatorInferenceSelectionError, resolveOperatorInference } from '../operators/inference-selection';
 import { DispatcherSdkSettingsUnconfiguredError, readDispatcherSdkFiles } from '../operators/dispatcher-sdk-storage';
-import { provisionDispatcherDeployment, verifyDispatcherDeployment, type DispatcherDeploymentVerification } from '../operators/dispatcher-deployment';
+import { cleanupDispatcherDeployments, provisionDispatcherDeployment, verifyDispatcherDeployment, type DispatcherDeploymentVerification } from '../operators/dispatcher-deployment';
 import { MAX_SOURCE_RESPONSE_BYTES, sourceResponseBytes } from '../operators/dispatcher-source-limits';
 import { MAX_INFERENCE_REQUEST_BYTES } from '../operators/dispatcher-inference-limits';
 import { pickDispatcherCapacities } from '../operators/dispatcher-capacity-limits';
@@ -21,7 +22,7 @@ import { AppError, ValidationError } from '../lib/error-types';
 import { parseJsonBody } from '../lib/request-helpers';
 import { createLogger } from '../lib/logger';
 import type { OperatorRegistry, ManagementOperatorProjection, ManagementPolicy, ManagementAuthority, ManagementControls,
-  ManagementInstallation } from '../operators/registry';
+  ManagementInstallation, ManagementRelease } from '../operators/registry';
 import { registerGithubOperator, refreshGithubReleases, updateGithubOperatorSource } from '../operators/github-release-management';
 import { proposeBoundaryWorkflow, verifyBoundaryWorkflow } from '../operators/boundary-action-installation';
 
@@ -47,6 +48,9 @@ const configuration = z.record(z.string().max(256), z.json());
 const piReasoningOverride = z.enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']).optional();
 const installationBody = z.strictObject({ name: z.string().trim().min(1).max(256), policy, revision, configuration: configuration.default({}), piReasoningOverride });
 const revisionBody = z.strictObject({ revision });
+const recoveryPreviewBody = z.strictObject({ revision, after: z.string().min(1).max(RECOVERY_CURSOR_MAX_CHARS).optional() });
+const recoveryResetBody = z.strictObject({ revision, requestId: z.string().uuid(), entries: recoveryEntries,
+  scopeCursor: z.string().min(1).max(RECOVERY_CURSOR_MAX_CHARS).optional() });
 const sourceBody = z.strictObject({ repositoryUrl, githubPat, revision });
 const promoteBody = z.strictObject({ releaseId: z.string().regex(ID), revision });
 const dispatcherConnectionBody = z.strictObject({ revision, connectionSecret: githubPat.max(4096),
@@ -76,6 +80,7 @@ const controlsBody = z.strictObject({ revision: z.number().int().nonnegative().m
     .refine(values => new Set(values).size === values.length), sourceResponseBytes: policy.shape.sourceResponseBytes }),
   boundaryActions: z.array(z.strictObject({
     repositoryId: z.number().int().positive().safe(), installationId: z.string().regex(ID),
+    repository: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/).optional(),
     workflowId: z.number().int().positive().safe(),
     workflowPath: z.string().regex(/^\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml$/),
     protectedRef: z.string().regex(/^refs\/heads\/[A-Za-z0-9._/-]+$/),
@@ -133,6 +138,9 @@ function presentInstallation(installation: ManagementInstallation): Record<strin
   if (!configurationValueResult.success) throw new AppError('UNAVAILABLE', 503, 'Operator installation configuration unavailable');
   const { configurationJson: _, ...publicInstallation } = installation;
   return { ...publicInstallation, configuration: configurationValueResult.data };
+}
+function presentRelease({ applicationJson, ...release }: ManagementRelease): Record<string, unknown> {
+  return { ...release, ...(applicationJson === undefined ? {} : { application: JSON.parse(applicationJson) }) };
 }
 async function managementContext(c: Context<RouteEnv>, fresh = false): Promise<HumanContext> {
   // New management authority uses the authenticated platform role or stable,
@@ -376,7 +384,9 @@ app.get('/operators/:operatorId', async c => {
   // A concurrent ACL change must not make the earlier authorization a data grant.
   const current = await managed(c, operator.id);
   if (current.revision !== operator.revision) throw new AppError('CONFLICT', 409, 'Operator management conflict');
-  return c.json({ operator: current, releases, installations: installations.map(presentInstallation), grants: { managers: current.managers, invokers: current.invokers } });
+  return c.json({ operator: current,
+    releases: releases.map(presentRelease),
+    installations: installations.map(presentInstallation), grants: { managers: current.managers, invokers: current.invokers } });
 });
 
 app.post('/operators/:operatorId/releases/refresh', async c => {
@@ -384,7 +394,7 @@ app.post('/operators/:operatorId/releases/refresh', async c => {
   const operator = await managed(c, c.req.param('operatorId'));
   withinCeiling(c.get('operatorHuman'), operator.policy);
   const items = await refreshGithubReleases(acquisitionContext(c, operator), operator.id, input.revision);
-  return c.json({ items });
+  return c.json({ items: items.map(presentRelease) });
 });
 
 app.post('/operators/:operatorId/source', async c => {
@@ -436,6 +446,32 @@ async function managedInstallation(c: Context<RouteEnv>) {
   return { installation, operator };
 }
 
+async function recoverInstallation(c: Context<RouteEnv>, operation: 'preview' | 'reset') {
+  const input = operation === 'preview' ? await parseJsonBody(c, recoveryPreviewBody) : await parseJsonBody(c, recoveryResetBody);
+  parseRecoveryCursor('after' in input ? input.after : 'scopeCursor' in input ? input.scopeCursor : undefined);
+  const { installation, operator } = await managedInstallation(c);
+  withinCeiling(c.get('operatorHuman'), installation.policy);
+  const reauthorize = acquisitionContext(c, operator).reauthorize;
+  const human = await reauthorize();
+  try {
+    const value = await c.get('registry').recoverApplication({ ...input, operation, installationId: installation.id,
+      human, platformAdmin: c.get('operatorHuman').platformAdmin, authority: authority(c, operator) });
+    await reauthorize();
+    c.header('Cache-Control', 'no-store');
+    return c.json(value as Record<string, unknown>);
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+    // Durable Object RPC does not preserve custom error classes/fields.
+    if (error instanceof Error && error.message === 'Application recovery conflict') {
+      throw new AppError('CONFLICT', 409, 'Application recovery conflict');
+    }
+    if (error instanceof Error && error.message === 'Operator not found') denied();
+    throw new AppError('UNAVAILABLE', 503, 'Application recovery unavailable');
+  }
+}
+app.post('/installations/:installationId/recovery/preview', c => recoverInstallation(c, 'preview'));
+app.post('/installations/:installationId/recovery/reset', c => recoverInstallation(c, 'reset'));
+
 app.post('/installations/:installationId/promote', async c => {
   const input = await parseJsonBody(c, promoteBody);
   const { installation, operator } = await managedInstallation(c);
@@ -456,6 +492,7 @@ app.post('/installations/:installationId/enable', async c => {
   const { installation, operator } = await managedInstallation(c);
   if (input.enabled) withinCeiling(c.get('operatorHuman'), installation.policy);
   let verification: DispatcherDeploymentVerification | undefined;
+  let cleanup: ((active: ManagementInstallation) => Promise<void>) | undefined;
   let expectedRevision = input.revision;
   if (input.enabled && operator.profile === 'dispatcher') {
     const registry = c.get('registry');
@@ -515,9 +552,39 @@ app.post('/installations/:installationId/enable', async c => {
         verification = candidate.verification;
       }
       await reauthorize();
+      cleanup = async active => {
+        if (!active.dispatcherConnection) throw new Error('Selected Dispatcher unavailable');
+        await cleanupDispatcherDeployments(c.env, active.dispatcherConnection, reauthorize, async workerName => {
+          let after: string | undefined;
+          do {
+            await reauthorize();
+            const page = await registry.listManagementDispatcherAdmissions(installation.id, workerName, after);
+            for (const original of page.items) {
+              await reauthorize();
+              if (!c.env.OPERATOR_ACTIVITY
+                || !await c.env.OPERATOR_ACTIVITY.getByName(original.activityId)
+                  .retireDispatcherDeployment(original.activityId, original.connection)) {
+                throw new Error('Original Dispatcher admission could not be fenced');
+              }
+              await reauthorize();
+            }
+            after = page.next ?? undefined;
+          } while (after !== undefined);
+        });
+        await reauthorize();
+      };
     }
   }
   const enabled = result(await c.get('registry').setManagementInstallationEnabled(installation.id, input.enabled, expectedRevision, authority(c, operator), verification));
+  expectedRevision = enabled.revision;
+  if (cleanup) {
+    try { await cleanup(enabled); }
+    catch (error) {
+      if (error instanceof AppError) throw error;
+      logger.warn('Obsolete Dispatcher deployment cleanup incomplete', { installationId: installation.id });
+      throw new AppError('CONFLICT', 409, 'Dispatcher activated; obsolete deployment cleanup incomplete. Re-read the installation and retry Enable.');
+    }
+  }
   return c.json(presentInstallation(enabled));
 });
 

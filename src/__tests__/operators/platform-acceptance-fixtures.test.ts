@@ -32,6 +32,10 @@ describe('REQ-OPERATOR-009: platform acceptance fixtures', () => {
     const calls: string[] = [];
     const fetch = vi.fn(async (request: Request) => {
       calls.push(`${request.method} ${new URL(request.url).pathname}`);
+      const expected = request.url.endsWith('/start') ? 's'.repeat(43) : 'r'.repeat(43);
+      if (request.headers.get('authorization') !== `Bearer ${expected}`) {
+        return new Response(null, { status: 401 });
+      }
       return request.url.endsWith('/start') ? Response.json({ readCapability: 'r'.repeat(43) })
         : request.url.endsWith('/status') ? Response.json({ terminal: false, status: 'running' })
           : Response.json({ code: 'WEBHOOK_NOT_READY' }, { status: 202 });

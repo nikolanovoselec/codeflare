@@ -17,6 +17,7 @@ import { ownerInference, OperatorInferenceRefusal, type OperatorInferenceOwner,
 import { emitRaw, type RawLogContext } from './operator-raw-logging.js';
 import { getSyncStatus, getSystemMetrics, collectWorkspaceRepos, isWorkspaceInventoryReady } from './metrics.js';
 import { evaluateFinalSync } from './final-sync.js';
+import type { PiMemoryShutdown } from './pi-memory-shutdown.js';
 import { AGENT_EVENT_LIMITS, type AgentEventDrainResult, type AgentEventKind } from './agent-events.js';
 import type { HealthResponse } from './types.js';
 import { resolveGitClone, resolveWorkspaceRoot, buildCloneArgs } from './git-clone.js';
@@ -100,6 +101,8 @@ export interface RequestRouterDeps {
   /** Production composition and focused router tests can provide the queue owner directly. */
   drainAgentEvents?: AgentEventDrainer['drainAgentEvents'];
   enqueueAgentEvent?: (kind: AgentEventKind) => boolean;
+  /** Quiesce registered foreground memory writers before the authoritative final sync. */
+  prepareFinalSync?: (deadline: number) => Promise<PiMemoryShutdown>;
   /** Injectable final-sync I/O keeps endpoint tests deterministic; production uses host I/O below. */
   finalSync?: {
     now(): number;
@@ -278,10 +281,14 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
     const { pathname } = parseUrl(req.url ?? '');
     const method = req.method;
 
-    // REQ-SEC-022: container auth-token check. Logic extracted to
-    // ./auth-check.ts so it can be unit-tested without spawning node-pty.
+    // REQ-SEC-022: the legacy exemptions apply only to a minimal startup
+    // health signal, not inventory reads or heartbeat mutation. Reuse the
+    // existing protected observation policy before any route effects.
+    const authPath = pathname === '/activity'
+      || (pathname === '/health' && req.headers.authorization !== undefined)
+      ? '/internal/runtime-observation' : pathname ?? '';
     const authOutcome = checkContainerAuth(
-      pathname ?? '',
+      authPath,
       req.headers['authorization'],
       process.env.CONTAINER_AUTH_TOKEN,
     );
@@ -457,7 +464,15 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
       return;
     }
 
-    // Health check with full metrics (consolidates separate health server)
+    // Anonymous entrypoint probes need only proof that the listener is bound.
+    // Do not collect metrics, inspect workspace inventory or read session state.
+    if (pathname === '/health' && method === 'GET' && req.headers.authorization === undefined) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'healthy' }));
+      return;
+    }
+
+    // Health check with full metrics requires the lifecycle bearer above.
     if (pathname === '/health' && method === 'GET') {
       const syncInfo = getSyncStatus();
       const sysMetrics = await getSystemMetrics(log);
@@ -860,6 +875,15 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
         },
         poll: (delayMs: number) => new Promise<void>((resolve) => setTimeout(resolve, delayMs)),
       };
+      const deadline = finalSync.now() + FINAL_SYNC_INTERNAL_TIMEOUT_MS;
+      let memoryShutdown: PiMemoryShutdown = { status: 'exited', count: 0 };
+      try {
+        if (deps.prepareFinalSync) memoryShutdown = await deps.prepareFinalSync(deadline);
+      } catch {
+        memoryShutdown = { status: 'unconfirmed' };
+      }
+      if (memoryShutdown.status !== 'exited') log('warn', 'Foreground Pi shutdown incomplete', { status: memoryShutdown.status });
+      // A periodic scan that ran while Pi was draining cannot satisfy this request.
       const triggerTs = finalSync.now();
       try {
         finalSync.signalDaemon();
@@ -878,19 +902,23 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
       // the last edits unsynced. The previous value (115_000, < 120s) inverted
       // exactly that: every final bisync landing in the 115-120s band was lost -
       // the root cause behind ~10 failed "raise the budget" fixes. Keep host > DO.
-      const timeoutMs = FINAL_SYNC_INTERNAL_TIMEOUT_MS;
       const pollMs = FINAL_SYNC_POLL_MS;
       // Two-phase completion detection lives in the pure evaluateFinalSync state
       // machine (final-sync.ts) so the syncing->success/failed discrimination is
       // unit-testable without spawning the daemon; this loop owns only the I/O.
       let runStartedTs = -1;
-      while (finalSync.now() - triggerTs < timeoutMs) {
+      while (finalSync.now() < deadline) {
         if (reportDiskBlock()) return;
         const ev = evaluateFinalSync(finalSync.readStatus(), triggerTs, runStartedTs);
         runStartedTs = ev.runStartedTs;
         if (ev.result === 'success') {
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ synced: true }));
+          if (memoryShutdown.status !== 'exited') {
+            res.writeHead(503, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ synced: false, reason: `pi-shutdown-${memoryShutdown.status}` }));
+          } else {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ synced: true }));
+          }
           return;
         }
         if (ev.result === 'failed') {

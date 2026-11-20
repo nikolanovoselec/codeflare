@@ -48,6 +48,7 @@ const mockTerminalInstance = {
   clear: vi.fn(),
   reset: vi.fn(),
   paste: vi.fn(),
+  input: vi.fn(),
   getSelection: vi.fn(() => ''),
   clearSelection: vi.fn(),
   scrollToBottom: mockScrollToBottom,
@@ -193,6 +194,7 @@ import { sendTerminalKey } from '../../lib/touch-gestures';
 import * as mobileModule from '../../lib/mobile';
 import { loadSettings } from '../../lib/settings';
 import { showAgentNotification, showGrantedAgentEvent } from '../../lib/agent-notifications';
+import * as speechInput from '../../lib/speech-input';
 
 // REQ-TERM-016: Terminal Pane Reconnect and Resize Authority
 // REQ-MOB-010: FitAddon fit calls are coordinated
@@ -867,6 +869,42 @@ describe('useTerminal hook', () => {
       expect(terminalStore.resize).toHaveBeenCalledWith(defaultProps.sessionId, defaultProps.terminalId, 101, 31);
 
       dispose();
+    });
+  });
+
+  describe('voice input keyboard shortcut', () => {
+    it('starts dictation through the installed Ctrl+Space handler and stops it on the next shortcut', () => {
+      vi.spyOn(speechInput, 'isSpeechSupported').mockReturnValue(true);
+      const listening = vi.spyOn(speechInput, 'isListening').mockReturnValue(false);
+      const start = vi.spyOn(speechInput, 'startListening').mockReturnValue(true);
+      const stop = vi.spyOn(speechInput, 'stopListening').mockImplementation(() => {});
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      try {
+        const handler = mockAttachCustomKeyEventHandler.mock.calls[0]?.[0];
+        expect(handler).toBeTypeOf('function');
+        const shortcut = () => new KeyboardEvent('keydown', { key: ' ', ctrlKey: true });
+
+        expect(handler!(shortcut())).toBe(false);
+        expect(start).toHaveBeenCalledWith(expect.any(Function));
+        expect(stop).not.toHaveBeenCalled();
+        const onText = start.mock.calls[0][0];
+        onText('shortcut dictation');
+        expect(mockTerminalInstance.input).toHaveBeenCalledWith('shortcut dictation', false);
+
+        // Recognition is now active; the next shortcut must take the stop path.
+        listening.mockReturnValue(true);
+        start.mockClear();
+        expect(handler!(shortcut())).toBe(false);
+        expect(stop).toHaveBeenCalledWith();
+        expect(start).not.toHaveBeenCalled();
+      } finally {
+        dispose();
+      }
     });
   });
 

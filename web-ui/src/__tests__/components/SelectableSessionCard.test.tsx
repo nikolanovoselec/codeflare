@@ -12,6 +12,7 @@ vi.mock('../../stores/session', () => ({
       hdd: '2.1G/10G',
       syncStatus: 'success',
     })),
+    getTerminalsForSession: vi.fn(() => null),
     getInitProgressForSession: vi.fn(() => null),
     preferences: { sleepAfter: '30m' },
     preseedUpgrading: false,

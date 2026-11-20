@@ -744,6 +744,24 @@ fi
     assert.deepEqual(lazygit.calls, ['api snapshot', 'pane run w1:p1 lazygit', 'pane process-info --pane w1:p1']);
   });
 
+  for (const status of [1, 124]) {
+    it(`REQ-TERM-006 AC5: exposes unsuccessful named-runtime stop status ${status} without clearing bootstrap evidence`, () => {
+      const { runtime, persistent, fake } = harness('pi');
+      const done = join(runtime, 'herdr/abc12345/bootstrap.done');
+      const generation = join(runtime, 'herdr/abc12345/bootstrap.generation');
+      writeFileSync(done, 'prior-generation');
+      writeFileSync(generation, 'prior-generation');
+      writeFileSync(fake, `#!/usr/bin/env bash\nexit ${status}\n`, { mode: 0o755 });
+      const result = spawnSync(launcher, ['stop'], { encoding: 'utf8', env: {
+        ...process.env, HERDR_BIN: fake, CODEFLARE_RUNTIME_ROOT: runtime,
+        CODEFLARE_HERDR_PERSIST_ROOT: persistent, SESSION_ID: 'abc12345',
+      } });
+      assert.equal(result.status, status, result.stderr);
+      assert.equal(readFileSync(done, 'utf8'), 'prior-generation');
+      assert.equal(readFileSync(generation, 'utf8'), 'prior-generation');
+    });
+  }
+
   it('stops only the deterministic named runtime', () => {
     const dir = mkdtempSync(join(tmpdir(), 'codeflare-herdr-stop-'));
     const bin = join(dir, 'bin');

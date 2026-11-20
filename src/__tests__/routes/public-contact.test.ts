@@ -6,6 +6,7 @@ import publicRoutes from '../../routes/public';
 import { AppError, ValidationError } from '../../lib/error-types';
 import { CONTACT_TOPICS } from '../../lib/contact-topics';
 import { createMockKV } from '../helpers/mock-kv';
+import { setLogLevel } from '../../lib/logger';
 
 /**
  * REQ-LANDING-002: enterprise contact endpoint. Mirrors the waitlist suite —
@@ -252,6 +253,32 @@ describe('Public contact route (REQ-LANDING-002)', () => {
     expect(emailHtml).not.toContain('<script>');
     expect(emailHtml).toContain('&lt;script&gt;');
     expect(emailHtml).not.toContain('<img src=x');
+  });
+
+  it.each([true, false])('REQ-LANDING-002 AC5: contact logs omit personal data on verification success=%s', async success => {
+    const app = createTestApp({ SAAS_MODE: 'active', ...SECRETS });
+    arrangeSuccessfulDelivery();
+    if (!success) {
+      globalThis.fetch = vi.fn(async () => Response.json({ success: false, 'error-codes': ['invalid-input-response'] })) as typeof fetch;
+    }
+    const logs: unknown[][] = [];
+    const spies = ['log', 'info', 'warn', 'error', 'debug'].map(method =>
+      vi.spyOn(console, method as 'log').mockImplementation((...args: unknown[]) => { logs.push(args); })
+    );
+    setLogLevel('debug');
+    try {
+      const res = await postContact(app, validBody());
+      expect(res.status).toBe(success ? 200 : 400);
+      const output = JSON.stringify(logs);
+      expect(output).toContain(success ? 'Contact submission accepted' : 'Turnstile verification failed');
+      for (const privateValue of ['ada@example.com', 'ad***@example.com', 'enterprise-deployment', 'Ada Lovelace', 'Analytical Engines AG', 'We want to evaluate']) {
+        expect(output).not.toContain(privateValue);
+      }
+      if (!success) expect(output).toContain('invalid-input-response');
+    } finally {
+      setLogLevel('silent');
+      spies.forEach(spy => spy.mockRestore());
+    }
   });
 
   it('never persists submission content — only rate-limiter bookkeeping touches KV (AC5)', async () => {

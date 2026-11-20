@@ -267,9 +267,6 @@ const SubscribePage: Component = () => {
         setTurnstileSiteKey(status.turnstileSiteKey);
         loadTurnstileScript();
       }
-      if (!status.hasSubscribed && !status.turnstileSiteKey) {
-        setTurnstileReady(true);
-      }
     } catch (err) {
       logger.error('Failed to load subscribe page:', err);
       setError('Unable to load subscription options. Please try again.');
@@ -534,7 +531,7 @@ const SubscribePage: Component = () => {
     if (subscribing() !== null) return true;
     if (capacityReached() && !isActive()) return true;
     if (isActive() && tier.id === currentTierId() && !isModeChange()) return true;
-    if (!isActive() && !turnstileReady()) return true;
+    if (!isActive() && !turnstileReady() && (!isFree(tier) || !!turnstileSiteKey())) return true;
     return false;
   }
 

@@ -4,14 +4,14 @@
  * Connect/disconnect, connection status, and account selection. The token never
  * reaches the browser. UNLIKE the GitHub repo-browser panel, connect is NOT
  * gated on an advanced tier — it is reachable by any authenticated user via the
- * Guided Setup onboarding and the Settings "Push & Deploy" accordion, because it
+ * Guided Setup onboarding and Settings Integrations, because it
  * is deploy-credential management (REQ-AGENT-018), not the repo browser.
  *
  * The matching OAuth callback lives in routes/cloudflare-auth.ts
  * (GET /auth/cloudflare/connect/callback) so Cloudflare redirects to a stable path.
  *
- * Non-enterprise only: getCloudflareProvider returns null in enterprise, so every
- * route fails closed there (503 GITHUB-style) — enterprise has no per-user CF deploy.
+ * The admin-configured OAuth client is available in every deployment mode;
+ * each connection remains bound to the authenticated user's bucket.
  */
 import { Hono } from 'hono';
 import { z } from 'zod';

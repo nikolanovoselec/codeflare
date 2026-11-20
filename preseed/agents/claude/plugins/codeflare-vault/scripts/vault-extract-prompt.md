@@ -42,8 +42,14 @@ build steps from graphify's internal Python API.
 
 Execute IN ORDER. Step 7 is the manifest commit (high-water mark advance)
 and MUST be last - any failure between steps 1 and 6 leaves the manifest
-old, and the next vault-monitor daemon tick (60s) re-discovers the same
-files. Eventual consistency, no work lost.
+old, and the next eligible resumed-session or 20-real-prompt content-hash
+check re-discovers the same files. No polling extraction daemon runs.
+
+Read steps 2–3 first. Run steps 4–7 in **one Bash call**, so failure state
+survives through the commit gate. Initialize `EXTRACT_FAILED=1` if listing
+or any file extraction failed, otherwise initialize it empty. On extraction
+failure skip steps 4–6 and execute only step 7 cleanup with that failure flag;
+never commit an empty replacement chunk to mark failed work complete.
 
 ### 1. Delete the trigger marker (dedup gate)
 
@@ -52,10 +58,9 @@ rm -f ~/.cache/codeflare-hooks/vault-extract.vars
 ```
 
 A concurrent UserPromptSubmit firing while this agent runs must not
-re-spawn another instance. Deleting the vars file immediately closes
-that window. The daemon will only rewrite the vars file if its next tick
-finds files whose content differs from the manifest, which only advances
-in step 7.
+re-spawn another instance. The hook-created in-flight sentinel, not marker
+deletion alone, prevents redispatch until cleanup (or its 30-minute TTL). A later eligible resumed-session or 20-real-prompt hash
+check can recreate the vars file for bytes not committed in step 7.
 
 ### 2. List files changed since last successful extraction
 
@@ -76,8 +81,9 @@ vault (the old `find -newer` bug). The script owns the exclusion set:
 - `Library/Codeflare/`, `.silverbullet/` - vendored plugs + editor config, no semantic content.
 - `Index.md`, `README.md`, `CONFIG.md`, `STYLES.md` - codeflare-authoritative preseed pages (REQ-VAULT-010 AC1); never user-edits.
 
-If it prints zero files, skip to step 7 (commit the manifest so we do not
-keep re-running on the same empty result).
+If the scan succeeds and prints zero files, return an explicit no-op via
+step 7 cleanup without graph commands or manifest replacement. A failed scan
+is not an empty success: set `EXTRACT_FAILED=1` and leave the manifest unchanged.
 
 ### 3. Read files and emit a chunk JSON
 
@@ -196,13 +202,13 @@ Schema (must match exactly - graphify's merge step parses this verbatim):
 }
 ```
 
-If you cannot extract anything from a file (truly unreadable binary
-that is not a PDF, empty, permission-denied) log the path and skip;
-continue with the others. PDFs are NOT covered by this skip path -
-they go through sub-step 3a above. If ALL files fail, still write an
-empty chunk JSON (`{"nodes":[],"edges":[],"hyperedges":[],...}`) and
-continue - step 7 needs to advance the marker so we do not loop on
-the same broken files.
+For nonempty changed files, require a valid chunk with at least one sourced
+node. If a file cannot be extracted, log its path and mark extraction failed;
+PDF metadata-only fallback in step 3a remains an intentional supported result.
+If ALL files fail, do not write an empty success chunk, merge, publish, or
+advance the committed manifest. Set `EXTRACT_FAILED=1` and proceed only to
+step 7 cleanup. Any extraction failure leaves the old manifest available for
+the next eligible content-hash check; do not turn failure into a no-op.
 
 ### 4. Build a vault graph.json from the chunk, merging into the persistent vault-graph
 
@@ -231,7 +237,7 @@ persistent graph at `vault-graph.json`, per-run output at `graph.json`)
 so the invocation above takes no arguments. Tests override the paths via
 positional arguments to drive the script against synthetic fixtures.
 
-If the Python step or `flock -w 5` failed (lock holder wedged or build error), `EXTRACT_FAILED` is set. Step 7 reads this flag and skips the marker-touch so the next 60s daemon tick re-discovers the same changed files. The wrapper used to be `|| true` (silent swallow); replaced because that allowed a silent failure to advance the high-water mark and lose the change permanently.
+If the Python step or `flock -w 5` failed (lock holder wedged or build error), `EXTRACT_FAILED` is set. Step 7 reads this flag and skips the marker-touch so the next eligible resumed-session or 20-real-prompt hash check re-discovers the same changed files. The wrapper used to be `|| true` (silent swallow); replaced because that allowed a silent failure to advance the high-water mark and lose the change permanently.
 
 The `flock` lock matches the one used by `graphify global add` in step 5
 and `graphify-active-repo.sh`, so concurrent writers do not stomp the
@@ -259,7 +265,7 @@ vault state on every run instead of clobbering it.
     /home/user/Vault/graphify-out/vault-graph.json --as user_vault ) || EXTRACT_FAILED=1
 ```
 
-Same pattern as step 4: any failure here (lock timeout, graphify CLI absent, malformed graph.json) sets `EXTRACT_FAILED=1` and step 7 will leave the high-water marker old so the daemon retries.
+Same pattern as step 4: any failure here (lock timeout, graphify CLI absent, malformed graph.json) sets `EXTRACT_FAILED=1` and step 7 will leave the high-water marker old for retry at the next eligible resumed-session or 20-real-prompt hash check.
 
 `graphify global add` is hash-keyed and idempotent - re-running it
 with the same `vault-graph.json` content is a no-op. Tagged `--as user_vault` so
@@ -307,25 +313,28 @@ if [ -z "${EXTRACT_FAILED:-}" ]; then
     # what makes "changed since last extraction" survive the R2 restart. Also
     # refresh the ephemeral dedup timestamp so the hook's vars-staleness guard
     # clears any vars written mid-run.
-    python3 ~/.claude/plugins/codeflare-vault/scripts/vault-manifest.py commit \
+    if python3 ~/.claude/plugins/codeflare-vault/scripts/vault-manifest.py commit \
         /home/user/Vault \
-        /home/user/Vault/graphify-out/vault-extract-manifest.json
-    touch ~/.cache/codeflare-hooks/vault-extract.last
+        /home/user/Vault/graphify-out/vault-extract-manifest.json; then
+        touch ~/.cache/codeflare-hooks/vault-extract.last
+    else
+        EXTRACT_FAILED=1
+        echo "[vault-extract] manifest commit failed; leaving dedup timestamp unchanged" >&2
+    fi
 else
-    echo "[vault-extract] step 4 or 5 failed; leaving manifest old for retry" >&2
+    echo "[vault-extract] extraction or publication failed; leaving manifest old for retry" >&2
 fi
 rm -f ~/.cache/codeflare-hooks/vault-extract.in-flight
 ```
 
-The `EXTRACT_FAILED` gate is the programmatic enforcement of "only
-commit on success": steps 4 and 5 set the flag on any non-zero exit
-(lock timeout, graphify CLI missing, malformed JSON). If the flag is
-unset, all extractions succeeded (or step 2 returned zero files, in
-which case committing the manifest is also correct - there is nothing to
-retry). If set, the next 60s daemon tick will re-discover the same
-changed files and retry. Earlier versions of this prompt relied on the
-sonnet agent interpreting "only if steps 3-5 succeeded" prose, which
-allowed a silent failure to advance the manifest and lose the change.
+The agent owns extraction success qualification in step 3. The shared-shell
+`EXTRACT_FAILED` gate then carries extraction, merge, and publication failures
+to the manifest commit. Steps 4 and 5 set it on any non-zero exit (including
+lock timeout, missing CLI or malformed JSON). Do not reset it between steps.
+For a successful empty scan, perform only the final sentinel removal: no chunk,
+graph command or manifest advance is needed. Failed work remains discoverable
+at the next eligible resumed-session or 20-real-prompt content-hash check.
+These are Claude agent instructions, not an independent runtime controller.
 
 ## Done
 

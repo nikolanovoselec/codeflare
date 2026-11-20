@@ -2,6 +2,7 @@ import { createStore, produce } from 'solid-js/store';
 import { createSignal } from 'solid-js';
 import type { SessionWithStatus, SessionStatus, InitProgress, SessionTerminals, AgentType, TabConfig, UserPreferences } from '../types';
 import * as api from '../api/client';
+import { ApiError } from '../api/fetch-helper';
 import { upgradeAgentConfigs } from '../api/storage';
 import type { ManagedReleaseProgress } from '../api/client';
 import { terminalStore } from './terminal';
@@ -44,6 +45,8 @@ import {
   registerPollingDeps,
   invalidateSessionStatusReads,
   getSessionCatalogRevision,
+  beginSessionStatusRead,
+  sessionStatusUnavailable,
   sessionMissCounters,
   refreshSessionStatuses,
   refreshSessionAncillaryStatus,
@@ -194,10 +197,10 @@ registerProcessNameCallback((sessionId, terminalId, processName) => {
   updateTerminalLabel(sessionId, terminalId, processName);
 });
 terminalStore.registerSessionStoppedCallback?.((sessionId) => {
-  // A transport notification is not generation-fenced KILL exit evidence.
+  // The closed socket can belong to an older lifecycle. Only the existing
+  // ordered D1 projection path may dispose the current session's workspace.
   if (localKillAttempts.has(sessionId)) return;
-  updateSessionStatus(sessionId, 'stopped');
-  terminalStore.disposeSession(sessionId);
+  void refreshSessionStatuses();
 });
 
 // Register R2 readiness dependencies (extracted to r2-readiness.ts)
@@ -364,11 +367,14 @@ let loadSessionsGeneration = 0;
 async function loadSessions(): Promise<void> {
   const thisGen = ++loadSessionsGeneration;
   const requestedCatalogRevision = getSessionCatalogRevision();
+  let acceptedCatalogRevision = requestedCatalogRevision;
+  const reportAvailability = beginSessionStatusRead();
 
   setState('loading', true);
   setState('error', null);
 
   let batchError: string | null = null;
+  let batchAuthFailure = false;
   try {
     // Ancillary work owns its own values, never catalog availability.
     void refreshSessionAncillaryStatus().catch((err) => {
@@ -377,6 +383,7 @@ async function loadSessions(): Promise<void> {
     const batchRequest = api.getBatchSessionStatus().catch((err) => {
       logger.warn('[SessionStore] getBatchSessionStatus failed:', err);
       batchError = err instanceof Error ? err.message : 'Failed to fetch session statuses';
+      batchAuthFailure = err instanceof ApiError && err.status === 401;
       return { statuses: {} as Record<string, BatchStatusEntry> };
     });
     const sessions = await api.getSessions();
@@ -401,17 +408,13 @@ async function loadSessions(): Promise<void> {
         generation: local.generation,
         revision: local.revision,
       }, listed) !== listed;
+      if (local && localNewer) return local;
       const kill = localKillAttempts.get(s.id);
-      const keepLocalStatus = local && (localNewer || local.status === 'initializing'
+      const keepLocalStatus = local && (local.status === 'initializing'
         || (kill && kill.generation === s.generation && listedStatus !== 'stopped')
         || isLocallyStopping(s.id) || isSessionInitializing(s.id));
       return {
         ...s,
-        ...(localNewer && {
-          lifecycle: local.lifecycle, generation: local.generation, revision: local.revision,
-          editorReady: local.editorReady, editorReadyError: local.editorReadyError,
-          unreachableDeadlineMs: local.unreachableDeadlineMs,
-        }),
         status: keepLocalStatus && local ? local.status : listedStatus,
       };
     });
@@ -423,11 +426,12 @@ async function loadSessions(): Promise<void> {
       }
     }
     invalidateSessionStatusReads();
+    acceptedCatalogRevision = getSessionCatalogRevision();
     sessionMissCounters.clear();
     setState('sessions', sessionsWithStatus);
     setState('loading', false);
     for (const session of state.sessions) reconcileKillGeneration(session.id);
-    // REQ-VAULT-015 AC4: sweep orphan SilverBullet IDB caches only after
+    // REQ-VAULT-034 AC2: sweep orphan legacy SilverBullet markers only after
     // an authoritative session-list fetch succeeds. Dashboard mount can
     // see the initial empty store before loadSessions resolves; sweeping
     // there deleted the active browser's Vault cache by mistake.
@@ -444,8 +448,12 @@ async function loadSessions(): Promise<void> {
 
     // Publish the authoritative catalog before optional status enrichment.
     const batchResponse = await batchRequest;
-    if (thisGen !== loadSessionsGeneration) return;
-    if (batchError) setState('error', batchError);
+    if (thisGen !== loadSessionsGeneration || acceptedCatalogRevision !== getSessionCatalogRevision()) return;
+    if (batchError) {
+      if (reportAvailability(batchAuthFailure ? sessionStatusUnavailable() : true)) setState('error', batchError);
+    } else {
+      reportAvailability(false);
+    }
     const batchStatuses = batchResponse.statuses;
 
     for (const session of sessionsWithStatus) {
@@ -529,7 +537,8 @@ async function loadSessions(): Promise<void> {
       }
     }
   } catch (err) {
-    if (thisGen !== loadSessionsGeneration) return;
+    if (thisGen !== loadSessionsGeneration || acceptedCatalogRevision !== getSessionCatalogRevision()
+      || !reportAvailability(err instanceof ApiError && err.status === 401 ? sessionStatusUnavailable() : true)) return;
     setState('error', err instanceof Error ? err.message : 'Failed to load sessions');
   } finally {
     if (thisGen === loadSessionsGeneration) {
@@ -608,8 +617,8 @@ async function deleteSession(id: string): Promise<void> {
     localKillAttempts.delete(id);
     sessionMissCounters.delete(id);
     cleanupTerminalsForSession(id);
-    // REQ-VAULT-015 AC3: drop the per-session SilverBullet IDB cache,
-    // localStorage marker, and SW registration. Best-effort and async
+    // REQ-VAULT-034 AC1: drop legacy session-scoped SilverBullet localStorage markers.
+    // Bucket-stable databases and SW registration remain untouched; best-effort and async
     // -- we do not block the UI on it.
     void cleanupSessionVaultCache(id).catch((err) =>
       logger.warn('vault cache cleanup failed', { id, error: err instanceof Error ? err.message : String(err) }),
@@ -697,6 +706,10 @@ function startSession(id: string): Promise<void> {
 
 async function stopSession(id: string): Promise<void> {
   if (localStopAttempts.has(id)) return;
+  // A delayed Stop response can only confirm exit for its original runtime.
+  const attemptedSession = state.sessions.find((session) => session.id === id);
+  const generation = attemptedSession?.generation;
+  const revision = attemptedSession?.revision;
   try {
     const startupCleanup = startupCleanups.get(id);
     if (startupCleanup) {
@@ -755,7 +768,32 @@ async function stopSession(id: string): Promise<void> {
             const batchResp = await api.getBatchSessionStatus();
             consecutiveErrors = 0;
             const sessionStatus = batchResp.statuses[id];
-            if (!sessionStatus || sessionStatus.status === 'stopped') {
+            if (finished) return;
+            const current = state.sessions.find((session) => session.id === id);
+            if (!current || current.generation !== generation) {
+              finishStopPolling();
+              return;
+            }
+            // Missing/unordered evidence is uncertainty, never positive exit.
+            if (!sessionStatus || generation === undefined || revision === undefined
+              || sessionStatus.generation !== generation || sessionStatus.revision === undefined) return;
+            const incoming = {
+              lifecycle: sessionStatus.status as BackendLifecycle,
+              generation: sessionStatus.generation,
+              revision: sessionStatus.revision,
+            };
+            const ordered = applyOrderedProjection({
+              lifecycle: (current.lifecycle ?? 'stopping') as BackendLifecycle,
+              generation: current.generation,
+              revision: current.revision,
+            }, incoming);
+            // Catalog refresh may already have accepted this exit revision.
+            // Ordering rejects stale evidence; only the original Stop needs a newer revision.
+            if (ordered === incoming && incoming.lifecycle === 'stopped'
+              && incoming.revision > revision) {
+              const index = state.sessions.findIndex((session) => session.id === id);
+              setState('sessions', index, 'lifecycle', incoming.lifecycle);
+              setState('sessions', index, 'revision', incoming.revision);
               finishStopPolling(true);
             }
           } catch {
@@ -874,6 +912,7 @@ export const sessionStore = {
   get activeSessionId() { return state.activeSessionId; },
   get loading() { return state.loading; },
   get error() { return state.error; },
+  get statusUnavailable() { return sessionStatusUnavailable(); },
   getActiveSession,
   isSessionInitializing,
   getInitProgressForSession,

@@ -261,6 +261,31 @@ describe('Container Status Routes', () => {
       expect(body.error).toBe('R2 bucket not accessible');
     });
 
+    it('REQ-SESSION-017 AC4: becomes ready after degraded prewarm while retaining failed sync status', async () => {
+      const app = createStatusApp();
+      testState.container!.getState.mockResolvedValue({ status: 'running' });
+      let prewarmReady = false;
+      testState.container!.fetch.mockImplementation(async (request: Request) =>
+        new Response(JSON.stringify(request.url.endsWith('/sessions') ? [] : {
+          status: 'ok', syncStatus: 'failed', syncError: 'R2 bucket not accessible', prewarmReady,
+        }), { status: 200 }));
+
+      const warming = await app.request(`/container/startup-status${sessionQuery}`);
+      expect(warming.status).toBe(200);
+      expect(await warming.json()).toMatchObject({
+        stage: 'mounting', progress: 90,
+        details: { syncStatus: 'failed', terminalServerOk: true },
+      });
+
+      prewarmReady = true;
+      const ready = await app.request(`/container/startup-status${sessionQuery}`);
+      expect(ready.status).toBe(200);
+      expect(await ready.json()).toMatchObject({
+        stage: 'ready', progress: 100,
+        details: { syncStatus: 'failed', healthServerOk: true, terminalServerOk: true },
+      });
+    });
+
     it('returns ready stage when on-demand sync is in progress (terminal server already up)', async () => {
       const app = createStatusApp();
       testState.container!.getState.mockResolvedValue({ status: 'running' });

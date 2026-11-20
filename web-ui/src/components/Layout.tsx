@@ -22,6 +22,7 @@ import { requestBrowserStoragePersistence } from '../lib/browser-storage-persist
 import { dashboardPath, parseSessionPath, sessionPath } from '../lib/session-path';
 import { createBrowserIdeWindowOpener } from '../lib/browser-ide-window';
 import { isMountedLifecycle } from '../lib/session-presentation';
+import { parseCloudflareReturn, type CloudflareReturnOutcome } from '../lib/cloudflare-oauth-return';
 
 type ViewState = 'dashboard' | 'expanding' | 'terminal' | 'collapsing';
 
@@ -57,6 +58,7 @@ interface LayoutProps {
   onboardingActive?: boolean;
   enterpriseMode?: boolean;
   operatorManagementEligible?: boolean;
+  mcpReturnOutcome?: import('../lib/mcp-portal-recovery').McpReturnOutcome;
 }
 
 /**
@@ -75,6 +77,7 @@ const Layout: Component<LayoutProps> = (props) => {
   const usageWarning = () => getUsageWarningLevel();
   const [terminalError, setTerminalError] = createSignal<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = createSignal(false);
+  const [cloudflareReturn, setCloudflareReturn] = createSignal<CloudflareReturnOutcome>();
   const [isStoragePanelOpen, setIsStoragePanelOpen] = createSignal(false);
   const [showTilingOverlay, setShowTilingOverlay] = createSignal(false);
   const [viewState, setViewState] = createSignal<ViewState>('dashboard');
@@ -98,7 +101,7 @@ const Layout: Component<LayoutProps> = (props) => {
   // probe produced while SB warmed up. Keyed per session so a switch resets it.
   //
   // Lifecycle: warm-up probes every WARMUP_INTERVAL_MS forever until the
-  // first success (REQ-VAULT-012 AC5). After first success we switch to a
+  // first success (REQ-VAULT-018 AC2). After first success we switch to a
   // steady re-probe to catch SB crashing mid-session (container still
   // "running", proxy returns 502); a failed re-probe clears the latch so
   // the button disables itself and the warmup chain restarts.
@@ -364,6 +367,18 @@ const Layout: Component<LayoutProps> = (props) => {
   // store is the ownership boundary: a syntactically valid ID is not selectable
   // until it appears in this loaded list.
   onMount(() => {
+    if (window.location.pathname === dashboardPath()) {
+      const query = new URLSearchParams(window.location.search);
+      const outcome = parseCloudflareReturn(query.get('cloudflare'));
+      if (outcome) {
+        query.delete('cloudflare');
+        const rest = query.toString();
+        window.history.replaceState(window.history.state, '', `${dashboardPath()}${rest ? `?${rest}` : ''}${window.location.hash}`);
+        setCloudflareReturn(outcome);
+        setIsSettingsOpen(true);
+      }
+    }
+
     let disposed = false;
     let routeReady = false;
     const handlePopState = () => {
@@ -748,10 +763,11 @@ const Layout: Component<LayoutProps> = (props) => {
 
   const handleSettingsClose = () => {
     setIsSettingsOpen(false);
+    setCloudflareReturn(undefined);
   };
 
   const handleStoragePanelToggle = () => {
-    setIsSettingsOpen(false);
+    handleSettingsClose();
     setIsStoragePanelOpen(!isStoragePanelOpen());
   };
 
@@ -882,7 +898,7 @@ const Layout: Component<LayoutProps> = (props) => {
       </div>
 
       {/* Settings Panel - slides in from right */}
-      <SettingsPanel isOpen={isSettingsOpen()} onClose={handleSettingsClose} currentUserEmail={props.userName} currentUserRole={props.userRole} currentUserAccessTier={props.userAccessTier} enterpriseMode={props.enterpriseMode} />
+      <SettingsPanel isOpen={isSettingsOpen()} onClose={handleSettingsClose} currentUserEmail={props.userName} currentUserRole={props.userRole} currentUserAccessTier={props.userAccessTier} enterpriseMode={props.enterpriseMode} mcpReturnOutcome={props.mcpReturnOutcome} cloudflareReturn={cloudflareReturn()} />
 
       {/* Storage Panel - slides in from right */}
       <StoragePanel isOpen={isStoragePanelOpen()} onClose={handleStoragePanelClose} />

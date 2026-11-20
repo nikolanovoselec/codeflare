@@ -40,6 +40,35 @@ describe('REQ-OPS-033: lock-backed npm bump manifest updates', () => {
     }
   });
 
+  it('updates both context-mode dependency pins without changing same-version dependencies or Hono overrides', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'codeflare-context-mode-pin-'));
+    try {
+      for (const tree of ['preseed/npm-tools', 'preseed/agents/pi']) {
+        const packageDirectory = join(directory, tree);
+        mkdirSync(packageDirectory, { recursive: true });
+        const manifest = join(packageDirectory, 'package.json');
+        const before = {
+          name: tree,
+          private: true,
+          dependencies: { 'context-mode': '2.1.7', unrelated: '2.1.7' },
+          overrides: { '@hono/node-server': '2.1.7' },
+        };
+        writeJson(manifest, before);
+
+        const updated = spawnSync(process.execPath,
+          [script, manifest, 'context-mode', '2.1.7', '2.1.9'], { encoding: 'utf8' });
+
+        assert.equal(updated.status, 0, updated.stderr);
+        assert.deepEqual(readJson(manifest), {
+          ...before,
+          dependencies: { ...before.dependencies, 'context-mode': '2.1.9' },
+        }, `${tree}: only the named context-mode dependency may change`);
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it('REQ-OPS-025 AC4: updates every Pi runtime and prewarm artifact through one fail-closed operation', () => {
     const directory = mkdtempSync(join(tmpdir(), 'codeflare-pi-pin-'));
     try {
@@ -65,7 +94,24 @@ describe('REQ-OPS-033: lock-backed npm bump manifest updates', () => {
       });
 
       const fakeNpm = join(binDirectory, 'npm');
-      writeFileSync(fakeNpm, `#!/bin/sh\nset -eu\ncase "$*" in\n  "ci --no-audit --no-fund --silent") : ;;\n  "run generate:agent-seed") printf 'export const generated = true;\\n' > src/lib/agent-seed.generated.ts ;;\n  *) exit 64 ;;\nesac\n`);
+      writeFileSync(join(prewarmDirectory, 'upstream-state'), 'needs-patch');
+      writeFileSync(fakeNpm, `#!/bin/sh
+set -eu
+case "$*" in
+  "ci --ignore-scripts --no-audit --no-fund --silent")
+    mkdir -p node_modules/@earendil-works/pi-coding-agent
+    cp upstream-state node_modules/@earendil-works/pi-coding-agent/upstream-state ;;
+  "ci --no-audit --no-fund --silent") : ;;
+  "run generate:agent-seed") printf 'export const generated = true;\\n' > src/lib/agent-seed.generated.ts ;;
+  *) exit 64 ;;
+esac
+`);
+      writeFileSync(join(scriptsDirectory, 'patch-pi-codex-prompt-cache.mjs'), `import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+if (process.argv[2] !== '--check-pristine') throw Error('Expected pristine candidate admission');
+const state = readFileSync(join(process.argv[3], 'upstream-state'), 'utf8');
+if (state !== 'needs-patch') throw Error('Upstream already fixed; remove the Codex backport');
+`);
       chmodSync(fakeNpm, 0o755);
       writeFileSync(join(scriptsDirectory, 'apply-npm-security-lock-pins.mjs'), `import { readFileSync, writeFileSync } from 'node:fs';\nconst path = process.argv[2];\nconst lock = JSON.parse(readFileSync(path, 'utf8'));\nwriteFileSync(path, JSON.stringify({ ...lock, securityPinned: true }) + '\\n');\n`);
       writeFileSync(join(scriptsDirectory, 'regenerate-npm-package-lock.mjs'), `import { writeFileSync } from 'node:fs';\nimport { join } from 'node:path';\nconst directory = process.argv[2];\nconst generated = directory.endsWith('/npm-tools') ? 'tools' : 'prewarm';\nwriteFileSync(join(directory, 'package-lock.json'), JSON.stringify({ generated, securityPinned: true }) + '\\n');\n`);
@@ -85,9 +131,21 @@ describe('REQ-OPS-033: lock-backed npm bump manifest updates', () => {
       assert.deepEqual(readJson(prewarmLock), { generated: 'prewarm', securityPinned: true });
       assert.equal(readFileSync(seed, 'utf8'), 'export const generated = true;\n');
 
-      writeFileSync(fakeNpm, '#!/bin/sh\nexit 9\n');
+      // REQ-AGENT-238: future upstream inclusion must stop the real bump
+      // operation before it generates publishable seed output. The package
+      // acquisition process supplies this candidate state; patch guard behavior
+      // against authentic provider bytes is covered by the backport suite.
+      writeFileSync(seed, 'retained seed before rejected candidate\n');
+      writeFileSync(join(prewarmDirectory, 'upstream-state'), 'already-fixed');
       assert.throws(
         () => updatePiRuntimeArtifacts(directory, '0.82.0', '0.83.0', { npmCommand: fakeNpm }),
+        /exited 1/,
+      );
+      assert.equal(readFileSync(seed, 'utf8'), 'retained seed before rejected candidate\n');
+
+      writeFileSync(fakeNpm, '#!/bin/sh\nexit 9\n');
+      assert.throws(
+        () => updatePiRuntimeArtifacts(directory, '0.83.0', '0.84.0', { npmCommand: fakeNpm }),
         /exited 9/,
       );
     } finally {

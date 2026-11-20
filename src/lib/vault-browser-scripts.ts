@@ -167,6 +167,7 @@ export const VAULT_CONTROLLED_RELOAD_SOURCE = String.raw`function (windowRef, na
     function controlsCurrentScope() {
       return !!(sw.controller && sw.controller.scriptURL === expectedScript);
     }
+    if (storageRef === undefined) storageRef = windowRef.sessionStorage;
     var key = 'cf-vault-sw-controlled-reload';
     if (controlsCurrentScope()) {
       try { if (storageRef) storageRef.removeItem(key); } catch (_) {}
@@ -175,10 +176,12 @@ export const VAULT_CONTROLLED_RELOAD_SOURCE = String.raw`function (windowRef, na
     sw.getRegistration(expectedScope).then(function (registration) {
       if (controlsCurrentScope()) return;
       if (!registration || registration.scope !== expectedScope || !registration.active) return;
-      var already = false;
-      try { already = !!(storageRef && storageRef.getItem(key) === '1'); } catch (_) {}
-      if (already) return;
-      try { if (storageRef) storageRef.setItem(key, '1'); } catch (_) {}
+      // No reload unless the marker is durably readable on the next navigation.
+      try {
+        if (!storageRef || storageRef.getItem(key) === '1') return;
+        storageRef.setItem(key, '1');
+        if (storageRef.getItem(key) !== '1') return;
+      } catch (_) { return; }
       windowRef.location.reload();
     }).catch(function () {});
   } catch (_) {}

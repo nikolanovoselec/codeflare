@@ -1,16 +1,14 @@
 /// <reference types="@cloudflare/vitest-plugin/types" />
-import { type DiagnosticPage, type DiagnosticRecord, type DispatcherFixture, denyDiagnosticWrites, diagnosticJson, diagnosticSummary, diagnosticTraversal, diagnosticsBrowser, digest, encodeSdkHeader, fixture, genericWire, invalidPreparationRefusal, nativeProfileFiles, preparationFailures, prospectiveBase, remoteMutations, retainedFence, runtimeEnvelope, seedDiagnosticSnapshot, start } from './fixtures/dispatcher-production';
+import { type DiagnosticPage, type DiagnosticRecord, type DispatcherFixture, denyDiagnosticWrites, diagnosticJson, diagnosticSummary, diagnosticTraversal, diagnosticsBrowser, digest, encodeSdkHeader, runtimeEnvelope, fixture, genericWire, invalidPreparationRefusal, nativeProfileFiles, preparationFailures, remoteMutations, seedDiagnosticSnapshot, start } from './fixtures/dispatcher-production';
 import { describe, expect, it, vi } from 'vitest';
 import { Agent } from 'agents';
-import { Hono } from 'hono';
-import * as access from '../../lib/access';
-import activityRoutes from '../../routes/operator-activities';
-import { AppError } from '../../lib/error-types';
+import { consumeProspectiveReconciliation } from '../../operators/prospective-reconciliation';
 import { OperatorActivity } from '../../operators/activity';
-import { captureError } from '../../operators/dispatcher-diagnostics-wire';
+import { captureError, type DiagnosticEvent } from '../../operators/dispatcher-diagnostics-wire';
+import { appendDiagnostic } from '../../operators/dispatcher-diagnostics-store';
 import { setLogLevel } from '../../lib/logger';
-import type { Env } from '../../types';
-import type { CurrentProspectiveRegistration } from '../../operators/registry';
+import type { OperatorBrowserSummary } from '../../operators/browser-activity';
+import { dispatcherPhaseContext, type DispatcherPhaseState } from '../../operators/dispatcher-phases';
 import { within } from '../helpers/pending-recipient';
 import { OperatorOwnerInferenceAuthority, discoverDispatcherOwnerProfile, forwardDispatcherOwnerInference } from '../../operators/dispatcher-owner-inference';
 import { connectionSecret, normalCallback, normalDeployment } from './fixtures/normal-dispatcher';
@@ -19,6 +17,178 @@ import { SETUP_KEYS } from '../../lib/kv-keys';
 
 // Acquire the original binding in the Runner, never by loader I/O in a DO callback.
 const actualAig = await vi.importActual<typeof import('../../lib/aig-config')>('../../lib/aig-config');
+
+const writableApplication = { repositoryOnly: true, applicationWorkflow: true, normalHosting: true,
+  applicationConfiguration: { repository: 'another/service' }, applicationWriteRepositoriesPath: '/repository' };
+const applicationToken = (f: DispatcherFixture) => (f.normalTransport!.requests.filter(request => request.path === '/control/plan')
+  .at(-1)!.body.delivery as { token: string }).token;
+const applicationCallback = (f: DispatcherFixture, path: string, body: unknown, token = applicationToken(f)) =>
+  f.installationCapability.fetch(normalCallback(f.activityId, path, body, { 'x-codeflare-dispatcher-delivery': token }));
+const applicationContext = async (f: DispatcherFixture) => {
+  const token = applicationToken(f);
+  const response = await applicationCallback(f, 'context', { deliveryToken: token }, token);
+  expect(response.status).toBe(200);
+  return await response.json() as { context: unknown; delivery: { token: string; ordinal: number };
+    receipt: { submissionId: string; uid: string; acceptedAt: string } };
+};
+const storedRuntime = async (f: DispatcherFixture) => {
+  let values!: Map<string, unknown>;
+  await f.mutateEvidence(async storage => { values = structuredClone(await storage.list()); });
+  return values;
+};
+
+
+describe('fixture background promise ownership', () => {
+  it('owns rejection immediately and drain preserves the identical failure', () => fixture(async f => {
+    const original = new Error('Synthetic background failure');
+    f.waitUntil(Promise.reject(original));
+    // Exercise the gap before a caller drains, without intercepting unhandled errors.
+    await new Promise(resolve => setTimeout(resolve, 0));
+    await expect(f.drainBackground()).rejects.toBe(original);
+    await expect(f.drainBackground()).resolves.toBeUndefined();
+  }));
+
+  it('drains work registered by background work and retains every failure', () => fixture(async f => {
+    const first = new Error('Synthetic first background failure');
+    const second = new Error('Synthetic nested background failure');
+    f.waitUntil(Promise.resolve().then(() => {
+      f.waitUntil(Promise.reject(second));
+      throw first;
+    }));
+    await expect(f.drainBackground()).rejects.toMatchObject({
+      name: 'AggregateError', errors: [first, second],
+    });
+    await expect(f.drainBackground()).resolves.toBeUndefined();
+  }));
+
+  it('teardown reports background failures that the caller did not drain', async () => {
+    const original = new Error('Synthetic undrained background failure');
+    await expect(fixture(async f => {
+      f.waitUntil(Promise.reject(original));
+      await new Promise(resolve => setTimeout(resolve, 0));
+    })).rejects.toBe(original);
+  });
+
+  it.each([
+    { callback: true, cancellation: false, background: false },
+    { callback: false, cancellation: true, background: false },
+    { callback: true, cancellation: true, background: false },
+    { callback: true, cancellation: false, background: true },
+    { callback: false, cancellation: true, background: true },
+    { callback: true, cancellation: true, background: true },
+  ])('teardown retains callback=$callback cancellation=$cancellation background=$background failures', async phases => {
+    const callbackFailure = new Error('Synthetic callback failure');
+    const cancellationFailure = new Error('Synthetic cancellation failure');
+    const backgroundFailure = new Error('Synthetic background failure');
+    const expected: Error[] = [];
+    if (phases.callback) expected.push(callbackFailure);
+    if (phases.cancellation) expected.push(cancellationFailure);
+    if (phases.background) expected.push(backgroundFailure);
+    const result = fixture(async f => {
+      if (phases.cancellation) vi.spyOn(OperatorActivity.prototype, 'cancelDrive').mockRejectedValue(cancellationFailure);
+      if (phases.background) f.waitUntil(Promise.reject(backgroundFailure));
+      if (phases.callback) throw callbackFailure;
+    });
+    if (expected.length === 1) await expect(result).rejects.toBe(expected[0]);
+    else await expect(result).rejects.toMatchObject({ name: 'AggregateError', errors: expected });
+  });
+});
+
+describe('retained retirement and preparation fences', () => {
+  it.each([true, false])('REQ-OPERATOR-104 AC2: retained cancel-requested work preserves known release=%s without respawn', released => fixture(async f => {
+    // Historical retained snapshot only: never admit or contact its retired job.
+    await f.mutateEvidence(async storage => {
+      const state = (await storage.get<{ receipt: { intentDigest: string }; intent: { deadline: number } }>('admission'))!;
+      await storage.put('admission', { ...state, drive: {
+        generation: 2, status: 'cancel-requested', checkpoint: null, result: null } });
+      await storage.put('dispatcher:lease', { generation: 1, artifactDigest: f.artifactDigest,
+        inputDigest: state.receipt.intentDigest, expiresAt: state.intent.deadline,
+        status: 'unknown', submissionId: 'historical-job',
+        serial: { version: 1, scope: 'submission', authorityDigest: await digest(JSON.stringify(state.receipt)),
+          uid: 'historical-incarnation', results: [], previous: [], current: { phase: { kind: 'discovery' },
+            deliveryToken: 'historical-delivery', idempotencyKey: 'historical-key',
+            receipt: { uid: 'historical-incarnation', submissionId: 'historical-job', offset: 'historical-offset' } } },
+        sdkReleased: released });
+    });
+    const retirementFailure = new Error('Retirement unavailable');
+    const cleanup = vi.spyOn(Agent.prototype as unknown as { _cf_cleanupFacetPrefix: () => Promise<void> },
+      '_cf_cleanupFacetPrefix').mockRejectedValue(retirementFailure);
+    try {
+      const cold = f.restart(); await f.drainBackground();
+      if (released) expect((await cold.cancelDrive()).ok).toBe(true);
+      else {
+        await expect(cold.cancelDrive()).rejects.toThrow('Retirement unavailable');
+        // Ordinary cold entry also schedules retirement. Own and assert that
+        // original failure separately; it is not permission to respawn the job.
+        await expect(f.drainBackground()).rejects.toBe(retirementFailure);
+      }
+      expect(await cold.getBrowserDetail()).toMatchObject({ executionStatus: 'cancel-requested',
+        sdkCleanupReleased: released, result: null, collectionStatus: 'unavailable' });
+      expect(await cold.beginDrive()).toEqual({ ok: false, reason: 'drive-settled' });
+      expect(await cold.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      expect(f.ownedChildReadbacks()).toEqual([]);
+      expect(f.sent).toEqual([]); expect(f.childSubmissions).toEqual([]);
+    } finally {
+      cleanup.mockRestore();
+      // Avoid retrying this deliberately failed historical retirement during fixture teardown.
+      await f.mutateEvidence(async storage => {
+        const lease = (await storage.get<Record<string, unknown>>('dispatcher:lease'))!;
+        await storage.put('dispatcher:lease', { ...lease, sdkReleased: true });
+      });
+    }
+  }, { repositoryOnly: true, facetContract: true }));
+
+  it('REQ-OPERATOR-104 AC3: pending preparation cannot recreate runtime after cancel', () => fixture(async f => {
+    f.afterBundleRead(async () => { await f.activity.cancelDrive(); });
+    await start(f); await f.drainBackground();
+    const cold = f.restart(); await f.drainBackground();
+    expect(await cold.getBrowserDetail()).toMatchObject({ executionStatus: 'cancel-requested', result: null });
+    expect(await cold.beginDrive()).toEqual({ ok: false, reason: 'drive-settled' });
+    expect(f.ownedChildReadbacks()).toEqual([]);
+    expect(f.childSubmissions).toEqual([]); expect(f.sent).toEqual([]);
+    expect(await cold.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+  }, { repositoryOnly: true, facetContract: true }));
+
+  it('REQ-OPERATOR-106 AC1: historical unkeyed admitting uncertainty stays fenced without SDK lookup', () => fixture(async f => {
+    await f.mutateEvidence(async storage => {
+      const state = (await storage.get<{ receipt: { intentDigest: string }; intent: { deadline: number } }>('admission'))!;
+      await storage.put('admission', { ...state,
+        drive: { generation: 1, status: 'running', checkpoint: null, result: null } });
+      await storage.put('dispatcher:lease', { generation: 1, artifactDigest: f.artifactDigest,
+        inputDigest: state.receipt.intentDigest, expiresAt: state.intent.deadline, status: 'admitting', submissionId: null });
+      await storage.put('dispatcher:journal', { generation: 1, count: 0, nextOrdinal: 0, unresolved: 0 });
+    });
+    const cold = f.restart(); await f.drainBackground();
+    await cold.getAdmission(); await f.drainBackground();
+    await cold.reconcileDispatcherLease();
+    expect(await cold.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null });
+    expect((await cold.beginDrive()).ok).toBe(false);
+    expect(await cold.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    expect(f.ownedChildReadbacks()).toEqual([]);
+    expect(f.childSubmissions).toEqual([]); expect(f.sent).toEqual([]);
+  }, { repositoryOnly: true, facetContract: true }));
+});
+
+describe('REQ-OPERATOR-052: admitted package-resource persistence', () => {
+  it('retains exact admitted resource bytes across Activity reconstruction and refuses another artifact', () => fixture(async f => {
+    const content = 'admitted package resource\n';
+    const projection = { schemaVersion: 1 as const, artifactDigest: f.artifactDigest,
+      files: [{ destination: 'review/config.md', content, size: new TextEncoder().encode(content).byteLength,
+        sha256: await digest(content) }] };
+    expect(await f.activity.getPackageResources()).toBeNull();
+    await f.activity.savePackageResources(projection);
+    const restored = f.restart();
+    expect(await restored.getPackageResources()).toEqual(projection);
+    await expect(restored.savePackageResources({ ...projection, artifactDigest: 'e'.repeat(64) }))
+      .rejects.toThrow('Package resource digest mismatch');
+    expect(await restored.getPackageResources()).toEqual(projection);
+    const returned = (await restored.getPackageResources())!;
+    returned.files[0].content = 'caller mutation';
+    expect(await restored.getPackageResources()).toEqual(projection);
+    expect(f.childSubmissions).toEqual([]);
+    expect((await restored.getRuntimePlan())!.executionContext.artifactDigest).toBe(f.artifactDigest);
+  }, { repositoryOnly: true }));
+});
 
 describe('REQ-OPERATOR-063: comprehensive pipeline diagnostic contract', () => {
   const marker = 'PRIVATE_PIPELINE_CONTENT';
@@ -347,7 +517,15 @@ describe('REQ-OPERATOR-085: evidence-qualified Dispatcher cleanup projections', 
 
   it('REQ-OPERATOR-085: exact fenced SDK release remains known without restarting cancelled work', () => fixture(async f => {
     await start(f);
-    await f.seedCancelledReleased();
+    // Retained cancellation bookkeeping, not a newly executed serial workload.
+    await f.mutateEvidence(async storage => {
+      const admission = (await storage.get<{ drive: { generation: number; status: string } }>('admission'))!;
+      const lease = (await storage.get<Record<string, unknown>>('dispatcher:lease'))!;
+      await storage.put('admission', { ...admission, drive: {
+        ...admission.drive, generation: admission.drive.generation + 1, status: 'cancel-requested',
+      } });
+      await storage.put('dispatcher:lease', { ...lease, status: 'unknown', sdkReleased: true });
+    });
     const submissions = [...f.childSubmissions];
     const outbound = [...f.sent];
     const alarm = await f.nextAlarm();
@@ -389,7 +567,7 @@ describe('REQ-OPERATOR-085: evidence-qualified Dispatcher cleanup projections', 
     expect(f.childSubmissions).toEqual(submissions);
     expect(f.sent).toEqual(outbound);
     expect(await f.nextAlarm()).toBe(alarm);
-  }, { repositoryOnly: true, intent4: true }));
+  }, { repositoryOnly: true }));
 });
 
 
@@ -485,159 +663,75 @@ describe('REQ-OPERATOR-063: stored SDK failure inspection', () => {
 });
 
 
-describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
-  const configuredTarget = { repository: 'acme/updates', repositoryId: 424242, baseBranch: 'trunk' };
+describe('application-owned configuration and generic repository mutation scope', () => {
+  const configuration = { repository: 'acme/updates' };
   const root = 'https://api.github.com/repos/acme/updates';
+  const options = { ...writableApplication, applicationConfiguration: configuration,
+    applicationInput: { repository: configuration.repository } };
   const comment = (operationId: string) => ({ operationId, method: 'POST', url: `${root}/issues/17/comments`,
-    body: JSON.stringify({ body: 'Exact admitted judgment' }) });
-  it('the actual runtime Loader and exact mutation allowlist use the same immutable alternate admitted target through reconstruction', () => fixture(async f => {
+    body: JSON.stringify({ body: 'Exact application judgment' }) });
+  it('retains opaque configuration and exact mutation bytes across reconstruction, without Root target selection', () => fixture(async f => {
     await start(f);
-    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
-    expect(f.input).toEqual({ repository: configuredTarget.repository });
-    expect(JSON.parse((await f.loaderEnv()).OPERATOR_ADMITTED_TARGET as string)).toEqual(f.admittedTarget);
-    const request = comment('configured-comment');
-    const completed = await f.capability.fetch(genericWire('source', request));
-    expect(completed.status).toBe(200);
-    const cached = await completed.json();
-    f.restart();
-    expect(await (await f.capability.fetch(genericWire('source', request))).json()).toEqual(cached);
-    expect(remoteMutations(f).map(request => request.url)).toEqual([`${root}/issues/17/comments`]);
-    expect((await f.capability.fetch(genericWire('source', { ...comment('foreign-target'), url: `${prospectiveBase}/issues/17/comments` }))).status).toBe(403);
-    expect(remoteMutations(f).map(request => request.url)).toEqual([`${root}/issues/17/comments`]);
-  }, { prospective: true, configuredTarget }));
-  it('unknown alternate-target mutations are never replayed after reconstruction', () => fixture(async f => {
-    await start(f); f.loseResponse();
-    const operation = comment('configured-unknown');
-    expect(await (await f.capability.fetch(genericWire('source', operation))).json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
-    f.restoreTransport(); f.restart();
-    expect((await f.capability.fetch(genericWire('source', operation))).status).toBe(409);
+    const initial = f.normalTransport!.requests.find(request => request.path === '/control/plan')!.body.initialData;
+    expect(initial).toMatchObject({ configuration });
+    expect(initial).not.toHaveProperty('admittedTarget');
+    const operation = comment('configured-comment');
+    const response = await applicationCallback(f, 'source', operation);
+    expect(response.status).toBe(200); const bytes = await response.text();
+    f.restart(); await f.drainBackground();
+    expect(await (await applicationCallback(f, 'source', operation)).text()).toBe(bytes);
     expect(remoteMutations(f).map(request => request.url)).toEqual([operation.url]);
-  }, { prospective: true, configuredTarget }));
-  it.each([{ repository: 'other/repo' }, { repositoryId: 1 }, { baseBranch: 'main' }, { installationRevision: 2 }])
-    ('a substituted admission %j cannot borrow current configured authority', patch => fixture(async f => {
-      await start(f); f.changeProof(patch);
-      const outbound = [...f.sent];
-      expect((await f.capability.fetch(genericWire('source', comment('substituted')))).status).toBe(403);
-      expect(f.sent).toEqual(outbound);
-    }, { prospective: true, configuredTarget }));
-  it('fresh registration cannot rebind an old proof after settings change', () => fixture(async f => {
+    expect((await applicationCallback(f, 'source', { ...comment('foreign-repository'),
+      url: 'https://api.github.com/repos/other/repo/issues/17/comments' })).status).toBe(403);
+    expect(remoteMutations(f).map(request => request.url)).toEqual([operation.url]);
+  }, options));
+  it('never replays an unknown configured-repository mutation after reconstruction', () => fixture(async f => {
+    await start(f); f.loseResponse(); const operation = comment('configured-unknown');
+    const response = await applicationCallback(f, 'source', operation);
+    expect(response.status).toBe(409); expect(await response.json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
+    f.restoreTransport(); f.restart(); await f.drainBackground();
+    expect((await applicationCallback(f, 'source', operation)).status).toBe(409);
+    expect(remoteMutations(f).map(request => request.url)).toEqual([operation.url]);
+  }, options));
+  it.each(['installation', 'release'] as const)('changed %s authority cannot borrow the original repository grant', changed => fixture(async f => {
     await start(f);
-    f.changeRegistration({ registrationId: 'fresh-settings-generation', ...configuredTarget,
-      installationRevision: 2 } as unknown as Partial<CurrentProspectiveRegistration>);
+    if (changed === 'installation') f.changeInferenceAuthority('installation'); else f.changeConnection({ releaseId: 'replacement' });
     const outbound = [...f.sent];
-    expect((await f.capability.fetch(genericWire('source', comment('old-proof')))).status).toBe(403);
+    expect((await applicationCallback(f, 'source', comment('stale-configuration'))).status).toBe(403);
     expect(f.sent).toEqual(outbound);
-    expect(remoteMutations(f)).toEqual([]);
-  }, { prospective: true, configuredTarget }));
+  }, options));
 });
 
-
-// Intentional intent4 admission/progress wire contracts; the child seam is mocked here.
-// Real generated-class SDK/effect/eviction proof remains in the preserved native suite.
-describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
-  type Context = { scope: string; generation: number; deadline: string; releaseDigest: string;
-    authorityDigest: string; submissionId: string; phase: { kind: string; index?: number; target?: { pullRequest: number; headSha: string } };
-    deliveryToken: string; previous?: Array<{ submissionId: string; phase: unknown; outcome: string }> };
+// SDK phase/admission policy is covered in codeflare-operator-dispatcher/test/renovate/
+// ownership-plan.test.ts and legacy-admission-parity.test.ts. Root exercises only
+// generic transport and archived read-only serial evidence here.
+describe('generic Dispatcher runtime and retained legacy evidence', () => {
   const frozen = [17, 18].map((pullRequest, index) => ({ pullRequest, headSha: String(index + 1).repeat(40) }));
-  const wire = (path: string, body: unknown, token: string) => new Request(`https://operator.internal/v1/dispatcher/${path}`, {
-    method: 'POST', headers: { 'content-type': 'application/json', 'x-codeflare-dispatcher-delivery': token }, body: JSON.stringify(body),
+  const rows = frozen.map(target => ({ ...target, decision: 'DO_NOT_MERGE', comment: 'Archived judgment', outcome: 'NOT_MERGED' }));
+  const finalResult = (f: DispatcherFixture) => ({ ...(f.input as { repository: string }), results: rows });
+  const wire = (path: string, body: unknown, token?: string) => new Request(`https://operator.internal/v1/dispatcher/${path}`, {
+    method: 'POST', headers: { 'content-type': 'application/json', ...(token ? { 'x-codeflare-dispatcher-delivery': token } : {}) }, body: JSON.stringify(body),
   });
-  const latestDelivery = async (f: DispatcherFixture) => {
-    const input = await f.childSubmissions.at(-1)!.clone().json() as { kind: string; type: string; body: string;
-      attributes: { deliveryToken: string }; idempotencyKey: string; uid: string | null };
-    expect(input.kind).toBe('signal'); expect(input.type).toBe('dispatcher-phase');
-    expect(input.body).toBe(JSON.stringify(f.input));
-    return input;
-  };
-  const context = async (f: DispatcherFixture, suppliedToken?: string): Promise<Context> => {
-    const token = suppliedToken ?? (await latestDelivery(f)).attributes.deliveryToken;
-    const response = await f.capability.fetch(wire('phase-context', { deliveryToken: token }, token));
-    expect(response.status).toBe(200);
-    return response.json();
-  };
-  const progress = (f: DispatcherFixture, stamp: Context, next: unknown, payload: object) => {
-    f.messages([{ submissionId: stamp.submissionId, parts: [{ type: 'data-dispatcher-progress', data: {
-      version: 1, scope: stamp.scope, generation: stamp.generation, submissionId: stamp.submissionId,
-      phase: stamp.phase, next, ...payload,
-    } }] }]);
-    f.settle(stamp.submissionId);
-  };
-  const discovery = async (f: DispatcherFixture) => {
-    const first = await context(f);
-    expect(first.scope).toBe('submission'); expect(first.phase).toEqual({ kind: 'discovery' });
-    expect(first.previous).toBeUndefined();
-    progress(f, first, { kind: 'target', index: 0, target: frozen[0] }, { targets: frozen });
-    await f.activity.reconcileDispatcherLease();
-    return first;
-  };
-
   const coldOwner = async (f: DispatcherFixture): Promise<DispatcherFixture> => {
-    const activity = f.restart();
-    // Direct fixture calls bypass the platform's cold-constructor RPC gate.
-    await f.drainBackground();
-    // Existing recovery scenarios exercise an ordinary owner wake, not diagnostics.
-    await activity.getAdmission();
-    await f.drainBackground();
+    const activity = f.restart(); await f.drainBackground(); await activity.getAdmission(); await f.drainBackground();
     return { ...f, activity };
   };
   const deadlineSchedule = async (f: DispatcherFixture) => {
-    const row = (await f.activity.listSchedules()).find(row =>
-      row.callback === 'reconcileDispatcherLease' && row.type === 'scheduled');
-    expect(row?.type).toBe('scheduled');
-    return row!;
-  };
-  const rows = frozen.map(target => ({ ...target, decision: 'DO_NOT_MERGE',
-    comment: 'Actual fixture judgment', outcome: 'NOT_MERGED' }));
-  const finalResult = (f: DispatcherFixture, results: unknown[] = rows) => ({
-    ...(f.input as { repository: string }), results,
-  });
-  const stableCollection = (collected: Awaited<ReturnType<OperatorActivity['collectBrowserResult']>>) => {
-    if (!collected.ok) return collected;
-    // Collection updates its observation timestamp, not the immutable result or receipt.
-    const { updatedAt: _updatedAt, ...detail } = collected.detail;
-    return { ok: true, detail };
-  };
-  const finish = async (f: DispatcherFixture, results: unknown[] = rows) => {
-    let stamp = await context(f);
-    if (stamp.phase.kind === 'discovery') {
-      progress(f, stamp, { kind: 'target', index: 0, target: frozen[0] }, { targets: frozen });
-      await f.activity.reconcileDispatcherLease();
-      stamp = await context(f);
-    }
-    // Exactly the existing two-target journey; no retired native workload expansion.
-    for (const index of [0, 1]) if (stamp.phase.kind === 'target' && stamp.phase.index === index) {
-      progress(f, stamp, index === 0 ? { kind: 'target', index: 1, target: frozen[1] } : { kind: 'final' },
-        { results: results.slice(0, index + 1) });
-      await f.activity.reconcileDispatcherLease();
-      stamp = await context(f);
-    }
-    expect(stamp.phase).toEqual({ kind: 'final' });
-    const result = finalResult(f, results);
-    f.messages([{ submissionId: stamp.submissionId, parts: [{ type: 'data-assessment', data: result }] }]);
-    f.settle(stamp.submissionId);
-    await f.activity.reconcileDispatcherLease();
-    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'completed', result });
-    const collected = await f.activity.collectBrowserResult();
-    expect(collected).toMatchObject({ ok: true, detail: { result, sdkCleanupReleased: true } });
-    expect(stableCollection(await f.activity.collectBrowserResult())).toEqual(stableCollection(collected));
-    return collected;
+    const row = (await f.activity.listSchedules()).find(row => row.callback === 'reconcileDispatcherLease' && row.type === 'scheduled');
+    expect(row?.type).toBe('scheduled'); return row!;
   };
   const deny = async (response: Response) => {
-    expect(response.status).toBe(403);
-    expect(await response.json()).toMatchObject({ code: 'OPERATOR_CAPABILITY_DENIED' });
+    expect(response.status).toBe(403); expect(await response.json()).toMatchObject({ code: 'OPERATOR_CAPABILITY_DENIED' });
   };
   const protectedRequests = (token: string) => [
-    wire('source', { operationId: 'cold-fenced-comment', method: 'POST',
-      url: 'https://api.github.com/repos/another/service/issues/17/comments', body: '{"body":"must not publish"}' }, token),
+    wire('source', { operationId: 'cold-fenced-comment', method: 'POST', url: 'https://api.github.com/repos/another/service/issues/17/comments', body: '{"body":"must not publish"}' }, token),
     wire('inference', { operationId: 'cold-fenced-model', input: { messages: [{ role: 'user', content: 'must not infer' }] } }, token),
   ];
-  const receipt = async (f: DispatcherFixture, operationId: string, token: string) => {
+  const receipt = async (f: DispatcherFixture, operationId: string, token?: string) => {
     const response = await f.capability.fetch(wire('receipt', { operationId }, token));
     expect(response.status).toBe(200);
-    return await response.json() as { phase: string; requestDigest: string; responseDigest?: string;
-      method: string; url: string; operationCount: number };
+    return await response.json() as { phase: string; requestDigest: string; responseDigest?: string; method: string; url: string; operationCount: number };
   };
-
   const nativeProviderUrl = 'https://chatgpt.com/backend-api/codex/responses';
   const nativeBody = JSON.stringify({ model: 'gpt-6.1-sol', input: [], reasoning: { effort: 'low' }, stream: true });
 
@@ -780,28 +874,6 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
     sourceTransport: async request => request.url !== nativeProviderUrl ? Response.json({ ok: true })
       : new Response('compressed native response') }));
 
-  it.each(['missing', 'stale'] as const)(
-    'REQ-OPERATOR-047/048: serial native admission denies %s delivery without spending an upstream attempt', tokenKind => fixture(async f => {
-      await start(f);
-      const original = await context(f);
-      if (tokenKind === 'stale') await discovery(f);
-      const current = await context(f);
-      const selected = JSON.parse((await f.loaderEnv()).OPERATOR_INFERENCE_SELECTION as string);
-      const admission = { operationId: 'serial-native-current', profileDigest: selected.profileDigest };
-      const deniedRequest = tokenKind === 'missing' ? genericWire('native-admission', admission)
-        : wire('native-admission', admission, original.deliveryToken);
-      await deny(await f.capability.fetch(deniedRequest));
-      expect(f.sent.filter(request => request.url === nativeProviderUrl)).toHaveLength(0);
-      const admitted = await f.capability.fetch(wire('native-admission', admission, current.deliveryToken));
-      expect(admitted.status).toBe(200);
-      const { handle } = await admitted.json() as { handle: string };
-      // No provider request was committed; a successful SDK outcome cannot create one.
-      expect((await f.capability.fetch(wire('native-result', { handle, outcome: 'completed' }, current.deliveryToken))).status).toBe(403);
-      expect(await context(f)).toEqual(current);
-      expect(f.sent.filter(request => request.url === nativeProviderUrl)).toHaveLength(0);
-    }, { repositoryOnly: true, recovery: true, intent4: true, facetContract: true, nativeInference: true,
-      sourceTransport: async () => Response.json({ ok: true }) }));
-
   it.each(['partial', 'unknown'] as const)(
     'REQ-OPERATOR-047/048: %s native transport cannot replay or settle after cold reconstruction', failure => fixture(async f => {
       await start(f);
@@ -926,13 +998,11 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
     await fixture(async f => {
       try {
         await start(f);
-        const stamp = await context(f);
+        const stamp = await f.activity.getRuntimePlan();
         const loaded = await f.loaderEnv();
-        // The fallback descriptor only lets the old managed-only baseline reach
-        // the missing application endpoint assertion, not an import/JSON error.
-        const selected = typeof loaded.OPERATOR_INFERENCE_SELECTION === 'string'
-          ? JSON.parse(loaded.OPERATOR_INFERENCE_SELECTION) : { profileDigest: '9'.repeat(64) };
-        const binding = await f.capability.fetch(wire('native-binding', { profileDigest: selected.profileDigest }, stamp.deliveryToken));
+        expect(typeof loaded.OPERATOR_INFERENCE_SELECTION).toBe('string');
+        const selected = JSON.parse(loaded.OPERATOR_INFERENCE_SELECTION as string);
+        const binding = await f.capability.fetch(genericWire('native-binding', { profileDigest: selected.profileDigest }));
         expect(binding.status).toBe(200);
         const bound = await binding.json() as { selection: Record<string, unknown>; auth: { apiKey: string }; expiresAt: number | null };
         expect(bound.selection).toMatchObject({ source: 'pi-native', provider: 'openai-codex', model: 'gpt-6.1-sol',
@@ -944,13 +1014,13 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
         const descriptor = { ...loaded };
         delete descriptor.OPERATOR;
         expect(JSON.stringify(descriptor)).not.toMatch(/synthetic-native-access|synthetic-native-refresh|synthetic-scoped/);
-        const anchor = await f.capability.fetch(wire('source', { operationId: 'native-budget-anchor',
-          url: 'https://api.github.com/repos/another/service' }, stamp.deliveryToken));
+        const anchor = await f.capability.fetch(genericWire('source', { operationId: 'native-budget-anchor',
+          url: 'https://api.github.com/repos/another/service' }));
         expect(anchor.status).toBe(200);
-        const budget = () => receipt(f, 'native-budget-anchor', stamp.deliveryToken);
+        const budget = () => receipt(f, 'native-budget-anchor');
         expect(await budget()).toMatchObject({ operationCount: 1 });
         const admission = { operationId: 'native-logical-operation', profileDigest: selected.profileDigest };
-        const admitted = await f.capability.fetch(wire('native-admission', admission, stamp.deliveryToken));
+        const admitted = await f.capability.fetch(genericWire('native-admission', admission));
         expect(admitted.status).toBe(200);
         const { handle } = await admitted.json() as { handle: string };
         expect(handle).toEqual(expect.any(String));
@@ -986,11 +1056,11 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
         expect(sent[0].headers.get('authorization')).toBe('Bearer synthetic-native-access');
         expect(sent[0].headers.get('chatgpt-account-id')).toBe('synthetic-account');
         expect(await sent[0].clone().text()).toBe(body);
-        expect((await f.capability.fetch(wire('native-result', { handle, outcome: 'completed' }, stamp.deliveryToken))).status).toBe(200);
-        expect(await context(f)).toEqual(stamp); // SDK outcome is not Flue phase settlement.
+        expect((await f.capability.fetch(genericWire('native-result', { handle, outcome: 'completed' }))).status).toBe(200);
+        expect(await f.activity.getRuntimePlan()).toEqual(stamp); // A native outcome is not an SDK submission settlement.
         expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
         const cold = await coldOwner(f);
-        const reAdmitted = await cold.capability.fetch(wire('native-admission', admission, stamp.deliveryToken));
+        const reAdmitted = await cold.capability.fetch(genericWire('native-admission', admission));
         expect(reAdmitted.status).toBe(200);
         const retained = await reAdmitted.json() as { handle: string };
         const replay = await cold.capability.fetch(request(retained.handle));
@@ -999,29 +1069,29 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
         expect(replay.headers.get('x-request-id')).toBe('native-request-one');
         expect(replay.headers.get('set-cookie')).toBeNull();
         expect(new Uint8Array(await replay.arrayBuffer())).toEqual(raw);
-        expect(await receipt(cold, 'native-budget-anchor', stamp.deliveryToken)).toMatchObject({ operationCount: 2 });
-        const freshOperation = await cold.capability.fetch(wire('native-admission', {
-          ...admission, operationId: 'native-fresh-label-same-wire' }, stamp.deliveryToken));
+        expect(await receipt(cold, 'native-budget-anchor')).toMatchObject({ operationCount: 2 });
+        const freshOperation = await cold.capability.fetch(genericWire('native-admission', {
+          ...admission, operationId: 'native-fresh-label-same-wire' }));
         expect(freshOperation.status).toBe(200);
         const freshHandle = (await freshOperation.json() as { handle: string }).handle;
         const conflict = await cold.capability.fetch(request(freshHandle));
         expect(conflict.status).toBe(409);
         expect(await conflict.json()).toMatchObject({ code: 'OPERATOR_OPERATION_CONFLICT' });
-        expect((await cold.capability.fetch(wire('native-result', { handle: freshHandle, outcome: 'completed' }, stamp.deliveryToken))).status).toBe(403);
+        expect((await cold.capability.fetch(genericWire('native-result', { handle: freshHandle, outcome: 'completed' }))).status).toBe(403);
         expect(f.sent.filter(request => request.url === providerUrl)).toHaveLength(1);
-        for (const stale of [wire('native-binding', { profileDigest: selected.profileDigest }, stamp.deliveryToken),
-          wire('native-admission', admission, stamp.deliveryToken), request(retained.handle)]) {
+        for (const stale of [genericWire('native-binding', { profileDigest: selected.profileDigest }),
+          genericWire('native-admission', admission), request(retained.handle)]) {
           expect((await cold.staleCapability.fetch(stale)).status).toBe(403);
         }
         expect(JSON.stringify(await cold.activity.getRuntimePlan())).not.toMatch(/synthetic-native-access|synthetic-native-refresh|synthetic-scoped/);
         expect(await cold.activity.cancelDrive()).toMatchObject({ ok: true });
         const fenced = await cold.activity.getBrowserDetail();
-        expect((await cold.capability.fetch(wire('native-result', { handle: retained.handle, outcome: 'completed' }, stamp.deliveryToken))).status).toBe(403);
+        expect((await cold.capability.fetch(genericWire('native-result', { handle: retained.handle, outcome: 'completed' }))).status).toBe(403);
         expect(await cold.activity.getBrowserDetail()).toEqual(fenced);
         expect(await cold.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
         expect(f.sent.filter(request => request.url === providerUrl)).toHaveLength(1);
       } finally { release(); }
-    }, { repositoryOnly: true, recovery: true, intent4: true, facetContract: true, nativeInference: true,
+    }, { repositoryOnly: true, recovery: true, intent4: false, facetContract: true, nativeInference: true,
       sourceTransport: async request => request.url !== providerUrl ? Response.json({ ok: true })
         : new Response(holdNativeResponse ? new ReadableStream<Uint8Array>({ start(controller) {
         controller.enqueue(raw.slice(0, 23)); entered();
@@ -1034,15 +1104,14 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
     const providerUrl = 'https://chatgpt.com/backend-api/codex/responses';
     await fixture(async f => {
       await start(f);
-      const stamp = await context(f);
       const loaded = await f.loaderEnv();
       expect(typeof loaded.OPERATOR_INFERENCE_SELECTION).toBe('string');
       const selected = JSON.parse(loaded.OPERATOR_INFERENCE_SELECTION as string);
-      const binding = await f.capability.fetch(wire('native-binding', { profileDigest: selected.profileDigest }, stamp.deliveryToken));
+      const binding = await f.capability.fetch(genericWire('native-binding', { profileDigest: selected.profileDigest }));
       expect(binding.status).toBe(200);
       const bound = await binding.json() as { auth: { apiKey: string } };
-      const admitted = await f.capability.fetch(wire('native-admission', {
-        operationId: 'native-auth-rejection', profileDigest: selected.profileDigest }, stamp.deliveryToken));
+      const admitted = await f.capability.fetch(genericWire('native-admission', {
+        operationId: 'native-auth-rejection', profileDigest: selected.profileDigest }));
       expect(admitted.status).toBe(200);
       const { handle } = await admitted.json() as { handle: string };
       const response = await f.capability.fetch(new Request(providerUrl, { method: 'POST',
@@ -1055,1022 +1124,419 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
       expect(value).toMatchObject({ authFailure });
       expect(JSON.stringify(value)).not.toMatch(/synthetic-native-access|synthetic-native-refresh|private-upstream-detail/);
       expect(await f.activity.getBrowserDetail()).toMatchObject({ authFailure });
-      expect((await f.capability.fetch(wire('native-binding', {
-        profileDigest: selected.profileDigest }, stamp.deliveryToken))).status).toBe(403);
+      expect((await f.capability.fetch(genericWire('native-binding', {
+        profileDigest: selected.profileDigest }))).status).toBe(403);
       expect(JSON.stringify(await f.activity.getRuntimePlan())).not.toMatch(/synthetic-native-access|synthetic-native-refresh/);
       expect(f.sent.filter(request => request.url === providerUrl)).toHaveLength(1);
       nativeProfileFiles.set('/owner-bucket/.pi/agent/auth.json', { 'openai-codex': { type: 'oauth',
         access: 'synthetic-replacement-access', refresh: 'synthetic-replacement-refresh',
         accountId: 'synthetic-account', expires: Date.now() + 120_000 } });
       const cold = await coldOwner(f);
-      const stopped = await cold.capability.fetch(wire('native-binding', { profileDigest: selected.profileDigest }, stamp.deliveryToken));
+      const stopped = await cold.capability.fetch(genericWire('native-binding', { profileDigest: selected.profileDigest }));
       expect(stopped.status).toBe(403);
       expect(await stopped.json()).toEqual({ authFailure });
-      expect((await cold.capability.fetch(wire('native-admission', {
-        operationId: 'native-after-auth-rejection', profileDigest: selected.profileDigest }, stamp.deliveryToken))).status).toBe(403);
+      expect((await cold.capability.fetch(genericWire('native-admission', {
+        operationId: 'native-after-auth-rejection', profileDigest: selected.profileDigest }))).status).toBe(403);
       expect(await cold.activity.getBrowserDetail()).toMatchObject({ authFailure });
       expect(await cold.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
       expect(f.sent.filter(request => request.url === providerUrl)).toHaveLength(1);
-    }, { repositoryOnly: true, recovery: true, intent4: true, facetContract: true, nativeInference: true, loggingEnabled: false,
+    }, { repositoryOnly: true, recovery: true, intent4: false, facetContract: true, nativeInference: true, loggingEnabled: false,
       sourceTransport: async request => request.url !== providerUrl ? Response.json({ ok: true })
         : Response.json({ error: { code: 'invalid_api_key', message: 'private-upstream-detail synthetic-native-access' } }, { status }) });
   });
 
-  it.each([{ phase: 'discovery', validated: false }, { phase: 'target', validated: false },
-    { phase: 'discovery', validated: true }, { phase: 'target', validated: true }])(
-    'REQ-OPERATOR-078: AC1 verified $phase delivery binds preparation cause (validated=$validated); REQ-OPERATOR-081 AC2/4/5',
-    ({ phase, validated }) => fixture(async f => {
-      await start(f); if (phase === 'target') await discovery(f);
-      const stamp = await context(f);
-      const body = { operationId: 'current-preparation', input: { messages: validated ? [{ role: 'user', content: 'PRIVATE_PROMPT' }] : [] } };
-      const response = await f.capability.fetch(wire('inference', body, stamp.deliveryToken));
-      expect(response.status).toBe(403);
-      expect(await response.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED', reason: validated ? 'policy-denied' : 'request-invalid', disposition: 'operation-local' });
-      const failure = (await preparationFailures(f)).at(-1);
-      expect(failure).toMatchObject({ generation: stamp.generation, preparation: { route: 'inference',
-        step: validated ? 'capability' : 'parse', failureClass: validated ? 'authority-denied' : 'invalid-wire' } });
-      expect(failure?.correlation).toEqual({ deliveryDigest: await digest(stamp.deliveryToken), submissionDigest: await digest(stamp.submissionId),
-        ...(validated ? { requestDigest: await digest(JSON.stringify({ path: '/v1/dispatcher/inference', body })) } : {}) });
-      // Existing receipt/phase context is the sole authority: no parallel phase/attempt labels.
-      expect(await context(f)).toEqual(stamp);
-      expect(JSON.stringify(failure)).not.toMatch(/PRIVATE_|current-preparation|private\.jwt/);
-      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
-      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
-    }, { repositoryOnly: true, intent4: true, capabilities: ['fetch'] }));
-
-  it.each(['missing', 'spoofed', 'stale'] as const)(
-    'REQ-OPERATOR-081: AC2/4/5 %s delivery cannot borrow current SDK attribution from a preparation refusal', tokenKind => fixture(async f => {
-      await start(f); const original = await context(f);
-      if (tokenKind === 'stale') await discovery(f);
-      const current = await context(f);
-      const request = tokenKind === 'missing' ? genericWire('inference', { input: { messages: [] } })
-        : wire('inference', { input: { messages: [] } }, tokenKind === 'stale' ? original.deliveryToken : 'forged-delivery');
-      const response = await f.capability.fetch(request);
-      expect(response.status).toBe(403);
-      expect(await response.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED', reason: 'execution-inactive', disposition: 'authority-denied' });
-      const failure = (await preparationFailures(f)).at(-1);
-      expect(failure).toMatchObject({ owner: 'host', generation: 1, code: 'authority-denied' });
-      expect(failure?.correlation).toEqual({});
-      expect(failure?.preparation ?? {}).not.toHaveProperty('phaseKind');
-      expect(failure?.preparation ?? {}).not.toHaveProperty('phaseIndex');
-      expect(await context(f)).toEqual(current);
-      const allowed = await f.capability.fetch(wire('source', { operationId: 'current-after-stale', url: 'https://api.github.com/repos/another/service' }, current.deliveryToken));
-      expect(allowed.status).toBe(200);
-      expect(await receipt(f, 'current-after-stale', current.deliveryToken)).toMatchObject({ phase: 'completed', operationCount: 1 });
-    }, { repositoryOnly: true, intent4: true }));
-
-  it('REQ-OPERATOR-081: AC2/4/5 phase transition during a gated preparation read never adopts the newer submission', () => fixture(async f => {
-    await start(f); const original = await context(f);
-    let entered!: () => void; const reading = new Promise<void>(resolve => { entered = resolve; });
-    let release!: () => void; const released = new Promise<void>(resolve => { release = resolve; });
-    const body = new ReadableStream<Uint8Array>({ async pull(controller) {
-      entered(); await released;
-      controller.enqueue(new TextEncoder().encode('{"operationId":"gated-preparation","input":{"messages":[]}}'));
-      controller.close();
-    } }, { highWaterMark: 0 });
-    const result = f.capability.fetch(new Request('https://operator.internal/v1/dispatcher/inference', { method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-codeflare-dispatcher-delivery': original.deliveryToken }, body }));
-    try {
-      await within(reading, 'authorized preparation body read');
-      await discovery(f); const successor = await context(f);
-      expect(successor.submissionId).not.toBe(original.submissionId);
-      release(); await invalidPreparationRefusal(await within(result, 'old-phase parse refusal'));
-      const failure = (await preparationFailures(f)).at(-1);
-      expect(failure).toMatchObject({ code: 'tool-failed', preparation: { step: 'parse', route: 'inference', failureClass: 'invalid-wire' } });
-      expect(failure?.correlation).toEqual({});
-      expect(await context(f)).toEqual(successor);
-      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
-      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
-    } finally { release(); await within(result, 'gated preparation cleanup').catch(() => undefined); }
-  }, { repositoryOnly: true, intent4: true }));
-
-  const liveChildRead = async (f: DispatcherFixture) => {
-    const readback = f.ownedChildReadbacks().at(-1);
-    if (!readback) throw new Error('Fixture has no owned child stub');
-    expect(await (await readback()).json()).toMatchObject({ conversationId: 'fixture-conversation' });
-    return readback;
-  };
-  const noOwnedRuntimeRead = async (f: DispatcherFixture) => {
-    // Probe every parent-created incarnation, without test-originated get().
-    // A new callable stub would witness forbidden post-cancel recreation.
-    for (const readback of f.ownedChildReadbacks()) await expect(readback()).rejects.toThrow();
-  };
-  const cancellationFences = async (f: DispatcherFixture, token: string, released = true) => {
-    for (const request of protectedRequests(token)) await deny(await f.capability.fetch(request));
-    expect(await f.activity.commitDrive(1, { schemaVersion: 1, status: 'completed', checkpoint: null,
-      result: finalResult(f) })).toMatchObject({ ok: false, reason: 'stale-drive' });
-    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
-    // REQ-OPERATOR-027 AC8: known SDK release changes only cleanup reporting, never cancellation authority.
-    expect(await f.activity.getBrowserDetail()).toMatchObject({ activityId: f.activityId,
-      executionStatus: 'cancel-requested', cleanupStatus: released ? 'released' : 'stopping',
-      sdkCleanupReleased: released, collectionStatus: 'unavailable', result: null });
-  };
-
-  it('REQ-OPERATOR-048: AC2 retiring an uncertain keyed admission invalidates its owned child without replacing original work', () => fixture(async f => {
-  // REQ-OPERATOR-081: additive retained-evidence assertions; original anchor/title preserved.
+  it.each([1, 2])('generic delivery %i recovers its exact lost ACK without replacing input, UID, key or expiry', ordinal => fixture(async f => {
+    if (ordinal === 1) f.normalTransport!.loseAcknowledgement();
     await start(f);
-    const token = (await latestDelivery(f)).attributes.deliveryToken;
-    const original = await liveChildRead(f);
-    const remote = await f.readRemoteComments();
-    expect(await f.activity.cancelDrive()).toMatchObject({ ok: true, state: { generation: 2, status: 'cancel-requested' } });
-    await cancellationFences(f, token);
-    await expect(original()).rejects.toThrow();
-    await noOwnedRuntimeRead(f);
-    expect(await f.readRemoteComments()).toEqual(remote);
-    await retainedFence(f, 'cancelled', 'fence');
-    const history = await diagnosticTraversal(diagnosticsBrowser(f));
-    expect(history.records).toEqual(expect.arrayContaining([expect.objectContaining({
-      kind: 'event', boundary: 'submission', code: 'submission-failed', evidence: 'observed',
-    })]));
-    await noOwnedRuntimeRead(f);
-  }, { repositoryOnly: true, intent4: true, losePhaseAdmission: 1, facetContract: true }));
-
-  it('REQ-OPERATOR-017: AC4 intent4 cancellation does not restart its retired owned runtime', () => fixture(async f => {
-    await start(f);
-    const stamp = await context(f);
-    const original = await liveChildRead(f);
-    expect(await f.activity.cancelDrive()).toMatchObject({ ok: true, state: { generation: 2, status: 'cancel-requested' } });
-    await expect(original()).rejects.toThrow();
-    await f.activity.getBrowserDetail();
-    await f.activity.reconcileDispatcherLease();
-    await cancellationFences(f, stamp.deliveryToken);
-    await noOwnedRuntimeRead(f);
-  }, { repositoryOnly: true, intent4: true, facetContract: true }));
-
-  it('REQ-OPERATOR-017: AC4 pending intent4 preparation cannot recreate an owned runtime after cancellation', () => fixture(async f => {
-    await start(f);
-    const first = await context(f);
-    await liveChildRead(f);
-    const cold = await coldOwner(f);
-    let enter!: () => void;
-    let release!: () => void;
-    const entered = new Promise<void>(resolve => { enter = resolve; });
-    const held = new Promise<void>(resolve => { release = resolve; });
-    // The reconstructed parent's cache is empty while the original child
-    // remains live; pause its actual external factory preparation.
-    f.afterBundleRead(async () => { enter(); await held; });
-    const preparation = cold.activity.reconcileDispatcherLease();
-    try {
-      await entered;
-      expect(await cold.activity.cancelDrive()).toMatchObject({ ok: true, state: {
-        generation: 2, status: 'cancel-requested',
-      } });
-    } finally { release(); }
-    await preparation;
-    await cancellationFences(cold, first.deliveryToken);
-    await noOwnedRuntimeRead(cold);
-  }, { repositoryOnly: true, intent4: true, facetContract: true }));
-
-  it('REQ-OPERATOR-048: retirement cleanup finishes an already released cancelled generation without new authority', () => fixture(async f => {
-    await start(f);
-    const stamp = await context(f);
-    const original = await liveChildRead(f);
-    const remote = await f.readRemoteComments();
-    await f.seedCancelledReleased();
-    const cold = await coldOwner(f);
-    await cold.activity.reconcileDispatcherLease();
-    // Read-only reconstruction does not itself finish authorized cancellation.
-    expect(await (await original()).json()).toMatchObject({ conversationId: 'fixture-conversation' });
-    const cancelled = { ok: true, state: { generation: 2, status: 'cancel-requested' } };
-    expect(await cold.activity.cancelDrive()).toMatchObject(cancelled);
-    await cancellationFences(cold, stamp.deliveryToken);
-    await expect(original()).rejects.toThrow();
-    await noOwnedRuntimeRead(cold);
-    expect(await cold.activity.cancelDrive()).toMatchObject(cancelled);
-    await noOwnedRuntimeRead(cold);
-    expect(await cold.readRemoteComments()).toEqual(remote);
-  }, { repositoryOnly: true, intent4: true, facetContract: true }));
-
-  it.each([false, true])('REQ-OPERATOR-048: failed owned-child retirement cannot reopen fenced work; bookkeeping released=%s', released => fixture(async f => {
-    await start(f);
-    const stamp = await context(f);
-    const original = await liveChildRead(f);
-    if (released) await f.seedCancelledReleased();
-    f.failOwnedAbort();
-    await expect(f.activity.cancelDrive()).rejects.toThrow();
-    await cancellationFences(f, stamp.deliveryToken, released);
-    expect(await f.activity.getBrowserDetail()).toMatchObject({ sdkCleanupReleased: released });
-    expect(await (await original()).json()).toMatchObject({ conversationId: 'fixture-conversation' });
-    expect(await f.activity.cancelDrive()).toMatchObject({ ok: true, state: { generation: 2, status: 'cancel-requested' } });
-    await cancellationFences(f, stamp.deliveryToken);
-    await expect(original()).rejects.toThrow();
-    await noOwnedRuntimeRead(f);
-  }, { repositoryOnly: true, intent4: true, facetContract: true }));
-
-  it('REQ-OPERATOR-048: AC7 historical unkeyed cancellation preserves SDK abort delivery and original fences', () => fixture(async f => {
-    await start(f);
-    const remote = await f.readRemoteComments();
-    expect(await f.activity.cancelDrive()).toMatchObject({ ok: true, state: { generation: 2, status: 'cancel-requested' } });
-    expect(f.abortStatus()).toBe('cancel-requested');
-    expect((await f.capability.fetch(genericWire('source', { operationId: 'historical-cancelled-read',
-      method: 'GET', url: 'https://api.github.com/repos/another/service/issues/17/comments' }))).status).toBe(403);
-    expect(await f.activity.commitDrive(1, { schemaVersion: 1, status: 'waiting', checkpoint: null }))
-      .toMatchObject({ ok: false, reason: 'stale-drive' });
-    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
-    expect(await f.readRemoteComments()).toEqual(remote);
-  }, { repositoryOnly: true, facetContract: true }));
-
-  it.each([{ phase: 'discovery', lost: 1 }, { phase: 'target', lost: 2 }, { phase: 'final', lost: 4 }])(
-    'REQ-OPERATOR-048: AC2 cold $phase lost acknowledgement adopts the exact original wire and collects its final settlement; REQ-OPERATOR-017 AC1/2',
-    ({ lost }) => fixture(async f => {
-      await start(f);
-      const plan = (await f.activity.getRuntimePlan())!;
-      const deadline = await deadlineSchedule(f);
-      const lineage: Context[] = [];
-      let completedReceipt: Awaited<ReturnType<typeof receipt>> | undefined;
-      let commentResponse: unknown;
-      const mutation = { operationId: 'cold-original-comment', method: 'POST',
-        url: 'https://api.github.com/repos/another/service/issues/17/comments', body: '{"body":"Original cold judgment"}' };
-      if (lost > 1) lineage.push(await discovery(f));
-      if (lost === 4) {
-        const first = await context(f); lineage.push(first);
-        const posted = await f.capability.fetch(wire('source', mutation, first.deliveryToken));
-        expect(posted.status).toBe(200); commentResponse = await posted.json();
-        expect(commentResponse).toMatchObject({ status: 201, body: expect.any(String) });
-        completedReceipt = await receipt(f, mutation.operationId, first.deliveryToken);
-        expect(completedReceipt).toMatchObject({ phase: 'completed', method: 'POST', url: mutation.url });
-        const replay = await f.capability.fetch(wire('source', mutation, first.deliveryToken));
-        expect(replay.status).toBe(200); expect(await replay.json()).toEqual(commentResponse);
-        progress(f, first, { kind: 'target', index: 1, target: frozen[1] }, { results: rows.slice(0, 1) });
-        await f.activity.reconcileDispatcherLease();
-        const second = await context(f); lineage.push(second);
-        progress(f, second, { kind: 'final' }, { results: rows });
-        await f.activity.reconcileDispatcherLease();
-      }
-      // No phase-context call may repair the uncertain phase before cold construction.
-      const originalWire = await latestDelivery(f);
-      const deliveriesBefore = f.childSubmissions.length;
-      const cold = await coldOwner(f);
-      expect(await cold.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null,
-        collectionStatus: 'unavailable' });
-      expect(await cold.activity.dispatcherGenerationCurrent(1)).toBe(true);
-      expect(await cold.activity.beginDrive()).toEqual({ ok: false, reason: 'drive-active' });
-      // Intentional wire contract: replay bytes, key, token and UID are unchanged.
-      const reattachments = await Promise.all(f.childSubmissions.slice(deliveriesBefore).map(request => request.clone().json()));
-      expect(reattachments).toEqual([originalWire]);
-      expect(await latestDelivery(cold)).toEqual(originalWire);
-      const stamp = await context(cold, originalWire.attributes.deliveryToken);
-      expect(stamp).toMatchObject({ generation: 1, submissionId: `submission-${lost}`,
-        deliveryToken: originalWire.attributes.deliveryToken, releaseDigest: f.artifactDigest,
-        authorityDigest: await digest(JSON.stringify(plan.receipt)), deadline: new Date(plan.deadline).toISOString() });
-      expect(stamp.phase.kind).toBe(lost === 1 ? 'discovery' : lost === 2 ? 'target' : 'final');
-      if (lineage.length) {
-        expect(stamp.authorityDigest).toBe(lineage[0].authorityDigest);
-        expect(stamp.previous).toEqual(lineage.map(prior => ({ submissionId: prior.submissionId, phase: prior.phase, outcome: 'completed' })));
-      }
-      expect(originalWire.uid).toBe(lost === 1 ? null : 'fixture-incarnation');
-      expect(await context(cold)).toEqual(stamp);
-      expect(await cold.activity.getRuntimePlan()).toMatchObject({ deadline: plan.deadline, invocationJson: plan.invocationJson,
-        executionContext: { artifactDigest: plan.executionContext.artifactDigest } });
-      expect((await deadlineSchedule(cold)).time).toBe(deadline.time);
-      const pendingHistory = [...f.childSubmissions];
-      f.messages([]); f.settle('foreign-submission');
-      await cold.activity.reconcileDispatcherLease();
-      expect(await context(cold)).toEqual(stamp);
-      expect(f.childSubmissions).toEqual(pendingHistory);
-      expect(await cold.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
-      if (completedReceipt) {
-        expect(await receipt(cold, mutation.operationId, stamp.deliveryToken)).toEqual(completedReceipt);
-        expect(await f.readRemoteComments()).toEqual([{ id: 91, body: 'Original cold judgment', user: { id: 42 } }]);
-        for (const prior of lineage) await deny(await f.capability.fetch(wire('source', mutation, prior.deliveryToken)));
-        expect(await context(cold)).toEqual(stamp);
-      }
-      await finish(cold);
-      expect((await latestDelivery(cold)).uid).toBe('fixture-incarnation');
-      const terminalHistory = [...f.childSubmissions];
-      await cold.activity.collectBrowserResult(); await cold.activity.reconcileDispatcherLease();
-      expect(f.childSubmissions).toEqual(terminalHistory);
-      expect(await f.readRemoteComments()).toEqual(lost === 4
-        ? [{ id: 91, body: 'Original cold judgment', user: { id: 42 } }] : []);
-    }, { repositoryOnly: true, intent4: true, losePhaseAdmission: lost, loggingEnabled: false }));
-
-  it('REQ-OPERATOR-048: AC2 cold before-POST uncertainty admits original-generation discovery with unchanged input release and human expiry', () => fixture(async f => {
-    const plan = (await f.activity.getRuntimePlan())!;
-    // First authorization is before lease persistence; the next is phase admission
-    // before POST. This one-shot collaborator fault exposes no unseen key/token.
-    f.afterRegistryResolve(async () => {
-      f.afterRegistryResolve(async () => { throw new Error('Fixture pre-POST authorization unavailable'); });
-    });
-    await start(f);
-    expect(f.childSubmissions).toEqual([]);
-    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
-    const deadline = await deadlineSchedule(f);
-    const cold = { ...f, activity: f.restart() };
-    await f.drainBackground();
-    const diagnostic = await cold.activity.getDispatcherDiagnostics(f.proof.ownerKey);
-    expect(diagnostic).toMatchObject({ version: 1, consistency: 'stable-binding',
-      parent: { executionStatus: 'running', lease: { generation: 1, status: 'admitting', receiptPresent: false } },
-      sdk: { status: 'unavailable', reason: 'unbound' } });
-    await f.drainBackground();
-    expect(f.childSubmissions).toEqual([]);
-    // The first ordinary owner entry still recovers before a phase-context request.
-    await cold.activity.getAdmission();
-    await f.drainBackground();
-    expect(f.childSubmissions).toHaveLength(1);
-    expect(await cold.activity.dispatcherGenerationCurrent(1)).toBe(true);
-    const delivered = await latestDelivery(cold);
-    expect(delivered.uid).toBeNull();
-    const stamp = await context(cold);
-    expect(stamp).toMatchObject({ generation: 1, phase: { kind: 'discovery' }, submissionId: 'submission-1',
-      releaseDigest: f.artifactDigest, authorityDigest: await digest(JSON.stringify(plan.receipt)),
-      deadline: new Date(plan.deadline).toISOString(), deliveryToken: delivered.attributes.deliveryToken });
-    const privateMetadata = 'PRIVATE_SDK_DIAGNOSTIC_VALUE';
-    const attemptId = `${privateMetadata}-attempt`;
-    const timestamp = new Date().toISOString();
-    // SDK-shaped fixture storage exercises the fixed SQLite read, not hosted SDK RPC or cold-child qualification.
-    await f.mutateEvidence(async storage => {
-      storage.sql.exec(`CREATE TABLE flue_agent_submissions (submission_id TEXT PRIMARY KEY, session_key TEXT,
-        status TEXT, sequence INTEGER, attempt_count INTEGER, max_attempts INTEGER, accepted_at INTEGER,
-        canonical_ready_at INTEGER, input_applied_at INTEGER, abort_requested_at INTEGER, started_at INTEGER,
-        settled_at INTEGER, timeout_at INTEGER, lease_expires_at INTEGER, attempt_id TEXT, owner_id TEXT,
-        joined_into TEXT, error TEXT, settlement_record_id TEXT, settlement_record TEXT)`);
-      storage.sql.exec(`CREATE TABLE flue_conversation_streams (path TEXT PRIMARY KEY, identity_json TEXT,
-        incarnation TEXT, next_offset INTEGER, producer_epoch INTEGER, next_producer_sequence INTEGER, producer_id TEXT)`);
-      storage.sql.exec(`CREATE TABLE flue_conversation_stream_batches (path TEXT, seq INTEGER, data TEXT,
-        submission_id TEXT, attempt_id TEXT, PRIMARY KEY (path, seq))`);
-      const acceptedAt = Date.now();
-      storage.sql.exec(`INSERT INTO flue_agent_submissions (submission_id, session_key, status, sequence,
-        attempt_count, max_attempts, accepted_at, canonical_ready_at, input_applied_at, started_at,
-        lease_expires_at, attempt_id, owner_id) VALUES (?, ?, 'running', 1, 1, 1024, ?, ?, ?, ?, ?, ?, ?)`,
-      stamp.submissionId, 'agent-session:["Dispatcher","dispatcher"]', acceptedAt, acceptedAt, acceptedAt,
-      acceptedAt, plan.deadline, attemptId, privateMetadata);
-      storage.sql.exec(`INSERT INTO flue_conversation_streams VALUES
-        ('fixture-stream', ?, 'fixture-stream-incarnation', 1, 1, 1, ?)`,
-      JSON.stringify({ agentName: 'Dispatcher', instanceId: 'dispatcher' }), privateMetadata);
-      storage.sql.exec(`INSERT INTO flue_conversation_stream_batches VALUES ('fixture-stream', 0, ?, ?, ?)`,
-      JSON.stringify([
-        { type: 'conversation_created', kind: 'root', uid: 'fixture-incarnation' },
-        { type: 'assistant_tool_call', timestamp, id: `${privateMetadata}-call-record`,
-          submissionId: stamp.submissionId, attemptId, toolCallId: `${privateMetadata}-call`,
-          toolName: `${privateMetadata}-tool`, arguments: { content: privateMetadata } },
-        { type: 'tool_outcome', timestamp, id: `${privateMetadata}-outcome-record`,
-          submissionId: stamp.submissionId, attemptId, toolCallId: `${privateMetadata}-call`,
-          toolName: `${privateMetadata}-tool`, data: { content: privateMetadata }, isError: false },
-      ]), stamp.submissionId, attemptId);
-    });
-    const boundDiagnostic = await cold.activity.getDispatcherDiagnostics(f.proof.ownerKey);
-    expect(boundDiagnostic).toMatchObject({ consistency: 'stable-binding',
-      parent: { resultPresent: false, checkpointPresent: false,
-        lease: { generation: 1, status: 'running', receiptPresent: true, submissionDigest: await digest(stamp.submissionId) } },
-      sdk: { status: 'available', submission: { status: 'running', attemptCount: 1, maxAttempts: 1024,
-        attemptDigest: await digest(attemptId), ownerPresent: true, errorPresent: false, settlementRecordPresent: false },
-      stream: { nextOffset: 1, producerPresent: true }, canonical: { scope: 'latest-instance-batches',
-        contentRecordsExcluded: true, inlineMetadataComplete: true,
-        batches: [{ sequence: 0, submissionDigest: await digest(stamp.submissionId), attemptDigest: await digest(attemptId) }],
-        records: [
-          { type: 'assistant_tool_call', scope: 'requested', toolCallDigest: await digest(`${privateMetadata}-call`),
-            nameDigest: await digest(`${privateMetadata}-tool`) },
-          { type: 'tool_outcome', scope: 'requested', dataPresent: true, error: false,
-            toolCallDigest: await digest(`${privateMetadata}-call`), nameDigest: await digest(`${privateMetadata}-tool`) },
-        ] } } });
-    expect(JSON.stringify(boundDiagnostic)).not.toContain(privateMetadata);
-    expect(JSON.stringify(boundDiagnostic)).not.toContain('fixture-incarnation');
-    expect(stamp.previous).toBeUndefined();
-    expect(await context(cold)).toEqual(stamp);
-    expect(await latestDelivery(cold)).toEqual(delivered);
-    expect((await deadlineSchedule(cold)).time).toBe(deadline.time);
-    expect(await cold.activity.getRuntimePlan()).toMatchObject({ invocationJson: plan.invocationJson, deadline: plan.deadline });
+    if (ordinal === 2) {
+      const first = await applicationContext(f);
+      f.normalTransport!.loseAcknowledgement();
+      f.normalTransport!.settleSubmission(first.receipt.submissionId, 'completed');
+      await f.activity.reconcileDispatcherLease();
+    }
+    const dispatch = () => f.normalTransport!.requests.filter(request => request.path === '/control/dispatch');
+    const original = structuredClone(dispatch().at(-1)!);
+    const admissions = structuredClone([...f.normalTransport!.admissions.values()]);
+    const deadline = (await f.activity.getRuntimePlan())!.deadline;
+    const cold = await coldOwner(f); await cold.activity.reconcileDispatcherLease();
+    expect(dispatch().filter(request => request.body.idempotencyKey === original.body.idempotencyKey).length).toBeGreaterThan(1);
+    for (const replay of dispatch().filter(request => request.body.idempotencyKey === original.body.idempotencyKey)) expect(replay).toEqual(original);
+    expect([...f.normalTransport!.admissions.values()]).toEqual(admissions);
+    const current = await applicationContext(cold);
+    expect(current.receipt).toMatchObject(admissions[ordinal - 1].receipt);
+    expect(current.delivery.ordinal).toBe(ordinal);
+    expect((await cold.activity.getRuntimePlan())!.deadline).toBe(deadline);
     expect(await cold.activity.beginDrive()).toEqual({ ok: false, reason: 'drive-active' });
-    await finish(cold);
-    expect(await f.readRemoteComments()).toEqual([]);
-  }, { repositoryOnly: true, intent4: true, loggingEnabled: false, runtimeVersion: '2.2.2' }));
-
-  it.each(['pending', 'unavailable'] as const)(
-    'REQ-OPERATOR-048: AC3 cold recovered %s observations retain one bounded wake and consume only exact settlement without renewing expiry', mode => fixture(async f => {
-      await start(f);
-      const originalWire = await latestDelivery(f);
-      const deadline = await deadlineSchedule(f);
-      if (mode === 'unavailable') f.statusFault(() => { throw new Error('Fixture unavailable cold observation'); });
-      const cold = await coldOwner(f);
-      const stamp = await context(cold, originalWire.attributes.deliveryToken);
-      const history = [...f.childSubmissions];
-      let now = Date.now();
-      vi.spyOn(Date, 'now').mockImplementation(() => now);
-      for (let alarm = 0; alarm < 3; alarm++) {
-        const next = await f.nextAlarm();
-        expect(next).not.toBeNull();
-        expect(next!).toBeLessThan(deadline.time * 1000);
-        now = Math.max(now + 1000, next! + 1000);
-        if (mode === 'unavailable') f.statusFault(() => { throw new Error('Fixture repeated unavailable observation'); });
-        await cold.activity.alarm(); await f.drainBackground();
-        expect(await cold.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null, collectionStatus: 'unavailable' });
-        expect(await cold.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
-        expect(await context(cold)).toEqual(stamp);
-        expect(f.childSubmissions).toEqual(history);
-        const schedules = (await cold.activity.listSchedules()).filter(row => row.callback === 'reconcileDispatcherLease');
-        expect(schedules.filter(row => row.type === 'scheduled').map(row => row.time)).toEqual([deadline.time]);
-        const wakes = schedules.filter(row => row.type === 'delayed');
-        expect(wakes).toHaveLength(1);
-        expect(wakes[0].time * 1000).toBeGreaterThan(now);
-        expect(wakes[0].time).toBeLessThan(deadline.time);
-      }
-      f.messages([]); f.settle('foreign-settlement'); await cold.activity.reconcileDispatcherLease();
-      expect(await context(cold)).toEqual(stamp); expect(f.childSubmissions).toEqual(history);
-      await finish(cold);
-      expect(await f.readRemoteComments()).toEqual([]);
-    }, { repositoryOnly: true, intent4: true, losePhaseAdmission: 1, loggingEnabled: false }));
-
-  it('REQ-OPERATOR-048: AC3 recovered cold pending lease expires at its original deadline; REQ-OPERATOR-017 AC6 late begin and commit deny', () => fixture(async f => {
-    await start(f); const originalWire = await latestDelivery(f);
-    const deadline = await deadlineSchedule(f);
-    const cold = await coldOwner(f); const stamp = await context(cold);
-    expect(stamp.deadline).toBe(new Date(deadline.time * 1000).toISOString());
-    const history = [...f.childSubmissions];
-    vi.spyOn(Date, 'now').mockReturnValue(deadline.time * 1000);
-    await cold.activity.alarm(); await f.drainBackground();
-    expect(await cold.activity.dispatcherGenerationCurrent(1)).toBe(false);
-    expect(await cold.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null, collectionStatus: 'unavailable' });
-    for (const request of protectedRequests(originalWire.attributes.deliveryToken)) await deny(await f.capability.fetch(request));
-    for (const request of protectedRequests(originalWire.attributes.deliveryToken)) await deny(await cold.activity.dispatcherOperation(1, request));
-    f.messages([{ submissionId: stamp.submissionId, parts: [{ type: 'data-assessment', data: finalResult(f) }] }]);
-    f.settle(stamp.submissionId); await cold.activity.reconcileDispatcherLease();
-    expect(await cold.activity.beginDrive()).toEqual({ ok: false, reason: 'authority-expired' });
-    expect(await cold.activity.commitDrive(1, { schemaVersion: 1, status: 'completed', checkpoint: null, result: finalResult(f) }))
-      .toEqual({ ok: false, reason: 'authority-expired' });
     expect(await cold.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
-    expect(f.childSubmissions).toEqual(history);
-    expect(await f.readRemoteComments()).toEqual([]);
-    expect(f.sent.filter(request => request.method !== 'GET')).toEqual([]);
-  }, { repositoryOnly: true, intent4: true, losePhaseAdmission: 1, loggingEnabled: false }));
+    expect(f.sent).toEqual([]);
+  }, { ...writableApplication, applicationPlan: request => request.checkpoint === null
+    ? { kind: 'dispatch', checkpoint: 'first', message: { kind: 'user', body: 'First opaque work' }, context: {} }
+    : request.checkpoint === 'first'
+      ? { kind: 'dispatch', checkpoint: 'second', message: { kind: 'user', body: 'Second opaque work' }, context: {} }
+      : { kind: 'complete', checkpoint: 'done', result: { completed: true } } }));
+
+  it.each([true, false])('REQ-OPERATOR-081 AC2: refused normal dispatch retains validated SDK header only with logging=%s', loggingEnabled => fixture(async f => {
+    const report = await runtimeEnvelope(f);
+    // Pre-admission evidence has no SDK receipt/root yet; never invent those coordinates.
+    report.sdk = { attemptId: 'PRIVATE_REFUSED_ATTEMPT' };
+    f.admissionFault(() => Response.json({ error: 'PRIVATE_REFUSED_DISPATCH' }, { status: 400,
+      headers: { 'x-codeflare-sdk-diagnostics': encodeSdkHeader({ version: 1, records: [report],
+        outbox: { through: 1, dropped: 0, status: 'available' } }) } }));
+    await start(f); await f.activity.reconcileDispatcherLease(); await f.drainBackground();
+    expect(f.normalTransport!.admissions.size).toBe(0);
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null });
+    const { records } = await diagnosticTraversal(diagnosticsBrowser(f));
+    const imported = records.filter(record => record.owner === 'sdk');
+    if (loggingEnabled) expect(imported).toEqual(expect.arrayContaining([expect.objectContaining({
+      boundary: 'model', code: report.code, outcome: 'failed',
+      correlation: expect.objectContaining({ sdkAttemptDigest: await digest('PRIVATE_REFUSED_ATTEMPT') }),
+    })]));
+    else expect(imported).toEqual([]);
+    expect(JSON.stringify(records)).not.toMatch(/PRIVATE_REFUSED|private\.jwt/);
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    expect(f.sent).toEqual([]);
+  }, { ...writableApplication, sdkDiagnostics: true, loggingEnabled }));
+
+  it.each([500, 503])('pre-admission HTTP%i preserves the saved application wire through cold recovery', status => fixture(async f => {
+    f.admissionFault(() => Response.json({ error: 'PRIVATE_ADMISSION_RESPONSE' }, { status }));
+    await start(f);
+    const original = structuredClone(f.normalTransport!.requests.find(request => request.path === '/control/dispatch')!);
+    expect(f.normalTransport!.admissions.size).toBe(0);
+    const deadline = (await f.activity.getRuntimePlan())!.deadline;
+    f.admissionFault(undefined);
+    const cold = await coldOwner(f); await cold.activity.reconcileDispatcherLease();
+    const admissions = [...f.normalTransport!.admissions.values()];
+    expect(admissions).toHaveLength(1); expect(JSON.parse(admissions[0].wire)).toEqual(original.body);
+    expect((await applicationContext(cold)).receipt).toEqual(admissions[0].receipt);
+    expect((await cold.activity.getRuntimePlan())!.deadline).toBe(deadline);
+    expect(f.sent).toEqual([]);
+  }, writableApplication));
+
+  it.each([400, 401, 403, 404])('definitive admission HTTP%i fences without adopting a new SDK incarnation', status => fixture(async f => {
+    f.admissionFault(() => Response.json({ error: { type: 'agent_instance_not_found', detail: 'PRIVATE_ADMISSION_BODY' } }, { status }));
+    await start(f);
+    await f.activity.reconcileDispatcherLease();
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null });
+    const requests = structuredClone(f.normalTransport!.requests);
+    f.admissionFault(undefined); const cold = await coldOwner(f); await cold.activity.reconcileDispatcherLease();
+    expect(f.normalTransport!.admissions.size).toBe(0);
+    expect(f.normalTransport!.requests).toEqual(requests);
+    expect(await cold.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    expect(f.sent).toEqual([]);
+  }, { ...writableApplication, loggingEnabled: false }));
+
+  it.each(['pending', 'unavailable'] as const)('repeated %s normal observations never renew the original deadline or replace work', mode => fixture(async f => {
+    await start(f); const original = await applicationContext(f);
+    const admissions = structuredClone([...f.normalTransport!.admissions.values()]);
+    const deadline = await deadlineSchedule(f);
+    const cold = await coldOwner(f);
+    for (let index = 0; index < 3; index++) {
+      if (mode === 'unavailable') f.normalTransport!.failNextRead(503);
+      await cold.activity.reconcileDispatcherLease();
+      expect(await applicationContext(cold)).toEqual(original);
+      expect([...f.normalTransport!.admissions.values()]).toEqual(admissions);
+      expect((await deadlineSchedule(cold)).time).toBe(deadline.time);
+      expect(await cold.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    }
+    f.normalTransport!.settleSubmission(original.receipt.submissionId, 'completed');
+    await cold.activity.reconcileDispatcherLease();
+    expect(await cold.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { result: { completed: true } } });
+  }, writableApplication));
 
   it.each(['expired', 'exact-deadline', 'expiry-during-authorization', 'installation-revoked', 'invoker-removed',
-    'session-revoked', 'registration-revoked', 'cancelled', 'cancel-during-authorization', 'inputDigest', 'artifactDigest'] as const)(
-    'REQ-OPERATOR-048: AC5 cold keyed attachment cannot cross %s fence; REQ-OPERATOR-017 AC4/5/6 no late result', boundary => fixture(async f => {
-      await start(f);
-      const originalWire = await latestDelivery(f);
-      const deadline = await deadlineSchedule(f);
-      const history = [...f.childSubmissions];
+    'session-revoked', 'cancelled', 'cancel-during-authorization', 'inputDigest', 'artifactDigest', 'release'] as const)(
+    'generic cold recovery cannot cross the %s fence or commit a late result', boundary => fixture(async f => {
+      f.normalTransport!.loseAcknowledgement(); await start(f);
+      const admissions = structuredClone([...f.normalTransport!.admissions.values()]);
+      const token = applicationToken(f); const deadline = (await f.activity.getRuntimePlan())!.deadline;
       if (boundary === 'expired') f.expire();
-      else if (boundary === 'exact-deadline') vi.spyOn(Date, 'now').mockReturnValue(deadline.time * 1000);
+      else if (boundary === 'exact-deadline') f.setClock(deadline);
       else if (boundary === 'expiry-during-authorization') f.afterRegistryResolve(async () => { f.expire(); });
       else if (boundary === 'installation-revoked') f.revoke();
       else if (boundary === 'invoker-removed') f.revokeGrant();
       else if (boundary === 'session-revoked') f.revokeSession();
-      else if (boundary === 'registration-revoked') f.changeRegistration(null);
       else if (boundary === 'cancelled') await f.activity.cancelDrive();
       else if (boundary === 'cancel-during-authorization') f.afterRegistryResolve(async () => { await f.activity.cancelDrive(); });
+      else if (boundary === 'release') f.changeConnection({ releaseId: 'replacement' });
       else await f.changeRetiredPin(boundary);
-      const cold = await coldOwner(f);
-      // Authorization can leave an admitting lease for a bounded retry. AC5 is
-      // deny-only for revocation; do not invent an immediate unknown-state contract.
-      await deny(await f.capability.fetch(wire('phase-context',
-        { deliveryToken: originalWire.attributes.deliveryToken }, originalWire.attributes.deliveryToken)));
-      for (const request of protectedRequests(originalWire.attributes.deliveryToken)) await deny(await f.capability.fetch(request));
-      await cold.activity.reconcileDispatcherLease({ generation: 1 });
-      await cold.activity.alarm(); await f.drainBackground();
-      f.messages([{ submissionId: 'submission-1', parts: [{ type: 'data-assessment', data: finalResult(f) }] }]);
-      f.settle(); await cold.activity.reconcileDispatcherLease();
-      const late = await cold.activity.commitDrive(1, { schemaVersion: 1, status: 'completed', checkpoint: null, result: finalResult(f) });
-      expect(late.ok).toBe(false);
+      const cold = await coldOwner(f); await cold.activity.reconcileDispatcherLease();
+      await deny(await applicationCallback(cold, 'source', { operationId: 'late-source', url: 'https://api.github.com/repos/another/service' }, token));
+      f.normalTransport!.settle('completed'); await cold.activity.reconcileDispatcherLease();
+      expect((await cold.activity.commitDrive(1, { schemaVersion: 1, status: 'completed', checkpoint: null, result: { tooLate: true } })).ok).toBe(false);
       expect(await cold.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
-      expect(await cold.activity.getBrowserDetail()).toMatchObject({ result: null, collectionStatus: 'unavailable' });
-      if (boundary === 'cancelled' || boundary === 'cancel-during-authorization') {
-        expect(await cold.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'cancel-requested' });
-        expect(late).toEqual({ ok: false, reason: 'stale-drive' });
-      } else if (['expired', 'exact-deadline', 'expiry-during-authorization', 'inputDigest', 'artifactDigest'].includes(boundary)) {
-        expect(await cold.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown' });
-        expect(await cold.activity.dispatcherGenerationCurrent(1)).toBe(false);
-      }
-      if (['expired', 'exact-deadline', 'expiry-during-authorization'].includes(boundary)) {
-        expect(await cold.activity.beginDrive()).toEqual({ ok: false, reason: 'authority-expired' });
-        expect(late).toEqual({ ok: false, reason: 'authority-expired' });
-      }
-      const schedules = (await cold.activity.listSchedules()).filter(row => row.callback === 'reconcileDispatcherLease');
-      expect(schedules.every(row => row.time <= deadline.time)).toBe(true);
-      expect(f.childSubmissions).toEqual(history);
-      expect(f.sent.filter(request => request.method !== 'GET')).toEqual([]);
-      expect(await f.readRemoteComments()).toEqual([]);
-    }, { repositoryOnly: true, intent4: true, losePhaseAdmission: 1, loggingEnabled: false,
-      ...(boundary === 'session-revoked' || boundary === 'registration-revoked' ? { prospective: true } : {}) }));
+      expect([...f.normalTransport!.admissions.values()]).toEqual(admissions);
+      expect((await cold.activity.getBrowserDetail())!.result).toBeNull(); expect(f.sent).toEqual([]);
+    }, writableApplication));
 
-  it.each([true, false])(
-    'REQ-OPERATOR-048: AC2 cold final recovery never replays or clears an unknown comment and requires exact deferred coverage=%s; REQ-OPERATOR-017 AC4', covered => fixture(async f => {
-      await start(f); await discovery(f);
-      const first = await context(f);
-      const mutation = { operationId: 'cold-unknown-original-comment', method: 'POST',
-        url: 'https://api.github.com/repos/another/service/issues/17/comments', body: '{"body":"Uncertain cold judgment"}' };
-      f.loseResponse();
-      const unknown = await f.capability.fetch(wire('source', mutation, first.deliveryToken));
-      expect(unknown.status).toBe(409); expect(await unknown.json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
-      f.restoreTransport();
-      const originalReceipt = await receipt(f, mutation.operationId, first.deliveryToken);
-      expect(originalReceipt).toMatchObject({ phase: 'unknown', method: 'POST', url: mutation.url });
-      const retry = await f.capability.fetch(wire('source', mutation, first.deliveryToken));
-      expect(retry.status).toBe(409); expect(await retry.json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
-      const resultRows = [{ ...frozen[0], outcome: 'DEFERRED', reason: 'comment-uncertain' }, rows[1]];
-      progress(f, first, { kind: 'target', index: 1, target: frozen[1] }, { results: resultRows.slice(0, 1) });
-      await f.activity.reconcileDispatcherLease();
-      const second = await context(f);
-      progress(f, second, { kind: 'final' }, { results: resultRows });
-      await f.activity.reconcileDispatcherLease();
-      const originalWire = await latestDelivery(f);
-      const deliveriesBefore = f.childSubmissions.length;
-      const cold = await coldOwner(f);
-      expect(await cold.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
-      expect(await Promise.all(f.childSubmissions.slice(deliveriesBefore).map(request => request.clone().json())))
-        .toEqual([originalWire]);
-      expect(await latestDelivery(cold)).toEqual(originalWire);
-      const final = await context(cold);
-      expect(final).toMatchObject({ phase: { kind: 'final' }, submissionId: 'submission-4', generation: first.generation,
-        deadline: first.deadline, releaseDigest: first.releaseDigest, authorityDigest: first.authorityDigest });
-      expect(await receipt(cold, mutation.operationId, final.deliveryToken)).toEqual(originalReceipt);
-      expect(await f.readRemoteComments()).toEqual([{ id: 91, body: 'Uncertain cold judgment', user: { id: 42 } }]);
-      await deny(await f.capability.fetch(wire('source', mutation, first.deliveryToken)));
-      expect(await context(cold)).toEqual(final);
-      const history = [...f.childSubmissions];
-      // A changed final disposition conflicts with witnessed progress and must not
-      // make the unknown mutation definite or grant a replacement generation.
-      const result = finalResult(f, covered ? resultRows : rows);
-      f.messages([{ submissionId: final.submissionId, parts: [{ type: 'data-assessment', data: result }] }]);
-      f.settle(final.submissionId); await cold.activity.reconcileDispatcherLease();
-      if (covered) {
-        const collected = await cold.activity.collectBrowserResult();
-        expect(collected).toMatchObject({ ok: true, detail: { result } });
-        expect(stableCollection(await cold.activity.collectBrowserResult())).toEqual(stableCollection(collected));
-      } else {
-        expect(await cold.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
-        expect(await cold.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null });
-      }
-      expect(await cold.activity.beginDrive()).toEqual({ ok: false, reason: 'drive-settled' });
-      expect(f.childSubmissions).toEqual(history);
-      expect(await f.readRemoteComments()).toEqual([{ id: 91, body: 'Uncertain cold judgment', user: { id: 42 } }]);
-    }, { repositoryOnly: true, intent4: true, losePhaseAdmission: 4, loggingEnabled: false }));
-
-  it.each(['generic', 'intent2'] as const)(
-    'REQ-OPERATOR-017: AC4 cold historical unkeyed %s admitting uncertainty remains fenced; REQ-OPERATOR-048 historical constraint', variant => fixture(async f => {
-      await start(f); await f.seedHistoricalAdmitting();
-      const history = [...f.childSubmissions];
-      const cold = await coldOwner(f);
-      expect(await cold.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null, collectionStatus: 'unavailable' });
-      expect(await cold.activity.dispatcherGenerationCurrent(1)).toBe(false);
-      for (const request of protectedRequests('historical-no-token')) await deny(await f.capability.fetch(request));
-      f.settle(); await cold.activity.reconcileDispatcherLease(); await cold.activity.alarm(); await f.drainBackground();
+  it('cancellation during an outstanding ACK retains the original abort receipt without reopening work', () => fixture(async f => {
+    const ack = f.normalTransport!.delayAcknowledgement(); const starting = start(f);
+    try {
+      await within(ack.entered, 'normal acceptance');
+      const original = structuredClone([...f.normalTransport!.admissions.values()]);
+      const token = applicationToken(f);
+      expect(await f.activity.cancelDrive()).toMatchObject({ ok: true, state: { generation: 2, status: 'cancel-requested' } });
+      ack.release(); await starting;
+      const cold = await coldOwner(f); await cold.activity.reconcileDispatcherLease();
+      await deny(await applicationCallback(cold, 'source', { operationId: 'after-cancel', url: 'https://api.github.com/repos/another/service' }, token));
+      expect([...f.normalTransport!.admissions.values()]).toEqual(original);
+      expect(await cold.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'cancel-requested', result: null });
       expect(await cold.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
-      expect(await cold.activity.beginDrive()).toEqual({ ok: false, reason: 'drive-settled' });
-      expect(f.childSubmissions).toEqual(history);
-      expect(await f.readRemoteComments()).toEqual([]);
-    }, { loggingEnabled: false, ...(variant === 'intent2' ? { prospective: true, legacyProspective: true } : { repositoryOnly: true }) }));
+      expect((await cold.activity.commitDrive(1, { schemaVersion: 1, status: 'completed', checkpoint: null, result: {} })).ok).toBe(false);
+      expect(f.sent).toEqual([]);
+    } finally { ack.release(); await starting; }
+  }, writableApplication));
 
-  it('REQ-OPERATOR-048: AC2 historical running receipt reconstructs and collects its exact settlement without POST replay', () => fixture(async f => {
-    await start(f); const history = [...f.childSubmissions];
-    f.settle(); const cold = await coldOwner(f);
-    await cold.activity.reconcileDispatcherLease();
-    expect(await cold.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'waiting', result: null });
-    const collected = await cold.activity.collectBrowserResult();
-    expect(collected).toMatchObject({ ok: true, detail: { executionStatus: 'completed', result: {
-      repository: 'owner/repo', pullRequest: 17, observedHead: 'b'.repeat(40), readOnly: true,
-      assessment: { classification: 'unknown', reasons: ['No verified compatibility declaration'] },
-    } } });
-    expect(stableCollection(await cold.activity.collectBrowserResult())).toEqual(stableCollection(collected));
-    expect(f.childSubmissions).toEqual(history); expect(await f.readRemoteComments()).toEqual([]);
-  }, { loggingEnabled: false }));
-
-  it('REQ-OPERATOR-048: AC5 stale warmed callers and predecessor tokens cannot fence recovered current work; REQ-OPERATOR-017 AC2/5 rejects late generations', () => fixture(async f => {
-    await start(f); const originalWire = await latestDelivery(f);
-    const cold = await coldOwner(f); const original = await context(cold);
-    const history = [...f.childSubmissions];
-    for (const request of protectedRequests(originalWire.attributes.deliveryToken)) await deny(await f.staleCapability.fetch(request));
-    await deny(await f.staleCapability.fetch(wire('phase-context', { deliveryToken: original.deliveryToken }, original.deliveryToken)));
-    await cold.activity.reconcileDispatcherLease({ generation: 2 });
-    expect(await cold.activity.commitDrive(2, { schemaVersion: 1, status: 'completed', checkpoint: null, result: finalResult(f) }))
-      .toEqual({ ok: false, reason: 'stale-drive' });
-    expect(await context(cold)).toEqual(original); expect(f.childSubmissions).toEqual(history);
-    expect(await cold.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
-    await discovery(cold); const current = await context(cold);
-    await deny(await f.capability.fetch(wire('phase-context', { deliveryToken: original.deliveryToken }, original.deliveryToken)));
-    for (const request of protectedRequests(original.deliveryToken)) await deny(await f.capability.fetch(request));
-    expect(await context(cold)).toEqual(current);
-    const mutation = { operationId: 'recovered-current-comment', method: 'POST',
-      url: 'https://api.github.com/repos/another/service/issues/17/comments', body: '{"body":"Current recovered judgment"}' };
-    const posted = await f.capability.fetch(wire('source', mutation, current.deliveryToken));
-    expect(posted.status).toBe(200); expect(await posted.json()).toMatchObject({ status: 201 });
-    expect(await receipt(cold, mutation.operationId, current.deliveryToken)).toMatchObject({ phase: 'completed' });
-    expect(await context(cold)).toEqual(current);
-    await finish(cold);
-    expect(await f.readRemoteComments()).toEqual([{ id: 91, body: 'Current recovered judgment', user: { id: 42 } }]);
-  }, { repositoryOnly: true, intent4: true, losePhaseAdmission: 1, loggingEnabled: false }));
-
-  it.each(['completed', 'unknown', 'cancel-requested'] as const)(
-    'REQ-OPERATOR-017: AC4 cold %s reconstruction is inert with immutable collection and no repository replay; AC5 late cancelled result rejects', status => fixture(async f => {
-      await start(f);
-      let collected: Awaited<ReturnType<OperatorActivity['collectBrowserResult']>> | undefined;
-      if (status === 'completed') collected = await finish(f);
-      else if (status === 'unknown') await f.activity.interruptDrive(1);
-      else await f.activity.cancelDrive();
-      const before = await f.activity.getBrowserDetail();
-      if (!before) throw new Error('Prepared fixture browser detail unavailable');
-      const history = [...f.childSubmissions];
-      const cold = await coldOwner(f);
-      for (let alarm = 0; alarm < 2; alarm++) {
-        await cold.activity.alarm(); await cold.activity.reconcileDispatcherLease({ generation: 1 }); await f.drainBackground();
-      }
-      // Lifecycle/result identity is inert; independent SDK release bookkeeping
-      // may finish during reconstruction and observation timestamps are not immutable.
-      expect(await cold.activity.getBrowserDetail()).toMatchObject({
-        activityId: before.activityId, executionStatus: before.executionStatus,
-        collectionStatus: before.collectionStatus, checkpoint: before.checkpoint, result: before.result,
-      });
-      expect(await cold.activity.beginDrive()).toEqual({ ok: false, reason: 'drive-settled' });
-      if (collected) {
-        expect(stableCollection(await cold.activity.collectBrowserResult())).toEqual(stableCollection(collected));
-        expect(stableCollection(await cold.activity.collectBrowserResult())).toEqual(stableCollection(collected));
-      } else {
-        const token = (await latestDelivery(f)).attributes.deliveryToken;
-        for (const request of protectedRequests(token)) await deny(await f.capability.fetch(request));
-        expect(await cold.activity.commitDrive(1, { schemaVersion: 1, status: 'completed', checkpoint: null, result: finalResult(f) }))
-          .toEqual({ ok: false, reason: 'stale-drive' });
-        f.messages([{ submissionId: 'submission-1', parts: [{ type: 'data-assessment', data: finalResult(f) }] }]);
-        f.settle(); await cold.activity.reconcileDispatcherLease();
-        expect(await cold.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
-        expect(await cold.activity.getBrowserDetail()).toMatchObject({ executionStatus: status, result: null });
-      }
-      expect(f.childSubmissions).toEqual(history); expect(await f.readRemoteComments()).toEqual([]);
-    }, { repositoryOnly: true, intent4: true, loggingEnabled: false }));
-
-  it('REQ-OPERATOR-047: exhausted target inference attempts are operation-local while independent work retains original authority', () => fixture(async f => {
-    await start(f); await discovery(f);
-    const original = await context(f);
-    const response = await f.capability.fetch(wire('inference', { operationId: 'target-inference',
-      input: { messages: [{ role: 'user', content: 'Assess the admitted target' }] } }, original.deliveryToken));
-    expect(response.status).toBe(409);
-    expect(await response.json()).toEqual({ code: 'OPERATOR_INFERENCE_RECOVERY_EXHAUSTED',
-      reason: 'operation-failed', disposition: 'operation-local' });
-    expect(await context(f)).toEqual(original);
-    const subsequent = await f.capability.fetch(wire('source', { operationId: 'independent-after-exhaustion',
-      url: 'https://api.github.com/repos/another/service' }, original.deliveryToken));
-    expect(subsequent.status).toBe(200);
-    const retained = await receipt(f, 'independent-after-exhaustion', original.deliveryToken);
-    expect(retained).toMatchObject({ phase: 'completed', operationCount: 3, operationLimit: 128 });
-    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
-    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
-  }, { repositoryOnly: true, intent4: true, recovery: true, operationLimit: 128, inferenceAttemptLimit: 2,
-    capacityPolicy: { inferenceRetryBaseMs: 1, inferenceRetryMaxMs: 2 }, inferenceTransport: async () => new Response(
-      'data: {"choices":[{"delta":{},"finish_reason":null}]}\n\ndata: [DONE]\n\n',
-      { headers: { 'content-type': 'text/event-stream' } }) }));
-
-  it.each(['failed', 'completed'] as const)(
-    'REQ-OPERATOR-048/081: definitive SDK incarnation refusal after a %s target fences original work and retains witnessed progress', outcome => fixture(async f => {
-      await start(f);
-      await discovery(f);
-      const first = await context(f);
-      f.admissionFault(() => Response.json({ error: { type: 'agent_instance_not_found',
-        message: 'Agent instance not found', details: 'PRIVATE_ADMISSION_BODY' } }, { status: 404 }));
-      if (outcome === 'completed') {
-        progress(f, first, { kind: 'target', index: 1, target: frozen[1] }, { results: [rows[0]] });
-      } else {
-        f.messages([]);
-        f.settle(first.submissionId, 'failed', { type: 'operation_failed' });
-      }
-      await f.activity.reconcileDispatcherLease();
-      await f.drainBackground();
-      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null,
-        collectionStatus: 'unavailable', cleanupStatus: 'released', sdkCleanupReleased: true });
-      expect(await f.activity.dispatcherGenerationCurrent(first.generation)).toBe(false);
-      // Restoring the SDK must not resurrect an explicitly refused original incarnation.
-      f.admissionFault(undefined);
-      const cold = await coldOwner(f);
-      f.advanceClock(6000);
-      await cold.activity.alarm();
-      await cold.activity.reconcileDispatcherLease();
-      await f.drainBackground();
-      expect(await cold.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null,
-        collectionStatus: 'unavailable', sdkCleanupReleased: true });
-      expect(await cold.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
-      const denied = await f.capability.fetch(wire('source', { operationId: 'after-admission-refusal', method: 'POST',
-        url: 'https://api.github.com/repos/another/service/issues/17/comments', body: '{"body":"must not publish"}' }, first.deliveryToken));
-      expect(denied.status).toBe(403);
-      expect(await f.readRemoteComments()).toEqual([]);
-      const get = diagnosticsBrowser(cold);
-      const lifecycle = await (await get('/diagnostics')).json() as { parent: { lease: { resultCount: number } } };
-      expect(lifecycle.parent.lease.resultCount).toBe(outcome === 'completed' ? 1 : 0);
-      const summary = await diagnosticSummary(cold);
-      expect(summary.fence).toMatchObject({ generation: first.generation, boundary: 'submission', code: 'submission-failed' });
-      const history = await diagnosticTraversal(get);
-      expect(history.records).toContainEqual(expect.objectContaining({ owner: 'host', boundary: 'submission', outcome: 'failed',
-        code: 'submission-failed', error: expect.objectContaining({ transportStatus: 404, admissionType: 'agent_instance_not_found' }) }));
-    }, { repositoryOnly: true, intent4: true, facetContract: true }));
-
-  it.each([404, 500, 503])('REQ-OPERATOR-048/081: uncertain admission HTTP%i preserves original keyed work and safe failure status', status => fixture(async f => {
-    await start(f);
-    await discovery(f);
-    const first = await context(f);
-    f.admissionFault(() => Response.json({ ...(status === 404 ? { code: 'agent_instance_not_found' } : {}),
-      detail: 'PRIVATE_UNCLASSIFIED_ADMISSION_BODY' }, { status }));
-    f.messages([]);
-    f.settle(first.submissionId, 'failed', { type: 'operation_failed' });
-    await f.activity.reconcileDispatcherLease();
-    await f.drainBackground();
-    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null,
-      collectionStatus: 'unavailable' });
-    const originalWire = await latestDelivery(f);
-    const history = await diagnosticTraversal(diagnosticsBrowser(f));
-    expect(history.records).toContainEqual(expect.objectContaining({ owner: 'host', boundary: 'submission', outcome: 'failed',
-      error: expect.objectContaining({ transportStatus: status }) }));
-    f.admissionFault(undefined);
-    const cold = await coldOwner(f);
-    await cold.activity.reconcileDispatcherLease();
-    const next = await context(cold, originalWire.attributes.deliveryToken);
-    expect(next).toMatchObject({ generation: first.generation, deadline: first.deadline, releaseDigest: first.releaseDigest,
-      authorityDigest: first.authorityDigest, phase: { kind: 'target', index: 1, target: frozen[1] } });
-    expect((await latestDelivery(cold)).idempotencyKey).toBe(originalWire.idempotencyKey);
-    expect((await latestDelivery(cold)).uid).toBe(originalWire.uid);
-    expect(await cold.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
-    expect(await cold.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
-  }, { repositoryOnly: true, intent4: true, facetContract: true }));
-
-  it('REQ-OPERATOR-081: a refused SDK admission retains its available validated diagnostic header without exposing response text', () => fixture(async f => {
-    await start(f);
-    await discovery(f);
-    const first = await context(f);
-    const report = await runtimeEnvelope(f);
-    report.sdk!.submissionId = first.submissionId;
-    const header = encodeSdkHeader({ version: 1, records: [report], outbox: { through: report.sequence, dropped: 0, status: 'available' } });
-    f.admissionFault(() => Response.json({ detail: 'PRIVATE_REFUSED_SDK_RESPONSE' }, { status: 503,
-      headers: { 'x-codeflare-sdk-diagnostics': header } }));
-    f.messages([]);
-    f.settle(first.submissionId, 'failed', { type: 'operation_failed' });
-    await f.activity.reconcileDispatcherLease();
-    await f.drainBackground();
-    const history = await diagnosticTraversal(diagnosticsBrowser(f));
-    expect(history.records).toContainEqual(expect.objectContaining({ owner: 'sdk', boundary: report.boundary,
-      code: report.code, outcome: report.outcome }));
-    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
-  }, { repositoryOnly: true, intent4: true, sdkDiagnostics: true }));
-
-  it('REQ-OPERATOR-048/081: logging OFF still fences a definitive admission refusal without retaining optional transport details', () => fixture(async f => {
-    await start(f);
-    await discovery(f);
-    const first = await context(f);
-    f.admissionFault(() => Response.json({ error: { type: 'agent_instance_not_found',
-      message: 'Agent instance not found', details: 'PRIVATE_LOGGING_OFF_RESPONSE' } }, { status: 404 }));
-    f.messages([]);
-    f.settle(first.submissionId, 'failed', { type: 'operation_failed' });
-    await f.activity.reconcileDispatcherLease();
-    await f.drainBackground();
-    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null, sdkCleanupReleased: true });
-    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
-    const summary = await diagnosticSummary(f);
-    expect(summary.fence).toMatchObject({ generation: first.generation, code: 'submission-failed' });
-    const history = await diagnosticTraversal(diagnosticsBrowser(f));
-    expect(JSON.stringify(history)).not.toContain('transportStatus');
-  }, { repositoryOnly: true, intent4: true, loggingEnabled: false }));
-
-  it('failed PR1 advances only after its exact SDK settlement; PR2 supplies actual complete data and immutable final collection', () => fixture(async f => {
-    await start(f);
-    const original = await discovery(f);
-    const first = await context(f);
-    expect(first.phase).toEqual({ kind: 'target', index: 0, target: frozen[0] });
-    f.messages([]); f.settle(first.submissionId, 'failed', { type: 'operation_failed', meta: { reason: 'fixture provider failure' } });
-    const admitted = await latestDelivery(f);
-    // REQ-OPERATOR-048 AC2/3: a broken connection is not a replacement phase,
-    // acknowledgement, submission, generation or deadline.
-    f.interruptOwnedChild(new Error('Controlled Dispatcher status connection failure'));
-    await f.activity.reconcileDispatcherLease();
-    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', collectionStatus: 'unavailable', result: null });
-    expect(await context(f)).toEqual(first);
-    expect(await latestDelivery(f)).toEqual(admitted);
-    f.statusFault(() => { throw new Error('Observation unavailable'); });
-    await f.activity.reconcileDispatcherLease();
-    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', collectionStatus: 'unavailable', result: null });
-    expect(await context(f)).toEqual(first);
-    expect(await latestDelivery(f)).toEqual(admitted);
-    await f.activity.reconcileDispatcherLease();
-    const second = await context(f);
-    expect(second.phase).toEqual({ kind: 'target', index: 1, target: frozen[1] });
-    expect(second.previous).toEqual([{ submissionId: original.submissionId, phase: original.phase, outcome: 'completed' },
-      { submissionId: first.submissionId, phase: first.phase, outcome: 'failed' }]);
-    for (const key of ['scope', 'generation', 'deadline', 'releaseDigest', 'authorityDigest'] as const) expect(second[key]).toBe(original[key]);
-    const rows = [{ ...frozen[0], outcome: 'DEFERRED', reason: 'response-failed' },
-      { ...frozen[1], decision: 'DO_NOT_MERGE', comment: 'Actual recorded judgment', outcome: 'NOT_MERGED' }];
-    progress(f, second, { kind: 'final' }, { results: rows });
-    await f.activity.reconcileDispatcherLease();
-    const final = await context(f);
-    expect(final.phase).toEqual({ kind: 'final' });
-    expect((await f.activity.getBrowserDetail())!.executionStatus).toBe('running');
-    const result = { ...(f.input as { repository: string }), results: rows };
-    f.messages([{ submissionId: final.submissionId, parts: [{ type: 'data-assessment', data: result }] }]);
-    f.settle(final.submissionId); await f.activity.reconcileDispatcherLease();
-    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'completed', result });
-    const collected = await f.activity.collectBrowserResult();
-    expect(collected).toMatchObject({ ok: true, detail: { result, sdkCleanupReleased: true } });
-    expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { result, sdkCleanupReleased: true } });
-    expect((await latestDelivery(f)).uid).toBe('fixture-incarnation');
-  }, { repositoryOnly: true, intent4: true, loggingEnabled: false, facetContract: true }));
-
-  it.each(['expired', 'HTTP-rejected'] as const)('REQ-OPERATOR-048: %s status observation cannot keep original work alive', fault => fixture(async f => {
-    await start(f); await discovery(f); const original = await context(f);
-    f.statusFault(() => {
-      if (fault === 'HTTP-rejected') return new Response('', { status: 503 });
-      f.advanceClock(300_000); throw new Error('Observation unavailable');
-    });
-    await f.activity.reconcileDispatcherLease();
-    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null, collectionStatus: 'unavailable' });
-    expect(await f.activity.dispatcherGenerationCurrent(original.generation)).toBe(false);
-    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
-  }, { repositoryOnly: true, intent4: true, loggingEnabled: false }));
-
-  it.each(['unknown', 'cancel-requested'] as const)('REQ-OPERATOR-016/041: %s exposes only its exact retired SDK receipt', status => fixture(async f => {
-    await start(f);
-    if (status === 'unknown') await f.activity.interruptDrive(1); else await f.activity.cancelDrive();
-    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: status, sdkCleanupReleased: true,
-      collectionStatus: 'unavailable', result: null, cleanupStatus: 'released' });
-    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
-    const denied = await f.capability.fetch(genericWire('source', { operationId: 'retired-effect', method: 'POST',
-      url: 'https://api.github.com/repos/another/service/issues/17/comments', body: '{"body":"must not publish"}' }));
-    expect(denied.status).toBe(403);
-  }, { repositoryOnly: true, intent4: true, loggingEnabled: false }));
-
-  it.each(['inputDigest', 'artifactDigest'] as const)('REQ-OPERATOR-041: a retired receipt with mismatched %s is not exposed', field => fixture(async f => {
-    await start(f); await f.activity.interruptDrive(1); await f.changeRetiredPin(field);
-    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', sdkCleanupReleased: false, result: null });
-  }, { repositoryOnly: true, intent4: true, loggingEnabled: false }));
-
-  it.each(['read-failure', 'unknown-write', 'domain-uncertain'] as const)('REQ-OPERATOR-061: only original settled and collected singleton deferral supplies immutable scheduled-retry proof: %s', scenario => fixture(async f => {
-    await start(f);
-    const coordinates = { repositoryId: f.proof.repositoryId, pullRequest: f.proof.pullRequest, head: f.proof.head };
-    expect(await f.activity.readProspectiveRenovateRetryProof(coordinates)).toBeNull();
-    const original = await context(f);
-    const target = { pullRequest: coordinates.pullRequest, headSha: coordinates.head };
-    progress(f, original, { kind: 'target', index: 0, target }, { targets: [target] });
-    await f.activity.reconcileDispatcherLease();
-    const current = await context(f);
-    if (scenario === 'unknown-write') {
-      f.loseResponse();
-      const unknown = await f.capability.fetch(wire('source', { operationId: 'original-uncertain-comment', method: 'POST',
-        url: `${prospectiveBase}/issues/${target.pullRequest}/comments`, body: '{"body":"Original intended comment"}' }, current.deliveryToken));
-      expect(unknown.status).toBe(409);
-      expect(await unknown.json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
-      f.restoreTransport();
-    }
-    const result = { repository: f.proof.repository, results: [scenario === 'domain-uncertain'
-      ? { ...target, outcome: 'DEFERRED', reason: 'comment-uncertain', decision: 'DO_NOT_MERGE', comment: 'Actual recorded judgment' }
-      : { ...target, outcome: 'DEFERRED', reason: 'response-failed' }] };
-    if (scenario === 'domain-uncertain') progress(f, current, { kind: 'final' }, { results: result.results });
-    else { f.messages([]); f.settle(current.submissionId, 'failed', { type: 'operation_failed' }); }
-    await f.activity.reconcileDispatcherLease();
-    const final = await context(f);
-    expect(await f.activity.readProspectiveRenovateRetryProof(coordinates)).toBeNull();
-    f.messages([{ submissionId: final.submissionId, parts: [{ type: 'data-assessment', data: result }] }]);
-    f.settle(final.submissionId); await f.activity.reconcileDispatcherLease();
-    const proof = await f.activity.readProspectiveRenovateRetryProof(coordinates);
-    if (scenario === 'read-failure') expect(proof).toMatchObject({ ...coordinates, activityId: f.proof.activityId, generation: final.generation,
-      repository: f.proof.repository, baseBranch: f.proof.baseBranch, artifactDigest: f.proof.bundleDigest,
-      createdAt: f.proof.createdAt, sdkSubmissionId: final.submissionId, terminalAt: expect.any(Number),
-      collected: true, settled: true, disposition: 'DEFERRED' });
-    else expect(proof).toBeNull(); // Complete collection never grants permission to repeat an uncertain effect.
-    f.restart();
-    expect(await f.activity.readProspectiveRenovateRetryProof(coordinates)).toEqual(proof);
-    expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { result } });
-    expect(await f.activity.readProspectiveRenovateRetryProof(coordinates)).toEqual(proof);
-    expect(await f.activity.readProspectiveRenovateRetryProof({ ...coordinates, repositoryId: coordinates.repositoryId + 1 })).toBeNull();
-    expect(await f.activity.readProspectiveRenovateRetryProof({ ...coordinates, head: 'c'.repeat(40) })).toBeNull();
-    f.changeProof({ head: 'c'.repeat(40) });
-    expect(await f.activity.readProspectiveRenovateRetryProof(coordinates)).toBeNull();
-  }, { prospective: true, intent4: true }));
-
-  it.each([1, 2])('lost phase %i acknowledgement reattaches the original keyed admission without replacing UID/SID', lost => fixture(async f => {
-    await start(f);
-    if (lost === 2) await discovery(f);
-    const retainedWire = await latestDelivery(f);
-    const recovered = await context(f, retainedWire.attributes.deliveryToken);
-    expect(recovered.submissionId).toBe(`submission-${lost}`);
-    expect(await latestDelivery(f)).toEqual(retainedWire);
-    expect(await context(f, retainedWire.attributes.deliveryToken)).toEqual(recovered);
-    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
-    expect(f.sent).toEqual([]);
-  }, { repositoryOnly: true, intent4: true, losePhaseAdmission: lost }));
-
-  it('old delivery tokens cannot fetch context or protected sources, and do not fence the next phase', () => fixture(async f => {
-    await start(f); const original = await discovery(f); const current = await context(f);
-    const before = await f.activity.getBrowserDetail();
-    const stale = await f.capability.fetch(wire('source', { operationId: 'old-read', url: 'https://api.github.com/repos/another/service' }, original.deliveryToken));
-    expect(stale.status).toBe(403);
-    expect(await stale.json()).toMatchObject({ code: 'OPERATOR_CAPABILITY_DENIED' });
-    expect((await f.capability.fetch(wire('phase-context', { deliveryToken: original.deliveryToken }, original.deliveryToken))).status).toBe(403);
-    expect(await f.activity.getBrowserDetail()).toEqual(before);
-    const read = await f.capability.fetch(wire('source', { operationId: 'current-read', url: 'https://api.github.com/repos/another/service' }, current.deliveryToken));
-    expect(read.status).toBe(200);
-    const retained = await receipt(f, 'current-read', current.deliveryToken);
-    const diagnostic = await f.activity.getDispatcherDiagnostics(f.proof.ownerKey);
-    expect(diagnostic).toMatchObject({ parent: { operations: { status: 'available', scan: 'complete',
-      inspectedEntries: 1, records: [{ operationDigest: await digest('current-read'), ordinal: 0,
-        status: 'completed', requestDigest: retained.requestDigest, responseDigest: retained.responseDigest,
-        binding: { scope: 'requested', submissionDigest: await digest(current.submissionId),
-          deliveryDigest: await digest(current.deliveryToken), phase: 'target', phaseIndex: 0, resource: 'source' },
-        hostInference: null }] } } });
-    for (const secret of ['current-read', current.submissionId, current.deliveryToken, 'https://api.github.com'])
-      expect(JSON.stringify(diagnostic)).not.toContain(secret);
-    expect(await f.activity.getDispatcherDiagnostics('f'.repeat(64))).toBeNull();
-    expect(await context(f)).toEqual(current);
-  }, { repositoryOnly: true, intent4: true }));
-
-  it.each([true, false])('exact deferred coverage of a lost comment response permits collection=%s without replay or clearing uncertainty', covered => fixture(async f => {
-    await start(f); await discovery(f);
-    const first = await context(f);
-    const mutation = { operationId: 'uncertain-original-comment', method: 'POST',
-      url: 'https://api.github.com/repos/another/service/issues/17/comments', body: JSON.stringify({ body: 'Original intended comment' }) };
+  it.each([false, true])('a lost write response remains unknown even if application evidence claims deferred=%s', deferred => fixture(async f => {
+    await start(f); const current = await applicationContext(f);
+    const operation = { operationId: 'unknown-application-write', method: 'POST',
+      url: 'https://api.github.com/repos/another/service/issues/17/comments', body: '{"body":"Original intended comment"}' };
     f.loseResponse();
-    const response = await f.capability.fetch(wire('source', mutation, first.deliveryToken));
-    expect(response.status).toBe(409);
-    expect(await response.json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
-    f.restoreTransport();
-    const originalReceipt = await f.capability.fetch(wire('receipt', { operationId: mutation.operationId }, first.deliveryToken));
-    expect(await originalReceipt.json()).toMatchObject({ phase: 'unknown', method: 'POST', url: mutation.url, operationCount: 1 });
-    const admitted = await latestDelivery(f);
-    f.statusFault(() => { throw new Error('Observation unavailable'); });
-    await f.activity.reconcileDispatcherLease();
-    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', collectionStatus: 'unavailable', result: null });
-    expect(await context(f)).toEqual(first); expect(await latestDelivery(f)).toEqual(admitted);
-    const retained = await f.capability.fetch(wire('receipt', { operationId: mutation.operationId }, first.deliveryToken));
-    expect(await retained.json()).toMatchObject({ phase: 'unknown', operationCount: 1 });
-    f.messages([]); f.settle(first.submissionId, 'failed', { type: 'operation_failed' });
-    await f.activity.reconcileDispatcherLease();
-    const second = await context(f);
-    // A failed SDK response cannot invent the missing judgment. Its original target's
-    // response-failed disposition accounts for the retained original unknown operation.
-    const rows = [covered ? { ...frozen[0], outcome: 'DEFERRED', reason: 'response-failed' }
-      : { ...frozen[0], decision: 'DO_NOT_MERGE', comment: 'Invalid definite outcome', outcome: 'NOT_MERGED' },
-      { ...frozen[1], decision: 'DO_NOT_MERGE', comment: 'Unrelated actual fixture judgment', outcome: 'NOT_MERGED' }];
-    const readback = await f.capability.fetch(wire('source', { operationId: 'independent-readback', url: mutation.url }, second.deliveryToken));
-    expect(readback.status).toBe(200);
-    expect(JSON.parse((await readback.json() as { body: string }).body)).toEqual([
-      { id: 91, body: 'Original intended comment', user: { id: 42 } },
+    const unknown = await applicationCallback(f, 'source', operation);
+    expect(unknown.status).toBe(409); expect(await unknown.json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
+    f.restoreTransport(); const cold = await coldOwner(f);
+    expect((await applicationCallback(cold, 'source', operation)).status).toBe(409);
+    expect(await (await applicationCallback(cold, 'receipt', { operationId: operation.operationId })).json()).toMatchObject({ phase: 'unknown', operationCount: 1 });
+    f.normalTransport!.settleSubmission(current.receipt.submissionId, 'failed', [
+      { name: 'assessment', data: { outcome: deferred ? 'DEFERRED' : 'NOT_MERGED' } },
     ]);
-    // REQ-OPERATOR-080: the tail contains different phases; association is explicit, not inferred.
-    const diagnostic = await f.activity.getDispatcherDiagnostics(f.proof.ownerKey);
-    expect(diagnostic).toMatchObject({ parent: { operations: { scan: 'complete', inspectedEntries: 2,
-      records: [
-        { operationDigest: await digest('independent-readback'), ordinal: 1, status: 'completed',
-          binding: { scope: 'requested', phase: 'target', phaseIndex: 1,
-            submissionDigest: await digest(second.submissionId), deliveryDigest: await digest(second.deliveryToken) } },
-        { operationDigest: await digest(mutation.operationId), ordinal: 0, status: 'unknown',
-          binding: { scope: 'other', phase: 'target', phaseIndex: 0,
-            submissionDigest: await digest(first.submissionId), deliveryDigest: await digest(first.deliveryToken) } },
-      ] } } });
-    expect(JSON.stringify(diagnostic)).not.toMatch(/Original intended comment|uncertain-original-comment|independent-readback|api\.github\.com/);
-    progress(f, second, { kind: 'final' }, { results: rows });
-    await f.activity.reconcileDispatcherLease();
-    const final = await context(f);
-    const result = { ...(f.input as { repository: string }), results: rows };
-    f.messages([{ submissionId: final.submissionId, parts: [{ type: 'data-assessment', data: result }] }]);
-    f.settle(final.submissionId); await f.activity.reconcileDispatcherLease();
-    if (covered) {
-      expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { result } });
-      expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { result } });
-    } else {
-      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
-      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null });
-    }
-    expect((await f.capability.fetch(wire('source', mutation, first.deliveryToken))).status).toBe(403);
-  }, { repositoryOnly: true, intent4: true }));
+    await cold.activity.reconcileDispatcherLease();
+    expect(await cold.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null });
+    expect(await cold.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    expect(f.normalTransport!.admissions.size).toBe(1);
+    expect(remoteMutations(f)).toHaveLength(1);
+    expect(await f.readRemoteComments()).toEqual([{ id: 91, body: 'Original intended comment', user: { id: 42 } }]);
+  }, writableApplication));
 
-  it('a late predecessor inference failure cannot commit into or interrupt its successor', async () => {
-    let entered!: () => void;
-    let release!: () => void;
-    const enteredPromise = new Promise<void>(resolve => { entered = resolve; });
+  it('an in-flight model failure cannot authorize a successor or publish a late result after cancellation', async () => {
+    let entered!: () => void; let release!: () => void;
+    const sending = new Promise<void>(resolve => { entered = resolve; });
     const held = new Promise<void>(resolve => { release = resolve; });
     await fixture(async f => {
-      await start(f); await discovery(f); const first = await context(f);
-      const late = f.capability.fetch(wire('inference', { operationId: 'held-pr1-model',
-        input: { messages: [{ role: 'user', content: 'PR1 fixture input' }] } }, first.deliveryToken));
-      await enteredPromise;
-      const admitted = await latestDelivery(f);
-      f.statusFault(() => { throw new Error('Observation unavailable'); });
-      await f.activity.reconcileDispatcherLease();
-      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', collectionStatus: 'unavailable', result: null });
-      expect(await context(f)).toEqual(first); expect(await latestDelivery(f)).toEqual(admitted);
-      const receipt = await f.capability.fetch(wire('receipt', { operationId: 'held-pr1-model' }, first.deliveryToken));
-      expect(receipt.status).toBe(403);
-      expect(await receipt.json()).toMatchObject({ code: 'OPERATOR_CAPABILITY_DENIED' });
-      f.messages([]); f.settle(first.submissionId, 'failed', { type: 'operation_failed' });
-      await f.activity.reconcileDispatcherLease();
-      const second = await context(f);
-      release(); expect((await late).status).toBe(403);
-      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
-      const source = await f.capability.fetch(wire('source', { operationId: 'pr2-after-late-failure',
-        url: 'https://api.github.com/repos/another/service' }, second.deliveryToken));
-      expect(source.status).toBe(200); expect(await context(f)).toEqual(second);
-    }, { repositoryOnly: true, intent4: true, recovery: true,
-      inferenceTransport: async () => { entered(); await held; throw new Error('Late PR1 transport failure'); } });
+      await start(f);
+      const admissions = structuredClone([...f.normalTransport!.admissions.values()]);
+      const pending = applicationCallback(f, 'inference', { operationId: 'late-model',
+        context: { messages: [{ role: 'user', content: 'Original model input' }] }, options: {} });
+      try {
+        await within(sending, 'configured model entered'); await f.activity.cancelDrive();
+        release(); const denied = await pending;
+        expect(denied.status).toBe(409); expect(await denied.json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
+        expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'cancel-requested', result: null });
+        expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+        expect([...f.normalTransport!.admissions.values()]).toEqual(admissions);
+      } finally { release(); await pending; }
+    }, { ...writableApplication, ownerTransport: async request => {
+      if (new URL(request.url).pathname !== '/operator-inference') return undefined;
+      entered(); await held; throw new Error('Original configured inference failed');
+    } });
   });
 
-  it('the current phase cannot mutate a different PR or a different merge head', () => fixture(async f => {
-    await start(f); await discovery(f); const current = await context(f);
-    for (const body of [
-      { operationId: 'foreign-phase-comment', method: 'POST', url: 'https://api.github.com/repos/another/service/issues/18/comments', body: '{"body":"wrong PR"}' },
-      { operationId: 'wrong-phase-head', method: 'PUT', url: 'https://api.github.com/repos/another/service/pulls/17/merge', body: JSON.stringify({ sha: '9'.repeat(40), merge_method: 'merge' }) },
-    ]) expect((await f.capability.fetch(wire('source', body, current.deliveryToken))).status).toBe(403);
-    expect(f.sent).toEqual([]); expect(await context(f)).toEqual(current);
-  }, { repositoryOnly: true, intent4: true }));
+  it('a configured model failure is operation-local, cannot resend, and leaves independent source capacity', () => fixture(async f => {
+    await start(f); const current = await applicationContext(f);
+    const model = { operationId: 'failed-configured-model', context: { messages: [{ role: 'user', content: 'Original work' }] }, options: {} };
+    const failed = await applicationCallback(f, 'inference', model);
+    expect(failed.status).toBe(409); expect(await failed.json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
+    const attempts = f.ownerPortRequests.filter(request => new URL(request.url).pathname === '/operator-inference');
+    expect(attempts).toHaveLength(1);
+    expect((await applicationCallback(f, 'inference', model)).status).toBe(409);
+    expect(f.ownerPortRequests.filter(request => new URL(request.url).pathname === '/operator-inference')).toEqual(attempts);
+    expect(await applicationContext(f)).toEqual(current);
+    expect((await applicationCallback(f, 'source', { operationId: 'after-model-failure', url: 'https://api.github.com/repos/another/service' })).status).toBe(200);
+    expect(await (await applicationCallback(f, 'receipt', { operationId: 'after-model-failure' })).json()).toMatchObject({ operationCount: 2 });
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
+  }, { ...writableApplication, ownerTransport: async request => new URL(request.url).pathname === '/operator-inference'
+    ? Response.json({ error: 'PRIVATE_MODEL_FAILURE' }, { status: 503 }) : undefined }));
 
-  it('rejects a parent output allowance below the package reservation bound before protected work', () => fixture(async f => {
+  it('failed normal abort preserves the fence and retries only the original abort, never dispatch', () => fixture(async f => {
+    await start(f); const original = await applicationContext(f);
+    const admissions = structuredClone([...f.normalTransport!.admissions.values()]);
+    const outgoing = globalThis.fetch; const aborts: unknown[] = []; let unavailable = true;
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init);
+      if (new URL(request.url).pathname === '/control/abort') {
+        aborts.push(await request.clone().json());
+        if (unavailable) throw Error('PRIVATE_ABORT_UNAVAILABLE');
+      }
+      return outgoing(request);
+    });
+    try {
+      await expect(f.activity.cancelDrive()).rejects.toThrow();
+      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'cancel-requested', result: null });
+      await deny(await applicationCallback(f, 'source', { operationId: 'during-abort', url: 'https://api.github.com/repos/another/service' }));
+      unavailable = false; const cold = await coldOwner(f);
+      expect(await cold.activity.cancelDrive()).toMatchObject({ ok: true });
+      expect(aborts).toHaveLength(2); expect(aborts[1]).toEqual(aborts[0]);
+      expect(aborts[0]).toMatchObject({ receipt: original.receipt });
+      expect([...f.normalTransport!.admissions.values()]).toEqual(admissions);
+      expect(await cold.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      expect((await cold.activity.getBrowserDetail())!).not.toHaveProperty('sdkCleanupReleased');
+    } finally { unavailable = false; vi.stubGlobal('fetch', outgoing); }
+  }, writableApplication));
+
+  it.each([false, true])('application preparation attributes only its actual admitted delivery (valid input=%s)', valid => fixture(async f => {
+    await start(f); const original = await applicationContext(f);
+    const body = { operationId: 'current-preparation', method: 'POST', body: '{"body":"PRIVATE_PROMPT"}',
+      url: valid ? 'https://api.github.com/repos/foreign/repo/issues/17/comments' : false };
+    const response = await applicationCallback(f, 'source', body);
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({ reason: valid ? 'policy-denied' : 'request-invalid' });
+    const failure = (await preparationFailures(f)).at(-1)!;
+    expect(failure).toMatchObject({ generation: 1, preparation: { route: 'source', step: valid ? 'capability' : 'parse',
+      failureClass: valid ? 'authority-denied' : 'invalid-wire' } });
+    expect(failure.correlation).toEqual({ deliveryDigest: await digest(original.delivery.token),
+      submissionDigest: await digest(original.receipt.submissionId),
+      ...(valid ? { requestDigest: await digest(JSON.stringify({ path: '/v1/dispatcher/source', body })) } : {}) });
+    expect(JSON.stringify(failure)).not.toMatch(/PRIVATE_PROMPT|current-preparation|private\.jwt/);
+    expect(await applicationContext(f)).toEqual(original);
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+  }, { ...writableApplication, capabilities: ['fetch'] }));
+
+  it.each(['missing', 'spoofed', 'stale'] as const)('a %s delivery cannot borrow current source authority or attribution', tokenKind => fixture(async f => {
+    await start(f); const original = await applicationContext(f);
+    if (tokenKind === 'stale') {
+      f.normalTransport!.settleSubmission(original.receipt.submissionId, 'completed');
+      await f.activity.reconcileDispatcherLease();
+    }
+    const current = await applicationContext(f);
+    const body = { operationId: 'wrong-delivery', url: 'https://api.github.com/repos/another/service' };
+    const request = normalCallback(f.activityId, 'source', body, tokenKind === 'missing' ? {}
+      : { 'x-codeflare-dispatcher-delivery': tokenKind === 'stale' ? original.delivery.token : 'forged-delivery' });
+    await deny(await f.installationCapability.fetch(request));
+    const failure = (await preparationFailures(f)).at(-1)!;
+    expect(failure).toMatchObject({ generation: 1, code: 'authority-denied', correlation: {} });
+    expect(await applicationContext(f)).toEqual(current);
+    expect((await applicationCallback(f, 'source', { ...body, operationId: 'current-delivery' })).status).toBe(200);
+    expect(f.normalTransport!.admissions.size).toBe(tokenKind === 'stale' ? 2 : 1);
+  }, { ...writableApplication, applicationPlan: request => request.checkpoint === 'second'
+    ? { kind: 'complete', checkpoint: 'done', result: {} }
+    : { kind: 'dispatch', checkpoint: request.checkpoint === null ? 'first' : 'second',
+      context: {}, message: { kind: 'user', body: 'Opaque next work' } } }));
+
+  it('a gated preparation cannot attribute its old parse failure to the successor application delivery', () => fixture(async f => {
+    await start(f); const original = await applicationContext(f);
+    let entered!: () => void; let release!: () => void;
+    const reading = new Promise<void>(resolve => { entered = resolve; }); const held = new Promise<void>(resolve => { release = resolve; });
+    const body = new ReadableStream<Uint8Array>({ async pull(controller) {
+      entered(); await held; controller.enqueue(new TextEncoder().encode('{"operationId":"old-preparation","url":false}')); controller.close();
+    } }, { highWaterMark: 0 });
+    const pending = f.installationCapability.fetch(new Request(normalCallback(f.activityId, 'source', {},
+      { 'x-codeflare-dispatcher-delivery': original.delivery.token }), { method: 'POST', body }));
+    try {
+      await within(reading, 'original authorized body read');
+      f.normalTransport!.settleSubmission(original.receipt.submissionId, 'completed'); await f.activity.reconcileDispatcherLease();
+      const successor = await applicationContext(f); expect(successor.receipt.submissionId).not.toBe(original.receipt.submissionId);
+      release(); await invalidPreparationRefusal(await within(pending, 'old parse failure'));
+      const failure = (await preparationFailures(f)).at(-1)!;
+      expect(failure).toMatchObject({ code: 'tool-failed', correlation: {}, preparation: { step: 'parse' } });
+      expect(await applicationContext(f)).toEqual(successor);
+      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
+    } finally { release(); await pending; }
+  }, { ...writableApplication, applicationPlan: request => request.checkpoint === 'second'
+    ? { kind: 'complete', checkpoint: 'done', result: {} }
+    : { kind: 'dispatch', checkpoint: request.checkpoint === null ? 'first' : 'second',
+      context: {}, message: { kind: 'user', body: 'Opaque next work' } } }));
+
+  it.each(['completed', 'failed'] as const)(
+    'a retired-controller %s reply preserves its receipt but cannot admit a successor or mint an assessment', outcome => fixture(async f => {
+      await start(f);
+      const original = structuredClone([...f.normalTransport!.admissions.values()]);
+      const deadline = (await f.activity.getRuntimePlan())!.deadline;
+      const oldProgress = { version: 1, scope: 'submission', generation: 1,
+        submissionId: original[0].receipt.submissionId, phase: { kind: 'discovery' },
+        next: { kind: 'target', index: 0, target: frozen[0] }, targets: frozen };
+      f.normalTransport!.failNextRead(503);
+      await f.activity.reconcileDispatcherLease();
+      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
+      expect([...f.normalTransport!.admissions.values()]).toEqual(original);
+      f.normalTransport!.settle(outcome, [{ name: 'dispatcher-progress', data: oldProgress }]);
+      await f.activity.reconcileDispatcherLease();
+      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null,
+        collectionStatus: 'unavailable' });
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      const activity = f.restart(); await f.drainBackground(); await activity.reconcileDispatcherLease();
+      expect(await activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null });
+      expect([...f.normalTransport!.admissions.values()]).toEqual(original);
+      expect((await activity.getRuntimePlan())!.deadline).toBe(deadline);
+      await f.mutateEvidence(async storage => {
+        expect(await storage.get('dispatcher:lease')).toMatchObject({ wire: JSON.parse(original[0].wire), receipt: original[0].receipt });
+        expect(await storage.get('dispatcher:result:1')).toBeUndefined();
+      });
+      expect(f.sent).toEqual([]);
+    }, { repositoryOnly: true, normalHosting: true, intent4: true, loggingEnabled: false }));
+
+  // Domain retry eligibility is owned by Dispatcher/test/renovate/legacy-admission-parity.test.ts.
+  // Root's supported proof/retire APIs are exercised locally in application-execution.test.ts
+  // (including 5a4c2eaf/266843f1), with its independent authoritative ledger fixture.
+  it.each(['pending', 'completed', 'unknown'] as const)(
+    'retired retry/publication RPCs refuse without changing the original %s execution', status => fixture(async f => {
+      await start(f);
+      if (status === 'completed') {
+        f.normalTransport!.settle('completed', [{ name: 'opaque-result', data: { deferred: true } }]);
+        await f.activity.reconcileDispatcherLease();
+        expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { result: { completed: true } } });
+      } else if (status === 'unknown') await f.activity.interruptDrive(1);
+      await f.drainBackground();
+      let before!: Map<string, unknown>;
+      await f.mutateEvidence(async storage => { before = structuredClone(await storage.list()); });
+      const requests = structuredClone(f.normalTransport!.requests);
+      const effects = [...f.sent];
+      const coordinates = { repositoryId: f.proof.repositoryId, pullRequest: f.proof.pullRequest, head: f.proof.head };
+      for (const original of [f.proof, null, { ...f.proof, activityId: 'foreign-receiver' }]) {
+        const refusal = await consumeProspectiveReconciliation(
+          await f.activity.readProspectiveRenovateRetryProof(coordinates, original), value => value);
+        expect(refusal).toEqual({ value: { ok: true, proof: null }, evidenceComplete: true });
+      }
+      expect(await consumeProspectiveReconciliation(await f.activity.retireProspectiveRenovatePreparation(f.proof,
+        { original: f.proof, ledger: { ok: false, error: new Error('No domain ledger authority') } }), value => value))
+        .toEqual({ value: { retired: false, summary: null }, evidenceComplete: true });
+      expect(await f.activity.publishRenovateAssessment({ bucket: 'owner-bucket', sessionId: 'originalsession',
+        sessionGeneration: 3, operationId: 'retired-publisher' }, {
+        human: { subject: 'owner', email: 'owner@example.test', issuer: 'https://access.example.test',
+          audiences: ['audience'], issuedAt: Math.floor(Date.now() / 1000), expiresAt: Math.floor(Date.now() / 1000) + 300 },
+        accessJwt: 'private.jwt', platformAdmin: false,
+      })).toEqual({ ok: false, reason: 'application-owned' });
+      await f.mutateEvidence(async storage => { expect(await storage.list()).toEqual(before); });
+      expect(f.normalTransport!.requests).toEqual(requests);
+      expect(f.sent).toEqual(effects);
+      f.restart(); await f.drainBackground();
+      let restored!: Map<string, unknown>;
+      await f.mutateEvidence(async storage => { restored = structuredClone(await storage.list()); });
+      expect(await consumeProspectiveReconciliation(await f.activity.readProspectiveRenovateRetryProof(coordinates, f.proof), value => value))
+        .toEqual({ value: { ok: true, proof: null }, evidenceComplete: true });
+      await f.mutateEvidence(async storage => { expect(await storage.list()).toEqual(restored); });
+      expect(f.sent).toEqual(effects);
+    }, { repositoryOnly: true, normalHosting: true, applicationWorkflow: true }));
+
+  // PR/head mutation policy is application-owned (Dispatcher's admission/phase suites).
+  it('retired phase-context cannot grant or revoke current application delivery authority', () => fixture(async f => {
     await start(f);
-    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null });
+    const planned = f.normalTransport!.requests.find(request => request.path === '/control/plan')!;
+    const token = (planned.body.delivery as { token: string }).token;
+    const headers = { 'x-codeflare-dispatcher-delivery': token };
+    const admissions = structuredClone([...f.normalTransport!.admissions.values()]);
+    const old = await f.installationCapability.fetch(normalCallback(f.activityId, 'phase-context', { deliveryToken: token }, headers));
+    expect(old.status).toBe(403);
+    expect(await old.json()).toMatchObject({ code: 'OPERATOR_CAPABILITY_DENIED' });
+    const current = await f.installationCapability.fetch(normalCallback(f.activityId, 'context', { deliveryToken: token }, headers));
+    expect(current.status).toBe(200);
+    expect(await current.json()).toMatchObject({ delivery: { token }, receipt: admissions[0].receipt });
+    const source = { operationId: 'current-after-retired-context', url: 'https://api.github.com/repos/another/service' };
+    expect((await f.installationCapability.fetch(normalCallback(f.activityId, 'source', source))).status).toBe(403);
     expect(f.sent).toEqual([]);
-  }, { repositoryOnly: true, intent4: true, capacityPolicy: { assessmentBytes: 48 * 1024 - 1 } }));
+    expect((await f.installationCapability.fetch(normalCallback(f.activityId, 'source', source, headers))).status).toBe(200);
+    expect([...f.normalTransport!.admissions.values()]).toEqual(admissions);
+  }, { repositoryOnly: true, normalHosting: true, applicationWorkflow: true }));
 
-  describe('REQ-OPERATOR-041: immutable retired effect response wire', () => {
-    const options = { repositoryOnly: true, intent4: true, recovery: true, receiptFixture: true };
+  it('a small application result uses its admitted byte allowance without the retired 48 KiB package floor', () => fixture(async f => {
+    await start(f);
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
+    f.normalTransport!.settle('completed');
+    await f.activity.reconcileDispatcherLease();
+    expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { result: { completed: true } } });
+    expect(f.sent).toEqual([]);
+  }, { repositoryOnly: true, normalHosting: true, applicationWorkflow: true, capacityPolicy: { assessmentBytes: 48 * 1024 - 1 } }));
+
+  describe('REQ-OPERATOR-041: archived serial effect response wire', () => {
+    const options = { repositoryOnly: true, intent4: true, recovery: true };
     const sourceUrl = 'https://api.github.com/repos/another/service/issues/17/comments';
     type Stored = Record<string, unknown>;
     type Receipts = { version: number; generation?: number; inputDigest?: string; artifactDigest?: string;
@@ -2078,100 +1544,122 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
       inspectedEntries: number; unresolvedJournalEntries: number | null; unclassifiedEntries: number;
       nextAfterOrdinal: number | null; items: Array<Record<string, unknown>> };
     const browser = (f: DispatcherFixture) => {
-      vi.spyOn(access, 'requireOperatorHumanContext').mockImplementation(async (_request, _env, email) => ({
-        human: { subject: email === 'owner@example.test' ? 'owner' : 'foreign', email,
-          issuer: 'https://access.example.test', audiences: ['audience'], issuedAt: Math.floor(Date.now() / 1000),
-          expiresAt: Math.floor(Date.now() / 1000) + 600 }, accessJwt: 'PRIVATE_BROWSER_JWT',
-      }));
-      const app = new Hono<{ Bindings: Env }>();
-      app.onError((error, c) => error instanceof AppError
-        ? c.json({ code: error.code }, error.statusCode as 400) : c.json({ code: 'INTERNAL_ERROR' }, 500));
-      app.route('/api/operator-activities', activityRoutes);
-      return (suffix = '/result', email = 'owner@example.test', method = 'GET') => app.request(
-        `/api/operator-activities/${f.activityId}${suffix}`, { method, headers: {
-          'cf-access-authenticated-user-email': email, 'X-Requested-With': 'XMLHttpRequest',
-        } }, f.environment);
+      const get = diagnosticsBrowser(f);
+      return (suffix = '/result', email = 'owner@example.test', method = 'GET') => get(suffix, email, method);
     };
+    // Archived wire construction only. No start(), SDK call, planner or phase
+    // transition is used to manufacture this historical evidence.
     const setup = async (f: DispatcherFixture, count = 1) => {
-      await start(f); await discovery(f); const stamp = await context(f);
-      for (let index = 0; index < count; index++) {
-        const response = await f.capability.fetch(wire('source', { operationId: `PRIVATE_OPERATION_${index}`,
-          method: 'POST', url: sourceUrl, body: JSON.stringify({ body: `PRIVATE_HTTP_BODY_${index}` }) }, stamp.deliveryToken));
-        expect(response.status).toBe(200);
-        expect((await response.json() as { status: number }).status).toBe(201);
-      }
-      return stamp;
+      let serial!: DispatcherPhaseState;
+      let authority!: Parameters<typeof dispatcherPhaseContext>[1];
+      await f.mutateEvidence(async storage => {
+        const state = (await storage.get<{ receipt: { intentDigest: string }; intent: { deadline: number }; [key: string]: unknown }>('admission'))!;
+        const authorityDigest = await digest(JSON.stringify(state.receipt));
+        serial = { version: 1, scope: 'submission', authorityDigest, uid: 'fixture-incarnation', targets: structuredClone(frozen), results: [],
+          previous: [{ submissionId: 'archived-discovery', phase: { kind: 'discovery' }, outcome: 'completed' }],
+          current: { phase: { kind: 'target', index: 0, target: frozen[0] }, deliveryToken: 'archived-token',
+            idempotencyKey: 'archived-key', receipt: { submissionId: 'archived-target', uid: 'fixture-incarnation', offset: 'archived-cursor' } } };
+        authority = { scope: serial.scope, authorityDigest, generation: 1, deadline: new Date(state.intent.deadline).toISOString(),
+          releaseDigest: f.artifactDigest, repositoryJson: JSON.stringify(f.input), assessmentBytes: 48 * 1024 };
+        await storage.put('admission', { ...state, drive: { generation: 2, status: 'cancel-requested', checkpoint: null, result: null },
+          diagnosticFence: { generation: 1, timestamp: Date.now(), boundary: 'fence', code: 'cancelled', uncertain: false },
+          updatedAt: Date.now(), diagnosticsVersion: 1, diagnosticBinding: { generation: 1, artifactDigest: f.artifactDigest, inputDigest: state.receipt.intentDigest } });
+        await storage.put('dispatcher:lease', { generation: 1, artifactDigest: f.artifactDigest, inputDigest: state.receipt.intentDigest,
+          expiresAt: Math.floor(state.intent.deadline / 1000) * 1000, status: 'unknown', submissionId: 'archived-target',
+          serial, sdkReleased: true, rootDigest: await digest('fixture-incarnation') });
+        await storage.put('dispatcher:journal', { generation: 1, count: 0, nextOrdinal: 0, unresolved: 0 });
+      });
+      await seedDiagnosticSnapshot(f);
+      for (let index = 0; index < count; index++) await archiveOperation(f, `PRIVATE_OPERATION_${index}`, index);
+      expect(f.childSubmissions).toEqual([]); expect(f.sent).toEqual([]);
+      return dispatcherPhaseContext(serial, authority, 'archived-token');
+    };
+    const archiveOperation = async (f: DispatcherFixture, id: string, ordinal: number, method: 'GET' | 'POST' | 'PUT' = 'POST',
+      phase: 'completed' | 'unknown' | 'reserved' = 'completed') => {
+      const url = method === 'PUT' ? sourceUrl.replace('/issues/17/comments', '/pulls/17/merge') : sourceUrl;
+      const body = method === 'PUT' ? { merged: true, sha: 'b'.repeat(40) }
+        : method === 'POST' ? { id: 91 + ordinal, body: `PRIVATE_HTTP_BODY_${ordinal}` } : [];
+      const response = { status: 200, contentType: 'application/json', body: JSON.stringify({ url,
+        status: method === 'POST' ? 201 : 200, headers: {}, body: JSON.stringify(body) }) };
+      await f.mutateEvidence(async storage => {
+        await storage.put(`dispatcher:operation:1:${id}`, { generation: 1, ordinal, phase,
+          requestDigest: await digest(JSON.stringify({ path: '/v1/dispatcher/source', body: { operationId: id, method, url } })),
+          request: { method, url }, phaseBinding: { submissionId: 'archived-target', deliveryToken: 'archived-token',
+            resource: 'source', phase: { kind: 'target', index: 0, target: frozen[0] } },
+          ...(phase === 'completed' ? { responseDigest: await digest(response.body) } : {}) });
+        if (phase === 'completed') await storage.put(`dispatcher:response:${id}`, response);
+        const records = [...await storage.list<{ phase: string; ordinal: number }>({ prefix: 'dispatcher:operation:1:' })].map(([, value]) => value);
+        await storage.put('dispatcher:journal', { generation: 1, count: records.length,
+          nextOrdinal: Math.max(...records.map(row => row.ordinal)) + 1, unresolved: records.filter(row => row.phase !== 'completed').length });
+      });
     };
     const read = async (get: ReturnType<typeof browser>, after?: number) => {
       const response = await get(`/result${after === undefined ? '' : `?receiptAfter=${after}`}`);
       expect(response.status).toBe(200);
-      const body = await response.json() as { effectReceipts?: Receipts; executionStatus: string; result: unknown;
-        checkpoint: unknown; cleanupStatus: string; collectionStatus: string; updatedAt: string };
-      expect(body.effectReceipts).toBeDefined();
-      return body;
+      const body = await response.json() as { effectReceipts?: Receipts; executionStatus: string; result: unknown };
+      expect(body.effectReceipts).toBeDefined(); return body;
     };
-    const patch = async (f: DispatcherFixture, key: string, change: (value: Stored) => Stored) => {
-      await f.mutateEvidence(async storage => {
-        const value = await storage.get<Stored>(key);
-        if (!value) throw new Error('Controlled snapshot missing');
-        await storage.put(key, change(value));
-      });
-    };
-    const faultWrite = async (f: DispatcherFixture, change: (record: Stored, storage: DurableObjectStorage,
-      key: string) => Promise<Stored>, method = 'POST') => f.mutateEvidence(async storage => {
-      const entries = await storage.list<Stored>({ prefix: 'dispatcher:operation:1:' });
-      const found = [...entries].find(([, value]) => (value.request as Stored | undefined)?.method === method);
-      if (!found) throw new Error('Controlled write snapshot missing');
-      await storage.put(found[0], await change(found[1], storage, found[0]));
+    const patch = async (f: DispatcherFixture, key: string, change: (value: Stored) => Stored) => f.mutateEvidence(async storage => {
+      const value = await storage.get<Stored>(key); if (!value) throw Error('Archived record missing'); await storage.put(key, change(value));
     });
+    const faultWrite = async (f: DispatcherFixture, change: (record: Stored, storage: DurableObjectStorage, key: string) => Promise<Stored>, method = 'POST') =>
+      f.mutateEvidence(async storage => {
+        const found = [...await storage.list<Stored>({ prefix: 'dispatcher:operation:1:' })].find(([, value]) => (value.request as Stored)?.method === method);
+        if (!found) throw Error('Archived effect missing'); await storage.put(found[0], await change(found[1], storage, found[0]));
+      });
     const unavailable = (body: Awaited<ReturnType<typeof read>>) => {
-      expect(body.effectReceipts).toMatchObject({ scan: 'unavailable', pageStatus: 'unavailable', items: [],
-        journalCount: null, inspectedEntries: 0, nextAfterOrdinal: null });
-      expect(body.effectReceipts).not.toHaveProperty('generation');
-      expect(body.effectReceipts).not.toHaveProperty('inputDigest');
+      expect(body.effectReceipts).toMatchObject({ scan: 'unavailable', pageStatus: 'unavailable', items: [], journalCount: null, inspectedEntries: 0, nextAfterOrdinal: null });
+      expect(body.effectReceipts).not.toHaveProperty('generation'); expect(body.effectReceipts).not.toHaveProperty('inputDigest');
     };
 
-    it('REQ-OPERATOR-041: AC4 cancelled original comment remains attributable over HTTP', () => fixture(async f => {
-      const stamp = await setup(f); const remote = await f.readRemoteComments() as Array<{ id: number; body: string }>;
-      await f.activity.cancelDrive(); const get = browser(await coldOwner(f)); const body = await read(get);
-      expect(body).toMatchObject({ executionStatus: 'cancel-requested', result: null, collectionStatus: 'unavailable' });
-      expect(body.effectReceipts).toMatchObject({ version: 1, generation: 1, artifactDigest: f.artifactDigest,
-        scan: 'complete', pageStatus: 'complete', items: [{ binding: 'verified', journalPhase: 'completed',
-          effect: 'comment', method: 'POST', target: { repository: 'another/service', ...frozen[0] },
-          observedResponse: { kind: 'comment', status: 201, commentId: remote[0].id,
-            responseBodyDigest: await digest(remote[0].body) } }] });
-      const row = body.effectReceipts!.items[0];
-      for (const field of ['operationDigest', 'requestDigest', 'responseDigest', 'submissionDigest', 'deliveryDigest'])
-        expect(row[field]).toMatch(/^[a-f0-9]{64}$/);
-      await deny(await f.capability.fetch(wire('source', { operationId: 'after-read', method: 'POST',
-        url: sourceUrl, body: '{"body":"must not replay"}' }, stamp.deliveryToken)));
-      expect(await f.readRemoteComments()).toEqual(remote);
-      expect((await get('/result', 'owner@example.test', 'POST')).status).toBe(409);
-    }, options));
+    it.each(['discovery', 'target', 'final', 'unacknowledged'] as const)(
+      'retired %s snapshot refuses execution without reopening the SDK or repairing stored evidence', kind => fixture(async f => {
+        await setup(f, 0);
+        await patch(f, 'dispatcher:lease', value => {
+          const serial = structuredClone(value.serial) as DispatcherPhaseState;
+          if (kind === 'discovery') {
+            delete serial.targets; serial.previous = []; serial.current.phase = { kind: 'discovery' };
+          } else if (kind === 'final') {
+            serial.previous.push({ submissionId: 'archived-first-target', phase: { kind: 'target', index: 0, target: frozen[0] }, outcome: 'failed' },
+              { submissionId: 'archived-second-target', phase: { kind: 'target', index: 1, target: frozen[1] }, outcome: 'failed' });
+            serial.current.phase = { kind: 'final' };
+          } else if (kind === 'unacknowledged') delete serial.current.receipt;
+          return { ...value, serial, ...(kind === 'unacknowledged' ? { submissionId: null } : {}) };
+        });
+        const registry = f.environment.OPERATOR_REGISTRY!.getByName('registry');
+        vi.spyOn(registry, 'getManagementBundle').mockRejectedValue(new Error('Archived job must not be reopened'));
+        const before = await storedRuntime(f); f.restart(); await f.drainBackground();
+        await f.activity.getBrowserDetail(); await f.activity.getBrowserSummary(f.proof.ownerKey);
+        await f.activity.getDispatcherDiagnostics(f.proof.ownerKey); await f.activity.reconcileDispatcherLease();
+        expect(await f.activity.beginDrive()).toEqual({ ok: false, reason: 'drive-settled' });
+        expect(await f.activity.commitDrive(1, { schemaVersion: 1, status: 'completed', checkpoint: null, result: {} }))
+          .toEqual({ ok: false, reason: 'stale-drive' });
+        await deny(await f.capability.fetch(wire('phase-context', { deliveryToken: 'archived-token' }, 'archived-token')));
+        expect(await storedRuntime(f)).toEqual(before);
+        expect(f.childSubmissions).toEqual([]); expect(f.sent).toEqual([]);
+      }, options));
 
-    it('REQ-OPERATOR-041: AC4 original merge success binds the frozen head and remote SHA', () => fixture(async f => {
-      const stamp = await setup(f);
-      const response = await f.capability.fetch(wire('source', { operationId: 'original-merge', method: 'PUT',
-        url: 'https://api.github.com/repos/another/service/pulls/17/merge',
-        body: JSON.stringify({ sha: frozen[0].headSha, merge_method: 'merge' }) }, stamp.deliveryToken));
-      expect(response.status).toBe(200); const remote = f.readRemoteMerge() as { sha: string };
-      await f.activity.cancelDrive(); const body = await read(browser(f));
-      expect(body.effectReceipts!.items).toContainEqual(expect.objectContaining({ effect: 'merge', binding: 'verified',
-        target: { repository: 'another/service', ...frozen[0] },
-        observedResponse: { kind: 'merge', status: 200, merged: true, mergeSha: remote.sha } }));
-    }, options));
-
-    it('REQ-OPERATOR-041: AC5 reconstructed receipt pages are stable and do not consume results', () => fixture(async f => {
-      await setup(f); await f.activity.cancelDrive(); const get = browser(f); const first = await read(get);
-      expect(await read(get)).toEqual(first); const restarted = await coldOwner(f);
-      expect(await read(browser(restarted))).toEqual(first);
+    it('archived comment and merge receipts retain exact identities across cold HTTP reads without contacting the job', () => fixture(async f => {
+      await setup(f); await archiveOperation(f, 'archived-merge', 1, 'PUT');
+      const before = await storedRuntime(f); const first = await read(browser(f));
+      expect(first.effectReceipts!.items).toMatchObject([
+        { binding: 'verified', effect: 'comment', target: { repository: 'another/service', ...frozen[0] },
+          observedResponse: { kind: 'comment', status: 201, commentId: 91, responseBodyDigest: await digest('PRIVATE_HTTP_BODY_0') } },
+        { binding: 'verified', effect: 'merge', observedResponse: { kind: 'merge', status: 200, merged: true, mergeSha: 'b'.repeat(40) } },
+      ]);
+      expect(JSON.stringify(first.effectReceipts)).not.toMatch(/PRIVATE_|archived-token|archived-target|api\.github\.com/);
+      f.restart(); await f.drainBackground(); expect(await read(browser(f))).toEqual(first);
+      expect(await storedRuntime(f)).toEqual(before);
+      await f.activity.reconcileDispatcherLease(); expect(await storedRuntime(f)).toEqual(before);
+      expect(await f.activity.beginDrive()).toEqual({ ok: false, reason: 'drive-settled' });
       expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      expect(f.childSubmissions).toEqual([]); expect(f.sent).toEqual([]);
     }, options));
 
     it.each(['inputDigest', 'artifactDigest', 'executionArtifact', 'authorityDigest', 'intentVersion',
       'journalGeneration', 'leaseGeneration', 'leaseStatus', 'serialMissing', 'duplicateSubmission'] as const)(
       'REQ-OPERATOR-041: AC5 mismatched original selection is unavailable: %s', fault => fixture(async f => {
-        await setup(f); await f.activity.cancelDrive();
+        await setup(f);
         if (fault === 'journalGeneration') await patch(f, 'dispatcher:journal', value => ({ ...value, generation: 99 }));
         else if (fault === 'executionArtifact') await patch(f, 'admission', value => ({ ...value,
           executionContext: { ...(value.executionContext as Stored), artifactDigest: 'e'.repeat(64) } }));
@@ -2197,7 +1685,7 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
       'overflow', 'upstreamError', 'invalidId', 'resolutionOnly', 'foreignSubmission', 'foreignTarget',
       'missingBinding', 'foreignResource', 'encodedUrl'] as const)(
       'REQ-OPERATOR-041: AC5 invalid stored response or association stays unresolved: %s', fault => fixture(async f => {
-        await setup(f); await f.activity.cancelDrive();
+        await setup(f);
         await faultWrite(f, async (record, storage, key) => {
           const responseKey = `dispatcher:response:${key.slice('dispatcher:operation:1:'.length)}`;
           if (fault === 'missingCache') { await storage.delete(responseKey); return record; }
@@ -2235,7 +1723,7 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
       }, options));
 
     it('REQ-OPERATOR-041: AC5 original installation ceiling rejects an otherwise valid cached receipt', () => fixture(async f => {
-      await setup(f); const remote = await f.readRemoteComments(); await f.activity.cancelDrive();
+      await setup(f);
       await faultWrite(f, async (record, storage, key) => {
         const responseKey = `dispatcher:response:${key.slice('dispatcher:operation:1:'.length)}`;
         const response = await storage.get<{ status: number; contentType: string; body: string }>(responseKey);
@@ -2247,61 +1735,14 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
       const body = await read(browser(f));
       expect(body.effectReceipts!.items).toMatchObject([{ binding: 'unresolved' }]);
       expect(body.effectReceipts!.items[0]).not.toHaveProperty('observedResponse');
-      expect(await f.readRemoteComments()).toEqual(remote);
     }, { ...options, sourceResponseBytes: 131072, installationSourceResponseBytes: 65536 }));
-
-    it('REQ-OPERATOR-041: AC5 unknown write cannot borrow a success from external state', () => fixture(async f => {
-      await start(f); await discovery(f); const stamp = await context(f); f.loseResponse();
-      const uncertain = await f.capability.fetch(wire('source', { operationId: 'lost-response', method: 'POST',
-        url: sourceUrl, body: '{"body":"Uncertain original effect"}' }, stamp.deliveryToken));
-      expect(uncertain.status).toBe(409);
-      expect(await uncertain.json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
-      const remote = await f.readRemoteComments(); await f.activity.cancelDrive();
-      const body = await read(browser(f)); expect(body.effectReceipts!.items).toMatchObject([{ binding: 'unresolved', journalPhase: 'unknown' }]);
-      expect(body.effectReceipts!.items[0]).not.toHaveProperty('observedResponse');
-      expect(await f.readRemoteComments()).toEqual(remote);
-      await deny(await f.capability.fetch(wire('resolve', { operationId: 'lost-response', readbacks: ['other'] }, stamp.deliveryToken)));
-    }, options));
-
-    it('REQ-OPERATOR-041: AC6 validated public identity is returned without private content', () => fixture(async f => {
-      const stamp = await setup(f); const remote = await f.readRemoteComments() as Array<{ id: number }>;
-      await f.activity.cancelDrive(); const body = await read(browser(f));
-      expect(body.effectReceipts!.items[0]).toMatchObject({ observedResponse: { commentId: remote[0].id } });
-      for (const secret of ['PRIVATE_OPERATION', 'PRIVATE_HTTP_BODY', 'PRIVATE_BROWSER_JWT', 'private.jwt',
-        'parent-only', stamp.deliveryToken, stamp.submissionId, 'https://api.github.com'])
-        expect(JSON.stringify(body.effectReceipts)).not.toContain(secret);
-    }, options));
-
-    it('REQ-OPERATOR-041: AC5 eight-item pages preserve ascending exhaustive coverage', () => fixture(async f => {
-      await setup(f, 9); const remote = await f.readRemoteComments() as Array<{ id: number }>;
-      await f.activity.cancelDrive(); const get = browser(f); const first = (await read(get)).effectReceipts!;
-      expect(first.items).toHaveLength(8); expect(first.pageStatus).toBe('more');
-      expect(first.nextAfterOrdinal).toBe(first.items.at(-1)!.ordinal);
-      const second = (await read(get, first.nextAfterOrdinal!)).effectReceipts!;
-      expect(second.items).toHaveLength(1); expect(second.pageStatus).toBe('complete');
-      expect(second.nextAfterOrdinal).toBeNull();
-      expect([...first.items, ...second.items].map(item => (item.observedResponse as { commentId: number }).commentId))
-        .toEqual(remote.map(item => item.id));
-      for (const page of [first, second]) expect(page).toMatchObject({ generation: 1, scan: 'complete', journalCount: 9 });
-      const diagnostic = await f.activity.getDispatcherDiagnostics(f.proof.ownerKey);
-      expect(diagnostic).toMatchObject({ sdk: { status: 'unavailable', reason: 'retired' }, parent: { operations: {
-        status: 'available', generation: 1, selection: 'highest-logical-ordinals', scan: 'complete',
-        inspectedEntries: 9, omittedEntries: true,
-        records: Array.from({ length: 8 }, (_, index) => ({ ordinal: 8 - index, status: 'completed' })),
-      } } });
-      expect(new TextEncoder().encode(JSON.stringify(diagnostic)).byteLength).toBeLessThanOrEqual(64 * 1024);
-      expect(JSON.stringify(diagnostic)).not.toMatch(/PRIVATE_OPERATION|PRIVATE_HTTP_BODY|private\.jwt|parent-only|api\.github\.com/);
-    }, options));
 
     describe('REQ-OPERATOR-081: retained owner v2 HTTP evidence', () => {
       const v2 = '/diagnostics/v2';
       const populateReads = async (f: DispatcherFixture, count = 40) => {
-        await start(f); await discovery(f); const stamp = await context(f);
+        const stamp = await setup(f, 0);
         const ids = Array.from({ length: count }, (_, index) => `PRIVATE_HISTORY_${index}`);
-        for (const operationId of ids) expect((await f.capability.fetch(wire('source', {
-          operationId, url: 'https://api.github.com/repos/another/service/issues/17/comments',
-        }, stamp.deliveryToken))).status).toBe(200);
-        await f.drainBackground();
+        for (let index = 0; index < ids.length; index++) await archiveOperation(f, ids[index], index, 'GET');
         return { stamp, ids, digests: await Promise.all([...ids].sort().map(id => digest(id))) };
       };
       const originalBinding = async (f: DispatcherFixture) => {
@@ -2339,8 +1780,7 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
       }, { repositoryOnly: true, recovery: true }));
 
       it('REQ-OPERATOR-081: AC4/5 complete history traverses retained operation digests in storage order across small pages', () => fixture(async f => {
-        const { digests } = await populateReads(f, 70); const binding = await originalBinding(f);
-        await f.activity.cancelDrive(); f.restart(); await f.drainBackground();
+        const { digests } = await populateReads(f, 70); const binding = await originalBinding(f); f.restart(); await f.drainBackground();
         const { pages, records } = await diagnosticTraversal(diagnosticsBrowser(f));
         expect(pages.length).toBeGreaterThan(2);
         const operations = records.filter(record => record.kind === 'operation');
@@ -2428,7 +1868,7 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
       }, { repositoryOnly: true, recovery: true }));
 
       it('REQ-OPERATOR-081: AC4/5 export parts exhaust the same retained metadata with stable snapshot and public digests', () => fixture(async f => {
-        await populateReads(f); await f.activity.cancelDrive(); const get = diagnosticsBrowser(f);
+        await populateReads(f); const get = diagnosticsBrowser(f);
         const history = await diagnosticTraversal(get);
         const first = await page(get, '/export');
         f.advanceClock(60_000);
@@ -2449,10 +1889,9 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
       }, options));
 
       it('REQ-OPERATOR-081: AC5 sealed history cursor survives reconstruction and fencing but fixes high-water', () => fixture(async f => {
-        const { stamp, digests } = await populateReads(f); const get = diagnosticsBrowser(f);
+        const { digests } = await populateReads(f); const get = diagnosticsBrowser(f);
         const first = await page(get); expect(first.nextCursor).toEqual(expect.any(String));
-        expect((await f.capability.fetch(wire('source', { operationId: 'PRIVATE_AFTER_SNAPSHOT', url: sourceUrl }, stamp.deliveryToken))).status).toBe(200);
-        await f.activity.cancelDrive(); f.restart(); await f.drainBackground();
+        await archiveOperation(f, 'PRIVATE_AFTER_SNAPSHOT', digests.length, 'GET'); f.restart(); await f.drainBackground();
         const resumed = await diagnosticTraversal(get, `${v2}/history`, first);
         expect(resumed.records.filter(record => record.kind === 'operation').map(record => record.id))
           .toEqual(digests.map(value => `o-1-${value}`));
@@ -2473,7 +1912,7 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
           if (fault === 'foreign-activity') {
             // Valid exact-owner index for another Activity, backed by a separate existing SQLite fixture.
             await fixture(async other => {
-              await start(other);
+              await setup(other, 0);
               await errorStatus(await diagnosticsBrowser(other)(suffix), 400);
             }, options);
           } else await errorStatus(await get(suffix, fault === 'foreign-owner' ? 'foreign@example.test' : 'owner@example.test'),
@@ -2548,13 +1987,11 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
         finally { vi.restoreAllMocks(); }
       }, options));
 
-      it('REQ-OPERATOR-081: AC3/5 passive v2 reads cannot reopen retired facets consume results or replay uncertainty', () => fixture(async f => {
-        await start(f); await discovery(f); const stamp = await context(f); f.loseResponse();
-        const mutation = { operationId: 'PRIVATE_UNCERTAIN_V2', method: 'POST', url: sourceUrl, body: '{"body":"PRIVATE_EFFECT"}' };
-        const uncertain = await f.capability.fetch(wire('source', mutation, stamp.deliveryToken));
-        expect(uncertain.status).toBe(409); expect(await uncertain.json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
-        const remote = await f.readRemoteComments(); await f.activity.cancelDrive(); f.restart(); await f.drainBackground();
-        const before = await f.environment.OPERATOR_ACTIVITY!.getByName(f.activityId).getBrowserDetail();
+      it('REQ-OPERATOR-081: AC3/5 passive v2 reads cannot reopen retired facets, consume results or replay uncertainty', () => fixture(async f => {
+        const stamp = await setup(f, 0);
+        await archiveOperation(f, 'PRIVATE_UNCERTAIN_V2', 0, 'POST', 'unknown');
+        const before = await storedRuntime(f);
+        f.restart(); await f.drainBackground();
         await f.mutateEvidence(async storage => {
           const read = storage.get.bind(storage);
           vi.spyOn(storage, 'get').mockImplementation((async (key: string | string[]) => {
@@ -2566,13 +2003,12 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
         const get = diagnosticsBrowser(f); await diagnosticJson(await get());
         const history = await diagnosticTraversal(get); await diagnosticTraversal(get, `${v2}/export`);
         for (const record of history.records) await diagnosticJson(await get(`${v2}/records/${record.id}`));
-        await noOwnedRuntimeRead(f);
-        expect(await f.environment.OPERATOR_ACTIVITY!.getByName(f.activityId).getBrowserDetail()).toEqual(before);
-        await deny(await f.capability.fetch(wire('source', mutation, stamp.deliveryToken)));
-        await deny(await f.capability.fetch(wire('source', { ...mutation, body: '{"body":"changed"}' }, stamp.deliveryToken)));
-        expect(await f.readRemoteComments()).toEqual(remote);
+        expect(await storedRuntime(f)).toEqual(before);
+        expect(f.childSubmissions).toEqual([]); expect(f.sent).toEqual([]);
+        await deny(await f.capability.fetch(wire('source', { operationId: 'PRIVATE_UNCERTAIN_V2', method: 'POST',
+          url: sourceUrl, body: '{"body":"must not replay"}' }, stamp.deliveryToken)));
         expect((await get('/continue', 'owner@example.test', 'POST')).status).toBe(409);
-      }, { ...options, facetContract: true }));
+      }, options));
 
       it('REQ-OPERATOR-081: AC2/4/5 routine eviction preserves pinned originating failure and invalidates old epoch cursor', () => fixture(async f => {
         await start(f, 250_000); await diagnosticSummary(f);
@@ -2591,10 +2027,17 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
         const failure = initial.records.find(record => record.kind === 'event' && record.code === 'provider-failed');
         expect(failure).toMatchObject({ generation: 1, boundary: 'model', evidence: 'observed' });
         expect(failure!.capsuleId).toMatch(/^f-[0-9]+$/);
-        // Generate ordinary host-owned metadata, not native multi-target SDK workloads.
-        for (let index = 0; index < 1600; index++) expect((await f.capability.fetch(genericWire('source', {
-          operationId: `PRIVATE_RETENTION_${index}`, url: sourceUrl,
-        }))).status).toBe(200);
+        // Exercise the owning retention writer, not 1600 unrelated HTTP/raw-archive uploads.
+        // The real inference and source calls above establish the pinned failure and cursor.
+        const template = initial.records.find((record): record is DiagnosticEvent => record.kind === 'event'
+          && record.owner === 'host' && record.outcome === 'completed' && !record.capsuleId);
+        if (!template) throw new Error('Missing originating routine evidence');
+        const { kind: _kind, id: _id, sequence: _sequence, generation: _generation, capsuleId: _capsule, ...routine } = template;
+        const binding = (await diagnosticSummary(f)).binding;
+        await f.mutateEvidence(async storage => {
+          for (let index = 0; index < 1600; index++) await storage.transaction(tx => appendDiagnostic(tx, binding,
+            { ...routine, timestamp: Date.now() }));
+        });
         await f.drainBackground();
         const after = await diagnosticSummary(f);
         expect(after.retention.evictedRoutine).toBeGreaterThan(0);
@@ -2734,221 +2177,249 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
         expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
       }, { repositoryOnly: true, loggingEnabled: false }));
 
-      it('REQ-OPERATOR-081: AC4/5 retained diagnostics survive final automatic collection without changing v1', () => fixture(async f => {
-        await setup(f); await finish(f); const get = diagnosticsBrowser(f);
-        const before = await f.activity.getBrowserDetail();
+      it('REQ-OPERATOR-081: AC4/5 generic automatic collection preserves retained diagnostics', () => fixture(async f => {
+        await start(f);
+        expect((await applicationCallback(f, 'source', { operationId: 'before-collection', url: sourceUrl })).status).toBe(200);
+        f.normalTransport!.settle('completed'); await f.activity.reconcileDispatcherLease();
+        const get = diagnosticsBrowser(f); const before = await f.activity.getBrowserDetail();
         const v1 = await f.activity.getDispatcherDiagnostics(f.proof.ownerKey);
         const summary = await diagnosticSummary(f);
         expect(summary.binding).toMatchObject({ generation: 1, artifactDigest: f.artifactDigest });
-        expect(['no-failure-observed', 'evidence-incomplete']).toContain(summary.diagnosis.state);
         const history = await diagnosticTraversal(get);
         expect(history.records).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'event', boundary: 'settlement' })]));
         await diagnosticTraversal(get, `${v2}/export`);
         expect(await f.activity.getBrowserDetail()).toEqual(before);
-        const afterV1 = await f.activity.getDispatcherDiagnostics(f.proof.ownerKey);
-        const { capturedAt: _before, ...oldWire } = v1!;
-        const { capturedAt: _after, ...newWire } = afterV1!;
+        const after = await f.activity.getDispatcherDiagnostics(f.proof.ownerKey);
+        const { capturedAt: _a, ...oldWire } = v1!; const { capturedAt: _b, ...newWire } = after!;
         expect(newWire).toEqual(oldWire);
-        expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { result: finalResult(f) } });
-      }, options));
+        expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { result: { completed: true } } });
+      }, writableApplication));
+
     });
 
-    it.each(['', '-1', '-0', '1.5', '9007199254740992', 'bad', '%20', '999', '0&receiptAfter=1']) (
-      'REQ-OPERATOR-041: AC5 invalid receipt ordinal is rejected: %s', cursor => fixture(async f => {
-        await setup(f); await f.activity.cancelDrive(); const get = browser(f);
+
+    it.each(['unknown', 'reserved'] as const)('archived %s write cannot adopt even an intact cached success', phase => fixture(async f => {
+      await setup(f);
+      await faultWrite(f, async record => ({ ...record, phase }));
+      await patch(f, 'dispatcher:journal', record => ({ ...record, unresolved: 1 }));
+      const before = await storedRuntime(f); const body = await read(browser(f));
+      expect(body.effectReceipts!.items).toMatchObject([{ journalPhase: phase, binding: 'unresolved' }]);
+      expect(body.effectReceipts!.items[0]).not.toHaveProperty('observedResponse');
+      expect(await storedRuntime(f)).toEqual(before);
+    }, options));
+
+    it('eight-item archived pages are exhaustive and preserve an unknown effect at its original ordinal', () => fixture(async f => {
+      await setup(f, 9); await faultWrite(f, async record => ({ ...record, phase: 'unknown' }));
+      await patch(f, 'dispatcher:journal', record => ({ ...record, unresolved: 1 }));
+      const before = await storedRuntime(f); const get = browser(f); const first = (await read(get)).effectReceipts!;
+      expect(first.items).toHaveLength(8); expect(first.pageStatus).toBe('more');
+      const second = (await read(get, first.nextAfterOrdinal!)).effectReceipts!;
+      const items = [...first.items, ...second.items];
+      expect(items.map(item => item.ordinal)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+      expect(second.pageStatus).toBe('complete'); expect(second.nextAfterOrdinal).toBeNull();
+      expect(items.filter(item => item.journalPhase === 'unknown')).toMatchObject([{ ordinal: 0, binding: 'unresolved' }]);
+      expect(items[0]).not.toHaveProperty('observedResponse');
+      expect(items.slice(1).map(item => (item.observedResponse as { commentId: number }).commentId)).toEqual([92, 93, 94, 95, 96, 97, 98, 99]);
+      const diagnostic = await f.activity.getDispatcherDiagnostics(f.proof.ownerKey);
+      expect(diagnostic).toMatchObject({ sdk: { status: 'unavailable', reason: 'retired' }, parent: { operations: {
+        status: 'available', scan: 'complete', inspectedEntries: 9, omittedEntries: true,
+        records: Array.from({ length: 8 }, (_, index) => ({ ordinal: 8 - index })) } } });
+      expect(await storedRuntime(f)).toEqual(before);
+    }, options));
+
+    it.each(['', '-1', '-0', '1.5', '9007199254740992', 'bad', '%20', '999', '0&receiptAfter=1'])(
+      'invalid archived receipt cursor %s is refused after ownership checking', cursor => fixture(async f => {
+        await setup(f); const get = browser(f);
         expect((await get(`/result?receiptAfter=${cursor}`)).status).toBe(400);
         expect((await get(`/result?receiptAfter=${cursor}`, 'foreign@example.test')).status).toBe(404);
       }, options));
 
-    it.each(['count', 'duplicateOrdinal', 'missingOrdinal', 'unclassified', 'listFailure']) (
-      'REQ-OPERATOR-041: AC5 damaged enumeration cannot fabricate empty complete history: %s', fault => fixture(async f => {
-        await setup(f, 2); await f.activity.cancelDrive();
+    it.each(['count', 'duplicateOrdinal', 'missingOrdinal', 'unclassified', 'listFailure'] as const)(
+      'damaged archived enumeration %s cannot fabricate complete empty history', fault => fixture(async f => {
+        await setup(f, 2);
         if (fault === 'count') await patch(f, 'dispatcher:journal', value => ({ ...value, count: 99 }));
         else if (fault === 'listFailure') await f.mutateEvidence(async storage => {
-          const list = storage.list.bind(storage);
-          vi.spyOn(storage, 'list').mockImplementation(async input => {
-            if (input?.prefix?.startsWith('dispatcher:operation:')) throw new Error('PRIVATE_STORAGE_ERROR');
-            return list(input);
+          const list = storage.list.bind(storage); vi.spyOn(storage, 'list').mockImplementation(async input => {
+            if (input?.prefix?.startsWith('dispatcher:operation:')) throw Error('PRIVATE_STORAGE_ERROR'); return list(input);
           });
         });
         else await faultWrite(f, async (record, storage, key) => {
-          const other = [...await storage.list<Stored>({ prefix: 'dispatcher:operation:1:' })].find(([id]) => id !== key);
-          return { ...record, ...(fault === 'duplicateOrdinal' ? { ordinal: other![1].ordinal }
+          const other = [...await storage.list<Stored>({ prefix: 'dispatcher:operation:1:' })].find(([id]) => id !== key)!;
+          return { ...record, ...(fault === 'duplicateOrdinal' ? { ordinal: other[1].ordinal }
             : fault === 'missingOrdinal' ? { ordinal: undefined } : { request: undefined, inference: undefined }) };
         });
-        const body = await read(browser(f));
-        expect(body.executionStatus).toBe('cancel-requested');
+        const body = await read(browser(f)); expect(body.executionStatus).toBe('cancel-requested');
         if (fault === 'unclassified') expect(body.effectReceipts!.unclassifiedEntries).toBeGreaterThan(0);
         else expect(body.effectReceipts!.scan).not.toBe('complete');
         expect(JSON.stringify(body)).not.toContain('PRIVATE_STORAGE_ERROR');
       }, options));
 
-    it('REQ-OPERATOR-041: AC5 selection changed during awaited storage reads is unavailable', () => fixture(async f => {
-      await setup(f); await f.activity.cancelDrive();
-      await f.mutateEvidence(async storage => {
+    it('selection changes during archived storage reads discard the whole receipt page', () => fixture(async f => {
+      await setup(f); await f.mutateEvidence(async storage => {
         const list = storage.list.bind(storage); let changed = false;
         vi.spyOn(storage, 'list').mockImplementation(async input => {
           const entries = await list(input);
           if (!changed && input?.prefix?.startsWith('dispatcher:operation:')) {
             changed = true; const lease = await storage.get<Stored>('dispatcher:lease');
             await storage.put('dispatcher:lease', { ...lease, inputDigest: 'e'.repeat(64) });
-          }
-          return entries;
+          } return entries;
         });
-      });
-      unavailable(await read(browser(f)));
+      }); unavailable(await read(browser(f)));
     }, options));
 
-    it('REQ-OPERATOR-041: AC7 result-only scope preserves detail and collection responses', () => fixture(async f => {
-      await setup(f); const get = browser(f);
-      expect(await (await get()).json()).not.toHaveProperty('effectReceipts');
-      await f.activity.cancelDrive(); const detail = await (await get('')).json();
-      expect(detail).not.toHaveProperty('effectReceipts');
+    it('archived receipt reads preserve owner, selector, expiry and late-commit boundaries', () => fixture(async f => {
+      const stamp = await setup(f); const get = browser(f);
+      expect((await get()).status).toBe(200); expect((await get('/result', 'foreign@example.test')).status).toBe(404);
+      expect((await get('/result', '')).status).toBe(401);
+      expect(await (await get('')).json()).not.toHaveProperty('effectReceipts');
       expect((await get('/result', 'owner@example.test', 'POST')).status).toBe(409);
-      expect((await get('/result', 'foreign@example.test')).status).toBe(404);
-      expect((await get('/result', '')).status).toBe(401);
-      expect(await f.activity.commitDrive(1, { schemaVersion: 1, status: 'completed', checkpoint: null,
-        result: finalResult(f) })).toMatchObject({ ok: false, reason: 'stale-drive' });
-    }, options));
-
-    it('REQ-OPERATOR-041: AC2 existing access and ownership gates still protect receipt reads', () => fixture(async f => {
-      await setup(f); await f.activity.cancelDrive(); const get = browser(f);
-      expect((await get()).status).toBe(200);
-      expect((await get('/result', 'foreign@example.test')).status).toBe(404);
-      expect((await get('/result', '')).status).toBe(401);
-      vi.spyOn(access, 'requireOperatorHumanContext').mockRejectedValue(new AppError('FORBIDDEN', 403, 'Authentication rejected'));
-      expect((await get()).status).toBe(403);
-    }, options));
-
-    it('REQ-OPERATOR-041: AC3 repeated GET preserves the automatically collected terminal assessment', () => fixture(async f => {
-      await start(f); await discovery(f); let stamp = await context(f);
-      for (const index of [0, 1]) {
-        progress(f, stamp, index === 0 ? { kind: 'target', index: 1, target: frozen[1] } : { kind: 'final' },
-          { results: rows.slice(0, index + 1) });
-        await f.activity.reconcileDispatcherLease(); stamp = await context(f);
-      }
-      f.messages([{ submissionId: stamp.submissionId, parts: [{ type: 'data-assessment', data: finalResult(f) }] }]);
-      f.settle(stamp.submissionId); await f.activity.reconcileDispatcherLease(); const get = browser(f);
-      // Intent4 reconciliation already collects its completed final assessment.
-      // A history GET must preserve that terminal proof, not invent a ready interval.
-      for (let index = 0; index < 2; index++) expect(await (await get()).json()).toMatchObject({
-        collectionStatus: 'consumed', result: finalResult(f), executionStatus: 'completed' });
-      expect((await get('/result', 'owner@example.test', 'POST')).status).toBe(200);
-      expect(await (await get()).json()).toMatchObject({ collectionStatus: 'consumed', result: finalResult(f) });
-    }, options));
-
-    it('REQ-OPERATOR-017: AC4 history reads cannot restart a cancelled original drive', () => fixture(async f => {
-      const stamp = await setup(f); await f.activity.cancelDrive(); const get = browser(await coldOwner(f));
-      expect((await get()).status).toBe(200); expect((await get()).status).toBe(200);
       expect((await get('/continue', 'owner@example.test', 'POST')).status).toBe(409);
-      await deny(await f.capability.fetch(wire('source', { operationId: 'old-after-history', method: 'POST',
-        url: sourceUrl, body: '{"body":"must not restart"}' }, stamp.deliveryToken)));
-      expect(await f.readRemoteComments()).toMatchObject([{ id: 91 }]);
+      expect(await f.activity.commitDrive(1, { schemaVersion: 1, status: 'completed', checkpoint: null, result: finalResult(f) }))
+        .toEqual({ ok: false, reason: 'stale-drive' });
+      f.expire(); expect((await get()).status).toBe(200);
+      for (const request of [...protectedRequests(stamp.deliveryToken), wire('receipt', { operationId: 'PRIVATE_OPERATION_0' }, stamp.deliveryToken),
+        wire('resolve', { operationId: 'PRIVATE_OPERATION_0', readbacks: [] }, stamp.deliveryToken)]) await deny(await f.capability.fetch(request));
+      expect(f.childSubmissions).toEqual([]); expect(f.sent).toEqual([]);
     }, options));
 
-    it('REQ-OPERATOR-017: AC5 late original completion stays stale after history reads', () => fixture(async f => {
-      await setup(f); await f.activity.cancelDrive(); const get = browser(f); expect((await get()).status).toBe(200);
-      expect(await f.activity.commitDrive(1, { schemaVersion: 1, status: 'completed', checkpoint: null,
-        result: finalResult(f) })).toMatchObject({ ok: false, reason: 'stale-drive' });
-      expect(await (await get()).json()).toMatchObject({ executionStatus: 'cancel-requested', result: null, collectionStatus: 'unavailable' });
+    it('completed archived result reads preserve exact stored result and collection state without reopening a job', () => fixture(async f => {
+      await setup(f); const result = finalResult(f);
+      await patch(f, 'admission', state => ({ ...state, browserCollectionConsumed: true,
+        drive: { generation: 1, status: 'completed', checkpoint: null, result } }));
+      await patch(f, 'dispatcher:lease', lease => {
+        const serial = structuredClone(lease.serial) as DispatcherPhaseState;
+        serial.previous.push({ submissionId: 'archived-first-target', phase: { kind: 'target', index: 0, target: frozen[0] }, outcome: 'completed' },
+          { submissionId: 'archived-second-target', phase: { kind: 'target', index: 1, target: frozen[1] }, outcome: 'completed' });
+        serial.current.phase = { kind: 'final' }; serial.results = rows as DispatcherPhaseState['results'];
+        return { ...lease, serial, status: 'settled', settledSubmissionId: 'archived-target' };
+      });
+      await f.mutateEvidence(async storage => { await storage.put('dispatcher:result:1', result); });
+      const before = await storedRuntime(f); const get = browser(f);
+      for (let index = 0; index < 2; index++) expect(await (await get()).json()).toMatchObject({ executionStatus: 'completed', collectionStatus: 'consumed', result });
+      f.restart(); await f.drainBackground(); expect(await (await get()).json()).toMatchObject({ result, collectionStatus: 'consumed' });
+      expect(await storedRuntime(f)).toEqual(before); expect(f.childSubmissions).toEqual([]); expect(f.sent).toEqual([]);
     }, options));
 
-    it('REQ-OPERATOR-048: AC5 cancelled delivery cannot use protected operations after a receipt GET', () => fixture(async f => {
-      const stamp = await setup(f); const remote = await f.readRemoteComments(); await f.activity.cancelDrive();
-      expect((await browser(f)()).status).toBe(200);
-      for (const request of [...protectedRequests(stamp.deliveryToken),
-        wire('receipt', { operationId: 'PRIVATE_OPERATION_0' }, stamp.deliveryToken),
-        wire('resolve', { operationId: 'PRIVATE_OPERATION_0', readbacks: [] }, stamp.deliveryToken)])
-        await deny(await f.capability.fetch(request));
-      expect(await f.readRemoteComments()).toEqual(remote);
-    }, options));
-
-    it('REQ-OPERATOR-048: AC3 history authentication cannot renew the original execution expiry', () => fixture(async f => {
-      const stamp = await setup(f); await f.activity.cancelDrive(); f.expire(); const get = browser(f);
-      expect((await get()).status).toBe(200);
-      for (const request of protectedRequests(stamp.deliveryToken)) await deny(await f.capability.fetch(request));
-      expect((await get('/continue', 'owner@example.test', 'POST')).status).toBe(409);
-      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
-    }, options));
-
-    it('REQ-OPERATOR-047: AC4 observation cannot replay an uncertain remote mutation', () => fixture(async f => {
-      await start(f); await discovery(f); const stamp = await context(f); f.loseResponse();
-      const mutation = { operationId: 'uncertain-history', method: 'POST', url: sourceUrl, body: '{"body":"Original uncertainty"}' };
-      const uncertain = await f.capability.fetch(wire('source', mutation, stamp.deliveryToken));
-      expect(uncertain.status).toBe(409);
-      expect(await uncertain.json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
-      const remote = await f.readRemoteComments(); await f.activity.cancelDrive(); const get = browser(f);
-      expect((await get()).status).toBe(200); expect((await get()).status).toBe(200);
-      await deny(await f.capability.fetch(wire('source', mutation, stamp.deliveryToken)));
-      await deny(await f.capability.fetch(wire('source', { ...mutation, body: '{"body":"Changed uncertainty"}' }, stamp.deliveryToken)));
-      expect(await f.readRemoteComments()).toEqual(remote);
-    }, options));
-
-    it('REQ-OPERATOR-047: AC5 immutable cached response bytes survive non-consuming history reads', () => fixture(async f => {
-      await start(f); await discovery(f); const stamp = await context(f);
-      const mutation = { operationId: 'immutable-history', method: 'POST', url: sourceUrl, body: '{"body":"Immutable response contract"}' };
-      const first = await f.capability.fetch(wire('source', mutation, stamp.deliveryToken)); const bytes = await first.text();
-      expect((await browser(f)()).status).toBe(200);
-      expect(await (await f.capability.fetch(wire('source', mutation, stamp.deliveryToken))).text()).toBe(bytes);
-      expect(await f.readRemoteComments()).toMatchObject([{ id: 91, body: 'Immutable response contract' }]);
-      await f.activity.cancelDrive(); expect((await browser(f)()).status).toBe(200);
-      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
-    }, options));
-
-    it('REQ-OPERATOR-048: AC7 historical unkeyed reads do not gain serial receipt authority', () => fixture(async f => {
-      await start(f); await f.activity.cancelDrive(); const get = browser(f);
-      const body = await (await get()).json(); expect(body).not.toHaveProperty('effectReceipts');
-      expect(body).toMatchObject({ executionStatus: 'cancel-requested', result: null });
-      expect((await f.capability.fetch(genericWire('source', { operationId: 'historical-after-read', url: sourceUrl }))).status).toBe(403);
-    }, { repositoryOnly: true }));
-
-    it.each(['notMerged', 'invalidSha', 'wrongStatus']) (
-      'REQ-OPERATOR-041: AC5 a merge cache cannot counterfeit success: %s', fault => fixture(async f => {
-        const stamp = await setup(f);
-        expect((await f.capability.fetch(wire('source', { operationId: 'merge-fault', method: 'PUT',
-          url: 'https://api.github.com/repos/another/service/pulls/17/merge',
-          body: JSON.stringify({ sha: frozen[0].headSha, merge_method: 'merge' }) }, stamp.deliveryToken))).status).toBe(200);
-        await f.activity.cancelDrive();
-        await faultWrite(f, async (record, storage, key) => {
-          const responseKey = `dispatcher:response:${key.slice('dispatcher:operation:1:'.length)}`;
-          const response = await storage.get<{ status: number; contentType: string; body: string }>(responseKey);
-          const envelope = JSON.parse(response!.body) as { status: number; body: string };
-          const upstream = JSON.parse(envelope.body) as { sha: string; merged: boolean };
-          if (fault === 'notMerged') upstream.merged = false;
-          if (fault === 'invalidSha') upstream.sha = 'not-a-sha';
-          if (fault === 'wrongStatus') envelope.status = 201;
-          envelope.body = JSON.stringify(upstream); const body = JSON.stringify(envelope);
-          await storage.put(responseKey, { ...response, body }); return { ...record, responseDigest: await digest(body) };
-        }, 'PUT');
-        const body = await read(browser(f)); const item = body.effectReceipts!.items.find(row => row.method === 'PUT');
-        expect(item).toMatchObject({ binding: 'unresolved' }); expect(item).not.toHaveProperty('observedResponse');
-      }, options));
-
-    it('REQ-OPERATOR-041: AC5 a reserved mutation cannot adopt an intact cached success', () => fixture(async f => {
-      await setup(f); await f.activity.cancelDrive();
-      await faultWrite(f, async record => ({ ...record, phase: 'reserved' }));
-      await patch(f, 'dispatcher:journal', record => ({ ...record, unresolved: 1 }));
-      const body = await read(browser(f)); expect(body.effectReceipts!.items).toMatchObject([{ journalPhase: 'reserved', binding: 'unresolved' }]);
+    it.each(['notMerged', 'invalidSha', 'wrongStatus'] as const)('archived merge cache cannot counterfeit success: %s', fault => fixture(async f => {
+      await setup(f, 0); await archiveOperation(f, 'merge-fault', 0, 'PUT');
+      await faultWrite(f, async (record, storage, key) => {
+        const responseKey = `dispatcher:response:${key.slice('dispatcher:operation:1:'.length)}`;
+        const response = (await storage.get<{ status: number; contentType: string; body: string }>(responseKey))!;
+        const envelope = JSON.parse(response.body); const body = JSON.parse(envelope.body);
+        if (fault === 'notMerged') body.merged = false;
+        if (fault === 'invalidSha') body.sha = 'not-a-sha';
+        if (fault === 'wrongStatus') envelope.status = 201;
+        envelope.body = JSON.stringify(body); const bytes = JSON.stringify(envelope);
+        await storage.put(responseKey, { ...response, body: bytes }); return { ...record, responseDigest: await digest(bytes) };
+      }, 'PUT');
+      const body = await read(browser(f)); expect(body.effectReceipts!.items).toMatchObject([{ binding: 'unresolved' }]);
       expect(body.effectReceipts!.items[0]).not.toHaveProperty('observedResponse');
-      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
-    }, options));
-
-    it('REQ-OPERATOR-041: AC5 unresolved mutations occupy their original page position', () => fixture(async f => {
-      await setup(f, 9); await f.activity.cancelDrive();
-      await faultWrite(f, async record => ({ ...record, phase: 'unknown' }));
-      await patch(f, 'dispatcher:journal', record => ({ ...record, unresolved: 1 }));
-      const get = browser(f); const first = (await read(get)).effectReceipts!;
-      const second = (await read(get, first.nextAfterOrdinal!)).effectReceipts!;
-      const items = [...first.items, ...second.items];
-      expect(items).toHaveLength(9); expect(new Set(items.map(item => item.ordinal)).size).toBe(9);
-      const uncertain = items.filter(item => item.journalPhase === 'unknown');
-      expect(uncertain).toHaveLength(1); expect(uncertain[0]).toMatchObject({ binding: 'unresolved' });
-      expect(uncertain[0]).not.toHaveProperty('observedResponse');
-      expect(second).toMatchObject({ pageStatus: 'complete', unresolvedJournalEntries: 1 });
     }, options));
   });
 });
+describe('REQ-OPERATOR-088: normal-host inference preparation', () => {
+  const byteLimit = 4096;
+  const options = { normalHosting: true, repositoryOnly: true, inferenceRequestBytes: byteLimit };
+
+  it.each([true, false])('retains originating overflow evidence only when logging=%s, without changing execution', loggingEnabled => fixture(async f => {
+    await start(f);
+    const receipt = async () => {
+      const response = await f.installationCapability.fetch(normalCallback(f.activityId, 'receipt', { operationId: 'overflow-budget' }));
+      expect(response.status).toBe(200);
+      return response.json();
+    };
+    const budget = await f.installationCapability.fetch(normalCallback(f.activityId, 'source', {
+      operationId: 'overflow-budget', url: 'https://api.github.com/repos/another/service',
+    }));
+    expect(budget.status).toBe(200);
+    await budget.text();
+    const encoded = new TextEncoder().encode(JSON.stringify({ operationId: 'normal-body-limit',
+      context: { messages: [{ role: 'user', content: 'PRIVATE_NORMAL_OVERFLOW_é' }] }, options: {} }));
+    const exact = new Uint8Array(byteLimit);
+    exact.set(encoded); exact.fill(32, encoded.byteLength);
+    const request = (body: Uint8Array<ArrayBuffer> | ReadableStream<Uint8Array>) => new Request(
+      normalCallback(f.activityId, 'inference', {}), { method: 'POST', body });
+    const accepted = await f.installationCapability.fetch(request(exact));
+    expect(accepted.status).toBe(200);
+    const originalResponse = await accepted.text();
+    const originalReceipt = await receipt();
+    expect(originalReceipt).toMatchObject({ phase: 'completed', operationCount: 2 });
+    const originalRequests = structuredClone(f.ownerPortRequests);
+    const originalAdmissions = structuredClone([...f.normalTransport!.admissions.values()]);
+    const deadline = (await f.activity.getRuntimePlan())!.deadline;
+
+    for (const crossing of [1, 3]) {
+      let cancelled = false;
+      let finish!: () => void;
+      const stream = new ReadableStream<Uint8Array>({ start(controller) {
+        controller.enqueue(exact);
+        controller.enqueue(new TextEncoder().encode(crossing === 1 ? ' ' : ' é'));
+        finish = () => { try { controller.close(); } catch { /* The bounded reader already cancelled. */ } };
+      }, cancel() { cancelled = true; } });
+      const rejected = f.installationCapability.fetch(request(stream));
+      try { await invalidPreparationRefusal(await within(rejected, 'normal inference overflow before EOF')); }
+      finally { finish(); await within(rejected, 'normal inference overflow cleanup').catch(() => undefined); }
+      expect(cancelled).toBe(true);
+      const failures = await preparationFailures(f);
+      if (loggingEnabled) {
+        expect(failures.at(-1)).toMatchObject({ owner: 'host', boundary: 'tool', code: 'tool-failed', origin: 'originating',
+          preparation: { step: 'parse', route: 'inference', failureClass: 'body-limit', byteLimit,
+            observedBytesLowerBound: byteLimit + crossing },
+          error: { transportStatus: 403, transportReason: 'request-invalid', transportDisposition: 'operation-local' } });
+        expect(failures.at(-1)?.correlation).toEqual({});
+        expect(JSON.stringify(failures)).not.toMatch(/PRIVATE_NORMAL_OVERFLOW|normal-body-limit|fixture-installation-secret|Dispatcher body exceeds limit/);
+      } else expect(failures).toEqual([]);
+      expect(await receipt()).toEqual(originalReceipt);
+      expect(f.ownerPortRequests).toEqual(originalRequests);
+      expect([...f.normalTransport!.admissions.values()]).toEqual(originalAdmissions);
+    }
+
+    const restarted = f.restart(); await f.drainBackground();
+    const retained = await preparationFailures(f);
+    const retainedOverflows = retained.filter(record => record.preparation?.failureClass === 'body-limit');
+    if (loggingEnabled) expect(retainedOverflows.at(-1)?.preparation).toMatchObject({ byteLimit, observedBytesLowerBound: byteLimit + 3 });
+    else expect(retainedOverflows).toEqual([]);
+    expect((await restarted.getRuntimePlan())!.deadline).toBe(deadline);
+    expect(await restarted.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
+    expect(await restarted.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    const replay = await f.installationCapability.fetch(request(exact));
+    expect(replay.status).toBe(200); expect(await replay.text()).toBe(originalResponse);
+    expect(await receipt()).toEqual(originalReceipt);
+    expect(f.ownerPortRequests).toEqual(originalRequests);
+  }, { ...options, loggingEnabled }));
+
+  it.each(['recorder unavailable', 'warning unavailable'])('preserves refusal and reader cancellation when %s', mode => fixture(async f => {
+    await start(f);
+    const original = await f.activity.getBrowserDetail();
+    const deadline = (await f.activity.getRuntimePlan())!.deadline;
+    const admissions = structuredClone([...f.normalTransport!.admissions.values()]);
+    const ownerRequests = structuredClone(f.ownerPortRequests);
+    const journal = (await f.activity.getDispatcherDiagnostics(f.proof.ownerKey))?.parent.journal;
+    if (mode === 'recorder unavailable') await denyDiagnosticWrites(f);
+    const warning = mode === 'warning unavailable'
+      ? vi.spyOn(console, 'warn').mockImplementation(() => { throw new Error('PRIVATE_WARNING_OUTAGE'); }) : undefined;
+    setLogLevel('warn');
+    let cancelled = false;
+    let finish!: () => void;
+    const stream = new ReadableStream<Uint8Array>({ start(controller) {
+      controller.enqueue(new Uint8Array(byteLimit + 1));
+      finish = () => { try { controller.close(); } catch { /* The bounded reader already cancelled. */ } };
+    }, cancel() { cancelled = true; } });
+    const rejected = f.installationCapability.fetch(new Request(normalCallback(f.activityId, 'inference', {}), { method: 'POST', body: stream }));
+    try { await invalidPreparationRefusal(await within(rejected, 'normal inference diagnostic outage')); }
+    finally { finish(); await within(rejected, 'normal inference outage cleanup').catch(() => undefined); warning?.mockRestore(); setLogLevel('silent'); }
+    expect(cancelled).toBe(true);
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ activityId: original!.activityId, executionStatus: 'running', result: null });
+    expect((await f.activity.getRuntimePlan())!.deadline).toBe(deadline);
+    expect([...f.normalTransport!.admissions.values()]).toEqual(admissions);
+    expect(f.ownerPortRequests).toEqual(ownerRequests);
+    expect((await f.activity.getDispatcherDiagnostics(f.proof.ownerKey))?.parent.journal).toEqual(journal);
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+  }, options));
+});
+
 /** Parent HTTP/Activity contracts only; generated Flue lifecycle is qualified in Dispatcher CI. */
+// REQ-OPERATOR-102, REQ-OPERATOR-104, REQ-OPERATOR-106: Extracted profile, retirement and recovery boundaries.
 describe('normal installed Dispatcher control', () => {
   const options = { normalHosting: true, repositoryOnly: true };
   const source = { operationId: 'normal-read', url: 'https://api.github.com/repos/another/service' };
@@ -3179,304 +2650,239 @@ describe('normal installed Dispatcher control', () => {
     expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
   }, options));
 
-  it('REQ-OPERATOR-007/047: normal serial inference is Activity-scoped while protected tools still require the original phase token', () => fixture(async f => {
-    expect(await start(f)).toMatchObject({ ok: true, state: { status: 'running', generation: 1 } });
-    expect([...f.normalTransport!.admissions.values()]).toMatchObject([{ receipt: { submissionId: expect.any(String), uid: expect.any(String) } }]);
-    const response = await callback(f, 'inference', { operationId: 'serial-owner-model',
-      context: { messages: [{ role: 'user', content: 'Assess the original phase' }] }, options: { reasoning: 'low', maxTokens: 128 } });
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ result: { role: 'assistant', provider: 'configured-provider' } });
-    expect((await callback(f, 'source', source)).status).toBe(403);
-  }, { ...options, nativeInference: true, intent4: true }));
-
-  // Installed HTTP / real parent Activity only, not generated SDK startup execution.
-  type InstalledPhaseContext = { scope: string; generation: number; deadline: string; submissionId: string;
-    deliveryToken: string; phase: { kind: string }; previous?: Array<{ submissionId: string; phase: unknown; outcome: string }> };
-  const phaseToken = (f: DispatcherFixture) => (control(f, 'dispatch').at(-1)!.body.message as {
-    attributes: { deliveryToken: string } }).attributes.deliveryToken;
+  // Fixed external plan responses exercise Root transport/authority only. They
+  // contain no Renovate transitions, target selection or result validation.
+  // Live domain policy belongs to Dispatcher/test/renovate/ownership-plan.test.ts,
+  // legacy-admission-parity.test.ts and test/core/phase-configured-inference.test.ts.
+  const applicationContexts = [{ work: 'first' }, { work: 'second' }, { work: 'third' }];
+  const applicationOptions = { ...options, applicationWorkflow: true,
+    applicationPlan: (request: Record<string, unknown>) => {
+      const ordinal = (request.delivery as { ordinal: number }).ordinal;
+      const context = applicationContexts[ordinal - 1];
+      return context
+        ? { kind: 'dispatch', checkpoint: context, context, message: { kind: 'user', body: `Opaque work ${ordinal}` } }
+        : { kind: 'complete', checkpoint: { done: true }, result };
+    } };
+  type ApplicationContext = { context: { work: string }; delivery: { token: string; ordinal: number };
+    receipt: { submissionId: string; uid: string; acceptedAt: string } };
+  const deliveryToken = (f: DispatcherFixture) => (control(f, 'plan').at(-1)!.body.delivery as { token: string }).token;
   const installedContext = (f: DispatcherFixture, token: string, headers: Record<string, string> = {}) =>
-    f.installationCapability.fetch(normalCallback(f.activityId, 'phase-context', { deliveryToken: token },
-      { 'x-codeflare-dispatcher-delivery': token, ...headers }));
-
-  it('REQ-OPERATOR-057/048: owner progress and timestamps reflect admitted phases rather than pending polls or browser reads', () => fixture(async f => {
-    expect(await start(f)).toMatchObject({ ok: true });
-    const originalDeadline = (await f.activity.getRuntimePlan())!.deadline;
-    const discovery = await f.activity.getBrowserDetail();
-    expect(discovery).toMatchObject({ executionStatus: 'running', progress: 'Discovery phase', collectionStatus: 'unavailable' });
-    f.advanceClock(1_000);
+    callback(f, 'context', { deliveryToken: token }, { 'x-codeflare-dispatcher-delivery': token, ...headers });
+  const applicationContext = async (f: DispatcherFixture): Promise<ApplicationContext> => {
+    const response = await installedContext(f, deliveryToken(f));
+    expect(response.status).toBe(200);
+    return response.json();
+  };
+  const settleDelivery = async (f: DispatcherFixture) => {
+    const current = await applicationContext(f);
+    f.normalTransport!.settleSubmission(current.receipt.submissionId, 'completed', [
+      { name: 'opaque-evidence', data: { observed: current.context.work } },
+    ]);
     await f.activity.reconcileDispatcherLease();
-    expect((await f.activity.getBrowserDetail())!.updatedAt).toBe(discovery!.updatedAt);
-    const stamp = await (await installedContext(f, phaseToken(f))).json() as InstalledPhaseContext;
-    const target = { pullRequest: 17, headSha: '1'.repeat(40) };
-    f.normalTransport!.settle('completed', [{ name: 'dispatcher-progress', data: {
-      version: 1, scope: stamp.scope, generation: stamp.generation, submissionId: stamp.submissionId,
-      phase: stamp.phase, next: { kind: 'target', index: 0, target }, targets: [target],
-    } }]);
-    await f.activity.reconcileDispatcherLease();
-    f.normalTransport!.settle('pending');
-    const admitted = await f.activity.getBrowserDetail();
-    expect(admitted).toMatchObject({ executionStatus: 'running', progress: 'PR #17 - target 1/1', collectionStatus: 'unavailable' });
-    expect(admitted!.updatedAt).toBeGreaterThan(discovery!.updatedAt);
-    const admissions = [...f.normalTransport!.admissions.values()];
-    const effects = f.sent.map(request => ({ url: request.url, method: request.method }));
-    f.advanceClock(2_000);
-    await f.activity.reconcileDispatcherLease();
-    expect((await f.activity.getBrowserDetail())!.updatedAt).toBe(admitted!.updatedAt);
-    const activity = await cold(f);
-    expect(await activity.getBrowserDetail()).toMatchObject({ progress: 'PR #17 - target 1/1', updatedAt: admitted!.updatedAt });
-    expect((await activity.getRuntimePlan())!.deadline).toBe(originalDeadline);
-    expect(await activity.dispatcherGenerationCurrent(1)).toBe(true);
-    expect([...f.normalTransport!.admissions.values()]).toEqual(admissions);
-    expect(f.sent.map(request => ({ url: request.url, method: request.method }))).toEqual(effects);
-    expect(await activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
-  }, { ...options, intent4: true }));
-
+    return current;
+  };
   const unusedPermit = async (f: DispatcherFixture, operationId: string, associated = true) => {
-    const response = await callback(f, 'model-admission', { operationId, ...(associated ? { deliveryToken: phaseToken(f) } : {}),
+    const response = await callback(f, 'model-admission', { operationId,
+      ...(associated ? { deliveryToken: deliveryToken(f) } : {}),
       context: { messages: [{ role: 'user', content: 'Original model input' }] }, options: { maxTokens: 16 } });
     expect(response.status).toBe(200);
     return await response.json() as { permitId: string; expiresAt: number; deliveryToken: string };
-  };
-  const emptyDiscovery = async (f: DispatcherFixture) => {
-    const stamp = await (await installedContext(f, phaseToken(f))).json() as InstalledPhaseContext;
-    f.normalTransport!.settle('completed', [{ name: 'dispatcher-progress', data: {
-      version: 1, scope: stamp.scope, generation: stamp.generation, submissionId: stamp.submissionId,
-      phase: stamp.phase, next: { kind: 'final' }, targets: [],
-    } }]);
-    await f.activity.reconcileDispatcherLease();
   };
   const modelSend = (f: DispatcherFixture, operationId: string, permitId: string) => callback(f, 'model-fetch', {
     operationId, permitId, request: { url: 'https://api.openai.com/v1/chat/completions', method: 'POST', headers: [], bodyBase64: btoa('{}') },
   });
 
-  it.each([false, true])('REQ-OPERATOR-048/062 Task132: admitted singleton can collect its validated empty final scope with original logging=%s', loggingEnabled => fixture(async f => {
+  it('REQ-OPERATOR-007/047: application inference is Activity-scoped while protected tools require the original delivery', () => fixture(async f => {
+    expect(await start(f)).toMatchObject({ ok: true, state: { status: 'running', generation: 1 } });
+    const response = await callback(f, 'inference', { operationId: 'application-owner-model',
+      context: { messages: [{ role: 'user', content: 'Assess original work' }] }, options: { reasoning: 'low', maxTokens: 128 } });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ result: { role: 'assistant', provider: 'configured-provider' } });
+    expect((await callback(f, 'source', source)).status).toBe(403);
+    expect((await callback(f, 'source', source, { 'x-codeflare-dispatcher-delivery': deliveryToken(f) })).status).toBe(200);
+  }, { ...applicationOptions, nativeInference: true }));
+
+  it('REQ-OPERATOR-057/048: progress and timestamps reflect admitted deliveries, not domain phases or pending polls', () => fixture(async f => {
     expect(await start(f)).toMatchObject({ ok: true });
-    const deadline = (await f.activity.getRuntimePlan())!.deadline;
-    const permit = await unusedPermit(f, 'empty-discovery-unused-model');
-    await emptyDiscovery(f);
-    const final = await (await installedContext(f, phaseToken(f))).json() as InstalledPhaseContext;
-    expect(final.phase).toEqual({ kind: 'final' });
-    const empty = { repository: f.proof.repository, results: [] };
-    f.normalTransport!.settle('completed', [{ name: 'assessment', data: empty }]);
+    const originalDeadline = (await f.activity.getRuntimePlan())!.deadline;
+    const first = await f.activity.getBrowserDetail();
+    expect(first).toMatchObject({ executionStatus: 'running', progress: 'Delivery 1', collectionStatus: 'unavailable' });
+    f.advanceClock(1_000);
     await f.activity.reconcileDispatcherLease();
-    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'completed',
-      collectionStatus: 'consumed', attention: false, result: empty });
-    const activity = f.restart(); await f.drainBackground();
-    expect(await activity.getBrowserDetail()).toMatchObject({ executionStatus: 'completed',
-      collectionStatus: 'consumed', attention: false, result: empty });
-    expect(await activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { executionStatus: 'completed', result: empty } });
-    const parent = (await activity.getDispatcherDiagnostics(f.proof.ownerKey))!.parent;
-    expect(parent.journal).toMatchObject({ count: 1, unresolved: 0 });
-    expect(parent.lease).toMatchObject({ phase: 'final', targetCount: 0, resultCount: 0,
-      settledSubmissionDigest: await digest(final.submissionId), expiresAt: Math.floor(deadline / 1000) * 1000 });
-    expect((await modelSend(f, 'empty-discovery-unused-model', permit.permitId)).status).toBe(403);
-    const summary = await diagnosticSummary(f);
-    expect(summary.capture).toBe(loggingEnabled ? 'enabled' : 'disabled');
-    const { records } = await diagnosticTraversal(diagnosticsBrowser(f));
-    expect(records.filter(row => row.kind === 'operation')).toMatchObject([{ terminalOutcome: 'not-sent' }]);
-    if (!loggingEnabled) expect(records.filter(row => row.kind === 'event')).toEqual([]);
+    expect((await f.activity.getBrowserDetail())!.updatedAt).toBe(first!.updatedAt);
+    await settleDelivery(f);
+    const second = await f.activity.getBrowserDetail();
+    expect(second).toMatchObject({ executionStatus: 'running', progress: 'Delivery 2', collectionStatus: 'unavailable' });
+    expect(second!.updatedAt).toBeGreaterThan(first!.updatedAt);
+    const admissions = structuredClone([...f.normalTransport!.admissions.values()]);
+    f.advanceClock(2_000);
+    await f.activity.reconcileDispatcherLease();
+    expect((await f.activity.getBrowserDetail())!.updatedAt).toBe(second!.updatedAt);
+    const activity = await cold(f);
+    expect(await activity.getBrowserDetail()).toMatchObject({ progress: 'Delivery 2', updatedAt: second!.updatedAt });
+    expect((await activity.getRuntimePlan())!.deadline).toBe(originalDeadline);
+    expect(await activity.dispatcherGenerationCurrent(1)).toBe(true);
+    expect([...f.normalTransport!.admissions.values()]).toEqual(admissions);
+    expect(await activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
     expect(f.sent).toEqual([]);
-    expect(f.normalTransport!.admissions.size).toBe(2);
-  }, { ...options, prospective: true, intent4: true, loggingEnabled }));
+  }, applicationOptions));
 
-  it.each(['wrong-repository', 'foreign-final', 'missing-discovery', 'unbound-nonserial', 'changed-head'] as const)(
-    'REQ-OPERATOR-048/062 Task132: empty singleton compatibility rejects %s without effects', fault => fixture(async f => {
-      expect(await start(f)).toMatchObject({ ok: true });
-      if (fault === 'changed-head') {
-        const stamp = await (await installedContext(f, phaseToken(f))).json() as InstalledPhaseContext;
-        const target = { pullRequest: f.proof.pullRequest, headSha: 'f'.repeat(40) };
-        f.normalTransport!.settle('completed', [{ name: 'dispatcher-progress', data: {
-          version: 1, scope: stamp.scope, generation: stamp.generation, submissionId: stamp.submissionId,
-          phase: stamp.phase, next: { kind: 'target', index: 0, target }, targets: [target],
-        } }]);
-      } else {
-        if (fault !== 'missing-discovery' && fault !== 'unbound-nonserial') await emptyDiscovery(f);
-        f.normalTransport!.settle('completed', [{ name: 'assessment', data: {
-          repository: fault === 'wrong-repository' ? 'foreign/repository' : f.proof.repository, results: [],
-        } }]);
-        if (fault === 'foreign-final') f.normalTransport!.changeReply({ submissionId: 'foreign-final-submission' });
-      }
-      await f.activity.reconcileDispatcherLease();
-      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null });
-      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
-      expect(f.sent).toEqual([]);
-    }, { ...options, prospective: true, intent4: fault !== 'unbound-nonserial', loggingEnabled: false }));
+  it.each([false, true])('REQ-OPERATOR-048/062: opaque empty application result collects immutably with original logging=%s', loggingEnabled => fixture(async f => {
+    expect(await start(f)).toMatchObject({ ok: true });
+    const admissions = structuredClone([...f.normalTransport!.admissions.values()]);
+    const permit = await unusedPermit(f, 'unused-before-empty-result');
+    await settleDelivery(f);
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'completed',
+      collectionStatus: 'consumed', result });
+    const activity = await cold(f);
+    expect(await activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { result } });
+    expect((await modelSend(f, 'unused-before-empty-result', permit.permitId)).status).toBe(403);
+    expect([...f.normalTransport!.admissions.values()]).toEqual(admissions);
+    expect((await diagnosticSummary(f)).capture).toBe(loggingEnabled ? 'enabled' : 'disabled');
+    expect(f.sent).toEqual([]);
+  }, { ...applicationOptions, loggingEnabled, applicationPlan: request => request.checkpoint === null
+    ? { kind: 'dispatch', checkpoint: { pending: true }, context: applicationContexts[0], message: { kind: 'user', body: 'Opaque work' } }
+    : { kind: 'complete', checkpoint: { done: true }, result } }));
 
-  it('REQ-OPERATOR-048/062/083: unused exact-phase model permits retire not-sent and final collection survives cold owner readback', () => fixture(async f => {
+  it('REQ-OPERATOR-048/062/083: unused delivery-bound permits retire not-sent without inventing model responses', () => fixture(async f => {
     expect(await start(f)).toMatchObject({ ok: true });
     const deadline = (await f.activity.getRuntimePlan())!.deadline;
-    const discovery = await unusedPermit(f, 'unused-discovery');
-    const original = await (await installedContext(f, phaseToken(f))).json() as InstalledPhaseContext;
-    const target = { pullRequest: 17, headSha: '1'.repeat(40) };
-    const disposition = { ...target, decision: 'DO_NOT_MERGE', comment: 'No merge required', outcome: 'NOT_MERGED' };
-    const journey = { repository: 'another/service', results: [disposition] };
-    f.normalTransport!.settle('completed', [{ name: 'dispatcher-progress', data: {
-      version: 1, scope: original.scope, generation: original.generation, submissionId: original.submissionId,
-      phase: original.phase, next: { kind: 'target', index: 0, target }, targets: [target],
-    } }]);
-    await f.activity.reconcileDispatcherLease();
-    expect((await modelSend(f, 'unused-discovery', discovery.permitId)).status).toBe(409);
-    await unusedPermit(f, 'unused-target');
-    const targetStamp = await (await installedContext(f, phaseToken(f))).json() as InstalledPhaseContext;
-    f.normalTransport!.settle('completed', [{ name: 'dispatcher-progress', data: {
-      version: 1, scope: targetStamp.scope, generation: targetStamp.generation, submissionId: targetStamp.submissionId,
-      phase: targetStamp.phase, next: { kind: 'final' }, results: [disposition],
-    } }]);
-    await f.activity.reconcileDispatcherLease();
-    const final = await unusedPermit(f, 'unused-final');
-    expect(final.expiresAt).toBe(discovery.expiresAt);
-    f.normalTransport!.settle('completed', [{ name: 'assessment', data: journey }]);
-    await f.activity.reconcileDispatcherLease();
-    expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { executionStatus: 'completed', result: journey } });
-    const activity = f.restart(); await f.drainBackground();
-    expect(await activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { result: journey } });
-    expect((await modelSend(f, 'unused-final', final.permitId)).status).toBe(403);
+    const first = await unusedPermit(f, 'unused-first');
+    await settleDelivery(f);
+    expect((await modelSend(f, 'unused-first', first.permitId)).status).toBe(409);
+    await unusedPermit(f, 'unused-second'); await settleDelivery(f);
+    const last = await unusedPermit(f, 'unused-third');
+    expect(last.expiresAt).toBe(first.expiresAt);
+    await settleDelivery(f);
+    const activity = await cold(f);
+    expect(await activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { result } });
+    expect((await modelSend(f, 'unused-third', last.permitId)).status).toBe(403);
     const { records } = await diagnosticTraversal(diagnosticsBrowser(f));
     const operations = records.filter(row => row.kind === 'operation');
     expect(operations).toHaveLength(3);
     for (const row of operations) expect(row).toMatchObject({ status: 'completed', operationKind: 'sdk-model-http',
-      sdkHttp: { state: 'not-sent', attempts: 0 }, terminalOutcome: 'not-sent', responseDigest: null, association: 'verified' });
-    const first = operations.find(row => (row.binding as { phase: string }).phase === 'discovery')!;
-    expect(first.binding).toMatchObject({ submissionDigest: await digest(original.submissionId), phase: 'discovery', resource: 'inference' });
-    const detail = await diagnosticJson<{ record: unknown }>(await diagnosticsBrowser(f)(`/diagnostics/v2/records/${first.id}`));
-    expect(detail.record).toMatchObject({ operationKind: 'sdk-model-http', terminalOutcome: 'not-sent', sdkHttp: { attempts: 0 } });
+      sdkHttp: { state: 'not-sent', attempts: 0 }, terminalOutcome: 'not-sent', responseDigest: null });
     const parent = (await activity.getDispatcherDiagnostics(f.proof.ownerKey))!.parent;
     expect(parent.journal).toMatchObject({ count: 3, nextOrdinal: 3, unresolved: 0 });
     expect(parent.lease!.expiresAt).toBe(Math.floor(deadline / 1000) * 1000);
     expect(f.sent).toEqual([]);
-  }, { ...options, intent4: true, loggingEnabled: true }));
+  }, { ...applicationOptions, loggingEnabled: true }));
 
   it('REQ-OPERATOR-062: model admission before original ACK refuses without waiting or issuing send authority', () => fixture(async f => {
     const acknowledgement = f.normalTransport!.delayAcknowledgement();
     const starting = start(f);
     try {
       await within(acknowledgement.entered, 'SDK accepted before original ACK');
-      const response = await within(callback(f, 'model-admission', { operationId: 'pre-ack-model', deliveryToken: phaseToken(f),
+      const response = await within(callback(f, 'model-admission', { operationId: 'pre-ack-model', deliveryToken: deliveryToken(f),
         context: { messages: [{ role: 'user', content: 'Original input' }] }, options: { maxTokens: 16 } }), 'pre-ACK model refusal');
       expect(response.status).toBe(403);
       expect(await response.json()).not.toHaveProperty('permitId');
       acknowledgement.release();
       expect(await within(starting, 'original ACK finishes')).toMatchObject({ ok: true });
       await unusedPermit(f, 'post-ack-model');
-      expect(f.normalTransport!.admissions.size).toBe(1);
-      expect(f.sent).toEqual([]);
+      expect(f.normalTransport!.admissions.size).toBe(1); expect(f.sent).toEqual([]);
     } finally { acknowledgement.release(); await starting; }
-  }, { ...options, intent4: true }));
+  }, applicationOptions));
 
-  it.each(['sending', 'unknown', 'no-declared-phase', 'missing-binding', 'foreign-submission', 'foreign-phase', 'unproved-response'] as const)(
-    'REQ-OPERATOR-048/081/082/083: %s permit remains fenced with a useful cold owner journal refusal', fault => fixture(async f => {
-      expect(await start(f)).toMatchObject({ ok: true });
-      const permit = await unusedPermit(f, 'unresolved-original', fault !== 'no-declared-phase');
-      const original = await (await installedContext(f, phaseToken(f))).json() as InstalledPhaseContext;
-      // Durable fault fixtures model incomplete physical sends and old/unproved
-      // metadata. They do not execute an SDK or assert on internal call counts.
+  it.each(['sending', 'unknown', 'no-declared-delivery', 'missing-binding', 'foreign-submission', 'foreign-delivery', 'unproved-response'] as const)(
+    'REQ-OPERATOR-048/081: %s permit cannot authorize another application delivery or final collection', fault => fixture(async f => {
+      await start(f);
+      const permit = await unusedPermit(f, 'unresolved-original', fault !== 'no-declared-delivery');
+      const original = await applicationContext(f);
+      const admissions = structuredClone([...f.normalTransport!.admissions.values()]);
       await f.mutateEvidence(async storage => {
-        const entries = await storage.list<Record<string, unknown>>({ prefix: 'dispatcher:operation:1:' });
-        const [key, entry] = [...entries][0];
+        const [key, entry] = [...await storage.list<Record<string, unknown>>({ prefix: 'dispatcher:operation:1:' })][0];
         const sdkHttp = entry.sdkHttp as Record<string, unknown>;
-        const phaseBinding = entry.phaseBinding as Record<string, unknown>;
+        const binding = entry.deliveryBinding as Record<string, unknown>;
         await storage.put(key, { ...entry,
           ...(fault === 'sending' || fault === 'unknown' ? { phase: fault === 'unknown' ? 'unknown' : 'reserved', sdkHttp: { ...sdkHttp, phase: fault, attempts: 1 } } : {}),
-          ...(fault === 'missing-binding' ? { phaseBinding: undefined } : {}),
-          ...(fault === 'foreign-submission' ? { phaseBinding: { ...phaseBinding, submissionId: 'foreign-original' } } : {}),
-          ...(fault === 'foreign-phase' ? { phaseBinding: { ...phaseBinding, phase: { kind: 'final' } } } : {}),
+          ...(fault === 'missing-binding' ? { deliveryBinding: undefined } : {}),
+          ...(fault === 'foreign-submission' ? { deliveryBinding: { ...binding, submissionId: 'foreign-original' } } : {}),
+          ...(fault === 'foreign-delivery' ? { deliveryBinding: { ...binding, deliveryToken: 'foreign-token' } } : {}),
           ...(fault === 'unproved-response' ? { responseDigest: 'f'.repeat(64) } : {}) });
       });
-      await emptyDiscovery(f);
-      f.normalTransport!.settle('completed', [{ name: 'assessment', data: result }]);
-      await f.activity.reconcileDispatcherLease();
+      await settleDelivery(f);
       expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
       expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null });
-      f.restart(); await f.drainBackground();
-      const summary = await diagnosticSummary(f);
-      expect(summary).toMatchObject({ diagnosis: { code: 'journal-unaccounted', publicCode: 'journal-unaccounted' },
-        fence: { code: 'journal-unaccounted', uncertain: true }, provenance: { hostRevision: null, patchSetDigest: null } });
-      const { records } = await diagnosticTraversal(diagnosticsBrowser(f));
-      const operation = records.find(row => row.kind === 'operation')!;
-      expect(operation).toMatchObject({ status: fault === 'unknown' ? 'unknown' : 'reserved', operationKind: 'sdk-model-http', terminalOutcome: null });
-      if (fault === 'missing-binding' || fault === 'no-declared-phase') expect(operation).toMatchObject({ association: 'unassociated', binding: null,
-        sdkHttp: { state: 'ready', attempts: 0 } });
-      const failed = records.find(row => row.kind === 'event' && row.code === 'journal-unaccounted' && row.outcome === 'failed')!;
-      const detail = await diagnosticJson<{ record: unknown; capsule: unknown }>(await diagnosticsBrowser(f)(`/diagnostics/v2/records/${failed.id}`));
-      expect(detail).toMatchObject({ record: { owner: 'host', origin: 'originating', correlation: {
-        submissionDigest: expect.stringMatching(/^[a-f0-9]{64}$/) }, error: { publicCode: 'journal-unaccounted', journal: {
-        gate: 'operation-binding', phase: 'final', operationDigest: operation.operationDigest, unresolved: 1, inspectedUnresolved: 1 } } },
-        capsule: { affectedOperations: [{ operationDigest: operation.operationDigest, effect: 'unknown' }], affectedOperationsOmitted: 0,
-          sdk: { submissionDigest: expect.stringMatching(/^[a-f0-9]{64}$/) } } });
-      if (fault !== 'missing-binding' && fault !== 'no-declared-phase' && fault !== 'foreign-submission' && fault !== 'foreign-phase') {
-        expect(operation.binding).toMatchObject({ submissionDigest: await digest(original.submissionId), phase: 'discovery' });
-      }
+      await cold(f);
+      expect([...f.normalTransport!.admissions.values()]).toEqual(admissions);
+      const get = diagnosticsBrowser(f);
+      const { records } = await diagnosticTraversal(get);
+      const operationDigest = await digest('unresolved-original');
+      const operation = records.find(row => row.kind === 'operation' && row.operationDigest === operationDigest)!;
+      expect(operation).toMatchObject({ id: `o-1-${operationDigest}`, ordinal: 0,
+        status: fault === 'unknown' ? 'unknown' : 'reserved', operationKind: 'sdk-model-http',
+        sdkHttp: { state: fault === 'sending' || fault === 'unknown' ? fault : 'ready',
+          attempts: fault === 'sending' || fault === 'unknown' ? 1 : 0 },
+        terminalOutcome: null, association: 'unassociated', binding: null });
+      const parent = (await f.activity.getDispatcherDiagnostics(f.proof.ownerKey))!.parent;
+      expect(parent.journal).toMatchObject({ generation: 1, count: 1, nextOrdinal: 1, unresolved: 1 });
+      // The legacy parent DTO has no v2 sdkHttp projection. Correlate the same
+      // retained operation through its actual seven-field wire contract.
+      expect(parent.operations.records).toEqual([{
+        operationDigest, ordinal: 0, status: operation.status, requestDigest: operation.requestDigest,
+        responseDigest: fault === 'unproved-response' ? 'f'.repeat(64) : null,
+        binding: null, hostInference: null,
+      }]);
+      const failure = records.find(row => row.kind === 'event' && row.code === 'journal-unaccounted'
+        && row.origin === 'originating');
+      expect(failure).toMatchObject({ owner: 'host', boundary: 'settlement', outcome: 'failed',
+        error: { publicCode: 'journal-unaccounted', journal: { gate: 'unresolved-count', operationDigest, unresolved: 1,
+          inspectedUnresolved: 1, phase: 'single', phaseIndex: null } } });
+      expect(failure!.correlation).toEqual({ submissionDigest: await digest(original.receipt.submissionId),
+        rootDigest: await digest(original.receipt.uid), deliveryDigest: await digest(original.delivery.token) });
+      expect(failure!.capsuleId).toEqual(expect.any(String));
+      const operationDetail = await diagnosticJson<{ record: DiagnosticRecord }>(await get(`/diagnostics/v2/records/${operation.id}`));
+      expect(operationDetail.record).toEqual(operation);
+      const failureDetail = await diagnosticJson<{ record: DiagnosticRecord }>(await get(`/diagnostics/v2/records/${failure!.id}`));
+      expect(failureDetail.record).toEqual(failure);
+      const exported = await diagnosticTraversal(get, '/diagnostics/v2/export');
+      expect(exported.records).toEqual(records);
+      expect(exported.records.find(row => row.id === operation.id)).toEqual(operation);
+      expect(exported.records.find(row => row.id === failure!.id)).toEqual(failure);
       expect((await modelSend(f, 'unresolved-original', permit.permitId)).status).toBe(403);
       expect(f.sent).toEqual([]);
-    }, { ...options, intent4: true, loggingEnabled: true }));
+    }, { ...applicationOptions, loggingEnabled: true }));
 
-  it('REQ-OPERATOR-048/062: projected model permits retain the admitted phase on replay and reject stale phases', () => fixture(async f => {
-    expect(await start(f)).toMatchObject({ ok: true });
-    const token = phaseToken(f);
-    const stampResponse = await installedContext(f, token);
-    expect(stampResponse.status).toBe(200);
-    const stamp = await stampResponse.json() as InstalledPhaseContext;
+  it('REQ-OPERATOR-048/062: model permits retain original delivery on replay and reject successor reuse', () => fixture(async f => {
+    await start(f); const token = deliveryToken(f);
     for (const path of ['pi/config', 'gateway']) {
       const response = await callback(f, path, { operation: 'read' });
-      expect(response.status).toBe(200);
-      expect(await response.json()).toMatchObject({ source: 'managed', deliveryToken: token });
+      expect(response.status).toBe(200); expect(await response.json()).toMatchObject({ source: 'managed', deliveryToken: token });
     }
-    // The App retains its own original operation identity. Root hashes and
-    // authorizes these actual projected bytes, never a caller-provided digest.
     const body = { operationId: 'original-canonical-operation', deliveryToken: token,
-      context: { messages: [{ role: 'user', content: 'Only the current admitted phase' }] }, options: { maxTokens: 16 } };
+      context: { messages: [{ role: 'user', content: 'Only original work' }] }, options: { maxTokens: 16 } };
     const first = await callback(f, 'model-admission', body);
     expect(first.status).toBe(200);
     const permit = await first.json() as { permitId: string; expiresAt: number; deliveryToken: string };
     expect(permit).toEqual({ permitId: expect.any(String), expiresAt: expect.any(Number), deliveryToken: token });
-    const replay = await callback(f, 'model-admission', body);
-    expect(replay.status).toBe(200); expect(await replay.json()).toEqual(permit);
-    expect((await callback(f, 'model-admission', { ...body, context: { messages: [{ role: 'user', content: 'Changed projected bytes' }] } })).status).toBe(409);
-    expect((await callback(f, 'model-admission', { ...body, operationId: 'foreign-phase', deliveryToken: 'unadmitted-future-phase' })).status).toBe(403);
-    const target = { pullRequest: 17, headSha: '1'.repeat(40) };
-    f.normalTransport!.settle('completed', [{ name: 'dispatcher-progress', data: {
-      version: 1, scope: stamp.scope, generation: stamp.generation, submissionId: stamp.submissionId,
-      phase: stamp.phase, next: { kind: 'target', index: 0, target }, targets: [target],
-    } }]);
-    await f.activity.reconcileDispatcherLease();
-    const nextToken = phaseToken(f);
-    expect(nextToken).not.toBe(token);
+    expect(await (await callback(f, 'model-admission', body)).json()).toEqual(permit);
+    expect((await callback(f, 'model-admission', { ...body, context: { messages: [{ role: 'user', content: 'Changed bytes' }] } })).status).toBe(409);
+    expect((await callback(f, 'model-admission', { ...body, operationId: 'foreign', deliveryToken: 'unadmitted' })).status).toBe(403);
+    await settleDelivery(f);
+    const nextToken = deliveryToken(f); expect(nextToken).not.toBe(token);
     expect((await callback(f, 'model-admission', body)).status).toBe(403);
     expect((await callback(f, 'model-admission', { ...body, deliveryToken: nextToken })).status).toBe(409);
-    const next = await callback(f, 'model-admission', { ...body, operationId: 'next-original-operation', deliveryToken: nextToken });
+    const next = await callback(f, 'model-admission', { ...body, operationId: 'next-original', deliveryToken: nextToken });
     expect(next.status).toBe(200); expect(await next.json()).toMatchObject({ deliveryToken: nextToken });
-    const oldSend = await callback(f, 'model-fetch', { operationId: body.operationId, permitId: permit.permitId,
-      request: { url: 'https://api.openai.com/v1/chat/completions', method: 'POST', headers: [], bodyBase64: btoa('{}') } });
-    expect(oldSend.status).toBe(409);
+    expect((await modelSend(f, body.operationId, permit.permitId)).status).toBe(409);
     expect(f.sent).toEqual([]);
-    const config = await callback(f, 'gateway', { operation: 'read' });
-    expect(config.status).toBe(200); expect(await config.json()).toMatchObject({ deliveryToken: nextToken });
-  }, { ...options, intent4: true }));
+  }, applicationOptions));
 
-  it.each([false, true])('REQ-OPERATOR-048/062: phase change during post-claim authorization prevents physical model send (native: %s)', native => fixture(async f => {
-    expect(await start(f)).toMatchObject({ ok: true });
+  it.each([false, true])('REQ-OPERATOR-048/062: delivery change during post-claim authorization prevents physical model send (native: %s)', native => fixture(async f => {
+    await start(f);
     expect((await f.activity.getRuntimePlan())?.configuredSelection?.source).toBe(native ? 'pi-native' : 'managed');
-    const token = phaseToken(f);
-    const stamp = await (await installedContext(f, token)).json() as InstalledPhaseContext;
-    const operationId = 'post-claim-phase-race';
-    const admission = await callback(f, 'model-admission', { operationId, deliveryToken: token,
-      context: { messages: [{ role: 'user', content: 'Original phase input' }] }, options: { maxTokens: 16 } });
-    expect(admission.status).toBe(200);
-    const permit = await admission.json() as { permitId: string };
+    const token = deliveryToken(f);
+    const permit = await unusedPermit(f, 'post-claim-delivery-race');
     let entered = false; let released = false;
-    const pause = async () => {
-      if (entered) return;
-      entered = true;
-      while (!released) await new Promise<void>(resolve => setTimeout(resolve, 1));
-    };
+    const pause = async () => { if (entered) return; entered = true; while (!released) await new Promise<void>(resolve => setTimeout(resolve, 1)); };
     const cleanups: Array<() => void> = [];
     const vendorSends: Request[] = [];
     const originalFetch = globalThis.fetch;
     vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = new Request(input, init);
       if (new URL(request.url).hostname !== 'api.openai.com') return originalFetch(request);
-      vendorSends.push(request.clone());
-      return new Response('data: [DONE]\n\n');
+      vendorSends.push(request.clone()); return new Response('data: [DONE]\n\n');
     });
     if (native) {
       f.environment.ENTERPRISE_MODE = 'active';
@@ -3489,165 +2895,129 @@ describe('normal installed Dispatcher control', () => {
     } else {
       const get = fixtureAig.getAigConfig;
       for (const module of new Set([fixtureAig, actualAig])) {
-        const spy = vi.spyOn(module, 'getAigConfig').mockImplementation(async environment => {
-          await pause(); return get(environment);
-        });
+        const spy = vi.spyOn(module, 'getAigConfig').mockImplementation(async environment => { await pause(); return get(environment); });
         cleanups.push(() => spy.mockRestore());
       }
     }
     let pending: Promise<Response> | undefined;
-    const send = { operationId, permitId: permit.permitId,
-      request: { url: 'https://api.openai.com/v1/chat/completions', method: 'POST', headers: [], bodyBase64: btoa('{}') } };
     try {
-      pending = callback(f, 'model-fetch', send);
+      pending = modelSend(f, 'post-claim-delivery-race', permit.permitId);
       await vi.waitFor(() => expect(entered).toBe(true));
-      // Observable single-send contract: the first call already owns the claim,
-      // so an identical concurrent send refuses before the phase changes.
-      expect((await callback(f, 'model-fetch', send)).status).toBe(409);
-      const target = { pullRequest: 17, headSha: '1'.repeat(40) };
-      f.normalTransport!.settle('completed', [{ name: 'dispatcher-progress', data: {
-        version: 1, scope: stamp.scope, generation: stamp.generation, submissionId: stamp.submissionId,
-        phase: stamp.phase, next: { kind: 'target', index: 0, target }, targets: [target],
-      } }]);
-      await f.activity.reconcileDispatcherLease();
-      expect(phaseToken(f)).not.toBe(token);
+      expect((await modelSend(f, 'post-claim-delivery-race', permit.permitId)).status).toBe(409);
+      // A sending permit is unresolved: unlike the retired controller, Root
+      // must fence here, not advance a domain phase past a physical send.
+      await settleDelivery(f);
+      expect(deliveryToken(f)).toBe(token);
+      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null });
       released = true;
       const response = await pending;
       expect([403, 409, 503]).toContain(response.status);
       expect(response.headers.get('x-codeflare-sdk-model-response')).toBeNull();
-      expect(vendorSends).toEqual([]);
-      expect(f.sent).toEqual([]);
+      expect(vendorSends).toEqual([]); expect(f.sent).toEqual([]);
       const { records } = await diagnosticTraversal(diagnosticsBrowser(f));
       expect(records.find(row => row.kind === 'operation')).toMatchObject({ status: 'unknown',
-        operationKind: 'sdk-model-http', sdkHttp: { state: 'unknown', attempts: 1 }, terminalOutcome: null,
-        binding: { phase: 'discovery', submissionDigest: await digest(stamp.submissionId) } });
+        operationKind: 'sdk-model-http', sdkHttp: { state: 'unknown', attempts: 1 }, terminalOutcome: null });
     } finally {
       released = true;
       if (pending) await Promise.allSettled([pending]);
       cleanups.reverse().forEach(cleanup => cleanup());
     }
-  }, { ...options, intent4: true, nativeInference: native, loggingEnabled: true }));
+  }, { ...applicationOptions, nativeInference: native, loggingEnabled: true }));
 
-  it('REQ-OPERATOR-048/062: ordinary configuration and permits omit phase projection tokens', () => fixture(async f => {
+  it('REQ-OPERATOR-048/062: ordinary configuration and permits omit application delivery tokens', () => fixture(async f => {
     expect(await start(f)).toMatchObject({ ok: true });
     for (const path of ['pi/config', 'gateway']) {
       const response = await callback(f, path, { operation: 'read' });
       expect(response.status).toBe(200); expect(await response.json()).not.toHaveProperty('deliveryToken');
     }
     const body = { operationId: 'ordinary-model-permit', context: { messages: [{ role: 'user', content: 'Ordinary input' }] }, options: { maxTokens: 16 } };
-    const first = await callback(f, 'model-admission', body);
-    expect(first.status).toBe(200);
-    const permit = await first.json();
-    expect(permit).toEqual({ permitId: expect.any(String), expiresAt: expect.any(Number) });
-    const replay = await callback(f, 'model-admission', body);
-    expect(replay.status).toBe(200); expect(await replay.json()).toEqual(permit);
+    const first = await callback(f, 'model-admission', body); expect(first.status).toBe(200);
+    const permit = await first.json(); expect(permit).toEqual({ permitId: expect.any(String), expiresAt: expect.any(Number) });
+    expect(await (await callback(f, 'model-admission', body)).json()).toEqual(permit);
     expect((await callback(f, 'model-admission', { ...body, deliveryToken: 'fabricated' })).status).toBe(403);
   }, options));
 
-  it('REQ-OPERATOR-048/062: AC2 installed phase context joins original pending HTTP202 and advances only its serial receipt', () => fixture(async f => {
+  it('REQ-OPERATOR-048: application context joins only the original pending ACK and preserves opaque successor context', () => fixture(async f => {
     const acknowledgement = f.normalTransport!.delayAcknowledgement();
-    const starting = start(f);
-    let pending: Promise<Response> | undefined;
+    const starting = start(f); let pending: Promise<Response> | undefined;
     try {
-      await within(acknowledgement.entered, 'original external admission accepted before HTTP202');
-      const token = phaseToken(f);
-      const original = [...f.normalTransport!.admissions.values()][0];
-      expect(f.normalTransport!.admissions.size).toBe(1);
-      expect(f.sent).toEqual([]);
-      expect(f.ownerPortRequests).toEqual([]);
-      // A foreign delivery cannot use an in-flight acknowledgement as authority.
-      expect((await within(installedContext(f, 'foreign-delivery'), 'pre-ack foreign context denial')).status).toBe(403);
-      pending = installedContext(f, token);
-      acknowledgement.release();
-      expect(await within(starting, 'original HTTP202 binding')).toMatchObject({ ok: true, state: { generation: 1, status: 'running' } });
-      const response = await within(pending, 'installed original phase context');
-      expect(response.status).toBe(200);
-      expect(response.headers.get('cache-control')).toBe('no-store');
-      const stamp = await response.json() as InstalledPhaseContext;
-      expect(stamp).toMatchObject({ scope: 'submission', generation: 1, submissionId: original.receipt.submissionId,
-        deliveryToken: token, phase: { kind: 'discovery' } });
-      expect(stamp.previous).toBeUndefined();
-      expect(f.normalTransport!.admissions.size).toBe(1);
-      expect([...f.normalTransport!.admissions.values()][0]).toEqual(original);
-      expect(f.sent).toEqual([]);
-      expect(f.ownerPortRequests).toEqual([]);
-
-      const target = { pullRequest: 17, headSha: '1'.repeat(40) };
-      const next = { kind: 'target', index: 0, target };
-      f.normalTransport!.settle('completed', [{ name: 'dispatcher-progress', data: {
-        version: 1, scope: stamp.scope, generation: stamp.generation, submissionId: stamp.submissionId,
-        phase: stamp.phase, next, targets: [target],
-      } }]);
-      await f.activity.reconcileDispatcherLease();
-      const nextToken = phaseToken(f);
-      expect(nextToken).not.toBe(token);
-      expect(f.normalTransport!.admissions.size).toBe(2);
-      const nextResponse = await within(installedContext(f, nextToken), 'next installed serial phase context');
-      expect(nextResponse.status).toBe(200);
-      const nextStamp = await nextResponse.json() as InstalledPhaseContext;
-      const nextReceipt = [...f.normalTransport!.admissions.values()][1].receipt;
-      expect(nextStamp).toMatchObject({ scope: stamp.scope, generation: stamp.generation, deadline: stamp.deadline,
-        submissionId: nextReceipt.submissionId, deliveryToken: nextToken, phase: next,
-        previous: [{ submissionId: stamp.submissionId, phase: stamp.phase, outcome: 'completed' }] });
-      expect(nextStamp.submissionId).not.toBe(stamp.submissionId);
+      await within(acknowledgement.entered, 'original external acceptance');
+      const token = deliveryToken(f); const original = [...f.normalTransport!.admissions.values()][0];
+      expect((await installedContext(f, 'foreign-delivery')).status).toBe(403);
+      pending = installedContext(f, token); acknowledgement.release();
+      expect(await within(starting, 'original ACK')).toMatchObject({ ok: true });
+      const response = await within(pending, 'original application context');
+      expect(response.status).toBe(200); expect(response.headers.get('cache-control')).toBe('no-store');
+      expect(await response.json()).toEqual({ context: applicationContexts[0], delivery: { token, ordinal: 1 }, receipt: original.receipt });
+      expect([...f.normalTransport!.admissions.values()]).toEqual([original]);
+      await settleDelivery(f);
+      const next = await applicationContext(f);
+      expect(next).toEqual({ context: applicationContexts[1], delivery: { token: expect.any(String), ordinal: 2 },
+        receipt: [...f.normalTransport!.admissions.values()][1].receipt });
+      expect(next.delivery.token).not.toBe(token); expect(next.receipt.submissionId).not.toBe(original.receipt.submissionId);
+      expect(next.receipt.uid).toBe(original.receipt.uid);
       expect((await installedContext(f, token)).status).toBe(403);
       expect((await callback(f, 'source', source, { 'x-codeflare-dispatcher-delivery': token })).status).toBe(403);
-      expect(f.sent).toEqual([]);
-      expect(f.ownerPortRequests).toEqual([]);
-    } finally {
-      acknowledgement.release();
-      await within(starting, 'pending admission cleanup').catch(() => undefined);
-      if (pending) await within(pending, 'pending context cleanup').catch(() => undefined);
-    }
-  }, { ...options, intent4: true }));
+      expect(f.sent).toEqual([]); expect(f.ownerPortRequests).toEqual([]);
+    } finally { acknowledgement.release(); await starting; if (pending) await pending; }
+  }, applicationOptions));
 
-  it('REQ-OPERATOR-048: AC2 installed context accepts original receipt bound during asynchronous gateway authorization', () => fixture(async f => {
-    const acknowledgement = f.normalTransport!.delayAcknowledgement();
-    const starting = start(f);
+  it('REQ-OPERATOR-048: application context joins the original ACK across authorization without replacing the receipt', () => fixture(async f => {
+    const acknowledgement = f.normalTransport!.delayAcknowledgement(); const starting = start(f);
     let pending: Promise<Response> | undefined;
     try {
       await within(acknowledgement.entered, 'external acceptance before authorization handoff');
-      const token = phaseToken(f);
-      const receipt = [...f.normalTransport!.admissions.values()][0].receipt;
+      const token = deliveryToken(f); const receipt = [...f.normalTransport!.admissions.values()][0].receipt;
       const bindOriginal = async () => {
-        // Disarm before releasing: admission's own post-202 authorization must
-        // never consume this seam and await its own still-pending start promise.
-        f.afterRegistryResolve(async () => {});
-        acknowledgement.release();
-        await within(starting, 'original receipt bound during callback handoff');
+        f.afterRegistryResolve(async () => {}); acknowledgement.release(); await within(starting, 'original ACK during callback');
       };
-      // The one-shot external authorization seam releases the original202 before
-      // returning. A pre-admission snapshot validator therefore sees receipt change.
-      // The admission-aware route instead consumes the body before authorization;
-      // body demand releases that same202, so neither ordering waits reentrantly.
       f.afterRegistryResolve(bindOriginal);
       const bytes = new TextEncoder().encode(JSON.stringify({ deliveryToken: token }));
       const body = new ReadableStream<Uint8Array>({ async pull(controller) {
-        try { await bindOriginal(); controller.enqueue(bytes); controller.close(); }
-        catch (error) { controller.error(error); }
+        try { await bindOriginal(); controller.enqueue(bytes); controller.close(); } catch (error) { controller.error(error); }
       } }, { highWaterMark: 0 });
-      pending = f.installationCapability.fetch(new Request(normalCallback(f.activityId, 'phase-context', { deliveryToken: token },
+      pending = f.installationCapability.fetch(new Request(normalCallback(f.activityId, 'context', { deliveryToken: token },
         { 'x-codeflare-dispatcher-delivery': token }), { method: 'POST', body }));
-      const response = await within(pending, 'context across authenticated pre-ack handoff');
+      const response = await within(pending, 'context across original ACK');
       expect(response.status).toBe(200);
-      expect(await response.json()).toMatchObject({ generation: 1, deliveryToken: token,
-        submissionId: receipt.submissionId, phase: { kind: 'discovery' } });
-      expect(f.normalTransport!.admissions.size).toBe(1);
-      expect([...f.normalTransport!.admissions.values()][0].receipt).toEqual(receipt);
-      expect(f.sent).toEqual([]);
-      expect(f.ownerPortRequests).toEqual([]);
-    } finally {
-      acknowledgement.release();
-      await within(starting, 'authorization handoff admission cleanup').catch(() => undefined);
-      if (pending) await within(pending, 'authorization handoff context cleanup').catch(() => undefined);
-    }
-  }, { ...options, intent4: true }));
+      expect(await response.json()).toEqual({ context: applicationContexts[0], delivery: { token, ordinal: 1 }, receipt });
+      expect(await applicationContext(f)).toEqual({ context: applicationContexts[0], delivery: { token, ordinal: 1 }, receipt });
+      expect(f.normalTransport!.admissions.size).toBe(1); expect(f.sent).toEqual([]); expect(f.ownerPortRequests).toEqual([]);
+    } finally { acknowledgement.release(); await starting; if (pending) await pending; }
+  }, applicationOptions));
+
+  it.each(['cancel', 'expiry', 'revocation', 'rotated-deployment'] as const)(
+    'REQ-OPERATOR-003/047/048: context retains %s denial after joining the original ACK', fault => fixture(async f => {
+      const acknowledgement = f.normalTransport!.delayAcknowledgement(); const starting = start(f);
+      let pending: Promise<Response> | undefined;
+      try {
+        await within(acknowledgement.entered, 'external acceptance before context');
+        const token = deliveryToken(f); const admissions = structuredClone([...f.normalTransport!.admissions.values()]);
+        const bytes = new TextEncoder().encode(JSON.stringify({ deliveryToken: token }));
+        const body = new ReadableStream<Uint8Array>({ async pull(controller) {
+          try {
+            acknowledgement.release(); await within(starting, 'original ACK before revocation');
+            if (fault === 'cancel') await f.activity.cancelDrive();
+            else if (fault === 'expiry') f.expire();
+            else if (fault === 'revocation') f.revoke();
+            else f.changeConnection({ workerVersionId: 'replacement-worker' });
+            controller.enqueue(bytes); controller.close();
+          } catch (error) { controller.error(error); }
+        } }, { highWaterMark: 0 });
+        pending = f.installationCapability.fetch(new Request(normalCallback(f.activityId, 'context', { deliveryToken: token },
+          { 'x-codeflare-dispatcher-delivery': token }), { method: 'POST', body }));
+        const response = await within(pending, 'context after original ACK and revocation');
+        expect(response.status).toBe(403);
+        expect(await response.json()).toMatchObject({ code: 'OPERATOR_CAPABILITY_DENIED' });
+        expect([...f.normalTransport!.admissions.values()]).toEqual(admissions);
+        expect(f.sent).toEqual([]); expect(f.ownerPortRequests).toEqual([]);
+        expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      } finally { acknowledgement.release(); await starting; if (pending) await pending; }
+    }, applicationOptions));
 
   it.each(['cancel', 'expiry', 'revocation', 'foreign-deployment', 'rotated-deployment', 'foreign-token', 'mismatched-token'] as const)(
-    'REQ-OPERATOR-003/047/048: direct installed phase context retains %s denial without protected effects', fault => fixture(async f => {
-      await start(f);
-      const token = phaseToken(f);
-      const admissions = [...f.normalTransport!.admissions.values()];
+    'REQ-OPERATOR-003/047/048: installed application context retains %s denial without effects', fault => fixture(async f => {
+      await start(f); const token = deliveryToken(f); const admissions = structuredClone([...f.normalTransport!.admissions.values()]);
       if (fault === 'cancel') await f.activity.cancelDrive();
       else if (fault === 'expiry') f.expire();
       else if (fault === 'revocation') f.revoke();
@@ -3655,15 +3025,13 @@ describe('normal installed Dispatcher control', () => {
       const headers: Record<string, string> = fault === 'foreign-deployment' ? { 'x-codeflare-operator-worker-version': 'foreign-worker' }
         : fault === 'rotated-deployment' ? { 'x-codeflare-operator-worker-version': 'replacement-worker' }
         : fault === 'mismatched-token' ? { 'x-codeflare-dispatcher-delivery': 'foreign-delivery' } : {};
-      const denied = await within(installedContext(f, fault === 'foreign-token' ? 'foreign-delivery' : token, headers), 'installed phase authority denial');
-      expect(denied.status).toBe(403);
-      expect(await denied.json()).toMatchObject({ code: 'OPERATOR_CAPABILITY_DENIED' });
+      const denied = await installedContext(f, fault === 'foreign-token' ? 'foreign-delivery' : token, headers);
+      expect(denied.status).toBe(403); expect(await denied.json()).toMatchObject({ code: 'OPERATOR_CAPABILITY_DENIED' });
       expect((await callback(f, 'source', source, { 'x-codeflare-dispatcher-delivery': 'foreign-delivery' })).status).toBe(403);
-      expect(f.sent).toEqual([]);
-      expect(f.ownerPortRequests).toEqual([]);
       expect([...f.normalTransport!.admissions.values()]).toEqual(admissions);
+      expect(f.sent).toEqual([]); expect(f.ownerPortRequests).toEqual([]);
       expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
-    }, { ...options, intent4: true }));
+    }, applicationOptions));
 
   it('REQ-OPERATOR-048: AC2 lost admission acknowledgement cold-reconciles the exact original wire and full SDK receipt', () => fixture(async f => {
     f.normalTransport!.loseAcknowledgement();
@@ -3912,7 +3280,7 @@ describe('normal installed Dispatcher control', () => {
       for (const read of control(f, 'read')) expect(read.body.receipt).toEqual(admissions[0].receipt);
       expect(control(f, 'abort')).toEqual([]);
       expect(f.sent).toEqual([]);
-    }, { ...options, intent4: true, loggingEnabled }));
+    }, { ...options, loggingEnabled }));
 
   it('REQ-OPERATOR-041/048/092: passive cold reads do not observe or reconcile a failed normal child', () => fixture(async f => {
     await start(f);
@@ -3926,10 +3294,10 @@ describe('normal installed Dispatcher control', () => {
     await activity.reconcileDispatcherLease();
     expect(await activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null });
     expect([...f.normalTransport!.admissions.values()]).toEqual(admissions);
-  }, { ...options, intent4: true }));
+  }, { ...options }));
 
   it.each(['failed', 'aborted'] as const)(
-    'REQ-OPERATOR-048/057: generic serial %s receipt closes authority without assessment or successor even with an empty journal', outcome => fixture(async f => {
+    'REQ-OPERATOR-048/057: historical non-application %s receipt closes authority without assessment or successor even with an empty journal', outcome => fixture(async f => {
       await start(f);
       const admissions = structuredClone([...f.normalTransport!.admissions.values()]);
       f.normalTransport!.settle(outcome);
@@ -3938,9 +3306,9 @@ describe('normal installed Dispatcher control', () => {
         cleanupStatus: 'pending', collectionStatus: 'unavailable', attention: true });
       expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
       expect([...f.normalTransport!.admissions.values()]).toEqual(admissions);
-      expect((await installedContext(f, phaseToken(f))).status).toBe(403);
+      expect((await callback(f, 'context', { deliveryToken: 'retired-delivery' }, { 'x-codeflare-dispatcher-delivery': 'retired-delivery' })).status).toBe(403);
       expect(f.sent).toEqual([]);
-    }, { ...options, intent4: true, loggingEnabled: false }));
+    }, { ...options, loggingEnabled: false }));
 
   it.each(['uid', 'submissionId', 'acceptedAt'] as const)(
     'REQ-OPERATOR-048/092: foreign failed receipt %s fences the original read without replacement work', field => fixture(async f => {
@@ -3980,7 +3348,7 @@ describe('normal installed Dispatcher control', () => {
       });
       expect([...f.normalTransport!.admissions.values()]).toEqual(admissions);
       expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
-    }, { ...options, intent4: true }));
+    }, { ...options }));
 
   it('REQ-OPERATOR-016: AC6 normal abort is intent only and retains SDK state without claiming settlement or collection', () => fixture(async f => {
     await start(f);
@@ -4048,9 +3416,9 @@ describe('normal installed Dispatcher control', () => {
     await start(f);
     const mutation = { operationId: 'normal-unknown-comment', method: 'POST', url: `${source.url}/issues/17/comments`, body: '{"body":"original judgment"}' };
     f.loseResponse();
-    expect((await callback(f, 'source', mutation)).status).toBe(409);
+    expect((await applicationCallback(f, 'source', mutation)).status).toBe(409);
     f.restoreTransport(); await cold(f);
-    const replay = await callback(f, 'source', mutation);
+    const replay = await applicationCallback(f, 'source', mutation);
     expect(replay.status).toBe(409);
     expect(await replay.json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
     expect(await f.readRemoteComments()).toEqual([{ id: 91, body: 'original judgment', user: { id: 42 } }]);
@@ -4058,7 +3426,7 @@ describe('normal installed Dispatcher control', () => {
     f.normalTransport!.settle('completed', [{ name: 'assessment', data: result }]);
     await f.activity.reconcileDispatcherLease();
     expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
-  }, options));
+  }, writableApplication));
 
   it('REQ-OPERATOR-003: AC2 normal authenticated operation cannot substitute the server-derived owner', () => fixture(async f => {
     await start(f);
@@ -4080,6 +3448,7 @@ describe('normal installed Dispatcher control', () => {
     }, options));
 });
 /** Approved raw-log batch: real parent authorization/SQLite, synthetic external owner port only. */
+// REQ-OPERATOR-102: Native Dispatcher profile authority.
 describe('protected raw parent execution evidence', () => {
   const options = { normalHosting: true, repositoryOnly: true };
   const captureRaw = () => {
@@ -4125,14 +3494,14 @@ describe('protected raw parent execution evidence', () => {
     const text = 'COMPLETE_TOOL_IO_é🦊'.repeat(601) + 'FINAL_TOOL_IO_BYTE';
     const operation = { operationId: 'raw-source-tool', method: 'POST', url: 'https://api.github.com/repos/another/service/issues/17/comments',
       body: JSON.stringify({ body: text }) };
-    const response = await f.installationCapability.fetch(normalCallback(f.activityId, 'source', operation));
+    const response = await applicationCallback(f, 'source', operation);
     expect(response.status).toBe(200);
     const envelope = await response.json() as { status: number; body: string };
     expect(envelope.status).toBe(201);
     expect(JSON.parse(envelope.body)).toMatchObject({ id: 91, body: text });
     expect(await f.readRemoteComments()).toEqual([{ id: 91, body: text, user: { id: 42 } }]);
     const originalBody = envelope.body;
-    const replay = await f.installationCapability.fetch(normalCallback(f.activityId, 'source', operation));
+    const replay = await applicationCallback(f, 'source', operation);
     expect(replay.status).toBe(200); expect((await replay.json() as { body: string }).body).toBe(originalBody);
     expect(await f.readRemoteComments()).toEqual([{ id: 91, body: text, user: { id: 42 } }]);
     if (loggingEnabled) {
@@ -4145,7 +3514,7 @@ describe('protected raw parent execution evidence', () => {
     const history = await diagnosticTraversal(diagnosticsBrowser(f));
     expect(JSON.stringify(history)).not.toMatch(/COMPLETE_TOOL_IO_|FINAL_TOOL_IO_BYTE/);
     expect(f.normalTransport!.networkRequests.filter(request => new URL(request.url).hostname === 'api.cloudflare.com')).toEqual([]);
-  }, { ...options, loggingEnabled, sourceResponseBytes: 65536, installationSourceResponseBytes: 65536 }));
+  }, { ...writableApplication, loggingEnabled, sourceResponseBytes: 65536, installationSourceResponseBytes: 65536 }));
 
   it.each(['profile', 'inference'] as const)('REQ-OPERATOR-003/007/047: trusted %s uses public profile HTTP or legacy inference RPC with parent-owned correlation', operation => fixture(async f => {
     expect(await start(f)).toMatchObject({ ok: true });
@@ -4176,6 +3545,47 @@ describe('protected raw parent execution evidence', () => {
       expect(request.body).not.toHaveProperty('loggingEnabled');
     }
   }, options));
+
+  it.each(['revoked', 'deadline', 'declared-over', 'chunked-over'] as const)(
+    'REQ-OPERATOR-007: profile discovery refuses %s without fallback or changes to admitted work', async fault => {
+      let inspect = false;
+      let entered!: () => void, release!: () => void;
+      const pending = new Promise<void>(resolve => { entered = resolve; });
+      const held = new Promise<void>(resolve => { release = resolve; });
+      await fixture(async f => {
+        expect(await start(f)).toMatchObject({ ok: true });
+        const input = await inputFor(f);
+        const before = await f.activity.getBrowserDetail();
+        const receipt = structuredClone(input.plan.receipt);
+        const admissions = structuredClone([...f.normalTransport!.admissions]);
+        const ownerRequests = structuredClone(f.ownerPortRequests);
+        inspect = true;
+        const work = discoverDispatcherOwnerProfile({ ...input,
+          ...(fault === 'deadline' ? { plan: { ...input.plan, deadline: Date.now() + 50 } } : {}) });
+        const rejected = expect(work).rejects.toBeDefined();
+        await pending;
+        if (fault === 'revoked') { f.revokeSession(); release(); }
+        await rejected;
+        expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: before!.executionStatus,
+          result: before!.result });
+        expect((await f.activity.getRuntimePlan())!.receipt).toEqual(receipt);
+        expect([...f.normalTransport!.admissions]).toEqual(admissions);
+        expect(f.ownerPortRequests).toEqual(ownerRequests);
+      }, { ...options, normalProfileTransport: async request => {
+        if (!inspect || new URL(request.url).pathname !== '/control/profile') return undefined;
+        entered();
+        if (fault === 'revoked') { await held; return undefined; }
+        if (fault === 'declared-over') return new Response('PRIVATE_PROFILE_OVERFLOW', {
+          headers: { 'content-length': String(1024 * 1024 + 1) } });
+        return new Response(new ReadableStream<Uint8Array>({ start(controller) {
+          if (fault === 'chunked-over') {
+            controller.enqueue(new Uint8Array(512 * 1024));
+            controller.enqueue(new Uint8Array(512 * 1024 + 1));
+            controller.close();
+          }
+        } }));
+      } });
+    });
 
   it.each([true, false])('REQ-OPERATOR-090: AC1/4 full upstream non-OK body and status are captured before the same generic refusal with logging=%s', loggingEnabled => {
     const body = 'ORIGINAL_UPSTREAM_BODY_é🦊'.repeat(503) + 'LAST_UPSTREAM_BYTE';
@@ -4512,10 +3922,67 @@ describe('original installed Dispatcher logging-policy read', () => {
 // These synthetic failures do not identify the originating cause of 51978c9f.
 describe('configured-owner pre-lease failure evidence', () => {
   it.each([
+    { status: 502, body: 'Configured owner inference unavailable', code: 'provider-failed', boundary: 'model' },
+    { status: 503, body: 'Configured model service unavailable', code: 'provider-failed', boundary: 'model' },
+    { status: 200, body: 'Malformed successful profile', code: 'response-unusable', boundary: 'model' },
+    { status: 200, body: '{"selection":{}}', code: 'response-unusable', boundary: 'model' },
+    { status: 401, body: 'Unauthorized', code: 'authority-denied', boundary: 'admission' },
+    { status: 403, body: 'Forbidden', code: 'authority-denied', boundary: 'admission' },
+  ] as const)('REQ-OPERATOR-007/047/048: profile HTTP $status ($body) fences before SDK admission as $code', ({ status, body, code, boundary }) => fixture(async f => {
+    await start(f); await f.drainBackground(); f.restart(); await f.drainBackground();
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null });
+    expect((await f.activity.getDispatcherDiagnostics(f.proof.ownerKey))?.parent.lease).toBeNull();
+    expect(f.normalTransport!.admissions.size).toBe(0);
+    expect(f.childSubmissions).toEqual([]); expect(f.sent).toEqual([]);
+    expect(await f.readRemoteComments()).toEqual([]);
+    expect((await diagnosticSummary(f)).fence).toMatchObject({ generation: 1, boundary, code });
+    const history = await diagnosticTraversal(diagnosticsBrowser(f));
+    expect(history.records).toContainEqual(expect.objectContaining({ boundary, outcome: 'failed', code,
+      ...(status >= 400 ? { error: expect.objectContaining({ transportStatus: status }) } : {}) }));
+    expect(history.records.some(record => (record.error as { kind?: string } | undefined)?.kind === 'SyntaxError')).toBe(false);
+    expect(JSON.stringify(history)).not.toContain(body);
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+  }, { normalHosting: true, repositoryOnly: true, normalProfileTransport: async () => new Response(body, { status }) }));
+
+  it.each([401, 403])('REQ-OPERATOR-047: structured Pi login profile refusal HTTP %s retains its closed native recovery contract', status => {
+    let refuse = false;
+    return fixture(async f => {
+      expect(await start(f)).toMatchObject({ ok: true });
+      const plan = (await f.activity.getRuntimePlan())!;
+      const before = structuredClone(plan.configuredSelection);
+      refuse = true;
+      await expect(discoverDispatcherOwnerProfile({ generation: 1, plan, env: f.environment,
+        current: () => f.activity.operatorGenerationCurrent(1), waitUntil: f.waitUntil })).rejects.toMatchObject({
+        authFailure: { code: 'PI_LOGIN_REQUIRED', provider: 'configured-provider', reason: 'missing' },
+        transportStatus: status,
+      });
+      expect((await f.activity.getRuntimePlan())!.configuredSelection).toEqual(before);
+      expect(await f.readRemoteComments()).toEqual([]);
+    }, { normalHosting: true, repositoryOnly: true, nativeInference: true,
+      normalProfileTransport: async () => refuse ? Response.json({ authFailure: {
+        code: 'PI_LOGIN_REQUIRED', provider: 'configured-provider', reason: 'missing' } }, { status }) : undefined });
+  });
+
+  it('REQ-OPERATOR-007/048: successful JSON profile admission retains selection digest and deployment pins across reconstruction', () => fixture(async f => {
+    expect(await start(f)).toMatchObject({ ok: true });
+    const selected = { source: 'managed', provider: 'codeflare-gateway', model: 'approved', api: 'openai-completions', reasoningLevel: 'off' };
+    const expected = { ...selected, routeId: 'approved', profileDigest: await digest(JSON.stringify(selected)) };
+    expect((await f.activity.getRuntimePlan())!.configuredSelection).toEqual(expected);
+    const dispatched = [...f.normalTransport!.admissions.values()];
+    expect(dispatched).toHaveLength(1);
+    expect(JSON.parse(dispatched[0].wire)).toMatchObject({ installationId: 'installation', releaseId: 'release',
+      generation: 1, workerVersionId: normalDeployment.workerVersionId, connectionRevision: 1,
+      initialData: { selection: expected } });
+    f.restart(); await f.drainBackground();
+    expect((await f.activity.getRuntimePlan())!.configuredSelection).toEqual(expected);
+    expect([...f.normalTransport!.admissions.values()]).toEqual(dispatched);
+  }, { normalHosting: true, repositoryOnly: true }));
+
+  it.each([
     { failure: 'status', loggingEnabled: true }, { failure: 'status', loggingEnabled: false },
     { failure: 'forward', loggingEnabled: true }, { failure: 'forward', loggingEnabled: false },
     { failure: 'body-read', loggingEnabled: true }, { failure: 'body-read', loggingEnabled: false },
-  ] as const)('REQ-OPERATOR-007/090/081/082/083: profile $failure with logging=$loggingEnabled retains original evidence before generic admission refusal', ({ failure, loggingEnabled }) => {
+  ] as const)('REQ-OPERATOR-007/090/081/082/083: profile $failure with logging=$loggingEnabled retains original evidence and closed failure classification', ({ failure, loggingEnabled }) => {
     const cause = new Error('PRIVATE_PROFILE_ORIGIN'); cause.stack = 'Error: PRIVATE_PROFILE_ORIGIN\n at profileOrigin (configured.ts:3:1)';
     const original = new TypeError('PRIVATE_PROFILE_FORWARD_FAILURE', { cause });
     original.stack = 'TypeError: PRIVATE_PROFILE_FORWARD_FAILURE\n at profileForward (configured.ts:11:4)';
@@ -4531,16 +3998,19 @@ describe('configured-owner pre-lease failure evidence', () => {
       expect((await f.activity.getDispatcherDiagnostics(f.proof.ownerKey))?.parent.lease).toBeNull();
       expect(f.normalTransport!.admissions.size).toBe(0); expect(f.childSubmissions).toEqual([]);
       const summary = await diagnosticSummary(f);
-      expect(summary.fence).toMatchObject({ generation: 1, code: 'authority-denied' });
+      expect(summary.fence).toMatchObject({ generation: 1, code: failure === 'status' ? 'provider-failed' : 'authority-denied' });
       if (loggingEnabled) {
         const raw = JSON.stringify(records);
-        if (failure === 'status') { expect(raw).toContain(body); expect(raw).toMatch(/"status":502/); }
+        if (failure === 'status') {
+          expect(raw).toContain(body); expect(raw).toMatch(/"status":502/);
+        }
         else {
           for (const retained of [original.message, cause.message, 'profileOrigin (configured.ts:3:1)', 'profileForward (configured.ts:11:4)'])
             expect(raw).toContain(retained);
         }
         const history = await diagnosticTraversal(diagnosticsBrowser(f));
-        const failures = history.records.filter(record => record.outcome === 'failed' && record.code === 'authority-denied');
+        const failures = history.records.filter(record => record.outcome === 'failed'
+          && record.code === (failure === 'status' ? 'provider-failed' : 'authority-denied'));
         expect(failures).toHaveLength(1);
         if (failure !== 'status') expect(failures[0]).toMatchObject({ error: captureError(original) });
         expect(JSON.stringify(history)).not.toMatch(/PRIVATE_PROFILE_|PROFILE_UPSTREAM_/);
@@ -4577,4 +4047,162 @@ describe('configured-owner pre-lease failure evidence', () => {
       return undefined;
     } });
   });
+});
+
+// IG0162 uses the established Activity fixture mock environment, not route-only service mocks.
+describe('REQ-OPERATOR-041/069/078: IG0162 actual-owner ordinary cold HTTP entry', () => {
+  async function ownerIndex(f: DispatcherFixture) {
+    // The reusable fixture's default registry calls the owner BEFORE checking its
+    // index. Replace only that dependency with an exact-owner retained index seam;
+    // otherwise even a foreign 404 could consume the cold recovery opportunity.
+    let retained = (await f.activity.getBrowserSummary(f.proof.ownerKey))!;
+    expect(retained.activityId).toBe(f.activityId);
+    const registry = f.environment.OPERATOR_REGISTRY!.getByName('registry') as unknown as {
+      getOwnedActivity(owner: string, id: string): Promise<OperatorBrowserSummary | null>;
+      upsertOwnedActivity(owner: string, projection: OperatorBrowserSummary): Promise<void>;
+    };
+    vi.spyOn(registry, 'getOwnedActivity').mockImplementation(async (owner, id) =>
+      owner === f.proof.ownerKey && id === f.activityId ? structuredClone(retained) : null);
+    vi.spyOn(registry, 'upsertOwnedActivity').mockImplementation(async (owner, projection) => {
+      if (owner === f.proof.ownerKey && projection.activityId === f.activityId) retained = structuredClone(projection);
+    });
+    return () => retained;
+  }
+
+  async function protectedState(f: DispatcherFixture) {
+    let saved: unknown;
+    await f.mutateEvidence(async storage => {
+      saved = { journal: await storage.get('dispatcher:journal'),
+        legacy: await storage.get('dispatcher:operations'),
+        operations: [...await storage.list({ prefix: 'dispatcher:operation:' })],
+        responses: [...await storage.list({ prefix: 'dispatcher:response:' })] };
+    });
+    return saved;
+  }
+
+  it.each(['', '/result'])('REQ-OPERATOR-041/069/078: cold GET %s adopts only the already-admitted normal job after a lost acknowledgement', suffix => fixture(async f => {
+    f.normalTransport!.loseAcknowledgement();
+    await start(f);
+    await f.drainBackground();
+    const index = await ownerIndex(f);
+    const get = diagnosticsBrowser(f);
+    const dispatch = () => f.normalTransport!.requests.filter(request => request.path === '/control/dispatch');
+    const original = structuredClone(dispatch()[0]);
+    expect(original.body).toMatchObject({ activityId: f.activityId, generation: 1 });
+    const accepted = structuredClone([...f.normalTransport!.admissions.values()]);
+    expect(accepted).toHaveLength(1);
+    let expiresAt: unknown;
+    await f.mutateEvidence(async storage => {
+      const lease = await storage.get<{ status: string; expiresAt: number }>('dispatcher:lease');
+      expect(lease?.status).toBe('admitting'); expiresAt = lease?.expiresAt;
+    });
+    const protectedBefore = await protectedState(f);
+    const sourceBefore = [...f.sent];
+    const modelBefore = structuredClone(f.ownerPortRequests);
+    f.restart(); await f.drainBackground();
+    const controlsBefore = structuredClone(f.normalTransport!.requests);
+    const denied = await get(suffix, 'foreign@example.test');
+    expect(denied.status).toBe(404);
+    await f.drainBackground();
+    expect(f.normalTransport!.requests).toEqual(controlsBefore);
+    expect(await protectedState(f)).toEqual(protectedBefore);
+
+    expect((await get(suffix)).status).toBe(200);
+    await f.drainBackground();
+    const response = await get(suffix);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ activityId: f.activityId,
+      executionStatus: 'running', collectionStatus: 'unavailable', result: null });
+    expect(dispatch().length).toBeGreaterThan(1);
+    for (const request of dispatch()) expect(request).toEqual(original);
+    expect([...f.normalTransport!.admissions.values()]).toEqual(accepted);
+    expect(f.normalTransport!.requests.slice(controlsBefore.length).every(request =>
+      request.path === '/control/dispatch' || request.path === '/control/read')).toBe(true);
+    await f.mutateEvidence(async storage => {
+      expect(await storage.get('dispatcher:lease')).toMatchObject({ generation: 1,
+        status: 'running', expiresAt, submissionId: accepted[0].receipt.submissionId });
+    });
+    // REQ069 metadata/index repair and REQ078 inspection are not extra execution authority.
+    expect(index()).toMatchObject({ activityId: f.activityId, executionStatus: 'running' });
+    expect(await protectedState(f)).toEqual(protectedBefore);
+    expect(f.sent).toEqual(sourceBefore);
+    expect(f.ownerPortRequests).toEqual(modelBefore);
+    expect(f.childSubmissions).toEqual([]);
+  }, { repositoryOnly: true, recovery: true, normalHosting: true }));
+
+  it('REQ-OPERATOR-041/069/078: a stale admitting generation cannot recover a successor or admit another job', () => fixture(async f => {
+    f.normalTransport!.loseAcknowledgement(); await start(f); await f.drainBackground();
+    await ownerIndex(f);
+    await f.mutateEvidence(async storage => {
+      const state = (await storage.get<{ drive: { generation: number; status: string } }>('admission'))!;
+      await storage.put('admission', { ...state, drive: { ...state.drive, generation: 2, status: 'unknown' } });
+    });
+    const controls = structuredClone(f.normalTransport!.requests);
+    const admissions = structuredClone([...f.normalTransport!.admissions.values()]);
+    const protectedBefore = await protectedState(f);
+    f.restart(); await f.drainBackground();
+    const get = diagnosticsBrowser(f);
+    expect((await get('')).status).toBe(200); await f.drainBackground();
+    expect(await (await get('/result')).json()).toMatchObject({ executionStatus: 'unknown',
+      collectionStatus: 'unavailable', result: null });
+    expect(f.normalTransport!.requests).toEqual(controls);
+    expect([...f.normalTransport!.admissions.values()]).toEqual(admissions);
+    expect(await protectedState(f)).toEqual(protectedBefore);
+    expect(f.sent).toEqual([]); expect(f.ownerPortRequests).toEqual([]);
+  }, { repositoryOnly: true, recovery: true, normalHosting: true }));
+
+  it('REQ-OPERATOR-041/069/078: cold result GET preserves normal abort intent and the original uncertain protected write', () => fixture(async f => {
+    await start(f); await f.drainBackground();
+    const index = await ownerIndex(f);
+    const uncertainWrite = { operationId: 'retained-uncertain-write',
+      url: 'https://api.github.com/repos/another/service/issues/17/comments', method: 'POST',
+      body: '{"body":"PRIVATE_UNCERTAIN_WRITE"}' };
+    f.loseResponse();
+    const uncertain = await applicationCallback(f, 'source', uncertainWrite);
+    expect(uncertain.status).toBe(409);
+    expect(await uncertain.json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
+    f.restoreTransport();
+    const comments = await f.readRemoteComments();
+    expect(comments).toEqual([expect.objectContaining({ body: 'PRIVATE_UNCERTAIN_WRITE' })]);
+    expect(await f.activity.cancelDrive()).toMatchObject({ ok: true });
+    const aborts = structuredClone(f.normalTransport!.requests.filter(request => request.path === '/control/abort'));
+    expect(aborts).toHaveLength(1);
+    await f.drainBackground();
+    const protectedBefore = await protectedState(f);
+    const sent = [...f.sent]; const submissions = [...f.childSubmissions];
+    let drive: unknown;
+    await f.mutateEvidence(async storage => {
+      drive = (await storage.get<{ drive: unknown }>('admission'))!.drive;
+      expect(await storage.get('dispatcher:lease')).toMatchObject({ generation: 1, status: 'unknown' });
+    });
+    f.restart(); await f.drainBackground();
+    const get = diagnosticsBrowser(f);
+    expect((await get('/result', 'foreign@example.test')).status).toBe(404);
+    await f.drainBackground();
+    await f.mutateEvidence(async storage => {
+      expect((await storage.get<{ sdkReleased?: boolean }>('dispatcher:lease'))?.sdkReleased).not.toBe(true);
+    });
+    expect((await get('/result')).status).toBe(200); await f.drainBackground();
+    const response = await get('/result');
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toMatchObject({ executionStatus: 'cancel-requested', collectionStatus: 'unavailable',
+      result: null });
+    expect(body).not.toHaveProperty('sdkCleanupReleased');
+    expect(JSON.stringify(body)).not.toContain('PRIVATE_UNCERTAIN_WRITE');
+    expect(index()).toMatchObject({ executionStatus: 'cancel-requested' });
+    await f.mutateEvidence(async storage => {
+      expect((await storage.get<{ drive: unknown }>('admission'))!.drive).toEqual(drive);
+      expect(await storage.get('dispatcher:lease')).toMatchObject({ generation: 1, status: 'unknown' });
+    });
+    expect(await protectedState(f)).toEqual(protectedBefore);
+    expect((await applicationCallback(f, 'source', uncertainWrite)).status).toBe(403);
+    expect((await applicationCallback(f, 'source', { operationId: 'new-write-after-cold-get',
+      url: 'https://api.github.com/repos/another/service/issues/17/comments', method: 'POST', body: '{"body":"forbidden"}' })).status).toBe(403);
+    expect(f.sent).toEqual(sent); expect(f.childSubmissions).toEqual(submissions);
+    expect(f.ownerPortRequests).toEqual([]);
+    expect(await protectedState(f)).toEqual(protectedBefore);
+    expect(f.normalTransport!.requests.filter(request => request.path === '/control/abort')).toEqual(aborts);
+    expect(await f.readRemoteComments()).toEqual(comments);
+  }, { ...writableApplication, recovery: true }));
 });

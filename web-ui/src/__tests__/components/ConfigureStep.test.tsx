@@ -634,6 +634,7 @@ describe('ConfigureStep / REQ-ENTERPRISE-015', () => {
       storeState.enterpriseMode = true;
       render(() => <ConfigureStep />);
       expect(governedCheckbox()).toBeInTheDocument();
+      expect(governedCheckbox()).not.toBeChecked();
     });
 
     it('does not render the Governed Mode toggle outside enterprise mode', () => {
@@ -652,21 +653,44 @@ describe('ConfigureStep / REQ-ENTERPRISE-015', () => {
     });
 
     it('calls setR2SseDisabled with true when confirmed', () => {
-      vi.spyOn(window, 'confirm').mockReturnValue(true);
+      vi.spyOn(window, 'confirm').mockImplementation(message => {
+        expect(storeState.r2SseDisabled).toBe(false);
+        expect(message).toContain("Each user's bucket will be re-encrypted (SSE-C removed) on their next session");
+        return true;
+      });
       storeState.enterpriseMode = true;
       storeState.r2SseDisabled = false;
       render(() => <ConfigureStep />);
       fireEvent.click(governedCheckbox());
       expect(storeMethods.setR2SseDisabled).toHaveBeenCalledWith(true);
+      expect(storeState.r2SseDisabled).toBe(true);
     });
 
     it('does NOT call setR2SseDisabled when the admin cancels the confirmation', () => {
-      vi.spyOn(window, 'confirm').mockReturnValue(false);
+      vi.spyOn(window, 'confirm').mockImplementation(message => {
+        expect(storeState.r2SseDisabled).toBe(false);
+        expect(message).toContain('re-encrypted (SSE-C removed)');
+        return false;
+      });
       storeState.enterpriseMode = true;
       storeState.r2SseDisabled = false;
       render(() => <ConfigureStep />);
       fireEvent.click(governedCheckbox());
       expect(storeMethods.setR2SseDisabled).not.toHaveBeenCalled();
+      expect(storeState.r2SseDisabled).toBe(false);
+    });
+
+    it.each([true, false])('restores SSE-C only when disabling confirmation returns %s', confirmed => {
+      storeState.enterpriseMode = true;
+      storeState.r2SseDisabled = true;
+      vi.spyOn(window, 'confirm').mockImplementation(message => {
+        expect(storeState.r2SseDisabled).toBe(true);
+        expect(message).toContain("Each user's bucket will be re-encrypted with per-object SSE-C on their next session");
+        return confirmed;
+      });
+      render(() => <ConfigureStep />);
+      fireEvent.click(governedCheckbox());
+      expect(storeState.r2SseDisabled).toBe(!confirmed);
     });
   });
 

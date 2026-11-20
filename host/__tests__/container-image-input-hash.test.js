@@ -122,6 +122,8 @@ describe('deployment container image input hash', () => {
       'scripts/patch-pi-goal-review-control.mjs',
       'scripts/patch-pi-plan-mode-tool-policy.mjs',
       'scripts/patch-pi-native-model-display.mjs',
+      'scripts/patch-pi-codex-prompt-cache.mjs',
+      'scripts/patch-pi-subagents-notifications.mjs',
       'scripts/patch-rpiv-host-peers.mjs',
       'scripts/patch-rpiv-question-timeout.mjs',
       'scripts/rpiv-question-timeout.mjs',
@@ -132,8 +134,11 @@ describe('deployment container image input hash', () => {
       'scripts/ci/coding-agent-selection.mjs',
       'scripts/ci/prune-npm-platform-artifacts.mjs',
       'scripts/ci/prune-selected-npm-tools.sh',
+      'scripts/ci/share-claude-native.mjs',
       'scripts/ci/smoke-openvscode-sidebar-image.mjs',
       'scripts/ci/validate-trivy-result.mjs',
+      'scripts/ci/image-size-inventory.mjs',
+      'scripts/ci/image-size-manifest.mjs',
       'src/lib/agent-seed.generated.ts',
     ]) write(path);
     for (const file of ['coding-agent-selection-core.mjs', 'coding-agent-selection.mjs']) {
@@ -225,10 +230,15 @@ describe('deployment container image input hash', () => {
     const planPatchTag = imageHashResult().tag;
     assert.notEqual(planPatchTag, goalPatchTag);
 
+    write('scripts/patch-pi-subagents-notifications.mjs', 'Native notification delivery changed\n');
+    commit('notification delivery change');
+    const notificationPatchTag = imageHashResult().tag;
+    assert.notEqual(notificationPatchTag, planPatchTag, 'changing native delivery must invalidate image reuse');
+
     write('scripts/patch-rpiv-host-peers.mjs', 'RPIV compatibility correction changed\n');
     commit('RPIV peer correction change');
     const rpivPatchTag = imageHashResult().tag;
-    assert.notEqual(rpivPatchTag, planPatchTag, 'changing RPIV compatibility must invalidate image reuse');
+    assert.notEqual(rpivPatchTag, notificationPatchTag, 'changing RPIV compatibility must invalidate image reuse');
 
     write('scripts/ci/prune-npm-platform-artifacts.mjs', 'pruning change\n');
     commit('pruning change');
@@ -240,9 +250,14 @@ describe('deployment container image input hash', () => {
     const selectedPruningTag = imageHashResult().tag;
     assert.notEqual(selectedPruningTag, pruningTag);
 
+    write('scripts/ci/share-claude-native.mjs', 'native payload sharing change\n');
+    commit('native payload sharing change');
+    const sharingTag = imageHashResult().tag;
+    assert.notEqual(sharingTag, selectedPruningTag, 'native payload sharing changes invalidate image reuse');
+
     write('.github/workflows/container-image.yml', 'deployment smoke change\n');
     commit('deployment workflow change');
-    assert.notEqual(imageHashResult().tag, selectedPruningTag);
+    assert.notEqual(imageHashResult().tag, sharingTag);
 
     for (const path of ['scripts/patch-impeccable-engine.py', 'scripts/ci/impeccable-engine.py', 'scripts/prepare-rclone-s3-fixture.py']) {
       const before = imageHashResult().tag;

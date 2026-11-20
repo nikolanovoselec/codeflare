@@ -18,10 +18,11 @@ const base = {
 // REQ-AGENT-028: Deploy Credential Token-Creation UX
 // REQ-GITHUB-007: Broaden the panel gate beyond enterprise
 
-describe('OAuthConnectCard', () => {
+describe.each([false, true])('OAuthConnectCard (compact=%s)', compact => {
+  const card = { ...base, compact };
   describe('disconnected', () => {
     it('renders the connect button with the connect URL as its navigation contract', () => {
-      render(() => <OAuthConnectCard {...base} status="disconnected" />);
+      render(() => <OAuthConnectCard {...card} status="disconnected" />);
       expect(screen.getByTestId('cloudflare-connect-card')).toBeInTheDocument();
       const btn = screen.getByTestId('cloudflare-connect-btn');
       expect(btn.getAttribute('data-href')).toBe('/api/cloudflare/connect');
@@ -34,7 +35,7 @@ describe('OAuthConnectCard', () => {
       const onSelect = vi.fn();
       render(() => (
         <OAuthConnectCard
-          {...base}
+          {...card}
           status="disconnected"
           tierOptions={{ tiers: GITHUB_TIERS, selected: 'advanced', onSelect }}
         />
@@ -65,7 +66,7 @@ describe('OAuthConnectCard', () => {
 
       render(() => (
         <OAuthConnectCard
-          {...base}
+          {...card}
           status="disconnected"
           class="github-panel-connect"
         />
@@ -80,7 +81,7 @@ describe('OAuthConnectCard', () => {
 
   describe('connecting', () => {
     it('shows the connecting state and neither connect nor disconnect buttons', () => {
-      render(() => <OAuthConnectCard {...base} status="connecting" />);
+      render(() => <OAuthConnectCard {...card} status="connecting" />);
       expect(screen.getByTestId('cloudflare-connecting')).toBeInTheDocument();
       expect(screen.queryByTestId('cloudflare-connect-btn')).not.toBeInTheDocument();
       expect(screen.queryByTestId('cloudflare-disconnect-btn')).not.toBeInTheDocument();
@@ -91,7 +92,7 @@ describe('OAuthConnectCard', () => {
     it('renders identity + disconnect and fires onDisconnect', () => {
       const onDisconnect = vi.fn();
       render(() => (
-        <OAuthConnectCard {...base} status="connected" identity="acme-co" onDisconnect={onDisconnect} />
+        <OAuthConnectCard {...card} status="connected" identity="acme-co" onDisconnect={onDisconnect} />
       ));
       expect(screen.getByTestId('cloudflare-connected-badge')).toBeInTheDocument();
       expect(screen.getByTestId('cloudflare-identity')).toHaveTextContent('acme-co');
@@ -104,7 +105,7 @@ describe('OAuthConnectCard', () => {
       const onSelectAccount = vi.fn();
       render(() => (
         <OAuthConnectCard
-          {...base}
+          {...card}
           status="connected"
           accounts={[{ id: 'a', name: 'Acct A' }, { id: 'b', name: 'Acct B' }]}
           selectedAccountId="a"
@@ -118,7 +119,7 @@ describe('OAuthConnectCard', () => {
     });
 
     it('omits the account picker when no accounts are provided', () => {
-      render(() => <OAuthConnectCard {...base} status="connected" identity="acme-co" />);
+      render(() => <OAuthConnectCard {...card} status="connected" identity="acme-co" />);
       expect(document.querySelector('.oauth-connect-account')).toBeNull();
     });
   });

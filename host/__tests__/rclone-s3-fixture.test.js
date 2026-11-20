@@ -23,9 +23,11 @@ const artifacts = process.env.CODEFLARE_RCLONE_ARTIFACT_DIR;
 const artifactOptions = { skip: !artifacts && 'Set CODEFLARE_RCLONE_ARTIFACT_DIR to reviewed release archives' };
 function extract(directory, version) {
   const archive = join(artifacts, `release-${version}.tar.gz`);
-  const sha = version === '1.73.5'
-    ? 'e52541bc238dd434a0335f467697d7d9575529698a74aab534ad39b8649f8a49'
-    : '68afd7f68c84bd978966feae2116339aa7bf454b39c573910c462e87c3774d5a';
+  const sha = {
+    '1.73.5': 'e52541bc238dd434a0335f467697d7d9575529698a74aab534ad39b8649f8a49',
+    '1.75.2': '68afd7f68c84bd978966feae2116339aa7bf454b39c573910c462e87c3774d5a',
+    '1.76.0': '8cb7e5d576fe9a3aef8b1a0785e2ffc6c1953f8ed109f42000b0b86718f6628b',
+  }[version];
   assert.equal(digest(readFileSync(archive)), sha, 'release artifact identity contract');
   const paths = [...sources, version === '1.73.5' ? 'cmd/serve/s3/pager.go' : 'cmd/serve/s3/list.go'];
   const result = spawnSync('python3', ['-c', `
@@ -50,14 +52,14 @@ function temporary(callback) {
 describe('rclone S3 fixture source identity and preparation', () => {
   it('rejects unknown or mismatched versions without creating a backup', () => temporary((directory, backup) => {
     writeFileSync(join(directory, 'VERSION'), 'v1.73.5\n');
-    for (const version of ['99.0.0', '1.75.2']) {
+    for (const version of ['99.0.0', '1.75.2', '1.76.0']) {
       assert.notEqual(fixture('prepare', directory, version, backup).status, 0);
       assert.equal(existsSync(backup), false);
       assert.equal(readFileSync(join(directory, 'VERSION'), 'utf8'), 'v1.73.5\n');
     }
   }));
 
-  for (const version of ['1.73.5', '1.75.2']) {
+  for (const version of ['1.73.5', '1.75.2', '1.76.0']) {
     it(`rejects unreviewed ${version} fixture bytes before any write`, () => temporary((directory, backup) => {
       writeFileSync(join(directory, 'VERSION'), `v${version}\n`);
       const path = join(directory, 'cmd/serve/s3', version === '1.73.5' ? 'pager.go' : 'list.go');
@@ -100,7 +102,7 @@ describe('rclone S3 fixture source identity and preparation', () => {
       success(run(patch, [directory, version]));
       assert.deepEqual(sources.filter((path) => readFileSync(join(directory, path), 'utf8') !== before.get(path)), sources.slice(1),
         'reviewed generated artifact changed-path contract');
-      if (version === '1.75.2') {
+      if (version !== '1.73.5') {
         const original = before.get('backend/s3/s3.go');
         const generated = readFileSync(join(directory, 'backend/s3/s3.go'), 'utf8');
         // Intentional new Copy artifact contract: completion selection must not truncate
@@ -116,6 +118,17 @@ describe('rclone S3 fixture source identity and preparation', () => {
         assert.ok(generated.slice(generatedStart, generatedEnd).endsWith(preserved),
           'completed destination must flow through unchanged upstream Copy tail');
       }
+    }));
+
+    it(`rejects anchor-preserving changes to ${version} without partial writes`, artifactOptions, () => temporary((directory) => {
+      extract(directory, version);
+      const changed = join(directory, 'backend/s3/s3.go');
+      writeFileSync(changed, readFileSync(changed, 'utf8') + '\n// unreviewed bytes\n');
+      const before = sources.map((path) => digest(readFileSync(join(directory, path))));
+      const result = run(patch, [directory, version]);
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /source digest.*no files patched/);
+      assert.deepEqual(sources.map((path) => digest(readFileSync(join(directory, path)))), before);
     }));
 
     it(`rejects a late incompatible ${version} anchor without partial writes`, artifactOptions, () => temporary((directory) => {

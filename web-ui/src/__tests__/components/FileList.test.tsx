@@ -111,6 +111,11 @@ describe('FileList — clicking a file opens it in a new tab (not download)', ()
 });
 
 describe('FileList — special folder surfaces its container path on the row', () => {
+  it('REQ-STOR-016 AC6: lowercase workspace prefix uses the canonical ~/Workspace mapping', () => {
+    const { getByTestId } = render(() => <FileList {...makeProps({ objects: [], prefixes: ['workspace/'] })} />);
+    expect(getByTestId('special-folder-path-workspace')).toHaveTextContent('~/Workspace');
+  });
+
   it('renders the shortened ~/ container path for a special folder', () => {
     const { container } = render(() => (
       <FileList {...makeProps({ objects: [], prefixes: ['Vault/'] })} />

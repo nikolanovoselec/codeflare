@@ -14,7 +14,9 @@ const reviewRootResolver = fileURLToPath(new URL(
   import.meta.url,
 ));
 
+// REQ-AGENT-232: current ownership; historical test title unchanged.
 describe('REQ-AGENT-059: Pi review scope entry points', () => {
+  // REQ-AGENT-232 AC2: current ownership; historical test title unchanged.
   it('AC3: resolves /review diff and all into executable work-set contracts', () => {
     expect(reviewCommandDecision('--diff src/routes')).toEqual({
       kind: 'workflow',

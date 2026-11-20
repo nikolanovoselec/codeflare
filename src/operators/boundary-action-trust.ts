@@ -1,6 +1,8 @@
 /** Target-repository workflow trust is distinct from operator release provenance. */
 export interface BoundaryActionBinding {
   repositoryId: number;
+  /** Canonical name retained by verified enrollment; absent on legacy records. */
+  repository?: string;
   installationId: string;
   workflowId: number;
   workflowPath: string;

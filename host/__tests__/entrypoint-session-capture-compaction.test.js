@@ -203,6 +203,7 @@ describe('entrypoint session-capture compaction orchestration', () => {
         export RCLONE_CONFIG_RESULT STEP1_RESULT SESSION_MODE CODEFLARE_SESSION_WORKSPACE CODEFLARE_RUNTIME_ROOT SYNC_STATUS CALLS
         prepare_managed_resource_filter() { :; }
         relay_managed_pi_extensions() { :; }
+        configure_pi_hermes_memory() { :; }
         release_agent_pty_after_fast_start_updates() { :; }
         renice() { :; }
         ionice() { :; }

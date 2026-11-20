@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
 import type { Env } from '../../types';
@@ -5,13 +6,15 @@ import { AppError } from '../../lib/error-types';
 import { createMockKV } from '../helpers/mock-kv';
 import routes from '../../routes/operator-activities';
 import { operatorOwnerKey } from '../../operators/browser-activity';
+import { SETUP_KEYS } from '../../lib/kv-keys';
+import { parseOperatorManifest } from '../../operators/distribution';
 
 const claims = {
   subject: 'owner-subject', email: 'owner@example.test', issuer: 'https://route-identity.cloudflareaccess.com',
   audiences: ['account-audience'], issuedAt: Math.floor(Date.now() / 1000) - 10,
   expiresAt: Math.floor(Date.now() / 1000) + 300,
 };
-const accessState = vi.hoisted(() => ({ active: true, realIdentity: false }));
+const accessState = vi.hoisted(() => ({ active: true, realIdentity: false, adminGroups: [] as string[] }));
 vi.mock('../../lib/access', async importOriginal => {
   const actual = await importOriginal<typeof import('../../lib/access')>();
   return { ...actual,
@@ -20,6 +23,10 @@ vi.mock('../../lib/access', async importOriginal => {
       return { human: claims, accessJwt: 'private.access.jwt' };
     },
     operatorAccessSessionCurrent: async () => accessState.active,
+    observeOperatorAccessIdentity: async (...args: Parameters<typeof actual.observeOperatorAccessIdentity>) =>
+      accessState.realIdentity ? actual.observeOperatorAccessIdentity(...args)
+        : { status: 'current', groups: [], routingGroups: [] },
+    resolveAdminAccessGroup: async () => accessState.adminGroups,
     resolveOperatorGroupIdentity: async (human: Parameters<typeof actual.resolveOperatorGroupIdentity>[0], accessJwt: string) =>
       accessState.realIdentity ? actual.resolveOperatorGroupIdentity(human, accessJwt) : human,
     authenticateRequest: async (_request: Request, bindings: Env) => {
@@ -28,10 +35,17 @@ vi.mock('../../lib/access', async importOriginal => {
     },
   };
 });
-const orchestration = vi.hoisted(() => ({
-  prepare: vi.fn(async () => ({ activityId: 'prepared-activity', startCapability: 'p'.repeat(43), startExpiresAt: 1_900_000_000_000 })),
-  run: vi.fn(async (_activityId: string, _env: Env, _bindCapability: unknown) => {}),
-}));
+const orchestration = vi.hoisted(() => {
+  const prepared: unknown[] = [];
+  return {
+    prepared,
+    prepare: vi.fn(async (input: unknown, _authority: unknown, _env: Env) => {
+      prepared.push(input);
+      return { activityId: 'prepared-activity', startCapability: 'p'.repeat(43), startExpiresAt: 1_900_000_000_000 };
+    }),
+    run: vi.fn(async (_activityId: string, _env: Env, _bindCapability: unknown) => {}),
+  };
+});
 vi.mock('../../operators/orchestrator', async importOriginal => ({
   ...await importOriginal<typeof import('../../operators/orchestrator')>(),
   prepareOperatorActivity: orchestration.prepare,
@@ -43,6 +57,18 @@ const summary = {
   collectionStatus: 'unavailable', attention: false, sessionId: 'session-1', source: 'Repository dispatch',
   updatedAt: 1_800_000_000_000,
 };
+
+const application = { controlVersion: 1, configurationSchema: { type: 'object', properties: {
+  automation: { type: 'object', properties: {
+    enabled: { type: 'boolean', default: false }, interval: { type: 'integer', default: 900 },
+  } },
+} }, schedule: { enabledPath: '/automation/enabled', intervalSecondsPath: '/automation/interval' } };
+const repositoryUrl = 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher';
+// Match acquisition's serialized normalized manifest, not the release asset's raw wire.
+const manifest = (overrides: Record<string, unknown> = {}) => parseOperatorManifest(JSON.stringify({ schemaVersion: 1, interfaceVersion: 1,
+  id: 'test-application', name: 'Test application', description: 'Package-owned workflow',
+  coreVersion: '1', intentVersion: '1', profile: 'dispatcher', inputSchema: { type: 'object' },
+  requiredCapabilities: ['fetch'], artifact: { path: '/bundle.json', sha256: 'a'.repeat(64) }, ...overrides }), 'https://github.com/');
 
 function fixture() {
   const activity = {
@@ -58,7 +84,7 @@ function fixture() {
     getBrowserSummary: vi.fn(async (_ownerKey: string): Promise<(typeof summary & {
       operatorName?: string; context?: string }) | null> => null),
     collectBrowserResult: vi.fn(async () => ({ ok: true, detail: { ...summary, executionStatus: 'completed', result: { report: 'ready' } } })),
-    publishRenovateAssessment: vi.fn(async () => ({ ok: true, phase: 'reserved' })),
+    publishRenovateAssessment: vi.fn(async () => ({ ok: false, reason: 'application-owned' })),
   };
   const registry = {
     listOwnedActivities: vi.fn(async () => [summary]),
@@ -88,18 +114,22 @@ function fixture() {
   let githubTransport: (request: Request) => Promise<Response> = async () => Response.json({
     id: 424242, full_name: 'acme/updates', default_branch: 'trunk' });
   const setGithub = (handler: typeof githubTransport) => { githubTransport = handler; };
-  const request = (path = '', method = 'GET', body?: unknown, csrf = true, bindings: Env = env) => app.request(
+  const request = (path = '', method = 'GET', body?: unknown, csrf = true, bindings: Env = env,
+    headers: Record<string, string> = {}) => app.request(
     `https://enterprise.example.test/api/operator-activities${path}`,
     { method, headers: {
       'content-type': 'application/json', 'cf-access-authenticated-user-email': claims.email,
-      ...(csrf ? { 'x-requested-with': 'XMLHttpRequest' } : {}),
+      ...(csrf ? { 'x-requested-with': 'XMLHttpRequest' } : {}), ...headers,
     }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }, bindings,
     { waitUntil, passThroughOnException: vi.fn(), props: {}, exports: { OperatorRuntimeCapability: loopback, GitHubInterceptor: () => ({ fetch: (request: Request) => githubTransport(request) }) } },
   );
-  return { activity, registry, env, kv, request, waitUntil, loopback, setGithub };
+  return { activity, registry, env, kv, app, request, waitUntil, loopback, setGithub };
 }
 
-beforeEach(() => { vi.clearAllMocks(); accessState.active = true; accessState.realIdentity = false; });
+beforeEach(() => {
+  vi.clearAllMocks(); orchestration.prepared.length = 0;
+  accessState.active = true; accessState.realIdentity = false; accessState.adminGroups = [];
+});
 
 describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () => {
   it('REQ-OPERATOR-027: retired private failure inspection returns 404 for the approved owner', async () => {
@@ -113,51 +143,24 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
       expect(response.status).toBe(404);
     } finally { claims.email = previousEmail; }
   });
-  it('previews only an enabled, authorized pinned Renovate Dispatcher without creating an Activity or exposing credentials', async () => {
-    const { request, registry, activity } = fixture();
-    const selection = { operator: { id: 'operator-1', profile: 'dispatcher', repositoryUrl: 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher',
-      policy: { capabilities: ['fetch'] }, invokers: { users: [claims.email], groups: [] } },
-      release: { tagName: 'v0.1.2', githubReleaseId: 17 }, manifestJson: JSON.stringify({ name: 'Renovate Dispatcher', inputSchema: { type: 'object', additionalProperties: false,
-        required: ['repository', 'pullRequest'], properties: { repository: { type: 'string' }, pullRequest: { type: 'integer', minimum: 1 } } } }),
-      installation: { id: 'installation-1', releaseId: 'release-1', configurationJson: '{}',
-        policy: { capabilities: ['fetch'], resourceProfileId: null } } };
-    registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: selection });
-    const preview = await request('/installations/installation-1/preview');
-    expect(preview.status).toBe(200);
-    expect(await preview.json()).toEqual({ name: 'Renovate Dispatcher', version: 'v0.1.2', guidedAssessment: true, guidedMode: 'legacy-pull-request', requiresSourceHost: false });
-    const schema = { type: 'object', additionalProperties: false, required: ['repository'],
-      properties: { repository: { type: 'string', maxLength: 201, pattern: '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' } } };
-    const installed = (inputSchema: unknown) => ({ ...selection,
-      manifestJson: JSON.stringify({ name: 'Renovate Dispatcher', inputSchema }) });
-    registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: installed(schema) });
-    expect(await (await request('/installations/installation-1/preview?guidedMode=legacy-pull-request')).json())
-      .toMatchObject({ guidedAssessment: true, guidedMode: 'repository', version: 'v0.1.2' });
-    registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: {
-      ...installed(schema), installation: { ...selection.installation,
-        configurationJson: JSON.stringify({ renovate: { repository: 'acme/updates', automaticRuns: false } }) },
-    } });
-    const configured = await request('/installations/installation-1/preview');
-    expect(configured.status).toBe(200);
-    expect(await configured.json()).toMatchObject({ guidedAssessment: true, guidedMode: 'repository',
-      version: 'v0.1.2', configuredRepository: 'acme/updates' });
-    for (const unsupportedSchema of [undefined, { ...schema, additionalProperties: true },
-      { ...schema, required: [] }, { ...schema, properties: { ...schema.properties, surprise: { type: 'string' } } },
-      { ...schema, properties: { repository: { ...schema.properties.repository, maxLength: 256 } } }]) {
-      registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: installed(unsupportedSchema) });
-      expect(await (await request('/installations/installation-1/preview')).json())
-        .toMatchObject({ guidedAssessment: false, guidedMode: null });
-    }
-    expect(activity.start).not.toHaveBeenCalled();
-    expect(orchestration.prepare).not.toHaveBeenCalled();
-    registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: { ...selection, operator: { ...selection.operator, invokers: { users: [], groups: [] } } } });
-    expect((await request('/installations/installation-1/preview')).status).toBe(404);
-    registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: { ...selection, manifestJson: JSON.stringify({ name: 'Custom Dispatcher' }) } });
-    const unsupported = await request('/installations/installation-1/preview');
-    expect(unsupported.status).toBe(200);
-    expect(await unsupported.json()).toMatchObject({ name: 'Custom Dispatcher', guidedAssessment: false });
-    registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: { ...selection,
-      operator: { ...selection.operator, repositoryUrl: 'https://github.com/elsewhere/dispatcher' } } });
-    expect(await (await request('/installations/installation-1/preview')).json()).toMatchObject({ guidedAssessment: false });
+  it.each([undefined, application])('previews authorized pinned schema and optional application metadata %j without interpreting business inputs', async metadata => {
+    const f = fixture();
+    const inputSchema = { type: 'object', properties: { request: { type: 'string' } } };
+    const selected = { operator: { id: 'operator-1', profile: 'dispatcher', repositoryUrl,
+      invokers: { users: [claims.email], groups: [] } },
+      release: { tagName: 'v0.1.47' }, manifestJson: JSON.stringify(manifest({ inputSchema, application: metadata })),
+      installation: { id: 'installation-1', configurationJson: JSON.stringify({ private: 'DO_NOT_PROJECT' }) } };
+    f.registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: selected });
+    const response = await f.request('/installations/installation-1/preview?repository=foreign/repo&guidedMode=repository');
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ name: 'Test application', description: 'Package-owned workflow',
+      version: 'v0.1.47', guidedAssessment: false, guidedMode: null, inputSchema, application: metadata ?? null, requiresSourceHost: false });
+    f.registry.resolveManagementExecution.mockResolvedValue({ ok: false, reason: 'disabled' });
+    expect((await f.request('/installations/installation-1/preview')).status).toBe(404);
+    f.registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: { ...selected,
+      operator: { ...selected.operator, invokers: { users: [], groups: [] } } } });
+    expect((await f.request('/installations/installation-1/preview')).status).toBe(404);
+    expect(orchestration.prepared).toEqual([]);
   });
   it.each([
     { operatorInference: true, installationInference: true, requiresSourceHost: false },
@@ -171,16 +174,16 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
         invokers: { users: [claims.email], groups: [] }, policy: { capabilities: policy.operatorInference ? ['fetch', 'inference'] : ['fetch'] } },
       installation: { id: 'installation-1', releaseId: 'release-1', configurationJson: '{}',
         policy: { capabilities: policy.installationInference ? ['fetch', 'inference'] : ['fetch'], resourceProfileId: null } },
-      release: { tagName: 'v0.1.2' }, manifestJson: JSON.stringify({ name: 'Renovate Dispatcher', inputSchema: {
+      release: { tagName: 'v0.1.2' }, manifestJson: JSON.stringify(manifest({ name: 'Renovate Dispatcher', inputSchema: {
         type: 'object', additionalProperties: false, required: ['repository', 'pullRequest'],
-        properties: { repository: { type: 'string' }, pullRequest: { type: 'integer', minimum: 1 } } } }),
+        properties: { repository: { type: 'string' }, pullRequest: { type: 'integer', minimum: 1 } } } })),
     } });
     const response = await f.request('/installations/installation-1/preview?requiresSourceHost=false&sourceSession=caller-source');
     expect(response.status).toBe(200);
     // Public preview contract: inference eligibility does not require a Host picker,
     // and URL-supplied source hints never choose the execution principal.
-    expect(await response.json()).toEqual({ name: 'Renovate Dispatcher', version: 'v0.1.2', guidedAssessment: true,
-      guidedMode: 'legacy-pull-request', requiresSourceHost: policy.requiresSourceHost });
+    expect(await response.json()).toMatchObject({ name: 'Renovate Dispatcher', version: 'v0.1.2',
+      guidedAssessment: false, guidedMode: null, application: null, requiresSourceHost: policy.requiresSourceHost });
   });
 
   it('returns a side-effect-free safe summary collection for the exact human account', async () => {
@@ -208,36 +211,21 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
     expect(registry.acknowledgeOwnedActivities).toHaveBeenCalledWith(expect.stringMatching(/^[0-9a-f]{64}$/), 1);
   });
 
-  it('REQ-OPERATOR-061: only a current authorized admin session can activate an immutable server-timed Komodo scan', async () => {
-    const { request, kv, registry, env } = fixture();
-    const observed = { activatedAt: new Date().toISOString(), repository: 'acme/updates', repositoryId: 424242, baseBranch: 'trunk' };
-    (registry as unknown as { activateProspectiveRenovate: (input: unknown) => Promise<unknown> })
-      .activateProspectiveRenovate = async () => ({ ok: true, ...observed, registrationId: 'registered-admin' });
-    (env as unknown as { USAGE_DB: unknown }).USAGE_DB = { prepare: () => ({ bind: () => ({ first: async () => ({
-      lifecycle_state: 'running', lifecycle_generation: 3, owner_key: 'owner-bucket', session_id: 'session0001',
-      created_at: new Date().toISOString(), last_accessed_at: new Date().toISOString(), response_revision: 0,
-      observation_sequence: 0, workspace: 'default', terminal_mode: 'terminal', editor_ready: 1, editor_ready_error: 0,
-    }) }) }) };
-    kv._store.set('user:owner@example.test', JSON.stringify({ role: 'admin' }));
-    (env as unknown as { CONTAINER: unknown }).CONTAINER = { idFromName: (value: string) => value,
-      get: () => ({ armRenovateScan: async () => ({ ok: true, activatedAt: observed.activatedAt }) }) };
-    registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: { installation: { id: 'dispatcher-install',
-      revision: 1, enabled: true, policy: { resourceProfileId: null }, configurationJson: JSON.stringify({ renovate: { repository: 'acme/updates', automaticRuns: true, repetitionIntervalSeconds: 900 } }) }, operator: { profile: 'dispatcher', revision: 1, invokers: { users: [claims.email], groups: [] } },
-      release: { id: 'release', bundleDigest: 'a'.repeat(64) }, controlsRevision: 1,
-      manifestJson: JSON.stringify({ id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion: '3' }) } });
-    const command = { installationId: 'dispatcher-install', sessionId: 'session0001', sessionGeneration: 3 };
-    const response = await request('/renovate/activation', 'POST', command);
-    expect(response.status).toBe(202);
-    expect(await response.json()).toMatchObject({ activatedAt: expect.any(String), repositoryId: 424242 });
-    expect((await request('/renovate/activation', 'POST', { ...command, activatedAt: '2000-01-01T00:00:00Z' })).status)
-      .toBe(400);
-    expect((await request('/renovate/activation', 'POST', command, false)).status).toBe(403);
-    registry.resolveManagementExecution.mockResolvedValue({ ok: false, reason: 'disabled' });
-    expect((await request('/renovate/activation', 'POST', command)).status).toBe(403);
-    kv._store.set('user:owner@example.test', JSON.stringify({ role: 'user' }));
-    expect((await request('/renovate/activation', 'POST', command)).status).toBe(403);
+  it('keeps the retired explicit activation route closed even for a current administrator', async () => {
+    const f = fixture();
+    f.kv._store.set(`user:${claims.email}`, JSON.stringify({ role: 'admin' }));
+    const effects: string[] = [];
+    Object.assign(f.registry, { activateProspectiveRenovate: async () => { effects.push('legacy activation'); throw Error('Retired activation called'); } });
+    f.setGithub(async () => { effects.push('GitHub'); return Response.json({}); });
+    for (const command of [
+      { installationId: 'installation', revision: 1 },
+      { installationId: 'installation', sessionId: 'session0001', sessionGeneration: 3 },
+      { installationId: 'installation', activatedAt: '2000-01-01T00:00:00Z', repository: 'foreign/repo' },
+    ]) expect((await f.request('/renovate/activation', 'POST', command)).status).toBe(404);
+    expect((await f.request('/renovate/activation', 'POST', {}, false)).status).toBe(403);
     accessState.active = false;
-    expect((await request('/renovate/activation', 'POST', command)).status).toBe(403);
+    expect((await f.request('/renovate/activation', 'POST', {})).status).toBe(403);
+    expect(effects).toEqual([]);
   });
 
   it('REQ-OPERATOR-041: reads detail and result only after the durable index proves exact ownership without mutation', async () => {
@@ -429,6 +417,25 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
     expect(waitUntil).toHaveBeenCalledOnce();
   });
 
+  it.each(['foreign', 'absent-prepared-proof'] as const)('refuses %s start and foreign cancellation without changing execution', async boundary => {
+    const { request, activity } = fixture();
+    const execution = { status: 'prepared', starts: [] as string[], cancellations: 0 };
+    activity.start.mockImplementation(async () => {
+      execution.status = 'queued'; execution.starts.push('s'.repeat(43));
+      return { ok: true, phase: 'queued' };
+    });
+    activity.cancelDrive.mockImplementation(async () => {
+      execution.status = 'cancel-requested'; execution.cancellations++;
+      return { ok: true, state: { status: 'cancel-requested' } };
+    });
+    activity.ownsPrepared.mockResolvedValue(false);
+    const before = structuredClone(execution);
+    const id = boundary === 'foreign' ? 'foreign-activity' : 'prepared-activity';
+    expect((await request(`/${id}/start`, 'POST', { capability: 's'.repeat(43) })).status).toBe(404);
+    expect((await request(`/${id}/cancel`, 'POST', {})).status).toBe(404);
+    expect(execution).toEqual(before);
+  });
+
   it('continues only durable waiting work through an explicit owner-authenticated POST', async () => {
     const { request, activity, waitUntil } = fixture();
     activity.getBrowserDetail.mockResolvedValueOnce({ ...summary, executionStatus: 'waiting',
@@ -457,9 +464,31 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
     expect(activity.start).toHaveBeenCalledWith('s'.repeat(43));
     expect(orchestration.run).toHaveBeenCalledWith('activity-1', expect.anything(), expect.any(Function));
     expect(waitUntil).toHaveBeenCalledOnce();
+    activity.getBrowserSummary.mockResolvedValue({ ...summary, executionStatus: 'cancel-requested' });
     const cancelled = await request('/activity-1/cancel', 'POST', {});
     expect(cancelled.status).toBe(200);
     expect(activity.cancelDrive).toHaveBeenCalledOnce();
+  });
+
+  it('REQ-OPERATOR-016/104: cancellation acknowledgement satisfies the strict summary wire contract after configuration revocation', async () => {
+    const f = fixture();
+    f.registry.resolveManagementExecution.mockResolvedValue({ ok: false, reason: 'disabled' });
+    f.activity.getBrowserSummary.mockResolvedValue({ ...summary, executionStatus: 'cancel-requested' });
+    const response = await f.request('/activity-1/cancel', 'POST', {});
+    expect(response.status).toBe(200);
+    // Intentional wire contract: detail-only fields must not break the strict browser summary decoder.
+    expect(await response.json()).toEqual({ ...summary, executionStatus: 'cancel-requested',
+      updatedAt: new Date(summary.updatedAt).toISOString() });
+    expect((await f.request('/activity-1/cancel', 'POST', {}, false)).status).toBe(403);
+    expect((await f.request('/foreign/cancel', 'POST', {})).status).toBe(404);
+  });
+
+  it('REQ-OPERATOR-104: unavailable cancel projection never returns incompatible success JSON', async () => {
+    const f = fixture();
+    f.activity.getBrowserSummary.mockResolvedValue(null);
+    const response = await f.request('/activity-1/cancel', 'POST', {});
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ code: 'CANCELLATION_NOT_CONFIRMED' });
   });
 
   it('is unavailable outside enterprise without reading the activity index', async () => {
@@ -472,7 +501,7 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
 describe('REQ-OPERATOR-060: explicit authenticated publisher admission', () => {
   const command = { sessionId: 'session-1', sessionGeneration: 3 };
 
-  it('admits only a current admin and exact owned Activity with a CSRF-protected session command', async () => {
+  it('retains admin, owner, authentication and CSRF checks but refuses a valid retired publication command', async () => {
     const f = fixture();
     expect((await f.request('/activity-1/publish', 'POST', command)).status).toBe(403);
     expect((await f.request('/activity-1/publish', 'POST', command, false)).status).toBe(403);
@@ -484,119 +513,163 @@ describe('REQ-OPERATOR-060: explicit authenticated publisher admission', () => {
     expect((await f.request('/activity-1/publish', 'POST', command)).status).toBe(404);
     expect((await f.request('/activity-1/publish', 'POST', { ...command, repository: 'foreign/repo' })).status).toBe(400);
     const response = await f.request('/activity-1/publish', 'POST', command);
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ ok: true });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ ok: false, reason: 'application-owned' });
     expect((await f.request('/activity-1/result')).status).toBe(200);
   });
 });
 
 
-describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
-  const schema = { type: 'object', additionalProperties: false, required: ['repository'], properties: {
-    repository: { type: 'string', maxLength: 201, pattern: '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' } } };
-  it('projects only the configured repository through authorized guided preview and ignores URL overrides', async () => {
-    const f = fixture();
-    const selected = { operator: { id: 'dispatcher', profile: 'dispatcher',
-      repositoryUrl: 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher',
-      policy: { capabilities: ['fetch'] }, invokers: { users: [claims.email], groups: [] } },
-      installation: { id: 'install', enabled: true, policy: { capabilities: ['fetch'], resourceProfileId: null },
-      configurationJson: JSON.stringify({ renovate: { repository: 'acme/updates', automaticRuns: false,
-        repetitionIntervalSeconds: 900 }, privateSetting: 'DO_NOT_PROJECT' }) },
-      release: { tagName: 'v1', githubReleaseId: 17 }, manifestJson: JSON.stringify({ id: 'renovate-dispatcher',
-        profile: 'dispatcher', intentVersion: '3', name: 'Renovate Dispatcher', inputSchema: schema }) };
-    f.registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: selected });
-    const preview = await f.request('/installations/install/preview?repository=other/repo');
-    expect(preview.status).toBe(200);
-    expect(await preview.json()).toEqual({ name: 'Renovate Dispatcher', version: 'v1', guidedAssessment: true,
-      guidedMode: 'repository', configuredRepository: 'acme/updates', requiresSourceHost: false });
-    f.registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: { ...selected,
-      installation: { ...selected.installation, configurationJson: '{}' } } });
-    expect(await (await f.request('/installations/install/preview')).json()).toEqual({
-      name: 'Renovate Dispatcher', version: 'v1', guidedAssessment: true, guidedMode: 'repository', requiresSourceHost: false });
-    f.registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: { ...selected,
-      operator: { ...selected.operator, invokers: { users: [], groups: [] } } } });
-    expect((await f.request('/installations/install/preview')).status).toBe(404);
-  });
-});
-
-
-describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
+describe('REQ-OPERATOR-061: generic application controls', () => {
   function activationFixture() {
     const f = fixture();
-    const selected = { installation: { id: 'dispatcher-install', revision: 2, enabled: true,
-      policy: { resourceProfileId: null }, configurationJson: JSON.stringify({ renovate: {
-        repository: 'acme/updates', automaticRuns: true, repetitionIntervalSeconds: 900 } }) },
-      operator: { operatorId: 'dispatcher', revision: 1, profile: 'dispatcher', invokers: { users: [claims.email], groups: [] } },
+    const selected = { installation: { id: 'application-install', revision: 2, enabled: true,
+      policy: { capabilities: ['fetch'], resourceProfileId: null },
+      configurationJson: JSON.stringify({ automation: { enabled: true, interval: 900 } }) },
+      operator: { operatorId: 'application', revision: 1, profile: 'dispatcher', repositoryUrl,
+        invokers: { users: [claims.email], groups: [] } },
       release: { id: 'release', bundleDigest: 'a'.repeat(64) }, controlsRevision: 1,
-      manifestJson: JSON.stringify({ id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion: '3' }) };
-    f.registry.resolveManagementExecution.mockImplementation(async () => ({ ok: true, value: selected }));
-    const admitted: unknown[] = [], armed: unknown[] = [], reads: Request[] = [];
-    Object.assign(f.registry, { activateProspectiveRenovate: async (input: unknown) => {
-      admitted.push(input); return { ok: true, registrationId: 'scan-configured', activatedAt: '2026-09-28T00:00:00.000Z',
-        repository: 'acme/updates', repositoryId: 424242, baseBranch: 'trunk' }; } });
-    Object.assign(f.env, { USAGE_DB: { prepare: () => ({ bind: () => ({ first: async () => ({
-      lifecycle_state: 'running', lifecycle_generation: 3, owner_key: 'owner-bucket', session_id: 'session0001',
-      created_at: new Date().toISOString(), last_accessed_at: new Date().toISOString(), response_revision: 0,
-      observation_sequence: 0, workspace: 'default', terminal_mode: 'terminal', editor_ready: 1, editor_ready_error: 0,
-    }) }) }) }, CONTAINER: { idFromName: (name: string) => name, get: () => ({
-      armRenovateScan: async (input: unknown) => { armed.push(input); return { ok: true }; } }) } });
-    f.kv._store.set('user:owner@example.test', JSON.stringify({ role: 'admin' }));
-    f.setGithub(async request => { reads.push(request); return Response.json({
-      id: 424242, full_name: 'acme/updates', default_branch: 'trunk' }); });
-    return { ...f, selected, admitted, armed, reads, command: {
-      installationId: 'dispatcher-install', sessionId: 'session0001', sessionGeneration: 3 } };
+      manifestJson: JSON.stringify(manifest({ application })) };
+    f.registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: selected });
+    const admitted: unknown[] = [], effects: string[] = [];
+    const forbidden = (name: string): never => { effects.push(name); throw Error(`Unexpected ${name}`); };
+    const activation = { outcome: 'accepted' as 'accepted' | 'refused' | 'lost' };
+    Object.assign(f.registry, { activateApplicationSchedule: async (input: unknown) => {
+      admitted.push(input);
+      if (activation.outcome === 'lost') throw Error('Activation acknowledgement lost');
+      return activation.outcome === 'refused' ? { ok: false, reason: 'changed' }
+        : { ok: true, activatedAt: '2026-09-28T00:00:00.000Z' };
+    } });
+    Object.assign(f.env, { USAGE_DB: { prepare: () => forbidden('session lookup') },
+      CONTAINER: { idFromName: () => forbidden('container'), getByName: () => forbidden('container') } });
+    f.kv._store.set(`user:${claims.email}`, JSON.stringify({ role: 'admin' }));
+    f.setGithub(async () => forbidden('GitHub discovery'));
+    return { ...f, selected, activation, admitted, effects,
+      command: { installationId: 'application-install', revision: 2 } };
   }
-  it.each(['revoked', 'unavailable', 'malformed', 'transport-error'] as const)(
-    'REQ-OPERATOR-047: automatic activation recheck rejects %s live identity despite an email grant and admits verified no-group recovery', async fault => {
+
+  it('activates only the declared schedule with revision and verified delegation, without a workspace or GitHub discovery', async () => {
+    const f = activationFixture();
+    const response = await f.request('/automatic/activation', 'POST', f.command);
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({ activatedAt: '2026-09-28T00:00:00.000Z' });
+    expect(f.admitted).toEqual([{ ...f.command, authority: { human: { ...claims, groups: [] },
+      accessJwt: 'private.access.jwt', delegation: { version: 1, routingGroups: [] } } }]);
+    expect(f.effects).toEqual([]);
+  });
+
+  it.each(['foreign-url', 'different-path', 'extra-artifact-field', 'missing-url'])(
+    'REQ-OPERATOR-010/035: refuses automatic activation for %s stored artifact without registering work', async fault => {
       const f = activationFixture();
-      accessState.realIdentity = true;
+      const stored = JSON.parse(f.selected.manifestJson);
+      if (fault === 'foreign-url') stored.artifact.url = 'https://foreign.example.test/bundle.json';
+      if (fault === 'different-path') stored.artifact.url = 'https://github.com/other-bundle.json';
+      if (fault === 'extra-artifact-field') stored.artifact.authority = 'PRIVATE_ARTIFACT_AUTHORITY';
+      if (fault === 'missing-url') delete stored.artifact.url;
+      f.selected.manifestJson = JSON.stringify(stored);
+      const response = await f.request('/automatic/activation', 'POST', f.command);
+      expect(response.status).toBe(400);
+      expect(await response.text()).not.toContain('PRIVATE_ARTIFACT_AUTHORITY');
+      expect(f.admitted).toEqual([]); expect(f.effects).toEqual([]);
+    });
+
+  it.each(['stale', 'unavailable', 'no-invocation-grant', 'nonadmin', 'unverified-human', 'csrf'])('rejects %s activation without registering or discovering work', async fault => {
+    const f = activationFixture();
+    if (fault === 'unavailable') f.registry.resolveManagementExecution.mockResolvedValue({ ok: false, reason: 'disabled' });
+    if (fault === 'no-invocation-grant') f.selected.operator.invokers.users = [];
+    if (fault === 'nonadmin') f.kv._store.set(`user:${claims.email}`, JSON.stringify({ role: 'user' }));
+    if (fault === 'unverified-human') accessState.active = false;
+    const response = await f.request('/automatic/activation', 'POST',
+      { ...f.command, revision: fault === 'stale' ? 1 : 2 }, fault !== 'csrf');
+    expect(response.status).toBe(['stale', 'unavailable', 'no-invocation-grant'].includes(fault) ? 409 : 403);
+    expect(f.admitted).toEqual([]); expect(f.effects).toEqual([]);
+  });
+
+  it.each([
+    { installationId: 'application-install', sessionId: 'session0001', sessionGeneration: 3 },
+    { installationId: 'application-install', revision: 2, sessionId: 'session0001' },
+    { installationId: 'application-install', revision: 2, activatedAt: '2000-01-01T00:00:00Z' },
+    { installationId: 'application-install', revision: 0 },
+    { installationId: '../foreign', revision: 2 },
+  ])('rejects legacy or forged automatic command %j', async command => {
+    const f = activationFixture();
+    expect((await f.request('/automatic/activation', 'POST', command)).status).toBe(400);
+    expect(f.admitted).toEqual([]); expect(f.effects).toEqual([]);
+  });
+
+  it.each(['missing-application', 'missing-schedule', 'off', 'invalid-interval', 'invalid-enabled'])('does not register %s scheduling', async fault => {
+    const f = activationFixture();
+    if (fault === 'missing-application') f.selected.manifestJson = JSON.stringify(manifest());
+    if (fault === 'missing-schedule') f.selected.manifestJson = JSON.stringify(manifest({ application: { controlVersion: 1 } }));
+    if (fault === 'off') f.selected.installation.configurationJson = '{}';
+    if (fault === 'invalid-interval') f.selected.installation.configurationJson = JSON.stringify({ automation: { enabled: true, interval: 0 } });
+    if (fault === 'invalid-enabled') f.selected.installation.configurationJson = JSON.stringify({ automation: { enabled: 'true', interval: 900 } });
+    expect((await f.request('/automatic/activation', 'POST', f.command)).status).toBe(403);
+    expect(f.admitted).toEqual([]); expect(f.effects).toEqual([]);
+  });
+
+  it.each(['revoked', 'forbidden', 'unavailable', 'malformed', 'transport-error', 'changed-session', 'foreign-subject', 'foreign-email'] as const)(
+    'REQ-OPERATOR-047: %s live identity cannot register; verified no-group recovery can', async fault => {
+      const f = activationFixture(); accessState.realIdentity = true;
       let invalid = true;
       const identity = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
         const request = new Request(input, init);
         expect(request.url).toBe(`${claims.issuer}/cdn-cgi/access/get-identity`);
         expect(request.headers.get('cookie')).toBe('CF_Authorization=private.access.jwt');
         if (invalid && fault === 'transport-error') throw Error('Identity transport unavailable');
-        if (invalid && fault === 'revoked') return new Response(null, { status: 401 });
-        if (invalid && fault === 'unavailable') return new Response(null, { status: 503 });
-        return Response.json({ user_uuid: claims.subject, email: claims.email,
-          ...(invalid ? { groups: null } : {}) });
+        if (invalid && ['revoked', 'forbidden', 'unavailable'].includes(fault)) {
+          return new Response(null, { status: fault === 'revoked' ? 401 : fault === 'forbidden' ? 403 : 503 });
+        }
+        if (invalid && fault === 'changed-session') accessState.active = false;
+        return Response.json({ user_uuid: invalid && fault === 'foreign-subject' ? 'foreign' : claims.subject,
+          email: invalid && fault === 'foreign-email' ? 'foreign@example.test' : claims.email,
+          ...(invalid && fault === 'malformed' ? { groups: null } : {}) });
       });
       try {
-        expect((await f.request('/renovate/activation', 'POST', f.command)).status).toBe(403);
-        expect(f.admitted).toEqual([]);
-        expect(f.armed).toEqual([]);
-        expect(f.reads).toEqual([]);
-        invalid = false;
-        const response = await f.request('/renovate/activation', 'POST', f.command);
+        expect((await f.request('/automatic/activation', 'POST', f.command)).status).toBe(403);
+        expect(f.admitted).toEqual([]); expect(f.effects).toEqual([]);
+        invalid = false; accessState.active = true;
+        const response = await f.request('/automatic/activation', 'POST', f.command);
         expect(response.status).toBe(202);
-        expect(await response.json()).toEqual({ activatedAt: '2026-09-28T00:00:00.000Z', repositoryId: 424242 });
-        expect(f.admitted).toEqual([expect.objectContaining({ installationId: f.command.installationId,
-          repository: { repository: 'acme/updates', repositoryId: 424242, baseBranch: 'trunk' } })]);
-        expect(f.armed).toEqual([expect.objectContaining({ registrationId: 'scan-configured' })]);
-      } finally { identity.mockRestore(); accessState.realIdentity = false; }
+        expect(await response.json()).toEqual({ activatedAt: '2026-09-28T00:00:00.000Z' });
+        expect(f.admitted).toEqual([{ ...f.command, authority: { human: { ...claims, groups: [] },
+          accessJwt: 'private.access.jwt', delegation: { version: 1, routingGroups: [] } } }]);
+        expect(f.effects).toEqual([]);
+      } finally { identity.mockRestore(); }
     });
 
-  it.each(['unset', 'off', 'redirect', 'foreign-name', 'unsafe-id', 'no-branch', 'changed-selection', 'revoked-session'])
-    ('denies %s before persisting or arming a registration', async fault => {
+  it.each(['lost', 'refused'] as const)('does not manufacture activation success or retry a %s acknowledgement', async outcome => {
+    const f = activationFixture(); f.activation.outcome = outcome;
+    const response = await f.request('/automatic/activation', 'POST', f.command);
+    expect(response.status).toBe(outcome === 'lost' ? 500 : 409);
+    expect(f.admitted).toEqual([{ ...f.command, authority: { human: { ...claims, groups: [] },
+      accessJwt: 'private.access.jwt', delegation: { version: 1, routingGroups: [] } } }]);
+    expect(f.effects).toEqual([]);
+  });
+
+  it.each([{}, { request: 'owner input', repository: 'foreign/repo', automatic: false }])(
+    'passes generic manual input unchanged, including %j, without host-generated business input', async invocation => {
       const f = activationFixture();
-      if (fault === 'unset') f.selected.installation.configurationJson = '{}';
-      if (fault === 'off') f.selected.installation.configurationJson = JSON.stringify({ renovate: { repository: 'acme/updates', automaticRuns: false } });
-      f.setGithub(async () => {
-        if (fault === 'changed-selection') f.selected.installation.revision++;
-        if (fault === 'revoked-session') accessState.active = false;
-        if (fault === 'redirect') return new Response(null, { status: 302, headers: { location: 'https://api.github.com/repos/other/repo' } });
-        return Response.json({ id: fault === 'unsafe-id' ? Number.MAX_SAFE_INTEGER + 1 : 424242,
-          full_name: fault === 'foreign-name' ? 'other/repo' : 'acme/updates', default_branch: fault === 'no-branch' ? '' : 'trunk' });
-      });
-      expect((await f.request('/renovate/activation', 'POST', f.command)).status).not.toBe(202);
-      expect(f.admitted).toEqual([]);
-      expect(f.armed).toEqual([]);
+      // Scheduling OFF is not a manual invocation veto.
+      f.selected.installation.configurationJson = '{}';
+      const body = { installationId: f.command.installationId, invocation };
+      const response = await f.request('', 'POST', body);
+      expect(response.status).toBe(201);
+      expect(orchestration.prepared).toEqual([body]);
+      expect(f.admitted).toEqual([]); expect(f.effects).toEqual([]);
     });
-  it('cannot report activation success when schedule acknowledgement fails', async () => {
+
+  it('retains legacy explicit source-session authentication and CSRF denial without admitting a new application run', async () => {
     const f = activationFixture();
-    Object.assign(f.env, { CONTAINER: { idFromName: (name: string) => name,
-      get: () => ({ armRenovateScan: async () => { throw Error('lost schedule acknowledgement'); } }) } });
-    expect((await f.request('/renovate/activation', 'POST', f.command)).status).not.toBe(202);
+    const body = { installationId: f.command.installationId, invocation: {},
+      sourceSession: { sessionId: 'session0001', sessionGeneration: 3 } };
+    expect((await f.request('', 'POST', body, false)).status).toBe(403);
+    accessState.active = false;
+    expect((await f.request('', 'POST', body)).status).toBe(403);
+    accessState.active = true;
+    expect((await f.request('', 'POST', { ...body, sourceSession: { sessionId: '../foreign', sessionGeneration: 0 } })).status).toBe(400);
+    expect(orchestration.prepared).toEqual([]);
+    expect(f.admitted).toEqual([]); expect(f.effects).toEqual([]);
   });
 });
 
@@ -640,4 +713,369 @@ describe('REQ-OPERATOR-081: v2 owner HTTP boundary', () => {
       for (const query of ['cursor=', 'cursor=A&cursor=A', `cursor=${'A'.repeat(4097)}`, 'cursor=not%2Bbase64url'])
         await assertError(await f.request(`/activity-1${path}?${query}`), 400);
     });
+});
+
+
+// REQ-OPERATOR-091 AC6/7: this suite owns the HTTP/RPC wire and streaming adapter,
+// not archive verification. Storage and native DO suites prove persisted reconstruction.
+describe('REQ-OPERATOR-091: private original-owner administrator raw read adapter', () => {
+  const rawPath = '/diagnostics/v2/raw';
+  const cursor = 'a'.repeat(64);
+  const secret = 'PRIVATE_RAW_CANARY /private/archive/token';
+  const observation = { kind: 'observation' as const, observationId: 'observation-1' };
+  const activityScope = { kind: 'activity' as const, activityId: 'activity-1', generation: 3 };
+  type RawReadRequest = {
+    view: 'discover' | 'export'; scope: typeof observation | typeof activityScope;
+    cursor?: string; captureId?: string;
+  };
+  type Credential = { email: string; accessJwt: string };
+  type Reader = (credential: Credential, request: RawReadRequest) => Promise<Response>;
+  const targets = [
+    { backend: 'registry' as const, scope: observation, query: 'kind=observation&observationId=observation-1' },
+    { backend: 'activity' as const, scope: activityScope, query: 'kind=activity&activityId=activity-1&generation=3' },
+  ];
+  const views = [
+    { view: 'discover' as const, suffix: '', selector: '' },
+    { view: 'export' as const, suffix: '/export', selector: '&captureId=capture-1' },
+  ];
+  const receipt = { status: 'complete', captureId: 'capture-1', records: 1, segments: 1, bytes: 123, termination: 'eof' };
+  const record = { type: 'record', stage: 'owner-response', value: { body: secret } };
+  const exportBody = `${JSON.stringify(record)}\n${JSON.stringify({ type: 'complete', receipt })}\n`;
+
+  async function rawFixture() {
+    const f = fixture();
+    f.kv._set(`user:${claims.email}`, { addedBy: 'setup', addedAt: '2026-01-01T00:00:00Z',
+      role: 'admin', accessTier: 'advanced' });
+    f.kv._store.set(SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP, 'existing-configured-admin-group');
+    const ownerKey = await operatorOwnerKey(claims);
+    const readers: Record<'registry' | 'activity', Reader> = {
+      registry: async () => new Response(null, { status: 404 }),
+      activity: async () => new Response(null, { status: 404 }),
+    };
+    Object.assign(f.registry, { readOwnerRawCaptures: (credential: Credential, request: RawReadRequest) => readers.registry(credential, request) });
+    Object.assign(f.activity, { readOwnerRawCaptures: (credential: Credential, request: RawReadRequest) => readers.activity(credential, request) });
+    Object.assign(f.env, {
+      OPERATOR_REGISTRY: { getByName: (name: string) => name === 'registry' ? f.registry : undefined },
+      OPERATOR_ACTIVITY: { getByName: (name: string) => name === activityScope.activityId ? f.activity : undefined },
+    });
+    const business = { executionStatus: 'running', result: null as unknown,
+      publicationStatus: 'unpublished', unreadCount: 1 };
+    f.activity.start.mockImplementation(async () => { business.executionStatus = 'queued'; return { ok: true, phase: 'queued' }; });
+    f.activity.cancelDrive.mockImplementation(async () => {
+      business.executionStatus = 'cancel-requested'; return { ok: true, state: { status: 'cancel-requested' } };
+    });
+    f.activity.collectBrowserResult.mockImplementation(async () => {
+      business.result = { report: 'collected' };
+      return { ok: true, detail: { ...summary, executionStatus: 'completed', result: { report: 'ready' } } };
+    });
+    f.activity.publishRenovateAssessment.mockImplementation(async () => { business.publicationStatus = 'attempted'; return { ok: false, reason: 'application-owned' }; });
+    f.registry.acknowledgeOwnedActivities.mockImplementation(async () => { business.unreadCount = 0; return { unreadCount: 0 }; });
+    const before = { business: structuredClone(business), users: new Map(f.kv._store) };
+    const unchanged = () => {
+      expect(business).toEqual(before.business);
+      expect(new Map(f.kv._store)).toEqual(before.users);
+    };
+    // The approved data-only RPC is an intentional wire contract. A mismatched
+    // credential, extra owner authority, view or scope receives no private bytes.
+    const allow = (backend: 'registry' | 'activity', expected: RawReadRequest, reply: () => Response) => {
+      const credential = { email: claims.email, accessJwt: 'private.access.jwt' };
+      readers[backend] = async (receivedCredential, receivedRequest) => {
+        const { cursor: receivedCursor, captureId: receivedCaptureId, ...required } = receivedRequest;
+        const request = { ...required, ...(receivedCursor === undefined ? {} : { cursor: receivedCursor }),
+          ...(receivedCaptureId === undefined ? {} : { captureId: receivedCaptureId }) };
+        return isDeepStrictEqual(receivedCredential, credential) && isDeepStrictEqual(request, expected)
+          ? reply() : new Response(null, { status: 404 });
+      };
+    };
+    const binding = (scope: RawReadRequest['scope']) => ({ ownerKey, scope,
+      installationId: 'installation-1', releaseId: 'release-1', captureId: 'capture-1' });
+    return { ...f, readers, allow, binding, unchanged };
+  }
+
+  async function denied(response: Response, status: number) {
+    expect(response.status).toBe(status);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.text()).not.toMatch(/PRIVATE_RAW_CANARY|private\.access\.jwt|owner-subject|owner@example|Error:|\n\s+at /);
+  }
+
+  it.each(targets)('AC6: $backend discovery dispatches the original-owner scope and returns only one page', async target => {
+    const f = await rawFixture();
+    // Pre-admission observations cannot depend on an Activity ownership index.
+    if (target.backend === 'registry') f.registry.getOwnedActivity.mockRejectedValue(new Error('No admitted Activity exists'));
+    const page = { status: 'complete', bindings: [f.binding(target.scope)], cursor };
+    f.allow(target.backend, { view: 'discover', scope: target.scope }, () => Response.json(page));
+    const response = await f.request(`${rawPath}?${target.query}`, 'GET', undefined, false);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    // 'complete' describes only this locator page, not an archive certificate.
+    expect(await response.json()).toEqual(page);
+    f.unchanged();
+  });
+
+  it.each(targets)('AC6/7: $backend discovery and export pass the same native locator cursor without collecting another page', async target => {
+    const f = await rawFixture();
+    const page = { status: 'complete', bindings: [f.binding(target.scope)], cursor: null };
+    f.allow(target.backend, { view: 'discover', scope: target.scope, cursor }, () => Response.json(page));
+    const discovery = await f.request(`${rawPath}?${target.query}&cursor=${cursor}`);
+    expect(discovery.status).toBe(200);
+    expect(discovery.headers.get('cache-control')).toBe('no-store');
+    expect(await discovery.json()).toEqual(page);
+    f.allow(target.backend, { view: 'export', scope: target.scope, captureId: 'capture-1', cursor },
+      () => new Response(exportBody, { headers: { 'content-type': 'application/x-ndjson' } }));
+    const exported = await f.request(`${rawPath}/export?${target.query}&captureId=capture-1&cursor=${cursor}`);
+    expect(exported.status).toBe(200);
+    expect(exported.headers.get('cache-control')).toBe('no-store');
+    expect(exported.headers.get('content-type')).toBe('application/x-ndjson');
+    expect(await exported.text()).toBe(exportBody);
+    // A target outside the selected page is not recovered by an unbounded scan.
+    f.allow(target.backend, { view: 'export', scope: target.scope, captureId: 'capture-1', cursor },
+      () => new Response(null, { status: 404 }));
+    await denied(await f.request(`${rawPath}/export?${target.query}&captureId=capture-1&cursor=${cursor}`), 404);
+    f.unchanged();
+  });
+
+  it.each([1, Number.MAX_SAFE_INTEGER])('AC6: accepts positive safe generation %s and maximum-length valid selectors', async generation => {
+    const f = await rawFixture();
+    const scope = { ...activityScope, generation };
+    const page = { status: 'complete', bindings: [f.binding(scope)], cursor: null };
+    f.allow('activity', { view: 'discover', scope }, () => Response.json(page));
+    const response = await f.request(`${rawPath}?kind=activity&activityId=activity-1&generation=${generation}`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.json()).toEqual(page);
+    const longScope = { kind: 'observation' as const, observationId: 'a'.repeat(128) };
+    const captureId = 'c'.repeat(128);
+    const longExport = `${JSON.stringify(record)}\n${JSON.stringify({ type: 'complete', receipt: { ...receipt, captureId } })}\n`;
+    f.allow('registry', { view: 'export', scope: longScope, captureId },
+      () => new Response(longExport, { headers: { 'content-type': 'application/x-ndjson' } }));
+    const exported = await f.request(`${rawPath}/export?kind=observation&observationId=${longScope.observationId}&captureId=${captureId}`);
+    expect(exported.status).toBe(200);
+    expect(exported.headers.get('cache-control')).toBe('no-store');
+    expect(await exported.text()).toBe(longExport);
+    f.unchanged();
+  });
+
+  it.each(targets)('AC6/7: $backend valid empty discovery is a page, but missing export is never empty complete success', async target => {
+    const f = await rawFixture();
+    const empty = { status: 'complete', bindings: [], cursor: null };
+    f.allow(target.backend, { view: 'discover', scope: target.scope }, () => Response.json(empty));
+    const response = await f.request(`${rawPath}?${target.query}`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.json()).toEqual(empty);
+    f.allow(target.backend, { view: 'export', scope: target.scope, captureId: 'capture-1' },
+      () => Response.json({ code: 'RAW_CAPTURE_UNAVAILABLE' }, { status: 404 }));
+    await denied(await f.request(`${rawPath}/export?${target.query}&captureId=capture-1`), 404);
+    f.unchanged();
+  });
+
+  it.each(views)('AC6: $view denies missing human, inactive Access, nonenterprise and current nonadmin without effects', async view => {
+    const f = await rawFixture();
+    f.allow('registry', { view: view.view, scope: observation, ...(view.view === 'export' ? { captureId: 'capture-1' } : {}) },
+      () => new Response(secret));
+    const path = `${rawPath}${view.suffix}?${targets[0].query}${view.selector}`;
+    await denied(await f.request(path, 'GET', undefined, true, f.env, { 'cf-access-authenticated-user-email': '' }), 401);
+    accessState.active = false;
+    await denied(await f.request(path), 403);
+    accessState.active = true;
+    await denied(await f.request(path, 'GET', undefined, true, { ...f.env, ENTERPRISE_MODE: 'inactive' }), 404);
+    f.unchanged();
+    const admin = f.kv._store.get(`user:${claims.email}`)!;
+    try {
+      for (const record of [{ role: 'user' }, { role: 'Admin' }, { role: 1 }, null]) {
+        f.kv._set(`user:${claims.email}`, record);
+        await denied(await f.request(path), 403);
+        expect(f.kv._store.get(`user:${claims.email}`)).toBe(JSON.stringify(record));
+      }
+      f.kv._store.delete(`user:${claims.email}`);
+      await denied(await f.request(path), 403);
+      expect(f.kv._store.has(`user:${claims.email}`)).toBe(false);
+    } finally { f.kv._store.set(`user:${claims.email}`, admin); }
+    f.unchanged();
+  });
+
+  it('AC6: the existing current admin Access-group grant permits reads and its revocation denies the next request', async () => {
+    const f = await rawFixture();
+    const admin = f.kv._store.get(`user:${claims.email}`)!;
+    try {
+      f.kv._set(`user:${claims.email}`, { addedBy: 'setup', addedAt: '', role: 'user' });
+      const before = [...f.kv._store];
+      const page = { status: 'complete', bindings: [], cursor: null };
+      f.allow('registry', { view: 'discover', scope: observation }, () => Response.json(page));
+      accessState.adminGroups = ['existing-configured-admin-group'];
+      const response = await f.request(`${rawPath}?${targets[0].query}`);
+      expect(response.status).toBe(200);
+      expect(response.headers.get('cache-control')).toBe('no-store');
+      expect(await response.json()).toEqual(page);
+      accessState.adminGroups = [];
+      await denied(await f.request(`${rawPath}?${targets[0].query}`), 403);
+      expect([...f.kv._store]).toEqual(before);
+    } finally { f.kv._store.set(`user:${claims.email}`, admin); accessState.adminGroups = []; }
+    f.unchanged();
+  });
+
+  it.each(views)('AC6: $view rejects closed-query violations, duplicates and incompatible selectors', async view => {
+    const f = await rawFixture();
+    const valid = `${targets[0].query}${view.selector}`;
+    const invalid = [
+      '', 'kind=observation', 'kind=activity&activityId=activity-1',
+      'kind=other&observationId=observation-1', 'kind=observation&observationId=',
+      'kind=observation&observationId=bad%2Fid', `kind=observation&observationId=${'a'.repeat(129)}`,
+      'kind=activity&activityId=bad%20id&generation=3',
+      'kind=observation&observationId=observation-1&activityId=activity-1',
+      'kind=observation&observationId=observation-1&generation=3',
+      'kind=activity&activityId=activity-1&generation=3&observationId=observation-1',
+      ...['', '0', '-1', '1.5', 'NaN', 'Infinity', '9007199254740992', '1e3', '+3'].map(generation =>
+        `kind=activity&activityId=activity-1&generation=${encodeURIComponent(generation)}`),
+    ].map(query => `${query}${view.selector}`);
+    invalid.push(...['owner=foreign', 'ownerKey=foreign', 'ownerId=foreign', 'human=foreign', 'role=admin',
+      'installationId=installation-1', 'releaseId=release-1', 'email=foreign@example.test', 'accessJwt=forged',
+      'body=true', 'limit=100', 'sql=SELECT+1', 'unknown=1',
+      'kind=observation', 'observationId=observation-1',
+      'cursor=', 'cursor=not-a-native-locator', `cursor=${'a'.repeat(63)}`, `cursor=${'a'.repeat(65)}`,
+      `cursor=${'A'.repeat(64)}`, `cursor=${cursor}&cursor=${cursor}`].map(extra => `${valid}&${extra}`));
+    invalid.push(`kind=activity&activityId=activity-1&activityId=activity-1&generation=3${view.selector}`,
+      `kind=activity&activityId=activity-1&generation=3&generation=3${view.selector}`);
+    if (view.view === 'discover') invalid.push(`${valid}&captureId=capture-1`);
+    else invalid.push(targets[0].query, `${targets[0].query}&captureId=`,
+      `${targets[0].query}&captureId=bad%2Fid`, `${targets[0].query}&captureId=${'c'.repeat(129)}`,
+      `${valid}&captureId=capture-1`);
+    for (const query of invalid) await denied(await f.request(`${rawPath}${view.suffix}?${query}`), 400);
+    f.unchanged();
+  });
+
+  it.each(views)('AC6: $view rejects forged authority headers and any GET body', async view => {
+    const f = await rawFixture();
+    const path = `${rawPath}${view.suffix}?${targets[0].query}${view.selector}`;
+    for (const header of ['x-operator-owner-key', 'x-operator-owner', 'x-operator-human',
+      'x-operator-role', 'x-operator-installation-id', 'x-operator-release-id']) {
+      await denied(await f.request(path, 'GET', undefined, true, f.env, { [header]: secret }), 400);
+    }
+    // Fetch constructors prohibit GET bodies; the Worker can still receive one.
+    // Preserve a real native body stream while presenting its incoming GET method.
+    for (const body of ['{}', JSON.stringify({ ownerKey: 'foreign', role: 'admin' }), 'not-json']) {
+      const request = new Request(`https://enterprise.example.test/api/operator-activities${path}`,
+        { method: 'POST', headers: { 'cf-access-authenticated-user-email': claims.email }, body });
+      Object.defineProperty(request, 'method', { value: 'GET' });
+      await denied(await f.app.fetch(request, f.env), 400);
+    }
+    f.unchanged();
+  });
+
+  it.each(targets)('AC6: $backend wrong owner/run or scope denial is not promoted to private success', async target => {
+    const f = await rawFixture();
+    f.allow(target.backend, { view: 'discover', scope: target.scope },
+      () => Response.json({ status: 'complete', bindings: [f.binding(target.scope)], cursor: null }));
+    const wrongScope = target.backend === 'registry' ? 'kind=observation&observationId=foreign-observation'
+      : 'kind=activity&activityId=activity-1&generation=4';
+    await denied(await f.request(`${rawPath}?${wrongScope}`), 404);
+    const email = claims.email;
+    try {
+      claims.email = 'other-owner@example.test';
+      f.kv._set(`user:${claims.email}`, { addedBy: 'setup', addedAt: '', role: 'admin' });
+      await denied(await f.request(`${rawPath}?${target.query}`), 404);
+    } finally { f.kv._store.delete(`user:${claims.email}`); claims.email = email; }
+    f.unchanged();
+  });
+
+  it.each([400, 403, 404, 503])('AC6/7: forwards native rejection %s without changing its body or headers, except no-store', async status => {
+    const f = await rawFixture();
+    const body = JSON.stringify({ code: 'RAW_CAPTURE_UNAVAILABLE' });
+    f.allow('registry', { view: 'export', scope: observation, captureId: 'capture-1' },
+      () => new Response(body, { status, headers: { 'content-type': 'application/json',
+        'cache-control': 'public, max-age=3600', 'x-archive-wire': 'native-rejection' } }));
+    const response = await f.request(`${rawPath}/export?${targets[0].query}&captureId=capture-1`);
+    expect(response.status).toBe(status);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(response.headers.get('content-type')).toBe('application/json');
+    expect(response.headers.get('x-archive-wire')).toBe('native-rejection');
+    expect(await response.text()).toBe(body);
+    f.unchanged();
+  });
+
+  it.each(views)('AC6/7: $view preserves fail-closed corrupt/archive rejection and sanitizes thrown private errors', async view => {
+    const f = await rawFixture();
+    const lines: string[] = [];
+    const capture = (...args: unknown[]) => { lines.push(args.map(String).join(' ')); };
+    const spies = [vi.spyOn(console, 'log').mockImplementation(capture), vi.spyOn(console, 'warn').mockImplementation(capture),
+      vi.spyOn(console, 'error').mockImplementation(capture), vi.spyOn(console, 'debug').mockImplementation(capture)];
+    try {
+      const expected = { view: view.view, scope: observation, ...(view.view === 'export' ? { captureId: 'capture-1' } : {}) };
+      const path = `${rawPath}${view.suffix}?${targets[0].query}${view.selector}`;
+      f.allow('registry', expected, () => Response.json({ code: 'RAW_CAPTURE_UNAVAILABLE' }, { status: 503 }));
+      await denied(await f.request(path), 503);
+      for (const error of [new Error(`${secret} private.access.jwt`),
+        new AppError('RAW_CAPTURE_UNAVAILABLE', 503, `${secret} private.access.jwt`)]) {
+        f.readers.registry = async () => { throw error; };
+        await denied(await f.request(path), 503);
+      }
+      expect(lines.join('\n')).not.toContain(secret);
+      expect(lines.join('\n')).not.toContain('private.access.jwt');
+      f.unchanged();
+    } finally { for (const spy of spies) spy.mockRestore(); }
+  });
+
+  it.each(targets)('AC7: $backend export streams records before EOF and forwards completion only when supplied after verification', async target => {
+    const f = await rawFixture();
+    let producer!: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({ start(controller) { producer = controller; } });
+    f.allow(target.backend, { view: 'export', scope: target.scope, captureId: 'capture-1' },
+      () => new Response(stream, { headers: { 'content-type': 'application/x-ndjson', 'x-archive-wire': 'unchanged' } }));
+    const response = await f.request(`${rawPath}/export?${target.query}&captureId=capture-1`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(response.headers.get('content-type')).toBe('application/x-ndjson');
+    expect(response.headers.get('x-archive-wire')).toBe('unchanged');
+    const reader = response.body!.getReader();
+    const first = `${JSON.stringify(record)}\n`;
+    producer.enqueue(new TextEncoder().encode(first));
+    expect(new TextDecoder().decode((await reader.read()).value)).toBe(first);
+    const final = `${JSON.stringify({ type: 'complete', receipt })}\n`;
+    producer.enqueue(new TextEncoder().encode(final));
+    producer.close();
+    expect(new TextDecoder().decode((await reader.read()).value)).toBe(final);
+    expect(await reader.read()).toEqual({ done: true, value: undefined });
+    f.unchanged();
+  });
+
+  it('AC7: failure after export headers rejects the read, emits no false completion and never logs private bytes', async () => {
+    const f = await rawFixture();
+    let producer!: ReadableStreamDefaultController<Uint8Array>;
+    const lines: string[] = [];
+    const capture = (...args: unknown[]) => { lines.push(args.map(String).join(' ')); };
+    const spies = [vi.spyOn(console, 'log').mockImplementation(capture), vi.spyOn(console, 'warn').mockImplementation(capture),
+      vi.spyOn(console, 'error').mockImplementation(capture)];
+    try {
+      f.allow('registry', { view: 'export', scope: observation, captureId: 'capture-1' }, () => new Response(
+        new ReadableStream<Uint8Array>({ start(controller) { producer = controller; } }),
+        { headers: { 'content-type': 'application/x-ndjson' } }));
+      const response = await f.request(`${rawPath}/export?${targets[0].query}&captureId=capture-1`);
+      expect(response.status).toBe(200);
+      expect(response.headers.get('cache-control')).toBe('no-store');
+      const reader = response.body!.getReader();
+      producer.enqueue(new TextEncoder().encode(`${JSON.stringify(record)}\n`));
+      const delivered = new TextDecoder().decode((await reader.read()).value);
+      expect(JSON.parse(delivered)).toEqual(record);
+      producer.error(new Error(secret));
+      await expect(reader.read()).rejects.toThrow();
+      expect(delivered).not.toContain('"type":"complete"');
+      expect(lines.join('\n')).not.toContain(secret);
+      f.unchanged();
+    } finally { for (const spy of spies) spy.mockRestore(); }
+  });
+
+  it('AC6: raw static routes do not displace the existing owned Activity detail and bounded diagnostics wire', async () => {
+    const f = await rawFixture();
+    const detail = await f.request('/activity-1');
+    expect(detail.status).toBe(200);
+    expect(await detail.json()).toMatchObject({ activityId: 'activity-1', checkpoint: { step: 1 }, result: null });
+    const snapshot = { activityId: 'activity-1', version: 2, status: 'unavailable' };
+    Object.assign(f.activity, { getDispatcherDiagnosticsV2: async () => ({ status: 200, value: snapshot }) });
+    const bounded = await f.request('/activity-1/diagnostics/v2');
+    expect(bounded.status).toBe(200);
+    expect(bounded.headers.get('cache-control')).toBe('no-store');
+    expect(await bounded.json()).toEqual(snapshot);
+    await denied(await f.request('/activity-1/diagnostics/v2?kind=observation&observationId=observation-1'), 400);
+    f.unchanged();
+  });
 });

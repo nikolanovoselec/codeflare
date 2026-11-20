@@ -14,6 +14,7 @@ import {
   type PushSubscriptionRecord,
 } from '../../lib/push-sender';
 import { getPushSubKey } from '../../lib/kv-keys';
+import { setLogLevel } from '../../lib/logger';
 import type { Session } from '../../types';
 
 const VAPID = Object.freeze({
@@ -162,21 +163,43 @@ describe('REQ-TERM-023 AC5 / REQ-SEC-024 AC1-AC6: Web Push sender', () => {
       'https://fcm.googleapis.com/fcm/send/device-retained',
       1,
     ));
+    const capabilitySentinel = 'https://capability.example/secret-SEC024-sender-error';
     sendNotificationMock.mockRejectedValueOnce(new Error(
-      'push service returned 503: endpoint=https://capability.example/secret',
+      `push service returned 503: endpoint=${capabilitySentinel}`,
     ));
+    const output: unknown[][] = [];
+    const consoleSpies = (['log', 'debug', 'info', 'warn', 'error', 'trace'] as const).map(
+      (method) => vi.spyOn(console, method).mockImplementation((...args: unknown[]) => {
+        output.push(args);
+      }),
+    );
+    // Exercise the real logger's console sinks, including normally suppressed levels.
+    setLogLevel('debug');
+    try {
+      const result = await sendAgentEventPushes({
+        kv: kv as unknown as KVNamespace,
+        bucketName,
+        session: SESSION,
+        events: [event('event-a')],
+        vapid: VAPID,
+      });
 
-    const result = await sendAgentEventPushes({
-      kv: kv as unknown as KVNamespace,
-      bucketName,
-      session: SESSION,
-      events: [event('event-a')],
-      vapid: VAPID,
-    });
-
-    expect(result.sentEventIds).toEqual([]);
-    expect(kv.delete).not.toHaveBeenCalledWith(retainedKey);
-    expect(JSON.stringify(result)).not.toContain('capability.example');
+      expect(result.sentEventIds).toEqual([]);
+      expect(kv.delete).not.toHaveBeenCalledWith(retainedKey);
+      expect(JSON.stringify(result)).not.toContain('capability.example');
+      expect(await kv.get(retainedKey, 'json')).toEqual(subscription(
+        'https://fcm.googleapis.com/fcm/send/device-retained',
+        1,
+      ));
+      const loggedOutput = JSON.stringify(output, (_key, value: unknown) => (
+        value instanceof Error ? { message: value.message, stack: value.stack } : value
+      ));
+      expect(loggedOutput).not.toContain(capabilitySentinel);
+      expect(loggedOutput).not.toContain('capability.example');
+    } finally {
+      setLogLevel('silent');
+      for (const spy of consoleSpies) spy.mockRestore();
+    }
   });
 
   it('acknowledges an event only after every live subscription is sent or removed as expired', async () => {
@@ -252,8 +275,11 @@ describe('REQ-TERM-023 AC5 / REQ-SEC-024 AC1-AC6: Web Push sender', () => {
   });
 
   it('bounds events, subscriptions, and total fan-out', async () => {
+    const foreignBucketName = `${bucketName}-foreign`;
+    const foreignRecord = subscription('https://web.push.apple.com/foreign-device', 0);
+    const foreignKey = await storeSubscription(kv, foreignBucketName, 'digest-00', foreignRecord);
     for (let i = 0; i < MAX_PUSH_SUBSCRIPTIONS_PER_USER + 2; i++) {
-      await storeSubscription(kv, bucketName, `digest-${i}`, subscription(
+      await storeSubscription(kv, bucketName, `digest-${String(i).padStart(2, '0')}`, subscription(
         `https://fcm.googleapis.com/fcm/send/device-${i}`,
         i,
       ));
@@ -263,7 +289,7 @@ describe('REQ-TERM-023 AC5 / REQ-SEC-024 AC1-AC6: Web Push sender', () => {
       (_, index) => event(`event-${index}`),
     );
 
-    await sendAgentEventPushes({
+    const result = await sendAgentEventPushes({
       kv: kv as unknown as KVNamespace,
       bucketName,
       session: SESSION,
@@ -274,5 +300,23 @@ describe('REQ-TERM-023 AC5 / REQ-SEC-024 AC1-AC6: Web Push sender', () => {
     expect(sendNotificationMock).toHaveBeenCalledTimes(
       MAX_PUSH_SUBSCRIPTIONS_PER_USER * MAX_AGENT_EVENTS_PER_SEND,
     );
+    // AC5's delivery contract is eight events to ten owner devices, not just 80 calls.
+    // The shared KV fake returns all matching keys regardless of the requested limit,
+    // so the observed deliveries also exercise the sender's own subscription bound.
+    const selectedEventIds = Array.from({ length: 8 }, (_, index) => `event-${index}`);
+    const selectedEndpoints = Array.from(
+      { length: 10 },
+      (_, index) => `https://fcm.googleapis.com/fcm/send/device-${index}`,
+    );
+    const deliveries = sendNotificationMock.mock.calls.map(([target, payload]) => ({
+      endpoint: (target as PushSubscriptionRecord).endpoint,
+      eventId: (JSON.parse(payload as string) as { eventId: string }).eventId,
+    }));
+    expect(deliveries).toEqual(selectedEventIds.flatMap((eventId) => (
+      selectedEndpoints.map((endpoint) => ({ endpoint, eventId }))
+    )));
+    expect(deliveries.map(({ endpoint }) => endpoint)).not.toContain(foreignRecord.endpoint);
+    expect(result.sentEventIds).toEqual(selectedEventIds);
+    expect(await kv.get(foreignKey, 'json')).toEqual(foreignRecord);
   });
 });

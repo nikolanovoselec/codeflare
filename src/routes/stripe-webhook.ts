@@ -20,7 +20,6 @@ import {
   fetchSubscription,
   resolveTierFromPriceId,
 } from '../lib/stripe';
-import { updateUserRecord, parseUserRecord } from '../lib/user-record';
 import { reconcileAgentConfigs } from '../lib/r2-seed';
 import { getR2Config } from '../lib/r2-config';
 import { resolveBucketName } from '../lib/access';
@@ -38,9 +37,15 @@ const app = new Hono<{ Bindings: Env }>();
 /** Dedupe TTL: 72 hours in seconds */
 const DEDUPE_TTL_SECONDS = 72 * 60 * 60;
 
-const BillingSyncStartResponseSchema = z.object({ token: z.number().int().positive().safe() });
+const BillingSyncStartResponseSchema = z.union([
+  z.object({ token: z.number().int().positive().safe() }),
+  z.object({ checkoutCompleted: z.literal(true) }),
+]);
 const BillingSyncApplyResponseSchema = z.object({
   applied: z.boolean(),
+  checkoutHandled: z.literal(true).optional(),
+  notifyCheckout: z.boolean().optional(),
+  subscribedAt: z.string().optional(),
   previous: z.object({
     subscribedMode: z.string().optional(),
     subscriptionTier: z.string().optional(),
@@ -114,9 +119,9 @@ app.post('/webhook', async (c, next) => {
 
   // Dedupe: check if we've already processed this event.
   // Note: KV has ~60s eventual consistency lag. A Stripe retry hitting a different
-  // edge before the dedupe key propagates may re-process the event. This is acceptable
-  // because all handlers are idempotent - syncSubscriptionState fetches the same
-  // latest state from Stripe regardless of how many times it runs.
+  // edge before the dedupe key propagates may re-process the event. Provider
+  // state is fetched again; per-user checkout receipts separately suppress
+  // checkout metadata and best-effort notification replay.
   const dedupeKey = `stripe:event:${event.id}`;
   const existingEvent = await c.env.KV.get(dedupeKey);
   if (existingEvent) {
@@ -162,11 +167,11 @@ app.post('/webhook', async (c, next) => {
 
 /**
  * checkout.session.completed - initial subscription setup.
- * Maps email→customer in KV, writes subscribedAt/checkoutSessionId,
- * then calls syncSubscriptionState for tier/billing fields.
+ * Maps email→customer in KV, then applies provider state and checkout metadata
+ * through the per-user coordinator with a durable checkout receipt.
  */
 async function handleCheckoutCompleted(
-  event: { id: string; type: string; data: { object: Record<string, unknown> } },
+  event: { id: string; type: string; created?: number; data: { object: Record<string, unknown> } },
   env: Env,
 ): Promise<void> {
   const session = event.data.object;
@@ -185,27 +190,20 @@ async function handleCheckoutCompleted(
     await env.KV.put(`stripe-customer:${customerId}`, email);
   }
 
-  // CF-023: Check for existing subscription before overwriting
-  const existing = parseUserRecord(await env.KV.get(`user:${email}`, 'json'));
-  if (existing?.stripeSubscriptionId && existing.stripeSubscriptionId !== subscriptionId) {
-    logger.warn('checkout.session.completed: user already has a different subscription', {
-      email,
-      existingSubscriptionId: existing.stripeSubscriptionId,
-      newSubscriptionId: subscriptionId,
-    });
-  }
-
-  // Write checkout-specific fields that only exist at checkout time
-  await updateUserRecord(env.KV, email, {
-    subscribedAt: new Date().toISOString(),
-    stripeCustomerId: customerId,
-    stripeSubscriptionId: subscriptionId,
-    checkoutSessionId: session.id as string,
-    trialUsed: existing?.trialUsed === true,
+  // Provider state and checkout metadata share the per-user serialized apply.
+  // Prefer the provider's original creation date, not the delivery/retry time.
+  const created = typeof session.created === 'number' ? session.created
+    : typeof event.created === 'number' ? event.created : undefined;
+  const applied = await syncSubscriptionState(customerId, subscriptionId, env, {
+    sessionId: typeof session.id === 'string' ? session.id : event.id,
+    subscribedAt: created === undefined ? new Date().toISOString() : new Date(created * 1000).toISOString(),
   });
-
-  // Sync full subscription state from Stripe API (tier, billing, period)
-  await syncSubscriptionState(customerId, subscriptionId, env);
+  if (!applied || (!applied.applied && !applied.checkoutHandled)) {
+    // A stale start token is not checkout completion. Do not let this delivery
+    // suppress retries while the newer synchronization can still fail.
+    throw new Error('Checkout synchronization did not complete');
+  }
+  if (!applied.notifyCheckout) return;
 
   // Note: Stripe handles customer receipt emails via Dashboard > Customer emails
   // settings ("Successful payments" toggle). We don't send invoices programmatically
@@ -223,7 +221,7 @@ async function handleCheckoutCompleted(
     const monthlyHours = tier.monthlySeconds != null
       ? String(Math.round(tier.monthlySeconds / 3600))
       : 'Unlimited';
-    const subscribedAt = new Date().toISOString();
+    const subscribedAt = applied.subscribedAt;
     const instanceUrl = await getBaseUrl(env.KV, '');
 
     // User confirmation email
@@ -303,12 +301,14 @@ async function handleSubscriptionDeleted(
   // The same per-user token guard used by subscription updates ensures an older
   // in-flight apply cannot restore billing fields after this cleanup.
   const coordinator = await getBillingSyncCoordinator(email, env);
-  const { token } = await postBillingSync(
+  const start = await postBillingSync(
     coordinator,
     '/billing-sync/start',
     { userEmail: email },
     BillingSyncStartResponseSchema,
   );
+  if (!('token' in start)) return;
+  const { token } = start;
   const deletion = await postBillingSync(
     coordinator,
     '/billing-sync/apply',
@@ -317,6 +317,7 @@ async function handleSubscriptionDeleted(
       token,
       patch: {
         cleanupBillingState: true,
+        subscriptionId: subscription.id as string,
         billingStatus: 'canceled',
         subscriptionTier: 'free',
         accessTier: 'free',
@@ -373,7 +374,8 @@ export async function syncSubscriptionState(
   customerId: string,
   subscriptionId: string,
   env: Env,
-): Promise<void> {
+  checkout?: { sessionId: string; subscribedAt: string },
+): Promise<z.infer<typeof BillingSyncApplyResponseSchema> | undefined> {
   // 1. Resolve email from customer ID
   const email = await resolveEmailFromCustomer(customerId, env);
   if (!email) {
@@ -387,15 +389,18 @@ export async function syncSubscriptionState(
     return;
   }
   const coordinator = await getBillingSyncCoordinator(email, env);
-  const { token } = await postBillingSync(
+  const start = await postBillingSync(
     coordinator,
     '/billing-sync/start',
-    { userEmail: email },
+    { userEmail: email, ...(checkout && { checkoutSessionId: checkout.sessionId }) },
     BillingSyncStartResponseSchema,
   );
+  if (!('token' in start)) return { applied: false, checkoutHandled: true };
+  const { token } = start;
   const syncStartedAt = new Date().toISOString();
   const snapshot = await fetchSubscription(subscriptionId, env.STRIPE_SECRET_KEY);
   if (!snapshot) {
+    if (checkout) throw new Error('Checkout subscription is not available yet');
     logger.warn('syncSubscriptionState: subscription not found', { subscriptionId });
     return;
   }
@@ -446,12 +451,12 @@ export async function syncSubscriptionState(
   const apply = await postBillingSync(
     coordinator,
     '/billing-sync/apply',
-    { userEmail: email, token, patch },
+    { userEmail: email, token, patch, ...(checkout && { checkout }) },
     BillingSyncApplyResponseSchema,
   );
   if (!apply.applied) {
-    logger.info('syncSubscriptionState: skipped (newer sync started)', { email, token });
-    return;
+    logger.info('syncSubscriptionState: skipped apply', { email, token });
+    return checkout ? apply : undefined;
   }
   const existing = apply.previous;
 
@@ -464,21 +469,22 @@ export async function syncSubscriptionState(
     try {
       const bucketName = await resolveBucketName(env, email);
       const { endpoint } = await getR2Config(env);
+      const prefsKey = getPreferencesKey(bucketName);
+      const prefs = await env.KV.get(prefsKey, 'json') as Record<string, unknown> | null;
+      const selectedMode = newMode === 'advanced' && prefs?.sessionMode === 'default' ? 'default' : newMode;
       // Tier-gate context-mode preseed: unlimited (Custom) tier in Pro mode only.
       // Reads tier from the patch when present, falling back to the existing record.
       const effectiveTierForGate = (patch.subscriptionTier as string | undefined)
         ?? (patch.accessTier as string | undefined)
         ?? existing?.subscriptionTier
         ?? existing?.accessTier;
-      const contextModeEnabled = effectiveTierForGate === 'unlimited' && newMode === 'advanced';
-      await reconcileAgentConfigs(env, bucketName, endpoint, newMode as 'default' | 'advanced', {
+      const contextModeEnabled = effectiveTierForGate === 'unlimited' && selectedMode === 'advanced';
+      await reconcileAgentConfigs(env, bucketName, endpoint, selectedMode as 'default' | 'advanced', {
         overwrite: true,
         cleanup: true,
         contextModeEnabled,
       });
-      const prefsKey = getPreferencesKey(bucketName);
-      const prefs = await env.KV.get(prefsKey, 'json') as Record<string, unknown> | null;
-      await env.KV.put(prefsKey, JSON.stringify({ ...prefs, sessionMode: newMode }));
+      await env.KV.put(prefsKey, JSON.stringify({ ...prefs, sessionMode: selectedMode }));
       logger.info('Auto-reconciled agent configs on mode change', { email, previousMode, newMode });
     } catch (err) {
       logger.warn('Auto-reconcile on mode change failed (non-fatal)', { error: String(err) });
@@ -488,6 +494,7 @@ export async function syncSubscriptionState(
   logger.info('syncSubscriptionState: synced', {
     email, subscriptionId, tier: snapshot.tier, status: snapshot.status,
   });
+  return apply;
 }
 
 // ---------------------------------------------------------------------------

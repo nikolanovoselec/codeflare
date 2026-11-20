@@ -10,7 +10,7 @@ import { driveDispatcherRuntime } from '../../../operators/runtime';
 import { createOperatorExecutionContext } from '../../../operators/execution-context';
 import { parseDispatcherOperation } from '../../../operators/operator-runtime-capability';
 import type { DispatcherCapacityPolicy } from '../../../operators/dispatcher-capacity-limits';
-import type { DispatcherBundle } from '../../../operators/distribution';
+import { parseOperatorManifest, type DispatcherBundle } from '../../../operators/distribution';
 import type { Env } from '../../../types';
 import { operatorOwnerKey } from '../../../operators/browser-activity';
 import type { ProspectiveAdmission, CurrentProspectiveRegistration } from '../../../operators/registry';
@@ -47,6 +47,8 @@ let callerReasoning = 'off';
 export let nativeProfileFiles = new Map<string, unknown>();
 vi.mock('../../../lib/access', async original => ({ ...await original<typeof import('../../../lib/access')>(),
   resolveOperatorGroupIdentity: async (human: unknown) => human,
+  observeOperatorAccessIdentity: async (human: { groups?: string[] }) => callerSessionCurrent
+    ? { status: 'current' as const, groups: human.groups ?? [] } : { status: 'denied' as const },
   resolveBucketName: async () => 'owner-bucket',
   resolveSessionAccessGroup: async () => [],
   operatorAccessSessionCurrent: async () => callerSessionCurrent,
@@ -93,8 +95,40 @@ export const invocation = { repository: 'owner/repo', pullRequest: 17 };
 export const genericWire = (path: string, body: unknown) => new Request(`https://operator.internal/v1/dispatcher/${path}`, {
   method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
 });
-export const guideExcerpt = 'To create a Dozzle agent, you need to run Dozzle with the `agent` subcommand.\n      - DOZZLE_REMOTE_AGENT=agent:7007';
-export const guideBlobSha = '9fd821c091950776b4aef53bdc5f55fc72df25af';
+/** Explicit owner-saved mutation scope; the public invocation is not an authorization input. */
+export const writableApplication = { repositoryOnly: true, normalHosting: true, applicationWorkflow: true,
+  applicationConfiguration: { repository: 'another/service' }, applicationWriteRepositoriesPath: '/repository' };
+export function applicationWire(f: DispatcherFixture, path: string, body: unknown): Request {
+  const plan = f.normalTransport?.requests.filter(request => request.path === '/control/plan').at(-1);
+  const delivery = plan?.body.delivery as { token: string } | undefined;
+  if (!delivery) throw new Error('Application delivery unavailable');
+  const request = genericWire(path, body);
+  request.headers.set('x-codeflare-dispatcher-delivery', delivery.token);
+  return request;
+}
+export const capacitySourceUrl = 'https://api.github.com/repos/another/service';
+export const capacityInferenceRequest = (operationId: string) => genericWire('inference', { operationId,
+  input: { messages: [{ role: 'user', content: 'PRIVATE_RESERVATION_CONTENT {"activityId":"forged","generation":999}' }] } });
+export const capacityReceipt = async (f: DispatcherFixture, operationId: string) => {
+  const response = await f.capability.fetch(f.normalTransport
+    ? applicationWire(f, 'receipt', { operationId }) : genericWire('receipt', { operationId }));
+  expect(response.status).toBe(200);
+  return await response.json() as { operationCount: number; operationLimit: number;
+    requestDigest: string; responseDigest: string; phase: string };
+};
+export const fillCapacityReads = async (f: DispatcherFixture, count: number) => {
+  for (let index = 0; index < count; index++) {
+    const body = { operationId: `capacity-read-${index}`, url: capacitySourceUrl };
+    const response = await f.capability.fetch(f.normalTransport
+      ? applicationWire(f, 'source', body) : genericWire('source', body));
+    expect(response.status).toBe(200);
+    const value = await response.json() as { status: number; body: string };
+    expect(value.status).toBe(200);
+    expect(JSON.parse(value.body)).toMatchObject({ number: 17 });
+  }
+};
+const guideExcerpt = 'To create a Dozzle agent, you need to run Dozzle with the `agent` subcommand.\n      - DOZZLE_REMOTE_AGENT=agent:7007';
+const guideBlobSha = '9fd821c091950776b4aef53bdc5f55fc72df25af';
 export async function digest(value: string | Uint8Array) {
   return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', typeof value === 'string'
     ? new TextEncoder().encode(value) : value)), b => b.toString(16).padStart(2, '0')).join('');
@@ -111,7 +145,7 @@ const syntheticFrameText = (index: number) => `// Synthetic source-map fixture $
 const canonicalDiagnosticJson = (value: unknown): string => JSON.stringify(value, (_key, item) =>
   item && typeof item === 'object' && !Array.isArray(item)
     ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item);
-async function syntheticSdkProvenance() {
+async function syntheticSdkProvenance(runtimeVersion = '2.2.2', agentsVersion = '0.20.1') {
   const integrity = async (value: string) => `sha512-${btoa(Array.from(new Uint8Array(await crypto.subtle.digest(
     'SHA-512', new TextEncoder().encode(value))), byte => String.fromCharCode(byte)).join(''))}`;
   const original = 'synthetic SDK fixture before instrumentation';
@@ -120,12 +154,12 @@ async function syntheticSdkProvenance() {
     capabilities: ['origin-error-v1', 'strict-sse-v1', 'sdk-attempt-v1', 'canonical-commit-v1',
       'settlement-finalization-v1', 'cleanup-error-v1', 'local-outbox-v1'],
     basePackages: [
-      { name: '@flue/runtime', version: '2.2.2', integrity: await integrity(original),
+      { name: '@flue/runtime', version: runtimeVersion, integrity: await integrity(original),
         tarballSha256: await digest(original) },
-      { name: 'agents', version: '0.20.1', integrity: await integrity(transformed),
+      { name: 'agents', version: agentsVersion, integrity: await integrity(transformed),
         tarballSha256: await digest(transformed) },
     ],
-    targets: [{ package: '@flue/runtime', version: '2.2.2', path: 'dist/synthetic-fixture.mjs',
+    targets: [{ package: '@flue/runtime', version: runtimeVersion, path: 'dist/synthetic-fixture.mjs',
       originalSha256: await digest(original), transformedSha256: await digest(transformed) }],
     sources: [{ repository: 'nikolanovoselec/codeflare', commit: bundle.sourceCommit,
       path: 'src/__tests__/operators/fixtures/synthetic-sdk.ts', sha256: await digest(original) },
@@ -154,14 +188,17 @@ export const encodeSdkHeader = (value: unknown) => {
     .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 };
 export async function runtimeEnvelope(f: DispatcherFixture, sequence = 1): Promise<RuntimeEnvelope> {
+  const receipt = f.normalTransport ? [...f.normalTransport.admissions.values()].at(-1)?.receipt : undefined;
+  const coordinates = f.normalTransport ? receipt ? { rootUid: receipt.uid, submissionId: receipt.submissionId } : {}
+    : { rootUid: 'fixture-incarnation', submissionId: 'submission-1' };
   return { version: 1, captureId: await digest(`synthetic-capture-${sequence}`), sequence, timestamp: Date.now(),
     boundary: 'model', outcome: 'failed', code: 'provider-failed', origin: 'originating',
-    source: { package: '@flue/runtime', boundary: 'model', baseVersion: '2.2.2',
+    source: { package: '@flue/runtime', boundary: 'model', baseVersion: f.bundle.versions.runtime,
       patchSetDigest: f.sdkPatchSetDigest, status: 'partial', frames: [] },
     error: { kind: 'TypeError', publicCode: null, messageDigest: await digest('PRIVATE_SDK_MESSAGE'),
       stackDigest: await digest('PRIVATE_SDK_STACK'), causes: [{ kind: 'Error',
         messageDigest: await digest('PRIVATE_SDK_CAUSE'), stackDigest: null }], loss: [], fingerprintScope: 'full' },
-    sdk: { rootUid: 'fixture-incarnation', submissionId: 'submission-1', attemptId: 'PRIVATE_SDK_ATTEMPT',
+    sdk: { ...coordinates, attemptId: 'PRIVATE_SDK_ATTEMPT',
       streamIncarnation: 'PRIVATE_SDK_STREAM', batchSequence: 7, producerEpoch: 3, producerSequence: 11,
       recordIndex: 2, recordType: 'assistant_message_completed', inputApplied: false, settlement: 'unknown' },
     local: { through: sequence, dropped: 0, status: 'captured' } };
@@ -189,6 +226,7 @@ export async function fixture(test: (f: {
   sdkPatchSetDigest: string | null; sdkHeader: (value: string | undefined) => void;
   settle: (id?: string, outcome?: string, error?: unknown) => void; expire: () => void;
   advanceClock: (milliseconds: number) => void;
+  setClock: (timestamp: number) => void;
   seedLegacyJournal: (entries: Array<{ body: { operationId: string; url: string; method?: 'GET' | 'POST' | 'PUT'; body?: string };
     phase: 'reserved' | 'completed' | 'unknown'; ordinal: number; response?: unknown }>) => Promise<void>;
   revoke: () => void; sent: Request[]; childSubmissions: Request[]; abortStatus: () => string | undefined;
@@ -227,7 +265,7 @@ export async function fixture(test: (f: {
   interruptOwnedChild: (error: Error) => void;
   failOwnedAbort: () => void;
   seedCancelledReleased: () => Promise<void>;
-}) => Promise<void>, options: { humanLifetimeSeconds?: number; repositoryOnly?: boolean; prospective?: boolean;
+}) => Promise<void>, options: { delegated?: boolean; humanLifetimeSeconds?: number; repositoryOnly?: boolean; prospective?: boolean;
   configuredTarget?: { repository: string; repositoryId: number; baseBranch: string };
   legacyProspective?: boolean; inputExtra?: Record<string, unknown>; capabilities?: string[]; pagedStatus?: boolean; githubApiHost?: string;
   sourceResponseBytes?: number; installationSourceResponseBytes?: number; sourceBody?: string; sourceDelayMs?: number; inferenceBody?: string; inferenceRequestBytes?: number; inferenceMessageLimit?: number; operationLimit?: number; loggingEnabled?: boolean;
@@ -237,6 +275,15 @@ export async function fixture(test: (f: {
   nativeInference?: boolean; nativeProviderDefault?: boolean; managedProviderDefault?: boolean;
   ownerTransport?: (request: Request) => Promise<Response | undefined>;
   normalProfileTransport?: (request: Request) => Promise<Response | undefined>;
+  applicationPlan?: (input: Record<string, unknown>) => unknown | Promise<unknown>;
+  applicationConfiguration?: Record<string, unknown>;
+  applicationInput?: Record<string, unknown>;
+  applicationId?: string;
+  applicationWorkflow?: boolean;
+  applicationWriteRepositoriesPath?: string;
+  applicationRepositoryId?: number;
+  principal?: { subject: string; email: string };
+  registryAdapter?: (registry: object) => object;
   realInterceptors?: boolean; sourceTransport?: (request: Request) => Promise<Response>; normalHosting?: boolean;
   preserveGlobalMocks?: boolean } = {}) {
   callerSessionCurrent = true;
@@ -249,14 +296,15 @@ export async function fixture(test: (f: {
     ['/owner-bucket/.pi/agent/models.json', { providers: {} }],
   ] : []);
   const configuredTarget = options.configuredTarget ?? { repository: 'nikolanovoselec/komodo', repositoryId: 973175879, baseBranch: 'main' };
-  const fixtureInvocation = options.prospective ? { repository: configuredTarget.repository,
+  const fixtureInvocation = options.applicationInput ?? (options.prospective ? { repository: configuredTarget.repository,
     ...(options.legacyProspective ? { pullRequest: 17 } : {}), ...options.inputExtra }
-    : options.repositoryOnly ? { repository: 'another/service' } : invocation;
-  const sdkProvenance = options.sdkDiagnostics ? await syntheticSdkProvenance() : null;
-  const baseBundle: DispatcherBundle = options.runtimeVersion === '2.2.2' || options.sdkDiagnostics ? { ...bundle,
-    versions: { runtime: '2.2.2', vitePlugin: '2.2.2', agents: '0.20.1' } } : bundle;
-  // The untrusted schema-2 fixture intentionally reaches today's parser rather than requiring a new export at import time.
-  const fixtureBundle: DispatcherBundle = options.normalHosting ? normalDispatcherBundle() as unknown as DispatcherBundle : sdkProvenance ? { ...baseBundle, modules: { ...baseBundle.modules,
+    : options.repositoryOnly ? { repository: 'another/service' } : invocation);
+  const baseBundle: DispatcherBundle = options.normalHosting ? normalDispatcherBundle()
+    : options.runtimeVersion === '2.2.2' || options.sdkDiagnostics ? { ...bundle,
+      versions: { runtime: '2.2.2', vitePlugin: '2.2.2', agents: '0.20.1' } } : bundle;
+  const sdkProvenance = options.sdkDiagnostics
+    ? await syntheticSdkProvenance(baseBundle.versions.runtime, baseBundle.versions.agents) : null;
+  const fixtureBundle: DispatcherBundle = sdkProvenance ? { ...baseBundle, modules: { ...baseBundle.modules,
     'codeflare/sdk-diagnostics-provenance.json': { text: canonicalDiagnosticJson(sdkProvenance) },
     ...Object.fromEntries([...syntheticFramePaths, ...syntheticBudgetPaths()].map((path, index) => [path, { text: syntheticFrameText(index) }])),
   } } : baseBundle;
@@ -268,24 +316,33 @@ export async function fixture(test: (f: {
     const artifactDigest = await digest(fixtureBytes);
     const now = Date.now();
     const expiresAt = Math.floor(now / 1000) + (options.humanLifetimeSeconds ?? 300);
-    const human = { subject: 'owner', email: 'owner@example.test', issuer: 'https://access.example.test',
-      audiences: ['audience'], issuedAt: Math.floor(now / 1000) - 1, expiresAt };
+    const human = { subject: options.principal?.subject ?? 'owner', email: options.principal?.email ?? 'owner@example.test', issuer: 'https://access.example.test',
+      audiences: ['audience'], issuedAt: Math.floor(now / 1000) - 1, expiresAt,
+      ...(options.delegated ? { groups: [] } : {}) };
     const policy = { capabilities: options.capabilities ?? ['fetch', 'inference'], resourceProfileId: null,
       ...(options.nativeInference ? { inference: { allowedSources: ['pi-native'], routeIds: [], defaultRouteId: null,
         reasoningLevels: ['low'], defaultReasoningLevel: options.nativeProviderDefault ? null : 'low', inheritUserDefaults: false } }
         : options.normalHosting || options.managedProviderDefault ? { inference: { allowedSources: ['managed'], routeIds: ['approved'], defaultRouteId: 'approved',
           reasoningLevels: ['off', 'low'], defaultReasoningLevel: options.managedProviderDefault ? null : 'off', inheritUserDefaults: false } } : {}),
       ...(options.sourceResponseBytes === undefined ? {} : { sourceResponseBytes: options.sourceResponseBytes }) };
-    const fixtureOperatorId = options.prospective || options.intent4 ? 'renovate-dispatcher' : 'operator';
+    const fixtureOperatorId = options.applicationId ?? (options.prospective || options.intent4 ? 'renovate-dispatcher' : 'operator');
+    const applicationWorkflow = options.applicationWorkflow || !!options.applicationConfiguration || !!options.applicationPlan;
+    const fixtureInstallationId = options.applicationId ? `${fixtureOperatorId}-installation` : 'installation';
+    const fixtureReleaseId = options.applicationId ? `${fixtureOperatorId}-release` : 'release';
     let inferenceAttempts = 0;
-    const selection = { controlsRevision: 1, installation: { id: 'installation', operatorId: fixtureOperatorId, revision: 1,
+    const selection = { controlsRevision: 1, installation: { id: fixtureInstallationId, operatorId: fixtureOperatorId, revision: 1,
       enabled: true, ...(options.nativeInference && !options.nativeProviderDefault ? { piReasoningOverride: 'low' } : {}),
       policy: options.installationSourceResponseBytes === undefined ? policy
         : { ...policy, sourceResponseBytes: options.installationSourceResponseBytes },
-      configurationJson: options.prospective ? JSON.stringify({ renovate: { repository: configuredTarget.repository, automaticRuns: true, repetitionIntervalSeconds: 900 } }) : '{}', releaseId: 'release' },
-    operator: { operatorId: fixtureOperatorId, profile: 'dispatcher', revision: 1, invokers: { users: [human.email], groups: [] },
+      configurationJson: options.applicationConfiguration ? JSON.stringify(options.applicationConfiguration)
+        : options.prospective ? JSON.stringify({ renovate: { repository: configuredTarget.repository, automaticRuns: true, repetitionIntervalSeconds: 900 } }) : '{}', releaseId: fixtureReleaseId },
+    operator: { id: fixtureOperatorId, operatorId: fixtureOperatorId,
+      repositoryId: options.applicationRepositoryId ?? 1380652724,
+      repositoryUrl: 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher',
+      profile: 'dispatcher', revision: 1,
+      invokers: { users: applicationWorkflow ? ['owner@example.test', 'foreign@example.test'] : [human.email], groups: [] },
       policy: { ...policy, ...options.capacityPolicy, ...(options.inferenceMessageLimit === undefined ? {} : { inferenceMessageLimit: options.inferenceMessageLimit }), ...(options.inferenceAttemptLimit === undefined ? {} : { inferenceAttemptLimit: options.inferenceAttemptLimit }), ...(options.loggingEnabled === undefined ? {} : { loggingEnabled: options.loggingEnabled }), ...(options.operationLimit === undefined ? {} : { operationLimit: options.operationLimit }), ...(options.inferenceRequestBytes === undefined ? {} : { inferenceRequestBytes: options.inferenceRequestBytes }) } },
-    release: { id: 'release', operatorId: fixtureOperatorId, bundleDigest: artifactDigest, sourceCommit: bundle.sourceCommit,
+    release: { id: fixtureReleaseId, operatorId: fixtureOperatorId, bundleDigest: artifactDigest, sourceCommit: bundle.sourceCommit,
       ...(options.normalHosting ? { manifestDigest: 'd'.repeat(64), provenance: { compilerCommit: normalDeployment.compilerCommit } } : {}),
       ...(options.prospective || options.intent4 ? { intentVersion: options.intent4 ? '4' : options.legacyProspective ? '2' : '3', coreVersion: '1' } : {}) },
     manifestJson: options.prospective || options.intent4 ? JSON.stringify({ schemaVersion: 1, interfaceVersion: 1,
@@ -295,21 +352,34 @@ export async function fixture(test: (f: {
         required: options.legacyProspective ? ['repository', 'pullRequest'] : ['repository'],
         properties: { repository: { type: 'string', pattern: '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' },
           ...(options.legacyProspective ? { pullRequest: { type: 'integer', minimum: 1 } } : {}) } },
-      requiredCapabilities: ['inference', 'fetch'], artifact: { path: '/operator-bundle.json', sha256: artifactDigest } }) : '{}' };
-    const proof = { activityId, installationId: 'installation', ...configuredTarget,
-      controlsRevision: 1, installationRevision: 1, operatorRevision: 1, releaseId: 'release', bundleDigest: artifactDigest,
+      requiredCapabilities: ['inference', 'fetch'], artifact: { path: '/operator-bundle.json', sha256: artifactDigest } })
+      : JSON.stringify({ schemaVersion: 1, interfaceVersion: 1, id: fixtureOperatorId,
+        name: 'Generic Dispatcher', description: 'Protected transport fixture', coreVersion: '1', intentVersion: '1',
+        profile: 'dispatcher', inputSchema: { type: 'object' }, requiredCapabilities: ['fetch', 'inference'],
+        artifact: { path: '/operator-bundle.json', sha256: artifactDigest } }) };
+    if (applicationWorkflow) selection.manifestJson = JSON.stringify({ schemaVersion: 1, interfaceVersion: 1,
+      id: fixtureOperatorId, name: 'Configured application', description: 'Generic application fixture',
+      coreVersion: '1', intentVersion: '1', profile: 'dispatcher', inputSchema: { type: 'object' },
+      application: { controlVersion: 1,
+        ...(options.applicationWriteRepositoriesPath ? { githubWriteRepositoriesPath: options.applicationWriteRepositoriesPath } : {}) },
+      requiredCapabilities: ['inference', 'fetch'],
+      artifact: { path: '/operator-bundle.json', sha256: artifactDigest } });
+    // The acquisition owner persists normalized metadata with its derived GitHub URL.
+    selection.manifestJson = JSON.stringify(parseOperatorManifest(selection.manifestJson, 'https://github.com/'));
+    const proof = { activityId, installationId: fixtureInstallationId, ...configuredTarget,
+      controlsRevision: 1, installationRevision: 1, operatorRevision: 1, releaseId: fixtureReleaseId, bundleDigest: artifactDigest,
       pullRequest: 17, head: 'b'.repeat(40), createdAt: new Date(now - 86_400_000).toISOString(),
       activatedAt: new Date(now - 2 * 86_400_000).toISOString(), ownerKey: await operatorOwnerKey(human),
-      actor: { registrationId: 'scan-original', bucket: 'owner-bucket', sessionId: 'original-session',
-        sessionGeneration: 3, subject: human.subject, issuer: human.issuer, email: human.email, audiences: human.audiences } } as unknown as ProspectiveAdmission;
+      actor: { registrationId: 'scan-original', bucket: 'owner-bucket', sessionId: options.delegated ? '' : 'originalsession',
+        sessionGeneration: options.delegated ? 0 : 3, subject: human.subject, issuer: human.issuer, email: human.email, audiences: human.audiences } } as unknown as ProspectiveAdmission;
     const admittedTarget = { repository: configuredTarget.repository, repositoryId: proof.repositoryId,
       pullRequest: proof.pullRequest, headSha: proof.head, createdAt: proof.createdAt,
       createdAfter: proof.activatedAt, baseBranch: configuredTarget.baseBranch };
     let currentProof: Record<string, unknown> | null = structuredClone(proof) as unknown as Record<string, unknown>;
-    let currentRegistration: CurrentProspectiveRegistration | null = { registrationId: proof.actor.registrationId,
+    let currentRegistration: CurrentProspectiveRegistration | null = { ...(options.delegated ? { scope: 'installation' as const, delegation: { version: 1 as const, routingGroups: [] } } : {}), registrationId: proof.actor.registrationId,
       installationId: proof.installationId, activatedAt: proof.activatedAt, bucket: proof.actor.bucket,
       sessionId: proof.actor.sessionId, sessionGeneration: proof.actor.sessionGeneration, human, accessJwt: 'private.jwt',
-      ...configuredTarget, controlsRevision: 1, installationRevision: 1, operatorRevision: 1, releaseId: 'release', bundleDigest: artifactDigest,
+      ...configuredTarget, controlsRevision: 1, installationRevision: 1, operatorRevision: 1, releaseId: fixtureReleaseId, bundleDigest: artifactDigest,
       repetitionIntervalSeconds: 900 } as unknown as CurrentProspectiveRegistration;
     let targetPatch: Record<string, unknown> = {};
     let afterTargetRead: (() => void | Promise<void>) | undefined;
@@ -348,7 +418,7 @@ export async function fixture(test: (f: {
     let moveAfterRelease = false;
     let expireAfterRead = false;
     let exceedDeadline = false;
-    let composeElapsed = false;
+    let composeStartedAt: number | undefined;
     const sent: Request[] = [];
     const nativeTransport = (request: Request) => {
       sent.push(request.clone());
@@ -357,16 +427,27 @@ export async function fixture(test: (f: {
     const childSubmissions: Request[] = [];
     const deliveredTail: Array<{ activityId: string; generation: number; stage: string }> = [];
     let configuredTail: Promise<{ tail(events: unknown): Promise<void> }> | undefined;
-    const pending: Promise<unknown>[] = [];
+    const pending: Promise<PromiseSettledResult<unknown>>[] = [];
+    const trackBackground = (promise: Promise<unknown>) => {
+      // Own the rejection now, not when a later drain first observes it.
+      // Retain the original failure so neither drain nor teardown can hide it.
+      pending.push(promise.then(value => ({ status: 'fulfilled' as const, value }),
+        reason => ({ status: 'rejected' as const, reason })));
+    };
     let drained = 0;
     const drainBackground = async () => {
       // Lifecycle bookkeeping only: include work enqueued by constructor callbacks/background work.
       // Do not substitute a fake concurrency fence or infer recovery from callback counts.
+      const errors: unknown[] = [];
       while (drained < pending.length) {
         const batch = pending.slice(drained);
         drained = pending.length;
-        await Promise.all(batch);
+        for (const result of await Promise.all(batch)) {
+          if (result.status === 'rejected') errors.push(result.reason);
+        }
       }
+      if (errors.length === 1) throw errors[0];
+      if (errors.length > 1) throw new AggregateError(errors, 'Fixture background work failed');
     };
     const blockConcurrencyWhile = native.blockConcurrencyWhile.bind(native);
     let activity: OperatorActivity;
@@ -480,7 +561,7 @@ export async function fixture(test: (f: {
     Object.defineProperties(native, {
       blockConcurrencyWhile: { configurable: true, value: <T>(callback: () => Promise<T>) => {
         const promise = blockConcurrencyWhile(callback);
-        pending.push(promise);
+        trackBackground(promise);
         return promise;
       } },
       facets: { configurable: true, value: facets },
@@ -544,7 +625,7 @@ export async function fixture(test: (f: {
           if (upstreamConflict) return Response.json({ error: 'upstream-conflict' }, { status: 409 });
           if (request.url.includes('/releases/tags/')) {
             if (moveAfterRelease) headSha = 'c'.repeat(40);
-            if (exceedDeadline) vi.spyOn(Date, 'now').mockReturnValue(now + 9000);
+            if (exceedDeadline) vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 9000);
             return Response.json(releaseBody, { status: releaseStatus });
           }
           if (request.url.includes('/git/ref/tags/')) return Response.json(tagRef);
@@ -559,7 +640,7 @@ export async function fixture(test: (f: {
             const url = new URL(request.url);
             const key = `${url.searchParams.get('ref')}:${decodeURIComponent(url.pathname.split('/contents/')[1])}`;
             const body = composeBodies[key];
-            if (composeElapsed) vi.spyOn(Date, 'now').mockReturnValue(now + 1500);
+            if (composeStartedAt !== undefined) vi.spyOn(Date, 'now').mockReturnValue(composeStartedAt + 1500);
             if (moveAfterContents) baseSha = 'c'.repeat(40);
             return body instanceof Response ? body : body ? Response.json(body)
               : Response.json({ message: 'Missing' }, { status: 404 });
@@ -595,7 +676,7 @@ export async function fixture(test: (f: {
           return new Response(options.inferenceBody ?? 'data: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } });
         } }),
       } },
-      waitUntil: { configurable: true, value: (promise: Promise<unknown>) => { pending.push(promise); } },
+      waitUntil: { configurable: true, value: trackBackground },
     });
     const context = native;
     const encryption = { ENCRYPTION_KEY: btoa('a'.repeat(32)) };
@@ -605,10 +686,14 @@ export async function fixture(test: (f: {
     const normalTransport = options.normalHosting ? createNormalDispatcherTransport({
       profile: { source: options.nativeInference ? 'pi-native' : 'managed', ...normalIdentity },
       profileTransport: options.normalProfileTransport,
+      dispatchTransport: async () => admissionFault ? admissionFault() : undefined,
+      plan: options.applicationPlan ?? (applicationWorkflow ? body => body.checkpoint === null
+        ? { kind: 'dispatch', checkpoint: { active: true }, context: {}, message: { kind: 'user', body: 'Generic fixture invocation' } }
+        : { kind: 'complete', checkpoint: body.checkpoint, result: { completed: true } } : undefined),
     }) : undefined;
-    let connectionRecord: Record<string, unknown> = { installationId: 'installation', releaseId: 'release', connectionRevision: 1,
+    let connectionRecord: Record<string, unknown> = { installationId: fixtureInstallationId, releaseId: fixtureReleaseId, connectionRevision: 1,
       ...normalDeployment, manifestDigest: 'd'.repeat(64), bundleDigest: artifactDigest,
-      connectionSecretCiphertext: await sealOperatorSecret(connectionSecret, encryption, { purpose: 'connection', recordId: 'installation' }) };
+      connectionSecretCiphertext: await sealOperatorSecret(connectionSecret, encryption, { purpose: 'connection', recordId: fixtureInstallationId }) };
     if (normalTransport) vi.stubGlobal('fetch', normalTransport.fetcher);
     const originalAbortConnection = structuredClone(connectionRecord);
     const registry = { getManagementBundle: async () => {
@@ -618,9 +703,9 @@ export async function fixture(test: (f: {
     },
       // Registry is the platform authority seam, not a mocked control implementation.
       getManagementDispatcherConnection: async (installationId: string) =>
-        options.normalHosting && installationId === 'installation' ? structuredClone(connectionRecord) : null,
+        options.normalHosting && installationId === fixtureInstallationId ? structuredClone(connectionRecord) : null,
       getManagementDispatcherAbortConnection: async (installationId: string, revision: number) =>
-        options.normalHosting && installationId === 'installation' && revision === 1 ? structuredClone(originalAbortConnection) : null,
+        options.normalHosting && installationId === fixtureInstallationId && revision === 1 ? structuredClone(originalAbortConnection) : null,
       resolveManagementExecution: async () => {
         const action = afterRegistryResolve; afterRegistryResolve = undefined;
         await action?.();
@@ -632,6 +717,8 @@ export async function fixture(test: (f: {
         requestedId === activityId ? activity.getBrowserSummary(ownerKey) : null,
       readProspectiveRenovateAdmission: async () => structuredClone(currentProof),
       currentProspectiveRenovateRegistration: async () => structuredClone(currentRegistration),
+      observeProspectiveRenovateRegistration: async () => currentRegistration && (options.delegated || callerSessionCurrent)
+        ? { status: 'current', registration: structuredClone(currentRegistration) } : { status: 'denied' },
     };
     // Historical Host completion stand-in retains its original profile/digest wire.
     // Current normal discovery uses the separate installed-Worker profile wrapper above.
@@ -642,6 +729,7 @@ export async function fixture(test: (f: {
     let normalHostAuthMissing = false;
     const ownerPortRequests: Array<{ url: string; loggingContext: unknown; body: unknown }> = [];
     const environment = { ...encryption, ENTERPRISE_MODE: 'active', GITHUB_API_HOST: options.githubApiHost,
+      ...(options.delegated ? { KV: { get: async (key: string) => key === 'user:owner@example.test' ? '{"role":"admin"}' : null } } : {}),
       ...(options.normalHosting ? { CONTAINER: { getByName: () => ({
         getPersonalPiSession: async (ref: { bucket: string; sessionId: string; email: string }) => {
           if (ref.bucket !== 'owner-bucket' || ref.sessionId !== 'ownerhost123' || ref.email !== human.email
@@ -668,9 +756,11 @@ export async function fixture(test: (f: {
       }) } } : {}),
       ...(options.nativeInference ? { R2_ACCESS_KEY_ID: 'synthetic-scoped-id', R2_SECRET_ACCESS_KEY: 'synthetic-scoped-secret',
         R2_ACCOUNT_ID: 'synthetic-r2-account', R2_ENDPOINT: 'https://r2.example.test',
-        KV: { get: async (key: string) => key === 'setup:strict_egress' ? 'active' : null },
+        KV: { get: async (key: string) => key === 'setup:strict_egress' ? 'active'
+          : options.delegated && key === `user:${human.email.trim().toLowerCase()}` ? '{"role":"admin"}' : null },
         EGRESS: { fetch: nativeTransport } } : {}),
-      OPERATOR_REGISTRY: { getByName: () => registry }, OPERATOR_ACTIVITY: { getByName: () => activity, idFromName: () => native.id },
+      OPERATOR_REGISTRY: { getByName: () => options.registryAdapter ? options.registryAdapter(registry) : registry },
+      OPERATOR_ACTIVITY: { getByName: () => activity, idFromName: () => native.id },
       LOADER: { get: (_key: string, factory: () => Promise<{ env: Record<string, unknown>; globalOutbound: Fetcher | null; tails?: Array<{ tail(events: unknown): Promise<void> }> }>) => ({
         getDurableObjectClass: () => {
           const code = factory();
@@ -685,14 +775,17 @@ export async function fixture(test: (f: {
     const activityEnvironment = environment as unknown as ConstructorParameters<typeof OperatorActivity>[1];
     activity = new OperatorActivity(context, activityEnvironment);
     await drainBackground();
-    if (options.prospective) expect(await activity.bindProspectiveRenovateAdmission(activityId)).toBe(true);
     const invocationJson = JSON.stringify(fixtureInvocation);
     const execution = await createOperatorExecutionContext({ activityId, operatorId: fixtureOperatorId, artifactDigest,
-      policyDigest: await digest(JSON.stringify(selection.installation.policy)), human, accessJwt: 'private.jwt' }, encryption);
-    await activity.prepareAuthorized({ activityId, operatorId: fixtureOperatorId, installationId: 'installation',
+      policyDigest: await digest(JSON.stringify(selection.installation.policy)), human, accessJwt: 'private.jwt',
+      ...(applicationWorkflow && options.delegated ? { delegation: { version: 1 as const, routingGroups: [] } } : {}) }, encryption);
+    const preparation = { activityId, operatorId: fixtureOperatorId, installationId: fixtureInstallationId,
       intentDigest: await createOperatorIntentDigest(fixtureOperatorId, activityId, invocationJson),
       expectedRevision: 1, expectedInstallationRevision: 1, expectedControlsRevision: 1,
-      deadline: expiresAt * 1000, startExpiresAt: expiresAt * 1000, startVerifier: await digest('s'.repeat(43)) }, execution, invocationJson);
+      deadline: expiresAt * 1000, startExpiresAt: expiresAt * 1000, startVerifier: await digest('s'.repeat(43)) };
+    expect(await (options.prospective && !applicationWorkflow
+      ? activity.prepareAuthorized(preparation, execution, invocationJson, undefined, activityId)
+      : activity.prepareAuthorized(preparation, execution, invocationJson))).toEqual({ ok: true, phase: 'prepared' });
     if (options.normalHosting) expect(await activity.bindDispatcherOwnerSource({ bucket: 'owner-bucket',
       sessionId: 'ownerhost123', sessionGeneration: 3 })).toBe(true);
     if (!options.recovery) {
@@ -707,6 +800,7 @@ export async function fixture(test: (f: {
       environment as unknown as ConstructorParameters<typeof OperatorDispatcherCapability>[1]);
     const staleCapability = new OperatorDispatcherCapability({ props: { activityId, generation: 2 } } as unknown as ExecutionContext,
       environment as unknown as ConstructorParameters<typeof OperatorDispatcherCapability>[1]);
+    const failures: unknown[] = [];
     try {
       await test({ activity, capability, staleCapability, environment, bundle: fixtureBundle, artifactDigest, activityId, deliveredTail,
         normalTransport, changeConnection: patch => { connectionRecord = { ...connectionRecord, ...patch }; },
@@ -773,12 +867,22 @@ export async function fixture(test: (f: {
         moveHeadAfterRelease: () => { moveAfterRelease = true; },
         expireAfterRead: () => { expireAfterRead = true; },
         moveBaseAfterContents: () => { moveAfterContents = true; },
-        exceedComposeDeadline: () => { composeElapsed = true; },
+        exceedComposeDeadline: () => {
+          // Anchor the simulated read delay after admission, not fixture setup.
+          composeStartedAt = Date.now();
+          vi.spyOn(Date, 'now').mockReturnValue(composeStartedAt);
+        },
         moveBaseAfterGuide: () => { moveBaseAfterGuide = true; },
-        exceedReleaseDeadline: () => { exceedDeadline = true; },
+        exceedReleaseDeadline: () => {
+          // Measure the nine-second upstream delay from this read, not fixture
+          // creation: admission/setup time must not shorten the simulated delay.
+          vi.spyOn(Date, 'now').mockReturnValue(Date.now());
+          exceedDeadline = true;
+        },
         exceedGuideDeadline: () => { exceedDeadline = true; },
         expire: () => { vi.spyOn(Date, 'now').mockReturnValue(expiresAt * 1000 + 1); },
         advanceClock: milliseconds => { vi.spyOn(Date, 'now').mockReturnValue(now + milliseconds); },
+        setClock: timestamp => { vi.spyOn(Date, 'now').mockReturnValue(timestamp); },
         revoke: () => { revoked = true; },
         abortStatus: () => aborted, restart: () => (activity = new OperatorActivity(context, activityEnvironment)),
         drainBackground,
@@ -854,17 +958,22 @@ export async function fixture(test: (f: {
           });
         },
       });
-    } finally {
+    } catch (error) { failures.push(error); }
+    finally {
       failOwnedAbort = false;
       try { await activity.cancelDrive(); }
+      catch (error) { failures.push(error); }
       finally {
         if (!options.preserveGlobalMocks) {
           vi.restoreAllMocks();
           vi.unstubAllGlobals();
         }
-        await Promise.allSettled(pending);
+        try { await drainBackground(); }
+        catch (error) { failures.push(error); }
       }
     }
+    if (failures.length === 1) throw failures[0];
+    if (failures.length > 1) throw new AggregateError(failures, 'Fixture callback or teardown failed');
   });
 }
 export function diagnosticReport(body: unknown = { stage: 'fetch-rejected' }, path = '/v1/dispatcher/diagnostic', method = 'POST') {
@@ -872,29 +981,9 @@ export function diagnosticReport(body: unknown = { stage: 'fetch-rejected' }, pa
   if (method === 'GET') return new Request(url, { method: 'GET' });
   return new Request(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 }
-export function composeRead(operationId = 'compose-1', extra = {}) {
-  return new Request('https://operator.internal/v1/dispatcher/github/read', { method: 'POST',
-    headers: { 'content-type': 'application/json' }, body: JSON.stringify({ operationId, resource: 'changed-compose', ...extra }) });
-}
-export function releaseRead(operationId = 'release-1', extra = {}) {
-  return new Request('https://operator.internal/v1/dispatcher/github/read', { method: 'POST',
-    headers: { 'content-type': 'application/json' }, body: JSON.stringify({ operationId, resource: 'release-notes', ...extra }) });
-}
-export function guideRead(operationId = 'guide-1', extra = {}) {
-  return new Request('https://operator.internal/v1/dispatcher/github/read', { method: 'POST',
-    headers: { 'content-type': 'application/json' }, body: JSON.stringify({ operationId, resource: 'upstream-guide', ...extra }) });
-}
-export function changedCompose(path: string, sha = 'd'.repeat(40)) {
-  return { filename: path, status: 'modified', sha, additions: 1, deletions: 1,
-    patch: '-    image: amir20/dozzle:v11.1.1\n+    image: amir20/dozzle:v11.1.2' };
-}
-export function composeBlob(path: string, sha: string, content: string) {
+function composeBlob(path: string, sha: string, content: string) {
   return { path, sha, type: 'file', size: new TextEncoder().encode(content).byteLength,
     encoding: 'base64', content: btoa(content) };
-}
-export function dozzleFiles(before = 'v11.1.1', after = 'v11.1.2') {
-  return [{ filename: 'compose.yaml', status: 'modified', additions: 1, deletions: 1,
-    patch: `-    image: amir20/dozzle:${before}\n+    image: amir20/dozzle:${after}` }];
 }
 export function read(operationId = 'read-1', extra = {}) {
   return new Request('https://operator.internal/v1/dispatcher/github/read', { method: 'POST',
@@ -1132,16 +1221,4 @@ export function sourceRead(operationId: string, url: string, extra = {}) {
 
 // Instrumented production Activity/Fetcher boundary only; compiled connected acceptance is separate.
 export type DispatcherFixture = Parameters<Parameters<typeof fixture>[0]>[0];
-export const prospectiveRepo = 'nikolanovoselec/komodo';
-export const prospectiveBase = `https://api.github.com/repos/${prospectiveRepo}`;
-export const prospectiveComment = (operationId = 'admitted-comment', base = prospectiveBase) => ({ operationId,
-  method: 'POST', url: `${base}/issues/17/comments`, body: JSON.stringify({ body: 'Exact admitted judgment' }) });
-export const prospectiveMerge = (operationId = 'admitted-merge', base = prospectiveBase) => ({ operationId,
-  method: 'PUT', url: `${base}/pulls/17/merge`, body: JSON.stringify({ sha: 'b'.repeat(40), merge_method: 'merge' }) });
 export const remoteMutations = (f: DispatcherFixture) => f.sent.filter(request => request.method !== 'GET');
-export async function startProspective(f: DispatcherFixture) {
-  await start(f);
-  expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
-  expect((await f.capability.fetch(genericWire('source', { operationId: 'admitted-initial-read',
-    url: `${prospectiveBase}/pulls/17` }))).status).toBe(200);
-}

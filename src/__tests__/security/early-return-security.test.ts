@@ -103,6 +103,22 @@ describe('CF-001: security headers on pre-Hono early-return responses', () => {
     vaultRouteState.request = undefined;
   });
 
+  it('REQ-SEC-008 AC7: strips upstream disclosure on proxy and asset responses without losing other headers', async () => {
+    vaultRouteState.validate = () => ({ isVaultRoute: true, remainingPath: '/index' });
+    vaultRouteState.request = () => new Response('vault', { headers: { 'X-Powered-By': 'private-server', 'ETag': '"keep"' } });
+    const { env, ctx } = createBaseEnv();
+    const proxy = await worker.fetch(new Request('https://example.com/api/vault/abcd1234/index'), env, ctx);
+    expect(proxy.headers.get('X-Powered-By')).toBeNull(); expect(proxy.headers.get('ETag')).toBe('"keep"');
+    vaultRouteState.validate = undefined;
+    const assets = { ...env, ASSETS: { fetch: async () => new Response('asset', { headers: { 'X-Powered-By': 'private-server', 'ETag': '"keep"' } }) } };
+    const asset = await worker.fetch(new Request('https://example.com/setup/example.js'), assets as any, ctx);
+    expect(asset.status).toBe(200);
+    expect(await asset.text()).toBe('asset');
+    expect(asset.headers.get('X-Powered-By')).toBeNull(); expect(asset.headers.get('ETag')).toBe('"keep"');
+    const api = withSecurityHeaders(new Response('api', { headers: { 'X-Powered-By': 'private-server', 'X-Other': 'keep' } }));
+    expect(api.headers.get('X-Powered-By')).toBeNull(); expect(api.headers.get('X-Other')).toBe('keep');
+  });
+
   // CF-001: vault early return carries the headers
   it('CF-001: a vault hand-built response carries SECURITY_HEADERS', async () => {
     vaultRouteState.validate = () => ({ isVaultRoute: true, remainingPath: '/index' });

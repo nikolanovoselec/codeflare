@@ -34,6 +34,7 @@ afterAll(async () => {
 beforeEach((context) => { console.info(`[native-loader] test begin: ${context.task.name}`); });
 afterEach((context) => { console.info(`[native-loader] test end: ${context.task.name}`); });
 
+// REQ-OPERATOR-100: Owner credential renewal boundary.
 describe('REQ-OPERATOR-007: ordinary Wrangler bundle OAuth delivery', () => {
   it('derives fresh built-in OpenAI OAuth auth through the bundled Root composition', async () => {
     const response = await worker!.fetch('/dispatcher-bundled-oauth');

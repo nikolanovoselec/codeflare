@@ -15,6 +15,7 @@ const policy = (overrides: Partial<OperatorPolicy> = {}): OperatorPolicy => ({
     defaultReasoningLevel: 'medium', inheritUserDefaults: false }, ...overrides,
 });
 
+// REQ-OPERATOR-014: Restrictive operator policy — empty declarations deny their capabilities.
 describe('REQ-OPERATOR-004: shared operator restriction decisions', () => {
   it('matches exact and subdomain wildcard hosts without granting the apex or lookalikes', () => {
     expect(decideOperatorNetwork(policy(), 'api.example.test')).toEqual({ allowed: true });

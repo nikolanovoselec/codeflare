@@ -78,7 +78,7 @@ migrations_dir = "migrations/usage"
 # remote = true
 
 # Container configuration (default tier)
-# Default: 1 vCPU, 3 GiB memory, 6 GB disk
+# CPU, memory and disk are selected per deployment through the resource profile.
 # Cloudflare containers cap disk at 2x memory in GiB - with 3 GiB memory the
 # maximum is 6 GB. Bumping to 8 GB fails deploy with VALIDATE_INPUT. To raise
 # disk to 8 GB, memory must go to >=4 GiB first (requires cost review).
@@ -86,7 +86,7 @@ migrations_dir = "migrations/usage"
 # (the "high" tier is 2 vCPU / 6 GiB / 12 GB), so 2 vCPU with only 4 GiB is
 # rejected. Custom-instance ceilings are 4 vCPU, 12 GiB memory, 20 GB disk.
 # GitHub Actions deploy can override this via repo variable RESSOURCE_TIER.
-# Required baseline for node-pty + agent CLIs + npm operations.
+# The instance_type below is the fallback; deployment may select another profile.
 # RESSOURCE_TIER spelling is intentional (French/German "ressource"); preserved
 # for backward compatibility across deployed instances. Do not "fix".
 [[containers]]

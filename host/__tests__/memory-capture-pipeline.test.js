@@ -160,14 +160,39 @@ describe('publish-memory-capture.sh (REQ-MEM-001 AC6)', () => {
   // the single-line form these rows already assert; a second invocation (the viz
   // re-render) shows up as a second line instead of overwriting the first, which
   // is the only way to tell "render skipped" from "render clobbered the log".
-  function fixture({ mergeStatus = 0, publishStatus = 0, carrierBody = '{}\n', withGraphifyOut = false, holdVizLock = false } = {}) {
+  function fixture({ mergeStatus = 0, publishStatus = 0, carrierBody = '{}\n', withGraphifyOut = false, holdVizLock = false, syntheticCapture = false } = {}) {
     const root = mkdtempSync(join(tmpdir(), 'memory-publish-'));
     const carrier = join(root, 'capture.vars');
     const merge = join(root, 'merge');
     const graphify = join(root, 'graphify');
     const publicationLog = join(root, 'publication.log');
     const graphLock = join(root, 'graph.lock');
-    writeFileSync(carrier, carrierBody);
+    const capture = join(root, 'capture.md');
+    const session = `s${root.slice(-6)}-capture`;
+    if (syntheticCapture) {
+      const transcript = join(root, 'transcript.jsonl');
+      writeFileSync(transcript, realUserLine('Keep the retryable publication decision.') + '\n');
+      writeFileSync(carrier, JSON.stringify({ transcript, last_line: 0, total_lines: 1,
+        counter_file: join(root, session), current_count: 20,
+        capture_file: capture, capture_timestamp: '2026-08-12T00-00-00+0200' }));
+      // Controlled Claude CLI output, not a live model or a Pi substitute.
+      writeFileSync(join(root, 'claude'), `#!/usr/bin/env python3
+import sys, pathlib
+request = dict(line.split(': ', 1) for line in sys.stdin.read().splitlines() if ': ' in line)
+pathlib.Path(request['capture_file']).write_text(
+    '---\\nsession_id: ' + request['session_id'] + '\\ncaptured_at: ' + request['capture_timestamp'] +
+    '\\ncaptured_prompt_count: ' + request['current_count'] + '\\ncaptured_chunks: 1\\n---\\n' +
+    '# Session 2026-08-12 - Retryable publication decision\\n\\n' +
+    '## Context\\nKeep the publication decision.\\n\\n' +
+    '## Decisions\\n- Retain retry state until publication.\\n\\n' +
+    '## Observations\\n- Failed publication is retryable.\\n\\n' +
+    '## References\\n- REQ-MEM-001\\n')
+print('{"type":"result","subtype":"success"}')
+`);
+      chmodSync(join(root, 'claude'), 0o755);
+    } else {
+      writeFileSync(carrier, carrierBody);
+    }
     writeFileSync(merge, `#!/usr/bin/env bash\nexit ${mergeStatus}\n`);
     writeFileSync(graphify, `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >> '${publicationLog}'\nexit ${publishStatus}\n`);
     chmodSync(merge, 0o755);
@@ -198,10 +223,13 @@ describe('publish-memory-capture.sh (REQ-MEM-001 AC6)', () => {
         }
         assert.ok(held, 'the concurrent publisher took the render lock');
       }
-      const result = spawnSync('bash', [PUBLISH, carrier], {
+      const result = spawnSync('bash', syntheticCapture
+        ? [join(dirname(PUBLISH), 'run-memory-capture.sh'), '--vars', carrier]
+        : [PUBLISH, carrier], {
         encoding: 'utf8',
         env: {
           ...process.env,
+          PATH: `${root}:${process.env.PATH}`,
           MEMCAP_GRAPH_LOCK: graphLock,
           MEMCAP_PYTHON_BIN: merge,
           MEMCAP_MERGE_SCRIPT: join(root, 'merge-vault-graph.py'),
@@ -209,7 +237,7 @@ describe('publish-memory-capture.sh (REQ-MEM-001 AC6)', () => {
           MEMCAP_VAULT_GRAPH: vaultGraph,
         },
       });
-      return { root, carrier, publicationLog, result };
+      return { root, carrier, publicationLog, result, capture, session };
     } finally {
       if (holder) { try { process.kill(-holder.pid, 'SIGKILL'); } catch { /* already gone */ } }
     }
@@ -218,6 +246,30 @@ describe('publish-memory-capture.sh (REQ-MEM-001 AC6)', () => {
   const graphifyCalls = (publicationLog) =>
     (existsSync(publicationLog) ? readFileSync(publicationLog, 'utf8') : '')
       .split('\n').filter(Boolean);
+
+  it('REQ-MEM-001 AC5: parses a synthetic Claude capture artifact after runner publication', () => {
+    const { capture, carrier, session, root, result } = fixture({ syntheticCapture: true });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(existsSync(carrier), false);
+    assert.equal(readFileSync(join(root, session), 'utf8'), '20\n1\n');
+    const output = readFileSync(capture, 'utf8');
+    const [, yaml, body] = output.split(/^---\s*$/m);
+    assert.ok(yaml && body, 'the emitted artifact has delimited frontmatter and a body');
+    const fields = Object.fromEntries(yaml.trim().split('\n').map(line => {
+      const colon = line.indexOf(':');
+      return [line.slice(0, colon), line.slice(colon + 1).trim()];
+    }));
+    assert.deepEqual(fields, { session_id: session, captured_at: '2026-08-12T00-00-00+0200',
+      captured_prompt_count: '20', captured_chunks: '1' });
+    const sections = body.split(/^## /m).slice(1).map(section => {
+      const [heading, ...content] = section.trim().split('\n');
+      assert.ok(content.join('\n').trim(), `${heading} has capture content`);
+      return heading;
+    });
+    assert.deepEqual(sections, ['Context', 'Decisions', 'Observations', 'References']);
+    // This qualifies the approved synthetic artifact/transport contract only;
+    // it does not establish model fidelity or real Graphify acceptance.
+  });
 
   it('retains the carrier and skips publication when the cumulative merge fails', () => {
     const { carrier, publicationLog, result } = fixture({ mergeStatus: 17 });

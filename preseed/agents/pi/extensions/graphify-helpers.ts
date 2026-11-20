@@ -1,3 +1,5 @@
+import { executableShellCommands, shellCommandArguments, shellCommandExecutable } from "./guard-helpers";
+
 type CloneTargetState = typeof globalThis & { __codeflareCloneTargetHadGit?: Map<string, boolean> };
 const cloneTargetState = globalThis as CloneTargetState;
 
@@ -81,23 +83,21 @@ export function graphifyPromptMarker(repo: string, sessionId = "default"): strin
   return `/tmp/codeflare-graphify-prompted-${safe}`;
 }
 
-// Zero-or-more leading `VAR=value ` assignments (quoted or bare), plus an optional `env `
-// wrapper, before the verb — mirrors review-helpers BOUNDARY_ANCHOR so `BROWSER="" gh repo
-// clone`, `GIT_TERMINAL_PROMPT=0 git clone`, and `env BROWSER="" gh repo clone` all match.
-// Shared by isGitClone (codeflare-pi.ts) and cloneTargetPath so the prefix is consumed
-// BEFORE destination parsing.
+// Retained for managed import compatibility; executable argv parsing owns clones.
 export const ENV_PREFIX = String.raw`(?:env[ \t]+)?(?:[A-Za-z_]\w*=(?:'[^']*'|"[^"]*"|\S*)[ \t]+)*`;
 
 export function effectiveCwdForCommand(command: string, cwd: string): string {
-  const match = command.match(/(?:^|[;&|\n]\s*)cd\s+([^;&|\n]+)\s*&&/);
-  if (!match) return cwd;
-  const dir = match[1].trim().replace(/^(\"|')(.*)\1$/, "$2");
-  return dir.startsWith("/") ? dir : `${cwd.replace(/\/$/, "")}/${dir}`;
+  for (const words of executableShellCommands(command)) {
+    const executable = shellCommandExecutable(words);
+    if ((executable === "git" && shellCommandArguments(words, "git")[0] === "clone")
+      || (executable === "gh" && shellCommandArguments(words, "gh").slice(0, 2).join(" ") === "repo clone")) break;
+    if (executable !== "cd" || words.length !== 2) continue;
+    const dir = words[1]!;
+    cwd = dir.startsWith("/") ? dir : `${cwd.replace(/\/$/, "")}/${dir}`;
+  }
+  return cwd;
 }
 
-function shellWords(input: string): string[] {
-  return input.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g)?.map((token) => token.replace(/^(\"|')(.*)\1$/, "$2")) ?? [];
-}
 
 function resolveMaybeRelative(path: string, cwd: string): string | undefined {
   const trimmed = path.trim();
@@ -117,9 +117,15 @@ export function cloneTargetPath(command: string, cwd: string, output?: string): 
   const outputTarget = cloneTargetPathFromOutput(output, cwd);
   if (outputTarget) return outputTarget;
   const effectiveCwd = effectiveCwdForCommand(command, cwd);
-  const match = command.match(new RegExp(String.raw`(?:^|[;&|\n]\s*)(?:cd\s+[^;&|\n]+\s*&&\s*)?` + ENV_PREFIX + String.raw`(?:git\s+clone|gh\s+repo\s+clone)\s+(.+?)(?:[;&|\n]|$)`));
-  if (!match) return undefined;
-  const tokens = shellWords(match[1]);
+  const commands = executableShellCommands(command);
+  const clone = commands.find((words) => {
+    const executable = shellCommandExecutable(words);
+    return executable === "git" ? shellCommandArguments(words, "git")[0] === "clone"
+      : executable === "gh" && shellCommandArguments(words, "gh").slice(0, 2).join(" ") === "repo clone";
+  });
+  if (!clone) return undefined;
+  const executable = shellCommandExecutable(clone) as "git" | "gh";
+  const tokens = shellCommandArguments(clone, executable).slice(executable === "git" ? 1 : 2);
   const positional: string[] = [];
   let passthrough = false;
   for (let index = 0; index < tokens.length; index += 1) {

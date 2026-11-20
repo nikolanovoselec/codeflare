@@ -3,9 +3,15 @@
  * Fixtures are local/CI evidence, not production deployment or live Access acceptance.
  * Requirement IDs in describe blocks link each behavior to sdd/spec/operators.md.
  */
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ValidationError } from '../../lib/error-types';
 import { verifyOperatorSync, type OperatorSyncExpectation } from '../../operators/sync-verification';
+
+import { createOperatorSyncReader } from '../../operators/owned-session-production';
+import type { Env } from '../../types';
+import type { OperatorSessionBootstrap } from '../../operators/owned-session-runtime';
+
+afterEach(() => vi.unstubAllGlobals());
 
 const encode = (value: unknown) => new TextEncoder().encode(JSON.stringify(value));
 async function sha256(bytes: Uint8Array): Promise<string> {
@@ -81,5 +87,30 @@ describe('REQ-OPERATOR-024: independently verified sync bytes', () => {
     const f = await fixture();
     await expect(verifyOperatorSync({ ...f.expected, deadline: 1 }, f.read)).rejects.toBeInstanceOf(ValidationError);
     expect(f.reads).toEqual([]);
+  });
+});
+
+
+describe('REQ-OPERATOR-024 AC1: production R2 reader bounds bytes while consuming', () => {
+  async function reader(response: Response) {
+    vi.stubGlobal('fetch', async () => response);
+    return createOperatorSyncReader({ R2_ACCOUNT_ID: 'fixture-account' } as Env, 'owner', {
+      r2AccessKeyId: 'fixture-access', r2SecretAccessKey: 'fixture-secret', r2SseDisabled: true,
+    } as OperatorSessionBootstrap);
+  }
+  it.each([undefined, '1'])('cancels an oversized stream with content-length %s before EOF', async length => {
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) { controller.enqueue(new Uint8Array(5)); },
+      cancel() { cancelled = true; },
+    });
+    const read = await reader(new Response(body, { headers: length ? { 'content-length': length } : {} }));
+    await expect(read('Operators/result.txt', 8)).rejects.toThrow();
+    expect(cancelled).toBe(true);
+  });
+  it('accepts exact-limit bytes and distinguishes missing objects', async () => {
+    const bytes = new Uint8Array([1, 2, 3, 4]);
+    expect(await (await reader(new Response(bytes)))('Operators/result.txt', 4)).toEqual(bytes);
+    expect(await (await reader(new Response(null, { status: 404 })))('Operators/missing', 4)).toBeNull();
   });
 });

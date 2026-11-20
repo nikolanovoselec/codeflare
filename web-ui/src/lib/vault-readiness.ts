@@ -1,6 +1,6 @@
 /**
  * Vault-readiness probe state machine. Extracted from Layout.tsx so the
- * cadence behavior (REQ-VAULT-012 AC5: "retries until the first success")
+ * cadence behavior (REQ-VAULT-018 AC2: "retries until the first success")
  * is unit-testable without rendering the full SolidJS tree.
  *
  * The machine has exactly two states:
@@ -15,7 +15,7 @@
  * ~3 minutes (60 attempts at 3s each); a user who restarted a stopped
  * session whose SilverBullet took longer than the cap to bind landed
  * with a permanently disabled vault button and no recovery path. The
- * indefinite retry is what REQ-VAULT-012 AC5 actually requires.
+ * indefinite retry is what REQ-VAULT-018 AC2 actually requires.
  */
 
 /**

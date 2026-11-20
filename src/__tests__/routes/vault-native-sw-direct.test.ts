@@ -198,7 +198,7 @@ describe.each(['image export', 'upstream candidate'] as const)('CF-045: vault-na
     );
   });
 
-  // REQ-VAULT-025 AC2 / REQ-VAULT-023 AC2: unreadable listings must fail,
+  // REQ-VAULT-025 AC2 / REQ-VAULT-035 AC2: unreadable listings must fail,
   // including on first boot. A valid [] is safe only with an empty local store
   // and snapshot; populated-store and snapshot deletion fences remain binding.
   function nextSync(runtime: ReturnType<typeof nativeWorkerRuntime>) {

@@ -22,6 +22,12 @@ updates:
     cooldown:
       default-days: 7
       semver-major-days: 30
+    # 1.7+ automatically starts/builds Wrangler Containers. Preserve the
+    # intentional 1.6.1 test-runtime pin until that Docker migration is approved.
+    # See documentation/lanes/ci-cd.md, Vitest Configuration.
+    ignore:
+      - dependency-name: "@cloudflare/vitest-plugin"
+        versions: [">=1.7.0"]
     # Owns the application Wrangler pin. Workflow-only Wrangler has its own
     # isolated lock-backed directory below.
 

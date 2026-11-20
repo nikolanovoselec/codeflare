@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, test, vi } from 'vitest';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 
@@ -649,6 +649,22 @@ test('REQ-IDE-036 AC1+AC2+AC3: malformed manifests fail closed and valid manifes
   const loaded = await loadExtensionManifest(manifestPath);
   assert.equal(loaded.state, 'valid');
   assert.deepEqual(loaded.manifest?.settings, { 'yaml.validate': true });
+});
+
+test('REQ-IDE-036 AC3: redirected manifest parent is ignored without restoring or changing outside bytes', async () => {
+  const { root, extensionsDir, manifestPath } = fixture();
+  const outside = join(root, 'outside');
+  mkdirSync(outside);
+  const bytes = JSON.stringify({ ...validManifest({ 'redhat.vscode-yaml': { version: '1.24.0' } }, { 'yaml.validate': true }), securityWarningShown: true });
+  const outsideFile = join(outside, 'ide-extensions.json');
+  writeFileSync(outsideFile, bytes);
+  rmSync(join(root, '.codeflare'), { recursive: true });
+  symlinkSync(outside, join(root, '.codeflare'));
+  assert.deepEqual(await loadExtensionManifest(manifestPath), { state: 'invalid' });
+  await restoreExtensionManifest({ extensionsDir, manifestPath });
+  assert.deepEqual(host.commands, []);
+  assert.deepEqual(host.settingsUpdates, []);
+  assert.equal(readFileSync(outsideFile, 'utf8'), bytes);
 });
 
 test('REQ-IDE-016 AC3 + REQ-IDE-037 AC1+AC3+AC4: restores exact versions, falls back once, and preserves failures', async () => {

@@ -18,6 +18,32 @@ const input = (overrides: Record<string, unknown> = {}) => ({ activityId: 'activ
   artifactDigest: 'a'.repeat(64), policyDigest: 'b'.repeat(64), human: human(), accessJwt: 'signed.jwt.assertion', ...overrides });
 
 describe('REQ-OPERATOR-003: protected verified execution context', () => {
+  it('REQ-OPERATOR-061: seals bounded scheduling delegation with the original authority rather than public context fields', async () => {
+    const request = { ...input(), human: human({ groups: ['verified-team'] }),
+      delegation: { version: 1 as const, routingGroups: ['verified-route'] } };
+    const context = await createOperatorExecutionContext(request, env);
+    expect(await openOperatorExecutionAccess(context, env)).toEqual({ human: request.human,
+      accessJwt: request.accessJwt, delegation: request.delegation });
+    expect(projectOperatorExecution(context)).not.toHaveProperty('delegation');
+    const ordinary = await createOperatorExecutionContext(input(), env);
+    expect(await openOperatorExecutionAccess({ ...ordinary, delegation: request.delegation } as typeof ordinary, env))
+      .not.toHaveProperty('delegation');
+    const refreshed = await reauthenticateOperatorExecution(context, human({ groups: ['new-team'] }), 'fresh.jwt.assertion', env);
+    expect(await openOperatorExecutionAccess(refreshed, env)).not.toHaveProperty('delegation');
+  });
+
+  it('REQ-OPERATOR-061: delegation cannot manufacture membership or extend the captured expiry', async () => {
+    await expect(createOperatorExecutionContext({ ...input(), delegation: { version: 1, routingGroups: [] } }, env))
+      .rejects.toThrow('Invalid operator execution authority');
+    const original = human({ groups: [] });
+    const context = await createOperatorExecutionContext({ ...input(), human: original,
+      delegation: { version: 1, routingGroups: [] } }, env);
+    expect(context.expiresAt).toBe(original.expiresAt);
+    await expect(openOperatorExecutionAccess({ ...context, expiresAt: original.expiresAt + 1 }, env))
+      .rejects.toThrow('protection');
+    expect((await openOperatorExecutionAccess(context, env)).human.expiresAt).toBe(original.expiresAt);
+  });
+
   it('encrypts Access authority for one activity and exposes only a safe immutable projection', async () => {
     const request = input();
     const context = await createOperatorExecutionContext(request, env);
@@ -43,6 +69,16 @@ describe('REQ-OPERATOR-003: protected verified execution context', () => {
       { policyDigest: 'short' }, { human: human({ expiresAt: Math.floor(Date.now() / 1000) - 1 }) },
       { accessJwt: '' }, { accessJwt: 'x'.repeat(65537) },
     ]) await expect(createOperatorExecutionContext(input(override), env)).rejects.toThrow();
+  });
+
+  it.each(['principal', 'bucket', 'policy'])('refuses child-supplied %s rather than minting execution authority', async field => {
+    const original = await createOperatorExecutionContext(input(), env);
+    await expect(createOperatorExecutionContext(input({ [field]: 'child-selected-authority' }), env))
+      .rejects.toThrow('Invalid operator execution authority');
+    expect(await openOperatorExecutionAccess(original, env)).toMatchObject({
+      human: { subject: 'human-subject', email: 'human@example.test' }, accessJwt: 'signed.jwt.assertion' });
+    expect(projectOperatorExecution(original)).toMatchObject({ principal: 'operator', owner: { email: 'human@example.test' },
+      policyDigest: 'b'.repeat(64) });
   });
 
   it('allows only the same human and issuer to replace authority without changing pinned identities', async () => {

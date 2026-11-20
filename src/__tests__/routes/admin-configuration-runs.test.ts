@@ -9,6 +9,8 @@ import { ADMIN_CONFIGURATION_KEYS, SETUP_KEYS } from '../../lib/kv-keys';
 import { getBuiltInProfileRef, normalizeCustomProfile } from '../../lib/reasoning-profiles';
 import { routingGatewayUrl, routingInventoryFixtures, verifiedRoutingConfiguration } from '../helpers/verified-routing';
 import { issueRouteCheck } from '../../lib/reasoning-verification';
+import { getOrImportKey } from '../../lib/kv-crypto';
+import { getEnterpriseBrowserCreds } from '../../lib/browser-render-token';
 
 vi.mock('../../lib/ai-gateway-management', async (original) => ({
   ...await original<typeof import('../../lib/ai-gateway-management')>(),
@@ -119,9 +121,42 @@ describe('configuration runs (REQ-SETUP-018)', () => {
 
     const staleRevision = createApp();
     await staleRevision.kv.put(ADMIN_CONFIGURATION_KEYS.REVISION, '2');
+    await staleRevision.kv.put(SETUP_KEYS.GITHUB_APP_CLIENT_ID, 'saved-client-id');
+    const before = Array.from(staleRevision.kv._store.entries());
     const revisionResponse = await post(staleRevision.app, { section: 'github', baseRevision: 1, values: githubValues });
     expect(revisionResponse.status).toBe(409);
+    expect(revisionResponse.headers.get('content-type')).toContain('application/json');
     expect(await revisionResponse.json()).toMatchObject({ code: 'configuration_revision_conflict', currentRevision: 2 });
+    expect(Array.from(staleRevision.kv._store.entries())).toEqual(before);
+  });
+
+  describe.each([
+    ['default', {}], ['onboarding', { ONBOARDING_LANDING_PAGE: 'active' }],
+    ['saas', { SAAS_MODE: 'active' }], ['enterprise', { ENTERPRISE_MODE: 'active' }],
+  ] as const)('REQ-SETUP-018: %s sync Apply admission', (mode, overrides) => {
+    it.each(['revision', 'run', 'setup'] as const)('preserves stored bytes when %s guard rejects before streaming', async guard => {
+      const { app, kv } = createApp(overrides);
+      await kv.put(SETUP_KEYS.SYNC_POLICY_MODE, 'include');
+      await kv.put(SETUP_KEYS.R2_SSE_DISABLED, 'active');
+      await kv.put(SETUP_KEYS.DOWNLOADS_DISABLED, 'active');
+      const current = await app.request('/admin/configuration');
+      expect(current.status).toBe(200);
+      expect((await current.json() as any).applicableSections).toContain('dataGovernance');
+      if (guard === 'revision') await kv.put(ADMIN_CONFIGURATION_KEYS.REVISION, '2');
+      if (guard === 'run') await kv.put(ADMIN_CONFIGURATION_KEYS.ACTIVE_RUN, JSON.stringify({
+        runId: 'active-sync', updatedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      }));
+      if (guard === 'setup') await kv.put(SETUP_KEYS.CONFIGURING, String(Date.now()));
+      const before = Array.from(kv._store.entries());
+      const response = await post(app, { section: 'dataGovernance', baseRevision: 0, values: {
+        ...(mode === 'enterprise' && { governedMode: false, viewOnlyStorage: false }), syncPolicyMode: 'exclude',
+      } });
+      expect(response.status).toBe(409);
+      expect(response.headers.get('content-type')).toContain('application/json');
+      expect(await response.json()).toMatchObject({ code: guard === 'revision' ? 'configuration_revision_conflict'
+        : guard === 'run' ? 'configuration_run_active' : 'setup_configuration_active' });
+      expect(Array.from(kv._store.entries())).toEqual(before);
+    });
   });
 
   it('streams sanitized snapshots, applies one section, increments revision once, and releases admission', async () => {
@@ -172,8 +207,10 @@ describe('configuration runs (REQ-SETUP-018)', () => {
     expect(JSON.parse(await kv.get(`admin:configuration:latest:github`) as string)).toMatchObject({ runId, state: 'succeeded' });
   });
 
-  it('REQ-SETUP-024: removes explicitly cleared non-secret OAuth client IDs', async () => {
-    const { app, kv } = createApp();
+  it.each([
+    {}, { ONBOARDING_LANDING_PAGE: 'active' }, { SAAS_MODE: 'active' }, { ENTERPRISE_MODE: 'active' },
+  ])('REQ-SETUP-024: removes explicitly cleared non-secret OAuth client IDs in %j', async overrides => {
+    const { app, kv } = createApp(overrides);
     await kv.put(SETUP_KEYS.GITHUB_APP_CLIENT_ID, 'saved-github-app');
     await kv.put(SETUP_KEYS.GITHUB_OAUTH_CLIENT_ID, 'saved-github-oauth');
     await kv.put(SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_ID, 'saved-cloudflare-oauth');
@@ -202,8 +239,10 @@ describe('configuration runs (REQ-SETUP-018)', () => {
     expect(await kv.get(SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_ID)).toBeNull();
   });
 
-  it('REQ-SETUP-024: preserves saved OAuth secrets when replacements are blank', async () => {
-    const { app, kv } = createApp();
+  it.each([
+    {}, { ONBOARDING_LANDING_PAGE: 'active' }, { SAAS_MODE: 'active' }, { ENTERPRISE_MODE: 'active' },
+  ])('REQ-SETUP-024: preserves saved OAuth secrets when replacements are blank in %j', async overrides => {
+    const { app, kv } = createApp(overrides);
     await kv.put(SETUP_KEYS.GITHUB_APP_CLIENT_SECRET, 'saved-github-app-secret');
     await kv.put(SETUP_KEYS.GITHUB_OAUTH_CLIENT_SECRET, 'saved-github-oauth-secret');
     await kv.put(SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_SECRET, 'saved-cloudflare-oauth-secret');
@@ -260,30 +299,85 @@ describe('configuration runs (REQ-SETUP-018)', () => {
 
     const response = await post(app, { section: 'github', baseRevision: 0, values: githubValues });
     expect(response.status).toBe(200);
-    const terminal = snapshots(await response.text()).at(-1).run;
-    expect(terminal).toMatchObject({
+    expect(response.headers.get('content-type')).toContain('application/x-ndjson');
+    const events = snapshots(await response.text());
+    expect(events[0].run.state).toBe('queued');
+    expect(events.at(-1).run).toMatchObject({
       state: 'failed',
       error: { code: 'configuration_revision_conflict' },
       tasks: [{ id: 'configure_github', state: 'skipped' }],
     });
     expect(await kv.get(SETUP_KEYS.GITHUB_PROVIDER_TYPE)).toBeNull();
+    expect(await kv.get(ADMIN_CONFIGURATION_KEYS.ACTIVE_RUN)).toBeNull();
+  });
+
+  it('REQ-SETUP-018 AC2: an admitted revision conflict leaves Domain and Access provider state unchanged', async () => {
+    const { app, kv } = createApp({
+      CLOUDFLARE_API_TOKEN: 'cloudflare-token', CLOUDFLARE_WORKER_NAME: 'codeflare-integration',
+    });
+    await kv.put(SETUP_KEYS.ACCOUNT_ID, 'account-1');
+    await kv.put(SETUP_KEYS.CUSTOM_DOMAIN, 'saved.example.com');
+    await kv.put('user:admin@example.com', JSON.stringify({ role: 'admin' }));
+    const providerState = { domain: 'saved.example.com', accessDomain: 'saved.example.com' };
+    setupOperations.configureCustomDomain.mockImplementation(async () => { providerState.domain = 'new.example.com'; });
+    setupOperations.createAccessApp.mockImplementation(async () => { providerState.accessDomain = 'new.example.com'; });
+    const get = kv.get.getMockImplementation()!;
+    kv.get.mockImplementation(async (key, type) => {
+      const value = await get(key, type);
+      if (key === ADMIN_CONFIGURATION_KEYS.REVISION && !kv._store.has(key)) {
+        // The first revision lookup sees 0; a concurrent update commits before
+        // the admitted run's pre-work lookup.
+        kv._store.set(key, '1');
+      }
+      return value;
+    });
+    try {
+      const response = await post(app, {
+        section: 'domain', baseRevision: 0, values: { customDomain: 'new.example.com' },
+      });
+      expect(response.status).toBe(200);
+      expect(response.headers.get('content-type')).toContain('application/x-ndjson');
+      const events = snapshots(await response.text());
+      expect(events[0].run.state).toBe('queued');
+      expect(events.at(-1).run).toMatchObject({
+        state: 'failed', error: { code: 'configuration_revision_conflict' },
+        tasks: [
+          { id: 'configure_custom_domain', state: 'skipped' },
+          { id: 'create_access_app', state: 'skipped' },
+        ],
+      });
+      expect(providerState).toEqual({ domain: 'saved.example.com', accessDomain: 'saved.example.com' });
+      expect(await kv.get(SETUP_KEYS.CUSTOM_DOMAIN)).toBe('saved.example.com');
+      expect(await kv.get(ADMIN_CONFIGURATION_KEYS.REVISION)).toBe('1');
+      expect(await kv.get(ADMIN_CONFIGURATION_KEYS.ACTIVE_RUN)).toBeNull();
+    } finally {
+      setupOperations.configureCustomDomain.mockImplementation(async () => {});
+      setupOperations.createAccessApp.mockImplementation(async () => {});
+    }
   });
 
   it('reconnects to the same run shape and lists Activity newest-first with a stable cursor', async () => {
     const { app } = createApp();
-    const first = snapshots(await (await post(app, { section: 'github', baseRevision: 0, values: githubValues })).text()).at(-1).run;
-    const second = snapshots(await (await post(app, { section: 'github', baseRevision: 1, values: githubValues })).text()).at(-1).run;
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1_800_000_000_000);
+    let first: any;
+    let second: any;
+    try {
+      first = snapshots(await (await post(app, { section: 'github', baseRevision: 0, values: githubValues })).text()).at(-1).run;
+      clock.mockReturnValue(1_800_000_010_000);
+      second = snapshots(await (await post(app, { section: 'github', baseRevision: 1, values: githubValues })).text()).at(-1).run;
+    } finally {
+      clock.mockRestore();
+    }
 
     const reconnect = await app.request(`/admin/configuration-runs/${encodeURIComponent(first.runId)}`);
     expect(reconnect.status).toBe(200);
     expect(await reconnect.json()).toEqual(first);
 
-    const lexical = [first, second].sort((left, right) => left.runId.localeCompare(right.runId));
     const pageOne = await (await app.request('/admin/configuration-runs?limit=1')).json() as any;
-    expect(pageOne.items).toEqual([lexical[0]]);
-    expect(pageOne.nextCursor).toBe(lexical[0].runId);
+    expect(pageOne.items).toEqual([second]);
+    expect(pageOne.nextCursor).toBe(second.runId);
     const pageTwo = await (await app.request(`/admin/configuration-runs?limit=1&cursor=${encodeURIComponent(pageOne.nextCursor)}`)).json() as any;
-    expect(pageTwo.items).toEqual([lexical[1]]);
+    expect(pageTwo.items).toEqual([first]);
   });
 
   it('executes only bounded Access operations', async () => {
@@ -343,6 +437,32 @@ describe('configuration runs (REQ-SETUP-018)', () => {
     expect(await kv.get(SETUP_KEYS.CUSTOM_DOMAIN)).toBe('new.example.com');
     expect(kv.put).not.toHaveBeenCalledWith(SETUP_KEYS.R2_ENDPOINT, expect.anything());
     expect(kv.put).not.toHaveBeenCalledWith(SETUP_KEYS.COMPLETE, expect.anything());
+  });
+
+  it.each([
+    { storage: 'encrypted', encryptionKey: Buffer.alloc(32, 7).toString('base64') },
+    { storage: 'AD32 plaintext', encryptionKey: undefined },
+  ])('REQ-BROWSER-007 AC1–3: saves and logically reads back a token after blank Save ($storage)', async ({ encryptionKey }) => {
+    const { app, kv, env } = createApp({ ENTERPRISE_MODE: 'active', ENCRYPTION_KEY: encryptionKey });
+    const token = 'synthetic-browser-rendering-token';
+    const accountId = 'synthetic-browser-account';
+    const cryptoKey = await getOrImportKey(env);
+    const saved = await post(app, { section: 'browserRendering', baseRevision: 0,
+      values: { accountId, replacementToken: token } });
+    expect(saved.status).toBe(200);
+    const savedRun = snapshots(await saved.text()).at(-1).run;
+    expect(savedRun).toMatchObject({ state: 'succeeded' });
+    const stored = await kv.get(SETUP_KEYS.BROWSER_RENDER_TOKEN) as string;
+    if (encryptionKey) {
+      expect(stored.startsWith('v1:')).toBe(true);
+      expect(stored).not.toContain(token);
+    } else expect(JSON.parse(stored)).toEqual({ token });
+    expect(await getEnterpriseBrowserCreds(env, cryptoKey)).toEqual({ token, accountId });
+    const blankSaved = await post(app, { section: 'browserRendering', baseRevision: savedRun.resultingRevision,
+      values: { accountId, replacementToken: '' } });
+    expect(blankSaved.status).toBe(200);
+    expect(snapshots(await blankSaved.text()).at(-1).run).toMatchObject({ state: 'succeeded' });
+    expect(await getEnterpriseBrowserCreds(env, cryptoKey)).toEqual({ token, accountId });
   });
 
   it('applies AI routing and Browser Run without clobbering saved credentials', async () => {

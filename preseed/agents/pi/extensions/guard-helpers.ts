@@ -8,6 +8,9 @@
  * injected (BypassFs) so the consume-on-use path is testable without touching a real /tmp.
  */
 
+import { homedir } from "node:os";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+
 export const LOCAL_BUILD_BYPASS = "/tmp/local-build-bypass";
 
 type Heredoc = { value: string; stripTabs: boolean };
@@ -416,10 +419,67 @@ export function isLocalBuildCommand(command: string): boolean {
 export interface BypassFs {
   existsSync(path: string): boolean;
   unlinkSync(path: string): void;
+  realpathSync?(path: string): string;
+  repositoryRoot?(cwd: string): string | undefined;
 }
 
-export function localBuildBlockReason(command: string, fs: BypassFs): string | undefined {
-  if (isManagedSafeLocalCheckCommand(command)) return undefined;
+// Resolve each component in OS order. Normalizing link/../file before realpath
+// would erase the symlink traversal we need to contain.
+function canonicalAnalyzerPath(path: string, cwd: string, realpath: (path: string) => string): string {
+  if (/[$`*?[\]{}]/u.test(path)) throw new Error("unresolved analyzer path");
+  if (path.startsWith("~")) {
+    if (path !== "~" && !path.startsWith("~/")) throw new Error("unresolved home path");
+    path = `${homedir()}${path.slice(1)}`;
+  }
+  let current = isAbsolute(path) ? sep : realpath(cwd);
+  for (const component of path.split(sep)) {
+    if (!component || component === ".") continue;
+    if (component === "..") { current = dirname(current); continue; }
+    const candidate = resolve(current, component);
+    try { current = realpath(candidate); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      current = candidate;
+    }
+  }
+  return current;
+}
+
+function managedAnalyzerContained(command: string, fs: BypassFs, cwd?: string): boolean {
+  const commands = executableShellCommands(command);
+  const words = commands.at(-1) ?? [];
+  const args = words.slice(words.indexOf("node") + 2);
+  if (!["oxlint", "eslint", "biome", "prettier"].includes(args[0] ?? "")) return true;
+  if (!cwd || !fs.realpathSync || !fs.repositoryRoot) return false;
+  try {
+    const realpath = fs.realpathSync;
+    const cd = commands.length === 2 ? commands[0]?.slice(1) : undefined;
+    if (cd && cd.length !== 1) return false;
+    const effectiveCwd = cd ? canonicalAnalyzerPath(cd[0]!, cwd, realpath) : realpath(cwd);
+    const repository = fs.repositoryRoot(effectiveCwd);
+    if (!repository) return false;
+    const root = realpath(repository);
+    const targets: string[] = [];
+    let positionalOnly = false;
+    for (const argument of args.slice(args[0] === "biome" ? 2 : 1)) {
+      if (argument === "--" && !positionalOnly) { positionalOnly = true; continue; }
+      if (positionalOnly || !argument.startsWith("-")) targets.push(argument);
+      else if (argument.includes("=")) targets.push(argument.slice(argument.indexOf("=") + 1));
+      else if (/^-[^-].+/u.test(argument)) targets.push(argument.slice(2));
+    }
+    return [effectiveCwd, ...targets].every((path) => {
+      const target = canonicalAnalyzerPath(path, effectiveCwd, realpath);
+      const rel = relative(root, target);
+      return rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+    });
+  } catch {
+    return false;
+  }
+}
+
+export function localBuildBlockReason(command: string, fs: BypassFs, cwd?: string): string | undefined {
+  const containmentFailure = isManagedSafeLocalCheckCommand(command) && !managedAnalyzerContained(command, fs, cwd);
+  if (isManagedSafeLocalCheckCommand(command) && !containmentFailure) return undefined;
   if (!isLocalBuildCommand(command) && !invokesSafeLocalCheckWrapper(command)) return undefined;
   // User-only escape hatch (consume-on-use), mirrors Claude's /tmp/local-build-bypass.
   if (fs.existsSync(LOCAL_BUILD_BYPASS)) {
@@ -428,6 +488,7 @@ export function localBuildBlockReason(command: string, fs: BypassFs): string | u
       return undefined;
     } catch { /* could not consume the sentinel; keep blocking so a stuck file cannot permanently disable the gate */ }
   }
+  if (containmentFailure) return "Managed analyzer containment failed: checked paths must remain inside the canonical repository. User override: create /tmp/local-build-bypass.";
   return "Direct local builds/tests/linters/dev servers are blocked. For bounded read-only lint or syntax checks, load the safe-local-checks skill and use its managed wrapper. Push and verify everything else with CI. User override: create /tmp/local-build-bypass.";
 }
 

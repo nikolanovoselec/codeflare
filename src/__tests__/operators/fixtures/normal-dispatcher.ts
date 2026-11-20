@@ -49,6 +49,8 @@ type NormalProfileIdentity = {
 export function createNormalDispatcherTransport(options: {
   profile?: NormalProfileIdentity;
   profileTransport?: (request: Request) => Promise<Response | undefined>;
+  dispatchTransport?: (request: Request) => Promise<Response | undefined>;
+  plan?: (input: Record<string, unknown>) => unknown | Promise<unknown>;
 } = {}) {
   const requests: Array<{ path: string; authorization: string | null; body: Record<string, unknown> }> = [];
   const networkRequests: Array<{ url: string; method: string }> = [];
@@ -57,8 +59,10 @@ export function createNormalDispatcherTransport(options: {
   let pendingAcknowledgement: { accepted: () => void; released: Promise<void> } | undefined;
   let nextReadFailure: number | undefined;
   let afterRead: (() => void | Promise<void>) | undefined;
-  let outcome: 'pending' | 'completed' | 'failed' | 'aborted' = 'pending';
+  type Outcome = 'pending' | 'completed' | 'failed' | 'aborted';
+  let outcome: Outcome = 'pending';
   let data: Record<string, unknown[]> = {};
+  const settlements = new Map<string, { outcome: Outcome; data: Record<string, unknown[]> }>();
   let replyPatch: Record<string, unknown> = {};
   let receiptPatch: Record<string, unknown> = {};
   let profileAuthMissing = false;
@@ -86,7 +90,12 @@ export function createNormalDispatcherTransport(options: {
       return Response.json({ selection: { ...identity, profileDigest,
         ...(identity.source === 'managed' ? { routeId: identity.model } : {}) } });
     }
+    // External application decision only; the real Activity must authorize,
+    // persist, dispatch, observe and resume it through public control HTTP.
+    if (path === '/control/plan' && options.plan) return Response.json(await options.plan(body));
     if (path === '/control/dispatch') {
+      const controlled = await options.dispatchTransport?.(request);
+      if (controlled) return controlled;
       const wire = body as NormalDispatch;
       if (!wire.id || !wire.idempotencyKey || wire.uid === null || wire.uid && wire.initialData !== undefined)
         return Response.json({ code: 'invalid-dispatch' }, { status: 400 });
@@ -109,12 +118,14 @@ export function createNormalDispatcherTransport(options: {
       }
       const receipt = [...admissions.values()].find(item => item.receipt.submissionId === (body.receipt as NormalReceipt)?.submissionId)?.receipt;
       if (!receipt) return Response.json({ code: 'unknown-submission' }, { status: 404 });
-      const response = Response.json({ status: outcome, receipt: { ...receipt, ...receiptPatch },
-        ...(outcome === 'pending' ? { reason: 'observation-timeout',
+      const observation = settlements.get(receipt.submissionId) ?? { outcome, data };
+      const response = Response.json({ status: observation.outcome, receipt: { ...receipt, ...receiptPatch },
+        ...(observation.outcome === 'pending' ? { reason: 'observation-timeout',
           ...(cursorObservation ? { observation: { ...(body.observation as Record<string, unknown>),
-            offset: '100_0', ...observationPatch } } : {}) } : outcome === 'completed'
-          ? { reply: { uid: receipt.uid, submissionId: receipt.submissionId, text: '', data, ...replyPatch } }
-          : { submissionId: receipt.submissionId }) }, { status: outcome === 'pending' ? 202 : 200 });
+            offset: '100_0', ...observationPatch } } : {}) } : observation.outcome === 'completed'
+          ? { reply: { uid: receipt.uid, submissionId: receipt.submissionId, text: '', data: observation.data, ...replyPatch } }
+          : { submissionId: receipt.submissionId, ...(observation.outcome === 'failed' ? { data: observation.data, ...replyPatch } : {}) }) },
+        { status: observation.outcome === 'pending' ? 202 : 200 });
       const action = afterRead; afterRead = undefined;
       await action?.();
       return response;
@@ -137,10 +148,17 @@ export function createNormalDispatcherTransport(options: {
     },
     failNextRead: (status: number) => { nextReadFailure = status; },
     afterNextRead: (action: () => void | Promise<void>) => { afterRead = action; },
-    settle: (status: typeof outcome, assessmentData: Array<{ name: string; data: unknown }> = []) => {
+    settle: (status: Outcome, assessmentData: Array<{ name: string; data: unknown }> = []) => {
       outcome = status;
       data = {};
       for (const item of assessmentData) (data[item.name] ??= []).push(item.data);
+    },
+    // Serial application tests settle one exact SDK receipt, not every job.
+    // The legacy settle() behavior remains unchanged for existing fixtures.
+    settleSubmission: (submissionId: string, status: Outcome, assessmentData: Array<{ name: string; data: unknown }> = []) => {
+      const observedData: Record<string, unknown[]> = {};
+      for (const item of assessmentData) (observedData[item.name] ??= []).push(item.data);
+      settlements.set(submissionId, { outcome: status, data: observedData });
     },
     changeReply: (patch: Record<string, unknown>) => { replyPatch = patch; },
     changeReceipt: (patch: Record<string, unknown>) => { receiptPatch = patch; },

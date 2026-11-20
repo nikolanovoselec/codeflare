@@ -19,9 +19,18 @@ const claimsSchema = z.strictObject({
   groups: z.array(z.string().min(1).max(256)).max(1024).optional(),
   issuedAt: z.number().int().nonnegative(), expiresAt: z.number().int().positive(),
 });
+/** Server-issued, original-lifetime scheduling consent; never part of the child projection. */
+export const operatorDelegationSchema = z.strictObject({ version: z.literal(1),
+  routingGroups: z.array(z.string().min(1).max(256)).max(1024) });
+export type OperatorDelegation = z.infer<typeof operatorDelegationSchema>;
+export interface OperatorExecutionAuthority {
+  human: VerifiedHumanAccessClaims;
+  accessJwt: string;
+  delegation?: OperatorDelegation;
+}
 const protectedPayloadSchema = z.strictObject({
   activityId: idSchema, operatorId: idSchema, artifactDigest: digestSchema, policyDigest: digestSchema,
-  human: claimsSchema, accessJwt: z.string().min(1).max(65536),
+  human: claimsSchema, accessJwt: z.string().min(1).max(65536), delegation: operatorDelegationSchema.optional(),
 });
 
 export interface OperatorExecutionContext {
@@ -41,7 +50,8 @@ type ProtectedPayload = z.infer<typeof protectedPayloadSchema>;
 
 function parseCurrentPayload(input: unknown): ProtectedPayload {
   const parsed = protectedPayloadSchema.safeParse(input);
-  if (!parsed.success || parsed.data.human.issuedAt > parsed.data.human.expiresAt
+  if (!parsed.success || parsed.data.delegation !== undefined && !Array.isArray(parsed.data.human.groups)
+    || parsed.data.human.issuedAt > parsed.data.human.expiresAt
     || parsed.data.human.expiresAt * 1000 <= Date.now()
     || new TextEncoder().encode(parsed.data.accessJwt).byteLength > 64 * 1024) {
     throw new ValidationError('Invalid operator execution authority');
@@ -76,7 +86,7 @@ async function decryptPayload(context: OperatorExecutionContext, env: { ENCRYPTI
 /** Capture a currently verified human assertion under the exact activity identity. */
 export async function createOperatorExecutionContext(input: {
   activityId: string; operatorId: string; artifactDigest: string; policyDigest: string;
-  human: VerifiedHumanAccessClaims; accessJwt: string;
+  human: VerifiedHumanAccessClaims; accessJwt: string; delegation?: OperatorDelegation;
 }, env: { ENCRYPTION_KEY?: string }): Promise<OperatorExecutionContext> {
   const payload = parseCurrentPayload(input);
   const protectedAccessCiphertext = await sealOperatorSecret(JSON.stringify(payload), env,
@@ -88,10 +98,11 @@ export async function createOperatorExecutionContext(input: {
 
 /** Reopen the assertion only for an exact, still-current parent-owned activity. */
 export async function openOperatorExecutionAccess(context: OperatorExecutionContext,
-  env: { ENCRYPTION_KEY?: string }): Promise<{ human: VerifiedHumanAccessClaims; accessJwt: string }> {
+  env: { ENCRYPTION_KEY?: string }): Promise<OperatorExecutionAuthority> {
   const payload = await decryptPayload(context, env);
   if (payload.human.expiresAt * 1000 <= Date.now()) throw new ForbiddenError('Human authority expired');
-  return { human: payload.human, accessJwt: payload.accessJwt };
+  return { human: payload.human, accessJwt: payload.accessJwt,
+    ...(payload.delegation ? { delegation: payload.delegation } : {}) };
 }
 
 /** Replace authority only when the same verified human and application reauthenticate. */

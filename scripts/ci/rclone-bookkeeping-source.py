@@ -12,9 +12,11 @@ import tarfile
 import tempfile
 import urllib.request
 
-VERSION = "1.75.2"
+# GitHub-verified signed tag 7172b5fb648701ec1d6f8c257954e16d35750714
+# resolves to commit e982ff36668f5130d94b4f70409babb3d964df42.
+VERSION = "1.76.0"
 ARCHIVE_URL = f"https://codeload.github.com/rclone/rclone/tar.gz/refs/tags/v{VERSION}"
-ARCHIVE_SHA256 = "68afd7f68c84bd978966feae2116339aa7bf454b39c573910c462e87c3774d5a"
+ARCHIVE_SHA256 = "8cb7e5d576fe9a3aef8b1a0785e2ffc6c1953f8ed109f42000b0b86718f6628b"
 MAX_ARCHIVE_BYTES = 64 * 1024 * 1024
 SOURCE_PATHS = (
     "VERSION",
@@ -24,8 +26,9 @@ SOURCE_PATHS = (
     "fs/operations/copy.go",
     "fs/operations/logger.go",
     "fs/operations/multithread.go",
+    "cmd/serve/s3/list.go",
 )
-PATCHED_PATHS = frozenset(SOURCE_PATHS[1:])
+PATCHED_PATHS = frozenset(SOURCE_PATHS[1:-1])
 
 
 def read_archive() -> bytes:
@@ -165,6 +168,21 @@ def main() -> None:
         if (upstream / "VERSION").read_text().strip() != f"v{VERSION}":
             raise ValueError("Pinned rclone source version is not the reviewed version")
         shutil.copytree(upstream, patched)
+        # Exercise the same prepare/restore boundary as the image: the shipped
+        # client must see the exact upstream fixture, not CI pagination edits.
+        backup = Path(directory) / "pager.backup"
+        for action in ("prepare", "restore"):
+            subprocess.run(
+                [sys.executable, str(root / "scripts/prepare-rclone-s3-fixture.py"),
+                 action, str(patched), VERSION, str(backup)],
+                check=True,
+                timeout=5,
+            )
+        if backup.exists() or any(
+            (upstream / relative).read_bytes() != (patched / relative).read_bytes()
+            for relative in SOURCE_PATHS
+        ):
+            raise ValueError("S3 fixture preparation/restoration changed client source")
         subprocess.run(
             [sys.executable, str(root / "scripts/patch-rclone-bisync.py"), str(patched), VERSION],
             check=True,

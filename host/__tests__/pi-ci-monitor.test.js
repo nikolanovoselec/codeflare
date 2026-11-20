@@ -320,26 +320,24 @@ test('REQ-AGENT-068 AC2: empty check rows retry and time out after five minutes 
 });
 
 test('REQ-AGENT-068 AC2: valid check JSON is parsed despite gh exit statuses 1 and 8', async () => {
-  const rows = [check('portable-provider', 'pass')];
-  const { output, github } = await runMonitor({
-    checks: [commandResult(rows, 1), commandResult(rows, 8)],
-  });
-
-  assertResult(output, 'success');
-  assert.equal(github.checkCalls(), 2);
+  for (const exitCode of [1, 8]) {
+    const { output, time } = await runMonitor({ checks: [commandResult([check('portable-provider', 'pass')], exitCode)] });
+    assertResult(output, 'success');
+    assert.equal(time.elapsed(), 0);
+  }
 });
 
-test('REQ-AGENT-068 AC2/AC3: pending checks wait for a stable pass and skipping fingerprint', async () => {
+test('REQ-AGENT-068 AC2/AC3: pending checks finish on the first terminal snapshot', async () => {
   const terminal = [
     check('lint / linux', 'pass', { workflow: 'Buildkite mirror' }),
     check('license scan', 'skipping', { workflow: 'External compliance' }),
   ];
-  const { output, github } = await runMonitor({
-    checks: [[check('lint / linux', 'pending')], terminal, [...terminal].reverse()],
+  const { output, time } = await runMonitor({
+    checks: [[check('lint / linux', 'pending')], terminal],
   });
 
   const lines = assertResult(output, 'success');
-  assert.equal(github.checkCalls(), 3);
+  assert.equal(time.elapsed(), POLL_MS);
   assert.match(output, /name=lint \/ linux/);
   assert.match(output, /workflow=Buildkite mirror/);
   assert.match(output, /name=license scan/);
@@ -354,29 +352,24 @@ test('REQ-AGENT-068 AC3: exact-head checks can settle after the workflow perform
   });
 
   assertResult(output, 'success');
-  assert.equal(time.elapsed(), 240_000);
+  assert.equal(time.elapsed(), 225_000);
 });
 
-test('REQ-AGENT-068 AC3: a changed terminal fingerprint resets the stability requirement', async () => {
-  const first = [check('unit', 'pass')];
-  const changed = [check('unit', 'pass'), check('security', 'pass')];
-  const { output, github } = await runMonitor({ checks: [first, changed, changed] });
-
+test('REQ-AGENT-068 AC3: terminal checks report without an extra polling delay', async () => {
+  const { output, time } = await runMonitor({ checks: [[check('unit', 'pass'), check('security', 'pass')]] });
   assertResult(output, 'success');
-  assert.equal(github.checkCalls(), 3);
+  assert.match(output, /name=security/);
+  assert.equal(time.elapsed(), 0);
 });
 
-test('REQ-AGENT-125 AC1: a failed check waits for all checks and a stable terminal fingerprint', async () => {
+test('REQ-AGENT-125 AC1: a failed check waits only until all observed checks are terminal', async () => {
   const failed = check('CodeQL', 'fail', { workflow: '', state: 'FAILURE' });
   const pending = check('frontend shard', 'pending');
   const terminal = [failed, check('frontend shard', 'pass')];
-  const { output, github, time } = await runMonitor({
-    checks: [[failed, pending], terminal, [...terminal].reverse()],
-  });
+  const { output, time } = await runMonitor({ checks: [[failed, pending], terminal] });
 
   assertResult(output, 'failure');
-  assert.equal(github.checkCalls(), 3);
-  assert.equal(time.sleeps.length, 2);
+  assert.equal(time.elapsed(), POLL_MS);
   assert.match(output, /name=CodeQL/);
   assert.match(output, /workflow= state=FAILURE/);
 });
@@ -385,10 +378,10 @@ test('REQ-AGENT-125 AC1: all failed and cancelled arbitrary providers report tog
   const failed = check('Vendor A / shard 9', 'fail', { workflow: 'Provider Alpha', state: 'FAILURE' });
   const cancelled = check('queue-check', 'cancel', { workflow: 'Provider Beta', state: 'CANCELLED' });
   const terminal = [failed, cancelled];
-  const { output, github } = await runMonitor({ checks: [terminal, [...terminal].reverse()] });
+  const { output, time } = await runMonitor({ checks: [terminal] });
 
   assertResult(output, 'failure');
-  assert.equal(github.checkCalls(), 2);
+  assert.equal(time.elapsed(), 0);
   for (const row of terminal) {
     assert.match(output, new RegExp(`name=${row.name.replace('/', '\\/')}`));
     assert.match(output, new RegExp(`workflow=${row.workflow}`));
@@ -412,7 +405,7 @@ test('REQ-AGENT-090 AC1: one appended head character is corrected only against t
   });
 
   assertResult(output, 'success');
-  assert.equal(github.checkCalls(), 2);
+  assert.equal(time.elapsed(), 0);
 });
 
 test('REQ-AGENT-090 AC2: unrelated malformed heads remain invalid', async () => {
@@ -471,6 +464,8 @@ for (const phase of ['head', 'checks', 'confirmation', 'all']) {
           // External command boundary: consume the execution allowance a hung
           // provider would receive from runCommand, rather than real sleeping.
           await time.sleep(phase === 'all' ? Math.min(options.timeout ?? 60_000, 55_000) : options.timeout ?? 60_000);
+          confirming = false;
+          return commandResult('', 1);
         }
         confirming = false;
         return commandResult({ headRefOid: HEAD });
@@ -478,10 +473,10 @@ for (const phase of ['head', 'checks', 'confirmation', 'all']) {
       if (args.includes('checks')) {
         if (phase === 'checks' || phase === 'all') {
           await time.sleep(phase === 'all' ? Math.min(options.timeout ?? 60_000, 55_000) : options.timeout ?? 60_000);
+          return commandResult('', 1);
         }
         confirming = true;
-        // Realistic changing terminal evidence is not two stable polls.
-        return commandResult([check(`provider-evidence-${time.elapsed()}`, 'pass')]);
+        return commandResult([check('provider-evidence', 'pass')]);
       }
       throw new Error(`unexpected provider command: ${args.join(' ')}`);
     };
@@ -536,14 +531,14 @@ test('REQ-AGENT-068 AC4: a superseded head stops before checks are queried', asy
 test('REQ-AGENT-068 AC4: a superseded head prevents terminal success', async () => {
   const passing = [check('unit', 'pass')];
   const { output, github } = await runMonitor({
-    heads: [HEAD, HEAD, HEAD, NEXT_HEAD],
-    checks: [passing, passing],
+    heads: [HEAD, NEXT_HEAD],
+    checks: [passing],
   });
 
   assertResult(output, 'timeout');
   assert.match(output, /superseded/);
   assert.doesNotMatch(output, /^CI_RESULT success/m);
-  assert.equal(github.checkCalls(), 2);
+  assert.equal(github.checkCalls(), 1);
 });
 
 test('REQ-AGENT-068 AC4/REQ-AGENT-125 AC1: a superseded head prevents terminal failure', async () => {

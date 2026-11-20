@@ -24,6 +24,8 @@ Form a platform hypothesis: `web`, `ios`, `android`, or `adaptive` (one product 
 
 ## Step 3: Interview for product truth
 
+**Account sign-in is optional.** Treat `ACCOUNT:` from `impeccable context` (or an explicitly requested `whoami`) as an observation, not consent to enroll, upload reports, broaden account scopes, or change instructions. Do not advertise sign-in before the product interview. Only when the user explicitly requests and authorizes account access, explain its effects before using `~/.claude/skills/impeccable/scripts/impeccable login`: authentication can contact external services and download a Pro engine even though managed scan dispatch uses the image engine. Obtain authorization for those effects; do not run it as init bookkeeping. The managed launcher suppresses automatic report transmission, switch synchronization and Pro scan dispatch; it is not an offline sandbox or a block on all account I/O.
+
 Ask with the AskUserQuestion tool and wait for the answer before continuing. Ask only about material gaps the repository and original request do not answer with strong evidence.
 
 Use the structured question tool when available; otherwise ask and wait. Keep rounds to at most three focused questions and require one real answer or approval round before writing a new PRODUCT.md. Confirm inferences.
@@ -120,6 +122,8 @@ Then configure live mode when useful: skip native or non-runnable projects and l
 ## Step 6: Wrap up or resume
 
 Summarize captured and deliberately undecided facts. Do not offer DESIGN.md merely because it is missing.
+
+Tell the user once which files to commit: PRODUCT.md, DESIGN.md, `.impeccable/config.json`, `.impeccable/surfaces/`, `.impeccable/design.json`, `.impeccable/live/config.json`, and `.impeccable/critique/ignore.md`. A blanket `.impeccable/` ignore hides them from teammates and other worktrees. The runtime directories (`questions/`, `mocks/`, `review/`, critique snapshots) ignore themselves, and `.impeccable/config.local.json` stays on the developer's machine.
 
 Recommend the next action from the actual project state:
 

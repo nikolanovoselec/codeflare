@@ -627,7 +627,8 @@ function workerJob({action,request:r,sessionInfo}) {
     if(action!=='activation')throw Error('unknown-worker-action');
     const finalFile=join(r.directory,'activation.jsonl');
     const final=stageRanges(r,finalFile,[[fd,0,header],metadata,[fd,cut,stat.size]],stat);
-    if(trimSourceIdentity(fs.lstatSync(r.file))!==trimSourceIdentity(stat)||pathIdentity(r.file)!==stamp)throw Error('source-or-session-changed');
+    if(pathIdentity(r.file)!==stamp)throw Error('source-path-changed');
+    if(trimSourceIdentity(fs.lstatSync(r.file))!==trimSourceIdentity(stat))throw Error('source-changed');
     return {finalFile,sourceIdentity:trimSourceIdentity(stat),pathIdentity:stamp,before:stat.size,bytes:final.bytes,cutPercent,sha256:final.sha256,finalIdentity:trimSourceIdentity(fs.lstatSync(finalFile))};
   }finally{fs.closeSync(fd);}
 }

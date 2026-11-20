@@ -172,7 +172,7 @@ export async function verifyPiClassicSessionStartup({
 
 export function verifyOxlintRuntime({
   path = '/usr/local/bin/oxlint',
-  expectedVersion = '1.90.0',
+  expectedVersion = '1.93.0',
   run = execFileSync,
 } = {}) {
   const output = run(path, ['--version'], { encoding: 'utf8', timeout: 10_000 }).trim();
@@ -287,7 +287,7 @@ export async function verifyNodeTarRuntimes({
     '/usr/local/lib/node_modules/npm/node_modules/tar',
     '/opt/code-server/lib/vscode/node_modules/tar',
   ],
-  expectedVersion = '7.5.22',
+  expectedVersion = '7.5.23',
   expectedVersions = runtimePaths.map(path => path === '/opt/code-server/lib/vscode/node_modules/tar' ? '7.5.22' : expectedVersion),
   temporaryRoot = tmpdir(),
 } = {}) {
@@ -368,7 +368,7 @@ export async function verifyBundledSecurityRuntimes({ bracePaths, runtimeRoot = 
 
 export async function verifyPacoteRuntime({
   runtimePath = '/usr/local/lib/node_modules/npm/node_modules/pacote',
-  expectedVersion = '21.5.2',
+  expectedVersion = '21.5.3',
 } = {}) {
   const manifest = JSON.parse(await readFile(join(runtimePath, 'package.json'), 'utf8'));
   assert.equal(manifest.version, expectedVersion, `${runtimePath} must contain pacote ${expectedVersion}`);
@@ -567,7 +567,7 @@ async function verifyCodeServerRuntime() {
   const requireFromCodeServer = createRequire(join(CODE_SERVER_ROOT, 'package.json'));
   const requireFromGetUri = createRequire(requireFromCodeServer.resolve('get-uri'));
   const basicFtp = requireFromGetUri('basic-ftp');
-  assert.equal(requireFromGetUri('basic-ftp/package.json').version, '6.2.4');
+  assert.equal(requireFromGetUri('basic-ftp/package.json').version, '6.2.6');
   assert.deepEqual(
     basicFtp.parseList('-rw-r--r-- 1 ftp ftp 5 Jan 01 2026 smoke.txt\r\n')
       .map(({ name, size }) => ({ name, size })),
@@ -578,7 +578,7 @@ async function verifyCodeServerRuntime() {
   assert.equal(ftpClient.closed, true);
 
   // Dependency pin contract: exercise the installed redirect overlay, not a runner copy.
-  assert.equal(requireFromCodeServer('follow-redirects/package.json').version, '1.16.2');
+  assert.equal(requireFromCodeServer('follow-redirects/package.json').version, '1.16.3');
   const redirectServer = createServer((request, response) => {
     if (request.url === '/redirect') response.writeHead(302, { Location: '/complete' }).end();
     else response.end('follow-redirects-smoke');

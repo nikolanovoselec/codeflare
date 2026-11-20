@@ -80,6 +80,30 @@ test('REQ-OPERATOR-021: corrupt/missing/linked restored evidence prevents any st
   }
 });
 
+test('REQ-OPERATOR-052 AC5: invalid inline resources leave no staged package input', t => {
+  for (const kind of ['missing', 'oversized', 'escaping', 'linked', 'digest-mismatched']) {
+    const f = fixture(t);
+    const resource = f.resources.files[0];
+    const source = path.join(f.resourceRoot, f.resources.artifactDigest, resource.destination);
+    if (kind === 'missing') rmSync(source);
+    if (kind === 'oversized') resource.size = 1024 * 1024 + 1;
+    if (kind === 'escaping') {
+      f.config.initialization.inputs.find(item => item.kind === 'resource').reference = '../escape.md';
+      resource.destination = '../escape.md';
+    }
+    if (kind === 'linked') {
+      const linkedSource = path.join(f.resourceRoot, 'same-bytes.md');
+      writeFileSync(linkedSource, resource.content);
+      rmSync(source);
+      symlinkSync(linkedSource, source);
+    }
+    if (kind === 'digest-mismatched') resource.sha256 = '0'.repeat(64);
+    assert.throws(() => materializeOperatorInputs(f), /Approved operator input unavailable/);
+    assert.throws(() => readFileSync(path.join(f.work, 'review/input.json')));
+    assert.throws(() => readFileSync(path.join(f.work, 'review/resources/parent.md')));
+  }
+});
+
 test('REQ-OPERATOR-021: forged package resources cannot replace the approved reviewer instructions', t => {
   const f = fixture(t);
   f.resources.files[1].content = 'unapproved';

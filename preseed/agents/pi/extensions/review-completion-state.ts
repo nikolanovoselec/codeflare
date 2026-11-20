@@ -7,12 +7,13 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   rmSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 const VERSION = 1;
 const MAX_MARKERS = 10;
@@ -84,6 +85,23 @@ export function completionPath(identity: ReviewIdentity, root?: string): string 
   return join(branchDirectory(normalized, root), `pr-${normalized.pr}-${normalized.base}-${normalized.head}.json`);
 }
 
+// Refuse symlinked roots and ancestors before reading, creating or pruning.
+// Missing directories are allowed only during preflight for publication.
+function safeDirectory(path: string, allowMissing = false): boolean {
+  const absolute = resolve(path);
+  let current = absolute;
+  while (true) {
+    try {
+      if (!lstatSync(current).isDirectory() || realpathSync(current) !== current) return false;
+    } catch (error) {
+      if (!allowMissing || (error as NodeJS.ErrnoException).code !== "ENOENT") return false;
+    }
+    const parent = dirname(current);
+    if (parent === current) return true;
+    current = parent;
+  }
+}
+
 function regularFile(path: string): boolean {
   try {
     return lstatSync(path).isFile();
@@ -93,7 +111,7 @@ function regularFile(path: string): boolean {
 }
 
 function markerFrom(path: string, now: Date, allowExpired = false): CompletionMarker | undefined {
-  if (!regularFile(path)) return undefined;
+  if (!safeDirectory(dirname(path)) || !regularFile(path)) return undefined;
   try {
     const value = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
     const reviewedAt = typeof value.reviewedAt === "string" ? new Date(value.reviewedAt) : undefined;
@@ -146,6 +164,7 @@ function removeEmpty(path: string): void {
 }
 
 function pruneBranch(path: string, now: Date, root: string): boolean {
+  if (!safeDirectory(path)) return false;
   let changed = false;
   const markers: Array<{ path: string; marker: CompletionMarker }> = [];
   for (const name of safeEntries(path)) {
@@ -181,6 +200,7 @@ function pruneBranch(path: string, now: Date, root: string): boolean {
 
 export function pruneCompletionState(options: PruneOptions = {}): boolean {
   const root = stateRoot(options.root);
+  if (!safeDirectory(root)) return false;
   const now = (options.now ?? (() => new Date()))();
   let changed = false;
   for (const repositoryName of safeEntries(root)) {
@@ -222,6 +242,7 @@ function branchMarkers(identity: ReviewIdentity, options: StoreOptions): Complet
   if (!normalized) return [];
   const now = (options.now ?? (() => new Date()))();
   const directory = branchDirectory(normalized, options.root);
+  if (!safeDirectory(directory)) return [];
   pruneBranch(directory, now, stateRoot(options.root));
   return safeEntries(directory)
     .map((name) => markerFrom(join(directory, name), now))
@@ -233,6 +254,7 @@ export function readCompletion(identity: ReviewIdentity, options: StoreOptions =
   if (!normalized) return { status: "missing" };
   const now = (options.now ?? (() => new Date()))();
   const path = completionPath(normalized, options.root);
+  if (!safeDirectory(dirname(path))) return { status: "missing" };
   const expired = markerFrom(path, now, true);
   if (expired && now.getTime() - Date.parse(expired.reviewedAt) > RETENTION_MS) {
     try {
@@ -280,7 +302,9 @@ export function latestAncestorCompletion(
 }
 
 function publish(path: string, contents: string, now: Date): boolean {
+  if (!safeDirectory(dirname(path), true)) throw new Error("Unsafe review completion directory");
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  if (!safeDirectory(dirname(path))) throw new Error("Unsafe review completion directory");
   chmodSync(dirname(path), 0o700);
   const temporary = join(dirname(path), `.tmp-${process.pid}-${randomUUID()}`);
   try {

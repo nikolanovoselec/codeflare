@@ -10,6 +10,9 @@ import { z } from 'zod';
 import { syncPolicyModeSchema } from './sync-policy';
 import { ManagedResourcePolicySchema } from '../types';
 
+/** REQ-AGENT-029 AC6: omission preserves, null clears, and non-null hints are 32-hex IDs. */
+export const CloudflareOauthAccountIdSchema = z.string().length(32).regex(/^[0-9a-f]{32}$/i).nullable().optional();
+
 export const SetBucketNameBodySchema = z.object({
   bucketName: z.string(),
   sessionId: z.string(),
@@ -23,14 +26,15 @@ export const SetBucketNameBodySchema = z.object({
   workspaceSyncEnabled: z.boolean(),
   syncPolicyMode: syncPolicyModeSchema.optional(),
   fastStartEnabled: z.boolean(),
-  openaiApiKey: z.string().optional(),
-  geminiApiKey: z.string().optional(),
+  openaiApiKey: z.string().nullable().optional(),
+  geminiApiKey: z.string().nullable().optional(),
   // null on any of the three deploy creds is an explicit clear that must
   // propagate to the container so a revoked credential is unset rather than
   // left stale (REQ-AGENT-029 AC2).
   githubToken: z.string().nullable().optional(),
   cloudflareApiToken: z.string().nullable().optional(),
   cloudflareAccountId: z.string().nullable().optional(),
+  cloudflareOauthAccountId: CloudflareOauthAccountIdSchema,
   encryptionKey: z.string().optional(),
   /** REQ-ENTERPRISE-018: Governed Mode — bucket's R2 SSE-C-disabled regime forwarded to the container. */
   r2SseDisabled: z.boolean().optional(),

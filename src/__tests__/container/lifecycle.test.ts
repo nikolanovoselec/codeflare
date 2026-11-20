@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createMockKV } from '../helpers/mock-kv';
 import { createMockSessionD1 } from '../helpers/mock-session-d1';
+import { D1SessionRepository } from '../../lib/session-repository';
+import { FINAL_SYNC_AUDIT_KEY } from '../../container/container-metrics';
 
 // Shared, hoisted call-order log so the mocked base Container can record when
 // super.startAndWaitForPorts() runs relative to interceptOutboundHttps() — used
@@ -507,6 +509,148 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect(instance.idleTimeoutPref).toBe('2h');
     });
 
+    it('REQ-SESSION-008 AC5: same-container restart applies idle timeout, fast-start, and session mode together', async () => {
+      const durable = new Map<string, unknown>([['bucketName', 'existing-bucket'], ['sleepAfter', '1h'], ['fastStartEnabled', true]]);
+      mockStorage.get.mockImplementation(async key => durable.get(key) ?? null);
+      mockStorage.put.mockImplementation(async (key, value) => { durable.set(key, value); });
+      (mockCtx as any).waitUntil = vi.fn();
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => expect(instance.envVars?.R2_BUCKET_NAME).toBe('existing-bucket'));
+      expect(instance.envVars?.FAST_CLI_START).toBe('true');
+      expect(instance.envVars?.SESSION_MODE).toBe('default');
+
+      const response = await instance.fetch(new Request('http://container/_internal/setBucketName', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bucketName: 'existing-bucket', sleepAfter: '2h', fastStartEnabled: false, sessionMode: 'advanced' }),
+      }));
+
+      expect(response.status).toBe(409);
+      expect(instance.idleTimeoutPref).toBe('2h');
+      expect(durable.get('sleepAfter')).toBe('2h');
+      expect(durable.get('fastStartEnabled')).toBe(false);
+      expect(instance.envVars?.FAST_CLI_START).toBe('false');
+      expect(instance.envVars?.SESSION_MODE).toBe('advanced');
+      expect(instance.envVars?.R2_BUCKET_NAME).toBe('existing-bucket');
+    });
+
+    it('REQ-AGENT-031 AC1: warm HTTP restart replaces the emitted environment after explicit key revocation', async () => {
+      mockStorage.get.mockImplementation(async key => key === 'bucketName' ? 'existing-bucket' : null);
+      (mockCtx as any).waitUntil = vi.fn();
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => expect(instance.envVars?.CONTAINER_AUTH_TOKEN).toEqual(expect.any(String)));
+      const post = (keys: Record<string, unknown>) => instance.fetch(new Request('http://container/_internal/setBucketName', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ bucketName: 'existing-bucket', ...keys }),
+      }));
+      expect((await post({ openaiApiKey: 'old-openai', geminiApiKey: 'old-gemini', encryptionKey: 'immutable' })).status).toBe(409);
+      const beforeRevocation = instance.envVars;
+      if (!beforeRevocation) throw new Error('Warm restart did not emit an environment');
+      expect(beforeRevocation.CODEFLARE_OPENAI_API_KEY).toBe('old-openai');
+      expect(beforeRevocation.CODEFLARE_GEMINI_API_KEY).toBe('old-gemini');
+      const auth = beforeRevocation.CONTAINER_AUTH_TOKEN;
+      expect(auth).toEqual(expect.any(String));
+      expect((await post({ openaiApiKey: null, geminiApiKey: null })).status).toBe(409);
+      const afterRevocation = instance.envVars;
+      if (!afterRevocation) throw new Error('Credential revocation did not emit an environment');
+      expect(afterRevocation.CODEFLARE_OPENAI_API_KEY).toBeUndefined();
+      expect(afterRevocation.CODEFLARE_GEMINI_API_KEY).toBeUndefined();
+      expect(afterRevocation.CONTAINER_AUTH_TOKEN).toBe(auth);
+      expect(afterRevocation.ENCRYPTION_KEY).toBe('immutable');
+    });
+
+    it.each(['stopSession', 'killSession'] as const)(
+      'REQ-AGENT-029 AC6: completed authorized %s followed by legacy reuse does not re-emit an old OAuth account', async teardown => {
+        const sessionId = 'abcdef1234567890';
+        const browserAccountA = 'a'.repeat(32);
+        const oauthAccountB = 'b'.repeat(32);
+        sessionKV._set(`session:test-bucket:${sessionId}`, {
+          id: sessionId, userId: 'test-bucket', name: 'OAuth session', status: 'running',
+          lifecycleGeneration: 0, createdAt: '2027-01-01T00:00:00.000Z',
+        });
+        const durable = new Map<string, unknown>([
+          ['bucketName', 'test-bucket'], ['_sessionId', sessionId], ['lifecycleGeneration', 0],
+        ]);
+        mockStorage.get.mockImplementation(async key => durable.get(key) ?? null);
+        mockStorage.put.mockImplementation(async (key, value) => { durable.set(key, value); });
+        mockStorage.delete.mockImplementation(async (keys: string | string[]) => {
+          for (const key of Array.isArray(keys) ? keys : [keys]) durable.delete(key);
+        });
+        mockEnv.CONTAINER = { idFromName: () => ({ toString: () => 'test-do-id-hex' }) };
+        (mockCtx as any).waitUntil = vi.fn();
+        // Do not wait on the SDK running hint; graceful teardown still drains.
+        mockContainerRuntime.running = false;
+        mockTcpPortFetch.mockImplementation(async (url: string) => {
+          if (url.endsWith('/internal/agent-events/drain')) return Response.json({ hostNow: Date.now(), events: [] });
+          if (url.endsWith('/internal/final-sync')) return Response.json({ synced: true });
+          throw new Error('Unexpected teardown request');
+        });
+        const instance = new ContainerClass(mockCtx as any, mockEnv);
+        await vi.waitFor(() => expect(instance.envVars?.CONTAINER_AUTH_TOKEN).toEqual(expect.any(String)));
+        const configure = (body: Record<string, unknown>) => instance.fetch(new Request('http://container/_internal/setBucketName', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ bucketName: 'test-bucket', ...body }),
+        }));
+        expect((await configure({ sessionId, cloudflareAccountId: browserAccountA, cloudflareOauthAccountId: oauthAccountB })).status).toBe(409);
+        expect(instance.envVars?.CLOUDFLARE_OAUTH_ACCOUNT_ID).toBe(oauthAccountB);
+
+        await instance[teardown]({ bucket: 'test-bucket', sessionId, generation: 0 });
+        expect((await new D1SessionRepository(mockEnv.USAGE_DB).getSession('test-bucket', sessionId))?.lifecycleState).toBe('stopped');
+        if (teardown === 'stopSession') expect(durable.get(FINAL_SYNC_AUDIT_KEY)).toMatchObject({ outcome: 'completed' });
+        expect(instance.envVars).not.toHaveProperty('CLOUDFLARE_OAUTH_ACCOUNT_ID');
+
+        // An old sender omits OAuth metadata when this same coordinator is reused.
+        expect((await configure({ cloudflareAccountId: browserAccountA })).status).toBe(200);
+        expect(instance.envVars?.CLOUDFLARE_ACCOUNT_ID).toBe(browserAccountA);
+        expect(instance.envVars).not.toHaveProperty('CLOUDFLARE_OAUTH_ACCOUNT_ID');
+      },
+    );
+
+    it.each(['delete', 'transaction'] as const)('REQ-SESSION-009: rejected KILL %s revokes warm credentials and keeps the termination claim retryable', async failure => {
+      mockStorage.get.mockImplementation(async key => key === 'bucketName' ? 'test-bucket' : null);
+      mockEnv.CONTAINER = { idFromName: () => ({ toString: () => 'test-do-id-hex' }) };
+      (mockCtx as any).waitUntil = vi.fn();
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => expect(instance.envVars?.CONTAINER_AUTH_TOKEN).toEqual(expect.any(String)));
+      const warm = instance as any;
+      warm._openaiApiKey = 'old-secret'; warm._containerAuthToken = 'old-auth';
+      warm.envVars = { CODEFLARE_OPENAI_API_KEY: 'old-secret' };
+      mockStorage[failure].mockRejectedValueOnce(new Error('persistent deletion unavailable'));
+      mockStorage.get.mockImplementation(async key => key === 'lifecycleGeneration' ? 0 : null);
+      await expect(instance.killSession({ bucket: 'test-bucket', sessionId: 'sess123', generation: 0 })).rejects.toThrow('persistent deletion unavailable');
+      expect(warm._openaiApiKey).toBeNull(); expect(warm._containerAuthToken).toBeNull();
+      expect(warm.envVars).toEqual({});
+      const retained = await sessionKV.get('session:test-bucket:sess123', 'json') as any;
+      expect(retained.status).toBe('stopping');
+      expect(retained.terminationIntentId).toEqual(expect.any(String));
+      expect(retained.terminationGeneration).toBe(0);
+    });
+
+    it('REQ-SESSION-009: deletion rejection clears warm secrets but retains durable retry authority and reports failure', async () => {
+      const durable = new Map<string, unknown>([['bucketName', 'test-bucket'], ['_sessionId', 'sess123'], ['containerAuthToken', 'old-auth'], ['lifecycleGeneration', 7]]);
+      mockStorage.get.mockImplementation(async key => durable.get(key) ?? null);
+      mockStorage.put.mockImplementation(async (key, value) => { durable.set(key, value); });
+      mockStorage.delete.mockImplementation(async key => {
+        if (key === 'bucketName') throw new Error('persistent deletion unavailable');
+        durable.delete(key);
+      });
+      mockContainerRuntime.running = false;
+      mockTcpPortFetch.mockResolvedValue(new Response('{}'));
+      (mockCtx as any).waitUntil = vi.fn();
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => expect(instance.envVars?.CONTAINER_AUTH_TOKEN).toEqual(expect.any(String)));
+      const warm = instance as any;
+      for (const key of ['_openaiApiKey', '_geminiApiKey', '_githubToken', '_cloudflareApiToken', '_encryptionKey', '_r2SecretAccessKey']) warm[key] = 'old-secret';
+      warm.envVars = { CODEFLARE_OPENAI_API_KEY: 'old-secret', ENCRYPTION_KEY: 'old-secret' };
+      await expect(instance.destroy()).rejects.toThrow('Operational storage cleanup incomplete');
+      expect(warm.envVars).toEqual({});
+      for (const key of ['_openaiApiKey', '_geminiApiKey', '_githubToken', '_cloudflareApiToken', '_encryptionKey', '_r2SecretAccessKey', '_containerAuthToken', '_bucketName', '_sessionId']) expect(warm[key]).toBeNull();
+      expect(durable.get('lifecycleGeneration')).toBe(7);
+      expect(durable.get('shutdownRequested')).toBeDefined();
+      // A retry still reaches the owning persistent cleanup, rather than certifying it completed.
+      mockStorage.delete.mockImplementation(async key => { durable.delete(key); });
+      await instance.destroy();
+      expect(durable.has('bucketName')).toBe(false);
+    });
+
     it('REQ-SESSION-032 AC1/AC4-AC5: destroy preserves credentials, drains before sync, and clears storage', async () => {
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'bucketName') return 'test-bucket';
@@ -541,6 +685,62 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       const eventCall = calls[eventIndex]!;
       expect((eventCall.init!.headers as Record<string, string>).Authorization).toBe('Bearer destroy-agent-token');
       expect(JSON.parse(eventCall.init!.body as string)).toEqual({ ackEventIds: [], final: true });
+    });
+
+    it('REQ-SESSION-032 AC5: event delivery consumes teardown time but leaves the full final-sync window', async () => {
+      const durable = new Map<string, unknown>([
+        ['bucketName', 'test-bucket'], ['_sessionId', 'sess123'], ['containerAuthToken', 'destroy-agent-token'],
+      ]);
+      mockStorage.get.mockImplementation(async key => durable.get(key) ?? null);
+      mockStorage.put.mockImplementation(async (key, value) => { durable.set(key, value); });
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => expect(instance.envVars?.CONTAINER_AUTH_TOKEN).toBe('destroy-agent-token'));
+      let syncStartedAt: number | undefined;
+      let stoppedAt: number | undefined;
+      let settled = false;
+      vi.spyOn(instance, 'stop').mockImplementation(async () => {
+        stoppedAt = Date.now();
+        mockContainerRuntime.running = false;
+      });
+      vi.useFakeTimers();
+      vi.setSystemTime(1_800_000_000_000);
+      // Bind the platform abort clock to the same virtual time as destroy's deadline.
+      const abortClock = vi.spyOn(AbortSignal, 'timeout').mockImplementation(ms => {
+        const controller = new AbortController();
+        setTimeout(() => controller.abort(), ms);
+        return controller.signal;
+      });
+      const startedAt = Date.now();
+      mockTcpPortFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+        if (url.endsWith('/internal/agent-events/drain')) {
+          await new Promise(resolve => setTimeout(resolve, 9_000));
+          return Response.json({ hostNow: Date.now(), events: [] });
+        }
+        if (url.endsWith('/internal/final-sync')) {
+          syncStartedAt = Date.now();
+          return new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () => reject(new Error('sync deadline reached')), { once: true });
+          });
+        }
+        throw new Error(`Unexpected teardown request: ${url}`);
+      });
+      try {
+        const pending = instance.destroy().then(() => { settled = true; });
+        await vi.advanceTimersByTimeAsync(9_000);
+        expect(syncStartedAt).toBe(startedAt + 9_000);
+        await vi.advanceTimersByTimeAsync(119_999);
+        expect(settled).toBe(false);
+        expect(stoppedAt).toBeUndefined();
+        await vi.advanceTimersByTimeAsync(1);
+        expect(settled).toBe(true);
+        await pending;
+        expect(stoppedAt).toBe(startedAt + 129_000);
+        expect(durable.get(FINAL_SYNC_AUDIT_KEY)).toMatchObject({ outcome: 'errored', reason: 'final-sync-failed', at: startedAt + 129_000 });
+      } finally {
+        abortClock.mockRestore();
+        vi.restoreAllMocks();
+        vi.useRealTimers();
+      }
     });
 
     it('does not persist invalid values from setBucketName', async () => {

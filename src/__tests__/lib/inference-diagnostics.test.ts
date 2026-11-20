@@ -71,3 +71,24 @@ describe('REQ-OPERATOR-079: bounded response tool observations', () => {
     expect(logs).toEqual([]);
   });
 });
+
+describe('REQ-ENTERPRISE-079 AC2: raw request observation confidentiality', () => {
+  it('redacts signed/private replay from stringified gateway bodies without changing transmitted bytes', async () => {
+    const payload = { messages: [{ role: 'assistant', content: [
+      { type: 'thinking', thinking: 'PRIVATE_REQUEST_THINKING', signature: 'PRIVATE_REQUEST_SIGNATURE' },
+      { type: 'redacted_thinking', data: 'PRIVATE_REQUEST_REDACTED' },
+      { type: 'text', text: 'KEEP_PUBLIC_TEXT' },
+    ] }] };
+    const body = JSON.stringify(payload);
+    const request = new Request('https://gateway.example.test', { method: 'POST', body });
+    const logs = capture();
+    inferenceDiagnostic({ activityId: 'activity', generation: 1, loggingEnabled: true },
+      { stage: 'native-request', outcome: 'completed' }, () => ({ body }));
+    const raw = logs.map(line => JSON.parse(line)).filter(record => record.module === 'operator-execution');
+    expect(raw.length).toBeGreaterThan(0);
+    expect(JSON.stringify(raw)).not.toMatch(/PRIVATE_REQUEST_THINKING|PRIVATE_REQUEST_SIGNATURE|PRIVATE_REQUEST_REDACTED/);
+    expect(JSON.stringify(raw)).toContain('KEEP_PUBLIC_TEXT');
+    expect(await request.text()).toBe(body);
+    expect(payload.messages[0].content[0].thinking).toBe('PRIVATE_REQUEST_THINKING');
+  });
+});

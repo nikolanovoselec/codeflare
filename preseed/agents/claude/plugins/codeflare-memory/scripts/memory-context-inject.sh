@@ -62,20 +62,13 @@ KEYWORDS=$(printf '%s' "$PROMPT_TEXT" | head -c 200 \
 # operator-chosen ceiling: ~320MB resident by that ratio, which the container
 # carries, against a graph that grows with the vault and every indexed repo.
 #
-# An override is rejected unless it is a plausible byte count. A non-numeric one
-# would make the comparison exit 2 and, under `set +e`, carry on; an all-digit
-# but out-of-range one fails the same way with the error swallowed. Both leave a
-# guard that reads as present and does nothing. The second pattern is eighteen
-# `?` and so rejects 18 digits or more. `test -gt` compares 64-bit integers,
-# whose maximum is nineteen digits, so this is deliberately conservative: it
-# rejects on length alone rather than inspecting the leading digit, and no
-# plausible byte count comes near either bound.
+# Same override domain as Pi: positive decimal bytes, at most 1 GiB.
+# Reject before arithmetic so huge/unsafe integers cannot void the guard.
 MAX_GRAPH_BYTES="${MEMORY_INJECT_MAX_GRAPH_BYTES:-104857600}"
 MAX_RENDERED_BYTES=4096
-case "$MAX_GRAPH_BYTES" in
-  ''|*[!0-9]*) MAX_GRAPH_BYTES=104857600 ;;
-  ??????????????????*) MAX_GRAPH_BYTES=104857600 ;;
-esac
+if [[ ! "$MAX_GRAPH_BYTES" =~ ^[1-9][0-9]{0,9}$ ]] || [[ "$MAX_GRAPH_BYTES" -gt 1073741824 ]]; then
+    MAX_GRAPH_BYTES=104857600
+fi
 
 # The unified graph is the only source. There is deliberately no per-repo
 # fallback: at the start of a session - the only moment this runs - no repo graph

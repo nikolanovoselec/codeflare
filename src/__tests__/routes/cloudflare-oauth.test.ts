@@ -21,13 +21,14 @@ vi.stubGlobal('fetch', mockFetch);
 
 import cloudflareRoutes from '../../routes/cloudflare';
 import cloudflareAuthRoutes from '../../routes/cloudflare-auth';
+import { authenticateRequest } from '../../lib/access';
 import { signOauthState } from '../../lib/oauth-state';
 import { SETUP_KEYS } from '../../lib/kv-keys';
 
 const KEY = 'deploy-keys:test-bucket';
 const STATE_SECRET = 'state-secret';
 /** Plain non-enterprise, non-advanced env (the decoupled-gate case). */
-const BASE_ENV: Partial<Env> = { OAUTH_JWT_SECRET: STATE_SECRET };
+const DEFAULT_ENV: Partial<Env> = { OAUTH_JWT_SECRET: STATE_SECRET };
 
 let mockKV: ReturnType<typeof createMockKV>;
 
@@ -56,7 +57,16 @@ function configureClient() {
 beforeEach(() => {
   vi.clearAllMocks();
   mockKV = createMockKV();
+  vi.mocked(authenticateRequest).mockResolvedValue({
+    user: { email: 'u@example.com', authenticated: true, role: 'user' },
+    bucketName: 'test-bucket',
+  });
 });
+
+describe.each([
+  ['default', {}], ['enterprise', { ENTERPRISE_MODE: 'active' }],
+] as const)('REQ-AGENT-064: %s owner OAuth lifecycle', (_mode, overrides) => {
+  const BASE_ENV: Partial<Env> = { ...DEFAULT_ENV, ...overrides };
 
 // ─── GET /connect (NOT tier-gated — the decoupling invariant) ────────────────
 
@@ -104,6 +114,14 @@ describe('GET /api/cloudflare/status', () => {
     const body = await (await createTestApp(BASE_ENV).request('/api/cloudflare/status')).json() as Record<string, unknown>;
     expect(body.configured).toBe(false);
     expect(body.connected).toBe(false);
+  });
+
+  it('reports configured but not connected until this owner grants access', async () => {
+    configureClient();
+    mockKV._set('deploy-keys:foreign-bucket', { cloudflareApiToken: 'foreign-token', cloudflareAccountId: 'foreign-account' });
+    const response = await createTestApp(BASE_ENV).request('/api/cloudflare/status');
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ configured: true, connected: false });
   });
 
   it('reports connected + accountId + source when a token with an account exists', async () => {
@@ -177,6 +195,8 @@ describe('GET /auth/cloudflare/connect/callback', () => {
   it('exchanges the code, stores an oauth token + auto-selected account, redirects connected', async () => {
     configureClient();
     const state = await validState();
+    mockKV._set('deploy-keys:foreign-bucket', { cloudflareApiToken: 'foreign-existing' });
+    const foreign = await mockKV.get('deploy-keys:foreign-bucket');
     mockFetch
       .mockResolvedValueOnce(ok({ access_token: 'cf_t', refresh_token: 'cf_r', expires_in: 3_600 }))
       .mockResolvedValueOnce(ok({ success: true, result: [{ id: 'only', name: 'Only' }] }));
@@ -191,6 +211,8 @@ describe('GET /auth/cloudflare/connect/callback', () => {
     expect(raw.cloudflareApiToken).toBe('cf_t');
     expect(raw.cloudflareTokenSource).toBe('oauth');
     expect(raw.cloudflareAccountId).toBe('only');
+    expect(raw.cloudflareRefreshToken).toBe('cf_r');
+    expect(await mockKV.get('deploy-keys:foreign-bucket')).toBe(foreign);
   });
 
   it('redirects to account selection when several accounts are accessible', async () => {
@@ -205,6 +227,80 @@ describe('GET /auth/cloudflare/connect/callback', () => {
     );
 
     expect(res.headers.get('location')).toContain('cloudflare=select-account');
+  });
+
+  it.each([
+    ['b', 'connected', 'b'],
+    ['inaccessible', 'select-account', undefined],
+  ] as const)('REQ-AGENT-064 AC3: reauthorization routes and reports the account for a prior selection of %s', async (previous, outcome, selected) => {
+    configureClient();
+    const state = await validState();
+    const accounts = [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }];
+    const replacementAccounts = (url: string, init: RequestInit) => {
+      if (new Headers(init.headers).get('Authorization') !== 'Bearer replacement') return { ok: false, status: 403 };
+      const page = Number(new URL(url).searchParams.get('page') ?? '1');
+      return ok({ success: true, result: [accounts[page - 1]],
+        result_info: { page, per_page: 1, count: 1, total_count: accounts.length } });
+    };
+    mockKV._set(KEY, { cloudflareApiToken: 'old-token', cloudflareTokenSource: 'oauth', cloudflareAccountId: previous } satisfies DeployKeys);
+    mockFetch
+      .mockResolvedValueOnce(ok({ access_token: 'replacement', refresh_token: 'new-refresh', expires_in: 3_600 }))
+      .mockImplementationOnce(replacementAccounts).mockImplementationOnce(replacementAccounts);
+    const app = createTestApp(BASE_ENV);
+    const callback = await app.request(`/auth/cloudflare/connect/callback?code=abc&state=${encodeURIComponent(state)}`);
+    expect(callback.status).toBe(302);
+    expect(callback.headers.get('location')).toContain(`cloudflare=${outcome}`);
+
+    if (!selected) mockFetch.mockImplementationOnce(replacementAccounts).mockImplementationOnce(replacementAccounts);
+    const status = await app.request('/api/cloudflare/status');
+    expect(status.status).toBe(200);
+    const connected = { configured: true, connected: true, source: 'oauth' };
+    expect(await status.json()).toEqual(selected ? { ...connected, accountId: selected } : { ...connected, accounts });
+
+    mockFetch.mockImplementationOnce(replacementAccounts).mockImplementationOnce(replacementAccounts);
+    const accountId = selected ?? 'b';
+    const pick = await app.request('/api/cloudflare/account', { method: 'POST',
+      headers: { 'content-type': 'application/json' }, body: JSON.stringify({ accountId }) });
+    expect(pick.status).toBe(200);
+    expect(await (await app.request('/api/cloudflare/status')).json()).toEqual({ ...connected, accountId });
+  });
+
+  it.each([
+    ['an unavailable lookup', 'error', [{ ok: false, status: 503 }]],
+    ['an incomplete account list', 'error', [
+      ok({ success: true, result: [{ id: 'a', name: 'A' }], result_info: { page: 1, per_page: 1, total_count: 2 } }),
+      ok({ success: true, result: [], result_info: { page: 2, per_page: 1, total_count: 2 } }),
+    ]],
+    ['pagination without a completion bound', 'error', [
+      ok({ success: true, result: [{ id: 'a', name: 'A' }], result_info: { page: 1, count: 1 } }),
+    ]],
+    ['page lengths that add up but do not match the page size', 'error', [
+      ok({ success: true, result: [{ id: 'a', name: 'A' }], result_info: { page: 1, per_page: 2, total_count: 3 } }),
+      ok({ success: true, result: [{ id: 'b', name: 'B' }, { id: 'c', name: 'C' }], result_info: { page: 2, per_page: 2, total_count: 3 } }),
+    ]],
+    ['no accessible accounts', 'no-accounts', [ok({ success: true, result: [] })]],
+  ] as const)('REQ-AGENT-239 AC2/3: %s leaves the existing grant usable', async (_scenario, outcome, pages) => {
+    configureClient();
+    mockKV._set(KEY, { cloudflareApiToken: 'old-token', cloudflareTokenSource: 'oauth', cloudflareAccountId: 'old-account' } satisfies DeployKeys);
+    mockFetch.mockResolvedValueOnce(ok({ access_token: 'replacement', refresh_token: 'new-refresh', expires_in: 3_600 }));
+    for (const page of pages) mockFetch.mockResolvedValueOnce(page);
+    const app = createTestApp(BASE_ENV);
+    const state = await validState();
+    const callback = await app.request(`/auth/cloudflare/connect/callback?code=abc&state=${encodeURIComponent(state)}`);
+    mockFetch.mockReset(); // A rejected first page leaves later responses unused.
+    expect(callback.status).toBe(302);
+    expect(new URL(callback.headers.get('location')!).searchParams.get('cloudflare')).toBe(outcome);
+    expect(await (await app.request('/api/cloudflare/status')).json()).toEqual({
+      configured: true, connected: true, source: 'oauth', accountId: 'old-account',
+    });
+
+    mockFetch.mockImplementationOnce((_url: string, init: RequestInit) =>
+      new Headers(init.headers).get('Authorization') === 'Bearer old-token'
+        ? ok({ success: true, result: [{ id: 'old-account', name: 'Old account' }] })
+        : { ok: false, status: 403 });
+    const pick = await app.request('/api/cloudflare/account', { method: 'POST',
+      headers: { 'content-type': 'application/json' }, body: JSON.stringify({ accountId: 'old-account' }) });
+    expect(pick.status).toBe(200);
   });
 
   it('redirects expired on an invalid state and never exchanges a code', async () => {
@@ -230,6 +326,31 @@ describe('GET /auth/cloudflare/connect/callback', () => {
     expect(res.headers.get('location')).toContain('cloudflare=unavailable');
   });
 
+  it.each(['foreign-owner', 'unbound', 'expired', 'missing-session'] as const)(
+    'rejects %s callback without exchanging or changing either owner grant', async rejection => {
+      configureClient();
+      mockKV._set(KEY, { cloudflareApiToken: 'owner-existing', cloudflareAccountId: 'owner-account' });
+      mockKV._set('deploy-keys:foreign-bucket', { cloudflareApiToken: 'foreign-existing' });
+      let state: string;
+      if (rejection === 'expired') {
+        const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() - 1_801_000);
+        try { state = await validState(); } finally { clock.mockRestore(); }
+      } else {
+        state = await signOauthState(STATE_SECRET, rejection === 'unbound' ? undefined
+          : rejection === 'foreign-owner' ? 'foreign-bucket' : 'test-bucket');
+      }
+      if (rejection === 'missing-session') vi.mocked(authenticateRequest).mockRejectedValueOnce(new Error('session expired'));
+      const before = [await mockKV.get(KEY), await mockKV.get('deploy-keys:foreign-bucket')];
+      const res = await createTestApp(BASE_ENV).request(
+        `/auth/cloudflare/connect/callback?code=abc&state=${encodeURIComponent(state)}`,
+      );
+      expect(res.status).toBe(302);
+      expect(res.headers.get('location')).toContain(rejection === 'missing-session' ? 'error=session-expired' : 'cloudflare=expired');
+      expect(mockFetch).not.toHaveBeenCalled();
+      expect([await mockKV.get(KEY), await mockKV.get('deploy-keys:foreign-bucket')]).toEqual(before);
+    },
+  );
+
   it('rejects a replayed state (single-use nonce) on the second redemption', async () => {
     configureClient();
     const state = await validState();
@@ -241,7 +362,43 @@ describe('GET /auth/cloudflare/connect/callback', () => {
     const first = await app.request(`/auth/cloudflare/connect/callback?code=abc&state=${encodeURIComponent(state)}`);
     expect(first.headers.get('location')).toContain('cloudflare=connected');
 
+    const grant = await mockKV.get(KEY);
+    mockFetch.mockClear();
     const second = await app.request(`/auth/cloudflare/connect/callback?code=abc&state=${encodeURIComponent(state)}`);
     expect(second.headers.get('location')).toContain('cloudflare=expired');
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(await mockKV.get(KEY)).toBe(grant);
   });
+});
+
+  it('keeps status, account selection and disconnect confined to the authenticated owner', async () => {
+    configureClient();
+    mockKV._set(KEY, { cloudflareApiToken: 'owner-token', cloudflareTokenSource: 'oauth', cloudflareRefreshToken: 'owner-refresh' });
+    mockKV._set('deploy-keys:foreign-bucket', { cloudflareApiToken: 'foreign-token', cloudflareAccountId: 'foreign-account' });
+    mockKV._set(SETUP_KEYS.BROWSER_RENDER_TOKEN, { token: 'admin-browser-secret' });
+    const foreign = await mockKV.get('deploy-keys:foreign-bucket');
+    const browser = await mockKV.get(SETUP_KEYS.BROWSER_RENDER_TOKEN);
+    const app = createTestApp(BASE_ENV);
+    mockFetch.mockResolvedValue(ok({ success: true, result: [{ id: 'owner-account', name: 'Owner' }] }));
+    const status = await app.request('/api/cloudflare/status');
+    expect(status.status).toBe(200);
+    const statusText = await status.text();
+    expect(JSON.parse(statusText)).toMatchObject({ configured: true, connected: true, accounts: [{ id: 'owner-account', name: 'Owner' }] });
+    for (const secret of ['owner-token', 'owner-refresh', 'foreign-token', 'admin-browser-secret', 'cf-sec']) expect(statusText).not.toContain(secret);
+    const select = (accountId: string) => app.request('/api/cloudflare/account', { method: 'POST',
+      headers: { 'content-type': 'application/json' }, body: JSON.stringify({ accountId }) });
+    expect((await select('foreign-account')).status).toBe(400);
+    expect(((await mockKV.get(KEY, 'json')) as DeployKeys).cloudflareAccountId).toBeUndefined();
+    expect((await select('owner-account')).status).toBe(200);
+    expect(((await mockKV.get(KEY, 'json')) as DeployKeys).cloudflareAccountId).toBe('owner-account');
+    expect((mockFetch.mock.calls[0][1] as RequestInit).headers).toMatchObject({ Authorization: 'Bearer owner-token' });
+    mockFetch.mockResolvedValueOnce(ok({}));
+    expect((await app.request('/api/cloudflare/disconnect', { method: 'POST' })).status).toBe(200);
+    const revoke = mockFetch.mock.calls.find(([url]) => String(url).endsWith('/oauth2/revoke'))!;
+    expect(new URLSearchParams((revoke[1] as RequestInit).body as string).get('token')).toBe('owner-refresh');
+    expect(await mockKV.get(KEY)).toBeNull();
+    expect(await mockKV.get('deploy-keys:foreign-bucket')).toBe(foreign);
+    expect(await mockKV.get(SETUP_KEYS.BROWSER_RENDER_TOKEN)).toBe(browser);
+  });
+
 });

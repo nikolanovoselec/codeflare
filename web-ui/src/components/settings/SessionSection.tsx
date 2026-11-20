@@ -30,6 +30,8 @@ interface SessionSectionProps {
   notificationPermission: Accessor<AgentNotificationEnablement>;
   notificationAvailable: Accessor<boolean>;
   notificationEnabled?: Accessor<boolean>;
+  notificationPending?: Accessor<'enable' | 'disable' | null>;
+  notificationError?: Accessor<string | null>;
   sleepAfter: Accessor<string>;
   canChangeSleepAfter: Accessor<boolean>;
   isFreeUser: Accessor<boolean>;
@@ -55,6 +57,21 @@ interface SessionSectionProps {
 const SessionSection: Component<SessionSectionProps> = (props) => {
   const notificationEnabled = () => props.notificationEnabled?.()
     ?? props.notificationPermission() === 'granted';
+  const notificationNeedsInstall = () => (props.notificationPermission() === 'unavailable'
+    || Boolean(props.notificationError?.())) && needsHomeScreenInstallForNotifications();
+  const notificationStatus = () => {
+    if (props.notificationPending?.()) {
+      return props.notificationPending() === 'enable' ? 'Enabling notifications…' : 'Disabling notifications…';
+    }
+    if (props.notificationPermission() === 'denied') return 'Blocked in browser site settings';
+    if (notificationNeedsInstall()) {
+      return 'On iOS, add Codeflare to your Home Screen (Share → Add to Home Screen), then enable notifications here.';
+    }
+    if (props.notificationError?.()) return props.notificationError();
+    if (notificationEnabled()) return 'Enabled for this device';
+    if (props.notificationPermission() === 'unavailable') return 'Unavailable in this browser';
+    return 'Notify when Pi or Claude needs input or every Herdr agent stays ready for ten minutes.';
+  };
 
   return (
     <>
@@ -235,6 +252,9 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
               id="settings-agent-notifications"
               class={`toggle ${notificationEnabled() ? 'toggle-on' : ''}`}
               onClick={props.onEnableAgentNotifications}
+              disabled={Boolean(props.notificationPending?.())}
+              aria-busy={Boolean(props.notificationPending?.())}
+              aria-describedby="settings-agent-notifications-status"
               role="switch"
               aria-checked={notificationEnabled()}
               data-testid="settings-agent-notifications"
@@ -245,19 +265,12 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
           <div class="setting-row setting-row--column-gap">
             <span
               class="settings-hint type-hint"
+              id="settings-agent-notifications-status"
+              role="status"
               data-testid="settings-agent-notifications-status"
-              data-guidance={props.notificationPermission() === 'unavailable'
-                && needsHomeScreenInstallForNotifications() ? 'ios-install' : undefined}
+              data-guidance={notificationNeedsInstall() ? 'ios-install' : undefined}
             >
-              {notificationEnabled()
-                ? 'Enabled for this device'
-                : props.notificationPermission() === 'denied'
-                  ? 'Blocked in browser site settings'
-                  : props.notificationPermission() === 'unavailable'
-                    ? (needsHomeScreenInstallForNotifications()
-                      ? 'On iOS, add Codeflare to your Home Screen (Share → Add to Home Screen), then enable notifications here.'
-                      : 'Unavailable in this browser')
-                    : 'Notify when Pi or Claude needs input or every Herdr agent stays ready for ten minutes.'}
+              {notificationStatus()}
             </span>
           </div>
         </section>

@@ -1,3 +1,5 @@
+import { isPrivateManagedPath } from './ci/coding-agent-selection-core.mjs';
+
 /** Fixed seed-v1 trust-boundary limits shared by the release compiler and Worker. */
 export const MANAGED_RELEASE_CONTENT_TYPES = Object.freeze([
   'text/markdown; charset=utf-8',
@@ -78,6 +80,7 @@ export function isManagedReleaseContextModePath(value) {
 
 export function validateManagedReleasePath(value, label = 'managed release path') {
   const releasePath = validatePathStructure(value, label);
+  if (isPrivateManagedPath(releasePath)) throw new Error(`${label} is private user-owned state: ${releasePath}`);
   if (!MANAGED_RELEASE_PATH_PREFIXES.some((prefix) => releasePath.startsWith(prefix))) {
     throw new Error(`${label} is outside the supported managed path roots: ${releasePath}`);
   }
@@ -96,6 +99,7 @@ export function validateManagedReleasePath(value, label = 'managed release path'
 
 export function validateManagedRetiredPath(value, label = 'managed retired path') {
   const releasePath = validatePathStructure(value, label);
+  if (isPrivateManagedPath(releasePath)) throw new Error(`${label} is private user-owned state: ${releasePath}`);
   if (!MANAGED_RETIRED_PATH_PREFIXES.some((prefix) => releasePath.startsWith(prefix))) {
     throw new Error(`${label} is outside the supported managed retired path roots: ${releasePath}`);
   }

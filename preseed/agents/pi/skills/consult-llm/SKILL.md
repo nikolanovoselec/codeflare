@@ -61,7 +61,7 @@ If the log can't be read, say exact model discovery is unavailable this session 
 ## Examples
 
 - "consult llms whether we should use KV or D1 for session storage" → no model named → show the dialog → on **Latest OpenAI**, call the discovered direct consult tool with `model: "openai"` and `task_mode: "plan"`.
-- "ask Gemini to review the auth middleware" → provider named, no specific model → call the discovered direct consult tool with `model: "gemini"`, `task_mode: "review"`, and relevant `files`.
+- "ask Gemini to review the auth middleware" → provider named, no specific model → show the model-selection dialog once → if the user chooses **Latest Google (Gemini)**, call the discovered direct consult tool with `model: "gemini"`, `task_mode: "review"`, and relevant `files`.
 - "ask gpt-5.5 about this approach" → exact model named → call the discovered direct consult tool with `model: "gpt-5.5"` and `task_mode: "general"`.
 
 ## Troubleshooting

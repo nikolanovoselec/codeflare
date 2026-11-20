@@ -23,6 +23,6 @@ Never launch reviewers manually unless the user explicitly requests reviewer lau
 
 Only execute a boundary plan when it appears in a later turn. Start reviewers together, start included exact-head CI next, then end. Never poll or duplicate. Interrupted work starts a fresh round on later exposure.
 
-After terminal review and CI results, publish mutation-free canonical triage. Verify evidence and scope, judge findings separately, and choose the smallest correction. Record completion before FIX regardless of CI result; root applies accepted fixes.
+After terminal review and CI results, publish mutation-free canonical triage. Verify evidence and scope, judge findings separately, and choose the smallest correction. Record completion before FIX regardless of CI result; root applies accepted fixes. When accepted file changes exist, root commits and pushes without renewed consent; never create an empty/no-op commit.
 
 Never read, write, migrate, or delete legacy `.git/sdd-review-*` state. Never merge automatically.

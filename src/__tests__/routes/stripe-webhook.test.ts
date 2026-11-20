@@ -36,8 +36,8 @@ vi.mock('../../lib/stripe', async (importOriginal) => ({
 // Mock r2-seed, r2-config, email, access-policy for auto-recreate + admin notification
 const { mockReconcileAgentConfigs, mockSendAdminNotification, mockSendSubscriptionEmail } = vi.hoisted(() => ({
   mockReconcileAgentConfigs: vi.fn(async () => ({ written: [], skipped: [], deleted: [], warnings: [] })),
-  mockSendAdminNotification: vi.fn(async () => true),
-  mockSendSubscriptionEmail: vi.fn(async () => true),
+  mockSendAdminNotification: vi.fn(async (_options: Record<string, unknown>) => true),
+  mockSendSubscriptionEmail: vi.fn(async (_options: Record<string, unknown>) => true),
 }));
 vi.mock('../../lib/r2-seed', () => ({ reconcileAgentConfigs: mockReconcileAgentConfigs }));
 vi.mock('../../lib/r2-config', () => ({ getR2Config: vi.fn(async () => ({ accountId: 'test-account', endpoint: 'https://r2.test' })) }));
@@ -289,7 +289,86 @@ describe('handleCheckoutCompleted / REQ-SUB-005 (Stripe webhook syncs subscripti
     expect(user.subscribedMode).toBe('advanced');
   });
 
-  it('returns 200 and writes checkout fields even when fetchSubscription returns null', async () => {
+  it('REQ-SUB-004 AC7: stale duplicate plus newer provider failure leaves checkout retryable until an apply succeeds', async () => {
+    const body = JSON.stringify({ id: 'evt_concurrent_checkout', type: 'checkout.session.completed', data: { object: {
+      id: 'cs_concurrent', created: 1700000000, customer: 'cus_concurrent', subscription: 'sub_concurrent', metadata: { email: 'concurrent@example.com' },
+    } } });
+    const snapshot = mockSubscriptionSnapshot({ customerId: 'cus_concurrent', subscriptionId: 'sub_concurrent' });
+    let releaseOlder!: (value: typeof snapshot) => void;
+    let rejectNewer!: (error: Error) => void;
+    let olderStarted!: () => void;
+    let newerStarted!: () => void;
+    const olderFetching = new Promise<void>(resolve => { olderStarted = resolve; });
+    const newerFetching = new Promise<void>(resolve => { newerStarted = resolve; });
+    vi.mocked(fetchSubscription)
+      .mockImplementationOnce(() => { olderStarted(); return new Promise(resolve => { releaseOlder = resolve; }); })
+      .mockImplementationOnce(() => { newerStarted(); return new Promise((_resolve, reject) => { rejectNewer = reject; }); })
+      .mockResolvedValueOnce(snapshot);
+    const app = createApp(); // Uses the actual Timekeeper coordinator through the existing fixture.
+    const older = postWebhook(app, body);
+    await olderFetching;
+    const newer = postWebhook(app, body);
+    await newerFetching;
+    releaseOlder(snapshot);
+    expect((await older).status).toBe(500);
+    expect(await mockKV.get('stripe:event:evt_concurrent_checkout')).toBeNull();
+    rejectNewer(new Error('provider temporarily unavailable'));
+    expect((await newer).status).toBe(500);
+    expect(await mockKV.get('stripe:event:evt_concurrent_checkout')).toBeNull();
+    expect(await mockKV.get('user:concurrent@example.com', 'json')).toBeNull();
+    expect(mockSendSubscriptionEmail).not.toHaveBeenCalled();
+    expect(mockSendAdminNotification).not.toHaveBeenCalled();
+
+    expect((await postWebhook(app, body)).status).toBe(200);
+    expect(await mockKV.get('stripe:event:evt_concurrent_checkout')).toBe('processed');
+    expect(await mockKV.get('user:concurrent@example.com', 'json')).toMatchObject({
+      stripeSubscriptionId: 'sub_concurrent', billingStatus: 'active',
+      checkoutSessionId: 'cs_concurrent', subscribedAt: new Date(1700000000000).toISOString(),
+    });
+    expect(mockSendSubscriptionEmail.mock.calls.map(call => call[0])).toEqual([expect.objectContaining({ userEmail: 'concurrent@example.com' })]);
+    expect(mockSendAdminNotification.mock.calls.map(call => call[0])).toEqual([expect.objectContaining({ userEmail: 'concurrent@example.com' })]);
+  });
+
+  it('REQ-SUB-004 AC7: checkout replay after visible marker expiry preserves date and sends no repeated notices', async () => {
+    vi.mocked(fetchSubscription).mockResolvedValue(mockSubscriptionSnapshot({ customerId: 'cus_replay', subscriptionId: 'sub_replay' }));
+    const body = JSON.stringify({ id: 'evt_replay', type: 'checkout.session.completed', created: 1700000000, data: { object: {
+      id: 'cs_replay', created: 1700000000, customer: 'cus_replay', subscription: 'sub_replay', metadata: { email: 'replay@example.com' },
+    } } });
+    const app = createApp();
+    expect((await postWebhook(app, body)).status).toBe(200);
+    const before = await mockKV.get('user:replay@example.com', 'json') as Record<string, unknown>;
+    expect(before.subscribedAt).toBe(new Date(1700000000000).toISOString());
+    mockKV._store.delete('stripe:event:evt_replay');
+    vi.mocked(fetchSubscription).mockResolvedValue(null); // even a now-removed provider subscription is a completed checkout
+    expect((await postWebhook(app, body)).status).toBe(200);
+    expect((await mockKV.get('user:replay@example.com', 'json') as Record<string, unknown>).subscribedAt).toBe(before.subscribedAt);
+    expect(mockSendSubscriptionEmail.mock.calls.map(call => call[0])).toEqual([expect.objectContaining({ userEmail: 'replay@example.com', subscribedAt: before.subscribedAt })]);
+    expect(mockSendAdminNotification.mock.calls.map(call => call[0])).toEqual([expect.objectContaining({ userEmail: 'replay@example.com' })]);
+  });
+
+  it('REQ-SUB-004 AC7: a replayed old checkout or deletion cannot reset a replacement subscription', async () => {
+    vi.mocked(fetchSubscription).mockResolvedValue(mockSubscriptionSnapshot({ customerId: 'cus_old', subscriptionId: 'sub_old' }));
+    const checkout = JSON.stringify({ id: 'evt_old_checkout', type: 'checkout.session.completed', data: { object: {
+      id: 'cs_old', customer: 'cus_old', subscription: 'sub_old', metadata: { email: 'old@example.com' },
+    } } });
+    const app = createApp();
+    expect((await postWebhook(app, checkout)).status).toBe(200);
+    const current = { subscriptionTier: 'max', accessTier: 'max', billingStatus: 'active', stripeSubscriptionId: 'sub_new', stripeCustomerId: 'cus_old', subscribedAt: '2026-01-01T00:00:00.000Z' };
+    mockKV._set('user:old@example.com', current);
+    mockKV._store.delete('stripe:event:evt_old_checkout');
+    expect((await postWebhook(app, checkout)).status).toBe(200);
+    expect((await postWebhook(app, buildEvent('customer.subscription.deleted', { id: 'sub_old', customer: 'cus_old' }))).status).toBe(200);
+    expect(await mockKV.get('user:old@example.com', 'json')).toEqual(current);
+    // A never-applied historical checkout is permanently superseded, not a retryable failure.
+    const historical = JSON.stringify({ id: 'evt_historical_checkout', type: 'checkout.session.completed', data: { object: {
+      id: 'cs_historical', created: 1600000000, customer: 'cus_old', subscription: 'sub_old', metadata: { email: 'old@example.com' },
+    } } });
+    expect((await postWebhook(app, historical)).status).toBe(200);
+    expect(await mockKV.get('stripe:event:evt_historical_checkout')).toBe('processed');
+    expect(await mockKV.get('user:old@example.com', 'json')).toEqual(current);
+  });
+
+  it('returns 500 without checkout fields when fetchSubscription returns null', async () => {
     vi.mocked(fetchSubscription).mockResolvedValue(null);
 
     const body = buildEvent('checkout.session.completed', {
@@ -301,13 +380,11 @@ describe('handleCheckoutCompleted / REQ-SUB-005 (Stripe webhook syncs subscripti
     });
 
     const res = await postWebhook(createApp(), body);
-    expect(res.status).toBe(200);
 
     const user = await mockKV.get('user:nofetch@example.com', 'json') as Record<string, unknown>;
-    // Checkout-specific fields still written
-    expect(user.subscribedAt).toBeDefined();
-    expect(user.checkoutSessionId).toBe('cs_no_fetch');
-    // But no tier/billing from sync (will be set on next subscription.updated)
+    expect(res.status).toBe(500);
+    expect(user).toBeNull();
+    expect(mockSendSubscriptionEmail).not.toHaveBeenCalled();
   });
 });
 
@@ -575,6 +652,18 @@ describe('auto-recreate on downgrade', () => {
     const prefs = await mockKV.get('user-prefs:codeflare-same-example-com');
     expect(prefs).toBeNull();
     expect(mockReconcileAgentConfigs).not.toHaveBeenCalled();
+  });
+
+  it.each(['default', 'advanced'])('REQ-AGENT-004: promotion preserves explicit %s preference while granting Pro', async (sessionMode) => {
+    seedCustomer('cus_pref', 'pref@example.com', { subscribedMode: 'default' });
+    const prefsKey = getPreferencesKey(getBucketName('pref@example.com'));
+    mockKV._set(prefsKey, { sessionMode, theme: 'dark' });
+    vi.mocked(fetchSubscription).mockResolvedValue(mockSubscriptionSnapshot({ customerId: 'cus_pref', mode: 'advanced' }));
+    expect((await postWebhook(createApp(), buildEvent('customer.subscription.updated', { id: 'sub_sync_1', customer: 'cus_pref' }))).status).toBe(200);
+    expect(await mockKV.get('user:pref@example.com', 'json')).toMatchObject({ subscribedMode: 'advanced', billingStatus: 'active' });
+    expect(await mockKV.get(prefsKey, 'json')).toEqual({ sessionMode, theme: 'dark' });
+    expect(mockReconcileAgentConfigs).toHaveBeenCalledWith(expect.anything(), expect.any(String), 'https://r2.test', sessionMode,
+      { overwrite: true, cleanup: true, contextModeEnabled: false });
   });
 
   it('calls reconcileAgentConfigs on upgrade (default → advanced)', async () => {

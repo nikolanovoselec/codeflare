@@ -2,6 +2,7 @@ import { Component, onMount, onCleanup, createSignal, Show, For, type JSX } from
 import { markOnboardingComplete, getAuthStatus, getPreferences, updatePreferences } from '../api/client';
 import OAuthConnectCard from './connect/OAuthConnectCard';
 import { createConnections } from '../lib/oauth-connections';
+import { cloudflareRetryMessage, parseCloudflareReturn } from '../lib/cloudflare-oauth-return';
 import { githubConnectUrl } from '../api/github';
 import { cloudflareConnectUrl } from '../api/cloudflare';
 import ScrambleText from './ScrambleText';
@@ -93,6 +94,7 @@ const CODING_AGENTS: CodingAgent[] = [
 
 const OnboardingPage: Component = () => {
   const [loading, setLoading] = createSignal(true);
+  const cloudflareReturn = parseCloudflareReturn(new URLSearchParams(window.location.search).get('cloudflare'));
 
   // GitHub + Cloudflare OAuth connect state (shared hook; same as the Settings accordion).
   const conn = createConnections();
@@ -243,6 +245,9 @@ const OnboardingPage: Component = () => {
             <p class="onboarding-section-description">
               Deploy your creations directly to Cloudflare and access from anywhere.
             </p>
+            <Show when={cloudflareRetryMessage(cloudflareReturn)}>
+              {(message) => <p class="onboarding-section-description" role="alert">{message()}</p>}
+            </Show>
             <OAuthConnectCard
               provider="cloudflare"
               icon={mdiCloud}
@@ -255,6 +260,9 @@ const OnboardingPage: Component = () => {
               selectedAccountId={conn.cloudflare().accountId}
               onSelectAccount={(id) => { void conn.selectCloudflareAccount(id); }}
               tierOptions={{ tiers: CLOUDFLARE_TIERS, selected: cfTier(), onSelect: (v) => setCfTier(v) }}
+              retryAuthorization={cloudflareReturn === 'error' || cloudflareReturn === 'no-accounts'}
+              onRetryAccounts={cloudflareReturn === 'select-account'
+                ? () => conn.refreshCloudflare({ retryAccounts: true }) : undefined}
             />
           </div>
 

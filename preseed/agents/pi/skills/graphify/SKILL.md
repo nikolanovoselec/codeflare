@@ -196,12 +196,10 @@ Commit only durable outputs when the user can push:
 
 - `graphify-out/graph.json`
 - `graphify-out/GRAPH_REPORT.md`
-- `graphify-out/graph.html`
 - optional `graphify-out/.graphify_labels.json` when community labeling was requested
-- `graphify-out/callflow.html`
 - optional `graphify-out/wiki/`
 
-Do not commit caches, manifests, chunks, or `.graphify_*` intermediates other than `.graphify_labels.json` unless explicitly asked.
+Keep regenerable `graphify-out/graph.html` and `graphify-out/callflow.html` local and ignored; never force-add them. This does not remove the HTML generation checks above. Do not commit caches, manifests, chunks, or `.graphify_*` intermediates other than `.graphify_labels.json` unless explicitly asked.
 
 Ensure `.gitattributes` contains:
 

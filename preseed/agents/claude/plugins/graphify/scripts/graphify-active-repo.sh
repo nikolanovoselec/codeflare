@@ -266,80 +266,60 @@ if [ "$OLD" = "$REPO" ] && [ "$GRAPH_MTIME" -le "$SENTINEL_MTIME" ] \
     exit 0
 fi
 
-# Resolve the complete reconciliation before advancing the sentinel. Removals
-# and the addition run under one lock and one success chain. A lock timeout or
-# any graphify failure leaves OLD in place, so the next hook invocation retries
-# instead of taking the unchanged fast path.
-#
-# The target state is an invariant, not a diff: the global manifest holds
-# `user_vault` plus this checkout's tag when it has a graph, and nothing else.
-# Enumerating what must go from the manifest itself, rather than deriving one
-# removal from the previous sentinel value, also collects tags that a crashed
-# run, a deleted graphify-out or an earlier phantom repo left behind. Drift
-# self-heals on the next tool call instead of persisting until someone notices
-# the graph is answering from the wrong repo.
+# Manifest/hash decisions and their writes share one bounded writer lock.
+# A timeout or failed transaction leaves the prior sentinel retryable.
 RECONCILED=1
 REPO_BASENAME=$(basename "$REPO")
-NEED_ADD=0
-KEEP_TAG=""
-STALE_TAGS=()
-
 if command -v graphify >/dev/null 2>&1; then
-    if [ -f "$GRAPH_JSON" ]; then
-        KEEP_TAG="$REPO_BASENAME"
-        NEED_ADD=1
-        if [ -f "$GLOBAL_MANIFEST" ]; then
-            STORED_HASH=$(jq -r --arg tag "$REPO_BASENAME" '.repos[$tag].source_hash // empty' "$GLOBAL_MANIFEST" 2>/dev/null || true)
-            STORED_PATH=$(jq -r --arg tag "$REPO_BASENAME" '.repos[$tag].source_path // empty' "$GLOBAL_MANIFEST" 2>/dev/null || true)
-            # graphify stores the first 16 hex chars of the file SHA-256 next to
-            # the path it read them from. The hash alone cannot carry the skip:
-            # tags are keyed by basename, so two checkouts sharing a basename and
-            # an identical graph compare equal and the tag would stay pointing at
-            # the checkout the user just left - the drift this reconcile exists to
-            # remove. The recorded path must be this checkout's graph too. A
-            # non-hex or resized hash refuses the optimisation and lets graphify's
-            # own source-hash dedup make the decision.
-            if [ "$STORED_PATH" = "$GRAPH_JSON" ] \
-               && printf '%s' "$STORED_HASH" | grep -Eq '^[0-9a-f]{16}$'; then
-                CURRENT_HASH=$(sha256sum "$GRAPH_JSON" 2>/dev/null | awk '{print substr($1,1,16)}')
-                [ "$CURRENT_HASH" = "$STORED_HASH" ] && NEED_ADD=0
-            fi
+    if ! flock -w 5 /run/codeflare/locks/graphify-global.lock bash -s -- "$GRAPH_JSON" "$REPO_BASENAME" "$GLOBAL_MANIFEST" <<'RECONCILE'
+set -e
+graph_json="$1"
+repo_tag="$2"
+manifest="$3"
+command -v graphify >/dev/null 2>&1 || exit 127
+keep_tag=""
+need_add=0
+current_hash=""
+if [ -f "$graph_json" ]; then
+    keep_tag="$repo_tag"
+    need_add=1
+    current_hash=$(sha256sum "$graph_json" | awk '{print substr($1,1,16)}')
+    if [ -f "$manifest" ]; then
+        stored_hash=$(jq -r --arg tag "$repo_tag" '.repos[$tag].source_hash // empty' "$manifest")
+        stored_path=$(jq -r --arg tag "$repo_tag" '.repos[$tag].source_path // empty' "$manifest")
+        if [ "$stored_hash" = "$current_hash" ] && [ "$stored_path" = "$graph_json" ]; then
+            need_add=0
         fi
     fi
-
-    # user_vault is always-on and never a repo tag, so it is never stale.
-    # KEEP_TAG is empty when this checkout has no graph, and jq compares
-    # against "" without matching any real tag, so every repo entry is
-    # removed and the global graph falls back to the vault alone.
-    #
-    # An absent jq would make this yield nothing, indistinguishable from "no
-    # stale tags", but it cannot happen here: the tool-name parse at the top
-    # of the script needs jq too and exits 0 when it comes back empty.
-    if [ -f "$GLOBAL_MANIFEST" ]; then
-        while IFS= read -r STALE; do
-            [ -n "$STALE" ] && STALE_TAGS+=("$STALE")
-        done <<EOF
-$(jq -r --arg keep "$KEEP_TAG" \
-    '.repos // {} | keys[] | select(. != "user_vault" and . != $keep)' \
-    "$GLOBAL_MANIFEST" 2>/dev/null || true)
-EOF
+fi
+# Decide from the manifest ONLY AFTER acquiring the shared writer lock.
+STALE_TAGS=()
+if [ -f "$manifest" ]; then
+    stale=$(jq -r --arg keep "$keep_tag" '.repos // {} | keys[] | select(. != "user_vault" and . != $keep)' "$manifest")
+    while IFS= read -r tag; do
+        [ -z "$tag" ] || STALE_TAGS+=("$tag")
+    done <<< "$stale"
+fi
+for tag in "${STALE_TAGS[@]}"; do
+    graphify global remove "$tag" >/dev/null 2>&1 || exit 1
+done
+if [ "$need_add" = "1" ]; then
+    graphify global add "$graph_json" --as "$repo_tag" >/dev/null 2>&1 || exit 1
+    # Upstream global_add returns on equal hash before updating source_path.
+    # Compatibility repair: identical bytes need only atomic provenance rebinding,
+    # never removal/re-addition or a graph rebuild. Preserve every other field.
+    if [ -f "$manifest" ] && jq -e --arg tag "$repo_tag" --arg hash "$current_hash" --arg path "$graph_json" \
+        '.repos[$tag].source_hash == $hash and .repos[$tag].source_path != $path' "$manifest" >/dev/null; then
+        temporary=$(mktemp "${manifest}.tmp.XXXXXX")
+        trap 'rm -f -- "$temporary"' EXIT
+        jq --arg tag "$repo_tag" --arg path "$graph_json" '.repos[$tag].source_path = $path' "$manifest" > "$temporary"
+        chmod --reference="$manifest" "$temporary"
+        mv -f -- "$temporary" "$manifest"
     fi
-
-    if [ "${#STALE_TAGS[@]}" -gt 0 ] || [ "$NEED_ADD" = "1" ]; then
-        if ! flock -w 5 /run/codeflare/locks/graphify-global.lock bash -c '
-            graph_json="$1"
-            repo_tag="$2"
-            need_add="$3"
-            shift 3
-            for stale_tag in "$@"; do
-                graphify global remove "$stale_tag" >/dev/null 2>&1 || exit 1
-            done
-            if [ "$need_add" = "1" ]; then
-                graphify global add "$graph_json" --as "$repo_tag" >/dev/null 2>&1 || exit 1
-            fi
-        ' _ "$GRAPH_JSON" "$REPO_BASENAME" "$NEED_ADD" "${STALE_TAGS[@]}"; then
-            RECONCILED=0
-        fi
+fi
+RECONCILE
+    then
+        RECONCILED=0
     fi
 fi
 

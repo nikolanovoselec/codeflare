@@ -1,6 +1,7 @@
 /**
  * CloudflareBrowserInterceptor — outbound `api.cloudflare.com` credential injection, two modes:
- *   (1) enterprise Browser Rendering admin-token injection (REQ-BROWSER-008);
+ *   (1) enterprise Browser Rendering admin-token injection (REQ-BROWSER-008), plus parent-owner
+ *       grants for ordinary management APIs; Browser namespace authority stays separate;
  *   (2) non-enterprise OAuth mode (REQ-AGENT-078) — stamps a freshly-refreshed per-user Cloudflare
  *       OAuth token on managed api.cloudflare.com requests (as `Authorization`) AND on the AI Gateway
  *       data-plane `gateway.ai.cloudflare.com` (as `cf-aig-authorization`, the token's aig.run scope),
@@ -9,7 +10,7 @@
  *       ONLY (INTERCEPTED_CF_OAUTH_HOSTS) — enterprise never wires it, so the enterprise LlmInterceptor
  *       keeps emitting its own gateway rewrites direct.
  * Only ONE interceptor can bind a host, so a single class serves both (the DO picks the mode via
- * props: `bucket` ⇒ OAuth mode; `browserAccountId`/`browserToken` ⇒ enterprise mode).
+ * props: `bucket` ⇒ non-enterprise OAuth mode; `ownerBucket` and Browser props ⇒ enterprise).
  *
  * A WorkerEntrypoint the container DO wires into container egress for `api.cloudflare.com`
  * via `ctx.container.interceptOutboundHttps` (see src/container/index.ts
@@ -31,18 +32,16 @@
  *     when strict is on and direct forwarding otherwise. REST and the CDP WebSocket upgrade
  *     (`/browser-rendering/devtools/...`) are both handled — the WS is bridged via a fresh
  *     `WebSocketPair` so the socket actually returns to the container.
- *   - Other MANAGED requests on `api.cloudflare.com` (a different account id, or any non-
- *     `browser-rendering` path) cannot borrow administrator Browser credentials.
- *     "rest → gateway": forward through `env.EGRESS` (the customer's Zero Trust Gateway) for
- *     inspection when strict is on; otherwise fail closed (403). The real token is NEVER
- *     injected on this path — it can only ever reach the one configured account's Browser
- *     Rendering API.
+ *   - Other Browser accounts cannot borrow administrator Browser credentials: they retain
+ *     strict Gateway forwarding or non-strict refusal. Non-Browser management APIs instead
+ *     resolve the parent-bound owner's fresh OAuth/legacy grant, failing 401 without it.
+ *     Owner traffic uses mandatory EGRESS when strict, direct otherwise, with no auth replay.
  *
  * Caller-owned Bearer/key+email or Gateway credentials bypass managed lookup, not native or
  * Operator authorization. They use ordinary direct/strict egress with manual redirects and no
  * managed fallback, including when Browser configuration is absent.
  * Fail closed: managed Browser requests with no configured token/account return 401 WITHOUT
- * upstream I/O; other managed paths return 403 (non-strict) or 503 (strict but EGRESS unbound).
+ * upstream I/O; strict owner API traffic returns 503 before grant lookup if EGRESS is unbound.
  *
  * Wiring: in enterprise the DO always wires this for api.cloudflare.com, independently of admin
  * Browser configuration (mode 1, the `browserRendering` registry entry); in non-enterprise
@@ -99,9 +98,11 @@ interface BrowserInterceptorProps extends PersonalPiProps {
    * interceptor stamps a FRESH `getValidCloudflareToken(bucket)` only when Cloudflare credentials
    * are absent or the exact OAuth placeholder, so managed credentials are refreshed at the
    * boundary and never enter the container. Mutually exclusive with the enterprise props above
-   * (different wiring paths) — enterprise never sets `bucket` or runs managed OAuth resolution.
+   * (different wiring paths) — enterprise uses the separate `ownerBucket` binding instead.
    */
   bucket?: string;
+  /** Enterprise management API owner, bound only from the parent DO; never container input. */
+  ownerBucket?: string;
 }
 
 /**
@@ -173,10 +174,13 @@ export class CloudflareBrowserInterceptor extends WorkerEntrypoint<Env> {
       return jsonError(401, 'BROWSER_NO_TOKEN', 'Browser Rendering token not configured');
     }
 
+    if (!/^\/client\/v4\/accounts\/[^/]+\/browser-rendering(?:\/|$)/.test(url.pathname)) {
+      return this.fetchOwnerApi(request, url, props);
+    }
+
     if (!isBrowserRenderingPath(url, browserAccountId)) {
-      // Not the configured account's browser-rendering path. The container has no business
-      // calling any other api.cloudflare.com endpoint in enterprise (no deploy token exists).
-      // "rest → gateway": forward through env.EGRESS (inspected) when strict; else fail closed.
+      // Another account's Browser namespace cannot borrow administrator credentials.
+      // Preserve the inspected pass-through when strict; otherwise fail closed.
       if (!strict) return jsonError(403, 'CF_API_BLOCKED', 'Cloudflare API access is not permitted');
       const egress = this.env.EGRESS;
       if (!egress) return jsonError(503, 'EGRESS_UNAVAILABLE', 'Strict gateway egress unavailable');
@@ -291,16 +295,35 @@ export class CloudflareBrowserInterceptor extends WorkerEntrypoint<Env> {
     return isWs ? this.bridge(upstream) : this.relay(upstream);
   }
 
-  /** Caller credentials use ordinary egress, never the managed Browser backend exemption. */
-  private async forwardCaller(request: Request, keyEmail: boolean, props?: BrowserInterceptorProps): Promise<Response> {
-    const url = new URL(request.url);
+  /** Check destination and required transport before any protected owner grant lookup. */
+  private forwardingError(url: URL, props?: BrowserInterceptorProps, hosts = INTERCEPTED_CF_OAUTH_HOSTS): Response | null {
     if (url.protocol !== 'https:' || url.username || url.password || url.port
-      || !INTERCEPTED_CF_OAUTH_HOSTS.includes(url.hostname)) {
+      || !hosts.includes(url.hostname)) {
       return jsonError(403, 'CF_API_BLOCKED', 'Cloudflare API access is not permitted');
     }
     if (props?.strict && !this.env.EGRESS) {
       return jsonError(503, 'EGRESS_UNAVAILABLE', 'Strict gateway egress unavailable');
     }
+    return null;
+  }
+
+  /** Enterprise management uses the parent owner's live grant, never the admin Browser token. */
+  private async fetchOwnerApi(request: Request, url: URL, props?: BrowserInterceptorProps): Promise<Response> {
+    // Keep the API/account/resource namespace literal so encoded Browser paths cannot
+    // change lanes, while resource keys (such as KV keys containing '/') remain valid.
+    if (url.pathname.split('/').slice(0, 6).some(segment => segment.includes('%'))) {
+      return jsonError(403, 'CF_API_BLOCKED', 'Cloudflare API access is not permitted');
+    }
+    const invalid = this.forwardingError(url, props, INTERCEPTED_CF_BROWSER_HOSTS);
+    if (invalid) return invalid;
+    if (!props?.ownerBucket) return jsonError(401, 'CF_NOT_CONNECTED', 'Cloudflare not connected');
+    return this.forwardCaller(request, false, props, props.ownerBucket);
+  }
+
+  /** Caller credentials use ordinary egress, never the managed Browser backend exemption. */
+  private async forwardCaller(request: Request, keyEmail: boolean, props?: BrowserInterceptorProps, ownerBucket?: string): Promise<Response> {
+    const invalid = this.forwardingError(new URL(request.url), props);
+    if (invalid) return invalid;
     const isWs = request.headers.get('upgrade')?.toLowerCase() === 'websocket';
     const headers = new Headers(request.headers);
     for (const name of [...STRIPPED_REQUEST_HOP_BY_HOP, 'host', 'content-length']) headers.delete(name);
@@ -310,6 +333,17 @@ export class CloudflareBrowserInterceptor extends WorkerEntrypoint<Env> {
     if (props?.jwtStamping) {
       try { forward = prepareJwtStampedRequest(forward, props.jwtStamping, props.jwtAuthority); }
       catch { return jsonError(403, 'JWT_STAMPING_AUTHORITY_UNAVAILABLE', 'Current human Access authority is required'); }
+    }
+    if (ownerBucket) {
+      // Authorize the complete transport before credential reads or refresh effects.
+      let token: string | null;
+      try { token = await getValidCloudflareToken(this.env, ownerBucket); }
+      catch {
+        logger.warn('owner Cloudflare credential lookup failed');
+        return jsonError(502, 'CF_TOKEN_LOOKUP_FAILED', 'Cloudflare credential lookup failed');
+      }
+      if (!token) return jsonError(401, 'CF_NOT_CONNECTED', 'Cloudflare not connected');
+      forward.headers.set('authorization', `Bearer ${token}`);
     }
     try {
       const upstream = props?.strict ? await this.env.EGRESS!.fetch(forward) : await fetch(forward);

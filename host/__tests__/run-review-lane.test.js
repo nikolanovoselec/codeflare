@@ -7,7 +7,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -441,6 +441,28 @@ describe('run-review-lane.sh — triage no-op short-circuit', () => {
     assert.match(r.stderr, /required shape/);
   });
 
+  for (const [label, invalid] of [
+    ['wrong lane', { lane: 'doc-updater' }],
+    ['unknown decision', { decision: 'trust-me' }],
+    ['wrong layout', { sdd: { bootstrapped: true, layout: 'unknown' } }],
+  ]) {
+    it(`discards triage with ${label} and performs normal review`, () => {
+      const { cwd, base, head } = makeRepo('src/thing.ts');
+      const { home, hookScripts } = makeClaudeHome(cwd);
+      const witness = join(cwd, 'claude-was-called');
+      const binDir = fakeClaude(cwd, witness);
+      stubTriage(hookScripts, {
+        decision: 'exit-no-op', reason: 'an SDD transition is active',
+        transition: { active: true, corrupt: false }, ...invalid,
+      });
+      const r = runLane({ repo: cwd, home, hookScripts, binDir, lane: 'code-reviewer', range: `${base}..${head}` });
+      assert.equal(r.status, 0, r.stderr);
+      assert.equal(existsSync(witness), true, 'invalid triage must not suppress review');
+      assert.equal(readFileSync(`${witness}.prompt`, 'utf-8').split('\n').includes('<triage>'), false);
+      assert.match(r.stderr, /required shape/);
+    });
+  }
+
   // The decision is a field, not a substring of the document. A reason that
   // quotes the serialised no-op fragment is the case that separates reading the
   // field from grepping the blob: here the lane must still be reviewed.
@@ -683,6 +705,41 @@ describe('run-review-lane.sh — guard re-injection', () => {
       'no lane may run with bypassPermissions and an empty hook list');
   });
 
+  it('refuses to launch independently when jq is unavailable', (t) => {
+    const { cwd, base, head } = makeRepo('src/thing.ts');
+    t.after(() => rmSync(cwd, { recursive: true, force: true }));
+    const { home, hookScripts } = makeClaudeHome(cwd);
+    const witness = join(cwd, 'claude-was-called');
+    const binDir = fakeClaude(cwd, witness);
+    // Supply the real prerequisites, but no jq and no inherited PATH fallback.
+    for (const tool of ['timeout', 'awk', 'mktemp', 'rm']) {
+      const located = spawnSync('/bin/bash', ['-c', 'command -v "$1"', '_', tool], { encoding: 'utf8' });
+      assert.equal(located.status, 0, `${tool}: ${located.stderr}`);
+      symlinkSync(located.stdout.trim(), join(binDir, tool));
+    }
+    const seededRunner = join(hookScripts, 'run-review-lane.sh');
+    writeFileSync(seededRunner, readFileSync(RUNNER, 'utf8'));
+    const r = spawnSync('/bin/bash', [seededRunner, '--lane', 'code-reviewer', '--range', `${base}..${head}`], {
+      cwd, encoding: 'utf8',
+      env: { ...process.env, PATH: binDir, CLAUDE_CONFIG_DIR: home },
+    });
+    assert.equal(r.status, 3);
+    assert.match(r.stderr, /jq is required.*refusing to run unguarded/);
+    assert.equal(existsSync(witness), false, 'missing jq must not start the reviewer');
+  });
+
+  it('refuses to launch when guard-settings generation produces an empty file', () => {
+    const { cwd, base, head } = makeRepo('src/thing.ts');
+    const { home, hookScripts } = makeClaudeHome(cwd);
+    const witness = join(cwd, 'claude-was-called');
+    const binDir = fakeClaude(cwd, witness);
+    writeFileSync(join(binDir, 'jq'), '#!/bin/bash\nexit 0\n', { mode: 0o755 });
+    const r = runLane({ repo: cwd, home, hookScripts, binDir, lane: 'code-reviewer', range: `${base}..${head}` });
+    assert.equal(r.status, 3);
+    assert.equal(existsSync(witness), false, 'empty settings must not launch an unguarded reviewer');
+    assert.match(r.stderr, /guard settings file is empty/);
+  });
+
   it('passes each guard as a shell invocation, not a bare path', () => {
     const { cwd, base, head } = makeRepo('src/thing.ts');
     const { home, hookScripts } = makeClaudeHome(cwd);
@@ -702,8 +759,8 @@ describe('run-review-lane.sh — guard re-injection', () => {
     const commands = settings.hooks.PreToolUse.flatMap((e) => e.hooks.map((h) => h.command));
     assert.equal(commands.length, 2);
     for (const command of commands) {
-      assert.match(command, /^bash \//,
-        'a bare path silently no-ops against a non-executable hook script');
+      const executed = spawnSync('bash', ['-c', command], { encoding: 'utf8' });
+      assert.equal(executed.status, 0, executed.stderr);
     }
   });
 });
@@ -741,9 +798,8 @@ describe('run-review-lane.sh — guard settings under a hostile config path', ()
     const commands = settings.hooks.PreToolUse.flatMap((e) => e.hooks.map((h) => h.command));
     assert.equal(commands.length, 2, 'a split path would yield a different number of hooks');
     for (const command of commands) {
-      const path = command.replace(/^bash /, '');
-      assert.equal(existsSync(path), true,
-        `guard path must resolve to a real file, got ${path}`);
+      const executed = spawnSync('bash', ['-c', command], { encoding: 'utf8' });
+      assert.equal(executed.status, 0, executed.stderr);
     }
   });
 });
@@ -919,5 +975,201 @@ describe('run-review-lane.sh — argument contract', () => {
       timeout: 10000,
     });
     assert.equal(r.status, 2);
+  });
+});
+
+// RQ0010/RQ0011 / REQ-AGENT-102 AC4: execute delivered guards, not path strings.
+describe('hostile guard launch paths enforce refusal', () => {
+  for (const suffix of ['my home', "quote'home", 'dollar$(false)`false`home', 'back\\slash']) {
+    it(`enforces local-build and attribution guards under ${suffix}`, (t) => {
+      const { cwd, base, head } = makeRepo('src/thing.ts');
+      t.after(() => rmSync(cwd, { recursive: true, force: true }));
+      const home = join(cwd, suffix);
+      const hookScripts = join(home, 'plugins/codeflare-hooks/scripts');
+      mkdirSync(hookScripts, { recursive: true });
+      mkdirSync(join(home, 'agents'), { recursive: true });
+      writeFileSync(join(home, 'agents/code-reviewer.md'), '---\nname: code-reviewer\n---\nGuard fixture.\n');
+      for (const guard of ['block-local-builds.sh', 'block-attributed-commits.sh']) {
+        writeFileSync(join(hookScripts, guard), readFileSync(join(dirname(RUNNER), guard)));
+      }
+      const witness = join(cwd, 'claude-called');
+      const result = runLane({ repo: cwd, home, hookScripts, binDir: fakeClaude(cwd, witness), lane: 'code-reviewer', range: `${base}..${head}` });
+      assert.equal(result.status, 0, result.stderr);
+      const settings = JSON.parse(readFileSync(`${witness}.settings`, 'utf8'));
+      const hooks = settings.hooks.PreToolUse.flatMap((entry) => entry.hooks);
+      for (const command of ['npm test', 'git commit -m "Co-Authored-By: AI"']) {
+        const decisions = hooks.map((hook) => {
+          const result = spawnSync('bash', ['-c', hook.command], {
+            cwd, encoding: 'utf8', input: JSON.stringify({ tool_name: 'Bash', tool_input: { command } }),
+            env: { ...process.env, LOCAL_BUILD_BYPASS_FILE: join(cwd, 'absent-bypass') },
+          });
+          assert.equal(result.status, 0, result.stderr);
+          if (!result.stdout.trim()) return false;
+          const output = JSON.parse(result.stdout);
+          return output.decision === 'block' || output.hookSpecificOutput?.permissionDecision === 'deny';
+        });
+        assert.ok(decisions.includes(true), `${command} must be refused by the launched guards`);
+      }
+    });
+  }
+});
+
+// RQ0016 / REQ-AGENT-105 AC4: --base drives actual packet/ownership preparation.
+describe('base-only review preparation', () => {
+  it('delivers a merge-base packet even without the optional lane classifier', (t) => {
+    const { cwd, base, head } = makeRepo('src/thing.ts');
+    t.after(() => rmSync(cwd, { recursive: true, force: true }));
+    git(cwd, 'update-ref', 'refs/remotes/origin/develop', base);
+    const { home, hookScripts } = makeClaudeHome(cwd);
+    rmSync(join(hookScripts, 'lib/lane-classifier.sh'));
+    const packetDir = join(home, 'skills/review-scope/scripts');
+    mkdirSync(packetDir, { recursive: true });
+    // Seed the actual packet CLI; no model or external service is invoked.
+    for (const file of ['build-review-packet.mjs']) {
+      writeFileSync(join(packetDir, file), readFileSync(join(dirname(RUNNER), '../../../skills/review-scope/scripts', file)));
+    }
+    const witness = join(cwd, 'claude-called');
+    const result = runLane({ repo: cwd, home, hookScripts, binDir: fakeClaude(cwd, witness), lane: 'code-reviewer', scopeArgs: ['--base', 'develop'] });
+    assert.equal(result.status, 0, result.stderr);
+    const delivered = readFileSync(`${witness}.prompt`, 'utf8');
+    assert.match(delivered, new RegExp(`${base}\\.\\.${head}`));
+    assert.match(delivered, /src\/thing\.ts/);
+    assert.match(delivered, /<packet>/);
+  });
+
+  it('short-circuits ownership from a protected base without invoking a model', (t) => {
+    const { cwd, base } = makeRepo('sdd/spec/thing.md');
+    t.after(() => rmSync(cwd, { recursive: true, force: true }));
+    git(cwd, 'update-ref', 'refs/remotes/origin/develop', base);
+    const { home, hookScripts } = makeClaudeHome(cwd);
+    const witness = join(cwd, 'claude-called');
+    const result = runLane({ repo: cwd, home, hookScripts, binDir: fakeClaude(cwd, witness), lane: 'code-reviewer', scopeArgs: ['--base', 'develop'] });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /NO-OP/);
+    assert.equal(existsSync(witness), false);
+  });
+});
+
+// RQ0009 / REQ-AGENT-107 AC1/3/4: pre-triage consumes the canonical gate.
+describe('canonical and pre-triage round-limit parity', () => {
+  const triageSource = join(dirname(RUNNER), 'lib/lane-triage.mjs');
+  const gateSource = join(dirname(RUNNER), '../../../skills/spec-enforce/scripts/round-limit.mjs');
+  function seedTriage(home, hookScripts) {
+    writeFileSync(join(hookScripts, 'lib/lane-triage.mjs'), readFileSync(triageSource));
+    const scripts = join(home, 'skills/spec-enforce/scripts');
+    mkdirSync(scripts, { recursive: true });
+    writeFileSync(join(scripts, 'round-limit.mjs'), readFileSync(gateSource));
+  }
+  for (const lane of ['spec-reviewer', 'doc-updater']) {
+    for (const tag of ['[autonomous]', '[unleashed]', '[spec-reviewer]', '[doc-updater]', '[code-reviewer]', 'chore: [autonomous]']) {
+      it(`${lane} agrees with the gate for ${tag} before suppression`, (t) => {
+        const { cwd } = makeRepo('src/initial.ts');
+        t.after(() => rmSync(cwd, { recursive: true, force: true }));
+        for (let i = 0; i < 5; i += 1) {
+          const file = lane === 'spec-reviewer' ? 'sdd/round.md' : 'documentation/round.md';
+          mkdirSync(dirname(join(cwd, file)), { recursive: true });
+          writeFileSync(join(cwd, file), `round ${i}\n`);
+          git(cwd, 'add', file);
+          git(cwd, 'commit', '-qm', `${tag} round ${i}`);
+        }
+        const { home, hookScripts } = makeClaudeHome(cwd);
+        seedTriage(home, hookScripts);
+        const tree = lane === 'spec-reviewer' ? 'sdd' : 'documentation';
+        const canonical = spawnSync(process.execPath, [gateSource, '--repo', cwd, '--lane', tree], { encoding: 'utf8' });
+        assert.equal(canonical.status, 0, canonical.stderr);
+        const [, count, action] = canonical.stdout.match(/counted=(\d+) gate=(stop|continue)/);
+        const triage = JSON.parse(spawnSync(process.execPath, [join(hookScripts, 'lib/lane-triage.mjs'), '--repo', cwd, '--lane', lane], { encoding: 'utf8' }).stdout);
+        assert.equal(triage.roundLimit.counted, Number(count));
+        assert.equal(triage.roundLimit.action, action);
+        assert.equal(triage.decision, action === 'stop' ? 'exit-no-op' : 'proceed');
+      });
+    }
+  }
+
+  it('passes an explicit root override to the canonical gate, never a config marker', (t) => {
+    const { cwd, base } = makeRepo('src/initial.ts');
+    t.after(() => rmSync(cwd, { recursive: true, force: true }));
+    for (let i = 0; i < 5; i += 1) {
+      writeFileSync(join(cwd, 'sdd/round.md'), `${i}\n`);
+      git(cwd, 'add', 'sdd/round.md');
+      git(cwd, 'commit', '-qm', `[autonomous] round ${i}`);
+    }
+    writeFileSync(join(cwd, 'sdd/config.yml'), 'autonomy_override: fully-autonomous\n');
+    const { home, hookScripts } = makeClaudeHome(cwd);
+    seedTriage(home, hookScripts);
+    const witness = join(cwd, 'claude-called');
+    const binDir = fakeClaude(cwd, witness);
+    const head = git(cwd, 'rev-parse', 'HEAD').stdout.trim();
+    const stopped = runLane({ repo: cwd, home, hookScripts, binDir, lane: 'spec-reviewer', range: `${base}..${head}` });
+    assert.equal(stopped.status, 0, stopped.stderr);
+    assert.equal(existsSync(witness), false, 'repository content cannot authorize autonomy');
+    const continued = runLane({ repo: cwd, home, hookScripts, binDir, lane: 'spec-reviewer', scopeArgs: ['--range', `${base}..${head}`, '--autonomy-override', 'fully-autonomous'] });
+    assert.equal(continued.status, 0, continued.stderr);
+    assert.equal(existsSync(witness), true, 'root must be able to forward the direct current-user override');
+    assert.match(readFileSync(`${witness}.prompt`, 'utf8'), /"counted":\s*5/);
+    assert.match(readFileSync(`${witness}.prompt`, 'utf8'), /"action":\s*"continue"/);
+    assert.match(readFileSync(`${witness}.prompt`, 'utf8'), /autonomy_override=fully-autonomous/,
+      'the reviewer must retain the exact direct-user marker, not stop again in canonical policy');
+  });
+
+  it('does not suppress review when the canonical gate is unavailable', (t) => {
+    const { cwd } = makeRepo('sdd/round.md');
+    t.after(() => rmSync(cwd, { recursive: true, force: true }));
+    for (let i = 0; i < 5; i += 1) {
+      writeFileSync(join(cwd, 'sdd/round.md'), `${i}\n`);
+      git(cwd, 'add', 'sdd/round.md'); git(cwd, 'commit', '-qm', `[autonomous] round ${i}`);
+    }
+    const { home, hookScripts } = makeClaudeHome(cwd);
+    seedTriage(home, hookScripts);
+    rmSync(join(home, 'skills/spec-enforce/scripts/round-limit.mjs'));
+    const triage = JSON.parse(spawnSync(process.execPath, [join(hookScripts, 'lib/lane-triage.mjs'), '--repo', cwd, '--lane', 'spec-reviewer'], { encoding: 'utf8' }).stdout);
+    assert.equal(triage.decision, 'proceed');
+    assert.match(triage.reason, /triage failed/);
+  });
+});
+
+// RQ0009: reset, excluded tags, merge history and unreadable history stay canonical.
+describe('pre-triage canonical history boundaries', () => {
+  const triage = join(dirname(RUNNER), 'lib/lane-triage.mjs');
+  const gate = join(dirname(RUNNER), '../../../skills/spec-enforce/scripts/round-limit.mjs');
+  for (const boundary of ['reset', 'bulk', 'merge']) {
+    it(`agrees with the canonical gate across ${boundary}`, (t) => {
+      const { cwd } = makeRepo('sdd/round.md');
+      t.after(() => rmSync(cwd, { recursive: true, force: true }));
+      for (let i = 0; i < 5; i += 1) {
+        writeFileSync(join(cwd, 'sdd/round.md'), `${i}\n`);
+        git(cwd, 'add', 'sdd/round.md'); git(cwd, 'commit', '-qm', `[autonomous] round ${i}`);
+      }
+      if (boundary === 'merge') {
+        git(cwd, 'checkout', '-qb', 'side');
+        writeFileSync(join(cwd, 'sdd/side.md'), 'side\n');
+        git(cwd, 'add', 'sdd/side.md'); git(cwd, 'commit', '-qm', 'user-directed side');
+        git(cwd, 'checkout', '-');
+        git(cwd, 'merge', '--no-ff', '-m', '[code-reviewer] merge round', 'side');
+      } else {
+        writeFileSync(join(cwd, 'sdd/round.md'), 'boundary\n');
+        git(cwd, 'add', 'sdd/round.md');
+        git(cwd, 'commit', '-qm', boundary === 'reset' ? 'user-directed work' : '[sdd-clean] bulk');
+      }
+      const canonical = spawnSync(process.execPath, [gate, '--repo', cwd, '--lane', 'sdd'], { encoding: 'utf8' });
+      assert.equal(canonical.status, 0, canonical.stderr);
+      const [, count, action] = canonical.stdout.match(/counted=(\d+) gate=(stop|continue)/);
+      const result = spawnSync(process.execPath, [triage, '--repo', cwd, '--lane', 'spec-reviewer'], { encoding: 'utf8' });
+      const out = JSON.parse(result.stdout);
+      assert.equal(out.roundLimit.counted, Number(count));
+      assert.equal(out.roundLimit.action, action);
+    });
+  }
+
+  it('never fabricates a permissive round verdict for unreadable history', (t) => {
+    const cwd = mkdtempSync(join(tmpdir(), 'triage-no-history-'));
+    t.after(() => rmSync(cwd, { recursive: true, force: true }));
+    mkdirSync(join(cwd, 'sdd'));
+    writeFileSync(join(cwd, 'sdd/README.md'), '# fixture\n');
+    const result = spawnSync(process.execPath, [triage, '--repo', cwd, '--lane', 'spec-reviewer'], { encoding: 'utf8' });
+    const out = JSON.parse(result.stdout);
+    assert.equal(out.decision, 'proceed');
+    assert.equal(out.roundLimit, undefined);
+    assert.match(out.reason, /triage failed/);
   });
 });

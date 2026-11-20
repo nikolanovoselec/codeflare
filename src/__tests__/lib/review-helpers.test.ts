@@ -1,9 +1,9 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 type ReviewLane = 'code-reviewer' | 'spec-reviewer' | 'doc-updater';
 type BoundaryEvent = 'push' | 'pr-create';
@@ -46,7 +46,7 @@ type PlannedReviewHelpers = {
   exposureTargetsCheckedOutBranch(command: string, identity: { branch: string; pr: number; repository: string }): boolean;
   isReviewTransitionSuspended(repo: string): boolean;
   requiredReviewLanes(input: { repo: string; ackHead?: string; head: string; prover?: string }): ReviewLane[];
-  roundLimitReached(repo: string, lane: ReviewLane): boolean;
+  roundLimitReached(repo: string, lane: ReviewLane, autonomyOverride?: boolean): boolean;
   reviewTranscriptFacts(input: {
     sessionFile: string;
     entries?: Record<string, unknown>[];
@@ -91,6 +91,9 @@ function commit(repo: string, relativePath: string, contents: string, message: s
 
 function makeRepo(): { repo: string; base: string } {
   const repo = tempRoot('pi-review-helpers-');
+  const home = tempRoot('pi-review-gate-home-');
+  vi.stubEnv('HOME', home);
+  write(home, '.pi/agent/skills/spec-enforce/scripts/round-limit.mjs', readFileSync(join(process.cwd(), 'preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs'), 'utf8'));
   git(repo, 'init', '-q');
   git(repo, 'config', 'user.name', 'Test User');
   git(repo, 'config', 'user.email', 'test@users.noreply.github.com');
@@ -222,6 +225,7 @@ function writeSession(entries: Record<string, unknown>[]): string {
 }
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
@@ -526,6 +530,7 @@ describe('Claude-equivalent review boundary helpers', () => {
 });
 
 describe('Pi round-limit no-op', () => {
+
   // A lane whose document already defines it as a no-op must cost nothing. Pi
   // had the ownership half of that and not the round-limit half, so a lane at
   // limit still paid a full agent startup to be told what git already knew.
@@ -545,16 +550,10 @@ describe('Pi round-limit no-op', () => {
       .not.toContain('spec-reviewer');
   });
 
-  // The counters are lane-specific on purpose: spec-reviewer counts a subject
-  // that CONTAINS its tags, doc-updater one that STARTS WITH them. A commit
-  // whose subject merely mentions the tag mid-sentence therefore counts for one
-  // lane and not the other, and collapsing that changes when a limit fires.
-  it('keeps the two lane counters asymmetric', async () => {
+  // The canonical gate counts prefix tags only, identically for both lanes.
+  it('REQ-AGENT-107 AC3: embedded tags do not count for either canonical lane', async () => {
     const { roundLimitReached } = await plannedHelpers();
     const { repo } = makeRepo();
-    // Same five commits, touching BOTH trees, with the tag mid-subject. The
-    // only thing that can separate the two answers is the match function:
-    // spec-reviewer counts a CONTAINED tag, doc-updater only a LEADING one.
     for (let i = 0; i < 5; i += 1) {
       write(repo, `sdd/spec/req-${i}.md`, `# req ${i}\n`);
       write(repo, `documentation/page-${i}.md`, `# page ${i}\n`);
@@ -562,8 +561,35 @@ describe('Pi round-limit no-op', () => {
       git(repo, 'commit', '-m', `chore: [autonomous] sweep ${i}`);
     }
 
-    expect(roundLimitReached(repo, 'spec-reviewer'), 'spec-reviewer counts a contained tag').toBe(true);
+    expect(roundLimitReached(repo, 'spec-reviewer'), 'embedded tags are user work, not counted prefixes').toBe(false);
     expect(roundLimitReached(repo, 'doc-updater'), 'doc-updater counts only a leading tag').toBe(false);
+  });
+
+  it.each(['[autonomous]', '[unleashed]', '[spec-reviewer]', '[doc-updater]', '[code-reviewer]'])(
+    'REQ-AGENT-107 AC1/3: canonical %s prefix suppresses both lanes unless direct authority releases the gate', async (tag) => {
+      const { repo } = makeRepo();
+      for (let i = 0; i < 5; i += 1) {
+        write(repo, `sdd/spec/r${i}.md`, 'round');
+        commit(repo, `documentation/r${i}.md`, 'round', `${tag} round ${i}`);
+        // Include both trees in the same round.
+        git(repo, 'add', 'sdd');
+        git(repo, 'commit', '--amend', '--no-edit');
+      }
+      const { roundLimitReached } = await plannedHelpers();
+      for (const lane of ['spec-reviewer', 'doc-updater'] as const) {
+        expect(roundLimitReached(repo, lane)).toBe(true);
+        expect(roundLimitReached(repo, lane, true)).toBe(false);
+      }
+      commit(repo, 'sdd/spec/user.md', 'user', 'user-directed reset');
+      expect(roundLimitReached(repo, 'spec-reviewer')).toBe(false);
+    });
+
+  it('REQ-AGENT-107 AC5: unavailable canonical gate cannot suppress a lane', async () => {
+    const { repo } = makeRepo();
+    for (let i = 0; i < 5; i += 1) commit(repo, `sdd/spec/r${i}.md`, 'round', '[autonomous] round');
+    rmSync(join(process.env.HOME!, '.pi/agent/skills/spec-enforce/scripts/round-limit.mjs'));
+    const { roundLimitReached } = await plannedHelpers();
+    expect(roundLimitReached(repo, 'spec-reviewer')).toBe(false);
   });
 
   // Bulk operations are excluded by both rules, so a repo that just ran

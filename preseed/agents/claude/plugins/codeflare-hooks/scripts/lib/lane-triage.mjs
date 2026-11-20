@@ -35,6 +35,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // Record separator. A commit body contains blank lines and arbitrary text, so
 // newline-delimited parsing would split one commit across several records; \x1e
@@ -133,46 +134,21 @@ function transitionState(repo, paths, config) {
   return { active: open, corrupt: !open };
 }
 
-const BULK_PREFIXES = ['[sdd-init]', '[sdd-clean]', '[sdd-triage]'];
-
-// Lane-specific, and deliberately not unified: spec-reviewer counts a subject
-// that CONTAINS its tags, doc-updater one that STARTS WITH them. That asymmetry
-// is what each lane's prose says, and collapsing it here would silently change
-// when a round limit fires.
-const ROUND_RULES = {
-  'spec-reviewer': {
-    tags: ['[autonomous]', '[unleashed]', '[spec-reviewer]'],
-    match: (subject, tag) => subject.includes(tag),
-    tree: 'sdd/',
-  },
-  'doc-updater': {
-    tags: ['[doc-updater]', '[autonomous]', '[unleashed]'],
-    match: (subject, tag) => subject.startsWith(tag),
-    tree: 'documentation/',
-  },
-};
-
-function roundCounter(repo, lane) {
-  const rule = ROUND_RULES[lane];
-  if (!rule) return null;
-  const raw = git(repo, ['log', '-6', `--format=${RS}%H %s`, '--name-only']);
-  if (!raw.trim()) return { counted: 0, inspected: 0, action: 'continue' };
-  let counted = 0;
-  let inspected = 0;
-  for (const record of raw.split(RS)) {
-    if (!record.trim()) continue;
-    inspected += 1;
-    const [header, ...fileLines] = record.split('\n');
-    const subject = header.slice(header.indexOf(' ') + 1).trim();
-    const touchedLane = fileLines.some((f) => f.trim().startsWith(rule.tree));
-    if (BULK_PREFIXES.some((p) => subject.startsWith(p))) continue;
-    if (!rule.tags.some((tag) => rule.match(subject, tag))) {
-      if (touchedLane) break;
-      continue;
-    }
-    if (touchedLane) counted += 1;
-  }
-  return { counted, inspected, action: counted >= 5 ? 'stop' : 'continue' };
+// Suppression consumes the same canonical gate as the reviewer. A separate
+// tag matcher here used to stop a different window before policy could run.
+function roundCounter(repo, lane, autonomyOverride) {
+  const tree = lane === 'spec-reviewer' ? 'sdd' : lane === 'doc-updater' ? 'documentation' : null;
+  if (!tree) return null;
+  const gate = new URL('../../../../skills/spec-enforce/scripts/round-limit.mjs', import.meta.url);
+  // Do not turn an unreadable/missing gate into a permissive verdict. The outer
+  // failure contract hands triage back to the reviewer without suppressing it.
+  const verdict = execFileSync(process.execPath, [
+    fileURLToPath(gate), '--repo', repo, '--lane', tree,
+    ...(autonomyOverride === 'fully-autonomous' ? ['fully-autonomous'] : []),
+  ], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  const match = /^counted=(\d+) gate=(stop|continue)$/.exec(verdict);
+  if (!match) throw new Error('canonical round-limit gate returned no verdict');
+  return { counted: Number(match[1]), action: match[2] };
 }
 
 const AUDIT_LINES = [
@@ -268,12 +244,12 @@ function main() {
     return out;
   }
 
-  const round = roundCounter(repo, lane);
+  const round = roundCounter(repo, lane, args['autonomy-override']);
   if (round) {
     out.roundLimit = round;
     if (round.action === 'stop') {
       out.decision = 'exit-no-op';
-      out.reason = `round limit reached (${round.counted} of the last ${round.inspected} commits counted for this lane)`;
+      out.reason = `round limit reached (canonical gate: counted=${round.counted} gate=${round.action})`;
       return out;
     }
   }

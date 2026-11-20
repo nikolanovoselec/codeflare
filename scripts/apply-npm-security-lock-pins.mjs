@@ -3,37 +3,47 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-const BRACE_EXPANSION_5_0_12 = Object.freeze({
-  version: '5.0.12',
-  resolved: 'https://registry.npmjs.org/brace-expansion/-/brace-expansion-5.0.12.tgz',
-  integrity: 'sha512-YovQ3rzhaLMIrDjNDMkNS01tea93qhEhG5xy8f6+R0l+dw3Ki+5sCoIoI942iuLZTHWogWktgwVDhU09iNEimQ==',
-  license: 'MIT',
-  dependencies: { 'balanced-match': '^4.0.2' },
-  engines: { node: '20 || >=22' },
+const BRACE_EXPANSION_5_0_13 = Object.freeze({
+  version: "5.0.13",
+  resolved: "https://registry.npmjs.org/brace-expansion/-/brace-expansion-5.0.13.tgz",
+  integrity: "sha512-Vh3dmFbc4wZeox7M9I/0L9GfFd83Su4+yCck/OF9Gi/P/dAHn0RT7X4K9R7gMNMhDck3DvhR6QXsnQdjjgwNvQ==",
+  license: "MIT",
+  engines: {
+    node: "20 || >=22"
+  },
+  dependencies: {
+    "balanced-match": "^4.0.2"
+  }
 });
 
-const UNDICI_7_30_1 = Object.freeze({
-  version: '7.30.1',
-  resolved: 'https://registry.npmjs.org/undici/-/undici-7.30.1.tgz',
-  integrity: 'sha512-03KrMbjIFDWQR5RNPrSw3bd1r12JpyFQl9/yxjUbJtqkjmllqC5lFjZh6ujeuJCKr8EOQvRW872Oy/az+nLYxg==',
-  license: 'MIT',
-  engines: { node: '>=20.18.1' },
+const UNDICI_7_30_2 = Object.freeze({
+  version: "7.30.2",
+  resolved: "https://registry.npmjs.org/undici/-/undici-7.30.2.tgz",
+  integrity: "sha512-mLyPQnHwUxaM/rideoK/+KL8DaAJLRl4aBCfmX444aCSLnIaomqPLtNRe2jdCYcsk5wZzXrDIQC8ZeYNRAYyIA==",
+  license: "MIT",
+  engines: {
+    node: ">=20.18.1"
+  }
 });
 
-const UNDICI_8_12_3 = Object.freeze({
-  version: '8.12.3',
-  resolved: 'https://registry.npmjs.org/undici/-/undici-8.12.3.tgz',
-  integrity: 'sha512-+fdndUTwBP86cVjihTp21hZHo7d6oj1c/47XPA3lL8mM0XHs+C4EkcjmgRsFnFk2f/UONGDy9ItBItmXsLOQHw==',
-  license: 'MIT',
-  engines: { node: '>=22.19.0' },
+const UNDICI_8_12_4 = Object.freeze({
+  version: "8.12.4",
+  resolved: "https://registry.npmjs.org/undici/-/undici-8.12.4.tgz",
+  integrity: "sha512-8Mx+uNKKER2bA4AdtedkqRbwUCIJFr2nJckXRe5yrDqzePqwLP7VNcctN8/XdmDSbF7mS+jJKIszlL+vbam1VA==",
+  license: "MIT",
+  engines: {
+    node: ">=22.19.0"
+  }
 });
 
-const IP_ADDRESS_10_7_5 = Object.freeze({
-  version: '10.7.5',
-  resolved: 'https://registry.npmjs.org/ip-address/-/ip-address-10.7.5.tgz',
-  integrity: 'sha512-t2v0rkILYv9WXmSL7TpAaU3HXgaFYOPUcH3QHgwQ++gpJuH3bqyMy4Fvt/DJCTKwzH3Cf+bAp5W/mFL39KPLzA==',
-  license: 'MIT',
-  engines: { node: '>= 12' },
+const IP_ADDRESS_10_7_6 = Object.freeze({
+  version: "10.7.6",
+  resolved: "https://registry.npmjs.org/ip-address/-/ip-address-10.7.6.tgz",
+  integrity: "sha512-00LYkM6byILa9eQIx6qoaXCM40xTLd56AZ4vyaPW3YTyb49VZYPo5xsiAq4tuQ54GH4R7gVdYScJ1B7B77PuTg==",
+  license: "MIT",
+  engines: {
+    node: ">= 12"
+  }
 });
 
 // Pi's published shrinkwrap omits these nested registry integrities. Keep the
@@ -67,12 +77,12 @@ function main() {
 
     let securityPin;
     if (packagePath === 'node_modules/brace-expansion' || packagePath.endsWith('/node_modules/brace-expansion')) {
-      securityPin = BRACE_EXPANSION_5_0_12;
+      securityPin = BRACE_EXPANSION_5_0_13;
     } else if (packagePath === 'node_modules/undici' || packagePath.endsWith('/node_modules/undici')) {
-      if (metadata.version.startsWith('7.')) securityPin = UNDICI_7_30_1;
-      if (metadata.version.startsWith('8.')) securityPin = UNDICI_8_12_3;
+      if (metadata.version.startsWith('7.')) securityPin = UNDICI_7_30_2;
+      if (metadata.version.startsWith('8.')) securityPin = UNDICI_8_12_4;
     } else if (packagePath === 'node_modules/ip-address' || packagePath.endsWith('/node_modules/ip-address')) {
-      if (metadata.version.startsWith('10.')) securityPin = IP_ADDRESS_10_7_5;
+      if (metadata.version.startsWith('10.')) securityPin = IP_ADDRESS_10_7_6;
     }
 
     if (!securityPin || compareVersions(metadata.version, securityPin.version) >= 0) continue;

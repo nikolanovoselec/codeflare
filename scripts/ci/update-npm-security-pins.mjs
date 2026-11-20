@@ -13,8 +13,8 @@ export const SECURITY_PIN_OWNERS = Object.freeze({
   'undici-7': { package: 'undici', overlay: 'UNDICI_IDE', floor: 'UNDICI_7' },
   'undici-8': { package: 'undici', floor: 'UNDICI_8' },
   pacote: { overlay: 'PACOTE' },
-  'basic-ftp': { overlay: 'BASIC_FTP' },
-  'follow-redirects': { overlay: 'FOLLOW_REDIRECTS' },
+  'basic-ftp': { overlay: 'BASIC_FTP', smokeRequire: 'requireFromGetUri' },
+  'follow-redirects': { overlay: 'FOLLOW_REDIRECTS', smokeRequire: 'requireFromCodeServer' },
   'shell-quote': { overlay: 'SHELL_QUOTE' },
   'ip-address': { floor: 'IP_ADDRESS' },
   'body-parser': {},
@@ -28,6 +28,7 @@ const MANIFESTS = ['package.json', 'preseed/agents/pi/package.json', 'preseed/np
   'preseed/agents/claude/browser-run-mcp/package.json', '.github/npm-tools/wrangler/package.json'];
 const FLOOR_PATH = 'scripts/apply-npm-security-lock-pins.mjs';
 const FLOOR_TEST = 'host/__tests__/npm-security-lock-pins.test.js';
+const IMAGE_SMOKE = 'scripts/ci/smoke-openvscode-sidebar-image.mjs';
 const VERSION = /^\d+\.\d+\.\d+$/;
 function one(source, pattern, replacement, label) {
   if ([...source.matchAll(new RegExp(pattern.source, 'g'))].length !== 1) throw new Error(`missing or ambiguous ${label}`);
@@ -73,6 +74,10 @@ export function updateNpmSecurityPins(files, id, current, candidate) {
       `${owner.overlay}_SHA512="${Buffer.from(dist.integrity.slice(7), 'base64').toString('hex')}"`, `${id} digest`);
     next.Dockerfile = source;
   }
+  if (owner.smokeRequire) {
+    const pattern = new RegExp(`(${owner.smokeRequire}\\('${owner.package}/package\\.json'\\)\\.version, )'${current.replaceAll('.', '\\.')}'`);
+    next[IMAGE_SMOKE] = one(files[IMAGE_SMOKE], pattern, `$1'${version}'`, `${id} image smoke version`);
+  }
   for (const path of MANIFESTS) {
     const manifest = JSON.parse(files[path]);
     let changed = false;
@@ -117,7 +122,7 @@ export function updateNpmSecurityPins(files, id, current, candidate) {
 async function main() {
   const [id, command = 'resolve'] = process.argv.slice(2);
   const owner = ownerFor(id);
-  const files = Object.fromEntries(['Dockerfile', FLOOR_PATH, FLOOR_TEST, ...MANIFESTS].map(path => [path, readFileSync(path, 'utf8')]));
+  const files = Object.fromEntries(['Dockerfile', FLOOR_PATH, FLOOR_TEST, IMAGE_SMOKE, ...MANIFESTS].map(path => [path, readFileSync(path, 'utf8')]));
   const current = currentSecurityVersion(files, id);
   const response = await fetch(`https://registry.npmjs.org/${encodeURIComponent(owner.package)}`, { signal: AbortSignal.timeout(30_000) });
   if (!response.ok) throw new Error(`registry metadata failed: ${response.status}`);

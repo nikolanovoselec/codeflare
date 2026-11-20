@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { PublicSdkSnapshot } from './dispatcher-public-diagnostics';
 
 /** Closed parent-journal evidence, independent of SDK-origin capture/phase association. */
 export interface DispatcherOperationEvidence {
@@ -104,6 +105,8 @@ export interface DispatcherOperationDiagnostics {
 }
 export interface DispatcherSdkDiagnostics {
   status: 'available' | 'unavailable';
+  /** Public observations retained by the parent; never substituted for private SQL fields. */
+  public?: PublicSdkSnapshot;
   reason?: 'not-dispatcher' | 'unbound' | 'retired' | 'runtime-unavailable' | 'submission-missing'
     | 'binding-mismatch' | 'unsupported-storage' | 'invalid-metadata' | 'read-failed' | 'read-timeout'
     | 'changed-binding' | 'response-limit';

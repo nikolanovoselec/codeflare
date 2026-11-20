@@ -12,6 +12,7 @@ interface SelectProps {
   /** Defaults to the wizard's `route-select` class so existing styling is preserved. */
   class?: string;
   ariaLabel?: string;
+  ref?: (element: HTMLSelectElement) => void;
   onChange: (value: string) => void;
 }
 
@@ -26,6 +27,7 @@ const Select: Component<SelectProps> = (props) => (
     value={props.value}
     disabled={props.disabled}
     aria-label={props.ariaLabel}
+    ref={(element) => props.ref?.(element)}
     onChange={(e) => props.onChange(e.currentTarget.value)}
   >
     <For each={props.options}>

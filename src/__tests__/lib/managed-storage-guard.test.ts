@@ -131,6 +131,7 @@ describe('REQ-ENTERPRISE-030 Storage mutation guard', () => {
     expect(readVerifiedManagedR2Policy).not.toHaveBeenCalled();
   });
 
+  // REQ-ENTERPRISE-030 AC6 user-guidance contract: explain blocked storage mutations, not session startup.
   it('returns a conflict for managed targets during a managed update', async () => {
     state.snapshot.active.digest = 'c'.repeat(64);
 
@@ -138,6 +139,7 @@ describe('REQ-ENTERPRISE-030 Storage mutation guard', () => {
       .rejects.toMatchObject({
         code: 'MANAGED_ENVIRONMENT_UPDATE_PENDING',
         statusCode: 409,
+        userMessage: expect.stringMatching(/upload or deletion.*managed resources.*blocked until.*finishes updating/),
       });
   });
 
@@ -148,6 +150,7 @@ describe('REQ-ENTERPRISE-030 Storage mutation guard', () => {
       .rejects.toMatchObject({
         code: 'MANAGED_ENVIRONMENT_UPDATE_PENDING',
         statusCode: 409,
+        userMessage: expect.stringMatching(/upload or deletion.*managed resources.*blocked until.*finishes updating/),
       });
   });
 });

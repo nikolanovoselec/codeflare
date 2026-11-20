@@ -26,6 +26,14 @@ const containerWorkflow = parseYaml(readFileSync(join(ROOT, '.github/workflows/c
 
 const ALL_AGENTS = 'claude-code,codex,copilot,antigravity,opencode,pi';
 
+it('REQ-STOR-021 AC4: private transcript trees have no managed owner', async () => {
+  const { managedPathOwner } = await import('../../scripts/ci/coding-agent-selection-core.mjs');
+  for (const path of ['.claude/projects/repo/session.jsonl', '.pi/agent/sessions/session.jsonl', '.claude/projects', '.pi/agent/sessions']) {
+    assert.equal(managedPathOwner(path), null);
+  }
+  assert.equal(managedPathOwner('.pi/agent/extensions/company.ts'), 'pi');
+});
+
 it('REQ-OPS-046 AC3: bundled brace runtimes must expand patterns correctly at every path', async () => {
   const smoke = await import('../../scripts/ci/smoke-openvscode-sidebar-image.mjs');
   const root = mkdtempSync(join(tmpdir(), 'bundled-brace-smoke-'));
@@ -230,7 +238,8 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
         "exports.extract = async ({ cwd, file }) => copyFile(file, join(cwd, 'probe.txt'));",
         '',
       ].join('\n');
-      // Both independently pinned locations must pass the actual smoke defaults.
+      // The host overlay uses the default; the independently pinned IDE copy
+      // needs its own expected version when represented by a temporary path.
       const docker = readFileSync(join(ROOT, 'Dockerfile'), 'utf8');
       const expectedVersions = ['NODE_TAR_VERSION', 'CODE_SERVER_IDE_TAR_VERSION']
         .map(name => docker.match(new RegExp(`${name}="([^"]+)"`))[1]);
@@ -241,20 +250,23 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
         writeFileSync(join(runtimePath, 'index.cjs'), moduleSource);
       }
 
-      const verified = await verifyNodeTarRuntimes({ runtimePaths, temporaryRoot: fixture });
-      assert.deepEqual(verified, runtimePaths);
-      for (const runtimePath of runtimePaths) {
+      assert.deepEqual(await verifyNodeTarRuntimes({ runtimePaths: [runtimePaths[0]], temporaryRoot: fixture }),
+        [runtimePaths[0]]);
+      const verifyBoth = () => verifyNodeTarRuntimes({ runtimePaths, expectedVersions, temporaryRoot: fixture });
+      assert.deepEqual(await verifyBoth(), runtimePaths);
+      for (const [index, runtimePath] of runtimePaths.entries()) {
         writeFileSync(join(runtimePath, 'package.json'), JSON.stringify({ name: 'tar', version: '7.5.21', main: 'index.cjs' }));
-        await assert.rejects(verifyNodeTarRuntimes({ runtimePaths, temporaryRoot: fixture }),
-          /must contain node-tar 7\.5\.22/);
-        writeFileSync(join(runtimePath, 'package.json'), JSON.stringify({ name: 'tar', version: '7.5.22', main: 'index.cjs' }));
+        await assert.rejects(verifyBoth(), {
+          code: 'ERR_ASSERTION', actual: '7.5.21', expected: expectedVersions[index],
+        });
+        writeFileSync(join(runtimePath, 'package.json'), JSON.stringify({ name: 'tar', version: expectedVersions[index], main: 'index.cjs' }));
       }
 
       const brokenRuntime = join(fixture, 'broken-tar');
       mkdirSync(brokenRuntime, { recursive: true });
       writeFileSync(
         join(brokenRuntime, 'package.json'),
-        JSON.stringify({ name: 'tar', version: '7.5.22', main: 'index.cjs' }),
+        JSON.stringify({ name: 'tar', version: expectedVersions[0], main: 'index.cjs' }),
       );
       writeFileSync(join(brokenRuntime, 'index.cjs'), 'exports.create = async () => {};\n');
 

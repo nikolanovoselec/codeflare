@@ -10,6 +10,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { validateKey } from '../../routes/storage/validation';
+import { getR2Url } from '../../lib/r2-client';
 import { ValidationError } from '../../lib/error-types';
 import { buildContentDisposition } from '../../routes/storage/download';
 
@@ -26,21 +27,13 @@ describe('REQ-SEC-010 AC1/AC2: URI-decoded traversal attacks are caught', () => 
   });
 
   it('REQ-SEC-010 AC2: double-encoded %252E%252E decodes once to an inert literal, used verbatim and never re-decoded', () => {
-    // %252E decodes to %2E on first pass, then %2E decodes to "."
-    // decodeURIComponent('%252E%252E') === '%2E%2E', then a second call would give '..'
-    // Production code calls decodeURIComponent once — which gives "%2E%2E", not ".."
-    // So double-encoded DOES slip through one decode. Verify behavior matches production:
-    // If production catches it, great. If not, the test documents the actual behavior.
-    // Either way the test fails if validateKey's implementation changes in a regressing way.
-    const doubleEncoded = '%252E%252E';
-    // After one decodeURIComponent: "%2E%2E" — does NOT contain ".." literally
-    // Production uses one decode pass — so double-encoded is NOT caught at the traversal check
-    // but it IS returned as the decoded key "%2E%2E" (safe for R2 lookup, not a traversal).
-    // This test documents that production correctly allows double-encoded as a safe filename.
-    expect(() => validateKey(doubleEncoded)).not.toThrow();
-    // And returns the single-decoded value
-    const result = validateKey(doubleEncoded);
-    expect(result).toBe('%2E%2E');
+    const result = validateKey('tenant/%252E%252E/Gr%C3%BC%C3%9Fe%20%23%3F.txt');
+    expect(result).toBe('tenant/%2E%2E/Grüße #?.txt');
+    const request = new Request(getR2Url('https://r2.test', 'user-bucket', result));
+    const url = new URL(request.url);
+    expect(url.pathname.split('/').slice(2).map(decodeURIComponent).join('/')).toBe(result);
+    expect(url.pathname.split('/')[1]).toBe('user-bucket');
+    expect(url.search).toBe(''); expect(url.hash).toBe('');
   });
 
   it('REQ-SEC-010 AC2: direct ".." literal is always rejected regardless of encoding', () => {
@@ -150,6 +143,14 @@ describe('REQ-SEC-013: Content-Disposition is built safely', () => {
     const header = buildContentDisposition('café.txt');
     expect(header).toContain('filename="café.txt"');
     expect(header).toMatch(/filename\*=UTF-8''caf%C3%A9\.txt/);
+  });
+
+  it('REQ-SEC-013 AC3: removes HTTP controls without losing Unicode identity', () => {
+    const filename = '東京😀\u0000\u0009\u001f\u007f\u0085.txt';
+    const header = buildContentDisposition(filename);
+    expect(header).not.toMatch(/[\u0000-\u001f\u007f-\u009f]/);
+    expect(decodeURIComponent(header.split("filename*=UTF-8''")[1])).toBe('東京😀_____.txt');
+    expect(() => new Headers({ 'Content-Disposition': header })).not.toThrow();
   });
 
   it('REQ-SEC-013 AC2: leaves a plain ASCII filename completely unchanged', () => {

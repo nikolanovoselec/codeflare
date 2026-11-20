@@ -422,6 +422,8 @@ export interface UserInfo {
   subscribedMode?: 'default' | 'advanced';
   enterpriseMode?: boolean;
   operatorManagementEligible?: boolean;
+  /** Canonical billing-effective SaaS modes; absence does not grant Pro access. */
+  allowedModes?: SessionMode[];
   downloadsDisabled?: boolean;
   /** REQ-ENTERPRISE-003: creation-selectable agents (wizard-governed in enterprise). */
   allowedAgents?: AgentType[];

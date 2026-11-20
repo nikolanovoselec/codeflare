@@ -1,4 +1,4 @@
-/** REQ-OPERATOR-030/044/045/046: platform facts, not caller metadata, qualify a normal deployment. */
+/** REQ-OPERATOR-030/044/045/046/107: platform facts, not caller metadata, qualify a normal deployment. */
 import type { Env } from '../types';
 import { CF_API_BASE } from '../lib/constants';
 import { SETUP_KEYS } from '../lib/kv-keys';
@@ -14,8 +14,8 @@ export interface DispatcherDeploymentVerification {
 }
 const denied = (): never => { throw new Error('Dispatcher deployment could not be verified'); };
 
-/** REQ-OPERATOR-046 AC4/6/7: one new shared installation candidate; never overwrite SDK storage.
- * The authorized caller owns Registry selection. An uncertain upload is not retried or deleted. */
+/** REQ-OPERATOR-107 AC1/3/4: one new shared installation candidate; never overwrite SDK storage.
+ * The authorized caller owns Registry selection. This operation never retries or deletes an uncertain upload. */
 export async function provisionDispatcherDeployment(env: Env,
   pin: Omit<DispatcherConnectionMetadata, 'workerName' | 'workerVersionId'>,
   bytes: Uint8Array, admittedSubmissionAttemptLimit: number, reauthorize: () => Promise<void>): Promise<{
@@ -216,4 +216,73 @@ export async function verifyDispatcherDeployment(env: Env, connection: Dispatche
   if (await active() !== deployment) return denied();
   return { observabilityReady, connectionRevision: connection.connectionRevision, workerVersionId: connection.workerVersionId,
     bundleDigest: connection.bundleDigest, controlOrigin: `https://${connection.workerName}.${subdomain.subdomain}.workers.dev` };
+}
+
+/** REQ-OPERATOR-107 AC4–7: remove proven-owned obsolete infrastructure after Root retirement.
+ * Deletion is not SDK settlement or permission to replay original effects. */
+export async function cleanupDispatcherDeployments(env: Env, selected: DispatcherConnectionMetadata,
+  reauthorize: () => Promise<void>, retire: (workerName: string) => Promise<void>): Promise<void> {
+  const parentName = env.CLOUDFLARE_WORKER_NAME;
+  const incomplete = (): never => { throw new Error('Dispatcher deployment cleanup incomplete'); };
+  if (!parentName || !/^[a-z0-9_][a-z0-9_-]*$/.test(parentName) || !env.CLOUDFLARE_API_TOKEN) return incomplete();
+  await reauthorize();
+  const account = await env.KV.get(SETUP_KEYS.ACCOUNT_ID);
+  if (!account || !/^[a-f0-9]{32}$/.test(account)) incomplete();
+  const workers = `${CF_API_BASE}/accounts/${account}/workers`;
+  const request = async (url: string, method: 'GET' | 'DELETE' = 'GET', absent = false,
+    limit = 256 * 1024) => {
+    await reauthorize();
+    const signal = AbortSignal.timeout(15000);
+    const response = await fetch(url, { method, signal, redirect: 'manual',
+      headers: { authorization: `Bearer ${env.CLOUDFLARE_API_TOKEN}` } });
+    const bytes = await readBoundedResponse(response, limit, 'Dispatcher cleanup', signal);
+    const data = bytes.length ? JSON.parse(new TextDecoder().decode(bytes)) : undefined;
+    if (absent && response.status === 404 && Array.isArray(data?.errors)
+      && data.errors.some((error: { code?: unknown }) => error?.code === 10007)) {
+      await reauthorize();
+      return null;
+    }
+    if (!response.ok || (method === 'GET' || bytes.length > 0) && data?.success !== true) incomplete();
+    if (method === 'GET' && data.result == null) incomplete();
+    await reauthorize();
+    return data?.result;
+  };
+  // Cloudflare's script inventory is a single result array, not a paged endpoint.
+  const scripts = await request(`${workers}/scripts`, 'GET', false, 16 * 1024 * 1024);
+  if (!Array.isArray(scripts)) incomplete();
+  const names = new Set<string>();
+  for (const script of scripts) {
+    if (!script || typeof script.id !== 'string' || !/^[a-z0-9_][a-z0-9_-]{0,62}$/.test(script.id)
+      || names.has(script.id)) incomplete();
+    if (script.id !== selected.workerName && script.id.startsWith('dispatcher-')) names.add(script.id);
+  }
+  if (names.size === 0) return;
+  const parent = await request(`${workers}/services/${encodeURIComponent(parentName)}`);
+  const environment = parent?.default_environment?.environment;
+  if (typeof environment !== 'string' || !environment) incomplete();
+  const owned = (settings: { bindings?: unknown }) => {
+    const bindings = settings.bindings;
+    if (!Array.isArray(bindings)) return incomplete();
+    const binding = (name: string) => {
+      const matches = bindings.filter(item => item && item.name === name);
+      return matches.length === 1 ? matches[0] : undefined;
+    };
+    const installation = binding('OPERATOR_INSTALLATION_ID');
+    const service = binding('OPERATOR');
+    return installation?.type === 'plain_text' && installation.text === selected.installationId
+      && service?.type === 'service' && service.service === parentName
+      && service.entrypoint === 'OperatorInstalledDispatcherCapability'
+      && (service.environment === undefined || service.environment === environment);
+  };
+  for (const name of names) {
+    const base = `${workers}/scripts/${encodeURIComponent(name)}`;
+    const settings = await request(`${base}/settings`, 'GET', true);
+    if (!settings || !owned(settings)) continue;
+    await retire(name);
+    // Retirement can await several Activity RPCs. Recheck ownership and current
+    // selection authority before the destructive boundary, never force references.
+    const current = await request(`${base}/settings`, 'GET', true);
+    if (!current || !owned(current)) continue;
+    await request(base, 'DELETE', true);
+  }
 }

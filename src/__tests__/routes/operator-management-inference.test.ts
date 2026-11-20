@@ -60,7 +60,7 @@ function fixture() {
   app.onError((error, c) => error instanceof AppError ? c.json(error.toJSON(), error.statusCode as never) : c.json({ error: 'Internal error' }, 500));
   app.route('/api/operator-management', routes);
   const request = (query = '?installationId=installation-1') => app.request(`https://enterprise.example.test/api/operator-management/options${query}`, {}, env);
-  return { request, installation, operator, env };
+  return { request, installation, operator, env, app, registry };
 }
 async function readOptions(response: Response) {
   const value: unknown = await response.json();
@@ -76,6 +76,25 @@ beforeEach(() => {
   state.settings = { defaultProvider: 'owner-provider', defaultModel: 'owner-model', defaultThinkingLevel: 'high',
     modelThinkingLevels: { 'owner-provider/owner-model': 'off' }, unrelated: 'PRIVATE_SETTINGS' };
   state.reads = [];
+});
+
+describe('management release metadata over the RPC boundary', () => {
+  it('preserves declared application schema in the HTTP response without exposing internal JSON fields', async () => {
+    const f = fixture();
+    const application = { controlVersion: 1, configurationSchema: { type: 'object', properties: {
+      project: { type: 'string', maxLength: 1, default: '😀' },
+    } }, schedule: { enabledPath: '/enabled', intervalSecondsPath: '/period' } };
+    const release = { id: 'release-1', operatorId: f.operator.id, applicationJson: JSON.stringify(application) };
+    Object.assign(f.registry, {
+      getManagementReleases: async () => [release], getManagementInstallations: async () => [],
+    });
+    const response = await f.app.request(`https://enterprise.example.test/api/operator-management/operators/${f.operator.id}`, {}, f.env);
+    expect(response.status).toBe(200);
+    const body = await response.json() as { releases: Array<Record<string, unknown>> };
+    expect(body.releases).toEqual([{ id: 'release-1', operatorId: f.operator.id, application }]);
+    expect(body.releases[0]).not.toHaveProperty('applicationJson');
+    expect(release.applicationJson).toBe(JSON.stringify(application));
+  });
 });
 
 describe('REQ-OPERATOR-096 AC1/2/3/6: current caller next-manual-run inference options', () => {

@@ -378,7 +378,7 @@ export function registerOperatorReviewRemote(pi: ReviewPi, dependencies: Depende
   } };
 }
 
-function githubRepository(value: string): string | undefined {
+export function githubRepository(value: string): string | undefined {
   const ssh = /^git@github\.com:([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)(?:\.git)?$/.exec(value);
   if (ssh) return ssh[1]!.toLowerCase();
   try {

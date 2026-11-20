@@ -51,7 +51,7 @@ const ReportsPage: Component = () => {
             </section>
             <div class="admin-report-actions">
               <button type="button" class="admin-primary-button" disabled={sending()} onClick={() => void sendTest()}>{sending() ? 'Queueing…' : 'Send test report'}</button>
-              <p>Uses latest closed UTC month. Delivery continues through scheduler if this request ends early.</p>
+              <p>Uses current UTC month. Delivery continues through scheduler if this request ends early.</p>
             </div>
             <Show when={sendError()}><div class="admin-inline-error" role="alert">{sendError()}</div></Show>
           </Show>

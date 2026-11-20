@@ -7,6 +7,7 @@ import { terminalWorkspaceStore } from '../../stores/terminal-workspace';
 import { sendTerminalKey } from '../../lib/touch-gestures';
 import { setIframeInput } from '../../lib/xterm-internals';
 import { beginClipboardWrite, retainFailedClipboardWrite } from '../../lib/osc52';
+import { startListening, stopListening } from '../../lib/speech-input';
 
 // Mocks for mobile detection
 const mobileMock = vi.hoisted(() => ({
@@ -68,12 +69,13 @@ vi.mock('../../stores/session', () => ({
 
 const speechMock = vi.hoisted(() => ({
   supported: true as boolean,
+  listening: false,
   permissionState: 'prompt' as 'granted' | 'denied' | 'prompt' | 'unknown',
 }));
 
 vi.mock('../../lib/speech-input', () => ({
   isSpeechSupported: vi.fn(() => speechMock.supported),
-  isListening: vi.fn(() => false),
+  isListening: vi.fn(() => speechMock.listening),
   startListening: vi.fn(() => true),
   stopListening: vi.fn(),
   getMicPermissionState: vi.fn(async () => speechMock.permissionState),
@@ -94,6 +96,7 @@ describe('FloatingTerminalButtons / REQ-MOB-006 (sticky Ctrl button)', () => {
     settingsMock.showButtonLabels = true;
     settingsMock.clipboardAccess = false;
     speechMock.supported = true;
+    speechMock.listening = false;
     speechMock.permissionState = 'prompt';
   });
 
@@ -201,6 +204,16 @@ describe('FloatingTerminalButtons / REQ-MOB-006 (sticky Ctrl button)', () => {
   });
 
   describe('Voice input', () => {
+    it('hides the unsupported mobile microphone while keeping terminal controls available', () => {
+      speechMock.supported = false;
+      render(() => <FloatingTerminalButtons showTerminal={true} />);
+
+      expect(screen.getByRole('button', { name: 'Paste' })).toBeVisible();
+      expect(screen.getByRole('button', { name: 'TAB' })).toBeVisible();
+      expect(screen.queryByRole('button', { name: /voice input/i, hidden: true })).not.toBeInTheDocument();
+      expect(screen.queryByTitle('Voice Input')).not.toBeInTheDocument();
+    });
+
     it('REQ-MOB-013 AC1: dismisses the mobile keyboard before speech may issue a first prompt when permission state is unknown', async () => {
       vi.useRealTimers();
       speechMock.permissionState = 'unknown';
@@ -239,6 +252,31 @@ describe('FloatingTerminalButtons / REQ-MOB-006 (sticky Ctrl button)', () => {
       const mic = document.querySelector('.floating-mic-desktop');
       expect(mic).toBeInTheDocument();
       expect(mic!.querySelector('button')).toHaveAttribute('title', 'Voice Input (Ctrl+Space)');
+    });
+
+    it('starts dictation on desktop mic click and stops it on the next click', () => {
+      const term = { input: vi.fn() };
+      (sessionStore as any).activeSessionId = 'test-session';
+      vi.mocked(terminalStore.getTerminal).mockReturnValue(term as any);
+      render(() => <FloatingTerminalButtons showTerminal={true} />);
+      const mic = screen.getByRole('button', { name: 'Voice Input (Ctrl+Space)' });
+
+      expect(mic).toBeVisible();
+      mic.click();
+
+      expect(startListening).toHaveBeenCalledWith(expect.any(Function), expect.any(Function));
+      expect(stopListening).not.toHaveBeenCalled();
+      const onText = vi.mocked(startListening).mock.calls[0][0];
+      onText('desktop dictation');
+      expect(term.input).toHaveBeenCalledWith('desktop dictation', false);
+
+      // The speech service reports an active recognition session on the second click.
+      speechMock.listening = true;
+      vi.mocked(startListening).mockClear();
+      mic.click();
+      expect(stopListening).toHaveBeenCalledWith();
+      expect(startListening).not.toHaveBeenCalled();
+      speechMock.listening = false;
     });
 
     it('hides desktop mic button when speech not supported', () => {

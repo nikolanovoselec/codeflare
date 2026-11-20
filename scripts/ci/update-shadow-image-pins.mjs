@@ -3,12 +3,13 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { createHash } from 'node:crypto';
 import { strictSemverUpgrade } from './semver-forward.mjs';
 
 const PINS = '.github/workflow-tool-pins.json';
 const K6 = '.github/actions/install-k6/action.yml';
 const PATHS = ['Dockerfile', PINS, K6];
-export const IMAGE_PIN_IDS = Object.freeze(['go', 'rust', 'rclone', 'grpc', 'compress', 'github-cli', 'k6', 'trivy', 'ci-node-26', 'ci-node-22']);
+export const IMAGE_PIN_IDS = Object.freeze(['go', 'rust', 'rclone', 'grpc', 'compress', 'github-cli', 'k6', 'trivy', 'ci-node-26', 'ci-node-22', 'antigravity']);
 const VERSION = /^\d+\.\d+\.\d+$/;
 const HASH = /^[a-f0-9]{64}$/;
 function once(source, pattern, replacement, label) {
@@ -20,9 +21,22 @@ function match(source, pattern, label) {
   if (matches.length !== 1) throw new Error(`missing or ambiguous ${label}`);
   return matches[0];
 }
+function validateAntigravityPin({ version, url, sha512 }) {
+  if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version ?? '') ||
+      !/^[a-f0-9]{128}$/.test(sha512 ?? '')) throw new Error('Antigravity stable version and authoritative SHA512 are required');
+  const archive = new RegExp(`^https://storage\\.googleapis\\.com/antigravity-public/antigravity-cli/${version.replaceAll('.', '\\.')}-[0-9]+/linux-x64/cli_linux_x64\\.tar\\.gz$`);
+  if (typeof url !== 'string' || !archive.test(url)) throw new Error('Antigravity native archive identity mismatch');
+  return { version, url, sha512 };
+}
+function currentAntigravityPin(files) {
+  return validateAntigravityPin(Object.fromEntries(['VERSION', 'URL', 'SHA512'].map(key => [key.toLowerCase(),
+    match(files.Dockerfile, new RegExp(`^ARG ANTIGRAVITY_${key}=(.+)$`, 'm'), `Antigravity ${key}`)[1],
+  ])));
+}
 export function currentImagePin(files, id) {
   const docker = files.Dockerfile;
   switch (id) {
+    case 'antigravity': return currentAntigravityPin(files).version;
     case 'go': return match(docker, /go(\d+\.\d+\.\d+)\.linux-amd64\.tar\.gz/, id)[1];
     case 'rust': return match(docker, /https:\/\/static\.rust-lang\.org\/dist\/(\d{4}-\d{2}-\d{2})\/rust-(\d+\.\d+\.\d+)-x86_64-unknown-linux-gnu\.tar\.xz/, id)[2];
     case 'rclone': return match(docker, /refs\/tags\/v(\d+\.\d+\.\d+) -o \/tmp\/rclone.tar.gz/, id)[1];
@@ -51,6 +65,14 @@ export function updateShadowImagePins(files, id, current, candidate) {
   let docker = files.Dockerfile;
   if (['go', 'rust', 'github-cli', 'k6'].includes(id) && !HASH.test(sha256 ?? '')) throw new Error('an authoritative SHA256 is required');
   switch (id) {
+    case 'antigravity': {
+      const pin = validateAntigravityPin(candidate);
+      for (const [key, value] of Object.entries(pin)) {
+        const name = `ANTIGRAVITY_${key.toUpperCase()}`;
+        docker = once(docker, new RegExp(`^ARG ${name}=.+$`, 'm'), `ARG ${name}=${value}`, name);
+      }
+      break;
+    }
     case 'go':
       docker = once(docker, /go\d+\.\d+\.\d+\.linux-amd64\.tar\.gz/, `go${version}.linux-amd64.tar.gz`, id);
       docker = once(docker, /[a-f0-9]{64}(?=  \/tmp\/go.tar.gz)/, sha256, `${id} checksum`);
@@ -84,10 +106,23 @@ export function updateShadowImagePins(files, id, current, candidate) {
     }
     case 'grpc': docker = once(docker, /google\.golang\.org\/grpc@v\d+\.\d+\.\d+/, `google.golang.org/grpc@v${version}`, id); break;
     case 'compress': docker = once(docker, /github\.com\/klauspost\/compress@v\d+\.\d+\.\d+/, `github.com/klauspost/compress@v${version}`, id); break;
-    case 'github-cli':
+    case 'github-cli': {
+      const { sourceCommit, sourceSha256, sourceEpoch } = candidate;
+      if (!/^[a-f0-9]{40}$/.test(sourceCommit ?? '') || !HASH.test(sourceSha256 ?? '')
+        || !Number.isSafeInteger(sourceEpoch) || sourceEpoch <= 0) throw new Error('GitHub CLI source identity is required');
+      const block = match(docker, /FROM rclone-builder AS gh-builder[\s\S]*?(?=\n# ----)/, 'GitHub CLI source builder')[0];
+      let updated = once(block, /https:\/\/codeload\.github\.com\/cli\/cli\/tar\.gz\/[a-f0-9]{40}/,
+        `https://codeload.github.com/cli/cli/tar.gz/${sourceCommit}`, 'GitHub CLI source commit');
+      updated = once(updated, /[a-f0-9]{64}(?=  \/tmp\/gh-src.tar.gz)/, sourceSha256, 'GitHub CLI source checksum');
+      updated = once(updated, /GH_VERSION=\d+\.\d+\.\d+-codeflare-xnet1 SOURCE_DATE_EPOCH=\d+/,
+        `GH_VERSION=${version}-codeflare-xnet1 SOURCE_DATE_EPOCH=${sourceEpoch}`, 'GitHub CLI build version');
+      docker = docker.replace(block, () => updated);
       docker = once(docker, /GH_VERSION="[^"]+"/, `GH_VERSION="${version}"`, id);
       docker = once(docker, /GH_SHA256="[a-f0-9]{64}"/, `GH_SHA256="${sha256}"`, `${id} checksum`);
+      docker = once(docker, /gh version \d+\.\d+\.\d+-codeflare-xnet1/,
+        `gh version ${version}-codeflare-xnet1`, 'GitHub CLI runtime version');
       break;
+    }
     case 'k6':
       next[K6] = once(once(files[K6], /default: '\d+\.\d+\.\d+'/, `default: '${version}'`, id), /default: '[a-f0-9]{64}'/, `default: '${sha256}'`, `${id} checksum`);
       break;
@@ -104,8 +139,24 @@ export function updateShadowImagePins(files, id, current, candidate) {
   return next;
 }
 async function request(url, json = false) {
-  const response = await fetch(url, { signal: AbortSignal.timeout(30_000), headers: { 'user-agent': 'codeflare-shadow-pin-bot' } });
+  const token = new URL(url).origin === 'https://api.github.com' ? process.env.GH_TOKEN : undefined;
+  const response = await fetch(url, {
+    signal: AbortSignal.timeout(30_000),
+    headers: { 'user-agent': 'codeflare-shadow-pin-bot', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+    ...(token ? { redirect: 'error' } : {}),
+  });
   if (!response.ok) throw new Error(`metadata request failed: ${response.status} ${url}`);
+  if (json === 'sha256') {
+    if (!response.body) throw new Error('source archive body missing');
+    const digest = createHash('sha256');
+    let bytes = 0;
+    for await (const chunk of response.body) {
+      bytes += chunk.byteLength;
+      if (bytes > 64 * 1024 * 1024) throw new Error('source archive exceeds 64 MiB');
+      digest.update(chunk);
+    }
+    return digest.digest('hex');
+  }
   return json ? response.json() : response.text();
 }
 function latestWithin(current, versions, patchOnly = false) {
@@ -114,6 +165,9 @@ function latestWithin(current, versions, patchOnly = false) {
     .sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).at(-1);
 }
 export async function resolveCandidate(id, current) {
+  if (id === 'antigravity') {
+    return validateAntigravityPin(await request('https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/linux_amd64.json', true));
+  }
   if (id === 'go') {
     const releases = await request('https://go.dev/dl/?mode=json&include=all', true);
     const version = latestWithin(current, releases.filter(value => value.stable).map(value => value.version.replace(/^go/, '')), true);
@@ -158,6 +212,15 @@ export async function resolveCandidate(id, current) {
   const assetName = id === 'github-cli' ? `gh_${version}_linux_amd64.deb` : `k6-v${version}-linux-amd64.tar.gz`;
   const asset = release.assets.find(value => value.name === assetName);
   if (asset && /^sha256:[a-f0-9]{64}$/.test(asset.digest ?? '')) {
+    if (id === 'github-cli') {
+      const source = await request(`https://api.github.com/repos/cli/cli/commits/${encodeURIComponent(release.tag_name)}`, true);
+      const sourceEpoch = Date.parse(source.commit?.committer?.date) / 1000;
+      if (!/^[a-f0-9]{40}$/.test(source.sha ?? '') || !Number.isSafeInteger(sourceEpoch) || sourceEpoch <= 0) {
+        throw new Error('GitHub CLI release commit identity missing');
+      }
+      const sourceSha256 = await request(`https://codeload.github.com/cli/cli/tar.gz/${source.sha}`, 'sha256');
+      return { version, sha256: asset.digest.slice(7), sourceCommit: source.sha, sourceEpoch, sourceSha256 };
+    }
     return { version, sha256: asset.digest.slice(7) };
   }
   // Older k6 release assets predate GitHub's digest field. Keep publisher
@@ -176,11 +239,18 @@ async function main() {
   const files = Object.fromEntries(PATHS.map(path => [path, readFileSync(path, 'utf8')]));
   const current = currentImagePin(files, id);
   const candidate = await resolveCandidate(id, current);
+  const previous = id === 'antigravity' ? JSON.stringify(currentAntigravityPin(files)) : undefined;
+  if (previous && command === 'apply' && (process.env.CUR !== current || process.env.PREVIOUS !== previous ||
+      process.env.CANDIDATE !== JSON.stringify(candidate))) throw new Error('candidate or pin changed since resolution');
   if (!candidate.version || !strictSemverUpgrade(current, candidate.version)) {
     if (command === 'resolve') process.stdout.write('skip=true\n');
     return;
   }
-  if (command === 'resolve') { process.stdout.write(`current=${current}\nlatest=${candidate.version}\ncandidate=${JSON.stringify(candidate)}\n`); return; }
+  if (command === 'resolve') {
+    process.stdout.write(`current=${current}\nlatest=${candidate.version}\ncandidate=${JSON.stringify(candidate)}\n`);
+    if (previous) process.stdout.write(`previous=${previous}\n`);
+    return;
+  }
   if (command !== 'apply' || process.env.CUR !== current || process.env.CANDIDATE !== JSON.stringify(candidate)) throw new Error('candidate changed since resolution');
   const next = updateShadowImagePins(files, id, current, candidate);
   for (const [path, source] of Object.entries(next)) if (source !== files[path]) writeFileSync(path, source);

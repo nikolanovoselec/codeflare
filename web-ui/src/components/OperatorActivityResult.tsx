@@ -20,7 +20,7 @@ export default function OperatorActivityResult(props: { result: unknown }) {
   if (readable(data.repository) && Array.isArray(data.results) && data.results.length <= 1024) {
     return <div class="operator-activity-reports">
       <h4>Pull request outcomes</h4><Show when={repositoryPath(data.repository)}><p>Repository: {repositoryPath(data.repository)}</p></Show>
-      <Show when={data.results.length} fallback={<p>No eligible pull requests discovered.</p>}>
+      <Show when={data.results.length} fallback={<p>No pull request outcomes reported.</p>}>
         <For each={data.results}>{value => {
           const item = record(value);
           const number = typeof item?.pullRequest === 'number' && Number.isSafeInteger(item.pullRequest) && item.pullRequest > 0 ? item.pullRequest : null;
@@ -31,7 +31,8 @@ export default function OperatorActivityResult(props: { result: unknown }) {
               <a href={prUrl!} target="_blank" rel="noopener noreferrer">PR #{number}</a>
             </Show></h5>
             <p><strong>Outcome: {readable(item?.outcome) || unavailableEvidence}</strong></p>
-            <p>Decision: {readable(item?.decision) || unavailableEvidence}</p>
+            <p>Decision: {item?.decision == null ? 'Not reported' : readable(item.decision) || unavailableEvidence}</p>
+            <Show when={item?.reason !== undefined}><p>Reason: {readable(item?.reason) || unavailableEvidence}</p></Show>
             <Show when={item?.comment !== undefined}><Show when={assessmentText(item?.comment)} fallback={<p>{unavailableEvidence}</p>}>
               {comment => <details><summary>Read full assessment</summary><p class="operator-full-assessment">{comment()}</p></details>}
             </Show></Show>

@@ -209,7 +209,7 @@ app.post('/contact', contactRateLimiter, async (c) => {
     remoteIp,
     unavailableCode: 'CONTACT_NOT_CONFIGURED',
     noRecipientCode: 'CONTACT_NO_ADMIN_RECIPIENT',
-    logContext: { email: body.email, topic: body.topic },
+    logContext: { surface: 'contact' },
   });
 
   const submittedAtIso = new Date().toISOString();
@@ -233,7 +233,7 @@ app.post('/contact', contactRateLimiter, async (c) => {
     errorCode: 'CONTACT_EMAIL_FAILED',
   });
 
-  logger.info('Contact submission accepted', { email: body.email, topic: body.topic });
+  logger.info('Contact submission accepted');
   return c.json({ success: true });
 });
 

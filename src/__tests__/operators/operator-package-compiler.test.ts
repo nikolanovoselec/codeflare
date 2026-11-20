@@ -22,8 +22,62 @@ function bytes(result: Awaited<ReturnType<typeof compileOperatorPackage>>, name:
 }
 
 describe('shared operator package compiler', () => {
-  it('REQ-OPERATOR-044: AC4 normal packaging emits exactly three immutable assets with generated deployment metadata', async () => {
-    const bundle = normalDispatcherBundle();
+  it('REQ-OPERATOR-044: preserves application-owned configuration and generic scheduling metadata without a first-party identity', async () => {
+    const application = { controlVersion: 1, githubWriteRepositoriesPath: '/project', configurationSchema: { type: 'object', properties: {
+      project: { type: 'string', title: 'Project to summarize' },
+      timer: { type: 'object', properties: { enabled: { type: 'boolean', default: false }, every: { type: 'integer', minimum: 1 } } },
+    } }, schedule: { enabledPath: '/timer/enabled', intervalSecondsPath: '/timer/every' } };
+    const result = await compileOperatorPackage({ manifest: { ...manifest('dispatcher'), id: 'release-notes', application },
+      bundle: normalDispatcherBundle() });
+    const published = parseOperatorManifest(new TextDecoder().decode(bytes(result, 'operator-manifest.json')), 'https://operators.example.test/');
+    expect(published.application).toEqual(application);
+    expect(published.id).toBe('release-notes');
+    await expect(parseDispatcherBundle(bytes(result, 'operator-bundle.json'), published.artifact.sha256))
+      .resolves.toEqual(normalDispatcherBundle());
+  });
+
+  it('REQ-OPERATOR-210: preserves optional package-owned recovery metadata through compilation and acquisition', async () => {
+    const recovery = { label: 'Reset Locks', description: 'Release failed work without removing its history.', prefix: 'example:claim:' };
+    const application = { controlVersion: 1, recovery };
+    const result = await compileOperatorPackage({ manifest: { ...manifest('dispatcher'), id: 'independent-application', application },
+      bundle: normalDispatcherBundle() });
+    const published = parseOperatorManifest(new TextDecoder().decode(bytes(result, 'operator-manifest.json')), 'https://operators.example.test/');
+    expect(published.application?.recovery).toEqual(recovery);
+    await expect(parseDispatcherBundle(bytes(result, 'operator-bundle.json'), published.artifact.sha256))
+      .resolves.toEqual(normalDispatcherBundle());
+  });
+
+  it.each([
+    { controlVersion: 2 },
+    { controlVersion: 1, configurationSchema: [] },
+    { controlVersion: 1, schedule: { enabledPath: 'timer/enabled', intervalSecondsPath: '/timer/every' } },
+    { controlVersion: 1, schedule: { enabledPath: '/__proto__/enabled', intervalSecondsPath: '/timer/every' } },
+    { controlVersion: 1, schedule: { enabledPath: '/timer/enabled', intervalSecondsPath: '/constructor/prototype' } },
+    { controlVersion: 1, schedule: { enabledPath: '/timer/~2enabled', intervalSecondsPath: '/timer/every' } },
+    { controlVersion: 1, schedule: { enabledPath: '/timer/enabled', intervalSecondsPath: '/timer/every', authority: 'caller' } },
+    ...[
+      { label: '', description: 'Explain recovery', prefix: 'claim:' },
+      { label: 'x'.repeat(81), description: 'Explain recovery', prefix: 'claim:' },
+      { label: 'Reset', description: '', prefix: 'claim:' },
+      { label: 'Reset', description: 'x'.repeat(513), prefix: 'claim:' },
+      { label: 'Reset\nNow', description: 'Explain recovery', prefix: 'claim:' },
+      { label: 'Reset', description: 'Explain recovery', prefix: '../private:' },
+      { label: 'Reset', description: 'Explain recovery', prefix: '' },
+      { label: 'Reset', description: 'Explain recovery', prefix: 'claim:', ownerKey: 'caller' },
+    ].map(recovery => ({ controlVersion: 1, recovery })),
+    { controlVersion: 1, ownerKey: 'caller' },
+    { controlVersion: 1, githubWriteRepositoriesPath: '/__proto__/repositories' },
+  ])('REQ-OPERATOR-030: rejects invalid application descriptors at compilation and acquisition: %j', async application => {
+    const base = await compileOperatorPackage({ manifest: manifest('dispatcher'), bundle: normalDispatcherBundle() });
+    await expect(compileOperatorPackage({ manifest: { ...manifest('dispatcher'), application }, bundle: normalDispatcherBundle() }))
+      .rejects.toThrow(/Invalid operator package/);
+    expect(() => parseOperatorManifest(JSON.stringify({ ...base.manifest, application }), 'https://operators.example.test/'))
+      .toThrow(/Invalid or incompatible operator manifest/);
+  });
+
+  it.each(['0.30.1', '0.33.0'])('REQ-OPERATOR-044: AC4 normal packaging emits exactly three immutable assets with generated deployment metadata / Agents %s', async agents => {
+    const normal = normalDispatcherBundle();
+    const bundle = { ...normal, versions: { ...normal.versions, agents } };
     const provenance = { repositoryId: 7, sourceCommit: bundle.sourceCommit, compilerCommit: 'c'.repeat(40),
       workflow: { id: 8, ref: 'refs/heads/main', runId: 9, runAttempt: 1 } };
     const first = await compileOperatorPackage({ manifest: manifest('dispatcher'), bundle, provenance });
@@ -39,8 +93,9 @@ describe('shared operator package compiler', () => {
       manifestDigest: sha(bytes(first, 'operator-manifest.json')), bundleDigest: sha(bytes(first, 'operator-bundle.json')) });
   });
 
-  it('REQ-OPERATOR-030: AC4/5 normal packaging refuses authority metadata rather than silently stripping it', async () => {
-    const bundle = normalDispatcherBundle();
+  it.each(['0.30.1', '0.33.0'])('REQ-OPERATOR-030: AC4/5 normal packaging refuses authority metadata rather than silently stripping it / Agents %s', async agents => {
+    const normal = normalDispatcherBundle();
+    const bundle = { ...normal, versions: { ...normal.versions, agents } };
     await expect(compileOperatorPackage({ manifest: manifest('dispatcher'), bundle: { ...bundle,
       hosting: { ...bundle.hosting, connectionSecret: 'package-must-not-supply-authority' } } })).rejects.toThrow(/Invalid operator package/);
     await expect(compileOperatorPackage({ manifest: manifest('dispatcher'), bundle: { ...bundle,
@@ -58,7 +113,7 @@ describe('shared operator package compiler', () => {
   });
 
   it.each([
-    ['2.1.0', '0.20.1'], ['2.2.2', '0.20.1'], ['2.3.0', '0.20.1'], ['2.3.0', '0.30.1'],
+    ['2.1.0', '0.20.1'], ['2.2.2', '0.20.1'], ['2.3.0', '0.20.1'], ['2.3.0', '0.30.1'], ['2.3.0', '0.33.0'],
   ])('REQ-OPERATOR-044: emits SDK %s / Agents %s with provenance over exact emitted bytes', async (version, agents) => {
     const result = await compileOperatorPackage({ manifest: manifest('dispatcher'), bundle: dispatcher(version, agents), provenance: {
       repositoryId: 7, sourceCommit: 'a'.repeat(40), compilerCommit: 'b'.repeat(40), workflow: { id: 8, ref: 'refs/heads/main', runId: 9, runAttempt: 1 },
@@ -82,6 +137,12 @@ describe('shared operator package compiler', () => {
   });
 
   it.each([
+    { runtime: '2.1.0', vitePlugin: '2.1.0', agents: '0.33.0' },
+    { runtime: '2.2.2', vitePlugin: '2.2.2', agents: '0.33.0' },
+    { runtime: '2.3.0', vitePlugin: '2.2.2', agents: '0.33.0' },
+    { runtime: '2.3.1', vitePlugin: '2.3.1', agents: '0.33.0' },
+    { runtime: '2.3.0', vitePlugin: '2.3.0', agents: '0.33.1' },
+    { runtime: '2.3.0', vitePlugin: '2.3.0', agents: '0.33.0', unapproved: true },
     { runtime: '2.1.0', vitePlugin: '2.2.2', agents: '0.20.1' },
     { runtime: '2.2.2', vitePlugin: '2.1.0', agents: '0.20.1' },
     { runtime: '2.2.2', vitePlugin: '2.2.2', agents: '0.24.0' },

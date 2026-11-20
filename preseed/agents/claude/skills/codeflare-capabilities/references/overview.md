@@ -20,6 +20,8 @@ The same working environment supports operational tasks. With the required acces
 
 With Spec-Driven Development, I start from a legacy repository or a blank one. `/sdd init` draws on source, tests, configuration, documentation, architecture, and accessible project history to build a requirements baseline. I connect behavior to acceptance criteria, dependencies, decisions, and implementation. Unresolved intent becomes a visible question for you, rather than an assumption buried in new code.
 
+In Pi, I can first turn your request into a scoped implementation plan saved in your Vault, resolve material choices through structured questions, and prepare dependent TODOs for your approval. Planning does not start implementation or Goal mode.
+
 For subsequent changes, I use Test-Driven Development: establish the failing behavior, make the smallest coherent correction, and keep the requirement and operating guidance accurate.
 
 Independent reviewers can examine code, specifications, and documentation while CI checks the exact revision. I reconcile their findings before editing reviewed work. A proposed fix does not become necessary just because a reviewer suggested it; yesterday's green check does not certify today's commit.

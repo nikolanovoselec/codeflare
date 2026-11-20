@@ -215,7 +215,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       const ctx = {
         ...mockCtx,
         container: { ...mockContainerRuntime, interceptOutboundHttps: vi.fn() },
-        exports: { LlmInterceptor },
+        exports: { LlmInterceptor, OperatorOwnerInferenceAuthority: () => ({ id: 'owner-authority' }) },
       };
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'userEmail') return 'nikola@novoselec.ch';

@@ -8,7 +8,8 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const entrypoint = readFileSync(resolve(here, '../../entrypoint.sh'), 'utf8');
-function generatedBrowserConfigs({ native, stock, claude: initialClaude } = {}) {
+function generatedBrowserConfigs({ native, stock, claude: initialClaude,
+  browserAccountId = 'test-account', browserToken = 'test-token', oauthAccountId } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'browser-run-entrypoint-'));
   try {
     const directory = join(home, '.pi/agent'); mkdirSync(directory, { recursive: true });
@@ -21,10 +22,16 @@ function generatedBrowserConfigs({ native, stock, claude: initialClaude } = {}) 
     const start = entrypoint.indexOf('# Configure Browser Run (Cloudflare Browser Rendering) as a real-browser');
     const end = entrypoint.indexOf('# Configure Claude Code settings.json', start);
     assert.ok(migrationStart >= 0 && start >= 0 && end > start, 'startup fixture extraction');
-    const script = `set -e\nUSER_HOME="${home}"\nUSER_CLAUDE_JSON="${claudePath}"\nSESSION_MODE=advanced\nCLOUDFLARE_API_TOKEN=test-token\nCLOUDFLARE_ACCOUNT_ID=test-account\n${entrypoint.slice(migrationStart, migrationEnd)}\nconfigure_pi_mcp_adapter "${resolve(here, '../../preseed/agents/pi/extensions/00-mcp-adapter-config.ts')}"\n${entrypoint.slice(start, end)}`;
-    const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+    const childEnvPath = join(home, 'child-account-context.json');
+    const script = `set -e\nUSER_HOME="${home}"\nUSER_CLAUDE_JSON="${claudePath}"\nSESSION_MODE=advanced\n${entrypoint.slice(migrationStart, migrationEnd)}\nconfigure_pi_mcp_adapter "${resolve(here, '../../preseed/agents/pi/extensions/00-mcp-adapter-config.ts')}"\n${entrypoint.slice(start, end)}
+node -e 'process.stdout.write(JSON.stringify({browserAccountId:process.env.CLOUDFLARE_ACCOUNT_ID,oauthAccountId:process.env.CLOUDFLARE_OAUTH_ACCOUNT_ID}))' > "${childEnvPath}"`;
+    const env = { ...process.env, CLOUDFLARE_ACCOUNT_ID: browserAccountId, CLOUDFLARE_API_TOKEN: browserToken };
+    delete env.CLOUDFLARE_OAUTH_ACCOUNT_ID;
+    if (oauthAccountId !== undefined) env.CLOUDFLARE_OAUTH_ACCOUNT_ID = oauthAccountId;
+    const result = spawnSync('bash', ['-c', script], { encoding: 'utf8', env });
     assert.equal(result.status, 0, result.stderr);
     return { claude: JSON.parse(readFileSync(claudePath, 'utf8')),
+      childAccountContext: JSON.parse(readFileSync(childEnvPath, 'utf8')),
       pi: existsSync(nativePath) ? JSON.parse(readFileSync(nativePath, 'utf8')) : undefined,
       stockBytes: existsSync(stockPath) ? readFileSync(stockPath, 'utf8') : undefined,
       archive: existsSync(stockPath + '.migrated') ? readFileSync(stockPath + '.migrated', 'utf8') : undefined };
@@ -40,6 +47,34 @@ const browser = (command = 'custom-browser', lifecycle = 'lazy') => ({ command, 
 ], lifecycle });
 
 describe('entrypoint Browser Run MCP registration', () => {
+  it('REQ-AGENT-029/REQ-BROWSER-007: OAuth B survives child startup while Claude and Pi Browser Run still target A', () => {
+    const browserAccountId = 'a'.repeat(32);
+    const oauthAccountId = 'b'.repeat(32);
+    const { claude, pi, childAccountContext } = generatedBrowserConfigs({
+      browserAccountId, oauthAccountId, browserToken: 'codeflare-enterprise',
+    });
+    for (const config of [claude, pi]) {
+      assert.equal(new URL(wsEndpoint(config)).pathname,
+        `/client/v4/accounts/${browserAccountId}/browser-rendering/devtools/browser`);
+      const headers = config.mcpServers['chrome-devtools'].args.find(arg => arg.startsWith('--wsHeaders='));
+      assert.equal(JSON.parse(headers.slice('--wsHeaders='.length)).Authorization, 'Bearer codeflare-enterprise');
+    }
+    assert.equal(claude.mcpServers['browser-run'].env.CLOUDFLARE_ACCOUNT_ID, browserAccountId);
+    assert.equal(claude.mcpServers['browser-run'].env.CLOUDFLARE_API_TOKEN, 'codeflare-enterprise');
+    assert.deepEqual(childAccountContext, { browserAccountId, oauthAccountId });
+  });
+
+  it('REQ-AGENT-029/REQ-BROWSER-007: an OAuth hint alone does not register Browser Run and remains inherited', () => {
+    const oauthAccountId = 'b'.repeat(32);
+    const { claude, pi, childAccountContext } = generatedBrowserConfigs({
+      browserAccountId: '', browserToken: '', oauthAccountId,
+    });
+    for (const config of [claude, pi]) {
+      assert.equal(config?.mcpServers?.['chrome-devtools'], undefined);
+      assert.equal(config?.mcpServers?.['browser-run'], undefined);
+    }
+    assert.deepEqual(childAccountContext, { browserAccountId: '', oauthAccountId });
+  });
   it('REQ-BROWSER-009 AC7: Claude browser MCP calls receive six minutes without changing unrelated servers', () => {
     const custom = { command: 'custom-server', timeout: 2000, env: { TOKEN: 'synthetic-custom-token' } };
     const { claude } = generatedBrowserConfigs({ claude: { mcpServers: { custom }, unrelated: true } });

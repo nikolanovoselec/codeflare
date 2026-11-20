@@ -11,29 +11,81 @@ import { drainAgentEvents, drainFinalSync } from '../../container/container-metr
  */
 // REQ-SESSION-019: Final-sync drain endpoint authentication
 describe('drainFinalSync (idle/quota-stop path) container auth', () => {
-  function makeCtx(token: string | undefined, fetchSpy: ReturnType<typeof vi.fn>) {
-    return {
-      container: { running: true, getTcpPort: () => ({ fetch: fetchSpy }) },
-      storage: { get: vi.fn(async (key: string) => (key === 'containerAuthToken' ? token : undefined)) },
+  function makeCtx(token?: string) {
+    const records = new Map<string, unknown>();
+    if (token !== undefined) records.set('containerAuthToken', token);
+    const requests: Request[] = [];
+    const storage = {
+      get: async (key: string): Promise<unknown> => records.get(key),
+      put: async (key: string, value: unknown): Promise<void> => { records.set(key, value); },
+    };
+    const ctx = {
+      container: { running: true, getTcpPort: () => ({ fetch: async (url: string, init?: RequestInit) => {
+        requests.push(new Request(url, init));
+        return Response.json({ synced: true });
+      } }) },
+      storage,
     } as unknown as Parameters<typeof drainFinalSync>[0];
+    return { ctx, storage, requests };
   }
 
   it('sends the stored container token as a Bearer header on the drain request', async () => {
-    const fetchSpy = vi.fn(async (_url: string, _init?: RequestInit) => new Response(JSON.stringify({ synced: true }), { status: 200 }));
-    await drainFinalSync(makeCtx('tok-idle-789', fetchSpy), 1_000);
-
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const init = fetchSpy.mock.calls[0]?.[1] as RequestInit | undefined;
-    expect((init?.headers as Record<string, string> | undefined)?.Authorization).toBe('Bearer tok-idle-789');
+    const f = makeCtx('tok-idle-789');
+    await drainFinalSync(f.ctx, 1_000);
+    // Intentional internal-request authentication contract, not mock calls.
+    expect(f.requests.map(request => ({ method: request.method, url: request.url,
+      authorization: request.headers.get('Authorization') }))).toEqual([
+      { method: 'POST', url: 'http://localhost/internal/final-sync', authorization: 'Bearer tok-idle-789' },
+    ]);
   });
 
-  it('still drains (headerless) when no token is stored - best-effort, never blocks the stop', async () => {
-    const fetchSpy = vi.fn(async (_url: string, _init?: RequestInit) => new Response(null, { status: 401 }));
-    await expect(drainFinalSync(makeCtx(undefined, fetchSpy), 1_000)).resolves.toBeUndefined();
+  it.each(['absent', 'empty', 'unreadable'] as const)('REQ-SESSION-019 AC1: %s credentials suppress the request and retain a bounded audit', async kind => {
+    const f = makeCtx(kind === 'empty' ? '' : undefined);
+    if (kind === 'unreadable') {
+      const get = f.storage.get;
+      f.storage.get = async key => { if (key === 'containerAuthToken') throw new Error('Token storage unavailable'); return get(key); };
+    }
+    const began = Date.now();
+    await expect(drainFinalSync(f.ctx, 1_000)).resolves.toBeUndefined();
+    expect(f.requests).toEqual([]);
+    const audit = await f.storage.get('finalSyncAudit') as { at: number };
+    expect(audit).toMatchObject({ outcome: 'errored', running: true,
+      reason: kind === 'unreadable' ? 'auth-token-unavailable' : 'missing-auth-token' });
+    expect(audit.at).toBeGreaterThanOrEqual(began);
+    expect(audit.at).toBeLessThanOrEqual(began + 1_000);
+  });
 
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const init = fetchSpy.mock.calls[0]?.[1] as RequestInit | undefined;
-    expect((init?.headers as Record<string, string> | undefined)?.Authorization).toBeUndefined();
+  it.each(['rejected', 'pending'] as const)('REQ-SESSION-019 AC1: %s audit storage cannot wedge the best-effort drain', async failure => {
+    vi.useFakeTimers();
+    try {
+      const f = makeCtx();
+      f.storage.put = async () => {
+        if (failure === 'rejected') throw new Error('Audit unavailable');
+        return new Promise<void>(() => {});
+      };
+      const pending = drainFinalSync(f.ctx, 50);
+      await vi.advanceTimersByTimeAsync(50);
+      await expect(pending).resolves.toBeUndefined();
+      expect(f.requests).toEqual([]);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('REQ-SESSION-019 AC1: a late credential read cannot issue a request after the drain budget', async () => {
+    vi.useFakeTimers();
+    try {
+      const f = makeCtx();
+      let release!: (token: string) => void;
+      const token = new Promise<string>(resolve => { release = resolve; });
+      const get = f.storage.get;
+      f.storage.get = key => key === 'containerAuthToken' ? token : get(key);
+      const pending = drainFinalSync(f.ctx, 50);
+      await vi.advanceTimersByTimeAsync(50);
+      await expect(pending).resolves.toBeUndefined();
+      release('late-token');
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(f.requests).toEqual([]);
+    } finally { vi.useRealTimers(); }
   });
 });
 

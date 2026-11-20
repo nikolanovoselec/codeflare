@@ -27,6 +27,28 @@ const version = z.string().min(1).max(128);
 const capability = z.enum(['session', 'pi', 'storage', 'inference', 'fetch']);
 export const operatorCapabilityChoices = capability.options;
 
+/** Application-owned configuration metadata, never an authority grant. */
+const configurationPointer = z.string().min(2).max(512).refine(value => value.startsWith('/')
+  && value.slice(1).split('/').every(part => part.length > 0 && !/~(?![01])/u.test(part)
+    && !['__proto__', 'constructor', 'prototype'].includes(part.replace(/~1/g, '/').replace(/~0/g, '~'))));
+export interface OperatorApplicationDefinition {
+  controlVersion: 1;
+  /** Runtime-validated JSON; consumers inspect fields without interpreting domain policy. */
+  configurationSchema?: Record<string, unknown>;
+  githubWriteRepositoriesPath?: string;
+  schedule?: { enabledPath: string; intervalSecondsPath: string };
+  recovery?: { label: string; description: string; prefix: string };
+}
+const applicationSchema: z.ZodType<OperatorApplicationDefinition> = z.strictObject({
+  controlVersion: z.literal(1),
+  configurationSchema: z.record(z.string(), z.json()).optional(),
+  githubWriteRepositoriesPath: configurationPointer.optional(),
+  schedule: z.strictObject({ enabledPath: configurationPointer, intervalSecondsPath: configurationPointer }).optional(),
+  recovery: z.strictObject({ label: z.string().min(1).max(80).refine(value => !!value.trim() && !/[\u0000-\u001f\u007f]/u.test(value)),
+    description: z.string().min(1).max(512).refine(value => !!value.trim() && !/[\u0000-\u001f\u007f]/u.test(value)),
+    prefix: z.string().min(2).max(128).regex(/^[A-Za-z0-9][A-Za-z0-9:_-]*:$/) }).optional(),
+});
+
 const manifestSchema = z.strictObject({
   schemaVersion: z.literal(1),
   interfaceVersion: z.literal(1),
@@ -40,6 +62,7 @@ const manifestSchema = z.strictObject({
   inputSchema: z.record(z.string(), z.json()),
   /** Optional for legacy Gate 1 manifests; managed packages declare it when available. */
   outputSchema: z.record(z.string(), z.json()).optional(),
+  application: applicationSchema.optional(),
   requiredCapabilities: z.array(capability).max(5)
     .refine(values => new Set(values).size === values.length),
   artifact: z.strictObject({ path: artifactPath, sha256: z.string().regex(SHA256) }),
@@ -68,7 +91,7 @@ const bundleSchema = z.strictObject({
   mainModule: relativePath,
   modules: modulesSchema,
   resources: packageResourcesSchema.optional(),
-}).refine(bundle => Object.hasOwn(bundle.modules, bundle.mainModule)
+}).refine(bundle => Object.prototype.hasOwnProperty.call(bundle.modules, bundle.mainModule)
   && 'js' in bundle.modules[bundle.mainModule]);
 
 /** Approved generated modules; normal deployment metadata grants no resource authority. */
@@ -86,6 +109,7 @@ const dispatcherBundleSchema = z.strictObject({
     z.strictObject({ runtime: z.literal('2.2.2'), vitePlugin: z.literal('2.2.2'), agents: z.literal('0.20.1') }),
     z.strictObject({ runtime: z.literal('2.3.0'), vitePlugin: z.literal('2.3.0'), agents: z.literal('0.20.1') }),
     z.strictObject({ runtime: z.literal('2.3.0'), vitePlugin: z.literal('2.3.0'), agents: z.literal('0.30.1') }),
+    z.strictObject({ runtime: z.literal('2.3.0'), vitePlugin: z.literal('2.3.0'), agents: z.literal('0.33.0') }),
   ]),
   className: z.literal('FlueDispatcherAgent'),
   compatibilityDate: z.literal('2026-09-10'),
@@ -93,7 +117,7 @@ const dispatcherBundleSchema = z.strictObject({
   mainModule: relativePath,
   modules: modulesSchema,
 }).refine(bundle => (bundle.schemaVersion === 2) === (bundle.hosting !== undefined)
-  && Object.hasOwn(bundle.modules, bundle.mainModule)
+  && Object.prototype.hasOwnProperty.call(bundle.modules, bundle.mainModule)
   && 'js' in bundle.modules[bundle.mainModule]);
 
 /** Validated discovery data; artifact URL is derived, never supplied as authority. */
@@ -135,6 +159,24 @@ export function parseOperatorManifest(json: string, endpoint: string): OperatorM
     ...manifest,
     artifact: { ...manifest.artifact, url: new URL(manifest.artifact.path, url.origin).href },
   };
+}
+
+/** Revalidate stored approved metadata, including its parent-derived artifact URL. */
+export function parsePinnedOperatorManifest(manifestJson: string, endpoint: string): OperatorManifest {
+  let stored: Record<string, unknown>;
+  try {
+    const value = JSON.parse(manifestJson) as unknown;
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid manifest');
+    stored = value as Record<string, unknown>;
+  } catch { throw new ValidationError('Invalid pinned operator manifest'); }
+  const storedArtifact = stored.artifact;
+  if (!storedArtifact || typeof storedArtifact !== 'object' || Array.isArray(storedArtifact)) {
+    throw new ValidationError('Invalid pinned operator manifest');
+  }
+  const { url, ...artifact } = storedArtifact as Record<string, unknown>;
+  const manifest = parseOperatorManifest(JSON.stringify({ ...stored, artifact }), endpoint);
+  if (url !== manifest.artifact.url) throw new ValidationError('Invalid pinned operator manifest');
+  return manifest;
 }
 
 /** Shared lexical endpoint boundary, checked before protected I/O; not DNS authorization. */

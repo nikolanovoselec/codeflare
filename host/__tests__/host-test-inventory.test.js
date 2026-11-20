@@ -12,9 +12,12 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { spawnSync } from 'node:child_process';
 import { basename, dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { selectHostGroup } from '../../scripts/ci/select-host-tests.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SELF = basename(fileURLToPath(import.meta.url));
@@ -69,5 +72,52 @@ describe('host test inventory', () => {
       remaining.includes(SELF),
       'this inventory check is excluded from CI, so nothing enforces the host test inventory'
     );
+  });
+
+  it('assigns every eligible file exactly once across five nonempty deterministic groups', () => {
+    const expected = runnable().filter(name => !excluded().includes(name)).sort();
+    const groups = Array.from({ length: 5 }, (_, i) => selectHostGroup(`${i + 1}/5`));
+    const actual = groups.flat();
+    assert.deepEqual([...actual].sort(), expected);
+    assert.equal(new Set(actual).size, actual.length);
+    for (let i = 0; i < groups.length; i++) {
+      assert.ok(groups[i].length > 0);
+      assert.deepEqual(selectHostGroup(`${i + 1}/5`), groups[i]);
+      assert.ok(!groups[i].some(name => excluded().includes(name)));
+    }
+  });
+
+  it('moves only the two measured files and preserves every other native baseline owner', () => {
+    const expected = runnable().filter(name => !excluded().includes(name)).sort();
+    const groups = Array.from({ length: 5 }, (_, i) => selectHostGroup(`${i + 1}/5`));
+    for (const [index, name] of expected.entries()) {
+      // Node v26.8.2 runner.js: index % shard.total === shard.index - 1.
+      const owner = name === 'enforce-review-spawn.test.js' ? 4
+        : name === 'pi-lockstep.test.js' ? 1 : index % 5 + 1;
+      assert.ok(groups[owner - 1].includes(name), `${name} belongs to group ${owner}`);
+    }
+  });
+
+  it('emits the selected executable file list without requiring a second native shard', () => {
+    const script = join(HERE, '../../scripts/ci/select-host-tests.mjs');
+    const result = spawnSync(process.execPath, [script, '3/5'], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(result.stdout.trim().split('\n'),
+      selectHostGroup('3/5').map(name => `host/__tests__/${name}`));
+  });
+
+  it('rejects invalid groups, empty partitions, stale exclusions and unsafe filenames before execution', t => {
+    for (const group of ['', '0/5', '6/5', '1/4', '1/5 extra']) {
+      assert.throws(() => selectHostGroup(group), /host group/);
+    }
+    const directory = mkdtempSync(join(tmpdir(), 'host-inventory-'));
+    t.after(() => rmSync(directory, { recursive: true, force: true }));
+    writeFileSync(join(directory, 'ci-excluded.txt'), '# fixture\n');
+    writeFileSync(join(directory, 'only.test.js'), '');
+    assert.throws(() => selectHostGroup('1/5', directory), /empty/);
+    writeFileSync(join(directory, 'ci-excluded.txt'), 'missing.test.js\n');
+    assert.throws(() => selectHostGroup('1/5', directory), /not runnable/);
+    writeFileSync(join(directory, 'unsafe name.test.js'), '');
+    assert.throws(() => selectHostGroup('1/5', directory), /unsafe/);
   });
 });

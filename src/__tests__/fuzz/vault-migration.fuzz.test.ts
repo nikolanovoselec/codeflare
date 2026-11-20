@@ -1,7 +1,7 @@
 /**
  * Property-based fuzz tests for the post-March-2026 parser surface:
  * vault route dispatch + bucket tokens (REQ-VAULT-021), the SilverBullet
- * service-worker graft (REQ-VAULT-023/024/025), the Governed-Mode regime
+ * service-worker graft (REQ-VAULT-035/024/025), the Governed-Mode regime
  * state machine (REQ-ENTERPRISE-018/020), and the Pi session-JSONL helpers
  * (REQ-MEM-001, REQ-VAULT-003).
  *

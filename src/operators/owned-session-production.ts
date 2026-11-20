@@ -1,4 +1,5 @@
 import type { Env } from '../types';
+import { readBoundedResponse } from '../lib/bounded-stream';
 import { parseOperatorContainerProfile } from '../container/operator-context';
 import { createR2Client, getR2Url } from '../lib/r2-client';
 import { getR2Config } from '../lib/r2-config';
@@ -37,10 +38,10 @@ export async function createOperatorSyncReader(env: Env, bucket: string,
     });
     const response = await fetch(signed);
     if (response.status === 404) return null;
-    const declared = Number(response.headers.get('content-length') ?? 0);
-    if (!response.ok || (declared && declared > maxBytes)) throw new Error('Bounded R2 read failed');
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    if (bytes.byteLength > maxBytes) throw new Error('Bounded R2 read failed');
-    return bytes;
+    if (!response.ok) {
+      void response.body?.cancel().catch(() => undefined);
+      throw new Error('Bounded R2 read failed');
+    }
+    return readBoundedResponse(response, maxBytes, 'Bounded R2 read');
   };
 }

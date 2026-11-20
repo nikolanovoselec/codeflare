@@ -42,6 +42,7 @@ function run(root, args, env = {}) {
   });
 }
 
+// REQ-AGENT-052 AC3/AC4: current ownership; historical test title unchanged.
 describe('REQ-AGENT-052 AC6: managed safe local checks', () => {
   it('runs full-project Oxlint through the repository-local binary at low priority', () => {
     const root = fixture('oxlint', [

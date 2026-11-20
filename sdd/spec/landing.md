@@ -35,9 +35,9 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Acceptance Criteria:**
 
-1. An unauthenticated GET `/` in SaaS mode is served the prerendered landing app (the asset request is rewritten to `/landing/`). <!-- @impl: src/index.ts::default --> <!-- @test: src/__tests__/index.test.ts (REQ-LANDING-001: serves the static landing at / when onboarding mode is active (unauthenticated)) -->
+1. In SaaS mode, an unauthenticated root-page request serves the prerendered landing app. <!-- @impl: src/index.ts::default --> <!-- @test: src/__tests__/index.test.ts (REQ-LANDING-001: serves the static landing at / in SaaS mode (unauthenticated)) -->
 2. An unauthenticated GET `/` in onboarding mode is served the same landing app. <!-- @impl: src/index.ts::default --> <!-- @test: src/__tests__/index.test.ts (REQ-LANDING-001: serves the static landing at / when onboarding mode is active (unauthenticated)) -->
-3. In default mode, GET `/` redirects to `/app/` and the landing is never served. <!-- @impl: src/index.ts::default --> <!-- @test: src/__tests__/index.test.ts (REQ-LANDING-001: keeps redirecting / to /app in default mode (no landing)) -->
+3. In default mode, root-page navigation redirects to the application entry and never serves the landing. <!-- @impl: src/index.ts::default --> <!-- @test: src/__tests__/index.test.ts (REQ-LANDING-001: keeps redirecting / to /app in default mode (no landing)) -->
 4. The static page composes the typed content model into the ordered enterprise narrative, shared proof terminals, folded substations, orchestration, cost, platform, governance, dogfood, FAQ, and contact surfaces without requiring JavaScript. <!-- @impl: landing/src/pages/index.astro::gate-req --> <!-- @test: landing/src/__tests__/index-page.test.ts (landing page composition (REQ-LANDING-001)) -->
 5. Client enhancements animate terminal proofs, capability text, orchestration, reveals, and the page flare while preserving the complete server-rendered resting state and honoring reduced-motion preferences. <!-- @test: landing/src/__tests__/scramble.script.test.ts (scramble.ts (REQ-LANDING-001)) --> <!-- @manual -->
 6. At mobile, tablet, and desktop widths, peer and subordinate sections remain visually distinct without overlap, clipping, or hidden content. <!-- @manual -->
@@ -54,7 +54,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** None.
 
-**Verification:** Automated test
+**Verification:** Automated: [index-page.test.ts](../../landing/src/__tests__/index-page.test.ts), [index.test.ts](../../src/__tests__/index.test.ts); Manual: [Landing responsive navigation acceptance](../../landing/README.md#landing-responsive-navigation-acceptance)
 
 **Status:** Implemented
 
@@ -79,7 +79,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-001](#req-landing-001-mode-aware-public-landing-serving)
 
-**Verification:** Automated test
+**Verification:** Automated: [splash.script.test.ts](../../landing/src/__tests__/splash.script.test.ts)
 
 **Status:** Implemented
 
@@ -93,12 +93,12 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Acceptance Criteria:**
 
-1. POST `/public/contact` validates name (1-100), email, company (optional, ≤200), topic (shared `CONTACT_TOPICS` enum), and message (10-4000); invalid input is rejected with 400. <!-- @impl: src/lib/contact-topics.ts::CONTACT_TOPICS --> <!-- @test: src/__tests__/routes/public-contact.test.ts (Public contact route (REQ-LANDING-002)) -->
+1. Public contact submissions validate name (1-100), email, company (optional, ≤200), topic from the shared declared enum, and message (10-4000); invalid input is rejected with 400. <!-- @impl: src/lib/contact-topics.ts::CONTACT_TOPICS --> <!-- @test: src/__tests__/routes/public-contact.test.ts (Public contact route (REQ-LANDING-002)) -->
 2. The endpoint is available when SaaS mode or onboarding mode is active and returns 404 otherwise; the waitlist endpoint stays onboarding-only. <!-- @test: src/__tests__/routes/public-contact.test.ts (Public contact route (REQ-LANDING-002)) --> <!-- @manual -->
 3. Submissions require a passing Turnstile verification; failures are rejected with a CAPTCHA validation error. <!-- @impl: src/routes/public/index.ts::requireVerifiedSubmission --> <!-- @test: src/__tests__/routes/public-contact.test.ts (Public contact route (REQ-LANDING-002)) -->
 4. Accepted submissions are relayed as email to all admin users with reply-to set to the submitter, and every user-controlled field is HTML-escaped before rendering into the email body. <!-- @test: src/__tests__/routes/public-contact.test.ts (Public contact route (REQ-LANDING-002)) --> <!-- @manual -->
-5. Submission content is never persisted — the only KV writes on the contact path are rate-limiter bookkeeping. <!-- @test: src/__tests__/routes/public-contact.test.ts (Public contact route (REQ-LANDING-002)) --> <!-- @manual -->
-6. GET `/public/contact-config` exposes the Turnstile site key under the same mode gate, for the landing form widget. <!-- @impl: src/routes/public/index.ts::app --> <!-- @test: src/__tests__/routes/public-contact.test.ts (returns the Turnstile site key in SaaS mode) -->
+5. Submission content is never persisted — the only KV writes on the contact path are rate-limiter bookkeeping. Accepted-contact and verification-failure application logs omit submitter email (including masked email), name, company, topic and message. <!-- @test: src/__tests__/routes/public-contact.test.ts (Public contact route (REQ-LANDING-002)) --> <!-- @manual --> <!-- @impl: src/routes/public/index.ts::app --> <!-- @test: src/__tests__/routes/public-contact.test.ts (REQ-LANDING-002 AC5: contact logs omit personal data on verification success=%s) -->
+6. Public contact-configuration reads expose the Turnstile site key under the same mode gate for the landing form widget. <!-- @impl: src/routes/public/index.ts::app --> <!-- @test: src/__tests__/routes/public-contact.test.ts (returns the Turnstile site key in SaaS mode) -->
 
 **Constraints:**
 
@@ -110,7 +110,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-001](#req-landing-001-mode-aware-public-landing-serving)
 
-**Verification:** Automated test ([public-contact](../../src/__tests__/routes/public-contact.test.ts))
+**Verification:** Automated: [public-contact.test.ts](../../src/__tests__/routes/public-contact.test.ts); Manual: [Contact relay acceptance](../../documentation/lanes/api-reference.md#contact-relay-acceptance)
 
 **Status:** Implemented
 
@@ -126,7 +126,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 1. The landing exposes the full Open Graph set: `og:type`, `og:site_name`, `og:title`, `og:description`, `og:url`, `og:image` (1200x630 with type/alt), `og:locale`. <!-- @impl: landing/src/layouts/BaseLayout.astro::og:description --> <!-- @test: landing/src/__tests__/metadata.test.ts (REQ-LANDING-003 AC1: emits the Open Graph meta tags with their contract values) -->
 2. Twitter Card metadata is set with `summary_large_image` plus title, description, image, and image alt. <!-- @impl: landing/src/layouts/BaseLayout.astro::twitter:card --> <!-- @test: landing/src/__tests__/metadata.test.ts (REQ-LANDING-003 AC2: emits the Twitter Card meta tags) -->
-3. The canonical URL is the served root (`https://codeflare.ch/`), not the `/landing/` asset path. <!-- @impl: landing/src/layouts/BaseLayout.astro::title --> <!-- @test: landing/src/__tests__/metadata.test.ts (REQ-LANDING-003 AC3: emits a canonical link with a non-empty href) -->
+3. The canonical URL is the served root (`https://codeflare.ch/`), not the internal landing-asset location. <!-- @impl: landing/src/layouts/BaseLayout.astro::title --> <!-- @test: landing/src/__tests__/metadata.test.ts (REQ-LANDING-003 AC3: emits a canonical link with a non-empty href) -->
 4. Social-share and structured-data surfaces carry the canonical "agentic engineering engine" positioning phrase and full external summary. <!-- @impl: landing/src/layouts/BaseLayout.astro::canonical --> <!-- @test: landing/src/__tests__/metadata.test.ts (REQ-LANDING-003: external metadata (SEO, social, structured data)) -->
 5. The landing emits a JSON-LD `@graph` of schema.org structured data: a site-wide `Organization` (named, logo, `sameAs` the public repo) and `WebSite`, with the home page grafting on a `SoftwareApplication` entity, so search engines and LLMs resolve Codeflare to a named entity. <!-- @impl: landing/src/layouts/BaseLayout.astro::canonical --> <!-- @test: landing/src/__tests__/metadata.test.ts (REQ-LANDING-003: external metadata (SEO, social, structured data)) -->
 6. The Worker serves discoverability documents at the deployment root, gated on the public landing being active (SaaS or onboarding): `robots.txt`, `sitemap.xml`, and `llms.txt`. In a private (default/enterprise) deployment `robots.txt` disallows all crawling and `sitemap.xml` / `llms.txt` return 404. <!-- @impl: src/lib/seo.ts::CANONICAL_ORIGIN --> <!-- @test: src/__tests__/lib/seo.test.ts (SEO discoverability documents (REQ-LANDING-003)) -->
@@ -143,7 +143,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-001](#req-landing-001-mode-aware-public-landing-serving)
 
-**Verification:** Automated test
+**Verification:** Automated: [metadata.test.ts](../../landing/src/__tests__/metadata.test.ts), [seo.test.ts](../../src/__tests__/lib/seo.test.ts); Manual: [Landing mobile metadata acceptance](../../landing/README.md#landing-mobile-metadata-acceptance)
 
 **Status:** Implemented
 
@@ -167,7 +167,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-003](#req-landing-003-landing-social-share-and-search-metadata)
 
-**Verification:** Automated test
+**Verification:** Automated: [index.test.ts](../../src/__tests__/index.test.ts), [seo.test.ts](../../src/__tests__/lib/seo.test.ts)
 
 **Status:** Implemented
 
@@ -183,7 +183,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 1. The landing layout declares the dark color scheme — a `<meta name="color-scheme" content="dark">` and an inline `html { color-scheme: dark; background-color: … }` rule emitted before any external stylesheet — so a cross-document navigation holds a dark canvas. <!-- @impl: landing/src/layouts/BaseLayout.astro::viewport --> <!-- @test: landing/src/__tests__/index-page.test.ts (REQ-LANDING-004: dark first paint (anti-flash contract)) -->
 2. Content-hashed landing assets remain reusable for one year without revalidation, while non-hashed assets continue to revalidate so HTML stays fresh. <!-- @impl: src/index.ts::default --> <!-- @test: src/__tests__/index.test.ts (REQ-LANDING-004: immutable /_astro/ asset caching) -->
-3. Every same-origin full-page navigation between the landing and `/login` opts into a cross-document view transition. <!-- @test: landing/src/__tests__/index-page.test.ts (REQ-LANDING-004: dark first paint (anti-flash contract)) --> <!-- @manual -->
+3. Every same-origin full-page navigation between the landing and login pages opts into a cross-document view transition. <!-- @test: landing/src/__tests__/index-page.test.ts (REQ-LANDING-004: dark first paint (anti-flash contract)) --> <!-- @manual -->
 4. Landing-built marketing and login content stays hidden over the dark canvas until the shared stylesheet and both critical local fonts have loaded. <!-- @impl: src/lib/design-ready.ts::DESIGN_READY_SCRIPT --> <!-- @impl: landing/src/layouts/BaseLayout.astro::data-design-ready --> <!-- @test: landing/src/__tests__/design-ready.script.test.ts (REQ-LANDING-004: final-design first paint gate) --> <!-- @test: landing/src/__tests__/index-page.test.ts (REQ-LANDING-004: dark first paint (anti-flash contract)) --> <!-- @test: landing/src/__tests__/login-page.test.ts (inherits the shared final-design gate before exposing the login shell) --> <!-- @test: src/__tests__/index.test.ts (REQ-LANDING-004 AC4: landing response authorizes only the integrity-pinned design-ready script) -->
 5. Without JavaScript, the complete server-rendered page remains visible and usable rather than inheriting the loading gate. <!-- @impl: landing/src/layouts/BaseLayout.astro::data-design-ready --> <!-- @test: landing/src/__tests__/index-page.test.ts (REQ-LANDING-004: dark first paint (anti-flash contract)) -->
 
@@ -199,7 +199,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-001](#req-landing-001-mode-aware-public-landing-serving)
 
-**Verification:** Automated test
+**Verification:** Automated: [design-ready.script.test.ts](../../landing/src/__tests__/design-ready.script.test.ts), [index-page.test.ts](../../landing/src/__tests__/index-page.test.ts), [login-page.test.ts](../../landing/src/__tests__/login-page.test.ts), [index.test.ts](../../src/__tests__/index.test.ts); Manual: [Landing login transition acceptance](../../landing/README.md#landing-login-transition-acceptance)
 
 **Status:** Implemented
 
@@ -232,7 +232,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-001](#req-landing-001-mode-aware-public-landing-serving)
 
-**Verification:** Automated test ([Landing render tests](../../landing/src/__tests__/index-page.test.ts), [Scramble behavior tests](../../landing/src/__tests__/scramble.script.test.ts))
+**Verification:** Automated: [index-page.test.ts](../../landing/src/__tests__/index-page.test.ts), [scramble.script.test.ts](../../landing/src/__tests__/scramble.script.test.ts)
 
 **Status:** Implemented
 
@@ -267,7 +267,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-001](#req-landing-001-mode-aware-public-landing-serving), [REQ-LANDING-005](#req-landing-005-inference-mesh-family-hero)
 
-**Verification:** Automated test
+**Verification:** Automated: [index-page.test.ts](../../landing/src/__tests__/index-page.test.ts); Manual: [Execution reel layout acceptance](../../landing/README.md#execution-reel-layout-acceptance)
 
 **Status:** Implemented
 
@@ -299,7 +299,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-010](#req-landing-010-execution-overview-reel)
 
-**Verification:** Automated test
+**Verification:** Automated: [execution-reel.script.test.ts](../../landing/src/__tests__/execution-reel.script.test.ts)
 
 **Status:** Implemented
 
@@ -325,9 +325,9 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-010](#req-landing-010-execution-overview-reel), [REQ-LANDING-011](#req-landing-011-execution-reel-progressive-motion)
 
-**Verification:** Manual check
+**Verification:** Manual: [Execution reel reduced-motion acceptance](../../landing/README.md#execution-reel-reduced-motion-acceptance)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -351,9 +351,9 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-010](#req-landing-010-execution-overview-reel), [REQ-LANDING-011](#req-landing-011-execution-reel-progressive-motion)
 
-**Verification:** Manual check
+**Verification:** Manual: [Execution reel capture acceptance](../../landing/README.md#execution-reel-capture-acceptance)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -383,9 +383,9 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-010](#req-landing-010-execution-overview-reel), [REQ-LANDING-011](#req-landing-011-execution-reel-progressive-motion)
 
-**Verification:** Manual check
+**Verification:** Manual: [Execution reel responsive acceptance](../../landing/README.md#execution-reel-responsive-acceptance)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -410,7 +410,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-010](#req-landing-010-execution-overview-reel)
 
-**Verification:** Automated test
+**Verification:** Automated: [components.test.ts](../../landing/src/__tests__/components.test.ts), [execution-reel.script.test.ts](../../landing/src/__tests__/execution-reel.script.test.ts), [index-page.test.ts](../../landing/src/__tests__/index-page.test.ts)
 
 **Status:** Implemented
 
@@ -442,7 +442,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-001](#req-landing-001-mode-aware-public-landing-serving)
 
-**Verification:** Automated test
+**Verification:** Automated: [components.test.ts](../../landing/src/__tests__/components.test.ts), [scramble.script.test.ts](../../landing/src/__tests__/scramble.script.test.ts); Manual: [Landing sign-in accessibility acceptance](../../landing/README.md#landing-sign-in-accessibility-acceptance)
 
 **Status:** Implemented
 
@@ -460,7 +460,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 2. The band renders as the full VS Code workbench (an activity rail, an explorer file tree, and the editor) built on the shared `<Terminal>` chrome. <!-- @impl: landing/src/components/CodeEditor.astro::ce-tab --> <!-- @test: landing/src/__tests__/code-editor.test.ts (renders the full workbench: activity rail with an active item and the source-control change badge) -->
 3. The editor tab carries the file name and an unsaved-change dot. <!-- @test: landing/src/__tests__/code-editor.test.ts (renders the VS Code chrome on the shared terminal frame with the editor tab + modified dot) --> <!-- @manual -->
 4. The explorer renders the workspace file tree from the content model, one row per node, with the open file selected. <!-- @test: landing/src/__tests__/code-editor.test.ts (renders the explorer file tree with one row per model node and the open file selected) --> <!-- @manual -->
-5. The band shows a calm, line-numbered code pane whose gutter numbers come from a CSS counter, so no line numbers are hardcoded in the markup. <!-- @test: landing/src/__tests__/code-editor.test.ts (renders one line-numbered code row per source line) --> <!-- @manual -->
+5. The band shows a calm, line-numbered code pane. Gutter generation must follow the [gutter-generation contract](../../landing/README.md#landing-ide-band-acceptance). <!-- @test: landing/src/__tests__/code-editor.test.ts (renders one line-numbered code row per source line) --> <!-- @manual -->
 6. The integrated terminal command line uses the shared typed reel, one resting typed line, and the existing loop and shuffle streams. <!-- @impl: landing/src/components/CodeEditor.astro::ftLoop --> <!-- @test: landing/src/__tests__/code-editor.test.ts (wires the integrated terminal to the shared reel: data-ft-loop + data-ft-shuffle on the frame, resting log lines, one data-ft-typed line on the first beat) -->
 7. The editor status bar carries the branch and caret-position segments from the content model and is the custom foot slot, not the default prose-caption foot. <!-- @impl: landing/src/components/CodeEditor.astro::ce-status --> <!-- @test: landing/src/__tests__/code-editor.test.ts (renders the editor status bar with the branch and caret-position segments) -->
 
@@ -475,7 +475,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-001](#req-landing-001-mode-aware-public-landing-serving)
 
-**Verification:** Automated test
+**Verification:** Automated: [code-editor.test.ts](../../landing/src/__tests__/code-editor.test.ts), [index-page.test.ts](../../landing/src/__tests__/index-page.test.ts); Manual: [Landing IDE band acceptance](../../landing/README.md#landing-ide-band-acceptance)
 
 **Status:** Implemented
 
@@ -493,7 +493,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 2. The policy resolved by Astro grants zero freshness for every request/response, including public freshness, cookies, stale extensions and conditional GET. <!-- @impl: landing/dependencies/astro-build-cache-policy/index.js::timeToLive = return 0; --> <!-- @test: landing/src/__tests__/build-cache-policy.test.ts (REQ-LANDING-016: build-image policy fails closed) -->
 3. Astro resolves the genuinely private `@codeflare/astro-build-cache-policy` package rather than the affected upstream implementation. <!-- @impl: landing/package.json::overrides = "http-cache-semantics": "file:./dependencies/astro-build-cache-policy" --> <!-- @test: landing/src/__tests__/build-cache-policy.test.ts (REQ-LANDING-016: installed and locked dependency identities are the genuine private replacement) -->
 4. The installed and committed replacement dependency identities agree. <!-- @impl: landing/package-lock.json::dependencies/astro-build-cache-policy = "name": "@codeflare/astro-build-cache-policy" --> <!-- @test: landing/src/__tests__/build-cache-policy.test.ts (REQ-LANDING-016: installed and locked dependency identities are the genuine private replacement) -->
-5. Actual built home, login and privacy documents retain server-rendered semantic content and complete self-hosted styles, fonts and applicable enhancements. <!-- @impl: landing/astro.config.mjs::assetsInlineLimit = assetsInlineLimit: 0 --> <!-- @impl: landing/src/layouts/BaseLayout.astro::interLatinFont = @fontsource-variable/inter/files/inter-latin-wght-normal.woff2?url --> <!-- @impl: landing/src/pages/index.astro::main = <main id="top"> --> <!-- @impl: landing/src/pages/login.astro::login-main = <main class="login-main"> --> <!-- @impl: landing/src/pages/privacy.astro::prose = <article class="prose"> --> <!-- @test: landing/src/__tests__/built-output.test.ts (REQ-LANDING-016: dependency remediation preserves built static pages) -->
+5. Actual built home, login and privacy documents retain server-rendered semantic content and complete self-hosted styles, fonts and applicable enhancements. <!-- @impl: landing/astro.config.mjs::assetsInlineLimit = assetsInlineLimit: 0 --> <!-- @impl: landing/src/layouts/BaseLayout.astro::interLatinFont = @fontsource-variable/inter/files/inter-latin-wght-normal.woff2?url --> <!-- @impl: landing/src/pages/index.astro::<main = <main id="top"> --> <!-- @impl: landing/src/pages/login.astro::<main = <main class="login-main"> --> <!-- @impl: landing/src/pages/privacy.astro::<article = <article class="prose"> --> <!-- @test: landing/src/__tests__/built-output.test.ts (REQ-LANDING-016: dependency remediation preserves built static pages) -->
 
 **Constraints:**
 
@@ -507,7 +507,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-001](#req-landing-001-mode-aware-public-landing-serving), [REQ-LANDING-004](#req-landing-004-first-paint-stability-and-immutable-asset-caching)
 
-**Verification:** Automated test: [build-cache-policy.test.ts](../../landing/src/__tests__/build-cache-policy.test.ts) and [built-output.test.ts](../../landing/src/__tests__/built-output.test.ts).
+**Verification:** Automated: [build-cache-policy.test.ts](../../landing/src/__tests__/build-cache-policy.test.ts), [built-output.test.ts](../../landing/src/__tests__/built-output.test.ts)
 
 **Status:** Implemented
 

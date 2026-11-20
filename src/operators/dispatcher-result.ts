@@ -3,7 +3,7 @@ import { captureError, hashDiagnostic, diagnosticBytes, readSdkDiagnosticHeader,
 import { sdkPublicReasonCode } from './dispatcher-diagnostic-wire';
 import { Tokenizer, TokenParser, TokenType } from '@streamparser/json';
 import { dispatcherCapacities, type DispatcherCapacities, type DispatcherCapacityPolicy } from './dispatcher-capacity-limits';
-import { sameDispatcherPhaseValue } from './dispatcher-phases';
+import { sameApplicationValue } from './application-workflow';
 
 /** Exact-submission authority and bounded observations only; SDK history is not a result. */
 export interface DispatcherResultProjection {
@@ -317,7 +317,7 @@ function project(state: DispatcherResultProjection, value: unknown, submissionId
   if (previousResult !== undefined
     && JSON.stringify(previousResult) !== JSON.stringify(state.result)) throw new Error('Dispatcher immutable result changed');
   if (previousProgress !== undefined
-    && !sameDispatcherPhaseValue(previousProgress, state.progress)) throw new Error('Dispatcher immutable progress changed');
+    && !sameApplicationValue(previousProgress, state.progress)) throw new Error('Dispatcher immutable progress changed');
   if (state.messageIds.length > 128) throw new Error('Dispatcher message bound exceeded');
   state.position = next;
 }

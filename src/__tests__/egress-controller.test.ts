@@ -595,6 +595,40 @@ describe('REQ-ENTERPRISE-029: protected own-R2 enforcement', () => {
     fetchSpy.mockRestore();
   });
 
+  it('managed protection still denies an operator-authorized write while an adjacent write succeeds', async () => {
+    const fixture = await protectedFixture('e');
+    const writes: string[] = [];
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      const outgoing = input as Request;
+      if (outgoing.method === 'GET' && outgoing.url.endsWith('/.codeflare/managed-paths.json')) {
+        return new Response(fixture.bytes);
+      }
+      writes.push(outgoing.url);
+      return new Response('stored');
+    });
+    try {
+      const { controller } = makeController({ R2_ACCOUNT_ID: 'acc' }, {
+        accountId: 'acc', bucket: 'bucket', resourcePolicy: 'immutable',
+        releaseDigest: fixture.releaseDigest, pathsDigest: fixture.pathsDigest,
+        operatorPolicy: { ...operatorPolicy, storage: { readPrefixes: [], writePrefixes: ['.codeflare/', 'Vault/'] } },
+      });
+      const denied = await controller.fetch(new Request('https://acc.r2.cloudflarestorage.com/bucket/.codeflare/managed-extensions.json', {
+        method: 'PUT', body: 'protected overwrite',
+      }));
+      expect(denied.status).toBe(403);
+      expect(await denied.text()).toContain('<Code>AccessDenied</Code>');
+      expect(writes).toEqual([]);
+      const allowed = await controller.fetch(new Request('https://acc.r2.cloudflarestorage.com/bucket/Vault/personal.md', {
+        method: 'PUT', body: 'ordinary note',
+      }));
+      expect(allowed.status).toBe(200);
+      expect(await allowed.text()).toBe('stored');
+      expect(writes).toEqual(['https://acc.r2.cloudflarestorage.com/bucket/Vault/personal.md']);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
   it('signs approved adjacent mutation only with the scoped user key', async () => {
     const fixture = await protectedFixture();
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
@@ -618,6 +652,33 @@ describe('REQ-ENTERPRISE-029: protected own-R2 enforcement', () => {
     expect(userRequest.headers.get('authorization')).toContain('Credential=user-r2-key/');
     expect(userRequest.headers.get('authorization')).not.toContain('admin-r2-key');
     fetchSpy.mockRestore();
+  });
+
+  it('rejects a mismatched policy despite forged caller identity before protected object access', async () => {
+    const fixture = await protectedFixture('f');
+    const protectedReads: string[] = [];
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      const request = input as Request;
+      if (request.url.endsWith('/bucket/.codeflare/managed-paths.json')) return new Response(fixture.bytes);
+      protectedReads.push(request.url);
+      return new Response('protected object must never be returned');
+    });
+    try {
+      const { controller, egressFetch } = makeController({ R2_ACCOUNT_ID: 'acc' }, {
+        accountId: 'acc', bucket: 'bucket', resourcePolicy: 'immutable',
+        releaseDigest: 'a'.repeat(64), pathsDigest: fixture.pathsDigest,
+      });
+      const response = await controller.fetch(new Request('https://acc.r2.cloudflarestorage.com/bucket/.codeflare/managed-extensions.json', {
+        headers: { 'x-codeflare-owner': 'other-owner', 'x-codeflare-bucket': 'other-bucket',
+          'x-codeflare-release-digest': fixture.releaseDigest },
+      }));
+      expect(response.status).toBe(503);
+      expect(await response.text()).toContain('<Code>ServiceUnavailable</Code>');
+      expect(protectedReads).toEqual([]);
+      expect(egressFetch).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 
   it('returns S3 503 and never forwards mutation when policy loading fails', async () => {

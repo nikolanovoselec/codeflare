@@ -214,13 +214,19 @@ export class HerdrAgentStatusMonitor {
   }
 
   private onLine(line: string): void {
-    let value: Record<string, unknown>;
+    let parsed: unknown;
     try {
-      value = JSON.parse(line) as Record<string, unknown>;
+      parsed = JSON.parse(line);
     } catch {
       this.retry(this.socket);
       return;
     }
+
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      this.retry(this.socket);
+      return;
+    }
+    const value = parsed as Record<string, unknown>;
 
     if (value.id === 'codeflare-agent-status-snapshot') {
       const result = value.result as Record<string, unknown> | undefined;

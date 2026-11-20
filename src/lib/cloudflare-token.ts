@@ -3,9 +3,9 @@
  *
  * Mirrors github-token.ts. The per-user Cloudflare token lives in the EXISTING
  * deploy-keys KV entry (`DeployKeys.cloudflareApiToken` + `cloudflareAccountId`,
- * `getDeployKeysKey(bucketName)`) — no new KV key — so it already flows to the
- * container as `CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ACCOUNT_ID`. "Connect to
- * Cloudflare" populates the same fields the (legacy) manual paste UI filled.
+ * `getDeployKeysKey(bucketName)`) — no new KV key. "Connect to Cloudflare"
+ * populates the same fields the (legacy) manual paste UI filled; OAuth access
+ * tokens remain Worker-held, with placeholders used for container credentials.
  *
  * Cloudflare's OAuth Applications feature (3-legged authorization_code, with
  * refresh_token via `offline_access`) lets a user authorize their OWN Cloudflare
@@ -13,9 +13,10 @@
  * registers ONE OAuth client per deployment in the Setup wizard (id plain,
  * secret encrypted in KV); this module reads it via getCloudflareProvider.
  *
- * Non-enterprise only: enterprise has no per-user Cloudflare deploy flow, so
- * getCloudflareProvider returns null there (the Setup keys are never set).
+ * The configured client supports user connections in every deployment mode;
+ * Enterprise admin Browser Run credentials remain separate from owner grants.
  */
+import { z } from 'zod';
 import type { DeployKeys, Env } from '../types';
 import { getDeployKeysKey, SETUP_KEYS } from './kv-keys';
 import { getAndDecrypt, encryptAndStore, getOrImportKey } from './kv-crypto';
@@ -81,23 +82,32 @@ function readConnection(dk: DeployKeys | null): CloudflareConnection | null {
 
 /**
  * Persist a Cloudflare connection into the deploy-keys entry, preserving the
- * GitHub fields. Shared write path for the OAuth flow.
+ * GitHub fields. On a new grant, only select an account proven accessible by it.
  */
 export async function storeCloudflareConnection(
   env: Env,
   bucketName: string,
   conn: CloudflareConnection,
-): Promise<void> {
+  accessibleAccounts?: readonly CloudflareAccount[],
+): Promise<string | undefined> {
   const existing = (await readDeployKeys(env, bucketName)) ?? {};
+  const previousAccountId = existing.cloudflareAccountId ?? undefined;
+  let accountId = conn.accountId ?? previousAccountId;
+  if (accessibleAccounts) {
+    accountId = accessibleAccounts.length === 1
+      ? accessibleAccounts[0].id
+      : accessibleAccounts.find(account => account.id === previousAccountId)?.id;
+  }
   const updated: DeployKeys = {
     ...existing,
     cloudflareApiToken: conn.accessToken,
     cloudflareTokenSource: conn.source,
     cloudflareRefreshToken: conn.refreshToken ?? null,
     cloudflareTokenExpiresAt: conn.expiresAt ?? null,
-    cloudflareAccountId: conn.accountId ?? existing.cloudflareAccountId ?? null,
+    cloudflareAccountId: accountId ?? null,
   };
   await writeDeployKeys(env, bucketName, updated);
+  return accountId;
 }
 
 /** Remove all Cloudflare fields; delete the entry entirely if nothing else remains. */
@@ -129,21 +139,55 @@ export async function getCloudflareConnectionStatus(
 
 // --- accounts --------------------------------------------------------------
 
-/**
- * List the Cloudflare accounts the token can act on (also validates the token).
- * Throws on an invalid token or API error.
- */
+const accountsPageSchema = z.object({
+  success: z.literal(true),
+  result: z.array(z.object({ id: z.string().min(1), name: z.string() })),
+  result_info: z.object({
+    page: z.number().int().positive().optional(),
+    count: z.number().int().nonnegative().optional(),
+    per_page: z.number().int().positive().optional(),
+    total_count: z.number().int().nonnegative().optional(),
+  }).optional(),
+});
+
+/** List accounts without ever returning a partial paged result. */
 export async function fetchCloudflareAccounts(accessToken: string): Promise<CloudflareAccount[]> {
-  const res = await fetch(ACCOUNTS_URL, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-    signal: AbortSignal.timeout(8000),
-  });
-  if (!res.ok) throw new Error(`Cloudflare accounts endpoint returned ${res.status}`);
-  const body = (await res.json()) as { success: boolean; result?: CloudflareAccount[] };
-  if (!body.success || !Array.isArray(body.result)) {
-    throw new Error('Cloudflare accounts API returned an error');
+  const accounts = new Map<string, CloudflareAccount>();
+  let total: number | undefined;
+  let pageSize: number | undefined;
+  const signal = AbortSignal.timeout(8000);
+  for (let page = 1; page <= 100; page++) {
+    const res = await fetch(page === 1 ? ACCOUNTS_URL : `${ACCOUNTS_URL}?page=${page}`, {
+      headers: { Authorization: `Bearer ${accessToken}` }, signal,
+    });
+    if (!res.ok) throw new Error(`Cloudflare accounts endpoint returned ${res.status}`);
+    const parsed = accountsPageSchema.safeParse(await res.json());
+    if (!parsed.success) throw new Error('Cloudflare accounts API returned an invalid result');
+    const { result, result_info: info } = parsed.data;
+    if ((page > 1 && !info)
+      || (info?.page !== undefined && info.page !== page)
+      || (info?.count !== undefined && info.count !== result.length)
+      || (info?.total_count !== undefined && total !== undefined && total !== info.total_count)
+      || (info?.per_page !== undefined && pageSize !== undefined && pageSize !== info.per_page)) break;
+    total ??= info?.total_count;
+    pageSize ??= info?.per_page;
+    if (info && total === undefined && pageSize === undefined) break;
+    if (pageSize !== undefined) {
+      if (result.length > pageSize || accounts.size !== (page - 1) * pageSize) break;
+      if (total !== undefined && result.length !== Math.min(pageSize, total - accounts.size)) break;
+    }
+    for (const account of result) {
+      if (accounts.has(account.id)) throw new Error('Cloudflare accounts API repeated an account');
+      accounts.set(account.id, account);
+    }
+    if (total !== undefined) {
+      if (accounts.size === total) return [...accounts.values()];
+      if (accounts.size > total || result.length === 0) break;
+    } else if (!info || (pageSize !== undefined && result.length < pageSize)) {
+      return [...accounts.values()];
+    }
   }
-  return body.result;
+  throw new Error('Cloudflare accounts API returned an incomplete list');
 }
 
 // --- provider --------------------------------------------------------------
@@ -268,13 +312,10 @@ interface StoredCloudflareSecret {
 /**
  * Resolve the admin-configured Cloudflare OAuth client from Setup→KV. The client
  * id is plain, the secret encrypted. Fails closed (null) when id/secret are not
- * both present or the secret cannot be decrypted (no ENCRYPTION_KEY).
- *
- * Enterprise mode has no per-user Cloudflare deploy flow, so this returns null
- * there (the Setup keys are never written in enterprise).
+ * both present or the stored secret cannot be read. The same registration is
+ * used in every deployment mode.
  */
 export async function getCloudflareProvider(env: Env): Promise<CloudflareOAuthProviderInterface | null> {
-  if (isEnterpriseMode(env)) return null;
   const clientId = (await env.KV.get(SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_ID))?.trim();
   if (!clientId) return null;
   const cryptoKey = await getOrImportKey(env);
@@ -334,12 +375,15 @@ export async function getValidCloudflareToken(env: Env, bucketName: string): Pro
  * (and the enterprise admin token) pass through untouched — only `cloudflareTokenSource ===
  * 'oauth'` is swapped. The placeholder is emitted only when the connection can still mint a
  * token, else `null` so `wrangler`/browser-run stay unregistered rather than authing dead.
+ * Enterprise projection leaves the separate admin Browser Run placeholder/account
+ * intact; owner grants are resolved only at the API boundary, not during projection.
  */
 export async function applyCloudflareOAuthToken(
   env: Env,
   deployKeys: DeployKeys | null | undefined,
   bucketName: string,
 ): Promise<DeployKeys | null | undefined> {
+  if (isEnterpriseMode(env)) return deployKeys;
   if (deployKeys?.cloudflareTokenSource !== 'oauth' || !deployKeys.cloudflareApiToken) {
     return deployKeys;
   }
@@ -351,9 +395,8 @@ export async function applyCloudflareOAuthToken(
 
 /**
  * Exchange an authorization code, persist the connection, and resolve the
- * account. Returns the connection plus the accessible accounts: when exactly one
- * account exists it is auto-selected and persisted; with several, the caller
- * routes the user to account selection.
+ * account. Auto-select the sole accessible account or retain a previous selection
+ * that the new grant can still access; otherwise let the user choose.
  */
 export async function connectCloudflare(
   env: Env,
@@ -365,17 +408,14 @@ export async function connectCloudflare(
   if (!provider) throw new Error('Cloudflare integration not configured');
   const conn = await provider.exchangeCode(code, redirectUri);
 
-  let accounts: CloudflareAccount[] = [];
-  try {
-    accounts = await fetchCloudflareAccounts(conn.accessToken);
-  } catch (err) {
-    logger.warn('Cloudflare account resolution failed after connect', { err: String(err) });
-  }
-  if (accounts.length === 1) conn.accountId = accounts[0].id;
-
-  await storeCloudflareConnection(env, bucketName, conn);
-  return { accounts, accountId: conn.accountId };
+  // Do not replace a saved grant unless the new grant exposes an account.
+  const accounts = await fetchCloudflareAccounts(conn.accessToken);
+  if (accounts.length === 0) throw new CloudflareNoAccountsError('Cloudflare authorization returned no accessible accounts');
+  const accountId = await storeCloudflareConnection(env, bucketName, conn, accounts);
+  return { accounts, accountId };
 }
+
+export class CloudflareNoAccountsError extends Error {}
 
 /**
  * Select the Cloudflare account for an already-connected token. Re-validates the

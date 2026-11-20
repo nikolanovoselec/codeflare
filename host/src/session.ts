@@ -530,9 +530,9 @@ export class Session {
     }
     this.lastProcessName = null;
 
-    if (this._stopTerminalRuntime) {
-      this._stopTerminalRuntime();
-    }
+    let runtimeStopError: unknown;
+    try { this._stopTerminalRuntime?.(); }
+    catch (error) { runtimeStopError = error; }
 
     if (this.ptyProcess) {
       this.ptyProcess.kill();
@@ -546,6 +546,10 @@ export class Session {
     this.resizeAuthorityClient = null;
     this.clientResizeRequests.clear();
     this.disconnectedAt = null;
+    if (runtimeStopError) {
+      this._log('warn', 'Terminal runtime stop unconfirmed', { session: this.id });
+      throw runtimeStopError;
+    }
     this._log('info', 'Session killed', { session: this.id });
   }
 

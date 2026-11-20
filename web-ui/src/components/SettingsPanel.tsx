@@ -1,4 +1,4 @@
-import { Component, createSignal, createEffect, createRenderEffect, on, Show, onMount, JSX } from 'solid-js';
+import { Component, createSignal, createEffect, createRenderEffect, on, Show, onMount, onCleanup, JSX } from 'solid-js';
 import {
   mdiClose,
   mdiCogOutline,
@@ -11,7 +11,7 @@ import type { Settings } from '../lib/settings';
 import { sessionStore } from '../stores/session';
 import { recreateGettingStartedDocs, recreateAgentConfigs } from '../api/storage';
 import { getUser } from '../api/client';
-import type { AccessTier, SessionWorkspace, SubscriptionTier } from '../types';
+import type { AccessTier, SessionMode, SessionWorkspace, SubscriptionTier } from '../types';
 import AppearanceSection from './settings/AppearanceSection';
 import SessionSection from './settings/SessionSection';
 import DeployKeysSection from './settings/DeployKeysSection';
@@ -25,6 +25,7 @@ import {
   setAgentNotificationsEnabled,
 } from '../lib/agent-notifications';
 import type { AgentNotificationEnablement } from '../lib/agent-notifications';
+import { cloudflareRetryMessage, type CloudflareReturnOutcome } from '../lib/cloudflare-oauth-return';
 // SubscriptionManagement moved to standalone admin page at /admin/subscriptions
 import '../styles/settings-panel.css';
 
@@ -32,6 +33,8 @@ interface SettingsPanelProps {
   isOpen: boolean;
   onClose: () => void;
   currentUserEmail?: string;
+  mcpReturnOutcome?: import('../lib/mcp-portal-recovery').McpReturnOutcome;
+  cloudflareReturn?: CloudflareReturnOutcome;
   currentUserRole?: 'admin' | 'user';
   currentUserAccessTier?: import('../types').AccessTier;
   enterpriseMode?: boolean;
@@ -53,7 +56,7 @@ interface AccordionSectionProps {
  *
  * - Only one group is expanded at a time; clicking a collapsed header opens it
  *   and closes the current one. Clicking the open header is a no-op.
- * - Resets to "Appearance" whenever the parent panel is closed and reopened.
+ * - Opens to Appearance by default, or Integrations after a Cloudflare return.
  * - ARIA follows the WAI-ARIA Accordion Pattern: h3 wraps button (not vice
  *   versa), button has aria-expanded & aria-controls, content region has
  *   role="region" and aria-labelledby.
@@ -109,7 +112,7 @@ const AccordionSection: Component<AccordionSectionProps> = (props) => {
 const ACCORDION_SUBTITLES: Record<AccordionGroup, string> = {
   appearance: 'Colors, tips & display preferences',
   session: 'Startup behavior & workspace sync',
-  deploy: 'Connect GitHub & Cloudflare for one-click deploy',
+  deploy: 'Connect Cloudflare for resource management & deploys',
   mcp: 'Connect portals & manage tool access',
   llm: 'Connect GPT & Gemini for second opinions (optional)',
   admin: 'Environment, analytics & initialization',
@@ -128,26 +131,37 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   const [notificationPermission, setNotificationPermission] = createSignal<AgentNotificationEnablement>('default');
   const [notificationAvailable, setNotificationAvailable] = createSignal(false);
   const [notificationEnabled, setNotificationEnabled] = createSignal(false);
+  const [notificationPending, setNotificationPending] = createSignal<'enable' | 'disable' | null>(null);
+  const [notificationError, setNotificationError] = createSignal<string | null>(null);
   let notificationRevision = 0;
 
   // Live tier — refreshed from API each time panel opens so tier
   // upgrades take effect without a full page reload.
   const [liveAccessTier, setLiveAccessTier] = createSignal<AccessTier | SubscriptionTier | undefined>(props.currentUserAccessTier);
 
-  // Reset accordion to Appearance when panel is closed then reopened (false → true)
+  const [liveAllowedModes, setLiveAllowedModes] = createSignal<SessionMode[] | undefined>();
+
+  // Refresh on opening or owner/deployment changes. A closed/replaced read may
+  // not restore stale availability after a newer read or owner has taken over.
   createEffect(on(
-    () => props.isOpen,
-    (isOpen, prevIsOpen) => {
-      if (isOpen && !prevIsOpen) {
-        setOpenGroup('appearance');
-        // Re-fetch tier on panel open
-        getUser().then((user) => {
-          const tier = user.subscriptionTier ?? user.accessTier;
-          if (tier) setLiveAccessTier(tier);
-          setUserHasSubscribed(user.hasSubscribed === true);
-          setLiveSubscribedMode(user.subscribedMode ?? 'default');
-        }).catch(() => {});
-      }
+    () => [props.isOpen, props.currentUserEmail, sessionStore.saasMode] as const,
+    ([isOpen, owner, saasMode], previous) => {
+      let current = true;
+      onCleanup(() => { current = false; });
+      setLiveAllowedModes(undefined);
+      if (!isOpen) return;
+      if (!previous?.[0]) setOpenGroup(props.cloudflareReturn ? 'deploy' : 'appearance');
+      getUser().then((user) => {
+        if (!current || !props.isOpen || props.currentUserEmail !== owner
+          || sessionStore.saasMode !== saasMode || (owner && user.email !== owner)) return;
+        const tier = user.subscriptionTier ?? user.accessTier;
+        if (tier) setLiveAccessTier(tier);
+        setUserHasSubscribed(user.hasSubscribed === true);
+        setLiveSubscribedMode(user.subscribedMode ?? 'default');
+        setLiveAllowedModes(user.allowedModes);
+      }).catch(() => {
+        // Missing/failed SaaS availability remains disabled until a fresh read.
+      });
     }
   ));
 
@@ -156,16 +170,16 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   };
 
   const isAdmin = () => props.currentUserRole === 'admin';
-  // Initialize from local preference until async getUser() returns the server-side subscribedMode
+  // Preserve legacy metadata/preference behavior outside SaaS.
   const [liveSubscribedMode, setLiveSubscribedMode] = createSignal<'default' | 'advanced'>(
     (sessionStore.preferences.sessionMode as 'default' | 'advanced') ?? 'default'
   );
   const canUseAdvanced = () => {
     // Admin always has access
     if (isAdmin()) return true;
-    // User must have subscribed to Pro via subscribe page (stored in user record).
-    // subscribedMode is the source of truth from Stripe — if they paid for Pro,
-    // they can use it regardless of which tier (standard, advanced, max, unlimited).
+    // REQ-SUB-014: SaaS presentation follows canonical server availability,
+    // never stale subscribedMode or a saved Advanced preference while loading.
+    if (sessionStore.saasMode) return liveAllowedModes()?.includes('advanced') === true;
     return liveSubscribedMode() === 'advanced';
   };
   const workspaceSyncEnabled = () => sessionStore.preferences.workspaceSyncEnabled === true;
@@ -260,17 +274,25 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   };
 
   const handleAgentNotificationsToggle = async () => {
+    if (notificationPending()) return;
     const enabled = !notificationEnabled();
     notificationRevision += 1;
-    const state = await setAgentNotificationsEnabled(enabled);
-    setNotificationEnabled(state === 'on');
-    setNotificationPermission(
-      state === 'on'
-        ? 'granted'
-        : state === 'denied' || state === 'unavailable'
-          ? state
-          : agentNotificationPermission(),
-    );
+    setNotificationPending(enabled ? 'enable' : 'disable');
+    setNotificationError(null);
+    try {
+      const state = await setAgentNotificationsEnabled(enabled);
+      if (state === 'on' || state === 'off') {
+        setNotificationEnabled(state === 'on');
+      } else if (state === 'unavailable') {
+        setNotificationError(`Could not ${enabled ? 'enable' : 'disable'} notifications. Try again.`);
+      }
+      // A failed operation is not evidence that this browser is unsupported.
+      setNotificationPermission(state === 'denied' ? 'denied' : agentNotificationPermission());
+    } catch {
+      setNotificationError(`Could not ${enabled ? 'enable' : 'disable'} notifications. Try again.`);
+    } finally {
+      setNotificationPending(null);
+    }
   };
 
   const handleRecreateDocs = async () => {
@@ -399,6 +421,8 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
               notificationPermission={notificationPermission}
               notificationAvailable={notificationAvailable}
               notificationEnabled={notificationEnabled}
+              notificationPending={notificationPending}
+              notificationError={notificationError}
               sleepAfter={sleepAfter}
               canChangeSleepAfter={canChangeSleepAfter}
               isFreeUser={isFreeUser}
@@ -422,20 +446,19 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
             />
           </AccordionSection>
 
-          {/* ── Push & Deploy (hidden in enterprise: GitHub is managed via Connect
-               GitHub and the Cloudflare Browser Rendering token is admin-configured
-               in Setup, so users never manage deploy credentials — REQ-BROWSER-007) ── */}
-          <Show when={!props.enterpriseMode}>
-            <AccordionSection
-              group="deploy"
-              title="Push & Deploy"
-              subtitle={ACCORDION_SUBTITLES.deploy}
-              isOpen={openGroup() === 'deploy'}
-              onToggle={() => handleAccordionClick('deploy')}
-            >
-              <DeployKeysSection />
-            </AccordionSection>
-          </Show>
+          {/* User-owned integrations are separate from administrator Browser Run credentials. */}
+          <AccordionSection
+            group="deploy"
+            title="Integrations"
+            subtitle={ACCORDION_SUBTITLES.deploy}
+            isOpen={openGroup() === 'deploy'}
+            onToggle={() => handleAccordionClick('deploy')}
+          >
+            <Show when={cloudflareRetryMessage(props.cloudflareReturn)}>
+              {(message) => <p class="settings-hint type-hint" role="alert">{message()}</p>}
+            </Show>
+            <DeployKeysSection accountSelectionReturn={props.cloudflareReturn === 'select-account'} />
+          </AccordionSection>
 
           <AccordionSection
             group="mcp"
@@ -444,7 +467,8 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
             isOpen={openGroup() === 'mcp'}
             onToggle={() => handleAccordionClick('mcp')}
           >
-            <McpPortalsSection />
+            <McpPortalsSection currentUserEmail={props.currentUserEmail}
+              isActive={props.isOpen && openGroup() === 'mcp'} returnOutcome={props.mcpReturnOutcome} />
           </AccordionSection>
 
           {/* ── LLM API Keys (advanced session mode only; never in enterprise mode) ── */}

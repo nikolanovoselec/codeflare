@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -56,7 +56,7 @@ function settingsMergeBlock() {
   assert.notEqual(start, -1, 'entrypoint.sh no longer has a settings-merge block');
   const end = entrypoint.indexOf('\nfi\n', start);
   assert.notEqual(end, -1, 'the settings-merge block is unterminated');
-  return entrypoint.slice(start, end + '\nfi\n'.length);
+  return entrypoint.slice(assignment, end + '\nfi\n'.length);
 }
 
 function sessionModeSettingsBlock() {
@@ -73,8 +73,11 @@ function sessionModeSettingsBlock() {
 // the file (omit it to exercise the no-file branch) and may be an object or a
 // raw string; `config` is the managed SETTINGS_CONFIG. Executing the shell is
 // the point: a merge that silently stops merging cannot pass these.
-function runSettingsMerge({ existing, config }) {
-  const file = join(mkdtempSync(join(tmpdir(), 'settings-merge-')), 'settings.json');
+function runSettingsMerge({ existing, config, missingDirectory = false }) {
+  const fixture = mkdtempSync(join(tmpdir(), 'settings-merge-'));
+  const userDirectory = join(fixture, '.claude');
+  if (!missingDirectory) mkdirSync(userDirectory);
+  const file = join(userDirectory, 'settings.json');
   if (existing !== undefined) {
     writeFileSync(file, typeof existing === 'string' ? existing : JSON.stringify(existing));
   }
@@ -84,7 +87,7 @@ function runSettingsMerge({ existing, config }) {
   // the harness sail past it while production aborts the container start —
   // failing open on exactly the regression class this test exists to catch.
   const result = spawnSync('bash', ['-c', `set -euo pipefail\n${settingsMergeBlock()}`], {
-    env: { ...process.env, SETTINGS_FILE: file, SETTINGS_CONFIG: JSON.stringify(config) },
+    env: { ...process.env, USER_CLAUDE_DIR: userDirectory, SETTINGS_CONFIG: JSON.stringify(config) },
     encoding: 'utf8',
   });
   assert.equal(result.status, 0, `settings-merge block exited ${result.status}: ${result.stderr}`);
@@ -96,16 +99,21 @@ function runSettingsMerge({ existing, config }) {
   } catch {
     settings = null;
   }
+  rmSync(fixture, { recursive: true, force: true });
   return { settings, raw, stdout: result.stdout };
 }
 
-function runSessionModeSettings(mode) {
-  const userDirectory = mkdtempSync(join(tmpdir(), `settings-${mode}-`));
+function runSessionModeSettings(mode, { missingDirectory = false, codingAgents = 'pi,claude' } = {}) {
+  const fixture = mkdtempSync(join(tmpdir(), `settings-${mode}-`));
+  const userDirectory = join(fixture, '.claude');
   const file = join(userDirectory, 'settings.json');
-  writeFileSync(file, JSON.stringify({
-    theme: 'dark',
-    hooks: { Notification: [{ matcher: 'custom', hooks: [{ type: 'command', command: '/user/hook.sh' }] }] },
-  }));
+  if (!missingDirectory) {
+    mkdirSync(userDirectory);
+    writeFileSync(file, JSON.stringify({
+      theme: 'dark',
+      hooks: { Notification: [{ matcher: 'custom', hooks: [{ type: 'command', command: '/user/hook.sh' }] }] },
+    }));
+  }
 
   const script = [
     'set -euo pipefail',
@@ -117,6 +125,7 @@ function runSessionModeSettings(mode) {
     env: {
       ...process.env,
       SESSION_MODE: mode,
+      CODEFLARE_CODING_AGENTS: codingAgents,
       USER_CLAUDE_DIR: userDirectory,
       PLUGIN_DIR: '/plugins',
       CONTEXT_MODE_MANIFEST: '/missing/context-mode.json',
@@ -125,7 +134,9 @@ function runSessionModeSettings(mode) {
     encoding: 'utf8',
   });
   assert.equal(result.status, 0, `${mode} settings path exited ${result.status}: ${result.stderr}`);
-  return JSON.parse(readFileSync(file, 'utf8'));
+  const settings = JSON.parse(readFileSync(file, 'utf8'));
+  rmSync(fixture, { recursive: true, force: true });
+  return settings;
 }
 
 // Every hook entry registered for one event type, flattened across matchers.
@@ -338,6 +349,24 @@ describe('settings.json configuration / REQ-AGENT-015 (/review command)', () => 
     assert.deepEqual(settings, config, 'the no-file branch must write the managed config verbatim');
   });
 
+  it('REQ-AGENT-099 AC4 / REQ-STOR-004 AC3: creates settings when the configuration directory is absent after restore', () => {
+    const config = { skipDangerousModePermissionPrompt: true, disableAgentView: true };
+    const { settings } = runSettingsMerge({ config, missingDirectory: true });
+    assert.deepEqual(settings, config);
+  });
+
+  it('REQ-AGENT-099 AC1/AC4: post-restore settings initialization supports Pi-only and Claude selections in both modes', () => {
+    for (const mode of ['default', 'advanced']) {
+      for (const codingAgents of ['pi', 'claude']) {
+        const settings = runSessionModeSettings(mode, { missingDirectory: true, codingAgents });
+        assert.equal(settings.skipDangerousModePermissionPrompt, true);
+        assert.equal(settings.disableAgentView, true);
+        assert.equal(settings.preferredNotifChannel, 'ghostty');
+        assert.equal(hookEntries(settings, 'PreToolUse').length > 0, mode === 'advanced');
+      }
+    }
+  });
+
   it('handles malformed settings.json gracefully (skip with warning)', () => {
     const malformed = '{ not json';
     const { raw, stdout } = runSettingsMerge({
@@ -347,21 +376,6 @@ describe('settings.json configuration / REQ-AGENT-015 (/review command)', () => 
 
     assert.equal(raw, malformed, 'a failed merge must leave the existing file untouched, not truncate it');
     assert.match(stdout, /WARNING/, 'a failed merge must be reported, not swallowed');
-  });
-
-  it('settings merge runs before bisync baseline', () => {
-    const main = extractMainExecution();
-    assert.ok(main, 'MAIN EXECUTION section should exist');
-
-    const settingsIdx = main.indexOf('settings.json');
-    const bisyncBaselineIdx = main.indexOf('establish_bisync_baseline');
-
-    assert.ok(settingsIdx > -1, 'settings config should exist in main execution');
-    assert.ok(bisyncBaselineIdx > -1, 'establish_bisync_baseline should exist');
-    assert.ok(
-      settingsIdx < bisyncBaselineIdx,
-      'settings merge must run before bisync baseline'
-    );
   });
 });
 

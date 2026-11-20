@@ -201,6 +201,33 @@ describe('kv-crypto / REQ-SEC-004 (credential encryption-at-rest cryptographic c
       // Verify the re-encrypted value can be decrypted
       const decrypted = await decryptFromKV(rawStored!.slice(3), key, 'test-key');
       expect(JSON.parse(decrypted)).toEqual(data);
+      // A second public read consumes the migrated ciphertext, with no rewrite.
+      expect(await getAndDecrypt(mockKV as any, 'test-key', key)).toEqual(data);
+      expect(await mockKV.get('test-key')).toBe(rawStored);
+    });
+
+    it('REQ-SEC-006: concurrent legacy reads preserve the original data in readable ciphertext', async () => {
+      const key = await importEncryptionKey(await generateTestKeyBase64());
+      const data = { openaiApiKey: 'sk-concurrent', nested: { retained: true } };
+      mockKV._set('test-key', data);
+      const put = mockKV.put.getMockImplementation()!;
+      let completeWrite!: () => void;
+      const written = new Promise<void>(resolve => { completeWrite = resolve; });
+      let completed = 0;
+      mockKV.put.mockImplementation(async (...args) => {
+        await put(...args);
+        if (++completed === 2) completeWrite();
+      });
+      const results = await Promise.all([
+        getAndDecrypt(mockKV as any, 'test-key', key),
+        getAndDecrypt(mockKV as any, 'test-key', key),
+      ]);
+      expect(results).toEqual([data, data]);
+      await written;
+      expect(await getAndDecrypt(mockKV as any, 'test-key', key)).toEqual(data);
+      const stored = await mockKV.get('test-key') as string;
+      expect(stored.startsWith('v1:')).toBe(true);
+      expect(JSON.parse(await decryptFromKV(stored.slice(3), key, 'test-key'))).toEqual(data);
     });
 
     it('plaintext JSON + encryption key + write-back failure -> still returns data', async () => {
@@ -277,6 +304,24 @@ describe('kv-crypto / REQ-SEC-004 (credential encryption-at-rest cryptographic c
       const result = await getOrImportKey({ ENCRYPTION_KEY: base64Key });
 
       expect(result).toBeInstanceOf(CryptoKey);
+    });
+
+    it('REQ-SEC-004 AC5: repeated same-source calls return the same CryptoKey; invalid input cannot replace it', async () => {
+      const ENCRYPTION_KEY = await generateTestKeyBase64();
+      const first = await getOrImportKey({ ENCRYPTION_KEY });
+      expect(first).toBeInstanceOf(CryptoKey);
+      expect(await getOrImportKey({ ENCRYPTION_KEY })).toBe(first);
+      await expect(getOrImportKey({ ENCRYPTION_KEY: 'invalid' })).rejects.toThrow();
+      expect(await getOrImportKey({ ENCRYPTION_KEY })).toBe(first);
+      expect(await getOrImportKey({})).toBeNull();
+      expect(await getOrImportKey({ ENCRYPTION_KEY })).toBe(first);
+      // Synthetic primitive inputs, not deployment-key rotation or migration.
+      const otherSource = await generateTestKeyBase64();
+      const other = await getOrImportKey({ ENCRYPTION_KEY: otherSource });
+      expect(other).not.toBe(first);
+      expect(await getOrImportKey({ ENCRYPTION_KEY: otherSource })).toBe(other);
+      const encrypted = await encryptForKV('source-bound value', first!, 'test-key');
+      await expect(decryptFromKV(encrypted.slice(3), other!, 'test-key')).rejects.toThrow();
     });
 
     it('returns null for undefined ENCRYPTION_KEY', async () => {

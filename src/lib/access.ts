@@ -53,14 +53,11 @@ const AUTH_CONFIG_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 // window. Expire it after 30s instead of 5min so a freshly-configured
 // instance stops trusting cf-access-authenticated-user-email much sooner.
 const AUTH_CONFIG_NULL_TTL_MS = 30 * 1000; // 30 seconds
-let cachedAuthDomain: string | null | undefined = undefined;
-let cachedAccessAud: string | null | undefined = undefined;
-let cachedAccessAudList: string[] | null | undefined = undefined;
-let authConfigCachedAt = 0;
-// CF-005: Tracks whether KV auth config has been fetched at least once.
+let cachedAuthConfig: { config: ResolvedAuthConfig; cachedAt: number } | null = null;
+// CF-005: Tracks whether populated KV auth config has been fetched since reset.
 let authConfigFetched = false;
-// CF-002: Promise dedup - prevents concurrent cold requests from issuing redundant KV reads.
-let pendingAuthConfigFetch: Promise<void> | null = null;
+let authConfigGeneration = 0;
+let latestAuthConfigRead = 0;
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
@@ -91,12 +88,10 @@ const VALID_SUBSCRIPTION_TIERS = new Set<string>([
  * Reset cached auth config. Call when setup completes or config changes.
  */
 export function resetAuthConfigCache(): void {
-  cachedAuthDomain = undefined;
-  cachedAccessAud = undefined;
-  cachedAccessAudList = undefined;
-  authConfigCachedAt = 0;
+  cachedAuthConfig = null;
   authConfigFetched = false;
-  pendingAuthConfigFetch = null;
+  authConfigGeneration++;
+  latestAuthConfigRead++;
 }
 
 function getCookieValue(cookieHeader: string | null, key: string): string | null {
@@ -215,53 +210,93 @@ function operatorHumanDenied(
  * This is deliberately separate from legacy display-name based enterprise gates.
  * Only the verified issuer receives the credential; redirects are never followed.
  */
-async function currentOperatorIdentity(human: VerifiedHumanAccessClaims, accessJwt: string): Promise<string[] | null> {
+export type OperatorAccessIdentityObservation =
+  | { status: 'current'; groups: string[]; routingGroups?: string[] } | { status: 'unavailable' } | { status: 'denied' };
+
+export async function observeOperatorAccessIdentity(human: VerifiedHumanAccessClaims, accessJwt: string,
+  configuredRoutingGroups?: readonly string[]): Promise<OperatorAccessIdentityObservation> {
+  const denied = (...args: Parameters<typeof operatorHumanDenied>): OperatorAccessIdentityObservation => {
+    operatorHumanDenied(...args); return { status: 'denied' };
+  };
   if (!/^https:\/\/[a-z0-9-]+\.cloudflareaccess\.com$/.test(human.issuer)
-    || !accessJwt) return operatorHumanDenied('identity', 'invalid');
-  if (human.expiresAt * 1000 <= Date.now()) return operatorHumanDenied('identity', 'expired');
+    || !accessJwt) return denied('identity', 'invalid');
+  if (human.expiresAt * 1000 <= Date.now()) return denied('identity', 'expired');
   let failure: 'transport' | 'response' = 'transport';
   try {
+    const signal = AbortSignal.timeout(5000);
     const response = await fetch(`${human.issuer}/cdn-cgi/access/get-identity`, {
       method: 'GET', headers: { Cookie: `CF_Authorization=${accessJwt}` },
-      redirect: 'manual', signal: AbortSignal.timeout(5000),
+      redirect: 'manual', signal,
     });
-    if (!response.ok) return operatorHumanDenied('identity', 'http', response.status);
+    if (response.status === 503) {
+      let classification: 'cloudflare-1019' | 'cloudflare-1042' | 'unclassified' = 'unclassified';
+      try {
+        const bytes = await readBoundedResponse(response, 8192, 'Access identity', signal);
+        const body = new TextDecoder().decode(bytes);
+        // Public codes: https://developers.cloudflare.com/workers/observability/errors/#error-pages-generated-by-workers
+        // Deliberately exact plain-code forms only; never search JSON/HTML or retain body data.
+        if (body === 'error code: 1019') classification = 'cloudflare-1019';
+        else if (body === 'error code: 1042') classification = 'cloudflare-1042';
+      } catch { /* Inspection failure cannot replace the observed HTTP 503. */ }
+      try {
+        logger.warn('Operator Access identity unavailable', { stage: 'identity', reason: 'http', status: 503, classification });
+      } catch { /* Logging is best-effort and cannot change availability. */ }
+      return { status: 'unavailable' };
+    }
+    if (!response.ok) {
+      denied('identity', 'http', response.status);
+      return { status: [408, 429, 500, 502, 503, 504].includes(response.status) ? 'unavailable' : 'denied' };
+    }
     failure = 'response';
-    if (!response.body) return operatorHumanDenied('identity', 'response');
+    if (!response.body) return denied('identity', 'response');
     const bytes = await readBoundedResponse(response, 65536, 'Access identity');
     const identity: unknown = JSON.parse(new TextDecoder().decode(bytes));
-    if (!identity || typeof identity !== 'object' || Array.isArray(identity)) return operatorHumanDenied('identity', 'response');
+    if (!identity || typeof identity !== 'object' || Array.isArray(identity)) return denied('identity', 'response');
     const record = identity as Record<string, unknown>;
     const subject = record.user_uuid ?? record.id;
-    if (subject !== human.subject) return operatorHumanDenied('identity', 'subject');
+    if (subject !== human.subject) return denied('identity', 'subject');
     if (typeof record.email !== 'string' || normalizeEmail(record.email) !== normalizeEmail(human.email)) {
-      return operatorHumanDenied('identity', 'email');
+      return denied('identity', 'email');
     }
     // Cloudflare's documented identity has no required groups field. A verified
     // session without it asserts no memberships; malformed supplied groups still deny.
-    if (!Object.hasOwn(record, 'groups')) return [];
-    if (!Array.isArray(record.groups) || record.groups.length > 1024) return operatorHumanDenied('identity', 'groups');
+    if (!Object.hasOwn(record, 'groups')) return { status: 'current', groups: [],
+      ...(configuredRoutingGroups === undefined ? {} : { routingGroups: [] }) };
+    if (!Array.isArray(record.groups) || record.groups.length > 1024) return denied('identity', 'groups');
     const groups: string[] = [];
     const validLabel = (value: unknown): value is string =>
       typeof value === 'string' && value.length <= 256 && value.trim().length > 0;
     for (const value of record.groups) {
       // Supported IdP labels describe a valid live session but confer no stable-ID grant.
       if (typeof value === 'string') {
-        if (!validLabel(value)) return operatorHumanDenied('identity', 'groups');
+        if (!validLabel(value)) return denied('identity', 'groups');
         continue;
       }
-      if (!value || typeof value !== 'object' || Array.isArray(value)) return operatorHumanDenied('identity', 'groups');
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return denied('identity', 'groups');
       const member = value as Record<string, unknown>;
       if (!Object.hasOwn(member, 'id')) {
-        if (!validLabel(member.name) && !validLabel(member.email)) return operatorHumanDenied('identity', 'groups');
+        if (!validLabel(member.name) && !validLabel(member.email)) return denied('identity', 'groups');
         continue;
       }
       const id = member.id;
-      if (typeof id !== 'string' || !id || id.length > 256 || id.trim() !== id) return operatorHumanDenied('identity', 'groups');
+      if (typeof id !== 'string' || !id || id.length > 256 || id.trim() !== id) return denied('identity', 'groups');
       groups.push(id);
     }
-    return [...new Set(groups)];
-  } catch { return operatorHumanDenied('identity', failure); }
+    return { status: 'current', groups: [...new Set(groups)],
+      ...(configuredRoutingGroups === undefined ? {} : { routingGroups: configuredRoutingGroups.filter(configured =>
+        (record.groups as unknown[]).some(value => typeof value === 'string' ? value === configured
+          : !!value && typeof value === 'object' && ['id', 'name', 'email'].some(key =>
+            (value as Record<string, unknown>)[key] === configured))) }) };
+  } catch (error) {
+    denied('identity', failure);
+    const timeout = error instanceof Error && ['AbortError', 'TimeoutError'].includes(error.name);
+    return { status: failure === 'transport' || timeout ? 'unavailable' : 'denied' };
+  }
+}
+
+async function currentOperatorIdentity(human: VerifiedHumanAccessClaims, accessJwt: string): Promise<string[] | null> {
+  const observed = await observeOperatorAccessIdentity(human, accessJwt);
+  return observed.status === 'current' ? observed.groups : null;
 }
 
 /** An absent/revoked Access session cannot be treated as empty groups. */
@@ -338,7 +373,7 @@ export function canInvokeOperator(human: VerifiedHumanAccessClaims, grants: Part
   return resolveOperatorGrant(human, grants, 'invoker');
 }
 
-/** Auth config derived from the module-level cache after {@link loadAuthConfig}. */
+/** Complete auth configuration owned by a request or a completed cache entry. */
 interface ResolvedAuthConfig {
   accessAudList: string[];
   authConfigured: boolean;
@@ -346,63 +381,44 @@ interface ResolvedAuthConfig {
 }
 
 /**
- * Load auth config from KV REGARDLESS of JWT presence (FIX-1) and return the
- * derived audience list + configured flag. Mutates the module-level cache.
- *
- * This determines whether we're in pre-setup or post-setup state.
- * Invalidate stale cache after TTL (FIX-9).
- * CF-149: when the cached config is the negative/null (pre-setup) state, use
- * the shorter NULL TTL so the header-trust window shrinks from 5min to 30s.
- * A populated config (cachedAuthDomain is a non-empty string) keeps the 5min
- * TTL. cachedAuthDomain === undefined means "not yet fetched" and is handled
- * by the cold-fetch branch below, not here.
+ * Load auth config regardless of JWT presence (FIX-1). Only completed snapshots
+ * cross requests: Workers I/O promises belong to the request that created them.
+ * CF-149: negative config expires after 30s; a populated domain keeps 5min.
  */
 async function loadAuthConfig(env?: Env): Promise<ResolvedAuthConfig> {
-  const configIsPopulated = !!cachedAuthDomain;
-  const effectiveTtlMs = configIsPopulated ? AUTH_CONFIG_CACHE_TTL_MS : AUTH_CONFIG_NULL_TTL_MS;
-  if (authConfigCachedAt > 0 && Date.now() - authConfigCachedAt > effectiveTtlMs) {
-    cachedAuthDomain = undefined;
-    cachedAccessAud = undefined;
-    cachedAccessAudList = undefined;
-    pendingAuthConfigFetch = null; // HIGH-4: ensure stale promise doesn't block re-fetch
+  const cached = cachedAuthConfig;
+  if (cached) {
+    const ttl = cached.config.authDomain ? AUTH_CONFIG_CACHE_TTL_MS : AUTH_CONFIG_NULL_TTL_MS;
+    if (Date.now() - cached.cachedAt <= ttl) return cached.config;
   }
-  // CF-002: Deduplicate concurrent cold-start KV reads via Promise sentinel.
-  // Pattern mirrors pendingJWKSFetch in jwt.ts.
-  if (env?.KV && cachedAuthDomain === undefined) {
-    if (!pendingAuthConfigFetch) {
-      pendingAuthConfigFetch = (async () => {
-        cachedAuthDomain = await env.KV.get(SETUP_KEYS.AUTH_DOMAIN);
-        const audListRaw = await env.KV.get(SETUP_KEYS.ACCESS_AUD_LIST);
-        if (audListRaw) {
-          try {
-            const parsed = JSON.parse(audListRaw);
-            if (Array.isArray(parsed) && parsed.every((value: unknown) => typeof value === 'string')) {
-              cachedAccessAudList = parsed;
-            } else {
-              cachedAccessAudList = null;
-            }
-          } catch {
-            logger.warn('Failed to parse access_aud_list', { raw: audListRaw });
-            cachedAccessAudList = null;
-          }
-        } else {
-          cachedAccessAudList = null;
-        }
-        cachedAccessAud = await env.KV.get(SETUP_KEYS.ACCESS_AUD);
-        authConfigCachedAt = Date.now();
-        if (cachedAuthDomain && (cachedAccessAud || (cachedAccessAudList && cachedAccessAudList.length > 0))) {
-          authConfigFetched = true;
-        }
-      })().finally(() => { pendingAuthConfigFetch = null; });
-    }
-    await pendingAuthConfigFetch;
-  }
+  if (!env?.KV) return { accessAudList: [], authConfigured: false, authDomain: undefined };
 
-  const accessAudList = cachedAccessAudList && cachedAccessAudList.length > 0
-    ? cachedAccessAudList
-    : (cachedAccessAud ? [cachedAccessAud] : []);
-  const authConfigured = !!(cachedAuthDomain && accessAudList.length > 0);
-  return { accessAudList, authConfigured, authDomain: cachedAuthDomain };
+  const generation = authConfigGeneration;
+  const read = ++latestAuthConfigRead;
+  const authDomain = await env.KV.get(SETUP_KEYS.AUTH_DOMAIN);
+  let audiences: string[] | null = null;
+  const audListRaw = await env.KV.get(SETUP_KEYS.ACCESS_AUD_LIST);
+  if (audListRaw) {
+    try {
+      const parsed = JSON.parse(audListRaw);
+      if (Array.isArray(parsed) && parsed.every((value: unknown) => typeof value === 'string')) {
+        audiences = parsed;
+      }
+    } catch {
+      logger.warn('Failed to parse access_aud_list', { raw: audListRaw });
+    }
+  }
+  const accessAud = await env.KV.get(SETUP_KEYS.ACCESS_AUD);
+  const accessAudList = audiences?.length ? audiences : (accessAud ? [accessAud] : []);
+  const config = { accessAudList, authConfigured: !!(authDomain && accessAudList.length), authDomain };
+
+  // Return this request's complete snapshot even if another read or reset won.
+  // An older read must not overwrite newer configuration or undo a reset.
+  if (generation === authConfigGeneration) {
+    if (config.authConfigured) authConfigFetched = true;
+    if (read === latestAuthConfigRead) cachedAuthConfig = { config, cachedAt: Date.now() };
+  }
+  return config;
 }
 
 /**

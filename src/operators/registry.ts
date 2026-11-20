@@ -9,7 +9,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import { createOperatorWebhookKey, openOperatorSecret, sealOperatorSecret } from './protected-secrets';
 import { parseOperatorManifest, parseDispatcherBundle, validateOperatorEndpoint, type OperatorManifest } from './distribution';
-import { ValidationError } from '../lib/error-types';
+import { AppError, ValidationError } from '../lib/error-types';
 import type { DispatcherDeploymentVerification } from './dispatcher-deployment';
 import { isPiReasoningLevel, type PiReasoningLevel } from '../lib/reasoning-profiles';
 import { createLogger } from '../lib/logger';
@@ -23,23 +23,29 @@ import { dispatcherCapacities, dispatcherCapacityKeys, pickDispatcherCapacities,
 import { dispatcherCapacityPolicySchema } from './dispatcher-capacity-schema';
 import type { OperatorBrowserSummary } from './browser-activity';
 import type { BoundaryActionBinding } from './boundary-action-trust';
-import { canInvokeOperator, operatorAccessSessionCurrent, resolveOperatorGroupIdentity } from '../lib/access';
-import { D1SessionRepository } from '../lib/session-repository';
+import type { OperatorExecutionAuthority } from './execution-context';
+import { z } from 'zod';
+import { ApplicationStateStore, ApplicationStateError, sameCoordinationScope, type ApplicationCoordinationScope, type ApplicationStateValue, type ApplicationStateBinding, type ApplicationStateRequest } from './application-state';
+import { hasApplicationWorkflow, type RuntimeApplicationStateBinding, type ApplicationExecutionAuthority,
+  type ApplicationCoordinationAuthority, type ApplicationCoordinationFacts, type ApplicationExecutionRequest, type ApplicationExecutionFacts, type ApplicationExecutionRetirement } from './application-workflow';
+import { applicationWriteRepositories } from './application-configuration';
+import { activateApplicationSchedule as activateSchedule, applicationScheduleStatus as scheduleStatus, runApplicationSchedules } from './application-schedule';
+import { canInvokeOperator, canManageOperator, resolveBucketName } from '../lib/access';
+import { callApplicationRecovery, inspectRecoveryRecord, recoveryInventoryPage, applicationRecoveryPrefix,
+  recoveryDigest, releaseApplicationState, recoveryEntries, parseRecoveryCursor, type RecoveryInspection, type RecoveryFactsRequest, type RecoveryFacts } from './application-recovery';
+import { createRawCapture, createOwnerRawCaptureStorage, captureRawInteraction, type RawCapture, type RawCaptureBinding, type RawCaptureReceipt } from './raw-capture-storage';
+import { captureError, hashDiagnostic } from './dispatcher-diagnostics-wire';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
-import { createOperatorExecutionContext, openOperatorExecutionAccess,
-  type OperatorExecutionContext } from './execution-context';
+import type { OperatorExecutionContext } from './execution-context';
 import { operatorOwnerKey } from './browser-activity';
 import type { Env } from '../types';
+import { requireOwnerRawReader, parseOwnerRawReadRequest, readOwnerRawCapturePage, ownerRawReadUnavailable,
+  type OwnerRawReadCredential, type OwnerRawReadRequest } from './raw-capture-read';
 
-import { parseRenovateRunSettings, renovateRepositoryIdentity, prospectiveRenovatePackageSupported,
-  type RenovateRunSettings, type RenovateRepositoryIdentity } from './renovate-run-settings';
-export { prospectiveRenovatePackageSupported } from './renovate-run-settings';
-import { prospectiveRenovateRetryProof,
-  type ProspectiveRenovateRetryProof,
-  type RetainedRenovateRetryTarget } from './renovate-retry-proof';
+/** Historical record shapes only; application policy and decoding live in the package. */
+type LegacyRepositoryIdentity = { repository: string; repositoryId: number; baseBranch: string };
+type LegacyRetryTarget = { repositoryId: number; pullRequest: number; head: string; createdAt: string };
 const scanId = /^[A-Za-z0-9_-]{1,128}$/;
-const sha = /^[0-9a-f]{40}$/;
-const scanSession = /^[a-z0-9]{8,24}$/;
 const workingActivity = (status: OperatorBrowserSummary['executionStatus']): boolean =>
   status === 'queued' || status === 'running' || status === 'waiting'
   || status === 'cancel-requested' || status === 'unknown';
@@ -133,6 +139,8 @@ export interface ManagementRelease {
   tagName?: string; publishedAt?: string;
   /** Verified manifest metadata projected for display, never persisted into the immutable release identity. */
   name?: string; description?: string;
+  /** Bounded manifest JSON stays text across RPC, like configurationJson and manifestJson. */
+  applicationJson?: string;
   assets: Array<{ id: number; name: string; digest: string }>;
   provenance: { compilerCommit?: string; workflowId: number; workflowRef: string; runId: number; runAttempt: number; artifactId: number; artifactDigest: string };
 }
@@ -182,32 +190,42 @@ export interface ManagementAdmissionReceipt extends ManagementAdmissionRequest {
 /** Compatibility metadata only; the selected immutable release remains the code authority. */
 
 
-/** GitHub UTC seconds and parent UTC milliseconds denote the same canonical instant. */
-export function prospectiveRenovateTimestamp(value: string): number | null {
-  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value)) return null;
-  const time = Date.parse(value);
-  const milliseconds = value.length === 20 ? `${value.slice(0, -1)}.000Z` : value;
-  return Number.isFinite(time) && new Date(time).toISOString() === milliseconds ? time : null;
-}
-
 interface ProspectiveSelectionPin {
   controlsRevision: number; installationRevision: number; operatorRevision: number; releaseId: string; bundleDigest: string;
 }
-interface ProspectiveActivation extends RenovateRepositoryIdentity { installationId: string; activatedAt: string }
-interface ProspectiveRegistration extends RenovateRepositoryIdentity, ProspectiveSelectionPin {
+const dispatcherDelegationSchema = z.strictObject({ version: z.literal(1),
+  routingGroups: z.array(z.string().min(1).max(256)).max(1024) });
+type DispatcherDelegation = z.infer<typeof dispatcherDelegationSchema>;
+interface ProspectiveRegistration extends LegacyRepositoryIdentity, ProspectiveSelectionPin {
+  scope?: 'installation'; nextObservationAt?: number; delegation?: DispatcherDelegation;
   registrationId: string; installationId: string; ownerKey: string; bucket: string; sessionId: string;
   sessionGeneration: number; revision: number; context: OperatorExecutionContext; repetitionIntervalSeconds: number;
 }
-export interface ProspectiveAdmission extends RenovateRepositoryIdentity, ProspectiveSelectionPin {
+export interface ProspectiveAdmission extends LegacyRepositoryIdentity, ProspectiveSelectionPin {
   activityId: string; installationId: string; admittedAt?: number; attempt?: number; previousActivityId?: string;
   pullRequest: number; head: string; createdAt: string; activatedAt: string; ownerKey: string;
   actor: { registrationId: string; bucket: string; sessionId: string; sessionGeneration: number;
     subject: string; issuer: string; email: string; audiences: readonly string[] };
 }
-export interface CurrentProspectiveRegistration extends RenovateRepositoryIdentity, ProspectiveSelectionPin {
+/** Root-only data carrier: retention provenance, never execution or renewal authority. */
+export interface ProspectiveObservationCapture {
+  registrationId: string;
+  binding: RawCaptureBinding;
+  parentCaptureId?: string;
+  loggingEnabled?: boolean;
+}
+export interface CurrentProspectiveRegistration extends LegacyRepositoryIdentity, ProspectiveSelectionPin {
+  scope?: 'installation'; delegation?: DispatcherDelegation;
   registrationId: string; installationId: string; activatedAt: string; bucket: string;
   sessionId: string; sessionGeneration: number; human: VerifiedHumanAccessClaims; accessJwt: string; repetitionIntervalSeconds: number;
+  /** Parent-selected transport capacities and original authority deadline; never caller policy. */
+  sourceTimeoutMs: number; sourceResponseBytes: number; deadline: number;
+  /** Parent-validated original policy; an absent older RPC field never enables capture. */
+  loggingEnabled?: boolean;
 }
+export type ProspectiveRegistrationObservation =
+  | { status: 'current'; registration: CurrentProspectiveRegistration }
+  | { status: 'unavailable' } | { status: 'denied' };
 export interface ManagementCatalogQuery {
   email: string; issuer: string; groups: string[]; platformAdmin: boolean; limit: number; cursor: string | null;
   profile?: string; realm?: string; state?: string; search?: string;
@@ -740,9 +758,12 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       "SELECT data FROM operator_boundary_preparations WHERE json_extract(data,'$.activityId')=? LIMIT 1", activityId).toArray()[0];
     if (!row) return null;
     const current = JSON.parse(row.data) as BoundaryPreparation;
+    const action = this.managementControls().boundaryActions?.find(binding => binding.enabled !== false
+      && binding.repositoryId === current.repositoryId && binding.protectedRef === current.protectedRef);
     const handoff = this.ctx.storage.sql.exec<{ consumed: number; run_id: number | null; run_attempt: number | null }>(
       'SELECT consumed,run_id,run_attempt FROM operator_boundary_handoffs WHERE activity_id=?', activityId).toArray()[0];
-    return { claimed: current.phase === 'claimed' && handoff?.consumed === 1
+    return { claimed: action?.verified === true && /^[a-f0-9]{40}$/.test(action.runtimeSha ?? '')
+      && current.phase === 'claimed' && handoff?.consumed === 1
       && handoff.run_id != null && handoff.run_attempt != null && current.deadline > Date.now()
       && this.boundarySelectionCurrent(current), repositoryId: current.repositoryId, pullRequest: current.pullRequest,
       head: current.revision.head, base: current.revision.base, mergeBase: current.revision.mergeBase,
@@ -964,6 +985,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       if (!Array.isArray(input.boundaryActions) || input.boundaryActions.length > 100) throw new ValidationError('Invalid boundary Action bindings');
       for (const action of input.boundaryActions) {
         if (!action || !Number.isSafeInteger(action.repositoryId) || action.repositoryId <= 0
+          || (action.repository !== undefined && !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(action.repository))
           || seen.has(`${action.repositoryId}:${action.protectedRef}`) || !Number.isSafeInteger(action.workflowId) || action.workflowId <= 0
           || !/^[A-Za-z0-9_-]{1,128}$/.test(action.installationId)
           || !/^\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml$/.test(action.workflowPath)
@@ -1035,10 +1057,10 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
     }
   }
 
-  private saveManagement(state: ManagementOperatorState): ManagementOperatorProjection {
+  private saveManagement(state: ManagementOperatorState, insertOnly = false): ManagementOperatorProjection {
     const sql = this.ctx.storage.sql;
     const enabled = sql.exec('SELECT id FROM operator_installations WHERE operator_id=? AND enabled=1 LIMIT 1', state.id).toArray().length > 0;
-    sql.exec('INSERT OR REPLACE INTO operator_catalog VALUES(?,?,?,?,?,?)', state.id, state.profile, state.realm, Number(enabled), '', JSON.stringify(state));
+    sql.exec(`${insertOnly ? 'INSERT' : 'INSERT OR REPLACE'} INTO operator_catalog VALUES(?,?,?,?,?,?)`, state.id, state.profile, state.realm, Number(enabled), '', JSON.stringify(state));
     sql.exec('DELETE FROM operator_acl WHERE id=?', state.id);
     for (const principal of new Set([...state.managers.users.map(user => `u:${user.trim().toLowerCase()}`),
       ...state.managers.groups.map(group => `g:${JSON.stringify([group.issuer, group.id])}`)])) {
@@ -1066,10 +1088,11 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       if (!Number.isFinite(authority.expiresAt) || authority.expiresAt <= Date.now()) return { ok: false, reason: 'authority-expired' };
       if (this.managementControls().revision !== authority.controlsRevision) return { ok: false, reason: 'revision-conflict' };
       if (!this.withinManagementCeiling(input.policy)) throw new ValidationError('Operator exceeds management ceiling');
+      if (this.managementState(id)) return { ok: false, reason: 'revision-conflict' };
       const state: ManagementOperatorState = { id, revision: 1, sourceRevision: 1, repositoryUrl: input.repositoryUrl,
         repositoryId: input.repositoryId, githubPatCiphertext, profile: input.profile, realm: input.realm,
         managers: input.managers, invokers: input.invokers, policy: input.policy, approvedWorkflow: input.approvedWorkflow };
-      return { ok: true, value: this.saveManagement(state) };
+      return { ok: true, value: this.saveManagement(state, true) };
     });
   }
 
@@ -1147,9 +1170,10 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
     this.managementSchema();
     return this.ctx.storage.sql.exec<{ data: string; manifest: string }>('SELECT data,manifest FROM operator_releases WHERE operator_id=? ORDER BY id LIMIT 100', operatorId)
       .toArray().map(row => {
-        const manifest = JSON.parse(row.manifest) as { name?: unknown; description?: unknown };
+        const manifest = JSON.parse(row.manifest) as { name?: unknown; description?: unknown; application?: OperatorManifest['application'] };
         if (typeof manifest.name !== 'string' || typeof manifest.description !== 'string') throw new ValidationError('Operator description unavailable');
-        return { ...JSON.parse(row.data) as ManagementRelease, name: manifest.name, description: manifest.description };
+        return { ...JSON.parse(row.data) as ManagementRelease, name: manifest.name, description: manifest.description,
+          ...(manifest.application ? { applicationJson: JSON.stringify(manifest.application) } : {}) };
       });
   }
 
@@ -1202,12 +1226,11 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
     return { ...installation, configurationJson: JSON.stringify(configuration) };
   }
 
-  private managementConfiguration(input: string, renovate = false): string {
+  private managementConfiguration(input: string): string {
     if (new TextEncoder().encode(input).byteLength > 64 * 1024) throw new ValidationError('Installation configuration exceeds the size limit');
     try {
       const parsed = JSON.parse(input) as unknown;
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error();
-      if (renovate) parseRenovateRunSettings(input);
       return JSON.stringify(parsed);
     } catch { throw new ValidationError('Invalid installation configuration'); }
   }
@@ -1312,7 +1335,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       if (piReasoningOverride !== undefined && (state!.profile === 'dispatcher' || !isPiReasoningLevel(piReasoningOverride))) throw new ValidationError('Invalid Pi reasoning override');
       const value: ManagementInstallation = { id: crypto.randomUUID(), operatorId, name, releaseId: null, revision: 1,
         ...(piReasoningOverride !== undefined && { piReasoningOverride }),
-        enabled: false, policy, configurationJson: this.managementConfiguration(configurationJson, state!.profile === 'dispatcher' && state!.repositoryUrl.replace(/\.git$/i, '').toLowerCase() === 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher'), approvedSourceRevision: null };
+        enabled: false, policy, configurationJson: this.managementConfiguration(configurationJson), approvedSourceRevision: null };
       this.saveInstallation(value);
       return { ok: true, value };
     });
@@ -1497,7 +1520,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       if (!this.restrictivePolicy(policy, operatorPolicy)) throw new ValidationError('Installation exceeds operator policy');
       if (input.piReasoningOverride !== undefined && (state!.profile === 'dispatcher' || !isPiReasoningLevel(input.piReasoningOverride))) throw new ValidationError('Invalid Pi reasoning override');
       const { piReasoningOverride: _previous, ...inherited } = installation;
-      const value: ManagementInstallation = { ...inherited, ...(input.piReasoningOverride !== undefined && { piReasoningOverride: input.piReasoningOverride }), policy, configurationJson: this.managementConfiguration(input.configurationJson, state!.profile === 'dispatcher' && state!.repositoryUrl.replace(/\.git$/i, '').toLowerCase() === 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher'), revision: installation.revision + 1, enabled: false };
+      const value: ManagementInstallation = { ...inherited, ...(input.piReasoningOverride !== undefined && { piReasoningOverride: input.piReasoningOverride }), policy, configurationJson: this.managementConfiguration(input.configurationJson), revision: installation.revision + 1, enabled: false };
       if (JSON.stringify(operatorPolicy) !== JSON.stringify(state!.policy)) {
         const rows = this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_installations WHERE operator_id=? AND enabled=1', installation.operatorId).toArray();
         for (const row of rows) {
@@ -1647,11 +1670,720 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
     });
   }
 
-  /** Reconciliation is read-only and grants no new human authority. */
-  async getManagementAdmission(activityId: string): Promise<ManagementAdmissionReceipt | null> {
+  /** REQ-OPERATOR-107 AC5: immutable original admissions across every connection revision.
+   * The Root caller owns current management authorization; this inventory grants no execution authority.
+   */
+  async listManagementDispatcherAdmissions(installationId: string, workerName: string, after?: string): Promise<{
+    items: Array<{ activityId: string; connection: DispatcherConnectionMetadata }>; next: string | null;
+  }> {
+    if (!scanId.test(installationId) || !workerName || workerName.length > 128
+      || (after !== undefined && !scanId.test(after))) throw new ValidationError('Invalid Dispatcher admission inventory');
     this.managementSchema();
-    const row = this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_admissions WHERE activity_id=?', activityId).toArray()[0];
-    return row ? JSON.parse(row.data) : null;
+    const rows = this.ctx.storage.sql.exec<{ activity_id: string; connection: string }>(
+      `SELECT activity_id,json_extract(data,'$.selection.installation.dispatcherConnection') AS connection
+       FROM operator_admissions WHERE activity_id>?
+       AND json_extract(data,'$.installationId')=?
+       AND json_extract(data,'$.selection.installation.dispatcherConnection.workerName')=?
+       ORDER BY activity_id LIMIT 33`, after ?? '', installationId, workerName).toArray();
+    const items = rows.slice(0, 32).map(row => ({ activityId: row.activity_id,
+      connection: JSON.parse(row.connection) as DispatcherConnectionMetadata }));
+    return { items, next: rows.length > 32 ? items[items.length - 1].activityId : null };
+  }
+
+  /** Reconciliation is read-only and grants no new human authority. */
+  async getManagementAdmission(activityId: string, observation?: ProspectiveObservationCapture): Promise<ManagementAdmissionReceipt | null> {
+    const archive = this.prospectiveObservationCapture(observation);
+    let loggingEnabled = false;
+    const capture = archive && { ...archive, record: (stage: string, value: () => unknown) => {
+      // Requests belong to the current observation; historical row/result/error payloads need their original policy first.
+      if (!loggingEnabled && (stage === 'registry-management-admission-row'
+        || stage === 'registry-management-admission-response' || stage === 'registry-management-admission-error')) {
+        archive.record(stage, () => ({ omitted: 'original-logging-policy' }));
+      } else archive.record(stage, value);
+    } };
+    try { return await captureRawInteraction(capture, 'registry-management-admission', () => ({ activityId }), async () => {
+      this.managementSchema();
+      const query = 'SELECT data FROM operator_admissions WHERE activity_id=?';
+      capture?.record('registry-management-admission-query', () => ({ query, parameters: [activityId] }));
+      const row = this.ctx.storage.sql.exec<{ data: string }>(query, activityId).toArray()[0];
+      const receipt: ManagementAdmissionReceipt | null = row ? JSON.parse(row.data) : null;
+      try { loggingEnabled = !receipt || receipt.selection.operator.policy.loggingEnabled !== false; }
+      catch { /* An unreadable original policy cannot authorize optional historical payload retention. */ }
+      capture?.record('registry-management-admission-row', () => row);
+      return receipt;
+    }); } finally { try { await archive?.finish('complete'); } catch { /* Preserve immutable ledger read. */ } }
+  }
+
+  /** Current local management/ledger proof. No callback to the waiting Activity. */
+  private applicationStateCurrent(binding: RuntimeApplicationStateBinding): boolean {
+    if (binding.principal !== 'operator' || binding.sourceId !== String(binding.sourceRepositoryId)
+      || !Number.isSafeInteger(binding.generation) || binding.generation < 1
+      || !binding.deliveryToken || binding.deadline <= Date.now()
+      || binding.human.expiresAt * 1000 < binding.deadline) return false;
+    const selected = this.managementExecution(binding.installationId);
+    if (!selected.ok) return false;
+    const { installation, operator, release, controlsRevision, manifestJson } = selected.value;
+    if (!hasApplicationWorkflow(manifestJson) || operator.id !== binding.operatorId
+      || operator.repositoryId !== binding.sourceRepositoryId || operator.revision !== binding.operatorRevision
+      || installation.revision !== binding.installationRevision || release.id !== binding.releaseId
+      || release.bundleDigest !== binding.bundleDigest || controlsRevision !== binding.controlsRevision
+      || !canInvokeOperator(binding.human, operator)) return false;
+    const row = this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_admissions WHERE activity_id=?', binding.activityId).toArray()[0];
+    if (!row) return false;
+    const original = JSON.parse(row.data) as ManagementAdmissionReceipt;
+    return original.installationId === binding.installationId && original.intentDigest === binding.intentDigest
+      && Math.floor(original.deadline / 1000) * 1000 === binding.deadline
+      && original.expectedInstallationRevision === binding.installationRevision
+      && original.expectedOperatorRevision === binding.operatorRevision
+      && original.expectedControlsRevision === binding.controlsRevision;
+  }
+
+  private coordinationScope(selection: ManagementExecutionSelection): ApplicationCoordinationScope | undefined {
+    const manifest = JSON.parse(selection.manifestJson);
+    const repositories = applicationWriteRepositories(manifest.application, JSON.parse(selection.installation.configurationJson)).sort();
+    return repositories.length ? { operatorId: selection.operator.id, repositories } : undefined;
+  }
+
+  /** Trusted legacy codec: identities are validated privately; only actual public fields are copied. */
+  private async legacyCoordination(value: unknown, key: string, sourceId: string,
+    scope: ApplicationCoordinationScope | undefined, buckets?: Map<string, string>): Promise<ApplicationStateValue | undefined> {
+    if (!scope) return undefined;
+    const parsed = z.object({ activityId: z.string().regex(scanId), installationId: z.string().regex(scanId),
+      ownerKey: z.string().regex(/^[a-f0-9]{64}$/), repositoryId: z.number().int().positive(),
+      repository: z.string().optional(), baseBranch: z.string().optional(), pullRequest: z.number().int().positive(),
+      head: z.string().regex(/^[a-f0-9]{40,64}$/), createdAt: z.string().refine(value => Number.isFinite(Date.parse(value))),
+      activatedAt: z.string().refine(value => Number.isFinite(Date.parse(value))),
+      operatorRevision: z.number().int().positive().optional(), installationRevision: z.number().int().positive().optional(),
+      controlsRevision: z.number().int().nonnegative().optional(), releaseId: z.string().regex(scanId).optional(),
+      bundleDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+      admittedAt: z.number().int().positive().optional(), attempt: z.number().int().positive().optional(),
+      actor: z.object({ subject: z.string(), issuer: z.string(), email: z.string().email(),
+        audiences: z.array(z.string()), bucket: z.string(), registrationId: z.string(),
+        sessionId: z.string(), sessionGeneration: z.number().int().nonnegative() }),
+    }).safeParse(value);
+    if (!parsed.success) return undefined;
+    const record = parsed.data;
+    const pinFields = ['repository', 'baseBranch', 'operatorRevision', 'installationRevision', 'controlsRevision', 'releaseId', 'bundleDigest'] as const;
+    const presentPins = pinFields.filter(field => record[field] !== undefined);
+    if (presentPins.length !== 0 && presentPins.length !== pinFields.length) return undefined;
+    let repository = record.repository;
+    if (repository === undefined) {
+      // No historical repository-ID special cases: use only the original
+      // immutable admission's declared configuration, never today's selection.
+      const row = this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_admissions WHERE activity_id=?', record.activityId).toArray()[0];
+      const ledger = row ? JSON.parse(row.data) as ManagementAdmissionReceipt : null;
+      if (!ledger || ledger.activityId !== record.activityId || ledger.installationId !== record.installationId
+        || ledger.selection.operator.id !== scope.operatorId || String(ledger.selection.operator.repositoryId) !== sourceId
+        || typeof ledger.selection.manifestJson !== 'string') return undefined;
+      const originalScope = this.coordinationScope(ledger.selection);
+      if (!originalScope || originalScope.repositories.length !== 1) return undefined;
+      repository = originalScope.repositories[0];
+    }
+    const installation = this.managementInstallation(record.installationId);
+    const operator = installation && this.managementState(installation.operatorId);
+    if (!operator || operator.id !== scope.operatorId || String(operator.repositoryId) !== sourceId
+      || !scope.repositories.includes(repository.toLowerCase())
+      || key !== `renovate:head:${record.repositoryId}:${record.pullRequest}:${record.head}`
+      || record.ownerKey !== await operatorOwnerKey(record.actor)
+      || record.actor.bucket !== (buckets ? buckets.get(record.actor.email) : await resolveBucketName(this.env as Env, record.actor.email))) return undefined;
+    const projection: Record<string, ApplicationStateValue> = { kind: 'legacy-admission', repositoryId: record.repositoryId,
+      pullRequest: record.pullRequest, head: record.head, createdAt: record.createdAt, activatedAt: record.activatedAt };
+    for (const field of ['repository', 'baseBranch', 'admittedAt', 'attempt'] as const) {
+      if (record[field] !== undefined) projection[field] = record[field]!;
+    }
+    return projection;
+  }
+
+  private async coordinationInspection(storage: Pick<DurableObjectStorage, 'get'>, key: string,
+    sourceId: string, ownerKey: string, scope: ApplicationCoordinationScope | undefined,
+    privateLegacy: (value: Record<string, unknown>) => Promise<string | null> = async () => 'scope-unavailable',
+    buckets?: Map<string, string>) {
+    return inspectRecoveryRecord(storage, key, sourceId, ownerKey, privateLegacy, async (raw, legacy) => {
+      if (legacy) return this.legacyCoordination(raw, key, sourceId, scope, buckets);
+      if (raw.sourceId !== sourceId || !Object.hasOwn(raw, 'coordination')
+        || !sameCoordinationScope(raw.coordinationScope as ApplicationCoordinationScope | undefined, scope)) return undefined;
+      const installation = this.managementInstallation(raw.installationId as string);
+      const operator = installation && this.managementState(installation.operatorId);
+      if (!operator || operator.id !== scope!.operatorId || String(operator.repositoryId) !== sourceId) return undefined;
+      return raw.coordination as ApplicationStateValue;
+    });
+  }
+
+  private async applyCoordinationExecution(binding: RuntimeApplicationStateBinding,
+    request: Extract<ApplicationExecutionRequest, { operation: 'read-coordination' | 'release-coordination' }>): Promise<unknown> {
+    try {
+      z.strictObject({ operation: z.enum(['read-coordination', 'release-coordination']),
+        key: z.string().min(1).refine(key => new TextEncoder().encode(key).byteLength <= 1024),
+        version: z.string().regex(/^[a-f0-9]{64}$/) }).parse(request);
+      const selected = this.managementSelection(binding.installationId);
+      const scope = selected.ok ? this.coordinationScope(selected.value) : undefined;
+      if (!scope || !this.applicationStateCurrent(binding) || binding.ownerKey !== await operatorOwnerKey(binding.human)) {
+        return { status: 'unavailable' };
+      }
+      if (binding.delegation) {
+        const raw = await (this.env as Env).KV.get(`user:${binding.human.email.trim().toLowerCase()}`);
+        if (!raw || JSON.parse(raw).role !== 'admin') return { status: 'unavailable' };
+      }
+      const buckets = new Map<string, string>();
+      const aliasKey = request.key.startsWith('renovate:head:') ? `renovate-admission:${request.key.slice('renovate:head:'.length)}` : null;
+      if (aliasKey) {
+        const alias = await this.ctx.storage.get<ProspectiveAdmission>(aliasKey);
+        if (typeof alias?.actor?.email === 'string') buckets.set(alias.actor.email, await resolveBucketName(this.env as Env, alias.actor.email));
+      }
+      const inspect = async (storage: Pick<DurableObjectStorage, 'get'>) => {
+        // Same live authorization and owner Activity fence as ordinary state.
+        if (!this.applicationStateCurrent(binding) || binding.ownerKey !== await operatorOwnerKey(binding.human)) return null;
+        const current = this.managementSelection(binding.installationId);
+        if (!current.ok || !sameCoordinationScope(this.coordinationScope(current.value), scope)) return null;
+        const summary = await storage.get<OperatorBrowserSummary>(`owner-activity:${binding.ownerKey}:${binding.activityId}`);
+        if (!summary || summary.operatorId !== binding.operatorId || !['queued', 'running'].includes(summary.executionStatus)) return null;
+        return this.coordinationInspection(storage, request.key, binding.sourceId, binding.ownerKey, scope, undefined, buckets);
+      };
+      const item = await inspect(this.ctx.storage);
+      if (item?.record.reason === 'scope-unavailable') return { status: 'held', reason: 'scope-unavailable' };
+      if (!item || !item.original || item.record.coordination === undefined) return { status: 'unavailable' };
+      if (item.record.version !== request.version || item.raw?.recovery?.phase === 'vacant') return { status: 'conflict' };
+      const original = item.original;
+      const ledger = await this.getManagementAdmission(original.activityId);
+      if (!ledger && !original.legacy) return { status: 'held', reason: 'ledger-unavailable' };
+      const installation = ledger?.selection.installation ?? this.managementInstallation(original.installationId);
+      const operator = ledger?.selection.operator ?? (installation && this.managementState(installation.operatorId));
+      if (!operator || operator.id !== binding.operatorId || operator.repositoryId !== binding.sourceRepositoryId
+        || ledger && (ledger.activityId !== original.activityId || ledger.installationId !== original.installationId)) return { status: 'unavailable' };
+      const legacy = original.legacy ? z.object({ operatorRevision: z.number().int().positive(),
+        installationRevision: z.number().int().positive(), controlsRevision: z.number().int().nonnegative(),
+        releaseId: z.string().regex(scanId), bundleDigest: z.string().regex(/^[a-f0-9]{64}$/) }).safeParse(original.value) : null;
+      const authority: ApplicationCoordinationAuthority = { version: 1, current: binding,
+        original: { activityId: original.activityId, installationId: original.installationId, operatorId: operator.id,
+          sourceRepositoryId: operator.repositoryId, ownerKey: original.ownerKey,
+          ...(original.owner ? { owner: original.owner } : {}),
+          binding: original.legacy ? 'legacy' : 'activity',
+          pins: ledger ? { operatorRevision: ledger.expectedOperatorRevision,
+            installationRevision: ledger.expectedInstallationRevision, controlsRevision: ledger.expectedControlsRevision,
+            releaseId: ledger.selection.release.id, bundleDigest: ledger.selection.release.bundleDigest }
+            : legacy?.success ? legacy.data : null,
+          ...(item.raw?.originDelivery ? { delivery: item.raw.originDelivery, generation: item.raw.generation } : {}) },
+        ledger: { ok: true, receipt: ledger } };
+      const activity: {
+        readRecoveryFacts(request: RecoveryFactsRequest): Promise<RecoveryFacts>;
+        readApplicationCoordinationFacts(authority: ApplicationCoordinationAuthority): Promise<ApplicationCoordinationFacts>;
+      } | undefined = (this.env as Env).OPERATOR_ACTIVITY?.getByName(original.activityId);
+      if (!activity) return { status: 'unavailable' };
+      const facts = async (): Promise<{ safe: ApplicationCoordinationFacts; origin?: { generation: number; deadline: number }; digest?: string }> => {
+        if (item.raw?.originDelivery) {
+          const response = await activity.readApplicationCoordinationFacts(authority);
+          const safe: ApplicationCoordinationFacts = response.status === 'safe'
+            && ['completed', 'failed', 'never-started'].includes(response.outcome)
+            && response.fenced === true && response.noExternalWrites === true
+            && Number.isSafeInteger(response.terminalAt) && response.terminalAt > 0 && response.terminalAt <= Date.now()
+            ? { status: 'safe', outcome: response.outcome, terminalAt: response.terminalAt, fenced: true, noExternalWrites: true }
+            : response.status === 'held' ? { status: 'held', reason: response.reason } : { status: 'unavailable' };
+          if (safe.status !== 'unavailable') return { safe, origin: { generation: item.raw.generation, deadline: item.raw.deadline },
+            digest: await recoveryDigest(JSON.stringify(safe)) };
+        }
+        const proof = await activity.readRecoveryFacts({ human: binding.human, deadline: binding.deadline,
+          original: authority.original, ledger: authority.ledger });
+        if (!proof.resettable) return { safe: { status: 'held', reason: proof.reason } };
+        // A fenced no-write UNKNOWN attempt needs explicit abandonment, not an
+        // automatic retry based on an invented failed settlement.
+        if (proof.reason !== 'never-started') return { safe: { status: 'held', reason: 'explicit-recovery-required' } };
+        const terminalAt = proof.origin.terminalAt;
+        if (!Number.isSafeInteger(terminalAt) || terminalAt! <= 0 || terminalAt! > Date.now()) {
+          return { safe: { status: 'held', reason: 'closure-time-unavailable' } };
+        }
+        return { safe: { status: 'safe', outcome: 'never-started',
+          terminalAt: terminalAt!, fenced: true, noExternalWrites: true }, origin: proof.origin, digest: proof.proofDigest };
+      };
+      const proof = await facts();
+      const current = await inspect(this.ctx.storage);
+      if (!current || current.record.version !== request.version) return { status: 'conflict' };
+      if (request.operation === 'read-coordination' || proof.safe.status !== 'safe') return proof.safe;
+      const fresh = await facts();
+      if (fresh.safe.status !== 'safe' || fresh.digest !== proof.digest) return { status: 'held', reason: 'facts-changed' };
+      return await this.ctx.storage.transaction(async tx => {
+        const latest = await inspect(tx);
+        if (!latest || latest.record.version !== request.version) return { status: 'conflict' };
+        const row = this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_admissions WHERE activity_id=?', original.activityId).toArray()[0];
+        if (JSON.stringify(row ? JSON.parse(row.data) : null) !== JSON.stringify(ledger)) return { status: 'conflict' };
+        const { version } = await releaseApplicationState(tx, latest, { sourceId: binding.sourceId, actorHash: binding.ownerKey,
+          requestId: crypto.randomUUID(), proofDigest: fresh.digest!, origin: fresh.origin!, value: null, scope });
+        if (!this.applicationStateCurrent(binding)) throw new Error('Authority changed');
+        return { key: request.key, status: 'vacant', version };
+      });
+    } catch { return { status: 'unavailable' }; }
+  }
+
+  /** Keep recursive JSON opaque on the RPC surface; the owning adapter validates
+   * actual data before any mutation. This is not a new storage or authority port. */
+  async applyApplicationState(binding: RuntimeApplicationStateBinding, request: unknown): Promise<unknown> {
+    return this.#applyApplicationState(binding, request as ApplicationStateRequest);
+  }
+
+  async #applyApplicationState(binding: RuntimeApplicationStateBinding, request: ApplicationStateRequest) {
+    try {
+      this.managementSchema();
+      const keys = request.operation === 'read' ? request.keys : request.expected.map(entry => entry.key);
+      let legacyOwnerBucket: string | undefined;
+      if (keys.some(key => key.startsWith('renovate:head:'))) {
+        if (binding.ownerKey !== await operatorOwnerKey(binding.human) || !this.applicationStateCurrent(binding)) {
+          throw new ApplicationStateError('denied');
+        }
+        // Resolve through the existing collision-safe owner service, outside
+        // storage transactions and without calling the waiting Activity back.
+        legacyOwnerBucket = await resolveBucketName(this.env as Env, binding.human.email);
+      }
+      if (binding.ownerKey !== await operatorOwnerKey(binding.human) || !this.applicationStateCurrent(binding)) {
+        throw new ApplicationStateError('denied');
+      }
+      const selected = this.managementSelection(binding.installationId);
+      const coordinationScope = selected.ok ? this.coordinationScope(selected.value) : undefined;
+      const legacyProjections = new Map<string, { encoded: string; projection: ApplicationStateValue }>();
+      for (const key of keys) {
+        if (!/^renovate:head:[1-9][0-9]*:[1-9][0-9]*:[a-f0-9]{40,64}$/.test(key)) continue;
+        const value = await this.ctx.storage.get(`renovate-admission:${key.slice('renovate:head:'.length)}`);
+        const projection = await this.legacyCoordination(value, key, binding.sourceId, coordinationScope);
+        if (projection !== undefined) legacyProjections.set(key, { encoded: JSON.stringify(value), projection });
+      }
+      const base: ApplicationStateBinding = { sourceId: binding.sourceId, installationId: binding.installationId,
+        ownerKey: binding.ownerKey, activityId: binding.activityId, generation: binding.generation, deadline: binding.deadline,
+        ...(coordinationScope ? { coordinationScope } : {}),
+        ...(binding.originDelivery ? { originDelivery: binding.originDelivery } : {}) };
+      const store = new ApplicationStateStore(this.ctx.storage, base, {
+        authorize: async () => {
+          if (binding.ownerKey !== await operatorOwnerKey(binding.human) || !this.applicationStateCurrent(binding)) return false;
+          if (binding.delegation) {
+            const raw = await (this.env as Env).KV.get(`user:${binding.human.email.trim().toLowerCase()}`);
+            const user: unknown = raw ? JSON.parse(raw) : null;
+            if (!user || typeof user !== 'object' || !('role' in user) || user.role !== 'admin') return false;
+          }
+          return true;
+        },
+        validateSnapshot: async tx => {
+          if (!this.applicationStateCurrent(binding)) return false;
+          const selected = this.managementSelection(binding.installationId);
+          if (!selected.ok || JSON.stringify(this.coordinationScope(selected.value)) !== JSON.stringify(coordinationScope)) return false;
+          const summary = await tx.get<OperatorBrowserSummary>(`owner-activity:${binding.ownerKey}:${binding.activityId}`);
+          return !!summary && summary.operatorId === binding.operatorId
+            && ['queued', 'running'].includes(summary.executionStatus);
+        },
+        resolveLegacy: key => {
+          // Historical format alias only. Application code interprets the payload;
+          // ownership and source membership are checked before exposing any bytes.
+          if (!key.startsWith('renovate:head:')) return null;
+          const suffix = key.slice('renovate:head:'.length);
+          if (!/^[1-9][0-9]*:[1-9][0-9]*:[a-f0-9]{40,64}$/.test(suffix)) return null;
+          return { storageKey: `renovate-admission:${suffix}`,
+            coordination: value => (value as { ownerKey: string }).ownerKey !== binding.ownerKey
+              ? legacyProjections.get(key)?.projection : undefined,
+            validate: value => {
+              const prepared = legacyProjections.get(key);
+              if (prepared?.encoded === JSON.stringify(value)) {
+                const installation = this.managementInstallation((value as ProspectiveAdmission).installationId);
+                const operator = installation && this.managementState(installation.operatorId);
+                if (!operator || operator.id !== coordinationScope?.operatorId
+                  || operator.repositoryId !== binding.sourceRepositoryId) return 'conflict';
+                return 'owned';
+              }
+              if (!value || typeof value !== 'object' || Array.isArray(value)) return 'unavailable';
+              const record = value as Record<string, unknown>;
+              if (typeof record.ownerKey !== 'string' || typeof record.installationId !== 'string'
+                || typeof record.activityId !== 'string') return 'unavailable';
+              if (record.ownerKey !== binding.ownerKey) return 'conflict';
+              const installation = this.managementInstallation(record.installationId);
+              const operator = installation && this.managementState(installation.operatorId);
+              if (!operator || operator.repositoryId !== binding.sourceRepositoryId) return 'conflict';
+              if (`${record.repositoryId}:${record.pullRequest}:${record.head}` !== suffix) return 'unavailable';
+              const actor = record.actor;
+              if (!actor || typeof actor !== 'object' || Array.isArray(actor)) return 'unavailable';
+              const identity = actor as Record<string, unknown>;
+              if (identity.bucket !== legacyOwnerBucket
+                || identity.subject !== binding.human.subject || identity.issuer !== binding.human.issuer
+                || typeof identity.email !== 'string' || identity.email.toLowerCase() !== binding.human.email.toLowerCase()
+                || !Array.isArray(identity.audiences) || !identity.audiences.every(item => typeof item === 'string')
+                || JSON.stringify([...identity.audiences].sort()) !== JSON.stringify([...binding.human.audiences].sort())) return 'unavailable';
+              return 'owned';
+            } };
+        },
+      });
+      return request.operation === 'read' ? { entries: await store.read(request.keys) }
+        : await store.compareExchange({ expected: request.expected, writes: request.writes });
+    } catch (error) {
+      const failure = error instanceof ApplicationStateError ? error : new ApplicationStateError('unavailable');
+      return { error: { status: failure.status, code: `application-state-${failure.code}` } };
+    }
+  }
+
+  /** Human-only recovery; no admission, scheduling, cancellation or SDK runtime calls. */
+  async recoverApplication(input: { installationId: string; revision: number; human: VerifiedHumanAccessClaims;
+    authority: ManagementAuthority; platformAdmin: boolean;
+    operation: 'preview' | 'reset'; after?: string; scopeCursor?: string;
+    requestId?: string; entries?: Array<{ key: string; version: string }> }): Promise<unknown> {
+    this.managementSchema();
+    const conflict = (): never => { throw new AppError('CONFLICT', 409, 'Application recovery conflict'); };
+    const denied = (): never => { throw new AppError('NOT_FOUND', 404, 'Operator not found'); };
+    const human = structuredClone(input.human);
+    const ownerKey = await operatorOwnerKey(human);
+    const selected = this.managementSelection(input.installationId);
+    if (!selected.ok) return conflict();
+    const selection = selected.value;
+    const manifestValue = JSON.parse(selection.manifestJson);
+    const { url: _artifactUrl, ...artifact } = manifestValue.artifact;
+    const manifest = parseOperatorManifest(JSON.stringify({ ...manifestValue, artifact }), 'https://recovery.invalid');
+    const descriptor = manifest.application?.recovery;
+    if (!descriptor) return conflict();
+    const currentLocal = (requireRevision = true) => {
+      const latest = this.managementSelection(input.installationId);
+      if (!latest.ok) return denied();
+      if (Date.now() >= input.authority.expiresAt || human.expiresAt * 1000 <= Date.now()) denied();
+      if (!input.platformAdmin && !canManageOperator(human, latest.value.operator, this.managementControls().managers)) denied();
+      if (requireRevision && latest.value.installation.revision !== input.revision
+        || latest.value.operator.revision !== input.authority.operatorRevision
+        || latest.value.controlsRevision !== input.authority.controlsRevision
+        || JSON.stringify(latest.value) !== JSON.stringify(selection)) conflict();
+    };
+    const current = async (requireRevision = true) => {
+      currentLocal(requireRevision);
+      if (input.platformAdmin) {
+        const raw = await (this.env as Env).KV.get(`user:${human.email.trim().toLowerCase()}`);
+        if (!raw || JSON.parse(raw).role !== 'admin') denied();
+      }
+      currentLocal(requireRevision);
+    };
+    // Inspecting an already-applied request requires current authority, but may
+    // return its original result after an installation revision has changed.
+    await current(false);
+    const sourceId = String(selection.operator.repositoryId);
+    const prefix = await applicationRecoveryPrefix(sourceId);
+    const requestId = input.operation === 'reset' ? z.string().uuid().parse(input.requestId) : crypto.randomUUID();
+    const entries = input.operation === 'reset' ? recoveryEntries.parse(input.entries) : [];
+    const requestDigest = await recoveryDigest(JSON.stringify({ installationId: input.installationId,
+      revision: input.revision, entries, scopeCursor: input.scopeCursor }));
+    const requestKey = `${prefix}request:${await recoveryDigest(JSON.stringify([ownerKey, requestId]))}`;
+    type Result = { requestId: string; reset: number; skipped: Array<{ key: string; reason: string }> };
+    const replay = async (storage: Pick<DurableObjectStorage, 'get'>) => {
+      const previous = await storage.get<{ digest: string; result: Result }>(requestKey);
+      if (previous && previous.digest !== requestDigest) conflict();
+      return previous?.result;
+    };
+    if (input.operation === 'reset') {
+      const previous = await replay(this.ctx.storage);
+      if (previous) return previous;
+    }
+    await current();
+    const connection = await this.getManagementDispatcherConnection(input.installationId);
+    if (!connection || connection.releaseId !== selection.release.id
+      || connection.sourceCommit !== selection.release.sourceCommit || connection.bundleDigest !== selection.release.bundleDigest
+      || connection.manifestDigest !== selection.release.manifestDigest
+      || connection.compilerCommit !== selection.release.provenance.compilerCommit) return conflict();
+    const ownerBucket = await resolveBucketName(this.env as Env, human.email);
+    const coordinationScope = this.coordinationScope(selection);
+    const buckets = new Map<string, string>();
+    const inspect = async (storage: Pick<DurableObjectStorage, 'get'>, key: string) => {
+      if (storage === this.ctx.storage && key.startsWith('renovate:head:')) {
+        const alias = await storage.get<ProspectiveAdmission>(`renovate-admission:${key.slice('renovate:head:'.length)}`);
+        if (typeof alias?.actor?.email === 'string') buckets.set(alias.actor.email, await resolveBucketName(this.env as Env, alias.actor.email));
+      }
+      return this.coordinationInspection(storage, key, sourceId, ownerKey, coordinationScope, async record => {
+        if (typeof record.ownerKey !== 'string' || typeof record.installationId !== 'string' || typeof record.activityId !== 'string'
+          || !record.actor || typeof record.actor !== 'object' || Array.isArray(record.actor)) return 'malformed';
+        const actor = record.actor as Record<string, unknown>;
+        if (typeof actor.subject !== 'string' || typeof actor.issuer !== 'string' || typeof actor.email !== 'string'
+          || typeof actor.bucket !== 'string' || !Array.isArray(actor.audiences)
+          || !actor.audiences.every(item => typeof item === 'string')) return 'malformed';
+        // Closed failure categories only. Recompute internally using the unchanged
+        // canonical algorithm; neither identity values nor hashes leave this gate.
+        const canonical = await operatorOwnerKey({ subject: actor.subject, issuer: actor.issuer,
+          email: actor.email, audiences: actor.audiences });
+        if (record.ownerKey !== canonical) return 'legacy-owner-key-inconsistent';
+        if (coordinationScope) {
+          if (actor.bucket !== buckets.get(actor.email)) return 'legacy-owner-bucket-mismatch';
+          const installation = this.managementInstallation(record.installationId);
+          const operator = installation && this.managementState(installation.operatorId);
+          if (!operator || operator.id !== coordinationScope.operatorId || String(operator.repositoryId) !== sourceId) return 'source-mismatch';
+          if (key !== `renovate:head:${record.repositoryId}:${record.pullRequest}:${record.head}`) return 'malformed';
+          if (typeof record.repository === 'string'
+            && !coordinationScope.repositories.includes(record.repository.toLowerCase())) return 'work-repository-mismatch';
+          // The codec could not prove historical scope. Requester identity cannot
+          // supply that evidence or authorize private fallback/release.
+          return 'scope-unavailable';
+        }
+        if (actor.subject !== human.subject || actor.issuer !== human.issuer) return 'legacy-owner-identity-mismatch';
+        if (actor.email.toLowerCase() !== human.email.toLowerCase()) return 'legacy-owner-email-mismatch';
+        if (JSON.stringify([...actor.audiences].sort()) !== JSON.stringify([...human.audiences].sort())) return 'legacy-owner-audience-mismatch';
+        if (actor.bucket !== ownerBucket) return 'legacy-owner-bucket-mismatch';
+        if (record.ownerKey !== ownerKey) return 'legacy-owner-identity-mismatch';
+        const installation = this.managementInstallation(record.installationId);
+        const operator = installation && this.managementState(installation.operatorId);
+        return !operator || String(operator.repositoryId) !== sourceId ? 'source-mismatch' : null;
+      }, buckets);
+    };
+    const originalLedgers = new Map<string, string>();
+    const facts = async (item: RecoveryInspection): Promise<RecoveryFacts> => {
+      if (!item.original || item.record.status !== 'owned') return { resettable: false, reason: item.record.reason };
+      const original = item.original;
+      const ledger = await this.getManagementAdmission(original.activityId);
+      originalLedgers.set(original.activityId, JSON.stringify(ledger));
+      const installation = this.managementInstallation(original.installationId);
+      const operator = ledger?.selection.operator ?? (installation && this.managementState(installation.operatorId));
+      if (!operator || String(operator.repositoryId) !== sourceId
+        || item.record.coordination !== undefined && operator.id !== selection.operator.id
+        || ledger && ledger.installationId !== original.installationId) return { resettable: false, reason: 'source-mismatch' };
+      if (!ledger && !original.legacy) return { resettable: false, reason: 'ledger-unavailable' };
+      const legacyPins = z.object({ operatorRevision: z.number().int().positive(), installationRevision: z.number().int().positive(),
+        controlsRevision: z.number().int().nonnegative(), releaseId: z.string().regex(scanId), bundleDigest: z.string().regex(/^[a-f0-9]{64}$/) }).safeParse(original.value);
+      const authority: RecoveryFactsRequest = { human, deadline: Math.min(human.expiresAt * 1000, input.authority.expiresAt),
+        original: { activityId: original.activityId, installationId: original.installationId, operatorId: operator.id,
+          sourceRepositoryId: operator.repositoryId, ownerKey: original.ownerKey,
+          ...(original.owner ? { owner: original.owner } : {}),
+          binding: original.legacy ? 'legacy' : 'activity',
+          pins: ledger ? { operatorRevision: ledger.expectedOperatorRevision, installationRevision: ledger.expectedInstallationRevision,
+            controlsRevision: ledger.expectedControlsRevision, releaseId: ledger.selection.release.id,
+            bundleDigest: ledger.selection.release.bundleDigest } : legacyPins.success ? legacyPins.data : null,
+          ...(item.raw?.originDelivery ? { delivery: item.raw.originDelivery, generation: item.raw.generation } : {}) },
+        ledger: { ok: true, receipt: ledger } };
+      const namespace = (this.env as Env).OPERATOR_ACTIVITY;
+      if (!namespace) return { resettable: false, reason: 'facts-unavailable' };
+      const activity = namespace.getByName(original.activityId);
+      return activity.readRecoveryFacts(authority);
+    };
+    const ownedCandidates = async (keys: string[]) => {
+      const owned: RecoveryInspection[] = [];
+      for (const key of keys) {
+        if (!key.startsWith(descriptor.prefix)) continue;
+        const item = await inspect(this.ctx.storage, key);
+        if (item.record.status === 'owned') owned.push(item);
+      }
+      return owned;
+    };
+    const selectScope = async (owned: RecoveryInspection[]) => {
+      if (!owned.length) return undefined;
+      const response = await callApplicationRecovery(this.env as Env, connection, 'scope', JSON.parse(selection.installation.configurationJson),
+        owned.map(item => item.record), requestId, current);
+      if (!response.scope) return undefined;
+      const scope = response.scope;
+      const anchor = owned.find(item => item.record.key === scope.anchorKey);
+      if (!scope.prefix.startsWith(descriptor.prefix) || scope.prefix.length <= descriptor.prefix.length
+        || !scope.anchorKey.startsWith(scope.prefix) || !anchor) return conflict();
+      return { scope, anchor: { key: anchor.record.key, version: anchor.record.version } };
+    };
+    const progress = parseRecoveryCursor(input.operation === 'preview' ? input.after : input.scopeCursor);
+    if (input.operation === 'reset' && input.scopeCursor !== undefined && progress.phase !== 'records') return conflict();
+    let selectedScope: Awaited<ReturnType<typeof selectScope>>;
+    let page: { keys: string[]; nextCursor: string | null };
+    if (input.operation === 'preview' && progress.phase === 'scope') {
+      const discovery = await recoveryInventoryPage(this.ctx.storage, sourceId, progress.after);
+      selectedScope = await selectScope(await ownedCandidates(discovery.keys));
+      if (!selectedScope) {
+        await current();
+        return { items: [], nextCursor: discovery.nextCursor
+          ? JSON.stringify({ phase: 'scope', after: discovery.nextCursor }) : null };
+      }
+      // Earlier discovery pages disclosed no rows; traverse records once from
+      // the beginning so conflicts preceding a late owned anchor are included.
+      page = progress.after ? await recoveryInventoryPage(this.ctx.storage, sourceId) : discovery;
+    } else {
+      if (progress.phase === 'records') {
+        const owned = await ownedCandidates([progress.anchor.key]);
+        if (input.operation === 'preview' && owned[0]?.record.version !== progress.anchor.version) return conflict();
+        selectedScope = await selectScope(owned);
+      } else {
+        // Direct reset callers can use their selected entries as scope witnesses.
+        // The browser also retains its preview witness for malformed entries.
+        selectedScope = await selectScope(await ownedCandidates(entries.map(item => item.key)));
+      }
+      if (!selectedScope) return conflict();
+      page = input.operation === 'preview'
+        ? await recoveryInventoryPage(this.ctx.storage, sourceId, progress.after)
+        : { keys: entries.map(item => item.key), nextCursor: null };
+    }
+    const { scope, anchor } = selectedScope;
+    const anchorVersion = anchor.version;
+    const scopeCursor = JSON.stringify({ phase: 'records', anchor });
+    const approvedScope = scope;
+    const inspected: RecoveryInspection[] = [];
+    const proofs = new Map<string, RecoveryFacts>();
+    for (const key of page.keys) {
+      if (!key.startsWith(scope.prefix)) {
+        if (input.operation === 'reset') return conflict();
+        continue;
+      }
+      const item = await inspect(this.ctx.storage, key);
+      const proof = await facts(item);
+      proofs.set(key, proof);
+      if (item.record.status === 'owned') {
+        item.record = { ...item.record, resettable: proof.resettable, reason: proof.reason,
+          ...(item.record.coordination === undefined && proof.resettable && proof.invocation !== undefined ? { invocation: proof.invocation } : {}) };
+      }
+      inspected.push(item);
+    }
+    const response = inspected.length ? await callApplicationRecovery(this.env as Env, connection, 'reset', JSON.parse(selection.installation.configurationJson),
+      inspected.map(item => item.record), requestId, current) : { items: [] };
+    const choices = new Map(response.items.map(item => [item.key, item]));
+    if (input.operation === 'preview') {
+      await current();
+      return { items: inspected.map(item => {
+        const choice = choices.get(item.record.key);
+        return { key: item.record.key, version: item.record.version, label: choice?.label ?? item.record.key,
+          status: item.record.resettable && choice?.disposition === 'reset' ? 'resettable' : 'blocked',
+          reason: item.record.resettable ? choice?.reason ?? 'package-declined' : item.record.reason };
+      }), nextCursor: page.nextCursor ? JSON.stringify({ phase: 'records', anchor, after: page.nextCursor }) : null,
+      scopeCursor };
+    }
+    // The old generation is already irreversibly fenced. Re-read its proof before
+    // entering the local CAS transaction; the transaction never calls an actor.
+    for (const item of inspected) {
+      const original = proofs.get(item.record.key);
+      if (original?.resettable) {
+        const fresh = await facts(item);
+        if (!fresh.resettable || fresh.proofDigest !== original.proofDigest) proofs.set(item.record.key, { resettable: false, reason: 'facts-changed' });
+      }
+    }
+    await current();
+    return this.ctx.storage.transaction(async tx => {
+      currentLocal();
+      const previous = await replay(tx);
+      if (previous) return previous;
+      const anchor = await inspect(tx, approvedScope.anchorKey);
+      if (anchor.record.status !== 'owned' || anchor.record.version !== anchorVersion) return conflict();
+      const result: Result = { requestId, reset: 0, skipped: [] };
+      let bytes = 0;
+      for (const entry of entries) {
+        const old = inspected.find(item => item.record.key === entry.key)!;
+        const latest = await inspect(tx, entry.key);
+        const proof = proofs.get(entry.key);
+        const choice = choices.get(entry.key);
+        const ledgerRow = latest.original && this.ctx.storage.sql.exec<{ data: string }>(
+          'SELECT data FROM operator_admissions WHERE activity_id=?', latest.original.activityId).toArray()[0];
+        if (entry.version !== old.record.version || latest.record.version !== entry.version
+          || latest.record.status !== 'owned' || !latest.original
+          || JSON.stringify(ledgerRow ? JSON.parse(ledgerRow.data) : null) !== originalLedgers.get(latest.original.activityId)) { result.skipped.push({ key: entry.key, reason: 'version-or-owner-changed' }); continue; }
+        if (!proof?.resettable || choice?.disposition !== 'reset' || choice.value === undefined) {
+          result.skipped.push({ key: entry.key, reason: proof?.resettable ? choice?.reason ?? 'package-declined' : proof?.reason ?? 'facts-unavailable' }); continue;
+        }
+        const released = await releaseApplicationState(tx, latest, { sourceId, actorHash: ownerKey, requestId,
+          proofDigest: proof.proofDigest, origin: proof.origin, value: choice.value, scope: coordinationScope });
+        bytes += released.bytes;
+        if (bytes > 1024 * 1024) return conflict();
+        result.reset++;
+      }
+      currentLocal();
+      await tx.put(requestKey, { digest: requestDigest, result });
+      return result;
+    });
+  }
+
+  /** Read/fence an original owned execution, never wake or observe an old SDK job. */
+  async applyApplicationExecution(binding: RuntimeApplicationStateBinding, request: ApplicationExecutionRequest): Promise<unknown> {
+    if (!('activityId' in request)) {
+      return this.applyCoordinationExecution(binding, request);
+    }
+    const unavailable = () => ({ status: 'unavailable' as const, activityId: request.activityId });
+    try {
+      if (!/^[A-Za-z0-9_-]{1,128}$/.test(request.activityId) || request.activityId === binding.activityId
+        || !/^[a-f0-9]{64}$/.test(request.version)) return unavailable();
+      if (!['read', 'read-delivery', 'retire'].includes(request.operation)) return unavailable();
+      const storageKey = `${await applicationRecoveryPrefix(binding.sourceId)}${await recoveryDigest(request.key)}`;
+      const readCurrent = async () => {
+        if (!this.applicationStateCurrent(binding)) return null;
+        const read = await this.#applyApplicationState(binding, { operation: 'read', keys: [request.key] });
+        if (!('entries' in read) || !read.entries) return null;
+        const entry = read.entries[0];
+        if (entry?.status !== 'value' || entry.version !== request.version) return null;
+        // The public value is application-authored. Only the actual private
+        // envelope, in this same current/version guard, can select a delivery.
+        return this.ctx.storage.transaction(async tx => {
+          if (!this.applicationStateCurrent(binding)) return null;
+          const summary = await tx.get<OperatorBrowserSummary>(`owner-activity:${binding.ownerKey}:${binding.activityId}`);
+          if (!summary || summary.operatorId !== binding.operatorId || !['queued', 'running'].includes(summary.executionStatus)) return null;
+          const raw = await tx.get<import('./application-state').StateRecord>(storageKey);
+          if (raw !== undefined) {
+            if (await recoveryDigest(`record:${JSON.stringify(raw)}`) !== request.version
+              || raw.schemaVersion !== 1 || raw.sourceId !== binding.sourceId || raw.key !== request.key
+              || raw.ownerKey !== binding.ownerKey) return null;
+          } else {
+            if (request.operation === 'read-delivery' || !request.key.startsWith('renovate:head:')) return null;
+            const aliasKey = `renovate-admission:${request.key.slice('renovate:head:'.length)}`;
+            const alias = await tx.get(aliasKey);
+            if (alias === undefined || await recoveryDigest(JSON.stringify(['legacy', binding.sourceId, request.key,
+              { storageKey: aliasKey, version: await recoveryDigest(JSON.stringify(alias)) }])) !== request.version) return null;
+          }
+          return this.applicationStateCurrent(binding) ? { entry, raw } : null;
+        });
+      };
+      const current = await readCurrent();
+      if (!current) return { status: 'conflict' as const, activityId: request.activityId };
+      const { entry, raw: actualStateRecord } = current;
+      const value = entry.value;
+      if (request.operation === 'read-delivery') {
+        if (!actualStateRecord || actualStateRecord.activityId !== request.activityId
+          || !actualStateRecord.originDelivery) return unavailable();
+      } else if (!value || typeof value !== 'object' || Array.isArray(value) || value.activityId !== request.activityId) return unavailable();
+      const ledger = await this.getManagementAdmission(request.activityId);
+      let legacy: Record<string, unknown> | undefined;
+      if (request.key.startsWith('renovate:head:')) {
+        const key = `renovate-admission:${request.key.slice('renovate:head:'.length)}`;
+        const original = await this.ctx.storage.get<Record<string, unknown>>(key);
+        if (original && JSON.stringify(original) === JSON.stringify(value)) legacy = original;
+      }
+      // Only a verified immutable legacy record may prove a never-admitted ID.
+      // An application-written activityId is not authority over an absent Activity.
+      if (!ledger && !legacy) return unavailable();
+      if (request.operation === 'read-delivery' && (!ledger || actualStateRecord?.installationId !== ledger.installationId)) return unavailable();
+      const installationId = ledger?.installationId ?? legacy?.installationId;
+      if (typeof installationId !== 'string' || request.operation === 'retire' && installationId !== binding.installationId) return unavailable();
+      const installation = request.operation === 'read-delivery' && ledger
+        ? ledger.selection.installation : this.managementInstallation(installationId);
+      const operator = ledger?.selection.operator ?? (installation && this.managementState(installation.operatorId));
+      if (!installation || !operator || operator.repositoryId !== binding.sourceRepositoryId) return unavailable();
+      if (request.operation === 'read-delivery' && (ledger!.activityId !== request.activityId
+        || installation.id !== installationId || installation.operatorId !== operator.id
+        || ledger!.selection.release.operatorId !== operator.id)) return unavailable();
+      const pins = ledger ? {
+        operatorRevision: ledger.expectedOperatorRevision, installationRevision: ledger.expectedInstallationRevision,
+        controlsRevision: ledger.expectedControlsRevision, releaseId: ledger.selection.release.id,
+        bundleDigest: ledger.selection.release.bundleDigest,
+      } : null;
+      const legacyPins = !pins && legacy ? z.object({ operatorRevision: z.number().int().positive(),
+        installationRevision: z.number().int().positive(), controlsRevision: z.number().int().nonnegative(),
+        releaseId: z.string().regex(scanId), bundleDigest: z.string().regex(/^[a-f0-9]{64}$/) }).safeParse(legacy) : null;
+      const authority: ApplicationExecutionAuthority = { version: 1, current: binding,
+        original: { activityId: request.activityId, installationId, operatorId: operator.id,
+          sourceRepositoryId: operator.repositoryId, ownerKey: binding.ownerKey,
+          owner: { subject: binding.human.subject, email: binding.human.email, issuer: binding.human.issuer,
+            audiences: [...binding.human.audiences] }, binding: legacy ? 'legacy' : 'activity',
+          pins: pins ?? (legacyPins?.success ? legacyPins.data : null),
+          ...(request.operation === 'read-delivery' ? { delivery: actualStateRecord!.originDelivery!,
+            generation: actualStateRecord!.generation } : {}) },
+        ledger: { ok: true, receipt: ledger } };
+      // Only the current immutable admission may enable observation. This flag
+      // is not original policy and never grants execution or historical capture.
+      try {
+        const current = await this.getManagementAdmission(binding.activityId);
+        const logging = current?.selection.operator.policy.loggingEnabled;
+        authority.observationLoggingEnabled = !!current && (logging === undefined || logging === true);
+      } catch { /* Unproven observation policy withholds capture, not execution facts. */ }
+      // Actual JSON is validated by the owning Activity. Keep opaque payloads
+      // behind a narrow RPC port instead of recursively mapping their type graph.
+      const activity: {
+        readApplicationExecutionFacts(authority: ApplicationExecutionAuthority): Promise<ApplicationExecutionFacts>;
+        retireApplicationExecution(authority: ApplicationExecutionAuthority): Promise<ApplicationExecutionRetirement>;
+      } | undefined = (this.env as Env).OPERATOR_ACTIVITY?.getByName(request.activityId);
+      if (!activity) return unavailable();
+      if (!await readCurrent()) return { status: 'conflict' as const, activityId: request.activityId };
+      const facts = await activity.readApplicationExecutionFacts(authority);
+      if (!await readCurrent()) return { status: 'conflict' as const, activityId: request.activityId };
+      if (request.operation === 'read-delivery') return facts.status === 'delivery' ? facts : unavailable();
+      if (request.operation === 'read') {
+        if (facts.status === 'never-started') return { status: 'value' as const, activityId: request.activityId, terminal: null };
+        if (facts.status !== 'value') return unavailable();
+        const { status: _status, activityId: _activityId, ...terminal } = facts;
+        return { status: 'value' as const, activityId: request.activityId, terminal };
+      }
+      if (facts.status !== 'never-started') return { status: 'held' as const, activityId: request.activityId };
+      const result = await activity.retireApplicationExecution({ ...authority, proofVersion: facts.proofVersion });
+      if (!await readCurrent()) return { status: 'conflict' as const, activityId: request.activityId };
+      return { status: result.status, activityId: request.activityId };
+    } catch { return unavailable(); }
   }
 
   /** Parent-only pinned bytes; never exposed through management/user storage APIs or refreshed from latest. */
@@ -1808,266 +2540,126 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       unreadCount: Math.max(0, latestSequence - lastRead), latestSequence };
   }
 
-  private async prospectiveAuthority(registration: ProspectiveRegistration): Promise<{
-    human: VerifiedHumanAccessClaims; accessJwt: string;
-  } | null> {
-    const app = this.env as Env;
-    if (!app.USAGE_DB || !app.KV) return null;
-    try {
-      const authority = await openOperatorExecutionAccess(registration.context, this.env);
-      const [session, rawUser, selected, accessCurrent] = await Promise.all([
-        new D1SessionRepository(app.USAGE_DB).getSession(registration.bucket, registration.sessionId),
-        app.KV.get(`user:${authority.human.email.toLowerCase()}`),
-        this.resolveManagementExecution(registration.installationId),
-        operatorAccessSessionCurrent(authority.human, authority.accessJwt),
-      ]);
-      const user: unknown = rawUser ? JSON.parse(rawUser) : null;
-      if (!user || typeof user !== 'object' || (user as { role?: unknown }).role !== 'admin'
-        || session?.lifecycleState !== 'running' || session.lifecycleGeneration !== registration.sessionGeneration
-        || !accessCurrent || !selected.ok || selected.value.operator.profile !== 'dispatcher'
-        || selected.value.controlsRevision !== registration.controlsRevision
-        || selected.value.installation.revision !== registration.installationRevision
-        || selected.value.operator.revision !== registration.operatorRevision
-        || selected.value.release.id !== registration.releaseId
-        || selected.value.release.bundleDigest !== registration.bundleDigest
-        || selected.value.installation.policy.resourceProfileId !== null
-        || !prospectiveRenovatePackageSupported(selected.value.manifestJson)) return null;
-      const configured = parseRenovateRunSettings(selected.value.installation.configurationJson);
-      if (!configured?.automaticRuns || configured.repository !== registration.repository
-        || configured.repetitionIntervalSeconds !== registration.repetitionIntervalSeconds
-        || !renovateRepositoryIdentity.safeParse({ repository: registration.repository,
-          repositoryId: registration.repositoryId, baseBranch: registration.baseBranch }).success) return null;
-      const human = await resolveOperatorGroupIdentity(authority.human, authority.accessJwt);
-      const final = await this.resolveManagementExecution(registration.installationId);
-      if (!final.ok || final.value.controlsRevision !== registration.controlsRevision
-        || final.value.installation.revision !== registration.installationRevision
-        || final.value.operator.revision !== registration.operatorRevision
-        || final.value.release.id !== registration.releaseId
-        || final.value.release.bundleDigest !== registration.bundleDigest) return null;
-      return canInvokeOperator(human, final.value.operator) ? { human, accessJwt: authority.accessJwt } : null;
-    } catch { return null; }
+  private applicationScheduleContext(): Parameters<typeof runApplicationSchedules>[0] {
+    return { storage: this.ctx.storage, env: this.env as Env,
+      resolve: installationId => this.resolveManagementExecution(installationId),
+      waitUntil: work => this.ctx.waitUntil(work), runtimeContext: this.ctx };
   }
 
+  async activateApplicationSchedule(input: { installationId: string; revision: number; authority: OperatorExecutionAuthority }) {
+    return activateSchedule(this.applicationScheduleContext(), input);
+  }
 
-  async activateProspectiveRenovate(input: { installationId: string; bucket: string; sessionId: string;
-    sessionGeneration: number; human: VerifiedHumanAccessClaims; accessJwt: string;
-    repository: RenovateRepositoryIdentity; expectedManagement?: ProspectiveSelectionPin }): Promise<
-      { ok: true; activatedAt: string; registrationId: string } & RenovateRepositoryIdentity
-      | { ok: false; reason: string }> {
-    const app = this.env as Env;
-    const target = renovateRepositoryIdentity.safeParse(input.repository);
-    if (!target.success || !scanId.test(input.installationId) || !/^[A-Za-z0-9._-]{1,128}$/.test(input.bucket)
-      || !scanSession.test(input.sessionId) || !Number.isSafeInteger(input.sessionGeneration)
-      || input.sessionGeneration < 1 || !app.USAGE_DB || !app.KV
-      || input.human.expiresAt * 1000 <= Date.now()) return { ok: false, reason: 'not-authorized' };
-    const selected = await this.resolveManagementExecution(input.installationId);
-    if (!selected.ok || selected.value.operator.profile !== 'dispatcher'
-      || selected.value.installation.policy.resourceProfileId !== null
-      || !prospectiveRenovatePackageSupported(selected.value.manifestJson)) return { ok: false, reason: 'installation-unavailable' };
-    let configured: RenovateRunSettings | null;
-    try { configured = parseRenovateRunSettings(selected.value.installation.configurationJson); }
-    catch { return { ok: false, reason: 'configuration-unavailable' }; }
-    if (!configured?.automaticRuns || configured.repository !== target.data.repository) return { ok: false, reason: 'configuration-unavailable' };
-    const pins: ProspectiveSelectionPin = { controlsRevision: selected.value.controlsRevision,
-      installationRevision: selected.value.installation.revision, operatorRevision: selected.value.operator.revision,
-      releaseId: selected.value.release.id, bundleDigest: selected.value.release.bundleDigest };
-    if (input.expectedManagement && Object.entries(pins).some(([key, value]) =>
-      value !== input.expectedManagement![key as keyof ProspectiveSelectionPin])) return { ok: false, reason: 'stale-selection' };
-    const ownerKey = await operatorOwnerKey(input.human);
-    const rawId = JSON.stringify([ownerKey, input.bucket, input.sessionId, input.sessionGeneration,
-      input.installationId, pins, target.data, configured.repetitionIntervalSeconds, input.accessJwt]);
-    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(rawId)));
-    const registrationId = `scan-${Array.from(digest).map(byte => byte.toString(16).padStart(2, '0')).join('')}`;
-    const provisional: ProspectiveRegistration = { registrationId, installationId: input.installationId,
-      ...target.data, ...pins, repetitionIntervalSeconds: configured.repetitionIntervalSeconds,
-      ownerKey, bucket: input.bucket, sessionId: input.sessionId, sessionGeneration: input.sessionGeneration,
-      revision: 0, context: await createOperatorExecutionContext({ activityId: registrationId,
-        operatorId: selected.value.operator.operatorId, artifactDigest: pins.bundleDigest,
-        policyDigest: Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',
-          new TextEncoder().encode(JSON.stringify(selected.value.installation.policy)))))
-          .map(byte => byte.toString(16).padStart(2, '0')).join(''),
-        human: input.human, accessJwt: input.accessJwt }, this.env) };
-    if (!await this.prospectiveAuthority(provisional)) return { ok: false, reason: 'not-authorized' };
-    const registrations = await this.ctx.storage.list<ProspectiveRegistration>({ prefix: 'renovate-registration:' });
-    const inactive: Array<{ key: string; revision: number }> = [];
-    for (const [key, record] of registrations) {
-      if (record.context.expiresAt * 1000 <= Date.now()) { inactive.push({ key, revision: record.revision }); continue; }
+  async applicationScheduleStatus(installationId: string, ownerKey: string) {
+    return scheduleStatus(this.applicationScheduleContext(), installationId, ownerKey);
+  }
+
+  async alarm(): Promise<void> {
+    await runApplicationSchedules(this.applicationScheduleContext());
+  }
+
+  private prospectiveObservationCapture(observation?: ProspectiveObservationCapture): (RawCapture & { binding: RawCaptureBinding }) | undefined {
+    if (observation?.loggingEnabled !== true || observation.binding.scope.kind !== 'observation') return;
+    try {
+    const { registrationId } = observation;
+    const binding = { ...observation.binding, captureId: crypto.randomUUID() };
+    let authorized = false;
+    const capture = createRawCapture({ enabled: true, binding,
+      storage: () => createOwnerRawCaptureStorage(this.env as Env, this.ctx.storage, async () => {
+        // Pin provenance before the first protected write. Later supersession does not erase
+        // already observed evidence or transfer its owner; this confers no execution authority.
+        if (authorized) return;
+        const record = await this.ctx.storage.get<ProspectiveRegistration>(`renovate-registration:${registrationId}`);
+        if (!record || record.ownerKey !== binding.ownerKey || record.installationId !== binding.installationId
+          || record.releaseId !== binding.releaseId) throw Error('Raw observation owner unavailable');
+        authorized = true;
+      }), schedule: work => this.ctx.waitUntil(work) });
+    capture.record('observation-parent', () => observation);
+    return { ...capture, binding, finish: async termination => {
+      const receipt = await capture.finish(termination);
+      if (receipt.status !== 'complete') try {
+        console.log(JSON.stringify({ module: 'operator-execution', message: 'raw-capture-incomplete',
+          data: { captureId: binding.captureId, parentCaptureId: observation.binding.captureId, status: 'incomplete' } }));
+      } catch { /* Original outcomes do not depend on delivery acknowledgement. */ }
+      return receipt;
+    } };
+    } catch { return; } // Setup cannot replace a business result or error.
+  }
+
+  /** Private observation reads belong to Registry, including Actor-relayed pre-admission evidence. */
+  async readOwnerRawCaptures(credential: OwnerRawReadCredential, input: OwnerRawReadRequest): Promise<Response> {
+    try {
+      const request = parseOwnerRawReadRequest(input);
+      const reader = await requireOwnerRawReader(this.env as Env, credential);
+      if (request.scope.kind !== 'observation') return ownerRawReadUnavailable();
+      // Authenticated encrypted locators pin historical provenance. No current registration,
+      // Activity admission, execution authority or mutable logging setting is consulted.
+      const storage = await createOwnerRawCaptureStorage(this.env as Env, this.ctx.storage, reader.guard);
+      return await readOwnerRawCapturePage({ request, ownerKey: reader.ownerKey,
+        storage: { ...storage, authorizePass: reader.authorize } });
+    } catch { return ownerRawReadUnavailable(); }
+  }
+
+  /** Trusted Root-only persistence for pre-admission observations; never an installed SDK/browser capability. */
+  async retainRawObservation(input: { binding: RawCaptureBinding; records: Array<{ stage: string; value: unknown }>;
+    termination: RawCaptureReceipt['termination']; failed: boolean; observation?: ProspectiveObservationCapture }): Promise<RawCaptureReceipt> {
+    if (input.binding.scope.kind !== 'observation') throw new Error('Raw observation unavailable');
+    // Existing authenticated route callers own their binding. Reconciliation relays additionally
+    // prove their parent registration, and each batch gets its own immutable child archive.
+    const capture = input.observation ? this.prospectiveObservationCapture(input.observation)
+      : createRawCapture({ enabled: true, binding: input.binding,
+        storage: () => createOwnerRawCaptureStorage(this.env as Env, this.ctx.storage, async () => {}),
+        schedule: work => this.ctx.waitUntil(work) });
+    if (!capture) throw new Error('Raw observation unavailable');
+    for (const record of input.records) capture.record(record.stage, () => record.value);
+    const receipt = await capture.finish(input.termination);
+    return input.failed ? { ...receipt, status: 'incomplete' } : receipt;
+  }
+
+  /** Legacy RPC compatibility is refusal-only. Application policy now runs in its package. */
+  async activateProspectiveRenovate(_input: unknown): Promise<
+    { ok: true; activatedAt: string; registrationId: string } | { ok: false; reason: string }> {
+    return { ok: false, reason: 'application-upgrade-required' };
+  }
+  async prospectiveRenovateStatus(_installationId: string, _ownerKey: string): Promise<'inactive'> { return 'inactive'; }
+  async observeProspectiveRenovateRegistration(_registrationId: string, _observation?: ProspectiveObservationCapture): Promise<ProspectiveRegistrationObservation> {
+    return { status: 'denied' };
+  }
+  async currentProspectiveRenovateRegistration(_registrationId: string, _observation?: ProspectiveObservationCapture): Promise<CurrentProspectiveRegistration | null> { return null; }
+  async reserveProspectiveRenovateActivity(_input: unknown, _observation?: ProspectiveObservationCapture): Promise<
+    { ok: true; activityId: string; actor: ProspectiveAdmission['actor'] } | { ok: false; reason: string }> {
+    return { ok: false, reason: 'application-upgrade-required' };
+  }
+  async retainedProspectiveRenovateRetryTargets(_registrationId: string, _observation?: ProspectiveObservationCapture): Promise<LegacyRetryTarget[]> { return []; }
+
+  async readProspectiveRenovateAdmission(activityId: string, observation?: ProspectiveObservationCapture): Promise<ProspectiveAdmission | null> {
+    const capture = this.prospectiveObservationCapture(observation);
+    capture?.record('registry-original-admission-request', () => ({ key: `renovate-activity:${activityId}` }));
+    if (!scanId.test(activityId)) {
+      try { await capture?.finish('complete'); } catch { /* Preserve invalid-ID refusal. */ }
+      return null;
+    }
+    const trace = (outcome: 'started' | 'completed' | 'failed', proofPresent?: boolean, error?: unknown) => {
       try {
-        const session = await new D1SessionRepository(app.USAGE_DB).getSession(record.bucket, record.sessionId);
-        if (session && (session.lifecycleGeneration !== record.sessionGeneration
-          || session.lifecycleState === 'stopped' || session.lifecycleState === 'stopping')) inactive.push({ key, revision: record.revision });
-      } catch { /* Unavailable lifecycle is not proof of retirement. */ }
-    }
-    return this.ctx.storage.transaction(async tx => {
-      if (!await this.prospectiveAuthority(provisional)) return { ok: false, reason: 'stale-selection' } as const;
-      const before = await tx.list<ProspectiveRegistration>({ prefix: 'renovate-registration:' });
-      for (const { key, revision } of inactive) if (before.get(key)?.revision === revision) { await tx.delete(key); before.delete(key); }
-      if (before.size >= 32 && !before.has(`renovate-registration:${registrationId}`)) return { ok: false, reason: 'registration-limit' } as const;
-      const previous = await tx.get<ProspectiveActivation>('renovate-activation');
-      if (previous && previous.installationId !== input.installationId) return { ok: false, reason: 'activation-conflict' } as const;
-      const identityKey = `renovate-repository:${input.installationId}:${target.data.repository.toLowerCase()}`;
-      const retainedIdentity = await tx.get<number>(identityKey);
-      if (retainedIdentity !== undefined && retainedIdentity !== target.data.repositoryId) return { ok: false, reason: 'repository-changed' } as const;
-      const cutoffKey = `renovate-cutoff:${input.installationId}:${target.data.repositoryId}`;
-      const cutoff = await tx.get<string>(cutoffKey) ?? (previous?.repositoryId === target.data.repositoryId ? previous.activatedAt : new Date(Date.now()).toISOString());
-      const activation: ProspectiveActivation = { installationId: input.installationId, ...target.data, activatedAt: cutoff };
-      const current = await tx.get<ProspectiveRegistration>(`renovate-registration:${registrationId}`);
-      await tx.put(identityKey, target.data.repositoryId);
-      await tx.put(cutoffKey, cutoff);
-      await tx.put('renovate-activation', activation);
-      await tx.put(`renovate-registration:${registrationId}`, { ...provisional, revision: (current?.revision ?? 0) + 1 });
-      await tx.put('renovate-election-revision', (await tx.get<number>('renovate-election-revision') ?? 0) + 1);
-      return { ok: true, activatedAt: cutoff, registrationId, ...target.data } as const;
-    });
-  }
-
-  async currentProspectiveRenovateRegistration(registrationId: string): Promise<CurrentProspectiveRegistration | null> {
-    if (!scanId.test(registrationId)) return null;
-    const [activation, record] = await Promise.all([
-      this.ctx.storage.get<ProspectiveActivation>('renovate-activation'),
-      this.ctx.storage.get<ProspectiveRegistration>(`renovate-registration:${registrationId}`),
-    ]);
-    if (!activation || !record || activation.installationId !== record.installationId
-      || activation.repository !== record.repository || activation.repositoryId !== record.repositoryId
-      || activation.baseBranch !== record.baseBranch) return null;
-    const current = await this.prospectiveAuthority(record);
-    return current ? { registrationId, installationId: record.installationId,
-      repository: record.repository, repositoryId: record.repositoryId, baseBranch: record.baseBranch,
-      repetitionIntervalSeconds: record.repetitionIntervalSeconds, activatedAt: activation.activatedAt,
-      bucket: record.bucket, sessionId: record.sessionId, sessionGeneration: record.sessionGeneration,
-      controlsRevision: record.controlsRevision, installationRevision: record.installationRevision,
-      operatorRevision: record.operatorRevision, releaseId: record.releaseId, bundleDigest: record.bundleDigest,
-      ...current } : null;
-  }
-
-  /** Trusted parent passes its authenticated GitHub observation, not route/child data. */
-  async reserveProspectiveRenovateActivity(input: { registrationId: string; repositoryId: number;
-    pullRequest: number; head: string; createdAt: string; activityId: string }): Promise<
-      { ok: true; activityId: string; actor: ProspectiveAdmission['actor'] } | { ok: false; reason: string }> {
-    if (!scanId.test(input.registrationId) || !scanId.test(input.activityId)
-      || !Number.isSafeInteger(input.repositoryId) || input.repositoryId < 1 || !Number.isSafeInteger(input.pullRequest)
-      || input.pullRequest < 1 || !sha.test(input.head)) return { ok: false, reason: 'invalid-target' };
-    const activation = await this.ctx.storage.get<ProspectiveActivation>('renovate-activation');
-    const created = prospectiveRenovateTimestamp(input.createdAt);
-    const cutoff = activation ? prospectiveRenovateTimestamp(activation.activatedAt) : null;
-    if (created === null) return { ok: false, reason: 'invalid-target' };
-    if (!activation || activation.repositoryId !== input.repositoryId || cutoff === null) {
-      return { ok: false, reason: 'pre-activation' };
-    }
-    const key = `renovate-admission:${input.repositoryId}:${input.pullRequest}:${input.head}`;
-    const existing = await this.ctx.storage.get<ProspectiveAdmission>(key);
-    if (existing && existing.createdAt !== input.createdAt) return { ok: false, reason: 'invalid-target' };
-    const retry = existing ? await this.prospectiveRetryProof(existing) : null;
-    if (existing && !retry) return { ok: true, activityId: existing.activityId, actor: existing.actor };
-    if (created <= cutoff && (!existing || !retry || existing.createdAt !== input.createdAt)) {
-      return { ok: false, reason: 'pre-activation' };
-    }
-    const election = await this.ctx.storage.get<number>('renovate-election-revision') ?? 0;
-    const registrations = await this.ctx.storage.list<ProspectiveRegistration>({ prefix: 'renovate-registration:' });
-    if (registrations.size > 32) return { ok: false, reason: 'registration-limit' };
-    const candidates: Array<{ record: ProspectiveRegistration; human: VerifiedHumanAccessClaims }> = [];
-    for (const record of registrations.values()) {
-      if (record.installationId !== activation.installationId || record.repositoryId !== activation.repositoryId
-        || record.repository !== activation.repository || record.baseBranch !== activation.baseBranch) continue;
-      const authority = await this.prospectiveAuthority(record);
-      if (authority) candidates.push({ record, human: authority.human });
-    }
-    candidates.sort((left, right) =>
-      `${left.human.issuer}:${left.human.subject}:${left.record.sessionId}:${left.record.sessionGeneration}`
-        .localeCompare(`${right.human.issuer}:${right.human.subject}:${right.record.sessionId}:${right.record.sessionGeneration}`));
-    const winner = candidates[0];
-    if (!winner) return { ok: false, reason: 'no-current-admin' };
-    if (existing && !this.prospectiveRetryDue(existing, retry!, winner.record.repetitionIntervalSeconds)) {
-      return { ok: true, activityId: existing.activityId, actor: existing.actor };
-    }
-    const actor: ProspectiveAdmission['actor'] = { registrationId: winner.record.registrationId,
-      bucket: winner.record.bucket, sessionId: winner.record.sessionId,
-      sessionGeneration: winner.record.sessionGeneration, subject: winner.human.subject,
-      issuer: winner.human.issuer, email: winner.human.email, audiences: [...winner.human.audiences] };
-    return this.ctx.storage.transaction(async tx => {
-      const prior = await tx.get<ProspectiveAdmission>(key);
-      // The head entry is only a pointer; original Activity admissions are immutable.
-      // A concurrent winner (or uncertain new preparation) always retains its actor/attempt.
-      if (prior && (!existing || prior.activityId !== existing.activityId || !retry)) {
-        return { ok: true, activityId: prior.activityId, actor: prior.actor } as const;
-      }
-      if (existing && (!prior || !this.prospectiveRetryDue(prior, retry!, winner.record.repetitionIntervalSeconds))) {
-        return { ok: false, reason: 'stale-retry' } as const;
-      }
-      const [stillActivated, stillRegistered, collision, currentElection] = await Promise.all([
-        tx.get<ProspectiveActivation>('renovate-activation'),
-        tx.get<ProspectiveRegistration>(`renovate-registration:${actor.registrationId}`),
-        tx.get<ProspectiveAdmission>(`renovate-activity:${input.activityId}`),
-        tx.get<number>('renovate-election-revision'),
-      ]);
-      if (collision) return { ok: false, reason: 'activity-conflict' } as const;
-      if (stillActivated?.activatedAt !== activation.activatedAt || stillActivated.repositoryId !== activation.repositoryId
-        || stillActivated.repository !== activation.repository || stillActivated.baseBranch !== activation.baseBranch
-        || stillActivated.installationId !== activation.installationId
-        || currentElection !== election || stillRegistered?.revision !== winner.record.revision
-        || !await this.prospectiveAuthority(winner.record)) return { ok: false, reason: 'stale-election' } as const;
-      const admission: ProspectiveAdmission = { activityId: input.activityId, admittedAt: Date.now(),
-        attempt: (existing?.attempt ?? (existing ? 1 : 0)) + 1,
-        ...(existing ? { previousActivityId: existing.activityId } : {}),
-        installationId: activation.installationId, repository: activation.repository, repositoryId: activation.repositoryId,
-        baseBranch: activation.baseBranch, controlsRevision: winner.record.controlsRevision,
-        installationRevision: winner.record.installationRevision, operatorRevision: winner.record.operatorRevision,
-        releaseId: winner.record.releaseId, bundleDigest: winner.record.bundleDigest,
-        pullRequest: input.pullRequest, head: input.head, createdAt: input.createdAt,
-        activatedAt: activation.activatedAt, ownerKey: winner.record.ownerKey, actor };
-      await tx.put(key, admission);
-      await tx.put(`renovate-activity:${input.activityId}`, admission);
-      return { ok: true, activityId: input.activityId, actor } as const;
-    });
-  }
-
-  private async prospectiveRetryProof(admission: ProspectiveAdmission): Promise<ProspectiveRenovateRetryProof | null> {
-    if (!this.env.OPERATOR_ACTIVITY) return null;
+        createLogger('operator-registry').info('Prospective Renovate admission boundary', {
+          boundary: 'registry-proof-storage', outcome,
+          admissionDigest: hashDiagnostic(JSON.stringify(['prospective-renovate-admission:v1', activityId])),
+          ...(outcome === 'completed' ? { proofPresent } : {}),
+          ...(outcome === 'failed' ? { error: captureError(error) } : {}),
+        });
+      } catch { /* Diagnostic hashing/capture/logging cannot change the proof read. */ }
+    };
+    trace('started');
     try {
-      const value = await this.env.OPERATOR_ACTIVITY.getByName(admission.activityId)
-        .readProspectiveRenovateRetryProof({ repositoryId: admission.repositoryId,
-          pullRequest: admission.pullRequest, head: admission.head });
-      const parsed = prospectiveRenovateRetryProof.safeParse(value);
-      if (!parsed.success) return null;
-      const proof = parsed.data;
-      return proof.activityId === admission.activityId && proof.repositoryId === admission.repositoryId
-        && proof.repository === admission.repository && proof.baseBranch === admission.baseBranch
-        && proof.pullRequest === admission.pullRequest && proof.head === admission.head
-        && proof.createdAt === admission.createdAt && proof.artifactDigest === admission.bundleDigest
-        && proof.terminalAt <= Date.now() ? proof : null;
-    } catch { return null; } // Unknown/uncollected history cannot elect replacement work.
-  }
-
-  private prospectiveRetryDue(admission: ProspectiveAdmission, proof: ProspectiveRenovateRetryProof, interval: number): boolean {
-    // Legacy admissions lack a reservation timestamp; use their proven terminal time conservatively.
-    const started = admission.admittedAt ?? proof.terminalAt;
-    return Number.isSafeInteger(started) && started >= 0 && started <= proof.terminalAt
-      && Date.now() >= started + interval * 1000;
-  }
-
-  /** Exact retained heads only. Complete authenticated discovery must still re-observe every target. */
-  async retainedProspectiveRenovateRetryTargets(registrationId: string): Promise<RetainedRenovateRetryTarget[]> {
-    const current = await this.currentProspectiveRenovateRegistration(registrationId);
-    if (!current) return [];
-    const admissions = await this.ctx.storage.list<ProspectiveAdmission>({ prefix: 'renovate-activity:' });
-    const targets: RetainedRenovateRetryTarget[] = [];
-    for (const admission of admissions.values()) {
-      if (admission.installationId !== current.installationId || admission.repositoryId !== current.repositoryId
-        || admission.repository !== current.repository || admission.baseBranch !== current.baseBranch) continue;
-      const latest = await this.ctx.storage.get<ProspectiveAdmission>(
-        `renovate-admission:${admission.repositoryId}:${admission.pullRequest}:${admission.head}`);
-      if (latest?.activityId !== admission.activityId) continue;
-      const proof = await this.prospectiveRetryProof(admission);
-      if (proof && this.prospectiveRetryDue(admission, proof, current.repetitionIntervalSeconds)) {
-        targets.push({ repositoryId: admission.repositoryId, pullRequest: admission.pullRequest,
-          head: admission.head, createdAt: admission.createdAt });
-      }
-    }
-    return await this.currentProspectiveRenovateRegistration(registrationId) ? targets : [];
-  }
-
-  async readProspectiveRenovateAdmission(activityId: string): Promise<ProspectiveAdmission | null> {
-    return scanId.test(activityId) ? await this.ctx.storage.get<ProspectiveAdmission>(`renovate-activity:${activityId}`) ?? null : null;
+      const proof = await this.ctx.storage.get<ProspectiveAdmission>(`renovate-activity:${activityId}`) ?? null;
+      capture?.record('registry-original-admission-response', () => !proof || proof.ownerKey === observation?.binding.ownerKey ? proof : { foreignOwner: true });
+      trace('completed', !!proof);
+      return proof;
+    } catch (error) {
+      capture?.record('registry-original-admission-error', () => error);
+      trace('failed', undefined, error);
+      throw error;
+    } finally { try { await capture?.finish('complete'); } catch { /* Preserve proof or original error. */ } }
   }
 
   async getOwnedActivity(ownerKey: string, activityId: string): Promise<OperatorBrowserSummary | null> {

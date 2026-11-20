@@ -1,49 +1,42 @@
+// Ownership migration: execution fences/ledger/bootstrap -> application-execution.test.ts;
+// exact-head layouts/election/retry -> SDK test/renovate/legacy-admission-parity.test.ts.
+// Generic timer/authority delivery stays in application-schedule.test.ts. This
+// file retains original-byte capture and historical preparation/read contracts.
 /// <reference types="@cloudflare/vitest-plugin/types" />
-import { describe, expect, it, vi } from 'vitest';
-import { env, runInDurableObject } from 'cloudflare:test';
-import { OperatorRegistry, type CurrentProspectiveRegistration } from '../../operators/registry';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createHash } from 'node:crypto';
+import { env, reset, runInDurableObject } from 'cloudflare:test';
+import { OperatorRegistry, type ManagementExecutionSelection } from '../../operators/registry';
 import { OperatorActivity, createOperatorIntentDigest } from '../../operators/activity';
+import { operatorOwnerKey } from '../../operators/browser-activity';
 import { createOperatorExecutionContext } from '../../operators/execution-context';
-import { authorizeDispatcherPlan } from '../../operators/operator-runtime-capability';
 import { createMockKV } from '../helpers/mock-kv';
-import { Hono } from 'hono';
+import { setLogLevel } from '../../lib/logger';
+import { captureError, hashDiagnostic } from '../../operators/dispatcher-diagnostics-wire';
 import * as access from '../../lib/access';
-import activityRoutes from '../../routes/operator-activities';
-import { listProspectiveRenovatePrs } from '../../operators/renovate-prospective';
+import { captureRawInteraction, createRawCapture, exportRawCapture, createOwnerRawCaptureStorage, discoverRawCaptures, type RawCaptureBinding } from '../../operators/raw-capture-storage';
 import type { Env } from '../../types';
-import type { ProspectiveRenovateRetryProof } from '../../operators/renovate-retry-proof';
+import { prospectiveReconciliationStream, consumeProspectiveReconciliation } from '../../operators/prospective-reconciliation';
 
-const repoId = 424242, head = 'a'.repeat(40), newerHead = 'b'.repeat(40);
+const repoId = 424242, head = 'a'.repeat(40);
 const at = new Date().toISOString();
+// Manually driven fixtures must not leave backing objects or alarms for later cases.
+afterEach(async () => { await reset(); });
 const claims = (email: string, lifetimeSeconds = 300) => ({ subject: email, email, issuer: 'https://owner.cloudflareaccess.com',
   audiences: ['audience'], issuedAt: Math.floor(Date.now() / 1000) - 20,
   expiresAt: Math.floor(Date.now() / 1000) + lifetimeSeconds });
-type Registration = { ok: true; activatedAt: string; registrationId: string } | { ok: false; reason: string };
-type Reservation = { ok: true; activityId: string; actor: { registrationId: string; bucket: string;
-  sessionId: string; sessionGeneration: number } } | { ok: false; reason: string };
-type Prospective = {
-  activateProspectiveRenovate(input: { installationId: string; bucket: string; sessionId: string;
-    sessionGeneration: number; human: ReturnType<typeof claims>; accessJwt: string;
-    repository?: { repository: string; repositoryId: number; baseBranch: string } }): Promise<Registration>;
-  currentProspectiveRenovateRegistration(registrationId: string): Promise<unknown | null>;
-  reserveProspectiveRenovateActivity(input: { registrationId: string; repositoryId: number;
-    pullRequest: number; head: string; createdAt: string; activityId: string }): Promise<Reservation>;
-  readProspectiveRenovateAdmission(activityId: string): Promise<unknown | null>;
-  retainedProspectiveRenovateRetryTargets(registrationId: string): Promise<unknown[]>;
-};
-
-async function fixture(run: (context: { registry: Prospective; restart: () => Prospective;
-  native: DurableObjectState; environment: Env; selection: object; proofs: Map<string, unknown>;
+async function fixture(run: (context: { registry: OperatorRegistry;
+  native: DurableObjectState; environment: Env; selection: object;
   state: { sessions: Map<string, { generation: number; status: string }>;
     roles: Map<string, string>; revoked: Set<string>; enabled: boolean;
-    identityFault: 'valid' | 'revoked' | 'unavailable' | 'malformed' | 'transport-error' } }) => Promise<void>) {
+    identityFault: 'valid' | 'revoked' | 'forbidden' | 'unavailable' | 'malformed' | 'transport-error' | 'timeout' } }) => Promise<void>) {
   const namespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
   await runInDurableObject(namespace.getByName(`prospective-registry-${crypto.randomUUID()}`), async (_instance, native) => {
     const state = { sessions: new Map([['asession01', { generation: 3, status: 'running' }],
       ['zsession01', { generation: 4, status: 'running' }]]),
       roles: new Map([['a@example.test', 'admin'], ['z@example.test', 'admin']]),
       revoked: new Set<string>(), enabled: true,
-      identityFault: 'valid' as 'valid' | 'revoked' | 'unavailable' | 'malformed' | 'transport-error' };
+      identityFault: 'valid' as 'valid' | 'revoked' | 'forbidden' | 'unavailable' | 'malformed' | 'transport-error' | 'timeout' };
     const kv = createMockKV();
     const database = { prepare: () => ({ bind: (...args: unknown[]) => ({ first: async () => {
       const session = state.sessions.get(String(args[1]));
@@ -54,13 +47,12 @@ async function fixture(run: (context: { registry: Prospective; restart: () => Pr
         observation_sequence: 0, editor_ready: 1, editor_ready_error: 0,
       } : null;
     } }) }) };
-    kv.get = vi.fn(async (key: string) => key.startsWith('user:')
-      ? JSON.stringify({ role: state.roles.get(key.slice(5)) ?? 'user' }) : null) as typeof kv.get;
-    const proofs = new Map<string, unknown>();
-    const environment = { OPERATOR_ACTIVITY: { getByName: (id: string) => ({
-      readProspectiveRenovateRetryProof: async () => proofs.get(id) ?? null,
-    }) }, ENCRYPTION_KEY: btoa('k'.repeat(32)),
-      USAGE_DB: database, KV: kv } as unknown as Env;
+    kv.get = vi.fn(async (key: string, type?: string) => {
+      const value = key.startsWith('user:') ? JSON.stringify({ role: state.roles.get(key.slice(5)) ?? 'user' })
+        : kv._store.get(key) ?? null;
+      return type === 'json' && value !== null ? JSON.parse(value) : value;
+    }) as typeof kv.get;
+    const environment = { ENCRYPTION_KEY: btoa('k'.repeat(32)), USAGE_DB: database, KV: kv } as unknown as Env;
     const registry = new OperatorRegistry(native, environment);
     const selection = { controlsRevision: 1, installation: { id: 'dispatcher-install', operatorId: 'dispatcher',
       enabled: true, revision: 1, releaseId: 'release',
@@ -70,512 +62,664 @@ async function fixture(run: (context: { registry: Prospective; restart: () => Pr
         invokers: { users: ['a@example.test', 'z@example.test'], groups: [] } },
       release: { id: 'release', bundleDigest: 'c'.repeat(64) }, manifestJson: JSON.stringify({
         id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion: '3' }) };
-    const restart = () => {
-      const next = new OperatorRegistry(native, environment);
-      vi.spyOn(next, 'resolveManagementExecution').mockImplementation(async () => state.enabled
-        ? { ok: true, value: selection } as never : { ok: false, reason: 'disabled' });
-      return next as unknown as Prospective;
-    };
-    vi.spyOn(registry, 'resolveManagementExecution').mockImplementation(async () => state.enabled
-      ? { ok: true, value: selection } as never : { ok: false, reason: 'disabled' });
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async (_request, init) => {
       const cookie = new Headers(init?.headers).get('Cookie') ?? '';
       const token = cookie.replace(/^CF_Authorization=/, '');
       if (state.revoked.has(token) || state.identityFault === 'revoked') return new Response(null, { status: 401 });
+      if (state.identityFault === 'forbidden') return new Response(null, { status: 403 });
       if (state.identityFault === 'unavailable') return new Response(null, { status: 503 });
+      if (state.identityFault === 'timeout') throw new DOMException('Timed out', 'TimeoutError');
       if (state.identityFault === 'transport-error') throw new Error('Identity transport unavailable');
       return Response.json({ id: `${token.slice(0, 1)}@example.test`,
         email: `${token.slice(0, 1)}@example.test`,
         ...(state.identityFault === 'malformed' ? { groups: null } : {}) });
     };
-    try { await run({ registry: registry as unknown as Prospective, restart, native,
-      environment, selection, state, proofs }); }
+    try { await run({ registry, native, environment, selection, state }); }
     finally { globalThis.fetch = originalFetch; }
   });
 }
-async function enroll(registry: Prospective, user: 'a' | 'z', generation = user === 'a' ? 3 : 4, repository = { repository: 'acme/updates', repositoryId: repoId, baseBranch: 'trunk' }, lifetimeSeconds = 300) {
-  return registry.activateProspectiveRenovate({ installationId: 'dispatcher-install', bucket: 'owner-bucket',
-    sessionId: `${user}session01`, sessionGeneration: generation, human: claims(`${user}@example.test`, lifetimeSeconds), accessJwt: `${user}-jwt`, repository });
+type NativeRawInput = { view: 'discover' | 'export'; scope: RawCaptureBinding['scope']; cursor?: string; captureId?: string };
+type NativeRawReader = { readOwnerRawCaptures(credential: { email: string; accessJwt: string }, input: NativeRawInput): Promise<Response> };
+// Existing authenticated native owner-read boundary; no scheduler activation.
+// Tokens fix their typed verified claims; the DO must still check live Access and KV admin.
+function registryReadAuth() {
+  return vi.spyOn(access, 'requireOperatorHumanContext').mockImplementation(async (request, _environment, email) => {
+    const accessJwt = request.headers.get('cf-access-jwt-assertion') ?? '';
+    const signedEmail = accessJwt === 'a-jwt' ? 'a@example.test' : accessJwt === 'z-jwt' ? 'z@example.test' : null;
+    if (!signedEmail || signedEmail !== email) throw new Error('Authentication rejected');
+    return { human: claims(signedEmail, 3600), accessJwt };
+  });
 }
-function pr(registrationId: string, activatedAt: string, patch: Record<string, unknown> = {}) {
-  return { registrationId, repository: 'acme/updates', baseBranch: 'trunk', repositoryId: repoId, pullRequest: 1300, head,
-    createdAt: new Date(Date.parse(activatedAt) + 1).toISOString(), activityId: 'activity-1', ...patch };
+async function registryRawPage(response: Response) {
+  expect(response).toBeInstanceOf(Response);
+  expect(response.status).toBe(200);
+  expect(response.headers.get('cache-control')).toBe('no-store');
+  const page = await response.json() as { status: 'complete'; bindings: RawCaptureBinding[]; cursor: string | null };
+  expect(page).toEqual({ status: 'complete', bindings: expect.any(Array), cursor: page.cursor });
+  if (page.cursor !== null) expect(page.cursor).toMatch(/^[a-f0-9]{64}$/);
+  return page;
 }
-
-describe('REQ-OPERATOR-061: durable prospective activation and admission', () => {
-  it.each(['revoked', 'unavailable', 'malformed', 'transport-error'] as const)(
-    'REQ-OPERATOR-047: prospective Registry authority with %s live identity denies email-granted reservations without retiring verified no-group registration', fault => fixture(async ({ registry, restart, state }) => {
-      const enrolled = await enroll(registry, 'a');
-      if (!enrolled.ok) throw Error('Activation unavailable');
-      const before = await registry.currentProspectiveRenovateRegistration(enrolled.registrationId);
-      expect(before).toMatchObject({ registrationId: enrolled.registrationId, human: { email: 'a@example.test', groups: [] } });
-      state.identityFault = fault;
-      expect(await restart().currentProspectiveRenovateRegistration(enrolled.registrationId)).toBeNull();
-      expect(await registry.reserveProspectiveRenovateActivity(pr(enrolled.registrationId, enrolled.activatedAt)))
-        .toEqual({ ok: false, reason: 'no-current-admin' });
-      expect(await registry.readProspectiveRenovateAdmission('activity-1')).toBeNull();
-      state.identityFault = 'valid';
-      expect(await restart().currentProspectiveRenovateRegistration(enrolled.registrationId)).toEqual(before);
-      expect(await registry.reserveProspectiveRenovateActivity(pr(enrolled.registrationId, enrolled.activatedAt)))
-        .toMatchObject({ ok: true, activityId: 'activity-1', actor: { registrationId: enrolled.registrationId } });
-    }));
-
-  it.each(['old-intent', 'future-intent', 'foreign-package', 'malformed-manifest'])('REQ-OPERATOR-061: unsupported %s cannot activate a prospective current-package registration or retain its cutoff', fault => fixture(async ({ registry, selection }) => {
-    const manifest = { id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion: '3' };
-    if (fault === 'old-intent') manifest.intentVersion = '2';
-    if (fault === 'future-intent') manifest.intentVersion = '5';
-    if (fault === 'foreign-package') manifest.id = 'foreign-dispatcher';
-    const selected = selection as { manifestJson: string };
-    selected.manifestJson = fault === 'malformed-manifest' ? '{' : JSON.stringify(manifest);
-    const now = Date.now();
-    const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
-    try {
-      expect(await enroll(registry, 'a')).toMatchObject({ ok: false });
-      selected.manifestJson = JSON.stringify({ id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion: '3' });
-      clock.mockReturnValue(now + 1_000);
-      const supported = await enroll(registry, 'a');
-      expect(supported).toMatchObject({ ok: true, activatedAt: new Date(now + 1_000).toISOString() });
-      if (!supported.ok) throw Error('Supported activation unavailable');
-      expect(await registry.currentProspectiveRenovateRegistration(supported.registrationId)).not.toBeNull();
-      expect(await registry.reserveProspectiveRenovateActivity(pr(supported.registrationId, supported.activatedAt)))
-        .toMatchObject({ ok: true, activityId: 'activity-1' });
-    } finally { clock.mockRestore(); }
-  }));
-  it('takes the first server cutoff, never lets a later activation move it, and excludes old and equal PR timestamps', () => fixture(async ({ registry }) => {
-    const first = await enroll(registry, 'a');
-    expect(first).toMatchObject({ ok: true, activatedAt: expect.any(String), registrationId: expect.any(String) });
-    if (!first.ok) throw Error('Activation unavailable');
-    const next = await enroll(registry, 'z');
-    expect(next).toMatchObject({ ok: true, activatedAt: first.activatedAt });
-    for (const createdAt of [first.activatedAt, new Date(Date.parse(first.activatedAt) - 1).toISOString()]) {
-      expect((await registry.reserveProspectiveRenovateActivity(pr(first.registrationId, first.activatedAt,
-        { createdAt }))).ok).toBe(false);
-    }
-    expect(await registry.reserveProspectiveRenovateActivity(pr(first.registrationId, first.activatedAt)))
-      .toMatchObject({ ok: true, activityId: 'activity-1' });
-    expect((await registry.reserveProspectiveRenovateActivity(pr(first.registrationId, first.activatedAt,
-      { pullRequest: 1301 }))).ok).toBe(false);
-    expect(await registry.reserveProspectiveRenovateActivity(pr(first.registrationId, first.activatedAt,
-      { pullRequest: 1301, activityId: 'activity-2' }))).toMatchObject({ ok: true, activityId: 'activity-2' });
-  }));
-
-  it('atomically elects one current administrator across competing reservations, reconstructed readers and lost responses', () => fixture(async ({ registry, restart, state }) => {
-    const z = await enroll(registry, 'z');
-    const a = await enroll(registry, 'a');
-    if (!a.ok || !z.ok) throw Error('Activation unavailable');
-    const input = pr(z.registrationId, a.activatedAt);
-    const outcomes = await Promise.all([registry.reserveProspectiveRenovateActivity(input),
-      registry.reserveProspectiveRenovateActivity({ ...input, registrationId: a.registrationId,
-        activityId: 'competing-activity' })]);
-    expect(outcomes[0]).toEqual(outcomes[1]);
-    const first = outcomes[0];
-    expect(first).toMatchObject({ ok: true, actor: { registrationId: a.registrationId,
-      sessionId: 'asession01', sessionGeneration: 3 } });
-    expect(await restart().reserveProspectiveRenovateActivity({ ...input, activityId: 'replacement' })).toEqual(first);
-    expect(await restart().readProspectiveRenovateAdmission(first.ok ? first.activityId : 'none'))
-      .toMatchObject({ activityId: first.ok ? first.activityId : 'none',
-        actor: { registrationId: a.registrationId } });
-    state.sessions.set('asession01', { generation: 4, status: 'running' });
-    expect(await registry.currentProspectiveRenovateRegistration(a.registrationId)).toBeNull();
-    // Readback remains stable but cannot transfer its original actor's right to start or publish.
-    expect(await registry.reserveProspectiveRenovateActivity({ ...input, activityId: 'another' })).toEqual(first);
-    expect(await registry.currentProspectiveRenovateRegistration(a.registrationId)).toBeNull();
-    expect(await registry.reserveProspectiveRenovateActivity({ ...input, head: newerHead,
-      activityId: 'activity-new-head' })).toMatchObject({ ok: true, activityId: 'activity-new-head',
-      actor: { registrationId: z.registrationId } });
-  }));
-
-  it('keeps an uncertain Activity admission on its one reserved identity without a replacement execution', () => fixture(async ({ registry, restart, native, environment, selection }) => {
-    const registration = await enroll(registry, 'a');
-    if (!registration.ok) throw Error('Activation unavailable');
-    const observed = pr(registration.registrationId, registration.activatedAt);
-    const reserved = await registry.reserveProspectiveRenovateActivity(observed);
-    if (!reserved.ok) throw Error('Reservation unavailable');
-    const human = claims('a@example.test');
-    const invocationJson = JSON.stringify({ repository: 'acme/updates', pullRequest: observed.pullRequest });
-    const token = 's'.repeat(43);
-    const verifier = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token))))
-      .map(byte => byte.toString(16).padStart(2, '0')).join('');
-    const context = await createOperatorExecutionContext({ activityId: reserved.activityId,
-      operatorId: 'dispatcher', artifactDigest: 'c'.repeat(64), policyDigest: 'd'.repeat(64),
-      human, accessJwt: 'a-jwt' }, environment);
-    let accepted = false;
-    const activity = new OperatorActivity(native, { ...environment, OPERATOR_REGISTRY: { getByName: () => ({
-      admitManagement: async () => { accepted = true; throw new Error('Registry admission response lost'); },
-      resolveManagementExecution: async () => ({ ok: true, value: selection }),
-      upsertOwnedActivity: async () => {},
-    }) } } as unknown as Env);
-    const intent = { installationId: 'dispatcher-install', activityId: reserved.activityId,
-      operatorId: 'dispatcher', intentDigest: await createOperatorIntentDigest('dispatcher', reserved.activityId, invocationJson),
-      expectedRevision: 1, expectedInstallationRevision: 1, expectedControlsRevision: 1,
-      deadline: human.expiresAt * 1000, startExpiresAt: human.expiresAt * 1000, startVerifier: verifier };
-    expect(await activity.prepareAuthorized(intent, context, invocationJson)).toMatchObject({ ok: true });
-    expect(await activity.start(token)).toMatchObject({ ok: false, reason: 'admission-uncertain' });
-    expect(accepted).toBe(true);
-    expect(await restart().reserveProspectiveRenovateActivity({ ...observed,
-      activityId: 'replacement-id' })).toMatchObject({ ok: true, activityId: reserved.activityId,
-      actor: reserved.actor });
-    expect(await activity.getRuntimePlan()).toBeNull();
-    expect(await activity.start(token)).toMatchObject({ ok: false });
-    expect(await activity.getRuntimePlan()).toBeNull();
-  }));
-
-  it('fences Activity-bound read/inference authority of an admitted prospective Dispatcher when its admin session ends', () => fixture(async ({ registry, state, native, environment, selection }) => {
-    const activation = await enroll(registry, 'a');
-    if (!activation.ok) throw Error('Activation unavailable');
-    const reservation = await registry.reserveProspectiveRenovateActivity(pr(activation.registrationId, activation.activatedAt));
-    if (!reservation.ok) throw Error('Admission unavailable');
-    const human = claims('a@example.test');
-    const context = await createOperatorExecutionContext({ activityId: reservation.activityId,
-      operatorId: 'dispatcher', artifactDigest: 'c'.repeat(64), policyDigest: 'd'.repeat(64),
-      human, accessJwt: 'a-jwt' }, environment);
-    const selected = selection as { installation: { id: string } };
-    const plan = { activityId: reservation.activityId, prospectiveAdmissionId: reservation.activityId,
-      deadline: human.expiresAt * 1000, invocationJson: JSON.stringify({ repository: 'acme/updates' }),
-      receipt: { selection: { ...selection as object }, installationId: selected.installation.id }, executionContext: context };
-    const host = { ...environment, OPERATOR_REGISTRY: { getByName: () => registry } } as unknown as Env;
-    await expect(authorizeDispatcherPlan(plan as never, host)).resolves.toBeDefined();
-    const activity = new OperatorActivity(native, host);
-    const intent = { activityId: reservation.activityId, operatorId: 'dispatcher',
-      installationId: 'dispatcher-install', deadline: plan.deadline, intentDigest: 'd'.repeat(64) };
-    await native.storage.put('admission', { intent, phase: 'queued', receipt: { ...intent, selection },
-      executionContext: context, invocationJson: plan.invocationJson, drive: { generation: 1, status: 'running' } });
-    await native.storage.put('prospective-admission', reservation.activityId);
-    await native.storage.put('dispatcher:lease', { generation: 1, artifactDigest: context.artifactDigest,
-      inputDigest: intent.intentDigest, expiresAt: plan.deadline, submissionId: 'submission-1', status: 'running' });
-    expect(await activity.dispatcherGenerationCurrent(1)).toBe(true);
-    state.sessions.set('asession01', { generation: 3, status: 'stopping' });
-    expect(await activity.dispatcherGenerationCurrent(1)).toBe(false);
-    const read = new Request('https://operator.internal/v1/dispatcher/github/read', { method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ operationId: 'read-1', resource: 'pull-request' }) });
-    expect((await activity.dispatcherOperation(1, read)).status).toBe(403);
-    state.sessions.set('asession01', { generation: 3, status: 'running' });
-    state.revoked.add('a-jwt');
-    expect(await activity.dispatcherGenerationCurrent(1)).toBe(false);
-    const inference = new Request('https://operator.internal/v1/dispatcher/inference', { method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ operationId: 'inference-1', input: { messages: [{ role: 'user', content: 'Hi' }] } }) });
-    expect((await activity.dispatcherOperation(1, inference)).status).toBe(403);
-  }));
-
-  it('fences stopped, expired, logged-out, revoked, disabled and foreign registrations before new PR admission', () => fixture(async ({ registry, state }) => {
-    const first = await enroll(registry, 'a');
-    if (!first.ok) throw Error('Activation unavailable');
-    state.sessions.set('asession01', { generation: 3, status: 'stopping' });
-    expect(await registry.currentProspectiveRenovateRegistration(first.registrationId)).toBeNull();
-    expect((await registry.reserveProspectiveRenovateActivity(pr(first.registrationId, first.activatedAt))).ok).toBe(false);
-    state.sessions.set('asession01', { generation: 3, status: 'running' });
-    state.revoked.add('a-jwt');
-    expect(await registry.currentProspectiveRenovateRegistration(first.registrationId)).toBeNull();
-    state.revoked.clear();
-    state.roles.set('a@example.test', 'user');
-    expect(await registry.currentProspectiveRenovateRegistration(first.registrationId)).toBeNull();
-    state.roles.set('a@example.test', 'admin');
-    state.enabled = false;
-    expect(await registry.currentProspectiveRenovateRegistration(first.registrationId)).toBeNull();
-    state.enabled = true;
-    const clock = vi.spyOn(Date, 'now').mockReturnValue((claims('a@example.test').expiresAt + 1) * 1000);
-    try { expect(await registry.currentProspectiveRenovateRegistration(first.registrationId)).toBeNull(); }
-    finally { clock.mockRestore(); }
-    expect((await registry.reserveProspectiveRenovateActivity(pr(first.registrationId, first.activatedAt,
-      { repositoryId: 1 }))).ok).toBe(false);
-  }));
-});
-
-
-describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
-  it('authenticates configured repository metadata with one fixed parent GET before activation and retains the target and revisions through scheduled delivery', () => fixture(async ({ registry, restart, selection, environment }) => {
-    const selected = selection as { controlsRevision: number; installation: { revision: number }; operator: { revision: number } };
-    selected.controlsRevision = 13;
-    selected.installation.revision = 7;
-    selected.operator.revision = 11;
-    const authority = { human: claims('a@example.test'), accessJwt: 'a-jwt' };
-    const human = vi.spyOn(access, 'requireOperatorHumanContext').mockResolvedValue(authority as never);
-    const authenticated = vi.spyOn(access, 'authenticateRequest').mockResolvedValue({
-      user: { email: 'a@example.test', role: 'admin' }, bucketName: 'owner-bucket',
-    } as never);
-    type ScheduledGeneration = { registrationId: string; installationId: string; bucket: string;
-      sessionId: string; sessionGeneration: number };
-    let scheduled: ScheduledGeneration | null = null;
-    const session = { armRenovateScan: async (generation: ScheduledGeneration) => {
-      scheduled = structuredClone(generation);
-      return { ok: true };
-    } };
-    const reads: Array<{ url: string; method: string; redirect: Request['redirect'] }> = [];
-    let createdAt = '';
-    const exports = { GitHubInterceptor: () => ({ fetch: async (request: Request) => {
-      reads.push({ url: request.url, method: request.method, redirect: request.redirect });
-      const url = new URL(request.url);
-      if (url.pathname === '/repos/acme/updates') return Response.json({
-        id: repoId, full_name: 'acme/updates', default_branch: 'trunk' });
-      if (url.pathname !== '/repos/acme/updates/pulls') throw Error('Unexpected protected path');
-      return Response.json([{ number: 1300, state: 'open', draft: false, created_at: createdAt,
-        user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' }, head: { sha: head },
-        base: { ref: 'trunk', sha: newerHead, repo: { id: repoId, full_name: 'acme/updates' } } }]);
-    }, connect: () => { throw Error('Unexpected socket'); } }) };
-    const bindings = { ...environment, ENTERPRISE_MODE: 'active',
-      OPERATOR_REGISTRY: { getByName: () => registry }, OPERATOR_ACTIVITY: {},
-      CONTAINER: { idFromName: (name: string) => name, get: () => session, getByName: () => session },
-    } as unknown as Env;
-    const app = new Hono<{ Bindings: Env }>().route('/api/operator-activities', activityRoutes);
-    try {
-      const response = await app.fetch(new Request('https://owner.example/api/operator-activities/renovate/activation', {
-        method: 'POST', headers: { 'content-type': 'application/json', 'x-requested-with': 'XMLHttpRequest',
-          'cf-access-authenticated-user-email': 'a@example.test' },
-        body: JSON.stringify({ installationId: 'dispatcher-install', sessionId: 'asession01', sessionGeneration: 3 }),
-      }), bindings, { exports, waitUntil: () => {}, passThroughOnException: () => {} } as unknown as ExecutionContext);
-      expect(response.status).toBe(202);
-      const result = await response.json() as { activatedAt: string; repositoryId: number };
-      expect(result).toMatchObject({ repositoryId: repoId, activatedAt: expect.any(String) });
-      // Intentional parent HTTP contract, coupled to the real persisted registration below.
-      expect(reads).toEqual([{ url: 'https://api.github.com/repos/acme/updates', method: 'GET', redirect: 'manual' }]);
-      const generation = scheduled as ScheduledGeneration | null;
-      expect(generation).toMatchObject({ installationId: 'dispatcher-install', bucket: 'owner-bucket',
-        sessionId: 'asession01', sessionGeneration: 3 });
-      if (!generation) throw Error('No scheduled generation');
-      const registered = await restart().currentProspectiveRenovateRegistration(generation.registrationId);
-      expect(registered).toMatchObject({ repository: 'acme/updates', repositoryId: repoId, baseBranch: 'trunk',
-        controlsRevision: 13, installationRevision: 7, operatorRevision: 11,
-        releaseId: 'release', bundleDigest: 'c'.repeat(64), repetitionIntervalSeconds: 900,
-        activatedAt: result.activatedAt, bucket: generation.bucket, sessionId: generation.sessionId,
-        sessionGeneration: generation.sessionGeneration });
-      createdAt = new Date(Date.parse(result.activatedAt) + 1).toISOString();
-      const candidates = await listProspectiveRenovatePrs({ env: bindings, exports,
-        registration: registered as CurrentProspectiveRegistration,
-        current: async () => await restart().currentProspectiveRenovateRegistration(generation.registrationId) !== null });
-      expect(candidates).toMatchObject([{ repository: 'acme/updates', repositoryId: repoId,
-        baseBranch: 'trunk', pullRequest: 1300, head, createdAt }]);
-      const reservation = await registry.reserveProspectiveRenovateActivity({ registrationId: generation.registrationId,
-        ...candidates[0], activityId: 'handoff-activity' });
-      expect(reservation).toMatchObject({ ok: true, activityId: 'handoff-activity' });
-      expect(await restart().readProspectiveRenovateAdmission('handoff-activity')).toMatchObject({
-        repository: 'acme/updates', repositoryId: repoId, baseBranch: 'trunk',
-        actor: { registrationId: generation.registrationId, sessionId: generation.sessionId,
-          sessionGeneration: generation.sessionGeneration },
-      });
-    } finally { human.mockRestore(); authenticated.mockRestore(); }
-  }));
-  it.each([{}, { renovate: { repository: 'acme/updates' } },
-    { renovate: { repository: 'acme/updates', automaticRuns: false } },
-    { renovate: { automaticRuns: true, repetitionIntervalSeconds: 900 } }])
-    ('denies activation without an explicit repository and automatic opt-in %j', configuration => fixture(async ({ registry, selection }) => {
-      (selection as { installation: { configurationJson: string } }).installation.configurationJson = JSON.stringify(configuration);
-      expect(await enroll(registry, 'a')).toMatchObject({ ok: false });
-    }));
-  it('pins alternate authenticated identity and defaults the registered interval to 3600', () => fixture(async ({ registry, selection }) => {
-    (selection as { installation: { configurationJson: string } }).installation.configurationJson = JSON.stringify({
-      renovate: { repository: 'acme/updates', automaticRuns: true } });
-    const activation = await enroll(registry, 'a');
-    if (!activation.ok) throw Error('Configured activation unavailable');
-    expect(await registry.currentProspectiveRenovateRegistration(activation.registrationId)).toMatchObject({
-      repository: 'acme/updates', repositoryId: repoId, baseBranch: 'trunk', repetitionIntervalSeconds: 3600 });
-    expect(await registry.reserveProspectiveRenovateActivity(pr(activation.registrationId, activation.activatedAt)))
-      .toMatchObject({ ok: true });
-    expect(await registry.readProspectiveRenovateAdmission('activity-1')).toMatchObject({
-      repository: 'acme/updates', repositoryId: repoId, baseBranch: 'trunk', activatedAt: activation.activatedAt });
-  }));
-  it('configuration save and ordinary separate enable cannot refresh an old admitted generation', () => fixture(async ({ registry, restart, selection, state }) => {
-    const first = await enroll(registry, 'a');
-    if (!first.ok) throw Error('Activation unavailable');
-    const observed = pr(first.registrationId, first.activatedAt);
-    const reserved = await registry.reserveProspectiveRenovateActivity(observed);
-    expect(reserved).toMatchObject({ ok: true });
-    const original = await registry.readProspectiveRenovateAdmission('activity-1');
-    const selected = selection as { installation: { revision: number; configurationJson: string } };
-    state.enabled = false;
-    selected.installation.revision++;
-    selected.installation.configurationJson = JSON.stringify({ renovate: {
-      repository: 'acme/updates', automaticRuns: false, repetitionIntervalSeconds: 7200 } });
-    expect(await registry.currentProspectiveRenovateRegistration(first.registrationId)).toBeNull();
-    state.enabled = true;
-    expect(await restart().currentProspectiveRenovateRegistration(first.registrationId)).toBeNull();
-    expect(await enroll(registry, 'a')).toMatchObject({ ok: false });
-    selected.installation.revision++;
-    selected.installation.configurationJson = JSON.stringify({ renovate: {
-      repository: 'acme/updates', automaticRuns: true, repetitionIntervalSeconds: 7200 } });
-    const next = await enroll(registry, 'a');
-    if (!next.ok) throw Error('Reactivation unavailable');
-    expect(next.activatedAt).toBe(first.activatedAt);
-    expect(next.registrationId).not.toBe(first.registrationId);
-    expect(await restart().currentProspectiveRenovateRegistration(first.registrationId)).toBeNull();
-    expect(await registry.readProspectiveRenovateAdmission('activity-1')).toEqual(original);
-    expect(await registry.reserveProspectiveRenovateActivity({ ...observed, registrationId: next.registrationId,
-      activityId: 'replacement' })).toEqual(reserved);
-    expect(await registry.currentProspectiveRenovateRegistration(next.registrationId)).toMatchObject({ repetitionIntervalSeconds: 7200 });
-  }));
-  it('fences legacy automatic records without settings while leaving their admission readable', () => fixture(async ({ registry, native, selection }) => {
-    const legacy = { activityId: 'legacy-activity', installationId: 'dispatcher-install', repositoryId: 973175879,
-      pullRequest: 17, head, activatedAt: at, createdAt: at, ownerKey: 'a'.repeat(64), actor: { registrationId: 'legacy-scan' } };
-    await native.storage.put('renovate-activity:legacy-activity', legacy);
-    await native.storage.put('renovate-activation', { installationId: 'dispatcher-install', repositoryId: 973175879, activatedAt: at });
-    (selection as { installation: { configurationJson: string } }).installation.configurationJson = '{}';
-    expect(await enroll(registry, 'a')).toMatchObject({ ok: false });
-    expect(await registry.readProspectiveRenovateAdmission('legacy-activity')).toEqual(legacy);
-  }));
-  it('each repository retains its first cutoff and returning to it retains same-head dedupe without replay', () => fixture(async ({ registry, restart, selection }) => {
-    const first = await enroll(registry, 'a');
-    if (!first.ok) throw Error('First activation unavailable');
-    const observed = pr(first.registrationId, first.activatedAt);
-    const reserved = await registry.reserveProspectiveRenovateActivity(observed);
-    expect(reserved).toMatchObject({ ok: true });
-    const selected = selection as { installation: { revision: number; configurationJson: string } };
-    const later = Date.now() + 2000;
-    const clock = vi.spyOn(Date, 'now').mockReturnValue(later);
-    try {
-      selected.installation.revision++;
-      selected.installation.configurationJson = JSON.stringify({ renovate: { repository: 'other/service', automaticRuns: true, repetitionIntervalSeconds: 7200 } });
-      const other = await enroll(registry, 'a', 3, { repository: 'other/service', repositoryId: 565656, baseBranch: 'develop' });
-      expect(other).toMatchObject({ ok: true, activatedAt: new Date(later).toISOString() });
-      if (!other.ok) throw Error('Other activation unavailable');
-      expect(await registry.reserveProspectiveRenovateActivity(pr(other.registrationId, other.activatedAt,
-        { repository: 'other/service', repositoryId: 565656, baseBranch: 'develop', activityId: 'other-activity' })))
-        .toMatchObject({ ok: true, activityId: 'other-activity' });
-      expect(await registry.currentProspectiveRenovateRegistration(first.registrationId)).toBeNull();
-      selected.installation.revision++;
-      selected.installation.configurationJson = JSON.stringify({ renovate: { repository: 'acme/updates', automaticRuns: true, repetitionIntervalSeconds: 900 } });
-      clock.mockReturnValue(later + 2000);
-      const returning = await enroll(registry, 'a');
-      if (!returning.ok) throw Error('Returning activation unavailable');
-      expect(returning.activatedAt).toBe(first.activatedAt);
-      expect(await restart().reserveProspectiveRenovateActivity({ ...observed, registrationId: returning.registrationId,
-        activityId: 'replacement' })).toEqual(reserved);
-      expect(await registry.reserveProspectiveRenovateActivity({ ...observed, registrationId: returning.registrationId,
-        head: newerHead, activityId: 'new-head' })).toMatchObject({ ok: true, activityId: 'new-head' });
-      selected.installation.revision++;
-      expect(await enroll(registry, 'a', 3, { repository: 'acme/updates', repositoryId: 1, baseBranch: 'trunk' }))
-        .toMatchObject({ ok: false });
-    } finally { clock.mockRestore(); }
-  }));
-  it('a settings change during asynchronous election cannot create a stale admission', () => fixture(async ({ registry, selection }) => {
-    const activation = await enroll(registry, 'a');
-    if (!activation.ok) throw Error('Activation unavailable');
-    const selected = selection as { installation: { revision: number } };
-    const original = globalThis.fetch;
-    globalThis.fetch = async (request, init) => { const result = await original(request, init); selected.installation.revision++; return result; };
-    try {
-      expect(await registry.reserveProspectiveRenovateActivity(pr(activation.registrationId, activation.activatedAt)))
-        .toMatchObject({ ok: false });
-      expect(await registry.readProspectiveRenovateAdmission('activity-1')).toBeNull();
-    } finally { globalThis.fetch = original; }
-  }));
-
-});
-
-function terminalProof(activityId: string, createdAt: string, terminalAt: number): ProspectiveRenovateRetryProof {
-  return { activityId, generation: 1, repository: 'acme/updates', repositoryId: repoId, baseBranch: 'trunk',
-    pullRequest: 1300, head, artifactDigest: 'c'.repeat(64), createdAt, terminalAt,
-    collected: true, settled: true, sdkSubmissionId: 'original-sid', disposition: 'DEFERRED' };
+// Export consumers can reconstruct full logical records; production persistence
+// deliberately never allocates a history/record reconstruction buffer.
+function reconciliationRecords(records: Array<{ stage: string; value: unknown }>) {
+  const decoded: Array<{ stage: string; value: unknown }> = [];
+  let sequence = 0; let part = 0; let text = '';
+  for (const record of records) {
+    if (record.stage !== 'reconciliation-record-part') { decoded.push(record); continue; }
+    const frame = record.value as { type: string; sequence: number; part: number; text: string; last: boolean; digest?: string };
+    expect(frame).toMatchObject({ type: 'record', sequence, part });
+    expect(frame.text.length).toBeLessThanOrEqual(4096);
+    text += frame.text;
+    if (frame.last) {
+      // The private framing contract checksums the reconstructed original UTF-8.
+      expect(frame.digest).toBe(createHash('sha256').update(text).digest('hex'));
+      decoded.push(JSON.parse(text)); text = ''; part = 0; sequence++;
+    } else part++;
+  }
+  expect(text).toBe(''); expect(part).toBe(0);
+  return decoded;
+}
+async function registryRawExport(response: Response) {
+  expect(response).toBeInstanceOf(Response);
+  expect(response.status).toBe(200);
+  expect(response.headers.get('cache-control')).toBe('no-store');
+  expect(response.headers.get('content-type')).toContain('application/x-ndjson');
+  const text = await response.text();
+  expect(text.endsWith('\n')).toBe(true);
+  const frames = text.trimEnd().split('\n').map(line => JSON.parse(line));
+  expect(frames.pop()).toEqual({ type: 'complete', receipt: expect.objectContaining({ status: 'complete' }) });
+  for (const frame of frames) expect(frame).toStrictEqual({ type: 'record', stage: expect.any(String), value: frame.value });
+  return reconciliationRecords(frames.map(frame => ({ stage: frame.stage as string, value: frame.value as unknown })));
+}
+async function registryRawDenied(response: Response) {
+  expect(response).toBeInstanceOf(Response);
+  expect(response.ok).toBe(false);
+  expect(await response.text()).not.toMatch(/SYNTHETIC_|a-jwt|z-jwt|"type":"record"|"type":"complete"|@example.test/);
 }
 
-describe('REQ-OPERATOR-061 AC2/6/7: terminal-proof configured retry', () => {
-  // These fresh actors remain authorized across the 900-second due boundary.
-  // Existing enrollment/expiry cases retain their original 300-second lifetime.
-  const enrollRetry = (registry: Prospective, user: 'a' | 'z') => enroll(registry, user, undefined, undefined, 7200);
-  it.each(['3', '4'])('admits the existing first-party intent%s contract', intentVersion => fixture(async ({ registry, selection }) => {
-    (selection as { manifestJson: string }).manifestJson = JSON.stringify({ id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion });
-    expect(await enrollRetry(registry, 'a')).toMatchObject({ ok: true });
-  }));
-  it.each(['EXECUTION_FAILED', 'DEFERRED'] as const)('elects one fresh unchanged-head %s attempt exactly at the configured due boundary and preserves original history', disposition => fixture(async ({ registry, restart, proofs }) => {
-    const now = Date.now(), clock = vi.spyOn(Date, 'now').mockReturnValue(now);
-    try {
-      const a = await enrollRetry(registry, 'a'), z = await enrollRetry(registry, 'z');
-      if (!a.ok || !z.ok) throw Error('Activation unavailable');
-      const observed = pr(a.registrationId, a.activatedAt);
-      const original = await registry.reserveProspectiveRenovateActivity(observed);
-      const journal = await registry.readProspectiveRenovateAdmission('activity-1');
-      proofs.set('activity-1', { ...terminalProof('activity-1', observed.createdAt, now + 1000), disposition });
-      clock.mockReturnValue(now + 900_000 - 1);
-      expect(await registry.reserveProspectiveRenovateActivity({ ...observed, activityId: 'not-due' })).toEqual(original);
-      expect(await registry.retainedProspectiveRenovateRetryTargets(a.registrationId)).toEqual([]);
-      clock.mockReturnValue(now + 900_000);
-      expect(await registry.retainedProspectiveRenovateRetryTargets(a.registrationId)).toEqual([{
-        repositoryId: repoId, pullRequest: 1300, head, createdAt: observed.createdAt }]);
-      const outcomes = await Promise.all([registry.reserveProspectiveRenovateActivity({ ...observed, activityId: 'retry-a' }),
-        registry.reserveProspectiveRenovateActivity({ ...observed, registrationId: z.registrationId, activityId: 'retry-z' })]);
-      expect(outcomes[0]).toEqual(outcomes[1]);
-      expect(outcomes[0]).toMatchObject({ ok: true, actor: { registrationId: a.registrationId } });
-      if (!outcomes[0].ok) throw Error('Retry unavailable');
-      expect(outcomes[0].activityId).not.toBe('activity-1');
-      expect(await restart().readProspectiveRenovateAdmission(outcomes[0].activityId)).toMatchObject({
-        attempt: 2, previousActivityId: 'activity-1', admittedAt: now + 900_000, head });
-      expect(await restart().readProspectiveRenovateAdmission('activity-1')).toEqual(journal);
-      // A lost preparation/start response supplies no terminal proof for the winner.
-      clock.mockReturnValue(now + 1_800_000);
-      expect(await restart().reserveProspectiveRenovateActivity({ ...observed, activityId: 'lost-ack-replacement' })).toEqual(outcomes[0]);
-      expect(await restart().readProspectiveRenovateAdmission('lost-ack-replacement')).toBeNull();
-    } finally { clock.mockRestore(); }
-  }));
-  it('does not borrow refreshed session or installation authority for a due retry', () => fixture(async ({ registry, proofs, state, selection }) => {
-    const now = Date.now(), clock = vi.spyOn(Date, 'now').mockReturnValue(now);
-    try {
-      const a = await enrollRetry(registry, 'a'); if (!a.ok) throw Error('Activation unavailable');
-      const observed = pr(a.registrationId, a.activatedAt);
-      await registry.reserveProspectiveRenovateActivity(observed);
-      const original = await registry.readProspectiveRenovateAdmission('activity-1');
-      proofs.set('activity-1', terminalProof('activity-1', observed.createdAt, now + 1000));
-      clock.mockReturnValue(now + 900_000);
-      state.sessions.set('asession01', { generation: 4, status: 'running' });
-      expect(await registry.reserveProspectiveRenovateActivity({ ...observed, activityId: 'stale-retry' }))
-        .toEqual({ ok: false, reason: 'no-current-admin' });
-      state.sessions.set('asession01', { generation: 3, status: 'running' });
-      (selection as { installation: { revision: number } }).installation.revision++;
-      expect(await registry.reserveProspectiveRenovateActivity({ ...observed, activityId: 'stale-retry' }))
-        .toEqual({ ok: false, reason: 'no-current-admin' });
-      expect(await registry.readProspectiveRenovateAdmission('activity-1')).toEqual(original);
-      expect(await registry.readProspectiveRenovateAdmission('stale-retry')).toBeNull();
-    } finally { clock.mockRestore(); }
-  }));
-  it('retains a proven historical target without moving the cutoff and refuses changed or unretained pre-cutoff heads', () => fixture(async ({ registry, proofs, native }) => {
-    const now = Date.now(), clock = vi.spyOn(Date, 'now').mockReturnValue(now);
-    try {
-      const a = await enrollRetry(registry, 'a'); if (!a.ok) throw Error('Activation unavailable');
-      const observed = pr(a.registrationId, a.activatedAt);
-      await registry.reserveProspectiveRenovateActivity(observed);
-      const oldCreatedAt = new Date(now - 1000).toISOString();
-      const admission = { ...await registry.readProspectiveRenovateAdmission('activity-1') as object, createdAt: oldCreatedAt };
-      // Retained historical admission fixture; ordinary scans cannot create this pre-cutoff record.
-      await native.storage.put('renovate-activity:activity-1', admission);
-      await native.storage.put(`renovate-admission:${repoId}:1300:${head}`, admission);
-      proofs.set('activity-1', terminalProof('activity-1', oldCreatedAt, now + 1000));
-      clock.mockReturnValue(now + 900_000);
-      expect(await registry.retainedProspectiveRenovateRetryTargets(a.registrationId)).toEqual([{
-        repositoryId: repoId, pullRequest: 1300, head, createdAt: oldCreatedAt }]);
-      expect(await registry.reserveProspectiveRenovateActivity({ ...observed, createdAt: oldCreatedAt, head: newerHead, activityId: 'changed-old-head' }))
-        .toMatchObject({ ok: false, reason: 'pre-activation' });
-      expect(await registry.reserveProspectiveRenovateActivity({ ...observed, createdAt: oldCreatedAt, pullRequest: 1301, activityId: 'unretained-old-pr' }))
-        .toMatchObject({ ok: false, reason: 'pre-activation' });
-      expect(await registry.reserveProspectiveRenovateActivity({ ...observed, createdAt: oldCreatedAt, activityId: 'retained-retry' }))
-        .toMatchObject({ ok: true, activityId: 'retained-retry' });
-      expect(await registry.currentProspectiveRenovateRegistration(a.registrationId)).toMatchObject({ activatedAt: a.activatedAt });
-      expect(await registry.readProspectiveRenovateAdmission('activity-1')).toEqual(admission);
-    } finally { clock.mockRestore(); }
-  }));
-  it.each(['absent', 'unknown', 'uncollected', 'unsettled', 'foreign-activity', 'foreign-repository', 'foreign-head', 'foreign-package', 'success', 'future-terminal', 'unavailable'])
-    ('refuses %s proof without replacing or refreshing the original actor', fault => fixture(async ({ registry, restart, proofs, environment }) => {
-      const now = Date.now(), clock = vi.spyOn(Date, 'now').mockReturnValue(now);
+// Caller-side fault/race seam only: never wrap the Activity's native readable
+// before Response transfers it out of the transaction's parent input gate.
+function adaptReconciliationResult(stream: ReadableStream<Uint8Array>, onResult: (line: string) => Promise<string | null>) {
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
+  const TEXT = 4096, LINE = 64 * 1024;
+  const reader = stream.getReader();
+  // closed is a parallel notification; read() below still exposes source errors.
+  void reader.closed.catch(() => {});
+  let pending = ''; let chunk: Uint8Array | undefined; let at = 0; let finished = false;
+  const cleanup = async (reason?: unknown) => {
+    try { await reader.cancel(reason); } catch { /* Preserve the original read/decoder/callback error. */ }
+    finally { reader.releaseLock(); chunk = undefined; pending = ''; }
+  };
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
       try {
-        const a = await enrollRetry(registry, 'a'); if (!a.ok) throw Error('Activation unavailable');
-        const observed = pr(a.registrationId, a.activatedAt);
-        const original = await registry.reserveProspectiveRenovateActivity(observed);
-        const proof: Record<string, unknown> = { ...terminalProof('activity-1', observed.createdAt, now + 1000) };
-        if (fault === 'unknown') proof.disposition = 'UNKNOWN';
-        if (fault === 'uncollected') proof.collected = false;
-        if (fault === 'unsettled') proof.settled = false;
-        if (fault === 'foreign-activity') proof.activityId = 'other-activity';
-        if (fault === 'foreign-repository') proof.repositoryId = 1;
-        if (fault === 'foreign-head') proof.head = newerHead;
-        if (fault === 'foreign-package') proof.artifactDigest = 'd'.repeat(64);
-        if (fault === 'success') proof.disposition = 'MERGED';
-        if (fault === 'future-terminal') proof.terminalAt = now + 1_800_001;
-        if (fault !== 'absent') proofs.set('activity-1', proof);
-        if (fault === 'unavailable') (environment as unknown as { OPERATOR_ACTIVITY: unknown }).OPERATOR_ACTIVITY = {
-          getByName: () => ({ readProspectiveRenovateRetryProof: async () => { throw Error('Unavailable'); } }) };
-        clock.mockReturnValue(now + 900_000);
-        expect(await restart().reserveProspectiveRenovateActivity({ ...observed, activityId: 'replacement' })).toEqual(original);
-        expect(await restart().readProspectiveRenovateAdmission('replacement')).toBeNull();
-        expect(await registry.retainedProspectiveRenovateRetryTargets(a.registrationId)).toEqual([]);
-      } finally { clock.mockRestore(); }
+        while (!finished) {
+          if (!chunk || at === chunk.length) {
+            const next = await reader.read();
+            if (finished) return;
+            if (next.done) {
+              pending += decoder.decode();
+              if (pending) throw Error('RECONCILIATION_INTERRUPTED');
+              finished = true; controller.close();
+              await cleanup(); return;
+            }
+            chunk = next.value; at = 0;
+          }
+          // Decode at most TEXT bytes, stopping at the next physical newline.
+          // Keep only the current input chunk and one bounded partial line.
+          const slice = chunk.subarray(at, at + TEXT);
+          const newline = slice.indexOf(10);
+          const end = at + (newline < 0 ? slice.length : newline + 1);
+          pending += decoder.decode(chunk.subarray(at, end), { stream: true });
+          at = end;
+          if (at === chunk.length) chunk = undefined;
+          if (newline < 0) {
+            if (pending.length > LINE) throw Error('RECONCILIATION_FRAME_INVALID');
+            continue;
+          }
+          const line = pending.slice(0, -1); pending = '';
+          if (line.length > LINE) throw Error('RECONCILIATION_FRAME_INVALID');
+          const frame: unknown = JSON.parse(line);
+          const replacement = frame !== null && typeof frame === 'object' && 'type' in frame && frame.type === 'result'
+            ? await onResult(line) : line;
+          if (finished) return;
+          if (replacement !== null) controller.enqueue(encoder.encode(`${replacement}\n`));
+          // Dropped/corrupted footers cancel the source; an unchanged footer
+          // must keep reading so genuine EOF, trailing data and failures survive.
+          if (replacement !== line) {
+            finished = true; controller.close();
+            await cleanup();
+          }
+          return;
+        }
+      } catch (error) {
+        if (finished) return;
+        finished = true; controller.error(error);
+        await cleanup(error);
+      }
+    },
+    async cancel(reason) {
+      if (finished) return;
+      finished = true;
+      await cleanup(reason);
+    },
+  }, { highWaterMark: 0 });
+}
+
+describe('REQ-OPERATOR-061 AC2/6/7 /090/091: reconciliation consumer wire integrity', () => {
+  const encoder = new TextEncoder();
+  const privateText = 'PRIVATE_秘密🧪';
+  const texts = ['{"stage":"boundary","value":"', privateText, '"}'];
+  // Hand-authored wire frames, independent of the production stream producer.
+  // Recompute checksums after part edits so ordering failures stand alone.
+  const records = (order = [0, 1, 2], sequence = 0) => {
+    const digest = createHash('sha256').update(order.map(part => texts[part]).join('')).digest('hex');
+    return order.map((part, index) => ({ type: 'record', sequence, part, text: texts[part],
+      last: index === order.length - 1, ...(index === order.length - 1 ? { digest } : {}) }));
+  };
+  const result = (count = 1) => ({ type: 'result', value: { retired: true, text: privateText },
+    evidenceComplete: true, records: count });
+  const wire = (frames: unknown[]) => encoder.encode(frames.map(frame => `${JSON.stringify(frame)}\n`).join(''));
+  const stream = (chunks: Uint8Array[], failure?: Error) => {
+    let index = 0;
+    return new ReadableStream<Uint8Array>({ pull(controller) {
+      if (index < chunks.length) controller.enqueue(chunks[index++]);
+      else if (failure) controller.error(failure);
+      else controller.close();
+    } }, { highWaterMark: 0 });
+  };
+  const valid = () => wire([...records(), result()]);
+  const malformed: Array<{ name: string; chunks: Uint8Array[]; failure?: Error }> = [
+    { name: 'altered record text with its original checksum', chunks: [wire([
+      ...records().map(frame => frame.part === 1 ? { ...frame, text: 'ALTERED' } : frame), result()])] },
+    { name: 'altered checksum with original record text', chunks: [wire([
+      ...records().map(frame => frame.last ? { ...frame, digest: '0'.repeat(64) } : frame), result()])] },
+    { name: 'duplicate part with a matching recomputed checksum', chunks: [wire([...records([0, 1, 1, 2]), result()])] },
+    { name: 'reordered parts with a matching recomputed checksum', chunks: [wire([...records([1, 0, 2]), result()])] },
+    { name: 'missing middle part with a matching recomputed checksum', chunks: [wire([...records([0, 2]), result()])] },
+    { name: 'wrong final part number with a valid checksum', chunks: [wire([
+      ...records().map(frame => frame.last ? { ...frame, part: 3 } : frame), result()])] },
+    { name: 'skipped record sequence with valid parts and checksums', chunks: [wire([
+      ...records(), ...records([0, 1, 2], 2), result(2)])] },
+    { name: 'underreported record count', chunks: [wire([...records(), result(0)])] },
+    { name: 'overreported record count', chunks: [wire([...records(), result(2)])] },
+    { name: 'valid result followed by another valid record', chunks: [valid(), wire(records([0, 1, 2], 1))] },
+    { name: 'valid result followed by another result', chunks: [valid(), wire([result()])] },
+    { name: 'valid result followed by a stream error', chunks: [valid()], failure: Error('Transport failed after result') },
+    { name: 'unfinished record before a result with a matching completed-record count',
+      chunks: [wire([...records().slice(0, 2), result(0)])] },
+    { name: 'missing final result after a complete record', chunks: [wire(records())] },
+    { name: 'incomplete final result frame', chunks: [wire(records()), encoder.encode('{"type":"result","value":')] },
+    { name: 'final result without its terminating newline', chunks: [valid().slice(0, -1)] },
+    // Invalid bytes inside the result string would otherwise become replacement
+    // characters in an accepted result; record checksums cannot mask this guard.
+    { name: 'invalid UTF-8 inside an otherwise valid result', chunks: [wire(records()),
+      encoder.encode('{"type":"result","value":{"retired":true,"text":"'), Uint8Array.of(0xff),
+      encoder.encode('"},"evidenceComplete":true,"records":1}\n')] },
+    { name: 'unfinished UTF-8 sequence at EOF after a valid result', chunks: [valid(), Uint8Array.of(0xe7)] },
+  ];
+
+  it.each(malformed)('$name rejects rather than returning retirement eligibility', async ({ chunks, failure }) => {
+    await expect(consumeProspectiveReconciliation(stream(chunks, failure), value => value)).rejects.toThrow();
+    await expect(consumeProspectiveReconciliation(
+      adaptReconciliationResult(stream(chunks, failure), async line => line), value => value)).rejects.toThrow();
+  });
+
+  it.each(['bytewise', 'coalesced'] as const)(
+    'caller footer faults/races preserve physical evidence across %s UTF-8 chunks', async chunking => {
+      // Deliberately noncanonical whitespace must survive, not just parsed values.
+      const evidence = records().map(frame => ` ${JSON.stringify(frame)} \r\n`).join('');
+      const footer = ` ${JSON.stringify(result())} \r\n`;
+      const bytes = encoder.encode(evidence + footer);
+      const chunks = chunking === 'bytewise' ? Array.from(bytes, byte => Uint8Array.of(byte)) : [bytes];
+      let revision = 1;
+      const raced = adaptReconciliationResult(stream(chunks), async line => {
+        await Promise.resolve(); revision++; return line;
+      });
+      const [physical, checked] = raced.tee();
+      const [forwarded, outcome] = await Promise.all([
+        new Response(physical).arrayBuffer(),
+        consumeProspectiveReconciliation(checked, value => ({ value, revision })),
+      ]);
+      expect(new Uint8Array(forwarded)).toEqual(bytes);
+      expect(outcome).toEqual({ value: { value: { retired: true, text: privateText }, revision: 2 }, evidenceComplete: true });
+      for (const replacement of [null, '{"type":"result","value":true}']) {
+        const damaged = new Uint8Array(await new Response(adaptReconciliationResult(
+          stream(chunks), async () => replacement)).arrayBuffer());
+        expect(damaged).toEqual(encoder.encode(evidence + (replacement === null ? '' : `${replacement}\n`)));
+        await expect(consumeProspectiveReconciliation(stream([damaged]), value => value)).rejects.toThrow();
+      }
+    });
+
+  it('caller footer callback rejection stays reader-visible and cancels the source', async () => {
+    const failure = Error('Caller footer callback failed');
+    let cancellation: unknown;
+    const source = new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(valid()); },
+      cancel(reason) { cancellation = reason; },
+    }, { highWaterMark: 0 });
+    await expect(consumeProspectiveReconciliation(adaptReconciliationResult(source, async () => {
+      await Promise.resolve(); throw failure;
+    }), value => value)).rejects.toBe(failure);
+    expect(cancellation).toBe(failure);
+    expect(source.locked).toBe(false);
+  });
+
+  it('caller cancellation cancels and releases the adapted source', async () => {
+    const reason = Error('Caller stopped reading');
+    let cancellation: unknown;
+    const source = new ReadableStream<Uint8Array>({
+      cancel(value) { cancellation = value; },
+    }, { highWaterMark: 0 });
+    const reader = adaptReconciliationResult(source, async line => line).getReader();
+    const pendingRead = reader.read();
+    await reader.cancel(reason);
+    expect(await pendingRead).toEqual({ done: true, value: undefined });
+    expect(cancellation).toBe(reason);
+    expect(source.locked).toBe(false);
+    reader.releaseLock();
+  });
+
+  it('decodes exact Unicode evidence and outcome when every UTF-8 byte is a separate chunk', async () => {
+    const captured: Array<{ stage: string; value: unknown }> = [];
+    const bytes = wire([...records(), ...records([0, 1, 2], 1), result(2)]);
+    const outcome = await consumeProspectiveReconciliation(stream(Array.from(bytes, byte => Uint8Array.of(byte))), value => value, {
+      record(stage, lazy) { captured.push({ stage, value: lazy() }); },
+      finish: async () => { throw Error('Stream-only fixture has no archive to finalize'); },
+    });
+    expect(outcome).toEqual({ value: { retired: true, text: privateText }, evidenceComplete: true });
+    expect(reconciliationRecords(captured)).toEqual([
+      { stage: 'boundary', value: privateText }, { stage: 'boundary', value: privateText },
+    ]);
+  });
+});
+
+describe('REQ-OPERATOR-090/091 AC6/7: Registry-native private observation reads', () => {
+  it.each(['on', 'off', 'writer-failure'] as const)(
+    'REQ-OPERATOR-061/090/091: %s bounded exchange preserves business outcome and complete multi-batch private bytes/error chains or explicit incompleteness',
+    policy => fixture(async ({ native, environment }) => {
+      const binding: RawCaptureBinding = { ownerKey: 'a'.repeat(64), installationId: 'dispatcher-install', releaseId: 'release',
+        captureId: crypto.randomUUID(), scope: { kind: 'observation', observationId: crypto.randomUUID() } };
+      const storage = await createOwnerRawCaptureStorage(environment, native.storage, async () => {});
+      const capture = createRawCapture({ enabled: policy !== 'off', binding,
+        storage: async () => { if (policy === 'writer-failure') throw Error('Owner writer unavailable'); return storage; },
+        schedule: work => native.waitUntil(work) });
+      const privateText = 'UNREDACTED_PRIVATE_秘密🧪\n"\\'.repeat(3000);
+      const error = Error(`Outer ${privateText}`, { cause: Error(`Inner ${privateText}`) });
+      const pages = Array.from({ length: 3 }, (_, page) => Array.from({ length: 128 }, (_, row) => ({ page, row, body: privateText.slice(row, row + 40) })));
+      let evaluated = false;
+      const activityNamespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
+      const activityName = `multi-batch-${crypto.randomUUID()}`;
+      const response = await runInDurableObject(activityNamespace.getByName(activityName), (_instance, state) =>
+        new Response(prospectiveReconciliationStream(policy !== 'off', async raw => {
+          raw?.record('retained-history-start', () => ({ pages: pages.length }));
+          try { await raw?.flush?.(); } catch { /* Preserve business I/O when evidence fails. */ }
+          return state.storage.transaction(async tx => {
+            await captureRawInteraction(raw, 'transaction-write', () => ({ key: 'reconciliation-ready', value: true }),
+              () => tx.put('reconciliation-ready', true));
+            for (const page of pages) {
+              raw?.record('retained-history-page', () => { evaluated = true; return page; }); await raw?.flush?.();
+            }
+            raw?.record('retained-history-error', () => error); await raw?.flush?.();
+            const retired = await captureRawInteraction(raw, 'transaction-read', () => 'reconciliation-ready',
+              () => tx.get<boolean>('reconciliation-ready'));
+            return { retired: retired === true };
+          });
+        })));
+      if (!response.body) throw Error('Missing reconciliation response body');
+      const outcome = await consumeProspectiveReconciliation(response.body, value => value, policy === 'off' ? undefined : capture);
+      expect(outcome.value).toEqual({ retired: true });
+      expect(await runInDurableObject(activityNamespace.getByName(activityName), (_instance, state) =>
+        state.storage.get('reconciliation-ready'))).toBe(true);
+      expect(evaluated).toBe(policy !== 'off');
+      const receipt = await capture.finish('complete');
+      expect(receipt.status).toBe(policy === 'off' ? 'disabled' : policy === 'writer-failure' ? 'incomplete' : 'complete');
+      expect(outcome.evidenceComplete).toBe(policy !== 'writer-failure');
+      if (policy === 'on') {
+        const exported = await registryRawExport(await exportRawCapture({ binding, storage }));
+        expect(exported.filter(record => record.stage === 'retained-history-page').map(record => record.value)).toEqual(pages);
+        expect(exported.find(record => record.stage === 'retained-history-error')?.value).toMatchObject({ name: 'Error',
+          message: error.message, stack: error.stack, cause: { name: 'Error', message: (error.cause as Error).message, stack: (error.cause as Error).stack } });
+      } else expect(await discoverRawCaptures({ scope: { ownerKey: binding.ownerKey, scope: binding.scope }, storage, authorize: async () => {} }))
+        .toMatchObject({ status: 'complete', bindings: [] });
     }));
+
+  it('exports all 538181 retained pre-admission bytes and nested errors without an Activity or current registration', () => fixture(async ({ registry, native, environment, selection, state }) => {
+    environment.ENTERPRISE_MODE = 'active';
+    const body = new TextEncoder().encode('SYNTHETIC_PRE_ADMISSION_BODY;'.repeat(20_000)).slice(0, 538181);
+    const cause = new TypeError('SYNTHETIC_PRE_ADMISSION_CAUSE', { cause: new Error('SYNTHETIC_DEEPEST_CAUSE') });
+    const original = new Error('SYNTHETIC_PRE_ADMISSION_STREAM_ERROR', { cause });
+    const binding: RawCaptureBinding = { ownerKey: await operatorOwnerKey(claims('a@example.test')),
+      installationId: 'dispatcher-install', releaseId: 'release', captureId: crypto.randomUUID(),
+      scope: { kind: 'observation', observationId: crypto.randomUUID() } };
+    const records: Array<{ stage: string; value: unknown }> = [{ stage: 'discovery-observation', value: { accessJwt: 'a-jwt' } }];
+    for (let offset = 0; offset < body.length; offset += 8192) records.push({ stage: 'discovery-response-chunk',
+      value: { bytes: Array.from(body.subarray(offset, offset + 8192)) } });
+    records.push({ stage: 'discovery-response-error', value: { error: original } });
+    // Generic owner persistence consumes original producer bytes, without
+    // resurrecting Registry's retired discovery/alarm implementation.
+    const receipt = await registry.retainRawObservation({ binding, records, termination: 'failed', failed: false });
+    expect(receipt).toMatchObject({ status: 'complete', termination: 'failed' });
+    environment.OPERATOR_ACTIVITY = { getByName: () => { throw Error('No Activity exists for this observation'); } } as never;
+    (selection as ManagementExecutionSelection).operator.policy.loggingEnabled = false;
+    state.enabled = false; state.sessions.clear();
+    const before = structuredClone(await native.storage.list()), alarm = await native.storage.getAlarm();
+    const users = await environment.KV.list();
+    const auth = registryReadAuth();
+    try {
+      const namespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
+      const read = (input: NativeRawInput) => runInDurableObject(namespace.get(native.id), () =>
+        (new OperatorRegistry(native, environment) as OperatorRegistry & NativeRawReader)
+          .readOwnerRawCaptures({ email: 'a@example.test', accessJwt: 'a-jwt' }, input));
+      let cursor: string | undefined;
+      const exported: Array<{ stage: string; value: unknown }> = [];
+      do {
+        const page = await registryRawPage(await read({ view: 'discover', scope: binding.scope, cursor }));
+        for (const capture of page.bindings) exported.push(...await registryRawExport(await read({
+          view: 'export', scope: binding.scope, cursor, captureId: capture.captureId })));
+        cursor = page.cursor ?? undefined;
+      } while (cursor);
+      expect(exported.find(record => record.stage === 'discovery-observation')?.value).toEqual({ accessJwt: 'a-jwt' });
+      expect(Uint8Array.from(exported.filter(record => record.stage === 'discovery-response-chunk')
+        .flatMap(record => (record.value as { bytes: number[] }).bytes))).toEqual(body);
+      expect(exported.find(record => record.stage === 'discovery-response-error')?.value).toMatchObject({ error: {
+        name: original.name, message: original.message, stack: original.stack, cause: {
+          name: cause.name, message: cause.message, stack: cause.stack,
+          cause: { message: 'SYNTHETIC_DEEPEST_CAUSE', stack: (cause.cause as Error).stack } } } });
+      expect(await native.storage.list()).toEqual(before);
+      expect(await native.storage.getAlarm()).toBe(alarm);
+      expect(await environment.KV.list()).toEqual(users);
+      expect(JSON.stringify([...before])).not.toMatch(/SYNTHETIC_PRE_ADMISSION_|SYNTHETIC_DEEPEST_CAUSE/);
+    } finally { auth.mockRestore(); }
+  }));
+
+  it.each(['foreign-owner', 'forged-email', 'unsigned-admin', 'revoked', 'non-admin', 'scope', 'capture', 'page', 'corrupt'] as const)(
+    'native Registry %s read is generic non-success without private output or mutation', fault => fixture(async ({ native, environment, state }) => {
+      environment.ENTERPRISE_MODE = 'active';
+      const owner = new OperatorRegistry(native, environment);
+      const binding: RawCaptureBinding = { ownerKey: await operatorOwnerKey(claims('a@example.test')),
+        installationId: 'dispatcher-install', releaseId: 'original-release', captureId: 'registry-private-capture',
+        scope: { kind: 'observation', observationId: 'registry-private-observation' } };
+      expect(await owner.retainRawObservation({ binding, records: [{ stage: 'private-native-read-fixture',
+        value: { password: 'SYNTHETIC_REGISTRY_PRIVATE_PASSWORD', error: 'SYNTHETIC_REGISTRY_PRIVATE_ERROR' } }],
+      termination: 'failed', failed: false })).toMatchObject({ status: 'complete' });
+      const auth = registryReadAuth();
+      try {
+        const credential = fault === 'foreign-owner' ? { email: 'z@example.test', accessJwt: 'z-jwt' }
+          : fault === 'forged-email' ? { email: 'a@example.test', accessJwt: 'z-jwt' }
+          : fault === 'unsigned-admin' ? { email: 'a@example.test', accessJwt: 'UNSIGNED_ADMIN', role: 'admin', ownerKey: binding.ownerKey, human: true }
+          : { email: 'a@example.test', accessJwt: 'a-jwt' };
+        if (fault === 'revoked') state.revoked.add('a-jwt');
+        if (fault === 'non-admin') state.roles.set('a@example.test', 'user');
+        if (fault === 'corrupt') {
+          const entries = await native.storage.list({ prefix: 'operator-raw:' });
+          const segment = [...entries.keys()].find(key => key.includes('/segment-'));
+          expect(segment).toBeDefined();
+          await native.storage.put(segment!, 'v1:AAAA');
+        }
+        const before = structuredClone(await native.storage.list()), alarm = await native.storage.getAlarm();
+        const namespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
+        const scope = fault === 'scope' ? { kind: 'observation' as const, observationId: 'foreign-observation' } : binding.scope;
+        const response = await runInDurableObject(namespace.get(native.id), () => (owner as OperatorRegistry & NativeRawReader)
+          .readOwnerRawCaptures(credential, { view: 'export', scope,
+            captureId: fault === 'capture' ? 'foreign-capture' : binding.captureId, ...(fault === 'page' ? { cursor: 'f'.repeat(64) } : {}) }));
+        await registryRawDenied(response);
+        expect(await native.storage.list()).toEqual(before);
+        expect(await native.storage.getAlarm()).toBe(alarm);
+      } finally { auth.mockRestore(); }
+    }));
+});
+
+describe('REQ-OPERATOR-063 AC1/5/6: one-round prospective admission diagnostic wire', () => {
+  const message = 'Prospective Renovate admission boundary';
+  type Entry = { message: string; data: Record<string, unknown> };
+  // Intentional closed diagnostic wire contract, always paired below with real return/storage outcomes.
+  const assertBoundaryWire = (entries: Entry[]) => {
+    for (const { data } of entries.filter(entry => entry.message === message)) {
+      expect(['activity-proof-rpc', 'registry-proof-storage', 'activity-bind-storage']).toContain(data.boundary);
+      expect(['started', 'completed', 'failed']).toContain(data.outcome);
+      expect(data.admissionDigest).toMatch(/^[a-f0-9]{64}$/);
+      const completionField = data.boundary === 'activity-bind-storage' ? 'accepted' : 'proofPresent';
+      expect(Object.keys(data).sort()).toEqual(['boundary', 'outcome', 'admissionDigest',
+        ...(data.outcome === 'completed' ? [completionField] : []),
+        ...(data.outcome === 'failed' ? ['error'] : []),
+      ].sort());
+      if (data.outcome === 'completed') expect(typeof data[completionField]).toBe('boolean');
+    }
+  };
+
+  async function preparation(environment: Env, activityId: string) {
+    const human = claims('a@example.test');
+    const invocationJson = JSON.stringify({ repository: 'acme/updates' });
+    const executionContext = await createOperatorExecutionContext({ activityId, operatorId: 'dispatcher',
+      artifactDigest: 'c'.repeat(64), policyDigest: 'd'.repeat(64), human, accessJwt: 'a-jwt' }, environment);
+    const intent = { installationId: 'dispatcher-install', activityId, operatorId: 'dispatcher',
+      intentDigest: await createOperatorIntentDigest('dispatcher', activityId, invocationJson),
+      expectedRevision: 1, expectedInstallationRevision: 1, expectedControlsRevision: 1,
+      deadline: human.expiresAt * 1000, startExpiresAt: human.expiresAt * 1000, startVerifier: 'e'.repeat(64) };
+    return { intent, executionContext, invocationJson };
+  }
+
+  it.each(['success', 'same-binding', 'missing-proof', 'foreign-proof', 'previous-binding', 'foreign-admission',
+    'same-admission', 'rpc-error', 'unsafe-rpc-error', 'registry-storage-error', 'bind-transaction-error', 'bind-write-error',
+    'admission-write-error', 'invalid-id', 'foreign-id', 'foreign-object', 'missing-namespace'] as const)(
+    'REQ-OPERATOR-063 AC1/5/6 /061 AC3/7: %s traces only validated boundaries and preserves proof, binding and original errors with working and throwing loggers',
+    fault => fixture(async ({ registry, native, environment }) => {
+      const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
+      await runInDurableObject(namespace.getByName(`admission-boundary-${crypto.randomUUID()}`), async (_instance, activityNative) => {
+        const activityId = 'private-admission-activity', otherId = 'private-other-activity';
+        const registryNamespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
+        const inRegistry = <T>(action: () => Promise<T>) => runInDurableObject(registryNamespace.get(native.id), () => action());
+        const first = { registrationId: 'historical-registration' };
+        // Historical records are fixtures, not a request to the refusal-only
+        // business controller. The still-supported read/bind boundary owns this test.
+        if (fault !== 'missing-proof') await inRegistry(async () => native.storage.put(`renovate-activity:${activityId}`, {
+          activityId, installationId: 'dispatcher-install', repository: 'acme/updates', repositoryId: repoId,
+          baseBranch: 'trunk', pullRequest: 1300, head, createdAt: new Date(Date.parse(at) + 1).toISOString(),
+          activatedAt: at, ownerKey: await operatorOwnerKey(claims('a@example.test')),
+          controlsRevision: 1, installationRevision: 1, operatorRevision: 1, releaseId: 'release', bundleDigest: 'c'.repeat(64),
+          actor: { registrationId: first.registrationId, bucket: 'owner-bucket', sessionId: '', sessionGeneration: 0,
+            subject: 'a@example.test', email: 'a@example.test', issuer: claims('a@example.test').issuer, audiences: ['audience'] },
+        }));
+        const journal = await inRegistry(() => registry.readProspectiveRenovateAdmission(activityId));
+        const originalError = Error('private-provider-body Authorization=private-token', {
+          cause: Error('private-cause https://private.invalid/provider'),
+        });
+        if (fault === 'unsafe-rpc-error') Object.defineProperty(originalError, 'message', {
+          get: () => { throw Error('private-getter-body'); },
+        });
+        const host = { ...environment,
+          OPERATOR_ACTIVITY: fault === 'missing-namespace' ? undefined
+            : { idFromName: () => fault === 'foreign-object' ? namespace.idFromName(otherId) : activityNative.id },
+          OPERATOR_REGISTRY: { getByName: () => ({ readProspectiveRenovateAdmission: async (id: string) => {
+            if (fault === 'rpc-error' || fault === 'unsafe-rpc-error') throw originalError;
+            if (fault === 'foreign-proof') return { ...journal as object, activityId: otherId };
+            return inRegistry(() => registry.readProspectiveRenovateAdmission(id));
+          } }) },
+        } as unknown as Env;
+        const activity = new OperatorActivity(activityNative, host);
+        const { intent, executionContext, invocationJson } = await preparation(host, activityId);
+        if (fault === 'previous-binding' || fault === 'same-binding') {
+          await activityNative.storage.put('prospective-admission', fault === 'same-binding' ? activityId : otherId);
+        }
+        if (fault === 'foreign-admission' || fault === 'same-admission') {
+          await activityNative.storage.put('admission', { intent: { ...intent,
+            activityId: fault === 'same-admission' ? activityId : otherId }, phase: 'prepared', receipt: null });
+        }
+        const beforeAdmission = await activityNative.storage.get('admission');
+        const beforeBinding = await activityNative.storage.get('prospective-admission');
+        const read = native.storage.get.bind(native.storage);
+        let storageOutage = fault === 'registry-storage-error';
+        const unavailable = vi.spyOn(native.storage, 'get').mockImplementation((async (key: string) => {
+          if (storageOutage && key === `renovate-activity:${activityId}`) throw originalError;
+          return read(key);
+        }) as typeof native.storage.get);
+        const transaction = activityNative.storage.transaction.bind(activityNative.storage);
+        const persist = vi.spyOn(activityNative.storage, 'transaction').mockImplementation(callback => {
+          if (fault === 'bind-transaction-error') return Promise.reject(originalError);
+          return transaction(tx => callback(new Proxy(tx, { get(target, property) {
+            const member = Reflect.get(target, property);
+            if (property === 'put') return (...args: unknown[]) => {
+              const key = fault === 'bind-write-error' ? 'prospective-admission'
+                : fault === 'admission-write-error' ? 'admission' : null;
+              if (key && (args[0] === key || typeof args[0] === 'object'
+                && args[0] !== null && key in args[0])) throw originalError;
+              return Reflect.apply(member, target, args);
+            };
+            return typeof member === 'function' ? member.bind(target) : member;
+          } })));
+        });
+        const outputs: Entry[] = [];
+        let loggerOutage = false;
+        const output = (line: unknown) => {
+          outputs.push(JSON.parse(String(line)));
+          if (loggerOutage) throw Error('private-logger-body');
+        };
+        setLogLevel('info');
+        const logs = vi.spyOn(console, 'log').mockImplementation(output);
+        const warnings = vi.spyOn(console, 'warn').mockImplementation(output);
+        const errors = vi.spyOn(console, 'error').mockImplementation(output);
+        let firstDigest: unknown;
+        try {
+          // Repeat fresh preparation under a throwing logger; a second prepare is not a successful replay.
+          for (const outage of [false, true]) {
+            const accepted = fault === 'success' || fault === 'same-binding';
+            if (outage && accepted) {
+              await activityNative.storage.delete('admission');
+              if (beforeBinding === undefined) await activityNative.storage.delete('prospective-admission');
+            }
+            loggerOutage = outage; outputs.length = 0;
+            const input = fault === 'invalid-id' ? 'private/invalid?Authorization=private-token'
+              : fault === 'foreign-id' ? otherId : activityId;
+            const throws = ['rpc-error', 'unsafe-rpc-error', 'registry-storage-error', 'bind-transaction-error',
+              'bind-write-error', 'admission-write-error'].includes(fault);
+            const result = activity.prepareAuthorized(intent, executionContext, invocationJson, undefined, input);
+            if (throws) await expect(result).rejects.toBe(originalError);
+            else await expect(result).resolves.toEqual(accepted ? { ok: true, phase: 'prepared' }
+              : { ok: false, reason: fault === 'same-admission' || fault === 'foreign-admission'
+                ? 'already-prepared' : 'admission-denied' });
+            const boundaries = outputs.filter(entry => entry.message === message);
+            assertBoundaryWire(outputs);
+            const proofRead = !['invalid-id', 'foreign-id', 'foreign-object', 'missing-namespace'].includes(fault);
+            const storageRead = proofRead && !['rpc-error', 'unsafe-rpc-error', 'foreign-proof'].includes(fault);
+            const bind = proofRead && !['rpc-error', 'unsafe-rpc-error', 'foreign-proof', 'registry-storage-error', 'missing-proof'].includes(fault);
+            expect(boundaries.map(({ data }) => `${data.boundary}:${data.outcome}`)).toEqual([
+              ...(proofRead ? ['activity-proof-rpc:started'] : []),
+              ...(storageRead ? ['registry-proof-storage:started', `registry-proof-storage:${fault === 'registry-storage-error' ? 'failed' : 'completed'}`] : []),
+              ...(proofRead ? [`activity-proof-rpc:${['rpc-error', 'unsafe-rpc-error', 'registry-storage-error'].includes(fault) ? 'failed' : 'completed'}`] : []),
+              ...(bind ? ['activity-bind-storage:started', `activity-bind-storage:${['bind-transaction-error', 'bind-write-error', 'admission-write-error'].includes(fault) ? 'failed' : 'completed'}`] : []),
+            ]);
+            const digests = new Set(boundaries.map(({ data }) => data.admissionDigest));
+            expect(digests.size).toBe(proofRead ? 1 : 0);
+            // Domain separation is required; the plan deliberately does not pin the choice of prefix.
+            if (proofRead) {
+              expect([...digests][0]).not.toBe(hashDiagnostic(activityId));
+              if (outage) expect([...digests][0]).toBe(firstDigest);
+              else firstDigest = [...digests][0];
+            }
+            for (const { data } of boundaries) {
+              if (data.outcome === 'failed') expect(data.error).toEqual(captureError(originalError));
+              if (data.outcome === 'completed') expect(data).toMatchObject(data.boundary === 'activity-bind-storage'
+                ? { accepted } : { proofPresent: fault !== 'missing-proof' });
+            }
+            expect(await activityNative.storage.get('prospective-admission')).toBe(accepted ? activityId : beforeBinding);
+            if (accepted) {
+              expect(await activityNative.storage.get('admission')).toMatchObject({ intent, executionContext,
+                invocationJson, phase: 'prepared', receipt: null });
+              expect(await activity.getAdmission()).toEqual({ activityId, phase: 'prepared', receipt: null });
+              expect(await activity.getRuntimePlan()).toBeNull(); // Prepared never masquerades as queued.
+            } else expect(await activityNative.storage.get('admission')).toEqual(beforeAdmission);
+            // Registry failure is transient; removing the injected storage outage reveals the same immutable proof.
+            storageOutage = false;
+            expect(await inRegistry(() => registry.readProspectiveRenovateAdmission(activityId))).toEqual(journal);
+            storageOutage = fault === 'registry-storage-error';
+            if (fault === 'invalid-id') {
+              const beforeInvalidRead = [...outputs];
+              await expect(inRegistry(() => registry.readProspectiveRenovateAdmission(input))).resolves.toBeNull();
+              expect(outputs).toEqual(beforeInvalidRead);
+            }
+            for (const value of [activityId, otherId, input, first.registrationId, 'owner-bucket', 'a@example.test',
+              'a-jwt', head, 'private-provider-body', 'private-token', 'private-cause', 'private-getter-body',
+              'private-logger-body', 'https://private.invalid/provider', 'Authorization']) {
+              expect(JSON.stringify(outputs)).not.toContain(value);
+            }
+          }
+        } finally {
+          persist.mockRestore(); unavailable.mockRestore(); logs.mockRestore(); warnings.mockRestore(); errors.mockRestore(); setLogLevel('silent');
+        }
+      });
+    }));
+
+  it.each(['manual', 'boundary'] as const)(
+    'REQ-OPERATOR-016 AC2 /061 AC3: %s preparation retains its existing authority without prospective proof',
+    mode => fixture(async ({ native, environment }) => {
+      const activityId = 'manual-preparation';
+      const { intent, executionContext, invocationJson } = await preparation(environment, activityId);
+      const boundary = { repositoryId: repoId, pullRequest: 1300, contextDigest: 'f'.repeat(64),
+        session: { bucket: 'owner-bucket', sessionId: 'asession01', generation: 3 } };
+      const activity = new OperatorActivity(native, { ...environment,
+        OPERATOR_REGISTRY: { getByName: () => ({ readProspectiveRenovateAdmission: async () => null }) },
+      } as unknown as Env);
+      const result = mode === 'manual'
+        ? await activity.prepareAuthorized(intent, executionContext, invocationJson)
+        : await activity.prepareAuthorized(intent, executionContext, invocationJson, boundary);
+      expect(result).toEqual({ ok: true, phase: 'prepared' });
+      expect(await native.storage.get('prospective-admission')).toBeUndefined();
+      expect(await native.storage.get('admission')).toMatchObject({ intent, executionContext, invocationJson,
+        phase: 'prepared', receipt: null, ...(mode === 'boundary' ? { boundary } : {}) });
+      expect(await activity.getBoundaryStartBinding(activityId)).toEqual(mode === 'boundary' ? boundary : null);
+      expect(await activity.getAdmission()).toEqual({ activityId, phase: 'prepared', receipt: null });
+      expect(await activity.getRuntimePlan()).toBeNull();
+    }));
+
+  it.each(['expired', 'mismatched-context'] as const)(
+    'REQ-OPERATOR-016 AC2 /061 AC3: refused %s preparation cannot leave a prospective link or admission',
+    fault => fixture(async ({ native, environment }) => {
+      const activityId = 'refused-preparation';
+      const { intent, executionContext, invocationJson } = await preparation(environment, activityId);
+      const host = { ...environment, OPERATOR_ACTIVITY: { idFromName: () => native.id },
+        OPERATOR_REGISTRY: { getByName: () => ({ readProspectiveRenovateAdmission: async () => ({ activityId }) }) },
+      } as unknown as Env;
+      const activity = new OperatorActivity(native, host);
+      await expect(activity.prepareAuthorized(fault === 'expired' ? { ...intent, deadline: Date.now() - 1 } : intent,
+        fault === 'mismatched-context' ? { ...executionContext, activityId: 'different-activity' } : executionContext,
+        invocationJson, undefined, activityId)).resolves.toEqual({ ok: false,
+        reason: fault === 'expired' ? 'authority-expired' : 'admission-denied' });
+      expect(await native.storage.get('prospective-admission')).toBeUndefined();
+      expect(await activity.getAdmission()).toBeNull();
+      expect(await activity.getRuntimePlan()).toBeNull();
+    }));
+
+});
+
+describe('legacy controller compatibility does not own application policy', () => {
+  it('refuses new business authority without erasing historical admissions or registration bytes', () => fixture(async ({ registry, native }) => {
+    const actor = { registrationId: 'original-registration', bucket: 'owner-bucket', sessionId: 'asession01', sessionGeneration: 3,
+      subject: 'a@example.test', email: 'a@example.test', issuer: claims('a@example.test').issuer, audiences: ['audience'] };
+    const original = { activityId: 'original-activity', installationId: 'dispatcher-install', repositoryId: repoId,
+      repository: 'acme/updates', pullRequest: 1300, head, baseBranch: 'trunk', actor,
+      activatedAt: at, createdAt: new Date(Date.parse(at) + 1).toISOString(),
+      ownerKey: await operatorOwnerKey(claims('a@example.test')), controlsRevision: 1,
+      installationRevision: 1, operatorRevision: 1, releaseId: 'release', bundleDigest: 'c'.repeat(64),
+      privateEvidence: { historical: 'SYNTHETIC_ORIGINAL_BYTES' } };
+    await native.storage.put({ [`renovate-activity:${original.activityId}`]: original,
+      [`renovate-admission:${repoId}:1300:${head}`]: original,
+      [`renovate-registration:${actor.registrationId}`]: { ...actor, activatedAt: at } });
+    const before = structuredClone(await native.storage.list()), alarm = await native.storage.getAlarm();
+    expect(await registry.activateProspectiveRenovate({ installationId: 'dispatcher-install', human: claims(actor.email), accessJwt: 'a-jwt' }))
+      .toEqual({ ok: false, reason: 'application-upgrade-required' });
+    expect(await registry.reserveProspectiveRenovateActivity({ registrationId: actor.registrationId,
+      repositoryId: repoId, pullRequest: 1300, head, createdAt: original.createdAt, activityId: 'replacement' }))
+      .toEqual({ ok: false, reason: 'application-upgrade-required' });
+    expect(await registry.currentProspectiveRenovateRegistration(actor.registrationId)).toBeNull();
+    expect(await registry.observeProspectiveRenovateRegistration(actor.registrationId)).toEqual({ status: 'denied' });
+    expect(await registry.retainedProspectiveRenovateRetryTargets(actor.registrationId)).toEqual([]);
+    expect(await registry.prospectiveRenovateStatus(original.installationId, original.ownerKey)).toBe('inactive');
+    expect(await registry.readProspectiveRenovateAdmission(original.activityId)).toEqual(original);
+    expect(await registry.readProspectiveRenovateAdmission('replacement')).toBeNull();
+    expect(await native.storage.list()).toEqual(before);
+    expect(await native.storage.getAlarm()).toBe(alarm);
+  }));
 });

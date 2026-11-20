@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
@@ -27,5 +30,41 @@ describe('REQ-AGENT-052: local-build guard preserves context-mode v2 coverage', 
   it('permits read-only batches and inert non-shell code', () => {
     assert.equal(decision('ctx_batch', { commands: ['git status'], queries: ['status'] }), undefined);
     assert.equal(decision('ctx_execute', { language: 'javascript', code: 'console.log("npm test")' }), undefined);
+  });
+});
+
+
+describe('REQ-AGENT-052 AC4: Claude analyzer canonical containment', () => {
+  it('refuses absolute, parent and symlink escapes while preserving legitimate argv and actual cwd', (t) => {
+    const root = mkdtempSync(join(tmpdir(), 'analyzer-containment-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const repo = join(root, 'repo with spaces');
+    mkdirSync(join(repo, 'sub'), { recursive: true });
+    mkdirSync(join(root, 'outside'));
+    writeFileSync(join(repo, 'valid.js'), 'valid');
+    writeFileSync(join(root, 'outside/a.js'), 'outside');
+    symlinkSync(join(root, 'outside'), join(repo, 'link'));
+    symlinkSync(join(root, 'outside'), join(repo, '-link'));
+    symlinkSync(join(root, 'outside'), join(repo, 'link space'));
+    execFileSync('git', ['init', '-q', repo]);
+    const wrapper = 'node /home/user/.claude/skills/safe-local-checks/scripts/safe-local-check.mjs';
+    for (const [args, allowed] of [[`"${root}/outside/a.js"`, false], ['../../outside/a.js', false], ['~/outside.js', false], ['../link/a.js', false],
+      ['--config ../link/a.js', false], [`-c${root}/outside/a.js`, false], ['-- ../-link/a.js', false],
+      ['../link\\ space/a.js', false], ['../valid.js', true], [`"${repo}/valid.js"`, true]]) {
+      const result = spawnSync('bash', [hook], {
+        cwd: root, input: JSON.stringify({ tool_name: 'Bash', cwd: join(repo, 'sub'), tool_input: { command: `${wrapper} oxlint ${args}` } }),
+        encoding: 'utf8', env: { ...process.env, LOCAL_BUILD_BYPASS_FILE: join(root, 'absent') },
+      });
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.stdout.trim() ? JSON.parse(result.stdout).decision : undefined, allowed ? undefined : 'block', args);
+    }
+    mkdirSync(join(repo, 'node'));
+    const cdResult = spawnSync('bash', [hook], {
+      cwd: root, input: JSON.stringify({ tool_name: 'Bash', cwd: repo,
+        tool_input: { command: `cd node && ${wrapper} oxlint "${root}/outside/a.js"` } }),
+      encoding: 'utf8', env: { ...process.env, LOCAL_BUILD_BYPASS_FILE: join(root, 'absent') },
+    });
+    assert.equal(cdResult.status, 0, cdResult.stderr);
+    assert.equal(JSON.parse(cdResult.stdout).decision, 'block');
   });
 });

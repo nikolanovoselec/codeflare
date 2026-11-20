@@ -225,6 +225,43 @@ for (const regenerate of [false, true]) {
   });
 }
 
+for (const mode of ['stock', 'native']) {
+  test(`REQ-BROWSER-009 AC5: archive failure leaves ${mode} timeout configuration unchanged`, async t => {
+    const f = await fixture(t);
+    const active = mode === 'native' ? f.legacy : f.target;
+    const archiveName = mode === 'native' ? 'mcp-adapter.json.migrated' : 'mcp.json.migrated';
+    const archive = join(f.directory, archiveName);
+    const original = JSON.stringify({ settings: { custom: true, requestTimeoutMs: 60000 }, mcpServers: {
+      'chrome-devtools': { command: 'custom-browser', lifecycle: 'lazy-keep-alive', requestTimeoutMs: 600000,
+        args: ['--wsEndpoint=wss://api.cloudflare.com/client/v4/accounts/synthetic-account/browser-rendering/devtools/browser?keep_alive=180000',
+          '--wsHeaders={"Authorization":"Bearer synthetic-user-token"}'] },
+    } });
+    writeFileSync(active, original, { mode: 0o600 });
+    const prepare = () => mode === 'native' ? f.native(true) : f.prepare(true);
+    const write = fs.writeFileSync;
+    let prepared;
+    try {
+      fs.writeFileSync = (path, ...args) => {
+        if (path === archive || typeof path === 'string' && path.startsWith(`${archive}.`)) {
+          throw Object.assign(new Error('Synthetic archive storage failure'), { code: 'ENOSPC' });
+        }
+        return write(path, ...args);
+      };
+      syncBuiltinESMExports();
+      prepared = prepare();
+    } finally {
+      fs.writeFileSync = write;
+      syncBuiltinESMExports();
+    }
+    assert.equal(prepared, false);
+    assert.equal(readFileSync(active, 'utf8'), original);
+    assert.equal(readdirSync(f.directory).some(name => name.endsWith('.tmp')), false);
+    assert.equal(prepare(), true);
+    assert.equal(JSON.parse(readFileSync(active, 'utf8')).settings.requestTimeoutMs, 360000);
+    assertArchived(f, archiveName, original);
+  });
+}
+
 for (const endpoint of [
   'wss://example.test/?keep_alive=180000',
   'wss://api.cloudflare.com:8443/client/v4/accounts/a/browser-rendering/devtools/browser?keep_alive=180000',
@@ -565,6 +602,57 @@ test('REQ-AGENT-217: rejected legacy env produces a content-free managed-load di
 });
 
 
+// The native Hermes wrapper exclusion is unrelated to MCP client ownership.
+for (const form of ['absolute', 'relative', 'dot-relative', 'canonical']) {
+  for (const owner of ['stock', 'adapter', 'ambiguous', 'unknown']) {
+    test(`REQ-AGENT-217 AC1: Hermes exclusion preserves MCP ownership (${form}, ${owner})`, async t => {
+      const f = await fixture(t);
+      const prefix = form === 'absolute' ? `${f.directory}/extensions/`
+        : form === 'canonical' ? '/home/user/.pi/agent/extensions/'
+        : form === 'dot-relative' ? './extensions/' : 'extensions/';
+      const stock = 'npm:pi-mcp-extension@1.12.1';
+      const adapter = 'npm:pi-mcp-adapter@7.0.1';
+      const packages = owner === 'stock' ? [stock] : owner === 'adapter' ? [adapter]
+        : owner === 'ambiguous' ? [stock, adapter] : [];
+      const settings = JSON.stringify({ packages,
+        extensions: ['-builtin:mcp', `-${prefix}hermes-memory-runtime.ts`] });
+      writeFileSync(join(f.directory, 'settings.json'), settings);
+      const original = '{"mcpServers":{"custom":{"command":"custom","env":{"TOKEN":"synthetic-private"}}},"settings":{"requestTimeoutMs":360000,"deferWithMissingMetadata":true}}\n';
+      writeFileSync(f.legacy, original);
+      if (owner === 'ambiguous' || owner === 'unknown') writeFileSync(f.target, original);
+      const before = readdirSync(f.directory).sort();
+      const notifications = [];
+      const pi = { on(event, handler) {
+        if (event === 'session_start') handler({}, { ui: { notify(message, level) {
+          notifications.push({ message, level });
+        } } });
+      } };
+      f.load(pi);
+      f.load(pi);
+      assert.equal(readFileSync(join(f.directory, 'settings.json'), 'utf8'), settings);
+      if (owner === 'stock') {
+        assert.equal(existsSync(f.legacy), false);
+        assert.equal(readFileSync(f.target, 'utf8'), original);
+        // Unchanged bytes remain recoverable in the active destination itself.
+        assert.deepEqual(readdirSync(f.directory).sort(), ['mcp.json', 'settings.json']);
+        assert.deepEqual(notifications, []);
+      } else if (owner === 'adapter') {
+        assert.equal(readFileSync(f.legacy, 'utf8'), original);
+        assert.equal(existsSync(f.target), false);
+        assert.deepEqual(readdirSync(f.directory).sort(), before);
+        assert.deepEqual(notifications, []);
+      } else {
+        assert.equal(readFileSync(f.legacy, 'utf8'), original);
+        assert.equal(readFileSync(f.target, 'utf8'), original);
+        assert.deepEqual(readdirSync(f.directory).sort(), before);
+        assert.ok(notifications.some(({ message, level }) => level === 'warning'
+          && /selection.*ambiguous|ambiguous.*selection/i.test(message)));
+        for (const { message } of notifications) assert.doesNotMatch(message, /synthetic-private/);
+      }
+    });
+  }
+}
+
 // Exact managed non-client exclusions must not change MCP client selection.
 for (const form of ['absolute', 'relative', 'dot-relative', 'canonical']) {
   for (const owner of ['stock', 'adapter', 'ambiguous', 'unknown']) {
@@ -615,7 +703,8 @@ for (const form of ['absolute', 'relative', 'dot-relative', 'canonical']) {
 }
 
 for (const exclusion of ['-custom/review-enforcement.ts', '-extensions/operator-review-remote.ts.extra',
-  '-extensions/*review*.ts']) {
+  '-extensions/*review*.ts', '-custom/hermes-memory-runtime.ts',
+  '-extensions/hermes-memory-runtime.ts.extra', '-extensions/*hermes*.ts']) {
   test(`REQ-AGENT-217 AC1: Review exception does not authorize other exclusions (${exclusion})`, async t => {
     const f = await fixture(t);
     writeFileSync(join(f.directory, 'settings.json'), JSON.stringify({

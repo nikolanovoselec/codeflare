@@ -10,6 +10,7 @@ import { readCompletion, writeCompletion } from '../../../preseed/agents/pi/exte
 afterEach(() => vi.unstubAllEnvs());
 
 type Mode = 'local' | 'remote' | 'unavailable' | 'none';
+const remoteCandidate = async () => 'remote-candidate' as const;
 function harness(verdicts: Record<string, Mode>, applicability?: (event: any, ctx: any) => Promise<Mode>) {
   const handlers = new Map<string, Array<(event: any, ctx: any) => Promise<void> | void>>();
   const messages: string[] = [];
@@ -63,8 +64,10 @@ function cloneConsentFixture() {
     if (program === 'git') {
       if (args[0] === 'symbolic-ref') return { stdout: 'feature' };
       if (args[0] === 'rev-parse') return { stdout: state.head };
-      if (args[0] === 'remote') return { stdout: `git@github.com:${options.cwd === target ? state.repository : 'owner/parent'}.git` };
-      if (args[0] === 'config') return { stdout: 'origin' };
+      if (args[0] === 'remote') return { stdout: args[1] === '-v'
+        ? `origin\tgit@github.com:${options.cwd === target ? state.repository : 'owner/parent'}.git (fetch)\n`
+        : `git@github.com:${options.cwd === target ? state.repository : 'owner/parent'}.git` };
+      if (args[0] === 'config') return { stdout: args.includes('--get-regexp') ? '' : 'origin' };
       throw new Error(`Unexpected Git request: ${args.join(' ')}`);
     }
     if (args[0] === 'repo') {
@@ -74,7 +77,8 @@ function cloneConsentFixture() {
     if (args[0] === 'pr') {
       await state.beforePr?.();
       return { stdout: JSON.stringify({ number: 42, state: 'OPEN', baseRefName: 'main',
-        headRefName: 'feature', headRefOid: state.head }) };
+        headRefName: 'feature', headRefOid: state.head,
+        url: `https://github.com/${options.cwd === target ? state.repository : 'owner/parent'}/pull/42` }) };
     }
     if (!args.includes('--include')) return { stdout: '138' };
     const mutating = args.includes('x-codeflare-operator-boundary-select: 1');
@@ -83,7 +87,7 @@ function cloneConsentFixture() {
       ...JSON.parse(Buffer.from(header.split(': ')[1]!, 'base64').toString()) });
     return { stdout: `HTTP/2 200\nx-codeflare-operator-boundary-selection: ${state.unavailable && mutating ? 'unavailable' : 'remote'}\n`
       + (state.admitted ? 'x-codeflare-operator-boundary-activity: clone-activity\n' : '') + '\n'
-      + JSON.stringify({ number: 42, head: { sha: state.head } }) };
+      + JSON.stringify({ number: 42, head: { sha: state.head, ref: 'feature' } }) };
   }) as never;
   const entries: any[] = [], messages: any[] = [], prompts: Array<{ options: string[] }> = [];
   const handlers = new Map<string, Array<(event: any, ctx: any) => unknown>>();
@@ -98,7 +102,7 @@ function cloneConsentFixture() {
       prompts.push({ options }); return state.select ? state.select() : state.choice;
     }, notify() {} } };
   registerOperatorReviewSelector(pi as never, {
-    applicability: (event, context) => selectOperatorReviewApplicability(event, context, runner),
+    applicability: (event, context) => selectOperatorReviewApplicability(event, context, runner, remoteCandidate),
     local: api => registerReviewEnforcement(api, { queryPr: (repo, select) => queryPr(repo, runner, select),
       queryHead: (repo, revision) => queryHead(repo, revision, runner),
       queryBranch: repo => queryBranch(repo, runner), queryRepository: repo => queryRepository(repo, runner) }),
@@ -312,20 +316,21 @@ describe('REQ-OPERATOR-053: exclusive local versus dedicated remote Review exten
       const ctx = { cwd: repo };
       const runner = (mode: string, responseHead = head, repeatHeader = false) =>
         (async (_program: string, args: string[]) => {
+          if (_program === 'git') return { stdout: args[0] === 'config' ? '' : args[0] === 'rev-parse' ? head : args[0] === 'symbolic-ref' ? 'feature' : 'origin\thttps://github.com/owner/repo.git (fetch)\n' };
           if (args[0] === 'pr') return { stdout: JSON.stringify({ number: 42, state: 'OPEN',
-            baseRefName: 'main', headRefOid: head }) };
+            baseRefName: 'main', headRefOid: head, headRefName: 'feature', url: 'https://github.com/owner/repo/pull/42' }) };
           if (args[0] === 'repo') return { stdout: JSON.stringify({ nameWithOwner: 'owner/repo',
             url: 'https://github.com/owner/repo' }) };
           if (!args.includes('--include')) return { stdout: '138' };
           const header = `x-codeflare-operator-boundary-selection: ${mode}`;
           return { stdout: `HTTP/2 200\n${header}${repeatHeader ? `\n${header}` : ''}\n\n`
-            + JSON.stringify({ number: 42, head: { sha: responseHead } }) };
+            + JSON.stringify({ number: 42, head: { sha: responseHead, ref: 'feature' } }) };
         }) as never;
-      expect(await selectOperatorReviewApplicability(event, ctx, runner('remote'))).toBe('remote');
-      expect(await selectOperatorReviewApplicability(event, ctx, runner('local'))).toBe('local');
-      expect(await selectOperatorReviewApplicability(event, ctx, runner('remote', head, true))).toBe('unavailable');
-      expect(await selectOperatorReviewApplicability(event, ctx, runner('remote', 'b'.repeat(40)))).toBe('unavailable');
-      expect(await selectOperatorReviewApplicability(event, ctx, runner('unavailable'))).toBe('unavailable');
+      expect(await selectOperatorReviewApplicability(event, ctx, runner('remote'), remoteCandidate)).toBe('remote');
+      expect(await selectOperatorReviewApplicability(event, ctx, runner('local'), remoteCandidate)).toBe('local');
+      expect(await selectOperatorReviewApplicability(event, ctx, runner('remote', head, true), remoteCandidate)).toBe('unavailable');
+      expect(await selectOperatorReviewApplicability(event, ctx, runner('remote', 'b'.repeat(40)), remoteCandidate)).toBe('unavailable');
+      expect(await selectOperatorReviewApplicability(event, ctx, runner('unavailable'), remoteCandidate)).toBe('unavailable');
     } finally { rmSync(repo, { recursive: true, force: true }); }
   });
   it.each(['git clone https://github.com/owner/target.git copied', 'gh repo clone owner/target copied',
@@ -341,15 +346,16 @@ describe('REQ-OPERATOR-053: exclusive local versus dedicated remote Review exten
           const target = join(cwd, command.endsWith(' copied') ? 'copied' : 'target');
           const head = 'a'.repeat(40);
           const runner = (async (_program: string, args: string[], options: { cwd: string }) => {
+            if (_program === 'git') return { stdout: args[0] === 'config' ? '' : args[0] === 'rev-parse' ? head : args[0] === 'symbolic-ref' ? 'feature' : 'origin\thttps://github.com/owner/target.git (fetch)\n' };
             // The external GitHub responses differ by checkout; selecting the parent
             // would choose remote Review rather than the target's local consent path.
-            if (args[0] === 'pr') return { stdout: JSON.stringify({ number: 42, state: 'OPEN', baseRefName: 'main', headRefOid: head }) };
+            if (args[0] === 'pr') return { stdout: JSON.stringify({ number: 42, state: 'OPEN', baseRefName: 'main', headRefOid: head, headRefName: 'feature', url: 'https://github.com/owner/target/pull/42' }) };
             if (args[0] === 'repo') return { stdout: JSON.stringify({ nameWithOwner: 'owner/target', url: 'https://github.com/owner/target' }) };
             if (!args.includes('--include')) return { stdout: '138' };
             return { stdout: `HTTP/2 200\nx-codeflare-operator-boundary-selection: ${options.cwd === target ? 'local' : 'remote'}\n\n`
-              + JSON.stringify({ number: 42, head: { sha: head } }) };
+              + JSON.stringify({ number: 42, head: { sha: head, ref: 'feature' } }) };
           }) as never;
-          const app = harness({}, (event, ctx) => selectOperatorReviewApplicability(event, ctx, runner));
+          const app = harness({}, (event, ctx) => selectOperatorReviewApplicability(event, ctx, runner, remoteCandidate));
           const event = { toolCallId: 'clone-target', input: { command } };
           await app.emit('tool_call', cwd, event);
           mkdirSync(join(target, '.git'), { recursive: true });
@@ -370,13 +376,14 @@ describe('REQ-OPERATOR-053: exclusive local versus dedicated remote Review exten
       writeFileSync(join(wrongTarget, 'sdd/README.md'), 'unrelated checkout');
       const head = 'a'.repeat(40);
       const runner = (async (_program: string, args: string[]) => {
-        if (args[0] === 'pr') return { stdout: JSON.stringify({ number: 42, state: 'OPEN', baseRefName: 'main', headRefOid: head }) };
+        if (_program === 'git') return { stdout: args[0] === 'config' ? '' : args[0] === 'rev-parse' ? head : args[0] === 'symbolic-ref' ? 'feature' : 'origin\thttps://github.com/owner/target.git (fetch)\n' };
+        if (args[0] === 'pr') return { stdout: JSON.stringify({ number: 42, state: 'OPEN', baseRefName: 'main', headRefOid: head, headRefName: 'feature', url: 'https://github.com/owner/target/pull/42' }) };
         if (args[0] === 'repo') return { stdout: JSON.stringify({ nameWithOwner: 'owner/target', url: 'https://github.com/owner/target' }) };
         if (!args.includes('--include')) return { stdout: '138' };
         return { stdout: 'HTTP/2 200\nx-codeflare-operator-boundary-selection: local\n\n'
-          + JSON.stringify({ number: 42, head: { sha: head } }) };
+          + JSON.stringify({ number: 42, head: { sha: head, ref: 'feature' } }) };
       }) as never;
-      const app = harness({}, (event, ctx) => selectOperatorReviewApplicability(event, ctx, runner));
+      const app = harness({}, (event, ctx) => selectOperatorReviewApplicability(event, ctx, runner, remoteCandidate));
       // The shell may have cloned somewhere else; the same basename here is not evidence.
       await app.emit('tool_result', workspace, { toolCallId: 'uncertain-clone',
         input: { command: 'cd "$CLONE_ROOT"; git clone https://github.com/owner/target.git copied' } });
@@ -410,13 +417,14 @@ describe('REQ-OPERATOR-053: exclusive local versus dedicated remote Review exten
       try {
         mkdirSync(join(repo, '.git'));
         if (state !== 'non-sdd') { mkdirSync(join(repo, 'sdd')); writeFileSync(join(repo, 'sdd/README.md'), 'requirements'); }
-        const runner = (async () => {
+        const runner = (async (program: string, args: string[]) => {
+          if (program === 'git') return { stdout: args[0] === 'config' ? '' : args[0] === 'rev-parse' ? 'a'.repeat(40) : args[0] === 'symbolic-ref' ? 'feature' : 'origin\thttps://github.com/owner/repo.git (fetch)\n' };
           if (state === 'no-pr') throw Object.assign(new Error('no PR'), { stderr: 'no pull requests found for branch main' });
           if (state === 'transport' || state === 'non-sdd') throw new Error('Network unavailable');
           return { stdout: state === 'malformed' ? '{invalid' : JSON.stringify({ number: 42,
             state: state === 'closed' ? 'CLOSED' : 'OPEN', baseRefName: state === 'malformed-base' ? '' : state === 'unprotected' ? 'sandbox' : 'main', headRefOid: 'a'.repeat(40) }) };
         }) as never;
-        const app = harness({}, (event, ctx) => selectOperatorReviewApplicability(event, ctx, runner));
+        const app = harness({}, (event, ctx) => selectOperatorReviewApplicability(event, ctx, runner, remoteCandidate));
         await app.emit('session_start', repo);
         expect(app.messages).toEqual(['transport', 'malformed', 'malformed-base'].includes(state) ? ['pr-boundary-remote-unavailable'] : []);
       } finally { rmSync(repo, { recursive: true, force: true }); }

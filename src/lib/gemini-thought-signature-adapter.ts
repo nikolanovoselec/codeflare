@@ -85,7 +85,9 @@ export function restoreGeminiThoughtSignatures(payload: PlainObject): PlainObjec
       }
       const call = message.tool_calls.find((candidate: unknown) => plain(candidate) && candidate.id === detail.id);
       if (!plain(call)) { remaining.push(detail); continue; }
-      call.extra_content = { google: { thought_signature: detail.data } };
+      const extra = plain(call.extra_content) ? call.extra_content : {};
+      const google = plain(extra.google) ? extra.google : {};
+      call.extra_content = { ...extra, google: { ...google, thought_signature: detail.data } };
     }
     if (remaining.length) message.reasoning_details = remaining;
     else delete message.reasoning_details;

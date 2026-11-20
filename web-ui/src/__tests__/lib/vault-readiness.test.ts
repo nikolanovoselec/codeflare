@@ -1,4 +1,4 @@
-// REQ-VAULT-012 AC5: the vault-readiness probe "retries until the first
+// REQ-VAULT-018 AC2: the vault-readiness probe "retries until the first
 // success". An earlier implementation capped warmup at 60 attempts and
 // then permanently gave up, leaving the vault button disabled forever
 // when the user restarted a long-idle session whose SilverBullet took

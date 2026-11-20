@@ -7,9 +7,11 @@ import { z } from 'zod';
 import type { Env, DeployKeys } from '../types';
 import { getDeployKeysKey } from '../lib/kv-keys';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
-import { ValidationError } from '../lib/error-types';
+import { ForbiddenError, ValidationError } from '../lib/error-types';
+import { isEnterpriseMode } from '../lib/subscription';
 import { getAndDecrypt, encryptAndStore, getOrImportKey } from '../lib/kv-crypto';
 import { maskSecret, parseJsonBody } from '../lib/request-helpers';
+import { createRateLimiter } from '../middleware/rate-limit';
 
 const UpdateDeployKeysBody = z.object({
   githubToken: z.string().max(256).nullable().optional(),
@@ -64,6 +66,25 @@ const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
 app.use('*', authMiddleware);
 
+// REQ-ENTERPRISE-009 AC8: deny direct credential management for every Enterprise
+// role before parsing, credential I/O or provider validation.
+app.use('*', async (c, next) => {
+  if (isEnterpriseMode(c.env)) {
+    throw new ForbiddenError('Deploy credential management is disabled in enterprise mode.');
+  }
+  return next();
+});
+
+// These routes are mounted without a shared mutation wrapper. Charge both
+// mutation methods to one authenticated-user budget before any credential I/O.
+const mutationRateLimiter = createRateLimiter({
+  windowMs: 60_000,
+  maxRequests: 20,
+  keyPrefix: 'deploy-keys-mutation',
+  // Preserve the existing general mutation policy and its in-memory fallback.
+  failClosed: false,
+});
+
 /**
  * GET /api/deploy-keys
  * Returns masked tokens (never full tokens) + plain account ID
@@ -89,7 +110,7 @@ app.get('/', async (c) => {
  * - undefined/omitted: no change
  * Returns masked keys after update, plus cloudflare accounts if multi-account.
  */
-app.put('/', async (c) => {
+app.put('/', mutationRateLimiter, async (c) => {
   const bucketName = c.get('bucketName');
   const body = await parseJsonBody(c, UpdateDeployKeysBody);
 
@@ -175,7 +196,7 @@ app.put('/', async (c) => {
  * DELETE /api/deploy-keys
  * Remove all deploy keys from KV
  */
-app.delete('/', async (c) => {
+app.delete('/', mutationRateLimiter, async (c) => {
   const bucketName = c.get('bucketName');
   const kvKey = getDeployKeysKey(bucketName);
   await c.env.KV.delete(kvKey);

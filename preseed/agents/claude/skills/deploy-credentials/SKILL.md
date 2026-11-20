@@ -1,22 +1,36 @@
 ---
 name: deploy-credentials
-description: GitHub and Cloudflare credential reference. Env-var table (GH_TOKEN, CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID), what each token enables (gh/git/wrangler operations), check-then-fallback behavior, secret-handling rules. Invoked when a turn needs gh/wrangler access and isn't sure if creds are present or wants the full operations reference.
+description: GitHub and Cloudflare credential reference. Use when gh/wrangler access, managed credentials or Browser Run versus selected OAuth account context is unclear. Covers environment hints, account discovery, operation checks and secret handling.
 version: 1.0.0
 ---
 
 # Deploy Credentials
 
-GitHub and Cloudflare credentials are **optional**. They may be pre-configured via Settings > Push & Deploy, but many users will not have them set. This skill carries the env-var table, the operations they enable, and the check-then-fallback protocol.
+GitHub and Cloudflare access is **optional** and may use a configured managed connection rather than a raw token. Non-Enterprise deployments also support direct credentials in Settings > Push & Deploy; Enterprise uses its managed connection flows, not manual credential substitution. Check the supported operation before requesting authentication.
 
 ## Environment Variables
 
-Only present if the user configured them in Settings. Always check before assuming they exist.
+Availability depends on the deployment and current session. Never print credential values.
 
-| Variable | What it enables |
+| Variable | Purpose |
 |---|---|
-| `GH_TOKEN` | GitHub fine-grained PAT. Auto-detected by `gh` CLI and git credential helper. |
-| `CLOUDFLARE_API_TOKEN` | Cloudflare API token. Auto-detected by `wrangler` CLI. |
-| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID. Auto-detected by `wrangler` CLI. |
+| `GH_TOKEN` | GitHub credential or managed placeholder consumed by `gh` and the git credential helper. |
+| `CLOUDFLARE_API_TOKEN` | Existing Cloudflare credential/managed placeholder; routing chooses the real credential. Do not replace it to select an account. |
+| `CLOUDFLARE_ACCOUNT_ID` | Existing account semantics; in Enterprise this is the administrator's Browser Run account. Leave browser consumers unchanged. |
+| `CLOUDFLARE_OAUTH_ACCOUNT_ID` | Non-secret selected account from the owner's stored OAuth connection, when available. A startup hint, not a current authorization check or the full account list. |
+
+## Cloudflare account purpose
+
+For management without an explicit user target, prefer the selected OAuth hint when present. For Wrangler, override the account **for that command only**, never globally or in Browser Run configuration:
+
+```bash
+# Only when the hint is present and the user has not selected another target:
+CLOUDFLARE_ACCOUNT_ID="$CLOUDFLARE_OAUTH_ACCOUNT_ID" npx --yes wrangler deployments list
+```
+
+If the hint is absent or access is uncertain, use the supported managed credential path to read `/client/v4/accounts`; do not silently choose among multiple accounts or replace an explicit target. Use the configured credential/client, not an invented bearer literal. A missing raw token does not prove managed OAuth is unavailable. Test the required operation rather than token-verification endpoints.
+
+Connect, disconnect and account selection take effect in shell metadata after session restart. Existing shells can be stale; live discovery may be needed. Keep Browser Run's account and credential routing independent.
 
 ## What you can do with GH_TOKEN
 
@@ -49,7 +63,7 @@ When `GH_TOKEN` is set, all of the following work without any manual auth:
 
 ## What you can do with CLOUDFLARE_API_TOKEN
 
-When both `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are set, all wrangler commands work without manual auth:
+Use the configured credential and the appropriate account purpose above for authorized Wrangler operations. Variable presence is not proof of permission; provider/account restrictions still apply:
 
 **Deploy:**
 - `npx -y wrangler deploy` (deploy Worker to Cloudflare)
@@ -89,10 +103,10 @@ echo "${CLOUDFLARE_API_TOKEN:+set}"    # prints "set" if available
 
 **Step 2a:** if set, use them directly. Do not ask the user to authenticate again.
 
-**Step 2b:** if NOT set, offer the user three options:
-1. **Settings (persistent):** "You can connect your GitHub/Cloudflare account in Settings > Push & Deploy. This will apply to all future sessions. You'll need to start a new session for the tokens to take effect."
-2. **CLI auth (this session only):** For GitHub: `BROWSER="" gh auth login --hostname github.com --git-protocol https --web`. For Cloudflare: ask the user to paste their token.
-3. **Export in terminal (this session only):** the user can set the variables manually:
+**Step 2b:** if NOT set, first check whether the configured managed connection/tool already supports the operation. Missing raw credentials do not authorize bypassing Enterprise provider or identity restrictions. If access is genuinely unavailable, offer only supported options:
+1. **Settings (persistent):** use the deployment's GitHub/Cloudflare connection controls, then restart the session for fresh metadata. Direct Push & Deploy credentials are non-Enterprise only.
+2. **CLI auth (this session only, where permitted):** For GitHub: `BROWSER="" gh auth login --hostname github.com --git-protocol https --web`. Do not request tokens in chat.
+3. **Export in a separate terminal (non-Enterprise, where permitted):** the user can set credentials manually without exposing them to the conversation:
    ```bash
    export GH_TOKEN="github_pat_..."
    export CLOUDFLARE_API_TOKEN="..."

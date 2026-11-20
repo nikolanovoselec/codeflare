@@ -677,6 +677,40 @@ test('REQ-IDE-033: missing or malformed host editor location fails before Pi or 
   assert.ok(host.warnings.every((message) => /active workspace file/i.test(message)));
 });
 
+for (const invalid of ['closed', 'outside-workspace']) {
+  test(`REQ-IDE-033: ${invalid} host editor location emits no accepted edit`, async () => {
+    vi.useFakeTimers();
+    const target = installActiveEditor('const value = 1;\n', invalid === 'closed'
+      ? '/home/user/workspace/src/closed.ts' : '/etc/outside.ts');
+    if (invalid === 'closed') target.document.isClosed = true;
+    nativeChat.runNativePiChat.mockImplementation(() => assert.fail('invalid editor target reached Pi'));
+    const subscriptions: Array<{ dispose(): void }> = [];
+    await activate({ extensionUri: { fsPath: '/extension' }, subscriptions } as never);
+    const rendered: unknown[] = [];
+    try {
+      const request = host.participantHandler!({
+        location: 4,
+        location2: { document: target.document, selection: target.selection, wholeRange: target.selection },
+        prompt: 'edit refused target', references: [],
+      }, { history: [] }, {
+        markdown: (value: string) => rendered.push(value), progress() {},
+        textEdit: () => assert.fail('invalid target emitted an editor transaction'),
+        confirmation: () => assert.fail('invalid target opened review confirmation'),
+      }, { isCancellationRequested: false, onCancellationRequested: () => ({ dispose() {} }) });
+      if (invalid === 'outside-workspace') await assert.rejects(request, /outside the workspace/);
+      else {
+        await request;
+        assert.ok(host.warnings.some(message => /active workspace file/i.test(message)));
+      }
+      assert.deepEqual(host.openedDocuments, []);
+      assert.deepEqual(host.shownDocuments, []);
+      assert.deepEqual(rendered, []);
+    } finally {
+      for (const subscription of subscriptions) subscription.dispose();
+    }
+  });
+}
+
 test('REQ-IDE-025: panel-first then native inline edit reuses one unrestricted IDE Pi conversation', async () => {
   const target = installActiveEditor();
   const backends: unknown[] = [];

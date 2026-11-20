@@ -115,14 +115,15 @@ app.get('/', requireAdmin, async (c) => {
       oauthClientId: githubOauthClientId ?? '',
       oauthClientSecretState: secretState(githubOauthClientSecret),
     },
+    cloudflareConnection: {
+      clientId: cloudflareOauthClientId ?? '',
+      clientSecretState: secretState(cloudflareOauthClientSecret),
+    },
     usageReports: parseObject(usageReportsRaw),
   };
 
   if (mode !== 'enterprise') {
-    sections.cloudflareConnection = {
-      clientId: cloudflareOauthClientId ?? '',
-      clientSecretState: secretState(cloudflareOauthClientSecret),
-    };
+    sections.dataGovernance = { syncPolicyMode: await readSyncPolicyMode(c.env.KV) };
   } else {
     const [
       enterpriseAccessGroup,

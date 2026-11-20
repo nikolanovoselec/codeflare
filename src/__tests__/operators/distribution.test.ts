@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { ValidationError } from '../../lib/error-types';
-import { parseOperatorManifest, parseOperatorBundle, parseDispatcherBundle } from '../../operators/distribution';
+import { parseOperatorManifest, parsePinnedOperatorManifest, parseOperatorBundle, parseDispatcherBundle } from '../../operators/distribution';
 import { normalDispatcherBundle, normalHosting } from './fixtures/normal-dispatcher';
 
 const ENDPOINT = 'https://operator.example.test/discovery';
@@ -38,7 +38,24 @@ async function digest(bytes: Uint8Array): Promise<string> {
     .map(byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
- describe('REQ-OPERATOR-010: operator discovery boundary', () => {
+describe('application recovery metadata is bounded package display data', () => {
+  const recovery = { label: 'Reset Locks', description: 'Reset the selected fenced records.', prefix: 'renovate:head:' };
+  it('preserves the optional package-owned descriptor', () => {
+    const input = { ...manifest(), application: { controlVersion: 1, recovery } };
+    expect(parseOperatorManifest(JSON.stringify(input), ENDPOINT).application?.recovery).toEqual(recovery);
+    expect(parseOperatorManifest(JSON.stringify(manifest()), ENDPOINT).application).toBeUndefined();
+  });
+  it.each([{ label: ' ' }, { label: 'x'.repeat(81) }, { label: 'bad\nlabel' },
+    { description: ' ' }, { description: 'x'.repeat(513) }, { description: 'bad\u007fdescription' },
+    { prefix: ':' }, { prefix: 'bad/slash:' }, { prefix: 'no-colon' }, { prefix: `${'a'.repeat(128)}:` },
+    { authority: true }])('rejects invalid descriptor %j', patch => {
+    expect(() => parseOperatorManifest(JSON.stringify({ ...manifest(), application: {
+      controlVersion: 1, recovery: { ...recovery, ...patch },
+    } }), ENDPOINT)).toThrow(ValidationError);
+  });
+});
+
+describe('REQ-OPERATOR-010: operator discovery boundary', () => {
   it('returns compatible metadata and resolves the artifact only within the registered origin', () => {
     const input = manifest();
     expect(parseOperatorManifest(JSON.stringify(input), ENDPOINT)).toEqual({
@@ -57,6 +74,8 @@ async function digest(bytes: Uint8Array): Promise<string> {
     ['duplicate capability', { requiredCapabilities: ['session', 'session'] }],
     ['caller identity', { principalId: 'other-user' }],
     ['caller bindings', { bindings: { BUCKET: 'other' } }],
+    ['wire-supplied artifact URL', { artifact: { path: '/bundles/example.json', sha256: 'a'.repeat(64),
+      url: 'https://operator.example.test/bundles/example.json' } }],
     ['invalid input metadata', { inputSchema: [] }],
     ['missing core version', { coreVersion: undefined }],
   ])('rejects %s', (_label, patch) => {
@@ -86,6 +105,22 @@ async function digest(bytes: Uint8Array): Promise<string> {
     }), ENDPOINT)).toThrow(ValidationError);
   });
 
+  it('refuses malformed discovery without returning supplied credential or metadata values', () => {
+    const credential = 'PRIVATE_DISCOVERY_CREDENTIAL_SENTINEL';
+    const metadata = 'PRIVATE_DISCOVERY_METADATA_SENTINEL';
+    try {
+      parseOperatorManifest(JSON.stringify({ ...manifest(), description: metadata }),
+        `https://user:${credential}@operator.example.test/discovery`);
+      expect.fail('Unsafe endpoint accepted');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ValidationError);
+      expect(String(error)).not.toContain(credential);
+      expect(String(error)).not.toContain(metadata);
+      expect(JSON.stringify(error)).not.toContain(credential);
+      expect(JSON.stringify(error)).not.toContain(metadata);
+    }
+  });
+
   it('rejects malformed JSON, invalid digest and metadata over the UTF-8 byte bound', () => {
     expect(() => parseOperatorManifest('<html>Login</html>', ENDPOINT)).toThrow(ValidationError);
     expect(() => parseOperatorManifest(JSON.stringify({
@@ -94,6 +129,39 @@ async function digest(bytes: Uint8Array): Promise<string> {
     expect(() => parseOperatorManifest(JSON.stringify({
       ...manifest(), description: 'é'.repeat(33 * 1024),
     }), ENDPOINT)).toThrow(ValidationError);
+  });
+});
+
+describe('REQ-OPERATOR-010/035: pinned normalized manifest boundary', () => {
+  it.each([ENDPOINT, 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher'])(
+    'revalidates acquisition-normalized metadata against the actual registered source %s without changing the pin', endpoint => {
+      const approved = parseOperatorManifest(JSON.stringify(manifest()), endpoint);
+      const stored = JSON.stringify(approved);
+      expect(parsePinnedOperatorManifest(stored, endpoint)).toEqual(approved);
+    });
+
+  it.each([
+    ['foreign origin', 'https://foreign.example.test/bundles/example.json'],
+    ['same-origin different path', 'https://operator.example.test/bundles/other.json'],
+    ['noncanonical same resource', 'https://operator.example.test/bundles/../bundles/example.json'],
+    ['query', 'https://operator.example.test/bundles/example.json?private=value'],
+    ['missing derived URL', undefined],
+  ])('rejects %s instead of replacing the stored URL with a derived value', (_name, url) => {
+    const approved = parseOperatorManifest(JSON.stringify(manifest()), ENDPOINT);
+    expect(() => parsePinnedOperatorManifest(JSON.stringify({ ...approved, artifact: { ...approved.artifact, url } }), ENDPOINT))
+      .toThrow(ValidationError);
+  });
+
+  it('retains strict artifact and top-level validation for stored metadata', () => {
+    const approved = parseOperatorManifest(JSON.stringify(manifest()), ENDPOINT);
+    for (const changed of [
+      { ...approved, artifact: { ...approved.artifact, authority: 'PRIVATE_STORED_AUTHORITY' } },
+      { ...approved, principalId: 'other-user' },
+      { ...approved, artifact: { ...approved.artifact, path: '/../secret' } },
+      { ...approved, artifact: { ...approved.artifact, sha256: 'invalid-digest' } },
+    ]) {
+      expect(() => parsePinnedOperatorManifest(JSON.stringify(changed), ENDPOINT)).toThrow(ValidationError);
+    }
   });
 });
 
@@ -110,7 +178,7 @@ describe('REQ-OPERATOR-048: production Dispatcher bundle boundary', () => {
   });
 
   it.each([
-    ['2.1.0', '0.20.1'], ['2.2.2', '0.20.1'], ['2.3.0', '0.20.1'], ['2.3.0', '0.30.1'],
+    ['2.1.0', '0.20.1'], ['2.2.2', '0.20.1'], ['2.3.0', '0.20.1'], ['2.3.0', '0.30.1'], ['2.3.0', '0.33.0'],
   ])('REQ-OPERATOR-048: accepts exact approved bytes for SDK %s / Agents %s', async (version, agents) => {
     const input = { ...dispatcherBundle(), versions: { runtime: version, vitePlugin: version, agents } };
     const bytes = encode(input);
@@ -121,6 +189,13 @@ describe('REQ-OPERATOR-048: production Dispatcher bundle boundary', () => {
   });
 
   it.each([
+    ['Agents 0.33 on legacy runtime', { versions: { runtime: '2.1.0', vitePlugin: '2.1.0', agents: '0.33.0' } }],
+    ['Agents 0.33 on intermediate runtime', { versions: { runtime: '2.2.2', vitePlugin: '2.2.2', agents: '0.33.0' } }],
+    ['Agents 0.33 mixed plugin', { versions: { runtime: '2.3.0', vitePlugin: '2.2.2', agents: '0.33.0' } }],
+    ['Agents 0.33 unknown runtime', { versions: { runtime: '2.3.1', vitePlugin: '2.3.1', agents: '0.33.0' } }],
+    ['unknown Agents 0.33 patch', { versions: { runtime: '2.3.0', vitePlugin: '2.3.0', agents: '0.33.1' } }],
+    ['Agents 0.33 tuple authority', { versions: { runtime: '2.3.0', vitePlugin: '2.3.0', agents: '0.33.0', authority: true } }],
+    ['Agents 0.33 outbound authority', { versions: { runtime: '2.3.0', vitePlugin: '2.3.0', agents: '0.33.0' }, globalOutbound: true }],
     ['class export', { className: 'OtherAgent' }],
     ['Agents version', { versions: { runtime: '2.1.0', vitePlugin: '2.1.0', agents: '0.24.0' } }],
     ['Flue runtime', { versions: { runtime: '2.2.0', vitePlugin: '2.1.0', agents: '0.20.1' } }],
@@ -192,6 +267,23 @@ describe('REQ-OPERATOR-030: approved bundle boundary', () => {
     await expect(parseOperatorBundle(bytes, await digest(bytes))).rejects.toThrow(ValidationError);
   });
 
+  it('refuses invalid approved bundle shapes without returning source or credential sentinels', async () => {
+    const source = 'PRIVATE_BUNDLE_SOURCE_SENTINEL';
+    const credential = 'PRIVATE_BUNDLE_CREDENTIAL_SENTINEL';
+    const bytes = encode({ ...bundle(), mainModule: '../escape.js',
+      modules: { 'index.js': { js: `throw new Error("${source} ${credential}")` } } });
+    try {
+      await parseOperatorBundle(bytes, await digest(bytes));
+      expect.fail('Invalid bundle accepted');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ValidationError);
+      for (const sentinel of [source, credential]) {
+        expect(String(error)).not.toContain(sentinel);
+        expect(JSON.stringify(error)).not.toContain(sentinel);
+      }
+    }
+  });
+
   it('rejects oversized artifacts and malformed digest without disclosing source', async () => {
     await expect(parseOperatorBundle(new Uint8Array(8 * 1024 * 1024 + 1), 'a'.repeat(64)))
       .rejects.toThrow(ValidationError);
@@ -201,8 +293,9 @@ describe('REQ-OPERATOR-030: approved bundle boundary', () => {
 });
 
 describe('normal installed Dispatcher artifact contract', () => {
-  it('REQ-OPERATOR-048: AC1/7 normal generated deployment metadata preserves exact acquired modules without execution', async () => {
-    const input = normalDispatcherBundle();
+  it.each(['0.30.1', '0.33.0'])('REQ-OPERATOR-048: AC1/7 normal generated deployment metadata preserves exact acquired modules without execution / Agents %s', async agents => {
+    const normal = normalDispatcherBundle();
+    const input = { ...normal, versions: { ...normal.versions, agents } };
     const received = encode(input);
     const parsed = await parseDispatcherBundle(received, await digest(received));
     expect(parsed).toEqual(input);
@@ -223,8 +316,11 @@ describe('normal installed Dispatcher artifact contract', () => {
     ['invalid binding', { ...normalHosting, binding: 'OTHER_OWNER' }],
     ['migration replacement', { ...normalHosting, migrationTag: 'drop-existing-data' }],
   ])('REQ-OPERATOR-030: AC4/5 normal deployment rejects package-supplied %s', async (_name, hosting) => {
-    const received = encode({ ...normalDispatcherBundle(), hosting });
-    await expect(parseDispatcherBundle(received, await digest(received))).rejects.toThrow(ValidationError);
+    for (const agents of ['0.30.1', '0.33.0']) {
+      const normal = normalDispatcherBundle();
+      const received = encode({ ...normal, versions: { ...normal.versions, agents }, hosting });
+      await expect(parseDispatcherBundle(received, await digest(received))).rejects.toThrow(ValidationError);
+    }
   });
 
   it.each([

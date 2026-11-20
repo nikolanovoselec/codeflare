@@ -30,6 +30,7 @@ const topology = [{ id: 'start', type: 'start', outputs: { next: { elementId: 'm
   { id: 'model', type: 'model', properties: { provider: 'unlisted-provider', model: 'synthetic-future-2099' }, outputs: { success: { elementId: 'end' } } },
   { id: 'end', type: 'end', outputs: {} }];
 
+// REQ-ENTERPRISE-095: Discovery capability evidence authority.
 describe('REQ-ENTERPRISE-074 server-owned automatic discovery authority', () => {
   it('binds the Bedrock image wire when discovery inventory is homogeneous Anthropic Bedrock', async () => {
     const { post } = setup(); let calls = 0;

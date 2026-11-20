@@ -8,6 +8,8 @@ import { createMockKV } from '../helpers/mock-kv';
 import { ADMIN_CONFIGURATION_KEYS, SETUP_KEYS } from '../../lib/kv-keys';
 import { getBuiltInProfileRef } from '../../lib/reasoning-profiles';
 import { parseReasoningConfiguration } from '../../lib/reasoning-configuration';
+import { encryptAndStore, getAndDecrypt, getOrImportKey } from '../../lib/kv-crypto';
+import { getCloudflareProvider } from '../../lib/cloudflare-token';
 import { issueRouteCheck } from '../../lib/reasoning-verification';
 import { routingGatewayUrl, routingInventoryFixtures, verifiedRoutingConfiguration } from '../helpers/verified-routing';
 
@@ -65,6 +67,13 @@ function post(app: ReturnType<typeof createApp>['app'], body: unknown): Promise<
   }));
 }
 
+const administrationModes = [
+  ['default', {}],
+  ['onboarding', { ONBOARDING_LANDING_PAGE: 'active' }],
+  ['saas', { SAAS_MODE: 'active' }],
+  ['enterprise', { ENTERPRISE_MODE: 'active' }],
+] as const;
+
 const enterpriseAiValues = {
   gatewayUrl: routingGatewayUrl,
   replacementToken: '',
@@ -82,56 +91,275 @@ describe('POST /admin/configuration-previews (REQ-SETUP-018)', () => {
     mockAuthReject = false;
   });
 
-  it('REQ-SETUP-017/018: sync policy defaults, previews without writes, applies both modes, and preserves omitted requests', async () => {
-    const { app, kv } = createApp({ ENTERPRISE_MODE: 'active' });
-    expect(await (await app.request('/admin/configuration')).json()).toMatchObject({
-      sections: { dataGovernance: { syncPolicyMode: 'exclude' } },
+  it.each(administrationModes)('REQ-SETUP-017/018/024: %s Integrations previews, directly applies and reloads encrypted OAuth registration with blank-secret preservation', async (_mode, overrides) => {
+    const encryptionKey = Buffer.alloc(32, 11).toString('base64');
+    const { app, kv } = createApp({ ...overrides, ENCRYPTION_KEY: encryptionKey });
+    const env = { ...overrides, KV: kv as unknown as KVNamespace, ENCRYPTION_KEY: encryptionKey } as Env;
+    const key = await getOrImportKey(env);
+    await encryptAndStore(env.KV, SETUP_KEYS.BROWSER_RENDER_TOKEN, { token: 'distinct-admin-browser-secret' }, key);
+    await kv.put(SETUP_KEYS.BROWSER_RENDER_ACCOUNT_ID, 'admin-browser-account');
+    await encryptAndStore(env.KV, 'deploy-keys:owner', { cloudflareApiToken: 'distinct-owner-grant', cloudflareTokenSource: 'oauth' }, key);
+    const browser = await kv.get(SETUP_KEYS.BROWSER_RENDER_TOKEN);
+    const grant = await kv.get('deploy-keys:owner');
+    const initial = await app.request('/admin/configuration');
+    expect(initial.status).toBe(200);
+    const initialBody = await initial.json() as any;
+    expect(initialBody.applicableSections).toContain('cloudflareConnection');
+    expect(initialBody.sections.cloudflareConnection).toEqual({ clientId: '', clientSecretState: 'none' });
+    const secret = 'synthetic-oauth-client-secret';
+    for (const [baseRevision, replacementSecret] of [secret, '', ''].entries()) {
+      // Changing and explicitly clearing the identifier do not clear the saved secret.
+      const clientId = baseRevision === 2 ? '' : `client-${baseRevision}`;
+      const request = { section: 'cloudflareConnection', baseRevision, values: { clientId, replacementSecret } };
+      const before = Array.from(kv._store.entries());
+      const preview = await post(app, request);
+      expect(preview.status).toBe(200);
+      const previewText = await preview.text();
+      const plan = JSON.parse(previewText);
+      expect(plan).toMatchObject({ section: 'cloudflareConnection', baseRevision, currentRevision: baseRevision,
+        tasks: [{ id: 'configure_cloudflare_connection', dependsOn: [] }] });
+      expect(plan.changes).toContainEqual({ field: 'replacementSecret', secret: { willReplace: baseRevision === 0 } });
+      expect(previewText).not.toContain(secret);
+      expect(Array.from(kv._store.entries())).toEqual(before);
+      const priorSecret = await kv.get(SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_SECRET);
+      // Apply is stateless: no preview receipt or replacement secret is required on subsequent saves.
+      const applied = await app.request('/admin/configuration-runs', { method: 'POST',
+        headers: { 'content-type': 'application/json' }, body: JSON.stringify(request) });
+      expect(applied.status).toBe(200);
+      expect(applied.headers.get('content-type')).toContain('application/x-ndjson');
+      const stream = await applied.text();
+      const events = stream.trim().split('\n').map(line => JSON.parse(line));
+      const terminal = events.at(-1).run;
+      expect(terminal).toMatchObject({ section: 'cloudflareConnection', state: 'succeeded',
+        resultingRevision: baseRevision + 1, tasks: [{ id: 'configure_cloudflare_connection', state: 'succeeded' }] });
+      expect(await kv.get(ADMIN_CONFIGURATION_KEYS.REVISION)).toBe(String(baseRevision + 1));
+      expect(await kv.get(ADMIN_CONFIGURATION_KEYS.ACTIVE_RUN)).toBeNull();
+      expect(await kv.get(SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_ID)).toBe(clientId || null);
+      const ciphertext = await kv.get(SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_SECRET) as string;
+      expect(ciphertext.startsWith('v1:')).toBe(true);
+      expect(ciphertext).not.toContain(secret);
+      if (baseRevision > 0) expect(ciphertext).toBe(priorSecret);
+      expect(await getAndDecrypt(env.KV, SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_SECRET, key)).toEqual({ secret });
+      const reloaded = await app.request('/admin/configuration');
+      expect(reloaded.status).toBe(200);
+      const reloadText = await reloaded.text();
+      expect(JSON.parse(reloadText)).toMatchObject({ revision: baseRevision + 1,
+        sections: { cloudflareConnection: { clientId, clientSecretState: 'administration' } } });
+      const persisted = await kv.get(`${ADMIN_CONFIGURATION_KEYS.RUN_PREFIX}${terminal.runId}`) as string;
+      const reconnect = await app.request(`/admin/configuration-runs/${encodeURIComponent(terminal.runId)}`);
+      expect(reconnect.status).toBe(200);
+      const reconnectText = await reconnect.text();
+      expect(JSON.parse(reconnectText)).toEqual(terminal);
+      const latest = await kv.get(`${ADMIN_CONFIGURATION_KEYS.LATEST_PREFIX}cloudflareConnection`) as string;
+      expect(JSON.parse(latest)).toMatchObject({ runId: terminal.runId, state: 'succeeded' });
+      for (const output of [previewText, stream, reloadText, persisted, reconnectText, latest]) {
+        for (const marker of [secret, 'distinct-admin-browser-secret', 'distinct-owner-grant', ciphertext]) expect(output).not.toContain(marker);
+      }
+      const provider = await getCloudflareProvider(env);
+      if (clientId) {
+        expect(provider?.source).toBe('oauth');
+        expect(new URL(provider!.authorizeUrl({ state: 's', redirectUri: 'https://app/cb', scope: 'offline_access' })).searchParams.get('client_id')).toBe(clientId);
+      } else expect(provider).toBeNull();
+      expect(await kv.get(SETUP_KEYS.BROWSER_RENDER_TOKEN)).toBe(browser);
+      expect(await kv.get('deploy-keys:owner')).toBe(grant);
+    }
+  });
+
+  describe.each(administrationModes)('REQ-SETUP-018: %s Integrations boundary', (_mode, overrides) => {
+    const values = { clientId: 'new-client', replacementSecret: 'submitted-secret-must-not-leak' };
+    const apply = (app: ReturnType<typeof createApp>['app'], body: unknown) => app.request('/admin/configuration-runs', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
     });
+
+    it.each(['unauthenticated', 'non-admin', 'stale'] as const)('rejects %s on read/preview/direct Apply without mutation', async guard => {
+      const { app, kv } = createApp({ ...overrides, ENCRYPTION_KEY: Buffer.alloc(32, 12).toString('base64') });
+      await kv.put(SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_ID, 'saved-client');
+      await kv.put(SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_SECRET, 'saved-secret-bytes');
+      if (guard === 'stale') await kv.put(ADMIN_CONFIGURATION_KEYS.REVISION, '2');
+      if (guard === 'unauthenticated') mockAuthReject = true;
+      if (guard === 'non-admin') mockRole = 'user';
+      const before = Array.from(kv._store.entries());
+      const body = { section: 'cloudflareConnection', baseRevision: 0, values };
+      if (guard !== 'stale') expect((await app.request('/admin/configuration')).status).toBe(guard === 'unauthenticated' ? 401 : 403);
+      for (const response of [await post(app, body), await apply(app, body)]) {
+        expect(response.status).toBe(guard === 'stale' ? 409 : guard === 'unauthenticated' ? 401 : 403);
+        const text = await response.text();
+        if (guard === 'stale') expect(JSON.parse(text)).toMatchObject({ code: 'configuration_revision_conflict', currentRevision: 2 });
+        expect(text).not.toContain(values.replacementSecret);
+      }
+      expect(Array.from(kv._store.entries())).toEqual(before);
+    });
+
+    it.each(['missing-encryption', 'forged-browser-token'] as const)('rejects %s in preview and direct Apply without writes', async invalid => {
+      const { app, kv } = createApp(invalid === 'missing-encryption' ? overrides
+        : { ...overrides, ENCRYPTION_KEY: Buffer.alloc(32, 12).toString('base64') });
+      const before = Array.from(kv._store.entries());
+      const body = { section: 'cloudflareConnection', baseRevision: 0,
+        values: { ...values, ...(invalid === 'forged-browser-token' ? { replacementToken: 'forged-browser-secret', accountId: 'forged-account' } : {}) } };
+      for (const response of [await post(app, body), await apply(app, body)]) {
+        expect(response.status).toBe(400);
+        const text = await response.text();
+        expect(JSON.parse(text)).toMatchObject({ code: 'validation_error' });
+        expect(text).not.toContain(values.replacementSecret);
+        expect(text).not.toContain('forged-browser-secret');
+      }
+      expect(Array.from(kv._store.entries())).toEqual(before);
+    });
+
+    it.each(['run', 'setup'] as const)('rejects direct Apply under the %s admission guard without changing credentials', async guard => {
+      const { app, kv } = createApp(overrides);
+      await kv.put(SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_ID, 'saved-client');
+      await kv.put(SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_SECRET, 'saved-secret-bytes');
+      if (guard === 'run') await kv.put(ADMIN_CONFIGURATION_KEYS.ACTIVE_RUN, JSON.stringify({
+        runId: 'active-integrations', updatedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      }));
+      else await kv.put(SETUP_KEYS.CONFIGURING, String(Date.now()));
+      const before = Array.from(kv._store.entries());
+      const response = await apply(app, { section: 'cloudflareConnection', baseRevision: 0,
+        values: { clientId: 'new-client', replacementSecret: '' } });
+      expect(response.status).toBe(409);
+      expect(response.headers.get('content-type')).toContain('application/json');
+      expect(await response.json()).toMatchObject({ code: guard === 'run' ? 'configuration_run_active' : 'setup_configuration_active' });
+      expect(Array.from(kv._store.entries())).toEqual(before);
+    });
+  });
+
+  it.each(administrationModes)('REQ-SETUP-017/018/028: %s sync policy defaults, previews without writes, applies both directions, and preserves omission', async (mode, overrides) => {
+    const { app, kv } = createApp(overrides);
+    await kv.put(SETUP_KEYS.R2_SSE_DISABLED, mode === 'saas' ? 'inactive' : 'active');
+    await kv.put(SETUP_KEYS.DOWNLOADS_DISABLED, mode === 'enterprise' || mode === 'onboarding' ? 'inactive' : 'active');
+    await kv.put(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG, '{ "enabled": false, "retained": "managed bytes" }');
+    await kv.put('unrelated:sentinel', 'unchanged bytes');
+    const initial = await app.request('/admin/configuration');
+    expect(initial.status).toBe(200);
+    const initialBody = await initial.json() as any;
+    expect(initialBody.mode).toBe(mode);
+    expect(initialBody.applicableSections).toContain('dataGovernance');
+    expect(initialBody.sections.dataGovernance).toEqual(mode === 'enterprise'
+      ? { governedMode: true, viewOnlyStorage: false, syncPolicyMode: 'exclude' }
+      : { syncPolicyMode: 'exclude' });
     const selections = ['include', undefined, 'exclude'] as const;
     for (const [baseRevision, selection] of selections.entries()) {
       const expected = selection ?? 'include';
-      const values = { governedMode: false, viewOnlyStorage: baseRevision === 1,
-        ...(selection !== undefined && { syncPolicyMode: selection }) };
-      const before = await kv.get('setup:sync_policy_mode');
+      const values = {
+        ...(mode === 'enterprise' && { governedMode: false, viewOnlyStorage: baseRevision === 1 }),
+        ...(selection !== undefined && { syncPolicyMode: selection }),
+      };
+      const before = Array.from(kv._store.entries());
       const preview = await post(app, { section: 'dataGovernance', baseRevision, values });
       expect(preview.status).toBe(200);
-      const plan = await preview.json() as { changes: Array<{ field: string; after: unknown }> };
+      const plan = await preview.json() as { changes: Array<{ field: string; after: unknown }>; tasks: Array<{ id: string; dependsOn: string[] }> };
       expect(plan.changes.filter(change => change.field === 'syncPolicyMode')).toEqual(
         selection === undefined ? [] : [expect.objectContaining({ field: 'syncPolicyMode', after: expected })]);
-      expect(await kv.get('setup:sync_policy_mode')).toBe(before);
+      // Task IDs and dependencies are the public bounded execution-plan contract.
+      expect(plan.tasks).toEqual(mode === 'enterprise' ? [
+        { id: 'configure_r2_sse', dependsOn: [] },
+        { id: 'configure_downloads_disabled', dependsOn: [] },
+        { id: 'configure_sync_policy', dependsOn: [] },
+      ] : [{ id: 'configure_sync_policy', dependsOn: [] }]);
+      if (mode !== 'enterprise') expect(plan.changes.every(change => change.field === 'syncPolicyMode')).toBe(true);
+      expect(Array.from(kv._store.entries())).toEqual(before);
       const applied = await app.request('/admin/configuration-runs', { method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ section: 'dataGovernance', baseRevision, values }) });
       expect(applied.status).toBe(200);
+      expect(applied.headers.get('content-type')).toContain('application/x-ndjson');
       const events = (await applied.text()).trim().split('\n').map(line => JSON.parse(line));
-      expect(events.at(-1).run.state).toBe('succeeded');
-      expect(await kv.get('setup:sync_policy_mode')).toBe(expected);
-      expect(await (await app.request('/admin/configuration')).json()).toMatchObject({
-        sections: { dataGovernance: { syncPolicyMode: expected, viewOnlyStorage: baseRevision === 1 } },
-      });
+      expect(events.at(-1).run).toMatchObject({ state: 'succeeded', resultingRevision: baseRevision + 1 });
+      expect(events.at(-1).run.tasks).toEqual(plan.tasks.map(task => expect.objectContaining({ id: task.id, state: 'succeeded' })));
+      expect(await kv.get(SETUP_KEYS.SYNC_POLICY_MODE)).toBe(expected);
+      expect(await kv.get(ADMIN_CONFIGURATION_KEYS.REVISION)).toBe(String(baseRevision + 1));
+      expect(await kv.get(ADMIN_CONFIGURATION_KEYS.ACTIVE_RUN)).toBeNull();
+      const reloaded = await app.request('/admin/configuration');
+      expect(reloaded.status).toBe(200);
+      expect((await reloaded.json() as any).sections.dataGovernance).toEqual(mode === 'enterprise'
+        ? { syncPolicyMode: expected, governedMode: false, viewOnlyStorage: baseRevision === 1 }
+        : { syncPolicyMode: expected });
+      if (mode !== 'enterprise') {
+        const settings = (entries: Array<[string, string]>) => entries.filter(([key]) =>
+          key !== SETUP_KEYS.SYNC_POLICY_MODE && key !== ADMIN_CONFIGURATION_KEYS.REVISION
+          && key !== ADMIN_CONFIGURATION_KEYS.ACTIVE_RUN && !key.startsWith(ADMIN_CONFIGURATION_KEYS.RUN_PREFIX)
+          && key !== `${ADMIN_CONFIGURATION_KEYS.LATEST_PREFIX}dataGovernance`);
+        expect(settings(Array.from(kv._store.entries()))).toEqual(settings(before));
+      }
     }
   });
 
-  it.each(['Include', '', true, null, 'all'])('REQ-SETUP-018: rejects unknown sync policy %s before mutation', async syncPolicyMode => {
-    const { app, kv } = createApp({ ENTERPRISE_MODE: 'active' });
-    await kv.put('setup:sync_policy_mode', 'include');
-    const body = { section: 'dataGovernance', baseRevision: 0,
-      values: { governedMode: true, viewOnlyStorage: true, syncPolicyMode } };
-    expect((await post(app, body)).status).toBe(400);
-    expect((await app.request('/admin/configuration-runs', { method: 'POST',
-      headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).status).toBe(400);
-    expect(await kv.get('setup:sync_policy_mode')).toBe('include');
-    expect(await kv.get(SETUP_KEYS.R2_SSE_DISABLED)).toBeNull();
-    expect(await kv.get(ADMIN_CONFIGURATION_KEYS.REVISION)).toBeNull();
+  describe.each(administrationModes)('REQ-SETUP-028: %s policy boundary', (mode, overrides) => {
+    it.each(['Include', '', true, null, 'all'])('rejects unknown submitted sync policy %s before mutation', async syncPolicyMode => {
+      const { app, kv } = createApp(overrides);
+      await kv.put(SETUP_KEYS.SYNC_POLICY_MODE, 'include');
+      const values = { ...(mode === 'enterprise' && { governedMode: true, viewOnlyStorage: true }), syncPolicyMode };
+      const valid = await post(app, { section: 'dataGovernance', baseRevision: 0, values: { ...values, syncPolicyMode: 'exclude' } });
+      expect(valid.status).toBe(200);
+      const before = Array.from(kv._store.entries());
+      const body = { section: 'dataGovernance', baseRevision: 0, values };
+      const preview = await post(app, body);
+      expect(preview.status).toBe(400);
+      expect(await preview.json()).toMatchObject({ code: 'validation_error' });
+      const applied = await app.request('/admin/configuration-runs', { method: 'POST',
+        headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      expect(applied.status).toBe(400);
+      expect(await applied.json()).toMatchObject({ code: 'validation_error' });
+      expect(Array.from(kv._store.entries())).toEqual(before);
+    });
+
+    it('rejects malformed stored sync policy on GET and omitted preview/direct Apply without selecting Exclude', async () => {
+      const { app, kv } = createApp(overrides);
+      await kv.put(SETUP_KEYS.SYNC_POLICY_MODE, 'Include');
+      const before = Array.from(kv._store.entries());
+      expect((await app.request('/admin/configuration')).status).toBe(500);
+      const body = { section: 'dataGovernance', baseRevision: 0,
+        values: mode === 'enterprise' ? { governedMode: false, viewOnlyStorage: false } : {} };
+      const preview = await post(app, body);
+      expect(preview.status).toBe(400);
+      expect(await preview.json()).toMatchObject({ code: 'validation_error' });
+      const applied = await app.request('/admin/configuration-runs', { method: 'POST',
+        headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      expect(applied.status).toBe(400);
+      expect(await applied.json()).toMatchObject({ code: 'validation_error' });
+      expect(Array.from(kv._store.entries())).toEqual(before);
+    });
   });
 
-  it('REQ-SETUP-017/018: malformed stored sync policy fails closed rather than selecting exclude', async () => {
-    const { app, kv } = createApp({ ENTERPRISE_MODE: 'active' });
-    await kv.put('setup:sync_policy_mode', 'Include');
-    expect((await app.request('/admin/configuration')).status).toBe(500);
-    expect((await post(app, { section: 'dataGovernance', baseRevision: 0,
-      values: { governedMode: false, viewOnlyStorage: false } })).status).not.toBe(200);
-    expect(await kv.get('setup:sync_policy_mode')).toBe('Include');
+  it.each(administrationModes)('REQ-SETUP-018: %s sync preview rejects stale review without writes', async (mode, overrides) => {
+    const { app, kv } = createApp(overrides);
+    await kv.put(SETUP_KEYS.SYNC_POLICY_MODE, 'include');
+    await kv.put(ADMIN_CONFIGURATION_KEYS.REVISION, '2');
+    const values = { ...(mode === 'enterprise' && { governedMode: false, viewOnlyStorage: false }), syncPolicyMode: 'exclude' };
+    expect((await post(app, { section: 'dataGovernance', baseRevision: 2, values })).status).toBe(200);
+    const before = Array.from(kv._store.entries());
+    const rejected = await post(app, { section: 'dataGovernance', baseRevision: 1, values });
+    expect(rejected.status).toBe(409);
+    expect(await rejected.json()).toMatchObject({ code: 'configuration_revision_conflict', currentRevision: 2 });
+    expect(Array.from(kv._store.entries())).toEqual(before);
+  });
+
+  describe.each(administrationModes.slice(0, 3))('REQ-SETUP-018: %s sync-only admission', (_mode, overrides) => {
+    it.each([
+      { governedMode: true }, { governedMode: false },
+      { viewOnlyStorage: true }, { viewOnlyStorage: false },
+      { r2SseDisabled: false }, { downloadsDisabled: false },
+      { immutableResources: false }, { managedResourcePolicy: 'mutable' },
+      { 'setup:r2_sse_disabled': 'inactive' }, { unexpected: true },
+    ])('rejects forged governance fields %j in preview AND direct Apply', async forged => {
+      const { app, kv } = createApp(overrides);
+      await kv.put(SETUP_KEYS.R2_SSE_DISABLED, 'active');
+      await kv.put(SETUP_KEYS.DOWNLOADS_DISABLED, 'active');
+      await kv.put(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG, '{ "enabled": false, "retained": true }');
+      const valid = { section: 'dataGovernance', baseRevision: 0, values: { syncPolicyMode: 'include' } };
+      expect((await post(app, valid)).status).toBe(200);
+      const before = Array.from(kv._store.entries());
+      const body = { ...valid, values: { ...valid.values, ...forged } };
+      const preview = await post(app, body);
+      expect(preview.status).toBe(400);
+      expect(await preview.json()).toMatchObject({ code: 'validation_error' });
+      const applied = await app.request('/admin/configuration-runs', { method: 'POST',
+        headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      expect(applied.status).toBe(400);
+      expect(await applied.json()).toMatchObject({ code: 'validation_error' });
+      expect(Array.from(kv._store.entries())).toEqual(before);
+    });
   });
 
   it('REQ-ENTERPRISE-088 AC1: checkbox-only group grants and revocations survive preview save and reload', async () => {
@@ -630,6 +858,16 @@ describe('POST /admin/configuration-previews (REQ-SETUP-018)', () => {
     expect(response.status).toBe(200);
     expect((await response.json() as { warnings: { code: string }[] }).warnings)
       .toEqual(expect.arrayContaining([expect.objectContaining({ code: 'jwt_stamping_all_disclosure' })]));
+    const unconfirmed = await all.app.request('/admin/configuration-runs', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      body: JSON.stringify({ section: 'securityEgress', baseRevision: 0, values: {
+        strictGatewayEgress: false, jwtStamping: { mode: 'all', destinations: [] },
+      } }),
+    });
+    expect(unconfirmed.status).toBe(400);
+    expect(await unconfirmed.json()).toMatchObject({ code: 'configuration_warning_confirmation_required',
+      warnings: [expect.objectContaining({ code: 'jwt_stamping_all_disclosure' })] });
+    expect(await all.kv.get(SETUP_KEYS.OPERATOR_JWT_STAMPING)).toBeNull();
   });
 
   it('keeps Browser Run optional but rejects incomplete effective pairs', async () => {

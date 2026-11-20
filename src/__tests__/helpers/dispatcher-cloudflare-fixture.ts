@@ -21,14 +21,22 @@ export function createDispatcherCloudflareFixture() {
   const workers = `/client/v4/accounts/${accountId}/workers`;
   const scripts = new Map<string, UploadedDispatcher>();
   const uploads: UploadedDispatcher[] = [];
+  const namespaces = new Map<string, { id: string; name: string; class: string; script: string; use_sqlite: boolean }>();
+  const seedDeployment = (script: UploadedDispatcher) => {
+    scripts.set(script.name, structuredClone(script));
+    namespaces.set(script.namespaceId, { id: script.namespaceId, name: `${script.name}_FlueDispatcherAgent`,
+      class: 'FlueDispatcherAgent', script: script.name, use_sqlite: true });
+  };
   // This is an external protected-write ledger, not an internal helper spy.
-  const writes: Array<{ method: string; path: string }> = [];
+  const writes: Array<{ method: string; path: string; query?: string }> = [];
+  const deleteResponses = new Map<string, number>();
+  let beforeDelete: ((name: string) => Promise<void>) | undefined;
   const unexpected: string[] = [];
   let fault: DispatcherPlatformFault = 'none';
   let settingsOverride: { value: unknown } | undefined;
   let afterUpload: ((script: UploadedDispatcher) => Promise<void>) | undefined;
   let beforeVersionRead: (() => Promise<void>) | undefined;
-  let beforeSettingsRead: (() => Promise<void>) | undefined;
+  let beforeSettingsRead: ((name: string) => Promise<void>) | undefined;
   const ok = (result: unknown) => Response.json({ success: true, errors: [], messages: [], result });
   const missing = () => Response.json({ success: false, errors: [{ code: 10007, message: 'Worker not found' }], result: null }, { status: 404 });
   const fail = () => Response.json({ success: false, errors: [{ code: 10000, message: 'Platform refused synthetic-platform-token acquisition-only-pat' }], result: null }, { status: 403 });
@@ -37,12 +45,18 @@ export function createDispatcherCloudflareFixture() {
     const url = new URL(request.url);
     if (url.origin !== 'https://api.cloudflare.com' || request.headers.get('authorization') !== `Bearer ${token}`)
       return fail();
-    if (request.method !== 'GET') writes.push({ method: request.method, path: url.pathname });
+    if (request.method !== 'GET') writes.push({ method: request.method, path: url.pathname,
+      ...(request.method === 'DELETE' ? { query: url.search } : {}) });
+    if (url.pathname === `${workers}/scripts` && request.method === 'GET') {
+      // The documented script-list contract is one result array, not a paged API.
+      if (url.search) return Response.json({ success: false, errors: [{ code: 10000, message: 'Unsupported inventory query' }] }, { status: 400 });
+      return ok([...scripts.values()].map(script => ({ id: script.name,
+        etag: script.versionId, handlers: ['fetch'], modified_on: '2026-10-28T00:00:00Z' })));
+    }
     if (url.pathname === `${workers}/subdomain` && request.method === 'GET') return ok({ subdomain: 'platform-account' });
     if (url.pathname === `${workers}/durable_objects/namespaces` && request.method === 'GET') {
-      const result = Number(url.searchParams.get('page') ?? '1') === 1 ? [...scripts.values()].map(script => ({
-        id: script.namespaceId, name: `${script.name}_FlueDispatcherAgent`, class: 'FlueDispatcherAgent',
-        script: script.name, use_sqlite: fault !== 'non-sqlite',
+      const result = Number(url.searchParams.get('page') ?? '1') === 1 ? [...namespaces.values()].map(namespace => ({
+        ...namespace, use_sqlite: fault !== 'non-sqlite' && namespace.use_sqlite,
       })) : [];
       return Response.json({ success: true, errors: [], messages: [], result,
         result_info: { page: 1, per_page: 100, count: result.length, total_count: scripts.size, total_pages: 1 } });
@@ -68,20 +82,38 @@ export function createDispatcherCloudflareFixture() {
         }
         const script: UploadedDispatcher = { name, metadata, modules, versionId: crypto.randomUUID(),
           deploymentId: crypto.randomUUID(), namespaceId: crypto.randomUUID().replaceAll('-', ''), subdomainEnabled: false };
-        scripts.set(name, script); uploads.push(structuredClone(script));
+        seedDeployment(script); uploads.push(structuredClone(script));
+        // Hooks and subsequent platform reads operate on the same accepted upload.
+        scripts.set(name, script);
         if (afterUpload) await afterUpload(script);
         if (fault === 'upload-uncertain') throw new Error('Upload acknowledgement lost after platform acceptance synthetic-platform-token');
         // ScriptUpdateResponse has no documented version UUID. Production must read /deployments.
         return ok({ id: name, etag: 'opaque-upload-etag', startup_time_ms: 1, handlers: ['fetch'],
           named_handlers: ['FlueDispatcherAgent'] });
       }
+      if (!suffix && request.method === 'DELETE') {
+        if (beforeDelete) await beforeDelete(name);
+        // Cloudflare DELETE removes the script's namespaces too. Force deletion
+        // is deliberately unsupported: ownership/fencing must precede this wire.
+        if (url.searchParams.has('force')) return fail();
+        const status = deleteResponses.get(name);
+        if (status !== undefined && status !== 404 && status >= 400) return fail();
+        const existed = scripts.delete(name);
+        for (const [id, namespace] of namespaces) if (namespace.script === name) namespaces.delete(id);
+        if (status === 404 || !existed) return missing();
+        return new Response(null, { status: 200 }); // Documented success has no JSON body.
+      }
       const script = scripts.get(name);
       if (!script) return missing();
       if (suffix === '/settings' && request.method === 'GET') {
-        if (beforeSettingsRead) await beforeSettingsRead();
+        if (beforeSettingsRead) await beforeSettingsRead(name);
         request.signal.throwIfAborted();
         const observability = settingsOverride ? settingsOverride.value : script.metadata.observability;
-        return ok(observability === undefined ? {} : { observability: structuredClone(observability) });
+        const bindings = script.metadata.bindings.map(binding => {
+          if (binding.type === 'secret_text') { const { text: _secret, ...publicBinding } = binding; return publicBinding; }
+          return structuredClone(binding);
+        });
+        return ok({ bindings, ...(observability === undefined ? {} : { observability: structuredClone(observability) }) });
       }
       if (suffix === '/subdomain') {
         if (request.method === 'POST') {
@@ -125,10 +157,12 @@ export function createDispatcherCloudflareFixture() {
     unexpected.push(`${request.method} ${url.pathname}`);
     return Response.json({ success: false, errors: [{ code: 10007, message: 'Unexpected fixture endpoint' }] }, { status: 404 });
   };
-  return { accountId, token, parentName, scripts, uploads, writes, unexpected, fetcher,
+  return { accountId, token, parentName, scripts, namespaces, uploads, writes, unexpected, fetcher, seedDeployment,
+    setDeleteResponse: (name: string, status: number) => { deleteResponses.set(name, status); },
+    beforeDelete: (hook: (name: string) => Promise<void>) => { beforeDelete = hook; },
     setFault: (value: DispatcherPlatformFault) => { fault = value; },
     setObservability: (value: unknown) => { settingsOverride = { value }; },
     afterUpload: (hook: (script: UploadedDispatcher) => Promise<void>) => { afterUpload = hook; },
     beforeVersionRead: (hook: () => Promise<void>) => { beforeVersionRead = hook; },
-    beforeSettingsRead: (hook: () => Promise<void>) => { beforeSettingsRead = hook; } };
+    beforeSettingsRead: (hook: (name: string) => Promise<void>) => { beforeSettingsRead = hook; } };
 }

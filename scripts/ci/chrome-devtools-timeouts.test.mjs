@@ -13,9 +13,9 @@ test('REQ-BROWSER-009 AC3: the real Chrome SDK applies six-minute page and remot
   // The same guarded image transformation, including safe repeated preparation.
   prepareChromeTimeouts(root);
   prepareChromeTimeouts(root);
-  const { McpPage } = await import(pathToFileURL(resolve(root, 'build/src/McpPage.js')).href);
-  const { ServerConfig } = await import(pathToFileURL(resolve(root, 'build/src/config/ServerConfig.js')).href);
-  const { puppeteer, Locator } = await import(pathToFileURL(resolve(root, 'build/src/third_party/index.js')).href);
+  const { McpPage } = await import(pathToFileURL(resolve(root, 'out/Default/gen/src/McpPage.js')).href);
+  const { ServerConfig } = await import(pathToFileURL(resolve(root, 'out/Default/gen/src/config/ServerConfig.js')).href);
+  const { puppeteer, Locator } = await import(pathToFileURL(resolve(root, 'out/Default/gen/src/third_party/index.js')).href);
   const browser = await puppeteer.launch({
     executablePath: process.env.CI_CHROMIUM_EXECUTABLE,
     headless: true,
@@ -47,7 +47,7 @@ test('REQ-BROWSER-009 AC3: the real Chrome SDK applies six-minute page and remot
     // Attach through the actual SDK's public remote-browser boundary. A public
     // CDP evaluation that never resolves observes Puppeteer's default deadline;
     // only the platform clock is accelerated, not the CDP implementation.
-    const { BrowserManager } = await import(pathToFileURL(resolve(root, 'build/src/BrowserManager.js')).href);
+    const { BrowserManager } = await import(pathToFileURL(resolve(root, 'out/Default/gen/src/BrowserManager.js')).href);
     manager = new BrowserManager(config);
     const remote = await manager.ensureBrowser();
     const [remotePage] = await remote.pages();

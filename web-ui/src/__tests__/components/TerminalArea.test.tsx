@@ -399,6 +399,36 @@ describe('TerminalArea', () => {
     expect(document.querySelectorAll('[data-connect="true"]')).toHaveLength(1);
   });
 
+  it('REQ-SESSION-012 AC3 / TERM-045 AC5: retains the same rendered panes through unreachable and recovery', async () => {
+    mockSessions = [
+      { id: 'session-a', name: 'A', status: 'running', generation: 2, revision: 4 },
+      { id: 'session-b', name: 'B', status: 'running', generation: 1, revision: 3 },
+    ];
+    mockVisiblePanes = [
+      { id: 'multiview:session-a:1', sessionId: 'session-a', terminalId: '1', source: 'multiview' },
+      { id: 'multiview:session-b:1', sessionId: 'session-b', terminalId: '1', source: 'multiview' },
+    ];
+    mockFocusedPaneId = 'multiview:session-a:1';
+    mockWorkspaceLayout = '2-split';
+    render(() => <TerminalArea {...defaultProps} showTerminal viewState="terminal" />);
+    const a = screen.getByTestId('terminal-session-a-1');
+    const b = screen.getByTestId('terminal-session-b-1');
+    for (const [status, revision] of [['unreachable', 5], ['running', 6]] as const) {
+      mockSessions = mockSessions.map(session => session.id === 'session-a' ? { ...session, status, revision } : session);
+      bumpWorkspaceVersion();
+      await waitFor(() => {
+        expect(screen.getByTestId('terminal-session-a-1')).toBe(a);
+        expect(screen.getByTestId('terminal-session-b-1')).toBe(b);
+        expect(a).toHaveAttribute('data-focused', 'true');
+        expect(b).toHaveAttribute('data-focused', 'false');
+        expect(a).toHaveAttribute('data-visible', 'true');
+        expect(b).toHaveAttribute('data-visible', 'true');
+        expect(a).toHaveAttribute('data-connect', 'true');
+        expect(b).toHaveAttribute('data-connect', 'true');
+      });
+    }
+  });
+
   it('REQ-TERM-012: changes MultiView pane focus without remounting terminal panes / REQ-TERM-017', async () => {
     mockSessions = [
       { id: 'session-a', name: 'A', status: 'running' },

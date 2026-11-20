@@ -133,6 +133,11 @@
       "advanced"
     ]
   },
+  "extensions/hermes-memory-runtime.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "extensions/inline-edit.ts": {
     "modes": [
       "advanced"
@@ -476,6 +481,11 @@
       "advanced"
     ]
   },
+  "skills/impeccable/reference/critique-rubric.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/impeccable/reference/critique.md": {
     "modes": [
       "advanced"
@@ -501,6 +511,11 @@
       "advanced"
     ]
   },
+  "skills/impeccable/reference/degraded/motion-reviewer.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/impeccable/reference/delight.md": {
     "modes": [
       "advanced"
@@ -522,6 +537,11 @@
     ]
   },
   "skills/impeccable/reference/extract.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/foundations.md": {
     "modes": [
       "advanced"
     ]
@@ -577,6 +597,16 @@
     ]
   },
   "skills/impeccable/reference/mode-read.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/new-work-comp.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/new-work-world.md": {
     "modes": [
       "advanced"
     ]
@@ -702,6 +732,18 @@
     ]
   },
   "skills/librarian/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/planning/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/_licenses/superpowers-MIT.txt": {
     "modes": [
       "default",
       "advanced"

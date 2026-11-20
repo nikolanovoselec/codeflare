@@ -14,7 +14,7 @@
 import type { ManagedResourcePolicy, SessionWorkspace, TabConfig, TerminalMode } from '../types';
 import type { PiDefaultSource } from '../lib/personal-pi-policy';
 import { toError } from '../lib/error-types';
-import { SetSessionIdBodySchema } from '../lib/container-config-schema';
+import { CloudflareOauthAccountIdSchema, SetSessionIdBodySchema } from '../lib/container-config-schema';
 import { validateBucketNameInput, applyPrefsOnRestart } from './container-env';
 import { refreshStrictEgressInterception } from './container-interception';
 import { bindReviewSessionHuman } from './review-session-human';
@@ -58,11 +58,12 @@ interface SetBucketNameBody {
   syncPolicyMode?: import('../lib/sync-policy').SyncPolicyMode;
   fastStartEnabled?: boolean;
   tabConfig?: TabConfig[];
-  openaiApiKey?: string;
-  geminiApiKey?: string;
+  openaiApiKey?: string | null;
+  geminiApiKey?: string | null;
   githubToken?: string;
   cloudflareApiToken?: string;
   cloudflareAccountId?: string;
+  cloudflareOauthAccountId?: string | null;
   encryptionKey?: string;
   // REQ-ENTERPRISE-018: Governed Mode regime forwarded by the Worker. buildEnvVars
   // surfaces it to the container as R2_SSE_DISABLED so entrypoint.sh drops SSE-C from
@@ -174,8 +175,17 @@ export function dispatchInternalRoute(
 /** Handle POST /_internal/setBucketName. */
 async function handleSetBucketName(host: ContainerHost, request: Request): Promise<Response> {
   try {
-    const { bucketName, sessionId, userEmail, userGroups, routeCatalog, allowPersonalPiProviders, piDefaultSource, defaultRoute, defaultReasoning, routeContextWindows, routeReasoningLevels, modelDisplayNames, promptCacheTargets, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, syncPolicyMode, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, encryptionKey, r2SseDisabled, remoteCurationActive, remoteCurationReleaseDigest, remoteCurationManifestDigest, managedResourcePolicy, managedResourcePathsDigest, sessionMode, sessionWorkspace, terminalMode, userTimezone, gitCloneRepo, gitCloneRef, gitCloneTargets, sleepAfter: sleepAfterPref } =
+    const { bucketName, sessionId, userEmail, userGroups, routeCatalog, allowPersonalPiProviders, piDefaultSource, defaultRoute, defaultReasoning, routeContextWindows, routeReasoningLevels, modelDisplayNames, promptCacheTargets, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, syncPolicyMode, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, cloudflareOauthAccountId, encryptionKey, r2SseDisabled, remoteCurationActive, remoteCurationReleaseDigest, remoteCurationManifestDigest, managedResourcePolicy, managedResourcePathsDigest, sessionMode, sessionWorkspace, terminalMode, userTimezone, gitCloneRepo, gitCloneRef, gitCloneTargets, sleepAfter: sleepAfterPref } =
       await request.json() as SetBucketNameBody;
+
+    // Validate only this additive member; legacy partial payload acceptance is unchanged.
+    // Reject before authority revocation, persistence or startup reconfiguration.
+    if (!CloudflareOauthAccountIdSchema.safeParse(cloudflareOauthAccountId).success) {
+      return new Response(JSON.stringify({ error: 'cloudflareOauthAccountId must be a 32-hex account ID or null when provided' }), {
+        status: 400,
+        headers: JSON_HEADERS,
+      });
+    }
 
     const resourceIdentityError = managedResourcePolicy === undefined && managedResourcePathsDigest !== undefined
       ? 'managed resource identity requires an explicit policy mode'
@@ -243,7 +253,7 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
       const prefsChanged = await applyPrefsOnRestart(host, host.ctx.storage, {
         sessionId, userEmail, userGroups, routeCatalog, allowPersonalPiProviders: allowPersonalPiProviders === true, piDefaultSource: piDefaultSource ?? 'managed', defaultRoute, defaultReasoning, routeContextWindows, routeReasoningLevels, modelDisplayNames, promptCacheTargets,
         workspaceSyncEnabled, syncPolicyMode, fastStartEnabled, tabConfig,
-        openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId,
+        openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, cloudflareOauthAccountId,
         encryptionKey, r2SseDisabled, remoteCurationActive, remoteCurationReleaseDigest, remoteCurationManifestDigest,
         managedResourcePolicy, managedResourcePathsDigest, sessionMode, sessionWorkspace, terminalMode, userTimezone,
         gitCloneRepo, gitCloneRef, gitCloneTargets,
@@ -347,6 +357,7 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
       githubToken,
       cloudflareApiToken,
       cloudflareAccountId,
+      cloudflareOauthAccountId,
       encryptionKey,
       r2SseDisabled,
       remoteCurationActive,

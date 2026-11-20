@@ -5,14 +5,21 @@
  * are separate transactions. Generation fences reject stale work but do not prove compute cleanup.
  * See sdd/spec/operators.md and documentation/lanes/operators.md for acceptance boundaries.
  */
+import { Buffer } from 'node:buffer';
+import { prospectiveReconciliationStream, type ProspectiveReconciliationAuthority } from './prospective-reconciliation';
+import { createHash } from 'node:crypto';
 import { WorkerEntrypoint } from 'cloudflare:workers';
+import { createRawCapture, createOwnerRawCaptureStorage, rawCapturePresence, verifyRawCapture, captureRawInteraction, type RawCaptureBinding, type RawCapture } from './raw-capture-storage';
+import { requireOwnerRawReader, parseOwnerRawReadRequest, readOwnerRawCapturePage, ownerRawReadUnavailable,
+  type OwnerRawReadCredential, type OwnerRawReadRequest } from './raw-capture-read';
 import { projectDispatcherOperationEvidence } from './dispatcher-runtime-diagnostics';
+import { publicSdkReportSchema, projectPublicSdkRecords, readPublicSdkDiagnostics } from './dispatcher-public-diagnostics';
 import { readBoundedResponse } from '../lib/bounded-stream';
 import { readDispatcherSdkConfiguration, dispatcherSdkCredentials, forwardDispatcherSdkHttp } from './dispatcher-sdk-services';
 import { dispatcherSdkOwnerContext } from './dispatcher-owner-inference';
 import { openOperatorSecret } from './protected-secrets';
 import { discoverDispatcherOwnerProfile, forwardDispatcherOwnerInference, type ConfiguredDispatcherInference } from './dispatcher-owner-inference';
-import { captureError, hashDiagnostic, hostSource, readSdkProvenance, readSdkDiagnosticHeader, runtimeSchema, sourceMatches, sdkAdmissionTypes,
+import { captureError, hashDiagnostic, recordActivityRpcCheckpoint, hostSource, readSdkProvenance, readSdkDiagnosticHeader, runtimeSchema, sourceMatches,
   type JournalFailure, type SdkProvenance, type Boundary, type ReasonCode, type Correlation, type RuntimeEnvelope, type DiagnosticBinding, type ErrorMetadata, type DiagnosticPreparation, type SdkServiceFailure } from './dispatcher-diagnostics-wire';
 import { appendDiagnostic, initializeDiagnostics, diagnosticLoss, observeOutbox,
   type FailureObservation, type FenceReason, type EventObservation, type DiagnosticCapsule } from './dispatcher-diagnostics-store';
@@ -22,6 +29,7 @@ import { Agent, type RetryOptions, type Schedule, type ScheduleCriteria } from '
 import { DISPATCHER_SCHEDULE_CALLBACK, childScheduleRow, dispatcherScheduleEnvelope,
   dispatcherSchedulePath, migrateDispatcherSchedules, parseDispatcherSchedule, projectChildSchedule } from './dispatcher-scheduler';
 import type { Env as AppEnv } from '../types';
+import { getContainerId, getPersonalPiSession } from '../lib/container-helpers';
 import { parseDispatcherBundle, type DispatcherBundle } from './distribution';
 import { loadOperatorDispatcherClass } from './loader';
 import { DEFAULT_SOURCE_RESPONSE_BYTES, sourceResponseBytes } from './dispatcher-source-limits';
@@ -29,37 +37,38 @@ import { producerDiagnosticSchema, sdkPublicReasonCode, type ProducerDiagnostic 
 import { DispatcherRefusal, dispatcherRefusal, dispatcherRefusalBody, type DispatcherRefusalReason } from './dispatcher-refusal';
 import { submissionAttemptLimit } from './dispatcher-submission-limits';
 import { inferenceRequestBytes, inferenceAttemptLimit } from './dispatcher-inference-limits';
-import { dispatcherCapacities, type DispatcherCapacityPolicy } from './dispatcher-capacity-limits';
+import { dispatcherCapacities } from './dispatcher-capacity-limits';
 import { classifyDispatcherInference, inferenceAttemptKey, inferenceRetryDelay,
   type DispatcherInferenceAttempt, type DispatcherInferenceChain, type DispatcherInferenceResponse } from './dispatcher-inference-recovery';
 import { DEFAULT_DISPATCHER_OPERATION_LIMIT, dispatcherOperationLimit } from './dispatcher-operation-limits';
-import { authorizeDispatcherPlan, createDispatcherOperation, parseDispatcherOperation,
-  readDispatcherBody, dispatcherGithubApiOrigin, dispatcherWireRules, prepareDispatcherNative, parseRetainedDispatcherSource, type DispatcherAdmittedTarget,
+import { DispatcherAuthorityUnavailable, authorizeDispatcherPlan, createDispatcherOperation, parseDispatcherOperation,
+  readDispatcherBody, dispatcherGithubApiOrigin, dispatcherWireRules, prepareDispatcherNative, parseRetainedDispatcherSource,
   type DispatcherInferenceCountObservation, type DispatcherBodyOverflowObservation } from './operator-runtime-capability';
 import { z } from 'zod';
 import { readDispatcherUpdates, type DispatcherResultProjection } from './dispatcher-result';
+import { hasApplicationWorkflow, parseApplicationDecision, sameApplicationValue as sameDispatcherPhaseValue,
+  type ApplicationWorkflow, type ApplicationValue, type ApplicationSettlement, type RuntimeApplicationStateBinding,
+  type ApplicationCoordinationAuthority, type ApplicationCoordinationFacts, type ApplicationExecutionAuthority, type ApplicationExecutionRequest, type ApplicationExecutionFacts, type ApplicationExecutionRetirement } from './application-workflow';
+import type { ApplicationStateRequest } from './application-state';
 import { readDispatcherSdkDiagnostics, sdkUnavailable, operationsUnavailable, type DispatcherActivityDiagnostics,
   type DispatcherOperationDiagnostics, type DispatcherSqlFacet } from './dispatcher-runtime-diagnostics';
-import { createDispatcherPhaseState, dispatcherPhaseWire, bindDispatcherPhaseReceipt, dispatcherPhaseContext,
-  advanceDispatcherPhase, collectDispatcherFinal, sameDispatcherPhaseValue, DISPATCHER_JOURNEY_RESULT_BYTES,
-  bindNormalDispatcherPhaseReceipt, type DispatcherPhaseState, type DispatcherPhaseAuthority, type DispatcherPhaseReply } from './dispatcher-phases';
-import type { OperatorAdmissionRequest, OperatorAdmissionReceipt, ManagementAdmissionReceipt } from './registry';
+import { createDispatcherPhaseState, dispatcherPhaseContext, type DispatcherPhaseState, type DispatcherPhaseAuthority } from './dispatcher-phases';
+import type { OperatorAdmissionRequest, OperatorAdmissionReceipt,
+  ManagementAdmissionReceipt, DispatcherConnectionMetadata, ProspectiveAdmission, ProspectiveObservationCapture } from './registry';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
 import { AppError } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import { inferenceDiagnostic, inferenceResponseObservation, type InferenceDiagnosticContext } from '../lib/inference-diagnostics';
-import { emitRaw } from '../../host/src/operator-raw-logging';
+import { inferenceArchiveCapability, type InferenceArchiveBinding, type InferenceArchiveFactory } from '../lib/inference-archive-capability';
+import { emitRaw, captureRawValue } from '../../host/src/operator-raw-logging';
 import { canInvokeOperator, operatorAccessSessionCurrent, requireOperatorHumanContext, resolveOperatorGroupIdentity, resolveBucketName } from '../lib/access';
-import { D1SessionRepository } from '../lib/session-repository';
-import { parsePublishableAssessment, renovateGithub } from './renovate-publication';
 import { openOperatorExecutionAccess, projectOperatorExecution, reauthenticateOperatorExecution,
   type OperatorExecutionContext, type OperatorExecutionProjection } from './execution-context';
-import { operatorOwnerKey, type OperatorBrowserSummary } from './browser-activity';
+import { operatorOwnerKey, parseOperatorResultSummary, type OperatorBrowserSummary } from './browser-activity';
 import { parseOperatorContainerProfile } from '../container/operator-context';
 import type { OwnedOperatorSessionState } from './owned-session';
 import { parseOperatorPackageResourceProjection, type OperatorPackageResourceProjection } from './package-resources';
 import { parseOperatorAttachmentProjection, projectOperatorAttachments } from './attachments';
-import { prospectiveRenovateRetryProof, type ProspectiveRenovateRetryProof } from './renovate-retry-proof';
 import { parseNativeOperatorInference, type NativeOperatorInference } from './inference-selection';
 import type { NativePiBinding } from './native-pi-profile';
 import { nativePiAuthFailure, safePiAuthFailure, PiAuthRequiredError, type SafePiAuthFailure } from './pi-auth-failure';
@@ -103,25 +112,6 @@ type DispatcherFacet = Fetcher & {
   _cf_checkRunFibersForFacet(ownerPath: DispatcherFacetPath): Promise<number>;
 };
 type DispatcherConnection = Pick<DispatcherFacet, 'fetch' | '_cf_dispatchScheduledCallback' | '_cf_checkRunFibersForFacet'>;
-/** Only the pinned SDK's exact status/type pairs prove refusal of unchanged admission. */
-class DispatcherPhaseAdmissionError extends Error {
-  constructor(readonly transportStatus: number, readonly admissionType?: typeof sdkAdmissionTypes[number]) {
-    super(`Dispatcher phase admission unavailable (HTTP ${transportStatus}${admissionType ? `, ${admissionType}` : ''})`);
-  }
-  get definitive(): boolean {
-    switch (this.transportStatus) {
-      case 400: return this.admissionType === 'invalid_request' || this.admissionType === 'invalid_json';
-      case 415: return this.admissionType === 'unsupported_media_type';
-      case 404: return this.admissionType === 'agent_instance_not_found';
-      case 409: return this.admissionType === 'agent_instance_exists' || this.admissionType === 'submission_conflict';
-      case 500: return this.admissionType === 'conversation_record_invariant' || this.admissionType === 'attachment_integrity'
-        || this.admissionType === 'persisted_format_version_unsupported';
-      default: return false;
-    }
-  }
-}
-const dispatcherAdmissionErrorSchema = z.object({ error: z.object({ type: z.enum(sdkAdmissionTypes) }) });
-
 /** Registry-only deployment connection. Never populated from a job or callback body. */
 const normalDispatcherConnectionSchema = z.object({
   installationId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/), releaseId: z.string().min(1).max(128),
@@ -134,6 +124,8 @@ const normalDispatcherConnectionSchema = z.object({
       && !url.port && url.origin === value && url.hostname.includes('.'); } catch { return false; }
   }),
 });
+const dispatcherDeploymentMetadataSchema = normalDispatcherConnectionSchema.omit({ connectionSecretCiphertext: true, controlOrigin: true }).strict();
+const DISPATCHER_DEPLOYMENT_RETIREMENT = 'dispatcher-deployment-retirement';
 type NormalDispatcherConnection = z.infer<typeof normalDispatcherConnectionSchema>;
 type NormalDispatcherDeployment = Omit<NormalDispatcherConnection, 'connectionSecretCiphertext'>;
 const normalDispatcherReceiptSchema = z.strictObject({ submissionId: z.string().min(1).max(128),
@@ -169,7 +161,8 @@ export async function installedDispatcherConnection(env: InstalledDispatcherEnv,
 /** Authenticate before input-dependent Activity lookup; identifiers alone never grant authority. */
 async function authenticateInstalledDispatcher(env: InstalledDispatcherEnv, request: Request) {
   const url = new URL(request.url);
-  if (url.origin !== 'https://operator.internal' || url.search || url.hash || request.method !== 'POST'
+  if (url.origin !== 'https://operator.internal' || url.search || url.hash || !(request.method === 'POST'
+      || request.method === 'GET' && url.pathname === '/v1/dispatcher/context')
     || !url.pathname.startsWith('/v1/dispatcher/')) throw new Error('Dispatcher callback denied');
   const installationId = request.headers.get('x-codeflare-operator-installation') ?? '';
   const activityId = request.headers.get('x-codeflare-operator-activity') ?? '';
@@ -215,9 +208,18 @@ interface DispatcherLease {
   submissionId: string | null; settledSubmissionId?: string; sdkReleased?: boolean;
   rootDigest?: string;
   sdkProvenance?: SdkProvenance;
+  /** Original stock SDK version for public capture; absent on historical leases. */
+  publicSdkVersion?: string;
   projection?: DispatcherResultProjection;
   /** Future intent4 admission only; never inferred from a historical lease. */
   serial?: DispatcherPhaseState;
+  /** Opaque application decisions on the existing normal control/receipt transport. */
+  application?: ApplicationWorkflow & { completed?: true; pending?: {
+    delivery: ApplicationWorkflow['delivery']; idempotencyKey: string;
+    /** One validated SDK settlement, bound to the delivery being advanced. Consumed with the decision. */
+    confirmed?: { delivery: ApplicationWorkflow['delivery']; settlement: ApplicationSettlement }
+      | { delivery: ApplicationWorkflow['delivery']; settlementRef: { bytes: number; sha256: string } };
+  } };
   terminalAt?: number;
   inferenceRecovery?: { version: 1; attemptLimit: number };
   inferenceSelection?: NativeOperatorInference;
@@ -225,11 +227,42 @@ interface DispatcherLease {
   inferenceSource?: 'managed' | 'pi-native';
   status: 'admitting' | 'running' | 'settled' | 'unknown';
 }
+/** Recovery retains only journal proof, never historical request/response bodies. */
+function applicationOperationProof(value: unknown): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as DispatcherOperationRecord;
+  return { generation: record.generation, requestDigest: record.requestDigest, phase: record.phase,
+    ordinal: record.ordinal, responseDigest: record.responseDigest, terminalOutcome: record.terminalOutcome,
+    ...(record.request ? { request: { method: record.request.method, url: record.request.url } } : {}),
+    ...(record.deliveryBinding ? { deliveryBinding: { resource: record.deliveryBinding.resource,
+      submissionId: record.deliveryBinding.submissionId, deliveryToken: record.deliveryBinding.deliveryToken } } : {}),
+    ...(record.phaseBinding ? { phaseBinding: { resource: record.phaseBinding.resource,
+      submissionId: record.phaseBinding.submissionId, deliveryToken: record.phaseBinding.deliveryToken } } : {}),
+    ...(record.inference ? { inference: { version: record.inference.version, attempt: record.inference.attempt } } : {}),
+    ...(record.native ? { native: { handle: record.native.handle, profileDigest: record.native.profileDigest,
+      attempt: record.native.attempt, phase: record.native.phase, outcome: record.native.outcome,
+      wireDigest: record.native.wireDigest, deliveryToken: record.native.deliveryToken } } : {}),
+    ...(record.sdkHttp ? { sdkHttp: { permitId: record.sdkHttp.permitId, attempts: record.sdkHttp.attempts,
+      phase: record.sdkHttp.phase, responseKey: record.sdkHttp.responseKey } } : {}) };
+}
+type OriginalExecutionProof = Pick<ApplicationExecutionAuthority, 'original' | 'ledger'> & {
+  current: Pick<ApplicationExecutionAuthority['current'], 'deadline'>;
+};
+interface ApplicationExecutionSnapshot {
+  state: AdmissionState | undefined;
+  bound: string | undefined;
+  retirement: string | undefined;
+  publication: unknown;
+  ownedSession: unknown;
+  entries: Map<string, unknown>;
+  captureFingerprint?: string;
+}
 interface DispatcherOperationRecord {
   generation: number; requestDigest: string; phase: 'reserved' | 'completed' | 'unknown';
   request?: { method: 'GET' | 'POST' | 'PUT'; url: string };
   phaseBinding?: { submissionId: string; deliveryToken: string;
     phase: DispatcherPhaseState['current']['phase']; resource: string };
+  deliveryBinding?: { submissionId: string; deliveryToken: string; resource: string };
   /** Proven zero-send retirement, not a vendor response or receipt. */
   terminalOutcome?: 'not-sent';
   responseDigest?: string;
@@ -249,6 +282,17 @@ const DISPATCHER_PROFILE_LEASE = 'dispatcher:profile-lease';
 const DISPATCHER_LEASE = 'dispatcher:lease';
 const DISPATCHER_OPERATIONS = 'dispatcher:operations';
 const DISPATCHER_JOURNAL = 'dispatcher:journal';
+const APPLICATION_DELIVERY_PREFIX = 'dispatcher:application-delivery:';
+const applicationDeliveryKey = (generation: number, submissionId: string) =>
+  `${APPLICATION_DELIVERY_PREFIX}${generation}:${createHash('sha256').update(submissionId).digest('hex')}`;
+const applicationDeliveryProofSchema = z.strictObject({ version: z.literal(1), activityId: z.string().min(1).max(128),
+  ownerKey: z.string().regex(/^[a-f0-9]{64}$/), generation: z.number().int().positive().safe(),
+  artifactDigest: z.string().regex(/^[a-f0-9]{64}$/), inputDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  receipt: normalDispatcherReceiptSchema,
+  delivery: z.strictObject({ digest: z.string().regex(/^[a-f0-9]{64}$/), ordinal: z.number().int().positive().safe() }),
+  terminalAt: z.number().int().positive().safe(), outcome: z.enum(['completed', 'failed']), noExternalWrites: z.boolean() });
+const APPLICATION_SETTLEMENT_PREFIX = 'dispatcher:application-settlement:';
+const APPLICATION_SETTLEMENT_CHUNK_BYTES = 1024 * 1024;
 interface DispatcherJournal { generation: number; count: number; nextOrdinal: number; unresolved: number }
 interface RetiredEffectItem {
   ordinal: number; operationDigest: string; requestDigest?: string; responseDigest?: string;
@@ -268,6 +312,153 @@ export interface RetiredEffectReceipts {
 type DispatcherJournalTx = Pick<DurableObjectTransaction, 'get' | 'put' | 'delete'>;
 const dispatcherEntryKey = (journal: DispatcherJournal, operationId: string) =>
   `dispatcher:operation:${journal.generation}:${operationId}`;
+
+/** Read-only accounting shared by settlement proof and explicit recovery. Ordinals
+ * count charged attempts, not just logical operations. No cache body is retained. */
+function applicationInferenceAttemptAccounting(entries: Map<string, unknown>, generation: number,
+  id: string, operation: DispatcherOperationRecord, count: number,
+  charge: (ordinal: unknown) => boolean, allowed?: Set<string>): string | null {
+  const digest = (value: unknown) => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+  const integer = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0;
+  const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
+  const attempts = operation.inference?.attempt ?? operation.native?.attempt;
+  if (!integer(attempts) || attempts < 1 || attempts > count) return 'journal-attempt-count';
+  for (let index = 1; index <= attempts; index++) {
+    const key = inferenceAttemptKey(generation, id, index);
+    const attempt = entries.get(key);
+    if (!object(attempt) || attempt.index !== index || !integer(attempt.notBefore) || !charge(attempt.ordinal)) return 'journal-attempt-coverage';
+    allowed?.add(key);
+    if (operation.inference && index === 1 && attempt.ordinal !== operation.ordinal
+      || operation.native && index === attempts && attempt.ordinal !== operation.ordinal) return 'journal-attempt-binding';
+    const last = index === attempts;
+    // The original managed writer can retain a charged transport failure
+    // without a cache. Its explicit successor still has to cover the charge.
+    if (operation.inference && !last && attempt.phase === 'unknown' && attempt.classification === 'transport'
+      && attempt.successor === index + 1 && attempt.responseKey === undefined && attempt.responseDigest === undefined) continue;
+    if (attempt.phase !== 'completed' || !digest(attempt.responseDigest) || typeof attempt.responseKey !== 'string') return 'journal-attempt-unsettled';
+    if (operation.inference) {
+      if (last ? !['usable', 'final-error'].includes(String(attempt.classification)) || attempt.successor !== undefined
+        : attempt.classification !== 'retryable' || attempt.successor !== index + 1) return 'journal-attempt-chain';
+      if (attempt.responseKey !== (last ? `dispatcher:response:${id}` : `${key}:response`)) return 'unbound-attempt-cache';
+    } else {
+      const handle = attempt.responseKey.slice('dispatcher:native-response:'.length);
+      if (attempt.responseKey !== `dispatcher:native-response:${handle}` || !handle) return 'unbound-native-cache';
+      const handleKey = `dispatcher:native-handle:${handle}`, reference = entries.get(handleKey);
+      if (!object(reference) || reference.generation !== generation || reference.operationId !== id
+        || reference.deliveryToken !== (operation.deliveryBinding ?? operation.phaseBinding)?.deliveryToken) return 'unbound-native-handle';
+      allowed?.add(handleKey);
+      const native = operation.native!;
+      if (!digest(native.wireDigest) || native.phase !== 'committed' || !['completed', 'failed'].includes(native.outcome ?? '')
+        || last && native.handle !== handle || (last ? attempt.classification !== (native.outcome === 'completed' ? 'usable' : 'retryable')
+          : attempt.classification !== 'retryable')) return 'journal-native-attempt-binding';
+      const wireKey = `dispatcher:native-wire:${generation}:${reference.deliveryToken}:${native.wireDigest}`;
+      if (entries.get(wireKey) !== id) return 'unbound-native-wire';
+      allowed?.add(wireKey);
+    }
+    const cached = entries.get(attempt.responseKey);
+    if (!object(cached) || cached.sha256 !== attempt.responseDigest) return 'unbound-attempt-cache';
+    allowed?.add(attempt.responseKey);
+    if (last && operation.responseDigest !== attempt.responseDigest) return 'journal-attempt-response-binding';
+  }
+  return null;
+}
+
+function applicationJournalAccounting(entries: Map<string, unknown>, generation: number,
+  delivery?: { submissionId: string; token: string }):
+  { ok: true; noExternalWrites: boolean } | { ok: false; reason: string } {
+  const fail = (reason: string) => ({ ok: false as const, reason });
+  const digest = (value: unknown) => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+  const integer = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0;
+  const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
+  const aggregate = entries.get(DISPATCHER_OPERATIONS);
+  const records = [...entries].filter(([key]) => key.startsWith('dispatcher:operation:'));
+  const prefix = `dispatcher:operation:${generation}:`;
+  if (entries.has(DISPATCHER_OPERATIONS) && !object(aggregate)) return fail('journal-aggregate-malformed');
+  if (entries.has(DISPATCHER_OPERATIONS) && (records.length || entries.has(DISPATCHER_JOURNAL))) return fail('journal-mixed-layout');
+  if (records.some(([key]) => !key.startsWith(prefix))) return fail('journal-operation-generation');
+  const operations = object(aggregate) ? Object.entries(aggregate) : records.map(([key, value]) => [key.slice(prefix.length), value] as const);
+  const journal = entries.get(DISPATCHER_JOURNAL);
+  if (journal === undefined && !object(aggregate)) return fail('journal-missing');
+  if (journal !== undefined && (!object(journal) || journal.generation !== generation
+    || !integer(journal.count) || !integer(journal.nextOrdinal) || !integer(journal.unresolved))) return fail('journal-header-malformed');
+  if (object(journal) && journal.unresolved !== 0) return fail('journal-unresolved');
+  const count = object(journal) ? journal.count as number : operations.length;
+  if (object(journal) && journal.nextOrdinal !== count) return fail('journal-count-ordinal-mismatch');
+  const ordinals = new Set<number>(), allowed = new Set<string>([
+    DISPATCHER_LEASE, DISPATCHER_PROFILE_LEASE, DISPATCHER_JOURNAL, DISPATCHER_OPERATIONS, `dispatcher:result:${generation}`,
+  ]);
+  let noExternalWrites = true, hasInference = false;
+  const charge = (ordinal: unknown) => {
+    if (!integer(ordinal) || ordinal >= count || ordinals.has(ordinal)) return false;
+    ordinals.add(ordinal); return true;
+  };
+  for (const [id, value] of operations) {
+    if (!id || !object(value) || value.generation !== generation || !digest(value.requestDigest)) return fail('journal-operation-malformed');
+    const operation = value as unknown as DispatcherOperationRecord;
+    if (operation.phase !== 'completed') return fail('journal-operation-unsettled');
+    allowed.add(`${prefix}${id}`);
+    if (!operation.inference && !operation.native) {
+      allowed.add(`dispatcher:response:${id}`); allowed.add(`dispatcher:response:${generation}:${id}`);
+    }
+    if (operation.request) {
+      let url: URL;
+      try { url = new URL(operation.request.url); } catch { return fail('unknown-operation'); }
+      if (url.protocol !== 'https:' || !['GET', 'POST', 'PUT'].includes(operation.request.method)
+        || operation.inference || operation.native || operation.sdkHttp) return fail('unknown-operation');
+      if (operation.request.method !== 'GET') {
+        const binding = operation.deliveryBinding;
+        if (!delivery || !binding || binding.resource !== 'fetch'
+          || typeof binding.submissionId !== 'string' || !binding.submissionId
+          || typeof binding.deliveryToken !== 'string' || !binding.deliveryToken
+          || binding.submissionId === delivery.submissionId || binding.deliveryToken === delivery.token) noExternalWrites = false;
+      }
+    } else {
+      hasInference = true;
+      const binding = operation.deliveryBinding ?? operation.phaseBinding;
+      const sdk = operation.sdkHttp;
+      const responseKey = `dispatcher:response:${generation}:${id}`;
+      const response = entries.get(responseKey);
+      // Ordinary settlement accepts a proven completed SDK HTTP exchange without
+      // optional association. Historical recovery still requires its old binding.
+      const completedUnboundSdk = !!delivery && !binding && !operation.inference && !operation.native
+        && sdk?.phase === 'completed' && sdk.attempts === 1 && typeof sdk.permitId === 'string' && !!sdk.permitId
+        && sdk.responseKey === responseKey && digest(operation.responseDigest)
+        && object(response) && response.sha256 === operation.responseDigest;
+      if (!completedUnboundSdk && (!binding || binding.resource !== 'inference'
+        || typeof binding.submissionId !== 'string' || !binding.submissionId
+        || !(operation.inference?.version === 1 && integer(operation.inference.attempt) && operation.inference.attempt >= 1
+          || operation.native && typeof operation.native.handle === 'string' && digest(operation.native.profileDigest)
+          || sdk && typeof sdk.permitId === 'string' && integer(sdk.attempts) && sdk.attempts <= 1))) return fail('unknown-operation');
+    }
+    if (!operation.inference && !operation.native) {
+      if (!charge(operation.ordinal)) return fail('journal-ordinal-coverage');
+      continue;
+    }
+    if (operation.inference && operation.native || operation.sdkHttp) return fail('journal-model-layout');
+    const attemptFailure = applicationInferenceAttemptAccounting(entries, generation, id, operation, count, charge, allowed);
+    if (attemptFailure) return fail(attemptFailure);
+  }
+  if (ordinals.size !== count) return fail('journal-ordinal-coverage');
+  const ownerKey = `dispatcher:inference-owner:${generation}`;
+  if (entries.has(ownerKey)) {
+    if (!hasInference || !integer(entries.get(ownerKey)) || (entries.get(ownerKey) as number) < 1) return fail('journal-inference-owner-malformed');
+    allowed.add(ownerKey);
+  }
+  for (const [key, value] of entries) {
+    if (allowed.has(key) || key.startsWith(APPLICATION_SETTLEMENT_PREFIX)) continue;
+    if (key.startsWith(APPLICATION_DELIVERY_PREFIX)) {
+      const proof = applicationDeliveryProofSchema.safeParse(value);
+      if (!proof.success || proof.data.generation !== generation
+        || key !== applicationDeliveryKey(generation, proof.data.receipt.submissionId)) return fail('delivery-proof-malformed');
+      continue;
+    }
+    if (key.startsWith('dispatcher:response:')) return fail('unbound-response-cache');
+    if (key.startsWith('dispatcher:inference-attempt:')) return fail('unbound-attempt-metadata');
+    if (key.startsWith('dispatcher:native-')) return fail('unbound-native-metadata');
+    return fail('unsupported-runtime-state');
+  }
+  return { ok: true, noExternalWrites };
+}
 
 /** Migrate the bounded legacy aggregate atomically; never discard uncertain entries. */
 async function loadDispatcherJournal(tx: DispatcherJournalTx, generation: number): Promise<DispatcherJournal> {
@@ -303,41 +494,9 @@ async function putDispatcherEntry(tx: DispatcherJournalTx, journal: DispatcherJo
     unresolved: journal.unresolved + (next.phase === 'completed' ? 0 : 1) - (prior && prior.phase !== 'completed' ? 1 : 0),
   });
 }
-const admittedDispatcherResultSchema = (limits = dispatcherCapacities()) => z.strictObject({ repository: z.string(),
-  results: z.array(z.strictObject({ pullRequest: z.number().safe().int().positive(),
-    headSha: z.string().regex(/^[0-9a-f]{40}$/), decision: z.enum(['MERGE', 'DO_NOT_MERGE']),
-    comment: z.string().min(1).max(limits.targetCommentChars), outcome: z.enum(['MERGED', 'NOT_MERGED', 'EXECUTION_FAILED']) })).max(1) });
-
-/** Intent3 remains exact-singleton. Empty intent4 output additionally requires the
- * already validated empty discovery lineage and actual completed final reply. */
-function admittedDispatcherResultMatches(value: unknown, target: DispatcherAdmittedTarget, policy?: DispatcherCapacityPolicy,
-  final?: { state: DispatcherPhaseState; reply: DispatcherPhaseReply }): boolean {
-  const limits = dispatcherCapacities(policy);
-  const result = admittedDispatcherResultSchema(limits).safeParse(value);
-  if (!result.success || new TextEncoder().encode(JSON.stringify(value)).byteLength > limits.assessmentBytes) return false;
-  if (result.data.repository !== target.repository) return false;
-  if (result.data.results.length === 0) {
-    const state = final?.state;
-    const reply = final?.reply;
-    return !!state && !!reply && state.current.phase.kind === 'final' && state.targets?.length === 0
-      && state.results.length === 0 && state.previous.length === 1 && state.previous[0].phase.kind === 'discovery'
-      && state.previous[0].outcome === 'completed' && !!state.current.receipt
-      && reply.submissionId === state.current.receipt.submissionId && reply.upToDate && reply.outcome === 'completed'
-      && (reply.data['dispatcher-progress']?.length ?? 0) === 0 && reply.data.assessment?.length === 1
-      && sameDispatcherPhaseValue(reply.data.assessment[0], result.data);
-  }
-  const item = result.data.results[0];
-  return result.data.repository === target.repository && item.pullRequest === target.pullRequest
-    && item.headSha === target.headSha && (item.outcome !== 'MERGED' || item.decision === 'MERGE');
-}
+// Historical publication records remain a never-started retirement fence.
 const RENOVATE_PUBLICATION = 'renovate:publication';
 type RenovateEffect = 'comment' | 'approval' | 'merge';
-interface RenovatePublication {
-  ownerKey: string; bucket: string; sessionId: string; sessionGeneration: number;
-  activityGeneration: number; assessmentDigest: string; operationId: string;
-  effects: Partial<Record<RenovateEffect, { phase: 'reserved' | 'unknown' | 'completed'; receiptId?: number;
-    mergeSha?: string; remoteMerged?: boolean }>>;
-}
 const dispatcherLog = createLogger('dispatcher-settlement');
 const dispatcherTailLog = createLogger('dispatcher-inference-tail');
 const dispatcherReportLog = createLogger('dispatcher-inference-report');
@@ -563,6 +722,19 @@ function isManagementReceipt(receipt: OperatorAdmissionReceipt | ManagementAdmis
   return 'selection' in receipt;
 }
 
+/** The atomic fence of generation zero proves this Dispatcher never reserved compute.
+ * Absence of an SDK lease alone is not shutdown evidence for any begun/unknown drive.
+ */
+function neverStartedDispatcherCancellation(state: AdmissionState, lease?: DispatcherLease): boolean {
+  return !lease && state.phase === 'queued' && !!state.receipt && isManagementReceipt(state.receipt)
+    && state.receipt.selection.operator.profile === 'dispatcher'
+    && state.receipt.selection.installation.policy.resourceProfileId === null
+    && state.drive?.status === 'cancel-requested' && state.drive.generation === 1
+    && state.drive.checkpoint === null && state.drive.result === null
+    && state.diagnosticFence?.generation === 0 && state.diagnosticFence.boundary === 'fence'
+    && state.diagnosticFence.code === 'cancelled' && state.diagnosticFence.uncertain === false;
+}
+
 function executionLoggingEnabled(receipt: OperatorAdmissionReceipt | ManagementAdmissionReceipt | null | undefined): boolean {
   return !receipt || !isManagementReceipt(receipt) || receipt.selection.operator.policy.loggingEnabled !== false;
 }
@@ -625,11 +797,13 @@ export class OperatorActivity extends Agent {
   #inferenceOwner?: { generation: number; epoch: Promise<number> };
   #inferenceFlights = new Map<string, { digest: string; controller: AbortController; result: Promise<DispatcherInferenceResponse> }>();
   #phaseAdmissions = new Map<string, Promise<void>>();
+  #rawCaptureWriters = new Map<string, Promise<void>>();
   #coldDispatcherLease?: DispatcherLease;
   #diagnosticQueue: Promise<void> = Promise.resolve();
   #dispatcherScheduleQueue: Promise<void> = Promise.resolve();
 
   constructor(ctx: DurableObjectState, env: AppEnv) {
+    recordActivityRpcCheckpoint(ctx, 'constructor-migration');
     migrateDispatcherSchedules(ctx.storage, () => {
       const record = ctx.storage.kv.get<AdmissionState>('admission');
       const lease = ctx.storage.kv.get<DispatcherLease>(DISPATCHER_LEASE);
@@ -646,6 +820,7 @@ export class OperatorActivity extends Agent {
     // A diagnostics-only cold wake must not enter admission recovery or cleanup.
     ctx.blockConcurrencyWhile(async () => {
       this.#coldDispatcherLease = await ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
+      recordActivityRpcCheckpoint(ctx, 'agent-initialized');
     });
   }
 
@@ -705,10 +880,11 @@ export class OperatorActivity extends Agent {
         // Preparation can finish after phase advancement. Compare only captured digests;
         // never borrow the successor's coordinates or retain a raw delivery token.
         let retained = observation;
-        if (preparation && (lease?.serial || correlation.deliveryDigest || correlation.submissionDigest)) {
-          if (!this.#leaseMatches(state, lease, generation) || !lease?.serial || !lease.submissionId
-            || lease.status !== 'running' || lease.serial.current.receipt?.submissionId !== lease.submissionId
-            || hashDiagnostic(lease.serial.current.deliveryToken) !== correlation.deliveryDigest
+        if (preparation && (lease?.application || lease?.serial || correlation.deliveryDigest || correlation.submissionDigest)) {
+          const token = lease?.application?.delivery.token ?? lease?.serial?.current.deliveryToken;
+          if (!this.#leaseMatches(state, lease, generation) || !token || !lease?.submissionId
+            || lease.status !== 'running'
+            || hashDiagnostic(token) !== correlation.deliveryDigest
             || hashDiagnostic(lease.submissionId) !== correlation.submissionDigest) {
             retained = { ...observation, correlation: {} };
           }
@@ -723,7 +899,8 @@ export class OperatorActivity extends Agent {
   #resumeDispatcherOnEntry(reconciliationStarting = false, expectedGeneration?: number): void {
     const lease = this.#coldDispatcherLease;
     this.#coldDispatcherLease = undefined;
-    if (lease?.status === 'admitting') {
+    if (lease?.status === 'admitting'
+      || lease?.hosting === 'normal' && lease.status === 'running' && lease.application?.pending !== undefined) {
       if (!lease.serial && lease.hosting !== 'normal') this.ctx.waitUntil(this.interruptDrive(lease.generation));
       else if (!reconciliationStarting || expectedGeneration !== undefined && expectedGeneration !== lease.generation) {
         this.ctx.waitUntil(this.reconcileDispatcherLease({ generation: lease.generation }));
@@ -742,10 +919,10 @@ export class OperatorActivity extends Agent {
     await this.reconcileDispatcherLease();
   }
 
-  /** Production preparation stores parent-created encrypted human authority. */
+  /** Shared preparation stores authority and any validated prospective reservation atomically. */
   async prepareAuthorized(intent: OperatorActivityPreparation,
     executionContext: OperatorExecutionContext, invocationJson = 'null',
-    boundary?: BoundaryActivityBinding): Promise<ActivityAdmissionResult> {
+    boundary?: BoundaryActivityBinding, prospectiveAdmissionId?: string): Promise<ActivityAdmissionResult> {
     this.#resumeDispatcherOnEntry();
     if (boundary && !boundaryBindingSchema.safeParse(boundary).success) {
       return { ok: false, reason: 'admission-denied' };
@@ -762,14 +939,59 @@ export class OperatorActivity extends Agent {
     if (!Number.isFinite(intent.deadline) || intent.deadline > executionContext.expiresAt * 1000
       || intent.deadline <= Date.now()) return { ok: false, reason: 'authority-expired' };
     const ownerKey = await operatorOwnerKey(executionContext.owner);
-    const result = await this.ctx.storage.transaction<ActivityAdmissionResult>(async tx => {
-      if (await tx.get('admission')) return { ok: false, reason: 'already-prepared' };
-      await tx.put<AdmissionState>('admission', { intent, phase: 'prepared', receipt: null, executionContext,
-        invocationJson, ownerKey, inferenceRecoveryVersion: 1,
-        ...(boundary ? { boundary: structuredClone(boundary) } : {}), updatedAt: Date.now() });
-      return { ok: true, phase: 'prepared' };
-    });
-    return result;
+    let proofBoundary: 'activity-proof-rpc' | 'activity-bind-storage' = 'activity-proof-rpc';
+    const trace = (outcome: 'started' | 'completed' | 'failed', result?: boolean, error?: unknown) => {
+      if (prospectiveAdmissionId === undefined) return;
+      try {
+        createLogger('operator-activity').info('Prospective Renovate admission boundary', {
+          boundary: proofBoundary, outcome,
+          admissionDigest: hashDiagnostic(JSON.stringify(['prospective-renovate-admission:v1', prospectiveAdmissionId])),
+          ...(outcome === 'completed' ? proofBoundary === 'activity-proof-rpc' ? { proofPresent: result } : { accepted: result } : {}),
+          ...(outcome === 'failed' ? { error: captureError(error) } : {}),
+        });
+      } catch { /* Diagnostics cannot change preparation or its original errors. */ }
+    };
+    if (prospectiveAdmissionId !== undefined) {
+      if (prospectiveAdmissionId !== intent.activityId || !/^[A-Za-z0-9_-]{1,128}$/.test(prospectiveAdmissionId)
+        || !this.#appEnv.OPERATOR_ACTIVITY
+        || this.#appEnv.OPERATOR_ACTIVITY.idFromName(prospectiveAdmissionId).toString() !== this.ctx.id.toString()) {
+        return { ok: false, reason: 'admission-denied' };
+      }
+      trace('started');
+      try {
+        const proof = await this.#appEnv.OPERATOR_REGISTRY.getByName('registry')
+          .readProspectiveRenovateAdmission(prospectiveAdmissionId);
+        trace('completed', !!proof);
+        if (!proof || proof.activityId !== prospectiveAdmissionId) return { ok: false, reason: 'admission-denied' };
+      } catch (error) {
+        trace('failed', undefined, error);
+        throw error;
+      }
+      proofBoundary = 'activity-bind-storage';
+      trace('started');
+    }
+    try {
+      const result = await this.ctx.storage.transaction<ActivityAdmissionResult>(async tx => {
+        if (await tx.get('prospective-retirement') || await tx.get(DISPATCHER_DEPLOYMENT_RETIREMENT)) {
+          return { ok: false, reason: 'admission-denied' };
+        }
+        if (await tx.get('admission')) return { ok: false, reason: 'already-prepared' };
+        if (prospectiveAdmissionId !== undefined) {
+          const previous = await tx.get<string>('prospective-admission');
+          if (previous && previous !== prospectiveAdmissionId) return { ok: false, reason: 'admission-denied' };
+          await tx.put('prospective-admission', prospectiveAdmissionId);
+        }
+        await tx.put<AdmissionState>('admission', { intent, phase: 'prepared', receipt: null, executionContext,
+          invocationJson, ownerKey, inferenceRecoveryVersion: 1,
+          ...(boundary ? { boundary: structuredClone(boundary) } : {}), updatedAt: Date.now() });
+        return { ok: true, phase: 'prepared' };
+      });
+      trace('completed', result.ok);
+      return result;
+    } catch (error) {
+      trace('failed', undefined, error);
+      throw error;
+    }
   }
 
   /** Parent-only read for a stopping session; contains no human or start credentials. */
@@ -917,6 +1139,667 @@ export class OperatorActivity extends Agent {
     return state?.ownerKey === ownerKey && (state.phase === 'prepared' || state.phase === 'admitting');
   }
 
+  /** Local-only historical/runtime facts. This method deliberately does not resume
+   * an Activity, resolve Registry authority, publish a summary, or contact an SDK. */
+  async readApplicationExecutionFacts(input: ApplicationExecutionAuthority): Promise<ApplicationExecutionFacts> {
+    let capture: RawCapture | undefined;
+    let observedFingerprint: string | undefined, atomicFingerprint: string | undefined;
+    try {
+      const authority = structuredClone(input);
+      await this.#validateApplicationExecutionAuthority(authority);
+      if (authority.original.delivery) return await this.#readApplicationDelivery(authority);
+      const observation = await this.#applicationExecutionCapture(authority);
+      capture = observation.capture; observedFingerprint = observation.fingerprint;
+      return await this.ctx.storage.transaction<ApplicationExecutionFacts>(async tx => {
+        const snapshot = await this.#applicationExecutionSnapshot(tx, undefined, !!capture);
+        atomicFingerprint = snapshot.captureFingerprint;
+        if (!await this.#applicationExecutionBinding(authority, snapshot)) return { status: 'unavailable' };
+        if (await this.#applicationNeverStarted(authority, snapshot)) {
+          const proofVersion = await this.#applicationExecutionVersion(authority, snapshot);
+          return authority.current.deadline <= Date.now() ? { status: 'unavailable' } : {
+            status: 'never-started', activityId: authority.original.activityId, proofVersion,
+            retired: snapshot.retirement === authority.original.activityId };
+        }
+        return await this.#applicationCompletedExecution(authority, snapshot);
+      });
+    } catch (error) {
+      capture?.record('application-execution-error', () => error);
+      return { status: 'unavailable' };
+    } finally {
+      await this.#correlateApplicationCapture(capture, observedFingerprint, atomicFingerprint);
+      try { await capture?.finish('complete'); } catch { /* Observation never changes proof or retirement. */ }
+    }
+  }
+
+  /** Registry-only metadata inspection. Never captures or returns historical payloads. */
+  async readApplicationCoordinationFacts(input: ApplicationCoordinationAuthority): Promise<ApplicationCoordinationFacts> {
+    try {
+      const authority = structuredClone(input);
+      const state = await this.ctx.storage.get<AdmissionState>('admission');
+      const owner = authority.original.owner ?? state?.executionContext?.owner;
+      if (!owner || authority.original.ownerKey !== await operatorOwnerKey(owner)) return { status: 'unavailable' };
+      const bound: ApplicationExecutionAuthority = { ...authority, original: { ...authority.original, owner } };
+      await this.#validateApplicationExecutionAuthority(bound, true);
+      if (bound.original.delivery) {
+        const facts = await this.#readApplicationDelivery(bound);
+        if (facts.status !== 'delivery') return { status: 'held', reason: 'delivery-unproven' };
+        return facts.noExternalWrites ? { status: 'safe', outcome: facts.outcome,
+          terminalAt: facts.terminalAt, fenced: true, noExternalWrites: true }
+          : { status: 'held', reason: 'source-write' };
+      }
+      const facts = await this.readRecoveryFacts({ human: authority.current.human,
+        deadline: authority.current.deadline, original: bound.original, ledger: authority.ledger });
+      if (!facts.resettable) return { status: 'held', reason: facts.reason };
+      // Abandonment proof closes authority, not the unknown SDK outcome.
+      if (facts.reason !== 'never-started') return { status: 'held', reason: 'explicit-recovery-required' };
+      const terminalAt = facts.origin.terminalAt;
+      if (!Number.isSafeInteger(terminalAt) || terminalAt! <= 0 || terminalAt! > Date.now()) {
+        return { status: 'held', reason: 'closure-time-unavailable' };
+      }
+      return { status: 'safe', outcome: 'never-started',
+        terminalAt: terminalAt!, fenced: true, noExternalWrites: true };
+    } catch { return { status: 'unavailable' }; }
+  }
+
+  /** Compact private proof is sufficient after its delivery is retired. Later
+   * deliveries/journals/results are deliberately not prerequisites for this read. */
+  async #readApplicationDelivery(authority: OriginalExecutionProof): Promise<ApplicationExecutionFacts> {
+    return this.ctx.storage.transaction<ApplicationExecutionFacts>(async tx => {
+      const snapshot: ApplicationExecutionSnapshot = { state: await tx.get<AdmissionState>('admission'),
+        bound: await tx.get<string>('prospective-admission'), retirement: await tx.get<string>('prospective-retirement'),
+        ownedSession: await tx.get<unknown>('ownedSession'), publication: undefined, entries: new Map() };
+      if (!authority.ledger.ok || !authority.ledger.receipt || !authority.original.pins
+        || !await this.#applicationExecutionBinding(authority, snapshot)) return { status: 'unavailable' };
+      const lease = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
+      const generation = authority.original.generation ?? lease?.generation;
+      const origin = authority.original.delivery!;
+      if (!Number.isSafeInteger(generation) || generation! < 1) return { status: 'unavailable' };
+      const parsed = applicationDeliveryProofSchema.safeParse(await tx.get(applicationDeliveryKey(generation!, origin.submissionId)));
+      if (!parsed.success) return { status: 'unavailable' };
+      const proof = parsed.data, state = snapshot.state!;
+      if (proof.activityId !== authority.original.activityId || proof.ownerKey !== authority.original.ownerKey
+        || proof.generation !== generation || proof.artifactDigest !== authority.original.pins.bundleDigest
+        || proof.artifactDigest !== state.executionContext?.artifactDigest || proof.inputDigest !== state.receipt?.intentDigest
+        || proof.receipt.submissionId !== origin.submissionId || proof.receipt.uid !== origin.uid
+        || proof.delivery.digest !== origin.deliveryDigest || proof.terminalAt > Date.now()
+        || Date.parse(proof.receipt.acceptedAt) > proof.terminalAt) return { status: 'unavailable' };
+      if (lease?.generation === proof.generation && (lease.artifactDigest !== proof.artifactDigest
+        || lease.inputDigest !== proof.inputDigest || lease.expiresAt !== Math.floor(state.receipt!.deadline / 1000) * 1000)) return { status: 'unavailable' };
+      const app = lease?.application;
+      const deliverySchema = z.strictObject({ token: z.string().min(1), ordinal: z.number().int().positive().safe() });
+      const currentDelivery = deliverySchema.safeParse(app?.delivery);
+      const currentDigest = currentDelivery.success && createHash('sha256').update(currentDelivery.data.token).digest('hex');
+      const confirmed = app?.pending?.confirmed;
+      const pendingFence = !!app?.pending && !!confirmed
+        && lease?.submissionId === origin.submissionId && !!lease.receipt
+        && this.#normalReceiptMatches(lease.receipt, proof.receipt)
+        && confirmed.delivery.ordinal === proof.delivery.ordinal
+        && createHash('sha256').update(confirmed.delivery.token).digest('hex') === origin.deliveryDigest
+        && app.pending.delivery.ordinal === proof.delivery.ordinal + 1
+        && app.pending.delivery.token !== confirmed.delivery.token;
+      const advanced = currentDelivery.success && currentDigest !== origin.deliveryDigest
+        && currentDelivery.data.ordinal > proof.delivery.ordinal;
+      const completedFence = app?.completed === true && currentDigest === origin.deliveryDigest
+        && lease?.settledSubmissionId === origin.submissionId && !!lease.receipt
+        && this.#normalReceiptMatches(lease.receipt, proof.receipt);
+      const generationFence = !!state.drive && Number.isSafeInteger(state.drive.generation) && state.drive.generation > proof.generation
+        && !!state.diagnosticFence && Number.isSafeInteger(state.diagnosticFence.generation) && state.diagnosticFence.generation >= proof.generation
+        && ['unknown', 'cancel-requested', 'failed'].includes(state.drive.status);
+      if (!(lease?.generation === proof.generation && (advanced || pendingFence || completedFence) || generationFence)
+        || authority.current.deadline <= Date.now()) return { status: 'unavailable' };
+      return { status: 'delivery', activityId: proof.activityId, generation: proof.generation,
+        releaseDigest: proof.artifactDigest, inputDigest: proof.inputDigest, terminalAt: proof.terminalAt,
+        sdkSubmissionId: proof.receipt.submissionId, settled: true, fenced: true,
+        outcome: proof.outcome, noExternalWrites: proof.noExternalWrites };
+    });
+  }
+
+  /** Explicit owner recovery is read-only: no resume, SDK observation, retirement,
+   * lease change or fabricated active execution. The original ledger and local
+   * owner binding, not application payloads, select the inspected Activity. */
+  async readRecoveryFacts(input: import('./application-recovery').RecoveryFactsRequest): Promise<import('./application-recovery').RecoveryFacts> {
+    try {
+      const request = structuredClone(input);
+      const { human } = request;
+      const stored = await this.ctx.storage.get<AdmissionState>('admission');
+      const owner = request.original.owner ?? stored?.executionContext?.owner;
+      if (!owner) return { resettable: false, reason: 'original-owner-binding-missing' };
+      const original = { ...request.original, owner };
+      if (request.deadline <= Date.now() || human.expiresAt * 1000 < request.deadline) return { resettable: false, reason: 'authority-expired' };
+      if (original.ownerKey !== await operatorOwnerKey(original.owner)) return { resettable: false, reason: 'original-owner-binding-mismatch' };
+      if (!syncIdentity.safeParse(original.activityId).success || !this.#appEnv.OPERATOR_ACTIVITY
+        || this.#appEnv.OPERATOR_ACTIVITY.idFromName(original.activityId).toString() !== this.ctx.id.toString()) {
+        return { resettable: false, reason: 'original-activity-mismatch' };
+      }
+      if (!request.ledger.ok || request.ledger.receipt === undefined) return { resettable: false, reason: 'ledger-unavailable' };
+      if (original.delivery) {
+        const proof: OriginalExecutionProof = { original, ledger: request.ledger, current: { deadline: request.deadline } };
+        const facts = await this.#readApplicationDelivery(proof);
+        if (facts.status !== 'delivery') return { resettable: false, reason: 'delivery-unproven' };
+        if (!facts.noExternalWrites) return { resettable: false, reason: 'source-write' };
+        if (!stored || request.deadline <= Date.now()) return { resettable: false, reason: 'authority-expired' };
+        return { resettable: true, reason: 'fenced-no-write',
+          proofDigest: await sha256(JSON.stringify([original, request.ledger, facts])),
+          origin: { generation: facts.generation, deadline: stored.intent.deadline, terminalAt: facts.terminalAt } };
+      }
+      return await this.ctx.storage.transaction<import('./application-recovery').RecoveryFacts>(async tx => {
+        const snapshot = await this.#applicationExecutionSnapshot(tx);
+        // These existing local predicates only read original/ledger and the
+        // authority deadline. No runtime binding or active Activity is invented.
+        const proof: OriginalExecutionProof = { original, ledger: request.ledger, current: { deadline: request.deadline } };
+        if (snapshot.state && snapshot.state.ownerKey !== original.ownerKey) return { resettable: false, reason: 'original-stored-owner-mismatch' };
+        if (snapshot.publication !== undefined) return { resettable: false, reason: 'publication-present' };
+        if (snapshot.ownedSession !== undefined) return { resettable: false, reason: 'owned-session-present' };
+        if (request.ledger.ok && request.ledger.receipt === null && snapshot.state?.phase === 'queued') {
+          return { resettable: false, reason: 'ledger-missing' };
+        }
+        if (request.ledger.ok && request.ledger.receipt) {
+          if (request.ledger.receipt.activityId !== original.activityId) return { resettable: false, reason: 'ledger-activity-mismatch' };
+          if (request.ledger.receipt.installationId !== original.installationId) return { resettable: false, reason: 'ledger-installation-mismatch' };
+          if (!sameDispatcherPhaseValue(snapshot.state?.receipt, request.ledger.receipt)) return { resettable: false, reason: 'ledger-local-receipt-mismatch' };
+        }
+        if (!await this.#applicationExecutionBinding(proof, snapshot)) return { resettable: false, reason: 'original-binding-mismatch' };
+        const state = snapshot.state;
+        const success = async (reason: string, generation: number): Promise<import('./application-recovery').RecoveryFacts> => ({
+          resettable: true, reason, proofDigest: await this.#applicationExecutionVersion(proof, snapshot),
+          origin: { generation, deadline: state?.intent.deadline ?? request.deadline,
+            ...(Number.isSafeInteger(state?.diagnosticFence?.timestamp) && state!.diagnosticFence!.timestamp > 0
+              && state!.diagnosticFence!.timestamp <= Date.now() ? { terminalAt: state!.diagnosticFence!.timestamp } : {}) },
+          ...(original.ownerKey !== await operatorOwnerKey(human) || state?.invocationJson === undefined
+            ? {} : { invocation: JSON.parse(state.invocationJson) }),
+        });
+        const neverStarted = await this.#applicationNeverStarted(proof, snapshot);
+        // The old retirement transaction already proved non-start. A missing
+        // admission by itself is never equivalent to this persisted fence.
+        if (neverStarted && snapshot.retirement === original.activityId) {
+          return success('never-started', state?.diagnosticBinding?.generation ?? state?.drive?.generation ?? 1);
+        }
+        if (!original.pins) return { resettable: false, reason: 'original-pins-missing' };
+        if (!request.ledger.ok || !request.ledger.receipt) return { resettable: false, reason: 'ledger-missing' };
+        if (neverStarted && state?.drive?.status === 'unknown'
+          && state.drive.generation > (state.diagnosticBinding?.generation ?? Number.MAX_SAFE_INTEGER)) {
+          return success('never-started', state.diagnosticBinding!.generation);
+        }
+        const entries = snapshot.entries;
+        const journal = entries.get(DISPATCHER_JOURNAL) as DispatcherJournal | undefined;
+        if (!state?.receipt || !isManagementReceipt(state.receipt) || !state.executionContext) return { resettable: false, reason: 'original-admission-missing' };
+        const lease = entries.get(DISPATCHER_LEASE) as DispatcherLease | undefined;
+        const profile = entries.get(DISPATCHER_PROFILE_LEASE) as DispatcherLease | undefined;
+        if (!entries.has(DISPATCHER_JOURNAL) && !entries.has(DISPATCHER_OPERATIONS)) return { resettable: false, reason: 'journal-missing' };
+        const generation = entries.has(DISPATCHER_JOURNAL) ? journal?.generation : (lease ?? profile)?.generation;
+        if (!Number.isSafeInteger(generation) || generation! < 1) return { resettable: false,
+          reason: entries.has(DISPATCHER_JOURNAL) ? 'journal-header-malformed' : 'legacy-generation-unavailable' };
+        const accounting = applicationJournalAccounting(entries, generation!);
+        if (!accounting.ok) return { resettable: false, reason: accounting.reason };
+        if (!state.drive) return { resettable: false, reason: 'drive-missing' };
+        if (!Number.isSafeInteger(state.drive.generation) || state.drive.generation < 1) return { resettable: false, reason: 'drive-generation-malformed' };
+        if (state.drive.generation <= generation!) return { resettable: false, reason: 'drive-generation-current' };
+        if (!['unknown', 'cancel-requested'].includes(state.drive.status)) return { resettable: false, reason: 'drive-status-unfenced' };
+        if (!state.diagnosticFence) return { resettable: false, reason: 'generation-fence-missing' };
+        if (!Number.isSafeInteger(state.diagnosticFence.generation) || state.diagnosticFence.generation < 0) return { resettable: false, reason: 'generation-fence-malformed' };
+        if (state.diagnosticFence.generation < generation!) return { resettable: false, reason: 'generation-fence-stale' };
+        if (entries.has(DISPATCHER_LEASE) && !lease || entries.has(DISPATCHER_PROFILE_LEASE) && !profile) {
+          return { resettable: false, reason: 'lease-binding-mismatch' };
+        }
+        for (const value of [lease, profile]) {
+          if (value && (value.generation !== generation
+            || value.artifactDigest !== state.executionContext.artifactDigest
+            || value.inputDigest !== state.receipt.intentDigest
+            || value.expiresAt !== Math.floor(state.receipt.deadline / 1000) * 1000)) return { resettable: false, reason: 'lease-binding-mismatch' };
+        }
+        const chunks = [...entries].filter(([key]) => key.startsWith(APPLICATION_SETTLEMENT_PREFIX));
+        const confirmed = lease?.application?.pending?.confirmed;
+        if (confirmed && 'settlementRef' in confirmed) {
+          const reference = z.strictObject({ bytes: z.number().int().positive().safe()
+            .max(dispatcherCapacities(state.receipt.selection.operator.policy).assessmentBytes + 64 * 1024), sha256: syncDigest })
+            .safeParse(confirmed.settlementRef);
+          if (!reference.success || chunks.length !== Math.ceil(reference.data.bytes / APPLICATION_SETTLEMENT_CHUNK_BYTES)) {
+            return { resettable: false, reason: 'unbound-settlement-cache' };
+          }
+          for (const [key, value] of chunks) {
+            const index = Number(key.slice(`${APPLICATION_SETTLEMENT_PREFIX}${generation}:`.length));
+            const chunk = z.strictObject({ bytes: z.number().int().positive(), sha256: syncDigest }).safeParse(value);
+            if (!Number.isSafeInteger(index) || index < 0 || index >= chunks.length
+              || key !== `${APPLICATION_SETTLEMENT_PREFIX}${generation}:${index}` || !chunk.success
+              || chunk.data.bytes !== Math.min(APPLICATION_SETTLEMENT_CHUNK_BYTES,
+                reference.data.bytes - index * APPLICATION_SETTLEMENT_CHUNK_BYTES)) {
+              return { resettable: false, reason: 'unbound-settlement-cache' };
+            }
+          }
+        } else if (chunks.length) return { resettable: false, reason: 'unbound-settlement-cache' };
+        if (!accounting.noExternalWrites) return { resettable: false, reason: 'source-write' };
+        if (request.deadline <= Date.now()) return { resettable: false, reason: 'authority-expired' };
+        return success('fenced-no-write', generation!);
+      });
+    } catch { return { resettable: false, reason: 'facts-unavailable' }; }
+  }
+
+  /** Recheck the same complete snapshot and fence in the prepare/start/drive
+   * transaction order. No caller-supplied eligibility or safe-to-retry flags. */
+  async retireApplicationExecution(input: ApplicationExecutionAuthority): Promise<ApplicationExecutionRetirement> {
+    let capture: RawCapture | undefined;
+    let observedFingerprint: string | undefined, atomicFingerprint: string | undefined;
+    try {
+      const authority = structuredClone(input);
+      await this.#validateApplicationExecutionAuthority(authority);
+      if (!syncDigest.safeParse(authority.proofVersion).success) return { status: 'conflict' };
+      const observation = await this.#applicationExecutionCapture(authority);
+      capture = observation.capture; observedFingerprint = observation.fingerprint;
+      return await this.ctx.storage.transaction<ApplicationExecutionRetirement>(async tx => {
+        const snapshot = await this.#applicationExecutionSnapshot(tx, undefined, !!capture);
+        atomicFingerprint = snapshot.captureFingerprint;
+        if (!await this.#applicationExecutionBinding(authority, snapshot)
+          || !await this.#applicationNeverStarted(authority, snapshot)) return { status: 'unavailable' };
+        const proofVersion = await this.#applicationExecutionVersion(authority, snapshot);
+        if (authority.current.deadline <= Date.now()) return { status: 'unavailable' };
+        // Exact stored retirement is an idempotent acknowledgement, not new work.
+        if (snapshot.retirement === authority.original.activityId) return {
+          status: 'retired', activityId: authority.original.activityId, proofVersion };
+        if (proofVersion !== authority.proofVersion) return { status: 'conflict' };
+        if (authority.current.deadline <= Date.now()) return { status: 'unavailable' };
+        const state = snapshot.state;
+        // Keep the original storage fence. It also rejects a delayed preparation
+        // when the independently verified ledger and local Activity were absent.
+        await tx.put('prospective-retirement', authority.original.activityId);
+        if (state && !state.drive) {
+          const now = Date.now();
+          if (state.phase !== 'queued') {
+            await tx.put<AdmissionState>('admission', { ...state, phase: 'cancelled',
+              intent: { ...state.intent, startVerifier: '' }, updatedAt: now });
+          } else {
+            await tx.put<AdmissionState>('admission', { ...state,
+              drive: { generation: 1, status: 'cancel-requested', checkpoint: null, result: null },
+              diagnosticFence: { generation: 0, timestamp: now, boundary: 'fence', code: 'cancelled', uncertain: false },
+              diagnosticsVersion: 1, diagnosticBinding: { generation: 0,
+                artifactDigest: state.executionContext!.artifactDigest, inputDigest: state.receipt!.intentDigest }, updatedAt: now });
+          }
+        }
+        if (authority.current.deadline <= Date.now()) throw new Error('Application execution authority expired');
+        return { status: 'retired', activityId: authority.original.activityId, proofVersion };
+      });
+    } catch (error) {
+      capture?.record('application-execution-error', () => error);
+      return { status: 'unavailable' };
+    } finally {
+      await this.#correlateApplicationCapture(capture, observedFingerprint, atomicFingerprint);
+      try { await capture?.finish('complete'); } catch { /* Observation never changes proof or retirement. */ }
+    }
+  }
+
+  async #validateApplicationExecutionAuthority(authority: ApplicationExecutionAuthority, coordination = false): Promise<void> {
+    const owner = z.object({ subject: z.string().min(1).max(512), email: z.string().email().max(320),
+      issuer: z.string().min(1).max(2048), audiences: z.array(z.string().min(1).max(512)).min(1).max(16) });
+    z.object({ version: z.literal(1), current: z.object({ principal: z.literal('operator'), ownerKey: syncDigest,
+      sourceId: z.string(), sourceRepositoryId: z.number().int().positive().safe(), operatorId: syncIdentity,
+      installationId: syncIdentity, activityId: syncIdentity, generation: z.number().int().positive().safe(),
+      deadline: z.number().int().positive().safe(), human: owner.extend({ expiresAt: z.number().int().positive() }) }),
+    original: z.strictObject({ activityId: syncIdentity, installationId: syncIdentity, operatorId: syncIdentity,
+      sourceRepositoryId: z.number().int().positive().safe(), ownerKey: syncDigest, owner,
+      invocationJson: z.string().optional(), binding: z.enum(['legacy', 'activity']),
+      delivery: z.strictObject({ submissionId: z.string().min(1).max(128), uid: z.string().min(1).max(512),
+        deliveryDigest: syncDigest }).optional(), generation: z.number().int().positive().safe().optional(), pins: z.strictObject({
+        operatorRevision: z.number().int().positive().safe(), installationRevision: z.number().int().positive().safe(),
+        controlsRevision: z.number().int().nonnegative().safe(), releaseId: syncIdentity, bundleDigest: syncDigest }).nullable() }),
+    ledger: z.union([z.strictObject({ ok: z.literal(false) }),
+      z.strictObject({ ok: z.literal(true), receipt: z.unknown() })]),
+    observationLoggingEnabled: z.boolean().optional(), proofVersion: syncDigest.optional(),
+    }).parse(authority);
+    const { current, original } = authority;
+    if (current.deadline <= Date.now() || current.human.expiresAt * 1000 < current.deadline
+      || (!coordination && current.ownerKey !== original.ownerKey) || current.ownerKey !== await operatorOwnerKey(current.human)
+      || coordination && current.operatorId !== original.operatorId
+      || original.ownerKey !== await operatorOwnerKey({ ...original.owner, audiences: [...original.owner.audiences] })
+      || current.sourceId !== String(original.sourceRepositoryId)
+      || current.sourceRepositoryId !== original.sourceRepositoryId
+      || original.binding === 'activity' && !original.pins
+      || authority.ledger.ok !== true || !this.#appEnv.OPERATOR_ACTIVITY
+      || this.#appEnv.OPERATOR_ACTIVITY.idFromName(original.activityId).toString() !== this.ctx.id.toString()
+      || original.invocationJson !== undefined && (new TextEncoder().encode(original.invocationJson).byteLength > 64 * 1024
+        || !z.json().safeParse(JSON.parse(original.invocationJson)).success)) throw new Error('Application execution authority unavailable');
+    // Current and original installation IDs may differ only after Registry has
+    // independently established their same source/owner scope. Neither is chosen
+    // by the target Activity or read from an application checkpoint.
+  }
+
+  async #correlateApplicationCapture(capture: RawCapture | undefined, observed: string | undefined, atomic: string | undefined) {
+    if (!capture || observed && observed === atomic) return;
+    capture.record('application-execution-correlation', () => ({ status: 'incomplete' }));
+    try { await capture.flush?.(); } catch { /* Failed archival is already incomplete. */ }
+    capture.defer?.(async () => { throw new Error('Atomic execution snapshot differs from captured observation'); });
+  }
+
+  async #applicationExecutionCapture(authority: ApplicationExecutionAuthority): Promise<{ capture?: RawCapture; fingerprint?: string }> {
+    if (authority.observationLoggingEnabled !== true) return {};
+    let capture: RawCapture | undefined;
+    try {
+      const state = await this.ctx.storage.get<AdmissionState>('admission');
+      const bound = await this.ctx.storage.get<string>('prospective-admission');
+      const retirement = await this.ctx.storage.get<string>('prospective-retirement');
+      // Ownership and immutable admission policy authorize capture independently
+      // of execution safety, so raw evidence survives an unsafe-record refusal.
+      if (state?.receipt && isManagementReceipt(state.receipt)
+        && executionLoggingEnabled(state.receipt)
+        && (state.receipt.selection.operator.policy.loggingEnabled === undefined
+          || typeof state.receipt.selection.operator.policy.loggingEnabled === 'boolean')
+        && await this.#applicationExecutionBinding(authority,
+          { state, bound, retirement, publication: undefined, ownedSession: undefined, entries: new Map() })) {
+        capture = createRawCapture({ enabled: true, binding: {
+          ownerKey: authority.original.ownerKey, installationId: authority.original.installationId,
+          releaseId: state.receipt.selection.release.id, captureId: crypto.randomUUID(),
+          scope: { kind: 'activity', activityId: authority.original.activityId, generation: state.drive?.generation || 1 } },
+        storage: () => createOwnerRawCaptureStorage(this.#appEnv, this.ctx.storage, async () => {
+          const current = await this.ctx.storage.get<AdmissionState>('admission');
+          if (!current || current.ownerKey !== state.ownerKey
+            || !sameDispatcherPhaseValue(current.executionContext?.owner, state.executionContext?.owner)
+            || !sameDispatcherPhaseValue(current.receipt, state.receipt)) throw new Error('Raw capture unavailable');
+        }), schedule: work => this.ctx.waitUntil(work) });
+        capture.record('application-execution-ledger', () => authority.ledger);
+        await capture.flush?.();
+        // Archival I/O runs outside the business transaction and drains each
+        // record. Atomic revalidation below retains only compact fingerprints.
+        const observed = await this.#applicationExecutionSnapshot(this.ctx.storage, capture, true);
+        return { capture, fingerprint: observed.captureFingerprint };
+      }
+    } catch (error) {
+      capture?.record('application-execution-error', () => error);
+      // Optional observation failure cannot change execution proof.
+    }
+    return { capture };
+  }
+
+  async #applicationExecutionSnapshot(tx: Pick<DurableObjectTransaction, 'get' | 'list'>,
+    capture?: RawCapture, fingerprint = false): Promise<ApplicationExecutionSnapshot> {
+    let hash = fingerprint ? createHash('sha256') : undefined;
+    const observe = async (stage: string, value: unknown) => {
+      try { hash?.update(JSON.stringify(captureRawValue({ stage, value }))); }
+      catch { hash = undefined; } // Unprovable capture correlation cannot change execution eligibility.
+      try { capture?.record(stage, () => value); await capture?.flush?.(); }
+      catch { /* Failed optional archival is already incomplete; keep the proof independent. */ }
+    };
+    const state = await tx.get<AdmissionState>('admission');
+    const bound = await tx.get<string>('prospective-admission');
+    const retirement = await tx.get<string>('prospective-retirement');
+    await observe('application-execution-original', { state, bound, retirement });
+    try {
+      const publication = await tx.get<unknown>(RENOVATE_PUBLICATION);
+      const ownedSession = await tx.get<unknown>('ownedSession');
+      await observe('application-execution-local', { publication, ownedSession });
+      const entries = new Map<string, unknown>();
+      let startAfter: string | undefined;
+      for (;;) {
+        // KV listing includes complete values. A count-bounded page can still
+        // retain hundreds of MiB, so pull one value at a time without a total cutoff.
+        const page = await tx.list({ prefix: 'dispatcher:', limit: 1, noCache: true, ...(startAfter ? { startAfter } : {}) });
+        for (const [key, value] of page) {
+          await observe('application-execution-runtime', [[key, value]]);
+          startAfter = key;
+          // Diagnostics are not execution/effect evidence and may arrive after a fence.
+          if (key.startsWith('dispatcher:diagnostics:')) continue;
+          if (key.startsWith('dispatcher:operation:')) entries.set(key, applicationOperationProof(value));
+          else if (key === DISPATCHER_OPERATIONS) {
+            entries.set(key, value && typeof value === 'object' && !Array.isArray(value)
+              ? Object.fromEntries(Object.entries(value).map(([id, operation]) => [id, applicationOperationProof(operation)])) : null);
+          } else if (key === DISPATCHER_LEASE || key === DISPATCHER_PROFILE_LEASE || key === DISPATCHER_JOURNAL
+            || key === `dispatcher:result:${state?.drive?.generation}`) entries.set(key, value);
+          else if (key.startsWith(APPLICATION_SETTLEMENT_PREFIX)) {
+            entries.set(key, value instanceof Uint8Array
+              ? { bytes: value.byteLength, sha256: createHash('sha256').update(value).digest('hex') } : null);
+          } else if (key.startsWith('dispatcher:inference-attempt:') && !key.endsWith(':response')) {
+            // Actual functional writer format, not diagnostic attempt counters.
+            const attempt = value as DispatcherInferenceAttempt | null;
+            entries.set(key, attempt && typeof attempt === 'object' ? { index: attempt.index, ordinal: attempt.ordinal,
+              phase: attempt.phase, notBefore: attempt.notBefore, successor: attempt.successor,
+              classification: attempt.classification, responseKey: attempt.responseKey, responseDigest: attempt.responseDigest } : null);
+          } else if (key.startsWith('dispatcher:native-handle:')) {
+            const reference = value as { generation?: unknown; operationId?: unknown; deliveryToken?: unknown } | null;
+            entries.set(key, reference && typeof reference === 'object' ? { generation: reference.generation,
+              operationId: reference.operationId, deliveryToken: reference.deliveryToken } : null);
+          } else if (key.startsWith('dispatcher:native-wire:')) {
+            entries.set(key, typeof value === 'string' ? value : null);
+          } else if (key.startsWith('dispatcher:inference-owner:')) {
+            entries.set(key, typeof value === 'number' ? value : null);
+          } else if (key.startsWith(APPLICATION_DELIVERY_PREFIX)) {
+            const proof = applicationDeliveryProofSchema.safeParse(value);
+            entries.set(key, proof.success ? proof.data : null);
+          } else if (key.startsWith('dispatcher:response:') || key.startsWith('dispatcher:native-response:')
+            || key.startsWith('dispatcher:inference-attempt:') && key.endsWith(':response')) {
+            const response = value as { body?: unknown; bytes?: unknown } | null;
+            const body = response && typeof response === 'object' ? response.body : undefined;
+            const bytes = response && typeof response === 'object' ? response.bytes : undefined;
+            entries.set(key, typeof body === 'string' ? { sha256: createHash('sha256').update(body).digest('hex') }
+              : bytes instanceof Uint8Array ? { sha256: createHash('sha256').update(bytes).digest('hex') } : true);
+          } else if (/^dispatcher:result:[1-9][0-9]*$/.test(key)) {
+            entries.set(key, true);
+          } else entries.set('unexpected-runtime-state', true); // One presence bit fences work; payloads and their keys add no proof.
+        }
+        if (page.size === 0) break;
+      }
+      return { state, bound, retirement, publication, ownedSession, entries,
+        ...(hash ? { captureFingerprint: hash.digest('hex') } : {}) };
+    } catch (error) {
+      capture?.record('application-execution-error', () => error);
+      throw error;
+    }
+  }
+
+  async #applicationExecutionBinding(authority: OriginalExecutionProof,
+    snapshot: ApplicationExecutionSnapshot): Promise<boolean> {
+    const { original, ledger } = authority;
+    if (!ledger.ok || ledger.receipt === undefined || snapshot.bound !== undefined && snapshot.bound !== original.activityId
+      || snapshot.retirement !== undefined && snapshot.retirement !== original.activityId) return false;
+    const state = snapshot.state;
+    if (state === undefined) return ledger.receipt === null;
+    if (!state || typeof state !== 'object' || Array.isArray(state) || !('receipt' in state)
+      || snapshot.ownedSession !== undefined) return false;
+    if (!z.object({ phase: z.enum(['prepared', 'admitting', 'queued', 'cancelled']), ownerKey: syncDigest,
+      invocationJson: z.string(), receipt: z.unknown(), intent: z.object({ activityId: syncIdentity,
+        operatorId: syncIdentity, installationId: syncIdentity, intentDigest: syncDigest,
+        deadline: z.number().int().positive().safe(), expectedRevision: z.number().int().positive().safe(),
+        expectedInstallationRevision: z.number().int().positive().safe(), expectedControlsRevision: z.number().int().nonnegative().safe() }),
+      executionContext: z.object({ schemaVersion: z.literal(1), principal: z.literal('operator'),
+        activityId: syncIdentity, operatorId: syncIdentity, artifactDigest: syncDigest, policyDigest: syncDigest,
+        expiresAt: z.number().int().positive(), protectedAccessCiphertext: z.string().min(1) }),
+    }).safeParse(state).success) return false;
+    if (state.boundary || state.review || state.webhook || Object.keys(state.syncOperations ?? {}).length
+      || Object.keys(state.approvedPackets ?? {}).length) return false;
+    if (original.binding === 'legacy' ? snapshot.bound !== original.activityId : snapshot.bound !== undefined) return false;
+    if (!state.executionContext || !('installationId' in state.intent)
+      || state.intent.activityId !== original.activityId || state.ownerKey !== original.ownerKey
+      || state.intent.installationId !== original.installationId || state.intent.operatorId !== original.operatorId
+      || state.executionContext.activityId !== original.activityId || state.executionContext.operatorId !== original.operatorId
+      || original.invocationJson !== undefined && state.invocationJson !== original.invocationJson
+      || state.invocationJson === undefined || new TextEncoder().encode(state.invocationJson).byteLength > 64 * 1024
+      || !z.json().safeParse(JSON.parse(state.invocationJson)).success
+      || state.intent.intentDigest !== await createOperatorIntentDigest(original.operatorId, original.activityId, state.invocationJson)
+      || state.executionContext.owner.subject !== original.owner.subject
+      || state.executionContext.owner.issuer !== original.owner.issuer
+      || state.executionContext.owner.email.toLowerCase() !== original.owner.email.toLowerCase()
+      || !sameDispatcherPhaseValue([...state.executionContext.owner.audiences].sort(), [...original.owner.audiences].sort())) return false;
+    const pins = original.pins;
+    if (pins && (state.intent.expectedRevision !== pins.operatorRevision
+      || state.intent.expectedInstallationRevision !== pins.installationRevision
+      || state.intent.expectedControlsRevision !== pins.controlsRevision
+      || state.executionContext.artifactDigest !== pins.bundleDigest)) return false;
+    if (state.phase !== 'queued') return ledger.receipt === null && state.receipt === null;
+    const receipt = ledger.receipt;
+    if (!receipt || !state.receipt || !isManagementReceipt(state.receipt)
+      || !sameDispatcherPhaseValue(state.receipt, receipt)
+      || receipt.activityId !== original.activityId || receipt.installationId !== original.installationId
+      || receipt.intentDigest !== state.intent.intentDigest || receipt.deadline !== state.intent.deadline
+      || receipt.expectedInstallationRevision !== state.intent.expectedInstallationRevision
+      || receipt.expectedOperatorRevision !== state.intent.expectedRevision
+      || receipt.expectedControlsRevision !== state.intent.expectedControlsRevision) return false;
+    const { selection } = receipt;
+    return selection.operator.profile === 'dispatcher' && selection.installation.policy.resourceProfileId === null
+      && selection.installation.id === original.installationId && selection.operator.operatorId === original.operatorId
+      && selection.installation.operatorId === original.operatorId && selection.operator.repositoryId === original.sourceRepositoryId
+      && selection.release.operatorId === original.operatorId
+      && selection.installation.revision === state.intent.expectedInstallationRevision
+      && selection.operator.revision === state.intent.expectedRevision && selection.controlsRevision === state.intent.expectedControlsRevision
+      && selection.release.bundleDigest === state.executionContext.artifactDigest
+      && await sha256(JSON.stringify(selection.installation.policy)) === state.executionContext.policyDigest
+      && (!pins || selection.release.id === pins.releaseId);
+  }
+
+  async #applicationNeverStarted(authority: OriginalExecutionProof,
+    snapshot: ApplicationExecutionSnapshot): Promise<boolean> {
+    const { state, entries } = snapshot;
+    const ledger = authority.ledger.ok ? authority.ledger.receipt : undefined;
+    if (ledger === undefined || snapshot.publication !== undefined || snapshot.ownedSession !== undefined) return false;
+    const lease = entries.get(DISPATCHER_LEASE) as DispatcherLease | undefined;
+    const binding = state?.diagnosticBinding;
+    // 5a4c2eaf: the durable generation-1 diagnostic fence, not absence of a
+    // lease, positively proves a first-drive pre-runtime failure.
+    const firstPreLeaseFence = state?.phase === 'queued' && state.ownerKey === authority.original.ownerKey
+      && state.diagnosticsVersion === 1 && state.drive?.status === 'unknown' && state.drive.generation === 2
+      && state.drive.checkpoint === null && state.drive.result === null && !state.browserCollectionConsumed
+      && state.diagnosticFence?.uncertain === true && state.diagnosticFence.generation === 1
+      && binding?.generation === 1 && !!state.executionContext && !!state.receipt
+      && binding.artifactDigest === state.executionContext.artifactDigest && binding.inputDigest === state.receipt.intentDigest;
+    const neverLeased = firstPreLeaseFence && !entries.has(DISPATCHER_LEASE);
+    if (state?.diagnosticFence?.uncertain && !neverLeased) return false;
+    if (state?.browserCollectionConsumed && !neverStartedDispatcherCancellation(state, lease)) return false;
+    if (state?.phase === 'queued') {
+      if (state.drive && !neverStartedDispatcherCancellation(state, lease) && !neverLeased) return false;
+    } else if (state && (ledger !== null || state.receipt || state.drive
+      || state.phase !== 'prepared' && !(state.phase === 'cancelled' && snapshot.retirement === authority.original.activityId))) return false;
+    for (const [key, value] of entries) {
+      if (key !== DISPATCHER_PROFILE_LEASE || !neverLeased || !this.#applicationBootstrapOnly(state!, value)) return false;
+    }
+    return authority.current.deadline > Date.now();
+  }
+
+  /** 266843f1: read-only compatibility decoder for the exact original unsubmitted
+   * profile envelope. No new phase policy or inferred admission is allowed here. */
+  #applicationBootstrapOnly(state: AdmissionState, value: unknown): boolean {
+    if (!state.receipt || !isManagementReceipt(state.receipt) || !value || typeof value !== 'object') return false;
+    const profile = value as DispatcherLease;
+    const { selection } = state.receipt;
+    const deployment = profile.deployment;
+    const descriptor = JSON.parse(selection.manifestJson);
+    const serial = !hasApplicationWorkflow(selection.manifestJson) && selection.release.intentVersion === '4'
+      && descriptor?.id === 'renovate-dispatcher' && descriptor.profile === 'dispatcher' && descriptor.intentVersion === '4';
+    return profile.generation === 1 && profile.hosting === 'normal' && profile.status === 'admitting'
+      && profile.submissionId === null && profile.expiresAt === Math.floor(state.intent.deadline / 1000) * 1000
+      && profile.artifactDigest === state.executionContext?.artifactDigest && profile.inputDigest === state.receipt.intentDigest
+      && typeof profile.connectionSecretCiphertext === 'string' && profile.connectionSecretCiphertext.length > 0
+      && Object.keys(profile).every(key => ['generation', 'artifactDigest', 'inputDigest', 'expiresAt', 'submissionId',
+        'status', 'serial', 'hosting', 'publicSdkVersion', 'sdkProvenance', 'deployment', 'connectionSecretCiphertext'].includes(key))
+      && !!deployment && deployment.installationId === selection.installation.id && deployment.releaseId === selection.release.id
+      && deployment.bundleDigest === selection.release.bundleDigest && deployment.manifestDigest === selection.release.manifestDigest
+      && deployment.sourceCommit === selection.release.sourceCommit && deployment.compilerCommit === selection.release.provenance?.compilerCommit
+      && Number.isSafeInteger(deployment.connectionRevision) && deployment.connectionRevision > 0
+      && typeof deployment.workerName === 'string' && deployment.workerName.length > 0
+      && typeof deployment.workerVersionId === 'string' && deployment.workerVersionId.length > 0
+      && typeof deployment.controlOrigin === 'string' && deployment.controlOrigin.length > 0
+      && Object.keys(deployment).every(key => ['installationId', 'releaseId', 'connectionRevision', 'workerName',
+        'workerVersionId', 'sourceCommit', 'compilerCommit', 'manifestDigest', 'bundleDigest', 'controlOrigin'].includes(key))
+      && (serial ? !!profile.serial && sameDispatcherPhaseValue(profile.serial,
+        createDispatcherPhaseState('submission', createHash('sha256').update(JSON.stringify(state.receipt)).digest('hex'), {
+          deliveryToken: profile.serial.current.deliveryToken, idempotencyKey: profile.serial.current.idempotencyKey,
+        })) : profile.serial === undefined);
+  }
+
+  async #applicationExecutionVersion(authority: OriginalExecutionProof, snapshot: ApplicationExecutionSnapshot): Promise<string> {
+    return sha256(JSON.stringify([authority.original, authority.ledger, snapshot.state, snapshot.bound,
+      snapshot.retirement, snapshot.publication, snapshot.ownedSession, [...snapshot.entries]]));
+  }
+
+  async #applicationCompletedExecution(authority: ApplicationExecutionAuthority,
+    snapshot: ApplicationExecutionSnapshot): Promise<ApplicationExecutionFacts> {
+    const { state, entries } = snapshot;
+    const lease = entries.get(DISPATCHER_LEASE) as DispatcherLease | undefined;
+    if (!state?.receipt || !isManagementReceipt(state.receipt) || !state.browserCollectionConsumed
+      || state.drive?.status !== 'completed' || !lease || lease.status !== 'settled'
+      || !Number.isSafeInteger(lease.generation) || lease.generation < 1 || lease.generation !== state.drive.generation
+      || state.diagnosticFence?.uncertain && state.diagnosticFence.generation >= lease.generation
+      || !Number.isSafeInteger(lease.terminalAt) || lease.terminalAt! <= 0 || lease.terminalAt! > Date.now()
+      || !lease.submissionId || lease.settledSubmissionId !== lease.submissionId
+      || lease.inputDigest !== state.receipt.intentDigest || lease.artifactDigest !== state.executionContext?.artifactDigest
+      || !entries.has(`dispatcher:result:${lease.generation}`)
+      || !sameDispatcherPhaseValue(state.drive.result, entries.get(`dispatcher:result:${lease.generation}`))
+      || entries.has(DISPATCHER_PROFILE_LEASE) || snapshot.publication !== undefined) return { status: 'unavailable' };
+    if (lease.expiresAt !== Math.floor(state.receipt.deadline / 1000) * 1000) return { status: 'unavailable' };
+    if (lease.hosting === 'normal') {
+      const wire = lease.wire, deployment = lease.deployment;
+      if (!lease.receipt || !normalDispatcherReceiptSchema.safeParse(lease.receipt).success
+        || !this.#normalSettlementObserved(lease) || !wire || !deployment
+        || wire.id !== `${authority.original.activityId}-g${lease.generation}`
+        || wire.activityId !== authority.original.activityId || wire.generation !== lease.generation
+        || wire.installationId !== authority.original.installationId
+        || wire.releaseId !== state.receipt.selection.release.id
+        || wire.uid !== undefined && wire.uid !== lease.receipt.uid
+        || deployment.installationId !== wire.installationId || deployment.releaseId !== wire.releaseId
+        || deployment.workerVersionId !== wire.workerVersionId || deployment.connectionRevision !== wire.connectionRevision
+        || deployment.bundleDigest !== lease.artifactDigest) return { status: 'unavailable' };
+      if (lease.observation) this.#normalObservation(lease, lease.observation);
+    } else {
+      const receipt = lease.serial?.current.receipt;
+      if (!lease.sdkReleased || !receipt || receipt.submissionId !== lease.submissionId
+        || receipt.uid !== lease.serial?.uid) return { status: 'unavailable' };
+    }
+    if (!this.#applicationNoUnknownEffects(lease, entries) || authority.current.deadline <= Date.now()) return { status: 'unavailable' };
+    return { status: 'value', activityId: authority.original.activityId, generation: lease.generation,
+      releaseDigest: lease.artifactDigest, inputDigest: lease.inputDigest, terminalAt: lease.terminalAt!,
+      collected: true, settled: true, sdkSubmissionId: lease.submissionId, unknownEffects: false,
+      result: z.json().parse(state.drive.result), checkpoint: z.json().parse(state.drive.checkpoint) };
+  }
+
+  #applicationNoUnknownEffects(lease: DispatcherLease, entries: Map<string, unknown>): boolean {
+    const journal = entries.get(DISPATCHER_JOURNAL) as DispatcherJournal | undefined;
+    const aggregate = entries.get(DISPATCHER_OPERATIONS) as Record<string, DispatcherOperationRecord> | undefined;
+    if (entries.has(DISPATCHER_JOURNAL) && (!journal || typeof journal !== 'object' || Array.isArray(journal))
+      || entries.has(DISPATCHER_OPERATIONS) && (!aggregate || typeof aggregate !== 'object' || Array.isArray(aggregate))) return false;
+    const prefix = `dispatcher:operation:${lease.generation}:`;
+    const records = [...entries].filter(([key]) => key.startsWith('dispatcher:operation:'));
+    if (records.some(([key]) => !key.startsWith(prefix)) || aggregate && records.length) return false;
+    const operations = aggregate ? Object.entries(aggregate)
+      : records.map(([key, record]) => [key.slice(prefix.length), record as DispatcherOperationRecord] as const);
+    if (journal && (journal.generation !== lease.generation || !Number.isSafeInteger(journal.count)
+      || journal.count < 0 || journal.nextOrdinal !== journal.count)) return false;
+    const ordinals = new Set<number>();
+    const charge = (ordinal: unknown) => {
+      if (!Number.isSafeInteger(ordinal) || (ordinal as number) < 0
+        || (ordinal as number) >= journal!.nextOrdinal || ordinals.has(ordinal as number)) return false;
+      ordinals.add(ordinal as number);
+      return true;
+    };
+    let unresolved = 0;
+    for (const [id, entry] of operations) {
+      if (!entry || entry.generation !== lease.generation || !syncDigest.safeParse(entry.requestDigest).success
+        || !['reserved', 'unknown', 'completed'].includes(entry.phase)) return false;
+      if (entry.phase !== 'completed') {
+        unresolved++;
+        // Known read/model work is not an external mutation; missing/unknown
+        // operation kinds and every uncertain write remain held.
+        if (entry.request) {
+          if (entry.request.method !== 'GET' || typeof entry.request.url !== 'string' || !entry.request.url.startsWith('https://')) return false;
+        } else {
+          const binding = entry.deliveryBinding ?? entry.phaseBinding;
+          const submissions = [lease.submissionId, ...(lease.serial?.previous.map(value => value.submissionId) ?? [])];
+          if (!binding || binding.resource !== 'inference' || !submissions.includes(binding.submissionId)
+            || !(entry.inference?.version === 1 && Number.isSafeInteger(entry.inference.attempt)
+              || entry.native && typeof entry.native.handle === 'string' && syncDigest.safeParse(entry.native.profileDigest).success
+              || entry.sdkHttp && typeof entry.sdkHttp.permitId === 'string' && Number.isSafeInteger(entry.sdkHttp.attempts))) return false;
+        }
+      }
+      if (journal) {
+        const attempts = entry.inference?.attempt ?? entry.native?.attempt ?? 1;
+        if (attempts > 1) {
+          if (entry.phase !== 'completed' || applicationInferenceAttemptAccounting(
+            entries, lease.generation, id, entry, journal.count, charge)) return false;
+        } else if (!charge(entry.ordinal)) return false;
+      }
+    }
+    return journal ? journal.count === ordinals.size && journal.unresolved === unresolved : !!aggregate;
+  }
+
+  /** Retired business entrypoint. New callers use the generic proof/fence pair. */
+  async retireProspectiveRenovatePreparation(_input: ProspectiveAdmission, _authority: ProspectiveReconciliationAuthority,
+    _observation?: ProspectiveObservationCapture): Promise<ReadableStream<Uint8Array>> {
+    return prospectiveReconciliationStream(false, async () => ({ retired: false, summary: null }));
+  }
+
   /** Parent-safe discriminator used to require live installation authorization at start. */
   async getPreparedInstallationId(): Promise<string | null> {
     this.#resumeDispatcherOnEntry();
@@ -929,24 +1812,6 @@ export class OperatorActivity extends Agent {
     this.#resumeDispatcherOnEntry();
     const context = (await this.ctx.storage.get<AdmissionState>('admission'))?.executionContext;
     return context ? projectOperatorExecution(context) : null;
-  }
-
-  /** Bind the existing Registry reservation before any prospective preparation. */
-  async bindProspectiveRenovateAdmission(activityId: string): Promise<boolean> {
-    this.#resumeDispatcherOnEntry();
-    if (!/^[A-Za-z0-9_-]{1,128}$/.test(activityId) || !this.#appEnv.OPERATOR_ACTIVITY
-      || this.#appEnv.OPERATOR_ACTIVITY.idFromName(activityId).toString() !== this.ctx.id.toString()) return false;
-    const proof = await this.#appEnv.OPERATOR_REGISTRY.getByName('registry')
-      .readProspectiveRenovateAdmission(activityId);
-    if (!proof || proof.activityId !== activityId) return false;
-    return this.ctx.storage.transaction(async tx => {
-      const [previous, admission] = await Promise.all([
-        tx.get<string>('prospective-admission'), tx.get<AdmissionState>('admission'),
-      ]);
-      if ((previous && previous !== activityId) || (admission && admission.intent.activityId !== activityId)) return false;
-      await tx.put('prospective-admission', activityId);
-      return true;
-    });
   }
 
   /** Parent-only source binding after server validation, before admission/start. Never SDK job data. */
@@ -967,7 +1832,14 @@ export class OperatorActivity extends Agent {
   /** Parent-only runtime input; never returned by browser, webhook, or child capabilities. */
   async getRuntimePlan(): Promise<OperatorRuntimePlan | null> {
     this.#resumeDispatcherOnEntry();
+    return this.#readRuntimePlan();
+  }
+
+  /** SDK authorization observes authority without starting its caller's recovery. */
+  async #readRuntimePlan(): Promise<OperatorRuntimePlan | null> {
+    recordActivityRpcCheckpoint(this.ctx, 'plan-entered');
     const state = await this.ctx.storage.get<AdmissionState>('admission');
+    recordActivityRpcCheckpoint(this.ctx, 'admission-read-completed');
     if (!state?.executionContext || !state.receipt || state.phase !== 'queued'
       || !await this.boundaryCurrent(state)) return null;
     const prospectiveAdmissionId = await this.ctx.storage.get<string>('prospective-admission');
@@ -1166,6 +2038,9 @@ export class OperatorActivity extends Agent {
   async prepare(intent: OperatorActivityPreparation): Promise<ActivityAdmissionResult> {
     this.#resumeDispatcherOnEntry();
     return this.ctx.storage.transaction<ActivityAdmissionResult>(async tx => {
+      if (await tx.get('prospective-retirement') || await tx.get(DISPATCHER_DEPLOYMENT_RETIREMENT)) {
+        return { ok: false, reason: 'admission-denied' };
+      }
       if (await tx.get('admission')) return { ok: false, reason: 'already-prepared' };
       await tx.put<AdmissionState>('admission', { intent, phase: 'prepared', receipt: null });
       return { ok: true, phase: 'prepared' };
@@ -1188,6 +2063,9 @@ export class OperatorActivity extends Agent {
     if (!/^[A-Za-z0-9_-]{43,128}$/.test(capability)) return { ok: false, reason: 'invalid-capability' };
     const verifier = await capabilityVerifier(capability);
     const pending = await this.ctx.storage.transaction<AdmissionFailure | { ok: true; intent: OperatorActivityPreparation }>(async tx => {
+      if (await tx.get('prospective-retirement') || await tx.get(DISPATCHER_DEPLOYMENT_RETIREMENT)) {
+        return { ok: false, reason: 'admission-denied' };
+      }
       const state = await tx.get<AdmissionState>('admission');
       if (!state) return { ok: false, reason: 'not-prepared' };
       const denied = checkStart(state, verifier);
@@ -1230,6 +2108,9 @@ export class OperatorActivity extends Agent {
     const readCapability = issueRead ? randomCapability() : null;
     const readVerifier = readCapability ? await capabilityVerifier(readCapability) : null;
     const queued = await this.ctx.storage.transaction<ActivityAdmissionResult | WebhookStartResult>(async tx => {
+      if (await tx.get('prospective-retirement') || await tx.get(DISPATCHER_DEPLOYMENT_RETIREMENT)) {
+        return { ok: false, reason: 'admission-denied' };
+      }
       const state = await tx.get<AdmissionState>('admission');
       if (!state) return { ok: false, reason: 'not-prepared' };
       const denied = checkStart(state, verifier);
@@ -1608,6 +2489,9 @@ export class OperatorActivity extends Agent {
   async beginDrive(expectedGeneration?: number): Promise<OperatorDriveResult> {
     this.#resumeDispatcherOnEntry();
     const result = await this.ctx.storage.transaction<OperatorDriveResult>(async tx => {
+      if (await tx.get('prospective-retirement') || await tx.get(DISPATCHER_DEPLOYMENT_RETIREMENT)) {
+        return { ok: false, reason: 'drive-settled' };
+      }
       const record = await tx.get<AdmissionState>('admission');
       if (!record || record.phase !== 'queued') return { ok: false, reason: 'not-admitted' };
       if (!Number.isFinite(record.intent.deadline) || record.intent.deadline <= Date.now()
@@ -1639,6 +2523,10 @@ export class OperatorActivity extends Agent {
   /** Generic child-effect fence for the exact admitted, live generation. */
   async operatorGenerationCurrent(generation: number): Promise<boolean> {
     this.#resumeDispatcherOnEntry();
+    return this.#readOperatorGeneration(generation);
+  }
+
+  async #readOperatorGeneration(generation: number): Promise<boolean> {
     if (!Number.isSafeInteger(generation) || generation < 1) return false;
     const record = await this.ctx.storage.get<AdmissionState>('admission');
     return !!record && record.phase === 'queued' && record.intent.deadline > Date.now()
@@ -1693,9 +2581,12 @@ export class OperatorActivity extends Agent {
       parsed = result.data;
       // SDK settlement owns its assessment allowance, not the non-SDK response envelope.
       const sdkSettlement = lease?.generation === generation;
-      const json = JSON.stringify(sdkSettlement ? { ...parsed, result: null } : parsed);
+      const applicationCheckpoint = sdkSettlement && !!lease?.application;
+      const json = JSON.stringify(sdkSettlement
+        ? { ...parsed, result: null, ...(applicationCheckpoint ? { checkpoint: null } : {}) } : parsed);
       if (new TextEncoder().encode(json).byteLength > (sdkSettlement || !dispatcher ? 64 * 1024 : limits.driveResponseBytes)
-        || (sdkSettlement && new TextEncoder().encode(JSON.stringify(parsed.result ?? null)).byteLength > limits.assessmentBytes)) {
+        || (sdkSettlement && new TextEncoder().encode(JSON.stringify(parsed.result ?? null)).byteLength > limits.assessmentBytes)
+        || (applicationCheckpoint && new TextEncoder().encode(JSON.stringify(parsed.checkpoint)).byteLength > limits.assessmentBytes)) {
         return { ok: false, reason: 'invalid-update' };
       }
     } catch {
@@ -1716,8 +2607,13 @@ export class OperatorActivity extends Agent {
         && record.receipt && isManagementReceipt(record.receipt)
         && record.receipt.selection.operator.profile === 'dispatcher'
         && lease?.hosting === 'normal' && parsed.status === 'completed';
+      const applicationComplete = lease?.application?.completed === true && parsed.status === 'completed'
+        && sameDispatcherPhaseValue(lease.application.checkpoint, parsed.checkpoint)
+        && sameDispatcherPhaseValue(await tx.get(`dispatcher:result:${generation}`), parsed.result);
+      const emptyApplicationComplete = applicationComplete && lease!.application!.delivery.ordinal === 1
+        && !lease!.application!.planned && !lease!.receipt && lease!.submissionId === null;
       if (automaticCollection && (!this.#leaseMatches(record, lease, generation)
-        || !lease?.receipt || lease.receipt.submissionId !== lease.submissionId
+        || (!emptyApplicationComplete && (!lease?.receipt || lease.receipt.submissionId !== lease.submissionId))
         || !sameDispatcherPhaseValue(await tx.get(`dispatcher:result:${generation}`), parsed.result))) {
         return { ok: false, reason: 'invalid-update' };
       }
@@ -1727,13 +2623,13 @@ export class OperatorActivity extends Agent {
           && lease.hosting === 'normal' && lease.configuredSelection?.source === 'pi-native'
           && record.authFailure?.provider === lease.configuredSelection.provider;
         if (lease.status !== 'running' || lease.expiresAt <= Date.now()
-          || !lease.submissionId || lease.settledSubmissionId !== lease.submissionId
-          || (failedAuthentication ? journal.unresolved !== 0
-            : lease.serial ? (await this.#serialJournalAccounted(tx, lease, parsed.result)) !== null : journal.unresolved !== 0)) {
+          || (!emptyApplicationComplete && (!lease.submissionId || lease.settledSubmissionId !== lease.submissionId))
+          || (lease.application && !failedAuthentication && !applicationComplete)
+          || journal.unresolved !== 0) {
           return { ok: false, reason: 'invalid-update' };
         }
         await tx.put(DISPATCHER_LEASE, { ...lease, status: parsed.status === 'waiting' || parsed.status === 'completed' || failedAuthentication ? 'settled' : 'unknown',
-          ...(lease.serial && parsed.status === 'completed' ? { terminalAt: lease.terminalAt ?? Date.now() } : {}) });
+          ...((lease.serial || lease.application) && parsed.status === 'completed' ? { terminalAt: lease.terminalAt ?? Date.now() } : {}) });
       }
       const state: OperatorDriveState = {
         generation, status: parsed.status, checkpoint: parsed.checkpoint, result: parsed.result ?? null,
@@ -1751,9 +2647,83 @@ export class OperatorActivity extends Agent {
     return committed;
   }
 
+  /** REQ-OPERATOR-107 AC5: authorized Root retires only the immutable original deployment.
+   * A durable lifecycle fence is not never-started proof, SDK settlement or permission to replay.
+   * Never enter cold recovery here; abort uses only the original frozen public transport.
+   */
+  async retireDispatcherDeployment(activityId: string, connection: DispatcherConnectionMetadata): Promise<boolean> {
+    const parsed = dispatcherDeploymentMetadataSchema.safeParse(connection);
+    if (!syncIdentity.safeParse(activityId).success || !parsed.success) return false;
+    const original = parsed.data;
+    const sameConnection = (value: DispatcherConnectionMetadata | undefined): boolean => !!value
+      && (Object.keys(original) as Array<keyof DispatcherConnectionMetadata>).every(key => value[key] === original[key]);
+    let ledger: ManagementAdmissionReceipt | null;
+    try { ledger = await this.#appEnv.OPERATOR_REGISTRY.getByName('registry').getManagementAdmission(activityId); }
+    catch { return false; }
+    if (!ledger || ledger.activityId !== activityId || ledger.installationId !== original.installationId) return false;
+    const { installation, operator, release, controlsRevision } = ledger.selection;
+    if (operator.profile !== 'dispatcher' || installation.id !== original.installationId
+      || installation.operatorId !== operator.operatorId || release.operatorId !== operator.operatorId
+      || installation.revision !== ledger.expectedInstallationRevision || operator.revision !== ledger.expectedOperatorRevision
+      || controlsRevision !== ledger.expectedControlsRevision || !sameConnection(installation.dispatcherConnection)
+      || installation.releaseId !== original.releaseId || release.id !== original.releaseId
+      || release.bundleDigest !== original.bundleDigest || release.manifestDigest !== original.manifestDigest
+      || release.sourceCommit !== original.sourceCommit || release.provenance?.compilerCommit !== original.compilerCommit) return false;
+    const receipt = ledger;
+    const accepted = await this.ctx.storage.transaction(async tx => {
+      const marker = await tx.get<{ activityId: string; connection: DispatcherConnectionMetadata }>(DISPATCHER_DEPLOYMENT_RETIREMENT);
+      if (marker && (marker.activityId !== activityId || !sameConnection(marker.connection))) return false;
+      const state = await tx.get<AdmissionState>('admission');
+      const leases = [await tx.get<DispatcherLease>(DISPATCHER_LEASE), await tx.get<DispatcherLease>(DISPATCHER_PROFILE_LEASE)];
+      if (state) {
+        const intent = state.intent;
+        if (!('installationId' in intent) || intent.activityId !== activityId || intent.installationId !== original.installationId
+          || intent.operatorId !== operator.operatorId || intent.intentDigest !== receipt.intentDigest || intent.deadline !== receipt.deadline
+          || intent.expectedInstallationRevision !== receipt.expectedInstallationRevision
+          || intent.expectedRevision !== receipt.expectedOperatorRevision || intent.expectedControlsRevision !== receipt.expectedControlsRevision
+          || (state.receipt !== null && (!isManagementReceipt(state.receipt) || !sameDispatcherPhaseValue(state.receipt, receipt)))
+          || (state.phase === 'queued' && !state.receipt)) return false;
+        if (state.executionContext && (state.executionContext.activityId !== activityId
+          || state.executionContext.operatorId !== operator.operatorId || state.executionContext.artifactDigest !== original.bundleDigest
+          || state.executionContext.policyDigest !== await sha256(JSON.stringify(installation.policy)))) return false;
+      }
+      for (const lease of leases) {
+        if (!lease) continue;
+        if (!state || lease.hosting !== 'normal' || !sameConnection(lease.deployment)
+          || lease.inputDigest !== receipt.intentDigest || lease.artifactDigest !== original.bundleDigest
+          || (lease.wire && (lease.wire.activityId !== activityId || lease.wire.installationId !== original.installationId
+            || lease.wire.releaseId !== original.releaseId || lease.wire.connectionRevision !== original.connectionRevision
+            || lease.wire.workerVersionId !== original.workerVersionId))) return false;
+      }
+      // Outside dispatcher:*: unknown SDK/runtime keys must still block recovery.
+      if (!marker) await tx.put(DISPATCHER_DEPLOYMENT_RETIREMENT, { activityId, connection: original });
+      if (state && state.phase !== 'queued' && state.phase !== 'cancelled') {
+        await tx.put<AdmissionState>('admission', { ...state, phase: 'cancelled', updatedAt: Date.now() });
+      }
+      // Exact retries need no more abort I/O once durable state already denies execution.
+      return marker && (!state || state.phase === 'cancelled'
+        || state.drive && !['running', 'waiting'].includes(state.drive.status)) ? 'closed' : 'fence';
+    });
+    if (!accepted) return false;
+    if (accepted === 'closed') return true;
+    const state = await this.ctx.storage.get<AdmissionState>('admission');
+    if (!state || state.phase === 'cancelled') return true;
+    // Preserve terminal results/checkpoints byte-for-byte; never rewrite them as cancellation.
+    if (state.drive?.status === 'completed' || state.drive?.status === 'failed') return true;
+    try { await this.#cancelDrive(); }
+    catch { /* Abort failure cannot undo a durable Root generation fence. */ }
+    const fenced = await this.ctx.storage.get<AdmissionState>('admission');
+    return fenced?.phase === 'queued' && !!fenced.drive
+      && !['running', 'waiting'].includes(fenced.drive.status);
+  }
+
   /** Fence future commits, then retire owned intent4 compute without recreating it. */
   async cancelDrive(): Promise<OperatorDriveResult> {
     this.#resumeDispatcherOnEntry();
+    return this.#cancelDrive();
+  }
+
+  async #cancelDrive(): Promise<OperatorDriveResult> {
     let result = await this.fenceDrive('cancel-requested');
     if (!result.ok && result.reason === 'drive-settled') {
       const [record, lease] = await Promise.all([
@@ -1813,10 +2783,12 @@ export class OperatorActivity extends Agent {
     return result;
   }
 
-  /** Fence a queued request whose one attached runtime attempt failed before loading code. */
-  async fenceRuntimeFailure(expectedGeneration?: number, failure?: FailureObservation): Promise<OperatorDriveResult> {
-    this.#resumeDispatcherOnEntry();
-    const result = await this.fenceDrive('unknown', expectedGeneration, true, failure ?? { boundary: 'artifact', code: 'artifact-unavailable' });
+  /** Fence runtime failure; parent handoff failures may retire only an admission with no drive. */
+  async fenceRuntimeFailure(expectedGeneration?: number, failure?: FailureObservation,
+    options?: { onlyBeforeDrive: true }): Promise<OperatorDriveResult> {
+    if (!options?.onlyBeforeDrive) this.#resumeDispatcherOnEntry();
+    const result = await this.fenceDrive('unknown', expectedGeneration, true,
+      failure ?? { boundary: 'artifact', code: 'artifact-unavailable' }, undefined, options?.onlyBeforeDrive);
     if (result.ok) {
       await this.#releaseDispatcherSdk();
       await this.publishBrowserSummary();
@@ -1825,15 +2797,22 @@ export class OperatorActivity extends Agent {
   }
 
   private async fenceDrive(status: 'cancel-requested' | 'unknown', generation?: number,
-    allowWaiting = false, failure?: FailureObservation, normalObservation?: DispatcherLease): Promise<OperatorDriveResult> {
+    allowWaiting = false, failure?: FailureObservation, normalObservation?: DispatcherLease,
+    onlyBeforeDrive = false): Promise<OperatorDriveResult> {
     let originalGeneration: number | undefined;
     let reason: FenceReason | undefined;
     const result = await this.ctx.storage.transaction<OperatorDriveResult>(async tx => {
       const record = await tx.get<AdmissionState>('admission');
       if (!record || record.phase !== 'queued') return { ok: false, reason: 'not-admitted' };
+      // Share the transaction with beginDrive: a delayed parent refusal cannot interrupt its winner.
+      if (onlyBeforeDrive && record.drive) return { ok: false, reason: 'stale-drive' };
       if (generation !== undefined && (record.drive?.generation !== generation
         || (record.drive.status !== 'running' && !(allowWaiting && record.drive.status === 'waiting')))) {
         return { ok: false, reason: 'stale-drive' };
+      }
+      const lease = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
+      if (status === 'cancel-requested' && neverStartedDispatcherCancellation(record, lease)) {
+        return { ok: true, state: structuredClone(record.drive!) };
       }
       if (record.drive && record.drive.status !== 'running' && record.drive.status !== 'waiting') {
         return { ok: false, reason: 'drive-settled' };
@@ -1842,7 +2821,6 @@ export class OperatorActivity extends Agent {
         generation: (record.drive?.generation ?? 0) + 1, status,
         checkpoint: record.drive?.checkpoint ?? null, result: record.drive?.result ?? null,
       };
-      const lease = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
       if (normalObservation && (lease?.hosting !== 'normal' || lease.status !== normalObservation.status
         || lease.generation !== normalObservation.generation || lease.submissionId !== normalObservation.submissionId
         || lease.inputDigest !== normalObservation.inputDigest || lease.artifactDigest !== normalObservation.artifactDigest
@@ -1894,7 +2872,7 @@ export class OperatorActivity extends Agent {
     let leaseCommitted = false;
     try {
       const plan = await this.getRuntimePlan();
-      if (plan) trace = { activityId: plan.activityId, generation, loggingEnabled: executionLoggingEnabled(plan.receipt) };
+      if (plan) trace = this.#captureTrace({ activityId: plan.activityId, generation, loggingEnabled: executionLoggingEnabled(plan.receipt) });
       boundary = 'artifact';
       if (!plan || !isManagementReceipt(plan.receipt) || plan.receipt.selection.operator.profile !== 'dispatcher'
         || artifactDigest !== plan.receipt.selection.release.bundleDigest
@@ -1907,28 +2885,20 @@ export class OperatorActivity extends Agent {
         || approved.sourceCommit !== plan.receipt.selection.release.sourceCommit) throw new Error('Dispatcher artifact mismatch');
       boundary = 'authority';
       await authorizeDispatcherPlan(plan, this.#appEnv);
-      const descriptor = JSON.parse(plan.receipt.selection.manifestJson);
-      const serial = plan.receipt.selection.release.intentVersion === '4'
-        && descriptor?.id === 'renovate-dispatcher' && descriptor.profile === 'dispatcher' && descriptor.intentVersion === '4';
-      if (serial && (JSON.parse(plan.invocationJson).pullRequest !== undefined
-        || dispatcherCapacities(plan.receipt.selection.operator.policy).assessmentBytes < DISPATCHER_JOURNEY_RESULT_BYTES)) {
-        // This package reserves48KiB before decisions. Refuse incompatible admission BEFORE
-        // any SDK/model/effect; never validate a smaller allowance only after effects.
-        throw new Error('Dispatcher phase output allowance incompatible');
-      }
+      const application = hasApplicationWorkflow(plan.receipt.selection.manifestJson);
+      const normal = approved.schemaVersion === 2 && approved.hosting?.kind === 'normal';
+      if (application && !normal) throw new Error('Application workflow requires normal control');
       inferenceDiagnostic(trace, { stage: 'drive', outcome: 'observed', boundary });
       inferenceDiagnostic(trace, { stage: 'drive', outcome: 'started', operationLimit: dispatcherOperationLimit(plan.receipt.selection.operator.policy), inferenceRequestBytes: inferenceRequestBytes(plan.receipt.selection.operator.policy) }, () => ({ invocation }));
       const attemptLimit = inferenceAttemptLimit(plan.receipt.selection.operator.policy);
       const sdkProvenance = readSdkProvenance(approved);
-      const normal = approved.schemaVersion === 2 && approved.hosting?.kind === 'normal';
       const lease: DispatcherLease = { generation, artifactDigest, inputDigest: plan.receipt.intentDigest,
         expiresAt: Math.floor(plan.deadline / 1000) * 1000,
         submissionId: null, status: 'admitting',
-        ...(sdkProvenance ? { sdkProvenance } : {}),
-        ...(serial ? { serial: createDispatcherPhaseState('submission', await sha256(JSON.stringify(plan.receipt)),
-          { deliveryToken: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() }) } : {}) };
+        ...(sdkProvenance ? { sdkProvenance } : {}) };
       if (normal) {
         lease.hosting = 'normal';
+        if (approved.versions.runtime === '2.3.0') lease.publicSdkVersion = approved.versions.runtime;
         const connection = await this.#normalDispatcherConnection(lease, plan);
         const { connectionSecretCiphertext: _secret, ...deployment } = connection;
         lease.deployment = deployment;
@@ -1948,24 +2918,35 @@ export class OperatorActivity extends Agent {
         const inference = await authorizeDispatcherPlan(plan, this.#appEnv);
         if (inference.inferencePolicies.every(policy => policy.capabilities.includes('inference'))) {
           const profileInput = { generation, plan, env: this.#appEnv, connection,
+            raw: trace,
             waitUntil: (promise: Promise<unknown>) => this.ctx.waitUntil(promise), current: () => this.operatorGenerationCurrent(generation) };
+          boundary = 'model';
           const selection = await discoverDispatcherOwnerProfile(profileInput);
+          boundary = 'authority';
           if (plan.configuredSelection && !sameDispatcherPhaseValue(plan.configuredSelection, selection)) throw new Error('Normal Dispatcher selection changed');
           lease.configuredSelection = selection;
         }
-        const { admittedTarget } = await authorizeDispatcherPlan(plan, this.#appEnv);
-        lease.wire = this.#normalDispatcherWire(lease, plan, {
+        const initialData = {
           activityId: plan.activityId, generation, input: JSON.parse(plan.invocationJson),
           settings: { githubApiOrigin: dispatcherGithubApiOrigin(this.#appEnv),
             sourceResponseBytes: sourceResponseBytes(plan.receipt.selection.installation.policy),
             loggingEnabled: executionLoggingEnabled(plan.receipt),
             submissionAttemptLimit: submissionAttemptLimit(plan.receipt.selection.operator.policy),
             assessmentBytes: dispatcherCapacities(plan.receipt.selection.operator.policy).assessmentBytes,
-            ...(admittedTarget ? { admittedTarget: JSON.stringify(admittedTarget) } : {}) },
+          },
           ...(lease.configuredSelection ? { selection: lease.configuredSelection } : {}),
           run: { deadline: new Date(lease.expiresAt).toISOString(), inputDigest: lease.inputDigest,
             releaseDigest: lease.artifactDigest },
-        });
+        };
+        if (application) {
+          // Configuration is immutable app data. Root never interprets its domain fields.
+          const configuration = plan.receipt.selection.installation.configurationJson;
+          lease.application = { version: 1, initialData: z.json().parse({ ...initialData,
+            ...(configuration == null ? {} : { configuration: JSON.parse(configuration) }) }),
+            checkpoint: null, context: null, delivery: { token: crypto.randomUUID(), ordinal: 1 },
+            idempotencyKey: crypto.randomUUID(), planned: false };
+        }
+        lease.wire = this.#normalDispatcherWire(lease, plan, lease.application?.initialData ?? initialData);
       }
       boundary = 'lease';
       await this.ctx.storage.transaction(async tx => {
@@ -1989,7 +2970,7 @@ export class OperatorActivity extends Agent {
       });
       leaseCommitted = true;
       this.#enqueueDiagnostic(async () => {
-        await this.ctx.storage.transaction(tx => initializeDiagnostics(tx, lease, !!lease.sdkProvenance));
+        await this.ctx.storage.transaction(tx => initializeDiagnostics(tx, lease, !!lease.sdkProvenance || !!lease.publicSdkVersion));
       });
       this.#recordDiagnostic(generation, 'artifact', 'accepted');
       this.#recordDiagnostic(generation, 'admission', 'accepted');
@@ -2003,17 +2984,8 @@ export class OperatorActivity extends Agent {
           // The original key/wire is already durable. A lost ack cannot authorize replacement work.
           this.#recordDiagnostic(generation, 'submission', 'failed', 'submission-failed', error);
         }
-        if (!await this.dispatcherGenerationCurrent(generation)) return this.interruptDrive(generation);
-        await this.#scheduleDispatcherRecheck(lease);
-        const record = await this.ctx.storage.get<AdmissionState>('admission');
-        return record?.drive?.generation === generation && record.drive.status === 'running'
-          ? { ok: true, state: record.drive } : { ok: false, reason: 'stale-drive' };
-      }
-      if (lease.serial) {
-        // Lost admission acknowledgement leaves THIS persisted identity eligible for reattachment.
-        // It neither invents an SDK receipt nor replaces a submission.
-        try { await this.#admitDispatcherPhase(generation, lease.serial.current.deliveryToken, approved); }
-        catch (error) { this.#recordDiagnostic(generation, 'submission', 'failed', 'submission-failed', error); /* Same keyed recovery, never effects. */ }
+        const completed = await this.ctx.storage.get<AdmissionState>('admission');
+        if (completed?.drive?.generation === generation && completed.drive.status === 'completed') return { ok: true, state: completed.drive };
         if (!await this.dispatcherGenerationCurrent(generation)) return this.interruptDrive(generation);
         await this.#scheduleDispatcherRecheck(lease);
         const record = await this.ctx.storage.get<AdmissionState>('admission');
@@ -2060,9 +3032,12 @@ export class OperatorActivity extends Agent {
       return result;
     } catch (error) {
       const metadata = captureError(error);
-      const family: Boundary = boundary === 'artifact' ? 'artifact' : boundary === 'loader' ? 'construction'
+      const profileRefusal = boundary === 'model' && error instanceof DispatcherRefusal
+        && (error.reason === 'upstream-unavailable' || error.reason === 'request-invalid') ? error : undefined;
+      const family: Boundary = profileRefusal ? 'model' : boundary === 'artifact' ? 'artifact' : boundary === 'loader' ? 'construction'
         : boundary === 'scheduling' ? 'scheduling' : ['admission', 'cursor', 'commit'].includes(boundary) ? 'submission' : 'admission';
-      const code: ReasonCode = family === 'artifact' ? (error instanceof Error && error.message === 'Dispatcher artifact unavailable'
+      const code: ReasonCode = profileRefusal ? (profileRefusal.reason === 'upstream-unavailable' ? 'provider-failed' : 'response-unusable')
+        : error instanceof DispatcherAuthorityUnavailable ? 'platform-evidence-required' : family === 'artifact' ? (error instanceof Error && error.message === 'Dispatcher artifact unavailable'
         ? 'artifact-unavailable' : 'artifact-mismatch') : family === 'construction' ? 'startup-failed'
           : family === 'submission' ? 'submission-failed' : family === 'scheduling' ? 'unclassified' : 'authority-denied';
       // Before a lease commits, fenceDrive initializes the ledger before recording
@@ -2093,23 +3068,20 @@ export class OperatorActivity extends Agent {
 
   #normalDispatcherWire(lease: DispatcherLease, plan: OperatorRuntimePlan, initialData?: unknown): NormalDispatcherWire {
     if (!lease.deployment) throw new Error('Normal Dispatcher deployment missing');
-    const serialWire = lease.serial ? dispatcherPhaseWire(lease.serial, this.#phaseAuthority(lease, plan)) : undefined;
     const wire: NormalDispatcherWire = {
       id: `${plan.activityId}-g${lease.generation}`, installationId: lease.deployment.installationId,
       activityId: plan.activityId, generation: lease.generation, releaseId: lease.deployment.releaseId,
       connectionRevision: lease.deployment.connectionRevision, workerVersionId: lease.deployment.workerVersionId,
-      idempotencyKey: serialWire?.idempotencyKey ?? crypto.randomUUID(),
-      message: serialWire ? { kind: serialWire.kind, type: serialWire.type, body: serialWire.body, attributes: serialWire.attributes }
-        : { kind: 'user', body: plan.invocationJson },
+      idempotencyKey: lease.application?.idempotencyKey ?? crypto.randomUUID(),
+      message: { kind: 'user', body: plan.invocationJson },
     };
-    if (serialWire?.uid) wire.uid = serialWire.uid;
-    else if (initialData !== undefined) wire.initialData = initialData;
+    if (initialData !== undefined) wire.initialData = initialData;
     return wire;
   }
 
   /** Only application HTTP is used here. Redirects never receive installation authorization. */
   async #normalDispatcherControl(lease: DispatcherLease, plan: OperatorRuntimePlan,
-    action: 'dispatch' | 'read' | 'abort'): Promise<{ status: number; value: unknown; cursorObservation: boolean }> {
+    action: 'dispatch' | 'read' | 'abort' | 'plan', applicationRequest?: unknown): Promise<{ status: number; value: unknown; cursorObservation: boolean; sdkResponse: Response }> {
     // Live metadata gates new admission/read authority, but never replaces the original transport.
     // Abort exclusively uses the frozen installation connection, even if live rotation is unverified/disabled.
     if (action !== 'abort') await this.#normalDispatcherConnection(lease, plan);
@@ -2119,7 +3091,7 @@ export class OperatorActivity extends Agent {
     const secret = await openOperatorSecret(connection.connectionSecretCiphertext, this.#appEnv,
       { purpose: 'connection', recordId: connection.installationId });
     const { id, installationId, activityId, generation, releaseId, connectionRevision, workerVersionId } = lease.wire;
-    const body = action === 'dispatch' ? lease.wire : { id, installationId, activityId, generation,
+    const body = action === 'plan' ? applicationRequest : action === 'dispatch' ? lease.wire : { id, installationId, activityId, generation,
       releaseId, connectionRevision, workerVersionId, ...(lease.receipt ? { receipt: lease.receipt } : {}),
       ...(action === 'read' && lease.observation ? { observation: this.#normalObservation(lease, lease.observation) } : {}) };
     const policy = isManagementReceipt(plan.receipt) ? plan.receipt.selection.operator.policy : undefined;
@@ -2128,7 +3100,7 @@ export class OperatorActivity extends Agent {
     const remaining = action === 'abort' ? 1000 : Math.min(limits.driveTimeoutMs, lease.expiresAt - Date.now());
     if (remaining <= 0) throw new Error('Normal Dispatcher lease expired');
     const signal = AbortSignal.timeout(Math.max(1, remaining));
-    const trace = { activityId, generation, loggingEnabled: executionLoggingEnabled(plan.receipt), credentials: [secret] };
+    const trace = this.#captureTrace({ activityId, generation, loggingEnabled: executionLoggingEnabled(plan.receipt), credentials: [secret] });
     emitRaw(trace, 'dispatcher-control-request', () => ({ action, body }));
     let response: Response;
     try {
@@ -2140,26 +3112,86 @@ export class OperatorActivity extends Agent {
       emitRaw(trace, 'dispatcher-control-failure', () => error);
       throw new NormalDispatcherObservationUnavailable('Normal Dispatcher observation unavailable');
     }
-    if (action !== 'abort' && response.status >= 500) {
-      void response.body?.cancel().catch(() => {});
-      throw new NormalDispatcherObservationUnavailable('Normal Dispatcher control acknowledgement unavailable');
-    }
-    if (response.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json'
+    const unavailable = action !== 'abort' && response.status >= 500;
+    if (unavailable || response.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json'
       || ![200, 202].includes(response.status)) {
-      void response.body?.cancel().catch(() => {});
+      // Refusal bodies retain their independent raw-capture path. Validated header
+      // evidence must not be lost just because no SDK admission receipt follows.
+      if (trace.loggingEnabled !== false) this.#observeSdkHeader(generation, response);
+      const cancel = () => { void response.body?.cancel().catch(() => {}); };
+      if (trace.loggingEnabled !== false) {
+        // This refused body has no functional reader. Join its framed producer at private
+        // finalization, never at the functional rejection, using only the original signal.
+        const work = this.#retainRawObservation(trace, 'dispatcher-control-response',
+          { action, status: response.status, headers: response.headers }, undefined, async writer => {
+            const reader = response.body?.getReader();
+            let offset = 0, eof = false;
+            let abort: () => void = () => {};
+            try {
+              signal.throwIfAborted();
+              const stopped = new Promise<never>((_, reject) => {
+                abort = () => reject(signal.reason);
+                signal.addEventListener('abort', abort, { once: true });
+              });
+              for (;;) {
+                const chunk = reader ? await Promise.race([reader.read(), stopped]) : { done: true as const };
+                signal.throwIfAborted();
+                if (chunk.done) {
+                  eof = true;
+                  writer.record('dispatcher-control-response-eof', () => ({ offset }));
+                  await Promise.race([writer.flush?.(), stopped]);
+                  break;
+                }
+                // Transport framing only: the functional 4096-byte reply allowance is not a raw cutoff.
+                for (let start = 0; start < chunk.value.byteLength; start += 64 * 1024) {
+                  signal.throwIfAborted();
+                  const part = chunk.value.subarray(start, start + 64 * 1024);
+                  writer.record('dispatcher-control-response-chunk', () => ({ offset, bytes: Buffer.from(part).toString('base64') }));
+                  offset += part.byteLength;
+                  await Promise.race([writer.flush?.(), stopped]);
+                }
+              }
+            } catch (error) {
+              writer.record('dispatcher-control-response-incomplete', () => ({ offset, eof, error }));
+              throw error; // RawCapture.defer marks failed delivery incomplete, not a verified EOF.
+            } finally {
+              signal.removeEventListener('abort', abort);
+              if (!eof) void reader?.cancel(signal.aborted ? signal.reason : undefined).catch(() => {});
+              reader?.releaseLock();
+            }
+          }).then(receipt => {
+          if (!receipt) throw new Error('Raw capture unavailable');
+        }).catch(() => {
+          try { console.log(JSON.stringify({ module: 'operator-execution', message: 'raw-capture-incomplete',
+            data: { activityId, generation, status: 'incomplete' } })); }
+          catch { /* Optional capture cannot replace the original refusal. */ }
+        }).finally(cancel);
+        try { this.ctx.waitUntil(work); } catch { /* Preserve the functional rejection. */ }
+      } else cancel();
+      if (unavailable) throw new NormalDispatcherObservationUnavailable('Normal Dispatcher control acknowledgement unavailable');
       throw new Error('Normal Dispatcher control rejected');
     }
+    // A successful dispatch may first establish the header's SDK coordinates.
+    // Its caller imports after binding that receipt; other calls already have a binding.
+    if (action !== 'dispatch' && trace.loggingEnabled !== false) this.#observeSdkHeader(generation, response);
     // SDK public reply data is a named-array map. Preserve original bytes until validated;
     // result allowance and the small wire envelope are bounded independently of source/inference.
     let bodyText: string;
-    try { bodyText = await readDispatcherBody(response, signal, action === 'read' ? limits.assessmentBytes + 64 * 1024 : 4096); }
+    try { bodyText = await readDispatcherBody(response, signal, action === 'read' || action === 'plan' ? limits.assessmentBytes + 64 * 1024 : 4096); }
     catch (error) {
+      if (action === 'dispatch' && trace.loggingEnabled !== false) this.#observeSdkHeader(generation, response);
       emitRaw(trace, 'dispatcher-control-body-failure', () => error);
       if (signal.aborted) throw new NormalDispatcherObservationUnavailable('Normal Dispatcher observation timed out');
       throw error;
     }
     emitRaw(trace, 'dispatcher-control-response', () => ({ status: response.status, headers: response.headers, body: bodyText }));
-    return { status: response.status, value: JSON.parse(bodyText) as unknown,
+    let value: unknown;
+    try { value = JSON.parse(bodyText); }
+    catch (error) {
+      if (action === 'dispatch' && trace.loggingEnabled !== false) this.#observeSdkHeader(generation, response);
+      throw error;
+    }
+    return { status: response.status, value, sdkResponse: response,
       cursorObservation: response.headers.get('x-codeflare-observation') === 'cursor-v1' };
   }
 
@@ -2170,7 +3202,8 @@ export class OperatorActivity extends Agent {
     await this.#normalDispatcherConnection(lease, plan);
     const live = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
     if (!await this.dispatcherGenerationCurrent(lease.generation) || live?.hosting !== 'normal'
-      || !sameDispatcherPhaseValue(live.wire, lease.wire) || !sameDispatcherPhaseValue(live.receipt, lease.receipt)) {
+      || !sameDispatcherPhaseValue(live.wire, lease.wire) || !sameDispatcherPhaseValue(live.receipt, lease.receipt)
+      || !sameDispatcherPhaseValue(live.application, lease.application)) {
       throw new Error('Normal Dispatcher authority changed');
     }
     return plan;
@@ -2178,6 +3211,12 @@ export class OperatorActivity extends Agent {
 
   /** Admission/recovery replays only the durable original wire and adopts the actual SDK receipt. */
   async #admitNormalDispatcher(lease: DispatcherLease): Promise<void> {
+    if (lease.application && !lease.application.planned) {
+      await this.#planApplication(lease);
+      const next = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
+      if (!next || next.status !== 'admitting' || !next.application?.planned) return;
+      lease = next;
+    }
     if (lease.hosting !== 'normal' || !lease.wire) throw new Error('Normal Dispatcher admission unavailable');
     const key = `normal:${lease.generation}:${lease.wire.idempotencyKey}`;
     const existing = this.#phaseAdmissions.get(key);
@@ -2187,42 +3226,316 @@ export class OperatorActivity extends Agent {
       if (current?.receipt && sameDispatcherPhaseValue(current.wire, lease.wire)) return;
       const plan = await this.#normalDispatcherCurrent(lease);
       const response = await this.#normalDispatcherControl(lease, plan, 'dispatch');
-      if (response.status !== 202) throw new Error('Normal Dispatcher admission invalid');
-      const receipt = normalDispatcherReceiptSchema.parse(response.value);
-      if (lease.wire!.uid !== undefined && receipt.uid !== lease.wire!.uid) throw new Error('Normal Dispatcher incarnation changed');
-      await this.#normalDispatcherCurrent(lease);
-      await this.ctx.storage.transaction(async tx => {
-        const record = await tx.get<AdmissionState>('admission');
-        const live = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
-        if (!this.#leaseMatches(record, live, lease.generation) || live!.hosting !== 'normal'
-          || !sameDispatcherPhaseValue(live!.wire, lease.wire)) throw new Error('Stale normal Dispatcher admission');
-        if (live!.receipt) {
-          if (!this.#normalReceiptMatches(live!.receipt, receipt)) throw new Error('Normal Dispatcher receipt conflict');
-          return;
-        }
-        const serial = live!.serial ? bindNormalDispatcherPhaseReceipt(live!.serial, this.#phaseAuthority(live!, plan),
-          live!.serial.current.deliveryToken, receipt) : undefined;
-        const { id, activityId, generation, installationId, releaseId, connectionRevision, workerVersionId } = live!.wire!;
-        const observation = response.cursorObservation ? this.#normalObservation({ ...live!, receipt }, {
-          id, activityId, generation, installationId, releaseId, connectionRevision, workerVersionId,
-          version: 1, uid: receipt.uid, submissionId: receipt.submissionId, offset: '-1',
-        }) : undefined;
-        await tx.put<DispatcherLease>(DISPATCHER_LEASE, { ...live!, receipt, status: 'running',
-          submissionId: receipt.submissionId, rootDigest: hashDiagnostic(receipt.uid),
-          ...(observation ? { observation } : {}), ...(serial ? { serial } : {}) });
-        await tx.put<AdmissionState>('admission', { ...record!, updatedAt: Date.now() });
-      });
-      await this.publishBrowserSummary();
-      this.#recordDiagnostic(lease.generation, 'submission', 'accepted');
+      try {
+        if (response.status !== 202) throw new Error('Normal Dispatcher admission invalid');
+        const receipt = normalDispatcherReceiptSchema.parse(response.value);
+        if (lease.wire!.uid !== undefined && receipt.uid !== lease.wire!.uid) throw new Error('Normal Dispatcher incarnation changed');
+        await this.#normalDispatcherCurrent(lease);
+        await this.ctx.storage.transaction(async tx => {
+          const record = await tx.get<AdmissionState>('admission');
+          const live = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
+          if (!this.#leaseMatches(record, live, lease.generation) || live!.hosting !== 'normal'
+            || !sameDispatcherPhaseValue(live!.wire, lease.wire)) throw new Error('Stale normal Dispatcher admission');
+          if (live!.receipt) {
+            if (!this.#normalReceiptMatches(live!.receipt, receipt)) throw new Error('Normal Dispatcher receipt conflict');
+            return;
+          }
+          const { id, activityId, generation, installationId, releaseId, connectionRevision, workerVersionId } = live!.wire!;
+          const observation = response.cursorObservation ? this.#normalObservation({ ...live!, receipt }, {
+            id, activityId, generation, installationId, releaseId, connectionRevision, workerVersionId,
+            version: 1, uid: receipt.uid, submissionId: receipt.submissionId, offset: '-1',
+          }) : undefined;
+          await tx.put<DispatcherLease>(DISPATCHER_LEASE, { ...live!, receipt, status: 'running',
+            submissionId: receipt.submissionId, rootDigest: hashDiagnostic(receipt.uid),
+            ...(observation ? { observation } : {}) });
+          await tx.put<AdmissionState>('admission', { ...record!, updatedAt: Date.now() });
+        });
+        await this.publishBrowserSummary();
+        this.#recordDiagnostic(lease.generation, 'submission', 'accepted');
+      } finally {
+        if (executionLoggingEnabled(plan.receipt)) this.#observeSdkHeader(lease.generation, response.sdkResponse);
+      }
     })().finally(() => { if (this.#phaseAdmissions.get(key) === flight) this.#phaseAdmissions.delete(key); });
     this.#phaseAdmissions.set(key, flight);
     return flight;
   }
 
+  /** One application decision over the existing normal control transport. No
+   * application checkpoint, result or context participates in runtime authority. */
+  async #planApplication(original: DispatcherLease, confirmed?: ApplicationSettlement): Promise<void> {
+    const key = `application-plan:${original.generation}`;
+    const previous = this.#phaseAdmissions.get(key);
+    if (previous) return previous;
+    const work = (async () => {
+      let lease = original;
+      const plan = await this.#normalDispatcherCurrent(lease);
+      if (!lease.application || lease.application.completed || !lease.wire || !isManagementReceipt(plan.receipt)) throw new Error('Application plan unavailable');
+      const deliverySchema = z.strictObject({ token: z.string().min(1), ordinal: z.number().int().positive().safe() });
+      const settlementSchema = z.union([
+        z.strictObject({ receipt: normalDispatcherReceiptSchema,
+          reply: z.strictObject({ text: z.string(), data: z.record(z.string(), z.array(z.json())),
+            metadata: z.record(z.string(), z.json()).optional(), uid: z.string(), submissionId: z.string() }) }),
+        z.strictObject({ receipt: normalDispatcherReceiptSchema, status: z.literal('failed'),
+          data: z.record(z.string(), z.array(z.json())) }),
+      ]);
+      const settlementLimit = dispatcherCapacities(plan.receipt.selection.operator.policy).assessmentBytes + 64 * 1024;
+      // Fixed current-settlement slots in the existing functional KV store. Keep
+      // the payload out of the lease: checkpoint + settlement can exceed SQLite's
+      // 8 MB key/value bound even when each fits its admitted allowance.
+      const chunkBytes = APPLICATION_SETTLEMENT_CHUNK_BYTES;
+      const chunkKey = (index: number) => `${APPLICATION_SETTLEMENT_PREFIX}${lease.generation}:${index}`;
+      const savedPending = lease.application.pending === undefined ? undefined : z.strictObject({
+        delivery: deliverySchema, idempotencyKey: z.string().min(1),
+        confirmed: z.union([
+          z.strictObject({ delivery: deliverySchema, settlement: settlementSchema }),
+          z.strictObject({ delivery: deliverySchema, settlementRef: z.strictObject({
+            bytes: z.number().int().positive().safe().max(settlementLimit), sha256: z.string().regex(/^[a-f0-9]{64}$/),
+          }) }),
+        ]).optional(),
+      }).parse(lease.application.pending);
+      const retained = savedPending?.confirmed;
+      let savedSettlement: ApplicationSettlement | undefined;
+      if (retained && 'settlementRef' in retained) {
+        const { bytes, sha256: digest } = retained.settlementRef;
+        const encoded = new Uint8Array(bytes);
+        await this.ctx.storage.transaction(async tx => {
+          for (let offset = 0, index = 0; offset < bytes; offset += chunkBytes, index++) {
+            const chunk = await tx.get<Uint8Array>(chunkKey(index));
+            if (!(chunk instanceof Uint8Array) || chunk.byteLength !== Math.min(chunkBytes, bytes - offset)) {
+              throw new Error('Application settlement incomplete');
+            }
+            encoded.set(chunk, offset);
+          }
+        });
+        if (createHash('sha256').update(encoded).digest('hex') !== digest) throw new Error('Application settlement changed');
+        savedSettlement = settlementSchema.parse(JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(encoded)));
+      } else if (retained) savedSettlement = retained.settlement; // Existing inline records remain replayable.
+      if (confirmed && savedPending && !sameDispatcherPhaseValue(savedSettlement, confirmed)) {
+        throw new Error('Application pending settlement changed');
+      }
+      const settlement = savedSettlement ?? (confirmed ? settlementSchema.parse(confirmed) : undefined);
+      if (settlement) {
+        if (lease.status !== 'running' || !lease.application.planned || !lease.receipt
+          || lease.submissionId !== lease.receipt.submissionId
+          || !this.#normalReceiptMatches(lease.receipt, settlement.receipt)
+          || 'reply' in settlement && (settlement.reply.uid !== lease.receipt.uid
+            || settlement.reply.submissionId !== lease.receipt.submissionId)
+          || savedPending && (!sameDispatcherPhaseValue(savedPending.confirmed?.delivery, lease.application.delivery)
+            || savedPending.delivery.ordinal !== lease.application.delivery.ordinal + 1
+            || savedPending.delivery.token === lease.application.delivery.token
+            || savedPending.idempotencyKey === lease.application.idempotencyKey)) {
+          throw new Error('Application previous receipt mismatch');
+        }
+        if (new TextEncoder().encode(JSON.stringify(settlement)).byteLength > settlementLimit) {
+          throw new Error('Application settlement exceeds admitted capacity');
+        }
+      } else if (lease.application.planned || lease.receipt || lease.submissionId !== null
+        || lease.application.delivery.ordinal !== 1
+        || savedPending && (!sameDispatcherPhaseValue(savedPending.delivery, lease.application.delivery)
+          || savedPending.idempotencyKey !== lease.application.idempotencyKey)) throw new Error('Application initial plan mismatch');
+      // Persist the exact validated planner input with its next delivery identity.
+      // A lost response must not cause another SDK read or replace its settlement.
+      lease = await this.ctx.storage.transaction(async tx => {
+        const live = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
+        if (!this.#leaseMatches(await tx.get<AdmissionState>('admission'), live, lease.generation)
+          || !sameDispatcherPhaseValue(live!.wire, lease.wire) || !sameDispatcherPhaseValue(live!.receipt, lease.receipt)
+          || !sameDispatcherPhaseValue(live!.application, lease.application)) throw new Error('Application plan retired');
+        await this.#retireUnsentModelPermits(tx, live!);
+        await this.#requireAccountedDispatcherJournal(tx, live!);
+        const app = live!.application!;
+        let pending = app.pending;
+        if (!pending) {
+          if (settlement) {
+            const encoded = new TextEncoder().encode(JSON.stringify(settlement));
+            for (let offset = 0, index = 0; offset < encoded.byteLength; offset += chunkBytes, index++) {
+              await tx.put(chunkKey(index), encoded.slice(offset, offset + chunkBytes));
+            }
+            await this.#persistApplicationDeliveryProof(tx, live!, settlement);
+            pending = { delivery: { token: crypto.randomUUID(), ordinal: app.delivery.ordinal + 1 },
+              idempotencyKey: crypto.randomUUID(), confirmed: { delivery: { ...app.delivery },
+                settlementRef: { bytes: encoded.byteLength, sha256: createHash('sha256').update(encoded).digest('hex') } } };
+          } else pending = { delivery: { ...app.delivery }, idempotencyKey: app.idempotencyKey };
+        }
+        if (!Number.isSafeInteger(pending.delivery.ordinal)) throw new Error('Application delivery bound exceeded');
+        const next = { ...live!, application: { ...app, pending } };
+        await tx.put(DISPATCHER_LEASE, next);
+        return next;
+      });
+      const app = lease.application!;
+      const pending = app.pending!;
+      const { id, installationId, activityId, generation, releaseId, connectionRevision, workerVersionId } = lease.wire!;
+      const response = await this.#normalDispatcherControl(lease, plan, 'plan', {
+        id, installationId, activityId, generation, releaseId, connectionRevision, workerVersionId,
+        initialData: app.initialData, checkpoint: app.checkpoint, delivery: pending.delivery,
+        ...(settlement ? { settlement } : {}),
+      });
+      if (response.status !== 200) throw new Error('Application decision unavailable');
+      const decision = parseApplicationDecision(response.value, dispatcherCapacities(plan.receipt.selection.operator.policy).assessmentBytes);
+      await this.#normalDispatcherCurrent(lease);
+      const saved = await this.ctx.storage.transaction(async tx => {
+        const record = await tx.get<AdmissionState>('admission');
+        const live = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
+        if (!this.#leaseMatches(record, live, lease.generation)
+          || !sameDispatcherPhaseValue(live!.wire, lease.wire) || !sameDispatcherPhaseValue(live!.receipt, lease.receipt)
+          || !sameDispatcherPhaseValue(live!.application, app)) return false;
+        await this.#retireUnsentModelPermits(tx, live!);
+        await this.#requireAccountedDispatcherJournal(tx, live!);
+        const { pending: _pending, ...retained } = app;
+        if (decision.kind === 'complete') {
+          // Initial no-work completion needs no SDK job. Once work was admitted,
+          // a failed job may inform another decision but cannot certify success.
+          if (settlement && 'status' in settlement) throw new Error('Successful final SDK settlement required');
+          const prior = await tx.get(`dispatcher:result:${generation}`);
+          if (prior !== undefined && !sameDispatcherPhaseValue(prior, decision.result)) throw new Error('Application immutable result changed');
+          await tx.put(`dispatcher:result:${generation}`, decision.result);
+          await tx.put(DISPATCHER_LEASE, { ...live!, status: 'running', settledSubmissionId: live!.submissionId ?? undefined,
+            application: { ...retained, checkpoint: decision.checkpoint, completed: true } });
+        } else {
+          const application = { ...retained, delivery: pending.delivery, idempotencyKey: pending.idempotencyKey,
+            checkpoint: decision.checkpoint, context: decision.context, planned: true };
+          const wire: NormalDispatcherWire = { id, installationId, activityId, generation, releaseId, connectionRevision,
+            workerVersionId, idempotencyKey: pending.idempotencyKey, message: decision.message,
+            ...(settlement ? { uid: settlement.receipt.uid } : { initialData: { ...(app.initialData as Record<string, ApplicationValue>),
+              applicationContext: decision.context } }) };
+          await tx.put(DISPATCHER_LEASE, { ...live!, application, wire, receipt: undefined, observation: undefined,
+            settledSubmissionId: undefined, submissionId: null, status: 'admitting' });
+        }
+        if (pending.confirmed && 'settlementRef' in pending.confirmed) {
+          for (let index = 0; index < Math.ceil(pending.confirmed.settlementRef.bytes / chunkBytes); index++) {
+            await tx.delete(chunkKey(index));
+          }
+        }
+        await tx.put('admission', { ...record!, drive: { ...record!.drive!, checkpoint: decision.checkpoint } });
+        return true;
+      });
+      if (!saved) return;
+      for (const flight of this.#inferenceFlights.values()) flight.controller.abort();
+      for (const flight of this.#nativeFlights.values()) flight.controller.abort();
+      this.#nativeBindings.clear();
+      if (decision.kind === 'complete') {
+        const result = await this.commitDrive(generation, { schemaVersion: 1, status: 'completed',
+          checkpoint: decision.checkpoint, result: decision.result });
+        if (!result.ok) throw new Error('Application completion refused');
+      }
+    })().finally(() => { if (this.#phaseAdmissions.get(key) === work) this.#phaseAdmissions.delete(key); });
+    this.#phaseAdmissions.set(key, work);
+    return work;
+  }
+
+  async #persistApplicationDeliveryProof(tx: DurableObjectTransaction, lease: DispatcherLease,
+    settlement: ApplicationSettlement): Promise<void> {
+    const snapshot = await this.#applicationExecutionSnapshot(tx);
+    const state = snapshot.state;
+    if (!state?.ownerKey || !lease.application || !lease.receipt || !lease.wire
+      || !this.#normalReceiptMatches(lease.receipt, settlement.receipt)) throw new Error('Application delivery receipt unavailable');
+    const accounting = applicationJournalAccounting(snapshot.entries, lease.generation,
+      { submissionId: settlement.receipt.submissionId, token: lease.application.delivery.token });
+    if (!accounting.ok) throw new Error(`Application delivery ${accounting.reason}`);
+    const key = applicationDeliveryKey(lease.generation, settlement.receipt.submissionId);
+    const prior = await tx.get(key);
+    const parsed = prior === undefined ? undefined : applicationDeliveryProofSchema.parse(prior);
+    const proof = applicationDeliveryProofSchema.parse({ version: 1, activityId: lease.wire.activityId,
+      ownerKey: state.ownerKey, generation: lease.generation, artifactDigest: lease.artifactDigest, inputDigest: lease.inputDigest,
+      receipt: lease.receipt, delivery: { digest: createHash('sha256').update(lease.application.delivery.token).digest('hex'),
+        ordinal: lease.application.delivery.ordinal }, terminalAt: parsed?.terminalAt ?? Date.now(),
+      outcome: 'status' in settlement ? 'failed' : 'completed', noExternalWrites: accounting.noExternalWrites });
+    if (Date.parse(proof.receipt.acceptedAt) > proof.terminalAt
+      || parsed && !sameDispatcherPhaseValue(parsed, proof)) throw new Error('Application delivery proof changed');
+    if (!parsed) await tx.put(key, proof);
+  }
+
+  /** Already authenticated installation callback. Derive scope exclusively from
+   * current pinned runtime state; Registry never calls back into this Activity. */
+  async #applicationCallback(generation: number, request: Request, contextOnly: boolean, execution = false,
+    trace?: InferenceDiagnosticContext): Promise<Response> {
+    const noStore = { 'cache-control': 'no-store' };
+    let lease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
+    if (!lease?.application || lease.application.completed || lease.generation !== generation || !lease.wire) return dispatcherRefusal('execution-inactive');
+    const token = request.headers.get('x-codeflare-dispatcher-delivery');
+    const delivery = lease.application.pending?.delivery ?? lease.application.delivery;
+    if (token !== delivery.token || !await this.operatorGenerationCurrent(generation)) return dispatcherRefusal('execution-inactive');
+    if (contextOnly) {
+      if (request.method === 'POST') {
+        const body = z.strictObject({ deliveryToken: z.string() })
+          .parse(JSON.parse(await readDispatcherBody(request, request.signal, 2048)));
+        if (body.deliveryToken !== token) return dispatcherRefusal('request-invalid');
+      }
+      if (lease.application.pending || !lease.application.planned) return dispatcherRefusal('execution-inactive');
+      // Join the original admission only. SDK start hooks can arrive before its
+      // acknowledgement is bound; never mint a receipt or create another key.
+      if (!lease.receipt) {
+        await this.#admitNormalDispatcher(lease);
+        lease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
+      }
+      if (!lease?.application || !lease.receipt || !this.#phaseTokenMatches(lease, token)) return dispatcherRefusal('receipt-unavailable');
+      const plan = await this.#normalDispatcherCurrent(lease);
+      if (!isManagementReceipt(plan.receipt)) return dispatcherRefusal('execution-inactive');
+      const value = { context: lease.application.context, delivery: lease.application.delivery, receipt: lease.receipt };
+      if (trace) emitRaw(trace, 'dispatcher-application-context', () => value);
+      return Response.json(value, { headers: noStore });
+    }
+    const plan = await this.#normalDispatcherCurrent(lease);
+    if (!isManagementReceipt(plan.receipt)) return dispatcherRefusal('execution-inactive');
+    const authorization = await authorizeDispatcherPlan(plan, this.#appEnv);
+    const { installation, operator, release, controlsRevision } = plan.receipt.selection;
+    if (request.headers.get('content-type')?.split(';')[0].trim() !== 'application/json') return dispatcherRefusal('request-invalid');
+    const value: unknown = JSON.parse(await readDispatcherBody(request, request.signal, 1024 * 1024));
+    if (trace) emitRaw(trace, 'dispatcher-application-request', () => ({ path: new URL(request.url).pathname, body: value }));
+    const key = z.string().min(1).refine(value => new TextEncoder().encode(value).byteLength <= 1024);
+    const executionRequest: ApplicationExecutionRequest | undefined = execution ? z.discriminatedUnion('operation', [
+      z.strictObject({ operation: z.literal('read'), key, activityId: syncIdentity, version: syncDigest }),
+      z.strictObject({ operation: z.literal('read-delivery'), key, activityId: syncIdentity, version: syncDigest }),
+      z.strictObject({ operation: z.literal('retire'), key, activityId: syncIdentity, version: syncDigest }),
+      z.strictObject({ operation: z.literal('read-coordination'), key, version: syncDigest }),
+      z.strictObject({ operation: z.literal('release-coordination'), key, version: syncDigest }),
+    ]).parse(value) : undefined;
+    const parsed = !execution ? z.discriminatedUnion('operation', [
+      z.strictObject({ operation: z.literal('read'), keys: z.array(key).min(1).max(64) }),
+      z.strictObject({ operation: z.literal('compare-exchange'),
+        expected: z.array(z.strictObject({ key, version: z.string().regex(/^[a-f0-9]{64}$/).nullable() })).min(1).max(64),
+        writes: z.array(z.strictObject({ key, value: z.json(), coordination: z.json().optional() })).min(1).max(64) }),
+    ]).parse(value) : undefined;
+    const binding: RuntimeApplicationStateBinding = {
+      principal: 'operator', human: structuredClone(authorization.authority.human),
+      ...(authorization.delegation ? { delegation: structuredClone(authorization.delegation) } : {}),
+      sourceId: String(operator.repositoryId), sourceRepositoryId: operator.repositoryId,
+      operatorId: operator.id, installationId: installation.id, ownerKey: await operatorOwnerKey(authorization.authority.human),
+      activityId: plan.activityId, generation, deadline: lease.expiresAt, releaseId: release.id,
+      bundleDigest: release.bundleDigest, installationRevision: installation.revision, operatorRevision: operator.revision,
+      controlsRevision, intentDigest: lease.inputDigest, deliveryToken: delivery.token,
+      ...(!lease.application!.pending && lease.receipt && lease.receipt.submissionId === lease.submissionId
+        ? { originDelivery: { submissionId: lease.receipt.submissionId, uid: lease.receipt.uid,
+          deliveryDigest: createHash('sha256').update(lease.application!.delivery.token).digest('hex') } } : {}),
+    };
+    await this.#normalDispatcherCurrent(lease);
+    if (request.signal.aborted) return dispatcherRefusal('execution-inactive');
+    const registry: {
+      applyApplicationState(binding: RuntimeApplicationStateBinding, request: ApplicationStateRequest): Promise<unknown>;
+      applyApplicationExecution(binding: RuntimeApplicationStateBinding, request: ApplicationExecutionRequest): Promise<unknown>;
+    } = this.#appEnv.OPERATOR_REGISTRY.getByName('registry');
+    const result = executionRequest ? await registry.applyApplicationExecution(binding, executionRequest)
+      : await registry.applyApplicationState(binding, parsed!);
+    await this.#normalDispatcherCurrent(lease);
+    // Historical payloads belong only in the original owner's dual-policy archive.
+    if (trace && !executionRequest) emitRaw(trace, 'dispatcher-application-response', () => result);
+    if (result && typeof result === 'object' && 'error' in result) {
+      const error = z.strictObject({ status: z.union([z.literal(400), z.literal(403), z.literal(503)]),
+        code: z.enum(['application-state-invalid-request', 'application-state-denied', 'application-state-unavailable',
+          'application-execution-invalid-request', 'application-execution-denied', 'application-execution-unavailable']) }).parse(result.error);
+      return Response.json({ code: error.code }, { status: error.status, headers: noStore });
+    }
+    const conflict = result && typeof result === 'object' && 'status' in result && result.status === 'conflict';
+    return Response.json(result, { status: conflict ? 409 : 200, headers: noStore });
+  }
+
   /** Public settlement, not SDK bookkeeping release; committed SDK storage remains retained. */
   #normalSettlementObserved(lease: DispatcherLease): boolean {
-    return lease.hosting === 'normal' && lease.status === 'settled' && !!lease.receipt
-      && lease.submissionId === lease.receipt.submissionId && lease.settledSubmissionId === lease.submissionId;
+    if (lease.hosting !== 'normal' || lease.status !== 'settled') return false;
+    // A Root-committed initial completion created no SDK work or receipt.
+    if (lease.application?.completed && !lease.application.planned && lease.application.delivery.ordinal === 1
+      && !lease.receipt && lease.submissionId === null) return true;
+    return !!lease.receipt && lease.submissionId === lease.receipt.submissionId
+      && lease.settledSubmissionId === lease.submissionId;
   }
 
   #normalReceiptMatches(expected: NormalDispatcherReceipt, value: NormalDispatcherReceipt): boolean {
@@ -2294,42 +3607,222 @@ export class OperatorActivity extends Agent {
     } catch { return dispatcherRefusal('execution-inactive'); }
   }
 
+  /** Fixed ordinary-Host transport may retain observations, never renew execution. */
+  async retainDispatcherOwnerObservation(generation: number, reference: {
+    bucket: string; sessionId: string; email: string; sessionGeneration: number;
+  }, stage: string, value: unknown) {
+    const parsed = z.strictObject({ generation: z.number().int().positive().safe(),
+      reference: z.strictObject({ bucket: z.string().min(1), sessionId: syncIdentity, email: z.string().min(1),
+        sessionGeneration: z.number().int().positive().safe() }), stage: z.string().min(1) }).parse({ generation, reference, stage });
+    const state = await this.ctx.storage.get<AdmissionState>('admission');
+    if (!state?.executionContext || !state.receipt || !isManagementReceipt(state.receipt)
+      || !executionLoggingEnabled(state.receipt)) throw new Error('Raw capture unavailable');
+    const owner = state.executionContext.owner;
+    const ownerKey = await operatorOwnerKey({ ...owner, audiences: [...owner.audiences] });
+    if (state.ownerKey !== ownerKey) throw new Error('Raw capture unavailable');
+    const admissionId = await this.ctx.storage.get<string>('prospective-admission');
+    const proof = admissionId ? await this.#appEnv.OPERATOR_REGISTRY.getByName('registry').readProspectiveRenovateAdmission(admissionId) : null;
+    if (proof && (proof.activityId !== state.intent.activityId || proof.ownerKey !== ownerKey)) throw new Error('Raw capture unavailable');
+    const source = state.ownerSource ?? proof?.actor;
+    if (!source || source.bucket !== parsed.reference.bucket || source.sessionId !== parsed.reference.sessionId
+      || source.sessionGeneration !== parsed.reference.sessionGeneration
+      || owner.email.toLowerCase() !== parsed.reference.email.toLowerCase()) throw new Error('Raw capture unavailable');
+    const authorize = async () => {
+      const [current, lease] = await Promise.all([this.ctx.storage.get<AdmissionState>('admission'),
+        this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE)]);
+      if (!current?.executionContext || !current.receipt || !executionLoggingEnabled(current.receipt)
+        || current.ownerKey !== ownerKey || current.receipt.intentDigest !== state.receipt!.intentDigest
+        || current.executionContext.artifactDigest !== state.executionContext!.artifactDigest || lease?.generation !== generation
+        || !sameDispatcherPhaseValue(current.executionContext.owner, owner)) throw new Error('Raw capture unavailable');
+      const host = this.#appEnv.CONTAINER.getByName(getContainerId(source.bucket, source.sessionId));
+      const session = await getPersonalPiSession(host, { bucket: source.bucket, sessionId: source.sessionId, email: owner.email }, true);
+      if (session.generation !== source.sessionGeneration) throw new Error('Raw capture unavailable');
+    };
+    await authorize();
+    const { installation, release } = state.receipt.selection;
+    const capture = createRawCapture({ enabled: true,
+      binding: { ownerKey, installationId: installation.id, releaseId: release.id, captureId: crypto.randomUUID(),
+        scope: { kind: 'activity', activityId: state.intent.activityId, generation } },
+      storage: () => createOwnerRawCaptureStorage(this.#appEnv, this.ctx.storage, authorize), schedule: work => this.ctx.waitUntil(work) });
+    capture.record(stage, () => value);
+    return capture.finish('complete');
+  }
+
+  async #inferenceArchive(context: InferenceDiagnosticContext | undefined, plan: OperatorRuntimePlan) {
+    if (!context?.privateArchive || context.loggingEnabled === false) return undefined;
+    const exports = (this.ctx as unknown as { exports: { OperatorDispatcherCapability: InferenceArchiveFactory } }).exports;
+    return inferenceArchiveCapability(context, { ownerKey: await operatorOwnerKey(plan.executionContext.owner),
+      receiptDigest: await sha256(JSON.stringify(plan.receipt)) }, options => exports.OperatorDispatcherCapability(options));
+  }
+
+  /** Passive private history: no lease, runtime-plan recovery, current policy or deadline authority. */
+  async readOwnerRawCaptures(credential: OwnerRawReadCredential, input: OwnerRawReadRequest): Promise<Response> {
+    try {
+      const request = parseOwnerRawReadRequest(input);
+      const reader = await requireOwnerRawReader(this.#appEnv, credential);
+      const scope = request.scope;
+      if (scope.kind !== 'activity' || !this.#appEnv.OPERATOR_ACTIVITY
+        || this.#appEnv.OPERATOR_ACTIVITY.idFromName(scope.activityId).toString() !== this.ctx.id.toString()) {
+        return ownerRawReadUnavailable();
+      }
+      const retained = async (): Promise<ManagementAdmissionReceipt> => {
+        const state = await this.ctx.storage.get<AdmissionState>('admission');
+        if (!state?.executionContext || !state.receipt || !isManagementReceipt(state.receipt)
+          || state.ownerKey !== reader.ownerKey || state.intent.activityId !== scope.activityId
+          || !('installationId' in state.intent) || state.executionContext.activityId !== scope.activityId
+          || state.executionContext.schemaVersion !== 1 || state.executionContext.principal !== 'operator'
+          || state.executionContext.operatorId !== state.intent.operatorId
+          || await operatorOwnerKey(state.executionContext.owner) !== reader.ownerKey) throw new Error('Raw capture unavailable');
+        const receipt = state.receipt;
+        const { installation, operator, release, controlsRevision } = receipt.selection;
+        if (!Number.isSafeInteger(receipt.admittedAt) || receipt.admittedAt <= 0
+          || [receipt.expectedInstallationRevision, receipt.expectedOperatorRevision]
+            .some(revision => !Number.isSafeInteger(revision) || revision < 1)
+          || !Number.isSafeInteger(receipt.expectedControlsRevision) || receipt.expectedControlsRevision < 0
+          || !syncIdentity.safeParse(installation.id).success || !syncIdentity.safeParse(release.id).success
+          || !syncDigest.safeParse(release.bundleDigest).success || !executionLoggingEnabled(receipt)
+          || operator.policy.loggingEnabled !== undefined && typeof operator.policy.loggingEnabled !== 'boolean'
+          || receipt.activityId !== scope.activityId || receipt.installationId !== state.intent.installationId
+          || receipt.intentDigest !== state.intent.intentDigest
+          || receipt.intentDigest !== await createOperatorIntentDigest(state.intent.operatorId, scope.activityId, state.invocationJson ?? 'null')
+          || installation.id !== receipt.installationId || installation.releaseId !== release.id
+          || installation.operatorId !== state.intent.operatorId || operator.operatorId !== state.intent.operatorId
+          || release.operatorId !== state.intent.operatorId || release.bundleDigest !== state.executionContext.artifactDigest
+          || receipt.expectedInstallationRevision !== state.intent.expectedInstallationRevision
+          || receipt.expectedInstallationRevision !== installation.revision
+          || receipt.expectedOperatorRevision !== state.intent.expectedRevision || receipt.expectedOperatorRevision !== operator.revision
+          || receipt.expectedControlsRevision !== state.intent.expectedControlsRevision || receipt.expectedControlsRevision !== controlsRevision) {
+          throw new Error('Raw capture unavailable');
+        }
+        return receipt;
+      };
+      const receipt = await retained();
+      const original = JSON.stringify(receipt);
+      const checkRetained = async () => {
+        if (JSON.stringify(await retained()) !== original) throw new Error('Raw capture unavailable');
+      };
+      const guard = async () => { await reader.guard(); await checkRetained(); };
+      const authorizePass = async () => { await reader.authorize(); await checkRetained(); };
+      const storage = await createOwnerRawCaptureStorage(this.#appEnv, this.ctx.storage, guard);
+      // Generation comes from the authenticated scoped locator, not the current drive/lease.
+      // Every locator on the selected page must agree with the retained original receipt.
+      return await readOwnerRawCapturePage({ request, ownerKey: reader.ownerKey, storage: { ...storage, authorizePass },
+        bindingPins: { installationId: receipt.selection.installation.id, releaseId: receipt.selection.release.id } });
+    } catch { return ownerRawReadUnavailable(); }
+  }
+
+  /** Existing Root emitters retain their full snapshot before any console projection. */
+  #captureTrace<T extends InferenceDiagnosticContext>(context: T): T {
+    return { ...context, privateArchive: (stage: string, value: unknown) => {
+      if (context.loggingEnabled === false) return;
+      const work = this.#retainRawObservation(context, stage, value).catch(() => {
+        try { console.log(JSON.stringify({ module: 'operator-execution', message: 'raw-capture-incomplete',
+          data: { activityId: context.activityId, generation: context.generation, status: 'incomplete' } })); }
+        catch { /* No capture failure can replace execution. */ }
+      });
+      this.ctx.waitUntil(work);
+    } };
+  }
+
+  async #retainRawObservation(context: InferenceDiagnosticContext, stage: string, value: unknown,
+    authorize?: () => Promise<void>, produce?: (writer: Pick<RawCapture, 'record' | 'flush'>) => Promise<void>) {
+    await authorize?.();
+    // Only immutable authorization pins escape this read. Background capture
+    // must not hold the entire admission/checkpoint/result until storage drains.
+    const pins = await (async () => {
+      const state = await this.ctx.storage.get<AdmissionState>('admission');
+      if (!state?.executionContext || !state.receipt || !isManagementReceipt(state.receipt)
+        || !executionLoggingEnabled(state.receipt) || state.intent.activityId !== context.activityId) return;
+      const owner = structuredClone(state.executionContext.owner);
+      return { owner, ownerKey: await operatorOwnerKey({ ...owner, audiences: [...owner.audiences] }),
+        installationId: state.receipt.selection.installation.id, releaseId: state.receipt.selection.release.id,
+        intentDigest: state.receipt.intentDigest, artifactDigest: state.executionContext.artifactDigest };
+    })();
+    if (!pins) return;
+    const capture = createRawCapture({ enabled: true,
+      binding: { ownerKey: pins.ownerKey, installationId: pins.installationId, releaseId: pins.releaseId, captureId: crypto.randomUUID(),
+        scope: { kind: 'activity', activityId: context.activityId, generation: context.generation } },
+      storage: () => createOwnerRawCaptureStorage(this.#appEnv, this.ctx.storage, async () => {
+        await authorize?.();
+        const current = await this.ctx.storage.get<AdmissionState>('admission');
+        if (!current?.executionContext || !current.receipt || current.intent.activityId !== context.activityId
+          || current.receipt.intentDigest !== pins.intentDigest
+          || current.executionContext.artifactDigest !== pins.artifactDigest
+          || !sameDispatcherPhaseValue(current.executionContext.owner, pins.owner)) throw new Error('Raw capture unavailable');
+      }), schedule: pending => this.ctx.waitUntil(pending) });
+    capture.record(stage, () => value);
+    value = undefined; // record snapshots synchronously; queued bytes now own persistence.
+    if (produce) capture.defer?.(produce);
+    const receipt = await capture.finish('complete');
+    try { console.log(JSON.stringify({ module: 'operator-execution', message: 'raw-capture-receipt', data: receipt })); }
+    catch { /* Private retention does not depend on console availability. */ }
+    return receipt;
+  }
+
+  /** Write-only Root binding; original logging identity never grants execution or renewal. */
+  async retainDispatcherInferenceObservation(input: InferenceArchiveBinding, stage: string, value: unknown): Promise<void> {
+    if (typeof stage !== 'string' || !stage) throw new Error('Raw capture unavailable');
+    const binding = z.strictObject({ activityId: syncIdentity, generation: z.number().int().positive().safe(),
+      ownerKey: syncDigest, receiptDigest: syncDigest }).parse(input);
+    const authorize = async () => {
+      const state = await this.ctx.storage.get<AdmissionState>('admission');
+      if (!state?.executionContext || !state.receipt || !isManagementReceipt(state.receipt)
+        || state.intent.activityId !== binding.activityId || state.ownerKey !== binding.ownerKey
+        || state.drive?.generation !== binding.generation || !executionLoggingEnabled(state.receipt)
+        || await sha256(JSON.stringify(state.receipt)) !== binding.receiptDigest) throw new Error('Raw capture unavailable');
+    };
+    const receipt = await this.#retainRawObservation(binding, stage, captureRawValue(value), authorize);
+    if (receipt?.status !== 'complete') throw new Error('Raw capture unavailable');
+  }
+
+  /** Original immutable logging proof, never SDK recovery or execution authority. */
+  async #originalDispatcherLogging(generation: number, request: Request) {
+    const binding = await authenticateInstalledDispatcher(this.#appEnv, request);
+    if (binding.generation !== generation) throw new Error('Denied');
+    const state = await this.ctx.storage.get<AdmissionState>('admission');
+    const lease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
+    if (!state?.receipt || !isManagementReceipt(state.receipt) || !state.executionContext
+      || lease?.hosting !== 'normal' || !lease.wire || !lease.deployment
+      || binding.activityId !== state.intent.activityId || lease.generation !== generation
+      || lease.inputDigest !== state.receipt.intentDigest || lease.artifactDigest !== state.executionContext.artifactDigest
+      || lease.connectionSecretCiphertext !== binding.connection.connectionSecretCiphertext
+      || !sameDispatcherPhaseValue(lease.deployment,
+        (({ connectionSecretCiphertext: _secret, ...metadata }) => metadata)(binding.connection))) throw new Error('Denied');
+    const { installation, release } = state.receipt.selection;
+    const { wire, deployment } = lease;
+    if (wire.activityId !== binding.activityId || wire.generation !== generation
+      || wire.id !== `${binding.activityId}-g${generation}` || wire.installationId !== installation.id
+      || wire.releaseId !== release.id || wire.connectionRevision !== deployment.connectionRevision
+      || wire.workerVersionId !== deployment.workerVersionId || wire.installationId !== deployment.installationId
+      || wire.releaseId !== deployment.releaseId || deployment.bundleDigest !== lease.artifactDigest
+      || deployment.bundleDigest !== release.bundleDigest || deployment.manifestDigest !== release.manifestDigest
+      || deployment.sourceCommit !== release.sourceCommit || deployment.compilerCommit !== release.provenance?.compilerCommit
+      || installation.releaseId !== release.id) throw new Error('Denied');
+    if (lease.receipt) {
+      normalDispatcherReceiptSchema.parse(lease.receipt);
+      if (lease.submissionId !== lease.receipt.submissionId || lease.rootDigest !== hashDiagnostic(lease.receipt.uid)) throw new Error('Denied');
+    } else if (lease.status !== 'admitting' || lease.submissionId !== null) throw new Error('Denied');
+    // The immutable admission receipt is the original policy, never the current Registry setting.
+    // Serial successor wires omit initialData; when retained, it must agree with that receipt.
+    const loggingEnabled = executionLoggingEnabled(state.receipt);
+    if (wire.initialData !== undefined) {
+      const original = z.object({ settings: z.object({ loggingEnabled: z.boolean() }) }).parse(wire.initialData);
+      if (original.settings.loggingEnabled !== loggingEnabled) throw new Error('Denied');
+    } else if (!lease.serial && !lease.application) throw new Error('Denied');
+    // Only compact immutable pins escape this read; an upload may wait on its
+    // body for much longer than the admission/checkpoint payload is needed.
+    return { loggingEnabled, owner: structuredClone(state.executionContext.owner),
+      inputDigest: lease.inputDigest, artifactDigest: lease.artifactDigest,
+      connectionSecretCiphertext: lease.connectionSecretCiphertext, deployment: structuredClone(deployment),
+      wire: { activityId: wire.activityId, installationId: wire.installationId, releaseId: wire.releaseId,
+        connectionRevision: wire.connectionRevision, workerVersionId: wire.workerVersionId } };
+  }
+
   /** Passive retained policy only: no resume, current-authority lookup, SDK read or writes. */
   async dispatcherLoggingPolicy(generation: number, request: Request): Promise<Response> {
     try {
-      const binding = await authenticateInstalledDispatcher(this.#appEnv, request);
-      if (new URL(request.url).pathname !== '/v1/dispatcher/logging-policy' || request.body !== null
-        || binding.generation !== generation) throw new Error('Denied');
-      const state = await this.ctx.storage.get<AdmissionState>('admission');
-      const lease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
-      if (!state?.receipt || !isManagementReceipt(state.receipt) || !state.executionContext
-        || lease?.hosting !== 'normal' || !lease.wire || !lease.deployment
-        || binding.activityId !== state.intent.activityId || lease.generation !== generation
-        || lease.inputDigest !== state.receipt.intentDigest || lease.artifactDigest !== state.executionContext.artifactDigest
-        || lease.connectionSecretCiphertext !== binding.connection.connectionSecretCiphertext
-        || !sameDispatcherPhaseValue(lease.deployment,
-          (({ connectionSecretCiphertext: _secret, ...metadata }) => metadata)(binding.connection))) throw new Error('Denied');
-      const { installation, release } = state.receipt.selection;
-      const { wire, deployment } = lease;
-      if (wire.activityId !== binding.activityId || wire.generation !== generation
-        || wire.id !== `${binding.activityId}-g${generation}` || wire.installationId !== installation.id
-        || wire.releaseId !== release.id || wire.connectionRevision !== deployment.connectionRevision
-        || wire.workerVersionId !== deployment.workerVersionId || wire.installationId !== deployment.installationId
-        || wire.releaseId !== deployment.releaseId || deployment.bundleDigest !== lease.artifactDigest
-        || deployment.bundleDigest !== release.bundleDigest || deployment.manifestDigest !== release.manifestDigest
-        || deployment.sourceCommit !== release.sourceCommit || deployment.compilerCommit !== release.provenance?.compilerCommit
-        || installation.releaseId !== release.id) throw new Error('Denied');
-      if (lease.receipt) {
-        normalDispatcherReceiptSchema.parse(lease.receipt);
-        if (lease.submissionId !== lease.receipt.submissionId || lease.rootDigest !== hashDiagnostic(lease.receipt.uid)) throw new Error('Denied');
-      } else if (lease.status !== 'admitting' || lease.submissionId !== null) throw new Error('Denied');
-      // The immutable admission receipt is the original policy, never the current Registry setting.
-      // Serial successor wires omit initialData; when retained, it must agree with that receipt.
-      const loggingEnabled = executionLoggingEnabled(state.receipt);
-      if (wire.initialData !== undefined) {
-        const original = z.object({ settings: z.object({ loggingEnabled: z.boolean() }) }).parse(wire.initialData);
-        if (original.settings.loggingEnabled !== loggingEnabled) throw new Error('Denied');
-      } else if (!lease.serial) throw new Error('Denied');
+      if (new URL(request.url).pathname !== '/v1/dispatcher/logging-policy' || request.body !== null) throw new Error('Denied');
+      const { wire, loggingEnabled } = await this.#originalDispatcherLogging(generation, request);
       return Response.json({ schemaVersion: 1, loggingEnabled, activityId: wire.activityId, generation,
         deployment: { installationId: wire.installationId, releaseId: wire.releaseId,
           connectionRevision: wire.connectionRevision, workerVersionId: wire.workerVersionId } },
@@ -2337,8 +3830,170 @@ export class OperatorActivity extends Agent {
     } catch { return dispatcherRefusal('execution-inactive'); }
   }
 
+  /** Dedicated diagnostic upload: full bytes, original identity, no runtime-plan recovery. */
+  async #dispatcherRawCapture(generation: number, request: Request): Promise<Response> {
+    const noStore = { 'cache-control': 'no-store' };
+    let capture: ReturnType<typeof createRawCapture> | undefined;
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    let eof = false;
+    let acceptedCaptureId: string | undefined;
+    let unlock: (() => void) | undefined;
+    const stop = () => {
+      // Cancelling the source may itself never settle; it cannot hold the reader or ACK open.
+      if (reader) void reader.cancel().catch(() => {});
+      else void request.body?.cancel().catch(() => {});
+    };
+    // Unlike readBoundedStream this path never accumulates the request body. Each wait
+    // removes its own listener, rather than appending a reaction per chunk to one promise.
+    const untilAborted = async <T>(work: Promise<T>): Promise<T> => {
+      let abort!: () => void;
+      const stopped = new Promise<never>((_, reject) => {
+        abort = () => reject(new Error('Raw capture cancelled'));
+        request.signal.addEventListener('abort', abort, { once: true });
+        if (request.signal.aborted) abort();
+      });
+      try { return await Promise.race([work, stopped]); }
+      finally { request.signal.removeEventListener('abort', abort); }
+    };
+    request.signal.addEventListener('abort', stop, { once: true });
+    if (request.signal.aborted) stop();
+    try {
+      const original = await this.#originalDispatcherLogging(generation, request);
+      if (!original.loggingEnabled) return new Response(null, { status: 204, headers: noStore });
+      const captureId = request.headers.get('x-codeflare-raw-capture') ?? '';
+      if (!/^[A-Za-z0-9_-]{1,128}$/.test(captureId)
+        || request.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json'
+        || !request.body) return dispatcherRefusal('request-invalid');
+      acceptedCaptureId = captureId;
+      const { owner, wire } = original;
+      const ownerKey = await operatorOwnerKey({ ...owner, audiences: [...owner.audiences] });
+      const authorize = async () => {
+        // Logging has original policy/identity authority, not permission to execute after a deadline.
+        const authenticated = await authenticateInstalledDispatcher(this.#appEnv, request);
+        const [current, live] = await Promise.all([this.ctx.storage.get<AdmissionState>('admission'),
+          this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE)]);
+        if (request.signal.aborted || !current?.executionContext || !current.receipt
+          || !executionLoggingEnabled(current.receipt) || current.intent.activityId !== wire.activityId
+          || authenticated.activityId !== wire.activityId || authenticated.generation !== generation
+          || authenticated.connection.connectionSecretCiphertext !== original.connectionSecretCiphertext
+          || !sameDispatcherPhaseValue(current.executionContext.owner, owner)
+          || current.ownerKey !== ownerKey
+          || current.receipt.intentDigest !== original.inputDigest
+          || current.executionContext.artifactDigest !== original.artifactDigest
+          || live?.hosting !== 'normal' || live.generation !== generation
+          || live.inputDigest !== original.inputDigest || live.artifactDigest !== original.artifactDigest
+          || live.connectionSecretCiphertext !== original.connectionSecretCiphertext
+          || !sameDispatcherPhaseValue(live.deployment, original.deployment)) throw new Error('Raw capture unavailable');
+      };
+      await authorize();
+      const binding: RawCaptureBinding = { ownerKey, installationId: wire.installationId, releaseId: wire.releaseId,
+        captureId, scope: { kind: 'activity', activityId: wire.activityId, generation } };
+      // Only in-flight requests occupy this map. No storage transaction spans body/authority I/O.
+      const key = JSON.stringify(binding);
+      for (let prior = this.#rawCaptureWriters.get(key); prior; prior = this.#rawCaptureWriters.get(key)) {
+        await untilAborted(prior);
+      }
+      request.signal.throwIfAborted();
+      let release!: () => void;
+      const writing = new Promise<void>(resolve => { release = resolve; });
+      this.#rawCaptureWriters.set(key, writing);
+      unlock = () => { this.#rawCaptureWriters.delete(key); release(); };
+      await authorize();
+      const storage = await createOwnerRawCaptureStorage(this.#appEnv, this.ctx.storage, authorize);
+      const presence = await rawCapturePresence({ binding, storage });
+      if (presence === 'incomplete') throw new Error('Raw capture incomplete');
+      const verify = async () => {
+        // Fold authenticated records, retaining only the current chunk and its digest/length.
+        const recovered = createHash('sha256');
+        let through = 0, started = false;
+        const completion: { payload?: { bytes: number; sha256: string } } = {};
+        const stored = await verifyRawCapture({ binding, storage }, record => {
+          if (completion.payload) throw new Error('Raw capture incomplete');
+          if (!started) {
+            if (record.stage !== 'installed-sdk-upload') throw new Error('Raw capture incomplete');
+            z.object({ method: z.literal('POST'), activityId: z.literal(wire.activityId), generation: z.literal(generation) }).parse(record.value);
+            started = true;
+          } else if (record.stage === 'installed-sdk-chunk') {
+            const chunk = z.strictObject({ offset: z.number().safe().int().nonnegative(), bytes: z.string() }).parse(record.value);
+            const bytes = Buffer.from(chunk.bytes, 'base64');
+            if (chunk.offset !== through || bytes.toString('base64') !== chunk.bytes) throw new Error('Raw capture incomplete');
+            recovered.update(bytes); through += bytes.byteLength;
+          } else if (record.stage === 'installed-sdk-eof') {
+            const end = z.strictObject({ bytes: z.number().safe().int().nonnegative(), sha256: z.string().regex(/^[a-f0-9]{64}$/) }).parse(record.value);
+            if (end.bytes !== through || end.sha256 !== recovered.digest('hex')) throw new Error('Raw capture incomplete');
+            completion.payload = end;
+          } else throw new Error('Raw capture incomplete');
+        });
+        const payload = completion.payload;
+        if (stored.status !== 'complete' || !stored.receipt || stored.receipt.termination !== 'eof' || !payload) {
+          throw new Error('Raw capture incomplete');
+        }
+        return { receipt: stored.receipt, payload };
+      };
+      const prior = presence === 'present' ? await verify() : undefined;
+      if (!prior) {
+        await authorize();
+        capture = createRawCapture({ binding, enabled: true, storage: async () => storage,
+          schedule: work => this.ctx.waitUntil(work) });
+        capture.record('installed-sdk-upload', () => ({ method: request.method, url: request.url,
+          headers: [...request.headers], activityId: wire.activityId, generation }));
+        await capture.flush();
+      }
+      const delivered = createHash('sha256');
+      let offset = 0;
+      reader = request.body.getReader();
+      for (;;) {
+        await authorize();
+        const chunk = await untilAborted(reader.read());
+        request.signal.throwIfAborted();
+        if (chunk.done) { eof = true; break; }
+        delivered.update(chunk.value);
+        // Framing bounds each stored value, never the record/capture length.
+        for (let start = 0; start < chunk.value.byteLength; start += 32 * 1024) {
+          const part = chunk.value.subarray(start, start + 32 * 1024);
+          if (capture) {
+            capture.record('installed-sdk-chunk', () => ({ offset, bytes: Buffer.from(part).toString('base64') }));
+            // Backpressure only this detached diagnostic upload, never the provider stream.
+            await capture.flush();
+          }
+          offset += part.byteLength;
+          if (!Number.isSafeInteger(offset) || prior && offset > prior.payload.bytes) throw new Error('Raw capture conflict');
+        }
+      }
+      const expected = delivered.digest('hex');
+      if (prior && (prior.payload.bytes !== offset || prior.payload.sha256 !== expected)) throw new Error('Raw capture conflict');
+      if (capture) {
+        capture.record('installed-sdk-eof', () => ({ bytes: offset, sha256: expected }));
+        const receipt = await capture.finish('eof');
+        if (receipt.status !== 'complete') throw new Error('Raw capture incomplete');
+      }
+      const verified = prior ?? await verify();
+      if (verified.payload.bytes !== offset || verified.payload.sha256 !== expected) throw new Error('Raw capture incomplete');
+      await authorize();
+      const { receipt, payload } = verified;
+      return Response.json({ status: 'complete', captureId,
+        counts: { records: receipt.records, segments: receipt.segments, bytes: receipt.bytes }, termination: receipt.termination, payload },
+      { headers: noStore });
+    } catch (error) {
+      if (acceptedCaptureId === undefined) return dispatcherRefusal('execution-inactive');
+      if (capture) try {
+        capture.record('installed-sdk-upload-error', () => error);
+        await capture.finish('failed');
+      } catch { /* Optional capture cannot create work authority or replace SDK outcomes. */ }
+      return Response.json({ status: 'incomplete', captureId: acceptedCaptureId },
+        { status: 503, headers: noStore });
+    } finally {
+      request.signal.removeEventListener('abort', stop);
+      try {
+        if (reader) { if (!eof) void reader.cancel().catch(() => {}); reader.releaseLock(); }
+        else void request.body?.cancel().catch(() => {});
+      } finally { unlock?.(); }
+    }
+  }
+
   /** Installation authentication is independent of server-derived original owner/run authority. */
   async dispatcherInstalledCallback(generation: number, request: Request): Promise<Response> {
+    if (new URL(request.url).pathname === '/v1/dispatcher/diagnostic/raw') return this.#dispatcherRawCapture(generation, request);
     let trace: InferenceDiagnosticContext | undefined;
     let deliveryToken: string | undefined;
     let submissionId: string | undefined;
@@ -2357,46 +4012,51 @@ export class OperatorActivity extends Agent {
       }
       const authorization = request.headers.get('authorization')!;
       const requestedDelivery = request.headers.get('x-codeflare-dispatcher-delivery');
-      trace = { activityId: binding.activityId, generation, loggingEnabled: executionLoggingEnabled(state.receipt),
-        credentials: [authorization, authorization.slice('Bearer '.length), ...(requestedDelivery ? [requestedDelivery] : [])] };
-      if (requestedDelivery && lease.serial?.current.deliveryToken === requestedDelivery) {
+      trace = this.#captureTrace({ activityId: binding.activityId, generation, loggingEnabled: executionLoggingEnabled(state.receipt),
+        credentials: [authorization, authorization.slice('Bearer '.length), ...(requestedDelivery ? [requestedDelivery] : [])] });
+      if (requestedDelivery && (lease.application?.delivery.token ?? lease.serial?.current.deliveryToken) === requestedDelivery) {
         deliveryToken = requestedDelivery;
-        submissionId = lease.serial.current.receipt?.submissionId;
+        submissionId = lease.receipt?.submissionId ?? lease.serial?.current.receipt?.submissionId;
       }
       const path = new URL(request.url).pathname;
       if (['/v1/dispatcher/pi/config', '/v1/dispatcher/gateway',
         '/v1/dispatcher/pi/credentials', '/v1/dispatcher/model-admission', '/v1/dispatcher/model-fetch'].includes(path)) {
-        return await this.#dispatcherSdkCallback(generation, request, lease);
+        return await this.#dispatcherSdkCallback(generation, request, lease, trace);
       }
       if (lease !== active) return dispatcherRefusal('execution-inactive');
-      // SDK startup can enter before the original 202 receipt is bound. The
-      // context handler waits for that admission and then rechecks live authority;
-      // comparing this pre-acknowledgement snapshot would reject a valid handoff.
+      // Diagnostic imports authenticate the original deployment but never enter
+      // runtime-plan recovery or acquire execution authority.
+      if (path === '/v1/dispatcher/diagnostic/runtime') return this.dispatcherRuntimeDiagnostic(generation, request);
+      // Planning and SDK startup can re-enter before dispatch acknowledgement.
+      // State/context use current host-issued delivery authority without waiting
+      // on the control call which invoked this callback.
+      if (path === '/v1/dispatcher/context' || path === '/v1/dispatcher/state' || path === '/v1/dispatcher/execution') {
+        return await this.#applicationCallback(generation, request, path === '/v1/dispatcher/context', path === '/v1/dispatcher/execution', trace);
+      }
       if (path === '/v1/dispatcher/phase-context') return this.dispatcherPhaseContext(generation, request);
       // Other callbacks retain the existing immutable-snapshot check.
       // getRuntimePlan reopens only recorded owner context, never an owner/bucket from headers/body.
       await this.#normalDispatcherCurrent(lease);
-      if (path === '/v1/dispatcher/diagnostic/runtime') return this.dispatcherRuntimeDiagnostic(generation, request);
       if (path === '/v1/dispatcher/diagnostic') return this.dispatcherDiagnosticReport(generation, request);
       // Deliberately no native-binding/result, arbitrary outbound or private SDK-method route.
       return await this.dispatcherOperation(generation, request);
     } catch (error) {
       if (trace) try {
         emitRaw(trace, 'dispatcher-callback-failure', () => error);
-        this.#recordDiagnostic(generation, 'delivery', 'failed', 'authority-denied', undefined,
+        this.#recordDiagnostic(generation, 'delivery', 'failed', error instanceof DispatcherAuthorityUnavailable ? 'platform-evidence-required' : 'authority-denied', undefined,
           { ...(deliveryToken ? { deliveryDigest: hashDiagnostic(deliveryToken) } : {}),
             ...(submissionId ? { submissionDigest: hashDiagnostic(submissionId) } : {}) }, 'host', undefined,
           { ...captureError(error), transportStatus: 403, transportReason: 'execution-inactive', transportDisposition: 'authority-denied' });
       } catch { /* Optional capture cannot replace the original refusal. */ }
-      return dispatcherRefusal('execution-inactive');
+      return dispatcherRefusal(error instanceof z.ZodError || error instanceof SyntaxError ? 'request-invalid' : 'execution-inactive');
     }
   }
 
   /** Read-only profile bootstrap retains original queued-owner authority, never model authority. */
   async #dispatcherSdkCurrent(generation: number, original: DispatcherLease, modelScope: boolean): Promise<boolean> {
-    if (modelScope) return this.#dispatcherDeliveryCurrent(generation, undefined, true);
-    if (!await this.operatorGenerationCurrent(generation) || original.expiresAt <= Date.now()) return false;
-    const plan = await this.getRuntimePlan();
+    if (modelScope) return await this.#readDispatcherDelivery(generation, undefined, true) === 'current';
+    if (!await this.#readOperatorGeneration(generation) || original.expiresAt <= Date.now()) return false;
+    const plan = await this.#readRuntimePlan();
     if (!plan) return false;
     await authorizeDispatcherPlan(plan, this.#appEnv);
     await this.#normalDispatcherConnection(original, plan);
@@ -2407,11 +4067,11 @@ export class OperatorActivity extends Agent {
       && live.artifactDigest === original.artifactDigest && live.inputDigest === original.inputDigest
       && sameDispatcherPhaseValue(live.deployment, original.deployment)
       && live.connectionSecretCiphertext === original.connectionSecretCiphertext
-      && await this.operatorGenerationCurrent(generation);
+      && await this.#readOperatorGeneration(generation);
   }
 
   /** Private installed SDK services. No provider execution or SDK normalization occurs here. */
-  async #dispatcherSdkCallback(generation: number, request: Request, lease: DispatcherLease): Promise<Response> {
+  async #dispatcherSdkCallback(generation: number, request: Request, lease: DispatcherLease, trace: InferenceDiagnosticContext): Promise<Response> {
     const path = new URL(request.url).pathname;
     const credentials = path === '/v1/dispatcher/pi/credentials';
     const modelScope = path === '/v1/dispatcher/model-admission' || path === '/v1/dispatcher/model-fetch';
@@ -2433,7 +4093,8 @@ export class OperatorActivity extends Agent {
       const body: unknown = JSON.parse(await readDispatcherBody(request, request.signal,
         modelScope ? Math.ceil(inferenceRequestBytes(policy) * 4 / 3) + 64 * 1024 : credentials ? 1024 * 1024 : 4096));
       if (request.signal.aborted || !await current()) return dispatcherRefusal('execution-inactive');
-      const plan = await this.getRuntimePlan();
+      emitRaw(trace, 'sdk-service-request', () => ({ path, body }), () => ({ path, wireCaptured: true }));
+      const plan = await this.#readRuntimePlan();
       if (!plan) return dispatcherRefusal('execution-inactive');
       const conflict = () => {
         if (modelScope && executionLoggingEnabled(state.receipt)) try {
@@ -2454,13 +4115,14 @@ export class OperatorActivity extends Agent {
             stackDigest: null, causes: [], loss: [], fingerprintScope: 'unavailable', sdkService },
           undefined, 'catching', undefined, current);
       };
-      const input = { generation, plan, env: this.#appEnv, current, signal: request.signal,
+      const input = { generation, plan, env: this.#appEnv, current, signal: request.signal, raw: trace,
         observeFailure: executionLoggingEnabled(state.receipt) ? observeFailure : undefined,
         exports: (this.ctx as unknown as { exports: import('./dispatcher-sdk-services').SdkInput['exports'] }).exports };
       if (credentials) {
         const result = await dispatcherSdkCredentials(input, body);
         if (request.signal.aborted || !await current()) return dispatcherRefusal('execution-inactive');
         if (new TextEncoder().encode(JSON.stringify(result) ?? 'null').byteLength > 1024 * 1024) throw new Error('SDK credential envelope too large');
+        emitRaw(trace, 'sdk-credentials-response', () => result, () => ({ captured: 'protected-raw' }));
         return Response.json(result, { headers: noStore });
       }
       if (!modelScope) {
@@ -2468,11 +4130,12 @@ export class OperatorActivity extends Agent {
         const result = await readDispatcherSdkConfiguration(input);
         const live = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
         if (!await current() || request.signal.aborted) return dispatcherRefusal('execution-inactive');
-        const token = live?.serial?.current.deliveryToken;
+        const token = live?.application?.delivery.token ?? live?.serial?.current.deliveryToken;
         const phase = token && this.#phaseTokenMatches(live, token) ? { deliveryToken: token } : {};
         const serialized = JSON.stringify({ ...(path === '/v1/dispatcher/pi/config' && (result as { source?: string }).source === 'managed'
           ? { source: 'managed' } : result), ...phase });
         if (new TextEncoder().encode(serialized).byteLength > 1024 * 1024) throw new Error('SDK configuration too large');
+        emitRaw(trace, 'sdk-configuration-response', () => ({ body: serialized }));
         return new Response(serialized, { headers: { ...noStore, 'content-type': 'application/json' } });
       }
       if (!lease.configuredSelection || plan.authFailure) return dispatcherRefusal('policy-denied');
@@ -2501,7 +4164,7 @@ export class OperatorActivity extends Agent {
           const live = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
           if (!this.#leaseMatches(await tx.get<AdmissionState>('admission'), live, generation)
             || !this.#phaseTokenMatches(live, undefined, true, true)
-            || parsed.deliveryToken !== undefined && (!live?.serial || !this.#phaseTokenMatches(live, parsed.deliveryToken))) {
+            || parsed.deliveryToken !== undefined && (!(live?.application || live?.serial) || !this.#phaseTokenMatches(live, parsed.deliveryToken))) {
             return dispatcherRefusal('execution-inactive');
           }
           const journal = await loadDispatcherJournal(tx, generation);
@@ -2512,21 +4175,25 @@ export class OperatorActivity extends Agent {
             ? Response.json({ permitId: prior.sdkHttp.permitId, expiresAt: prior.sdkHttp.expiresAt,
               ...(prior.sdkHttp.deliveryToken ? { deliveryToken: prior.sdkHttp.deliveryToken } : {}) }, { headers: noStore }) : conflict();
           if (journal.count >= dispatcherOperationLimit(policy) || inferenceAttemptLimit(policy) < 1) return conflict();
+          const delivery = live?.application?.delivery.token ?? live?.serial?.current.deliveryToken;
           const permit = { permitId: crypto.randomUUID(), expiresAt: Math.min(lease.expiresAt, plan.deadline),
             selection, ownerScope, phase: 'ready' as const, attempts: 0,
-            ...(live?.serial && this.#phaseTokenMatches(live, live.serial.current.deliveryToken)
-              ? { deliveryToken: live.serial.current.deliveryToken } : {}) };
+            ...(parsed.deliveryToken !== undefined && delivery === parsed.deliveryToken && this.#phaseTokenMatches(live, delivery)
+              ? { deliveryToken: delivery } : {}) };
           const phaseBinding = parsed.deliveryToken !== undefined
             ? this.#operationPhase(live!, 'inference') : undefined;
+          const deliveryBinding = parsed.deliveryToken !== undefined && live?.application
+            ? this.#operationDelivery(live, 'inference') : undefined;
           // Model admission already requires the acknowledged running lease. Never
           // await its SDK acknowledgement from inside an installed SDK callback.
           // Optional unproved model requests retain no phase association; never
           // borrow the current phase merely because the run remains authorized.
+          if (live!.application && parsed.deliveryToken !== undefined && !deliveryBinding) return dispatcherRefusal('execution-inactive');
           if (live!.serial && parsed.deliveryToken !== undefined && (!phaseBinding || phaseBinding.submissionId !== live!.submissionId
             || !this.#phaseTokenMatches(live, phaseBinding.deliveryToken))) return dispatcherRefusal('execution-inactive');
           await putDispatcherEntry(tx, journal, parsed.operationId, undefined,
             { generation, requestDigest, phase: 'reserved', ordinal: journal.nextOrdinal, sdkHttp: permit,
-              ...(phaseBinding ? { phaseBinding } : {}) });
+              ...(phaseBinding ? { phaseBinding } : {}), ...(deliveryBinding ? { deliveryBinding } : {}) });
           return Response.json({ permitId: permit.permitId, expiresAt: permit.expiresAt,
             ...(permit.deliveryToken ? { deliveryToken: permit.deliveryToken } : {}) }, { headers: noStore });
         });
@@ -2598,8 +4265,6 @@ export class OperatorActivity extends Agent {
         await checkScope();
         const { response, transportCredentials } = await forwardDispatcherSdkHttp({ ...input, current: permitCurrent,
           signal, selection, ownerScope, request: parsed.request });
-        const bytes = await readBoundedResponse(response, inferenceRequestBytes(policy), 'SDK HTTP response', signal);
-        await checkScope();
         const secrets = [...transportCredentials, ...(selection.source === 'managed' ? [] : parsed.request.headers
           .filter(([name]) => /authorization|api[-_]?key|token|secret|cookie/i.test(name))
           .flatMap(([, value]) => [value, value.replace(/^Bearer\s+/i, '')]).filter(Boolean))];
@@ -2607,6 +4272,13 @@ export class OperatorActivity extends Agent {
         if (selection.source !== 'managed') for (const [name, value] of url.searchParams) {
           if (/key|token|secret|signature/i.test(name) && value) secrets.push(value);
         }
+        const responseTrace = { ...trace, credentials: [...(trace.credentials ?? []), ...secrets] };
+        emitRaw(responseTrace, 'sdk-http-response', () => ({ status: response.status, headers: response.headers }),
+          () => ({ status: response.status, wireCaptured: true }));
+        const bytes = await readBoundedResponse(response, inferenceRequestBytes(policy), 'SDK HTTP response', signal,
+          trace.loggingEnabled === false ? undefined : event => emitRaw(responseTrace, `sdk-http-${event.type}`, () => event,
+            () => ({ type: event.type, wireCaptured: true })));
+        await checkScope();
         // Reject credential echoes rather than persist them or change exact vendor bytes.
         const text = new TextDecoder().decode(bytes);
         if (secrets.some(secret => text.includes(secret))) throw new Error('SDK HTTP credential echo denied');
@@ -2648,6 +4320,7 @@ export class OperatorActivity extends Agent {
         this.#sdkHttpControllers.delete(controller); controller.abort();
       }
     } catch (error) {
+      emitRaw(trace, 'sdk-service-error', () => error);
       if (error instanceof PiAuthRequiredError) {
         try {
           if (!request.signal.aborted && await this.#dispatcherSdkCurrent(generation, lease, modelScope)) {
@@ -2660,11 +4333,33 @@ export class OperatorActivity extends Agent {
     }
   }
 
+  async #continueApplication(lease: DispatcherLease, settlement?: ApplicationSettlement): Promise<void> {
+    await this.#planApplication(lease, settlement);
+    const next = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
+    if (next?.application?.planned && next.status === 'admitting') {
+      try { await this.#admitNormalDispatcher(next); }
+      catch (error) { this.#recordDiagnostic(lease.generation, 'submission', 'failed', 'submission-failed', error); }
+      await this.#scheduleDispatcherRecheck(next);
+    }
+  }
+
   /** Public bounded observation never translates timeout/unavailability into abort or new admission. */
   async #reconcileNormalDispatcher(original: DispatcherLease): Promise<void> {
     let lease = original;
     try {
+      if (lease.serial) throw new Error('Legacy application controller retired');
       await this.#normalDispatcherCurrent(lease);
+      if (lease.application?.completed) {
+        const result = await this.ctx.storage.get(`dispatcher:result:${lease.generation}`);
+        const committed = await this.commitDrive(lease.generation, { schemaVersion: 1, status: 'completed',
+          checkpoint: lease.application.checkpoint, result });
+        if (!committed.ok) throw new Error('Application completion recovery refused');
+        return;
+      }
+      if (lease.status === 'running' && lease.application?.pending !== undefined) {
+        await this.#continueApplication(lease);
+        return;
+      }
       if (lease.status === 'admitting') {
         try { await this.#admitNormalDispatcher(lease); }
         catch (error) {
@@ -2672,8 +4367,7 @@ export class OperatorActivity extends Agent {
           throw error;
         }
         const current = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
-        if (!current || current.hosting !== 'normal' || current.generation !== lease.generation
-          || !sameDispatcherPhaseValue(current.wire, lease.wire)) return;
+        if (!current || current.hosting !== 'normal' || current.generation !== lease.generation) return;
         lease = current;
       }
       if (lease.status !== 'running' || !lease.receipt || lease.submissionId !== lease.receipt.submissionId) return;
@@ -2703,7 +4397,10 @@ export class OperatorActivity extends Agent {
         return;
       }
       if (response.status !== 200) throw new Error('Normal Dispatcher terminal reply invalid');
-      let reply: DispatcherPhaseReply;
+      const settlementCorrelation: Correlation = { submissionDigest: hashDiagnostic(lease.receipt.submissionId),
+        rootDigest: hashDiagnostic(lease.receipt.uid),
+        ...(lease.application ? { deliveryDigest: hashDiagnostic(lease.application.delivery.token) } : {}) };
+      let reply: { data: Record<string, unknown[]> };
       if (receiptEnvelope.status === 'completed') {
         await this.#normalDispatcherCurrent(lease);
         const completed = z.strictObject({ status: z.literal('completed'), receipt: normalDispatcherReceiptSchema,
@@ -2712,11 +4409,16 @@ export class OperatorActivity extends Agent {
         if (completed.reply.uid !== lease.receipt.uid || completed.reply.submissionId !== lease.receipt.submissionId) {
           throw new Error('Normal Dispatcher foreign completed reply');
         }
-        reply = { submissionId: completed.reply.submissionId, upToDate: true, outcome: 'completed', data: completed.reply.data };
+        reply = { data: completed.reply.data };
+        try { this.#recordDiagnostic(lease.generation, 'settlement', 'completed', 'none', undefined, settlementCorrelation); }
+        catch { /* Diagnostic failure cannot change validated SDK settlement. */ }
       } else {
         const terminal = z.strictObject({ status: z.enum(['failed', 'aborted']), receipt: normalDispatcherReceiptSchema,
-          submissionId: z.string() }).parse(response.value);
+          submissionId: z.string(), data: z.record(z.string(), z.array(z.json())).optional() }).parse(response.value);
         if (terminal.submissionId !== lease.receipt.submissionId) throw new Error('Normal Dispatcher foreign terminal reply');
+        try { this.#recordDiagnostic(lease.generation, 'settlement', 'failed',
+          terminal.status === 'aborted' ? 'cancelled' : 'settlement-failed', undefined, settlementCorrelation); }
+        catch { /* Diagnostic failure cannot change validated SDK settlement. */ }
         if (terminal.status === 'failed') {
           // Only the existing safe native-auth classification needs another remote
           // authority check. Generic terminal evidence must close local authority first.
@@ -2734,9 +4436,7 @@ export class OperatorActivity extends Agent {
               || !sameDispatcherPhaseValue(live!.receipt, lease.receipt)) throw new Error('Normal Dispatcher failure authority changed');
             if (live!.configuredSelection?.source !== 'pi-native'
               || !record!.authFailure || record!.authFailure.provider !== live!.configuredSelection.provider) return false;
-            if ((await loadDispatcherJournal(tx, lease.generation)).unresolved !== 0) {
-              throw new Error('Normal Dispatcher authentication failure has unresolved operations');
-            }
+            await this.#requireAccountedDispatcherJournal(tx, live!);
             await tx.put(DISPATCHER_LEASE, { ...live!, settledSubmissionId: lease.submissionId });
             return true;
           });
@@ -2747,8 +4447,14 @@ export class OperatorActivity extends Agent {
             return;
           }
         }
-        // A verified failed/aborted normal child cannot supply an assessment or
-        // authorize a successor. Persist uncertainty before release/publication I/O.
+        if (terminal.status === 'failed' && lease.application && terminal.data !== undefined) {
+          // Only exact observed failure data reaches the application. The same
+          // journal, generation and current-authority checks gate any successor.
+          await this.#continueApplication(lease, { status: 'failed', receipt: lease.receipt, data: terminal.data });
+          return;
+        }
+        // Abort or a failure without verified data cannot authorize a successor.
+        // Persist uncertainty before release/publication I/O.
         const fenced = await this.fenceDrive('unknown', lease.generation, false,
           { boundary: 'settlement', code: 'settlement-failed',
             error: captureError(new Error(`Normal Dispatcher original SDK submission ${terminal.status}`)) }, lease);
@@ -2758,52 +4464,19 @@ export class OperatorActivity extends Agent {
         }
         return;
       }
-      const { admittedTarget } = await authorizeDispatcherPlan(plan, this.#appEnv);
-      const policy = isManagementReceipt(plan.receipt) ? plan.receipt.selection.operator.policy : undefined;
-      const serial = lease.serial;
-      let assessment: unknown;
-      if (serial) {
-        const token = serial.current.deliveryToken;
-        if (!await this.#dispatcherDeliveryCurrent(lease.generation, token)) throw new Error('Normal Dispatcher phase retired');
-        if (serial.current.phase.kind !== 'final') {
-          const journal = await this.ctx.storage.transaction(tx => loadDispatcherJournal(tx, lease.generation));
-          if (journal.count >= dispatcherOperationLimit(policy)) throw new Error('Normal Dispatcher capacity exhausted');
-          const next = advanceDispatcherPhase(serial, this.#phaseAuthority(lease, plan), token, reply,
-            { deliveryToken: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() },
-            admittedTarget ? { pullRequest: admittedTarget.pullRequest, headSha: admittedTarget.headSha } : undefined);
-          const nextLease: DispatcherLease = { ...lease, serial: next, receipt: undefined, observation: undefined, submissionId: null, status: 'admitting' };
-          nextLease.wire = this.#normalDispatcherWire(nextLease, plan);
-          const saved = await this.ctx.storage.transaction(async tx => {
-            const record = await tx.get<AdmissionState>('admission');
-            const live = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
-            if (!this.#leaseMatches(record, live, lease.generation) || !sameDispatcherPhaseValue(live!.wire, lease.wire)
-              || !sameDispatcherPhaseValue(live!.receipt, lease.receipt)) return false;
-            await this.#retireUnsentModelPermits(tx, live!);
-            await tx.put(DISPATCHER_LEASE, nextLease);
-            return true;
-          });
-          if (!saved) return;
-          for (const flight of this.#inferenceFlights.values()) flight.controller.abort();
-          for (const flight of this.#nativeFlights.values()) flight.controller.abort();
-          this.#nativeBindings.clear();
-          try { await this.#admitNormalDispatcher(nextLease); }
-          catch (error) { this.#recordDiagnostic(lease.generation, 'submission', 'failed', 'submission-failed', error); }
-          await this.#scheduleDispatcherRecheck(nextLease);
-          return;
-        }
-        assessment = collectDispatcherFinal(serial, this.#phaseAuthority(lease, plan), token, reply);
-        if (admittedTarget && serial.targets?.length === 0
-          && !admittedDispatcherResultMatches(assessment, admittedTarget, policy, { state: serial, reply })) {
-          throw new Error('Normal Dispatcher admitted empty assessment invalid');
-        }
-      } else {
-        const parts = reply.data.assessment;
-        if (reply.outcome !== 'completed' || !parts || parts.length !== 1 || !parts[0]
-          || typeof parts[0] !== 'object' || Array.isArray(parts[0]) || !z.json().safeParse(parts[0]).success
-          || new TextEncoder().encode(JSON.stringify(parts[0])).byteLength > dispatcherCapacities(policy).assessmentBytes
-          || admittedTarget && !admittedDispatcherResultMatches(parts[0], admittedTarget, policy)) throw new Error('Normal Dispatcher assessment invalid');
-        assessment = parts[0];
+      if (lease.application) {
+        const completed = z.object({ reply: z.strictObject({ text: z.string(), data: z.record(z.string(), z.array(z.json())),
+          metadata: z.record(z.string(), z.json()).optional(), uid: z.string(), submissionId: z.string() }) }).parse(response.value);
+        await this.#continueApplication(lease, { receipt: lease.receipt, reply: completed.reply });
+        return;
       }
+      const policy = isManagementReceipt(plan.receipt) ? plan.receipt.selection.operator.policy : undefined;
+      const parts = reply.data.assessment;
+      if (!parts || parts.length !== 1 || !z.json().safeParse(parts[0]).success
+        || new TextEncoder().encode(JSON.stringify(parts[0])).byteLength > dispatcherCapacities(policy).assessmentBytes) {
+        throw new Error('Dispatcher result unavailable');
+      }
+      const assessment = parts[0];
       await this.#normalDispatcherCurrent(lease);
       const saved = await this.ctx.storage.transaction(async tx => {
         const record = await tx.get<AdmissionState>('admission');
@@ -2812,16 +4485,7 @@ export class OperatorActivity extends Agent {
           || !sameDispatcherPhaseValue(live!.receipt, lease.receipt)) return false;
         const prior = await tx.get(`dispatcher:result:${lease.generation}`);
         if (prior !== undefined && !sameDispatcherPhaseValue(prior, assessment)) throw new Error('Normal Dispatcher immutable result changed');
-        if (serial) {
-          await tx.put(`dispatcher:result:${lease.generation}`, assessment);
-          await this.#retireUnsentModelPermits(tx, live!);
-          const accounting = await this.#serialJournalAccounted(tx, live!, assessment);
-          if (accounting) throw new DispatcherJournalUnaccounted(accounting);
-        } else {
-          const journal = await loadDispatcherJournal(tx, lease.generation);
-          if (journal.unresolved !== 0) throw new DispatcherJournalUnaccounted({ gate: 'unresolved-count',
-            unresolved: journal.unresolved, inspectedUnresolved: 0, phase: 'single', phaseIndex: null });
-        }
+        await this.#requireAccountedDispatcherJournal(tx, live!);
         await tx.put(`dispatcher:result:${lease.generation}`, assessment);
         await tx.put(DISPATCHER_LEASE, { ...live!, settledSubmissionId: lease.submissionId });
         return true;
@@ -2831,16 +4495,22 @@ export class OperatorActivity extends Agent {
       if (!committed.ok) throw new Error('Normal Dispatcher commit refused');
     } catch (error) {
       if (error instanceof NormalDispatcherObservationUnavailable) {
-        try { await this.#normalDispatcherCurrent(lease); await this.#scheduleDispatcherRecheck(lease); return; }
+        try {
+          const current = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
+          if (!current || current.generation !== lease.generation || !sameDispatcherPhaseValue(current.wire, lease.wire)
+            || !sameDispatcherPhaseValue(current.receipt, lease.receipt)) throw new Error('Application control retired');
+          await this.#normalDispatcherCurrent(current); await this.#scheduleDispatcherRecheck(current); return;
+        }
         catch { /* Original authority or immutable pins no longer hold. */ }
       }
       const journal = error instanceof DispatcherJournalUnaccounted ? error.detail : undefined;
       const fenced = await this.fenceDrive('unknown', lease.generation, false,
-        { boundary: 'settlement', code: journal ? 'journal-unaccounted' : 'settlement-failed',
+        { boundary: 'settlement', code: error instanceof DispatcherAuthorityUnavailable ? 'platform-evidence-required' : journal ? 'journal-unaccounted' : 'settlement-failed',
           error: { ...captureError(error), ...(journal ? { publicCode: 'journal-unaccounted' as const, journal } : {}) },
           ...(journal ? { origin: 'originating' as const, correlation: {
             ...(lease.receipt ? { submissionDigest: hashDiagnostic(lease.receipt.submissionId), rootDigest: hashDiagnostic(lease.receipt.uid) } : {}),
-            ...(lease.serial ? { deliveryDigest: hashDiagnostic(lease.serial.current.deliveryToken) } : {}) },
+            ...(lease.application ? { deliveryDigest: hashDiagnostic(lease.application.delivery.token) }
+              : lease.serial ? { deliveryDigest: hashDiagnostic(lease.serial.current.deliveryToken) } : {}) },
             affectedOperations: journal.operationDigest ? [{ operationDigest: journal.operationDigest,
               effect: 'unknown' as const, status: 'unknown' as const }] : [] } : {}) }, lease);
       if (fenced.ok) {
@@ -2850,94 +4520,66 @@ export class OperatorActivity extends Agent {
     }
   }
 
-  #phaseReply(lease: DispatcherLease, value: DispatcherResultProjection): DispatcherPhaseReply {
-    if (!lease.submissionId || (value.writes !== 0 && (value.writes !== 1 || value.assessmentWrites !== 1))
-      || (value.progressWrites !== undefined && value.progressWrites !== 1)) throw new Error('Dispatcher phase output invalid');
-    return { submissionId: lease.submissionId, outcome: value.outcome, upToDate: value.upToDate === true,
-      data: { assessment: value.writes ? [value.result] : [],
-        'dispatcher-progress': value.progressWrites === 1 ? [value.progress] : [] } };
-  }
-
   #operationPhase(lease: DispatcherLease, resource: string): DispatcherOperationRecord['phaseBinding'] {
     const current = lease.serial?.current;
     return current?.receipt ? { submissionId: current.receipt.submissionId,
       deliveryToken: current.deliveryToken, phase: current.phase, resource } : undefined;
   }
 
+  #operationDelivery(lease: DispatcherLease, resource: string): DispatcherOperationRecord['deliveryBinding'] {
+    if (!lease.application || !lease.receipt || lease.submissionId !== lease.receipt.submissionId) return undefined;
+    return { submissionId: lease.receipt.submissionId, deliveryToken: lease.application.delivery.token, resource };
+  }
+
+  /** Enforce the existing journal gate and retain its actual unresolved metadata.
+   * Read current parent entries only; never inspect SDK jobs or response bodies. */
+  async #requireAccountedDispatcherJournal(tx: DurableObjectTransaction, lease: DispatcherLease): Promise<void> {
+    const journal = await loadDispatcherJournal(tx, lease.generation);
+    if (journal.unresolved === 0) return;
+    const prefix = `dispatcher:operation:${lease.generation}:`;
+    let startAfter: string | undefined;
+    let inspectedUnresolved = 0;
+    let operationDigest: string | undefined;
+    for (;;) {
+      const page = await tx.list<DispatcherOperationRecord>({ prefix, limit: 1, noCache: true, ...(startAfter ? { startAfter } : {}) });
+      for (const [key, entry] of page) {
+        startAfter = key;
+        if (entry.generation !== lease.generation || entry.phase === 'completed') continue;
+        inspectedUnresolved++;
+        operationDigest ??= hashDiagnostic(key.slice(prefix.length));
+      }
+      if (page.size === 0) break;
+    }
+    throw new DispatcherJournalUnaccounted({ gate: 'unresolved-count', unresolved: journal.unresolved,
+      inspectedUnresolved, ...(operationDigest ? { operationDigest } : {}), phase: 'single', phaseIndex: null });
+  }
+
   /** Only a claimed send can reach physical egress. Retire zero-send permits in
-   * the SAME transaction that retires their exact phase; never manufacture receipts.
+   * the SAME transaction that retires their exact delivery; never manufacture receipts.
    * Historical/unbound, sending and uncertain permits remain unresolved. */
   async #retireUnsentModelPermits(tx: DurableObjectTransaction, lease: DispatcherLease): Promise<void> {
-    const current = lease.serial?.current;
-    if (lease.hosting !== 'normal' || !current?.receipt || !lease.receipt || !lease.submissionId
-      || current.receipt.submissionId !== lease.submissionId
-      || !this.#normalReceiptMatches(lease.receipt, normalDispatcherReceiptSchema.parse(current.receipt))) return;
+    const current = lease.application;
+    if (lease.hosting !== 'normal' || !current || !lease.receipt || !lease.submissionId
+      || lease.receipt.submissionId !== lease.submissionId) return;
     const prefix = `dispatcher:operation:${lease.generation}:`;
     let startAfter: string | undefined;
     for (;;) {
-      const page = await tx.list<DispatcherOperationRecord>({ prefix, limit: 128, ...(startAfter ? { startAfter } : {}) });
+      const page = await tx.list<DispatcherOperationRecord>({ prefix, limit: 1, noCache: true, ...(startAfter ? { startAfter } : {}) });
       for (const [key, entry] of page) {
         startAfter = key;
         const permit = entry.sdkHttp;
-        const binding = entry.phaseBinding;
+        const binding = entry.deliveryBinding;
         if (entry.generation !== lease.generation || entry.phase !== 'reserved' || !permit || permit.phase !== 'ready'
           || permit.attempts !== 0 || permit.requestDigest !== undefined || permit.responseKey !== undefined
           || entry.terminalOutcome !== undefined || entry.responseDigest !== undefined || entry.response !== undefined || entry.request || entry.inference || entry.native
           || !binding || binding.resource !== 'inference' || binding.submissionId !== lease.submissionId
-          || binding.deliveryToken !== current.deliveryToken || permit.deliveryToken !== current.deliveryToken
-          || !sameDispatcherPhaseValue(binding.phase, current.phase)) continue;
+          || binding.deliveryToken !== current.delivery.token || permit.deliveryToken !== current.delivery.token) continue;
         const journal = await loadDispatcherJournal(tx, lease.generation);
         await putDispatcherEntry(tx, journal, key.slice(prefix.length), entry,
           { ...entry, phase: 'completed', terminalOutcome: 'not-sent', sdkHttp: { ...permit, phase: 'not-sent' } });
       }
-      if (page.size < 128) return;
+      if (page.size === 0) return;
     }
-  }
-
-  /** Exact accounting only. Unknown records/counters remain untouched; a final disposition
-   * cannot excuse an unbound, foreign or uncovered operation. Legacy leases never opt in. */
-  async #serialJournalAccounted(tx: DurableObjectTransaction, lease: DispatcherLease, result: unknown): Promise<JournalFailure | null> {
-    const journal = await loadDispatcherJournal(tx, lease.generation);
-    let accounted = 0;
-    const reject = (gate: JournalFailure['gate'], operationDigest?: string): JournalFailure => ({ gate,
-      ...(operationDigest ? { operationDigest } : {}), unresolved: journal.unresolved, inspectedUnresolved: accounted,
-      phase: lease.serial?.current.phase.kind ?? 'single', phaseIndex: lease.serial?.current.phase.kind === 'target'
-        ? lease.serial.current.phase.index : null });
-    if (!lease.serial || lease.serial.current.phase.kind !== 'final'
-      || JSON.stringify(await tx.get(`dispatcher:result:${lease.generation}`)) !== JSON.stringify(result)) return reject('final-binding');
-    const assessment = result as { repository: string; results: Array<{ pullRequest: number; headSha: string;
-      outcome: string; reason?: string }> };
-    let startAfter: string | undefined;
-    for (;;) {
-      const page = await tx.list<DispatcherOperationRecord>({ prefix: `dispatcher:operation:${lease.generation}:`, limit: 128,
-        ...(startAfter ? { startAfter } : {}) });
-      for (const [key, entry] of page) {
-        startAfter = key;
-        if (entry.phase === 'completed') continue;
-        accounted++;
-        const operationDigest = hashDiagnostic(key.slice(`dispatcher:operation:${lease.generation}:`.length));
-        const binding = entry.phaseBinding;
-        if (entry.generation !== lease.generation || !binding || binding.phase.kind !== 'target') return reject('operation-binding', operationDigest);
-        const target = binding.phase.target;
-        const terminal = lease.serial.previous.find(row => row.submissionId === binding.submissionId);
-        if (!terminal || JSON.stringify(terminal.phase) !== JSON.stringify(binding.phase)) return reject('terminal-binding', operationDigest);
-        const row = assessment.results[binding.phase.index];
-        if (!row || row.pullRequest !== target.pullRequest || row.headSha !== target.headSha || row.outcome !== 'DEFERRED') return reject('disposition-coverage', operationDigest);
-        if (binding.resource === 'inference' || entry.request?.method === 'GET') {
-          // This accounts for failed target-local read/model work, never an uncertain effect.
-          if (terminal.outcome !== 'failed' && !['research-failed', 'decision-failed', 'preflight-failed'].includes(row.reason ?? '')) return reject('read-coverage', operationDigest);
-        } else {
-          if (!entry.request || binding.resource !== 'source') return reject('mutation-kind', operationDigest);
-          const base = `${dispatcherGithubApiOrigin(this.#appEnv)}/repos/${assessment.repository}`;
-          const comment = entry.request.method === 'POST' && entry.request.url === `${base}/issues/${target.pullRequest}/comments`;
-          const merge = entry.request.method === 'PUT' && entry.request.url === `${base}/pulls/${target.pullRequest}/merge`;
-          if ((!comment && !merge) || !(row.reason === (comment ? 'comment-uncertain' : 'merge-uncertain')
-            || terminal.outcome === 'failed' && row.reason === 'response-failed')) return reject('mutation-coverage', operationDigest);
-        }
-      }
-      if (page.size < 128) break;
-    }
-    return accounted === journal.unresolved ? null : reject('unresolved-count');
   }
 
   #phaseAuthority(lease: DispatcherLease, plan: OperatorRuntimePlan): DispatcherPhaseAuthority {
@@ -2948,6 +4590,11 @@ export class OperatorActivity extends Agent {
   }
 
   #phaseTokenMatches(lease: DispatcherLease | undefined, token: string | undefined, admitted = true, modelScope = false): boolean {
+    if (lease?.application) {
+      const active = lease.status === 'running' && !!lease.receipt && lease.receipt.submissionId === lease.submissionId
+        && lease.settledSubmissionId !== lease.submissionId && !lease.application.completed && !lease.application.pending;
+      return (modelScope || token === lease.application.delivery.token) && (!admitted || active);
+    }
     // Normal model authorization is Activity-scoped; protected tools retain exact phase tokens.
     if (modelScope && lease?.hosting === 'normal') return lease.status === 'running' && !!lease.receipt
       && lease.settledSubmissionId !== lease.submissionId;
@@ -2957,22 +4604,40 @@ export class OperatorActivity extends Agent {
   }
 
   async #dispatcherDeliveryCurrent(generation: number, token: string | undefined, modelScope = false): Promise<boolean> {
-    if (!await this.dispatcherGenerationCurrent(generation)) return false;
+    return await this.#observeDispatcherDelivery(generation, token, modelScope) === 'current';
+  }
+
+  async #observeDispatcherDelivery(generation: number, token: string | undefined, modelScope = false): Promise<'current' | 'denied' | 'unavailable'> {
+    this.#resumeDispatcherOnEntry();
+    return this.#readDispatcherDelivery(generation, token, modelScope);
+  }
+
+  async #readDispatcherDelivery(generation: number, token: string | undefined, modelScope: boolean): Promise<'current' | 'denied' | 'unavailable'> {
+    const initial = await this.#readDispatcherGeneration(generation);
+    if (initial !== 'current') return initial;
     const lease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
-    if (!this.#phaseTokenMatches(lease, token, true, modelScope)) return false;
+    if (!this.#phaseTokenMatches(lease, token, true, modelScope)) return 'denied';
     if (lease?.serial || lease?.hosting === 'normal') {
       try {
-        const plan = await this.getRuntimePlan();
-        if (!plan) return false;
+        const plan = await this.#readRuntimePlan();
+        if (!plan) return 'denied';
         await authorizeDispatcherPlan(plan, this.#appEnv);
         if (lease.hosting === 'normal') await this.#normalDispatcherConnection(lease, plan);
-      } catch { return false; }
+      } catch (error) {
+        if (error instanceof DispatcherAuthorityUnavailable) {
+          this.#recordDiagnostic(generation, 'admission', 'failed', 'platform-evidence-required');
+          return 'unavailable';
+        }
+        return 'denied';
+      }
       // All serial runs retain original authority, not just prospective ones. External
       // authorization can race a new phase, cancellation or the original deadline.
-      return await this.dispatcherGenerationCurrent(generation)
-        && this.#phaseTokenMatches(await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE), token, true, modelScope);
+      const final = await this.#readDispatcherGeneration(generation);
+      if (final !== 'current') return final;
+      return this.#phaseTokenMatches(await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE), token, true, modelScope)
+        ? 'current' : 'denied';
     }
-    return true;
+    return 'current';
   }
 
   async #scheduleDispatcherRecheck(lease: DispatcherLease, upToDate = true): Promise<void> {
@@ -2986,88 +4651,6 @@ export class OperatorActivity extends Agent {
         throw error;
       }
     }
-  }
-
-  async #admitDispatcherPhase(generation: number, token: string, approved?: DispatcherBundle): Promise<void> {
-    const original = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
-    if (original?.hosting === 'normal') {
-      if (!this.#phaseTokenMatches(original, token, false)) throw new Error('Stale normal phase');
-      return this.#admitNormalDispatcher(original);
-    }
-    const key = `${generation}:${token}`;
-    const pending = this.#phaseAdmissions.get(key);
-    if (pending) return pending;
-    const admission = (async () => {
-      const lease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
-      if (!lease?.serial || !this.#phaseTokenMatches(lease, token, false)
-        || !await this.dispatcherGenerationCurrent(generation)) throw new Error('Stale Dispatcher phase admission');
-      if (lease.serial.current.receipt) return;
-      const plan = await this.getRuntimePlan();
-      if (!plan) throw new Error('Dispatcher phase plan unavailable');
-      await authorizeDispatcherPlan(plan, this.#appEnv);
-      const authority = this.#phaseAuthority(lease, plan);
-      const wire = dispatcherPhaseWire(lease.serial, authority);
-      let admissionResponse: Response | undefined;
-      const receipt = await this.#boundedDispatcher(lease, async () => {
-        const child = await this.#dispatcherFacet(lease, approved);
-        if (!await this.dispatcherGenerationCurrent(generation)
-          || !this.#phaseTokenMatches(await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE), token, false)) {
-          throw new Error('Stale Dispatcher phase before admission');
-        }
-        const response = await child.fetch(new Request('https://flue.internal/agents/Dispatcher/dispatcher', {
-          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(wire),
-        }));
-        admissionResponse = response;
-        if (response.status !== 202) {
-          this.#observeSdkHeader(generation, response);
-          let admissionType: typeof sdkAdmissionTypes[number] | undefined;
-          try {
-            const body = await readDispatcherBody(response,
-              AbortSignal.timeout(Math.max(1, Math.min(1000, lease.expiresAt - Date.now()))), 4096);
-            const parsed = dispatcherAdmissionErrorSchema.safeParse(JSON.parse(body));
-            if (parsed.success) admissionType = parsed.data.error.type;
-          } catch { /* Missing, oversized, malformed or stalled bodies leave admission uncertain. */ }
-          throw new DispatcherPhaseAdmissionError(response.status, admissionType);
-        }
-        const value = JSON.parse(await readDispatcherBody(response));
-        const offset = response.headers.get('stream-next-offset') ?? value.offset;
-        return { submissionId: value.submissionId, uid: value.uid, offset,
-          ...(value.deduplicated === true ? { deduplicated: true as const } : {}) };
-      });
-      await authorizeDispatcherPlan(plan, this.#appEnv);
-      if (!await this.dispatcherGenerationCurrent(generation)) throw new Error('Dispatcher phase authority changed');
-      await this.ctx.storage.transaction(async tx => {
-        const record = await tx.get<AdmissionState>('admission');
-        const current = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
-        if (!this.#leaseMatches(record, current, generation) || !current!.serial
-          || !this.#phaseTokenMatches(current, token, false)) throw new Error('Stale Dispatcher phase receipt');
-        const serial = bindDispatcherPhaseReceipt(current!.serial, authority, token, receipt);
-        // A replay may start at -1 only when the original cursor was never bound. Never rewind
-        // a retained projection after eviction or an acknowledgement loss.
-        if (!serial.current.receipt || !('offset' in serial.current.receipt)) throw new Error('Historical Dispatcher cursor missing');
-        await tx.put<DispatcherLease>(DISPATCHER_LEASE, { ...current!, serial, status: 'running',
-          submissionId: serial.current.receipt!.submissionId, rootDigest: hashDiagnostic(serial.current.receipt!.uid),
-          projection: current!.projection ?? { offset: serial.current.receipt!.offset, messageIds: [], writes: 0, serialPhase: true } });
-      });
-      this.#recordDiagnostic(generation, 'submission', 'accepted');
-      this.#recordDiagnostic(generation, 'delivery', 'accepted');
-      if (admissionResponse) this.#observeSdkHeader(generation, admissionResponse);
-    })().catch(error => {
-      this.#recordDiagnostic(generation, 'submission', 'failed', 'submission-failed', error);
-      throw error;
-    }).finally(() => {
-      // Every joining caller observes cleanup before rejection. A lost acknowledgement
-      // cannot leave an already-rejected flight blocking same-key receipt recovery.
-      if (this.#phaseAdmissions.get(key) === admission) this.#phaseAdmissions.delete(key);
-    }).catch(error => {
-      // Release the admission flight before retiring its owned child. All joining callers
-      // observe the fence before rejection; uncertain acknowledgements stay keyed and live.
-      if (!(error instanceof DispatcherPhaseAdmissionError && error.definitive)) throw error;
-      return this.interruptDrive(generation, { boundary: 'submission', code: 'submission-failed', error: captureError(error) })
-        .then(() => { throw error; });
-    });
-    this.#phaseAdmissions.set(key, admission);
-    await admission;
   }
 
   async #prepareDispatcherNative(lease: DispatcherLease, plan: OperatorRuntimePlan): Promise<NativeOperatorInference | undefined> {
@@ -3211,7 +4794,8 @@ export class OperatorActivity extends Agent {
           await tx.put(`dispatcher:native-handle:${native.handle}`, { generation, operationId: body.operationId, deliveryToken: token });
           await putDispatcherEntry(tx, journal, body.operationId, prior, { generation, requestDigest, phase: 'reserved',
             ordinal: successor ? journal.nextOrdinal : prior?.ordinal ?? journal.nextOrdinal, native,
-            phaseBinding: this.#operationPhase(live!, 'inference') }, successor ? 1 : 0);
+            phaseBinding: this.#operationPhase(live!, 'inference'),
+            ...(live!.application ? { deliveryBinding: this.#operationDelivery(live!, 'inference') } : {}) }, successor ? 1 : 0);
           return Response.json({ handle: native.handle });
         });
       }
@@ -3397,16 +4981,6 @@ export class OperatorActivity extends Agent {
       let lease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
       if (!lease?.serial || !this.#phaseTokenMatches(lease, deliveryToken, false)) return denied();
       refusalReason = 'receipt-unavailable';
-      try { await this.#admitDispatcherPhase(generation, deliveryToken); }
-      catch {
-        // The SDK may enter while the original202 acknowledgement is being lost.
-        // Reattach that same persisted admission once; never await response settlement
-        // or deny a live delivery merely because its first receipt was unavailable.
-        const original = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
-        if (!original?.serial || !this.#phaseTokenMatches(original, deliveryToken, false)
-          || !await this.dispatcherGenerationCurrent(generation)) return denied();
-        await this.#admitDispatcherPhase(generation, deliveryToken);
-      }
       const plan = await this.getRuntimePlan();
       if (!plan) return denied();
       refusalReason = 'authority-unverified';
@@ -3430,24 +5004,38 @@ export class OperatorActivity extends Agent {
 
   /** Parent-only local fence checked by the restricted binding before every SDK call and effect. */
   async dispatcherGenerationCurrent(generation: number): Promise<boolean> {
+    return await this.#observeDispatcherGeneration(generation) === 'current';
+  }
+
+  async #observeDispatcherGeneration(generation: number): Promise<'current' | 'denied' | 'unavailable'> {
     this.#resumeDispatcherOnEntry();
-    if (!Number.isSafeInteger(generation) || generation < 1) return false;
+    return this.#readDispatcherGeneration(generation);
+  }
+
+  async #readDispatcherGeneration(generation: number): Promise<'current' | 'denied' | 'unavailable'> {
+    if (!Number.isSafeInteger(generation) || generation < 1) return 'denied';
     const [record, lease] = await Promise.all([this.ctx.storage.get<AdmissionState>('admission'),
       this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE)]);
-    if (!this.#leaseMatches(record, lease, generation)) return false;
+    if (!this.#leaseMatches(record, lease, generation)) return 'denied';
     if (await this.ctx.storage.get<string>('prospective-admission')) {
       try {
-        const plan = await this.getRuntimePlan();
-        if (!plan) return false;
+        const plan = await this.#readRuntimePlan();
+        if (!plan) return 'denied';
         await authorizeDispatcherPlan(plan, this.#appEnv);
-      } catch { return false; }
+      } catch (error) {
+        if (error instanceof DispatcherAuthorityUnavailable) {
+          this.#recordDiagnostic(generation, 'admission', 'failed', 'platform-evidence-required');
+          return 'unavailable';
+        }
+        return 'denied';
+      }
       // Authorization involves external services; cancellation can race it.
       const [latest, currentLease] = await Promise.all([
         this.ctx.storage.get<AdmissionState>('admission'), this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE),
       ]);
-      return this.#leaseMatches(latest, currentLease, generation);
+      return this.#leaseMatches(latest, currentLease, generation) ? 'current' : 'denied';
     }
-    return true;
+    return 'current';
   }
 
   async #boundedDispatcher<T>(lease: DispatcherLease, run: () => Promise<T>): Promise<T> {
@@ -3519,14 +5107,12 @@ export class OperatorActivity extends Agent {
       ...(executionLoggingEnabled(plan.receipt) ? {} : { loggingEnabled: false }) };
     const capability = context.exports.OperatorDispatcherCapability({ props });
     const tail = context.exports.OperatorDispatcherTail({ props });
-    const admittedTarget = plan.prospectiveAdmissionId
-      ? (await authorizeDispatcherPlan(plan, this.#appEnv)).admittedTarget : undefined;
     return loadOperatorDispatcherClass(loader, bundle, lease.artifactDigest,
       plan.activityId, lease.generation, capability, tail,
       JSON.parse(plan.invocationJson).pullRequest === undefined ? capability : null,
       JSON.parse(plan.invocationJson).pullRequest === undefined ? dispatcherGithubApiOrigin(this.#appEnv) : undefined,
       isManagementReceipt(plan.receipt) ? sourceResponseBytes(plan.receipt.selection.installation.policy) : undefined,
-      admittedTarget ? JSON.stringify(admittedTarget) : undefined, executionLoggingEnabled(plan.receipt),
+      undefined, executionLoggingEnabled(plan.receipt),
       isManagementReceipt(plan.receipt) ? submissionAttemptLimit(plan.receipt.selection.operator.policy) : undefined,
       lease.inferenceSelection);
   }
@@ -3547,23 +5133,14 @@ export class OperatorActivity extends Agent {
         await this.#reconcileNormalDispatcher(pendingLease);
         return;
       }
-      if (pendingLease.serial && pendingLease.status === 'admitting') {
-        const token = pendingLease.serial.current.deliveryToken;
-        try { await this.#admitDispatcherPhase(pendingLease.generation, token); }
-        catch (error) {
-          if (!(error instanceof DispatcherPhaseAdmissionError && error.definitive)) await this.#scheduleDispatcherRecheck(pendingLease);
-          return;
-        }
-        pendingLease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
-        if (!pendingLease?.serial || !this.#phaseTokenMatches(pendingLease, token)) return;
+      if (pendingLease.serial) {
+        await this.interruptDrive(pendingLease.generation); return;
       }
       // Historical executions without an admission cursor are never re-read or replayed.
       if (pendingLease.status !== 'running' || !pendingLease.submissionId || !pendingLease.projection) return;
       const lease = pendingLease;
       const admission = await this.ctx.storage.get<AdmissionState>('admission');
       const loggingEnabled = executionLoggingEnabled(admission?.receipt);
-      const operationLimit = dispatcherOperationLimit(admission?.receipt && isManagementReceipt(admission.receipt)
-        ? admission.receipt.selection.operator.policy : undefined);
       let stage = 'status';
       let statusStep = 'plan';
       let activityId: string | undefined;
@@ -3616,7 +5193,7 @@ export class OperatorActivity extends Agent {
         }
         // SDK observations diagnose the producer/collector boundary, never authorize settlement.
         const completionCalls = value.completion?.calls ?? [];
-        const trace = { activityId: plan.activityId, generation: lease.generation, loggingEnabled };
+        const trace = this.#captureTrace({ activityId: plan.activityId, generation: lease.generation, loggingEnabled });
         inferenceDiagnostic(trace, { stage: 'settlement', outcome: settlement.outcome, assessmentPresent: value.result !== undefined, completionCalls: completionCalls.length });
         try {
           if (loggingEnabled) dispatcherLog.warn('Dispatcher settlement observed', {
@@ -3657,60 +5234,7 @@ export class OperatorActivity extends Agent {
           });
         } catch { /* Observability failure cannot prevent settlement or collection. */ }
         stage = 'authorize';
-        const { admittedTarget } = await authorizeDispatcherPlan(plan, this.#appEnv);
-        if (lease.serial) {
-          const token = lease.serial.current.deliveryToken;
-          if (!await this.#dispatcherDeliveryCurrent(lease.generation, token)) return;
-          const reply = this.#phaseReply(lease, value);
-          if (lease.serial.current.phase.kind !== 'final') {
-            const journal = await this.ctx.storage.transaction(tx => loadDispatcherJournal(tx, lease!.generation));
-            if (journal.count >= dispatcherOperationLimit(isManagementReceipt(plan.receipt) ? plan.receipt.selection.operator.policy : undefined)) {
-              await this.interruptDrive(lease.generation); return;
-            }
-            const next = advanceDispatcherPhase(lease.serial, this.#phaseAuthority(lease, plan), token, reply,
-              { deliveryToken: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() },
-              admittedTarget ? { pullRequest: admittedTarget.pullRequest, headSha: admittedTarget.headSha } : undefined);
-            const saved = await this.ctx.storage.transaction(async tx => {
-              const record = await tx.get<AdmissionState>('admission');
-              const current = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
-              if (!this.#leaseMatches(record, current, lease!.generation) || !this.#phaseTokenMatches(current, token)
-                || current!.submissionId !== lease!.submissionId) return false;
-              const { projection: _projection, ...retained } = current!;
-              await tx.put<DispatcherLease>(DISPATCHER_LEASE, { ...retained, serial: next, status: 'admitting', submissionId: null });
-              return true;
-            });
-            if (!saved) return;
-            for (const flight of this.#inferenceFlights.values()) flight.controller.abort();
-            for (const flight of this.#nativeFlights.values()) flight.controller.abort();
-            this.#nativeBindings.clear();
-            try { await this.#admitDispatcherPhase(lease.generation, next.current.deliveryToken); }
-            catch (error) {
-              if (error instanceof DispatcherPhaseAdmissionError && error.definitive) return;
-              // Uncertain admission reattaches only the original durable identity and lease.
-            }
-            await this.#scheduleDispatcherRecheck(lease);
-            return;
-          }
-          const assessment = collectDispatcherFinal(lease.serial, this.#phaseAuthority(lease, plan), token, reply);
-          if (admittedTarget && lease.serial.targets?.length === 0 && !admittedDispatcherResultMatches(assessment, admittedTarget,
-            isManagementReceipt(plan.receipt) ? plan.receipt.selection.operator.policy : undefined, { state: lease.serial, reply })) {
-            throw new Error('Dispatcher admitted empty assessment invalid');
-          }
-          const saved = await this.ctx.storage.transaction(async tx => {
-            const record = await tx.get<AdmissionState>('admission');
-            const current = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
-            if (!this.#leaseMatches(record, current, lease!.generation) || !this.#phaseTokenMatches(current, token)) return false;
-            await tx.put(`dispatcher:result:${lease!.generation}`, assessment);
-            if (await this.#serialJournalAccounted(tx, current!, assessment)) return false;
-            await tx.put<DispatcherLease>(DISPATCHER_LEASE, { ...current!, settledSubmissionId: lease!.submissionId! });
-            return true;
-          });
-          if (!saved) { await this.interruptDrive(lease.generation); return; }
-          const committed = await this.commitDrive(lease.generation, { schemaVersion: 1, status: 'completed', checkpoint: null, result: assessment });
-          if (!committed.ok) await this.interruptDrive(lease.generation);
-          else await this.collectBrowserResult(); // Future automatic attempts retain immutable collected terminal proof.
-          return;
-        }
+        await authorizeDispatcherPlan(plan, this.#appEnv);
         if (settlement.outcome !== 'completed' || !await this.dispatcherGenerationCurrent(lease.generation)) {
           const errorType = settlement.error?.type ?? '';
           const reason = settlement.error?.meta?.reason ?? '';
@@ -3756,7 +5280,7 @@ export class OperatorActivity extends Agent {
           || !assessmentParts[0].data || typeof assessmentParts[0].data !== 'object'
           || Array.isArray(assessmentParts[0].data)
           || new TextEncoder().encode(JSON.stringify(assessmentParts[0].data)).byteLength > dispatcherCapacities(isManagementReceipt(plan.receipt) ? plan.receipt.selection.operator.policy : undefined).assessmentBytes
-          || (admittedTarget && !admittedDispatcherResultMatches(assessmentParts[0].data, admittedTarget, isManagementReceipt(plan.receipt) ? plan.receipt.selection.operator.policy : undefined))) {
+) {
           inferenceDiagnostic(trace, { stage: 'assessment', outcome: 'denied', failureClass: 'assessment' });
           if (loggingEnabled) dispatcherLog.warn('Dispatcher settlement rejected', { stage: 'assessment' });
           this.#recordDiagnostic(lease.generation, 'settlement', 'failed', 'settlement-failed');
@@ -3793,43 +5317,6 @@ export class OperatorActivity extends Agent {
         }
       } catch (error) {
         this.#recordDiagnostic(lease.generation, 'settlement', 'failed', 'settlement-failed', error);
-        if (stage === 'status' && statusStep === 'fetch' && lease.serial?.current.receipt) {
-          try {
-            const latest = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
-            // A late observation cannot retire a different generation or phase.
-            if (latest && (latest.generation !== lease.generation || latest.submissionId !== lease.submissionId
-              || latest.serial?.current.deliveryToken !== lease.serial.current.deliveryToken)) return;
-            const authorized = await this.#dispatcherDeliveryCurrent(lease.generation, lease.serial.current.deliveryToken);
-            const unchanged = authorized && await this.ctx.storage.transaction(async tx => {
-              const record = await tx.get<AdmissionState>('admission');
-              const current = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
-              if (!this.#leaseMatches(record, current, lease.generation) || current!.status !== 'running'
-                || current!.submissionId !== lease.submissionId || current!.expiresAt !== lease.expiresAt
-                || current!.inputDigest !== lease.inputDigest || current!.artifactDigest !== lease.artifactDigest
-                || !sameDispatcherPhaseValue(current!.serial, lease.serial)
-                || !sameDispatcherPhaseValue(current!.projection, lease.projection)) return false;
-              const journal = await loadDispatcherJournal(tx, lease.generation);
-              if (journal.count >= operationLimit) return false;
-              let startAfter: string | undefined;
-              for (;;) {
-                const page = await tx.list<DispatcherOperationRecord>({ prefix: `dispatcher:operation:${lease.generation}:`, limit: 128,
-                  ...(startAfter ? { startAfter } : {}) });
-                for (const [key, entry] of page) {
-                  startAfter = key;
-                  if (entry.phase === 'completed') continue;
-                  const binding = entry.phaseBinding;
-                  if (entry.generation !== lease.generation || !binding) return false;
-                  if (entry.phase !== 'unknown') continue;
-                  if (binding.phase.kind !== 'target'
-                    || !sameDispatcherPhaseValue(current!.serial?.targets?.[binding.phase.index], binding.phase.target)) return false;
-                }
-                if (page.size < 128) break;
-              }
-              return true;
-            });
-            if (unchanged) { await this.#scheduleDispatcherRecheck(lease); return; }
-          } catch { /* An unavailable authority/integrity check still takes the existing fence. */ }
-        }
         const message = error instanceof Error ? error.message : '';
         const failureClass = message === 'Dispatcher body exceeds limit' ? 'body-limit'
           : message === 'Dispatcher lease expired' ? 'lease-expired'
@@ -3860,7 +5347,7 @@ export class OperatorActivity extends Agent {
     const state = await this.ctx.storage.get<AdmissionState>('admission').catch(() => undefined);
     const lease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE).catch(() => undefined);
     if (!state || !lease || !this.#diagnosticBindingValid(state, lease) || lease.generation !== generation) return response(409);
-    if (!lease.sdkProvenance) return response(403);
+    if (!lease.sdkProvenance && !lease.publicSdkVersion) return response(403);
     if (request.method !== 'POST' || new URL(request.url).href !== 'https://operator.internal/v1/dispatcher/diagnostic/runtime'
       || request.headers.get('content-type')?.split(';')[0].trim() !== 'application/json') return response(400);
     let value: unknown;
@@ -3869,6 +5356,28 @@ export class OperatorActivity extends Agent {
       this.#enqueueDiagnostic(() => this.ctx.storage.transaction(tx => diagnosticLoss(tx, lease, 'rejected')));
       return response(error instanceof Error && error.message === 'Dispatcher body exceeds limit' ? 413 : 400);
     }
+    if (lease.hosting === 'normal' && lease.publicSdkVersion && (value as { version?: unknown } | null)?.version === 2) {
+      const parsed = publicSdkReportSchema.safeParse(value);
+      if (!parsed.success) return response(400);
+      try {
+        await this.#diagnosticQueue;
+        await this.ctx.storage.transaction(async tx => {
+          const current = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
+          const admission = await tx.get<AdmissionState>('admission');
+          if (!current || !admission || current.generation !== generation || current.hosting !== 'normal'
+            || current.publicSdkVersion !== lease.publicSdkVersion || !this.#diagnosticBindingValid(admission, current)
+            || !sameDispatcherPhaseValue(current.deployment, lease.deployment)) throw new Error('Public SDK binding changed');
+          const rootUid = current.receipt?.uid ?? current.serial?.uid;
+          const submissionIds = [current.submissionId, current.receipt?.submissionId, current.serial?.current.receipt?.submissionId,
+            ...(current.serial?.previous.map(previous => previous.submissionId) ?? [])].filter((id): id is string => typeof id === 'string');
+          const projected = projectPublicSdkRecords(parsed.data, { sdkVersion: current.publicSdkVersion!, rootUid, submissionIds });
+          if (!executionLoggingEnabled(admission.receipt)) return;
+          for (const entry of projected) await appendDiagnostic(tx, current, entry.observation, { captureId: entry.captureId });
+        });
+        return response(204);
+      } catch { return response(409); }
+    }
+    if (!lease.sdkProvenance) return response(403);
     const parsed = runtimeSchema.safeParse(value);
     if (!parsed.success) {
       this.#enqueueDiagnostic(() => this.ctx.storage.transaction(tx => diagnosticLoss(tx, lease, 'rejected')));
@@ -3920,17 +5429,19 @@ export class OperatorActivity extends Agent {
   }
 
   #observeSdkHeader(generation: number, response: Response): void {
-    const header = readSdkDiagnosticHeader(response);
-    if (!header) return;
-    this.#enqueueDiagnostic(async () => {
-      for (const envelope of header.records) await this.#importRuntimeEnvelope(generation, envelope);
-      await this.ctx.storage.transaction(async tx => {
-        const state = await tx.get<AdmissionState>('admission');
-        const lease = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
-        if (state && lease?.generation === generation && this.#diagnosticBindingValid(state, lease)
-          && lease.sdkProvenance && executionLoggingEnabled(state.receipt)) await observeOutbox(tx, lease, header.outbox);
+    try {
+      const header = readSdkDiagnosticHeader(response);
+      if (!header) return;
+      this.#enqueueDiagnostic(async () => {
+        for (const envelope of header.records) await this.#importRuntimeEnvelope(generation, envelope);
+        await this.ctx.storage.transaction(async tx => {
+          const state = await tx.get<AdmissionState>('admission');
+          const lease = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
+          if (state && lease?.generation === generation && this.#diagnosticBindingValid(state, lease)
+            && lease.sdkProvenance && executionLoggingEnabled(state.receipt)) await observeOutbox(tx, lease, header.outbox);
+        });
       });
-    });
+    } catch { /* Optional header observation cannot replace the transport outcome. */ }
   }
 
   async dispatcherDiagnosticReport(generation: number, request: Request): Promise<Response> {
@@ -4009,7 +5520,8 @@ export class OperatorActivity extends Agent {
     this.#resumeDispatcherOnEntry();
     const diagnosticState = await this.ctx.storage.get<AdmissionState>('admission').catch(() => undefined);
     const loggingEnabled = executionLoggingEnabled(diagnosticState?.receipt);
-    const trace: InferenceDiagnosticContext | undefined = diagnosticState ? { activityId: diagnosticState.intent.activityId, generation, loggingEnabled } : undefined;
+    const trace: InferenceDiagnosticContext | undefined = diagnosticState
+      ? this.#captureTrace({ activityId: diagnosticState.intent.activityId, generation, loggingEnabled }) : undefined;
     const began = performance.now();
     const deliveryToken = request.headers.get('x-codeflare-dispatcher-delivery') ?? undefined;
     const modelScope = new URL(request.url).pathname === '/v1/dispatcher/inference';
@@ -4025,8 +5537,9 @@ export class OperatorActivity extends Agent {
       if (loggingEnabled) dispatcherLog.warn('Dispatcher operation rejected', { stage, resource, deadline: deadline(lease), status,
         ...(upstreamStatus === undefined ? {} : { upstreamStatus }) });
     };
-    if (!await this.#dispatcherDeliveryCurrent(generation, deliveryToken, modelScope)) {
-      this.#recordDiagnostic(generation, 'admission', 'failed', 'authority-denied');
+    const authorityStatus = await this.#observeDispatcherDelivery(generation, deliveryToken, modelScope);
+    if (authorityStatus !== 'current') {
+      if (authorityStatus === 'denied') this.#recordDiagnostic(generation, 'admission', 'failed', 'authority-denied');
       rejected('authority', 'unparsed', await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE).catch(() => undefined), 403);
       return denied();
     }
@@ -4040,7 +5553,6 @@ export class OperatorActivity extends Agent {
     let limits = dispatcherCapacities();
     let operationLimit = DEFAULT_DISPATCHER_OPERATION_LIMIT;
     let lease: DispatcherLease | undefined;
-    let effectContext: NonNullable<Parameters<typeof createDispatcherOperation>[0]['effectContext']> | undefined;
     let preparationStep: 'parse' | 'capability' = 'parse';
     let inferenceCountObservation: DispatcherInferenceCountObservation | undefined;
     let bodyOverflow: DispatcherBodyOverflowObservation | undefined;
@@ -4060,7 +5572,7 @@ export class OperatorActivity extends Agent {
         rejected('authority', 'unparsed', undefined, 403);
         return denied();
       }
-      if (loggingEnabled && lease.generation === generation && lease.serial && lease.submissionId
+      if (loggingEnabled && lease.generation === generation && (lease.application || lease.serial) && lease.submissionId
         && deliveryToken && this.#phaseTokenMatches(lease, deliveryToken, true, modelScope)) {
         preparationCorrelation = { deliveryDigest: hashDiagnostic(deliveryToken), submissionDigest: hashDiagnostic(lease.submissionId) };
       }
@@ -4073,7 +5585,8 @@ export class OperatorActivity extends Agent {
       if (lease.hosting === 'normal' && preparationUrl.pathname === '/v1/dispatcher/inference') {
         if (preparationUrl.href !== 'https://operator.internal/v1/dispatcher/inference' || request.method !== 'POST'
           || request.headers.get('content-type')?.split(';')[0].trim() !== 'application/json') return denied('request-invalid');
-        const raw: unknown = JSON.parse(await this.#boundedDispatcher(lease, () => readDispatcherBody(request, request.signal, inferenceBytes)));
+        const raw: unknown = JSON.parse(await this.#boundedDispatcher(lease, () => readDispatcherBody(request, request.signal,
+          inferenceBytes, loggingEnabled ? value => { bodyOverflow = value; } : undefined)));
         const parsed = z.strictObject({ operationId: syncIdentity,
           context: z.looseObject({ messages: z.array(z.json()).min(1).max(limits.inferenceMessageLimit),
             systemPrompt: z.string().optional(), tools: z.array(z.json()).max(limits.inferenceToolLimit).optional() }),
@@ -4100,10 +5613,9 @@ export class OperatorActivity extends Agent {
         sourceBytes = sourceResponseBytes(plan.receipt.selection.installation.policy);
       }
       if (operation.path === '/v1/dispatcher/receipt' || operation.path === '/v1/dispatcher/resolve') {
-        const { authority, policy } = await authorizeDispatcherPlan(plan, this.#appEnv);
+        const { authority, policy, delegation } = await authorizeDispatcherPlan(plan, this.#appEnv);
         if (!policy.capabilities.includes('fetch')) return denied('policy-denied');
-        if (!await operatorAccessSessionCurrent(authority.human, authority.accessJwt)) return denied('authority-unverified');
-        if (JSON.parse(plan.invocationJson).pullRequest !== undefined) return denied('request-invalid');
+        if (!delegation && !await operatorAccessSessionCurrent(authority.human, authority.accessJwt)) return denied('authority-unverified');
         const value = operation.body as { operationId: string; requestDigest?: string;
           sourceResponse?: { generation: number; requestDigest: string; responseDigest: string; url: string };
           readbacks?: Array<{ operationId: string; requestDigest: string; responseDigest: string }> };
@@ -4159,16 +5671,6 @@ export class OperatorActivity extends Agent {
           return Response.json(resolved);
         });
       }
-      effectContext = { reconcileOnly: false, authorize: async () => {
-        const { authority } = await authorizeDispatcherPlan(plan, this.#appEnv);
-        if (!await operatorAccessSessionCurrent(authority.human, authority.accessJwt)) throw new Error('Dispatcher effect session unavailable');
-        const rawUser = await this.#appEnv.KV.get(`user:${authority.human.email.toLowerCase()}`);
-        let user: unknown;
-        try { user = rawUser ? JSON.parse(rawUser) : null; } catch { throw new Error('Dispatcher effect role unavailable'); }
-        if (!user || typeof user !== 'object' || Array.isArray(user) || (user as { role?: unknown }).role !== 'admin'
-          || !await this.#dispatcherDeliveryCurrent(generation, deliveryToken, modelScope)) throw new Error('Dispatcher effect authority unavailable');
-      } };
-      if (operation.path === '/v1/dispatcher/github/comment' || operation.path === '/v1/dispatcher/github/merge') await effectContext.authorize();
       const phaseLease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
       if (!this.#phaseTokenMatches(phaseLease, deliveryToken, true, modelScope)) return denied();
       if (normalInference) {
@@ -4178,14 +5680,13 @@ export class OperatorActivity extends Agent {
         const selection = lease.configuredSelection;
         perform = async () => {
           try { return await forwardDispatcherOwnerInference({ plan: { ...plan, deadline: Math.min(plan.deadline, lease!.expiresAt) },
-            generation, env: this.#appEnv, operation: configuredOperation, selection, signal: request.signal,
+            generation, env: this.#appEnv, operation: configuredOperation, selection, signal: request.signal, raw: trace,
             waitUntil: promise => this.ctx.waitUntil(promise),
             current: () => this.#dispatcherDeliveryCurrent(generation, deliveryToken, modelScope) }); }
           catch (error) { if (error instanceof PiAuthRequiredError) await this.#nativeLoginStop(generation, error.authFailure); throw error; }
         };
-      } else perform = await createDispatcherOperation({ plan, env: this.#appEnv, operation, effectContext, diagnosticContext: trace,
-        ...(phaseLease?.serial ? { phase: { repository: JSON.parse(plan.invocationJson).repository,
-          value: phaseLease.serial.current.phase } } : {}),
+      } else perform = await createDispatcherOperation({ plan, env: this.#appEnv, operation, diagnosticContext: trace,
+        privateArchiveSink: await this.#inferenceArchive(trace, plan),
         current: () => this.#dispatcherDeliveryCurrent(generation, deliveryToken, modelScope),
         exports: (this.ctx as unknown as { exports: Parameters<typeof createDispatcherOperation>[0]['exports'] }).exports });
     } catch (error) {
@@ -4199,7 +5700,7 @@ export class OperatorActivity extends Agent {
         const metadata: ErrorMetadata = { ...captureError(error), transportStatus: 403,
           transportReason: refusal.reason, transportDisposition: refusal.disposition };
         this.#recordDiagnostic(generation, preparationStep === 'parse' ? 'tool' : 'admission', 'failed',
-          preparationStep === 'parse' ? 'tool-failed' : 'authority-denied', undefined,
+          preparationStep === 'parse' ? 'tool-failed' : error instanceof DispatcherAuthorityUnavailable ? 'platform-evidence-required' : 'authority-denied', undefined,
           { ...preparationCorrelation, ...(trace?.requestDigest ? { requestDigest: trace.requestDigest } : {}) },
           'host', undefined, metadata, undefined, bodyOverflow ? 'originating' : 'catching',
           loggingEnabled ? { step: preparationStep, failureClass, route: preparationRoute, ...bodyOverflow } : undefined);
@@ -4245,7 +5746,8 @@ export class OperatorActivity extends Agent {
         activityId: record!.intent.activityId, lease, operationCount } as const;
       await putDispatcherEntry(tx, journal, operation.operationId, undefined, {
         generation, requestDigest, phase: 'reserved', ordinal: journal.nextOrdinal,
-        ...(lease!.serial ? { phaseBinding: this.#operationPhase(lease!, resource) } : {}), ...(operation.path === '/v1/dispatcher/source'
+        ...(lease!.serial ? { phaseBinding: this.#operationPhase(lease!, resource) } : {}),
+        ...(lease!.application ? { deliveryBinding: this.#operationDelivery(lease!, resource) } : {}), ...(operation.path === '/v1/dispatcher/source'
           ? { request: { method: (operation.body as { method?: 'GET' | 'POST' | 'PUT' }).method ?? 'GET',
             url: (operation.body as { url: string }).url } } : {}) });
       return { kind: 'reserved', lease: lease!, ordinal: journal.nextOrdinal, operationCount: journal.count + 1 } as const;
@@ -4283,11 +5785,7 @@ export class OperatorActivity extends Agent {
     let upstreamStatus: number | undefined;
     let bodyReading = false;
     try {
-      if (reserved.kind === 'unknown' && !readOnly) {
-        if ((resource !== 'comment' && resource !== 'merge') || !effectContext) throw new Error('Unknown protected operation');
-        // Reconciliation observes the original write; it never issues that write again.
-        effectContext.reconcileOnly = true;
-      }
+      if (reserved.kind === 'unknown' && !readOnly) throw new Error('Unknown protected operation');
       // Recheck after asynchronous capability construction/reservation, before external I/O.
       stage = 'authority';
       if (!await this.#dispatcherDeliveryCurrent(generation, deliveryToken, modelScope)) throw new Error('Stale protected operation');
@@ -4315,16 +5813,6 @@ export class OperatorActivity extends Agent {
         if (result.status !== 200 || !value || !Array.isArray(value.events) || !value.result
           || typeof value.result !== 'object' || value.result.role !== 'assistant') throw new Error('Configured SDK reply invalid');
       }
-      let confirmedEffect = false;
-      if (resource === 'comment' || resource === 'merge') {
-        const receipt = JSON.parse(result.body);
-        const expected = operation.body as { target: { pullRequest: number; headSha: string }; decision: string; comment: string };
-        confirmedEffect = result.status === 200 && receipt?.pullRequest === expected.target.pullRequest
-          && receipt.headSha === expected.target.headSha && receipt.decision === expected.decision
-          && receipt.comment === expected.comment && (resource === 'comment'
-            ? receipt.posted === true && Number.isSafeInteger(receipt.commentId) && receipt.commentId > 0
-            : receipt.outcome === 'MERGED');
-      }
       stage = 'commit';
       let committedResponseDigest: string | undefined;
       const committedResult = await this.ctx.storage.transaction(async tx => {
@@ -4340,12 +5828,12 @@ export class OperatorActivity extends Agent {
           committedResponseDigest = prior.responseDigest;
           return cached;
         }
-        if (prior.phase !== 'reserved' && !(prior.phase === 'unknown' && (readOnly || confirmedEffect))) {
+        if (prior.phase !== 'reserved' && !(prior.phase === 'unknown' && readOnly)) {
           throw new Error('Unresolved protected result');
         }
         await tx.put(`dispatcher:response:${operation.operationId}`, result);
         committedResponseDigest = await sha256(result.body);
-        const sourceStatus = genericMutation && lease!.serial ? JSON.parse(result.body).status : undefined;
+        const sourceStatus = genericMutation ? JSON.parse(result.body).status : undefined;
         const effectUnknown = sourceStatus === 408 || typeof sourceStatus === 'number' && sourceStatus >= 500;
         await putDispatcherEntry(tx, journal, operation.operationId, prior,
           { ...prior, phase: effectUnknown ? 'unknown' : 'completed', responseDigest: committedResponseDigest });
@@ -4376,14 +5864,14 @@ export class OperatorActivity extends Agent {
       const current = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
       // Late old-phase callers cannot fence a successor. Current PR read/effect failures
       // remain response-local only while shared authority and capacity still hold.
-      if (current?.serial && !this.#phaseTokenMatches(current, deliveryToken, false)) return denied();
+      if ((current?.serial || current?.application) && !this.#phaseTokenMatches(current, deliveryToken, false)) return denied();
       const journal = await this.ctx.storage.transaction(tx => loadDispatcherJournal(tx, generation));
-      const local = current?.serial?.current.phase.kind === 'target'
+      const local = !!current?.application
         && await this.#dispatcherDeliveryCurrent(generation, deliveryToken, modelScope) && journal.count < operationLimit;
       if (!local && ((!genericMutation && resource !== 'comment' && resource !== 'merge')
         || !await this.#dispatcherDeliveryCurrent(generation, deliveryToken, modelScope))) await this.interruptDrive(generation,
           { boundary: stage === 'authority' ? 'admission' : resource === 'inference' ? 'model' : 'effect',
-            code: stage === 'authority' ? 'authority-denied' : resource === 'inference' ? 'provider-failed' : 'effect-unknown', error: captureError(error) });
+            code: error instanceof DispatcherAuthorityUnavailable ? 'platform-evidence-required' : stage === 'authority' ? 'authority-denied' : resource === 'inference' ? 'provider-failed' : 'effect-unknown', error: captureError(error) });
       inferenceDiagnostic(trace, { stage: 'response-commit', outcome: 'unknown', resource, failureClass: stage === 'authority' ? 'authority' : stage === 'commit' ? 'commit' : upstreamStatus !== undefined ? 'upstream-status' : bodyReading && error instanceof Error && error.message === 'Dispatcher body exceeds limit' ? 'body-limit' : bodyReading ? 'body-read' : 'unknown', elapsedMs: performance.now() - began });
       rejected(stage, resource, lease, 409, upstreamStatus);
       return dispatcherRefusal(genericMutation || resource === 'comment' || resource === 'merge' ? 'effect-uncertain'
@@ -4408,12 +5896,12 @@ export class OperatorActivity extends Agent {
       this.#inferenceFlights.set(key, flight);
     }
     const value = await flight.result;
-    if (lease.serial || value.status < 400) {
+    if (lease.application || value.status < 400) {
       try {
         const plan = await this.getRuntimePlan();
         if (!plan) throw new Error('Dispatcher inference unavailable');
-        const { authority } = await authorizeDispatcherPlan(plan, this.#appEnv);
-        if (!await operatorAccessSessionCurrent(authority.human, authority.accessJwt)
+        const { authority, delegation } = await authorizeDispatcherPlan(plan, this.#appEnv);
+        if (!delegation && !await operatorAccessSessionCurrent(authority.human, authority.accessJwt)
           || !await this.#dispatcherDeliveryCurrent(generation, deliveryToken)) throw new Error('Dispatcher inference denied');
       } catch (error) { return dispatcherRefusal(error instanceof DispatcherRefusal ? error.reason : 'authority-unverified'); }
     }
@@ -4460,11 +5948,12 @@ export class OperatorActivity extends Agent {
       if (!plan) return rejected('OPERATOR_CAPABILITY_DENIED', 403);
       const prepare = async (attemptTrace: InferenceDiagnosticContext | undefined, pin = true) => {
         failureClass = 'authority';
-        const { authority } = await authorizeDispatcherPlan(plan, this.#appEnv);
-        if (controller.signal.aborted || !await operatorAccessSessionCurrent(authority.human, authority.accessJwt)
+        const { authority, delegation } = await authorizeDispatcherPlan(plan, this.#appEnv);
+        if (controller.signal.aborted || !delegation && !await operatorAccessSessionCurrent(authority.human, authority.accessJwt)
           || !await this.#dispatcherDeliveryCurrent(generation, deliveryToken)) throw new Error('Dispatcher inference authority expired');
         return createDispatcherOperation({ plan, env: this.#appEnv, operation: { ...operation, signal: controller.signal },
           current: () => this.#dispatcherDeliveryCurrent(generation, deliveryToken), diagnosticContext: attemptTrace,
+          privateArchiveSink: await this.#inferenceArchive(attemptTrace, plan),
           exports: (this.ctx as unknown as { exports: Parameters<typeof createDispatcherOperation>[0]['exports'] }).exports,
           pinInferenceSelection: !pin ? undefined : async selection => this.ctx.storage.transaction(async tx => {
             await live(tx);
@@ -4500,7 +5989,8 @@ export class OperatorActivity extends Agent {
             await tx.put(inferenceAttemptKey(generation, operation.operationId, 1), attempt);
             await putDispatcherEntry(tx, journal, operation.operationId, undefined,
               { generation, requestDigest, phase: 'reserved', ordinal: attempt.ordinal, inference: { version: 1, attempt: 1 },
-                ...(lease.serial ? { phaseBinding: this.#operationPhase(lease, 'inference') } : {}) });
+                ...(lease.serial ? { phaseBinding: this.#operationPhase(lease, 'inference') } : {}),
+                ...(lease.application ? { deliveryBinding: this.#operationDelivery(lease, 'inference') } : {}) });
             return { kind: 'ready', attempt, logicalOrdinal: attempt.ordinal, operationCount: journal.count + 1 } as const;
           }
           const attemptKey = inferenceAttemptKey(generation, operation.operationId, record.inference!.attempt);
@@ -4585,6 +6075,7 @@ export class OperatorActivity extends Agent {
           emitRaw(attemptTrace, 'inference-attempt-response', () => response);
           classification = classifyDispatcherInference(response, (operation.body as { input: { stream?: boolean } }).input.stream !== false);
         } catch (error) {
+          if (error instanceof DispatcherAuthorityUnavailable) throw error;
           emitRaw(attemptTrace, 'inference-attempt-failure', () => error);
           this.#recordDiagnostic(generation, 'model', 'failed', 'provider-failed', error, attemptCorrelation, 'host', undefined, undefined,
             [{ operationDigest: hashDiagnostic(operation.operationId), effect: 'none', status: 'unavailable' }]);
@@ -4626,7 +6117,7 @@ export class OperatorActivity extends Agent {
       }
     } catch (error) {
       this.#recordDiagnostic(generation, failureClass === 'authority' ? 'admission' : 'recovery', 'failed',
-        failureClass === 'authority' ? 'authority-denied' : terminalCode === 'OPERATOR_INFERENCE_RECOVERY_EXHAUSTED' ? 'capacity-exhausted' : 'provider-failed', error, { requestDigest });
+        error instanceof DispatcherAuthorityUnavailable ? 'platform-evidence-required' : failureClass === 'authority' ? 'authority-denied' : terminalCode === 'OPERATOR_INFERENCE_RECOVERY_EXHAUSTED' ? 'capacity-exhausted' : 'provider-failed', error, { requestDigest });
       // A replaced owner's late failure cannot fence its successor. Persistence ambiguity never authorizes I/O.
       let owns = false;
       try {
@@ -4644,14 +6135,14 @@ export class OperatorActivity extends Agent {
         if (owns) {
           const current = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
           const journal = await this.ctx.storage.transaction(tx => loadDispatcherJournal(tx, generation));
-          const local = current?.serial?.current.phase.kind === 'target'
+          const local = !!current?.application
             && (terminalCode === 'OPERATOR_INFERENCE_RECOVERY_EXHAUSTED' || ['model-completion', 'body-limit', 'body-read'].includes(failureClass))
             && journal.count < operationLimit && await this.#dispatcherDeliveryCurrent(generation, deliveryToken);
           if (local && terminalCode === 'OPERATOR_INFERENCE_RECOVERY_EXHAUSTED') exhaustionReason = 'operation-failed';
           if (!local) {
             const fenced = await this.interruptDrive(generation, { boundary: failureClass === 'authority' ? 'admission'
               : terminalCode === 'OPERATOR_INFERENCE_RECOVERY_EXHAUSTED' ? 'recovery' : 'model',
-              code: failureClass === 'authority' ? 'authority-denied' : terminalCode === 'OPERATOR_INFERENCE_RECOVERY_EXHAUSTED' ? 'capacity-exhausted' : 'provider-failed' });
+              code: error instanceof DispatcherAuthorityUnavailable ? 'platform-evidence-required' : failureClass === 'authority' ? 'authority-denied' : terminalCode === 'OPERATOR_INFERENCE_RECOVERY_EXHAUSTED' ? 'capacity-exhausted' : 'provider-failed' });
             if (fenced.ok && terminalCode === 'OPERATOR_INFERENCE_RECOVERY_EXHAUSTED') {
               exhaustionReason = journal.count >= operationLimit ? 'operation-limit' : 'execution-inactive';
             }
@@ -4677,7 +6168,7 @@ export class OperatorActivity extends Agent {
     if (!lease || lease.hosting === 'normal' || lease.sdkReleased || lease.status === 'running' || lease.status === 'admitting') return;
     const admission = await this.ctx.storage.get<AdmissionState>('admission');
     if (!admission) return;
-    const trace = { activityId: admission.intent.activityId, generation: lease.generation, loggingEnabled: executionLoggingEnabled(admission.receipt) };
+    const trace = this.#captureTrace({ activityId: admission.intent.activityId, generation: lease.generation, loggingEnabled: executionLoggingEnabled(admission.receipt) });
     inferenceDiagnostic(trace, { stage: 'sdk-release', outcome: 'started' });
     this.#recordDiagnostic(lease.generation, 'release', 'started');
     try {
@@ -4927,7 +6418,7 @@ export class OperatorActivity extends Agent {
       name ??= safeText(state.receipt.selection.operator.name);
     }
     try {
-      const input = JSON.parse(state.invocationJson ?? 'null') as unknown;
+      const input = lease?.application ? null : JSON.parse(state.invocationJson ?? 'null') as unknown;
       if (input && typeof input === 'object' && !Array.isArray(input)) {
         const value = input as Record<string, unknown>;
         const reviewInput = value.input && typeof value.input === 'object' && !Array.isArray(value.input)
@@ -4948,7 +6439,8 @@ export class OperatorActivity extends Agent {
       }
     } catch { /* no safe context */ }
     const checkpoint = state.drive?.checkpoint;
-    let progress = checkpoint && typeof checkpoint === 'object' && !Array.isArray(checkpoint)
+    let progress = lease?.application ? (executionStatus === 'running' ? `Delivery ${lease.application.delivery.ordinal}` : null)
+      : checkpoint && typeof checkpoint === 'object' && !Array.isArray(checkpoint)
       ? safeText((checkpoint as Record<string, unknown>).stage) : null;
     if (!progress && executionStatus === 'running' && lease?.hosting === 'normal' && lease.serial) {
       const phase = lease.serial.current.phase;
@@ -4957,10 +6449,14 @@ export class OperatorActivity extends Agent {
         : phase.kind === 'target' ? `PR #${phase.target.pullRequest} - target ${phase.index + 1}${total ? `/${total}` : ''}`
           : phase.kind === 'discovery' ? 'Discovery phase' : 'Final assessment phase';
     }
-    // Only summarize a complete, admitted-repository report. No body bytes enter the owner index.
+    // Application results stay opaque: only validated optional display metadata enters the owner index.
     let resultSummary: OperatorBrowserSummary['resultSummary'];
     const result = state.drive?.result;
-    if (terminal && repository && result && typeof result === 'object' && !Array.isArray(result)) {
+    if (lease?.application && executionStatus === 'completed' && result && typeof result === 'object' && !Array.isArray(result)) {
+      resultSummary = parseOperatorResultSummary((result as Record<string, unknown>).resultSummary);
+    }
+    // Historical nonapplication reports retain their admitted-repository interpretation.
+    if (!lease?.application && terminal && repository && result && typeof result === 'object' && !Array.isArray(result)) {
       const report = result as Record<string, unknown>;
       if (report.repository === repository && Array.isArray(report.results) && report.results.length <= 1024
         && report.results.every(item => item && typeof item === 'object' && !Array.isArray(item)
@@ -4987,23 +6483,39 @@ export class OperatorActivity extends Agent {
             && state.receipt.selection.installation.piReasoningOverride !== undefined
             ? 'installation' as const : 'inherited' as const } } : {}),
       ...(state.authFailure ? { authFailure: state.authFailure } : {}),
-      cleanupStatus: released === true ? 'released' : executionStatus === 'cancel-requested' ? 'stopping'
+      cleanupStatus: neverStartedDispatcherCancellation(state, lease) ? 'stopped'
+        : released === true ? 'released' : executionStatus === 'cancel-requested' ? 'stopping'
         : released === false ? 'pending' : terminal ? 'unknown' : 'pending',
       collectionStatus: state.browserCollectionConsumed ? 'consumed' : terminal ? 'ready' : 'unavailable',
       attention: executionStatus === 'failed' || executionStatus === 'unknown' || (terminal && !state.browserCollectionConsumed),
       sessionId: null, source: null, updatedAt: state.updatedAt ?? Date.now() };
   }
 
+  /** Local projection only: the reconciliation caller publishes after consuming EOF. */
+  private async prospectiveBrowserSummary(raw?: RawCapture): Promise<OperatorBrowserSummary | null> {
+    const state = await captureRawInteraction(raw, 'activity-summary-state', () => 'admission',
+      () => this.ctx.storage.get<AdmissionState>('admission'));
+    if (!state?.ownerKey) return null;
+    return this.browserSummary(state, await captureRawInteraction(raw, 'activity-summary-lease',
+      () => DISPATCHER_LEASE, () => this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE)));
+  }
+
   private async publishBrowserSummary(state?: AdmissionState, summary?: OperatorBrowserSummary,
-    observed?: OperatorBrowserSummary): Promise<void> {
-    state ??= await this.ctx.storage.get<AdmissionState>('admission');
+    observed?: OperatorBrowserSummary, raw?: RawCapture): Promise<void> {
+    state ??= await captureRawInteraction(raw, 'activity-summary-state', () => 'admission',
+      () => this.ctx.storage.get<AdmissionState>('admission'));
     if (!state?.ownerKey) return;
+    const ownerKey = state.ownerKey;
     try {
-      const projection = summary ?? this.browserSummary(state, await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE));
+      const projection = summary ?? this.browserSummary(state, await captureRawInteraction(raw, 'activity-summary-lease',
+        () => DISPATCHER_LEASE, () => this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE)));
       const registry = this.#appEnv.OPERATOR_REGISTRY.getByName('registry');
-      if (observed) await registry.upsertOwnedActivity(state.ownerKey, projection, observed);
-      else await registry.upsertOwnedActivity(state.ownerKey, projection);
-    } catch { /* execution state remains authoritative; the safe index can reconcile later */ }
+      await captureRawInteraction(raw, 'activity-summary-rpc', () => ({ ownerKey, projection, observed }),
+        () => observed ? registry.upsertOwnedActivity(ownerKey, projection, observed) : registry.upsertOwnedActivity(ownerKey, projection));
+    } catch (error) {
+      raw?.record('activity-summary-error', () => error);
+      /* execution state remains authoritative; the safe index can reconcile later */
+    }
   }
 
   private sdkCleanupReleased(state: AdmissionState, lease?: DispatcherLease): boolean | undefined {
@@ -5117,7 +6629,7 @@ export class OperatorActivity extends Agent {
             logging: executionLoggingEnabled(admission.receipt), status: admission.drive?.status,
             operations: journal?.generation === lease?.generation && typeof journal?.nextOrdinal === 'number'
               && Number.isSafeInteger(journal.nextOrdinal) && journal.nextOrdinal >= 0 ? journal.nextOrdinal : null,
-            provenance: lease?.sdkProvenance ?? null, rootDigest: lease?.rootDigest
+            provenance: lease?.sdkProvenance ?? null, publicSdkVersion: lease?.publicSdkVersion, rootDigest: lease?.rootDigest
               ?? (lease?.serial?.current.receipt?.uid ? hashDiagnostic(lease.serial.current.receipt.uid) : undefined),
             submissionId: lease?.submissionId, fence: admission.diagnosticFence,
             recorderUnavailable: admission.diagnosticRecorderUnavailable,
@@ -5203,7 +6715,9 @@ export class OperatorActivity extends Agent {
     let sdk = sdkUnavailable('unbound');
     if (!admission.receipt || !isManagementReceipt(admission.receipt)
       || admission.receipt.selection.operator.profile !== 'dispatcher') sdk = sdkUnavailable('not-dispatcher');
-    else if (lease?.hosting === 'normal') sdk = sdkUnavailable('unsupported-storage');
+    else if (lease?.hosting === 'normal') sdk = lease.publicSdkVersion && lease.receipt
+      ? await readPublicSdkDiagnostics(this.ctx.storage, lease, lease.receipt, lease.publicSdkVersion, inspectionDeadline,
+        executionLoggingEnabled(admission.receipt)) : sdkUnavailable('unsupported-storage');
     else if (lease?.sdkReleased || lease && (lease.status === 'unknown' || lease.status === 'settled')
       || lease && admission.drive?.generation !== lease.generation) sdk = sdkUnavailable('retired');
     else if (lease?.status === 'running' && lease.submissionId && lease.serial?.current.receipt
@@ -5305,7 +6819,7 @@ export class OperatorActivity extends Agent {
         if (entries.size < 32) break;
       }
       for (const { key, record } of latest) {
-        const trace = { activityId: state.intent.activityId, generation, loggingEnabled: executionLoggingEnabled(state.receipt), operationOrdinal: record.ordinal, requestDigest: record.requestDigest };
+        const trace = this.#captureTrace({ activityId: state.intent.activityId, generation, loggingEnabled: executionLoggingEnabled(state.receipt), operationOrdinal: record.ordinal, requestDigest: record.requestDigest });
         const response = record.phase === 'completed'
           ? await this.ctx.storage.get<NonNullable<DispatcherOperationRecord['response']>>(`dispatcher:response:${key.slice(prefix.length)}`) : undefined;
         const matchingResponse = response && record.responseDigest && await sha256(response.body) === record.responseDigest;
@@ -5487,14 +7001,7 @@ export class OperatorActivity extends Agent {
     if (!assessment || typeof assessment !== 'object' || Array.isArray(assessment)
       || !z.json().safeParse(assessment).success
       || new TextEncoder().encode(JSON.stringify(assessment)).byteLength > dispatcherCapacities(state!.receipt && isManagementReceipt(state!.receipt) ? state!.receipt.selection.operator.policy : undefined).assessmentBytes) return;
-    if (await this.ctx.storage.get<string>('prospective-admission')) {
-      try {
-        const plan = await this.getRuntimePlan();
-        if (!plan) return;
-        const { admittedTarget } = await authorizeDispatcherPlan(plan, this.#appEnv);
-        if (admittedTarget && !admittedDispatcherResultMatches(assessment, admittedTarget, isManagementReceipt(plan.receipt) ? plan.receipt.selection.operator.policy : undefined)) return;
-      } catch { return; }
-    }
+    if (await this.ctx.storage.get<string>('prospective-admission')) return;
     const committed = await this.ctx.storage.transaction(async tx => {
       const [record, currentLease] = await Promise.all([tx.get<AdmissionState>('admission'),
         tx.get<DispatcherLease>(DISPATCHER_LEASE)]);
@@ -5530,7 +7037,7 @@ export class OperatorActivity extends Agent {
       return { ok: true, detail: { ...this.browserSummary(consumed, lease), checkpoint: consumed.drive?.checkpoint ?? null,
         result: consumed.drive?.result ?? null, ...(released === undefined ? {} : { sdkCleanupReleased: released }) } };
     });
-    const trace = before?.drive ? { activityId: before.intent.activityId, generation: before.drive.generation, loggingEnabled: executionLoggingEnabled(before.receipt) } : undefined;
+    const trace = before?.drive ? this.#captureTrace({ activityId: before.intent.activityId, generation: before.drive.generation, loggingEnabled: executionLoggingEnabled(before.receipt) }) : undefined;
     inferenceDiagnostic(trace, { stage: 'collection', outcome: outcome.ok ? 'completed' : 'denied' });
     if (outcome.ok) {
       inferenceDiagnostic(trace, { stage: 'cleanup', outcome: 'observed', sdkReleased: outcome.detail.sdkCleanupReleased, physicalCleanup: 'unknown' });
@@ -5539,268 +7046,17 @@ export class OperatorActivity extends Agent {
     return outcome;
   }
 
-  /** Existing Registry reads original terminal proof. Never drives, re-admits or collects history. */
-  async readProspectiveRenovateRetryProof(input: { repositoryId: number; pullRequest: number; head: string }):
-    Promise<ProspectiveRenovateRetryProof | null> {
-    this.#resumeDispatcherOnEntry();
-    if (!Number.isSafeInteger(input.repositoryId) || input.repositoryId < 1
-      || !Number.isSafeInteger(input.pullRequest) || input.pullRequest < 1 || !/^[a-f0-9]{40}$/.test(input.head)) return null;
-    const bound = await this.ctx.storage.get<string>('prospective-admission');
-    if (!bound) return null;
-    const original = await this.#appEnv.OPERATOR_REGISTRY.getByName('registry').readProspectiveRenovateAdmission(bound);
-    if (!original || original.repositoryId !== input.repositoryId || original.pullRequest !== input.pullRequest
-      || original.head !== input.head) return null;
-    return this.ctx.storage.transaction(async tx => {
-      const state = await tx.get<AdmissionState>('admission');
-      const lease = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
-      if (!state?.receipt || !isManagementReceipt(state.receipt) || !state.browserCollectionConsumed
-        || state.drive?.status !== 'completed' || !lease?.serial || lease.status !== 'settled'
-        || (lease.hosting === 'normal' ? !this.#normalSettlementObserved(lease) : !lease.sdkReleased)
-        || lease.serial.current.phase.kind !== 'final' || lease.generation !== state.drive.generation
-        || !lease.terminalAt || !lease.submissionId || lease.settledSubmissionId !== lease.submissionId
-        || lease.serial.current.receipt?.submissionId !== lease.submissionId
-        || state.intent.activityId !== original.activityId || state.ownerKey !== original.ownerKey
-        || lease.artifactDigest !== original.bundleDigest || lease.inputDigest !== state.receipt.intentDigest
-        || JSON.stringify(state.drive.result) !== JSON.stringify(await tx.get(`dispatcher:result:${lease.generation}`))) return null;
-      const result = state.drive.result as { repository?: string; results?: Array<{ pullRequest: number; headSha: string; outcome: string; reason?: string }> };
-      const row = result?.results?.length === 1 ? result.results[0] : undefined;
-      if (result?.repository !== original.repository || !row || row.pullRequest !== input.pullRequest
-        || row.headSha !== input.head || !['EXECUTION_FAILED', 'DEFERRED'].includes(row.outcome)
-        || lease.serial.targets?.length !== 1 || lease.serial.targets[0].pullRequest !== input.pullRequest
-        || lease.serial.targets[0].headSha !== input.head) return null;
-      // Collection can honestly cover a deferred unknown write; that is not
-      // permission for the scheduler to repeat it under a fresh operation identity.
-      if (['comment-uncertain', 'merge-uncertain', 'prior-effect-uncertain'].includes(row.reason ?? '')) return null;
-      let startAfter: string | undefined;
-      for (;;) {
-        const entries = await tx.list<DispatcherOperationRecord>({ prefix: `dispatcher:operation:${lease.generation}:`, limit: 128,
-          ...(startAfter ? { startAfter } : {}) });
-        for (const [key, entry] of entries) {
-          startAfter = key;
-          if (entry.phase !== 'completed' && entry.request && entry.request.method !== 'GET') return null;
-        }
-        if (entries.size < 128) break;
-      }
-      const parsed = prospectiveRenovateRetryProof.safeParse({ activityId: original.activityId, generation: lease.generation,
-        repository: original.repository, repositoryId: original.repositoryId, baseBranch: original.baseBranch,
-        pullRequest: original.pullRequest, head: original.head, createdAt: original.createdAt, artifactDigest: lease.artifactDigest,
-        terminalAt: lease.terminalAt, collected: true, settled: true, sdkSubmissionId: lease.submissionId, disposition: row.outcome });
-      return parsed.success ? parsed.data : null;
-    });
+  /** Retired domain proof RPC. Opaque execution facts replace host retry decisions. */
+  async readProspectiveRenovateRetryProof(_input: { repositoryId: number; pullRequest: number; head: string },
+    _original: ProspectiveAdmission | null, _observation?: ProspectiveObservationCapture): Promise<ReadableStream<Uint8Array>> {
+    return prospectiveReconciliationStream(false, async () => ({ ok: true, proof: null }));
   }
 
-  /** Explicit parent-only publication; result collection and child operations never call this method. */
-  async publishRenovateAssessment(command: { bucket: string; sessionId: string; sessionGeneration: number;
-    operationId: string }, authority: { human: VerifiedHumanAccessClaims; accessJwt: string; platformAdmin: boolean }):
+  /** Retired publication RPC: retain compatibility without a live host business-policy fallback. */
+  async publishRenovateAssessment(_command: { bucket: string; sessionId: string; sessionGeneration: number;
+    operationId: string }, _authority: { human: VerifiedHumanAccessClaims; accessJwt: string; platformAdmin: boolean }):
     Promise<{ ok: true; phase: 'completed'; effect: RenovateEffect; mergeSha?: string } | { ok: false; reason: string }> {
-    this.#resumeDispatcherOnEntry();
-    const validId = /^[A-Za-z0-9_-]{1,128}$/;
-    if (!authority.platformAdmin || !validId.test(command.sessionId) || !validId.test(command.operationId)
-      || !/^[A-Za-z0-9._-]{1,128}$/.test(command.bucket)
-      || !Number.isSafeInteger(command.sessionGeneration) || command.sessionGeneration <= 0) {
-      return { ok: false, reason: 'not-authorized' };
-    }
-    const state = await this.ctx.storage.get<AdmissionState>('admission');
-    const plan = await this.getRuntimePlan();
-    if (!state?.ownerKey || !plan || state.drive?.status !== 'completed' || !state.drive.result
-      || !isManagementReceipt(plan.receipt) || plan.receipt.selection.operator.profile !== 'dispatcher') {
-      return { ok: false, reason: 'not-ready' };
-    }
-    const parent = JSON.parse(plan.invocationJson) as { repository: string; pullRequest: number };
-    let assessment: ReturnType<typeof parsePublishableAssessment>;
-    try { assessment = parsePublishableAssessment(state.drive.result, parent); }
-    catch { return { ok: false, reason: 'invalid-assessment' }; }
-    const ownerKey = await operatorOwnerKey(authority.human);
-    if (state.ownerKey !== ownerKey || plan.executionContext.owner.subject !== authority.human.subject
-      || plan.executionContext.owner.issuer !== authority.human.issuer
-      || plan.executionContext.owner.email.toLowerCase() !== authority.human.email.toLowerCase()
-      || JSON.stringify([...plan.executionContext.owner.audiences].sort()) !== JSON.stringify([...authority.human.audiences].sort())) {
-      return { ok: false, reason: 'not-authorized' };
-    }
-    const digest = await sha256(JSON.stringify(state.drive.result));
-    const generation = state.drive.generation;
-    const prospective = parent.pullRequest !== 1299;
-    const registry = this.#appEnv.OPERATOR_REGISTRY.getByName('registry');
-    const proof = prospective ? await registry.readProspectiveRenovateAdmission(plan.activityId) : null;
-    const validProof = !!proof && proof.activityId === plan.activityId
-      && (!plan.prospectiveAdmissionId || plan.prospectiveAdmissionId === proof.activityId)
-      && proof.installationId === plan.receipt.selection.installation.id
-      && proof.repositoryId === 973175879 && proof.pullRequest === parent.pullRequest
-      && proof.ownerKey === ownerKey && proof.head === assessment.observedHead
-      && proof.createdAt > proof.activatedAt
-      && proof.actor.bucket === command.bucket && proof.actor.sessionId === command.sessionId
-      && proof.actor.sessionGeneration === command.sessionGeneration
-      && proof.actor.subject === authority.human.subject && proof.actor.issuer === authority.human.issuer
-      && proof.actor.email.toLowerCase() === authority.human.email.toLowerCase()
-      && JSON.stringify([...proof.actor.audiences].sort()) === JSON.stringify([...authority.human.audiences].sort());
-    if (prospective && (!validProof || parent.repository.toLowerCase() !== 'nikolanovoselec/komodo')) {
-      return { ok: false, reason: 'not-authorized' };
-    }
-    const current = async () => {
-      const [latest, session, rawUser] = await Promise.all([
-        this.ctx.storage.get<AdmissionState>('admission'),
-        new D1SessionRepository(this.#appEnv.USAGE_DB).getSession(command.bucket, command.sessionId),
-        this.#appEnv.KV.get(`user:${authority.human.email.toLowerCase()}`),
-      ]);
-      let user: unknown;
-      try { user = rawUser ? JSON.parse(rawUser) : null; } catch { /* no current role */ }
-      if (!authority.platformAdmin || !user || typeof user !== 'object' || (user as { role?: unknown }).role !== 'admin'
-        || !latest || latest.ownerKey !== ownerKey || latest.drive?.status !== 'completed'
-        || latest.drive.generation !== generation || await sha256(JSON.stringify(latest.drive.result)) !== digest
-        || session?.lifecycleState !== 'running' || session.lifecycleGeneration !== command.sessionGeneration
-        || authority.human.expiresAt * 1000 <= Date.now()) throw new Error('Renovate publication authority changed');
-      await authorizeDispatcherPlan(plan, this.#appEnv);
-      if (prospective) {
-        const live = await registry.currentProspectiveRenovateRegistration(proof!.actor.registrationId);
-        if (!live || live.installationId !== proof!.installationId
-          || live.bucket !== command.bucket || live.sessionId !== command.sessionId
-          || live.sessionGeneration !== command.sessionGeneration
-          || live.human.subject !== authority.human.subject || live.human.issuer !== authority.human.issuer
-          || live.human.email.toLowerCase() !== authority.human.email.toLowerCase()) {
-          throw new Error('Prospective Renovate actor changed');
-        }
-      }
-      if (!await operatorAccessSessionCurrent(authority.human, authority.accessJwt)) {
-        throw new Error('Renovate publication Access session ended');
-      }
-    };
-    try { await current(); } catch { return { ok: false, reason: 'not-authorized' }; }
-    const exports = (this.ctx as unknown as { exports?: Record<string, (input: { props: Record<string, unknown> }) => Fetcher> }).exports;
-    if (!exports) return { ok: false, reason: 'unavailable' };
-    let github: ReturnType<typeof renovateGithub>;
-    try { github = renovateGithub({ env: this.#appEnv, exports, user: authority.human.email,
-      bucket: command.bucket, repository: parent.repository, pullRequest: parent.pullRequest, current,
-      prospective, prospectiveCreatedAt: proof?.createdAt }); }
-    catch { return { ok: false, reason: 'unavailable' }; }
-    const marker = `<!-- Codeflare Renovate ${plan.activityId}:${generation}:${assessment.observedHead} -->`;
-    const commentBody = `${marker}\n${assessment.classification.toUpperCase()}: ${assessment.compatibility}\n${assessment.reasons.join('; ')}`.slice(0, 3800);
-    const effectOrder: RenovateEffect[] = assessment.classification === 'safe' ? ['approval', 'merge'] : ['comment'];
-    const binding = (record: RenovatePublication) => record.ownerKey === ownerKey && record.bucket === command.bucket
-      && record.sessionId === command.sessionId && record.sessionGeneration === command.sessionGeneration
-      && record.activityGeneration === generation && record.assessmentDigest === digest;
-    const confirm = async (effect: RenovateEffect): Promise<number | null> => {
-      if (effect === 'merge') {
-        const response = await github.request(`/pulls/${parent.pullRequest}/merge`);
-        // A 204 proves merged, not who merged; fence rather than misattribute it.
-        if (response.status === 204) return -1;
-        if (response.status === 404) return null;
-        throw new Error('Merge readback unavailable');
-      }
-      const publisher = await github.publisherIdentity();
-      const list: unknown = await github.json(effect === 'comment'
-        ? `/issues/${parent.pullRequest}/comments?per_page=100` : `/pulls/${parent.pullRequest}/reviews?per_page=100`);
-      if (!Array.isArray(list)) throw new Error('Publication readback unavailable');
-      const matching = list.filter(item => item && typeof item === 'object'
-        && (item as { body?: unknown }).body === (effect === 'comment' ? commentBody : marker)
-        && (item as { user?: { id?: unknown; login?: unknown } }).user?.id === publisher.id
-        && (item as { user?: { id?: unknown; login?: unknown } }).user?.login === publisher.login
-        && (effect === 'comment' || ((item as { state?: unknown }).state === 'APPROVED'
-          && (item as { commit_id?: unknown }).commit_id === assessment.observedHead))) as Array<{ id?: unknown }>;
-      return matching.length === 1 && Number.isSafeInteger(matching[0].id) && (matching[0].id as number) > 0
-        ? matching[0].id as number : null;
-    };
-    const completed = await this.ctx.storage.get<RenovatePublication>(RENOVATE_PUBLICATION);
-    if (completed && binding(completed) && completed.effects.merge
-      && completed.effects.merge.phase !== 'completed' && !completed.effects.merge.remoteMerged) {
-      // A lost accepted merge closes the PR. Reconcile the reserved effect
-      // before the open-PR preflight can reject that exact terminal outcome.
-      try {
-        if (await confirm('merge') === -1) {
-          await this.ctx.storage.transaction(async tx => {
-            const pending = await tx.get<RenovatePublication>(RENOVATE_PUBLICATION);
-            if (pending && binding(pending) && pending.effects.merge?.phase !== 'completed') {
-              pending.effects.merge = { phase: 'unknown', remoteMerged: true };
-              await tx.put(RENOVATE_PUBLICATION, pending);
-            }
-          });
-          return { ok: false, reason: 'remote-merged-unattributed' };
-        }
-      } catch { /* An unavailable read cannot authorize another merge. */ }
-      return { ok: false, reason: 'uncertain-effect' };
-    }
-    if (completed && binding(completed) && completed.effects.merge?.remoteMerged) {
-      return { ok: false, reason: 'remote-merged-unattributed' };
-    }
-    if (completed && binding(completed) && completed.effects[effectOrder[effectOrder.length - 1]]?.phase === 'completed') {
-      return { ok: true, phase: 'completed', effect: effectOrder[effectOrder.length - 1],
-        ...(completed.effects.merge?.mergeSha ? { mergeSha: completed.effects.merge.mergeSha } : {}) };
-    }
-    for (const effect of effectOrder) {
-      try { await current(); await github.observe(assessment, effect); }
-      catch { return { ok: false, reason: 'current-evidence-unavailable' }; }
-      const claim = await this.ctx.storage.transaction<'reserved' | 'reconcile' | 'completed' | 'conflict'>(async tx => {
-        const admission = await tx.get<AdmissionState>('admission');
-        if (admission?.drive?.status !== 'completed' || admission.drive.generation !== generation
-          || await sha256(JSON.stringify(admission.drive.result)) !== digest) return 'conflict';
-        const previous = await tx.get<RenovatePublication>(RENOVATE_PUBLICATION);
-        if (previous && !binding(previous)) return 'conflict';
-        const record = previous ?? { ownerKey, bucket: command.bucket, sessionId: command.sessionId,
-          sessionGeneration: command.sessionGeneration, activityGeneration: generation, assessmentDigest: digest,
-          operationId: command.operationId, effects: {} };
-        const existing = record.effects[effect];
-        if (existing?.phase === 'completed') return 'completed';
-        if (existing) return 'reconcile';
-        record.effects[effect] = { phase: 'reserved' };
-        await tx.put(RENOVATE_PUBLICATION, record);
-        return 'reserved';
-      });
-      if (claim === 'conflict') return { ok: false, reason: 'stale-publication' };
-      if (claim === 'completed') continue;
-      let receiptId: number | null = null;
-      let mergeSha: string | null = null;
-      if (claim === 'reserved') {
-        try {
-          // The transport itself checks current authority immediately before the write.
-          const response = effect === 'merge'
-            ? await github.request(`/pulls/${parent.pullRequest}/merge`, 'PUT',
-              { sha: assessment.observedHead, merge_method: 'merge' })
-            : effect === 'approval'
-              ? await github.request(`/pulls/${parent.pullRequest}/reviews`, 'POST',
-                { event: 'APPROVE', body: marker, commit_id: assessment.observedHead })
-              : await github.request(`/issues/${parent.pullRequest}/comments`, 'POST', { body: commentBody });
-          if (response.ok) {
-            const value = JSON.parse(await readDispatcherBody(response)) as { id?: unknown; merged?: unknown; sha?: unknown };
-            if (effect === 'merge' && value.merged === true && /^[0-9a-f]{40}$/.test(String(value.sha))) {
-              receiptId = 0; mergeSha = value.sha as string;
-            }
-            else if (effect !== 'merge' && Number.isSafeInteger(value.id) && (value.id as number) > 0) receiptId = value.id as number;
-          }
-        } catch { /* A lost response may still have produced an external effect. */ }
-      }
-      if (receiptId === null) {
-        await this.ctx.storage.transaction(async tx => {
-          const record = await tx.get<RenovatePublication>(RENOVATE_PUBLICATION);
-          if (record && binding(record) && record.effects[effect]?.phase === 'reserved') {
-            record.effects[effect] = { phase: 'unknown' }; await tx.put(RENOVATE_PUBLICATION, record);
-          }
-        });
-        try { receiptId = await confirm(effect); } catch { /* No blind write retry. */ }
-      }
-      if (receiptId === -1 && effect === 'merge') {
-        await this.ctx.storage.transaction(async tx => {
-          const record = await tx.get<RenovatePublication>(RENOVATE_PUBLICATION);
-          if (record && binding(record) && record.effects.merge?.phase !== 'completed') {
-            record.effects.merge = { phase: 'unknown', remoteMerged: true };
-            await tx.put(RENOVATE_PUBLICATION, record);
-          }
-        });
-        return { ok: false, reason: 'remote-merged-unattributed' };
-      }
-      if (receiptId === null) return { ok: false, reason: 'uncertain-effect' };
-      const saved = await this.ctx.storage.transaction(async tx => {
-        const record = await tx.get<RenovatePublication>(RENOVATE_PUBLICATION);
-        if (!record || !binding(record) || !record.effects[effect]) return false;
-        record.effects[effect] = { phase: 'completed', ...(receiptId! > 0 ? { receiptId: receiptId! } : {}),
-          ...(mergeSha ? { mergeSha } : {}) };
-        await tx.put(RENOVATE_PUBLICATION, record);
-        return true;
-      });
-      if (!saved) return { ok: false, reason: 'stale-publication' };
-      if (claim === 'reconcile') return { ok: false, reason: 'reconciled-effect' };
-    }
-    const receipt = await this.ctx.storage.get<RenovatePublication>(RENOVATE_PUBLICATION);
-    return { ok: true, phase: 'completed', effect: effectOrder[effectOrder.length - 1],
-      ...(receipt?.effects.merge?.mergeSha ? { mergeSha: receipt.effects.merge.mergeSha } : {}) };
+    return { ok: false, reason: 'application-owned' };
   }
 
   /** Parent-only projection excludes the capability verifier; readback grants no authority. */
@@ -5868,24 +7124,58 @@ export class OperatorInstalledDispatcherCapability extends WorkerEntrypoint<AppE
       const binding = await authenticateInstalledDispatcher(this.env, request);
       if (!this.env.OPERATOR_ACTIVITY) throw new Error('Dispatcher owner unavailable');
       const activity = this.env.OPERATOR_ACTIVITY.getByName(binding.activityId);
-      if (new URL(request.url).pathname === '/v1/dispatcher/logging-policy') {
-        return activity.dispatcherLoggingPolicy(binding.generation, request);
-      }
-      return new URL(request.url).pathname === '/v1/dispatcher/abort-authority'
-        ? activity.dispatcherAbortAuthority(binding.generation, request)
-        : activity.dispatcherInstalledCallback(binding.generation, request);
+      const path = new URL(request.url).pathname;
+      const diagnose = (outcome: { stage: 'owner-response'; status: number } | { stage: 'owner-rpc'; error: unknown }) => {
+        try {
+          const route = path === '/v1/dispatcher/pi/config' ? 'pi-config'
+            : path === '/v1/dispatcher/gateway' ? 'gateway'
+            : path === '/v1/dispatcher/model-fetch' ? 'model-fetch'
+            : path === '/v1/dispatcher/model-admission' ? 'model-admission'
+            : path === '/v1/dispatcher/logging-policy' ? 'logging-policy'
+            : path === '/v1/dispatcher/abort-authority' ? 'abort-authority' : 'other';
+          // Essential fixed platform failure metadata only; no optional execution content or policy lookup.
+          createLogger('dispatcher-installed-callback').warn('Installed Dispatcher callback failed', {
+            route, generation: binding.generation,
+            activityDigest: hashDiagnostic(`codeflare:installed-dispatcher:activity:v1\0${binding.activityId}`),
+            ...(outcome.stage === 'owner-response' ? outcome : { stage: outcome.stage, error: captureError(outcome.error) }),
+          });
+        } catch { /* Diagnostics cannot replace the original response or rejection. */ }
+      };
+      const pending = path === '/v1/dispatcher/logging-policy'
+        ? activity.dispatcherLoggingPolicy(binding.generation, request)
+        : path === '/v1/dispatcher/abort-authority'
+          ? activity.dispatcherAbortAuthority(binding.generation, request)
+          : activity.dispatcherInstalledCallback(binding.generation, request);
+      // Do not await inside this try: asynchronous RPC rejection must not become an authentication 403.
+      return pending.then(response => {
+        if (response.status >= 400) diagnose({ stage: 'owner-response', status: response.status });
+        return response;
+      }, error => {
+        diagnose({ stage: 'owner-rpc', error });
+        throw error;
+      });
     } catch { return dispatcherRefusal('execution-inactive'); }
   }
 }
 
 /** REQ-OPERATOR-048: the child receives this fetcher, never an Activity stub or namespace. */
 export class OperatorDispatcherCapability extends WorkerEntrypoint<Env> {
-  #binding() {
-    const props = this.ctx.props as { activityId?: unknown; generation?: unknown };
-    if (!props || typeof props.activityId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(props.activityId)
+  #binding(rawOnly = false) {
+    const props = this.ctx.props as { activityId?: unknown; generation?: unknown; rawOnly?: unknown;
+      ownerKey?: unknown; receiptDigest?: unknown };
+    if (!props || (props.rawOnly !== undefined && typeof props.rawOnly !== 'boolean') || (props.rawOnly === true) !== rawOnly
+      || typeof props.activityId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(props.activityId)
       || typeof props.generation !== 'number' || !Number.isSafeInteger(props.generation) || props.generation < 1
       || !this.env.OPERATOR_ACTIVITY) throw new Error('Dispatcher binding unavailable');
-    return { activity: this.env.OPERATOR_ACTIVITY.getByName(props.activityId), generation: props.generation };
+    const archive = rawOnly ? { activityId: props.activityId, generation: props.generation,
+      ownerKey: syncDigest.parse(props.ownerKey), receiptDigest: syncDigest.parse(props.receiptDigest) } : undefined;
+    return { activity: this.env.OPERATOR_ACTIVITY.getByName(props.activityId), generation: props.generation, archive };
+  }
+
+  async record(stage: string, value: unknown): Promise<void> {
+    const { activity, archive } = this.#binding(true);
+    if (!archive) throw new Error('Raw capture unavailable');
+    await activity.retainDispatcherInferenceObservation(archive, stage, value);
   }
 
   override async fetch(request: Request): Promise<Response> {
@@ -5940,9 +7230,9 @@ export class OperatorDispatcherCapability extends WorkerEntrypoint<Env> {
     } catch { return Response.json({ code: 'OPERATOR_CAPABILITY_DENIED' }, { status: 403 }); }
   }
 
-  async #bridge<T>(method: DispatcherSdkMethod, args: unknown[]): Promise<T> {
+  #bridge<T>(method: DispatcherSdkMethod, args: unknown[]): Promise<T> {
     const { activity, generation } = this.#binding();
-    return await activity.dispatcherBridge(generation, method, args) as T;
+    return activity.dispatcherBridge(generation, method, args) as Promise<T>;
   }
   async _cf_scheduleForFacet<T = string>(ownerPath: DispatcherFacetPath, when: Date | string | number,
     callback: string, payload?: T, options?: { retry?: RetryOptions; idempotent?: boolean }): Promise<{ schedule: Schedule<T>; created: boolean }> {

@@ -17,6 +17,20 @@ import { collectWorkspaceRepos, isWorkspaceInventoryReady } from '../dist/metric
 import { createRequestHandler } from '../dist/request-router.js';
 
 const noop = () => {};
+const lifecycleToken = 'workspace-repos-lifecycle-token';
+
+function getHealth(port, authorization) {
+  return new Promise((resolve, reject) => {
+    const req = http.request({ host: '127.0.0.1', port, path: '/health',
+      headers: authorization === undefined ? {} : { authorization } }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => resolve({ status: res.statusCode, body: JSON.parse(data) }));
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
 
 function git(cwd, args) {
   const result = spawnSync('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=t', ...args], {
@@ -151,11 +165,13 @@ describe('REQ-GITHUB-015 AC1: /health carries the inventory', () => {
   let port;
   let workspace;
   const savedWorkspace = process.env.USER_WORKSPACE;
+  const savedToken = process.env.CONTAINER_AUTH_TOKEN;
 
   before(async () => {
     workspace = makeWorkspace();
     makeRepo(workspace, 'api', { origin: 'https://github.com/octo/api.git', branch: 'develop' });
     process.env.USER_WORKSPACE = workspace;
+    process.env.CONTAINER_AUTH_TOKEN = lifecycleToken;
     server = http.createServer(createRequestHandler({
       sessionManager: { size: 1, list: () => [], getOrCreate: () => null, delete: () => false },
       wsEventLog: [],
@@ -180,21 +196,22 @@ describe('REQ-GITHUB-015 AC1: /health carries the inventory', () => {
   after(async () => {
     if (savedWorkspace === undefined) delete process.env.USER_WORKSPACE;
     else process.env.USER_WORKSPACE = savedWorkspace;
+    if (savedToken === undefined) delete process.env.CONTAINER_AUTH_TOKEN;
+    else process.env.CONTAINER_AUTH_TOKEN = savedToken;
     server.close();
     await once(server, 'close');
   });
 
   it('REQ-GITHUB-015 AC1: reports the tracked repositories on /health', async () => {
-    const body = await new Promise((resolve, reject) => {
-      const req = http.request({ host: '127.0.0.1', port, path: '/health' }, (res) => {
-        let data = '';
-        res.on('data', (c) => { data += c; });
-        res.on('end', () => resolve(JSON.parse(data)));
-      });
-      req.on('error', reject);
-      req.end();
-    });
+    const anonymous = await getHealth(port);
+    assert.equal(anonymous.status, 200);
+    assert.deepEqual(anonymous.body, { status: 'healthy' });
+    const unauthorized = await getHealth(port, 'Bearer wrong-lifecycle-token');
+    assert.equal(unauthorized.status, 401);
+    assert.equal('workspaceRepos' in unauthorized.body, false);
 
+    const { status, body } = await getHealth(port, `Bearer ${lifecycleToken}`);
+    assert.equal(status, 200);
     assert.deepEqual(body.workspaceRepos, [{ repo: 'octo/api', ref: 'develop' }]);
   });
 });
@@ -204,6 +221,7 @@ describe('REQ-GITHUB-015 AC1: /health withholds the inventory during restore', (
   let port;
   const savedWorkspace = process.env.USER_WORKSPACE;
   const savedFlag = process.env.CODEFLARE_CLONE_RESTORE_FLAG_FILE;
+  const savedToken = process.env.CONTAINER_AUTH_TOKEN;
 
   before(async () => {
     const workspace = makeWorkspace();
@@ -211,6 +229,7 @@ describe('REQ-GITHUB-015 AC1: /health withholds the inventory during restore', (
     process.env.USER_WORKSPACE = workspace;
     // Flag file deliberately never written: the restore is still "in progress".
     process.env.CODEFLARE_CLONE_RESTORE_FLAG_FILE = join(workspace, 'clone-restore-complete');
+    process.env.CONTAINER_AUTH_TOKEN = lifecycleToken;
     server = http.createServer(createRequestHandler({
       sessionManager: { size: 1, list: () => [], getOrCreate: () => null, delete: () => false },
       wsEventLog: [],
@@ -237,21 +256,17 @@ describe('REQ-GITHUB-015 AC1: /health withholds the inventory during restore', (
     else process.env.USER_WORKSPACE = savedWorkspace;
     if (savedFlag === undefined) delete process.env.CODEFLARE_CLONE_RESTORE_FLAG_FILE;
     else process.env.CODEFLARE_CLONE_RESTORE_FLAG_FILE = savedFlag;
+    if (savedToken === undefined) delete process.env.CONTAINER_AUTH_TOKEN;
+    else process.env.CONTAINER_AUTH_TOKEN = savedToken;
     server.close();
     await once(server, 'close');
   });
 
   it('omits workspaceRepos rather than reporting a partial workspace as the whole inventory', async () => {
-    const body = await new Promise((resolve, reject) => {
-      const req = http.request({ host: '127.0.0.1', port, path: '/health' }, (res) => {
-        let data = '';
-        res.on('data', (c) => { data += c; });
-        res.on('end', () => resolve(JSON.parse(data)));
-      });
-      req.on('error', reject);
-      req.end();
-    });
-
+    const { status, body } = await getHealth(port, `Bearer ${lifecycleToken}`);
+    assert.equal(status, 200);
+    assert.equal(body.status, 'healthy');
+    assert.equal(body.prewarmReady, true);
     assert.equal('workspaceRepos' in body, false);
   });
 });

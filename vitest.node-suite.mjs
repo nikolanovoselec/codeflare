@@ -8,6 +8,8 @@
 export const NODE_SUITE_FILES = [
   // Isolated Wrangler/workerd fixture verifies the real Worker Loader boundary.
   'src/__tests__/operators/loader-runtime.test.ts',
+  // Fresh root-export RPC + automatically scheduled parent alarms; no Flue workload.
+  'src/__tests__/operators/dispatcher-plan-rpc.test.ts',
   'src/__tests__/operators/loader-flue.test.ts',
   'src/__tests__/operators/loader-flue-1.test.ts',
   'src/__tests__/operators/loader-flue-2.test.ts',
@@ -38,6 +40,7 @@ export const NODE_SUITE_FILES = [
   // Review extension; workerd has no node:child_process module.
   'src/__tests__/lib/operator-review-selector.test.ts',
   'src/__tests__/lib/operator-review-remote.test.ts',
+  'src/__tests__/operators/review-boundary-selector.test.ts',
   'src/__tests__/operators/review-published-result.test.ts',
   'src/__tests__/operators/review-connected-lifecycle.test.ts',
   'src/__tests__/operators/conductor-prepared-runtime.test.ts',

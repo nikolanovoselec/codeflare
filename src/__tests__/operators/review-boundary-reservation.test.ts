@@ -189,6 +189,12 @@ describe('REQ-OPERATOR-053: exact-context preparation is one durable Registry re
       .not.toContain(handoff.startCapability);
   }));
 
+  it('REQ-OPERATOR-053/064: a retained compatibility claim is not runtime start assurance', () => withRegistry(async registry => {
+    const handoff = await prepared(registry);
+    expect(await registry.claimBoundaryPreparation(claim)).toMatchObject({ ok: true });
+    expect(await registry.getBoundaryStartGuard(handoff.activityId)).toMatchObject({ claimed: false });
+  }));
+
   it('REQ-OPERATOR-054: stale head/base/merge-base or workflow cannot consume the start handoff', () => withRegistry(async registry => {
     await prepared(registry);
     for (const altered of [{ head: 'f'.repeat(40) }, { base: 'e'.repeat(40) },

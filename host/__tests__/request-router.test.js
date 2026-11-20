@@ -125,11 +125,16 @@ describe('request router seam (server.ts decomposition)', () => {
     assert.equal(body.error, 'Unauthorized');
   });
 
-  it('REQ-OPS-048 AC2: serves /health auth-exempt and reads readiness flags live', async () => {
-    const first = await getJson(port, '/health');
+  it('REQ-OPS-048 AC2 / REQ-SEC-022: authenticated health retains inventory and live readiness', async () => {
+    const headers = { authorization: 'Bearer seam-test-token' };
+    assert.deepEqual(await getJson(port, '/health'), { status: 200, body: { status: 'healthy' } });
+    const first = await getJson(port, '/health', headers);
     assert.equal(first.status, 200);
     assert.equal(first.body.status, 'healthy');
     assert.equal(first.body.sessions, 3);
+    assert.ok(Array.isArray(first.body.workspaceRepos));
+    assert.equal(typeof first.body.syncStatus, 'string');
+    assert.ok(Object.hasOwn(first.body, 'cpu'));
     assert.equal(first.body.terminalServiceReady, false);
     assert.equal(first.body.editorReady, false);
     assert.equal(first.body.editorReadyTimedOut, false);
@@ -139,7 +144,7 @@ describe('request router seam (server.ts decomposition)', () => {
     readinessState.initFlagObserved = true;
     readinessState.editorReadyTimedOut = true;
 
-    const timedOut = await getJson(port, '/health');
+    const timedOut = await getJson(port, '/health', headers);
     assert.equal(timedOut.body.editorReady, false);
     assert.equal(timedOut.body.editorReadyTimedOut, true);
 
@@ -148,7 +153,7 @@ describe('request router seam (server.ts decomposition)', () => {
     readinessState.editorReady = true;
     readinessState.editorReadyTimedOut = false;
 
-    const recovered = await getJson(port, '/health');
+    const recovered = await getJson(port, '/health', headers);
     assert.equal(recovered.body.prewarmReady, true);
     assert.equal(recovered.body.initFlagObserved, true);
     assert.equal(recovered.body.terminalServiceReady, true);

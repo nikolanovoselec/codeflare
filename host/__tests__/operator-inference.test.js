@@ -6,21 +6,172 @@
 import assert from 'node:assert/strict';
 import test, { before, after } from 'node:test';
 import http from 'node:http';
-import { once } from 'node:events';
 import { writeFile, readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ownerInference } from '../dist/operator-inference.js';
+import { createOperatorInferenceOwnerResolver } from '../dist/operator-inference-owner.js';
 
 import { SDK_ROOT, AI_ENTRY, TOKEN, PRIVATE, transcript, digest, listen, post, router,
   fixture, profileRequest, admit, modelRequest, call, successful, refused, privateResponse,
   productionFixture, observeSdkStartup } from './fixtures/operator-inference-harness.mjs';
+/** Actual HTTP receipt of the private wire, independent of console projection. */
+async function privateRetentionFixture(t, options = {}) {
+  const f = await fixture(t, { ...options, loggingEnabled: true });
+  f.rawFrames = [];
+  const waiters = [];
+  f.rawStage = stage => new Promise(resolve => {
+    const existing = f.rawFrames.find(frame => frame.stage === stage);
+    if (existing) resolve(existing);
+    else waiters.push({ stage, resolve });
+  });
+  f.parentContext = {
+    ownerKey: f.binding.ownerKey, sessionId: f.binding.sessionId,
+    sessionGeneration: f.binding.sessionGeneration, deadline: f.trusted.deadline,
+    maxRequestBytes: f.trusted.maxRequestBytes, maxResponseBytes: f.trusted.maxResponseBytes,
+    loggingEnabled: true,
+  };
+  const parentOrigin = await listen(t, async (req, res) => {
+    // Decode incrementally: HTTP chunks may split a retained Unicode code point.
+    req.setEncoding('utf8');
+    let raw = ''; for await (const chunk of req) raw += chunk;
+    const body = JSON.parse(raw);
+    if (req.url === '/v1/dispatcher/owner-raw') {
+      assert.equal(req.method, 'POST');
+      assert.equal(req.headers['content-type'], 'application/json');
+      assert.deepEqual(Object.keys(body).sort(), ['activityId', 'generation', 'stage', 'value']);
+      assert.equal(body.activityId, f.binding.activityId);
+      assert.equal(body.generation, f.binding.generation);
+      f.rawFrames.push(body);
+      for (const waiter of waiters) if (waiter.stage === body.stage) waiter.resolve(body);
+      if (options.holdRaw) return; // An unresolved archive must not delay business HTTP.
+      res.writeHead(options.rejectRaw ? 503 : 200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ status: options.rejectRaw ? 'incomplete' : 'complete', captureId: 'synthetic-host-capture',
+        records: 1, segments: 1, bytes: Buffer.byteLength(raw), termination: 'complete' }));
+      return;
+    }
+    assert.equal(req.url, '/v1/dispatcher/owner-context');
+    assert.deepEqual(body, { activityId: f.binding.activityId, generation: f.binding.generation });
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify(f.parentContext));
+  });
+  const resolver = createOperatorInferenceOwnerResolver({ cwd: f.cwd, agentDir: f.agentDir, sdkRoot: SDK_ROOT,
+    fetch: (input, init) => {
+      const url = new URL(String(input));
+      assert.equal(url.origin, 'https://operator.internal');
+      assert.ok(['/v1/dispatcher/owner-context', '/v1/dispatcher/owner-raw'].includes(url.pathname));
+      if (url.pathname.endsWith('/owner-context') && f.lookupError) throw f.lookupError;
+      if (url.pathname.endsWith('/owner-raw') && options.throwRaw) throw new Error('private transport unavailable');
+      return fetch(`${parentOrigin}${url.pathname}`, init);
+    },
+  });
+  f.origin = await listen(t, router(resolver, f.logs));
+  f.request = (endpoint, body, decision = 'on') => post(f.origin, endpoint, body, TOKEN, {
+    'x-codeflare-operator-activity': f.binding.activityId,
+    'x-codeflare-operator-generation': String(f.binding.generation),
+    ...(decision === undefined || decision === 'missing' ? {} : { 'x-codeflare-operator-logging': decision }),
+  });
+  f.admit = async () => {
+    const response = await f.request('/operator-inference/profile', profileRequest(f));
+    assert.equal(response.status, 200, response.raw);
+    f.trusted.selection = response.body;
+    f.parentContext.selection = response.body;
+  };
+  return f;
+}
+
 const previousToken = process.env.CONTAINER_AUTH_TOKEN;
 before(() => { process.env.CONTAINER_AUTH_TOKEN = TOKEN; });
 after(() => {
   if (previousToken === undefined) delete process.env.CONTAINER_AUTH_TOKEN;
   else process.env.CONTAINER_AUTH_TOKEN = previousToken;
 });
+
+test('REQ-OPERATOR-090: authenticated Host privately sends full inert first-lookup errors without expanding the refusal', { timeout: 15000 }, async t => {
+  const f = await privateRetentionFixture(t);
+  const secret = 'synthetic-first-lookup-password-736';
+  const detail = '完整🙂'.repeat(20000);
+  let reads = 0;
+  f.lookupError = new Error('Original lookup failed', { cause: { password: secret, detail } });
+  Object.defineProperty(f.lookupError, 'unsafe', { get() { reads++; throw new Error('not inert'); } });
+  const receipt = f.rawStage('owner-context-failed');
+  const response = await f.request('/operator-inference/profile', profileRequest(f));
+  assert.equal(response.status, 403);
+  assert.deepEqual(response.body, { error: 'Configured inference unavailable' });
+  const frame = await receipt;
+  assert.equal(frame.value.message, 'Original lookup failed');
+  assert.deepEqual(frame.value.cause, { password: secret, detail });
+  assert.equal(reads, 0);
+  assert.equal(response.raw.includes(secret), false);
+  assert.equal(f.lookupError.cause.password, secret);
+});
+
+test('REQ-OPERATOR-090: failed owner profile privately retains original credential-shaped SDK diagnostics before generic 503', { timeout: 15000 }, async t => {
+  const f = await privateRetentionFixture(t, { initializationFailure: true });
+  const secret = 'synthetic-profile-password-739';
+  const configPath = path.join(f.agentDir, 'extensions', 'operator-inference-config.json');
+  const config = JSON.parse(await readFile(configPath, 'utf8'));
+  config.privateMarker = JSON.stringify({ password: secret });
+  await writeFile(configPath, JSON.stringify(config));
+  const response = await f.request('/operator-inference/profile', profileRequest(f));
+  assert.equal(response.status, 503);
+  assert.deepEqual(response.body, { error: 'Configured inference unavailable' });
+  const frame = await f.rawStage('configured-owner-observations');
+  assert.ok(JSON.stringify(frame.value).includes(secret), 'Original SDK failure is independently available on the private HTTP wire');
+  assert.equal(response.raw.includes(secret), false);
+});
+
+for (const decision of ['off', 'missing']) {
+  test(`REQ-OPERATOR-090: ${decision} transport cannot send private raw observations even with an ON owner`, { timeout: 15000 }, async t => {
+    const f = await privateRetentionFixture(t);
+    const response = await f.request('/operator-inference/profile', profileRequest(f), decision);
+    assert.equal(response.status, 200, response.raw);
+    assert.deepEqual(f.rawFrames, []);
+  });
+}
+
+for (const failed of [false, true]) {
+  test(`REQ-OPERATOR-090: private wire preserves credential-shaped provider hooks and ${failed ? 'failed final result' : 'success'} without archive delay`, { timeout: 15000 }, async t => {
+    const f = await privateRetentionFixture(t, { failedResult: failed, holdRaw: true });
+    await f.admit();
+    await f.rawStage('configured-owner-observations');
+    f.rawFrames.length = 0;
+    const secret = 'synthetic-private-provider-password-737';
+    const cookie = 'session=synthetic-private-provider-cookie-738';
+    f.responseHeaders = { 'set-cookie': cookie };
+    const input = modelRequest(f, { context: { messages: [{ role: 'user', timestamp: 1,
+      content: JSON.stringify({ password: secret, detail: 'full-provider-payload-'.repeat(500) }) }] } });
+    const response = await f.request('/operator-inference', input);
+    if (failed) {
+      assert.equal(response.status, 502);
+      assert.deepEqual(response.body, { error: 'Configured inference unavailable' });
+      assert.equal(response.raw.includes(PRIVATE), false);
+    } else successful(response);
+    const frame = await f.rawStage('configured-owner-observations');
+    const observations = frame.value;
+    assert.deepEqual(observations.find(item => item.stage === 'provider-request').value, f.sends[0].body);
+    assert.equal(observations.find(item => item.stage === 'provider-response').value.headers['set-cookie'], cookie);
+    assert.equal(observations.find(item => item.stage === 'provider-stream-event').value.text, f.answer);
+    const result = observations.find(item => item.stage === 'sdk-result').value;
+    if (failed) assert.equal(result.errorMessage, `Incomplete provider result ${PRIVATE}`);
+    else assert.deepEqual(result, response.body.result);
+    assert.equal(JSON.stringify(frame).includes(secret), true);
+    assert.equal(response.raw.includes(cookie), false);
+  });
+}
+
+for (const failure of ['rejectRaw', 'throwRaw']) {
+  test(`REQ-OPERATOR-090: ${failure} leaves original profile success and provider refusal unchanged`, { timeout: 15000 }, async t => {
+    const f = await privateRetentionFixture(t, { [failure]: true });
+    await f.admit();
+    f.status = 503;
+    const response = await f.request('/operator-inference', modelRequest(f));
+    assert.equal(response.status, 502);
+    assert.deepEqual(response.body, { error: 'Configured inference unavailable' });
+    assert.equal(response.raw.includes(PRIVATE), false);
+    if (failure === 'rejectRaw') await f.rawStage('configured-owner-observations');
+  });
+}
 
 test('REQ-OPERATOR-007: AC4/5 profile discovers saved asynchronous custom selection using public SDK services without model spend', async t => {
   const f = await fixture(t);
@@ -65,6 +216,7 @@ test('REQ-OPERATOR-007: AC2/3 discovered native provider receives exact transcri
   privateResponse(f, response);
 });
 
+// REQ-OPERATOR-102: Native Dispatcher profile authority.
 test('REQ-OPERATOR-007: AC4/5 virtual logical profile remains pinned while public SDK routes each request to its physical model', async t => {
   const f = await fixture(t, { virtual: true });
   const admitted = await admit(f);

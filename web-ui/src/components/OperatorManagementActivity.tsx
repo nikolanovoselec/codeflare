@@ -3,9 +3,11 @@ import * as api from '../api/operator-management';
 import { getSessions } from '../api/client';
 import type { Session } from '../types';
 import { SESSION_ID_RE } from '../lib/constants';
+import { formatOperatorTimestamp } from '../lib/operator-time';
 import { piAuthFailureTitle, piLoginRecoveryCopy, type OperatorActivitySummary, type OperatorActivityDetail } from '../api/operator-activities';
 import { ApiError } from '../api/fetch-helper';
 import OperatorActivityDiagnostics from './OperatorActivityDiagnostics';
+import OperatorApplicationFields from './OperatorApplicationFields';
 
 const working = new Set(['queued', 'running', 'waiting', 'cancel-requested', 'unknown']);
 const nativeSelection = (selection: OperatorActivityDetail['inferenceSelection']) => selection?.source === 'pi-native' ? selection : undefined;
@@ -38,10 +40,7 @@ const OperatorManagementActivity: Component<{ installationId?: string; onBackToC
   const [busy, setBusy] = createSignal(false);
   const [uncertain, setUncertain] = createSignal(false);
   const [unresolvedStartId, setUnresolvedStartId] = createSignal('');
-  // A shareable example may fill the two admitted fields; opening it never prepares an Activity.
-  const example = new URL(window.location.href).searchParams;
-  const [repository, setRepository] = createSignal((example.get('repository') ?? '').slice(0, 256));
-  const [pullRequest, setPullRequest] = createSignal((example.get('pullRequest') ?? '').slice(0, 16));
+  const [invocation, setInvocation] = createSignal<Record<string, unknown>>({});
   const [preview, setPreview] = createSignal<Awaited<ReturnType<typeof api.getInstallationActivityPreview>>>();
   const [previewLoading, setPreviewLoading] = createSignal(false);
   const [previewError, setPreviewError] = createSignal(false);
@@ -69,7 +68,7 @@ const OperatorManagementActivity: Component<{ installationId?: string; onBackToC
     onCleanup(() => { current = false; });
   });
   createEffect(() => {
-    const requiresSource = preview()?.guidedAssessment && preview()?.requiresSourceHost;
+    const requiresSource = preview()?.application?.controlVersion === 1 && preview()?.requiresSourceHost;
     sourceSequence++;
     setSourceHosts([]); setSourceSession(undefined); setSourceLoading(false); setSourceError(false);
     if (requiresSource) void refreshSources();
@@ -109,7 +108,9 @@ const OperatorManagementActivity: Component<{ installationId?: string; onBackToC
     setSelected(id); setDetail(undefined); setDetailLoading(true); setError('');
     try { const value = await api.getOwnedActivity(id); if (active && sequence === detailSequence) {
       setDetail(value);
-      if (unresolvedStartId() === id) { setUnresolvedStartId(''); setUncertain(false); }
+      if (unresolvedStartId() === id && value.activityId === id && value.executionStatus !== 'unknown') {
+        setUnresolvedStartId(''); setUncertain(false);
+      }
     } }
     catch (cause) { if (active && sequence === detailSequence) setError(message(cause)); }
     finally { if (active && sequence === detailSequence) setDetailLoading(false); }
@@ -123,23 +124,12 @@ const OperatorManagementActivity: Component<{ installationId?: string; onBackToC
     finally { if (active) setBusy(false); }
   }
   function invoke() {
-    const mode = preview()?.guidedMode;
-    if (!preview()?.guidedAssessment || !mode) return;
-    const target = mode === 'repository' ? preview()?.configuredRepository ?? '' : repository().trim();
-    if (mode === 'repository' && !target) { setError('Repository is not configured. Configure run settings before starting.'); return; }
-    const number = Number(pullRequest());
-    if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(target) || target.length > (mode === 'repository' ? 201 : 256)) {
-      setError('Repository must be an owner/repository name you can read.'); return;
-    }
-    if (mode === 'legacy-pull-request' && (!/^[1-9]\d*$/.test(pullRequest()) || !Number.isSafeInteger(number))) {
-      setError('Enter a positive pull request number.'); return;
-    }
+    if (preview()?.application?.controlVersion !== 1) return;
     if (!sourceReady()) { setError('Select an available existing source Host before starting.'); return; }
     const source = preview()?.requiresSourceHost ? sourceSession() : undefined;
     let attemptedStartId = '';
     void perform(async () => {
-      const input = mode === 'repository' ? { repository: target } : { repository: target, pullRequest: number };
-      const prepared = await api.prepareInstallationActivity(props.installationId!, input, source);
+      const prepared = await api.prepareInstallationActivity(props.installationId!, invocation(), source);
       if (!active) return;
       attemptedStartId = prepared.activityId;
       setPreparedId(attemptedStartId);
@@ -156,19 +146,17 @@ const OperatorManagementActivity: Component<{ installationId?: string; onBackToC
     <Show when={error()}><div class="operator-message" role="alert"><p>{error()}</p><button class="admin-secondary-button" disabled={busy() || loading()} onClick={() => void refresh()}>Refresh activity state</button></div></Show>
     <Show when={notice()}><p class="operator-message" role="status">{notice()}</p></Show>
     <Show when={props.installationId}>
-      <section class="admin-panel operator-panel" aria-label="Prepare assessment">
+      <section class="admin-panel operator-panel" aria-label="Prepare run">
         <Show when={previewLoading()}><p role="status">Checking your invocation access and installed package…</p></Show>
         <Show when={previewError()}><p role="alert">The installation is unavailable or you cannot invoke it. Return to Operators and review your access.</p></Show>
-        <Show when={preview()}>{value => <Show when={value().guidedAssessment && value().guidedMode} fallback={<p>No guided assessment is available for {value().name} ({value().version}). This page does not start unsupported packages.</p>}>
-          <h2>{value().guidedMode === 'repository' ? 'Assess recent Renovate pull requests' : 'Assess a Renovate pull request'}</h2><p>{value().name} · {value().version}</p>
-          <p>{value().guidedMode === 'repository'
-            ? 'This discovers recent Renovate pull requests, researches dependency changes, and may post comments and conditionally merge eligible pull requests using your own invocation grant, repository access and inference route. Nothing runs until you start it.'
-            : 'This starts a real read-only assessment using your own invocation grant, repository read access and inference route. It will not merge or change the pull request. Nothing runs until you start it.'}</p>
-          <Show when={value().guidedMode === 'repository' && !value().configuredRepository}><p role="status">Repository is not configured. Configure run settings before starting.</p></Show>
-          <form onSubmit={event => { event.preventDefault(); invoke(); }}><fieldset disabled={busy() || uncertain()}>
+        <Show when={preview()}>{value => <Show when={value().application?.controlVersion === 1}
+          fallback={<p>This installed version does not expose the application control contract. Install a compatible release before starting {value().name}.</p>}>
+          <h2>Run {value().name}</h2><p>{value().version}</p>
+          <p>{value().description}</p>
+          <p>Uses the saved configuration, your invocation grant and the input below. Nothing runs until you start it.</p>
+          <form onSubmit={event => { event.preventDefault(); if (event.currentTarget.checkValidity()) invoke(); }}><fieldset disabled={busy() || uncertain()}>
             <div class="admin-form-grid">
-              <label class="admin-form-field"><span>Repository</span><input aria-label="Repository" type="text" required maxlength={value().guidedMode === 'repository' ? 201 : 256} autocomplete="off" placeholder="owner/repository" readonly={value().guidedMode === 'repository'} value={value().guidedMode === 'repository' ? value().configuredRepository ?? '' : repository()} onInput={event => { if (value().guidedMode !== 'repository') setRepository(event.currentTarget.value); }} /><small>{value().guidedMode === 'repository' ? 'Uses the saved target; this form cannot override it.' : 'Enter a repository you can read, in owner/repository format.'}</small></label>
-              <Show when={value().guidedMode === 'legacy-pull-request'}><label class="admin-form-field"><span>Pull request number</span><input aria-label="Pull request number" type="number" required min="1" step="1" max="9007199254740991" value={pullRequest()} onInput={event => setPullRequest(event.currentTarget.value)} /><small>Choose a Renovate pull request in that repository.</small></label></Show>
+              <OperatorApplicationFields schema={value().inputSchema ?? {}} value={invocation()} onChange={setInvocation} />
               <Show when={value().requiresSourceHost}>
                 <label class="admin-form-field"><span>Source host</span><select aria-label="Source host" required disabled={sourceLoading()} onChange={event => {
                   const host = sourceHosts().find(candidate => candidate.id === event.currentTarget.value);
@@ -184,7 +172,7 @@ const OperatorManagementActivity: Component<{ installationId?: string; onBackToC
                 </div>
               </Show>
             </div>
-            <div class="operator-actions"><button type="submit" class="admin-primary-button" disabled={!sourceReady() || value().guidedMode === 'repository' && !value().configuredRepository}>Start assessment</button><a href="/operators" onClick={props.onBackToCatalog}>Back to operators</a></div></fieldset></form>
+            <div class="operator-actions"><button type="submit" class="admin-primary-button" disabled={!sourceReady()}>Start run</button><a href="/operators" onClick={props.onBackToCatalog}>Back to operators</a></div></fieldset></form>
         </Show>}</Show>
         <Show when={preparedId()}><p>Prepared activity: <button class="admin-secondary-button" disabled={busy()} onClick={() => void read(preparedId())}>{preparedId()}</button>. If submission was interrupted, inspect its state before preparing more work.</p></Show>
       </section>
@@ -195,7 +183,7 @@ const OperatorManagementActivity: Component<{ installationId?: string; onBackToC
       <Show when={!loading() && !error()}><Show when={items().length} fallback={<p>No owned activity.</p>}>
         <ul class="operator-list"><For each={items()}>{item => <li><strong>{item.operatorId}</strong><p>{item.activityId}</p>
           <p>Execution: {item.executionStatus} · Cleanup: {item.cleanupStatus} · Collection: {item.collectionStatus}</p>
-          <p>Updated {new Date(item.updatedAt).toLocaleString()}{Date.now() - new Date(item.updatedAt).getTime() > 120000 ? ' · Stale observation — refresh before acting' : ''}</p>
+          <p>Updated {formatOperatorTimestamp(item.updatedAt)}{Date.now() - new Date(item.updatedAt).getTime() > 120000 ? ' · Stale observation — refresh before acting' : ''}</p>
           <Show when={item.authFailure}>{failure => <p>{piAuthFailureTitle(failure())}</p>}</Show>
           <Show when={item.attention && !item.authFailure}><p>Needs attention</p></Show>
           <div class="operator-actions"><button class="admin-secondary-button" disabled={busy()} onClick={() => void read(item.activityId)}>View {item.activityId}</button>

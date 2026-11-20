@@ -42,6 +42,7 @@ function makeHost(overrides: Partial<ContainerHost> = {}): ContainerHost {
     _vaultKey: null,
     _sessionId: null,
     _userEmail: null,
+    _cloudflareOauthAccountId: null,
     _routeCatalog: [],
     _routeContextWindows: {},
     _routeReasoningLevels: {},
@@ -261,6 +262,100 @@ describe('CF-016 dispatchInternalRoute', () => {
     expect(activeCatchAll).toBeDefined();
     expect(await (await activeCatchAll!.fetch(new Request('https://account.r2.cloudflarestorage.com/b/key'))).text())
       .toBe('replacement-access');
+  });
+
+  describe('REQ-ENTERPRISE-027 AC5: held warm strict registration', () => {
+    const prior = {
+      bucketName: 'b', r2AccessKeyId: 'prior-access', r2SecretAccessKey: 'prior-secret',
+      remoteCurationActive: true, remoteCurationReleaseDigest: 'a'.repeat(64),
+      remoteCurationManifestDigest: 'f'.repeat(64), managedResourcePolicy: 'immutable',
+      managedResourcePathsDigest: 'b'.repeat(64),
+    };
+    const changes = [
+      ['bucket', { bucketName: 'replacement-bucket' }],
+      ['access key', { r2AccessKeyId: 'replacement-access' }],
+      ['secret key', { r2SecretAccessKey: 'replacement-secret' }],
+      ['policy', { managedResourcePolicy: 'exclusive' }],
+      ['release', { remoteCurationReleaseDigest: 'd'.repeat(64) }],
+      ['paths', { managedResourcePathsDigest: 'e'.repeat(64) }],
+    ] as const;
+
+    it.each(changes.flatMap(([label, change]) => [
+      { label, change, reject: false }, { label, change, reject: true },
+    ]))('$label: no security commit while held, rejection=$reject', async ({ change, reject }) => {
+      const next = { ...prior, ...change };
+      const propsFor = (body: typeof prior) => ({ accountId: 'account', bucket: body.bucketName,
+        r2AccessKeyId: body.r2AccessKeyId, r2SecretAccessKey: body.r2SecretAccessKey,
+        resourcePolicy: body.managedResourcePolicy, releaseDigest: body.remoteCurationReleaseDigest,
+        pathsDigest: body.managedResourcePathsDigest, strict: true });
+      const worker = (props: ReturnType<typeof propsFor>) => ({
+        fetch: async (_request: Request) => Response.json(props),
+      });
+      let active = worker(propsFor(prior));
+      let entered!: () => void;
+      const registering = new Promise<void>(resolve => { entered = resolve; });
+      let accept!: () => void;
+      let fail!: (reason: Error) => void;
+      const registration = new Promise<void>((resolve, rejectRegistration) => {
+        accept = resolve;
+        fail = rejectRegistration;
+      });
+      const host = makeHost({
+        env: { ENTERPRISE_MODE: 'active' } as any,
+        ctx: {
+          storage: { get: vi.fn().mockResolvedValue(null), put: vi.fn().mockResolvedValue(undefined),
+            delete: vi.fn().mockResolvedValue(undefined) },
+          exports: { EgressController: ({ props }: { props: ReturnType<typeof propsFor> }) => worker(props) },
+          container: { interceptOutboundHttps: async (pattern: string, replacement: typeof active) => {
+            if (pattern !== '*') throw new Error('Expected strict catch-all registration');
+            entered();
+            await registration;
+            active = replacement;
+          } },
+        } as any,
+        _bucketName: prior.bucketName, _r2AccountId: 'account',
+        _r2AccessKeyId: prior.r2AccessKeyId, _r2SecretAccessKey: prior.r2SecretAccessKey,
+        _strictEgress: true, _sessionMode: 'default',
+        _remoteCurationActive: true, _remoteCurationReleaseDigest: prior.remoteCurationReleaseDigest,
+        _remoteCurationManifestDigest: prior.remoteCurationManifestDigest,
+        _managedResourcePolicy: 'immutable', _managedResourcePathsDigest: prior.managedResourcePathsDigest,
+      });
+      const state = () => ({ bucketName: host._bucketName,
+        r2AccessKeyId: host._r2AccessKeyId, r2SecretAccessKey: host._r2SecretAccessKey,
+        remoteCurationActive: host._remoteCurationActive,
+        remoteCurationReleaseDigest: host._remoteCurationReleaseDigest,
+        remoteCurationManifestDigest: host._remoteCurationManifestDigest,
+        managedResourcePolicy: host._managedResourcePolicy,
+        managedResourcePathsDigest: host._managedResourcePathsDigest });
+      const priorEnv = { ...host.envVars };
+      const responseFromActive = async () => (await active.fetch(new Request('https://account.r2.cloudflarestorage.com/b/key'))).json();
+      let settled = false;
+      const pending = dispatchInternalRoute(host, new Request('http://container/_internal/setBucketName', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(next),
+      }))!.then(response => { settled = true; return response; });
+      try {
+        await Promise.race([registering, pending.then(() => { throw new Error('Warm request finished before registration'); })]);
+        expect(settled).toBe(false);
+        expect(state()).toEqual(prior);
+        expect(host.envVars).toEqual(priorEnv);
+        expect(await responseFromActive()).toEqual(propsFor(prior));
+      } finally {
+        if (reject) fail(new Error('registration failed'));
+        else accept();
+      }
+      const response = await pending;
+      expect(response.status).toBe(reject ? 500 : 409);
+      expect(await responseFromActive()).toEqual(propsFor(reject ? prior : next));
+      // The warm route retains the DO's already-bound bucket; only the interceptor's
+      // R2 target changes for a changed-bucket payload. Do not invent a bucket rebind.
+      expect(state()).toEqual(reject ? prior : { ...next, bucketName: prior.bucketName });
+      if (reject) expect(host.envVars).toEqual(priorEnv);
+      else {
+        expect(host.envVars.MANAGED_RESOURCE_POLICY).toBe(next.managedResourcePolicy);
+        expect(host.envVars.MANAGED_RESOURCE_PATHS_DIGEST).toBe(next.managedResourcePathsDigest);
+        expect(host.envVars.REMOTE_CURATION_RELEASE_DIGEST).toBe(next.remoteCurationReleaseDigest);
+      }
+    });
   });
 
   it('REQ-ENTERPRISE-027: rejects injected policy digests when policy mode is omitted', async () => {
@@ -560,4 +655,85 @@ it.each([{ routeCatalog: [] }, { routeCatalog: ['development'] }])('REQ-ENTERPRI
     if (source === 'pi-native') expect(host.envVars.ENTERPRISE_PI_DEFAULT_SOURCE).toBe('pi-native');
     else expect(host.envVars.ENTERPRISE_PI_DEFAULT_SOURCE).not.toBe('pi-native');
   }
+});
+
+// The real HTTP receiver must carry the hint, not just the standalone env helper.
+describe('REQ-AGENT-029: selected OAuth account HTTP receiver', () => {
+  const browserAccountA = 'a'.repeat(32);
+  const oauthAccountB = 'b'.repeat(32);
+  const oauthAccountC = 'c'.repeat(32);
+  function configure(host: ContainerHost, body: Record<string, unknown>) {
+    return dispatchInternalRoute(host, new Request('http://container/_internal/setBucketName', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bucketName: 'owner-bucket', ...body }),
+    }))!;
+  }
+
+  it('initial HTTP configuration emits OAuth B independently of browser A without adding durable metadata', async () => {
+    const persisted = new Map<string, unknown>();
+    const host = makeHost({ env: { ENTERPRISE_MODE: 'active' } as any });
+    vi.mocked(host.ctx.storage.put).mockImplementation(async (key: any, value: any) => { persisted.set(key, value); });
+    const response = await configure(host, {
+      cloudflareAccountId: browserAccountA, cloudflareApiToken: 'codeflare-enterprise',
+      cloudflareOauthAccountId: oauthAccountB,
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ success: true, bucketName: 'owner-bucket' });
+    expect(host.envVars).toMatchObject({
+      CLOUDFLARE_ACCOUNT_ID: browserAccountA, CLOUDFLARE_OAUTH_ACCOUNT_ID: oauthAccountB,
+      CLOUDFLARE_API_TOKEN: 'codeflare-enterprise',
+    });
+    expect(JSON.stringify([...persisted])).not.toContain(oauthAccountB);
+  });
+
+  it('restart HTTP configuration changes B to C, preserves an omitted hint, then clears it with null', async () => {
+    const host = makeHost({ env: { ENTERPRISE_MODE: 'active' } as any });
+    expect((await configure(host, {
+      cloudflareAccountId: browserAccountA, cloudflareApiToken: 'codeflare-enterprise',
+      cloudflareOauthAccountId: oauthAccountB,
+    })).status).toBe(200);
+    expect(host.envVars.CLOUDFLARE_OAUTH_ACCOUNT_ID).toBe(oauthAccountB);
+    expect((await configure(host, { cloudflareOauthAccountId: oauthAccountC })).status).toBe(409);
+    expect(host.envVars.CLOUDFLARE_OAUTH_ACCOUNT_ID).toBe(oauthAccountC);
+    expect((await configure(host, { userTimezone: 'Europe/Zurich' })).status).toBe(409);
+    expect(host.envVars).toMatchObject({ CLOUDFLARE_OAUTH_ACCOUNT_ID: oauthAccountC, USER_TIMEZONE: 'Europe/Zurich' });
+    expect((await configure(host, { cloudflareOauthAccountId: null })).status).toBe(409);
+    expect(host.envVars).not.toHaveProperty('CLOUDFLARE_OAUTH_ACCOUNT_ID');
+    expect(host.envVars).toMatchObject({
+      CLOUDFLARE_ACCOUNT_ID: browserAccountA, CLOUDFLARE_API_TOKEN: 'codeflare-enterprise',
+    });
+  });
+
+  it.each([undefined, null])('legacy minimal HTTP configuration accepts hint %s without inventing selection', async cloudflareOauthAccountId => {
+    const host = makeHost();
+    const response = await configure(host, { cloudflareAccountId: browserAccountA, cloudflareOauthAccountId });
+    expect(response.status).toBe(200);
+    expect(host.envVars.CLOUDFLARE_ACCOUNT_ID).toBe(browserAccountA);
+    expect(host.envVars).not.toHaveProperty('CLOUDFLARE_OAUTH_ACCOUNT_ID');
+  });
+
+  it.each([false, true])('malformed hint returns 400 without clearing authority, writing storage or changing environment (warm=%s)', async warm => {
+    for (const cloudflareOauthAccountId of [
+      '', ' ', 'b'.repeat(31), 'b'.repeat(33), 'g'.repeat(32), `${oauthAccountB}\n`,
+      42, false, {}, [], [oauthAccountB],
+    ]) {
+      const persisted = new Map<string, unknown>([
+        ['review:session-human', 'synthetic-existing-authority'],
+        ['review:boundary-input', 'synthetic-existing-boundary'],
+      ]);
+      const before = [...persisted];
+      const storage = {
+        get: async (key: string) => persisted.get(key),
+        put: async (key: string, value: unknown) => { persisted.set(key, value); },
+        delete: async (key: string) => persisted.delete(key),
+      };
+      const host = makeHost({ _bucketName: warm ? 'owner-bucket' : null,
+        ctx: { storage } as any,
+        envVars: { CLOUDFLARE_ACCOUNT_ID: browserAccountA, CLOUDFLARE_OAUTH_ACCOUNT_ID: oauthAccountB } });
+      const response = await configure(host, { cloudflareOauthAccountId, userTimezone: 'Europe/Zurich' });
+      expect(response.status).toBe(400);
+      expect([...persisted]).toEqual(before);
+      expect(host.envVars).toEqual({ CLOUDFLARE_ACCOUNT_ID: browserAccountA, CLOUDFLARE_OAUTH_ACCOUNT_ID: oauthAccountB });
+    }
+  });
 });

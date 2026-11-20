@@ -577,6 +577,48 @@ describe('Session CRUD Routes / REQ-SESSION-001 (session creation with name + ag
   });
 
   describe('DELETE /sessions/:id', () => {
+    it('REQ-SESSION-025 AC4: Delete retains the original provider failure and owned row without private log data', async () => {
+      const key = 'session:test-bucket:sessiontodelete123';
+      mockKV._set(key, { id: 'sessiontodelete123', userId: 'test-bucket', status: 'running', lifecycleGeneration: 7 });
+      const payload = 'Bearer PRIVATE_DELETE_CANARY /private/delete-path transcript:PRIVATE_DELETE_TEXT';
+      const failure = new Error(payload);
+      const container = createMockContainer();
+      container.destroy.mockRejectedValueOnce(failure);
+      testState.container = container;
+      const logger = await import('../../lib/logger');
+      const entries: Array<{ message: string; data?: Record<string, unknown> }> = [];
+      const capture = (line: unknown) => { entries.push(JSON.parse(String(line))); };
+      const spies = [vi.spyOn(console, 'log').mockImplementation(capture),
+        vi.spyOn(console, 'warn').mockImplementation(capture),
+        vi.spyOn(console, 'error').mockImplementation(capture)];
+      logger.setLogLevel('info');
+      const app = createCrudApp();
+      let observed: unknown;
+      app.onError((error, c) => { observed = error; return c.json({ error: 'provider unavailable' }, 500); });
+      try {
+        const response = await app.request('/sessions/sessiontodelete123', { method: 'DELETE' });
+        expect(response.status).toBe(500);
+        expect(observed).toBe(failure);
+        const retained = await mockKV.get(key, 'json');
+        expect(retained).toMatchObject({ status: 'stopping', lifecycleGeneration: 7,
+          terminationGeneration: 7, terminationIntentId: expect.any(String) });
+        expect(entries).toContainEqual(expect.objectContaining({
+          message: 'Could not confirm container destruction; preserving session for retry',
+          data: expect.objectContaining({ errorClass: 'native_destroy_failed', containerId: expect.any(String) }),
+        }));
+        for (const value of ['PRIVATE_DELETE_CANARY', '/private/delete-path', 'PRIVATE_DELETE_TEXT']) {
+          expect(JSON.stringify(entries)).not.toContain(value);
+        }
+        // A later explicit retry can still finish the same owned deletion.
+        expect((await app.request('/sessions/sessiontodelete123', { method: 'DELETE' })).status).toBe(200);
+        expect(await mockKV.get(key, 'json')).toBeNull();
+      } finally {
+        logger.setLogLevel('silent');
+        for (const spy of spies) spy.mockRestore();
+        testState.container = null;
+      }
+    });
+
     it('deletes session and returns confirmation', async () => {
       const app = createCrudApp();
       const session: Session = {

@@ -3,9 +3,8 @@
  *
  *   REQ-SEC-014 AC1  — cf-access-client-id header only trusted when !isSaasModeActive()
  *   REQ-SEC-014 AC2  — In SaaS mode the header is ignored (attacker-controlled)
- *   REQ-SEC-016 AC1  — pendingAuthConfigFetch sentinel wraps the fetch
- *   REQ-SEC-016 AC2  — Two concurrent cold-start requests reuse the in-flight fetch
- *   REQ-SEC-016 AC3  — resetAuthConfigCache() clears the sentinel
+ *   REQ-SEC-016 AC1   — Independent requests do not share pending storage I/O
+ *   REQ-SEC-016 AC2/6 — Completed caches are reusable and explicitly invalidated
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -108,80 +107,72 @@ describe('REQ-SEC-014 AC1/AC2: cf-access-client-id is NOT trusted in SaaS mode',
   });
 });
 
-// ── REQ-SEC-016: pendingAuthConfigFetch concurrent dedup sentinel ─────────────
+// ── REQ-SEC-016: request-independent completed configuration cache ──────────
 
-describe('REQ-SEC-016 AC1/AC2: concurrent cold-start requests deduplicate KV reads', () => {
+describe('REQ-SEC-016: independent auth requests and completed cache reuse', () => {
   beforeEach(() => {
     resetAuthConfigCache();
     vi.clearAllMocks();
   });
 
-  it('REQ-SEC-016 AC2: two concurrent getUserFromRequest calls issue only ONE KV read for auth config', async () => {
-    const mockKV = createMockKV();
+  const request = () => new Request('http://localhost/test', {
+    headers: { 'cf-access-authenticated-user-email': 'setup@example.test' },
+  });
 
-    // Simulate a slow KV response to make concurrency observable
-    let resolveKv!: (value: string | null) => void;
-    const kvPromise = new Promise<string | null>((resolve) => {
-      resolveKv = resolve;
+  it('REQ-SEC-016 AC1: held storage I/O cannot stall a second authentication request', async () => {
+    const mockKV = createMockKV();
+    mockKV._store.set('setup:auth_domain', 'team.cloudflareaccess.com');
+    mockKV._store.set('setup:access_aud', 'aud-123');
+    const get = mockKV.get;
+    let resolveHeld!: (value: string | null) => void;
+    let markStarted!: () => void;
+    let hold = true;
+    const started = new Promise<void>(resolve => { markStarted = resolve; });
+    const held = new Promise<string | null>(resolve => { resolveHeld = resolve; });
+    mockKV.get = vi.fn(async (key, type) => {
+      if (key === 'setup:auth_domain' && hold) {
+        hold = false;
+        markStarted();
+        return held;
+      }
+      return get(key, type);
     });
-    mockKV.get = vi.fn().mockReturnValueOnce(kvPromise).mockResolvedValue(null);
-
     const env = makeEnv({}, mockKV);
-
-    const req1 = new Request('http://localhost/test');
-    const req2 = new Request('http://localhost/test');
-
-    // Fire both concurrently before the first KV read resolves
-    const [p1, p2] = [
-      getUserFromRequest(req1, env),
-      getUserFromRequest(req2, env),
-    ];
-
-    // Now let the KV resolve
-    resolveKv(null);
-
-    await Promise.all([p1, p2]);
-
-    // KV.get for auth_domain should have been called exactly once despite two concurrent requests
-    const authDomainCalls = (mockKV.get as ReturnType<typeof vi.fn>).mock.calls.filter(
-      (call: string[]) => call[0] === 'setup:auth_domain'
-    );
-    expect(authDomainCalls.length).toBe(1);
+    const first = getUserFromRequest(request(), env);
+    await started;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const second = await Promise.race([
+        getUserFromRequest(request(), env),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error('Independent request stalled')), 2000);
+        }),
+      ]);
+      expect(second).toMatchObject({ authenticated: false, email: '' });
+    } finally {
+      clearTimeout(timer);
+      resolveHeld('team.cloudflareaccess.com');
+      expect(await first).toMatchObject({ authenticated: false, email: '' });
+    }
   });
 
-  it('REQ-SEC-016 AC2: sequential requests after cache is warm do not re-read KV', async () => {
+  it('REQ-SEC-016 AC2: completed configuration remains usable during a storage outage', async () => {
     const mockKV = createMockKV();
+    mockKV._store.set('setup:auth_domain', 'team.cloudflareaccess.com');
+    mockKV._store.set('setup:access_aud', 'aud-123');
     const env = makeEnv({}, mockKV);
-
-    const req1 = new Request('http://localhost/test');
-    const req2 = new Request('http://localhost/test');
-
-    // First request warms the cache
-    await getUserFromRequest(req1, env);
-    const callsAfterFirst = (mockKV.get as ReturnType<typeof vi.fn>).mock.calls.length;
-
-    // Second request should NOT re-read KV for auth config
-    await getUserFromRequest(req2, env);
-    const callsAfterSecond = (mockKV.get as ReturnType<typeof vi.fn>).mock.calls.length;
-
-    expect(callsAfterSecond).toBe(callsAfterFirst);
+    expect((await getUserFromRequest(request(), env)).authenticated).toBe(false);
+    mockKV.get.mockRejectedValue(new Error('Storage unavailable'));
+    expect((await getUserFromRequest(request(), env)).authenticated).toBe(false);
   });
 
-  it('REQ-SEC-016 AC3: resetAuthConfigCache clears the sentinel so next request re-reads KV', async () => {
+  it('REQ-SEC-016 AC6: reset makes newly configured authentication visible', async () => {
     const mockKV = createMockKV();
     const env = makeEnv({}, mockKV);
-
-    // Warm the cache
-    await getUserFromRequest(new Request('http://localhost/test'), env);
-    const callsAfterWarm = (mockKV.get as ReturnType<typeof vi.fn>).mock.calls.length;
-
-    // Reset the cache
+    expect((await getUserFromRequest(request(), env)).authenticated).toBe(true);
+    mockKV._store.set('setup:auth_domain', 'team.cloudflareaccess.com');
+    mockKV._store.set('setup:access_aud', 'aud-123');
     resetAuthConfigCache();
-
-    // Next request must re-read KV
-    await getUserFromRequest(new Request('http://localhost/test'), env);
-    const callsAfterReset = (mockKV.get as ReturnType<typeof vi.fn>).mock.calls.length;
-
-    expect(callsAfterReset).toBeGreaterThan(callsAfterWarm);
+    expect(await getUserFromRequest(request(), env)).toMatchObject({ authenticated: false, email: '' });
   });
 });

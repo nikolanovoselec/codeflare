@@ -251,12 +251,11 @@ test('REQ-IDE-048 AC6: non-VS Code workspaces never create or focus an agent ter
     else process.env.CODEFLARE_SESSION_WORKSPACE = workspace;
     const subscriptions: Array<{ dispose(): void }> = [];
     activate({ extensionUri: { fsPath: '/extension' }, subscriptions } as never);
+    vi.runAllTimers();
+    assert.deepEqual(host.terminalCreates, []);
+    assert.deepEqual(host.terminalShows, []);
     for (const subscription of subscriptions) subscription.dispose();
   }
-
-  vi.runAllTimers();
-  assert.deepEqual(host.terminalCreates, []);
-  assert.deepEqual(host.terminalShows, []);
 });
 
 test('REQ-IDE-039 AC3: welcome panel uses the Codeflare brand icon', async () => {

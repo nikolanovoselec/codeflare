@@ -17,15 +17,19 @@ const mockAuthResult = {
 };
 let mockAuthShouldReject = false;
 
-vi.mock('../../lib/access', () => ({
-  authenticateRequest: vi.fn(async () => {
-    if (mockAuthShouldReject) {
-      throw new AppError('AUTH_ERROR', 401, 'Not authenticated');
-    }
-    return { ...mockAuthResult, user: { ...mockAuthResult.user } };
-  }),
-  resolveBucketName: vi.fn(async () => mockAuthResult.bucketName),
-}));
+vi.mock('../../lib/access', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/access')>();
+  return {
+    ...actual,
+    authenticateRequest: vi.fn(async () => {
+      if (mockAuthShouldReject) {
+        throw new AppError('AUTH_ERROR', 401, 'Not authenticated');
+      }
+      return { ...mockAuthResult, user: { ...mockAuthResult.user } };
+    }),
+    resolveBucketName: vi.fn(async () => mockAuthResult.bucketName),
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Stripe mock
@@ -40,6 +44,9 @@ vi.mock('../../lib/stripe', async (importOriginal) => {
     fetchSubscription: vi.fn(async () => null),
   };
 });
+
+vi.mock('../../lib/turnstile', () => ({ verifyTurnstileToken: vi.fn(async () => ({ success: true })) }));
+import { verifyTurnstileToken } from '../../lib/turnstile';
 
 // Import after mocks
 import billingRoutes from '../../routes/billing';
@@ -61,6 +68,7 @@ function createApp(envOverrides: Partial<Env> = {}) {
     return t;
   });
   mockKV._set('tiers:config', tiersWithPrices);
+  mockKV._store.set('setup:turnstile_site_key', 'test-site-key');
   const mockTimekeeper = createMockBillingCoordinator(mockKV);
   const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
@@ -68,6 +76,7 @@ function createApp(envOverrides: Partial<Env> = {}) {
     c.env = {
       KV: mockKV as unknown as KVNamespace,
       TIMEKEEPER: mockTimekeeper,
+      TURNSTILE_SECRET_KEY: 'test-secret',
       STRIPE_SECRET_KEY: 'sk_test_123',
       STRIPE_WEBHOOK_SECRET: 'whsec_test_123',
       ...envOverrides,
@@ -126,12 +135,39 @@ describe('POST /billing/checkout / REQ-SUB-020 (multi-currency pricing from CF-I
     expect(createCheckoutSession).not.toHaveBeenCalled();
   });
 
+  it.each(['secret', 'site-key', 'token', 'rejected', 'unavailable'])('REQ-SETUP-009 AC3: %s challenge failure has no billing/user effects', async (failure) => {
+    const { app, mockKV } = createApp(failure === 'secret' ? { TURNSTILE_SECRET_KEY: undefined } : {});
+    if (failure === 'site-key') mockKV._store.delete('setup:turnstile_site_key');
+    if (failure === 'rejected') vi.mocked(verifyTurnstileToken).mockResolvedValueOnce({ success: false });
+    if (failure === 'unavailable') vi.mocked(verifyTurnstileToken).mockRejectedValueOnce(new Error('verification unavailable'));
+    mockKV._set('user:user@example.com', { role: 'user', trialUsed: true });
+    const before = await mockKV.get('user:user@example.com', 'json');
+    const res = await app.request('/billing/checkout', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tier: 'standard', turnstileToken: failure === 'token' ? undefined : 'valid-token' }),
+    });
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(createCheckoutSession).not.toHaveBeenCalled();
+    expect(await mockKV.get('user:user@example.com', 'json')).toEqual(before);
+  });
+
+  it.each(['active', 'trialing'])('REQ-SETUP-009 AC3: %s subscriber remains CAPTCHA-exempt', async (billingStatus) => {
+    const { app, mockKV } = createApp({ TURNSTILE_SECRET_KEY: undefined });
+    mockKV._store.delete('setup:turnstile_site_key');
+    mockKV._set('user:user@example.com', { billingStatus });
+    const res = await app.request('/billing/checkout', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tier: 'standard' }),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ checkoutUrl: 'https://checkout.stripe.com/test' });
+  });
+
   it('returns checkoutUrl for paid tier', async () => {
     const { app } = createApp();
     const res = await app.request('/billing/checkout', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tier: 'standard', mode: 'default' }),
+      body: JSON.stringify({ tier: 'standard', mode: 'default', turnstileToken: 'valid-token' }),
     });
 
     expect(res.status).toBe(200);
@@ -146,7 +182,7 @@ describe('POST /billing/checkout / REQ-SUB-020 (multi-currency pricing from CF-I
     await app.request('/billing/checkout', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tier: 'standard', mode: 'default' }),
+      body: JSON.stringify({ tier: 'standard', mode: 'default', turnstileToken: 'valid-token' }),
     });
 
     const mockedFn = createCheckoutSession as ReturnType<typeof vi.fn>;
@@ -169,7 +205,7 @@ describe('POST /billing/checkout / REQ-SUB-020 (multi-currency pricing from CF-I
     await app.request('/billing/checkout', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tier: 'standard', mode: 'default' }),
+      body: JSON.stringify({ tier: 'standard', mode: 'default', turnstileToken: 'valid-token' }),
     });
 
     const mockedFn = createCheckoutSession as ReturnType<typeof vi.fn>;
@@ -196,7 +232,7 @@ describe('POST /billing/checkout / REQ-SUB-020 (multi-currency pricing from CF-I
     const res = await app.request('/billing/checkout', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tier: 'unknown-tier', mode: 'default' }),
+      body: JSON.stringify({ tier: 'unknown-tier', mode: 'default', turnstileToken: 'valid-token' }),
     });
 
     expect(res.status).toBe(400);
@@ -234,7 +270,7 @@ describe('POST /billing/checkout / REQ-SUB-020 (multi-currency pricing from CF-I
         'Content-Type': 'application/json',
         'CF-IPCountry': 'DE',
       },
-      body: JSON.stringify({ tier: 'standard', mode: 'default' }),
+      body: JSON.stringify({ tier: 'standard', mode: 'default', turnstileToken: 'valid-token' }),
     });
 
     expect(createCheckoutSession).toHaveBeenCalledWith(
@@ -247,7 +283,7 @@ describe('POST /billing/checkout / REQ-SUB-020 (multi-currency pricing from CF-I
     await app.request('/billing/checkout', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tier: 'standard', mode: 'default' }),
+      body: JSON.stringify({ tier: 'standard', mode: 'default', turnstileToken: 'valid-token' }),
     });
 
     expect(createCheckoutSession).toHaveBeenCalledWith(
@@ -263,7 +299,7 @@ describe('POST /billing/checkout / REQ-SUB-020 (multi-currency pricing from CF-I
         'Content-Type': 'application/json',
         'CF-IPCountry': 'CH',
       },
-      body: JSON.stringify({ tier: 'standard', mode: 'default' }),
+      body: JSON.stringify({ tier: 'standard', mode: 'default', turnstileToken: 'valid-token' }),
     });
 
     expect(createCheckoutSession).toHaveBeenCalledWith(
@@ -279,7 +315,7 @@ describe('POST /billing/checkout / REQ-SUB-020 (multi-currency pricing from CF-I
         'Content-Type': 'application/json',
         'CF-IPCountry': 'GB',
       },
-      body: JSON.stringify({ tier: 'standard', mode: 'default' }),
+      body: JSON.stringify({ tier: 'standard', mode: 'default', turnstileToken: 'valid-token' }),
     });
 
     expect(createCheckoutSession).toHaveBeenCalledWith(
@@ -297,7 +333,7 @@ describe('DEEP-22-004: enterprise billing guards precede action limiters', () =>
         const res = await app.request(path, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tier: 'standard', mode: 'default' }),
+          body: JSON.stringify({ tier: 'standard', mode: 'default', turnstileToken: 'valid-token' }),
         });
         expect(res.status).toBe(403);
       }
@@ -546,7 +582,7 @@ describe('POST /public/stripe/webhook', () => {
     expect(res.status).toBe(200);
   });
 
-  it('deduplicates events', async () => {
+  it('deduplicates visible successful events for 72 hours and leaves failed handling retryable', async () => {
     const secret = 'whsec_test_123';
     const event = {
       id: 'evt_dedupe_1',
@@ -563,15 +599,60 @@ describe('POST /public/stripe/webhook', () => {
     const body = JSON.stringify(event);
     const sig = await generateSignature(body, secret);
 
-    const { app, mockKV } = createApp();
+    const emails: unknown[] = [];
+    globalThis.fetch = vi.fn(async (_url, init) => {
+      emails.push(JSON.parse(String(init?.body)));
+      return new Response('{}', { status: 200 });
+    }) as typeof fetch;
+    const { app, mockKV } = createApp({ RESEND_API_KEY: 'test-email-key' });
+    mockKV._set('user:admin@example.com', { role: 'admin' });
+    // Email links need a configured raw-text origin; the webhook has no request-origin fallback.
+    mockKV._store.set('setup:custom_domain', 'codeflare.example.test');
 
-    // First request
+    // Fail the handler's customer write, not the earlier fail-closed limiter.
+    const put = mockKV.put.getMockImplementation()!;
+    let failHandlerWrite = true;
+    let forbidProtectedWrites = false;
+    mockKV.put.mockImplementation(async (...args) => {
+      const [key] = args;
+      if (key === 'stripe-customer:cus_dup' && failHandlerWrite) {
+        failHandlerWrite = false;
+        throw new Error('KV temporarily unavailable');
+      }
+      if (forbidProtectedWrites && key !== 'stripe-webhook:anonymous') {
+        throw new Error('duplicate state mutation');
+      }
+      return put(...args);
+    });
+    const failed = await app.request('/public/stripe/webhook', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Stripe-Signature': sig },
+      body,
+    });
+    expect(failed.status).toBe(500);
+    expect(await mockKV.get('stripe:event:evt_dedupe_1')).toBeNull();
+    expect(emails).toEqual([]);
+
     const res1 = await app.request('/public/stripe/webhook', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Stripe-Signature': sig },
       body,
     });
     expect(res1.status).toBe(200);
+    expect(await mockKV.get('user:dup@example.com', 'json')).toMatchObject({
+      subscriptionTier: 'standard', stripeCustomerId: 'cus_buyer', billingStatus: 'active',
+    });
+    await vi.waitFor(() => expect(emails).toEqual([
+      expect.objectContaining({ to: ['dup@example.com'] }),
+      expect.objectContaining({ to: ['admin@example.com'] }),
+    ]));
+    const savedState = new Map(mockKV._store);
+    const rateLimit = JSON.parse(savedState.get('stripe-webhook:anonymous')!);
+    expect(rateLimit).toEqual({ count: 2, windowStart: expect.any(Number) });
+    savedState.set('stripe-webhook:anonymous', JSON.stringify({ ...rateLimit, count: 3 }));
+    const sentEmails = [...emails];
+    // Replay may advance only its exact admission counter, not protected state.
+    forbidProtectedWrites = true;
 
     // Second request with same event ID (regenerate sig for fresh timestamp)
     const sig2 = await generateSignature(body, secret);
@@ -582,11 +663,13 @@ describe('POST /public/stripe/webhook', () => {
     });
     expect(res2.status).toBe(200);
 
-    // KV.put should have been called for dedupe key
+    expect([...mockKV._store]).toEqual([...savedState]);
+    expect(emails).toEqual(sentEmails);
+    // Success-marker retention is a wire contract, not global exactly-once.
     expect(mockKV.put).toHaveBeenCalledWith(
       'stripe:event:evt_dedupe_1',
       'processed',
-      expect.objectContaining({ expirationTtl: expect.any(Number) }),
+      { expirationTtl: 72 * 60 * 60 },
     );
   });
 

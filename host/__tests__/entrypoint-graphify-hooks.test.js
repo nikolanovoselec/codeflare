@@ -3,7 +3,7 @@
 // the plugin manifest is present, while the retired SessionStart hook stays absent.
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
@@ -218,4 +218,31 @@ describe('entrypoint graphify hooks (advanced session mode)', () => {
       'default-mode SETTINGS_CONFIG must still carry skipDangerousModePermissionPrompt'
     );
   });
+});
+
+
+describe('REQ-AGENT-025 AC1: executable clone parsing, not quoted separators', () => {
+  for (const command of ['echo "data; git clone https://example.test/a.git"', "printf '%s' 'data && gh repo clone owner/a'", "echo 'data | git clone https://example.test/a.git'"]) {
+    it(`ignores clone-like quoted data: ${command}`, async () => {
+      const { spawnSync } = await import('node:child_process');
+      const result = spawnSync('bash', [new URL('../../preseed/agents/claude/plugins/graphify/scripts/graphify-clone-prompt.sh', import.meta.url).pathname], {
+        input: JSON.stringify({ cwd: '/tmp', tool_input: { command }, tool_response: { stdout: "Cloning into 'not-a-clone'..." } }), encoding: 'utf8',
+      });
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.stdout, '');
+    });
+  }
+  it('preserves an executable clone before later control commands and quoted destination separators', (t) => {
+    const root = mkdtempSync(join(tmpdir(), 'clone-parser-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const result = spawnSync('bash', [new URL('../../preseed/agents/claude/plugins/graphify/scripts/graphify-clone-prompt.sh', import.meta.url).pathname], {
+      input: JSON.stringify({ cwd: root, session_id: 'parser-fixture', tool_input: {
+        command: 'echo "inert; gh repo clone owner/no" && git clone https://example.test/a.git "destination; && data" && git checkout feature',
+      }, tool_response: { stdout: "Cloning into 'destination; && data'..." } }), encoding: 'utf8',
+      env: { ...process.env, CODEFLARE_RUNTIME_ROOT: root },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(JSON.parse(result.stdout).hookSpecificOutput.additionalContext, /destination; && data/);
+  });
+
 });

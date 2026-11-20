@@ -395,7 +395,7 @@ SYNC_MODE="${SYNC_MODE:-none}"
 if [ "${SESSION_MODE:-default}" = "advanced" ]; then
     # Vault syncs, but Vault/graphify-out/ is mostly derived. Persist ONLY the
     # cumulative graph (vault-graph.json - REQ-MEM-009 source of truth; the
-    # global graph is rebuilt from it at boot), the vault-extract content-hash
+    # global graph is rebuilt from it at boot under REQ-MEM-034), the vault-extract content-hash
     # manifest, and its durable first-initialization record (REQ-VAULT-026: both
     # MUST survive restart so a missing restore cannot be mistaken for a fresh
     # vault and rebaseline unextracted edits). The per-run graph.json, chunks, labels,
@@ -910,7 +910,7 @@ initial_sync_from_r2() {
 # the bit stripped for up to a whole daemon cycle, so this also runs after each
 # successful bisync. Idempotent; non-fatal when the directory is absent.
 repair_hook_exec_bits() {
-    find "$USER_CLAUDE_DIR/hooks" -maxdepth 2 \
+    find -P "$USER_CLAUDE_DIR/hooks" \
         \( -name '*.mjs' -o -name '*.sh' \) -type f -exec chmod 0755 {} + 2>/dev/null || true
     # R2 also drops the executable bit on the extensionless native skill launcher.
     find "$USER_CLAUDE_DIR/skills/impeccable/scripts/impeccable" \
@@ -1106,6 +1106,8 @@ establish_bisync_baseline() {
         BASELINE_OUTPUT=$(mktemp)
         # --use-server-modtime + --checkers 64: avoid the per-file mtime HEAD storm; see
         # the steady-state bisync below + AD88.
+        # Bisync max-delete is a percentage: 100 preserves v1.75.2's clamp of 5000,
+        # not an absolute file cap; v1.76 rejects values above 100.
         local BISYNC_DEADLINE=$((SECONDS + BISYNC_TIMEOUT))
         if timeout $BISYNC_TIMEOUT rclone bisync "$USER_HOME/" "r2:$R2_BUCKET_NAME/" \
             --config "$RCLONE_CONFIG" \
@@ -1121,7 +1123,7 @@ establish_bisync_baseline() {
             --recover \
             --check-sync=false \
             --ignore-checksum \
-            --max-delete 5000 \
+            --max-delete 100 \
             --retries 3 --retries-sleep 10s \
             --transfers 32 --checkers 64 \
             --stats 30s --stats-one-line > "$BASELINE_OUTPUT" 2>&1; then
@@ -1266,7 +1268,7 @@ bisync_with_r2() {
         --recover \
         --check-sync=false \
         --ignore-checksum \
-        --max-delete 5000 \
+        --max-delete 100 \
         --retries 3 --retries-sleep 10s \
         --transfers 32 --checkers 64 \
         --stats 30s --stats-one-line "${verbose_args[@]}" > "$SYNC_OUTPUT" 2>&1; then
@@ -2042,7 +2044,7 @@ _openvscode_supervise_loop() {
         current_pgid=""
     }
     trap '_openvscode_cleanup_current_generation' EXIT
-    trap '_openvscode_cleanup_current_generation; exit 0' TERM INT
+    trap '_openvscode_cleanup_current_generation || exit 1; exit 0' TERM INT
 
     while true; do
         if ! _openvscode_should_launch; then
@@ -2065,7 +2067,7 @@ _openvscode_supervise_loop() {
         (umask 077; printf '%s\n%s\n%s\n%s\n' "$current_pid" "$current_start" "$current_generation" "$current_pgid" > "${generation_pidfile}.tmp")
         mv -f "${generation_pidfile}.tmp" "$generation_pidfile"
         if wait "$current_pid"; then exit_code=0; else exit_code=$?; fi
-        _openvscode_cleanup_current_generation
+        _openvscode_cleanup_current_generation || return 1
         echo "[openvscode] $(date '+%Y-%m-%d %H:%M:%S') exited (code $exit_code), restarting in 5s..." >> $CODEFLARE_RUNTIME_ROOT/openvscode/openvscode.log
         sleep 5
     done
@@ -2127,6 +2129,7 @@ drain_operator_sync_shutdown() {
 }
 
 shutdown_handler() {
+    local exit_status="${1:-0}"
     SHUTDOWN_STARTED_AT=$(date +%s)
     echo "[entrypoint] Received shutdown signal, performing final bisync..."
 
@@ -2165,7 +2168,7 @@ shutdown_handler() {
         fi
         SHUTDOWN_ELAPSED=$(( $(date +%s) - SHUTDOWN_STARTED_AT ))
         echo "[entrypoint] Shutdown complete (elapsed: ${SHUTDOWN_ELAPSED}s)"
-        exit 0
+        exit "$exit_status"
     fi
 
     # walk_kill only sends TERM; it does not reap. If the daemon's rclone bisync
@@ -2179,17 +2182,21 @@ shutdown_handler() {
     # however long we waited, keeping the total at 120s and preserving AD57's
     # 15s clean-exit buffer against the DO's 135s hard kill.
     QUIESCE_DECIS=0
-    while [ "$QUIESCE_DECIS" -lt 50 ]; do
-        pgrep -f "rclone bisync" >/dev/null 2>&1 || break
+    while pgrep -f "rclone bisync" >/dev/null 2>&1; do
+        # Reserve the same 12s abort grace and 15s platform clean-exit buffer.
+        # Expiry is failure, never permission to start a competing sync.
+        if [ "$QUIESCE_DECIS" -ge 1080 ]; then
+            echo "[entrypoint] ERROR: daemon bisync did not settle; refusing competing final sync"
+            if [ -n "$TERMINAL_PID" ]; then
+                kill "$TERMINAL_PID" 2>/dev/null || true
+            fi
+            if [ "$exit_status" -eq 0 ]; then exit_status=1; fi
+            exit "$exit_status"
+        fi
         sleep 0.1
         QUIESCE_DECIS=$((QUIESCE_DECIS + 1))
     done
     QUIESCE_SECS=$(( (QUIESCE_DECIS + 9) / 10 ))
-    if [ "$QUIESCE_DECIS" -ge 50 ]; then
-        # Falling through silently would land in exactly the stale-lock
-        # fast-fail this loop exists to avoid, with nothing to diagnose it from.
-        echo "[entrypoint] WARNING: rclone bisync still running after 5s; final bisync may hit a stale lock"
-    fi
 
     # Perform final bisync to R2 (only if baseline was established).
     # Wrap in a 120s watchdog so the DO's destroy() SIGKILL budget (135s,
@@ -2246,10 +2253,12 @@ shutdown_handler() {
           kill_subtree KILL "$BISYNC_PID"
         ) &
         WATCHDOG_PID=$!
-        wait "$BISYNC_PID" 2>/dev/null
-        BISYNC_RC=$?
-        kill "$WATCHDOG_PID" 2>/dev/null
-        wait "$WATCHDOG_PID" 2>/dev/null
+        # A failed sync must reach classification and terminal cleanup under
+        # set -e; stopping/reaping its watchdog can also return nonzero.
+        BISYNC_RC=0
+        wait "$BISYNC_PID" 2>/dev/null || BISYNC_RC=$?
+        kill "$WATCHDOG_PID" 2>/dev/null || true
+        wait "$WATCHDOG_PID" 2>/dev/null || true
         # Bash reports 143 (128 + SIGTERM) or 137 (128 + SIGKILL) when
         # the watchdog fired - surface that as a timeout in the log.
         if [ "$BISYNC_RC" -eq 0 ]; then
@@ -2270,13 +2279,13 @@ shutdown_handler() {
 
     SHUTDOWN_ELAPSED=$(( $(date +%s) - SHUTDOWN_STARTED_AT ))
     echo "[entrypoint] Shutdown complete (elapsed: ${SHUTDOWN_ELAPSED}s)"
-    exit 0
+    exit "$exit_status"
 }
 
 # Set up shutdown trap.
 #
 # Registering one function for a signal trap AND for EXIT runs it TWICE: bash's
-# re-entry guard is per-trap, so the `exit 0` at the end of the handler fires the
+# re-entry guard is per-trap, so the `exit` at the end of the handler fires the
 # EXIT trap, which is the same function. That is not cosmetic here. Pass 1 runs
 # the final bisync under the 108s+12s watchdog; if it hits the watchdog, rclone
 # is SIGKILLed leaving a stale lock, and pass 2 — seeing $CODEFLARE_RUNTIME_ROOT/sync/bisync-initialized
@@ -2287,13 +2296,16 @@ shutdown_handler() {
 # The guard makes the second entry a no-op regardless of which trap fires first.
 SHUTDOWN_RAN=0
 shutdown_once() {
+    local exit_status="${1:-0}"
     if [ "$SHUTDOWN_RAN" = "1" ]; then
         return 0
     fi
     SHUTDOWN_RAN=1
-    shutdown_handler
+    shutdown_handler "$exit_status"
 }
-trap shutdown_once SIGTERM SIGINT EXIT
+# Graceful signals exit successfully; EXIT must retain a fatal startup status.
+trap 'shutdown_once 0' SIGTERM SIGINT
+trap 'shutdown_once "$?"' EXIT
 
 # ============================================================================
 # Helper function to update sync status file (read by health server)
@@ -2782,7 +2794,8 @@ init_user_vault() {
     # (e.g. graphify plugin disabled), continue.
     #
     # Source is vault-graph.json, the cumulative graph the capture and
-    # vault-extract pipelines read back and merge into (REQ-MEM-009). The
+    # vault-extract pipelines read back and merge into (REQ-MEM-009); boot publication
+    # follows REQ-MEM-034. The
     # sibling graph.json is a copy those merges refresh for the local
     # visualization, and the scaffold created below leaves it empty until the
     # first extraction runs. Seeding from it therefore republished user_vault
@@ -3036,11 +3049,13 @@ function configure() {
   const missingVisibility = !hasOwn(settings, 'toolVisibility');
   const missingAutomaticTurns = !hasOwn(limits, 'automaticTurns');
   const needsMinInterval = limits.minIntervalMs !== 300_000;
-  if (!missingVisibility && !missingAutomaticTurns && !needsMinInterval) return;
+  const needsStallLimit = limits.noProgressTurns !== 5;
+  if (!missingVisibility && !missingAutomaticTurns && !needsMinInterval && !needsStallLimit) return;
 
   const nextLimits = {
     ...limits,
-    ...(missingAutomaticTurns ? { automaticTurns: 10 } : {}),
+    ...(missingAutomaticTurns ? { automaticTurns: null } : {}),
+    noProgressTurns: 5,
     minIntervalMs: 300_000,
   };
   const nextSettings = {
@@ -3107,6 +3122,109 @@ console.log('[entrypoint] Pi Plan Mode policy configured');
 NODE
 }
 
+# REQ-MEM-035: prepare only the canonical Markdown and excluded local cache.
+# This runs after restore, before any foreground Pi is released. Legacy runtime
+# migration is a separate quiesced operation; never move an open database here.
+configure_pi_hermes_memory() {
+    [ "${SESSION_MODE:-default}" = "advanced" ] || return 0
+    local memory_home="${1:-$USER_HOME}"
+    python3 - "$memory_home" <<'PY'
+import json, os, stat, sys
+from pathlib import Path
+
+home = Path(os.path.abspath(sys.argv[1]))
+agent = home / '.pi/agent'
+vault = home / 'Vault/Memory'
+cache = home / '.cache/pi-hermes-memory'
+config_path = agent / 'hermes-memory-config.json'
+directories = [home, agent, vault, vault / 'Projects/workspace', cache / 'global', cache / 'consolidation-locks', agent / 'pi-hermes-memory']
+canonical = [vault / name for name in ['USER.md', 'MEMORY.md', 'failures.md']] + [vault / 'Projects/workspace/MEMORY.md']
+links = {cache / 'global' / p.name: p for p in canonical[:3]}
+links.update({
+    agent / 'hermes-project-memory': vault / 'Projects',
+    home / 'Vault/.pi-hermes-locks.sqlite': cache / 'global-locks.sqlite',
+    vault / 'Projects/.pi-hermes-locks.sqlite': cache / 'project-locks.sqlite',
+    agent / 'pi-hermes-memory/.consolidation-locks': cache / 'consolidation-locks',
+})
+
+def regular_or_missing(path):
+    try:
+        if not stat.S_ISREG(path.lstat().st_mode):
+            raise ValueError('conflicting memory file: ' + str(path))
+    except FileNotFoundError:
+        pass
+
+def directory_chain(path):
+    if path != home and home not in path.parents:
+        raise ValueError('memory path escaped its home')
+    current = home
+    parts = path.relative_to(home).parts
+    for part in [None, *parts]:
+        if part is not None:
+            current = current / part
+        try:
+            if not stat.S_ISDIR(current.lstat().st_mode):
+                raise ValueError('conflicting memory directory: ' + str(current))
+        except FileNotFoundError:
+            pass
+
+try:
+    # Complete validation precedes creation or configuration mutation.
+    for path in directories:
+        directory_chain(path)
+    for alias in links:
+        directory_chain(alias.parent)
+        if os.path.lexists(alias):
+            if not alias.is_symlink() or Path(os.path.abspath(alias.parent / os.readlink(alias))) != links[alias]:
+                raise ValueError('conflicting memory link: ' + str(alias))
+    for path in [*canonical, config_path]:
+        regular_or_missing(path)
+    for database in [cache / 'global/sessions.db', cache / 'global-locks.sqlite', cache / 'project-locks.sqlite']:
+        for suffix in ['', '-wal', '-shm', '-journal']:
+            regular_or_missing(Path(str(database) + suffix))
+    config = json.loads(config_path.read_text()) if config_path.exists() else {}
+    if not isinstance(config, dict):
+        raise ValueError('memory configuration must be an object')
+    defaults = {'memoryCharLimit': 5000, 'userCharLimit': 5000, 'projectCharLimit': 5000,
+        'nudgeInterval': 10, 'nudgeToolCalls': 15, 'flushMinTurns': 1,
+        'reviewEnabled': True, 'correctionDetection': True, 'flushOnCompact': True, 'flushOnShutdown': True,
+        'memoryOverflowStrategy': 'reject', 'autoConsolidate': False,
+        'consolidationChunking': True, 'sessionRetentionDays': 1}
+    for key, value in defaults.items():
+        config.setdefault(key, value)
+    config.update({'memoryDir': str(cache / 'global'), 'projectsMemoryDir': 'hermes-project-memory',
+        'memoryMode': 'policy-only', 'lazyInitialization': False, 'skillsEnabled': False,
+        'standingInstructionsEnabled': False, 'reviewRecentMessages': 20,
+        'flushRecentMessages': 20, 'sessionIndexExclude': ['*']})
+    for path in directories:
+        path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    for path in canonical:
+        if not path.exists():
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            os.close(fd)
+    for alias, target in links.items():
+        if not os.path.lexists(alias):
+            alias.symlink_to(target, target_is_directory=target.is_dir())
+    encoded = json.dumps(config, indent=2) + '\n'
+    if not config_path.exists() or config_path.read_text() != encoded:
+        temporary = config_path.with_name(config_path.name + '.tmp-' + str(os.getpid()))
+        try:
+            fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, 'w') as output:
+                output.write(encoded)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temporary, config_path)
+        finally:
+            if temporary.exists():
+                temporary.unlink()
+    print('[entrypoint] Hermes Markdown and local search cache prepared')
+except (OSError, ValueError, json.JSONDecodeError) as error:
+    print('[entrypoint] Hermes preparation refused: ' + str(error), file=sys.stderr)
+    sys.exit(1)
+PY
+}
+
 configure_pi_packages_and_review_inventory() {
     local pi_settings="${PI_SETTINGS_FILE:-$USER_HOME/.pi/agent/settings.json}"
     mkdir -p "$(dirname "$pi_settings")"
@@ -3114,27 +3232,29 @@ configure_pi_packages_and_review_inventory() {
 const fs = require('fs');
 const path = process.argv[2];
 const required = [
-  'npm:@calesennett/pi-codex-fast@0.1.13',
+  'npm:@calesennett/pi-codex-fast@0.1.14',
   'npm:@gotgenes/pi-subagents@25.0.5',
   // Pi tool extensions, always enabled (in `required`) so they are available
   // independently of the context-mode toggle — toggling /ctx never disables them.
   'npm:@juicesharp/rpiv-advisor@2.15.0',
   'npm:@juicesharp/rpiv-ask-user-question@2.15.0',
   'npm:@juicesharp/rpiv-todo@2.15.0',
-  'npm:pi-web-access@0.46.0',
-  'npm:pi-mcp-adapter@5.3.1',
+  'npm:pi-web-access@0.47.0',
+  'npm:pi-mcp-adapter@7.0.1',
   'npm:pi-evaluate@0.1.5',
-  'npm:pi-smart-compact@10.7.3',
-  'npm:@narumitw/pi-goal@0.54.13',
-  'npm:@narumitw/pi-plan-mode@0.59.4',
+  'npm:pi-smart-compact@10.8.1',
+  // The Advanced-only Codeflare adapter owns foreground initialization.
+  { source: 'npm:pi-hermes-memory@0.11.0', extensions: [] },
+  'npm:@narumitw/pi-goal@0.55.1',
+  'npm:@narumitw/pi-plan-mode@0.60.1',
   // The managed terminal adapter initializes the native UI once.
-  { source: 'npm:pi-open-tui@0.3.13', extensions: [] },
+  { source: 'npm:pi-open-tui@0.4.5', extensions: [] },
 ];
 // Each container boot defaults context-mode off; `/ctx on` enables it until next boot.
 // Suppress package discovery; the managed foreground owner remains the only bridge owner.
 const defaultPackageIds = new Set(['npm:context-mode']);
 const defaultPackages = [
-  { source: 'npm:context-mode@2.1.4', extensions: [], skills: [] },
+  { source: 'npm:context-mode@2.1.9', extensions: [], skills: [] },
 ];
 // Migration: hard-remove retired managed packages from existing settings.
 // The graphify wrapper conflicts with first-party graphify-native tools. The glla package is
@@ -3203,8 +3323,13 @@ const managedReviewPaths = ['review-enforcement.ts', 'operator-review-remote.ts'
 // The adapter is the sole managed MCP lifecycle owner, including the first session.
 // Native Pi MCP would otherwise connect the same configured servers eagerly.
 const nativeMcpPaths = new Set(['builtin:mcp', '+builtin:mcp', '-builtin:mcp']);
+// A direct-package trial excluded the former full-file injector at this path.
+// Advanced now needs its replacement lifecycle owner; never clear other selectors.
+const obsoleteHermesExclusion = process.env.SESSION_MODE === 'advanced'
+  ? `-${require('path').join(reviewDir, 'hermes-memory-runtime.ts')}` : undefined;
 const extensions = Array.isArray(settings.extensions)
   ? settings.extensions.filter(item => !managedReviewPaths.includes(item) && !nativeMcpPaths.has(item)
+    && item !== obsoleteHermesExclusion
     && !(typeof item === 'string' && managedMcpIdentity(item.replace(/^[+!-]/, '')))) : [];
 fs.writeFileSync(path, JSON.stringify({ ...settings, packages: [...byName.values()],
   extensions: [...extensions, '-builtin:mcp', ...reviewExclusions] }, null, 2) + '\n');
@@ -3269,7 +3394,7 @@ update_pi_and_codex_when_fast_start_disabled() {
     fi
 
     local npm_tools_dir before_pi before_codex after_pi after_codex update_failed=0
-    local agent_npm_dir pi_display_root pi_display_prepared=true
+    local agent_npm_dir pi_display_root pi_display_prepared=true pi_codex_prepared=true
     local pi_display_roots=()
     local update_cache
     update_cache="$(mktemp -d "${CODEFLARE_RUNTIME_ROOT:-${TMPDIR:-/tmp}}/npm-update.XXXXXX")" || return 1
@@ -3373,6 +3498,11 @@ update_pi_and_codex_when_fast_start_disabled() {
             pi_display_roots+=("$agent_npm_dir")
         fi
         for pi_display_root in "${pi_display_roots[@]}"; do
+            if ! node /opt/codeflare/scripts/patch-pi-codex-prompt-cache.mjs "$pi_display_root/node_modules/@earendil-works/pi-coding-agent"; then
+                echo "[entrypoint] ERROR: Pi Codex prompt-cache preparation failed"
+                pi_codex_prepared=false
+                update_failed=1
+            fi
             if ! node /opt/codeflare/scripts/patch-pi-native-model-display.mjs "$pi_display_root/node_modules/@earendil-works/pi-coding-agent"; then
                 echo "[entrypoint] ERROR: Pi native model display preparation failed"
                 pi_display_prepared=false
@@ -3382,7 +3512,7 @@ update_pi_and_codex_when_fast_start_disabled() {
     fi
     rm -rf -- "$update_cache"
 
-    if [ "$runtime_update_succeeded" = true ] && [ "$pi_installed" = true ] && [ "$pi_display_prepared" = true ]; then
+    if [ "$runtime_update_succeeded" = true ] && [ "$pi_installed" = true ] && [ "$pi_display_prepared" = true ] && [ "$pi_codex_prepared" = true ]; then
         if after_pi="$(PI_OFFLINE= PI_SKIP_VERSION_CHECK= pi --version 2>&1)"; then
             echo "[entrypoint] Fast Start disabled; Pi version after update: $after_pi"
         else
@@ -3405,6 +3535,65 @@ update_pi_and_codex_when_fast_start_disabled() {
 release_agent_pty_after_fast_start_updates() {
     update_pi_and_codex_when_fast_start_disabled || \
         echo "[entrypoint] WARNING: update_pi_and_codex_when_fast_start_disabled failed; continuing startup"
+    # REQ-AGENT-237: upstream has no notice opt-out. Prepare its existing
+    # marker after restore, warm-up and optional updates, before any Pi loads.
+    # This changes neither the package nor web-search preferences/real errors.
+    if ! node - "$USER_HOME" "${PI_NPM_DIR:-$USER_HOME/.pi/agent/npm}" <<'NODE'
+const fs = require('node:fs');
+const path = require('node:path');
+const home = process.argv[2];
+const manifest = path.join(process.argv[3], 'node_modules/pi-web-access/package.json');
+let temporary;
+try {
+  let installed;
+  try { installed = fs.statSync(manifest); }
+  catch (error) { if (error.code === 'ENOENT') process.exit(0); throw error; }
+  if (!installed.isFile()) throw new Error();
+  const { version } = JSON.parse(fs.readFileSync(manifest, 'utf8'));
+  // Match upstream's comparable-version contract, not a hardcoded release.
+  const validVersion = (value) => typeof value === 'string' && /^\d+\.\d+\.\d+$/.test(value);
+  if (!validVersion(version)) throw new Error();
+  // Pi getAgentDir(): explicit PI_CODING_AGENT_DIR (with ~/ expansion),
+  // otherwise ~/.pi/agent. XDG_CONFIG_HOME is not the upgrade marker root.
+  let agent = process.env.PI_CODING_AGENT_DIR || path.join(home, '.pi/agent');
+  if (agent === '~' || agent.startsWith('~/')) agent = path.join(home, agent.slice(1));
+  const directory = path.resolve(agent, 'pi-web-access');
+  const marker = path.join(directory, 'last-seen-version.json');
+  const directories = [];
+  for (let current = directory; ; current = path.dirname(current)) {
+    directories.unshift(current);
+    if (current === path.dirname(current)) break;
+  }
+  // Refuse restored links and non-directories before creating anything.
+  for (const current of directories) {
+    const stat = fs.lstatSync(current, { throwIfNoEntry: false });
+    if (stat && !stat.isDirectory()) throw new Error();
+  }
+  const previous = fs.lstatSync(marker, { throwIfNoEntry: false });
+  if (previous && !previous.isFile()) throw new Error();
+  const state = previous ? JSON.parse(fs.readFileSync(marker, 'utf8')) : {};
+  if (!state || typeof state !== 'object' || Array.isArray(state)
+      || (previous && !validVersion(state.version))) throw new Error();
+  if (state.version === version) process.exit(0);
+  for (const current of directories) {
+    if (!fs.existsSync(current)) fs.mkdirSync(current, { mode: 0o700 });
+  }
+  temporary = fs.mkdtempSync(path.join(directory, '.last-seen-'));
+  const staged = path.join(temporary, 'marker');
+  fs.writeFileSync(staged, JSON.stringify({ ...state, version }), { mode: previous ? previous.mode & 0o777 : 0o600 });
+  fs.renameSync(staged, marker);
+} catch {
+  // Never disclose persisted data, paths or raw filesystem/JSON errors.
+  process.exitCode = 1;
+} finally {
+  if (temporary) {
+    try { fs.rmSync(temporary, { recursive: true, force: true }); } catch { process.exitCode = 1; }
+  }
+}
+NODE
+    then
+        echo "[entrypoint] WARNING: Pi web-access upgrade notice state could not be prepared; continuing startup"
+    fi
     # Runtime installs can repopulate npm's disposable download cache.
     rm -rf "$USER_HOME/.npm" 2>/dev/null
     release_agent_pty_after_cleanup
@@ -4218,7 +4407,7 @@ claude_context_mode_is_selected() {
 # A future contributor who adds a SessionStart-style ctx_* nudge for
 # commercial users would push us over the ELv2 line. Don't do that
 # without revisiting AD49 first.
-CONTEXT_MODE_VERSION="2.1.4"
+CONTEXT_MODE_VERSION="2.1.9"
 CONTEXT_MODE_MANIFEST="$USER_HOME/.claude/plugins/context-mode/.claude-plugin/plugin.json"
 if claude_context_mode_is_selected; then
 if [ -f "$CONTEXT_MODE_MANIFEST" ]; then
@@ -4226,7 +4415,7 @@ if [ -f "$CONTEXT_MODE_MANIFEST" ]; then
     # against the build-time-installed binary (= /usr/local/bin/context-mode
     # --version output) is visible. Bumping plugin.json without a Docker
     # rebuild is a deploy ordering issue caught by this log line.
-    CONTEXT_MODE_VERSION=$(jq -r '.version // "2.1.4"' "$CONTEXT_MODE_MANIFEST" 2>/dev/null || echo "2.1.4")
+    CONTEXT_MODE_VERSION=$(jq -r '.version // "2.1.9"' "$CONTEXT_MODE_MANIFEST" 2>/dev/null || echo "2.1.9")
 fi
 # MCP server registration: always register the context-mode MCP server in
 # ~/.claude.json (mirrors how codeflare-memory's `memory` MCP server is wired).
@@ -4342,8 +4531,10 @@ echo "[entrypoint] graphify MCP server registered in .claude.json (version $GRAP
 # The Cloudflare API token is passed as an Authorization: Bearer header via
 # --wsHeaders (per Cloudflare's MCP-clients doc; --wsHeaders only works with
 # --wsEndpoint). The token must carry the "Browser Rendering - Edit" scope -
-# this is the user-pasted deploy-keys CF token (injected as CLOUDFLARE_API_TOKEN
-# + CLOUDFLARE_ACCOUNT_ID by the container env pipeline), not the CI token.
+# CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID retain the existing browser
+# credential/account projection (an administrator-owned placeholder in Enterprise).
+# CLOUDFLARE_OAUTH_ACCOUNT_ID is separate owner management metadata; do not use it
+# for Browser Run endpoints or overwrite the browser account globally.
 #
 # Double gate, both must hold (otherwise NOT registered, so default/standard
 # sessions and deployments without a CF token are byte-identical to today):
@@ -4631,6 +4822,8 @@ SETTINGS_CONFIG=$(printf '%s' "$SETTINGS_CONFIG" | jq --argjson notify "$HERDR_N
 ')
 
 SETTINGS_FILE="$USER_CLAUDE_DIR/settings.json"
+# R2 restore can remove the empty directory created before synchronization.
+mkdir -p "$USER_CLAUDE_DIR"
 if [ -f "$SETTINGS_FILE" ]; then
     TMP_SETTINGS=$(mktemp)
     JQ_ERR=$(mktemp)
@@ -4863,6 +5056,11 @@ complete_managed_curation_startup() {
     configure_pi_packages_and_review_inventory || \
         echo "[entrypoint] WARNING: Pi Review settings unavailable; Review is not ready"
 
+    # Do not open memory before its durable Markdown restore has completed.
+    if [ "${STEP1_RESULT:-1}" -eq 0 ]; then
+        configure_pi_hermes_memory || echo "[entrypoint] WARNING: Hermes memory is not ready"
+    fi
+
     # The terminal server has been polling this flag before spawning tab 1. Run
     # requested updates, prune restored transcripts, then release the agent PTY.
     release_agent_pty_after_fast_start_updates
@@ -4879,7 +5077,7 @@ complete_managed_curation_startup() {
     if [ $RCLONE_CONFIG_RESULT -eq 0 ] && [ "${STEP1_RESULT:-1}" -eq 0 ]; then
         (
             # REQ-STOR-017: deprioritize ALL background init (bisync --resync baseline, vault
-            # seed, sync/vault daemons) so it yields the single vCPU and the disk to the pi PTY
+            # seed, sync/vault daemons) so it yields CPU and disk priority to the pi PTY
             # pre-warm running concurrently. Pre-warm latency was dominated by contention, not
             # work; with idle I/O class + lowest niceness, pi preempts this subshell whenever it
             # wants CPU/disk, so the baseline effectively runs in pre-warm's slack (and after it

@@ -1,21 +1,41 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { Env } from '../../types';
 
-/**
- * REQ-SEC-016: Concurrent cache deduplication for auth config.
- *
- * AC1: auth-config fetch wrapped in `pendingAuthConfigFetch` Promise sentinel.
- * AC2: Two concurrent cold-start requests reuse the in-flight fetch instead
- *      of issuing redundant KV reads.
- * AC3: The sentinel is cleared on TTL expiry and `resetAuthConfigCache()`.
- * AC4: Pattern mirrors `pendingJWKSFetch` in jwt.ts.
- *
- * We exercise AC1+AC2+AC3 here. We construct a slow KV mock that resolves
- * after a tick, fire N concurrent getUserFromRequest calls, and assert
- * `kv.get` was called exactly the per-config-key count (3 keys: AUTH_DOMAIN,
- * ACCESS_AUD_LIST, ACCESS_AUD) plus the per-request user-lookup reads — NOT
- * N times the config-key count.
- */
-describe('Concurrent auth-config fetch deduplication / REQ-SEC-016 AC1/AC2/AC3 (pendingAuthConfigFetch sentinel coalesces concurrent cold-start KV reads; cleared on cache reset)', () => {
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: Error) => void;
+  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
+
+async function independently<T>(operation: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([operation, new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error('Independent request stalled behind held I/O')), 2000);
+    })]);
+  } finally { clearTimeout(timer); }
+}
+
+const configured = {
+  'setup:auth_domain': 'team.cloudflareaccess.com',
+  'setup:access_aud_list': null,
+  'setup:access_aud': 'aud-123',
+};
+
+function environment(values: Record<string, string | null>): Env {
+  return { KV: { get: async (key: string) => values[key] ?? null } } as unknown as Env;
+}
+
+function unsignedRequest() {
+  return new Request('https://example.test/protected', {
+    headers: { 'cf-access-authenticated-user-email': 'setup@example.test' },
+  });
+}
+
+// These public-API races model independent request-owned storage reads. They do
+// not emulate workerd's request-lifetime enforcement; that needs deployed evidence.
+describe('REQ-SEC-016: request-owned auth config reads and completed snapshots', () => {
   let getUserFromRequest: typeof import('../../lib/access').getUserFromRequest;
   let resetAuthConfigCache: typeof import('../../lib/access').resetAuthConfigCache;
 
@@ -27,100 +47,130 @@ describe('Concurrent auth-config fetch deduplication / REQ-SEC-016 AC1/AC2/AC3 (
     resetAuthConfigCache();
   });
 
-  function makeSlowKv(values: Record<string, string | null>) {
-    const calls: string[] = [];
-    const kv = {
-      get: vi.fn(async (key: string) => {
-        calls.push(key);
-        // simulate ~1 macrotask of KV latency so concurrent requests pile up
-        await new Promise((r) => setTimeout(r, 5));
-        return values[key] ?? null;
-      }),
-    };
-    return { kv, calls };
-  }
+  afterEach(() => { vi.restoreAllMocks(); });
 
-  it('AC2: ten concurrent cold-start requests issue exactly one round of config-key reads', async () => {
-    const { kv, calls } = makeSlowKv({
-      'setup:auth_domain': 'team.cloudflareaccess.com',
-      'setup:access_aud': 'aud-123',
-      'setup:access_aud_list': null,
-    });
-    const env = { KV: kv } as any;
+  it.each(['setup:auth_domain', 'setup:access_aud_list', 'setup:access_aud'])(
+    'REQ-SEC-016 AC1: a held first request at %s does not stall independent authentication', async heldKey => {
+      const started = deferred<void>();
+      const held = deferred<string | null>();
+      let hold = true;
+      const env = { KV: { get: async (key: string) => {
+        if (key === heldKey && hold) { hold = false; started.resolve(); return held.promise; }
+        return configured[key as keyof typeof configured] ?? null;
+      } } } as unknown as Env;
+      const first = getUserFromRequest(unsignedRequest(), env);
+      await started.promise;
+      try {
+        // Deliberately leave the first read unresolved until the second request
+        // has returned. Awaiting shared request-owned I/O would time out here.
+        expect(await independently(getUserFromRequest(unsignedRequest(), env))).toMatchObject({ authenticated: false, email: '' });
+      } finally {
+        held.resolve(configured[heldKey as keyof typeof configured]);
+        expect(await first).toMatchObject({ authenticated: false, email: '' });
+      }
+    },
+  );
 
-    const requests = Array.from({ length: 10 }, () =>
-      getUserFromRequest(new Request('http://localhost/x'), env)
-    );
-    await Promise.all(requests);
-
-    // Each of the three setup:* config keys must be read exactly once
-    // across all 10 concurrent calls.
-    const configReads = calls.filter((k) => k.startsWith('setup:'));
-    const authDomainReads = configReads.filter((k) => k === 'setup:auth_domain').length;
-    const audReads = configReads.filter((k) => k === 'setup:access_aud').length;
-    const audListReads = configReads.filter((k) => k === 'setup:access_aud_list').length;
-
-    expect(authDomainReads).toBe(1);
-    expect(audReads).toBe(1);
-    expect(audListReads).toBe(1);
-  });
-
-  it('AC3: after resetAuthConfigCache(), the next concurrent batch re-issues a single round of config reads', async () => {
-    const { kv, calls } = makeSlowKv({
-      'setup:auth_domain': 'team.cloudflareaccess.com',
-      'setup:access_aud': 'aud-123',
-      'setup:access_aud_list': null,
-    });
-    const env = { KV: kv } as any;
-
-    await Promise.all(
-      Array.from({ length: 5 }, () => getUserFromRequest(new Request('http://localhost/x'), env))
-    );
-    // First batch: 1 read per config key
-    expect(calls.filter((k) => k === 'setup:auth_domain').length).toBe(1);
-
-    resetAuthConfigCache();
-
-    await Promise.all(
-      Array.from({ length: 5 }, () => getUserFromRequest(new Request('http://localhost/x'), env))
-    );
-    // Cache reset forces re-fetch: total reads = 2 per config key, not 10.
-    expect(calls.filter((k) => k === 'setup:auth_domain').length).toBe(2);
-    expect(calls.filter((k) => k === 'setup:access_aud').length).toBe(2);
-    expect(calls.filter((k) => k === 'setup:access_aud_list').length).toBe(2);
-  });
-
-  it('AC1: the sentinel is a Promise that is awaited (concurrent callers see consistent post-fetch state)', async () => {
-    const { kv } = makeSlowKv({
-      'setup:auth_domain': 'team.cloudflareaccess.com',
-      'setup:access_aud': 'aud-123',
-      'setup:access_aud_list': null,
-    });
-    const env = { KV: kv } as any;
-
-    // All four callers must observe the configured-auth state (header
-    // trust must be rejected since auth_domain + aud are set).
-    const results = await Promise.all([
-      getUserFromRequest(
-        new Request('http://localhost/x', { headers: { 'cf-access-authenticated-user-email': 'attacker@x.com' } }),
-        env
-      ),
-      getUserFromRequest(
-        new Request('http://localhost/x', { headers: { 'cf-access-authenticated-user-email': 'attacker@x.com' } }),
-        env
-      ),
-      getUserFromRequest(
-        new Request('http://localhost/x', { headers: { 'cf-access-authenticated-user-email': 'attacker@x.com' } }),
-        env
-      ),
-      getUserFromRequest(
-        new Request('http://localhost/x', { headers: { 'cf-access-authenticated-user-email': 'attacker@x.com' } }),
-        env
-      ),
-    ]);
-    for (const r of results) {
-      // FIX-1: with auth configured, header trust is rejected (no JWT).
-      expect(r.authenticated).toBe(false);
+  it('REQ-SEC-001 AC4: a request arriving between domain and audience reads cannot trust an unsigned header', async () => {
+    const started = deferred<void>();
+    const audience = deferred<string | null>();
+    let hold = true;
+    const env = { KV: { get: async (key: string) => {
+      if (key === 'setup:access_aud_list' && hold) { hold = false; started.resolve(); return audience.promise; }
+      return configured[key as keyof typeof configured] ?? null;
+    } } } as unknown as Env;
+    const first = getUserFromRequest(unsignedRequest(), env);
+    await started.promise;
+    try {
+      expect(await independently(getUserFromRequest(unsignedRequest(), env))).toMatchObject({ authenticated: false, email: '' });
+    } finally {
+      audience.resolve(null);
+      expect(await first).toMatchObject({ authenticated: false, email: '' });
     }
+  });
+
+  it.each(['setup:auth_domain', 'setup:access_aud_list', 'setup:access_aud'])(
+    'REQ-SEC-001 AC5: failure reading %s cannot publish partial auth config for a repeated request', async failedKey => {
+      let fail = true;
+      const env = { KV: { get: async (key: string) => {
+        if (key === failedKey && fail) throw new Error('Synthetic KV outage');
+        return configured[key as keyof typeof configured] ?? null;
+      } } } as unknown as Env;
+      await expect(getUserFromRequest(unsignedRequest(), env)).rejects.toThrow('Synthetic KV outage');
+      await expect(getUserFromRequest(unsignedRequest(), env)).rejects.toThrow('Synthetic KV outage');
+      fail = false;
+      expect(await getUserFromRequest(unsignedRequest(), env)).toMatchObject({ authenticated: false, email: '' });
+    },
+  );
+
+  it('REQ-SEC-016 AC3: a rejected first request does not poison another request or the completed cache', async () => {
+    const started = deferred<void>();
+    const held = deferred<string | null>();
+    let hold = true;
+    const env = { KV: { get: async (key: string) => {
+      if (hold) { hold = false; started.resolve(); return held.promise; }
+      return configured[key as keyof typeof configured] ?? null;
+    } } } as unknown as Env;
+    const first = getUserFromRequest(unsignedRequest(), env);
+    const failure = expect(first).rejects.toThrow('Request ended');
+    await started.promise;
+    try {
+      expect(await independently(getUserFromRequest(unsignedRequest(), env))).toMatchObject({ authenticated: false, email: '' });
+    } finally { held.reject(new Error('Request ended')); await failure; }
+    expect(await getUserFromRequest(unsignedRequest(), env)).toMatchObject({ authenticated: false, email: '' });
+  });
+
+  it('REQ-SEC-016 AC6: reset fences a held old configuration from repopulating the cache or configured latch', async () => {
+    const started = deferred<void>();
+    const held = deferred<string | null>();
+    const oldEnv = { KV: { get: async (key: string) => {
+      if (key === 'setup:auth_domain') { started.resolve(); return held.promise; }
+      return configured[key as keyof typeof configured] ?? null;
+    } } } as unknown as Env;
+    const first = getUserFromRequest(unsignedRequest(), oldEnv);
+    await started.promise;
+    resetAuthConfigCache();
+    const currentEnv = environment({});
+    try {
+      expect(await getUserFromRequest(unsignedRequest(), currentEnv)).toMatchObject({ authenticated: true, email: 'setup@example.test' });
+    } finally {
+      held.resolve(configured['setup:auth_domain']);
+      expect(await first).toMatchObject({ authenticated: false, email: '' });
+    }
+    expect(await getUserFromRequest(unsignedRequest(), currentEnv)).toMatchObject({ authenticated: true, email: 'setup@example.test' });
+  });
+
+  it('REQ-SEC-016 AC6: reset after a completed snapshot makes the saved configuration visible', async () => {
+    const values: Record<string, string | null> = {};
+    const env = environment(values);
+    expect((await getUserFromRequest(unsignedRequest(), env)).authenticated).toBe(true);
+    Object.assign(values, configured);
+    resetAuthConfigCache();
+    expect(await getUserFromRequest(unsignedRequest(), env)).toMatchObject({ authenticated: false, email: '' });
+  });
+
+  it.each([
+    { domain: null, ttl: 30_000, state: 'negative' },
+    { domain: 'team.cloudflareaccess.com', ttl: 300_000, state: 'domain-populated, audience not yet saved' },
+  ])('REQ-SEC-016 AC5: $state cache expires and freshly saved configuration rejects header trust', async ({ domain, ttl }) => {
+    const values: Record<string, string | null> = { 'setup:auth_domain': domain };
+    const env = environment(values);
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    expect((await getUserFromRequest(unsignedRequest(), env)).authenticated).toBe(true);
+    Object.assign(values, configured);
+    clock.mockReturnValue(1_000_000 + ttl - 1);
+    expect((await getUserFromRequest(unsignedRequest(), env)).authenticated).toBe(true);
+    clock.mockReturnValue(1_000_000 + ttl + 1);
+    expect(await getUserFromRequest(unsignedRequest(), env)).toMatchObject({ authenticated: false, email: '' });
+  });
+
+  it('REQ-AUTH-010: a configured snapshot still disables header trust after TTL and empty storage', async () => {
+    const values: Record<string, string | null> = { ...configured };
+    const env = environment(values);
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    expect((await getUserFromRequest(unsignedRequest(), env)).authenticated).toBe(false);
+    for (const key of Object.keys(values)) values[key] = null;
+    clock.mockReturnValue(1_300_001);
+    expect(await getUserFromRequest(unsignedRequest(), env)).toMatchObject({ authenticated: false, email: '' });
   });
 });

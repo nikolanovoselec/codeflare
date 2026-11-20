@@ -6,6 +6,7 @@ import type { AuthVariables } from '../../middleware/auth';
 import { AppError } from '../../lib/error-types';
 import { createMockKV } from '../helpers/mock-kv';
 import { createMockSessionD1 } from '../helpers/mock-session-d1';
+import { getDefaultTiers, resetTierConfigCache } from '../../lib/subscription';
 import preferencesRoutes from '../../routes/preferences';
 
 vi.mock('../../middleware/auth', () => ({
@@ -64,6 +65,7 @@ describe('Preferences Routes', () => {
 
   beforeEach(() => {
     mockKV = createMockKV();
+    resetTierConfigCache();
     mockReconcileAgentConfigs.mockClear();
     mockManagedExtensionsDocumentDigest.mockReset();
     mockManagedExtensionsDocumentDigest.mockResolvedValue('e'.repeat(64));
@@ -644,6 +646,64 @@ describe('Preferences Routes', () => {
   // ---------------------------------------------------------------------------
   // REQ-MEM-011 AC3-AC4 (mode change triggers reconcileAgentConfigs to seed/delete mode-appropriate preseed files)
   describe('preseed reconciliation on sessionMode change / REQ-AGENT-016 (advanced-mode preseed reconciliation)', () => {
+    it.each([
+      { subscribedMode: 'default', modes: ['default', 'advanced'], status: 200, savedMode: 'advanced' },
+      { subscribedMode: 'advanced', modes: ['default'], status: 400, savedMode: 'default' },
+    ])('REQ-SUB-014 AC4: preference save uses configured modes rather than $subscribedMode metadata', async ({ subscribedMode, modes, status, savedMode }) => {
+      mockKV._set('tiers:config', getDefaultTiers().map(tier => tier.id === 'advanced'
+        ? { ...tier, sessionModes: modes } : tier));
+      mockKV._set('user-prefs:codeflare-test-user', { sessionMode: 'default', sleepAfter: '8h' });
+      const { authMiddleware } = await import('../../middleware/auth');
+      vi.mocked(authMiddleware).mockImplementationOnce(async (c: any, next: any) => {
+        c.set('user', { email: 'test@example.com', authenticated: true, role: 'user',
+          subscriptionTier: 'advanced', billingStatus: 'active', subscribedMode });
+        c.set('bucketName', 'codeflare-test-user');
+        return next();
+      });
+      const response = await createTestApp({ SAAS_MODE: 'active' }).request('/preferences', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionMode: 'advanced' }),
+      });
+      expect(response.status).toBe(status);
+      expect(await mockKV.get('user-prefs:codeflare-test-user', 'json')).toMatchObject({ sessionMode: savedMode, sleepAfter: '8h' });
+      if (status === 400) expect(await response.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
+      else expect(await response.json()).toMatchObject({ sessionMode: 'advanced', sleepAfter: '8h' });
+    });
+
+    it('REQ-SEC-015 AC4: saves advanced mode only for current active billing despite a legacy paid mode', async () => {
+      const app = createTestApp({ SAAS_MODE: 'active' });
+      const prefsKey = 'user-prefs:codeflare-test-user';
+      mockKV._set(prefsKey, { sessionMode: 'default', workspaceSyncEnabled: true });
+      const { authMiddleware } = await import('../../middleware/auth');
+      vi.mocked(authMiddleware).mockImplementationOnce(async (c: any, next: any) => {
+        c.set('user', { email: 'test@example.com', authenticated: true, role: 'user',
+          subscriptionTier: 'advanced', subscribedMode: 'advanced', billingStatus: 'canceled' });
+        c.set('bucketName', 'codeflare-test-user');
+        return next();
+      });
+      const canceled = await app.request('/preferences', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionMode: 'advanced' }),
+      });
+      expect(canceled.status).toBe(400);
+      expect(await canceled.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
+      expect(await mockKV.get(prefsKey, 'json')).toEqual({ sessionMode: 'default', workspaceSyncEnabled: true });
+
+      vi.mocked(authMiddleware).mockImplementationOnce(async (c: any, next: any) => {
+        c.set('user', { email: 'test@example.com', authenticated: true, role: 'user',
+          subscriptionTier: 'advanced', subscribedMode: 'advanced', billingStatus: 'active' });
+        c.set('bucketName', 'codeflare-test-user');
+        return next();
+      });
+      const active = await app.request('/preferences', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionMode: 'advanced' }),
+      });
+      expect(active.status).toBe(200);
+      expect(await active.json()).toMatchObject({ sessionMode: 'advanced', workspaceSyncEnabled: true });
+      expect(await mockKV.get(prefsKey, 'json')).toMatchObject({ sessionMode: 'advanced', workspaceSyncEnabled: true });
+    });
+
     it('calls reconcileAgentConfigs when sessionMode changes from default to advanced', async () => {
       const app = createTestApp();
       const prefsKey = 'user-prefs:codeflare-test-user';
@@ -835,6 +895,38 @@ describe('Preferences Routes', () => {
         managedEnvironmentApplied: { digest: 'd'.repeat(64), projectionIdentity: 'v1:pi' },
       });
     });
+
+    it.each(['release', 'projection', 'mode', 'policy', 'encryption', 'migration', 'owner', 'pending'] as const)(
+      'REQ-STOR-035 AC7: mode-change %s drift refuses publication and preserves recovery', async drift => {
+        managedReleaseState.active = { digest: 'd'.repeat(64), compressed: new Uint8Array(), release: { sequence: 9 } };
+        mockKV._set('user-prefs:codeflare-test-user', { sessionMode: 'default' });
+        mockReconcileAgentConfigs.mockImplementationOnce(async (...args: any[]) => {
+          if (drift === 'release') managedReleaseState.active = { ...managedReleaseState.active, digest: 'e'.repeat(64) };
+          if (drift === 'projection') args[0].CODING_AGENTS = 'pi';
+          if (drift === 'policy') vi.mocked((await import('../../lib/managed-release-active')).getActiveManagedRelease).mockResolvedValueOnce({
+            digest: 'd'.repeat(64), pointer: { sequence: 9 }, resourcePolicy: 'exclusive',
+          } as any);
+          if (drift === 'encryption' || drift === 'migration') mockKV._set('r2-regime:codeflare-test-user', {
+            status: drift === 'migration' ? 'migrating' : 'ready', regime: drift === 'encryption' ? 'plain' : 'sse-c', generation: 1,
+          });
+          if (drift === 'owner') mockKV._set('session:codeflare-test-user:race-session', { id: 'race-session', status: 'running', lifecycleGeneration: 1 });
+          if (drift === 'mode' || drift === 'pending') {
+            const current = await mockKV.get('user-prefs:codeflare-test-user', 'json') as any;
+            mockKV._set('user-prefs:codeflare-test-user', { ...current, ...(drift === 'mode' ? { sessionMode: 'default' } : {
+              managedEnvironmentReconciliation: { targets: [] },
+            }) });
+          }
+          return { written: [], skipped: [], deleted: [], warnings: [] };
+        });
+        const res = await createTestApp().request('/preferences', { method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionMode: 'advanced' }) });
+        expect(res.status).not.toBe(200);
+        const stored = await mockKV.get('user-prefs:codeflare-test-user', 'json') as any;
+        expect(stored.managedEnvironmentApplied).toBeUndefined();
+        if (drift !== 'pending') expect(stored.managedEnvironmentReconciliation.targets).toEqual([
+          { digest: 'd'.repeat(64), sequence: 9, mode: 'advanced', projectionIdentity: 'v1:claude-code,codex,copilot,antigravity,opencode,pi' },
+        ]);
+      });
 
     it('REQ-STOR-033: baked mode reconciliation stamps selection identity beside the content hash', async () => {
       mockKV._set('user-prefs:codeflare-test-user', { sessionMode: 'default' });

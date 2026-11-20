@@ -177,12 +177,120 @@ describe('REQ-OPERATOR-007/047: durable Conductor native recovery without loggin
 });
 
 describe('REQ-OPERATOR-086 AC3: safe owner run metadata', () => {
+  const counts = { assessed: 10, merged: 1, notMerged: 2, deferred: 3, unknown: 4 };
+  const zeroCounts = { assessed: 0, merged: 0, notMerged: 0, deferred: 0, unknown: 0 };
+  const countFields = ['assessed', 'merged', 'notMerged', 'deferred', 'unknown'] as const;
+  const ownerKey = 'a'.repeat(64);
+  // Reuse the native Activity fixture, seeding retained application metadata only: no SDK execution.
+  async function seedApplicationResult(ctx: DurableObjectState, deadline: number, result: unknown,
+    status = 'completed', consumed = false) {
+    const admission = await ctx.storage.get<{ receipt: Record<string, unknown> }>('admission');
+    if (!admission) throw new Error('Fixture admission missing');
+    const manifestJson = JSON.stringify({ name: 'Independent Application', version: '1.2.3', application: { controlVersion: 1 } });
+    await ctx.storage.put('admission', { ...admission, ownerKey, browserCollectionConsumed: consumed,
+      invocationJson: JSON.stringify({ repository: 'acme/updates' }),
+      receipt: { ...admission.receipt, intentDigest: 'b'.repeat(64), selection: {
+        controlsRevision: 1, manifestJson,
+        operator: { operatorId: 'operator', name: 'Independent Application', profile: 'dispatcher', revision: 1,
+          policy: { capabilities: ['fetch'], resourceProfileId: null, loggingEnabled: false } },
+        installation: { id: 'installation', operatorId: 'operator', revision: 1, enabled: true,
+          configurationJson: '{}', releaseId: 'release', policy: { capabilities: ['fetch'], resourceProfileId: null } },
+        release: { id: 'release', operatorId: 'operator', bundleDigest: 'a'.repeat(64), sourceCommit: 'd'.repeat(40) },
+      } }, drive: { generation: 1, status, checkpoint: { private: 'PRIVATE_CHECKPOINT' }, result } });
+    await ctx.storage.put('dispatcher:lease', { generation: 1, inputDigest: 'b'.repeat(64), artifactDigest: 'a'.repeat(64),
+      expiresAt: deadline, hosting: 'normal', submissionId: 'original-submission',
+      settledSubmissionId: status === 'completed' ? 'original-submission' : undefined,
+      status: status === 'completed' || status === 'failed' ? 'settled' : 'running',
+      application: { version: 1, initialData: null, checkpoint: null, context: null,
+        delivery: { token: 'private-delivery', ordinal: 1 }, idempotencyKey: 'original-plan', planned: true,
+        ...(status === 'completed' ? { completed: true } : {}) } });
+  }
+
+  it.each([{ resultSummary: counts, consumed: false }, { resultSummary: zeroCounts, consumed: true },
+    { resultSummary: { ...zeroCounts, assessed: 1024, unknown: 1024 }, consumed: false }])(
+    'projects only completed application metadata through cold reconstruction and registry retention: %j', ({ resultSummary, consumed }) =>
+      withActivity(async ({ activity, registry, ctx, activityEnv, deadline }) => {
+        // Deliberately contradictory legacy rows must neither override nor supply generic counts.
+        const result = { resultSummary, body: 'PRIVATE_APPLICATION_RESULT', ...(consumed ? {} : {
+          repository: 'unrelated/opaque', results: [{ pullRequest: 1, outcome: 'MERGED' }],
+        }) };
+        await seedApplicationResult(ctx, deadline, result, 'completed', consumed);
+        const saved = await ctx.storage.list();
+        const summary = await activity.getBrowserSummary(ownerKey);
+        expect(summary).toMatchObject({ version: '1.2.3', resultSummary, executionStatus: 'completed',
+          cleanupStatus: 'unknown', collectionStatus: consumed ? 'consumed' : 'ready', attention: !consumed });
+        expect(summary).not.toHaveProperty('result');
+        expect(summary).not.toHaveProperty('checkpoint');
+        expect(JSON.stringify(summary)).not.toContain('PRIVATE_');
+        expect(await activity.getBrowserSummary('f'.repeat(64))).toBeNull();
+        const cold = new OperatorActivity(ctx, activityEnv);
+        expect(await cold.getBrowserSummary(ownerKey)).toEqual(summary);
+        expect(await ctx.storage.list()).toEqual(saved);
+        if (!summary) throw new Error('Fixture owner summary missing');
+        await registry.upsertOwnedActivity(ownerKey, summary);
+        const coldRegistry = new OperatorRegistry(ctx, env as ConstructorParameters<typeof OperatorRegistry>[1]);
+        expect(await coldRegistry.getOwnedActivity(ownerKey, 'activity')).toEqual(summary);
+        expect(await coldRegistry.listOwnedActivityPage(ownerKey, null)).toMatchObject({
+          unreadCount: 1, workingCount: 0, items: [summary] });
+        expect(await coldRegistry.getOwnedActivity('f'.repeat(64), 'activity')).toBeNull();
+        expect((await ctx.storage.get<{ drive: { result: unknown } }>('admission'))!.drive.result).toEqual(result);
+      }));
+
+  const invalidMetadata: { name: string; metadata: unknown }[] = [
+    { name: 'absent', metadata: undefined }, { name: 'null', metadata: null },
+    { name: 'array', metadata: [counts] }, { name: 'string', metadata: 'PRIVATE_METADATA' },
+    { name: 'extra field', metadata: { ...counts, private: 'PRIVATE_METADATA' } },
+    { name: 'contradictory total', metadata: { ...counts, assessed: 9 } },
+    { name: 'assessed over bound', metadata: { ...zeroCounts, assessed: 1025, unknown: 1025 } },
+    { name: 'integer overflow', metadata: { ...zeroCounts, assessed: Number.MAX_SAFE_INTEGER + 1,
+      merged: Number.MAX_SAFE_INTEGER + 1 } },
+    ...countFields.flatMap(field => [
+      { name: `missing ${field}`, metadata: Object.fromEntries(Object.entries(counts).filter(([key]) => key !== field)) },
+      ...[-1, 0.5, '1', null, true, Infinity, NaN, Number.MAX_SAFE_INTEGER + 1].map(value => ({
+        name: `${field} invalid ${String(value)}`, metadata: { ...counts, [field]: value } })),
+    ]),
+  ];
+  it.each(invalidMetadata)('omits $name application metadata without fallback or lifecycle/result changes', ({ metadata }) =>
+    withActivity(async ({ activity, ctx, deadline }) => {
+      const report = { repository: 'acme/updates', results: [{ pullRequest: 1, outcome: 'MERGED' }],
+        body: 'PRIVATE_APPLICATION_RESULT' };
+      await seedApplicationResult(ctx, deadline, report);
+      const baseline = await activity.getBrowserSummary(ownerKey);
+      expect(baseline).not.toHaveProperty('resultSummary');
+      const result = metadata === undefined ? report : { ...report, resultSummary: metadata };
+      await seedApplicationResult(ctx, deadline, result);
+      const saved = await ctx.storage.list();
+      expect(await activity.getBrowserSummary(ownerKey)).toEqual(baseline);
+      expect(await ctx.storage.list()).toEqual(saved);
+    }));
+
+  it.each([null, [], 'PRIVATE_APPLICATION_RESULT', 0])(
+    'omits metadata for nonobject application result %j', result => withActivity(async ({ activity, ctx, deadline }) => {
+      await seedApplicationResult(ctx, deadline, result);
+      const saved = await ctx.storage.list();
+      expect(await activity.getBrowserSummary(ownerKey)).not.toHaveProperty('resultSummary');
+      expect(await ctx.storage.list()).toEqual(saved);
+    }));
+
+  it.each(['running', 'waiting', 'failed', 'cancel-requested', 'unknown'])(
+    'does not treat valid metadata as completion or authorization for %s application work', status =>
+      withActivity(async ({ activity, ctx, deadline }) => {
+        await seedApplicationResult(ctx, deadline, { body: 'PRIVATE_APPLICATION_RESULT' }, status);
+        const baseline = await activity.getBrowserSummary(ownerKey);
+        await seedApplicationResult(ctx, deadline, { body: 'PRIVATE_APPLICATION_RESULT', resultSummary: counts }, status);
+        const saved = await ctx.storage.list();
+        expect(await activity.getBrowserSummary(ownerKey)).toEqual(baseline);
+        expect(baseline).toMatchObject({ executionStatus: status });
+        expect(baseline).not.toHaveProperty('resultSummary');
+        expect(await ctx.storage.list()).toEqual(saved);
+      }));
+
   it('projects pinned version and complete outcome quantities without exposing result bodies', () => withActivity(async ({ activity, ctx }) => {
     const ownerKey = await operatorOwnerKey({ subject: 'owner', email: 'owner@example.test', issuer: 'https://access.example.test', audiences: ['aud'] });
     const admission = await ctx.storage.get<Record<string, unknown>>('admission');
     await ctx.storage.put('admission', { ...admission, ownerKey, invocationJson: JSON.stringify({ repository: 'acme/updates' }),
       receipt: { ...(admission!.receipt as Record<string, unknown>), manifestJson: JSON.stringify({ name: 'Pinned Dispatcher', version: '0.1.27' }) },
-      drive: { generation: 1, status: 'completed', checkpoint: null, result: { repository: 'acme/updates', results: [
+      drive: { generation: 1, status: 'completed', checkpoint: null, result: { resultSummary: zeroCounts, repository: 'acme/updates', results: [
         { pullRequest: 1, outcome: 'MERGED', comment: 'PRIVATE_ASSESSMENT' },
         { pullRequest: 2, outcome: 'NOT_MERGED' }, { pullRequest: 3, outcome: 'DEFERRED' },
         { pullRequest: 4, outcome: 'EXECUTION_FAILED' },
@@ -577,6 +685,61 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     expect(await activity.commitDrive(1, update)).toEqual({ ok: false, reason: 'stale-drive' });
   }));
 
+  it('REQ-OPERATOR-016/104: never-started Dispatcher cancellation is confirmed across repeats and cold reconstruction without compute', () => withActivity(async ({ activity, ctx, activityEnv, registry }) => {
+    const ownerKey = await operatorOwnerKey({ subject: 'owner', email: 'owner@example.test',
+      issuer: 'https://access.example.test', audiences: ['aud'] });
+    const admission = await ctx.storage.get<{ receipt: Record<string, unknown> }>('admission');
+    if (!admission) throw new Error('Missing fixture admission');
+    await ctx.storage.put('admission', { ...admission, ownerKey, receipt: { ...admission.receipt, selection: {
+      controlsRevision: 1, manifestJson: JSON.stringify({ name: 'Dispatcher', intentVersion: '4' }),
+      operator: { operatorId: 'operator', profile: 'dispatcher', revision: 1,
+        policy: { capabilities: ['fetch'], resourceProfileId: null, loggingEnabled: false } },
+      installation: { id: 'installation', revision: 1, enabled: true,
+        policy: { capabilities: ['fetch'], resourceProfileId: null }, configurationJson: '{}', releaseId: 'release' },
+      release: { id: 'release', bundleDigest: 'a'.repeat(64), intentVersion: '4' },
+    } } });
+    expect(await activity.getDispatcherDiagnostics(ownerKey)).toMatchObject({
+      parent: { driveGeneration: null, lease: null }, sdk: { status: 'unavailable', reason: 'unbound' },
+    });
+    const first = await activity.cancelDrive();
+    expect(first).toMatchObject({ ok: true, state: { generation: 1, status: 'cancel-requested' } });
+    expect(await activity.getBrowserDetail()).toMatchObject({ cleanupStatus: 'stopped', checkpoint: null, result: null });
+    const cold = new OperatorActivity(ctx, activityEnv);
+    expect(await cold.cancelDrive()).toEqual(first);
+    expect(await cold.cancelDrive()).toEqual(first);
+    expect(await cold.getBrowserSummary(ownerKey)).toMatchObject({ cleanupStatus: 'stopped', executionStatus: 'cancel-requested' });
+    expect(await registry.getOwnedActivity(ownerKey, 'activity')).toMatchObject({ cleanupStatus: 'stopped' });
+    expect(await cold.getDispatcherDiagnostics(ownerKey)).toMatchObject({
+      parent: { driveGeneration: 1, lease: null }, sdk: { status: 'unavailable', reason: 'unbound' },
+    });
+    expect(await cold.beginDrive()).toEqual({ ok: false, reason: 'drive-settled' });
+    expect(await cold.start('s'.repeat(43))).toEqual({ ok: false, reason: 'already-started' });
+    expect(await cold.commitDrive(1, update)).toEqual({ ok: false, reason: 'stale-drive' });
+  }));
+
+  it.each(['begun', 'unknown', 'conductor', 'missing-proof', 'mismatched-proof'] as const)(
+    'REQ-OPERATOR-104: absent SDK lease does not prove stopped compute for %s', scenario => withActivity(async ({ activity, ctx, activityEnv }) => {
+      const admission = await ctx.storage.get<{ receipt: Record<string, unknown> }>('admission');
+      if (!admission) throw new Error('Missing fixture admission');
+      await ctx.storage.put('admission', { ...admission, receipt: { ...admission.receipt, selection: {
+        operator: { profile: scenario === 'conductor' ? 'conductor' : 'dispatcher', policy: { loggingEnabled: false } },
+        installation: { policy: { resourceProfileId: null } },
+        release: { bundleDigest: 'a'.repeat(64) }, manifestJson: '{}',
+      } } });
+      if (scenario === 'begun') await activity.beginDrive();
+      if (scenario === 'unknown') await activity.fenceRuntimeFailure();
+      else await activity.cancelDrive();
+      if (scenario === 'missing-proof' || scenario === 'mismatched-proof') {
+        const fenced = await ctx.storage.get<Record<string, unknown> & { diagnosticFence?: Record<string, unknown> }>('admission');
+        await ctx.storage.put('admission', { ...fenced, diagnosticFence: scenario === 'missing-proof'
+          ? undefined : { ...fenced?.diagnosticFence, generation: 1 } });
+      }
+      const cold = new OperatorActivity(ctx, activityEnv);
+      expect((await cold.getBrowserDetail())?.cleanupStatus).not.toMatch(/^(stopped|released)$/);
+      expect(await cold.cancelDrive()).toEqual({ ok: false, reason: 'drive-settled' });
+      expect(await cold.beginDrive()).toEqual({ ok: false, reason: 'drive-settled' });
+    }));
+
   it('durably owns one immutable session request while allowing status reconciliation', () => withActivity(async ({ activity }) => {
     const session = ownedSessionFixture();
     expect(await activity.saveOwnedSession(session)).toEqual({ ok: true });
@@ -780,6 +943,24 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     const reconstructed = new OperatorActivity(ctx, { ...activityEnv, ...encryption });
     expect(await reconstructed.getReviewState()).toMatchObject({ ...review,
       sealedSyncOperationId: 'sync-1', publication: { phase: 'completed', receipt: { checkId: 1, recordId: 2 } } });
+
+    const expiringSync = { ...sync, operationId: 'sync-expiry',
+      prefix: '.codeflare/operators/activity/sync-expiry/', deadline: claims.expiresAt * 1000 };
+    expect(await reconstructed.prepareSync(expiringSync)).toEqual({ ok: true, phase: 'prepared' });
+    expect(await reconstructed.authorizeSyncWrite(expiringSync.operationId, expiringSync.keys[0])).toEqual({ ok: true });
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(claims.expiresAt * 1000 + 1);
+    try {
+      expect(await reconstructed.beginDrive()).toEqual({ ok: false, reason: 'authority-expired' });
+      expect(await reconstructed.prepareSync(expiringSync)).toEqual({ ok: false, reason: 'authority-expired' });
+      for (const key of [expiringSync.keys[0], `${expiringSync.prefix}manifest.json`]) {
+        expect(await reconstructed.authorizeSyncWrite(expiringSync.operationId, key))
+          .toEqual({ ok: false, reason: 'authority-expired' });
+      }
+      expect(await reconstructed.recordSyncUploaded(expiringSync.operationId, 'e'.repeat(64)))
+        .toEqual({ ok: false, reason: 'authority-expired' });
+      expect(await reconstructed.getSync(expiringSync.operationId))
+        .toMatchObject({ phase: 'prepared', manifestDigest: null, evidence: null });
+    } finally { clock.mockRestore(); }
   }, false));
 
   it('rejects context/intent substitution and authority extending beyond the signed expiry', () => withActivity(async ({ ctx, activityEnv }) => {
@@ -799,6 +980,57 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     expect(await secured.prepareAuthorized({ ...base, deadline: claims.expiresAt * 1000 + 1 }, context)).toEqual({ ok: false, reason: 'authority-expired' });
     expect(await secured.getExecutionContext()).toBeNull();
   }, false));
+
+  it('REQ-OPERATOR-006/031: concurrent start yields one durable winner and observation preserves result authority', () => withActivity(async ({ activity, registry, token, ctx, activityEnv }) => {
+    const reconstructed = new OperatorActivity(ctx, activityEnv);
+    const attempts = await Promise.all([activity.startWebhook(token), reconstructed.startWebhook(token)]);
+    expect(attempts.map(attempt => attempt.ok).sort()).toEqual([false, true]);
+    const winner = attempts.find(attempt => attempt.ok);
+    if (!winner?.ok) throw new Error('Expected one successful webhook start');
+    expect(winner.phase).toBe('queued');
+    expect(winner.readCapability).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(winner.readCapability).not.toBe(token);
+    expect(await reconstructed.getWebhookStatus(token)).toMatchObject({ ok: false });
+    expect(await reconstructed.getWebhookStatus(winner.readCapability)).toMatchObject({ ok: true, terminal: false });
+    expect(await reconstructed.redeemWebhookResult(winner.readCapability)).toEqual({ ok: false, reason: 'not-ready' });
+    expect(await reconstructed.beginDrive()).toMatchObject({ ok: true, state: { generation: 1 } });
+    expect(await reconstructed.commitDrive(1, { schemaVersion: 1, status: 'completed', checkpoint: null,
+      result: { output: 'Original result' } })).toMatchObject({ ok: true });
+    expect((await registry.setEnabled('operator', false, 3)).ok).toBe(true);
+    expect(await activity.redeemWebhookResult(winner.readCapability))
+      .toMatchObject({ ok: true, terminal: true, result: { output: 'Original result' } });
+    expect(await new OperatorActivity(ctx, activityEnv).startWebhook(token)).toMatchObject({ ok: false });
+  }, true, false));
+
+  it.each(['failed', 'cancelled', 'expired', 'superseded'] as const)(
+    'REQ-OPERATOR-006: returns bounded terminal evidence for %s without rerunning work', outcome => withActivity(async ({ activity, token, deadline }) => {
+      const started = await activity.startWebhook(token);
+      if (!started.ok) throw new Error('Expected webhook start');
+      if (outcome === 'expired') {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(deadline + 1);
+      } else {
+        expect(await activity.beginDrive()).toMatchObject({ ok: true, state: { generation: 1 } });
+        if (outcome === 'failed') {
+          expect(await activity.commitDrive(1, { schemaVersion: 1, status: 'failed', checkpoint: null,
+            result: { message: 'x'.repeat(64 * 1024) } })).toEqual({ ok: false, reason: 'invalid-update' });
+          expect(await activity.commitDrive(1, { schemaVersion: 1, status: 'failed', checkpoint: null,
+            result: { message: 'Bounded failure' } })).toMatchObject({ ok: true });
+        } else if (outcome === 'cancelled') {
+          expect(await activity.cancelDrive()).toMatchObject({ ok: true });
+        } else {
+          expect(await activity.interruptDrive(1)).toMatchObject({ ok: true });
+        }
+      }
+      try {
+        const result = await activity.redeemWebhookResult(started.readCapability);
+        const status = outcome === 'cancelled' ? 'cancel-requested' : outcome === 'superseded' ? 'unknown' : outcome;
+        expect(result).toMatchObject({ ok: true, terminal: true, status });
+        expect(new TextEncoder().encode(JSON.stringify(result)).byteLength).toBeLessThan(64 * 1024);
+        expect(await activity.startWebhook(token)).toMatchObject({ ok: false });
+      } finally { if (outcome === 'expired') vi.useRealTimers(); }
+    }, true, false),
+  );
 
   it('rereads identical immutable terminal bytes after lost delivery only with the original read capability', () => withActivity(async ({ activity, token, ctx, activityEnv }) => {
     const started = await activity.startWebhook(token);

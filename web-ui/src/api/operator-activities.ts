@@ -150,3 +150,14 @@ export const getOperatorActivityDiagnosticRecord = (activityId: string, recordId
     .then(value => { if (value.record.id !== recordId) throw new Error('Invalid diagnostic record'); return value; });
 export const exportOperatorActivityDiagnostics = (activityId: string, cursor: string | null, snapshot: DiagnosticSnapshot, signal?: AbortSignal) =>
   diagnosticRead(activityId, `/export${diagnosticCursorQuery(cursor)}`, diagnosticExportSchema, snapshot, cursor !== null, signal);
+
+const applicationActivationCommand = z.strictObject({
+  installationId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/), revision: z.number().int().positive().safe(),
+});
+const applicationActivationResponse = z.strictObject({ activatedAt: z.string().datetime() });
+/** Explicit consent enables generic delivery; the application owns discovery and admission. */
+export function activateApplicationRuns(command: z.infer<typeof applicationActivationCommand>): Promise<z.infer<typeof applicationActivationResponse>> {
+  return baseFetch(new URL('/api/operator-activities/automatic/activation', window.location.origin).href,
+    { method: 'POST', body: JSON.stringify(applicationActivationCommand.parse(command)) },
+    { credentials: 'same-origin', schema: applicationActivationResponse });
+}

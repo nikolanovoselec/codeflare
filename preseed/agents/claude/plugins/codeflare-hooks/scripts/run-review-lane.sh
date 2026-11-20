@@ -33,6 +33,7 @@
 # no-ops, which reads as "not blocked".
 #
 # Usage: run-review-lane.sh --lane <name> [--boundary-pr <number>] [--range <base>..<head>] [--base <ref>]
+# Root may add --autonomy-override fully-autonomous ONLY for the direct current-user override.
 #
 # `--lane <name>` is load-bearing beyond argument parsing: enforce-review-spawn.sh
 # matches this exact token in the Bash tool_use envelope to decide that the lane
@@ -43,6 +44,7 @@ LANE=""
 RANGE=""
 BASE=""
 BOUNDARY_PR=""
+AUTONOMY_OVERRIDE=""
 # Set only when the classifier runs below, but referenced afterwards to seed
 # triage and the packet; initialised here because this script runs under `set -u`.
 REQUIRED=""
@@ -60,6 +62,10 @@ while [ $# -gt 0 ]; do
     --range)       need_value $# --range;       RANGE="$2";       shift 2 ;;
     --base)        need_value $# --base;        BASE="$2";        shift 2 ;;
     --boundary-pr) need_value $# --boundary-pr; BOUNDARY_PR="$2"; shift 2 ;;
+    --autonomy-override)
+      need_value $# --autonomy-override
+      [ "$2" = fully-autonomous ] || { echo "run-review-lane: invalid autonomy override" >&2; exit 2; }
+      AUTONOMY_OVERRIDE="$2"; shift 2 ;;
     *) echo "run-review-lane: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
@@ -165,12 +171,30 @@ done
 # valid JSON whose hook commands point at paths that do not exist. That fails
 # silently -- the lane runs unguarded and every check reports "not blocked" --
 # whereas the malformed-JSON case this comment used to describe at least fails
-# loudly. Quoting converts the dangerous failure back into the safe one.
-jq -n --args '{hooks:{PreToolUse:[{matcher:"Bash",hooks:[$ARGS.positional[]|{type:"command",command:("bash "+.)}]}]}}' \
+# loudly. Array quoting preserves each argument; @sh separately quotes that
+# path for the shell that will later execute the JSON command.
+jq -n --args '{hooks:{PreToolUse:[{matcher:"Bash",hooks:[$ARGS.positional[]|{type:"command",command:("bash "+(.|@sh))}]}]}}' \
   "${GUARD_CMDS[@]}" > "$GUARD_SETTINGS"
 if [ ! -s "$GUARD_SETTINGS" ]; then
   echo "run-review-lane: guard settings file is empty; refusing to run unguarded" >&2
   exit 3
+fi
+
+# A base-only demand needs the same packet and ownership preparation as an
+# explicit range. Use the merge base for the full PR diff, never a two-dot
+# protected-branch tip (which could include unrelated base-only changes).
+BASE_ONLY=false
+if [ -z "$RANGE" ] && [ -n "$BASE" ]; then
+  BASE_ONLY=true
+  BASE_COMMIT="$(git rev-parse --verify --quiet "origin/$BASE^{commit}" 2>/dev/null || true)"
+  MERGE_BASE=""
+  if [ -n "$BASE_COMMIT" ]; then
+    MERGE_BASE="$(git merge-base "$BASE_COMMIT" HEAD 2>/dev/null || true)"
+  fi
+  REVIEW_HEAD="$(git rev-parse --verify --quiet HEAD 2>/dev/null || true)"
+  if [ -n "$MERGE_BASE" ] && [ -n "$REVIEW_HEAD" ]; then
+    RANGE="$MERGE_BASE..$REVIEW_HEAD"
+  fi
 fi
 
 # NO-OP SHORT-CIRCUIT.
@@ -224,7 +248,11 @@ if [ -n "$RANGE" ]; then
       fi
     fi
   fi
-  SCOPE="Review ONLY the incremental diff \`$RANGE\`. Do not review the full PR diff."
+  if [ "$BASE_ONLY" = true ]; then
+    SCOPE="Review the full PR diff against origin/$BASE, resolved to \`$RANGE\`."
+  else
+    SCOPE="Review ONLY the incremental diff \`$RANGE\`. Do not review the full PR diff."
+  fi
 elif [ -n "$BASE" ]; then
   SCOPE="Review the full PR diff: 'git diff origin/$BASE...HEAD'."
 else
@@ -294,7 +322,8 @@ TRIAGE_JSON=""
 TRIAGE_SCRIPT="$(dirname "$0")/lib/lane-triage.mjs"
 if [ -n "$REPO_ROOT" ] && [ -f "$TRIAGE_SCRIPT" ] && command -v node >/dev/null 2>&1; then
   TRIAGE_JSON="$(node "$TRIAGE_SCRIPT" --repo "$REPO_ROOT" --lane "$LANE" \
-    ${RANGE:+--range "$RANGE"} ${REQUIRED:+--required-lanes "$REQUIRED"} 2>/dev/null || true)"
+    ${RANGE:+--range "$RANGE"} ${REQUIRED:+--required-lanes "$REQUIRED"} \
+    ${AUTONOMY_OVERRIDE:+--autonomy-override "$AUTONOMY_OVERRIDE"} 2>/dev/null || true)"
   # Triage can suppress a lane, so syntax alone is insufficient: require the
   # discriminator, lane identity, layout, and decision-specific fields before
   # any byte is treated as authoritative. A crash envelope or partial write is
@@ -431,6 +460,9 @@ if [ -n "$REPO_ROOT" ] && [ -f "$EVIDENCE_SCRIPT" ] && command -v node >/dev/nul
 fi
 
 TASK="PR-boundary review, $LANE lane. $SCOPE"
+if [ "$AUTONOMY_OVERRIDE" = fully-autonomous ]; then
+  TASK="$TASK autonomy_override=fully-autonomous"
+fi
 # Stated, not discovered. A lane that is not told where it is spends its first
 # turn on `git rev-parse --show-toplevel` before it has looked at anything.
 if [ -n "$REPO_ROOT" ]; then

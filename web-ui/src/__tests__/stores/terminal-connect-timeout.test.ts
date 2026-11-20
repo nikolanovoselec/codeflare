@@ -108,6 +108,40 @@ describe('Terminal Store / REQ-TERM-020 AC2: connect-timeout force-close & AC3 p
     }
   });
 
+  it.each([1006, 1000, 4503])('REQ-TERM-020 AC2: delayed timed-out close %s cannot retire a successor attempt', async (code) => {
+    const sockets: WebSocket[] = [];
+    vi.stubGlobal('WebSocket', class {
+      static CONNECTING = 0;
+      static OPEN = 1;
+      readyState = 0;
+      onopen: ((event: Event) => void) | null = null;
+      onclose: ((event: CloseEvent) => void) | null = null;
+      send = vi.fn();
+      close() { this.readyState = 3; }
+      constructor() { sockets.push(this as unknown as WebSocket); }
+    });
+    terminalStore.connect(sessionId, terminalId, createMockTerminal());
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(sockets).toHaveLength(2);
+    sockets[0].onclose?.(new CloseEvent('close', { code }));
+    expect(terminalStore.getConnectionState(sessionId, terminalId)).toBe('connecting');
+    expect(terminalStore.getRetryMessage(sessionId, terminalId)).toBe('Reconnecting... (attempt 2)');
+
+    // The successor watchdog still owns its deadline, even after an old close.
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(sockets).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(sockets).toHaveLength(3);
+    Object.defineProperty(sockets[2], 'readyState', { value: 1, writable: true });
+    sockets[2].onopen?.(new Event('open'));
+    sockets[0].onclose?.(new CloseEvent('close', { code }));
+    expect(terminalStore.getConnectionState(sessionId, terminalId)).toBe('connected');
+    terminalStore.resize(sessionId, terminalId, 90, 30);
+    expect(sockets[2].send).toHaveBeenCalledWith(JSON.stringify({ type: 'resize', cols: 90, rows: 30 }));
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(sockets).toHaveLength(3);
+  });
+
   // AC9: while document.hidden, a retryable close schedules NO reconnect; on
   // visibility return the reconnect fires (restarting at attempt 1).
   it('pauses reconnect while hidden and resumes on visibility return', async () => {

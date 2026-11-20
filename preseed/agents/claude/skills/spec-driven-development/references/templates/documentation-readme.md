@@ -5,6 +5,7 @@ This index routes readers to the canonical owner for each operational concern. L
 ## Jump-TOC
 
 - [Lane ownership](#lane-ownership)
+- [Specification coverage](#specification-coverage)
 - [REQ backlinks](#req-backlinks)
 - [Synonym glossary](#synonym-glossary)
 - [Reading order for a new contributor](#reading-order-for-a-new-contributor)
@@ -15,13 +16,22 @@ This index routes readers to the canonical owner for each operational concern. L
 | Lane | Owns |
 |---|---|
 {LANE_INDEX_ROWS}
-| [Decisions](decisions/README.md) | Trade-offs, alternatives, consequences, and supersession history |
 
-A lane may summarize an adjacent boundary, but it links to the canonical owner instead of repeating the behavioral narrative. First-level project lanes are allowed when indexed above and backed by a concern that no canonical lane owns.
+Render lane rows alphabetically by visible title (case-insensitive; path breaks ties). The [decision ledger](decisions/README.md) owns trade-offs, alternatives, consequences and supersession—not execution reports.
+
+A lane may summarize an adjacent boundary, but links to its canonical owner instead of duplicating it. Indexed project lanes are allowed for a concern no existing owner covers.
+
+## Specification coverage
+
+| Specification domain | Documentation owner(s) |
+|---|---|
+{SPEC_DOMAIN_COVERAGE_ROWS}
+
+Include every concrete REQ-bearing domain, alphabetically by visible title. Link real indexed owners with usable guidance and REQ backlinks; shared owners are allowed. A spec link alone is not documentation. If behavior is genuinely unimplemented, record the exact coverage gap rather than inventing current behavior or deleting the requirement to clear the check.
 
 ## REQ backlinks
 
-Every load-bearing behavior links to its governing requirement. Grouped registers use an `Implements` or `Requirements` column; prose sections place the link beside the claim.
+Every load-bearing behavior links to its governing requirement. Grouped registers use an `Implements` or `Requirements` column; prose places the link beside the claim. Named manual checks contain concrete actions and observable pass/fail outcomes. Documentation describes current operation and durable limitations, not session, commit, CI-run, experiment or deployment-campaign history; retain such receipts in their existing Git/PR/CI/Vault records without dropping current safety or acceptance conditions.
 
 ## Synonym glossary
 

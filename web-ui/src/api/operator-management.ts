@@ -58,11 +58,26 @@ const operatorSchema = summarySchema.extend({ revision, repositoryId: z.number()
   source: z.object({ kind: z.literal('github-release'), repositoryUrl: z.string(), repositoryId: z.number().int().positive(),
     credentialConfigured: z.boolean(), approvedWorkflow: z.object({ id: z.number().int().positive(), ref: z.string() }).nullable() }),
 });
+const supportedApplicationDefinitionSchema = z.strictObject({
+  controlVersion: z.literal(1),
+  configurationSchema: z.record(z.string(), z.json()).optional(),
+  githubWriteRepositoriesPath: z.string().min(2).max(512).optional(),
+  recovery: z.strictObject({ label: z.string().min(1).max(256), description: z.string().min(1).max(1024),
+    prefix: z.string().min(1).max(1024) }).optional(),
+  schedule: z.strictObject({ enabledPath: z.string().min(2).max(512), intervalSecondsPath: z.string().min(2).max(512) }).optional(),
+});
+export const applicationDefinitionSchema = z.preprocess(value => {
+  const marker = z.object({ controlVersion: z.number().int().positive() }).safeParse(value);
+  // Future controls are not interpreted by this client. Retain the installation
+  // and its upgrade path rather than misreporting a failed inventory request.
+  return marker.success && marker.data.controlVersion !== 1 ? undefined : value;
+}, supportedApplicationDefinitionSchema.optional());
+export type ApplicationDefinition = z.infer<typeof supportedApplicationDefinitionSchema>;
 const releaseSchema = z.object({ id, operatorId: id, githubReleaseId: z.number().int().positive(), sourceCommit: z.string(),
   manifestDigest: digest, bundleDigest: digest, interfaceVersion: z.literal(1), approved: z.boolean(),
   name: z.string().optional(), description: z.string().optional(), version: z.string().optional(), coreVersion: z.string().optional(), intentVersion: z.string().optional(),
   tagName: z.string().min(1).max(256).optional(), publishedAt: z.string().datetime().optional(),
-  requestedCapabilities: z.array(z.string()).max(32).optional() });
+  requestedCapabilities: z.array(z.string()).max(32).optional(), application: applicationDefinitionSchema.optional() });
 const installationSchema = z.object({ id, operatorId: id, name: z.string(), releaseId: id.nullable(), revision,
   enabled: z.boolean(), policy: policySchema.strip(), configuration: z.record(z.string(), z.json()).optional(),
   piReasoningOverride: z.enum(piReasoningLevels).optional() });
@@ -114,6 +129,32 @@ export const replaceOperatorSource = (operatorId: string, input: { revision: num
 export interface GatewaySelection { operatorRevision: number; routeId: string | null; reasoningLevel: PiReasoningLevel | null }
 export const configureInstallation = (installationId: string, input: { revision: number; policy: ManagementPolicy; configuration: unknown; piReasoningOverride?: PiReasoningLevel; gatewaySelection?: GatewaySelection }) =>
   request(`/installations/${segment(installationId)}/configure`, installationSchema, input);
+export const APPLICATION_RECOVERY_BATCH_SIZE = 64;
+const recoveryEntrySchema = z.strictObject({ key: z.string().min(1).max(1024), version: digest });
+const recoverySkippedSchema = z.strictObject({ key: z.string().min(1).max(1024), reason: z.string().max(256) });
+const recoveryCursor = z.string().min(1).max(16 * 1024);
+export const applicationRecoveryPreviewSchema = z.strictObject({
+  items: z.array(recoveryEntrySchema.extend({ label: z.string().max(256),
+    status: z.enum(['resettable', 'blocked']), reason: z.string().max(256) })).max(APPLICATION_RECOVERY_BATCH_SIZE),
+  nextCursor: recoveryCursor.nullable(), scopeCursor: recoveryCursor.optional(),
+});
+export const applicationRecoveryResetInputSchema = z.strictObject({ revision, requestId: z.uuid(), scopeCursor: recoveryCursor.optional(),
+  entries: z.array(recoveryEntrySchema).min(1).max(APPLICATION_RECOVERY_BATCH_SIZE)
+    .refine(entries => new Set(entries.map(entry => entry.key)).size === entries.length),
+});
+export const applicationRecoveryResetSchema = z.strictObject({ requestId: z.uuid(),
+  reset: z.number().int().nonnegative().max(APPLICATION_RECOVERY_BATCH_SIZE),
+  skipped: z.array(recoverySkippedSchema).max(APPLICATION_RECOVERY_BATCH_SIZE),
+});
+export type ApplicationRecoveryItem = z.infer<typeof applicationRecoveryPreviewSchema>['items'][number];
+export type ApplicationRecoveryResetInput = z.infer<typeof applicationRecoveryResetInputSchema>;
+export const previewApplicationRecovery = (installationId: string, input: { revision: number; after?: string }) =>
+  request(`/installations/${segment(installationId)}/recovery/preview`, applicationRecoveryPreviewSchema,
+    z.strictObject({ revision, after: recoveryCursor.optional() }).parse(input));
+export const resetApplicationRecovery = (installationId: string, input: ApplicationRecoveryResetInput) =>
+  request(`/installations/${segment(installationId)}/recovery/reset`, applicationRecoveryResetSchema,
+    applicationRecoveryResetInputSchema.parse(input));
+
 export const registerManagedOperator = (input: RegistrationInput) => request('/operators', operatorSchema, input);
 export const refreshManagedReleases = (operatorId: string, revision: number) =>
   request(`/operators/${segment(operatorId)}/releases/refresh`, z.object({ items: z.array(releaseSchema) }), { revision });
@@ -138,15 +179,19 @@ export const getOwnedActivities = () => activityRequest('', z.object({ items: z.
 const installedOperatorSchema = z.strictObject({ id, operatorId: id, name: z.string().max(256),
   installationName: z.string().max(256), version: z.string().max(256).nullable(), revision,
   enabled: z.boolean(), approved: z.boolean(), canInvoke: z.boolean(), canManage: z.boolean(),
+  profile: z.enum(['conductor', 'dispatcher']), canActivateAutomaticRuns: z.boolean(),
+  automaticRunStatus: z.enum(['active', 'expired', 'inactive', 'unconfirmed']).optional(),
   guidedMode: z.enum(['repository', 'legacy-pull-request']).nullable(), repository: z.string().max(201).nullable(),
-  automaticRuns: z.boolean().nullable(), repetitionIntervalSeconds: z.number().int().positive().safe().nullable() });
+  automaticRuns: z.boolean().nullable(), repetitionIntervalSeconds: z.number().int().positive().safe().nullable(),
+  application: applicationDefinitionSchema.nullable().optional() });
 export type InstalledOperator = z.infer<typeof installedOperatorSchema>;
 export const listOperatorInstallations = (cursor: string | null = null) => activityRequest(
   `/installations${cursor ? `?cursor=${segment(cursor)}` : ''}`,
   z.strictObject({ items: z.array(installedOperatorSchema).max(5), cursor: id.nullable() }));
 export const getInstallationActivityPreview = (installationId: string) => activityRequest(`/installations/${segment(installationId)}/preview`,
-  z.object({ name: z.string(), version: z.string(), guidedAssessment: z.boolean(), requiresSourceHost: z.boolean(),
-    guidedMode: z.enum(['repository', 'legacy-pull-request']).nullable(), configuredRepository: z.string().max(201).optional() }));
+  z.object({ name: z.string(), description: z.string().optional(), version: z.string(), guidedAssessment: z.boolean(), requiresSourceHost: z.boolean(),
+    guidedMode: z.enum(['repository', 'legacy-pull-request']).nullable(), configuredRepository: z.string().max(201).optional(),
+    inputSchema: z.record(z.string(), z.json()).optional(), application: applicationDefinitionSchema.nullable().optional() }));
 export const prepareInstallationActivity = (installationId: string, invocation: unknown, sourceSession?: { sessionId: string; sessionGeneration: number }) => activityRequest('',
   z.object({ activityId: id, startCapability: z.string().min(43).max(128), startExpiresAt: z.number() }),
   { installationId, invocation, ...(sourceSession ? { sourceSession } : {}) });

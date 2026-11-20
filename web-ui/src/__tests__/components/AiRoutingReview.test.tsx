@@ -6,7 +6,8 @@ import type { ConfigurationPreview } from '../../api/client';
 import type { ProfileRevisionRef, ReasoningDiscoveryRequest, ReasoningManagementContext, ReasoningRouteVerification } from '../../types';
 
 const api = vi.hoisted(() => ({ configuration: vi.fn(), catalog: vi.fn(), inventory: vi.fn(), discover: vi.fn(), preview: vi.fn(), start: vi.fn() }));
-vi.mock('../../api/client', () => ({
+vi.mock('../../api/client', async original => ({
+  ...await original<typeof import('../../api/client')>(),
   getAdminConfiguration: (...args: unknown[]) => api.configuration(...args),
   getReasoningCatalog: (...args: unknown[]) => api.catalog(...args),
   getReasoningRouteInventory: (...args: unknown[]) => api.inventory(...args),

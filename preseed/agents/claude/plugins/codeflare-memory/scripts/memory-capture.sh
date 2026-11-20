@@ -70,6 +70,12 @@ TRANSCRIPT="${TRANSCRIPT/#\~/$USER_HOME}"
 # Code with no user-visible error.
 CURRENT_COUNT=$(grep -c '"role":"user","content":"[^<]' "$TRANSCRIPT") || CURRENT_COUNT=0
 
+# Durable progress belongs to this exact retained real-prompt prefix, not just
+# to a session ID or a larger count from an earlier transcript epoch.
+transcript_fingerprint() {
+    grep '"role":"user","content":"[^<]' "$TRANSCRIPT" | head -n "$1" | sha256sum | awk '{print $1}'
+}
+
 COUNTER_FILE="$COUNTER_DIR/${SESSION_ID}"
 # Fail closed rather than falling back to a relative path. launch_capture
 # swallows a failed launch by design, so a wrong directory here would make
@@ -198,7 +204,11 @@ else
                 captured_session=$(sed -n 's/^session_id:[[:space:]]*//p' "$note" | head -n 1)
                 [[ "$captured_session" == "$SESSION_ID" ]] || continue
                 captured_count=$(sed -n 's/^captured_prompt_count:[[:space:]]*//p' "$note" | head -n 1)
-                [[ "$captured_count" =~ ^[0-9]+$ ]] || continue
+                [[ "$captured_count" =~ ^[0-9]{1,9}$ ]] || continue
+                (( captured_count > 0 && captured_count <= CURRENT_COUNT )) || continue
+                captured_fingerprint=$(sed -n 's/^captured_prompt_fingerprint:[[:space:]]*//p' "$note" | head -n 1)
+                [[ "$captured_fingerprint" =~ ^[0-9a-f]{64}$ ]] || continue
+                [[ "$(transcript_fingerprint "$captured_count")" == "$captured_fingerprint" ]] || continue
                 (( captured_count > last_count )) && last_count=$captured_count
             done
         fi
@@ -345,11 +355,12 @@ jq -n \
   --arg today "$TODAY" \
   --arg current_count "$CURRENT_COUNT" \
   --arg total_lines "$TOTAL_LINES" \
+  --arg transcript_fingerprint "$(transcript_fingerprint "$CURRENT_COUNT")" \
   --arg counter_file "$COUNTER_FILE" \
   --arg vars_file "$VARS_FILE" \
   --arg capture_file "$CAPTURE_FILE" \
   --arg capture_ts "$CAPTURE_TS" \
-  '{transcript:$transcript,last_line:$last_line,today:$today,current_count:$current_count,total_lines:$total_lines,counter_file:$counter_file,vars_file:$vars_file,capture_file:$capture_file,capture_timestamp:$capture_ts,attempts:1}' \
+  '{transcript:$transcript,last_line:$last_line,today:$today,current_count:$current_count,total_lines:$total_lines,counter_file:$counter_file,vars_file:$vars_file,capture_file:$capture_file,capture_timestamp:$capture_ts,transcript_fingerprint:$transcript_fingerprint,attempts:1}' \
   > "$VARS_FILE"
 
 # The counter is deliberately NOT advanced here. It used to be, which made a

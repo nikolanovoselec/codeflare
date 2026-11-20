@@ -3,7 +3,8 @@ import { Hono } from 'hono';
 import type { Env, DeployKeys } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
 import { createMockSessionD1 } from '../helpers/mock-session-d1';
-import { AppError } from '../../lib/error-types';
+import { AppError, AuthError } from '../../lib/error-types';
+import { authenticateRequest } from '../../lib/access';
 
 vi.mock('../../lib/logger', () => ({
   createLogger: () => ({ info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() }),
@@ -68,6 +69,27 @@ beforeEach(() => {
     id: 'sid12345678', name: 'Test', userId: 'test-bucket', status: 'running',
     createdAt: '2024-01-15T09:00:00.000Z', lastAccessedAt: '2024-01-15T09:30:00.000Z',
   });
+});
+
+it('REQ-GITHUB-007: unauthenticated GitHub requests preserve credentials and never reach provider or container I/O', async () => {
+  mockKV._set(KEY, { githubToken: 'saved-owner-token', githubTokenSource: 'app', githubLogin: 'owner' } satisfies DeployKeys);
+  const stored = [...mockKV._store];
+  const app = createTestApp(ENT);
+  for (const [path, method] of [
+    ['status', 'GET'], ['repos', 'GET'], ['connect', 'GET'], ['disconnect', 'POST'], ['clone', 'POST'],
+  ] as const) {
+    vi.mocked(authenticateRequest).mockRejectedValueOnce(new AuthError('Authentication required'));
+    const response = await app.request(`/api/github/${path}`, {
+      method,
+      ...(method === 'POST' ? { headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        body: JSON.stringify({ repo: 'octo/repo', sessionId: 'sid12345678' }) } : {}),
+    });
+    expect(response.status).toBe(401);
+    expect([...mockKV._store]).toEqual(stored);
+  }
+  expect(mockFetch).not.toHaveBeenCalled();
+  expect(getContainer).not.toHaveBeenCalled();
+  expect(containerFetch).not.toHaveBeenCalled();
 });
 
 // ─── GET /status (REQ-GITHUB-002 AC1) ───────────────────────────────────────

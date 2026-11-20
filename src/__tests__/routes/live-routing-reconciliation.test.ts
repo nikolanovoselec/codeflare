@@ -392,6 +392,7 @@ describe('live saved-connection routing reconciliation', () => {
     expect(await f.kv.get(ADMIN_CONFIGURATION_KEYS.ACTIVE_RUN)).toBeNull();
   });
 
+  // REQ-ENTERPRISE-098 AC4: current ownership; historical test title unchanged.
   it('REQ-ENTERPRISE-044: complete empty inventories persist deny-only groups and disabled fallback, then reconcile idempotently', async () => {
     const f = await setup();
     routesReply = () => dynamicPage([]);

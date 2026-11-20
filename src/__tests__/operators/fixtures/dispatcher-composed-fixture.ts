@@ -18,6 +18,7 @@ import intent4Manifest from './dispatcher-v024-native.manifest.json';
 import { fixtureBrowserAccessUpstream, fixtureOwnerDiagnostics } from './dispatcher-owner-diagnostics';
 import type { OperatorBrowserSummary } from '../../../operators/browser-activity';
 import { readSdkProvenance, runtimeSchema } from '../../../operators/dispatcher-diagnostics-wire';
+import { createOwnerRawCaptureStorage, discoverRawCaptures, readRawCapture } from '../../../operators/raw-capture-storage';
 
 const intent4Source = '987af47fb295147d445436b428a410b90cb09be0';
 
@@ -91,7 +92,7 @@ export const observeBoundary = (observationId: string | undefined,
 };
 export type CanonicalAppendObservation = { category: 'canonical-append-oversized' | 'canonical-append-other'; largestRecordType?: 'state_write' };
 type SdkObservation = { stage: 'sdk-submission-running' | 'sdk-submission-exhausted'; submissionDigest: string; attemptCount: number; maxAttempts: number };
-export type NativeFaultSettlement = {
+type NativeFaultSettlement = {
   submissionDigest: string; attemptDigest: string; obligationDigest: string;
   batchSequence: number; recordIndex: number; producerEpoch: number; producerSequence: number;
   canonicalSequence: number; failureSequence: number; finalizedSequence: number;
@@ -100,7 +101,7 @@ export type NativeFaultImport = {
   generation: number; events: number; indexSdkImport: string; through: number; localThrough: number;
   dropped: number; pendingSequences: number[] | null; gaps: string[]; armedThrough: number;
 };
-export type NativeImportOmission = {
+type NativeImportOmission = {
   captureDigest: string; submissionDigest: string; attemptDigest: string; rootDigest: string; patchSetDigest: string;
   failureSequence: number; canonicalSequence: number; recoveredSequence: number;
   batchSequence: number; recordIndex: number; producerEpoch: number; producerSequence: number;
@@ -1186,8 +1187,49 @@ export class OperatorActivity extends ProductionActivity {
         operationId: original.operationId, receipt } : null;
     }) : undefined;
     const retained = [...diagnostics];
+    // Failure-only CI evidence from the existing private archive, not a second runtime probe.
+    // Never export arbitrary exception text, payloads, credentials or capture locators.
+    const rawFailures: Array<{ name: string; classification: string }> = [];
+    if (detail?.executionStatus === 'unknown' && !external.inference.length
+      && retained.some(row => row.stage === 'inference-attempt' && row.failureClass === 'body-read')) {
+      const state = await this.ctx.storage.get<{ ownerKey?: string; intent: { activityId: string };
+        drive?: { generation: number } }>('admission');
+      if (state?.ownerKey && state.drive?.generation) {
+        const scope = { ownerKey: state.ownerKey, scope: { kind: 'activity' as const,
+          activityId: state.intent.activityId, generation: state.drive.generation } };
+        const authorize = async () => {
+          const current = await this.ctx.storage.get<typeof state>('admission');
+          if (current?.ownerKey !== scope.ownerKey || current?.intent.activityId !== scope.scope.activityId
+            || current?.drive?.generation !== scope.scope.generation) throw new Error('Fixture archive scope changed');
+        };
+        try {
+          const storage = await createOwnerRawCaptureStorage(encryption, this.ctx.storage, authorize);
+          let cursor: string | undefined;
+          do {
+            const page = await discoverRawCaptures({ scope, storage, authorize, cursor });
+            if (page.status !== 'complete') { rawFailures.push({ name: 'unavailable', classification: 'archive-incomplete' }); break; }
+            for (const binding of page.bindings) {
+              const archive = await readRawCapture({ binding, storage });
+              for (const record of archive.records) if (record.stage === 'inference-attempt-failure') {
+                const value = record.value as { name?: unknown; message?: unknown } | null;
+                const message = typeof value?.message === 'string' ? value.message : '';
+                const name = ['Error', 'TypeError', 'RangeError', 'DataCloneError', 'DOMException'].includes(String(value?.name)) ? String(value?.name) : 'other';
+                const classification = /ProxyWorker|connection lost/i.test(message) ? 'proxy-worker-loss'
+                  : /different request|I\/O.*request|request context/i.test(message) ? 'request-io-context'
+                  : /serializ|clone|RpcTarget|function/i.test(message) ? 'rpc-serialization'
+                  : /abort|cancel/i.test(message) ? 'cancelled'
+                  : /deadline|timed? ?out/i.test(message) ? 'deadline' : 'other';
+                rawFailures.push({ name, classification });
+              }
+            }
+            cursor = page.cursor ?? undefined;
+          } while (cursor);
+          if (!rawFailures.length) rawFailures.push({ name: 'unavailable', classification: 'no-retained-exception' });
+        } catch { rawFailures.push({ name: 'unavailable', classification: 'archive-unavailable' }); }
+      }
+    }
     observeBoundary(observationId, 'activity-return-ready');
-    return { instance: this.instance, detail, external, fiberEvents, diagnostics: retained,
+    return { instance: this.instance, detail, external, fiberEvents, diagnostics: retained, rawFailures,
       nativeSettlement: await this.ctx.storage.get<NativeFaultSettlement>('fixture:native-settlement') ?? null,
       nativeOmission: await this.ctx.storage.get<NativeImportOmission>('fixture:native-omission') ?? null,
       nativeImport: await this.#nativeImportObservation(), ...(original ? { journal } : {}) };

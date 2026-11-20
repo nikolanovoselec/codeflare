@@ -47,6 +47,14 @@ Build and consume the `doc-updater` packet once inside the first Bash/Node proce
 5. Check public routes, environment variables, deployment/rollback, security boundaries, troubleshooting steps, ADR status, REQ backlinks, and root README only where a hunk or concrete direct invalidation identifies them.
 6. If concrete candidates remain unresolved, collect all of their direct evidence in one additional focused tool wave. Then report or dismiss each candidate and stop when every packet hunk, manifest row, and owner-lane candidate has one disposition. Never auto-fix or write `.doc-coverage.md` during report-only review.
 
+## Coverage and durable content
+
+Enforce alphabetical indexes and explicit coverage of every specification domain by a usable documentation owner. A spec link alone is not coverage. Report missing operational guidance rather than inventing behavior. Remove session/commit/run narratives and experiment timelines from proposed documentation; their history belongs in existing Git/PR/CI/Vault records. Retain current safety and acceptance conditions as durable procedures or requirement-owned gaps, never discard them as historical clutter.
+
+## Review/cleanup separation
+
+Apply shared enforcement with `purpose=review`. Cleanup's stages and completion-with-escalations outcome never relax this report-only lane's blocked verdict, resolved scope or user-consent gates. Reuse supplied evidence; report missing methods or cold-read evidence precisely rather than spawning nested agents, qualification infrastructure or a new investigation campaign.
+
 ## Lane ownership
 
 - `architecture.md`: layout and data flow.

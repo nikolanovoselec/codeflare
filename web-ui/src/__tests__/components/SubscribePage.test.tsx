@@ -121,6 +121,7 @@ describe('SubscribePage / REQ-SETUP-009 (subscribe page redirect for pending use
     cleanup();
     vi.useRealTimers();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     Object.defineProperty(window, 'location', {
       value: originalLocation,
       writable: true,
@@ -538,6 +539,17 @@ describe('SubscribePage / REQ-SETUP-009 (subscribe page redirect for pending use
 
   describe('REQ-SETUP-009 AC coverage', () => {
     it('REQ-SETUP-009 AC1: /app/subscribe shows available tiers with features, hours, sessions, and pricing', async () => {
+      // Assert final rendered content using the hook's supported reduced-motion path.
+      vi.stubGlobal('matchMedia', vi.fn((query: string) => ({
+        matches: query.includes('prefers-reduced-motion'),
+        media: query,
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })));
       await openTierView();
 
       await waitFor(() => {
@@ -550,8 +562,11 @@ describe('SubscribePage / REQ-SETUP-009 (subscribe page redirect for pending use
       fireEvent.click(screen.getByTestId('lifeline-stop-free'));
       await waitFor(() => {
         const panel = screen.getByTestId('tier-detail-panel');
-        expect(panel.textContent?.length).toBeGreaterThan(0);
         expect(panel.querySelector('.subscribe-detail-name')?.textContent).toBe('Free');
+        expect(panel).toHaveTextContent('Persistent cloud storage');
+        expect(panel).toHaveTextContent('4h / month');
+        expect(panel).toHaveTextContent('1 parallel session');
+        expect(screen.getByRole('button', { name: 'Get Started' })).toBeEnabled();
       });
     });
 
@@ -596,7 +611,7 @@ describe('SubscribePage / REQ-SETUP-009 (subscribe page redirect for pending use
       });
     });
 
-    it('REQ-SETUP-009 AC3: Turnstile is not required when turnstileSiteKey is absent', async () => {
+    it('REQ-SETUP-009 AC3: missing site key disables paid checkout, without blocking the payment-free tier', async () => {
       render(() => <SubscribePage />);
       await vi.advanceTimersByTimeAsync(0);
 
@@ -608,6 +623,12 @@ describe('SubscribePage / REQ-SETUP-009 (subscribe page redirect for pending use
       await waitFor(() => {
         expect(screen.getByTestId('lifeline-rail')).toBeInTheDocument();
       });
+      expect(screen.getByText('Start Trial')).toBeDisabled();
+      fireEvent.click(screen.getByText('Start Trial'));
+      const { createCheckoutSession } = await import('../../api/client');
+      expect(createCheckoutSession).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByTestId('lifeline-stop-free'));
+      expect(await screen.findByText('Get Started')).not.toBeDisabled();
     });
 
     it('REQ-SETUP-009 AC4: mode toggle exists with Standard and Pro options', async () => {
@@ -662,14 +683,37 @@ describe('SubscribePage / REQ-SETUP-009 (subscribe page redirect for pending use
       });
     });
 
-    it('REQ-SETUP-009 AC6: paid tiers show "Start Trial" CTA indicating Stripe checkout path', async () => {
+    it('REQ-SUB-011 AC4: payment-free tier projection activates directly despite retained Stripe price identifiers', async () => {
+      const { createCheckoutSession } = await import('../../api/client');
+      mockedGetPublicTiers.mockResolvedValue({ tiers: MOCK_PUBLIC_TIERS.map(t => ({ ...t,
+        priceMonthly: t.priceMonthly === null ? null : 0,
+        advancedPriceMonthly: t.advancedPriceMonthly === null ? null : 0,
+        stripePriceId: 'price_stored',
+      })) });
+      await openTierView();
+      fireEvent.click(await screen.findByText('Get Started'));
+      await waitFor(() => expect(mockedSubscribe).toHaveBeenCalledWith('advanced', '', 'default'));
+      expect(createCheckoutSession).not.toHaveBeenCalled();
+    });
+
+    it('REQ-SETUP-009 AC6: paid tiers hand off to the returned hosted checkout URL', async () => {
+      const { createCheckoutSession } = await import('../../api/client');
+      mockedGetAuthStatus.mockResolvedValue({ email: 'user@example.com', accessTier: 'pending', turnstileSiteKey: 'site-key' } as any);
+      window.turnstile = { render: (...args: unknown[]) => {
+        const options = args[1] as { callback: () => void };
+        const input = document.createElement('input'); input.name = 'cf-turnstile-response'; input.value = 'solved-token';
+        document.getElementById('turnstile-container')!.appendChild(input);
+        options.callback(); return 'widget';
+      }, reset: vi.fn() };
+      const checkoutUrl = 'https://checkout.stripe.com/c/pay/synthetic-checkout';
+      vi.mocked(createCheckoutSession).mockResolvedValueOnce({ checkoutUrl });
       await openTierView();
 
-      await waitFor(() => {
-        expect(screen.getByText('Start Trial')).toBeInTheDocument();
-      });
-
-      expect(screen.queryByText('Get Started')).not.toBeInTheDocument();
+      fireEvent.click(await screen.findByText('Start Trial'));
+      await waitFor(() => expect(mockLocation.href).toBe(checkoutUrl));
+      expect(createCheckoutSession).toHaveBeenCalledWith('advanced', 'default', 'solved-token');
+      delete window.turnstile;
+      expect(mockedSubscribe).not.toHaveBeenCalled();
     });
   });
 

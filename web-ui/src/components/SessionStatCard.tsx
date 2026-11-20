@@ -1,7 +1,7 @@
 import { Component, Show, createMemo, createSignal, onCleanup } from 'solid-js';
 import { mdiConsole, mdiChip, mdiMemory, mdiHarddisk, mdiDotsVertical, mdiClockTimeEightOutline } from '@mdi/js';
 import Icon from './Icon';
-import type { SessionWithStatus, SessionStatus } from '../types';
+import { resolveTerminalMode, type SessionWithStatus, type SessionStatus } from '../types';
 import { sessionStore } from '../stores/session';
 import { terminalStore } from '../stores/terminal';
 import { AGENT_ICON_MAP } from '../lib/terminal-config';
@@ -41,7 +41,12 @@ interface SessionStatCardProps {
 
 const SessionStatCard: Component<SessionStatCardProps> = (props) => {
   const metrics = createMemo(() => sessionStore.getMetricsForSession(props.session.id));
-  const wsState = () => terminalStore.getConnectionState(props.session.id, '1');
+  const wsState = () => {
+    const terminalId = resolveTerminalMode(props.session.terminalMode) === 'herdr'
+      ? '1'
+      : sessionStore.getTerminalsForSession(props.session.id)?.activeTabId || '1';
+    return terminalStore.getConnectionState(props.session.id, terminalId);
+  };
   const lifecyclePresentation = createMemo(() => {
     const lifecycle = (props.session.status === 'initializing' || props.session.status === 'error'
       ? 'running'

@@ -30,6 +30,7 @@ import { setupR2Credentials, ensureBucketAndSeed, configureContainerDO } from '.
 import { resolveSessionAccessGroup, loadEnterpriseRouteConfig, requireOperatorHumanContext } from '../../lib/access';
 import { applyEnterpriseBrowserToken } from '../../lib/browser-render-token';
 import { applyCloudflareOAuthToken } from '../../lib/cloudflare-token';
+import { CloudflareOauthAccountIdSchema } from '../../lib/container-config-schema';
 import { getCachedActiveManagedRelease, hasPendingManagedReconciliation } from '../../lib/managed-release-active';
 import { hasStrictGatewayEgress } from '../../lib/controller-egress';
 import { createR2Client, getR2Url } from '../../lib/r2-client';
@@ -55,7 +56,7 @@ async function runStartStage<T>(logger: Logger, stage: string, operation: () => 
     logger.info('Container start stage completed', { stage, durationMs: Date.now() - startedAt });
     return result;
   } catch (error) {
-    logger.error('Container start stage failed', toError(error), { stage, durationMs: Date.now() - startedAt });
+    logger.error('Container start stage failed', undefined, { stage, durationMs: Date.now() - startedAt, errorClass: 'start_failed' });
     throw error;
   }
 }
@@ -108,7 +109,7 @@ export async function startOrRestartContainer(params: {
     try {
       await container.destroy();
     } catch (error) {
-      logger.error('Failed to destroy container', toError(error));
+      logger.error('Failed to destroy container', undefined, { containerId: shortContainerId, errorClass: 'native_destroy_failed' });
       throw error;
     }
     if (!await repository.confirmStoppedOrObserved(
@@ -125,8 +126,8 @@ export async function startOrRestartContainer(params: {
           })
         )
       );
-    } catch (error) {
-      logger.error('Failed to set replacement bucket', toError(error));
+    } catch {
+      logger.error('Failed to set replacement bucket', undefined, { containerId: shortContainerId, errorClass: 'configuration_failed' });
     }
   }
 
@@ -173,8 +174,8 @@ export async function startOrRestartContainer(params: {
         // marker; only then may the parent attach current human authority.
         await bindHuman?.(claimed.lifecycleGeneration);
         logger.info('Container started and ports ready', { containerId: shortContainerId });
-      } catch (error) {
-        logger.error('Failed to start container', toError(error), { containerId: shortContainerId });
+      } catch {
+        logger.error('Failed to start container', undefined, { containerId: shortContainerId, errorClass: 'start_failed' });
         // Start failure is not confirmed process exit. Leave the generation in
         // starting for bounded lifecycle reconciliation rather than inventing stopped.
       }
@@ -334,6 +335,14 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       getAndDecrypt<DeployKeys>(c.env.KV, getDeployKeysKey(bucketName), cryptoKey),
     ]));
 
+    // REQ-AGENT-029 AC5: capture only the original owner's selected OAuth account,
+    // before the independent Browser Run projection replaces the effective fields.
+    // This is advisory startup metadata, not a token refresh or authorization check.
+    const selectedOauthAccount = CloudflareOauthAccountIdSchema.safeParse(deployKeys?.cloudflareAccountId);
+    const cloudflareOauthAccountId = deployKeys?.cloudflareTokenSource === 'oauth'
+      && typeof deployKeys.cloudflareApiToken === 'string' && deployKeys.cloudflareApiToken.length > 0
+      && selectedOauthAccount.success ? selectedOauthAccount.data ?? null : null;
+
     // REQ-BROWSER-007: in enterprise the per-user Push & Deploy accordion is hidden,
     // so the Cloudflare Browser Rendering token + account that browser-run needs come
     // from the admin-global Setup value rather than per-user deploy-keys. No-op in
@@ -455,6 +464,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       managedResourcePathsDigest,
       llmKeys: llmKeys ?? undefined,
       deployKeys: effectiveDeployKeys ?? undefined,
+      cloudflareOauthAccountId,
       // REQ-MEM-001 AC4: forward the browser's IANA timezone (captured
       // on createSession) into the container so capture filenames reflect
       // the user's wall-clock instead of UTC.
@@ -511,7 +521,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       message: 'Container start initiated. Poll /api/container/startup-status for progress.',
     });
   } catch (error) {
-    reqLogger.error('Container start error', toError(error));
+    reqLogger.error('Container start error', undefined, { errorClass: 'start_failed' });
     if (error instanceof AppError) {
       throw error;
     }

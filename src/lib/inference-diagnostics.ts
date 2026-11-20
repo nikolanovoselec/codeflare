@@ -1,5 +1,5 @@
 import { createLogger } from './logger';
-import { emitRaw } from '../../host/src/operator-raw-logging';
+import { emitRaw, type RawLogContext } from '../../host/src/operator-raw-logging';
 
 /** Parent-owned correlation; never populated from model input or operation IDs. */
 export interface InferenceDiagnosticContext {
@@ -7,8 +7,37 @@ export interface InferenceDiagnosticContext {
   generation: number;
   loggingEnabled?: boolean;
   credentials?: readonly string[];
+  privateArchive?: RawLogContext['privateArchive'];
   operationOrdinal?: number;
   requestDigest?: string;
+}
+/** Structural wire only; the Worker owner constructs the native RPC capability. */
+export interface InferencePrivateArchiveSink {
+  record(stage: string, value: unknown): void | Promise<void>;
+}
+export type InferenceDiagnosticWireContext = Omit<InferenceDiagnosticContext, 'privateArchive'> & {
+  privateArchiveSink?: InferencePrivateArchiveSink;
+};
+
+/** Never serialize the local callback or silently discard an enabled private archive. */
+export function inferenceDiagnosticWire(context: InferenceDiagnosticContext | undefined,
+  privateArchiveSink?: InferencePrivateArchiveSink): InferenceDiagnosticWireContext | undefined {
+  if (!context) return undefined;
+  const { privateArchive, ...metadata } = context;
+  if (privateArchive && context.loggingEnabled !== false && !privateArchiveSink) throw new Error('Raw observation capability unavailable');
+  return { ...metadata, ...(privateArchive && context.loggingEnabled !== false ? { privateArchiveSink } : {}) };
+}
+
+/** Recompose only at the receiving private entrypoint, retaining its invocation lifetime. */
+export function inferenceDiagnosticLocal(context: InferenceDiagnosticWireContext | undefined,
+  schedule: (work: Promise<unknown>) => void): InferenceDiagnosticContext | undefined {
+  if (!context) return undefined;
+  const { privateArchiveSink, ...metadata } = context;
+  return { ...metadata, ...(privateArchiveSink && context.loggingEnabled !== false ? {
+    privateArchive: (stage: string, value: unknown) => {
+      try { schedule(Promise.resolve(privateArchiveSink.record(stage, value)).catch(() => {})); } catch { /* Optional retention only. */ }
+    },
+  } : {}) };
 }
 const logger = createLogger('operator-inference');
 const categories: Record<string, ReadonlySet<string>> = {

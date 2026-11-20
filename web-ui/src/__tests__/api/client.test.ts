@@ -7,6 +7,8 @@ vi.stubGlobal('fetch', mockFetch);
 // Import after mocking
 import {
   getUser,
+  getPreferences,
+  updatePreferences,
   getSessions,
   getSessionAncillaryStatus,
   createSession,
@@ -365,6 +367,61 @@ describe('API Client', () => {
   // ==========================================================================
   // API Endpoint Tests
   // ==========================================================================
+  describe('REQ-SESSION-014: supported preference response wire', () => {
+    it.each(['8h', '12h'] as const)('accepts %s in GET and PATCH responses without expanding the PATCH request', async sleepAfter => {
+      const reply = { sleepAfter, sessionMode: 'advanced', fastStartEnabled: true };
+      mockFetch.mockResolvedValueOnce(Response.json(reply));
+      expect(await getPreferences()).toEqual(reply);
+      let submitted: unknown;
+      mockFetch.mockImplementationOnce(async (_url: string, init?: RequestInit) => {
+        submitted = JSON.parse(String(init?.body));
+        return Response.json({ ...reply, fastStartEnabled: false });
+      });
+      expect(await updatePreferences({ fastStartEnabled: false })).toEqual({ ...reply, fastStartEnabled: false });
+      // Intentional PATCH wire: a response's timeout/mode never becomes a new requested mutation.
+      expect(submitted).toEqual({ fastStartEnabled: false });
+    });
+
+    it.each(['15m', '30m'])('reads the existing legacy %s response unchanged', async sleepAfter => {
+      mockFetch.mockResolvedValueOnce(Response.json({ sleepAfter }));
+      expect(await getPreferences()).toEqual({ sleepAfter });
+    });
+
+    it.each([{ sleepAfter: '45m' }, { sleepAfter: '24h' }, { sleepAfter: 0 }, { sleepAfter: null }])(
+      'rejects invalid GET and PATCH response timeout $sleepAfter instead of stripping it', async ({ sleepAfter }) => {
+        const reply = { sleepAfter, sessionMode: 'advanced' };
+        mockFetch.mockResolvedValueOnce(Response.json(reply));
+        await expect(getPreferences()).rejects.toThrow();
+        mockFetch.mockResolvedValueOnce(Response.json(reply));
+        await expect(updatePreferences({ fastStartEnabled: false })).rejects.toThrow();
+      });
+  });
+
+  describe('REQ-SUB-014: canonical mode availability wire', () => {
+    it.each([{ modes: ['default'] }, { modes: ['default', 'advanced'] }, { modes: [] }])(
+      'retains the server-authorized mode list $modes', async ({ modes }) => {
+      mockFetch.mockResolvedValueOnce(Response.json({ email: 'owner@example.com', authenticated: true,
+        bucketName: 'owner-bucket', saasMode: true, allowedModes: modes }));
+      // Intentional authenticated response contract; subscribedMode is not substituted.
+      expect(await getUser()).toMatchObject({ allowedModes: modes });
+    });
+
+    it.each([{ allowedModes: ['pro'] }, { allowedModes: ['advanced', false] }, { allowedModes: null }, { allowedModes: 'advanced' }])(
+      'rejects malformed mode availability $allowedModes', async ({ allowedModes }) => {
+      mockFetch.mockResolvedValueOnce(Response.json({ email: 'owner@example.com', authenticated: true,
+        bucketName: 'owner-bucket', saasMode: true, allowedModes }));
+      await expect(getUser()).rejects.toThrow();
+    });
+
+    it('retains compatibility with an older Worker that omits availability', async () => {
+      mockFetch.mockResolvedValueOnce(Response.json({ email: 'owner@example.com', authenticated: true,
+        bucketName: 'owner-bucket' }));
+      const user = await getUser();
+      expect(user).toMatchObject({ email: 'owner@example.com', authenticated: true });
+      expect(user).not.toHaveProperty('allowedModes');
+    });
+  });
+
   describe('getUser', () => {
     it('should call correct endpoint', async () => {
       mockFetch.mockResolvedValueOnce({

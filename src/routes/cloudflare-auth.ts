@@ -16,6 +16,7 @@ import { verifyOauthState, parseOauthState, claimOauthNonce } from '../lib/oauth
 import { createRateLimiter } from '../middleware/rate-limit';
 import { authenticateRequest } from '../lib/access';
 import {
+  CloudflareNoAccountsError,
   connectCloudflare,
   getCloudflareProvider,
   connectStateSecret,
@@ -74,9 +75,10 @@ app.get('/connect/callback', callbackRateLimiter, async (c) => {
 
   try {
     const { accountId } = await connectCloudflare(c.env, bucketName, code, `${base}${CONNECT_CALLBACK_PATH}`);
-    // Single account auto-selected → connected; multiple → prompt for selection.
+    // A selected account is valid for the new grant; otherwise prompt for selection.
     return c.redirect(`${appUrl}?cloudflare=${accountId ? 'connected' : 'select-account'}`);
   } catch (err) {
+    if (err instanceof CloudflareNoAccountsError) return c.redirect(`${appUrl}?cloudflare=no-accounts`);
     logger.error('Cloudflare connect failed', toError(err));
     return c.redirect(`${appUrl}?cloudflare=error`);
   }

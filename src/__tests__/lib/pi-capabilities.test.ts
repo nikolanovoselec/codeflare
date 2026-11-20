@@ -111,14 +111,14 @@ afterEach(() => {
   for (const root of temporaryRoots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-function discoveryFixture() {
+function discoveryFixture(input?: Parameters<typeof fakePi>[0]) {
   const root = mkdtempSync(join(tmpdir(), 'capability-discovery-'));
   temporaryRoots.push(root);
   const agentDir = join(root, 'agent');
   mkdirSync(agentDir);
   vi.stubEnv('PI_CODING_AGENT_DIR', agentDir);
   const policyPath = join(agentDir, 'capability-skill-policy.json');
-  const base = fakePi();
+  const base = fakePi(input);
   const registered = new Map<string, CapabilityTool>();
   const handlers = new EventRegistry();
   const pi = {
@@ -440,6 +440,74 @@ describe('REQ-AGENT-095/096: event-backed skill discovery and policy boundaries'
   });
 });
 
+describe('REQ-AGENT-096: native Hermes tool discovery and activation', () => {
+  // Native pi-hermes-memory names: memory-search-tool.ts and
+  // memory-tool.ts / MEMORY_WRITE_TOOL_NAMES. Model only Pi's registry here;
+  // memory persistence and foreground ownership have their own native tests.
+  const memoryTools = [
+    { name: 'memory_search', description: 'Search durable memory entries' },
+    { name: 'memory_add', description: 'Add one durable memory entry' },
+    { name: 'memory_replace', description: 'Replace one existing memory entry' },
+    { name: 'memory_remove', description: 'Remove one existing memory entry' },
+  ];
+  const bootstrapTools = [
+    { name: 'read', description: 'Read files' },
+    { name: 'bash', description: 'Run shell commands' },
+    { name: 'edit', description: 'Edit files' },
+    { name: 'write', description: 'Write files' },
+    { name: 'capability', description: 'Search tools' },
+  ];
+  const bootstrapNames = bootstrapTools.map(tool => tool.name);
+
+  it('REQ-AGENT-096: each user turn keeps registered native Hermes tools inactive until selected', async () => {
+    const fixture = discoveryFixture({
+      active: [...bootstrapNames, ...memoryTools.map(tool => tool.name)],
+      tools: [...bootstrapTools, ...memoryTools],
+    });
+    toolExposureFinalizer(fixture.pi, () => 'after-first-goal');
+    await fixture.handlers.get('before_agent_start')({}, {});
+    expect(fixture.pi.getActiveTools()).toEqual(bootstrapNames);
+    for (const tool of memoryTools) {
+      expect(identities(await fixture.search(`tool:${tool.name}`))).toEqual([`tool:${tool.name}`]);
+    }
+
+    await fixture.capability.execute('select-memory', { name: 'memory_search' });
+    expect(fixture.pi.getActiveTools()).toEqual([...bootstrapNames, 'memory_search']);
+    await fixture.handlers.get('before_agent_start')({}, {});
+    expect(fixture.pi.getActiveTools()).toEqual(bootstrapNames);
+    expect(identities(await fixture.search('tool:memory_search'))).toEqual(['tool:memory_search']);
+  });
+
+  it.each(memoryTools)('REQ-AGENT-096: discovers registered inactive native $name with an executable activation action', async (tool) => {
+    const fixture = discoveryFixture({ active: bootstrapNames, tools: bootstrapTools });
+    expect(identities(await fixture.search(`tool:${tool.name}`))).not.toContain(`tool:${tool.name}`);
+    // A native owner can register tools after capability itself was loaded.
+    // Discovery must read the live registry, not a static memory-name index.
+    const registeredTools = [...bootstrapTools, tool];
+    fixture.pi.getAllTools = () => registeredTools;
+    const result = await fixture.capability.execute('find-memory', { query: `tool:${tool.name}` });
+    const matches = resultMatches(result);
+    expect(identities(matches)).toEqual([`tool:${tool.name}`]);
+    expect(matches[0]).toMatchObject({ nextAction: { action: 'activate-tool', name: tool.name } });
+    expect(fixture.pi.getActiveTools()).toEqual(bootstrapNames);
+  });
+
+  it.each(memoryTools)('REQ-AGENT-096: activates only registered native $name additively and idempotently', async (tool) => {
+    const fixture = discoveryFixture({ active: bootstrapNames, tools: [...bootstrapTools, ...memoryTools] });
+    expect(await fixture.capability.execute('activate-memory', { name: tool.name })).toMatchObject({
+      details: { name: tool.name, added: [tool.name] },
+    });
+    expect(fixture.pi.getActiveTools()).toEqual([...bootstrapNames, tool.name]);
+    expect(await fixture.capability.execute('activate-memory-again', { name: tool.name })).toMatchObject({
+      details: { name: tool.name, added: [] },
+    });
+    expect(fixture.pi.getActiveTools()).toEqual([...bootstrapNames, tool.name]);
+    await expect(fixture.capability.execute('unregistered-memory', { name: 'memory_unregistered' }))
+      .rejects.toThrow('Unknown tool: memory_unregistered');
+    expect(fixture.pi.getActiveTools()).toEqual([...bootstrapNames, tool.name]);
+  });
+});
+
 describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
   it('loads the helper module as a side-effect-free standalone extension', () => {
     expect(capabilityHelpersExtension()).toBeUndefined();
@@ -504,8 +572,12 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
     expect(identities(resultMatches(await capability.execute('search', {
       query: 'background specialist',
     })))).toEqual(['tool:get_subagent_result', 'tool:steer_subagent', 'tool:subagent']);
+    const beforeUnknown = pi.getActiveTools();
+    // Public error contract: activation distinguishes tools from skills and
+    // tells the caller exactly which read action can load a skill.
     await expect(capability.execute('activate-skill', { name: 'codeflare-capabilities' }))
-      .rejects.toBeInstanceOf(Error);
+      .rejects.toThrow('Unknown tool: codeflare-capabilities. capability activates registered Pi tools only; read ~/.pi/agent/skills/<name>/SKILL.md to load a skill.');
+    expect(pi.getActiveTools()).toEqual(beforeUnknown);
     expect(await capability.execute('activate', { name: 'subagent' })).toMatchObject({
       details: {
         name: 'subagent',
@@ -588,6 +660,36 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
 
     handlers.get('before_agent_start')?.({}, session('completed'));
     expect(pi.getActiveTools()).toEqual(['read', 'bash', 'goal_complete', 'goal_blocked']);
+  });
+
+  it.each([
+    { label: 'fresh lazy session', visibility: 'after-first-goal', goal: null, plan: false, registered: true, visible: false },
+    { label: 'active Goal', visibility: 'after-first-goal', goal: 'active', plan: false, registered: true, visible: true },
+    { label: 'restored blocked Goal', visibility: 'after-first-goal', goal: 'blocked', plan: false, registered: true, visible: true },
+    { label: 'active Plan with paused Goal', visibility: 'after-first-goal', goal: 'paused', plan: true, registered: true, visible: false },
+    { label: 'always-visible controls during Plan', visibility: 'always', goal: 'paused', plan: true, registered: true, visible: true },
+    { label: 'older runtime without progress tool', visibility: 'after-first-goal', goal: 'active', plan: false, registered: false, visible: false },
+  ] as const)('REQ-AGENT-191: exposes only registered progress controls for $label', async ({ visibility, goal, plan, registered, visible }) => {
+    const base = fakePi({ tools: [
+      { name: 'read', description: 'Read files' },
+      { name: 'goal_complete', description: 'Complete Goal' },
+      { name: 'goal_blocked', description: 'Block Goal' },
+      { name: 'goal_wait', description: 'Disabled wait' },
+      { name: 'plan_mode_question', description: 'Ask a Plan question' },
+      { name: 'plan_mode_complete', description: 'Complete Plan' },
+      ...(registered ? [{ name: 'goal_progress', description: 'Report verified advancement or a stall' }] : []),
+    ] });
+    const handlers = new EventRegistry();
+    const pi = { ...base, on: (event: string, handler: EventHandler) => handlers.set(event, handler) };
+    toolExposureFinalizer(pi, () => visibility);
+    await handlers.get('before_agent_start')({}, { sessionManager: { getBranch: () => [
+      ...(goal ? [{ type: 'custom', customType: 'goal-state', data: { goal: { id: 'goal-1', status: goal } } }] : []),
+      ...(plan ? [{ type: 'custom', customType: 'plan-mode-state', data: {
+        enabled: true, workflowToolPolicy: { allowedNames: ['read'], resolved: true },
+      } }] : []),
+    ] } });
+    expect(pi.getActiveTools().includes('goal_progress')).toBe(visible);
+    expect(pi.getActiveTools()).not.toContain('goal_wait');
   });
 
   it('REQ-AGENT-191 AC3: preserves Goal tools already active under the always-visible policy', () => {

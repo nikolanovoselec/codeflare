@@ -1,15 +1,56 @@
 /// <reference types="@cloudflare/vitest-plugin/types" />
-import { type DiagnosticPage, type DiagnosticRecord, type DispatcherFixture, type FixtureDiagnosticIndex, bundle, bytes, changedCompose, collectedRawValues, composeBlob, composeRead, denyDiagnosticWrites, diagnosticIndexKey, diagnosticJson, diagnosticReport, diagnosticSummary, diagnosticTraversal, diagnosticsBrowser, digest, dozzleFiles, encodeSdkHeader, fixture, genericWire, guideBlobSha, guideExcerpt, guideRead, importRuntime, invalidPreparationRefusal, invocation, maximalDiagnosticEvent, preparationFailures, prospectiveBase, prospectiveComment, prospectiveMerge, prospectiveRepo, read, releaseRead, remoteMutations, retainedFence, runtimeEnvelope, seedDiagnosticSnapshot, sourceRead, start, startProspective, syntheticFramePaths, withCollectedLargeLogs } from './fixtures/dispatcher-production';
+import { type DiagnosticPage, type DiagnosticRecord, type DispatcherFixture, type FixtureDiagnosticIndex, bundle, bytes, capacitySourceUrl as sourceUrl, capacityInferenceRequest as inference, capacityReceipt as receipt, fillCapacityReads as fillReads, collectedRawValues, denyDiagnosticWrites, diagnosticIndexKey, diagnosticJson, diagnosticReport, diagnosticSummary, diagnosticTraversal, diagnosticsBrowser, digest, encodeSdkHeader, fixture, genericWire, writableApplication, importRuntime, invalidPreparationRefusal, invocation, maximalDiagnosticEvent, preparationFailures, read, remoteMutations, retainedFence, runtimeEnvelope, seedDiagnosticSnapshot, sourceRead, start, syntheticFramePaths, withCollectedLargeLogs } from './fixtures/dispatcher-production';
 import { describe, expect, it, vi } from 'vitest';
+import { normalCallback } from './fixtures/normal-dispatcher';
 import { env } from 'cloudflare:test';
 import { Agent } from 'agents';
 import { OperatorActivity, OperatorDispatcherTail } from '../../operators/activity';
 import { driveDispatcherRuntime } from '../../operators/runtime';
 import { runOperatorActivity } from '../../operators/orchestrator';
-import { parseDispatcherOperation, readDispatcherBody } from '../../operators/operator-runtime-capability';
+import { authorizeDispatcherPlan, dispatcherRoutingGroups, parseDispatcherOperation, readDispatcherBody } from '../../operators/operator-runtime-capability';
 import { captureError } from '../../operators/dispatcher-diagnostics-wire';
+import { openOperatorSecret, sealOperatorSecret } from '../../operators/protected-secrets';
 import { setLogLevel } from '../../lib/logger';
+import * as access from '../../lib/access';
 import { pendingRecipient, within } from '../helpers/pending-recipient';
+
+describe('REQ-OPERATOR-047/063: unavailable authority projection', () => {
+  it.each(['entry', 'capability'] as const)(
+    '%s authority outage retains unavailable evidence and the existing refusal without effects', stage => fixture(async f => {
+      await start(f);
+      let unavailable = stage === 'entry';
+      const identity = vi.spyOn(access, 'observeOperatorAccessIdentity').mockImplementation(async human => unavailable
+        ? { status: 'unavailable' as const } : { status: 'current' as const, groups: [...(human.groups ?? [])] });
+      const body = JSON.stringify({ operationId: 'unavailable-authority', method: 'GET',
+        url: 'https://api.github.com/repos/another/service' });
+      const request = new Request('https://operator.internal/v1/dispatcher/source', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        // A loss of identity evidence while reading the body occurs after entry authorization.
+        body: stage === 'entry' ? body : new ReadableStream<Uint8Array>({ pull(controller) {
+          unavailable = true;
+          controller.enqueue(new TextEncoder().encode(body)); controller.close();
+        } }, { highWaterMark: 0 }),
+      });
+      try {
+        const response = await f.capability.fetch(request);
+        expect(response.status).toBe(403);
+        expect(await response.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED',
+          reason: stage === 'entry' ? 'execution-inactive' : 'authority-unverified', disposition: 'authority-denied' });
+        expect(f.sent).toEqual([]);
+        expect((await f.activity.getBrowserDetail())?.result).toBeNull();
+        await f.drainBackground();
+      } finally { identity.mockRestore(); }
+      const summary = await diagnosticSummary(f);
+      expect(summary.diagnosis.code).toBe('platform-evidence-required');
+      expect(summary.health.gaps).not.toContain('recorder-unavailable');
+      const { records } = await diagnosticTraversal(diagnosticsBrowser(f));
+      const failures = records.filter(record => record.kind === 'event' && record.boundary === 'admission'
+        && record.outcome === 'failed');
+      expect(failures).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'platform-evidence-required',
+        ...(stage === 'capability' ? { preparation: expect.objectContaining({ step: 'capability' }) } : {}) })]));
+      expect(failures).not.toEqual(expect.arrayContaining([expect.objectContaining({ code: 'authority-denied' })]));
+    }, { normalHosting: true, repositoryOnly: true, loggingEnabled: true }));
+});
 
 // Legacy refusal assertions below preserve code/status compatibility and their related
 // effect/lifecycle outcomes; additive reason/disposition are asserted exactly here.
@@ -27,12 +68,23 @@ describe('REQ-OPERATOR-047: closed protected refusal contract', () => {
     { name: 'invalid JSON', request: () => new Request('https://operator.internal/v1/dispatcher/source', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: '{' }) },
     { name: 'forged authority', request: () => genericWire('source', { operationId: 'forged', url: sourceUrl, owner: 'another-user' }) },
+    { name: 'child principal', request: () => genericWire('source', { operationId: 'forged', url: sourceUrl, principal: 'another-user' }) },
+    { name: 'child bucket', request: () => genericWire('source', { operationId: 'forged', url: sourceUrl, bucket: 'foreign-bucket' }) },
+    { name: 'child policy', request: () => genericWire('source', { operationId: 'forged', url: sourceUrl, policy: { capabilities: ['fetch', 'inference', 'storage'] } }) },
     { name: 'GET with body', request: () => genericWire('source', { operationId: 'get-body', url: sourceUrl, method: 'GET', body: '{}' }) },
     { name: 'unsupported protected route', request: () => genericWire('unsupported', { operationId: 'wrong-route' }) },
   ])('REQ-OPERATOR-047: malformed $name is operation-local and permits a corrected authorized source', ({ request }) => fixture(async f => {
     await start(f);
+    const originalContext = await f.activity.getExecutionContext();
+    const originalAdmission = await f.activity.getAdmission();
+    expect(originalContext).toMatchObject({ principal: 'operator', owner: { subject: 'owner' }, artifactDigest: f.artifactDigest });
+    expect(originalAdmission).toMatchObject({ phase: 'queued', receipt: { activityId: f.activityId } });
     await refusal(await f.capability.fetch(request()), 403, 'OPERATOR_CAPABILITY_DENIED', 'request-invalid', 'operation-local');
     expect(f.sent).toEqual([]);
+    expect(await f.activity.getExecutionContext()).toEqual(originalContext);
+    expect(await f.activity.getAdmission()).toEqual(originalAdmission);
+    await refusal(await f.capability.fetch(genericWire('receipt', { operationId: 'forged' })), 403,
+      'OPERATOR_CAPABILITY_DENIED', 'receipt-unavailable', 'operation-local');
     expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
     const corrected = await f.capability.fetch(source('corrected-source'));
     expect(corrected.status).toBe(200);
@@ -127,15 +179,15 @@ describe('REQ-OPERATOR-047: closed protected refusal contract', () => {
     const mutation = { operationId: 'unknown-original', method: 'POST', url: `${sourceUrl}/issues/17/comments`,
       body: '{"body":"Original uncertain judgment"}' };
     f.loseResponse();
-    await refusal(await f.capability.fetch(genericWire('source', mutation)), 409,
+    await refusal(await f.capability.fetch(applicationWire(f, 'source', mutation)), 409,
       'OPERATOR_OPERATION_UNKNOWN', 'effect-uncertain', 'effect-uncertain');
     f.restoreTransport();
-    await refusal(await f.capability.fetch(genericWire('source', mutation)), 409,
+    await refusal(await f.capability.fetch(applicationWire(f, 'source', mutation)), 409,
       'OPERATOR_OPERATION_UNKNOWN', 'effect-uncertain', 'effect-uncertain');
-    const original = await f.capability.fetch(genericWire('receipt', { operationId: mutation.operationId }));
+    const original = await f.capability.fetch(applicationWire(f, 'receipt', { operationId: mutation.operationId }));
     expect(original.status).toBe(200);
     expect(await original.json()).toMatchObject({ operationId: mutation.operationId, phase: 'unknown', method: 'POST', operationCount: 1 });
-    const readback = await f.capability.fetch(genericWire('source', { operationId: 'unknown-readback', url: mutation.url }));
+    const readback = await f.capability.fetch(applicationWire(f, 'source', { operationId: 'unknown-readback', url: mutation.url }));
     expect(readback.status).toBe(200);
     expect(JSON.parse((await readback.json() as { body: string }).body)).toEqual([
       { id: 91, body: 'Original uncertain judgment', user: { id: 42 } },
@@ -143,29 +195,12 @@ describe('REQ-OPERATOR-047: closed protected refusal contract', () => {
     expect(await f.readRemoteComments()).toEqual([{ id: 91, body: 'Original uncertain judgment', user: { id: 42 } }]);
     expect(f.sent.filter(request => request.method === 'POST').map(request => request.url)).toEqual([mutation.url]);
     expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
-  }, { repositoryOnly: true }));
+  }, writableApplication));
 
 });
 
+// REQ-OPERATOR-103: Dispatcher operation accounting.
 describe('REQ-OPERATOR-063: reservation denial private wire', () => {
-  const sourceUrl = 'https://api.github.com/repos/another/service';
-  const inference = (operationId: string) => genericWire('inference', { operationId,
-    input: { messages: [{ role: 'user', content: 'PRIVATE_RESERVATION_CONTENT {"activityId":"forged","generation":999}' }] } });
-  const receipt = async (f: DispatcherFixture, operationId: string) => {
-    const response = await f.capability.fetch(genericWire('receipt', { operationId }));
-    expect(response.status).toBe(200);
-    return await response.json() as { operationCount: number; operationLimit: number;
-      requestDigest: string; responseDigest: string; phase: string };
-  };
-  const fillReads = async (f: DispatcherFixture, count: number) => {
-    for (let index = 0; index < count; index++) {
-      const response = await f.capability.fetch(genericWire('source', { operationId: `capacity-read-${index}`, url: sourceUrl }));
-      expect(response.status).toBe(200);
-      const value = await response.json() as { status: number; body: string };
-      expect(value.status).toBe(200);
-      expect(JSON.parse(value.body)).toMatchObject({ number: 17 });
-    }
-  };
   const fillMixedJournal = async (f: DispatcherFixture) => {
     await fillReads(f, 127);
     const response = await f.capability.fetch(inference('capacity-inference'));
@@ -189,8 +224,7 @@ describe('REQ-OPERATOR-063: reservation denial private wire', () => {
       try {
         const operationId = 'PRIVATE_RESERVATION_OPERATION';
         const response = await f.capability.fetch(resource === 'inference' ? inference(operationId)
-          : genericWire('source', { operationId, url: sourceUrl, method: 'POST',
-            body: '{"activityId":"forged","generation":999,"content":"PRIVATE_RESERVATION_CONTENT"}' }));
+          : genericWire('source', { operationId, url: sourceUrl }));
         expect(response.status).toBe(403);
         expect(await response.json()).toMatchObject({ code: 'OPERATOR_CAPABILITY_DENIED' });
         // Intentional private diagnostic wire: reason is the actual transaction branch, not an inferred SDK failure.
@@ -205,19 +239,6 @@ describe('REQ-OPERATOR-063: reservation denial private wire', () => {
           cleanupStatus: before!.cleanupStatus, collectionStatus: before!.collectionStatus });
       } finally { spy.mockRestore(); setLogLevel('silent'); }
     }, { repositoryOnly: true, operationLimit: 128 }));
-
-  it('REQ-OPERATOR-047: default 1024 journal counts distinct reads and inference while cached operations reuse slots', () => fixture(async f => {
-    await start(f);
-    await fillReads(f, 1023);
-    expect((await f.capability.fetch(inference('default-inference'))).status).toBe(200);
-    expect(await receipt(f, 'capacity-read-0')).toMatchObject({ operationCount: 1024, operationLimit: 1024 });
-    expect((await f.capability.fetch(genericWire('source', { operationId: 'capacity-read-0', url: sourceUrl }))).status).toBe(200);
-    expect((await f.capability.fetch(inference('default-inference'))).status).toBe(200);
-    expect(await receipt(f, 'capacity-read-0')).toMatchObject({ operationCount: 1024, operationLimit: 1024 });
-    expect((await f.capability.fetch(inference('new-over-default'))).status).toBe(403);
-    expect((await f.capability.fetch(genericWire('source', { operationId: 'new-over-default-read', url: sourceUrl }))).status).toBe(403);
-    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
-  }, { repositoryOnly: true }), 120000);
 
   it.each([3, 129])('REQ-OPERATOR-047: admitted %i-operation budget denies fresh work at its exact boundary', operationLimit => fixture(async f => {
     await start(f);
@@ -251,13 +272,13 @@ describe('REQ-OPERATOR-063: reservation denial private wire', () => {
     const comments = `${sourceUrl}/issues/17/comments`;
     const completed = { operationId: 'capacity-comment', method: 'POST', url: comments, body: '{"body":"completed judgment"}' };
     const unknown = { ...completed, operationId: 'capacity-unknown', body: '{"body":"uncertain judgment"}' };
-    const posted = await f.capability.fetch(genericWire('source', completed));
+    const posted = await f.capability.fetch(applicationWire(f, 'source', completed));
     expect(posted.status).toBe(200);
     const postedBody = await posted.json();
     f.loseResponse();
-    expect(await (await f.capability.fetch(genericWire('source', unknown))).json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
+    expect(await (await f.capability.fetch(applicationWire(f, 'source', unknown))).json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
     f.restoreTransport();
-    const observed = await f.capability.fetch(genericWire('source', { operationId: 'capacity-readback', url: comments }));
+    const observed = await f.capability.fetch(applicationWire(f, 'source', { operationId: 'capacity-readback', url: comments }));
     expect(observed.status).toBe(200);
     expect(JSON.parse((await observed.json() as { body: string }).body)).toEqual(expect.arrayContaining([
       expect.objectContaining({ body: 'completed judgment' }), expect.objectContaining({ body: 'uncertain judgment' }),
@@ -266,27 +287,27 @@ describe('REQ-OPERATOR-063: reservation denial private wire', () => {
     const readback = await receipt(f, 'capacity-readback');
     expect(original).toMatchObject({ operationCount: 128, operationLimit: 128, phase: 'unknown' });
     const outbound = [...f.sent];
-    expect(await (await f.capability.fetch(genericWire('source', completed))).json()).toEqual(postedBody);
-    expect((await f.capability.fetch(genericWire('source', { operationId: 'capacity-read-0', url: sourceUrl }))).status).toBe(200);
-    const conflict = await f.capability.fetch(genericWire('source', { ...completed, body: '{"body":"changed judgment"}' }));
+    expect(await (await f.capability.fetch(applicationWire(f, 'source', completed))).json()).toEqual(postedBody);
+    expect((await f.capability.fetch(applicationWire(f, 'source', { operationId: 'capacity-read-0', url: sourceUrl }))).status).toBe(200);
+    const conflict = await f.capability.fetch(applicationWire(f, 'source', { ...completed, body: '{"body":"changed judgment"}' }));
     expect(conflict.status).toBe(409);
     expect(await conflict.json()).toMatchObject({ code: 'OPERATOR_OPERATION_CONFLICT' });
-    const uncertain = await f.capability.fetch(genericWire('source', unknown));
+    const uncertain = await f.capability.fetch(applicationWire(f, 'source', unknown));
     expect(uncertain.status).toBe(409);
     expect(await uncertain.json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
     const resolution = { operationId: unknown.operationId, requestDigest: original.requestDigest,
       readbacks: [{ operationId: 'capacity-readback', requestDigest: readback.requestDigest, responseDigest: readback.responseDigest }] };
     for (let repeat = 0; repeat < 2; repeat++) {
-      const resolved = await f.capability.fetch(genericWire('resolve', resolution));
+      const resolved = await f.capability.fetch(applicationWire(f, 'resolve', resolution));
       expect(resolved.status).toBe(200);
       expect(await resolved.json()).toEqual({ resolved: true, operationId: unknown.operationId, requestDigest: original.requestDigest });
     }
     expect(await receipt(f, unknown.operationId)).toMatchObject({ operationCount: 128, operationLimit: 128, phase: 'completed' });
     expect(f.sent).toEqual(outbound);
-    const denied = await f.capability.fetch(inference('new-at-capacity'));
+    const denied = await f.capability.fetch(applicationInference(f, 'new-at-capacity'));
     expect(denied.status).toBe(403);
     expect(await denied.json()).toMatchObject({ code: 'OPERATOR_CAPABILITY_DENIED' });
-  }, { repositoryOnly: true, operationLimit: 128 }));
+  }, { ...writableApplication, operationLimit: 128 }));
 
   it('REQ-OPERATOR-063: reservation diagnostic wire reports lease-mismatch after concurrent cancellation without protected I/O', () => fixture(async f => {
     await start(f);
@@ -342,6 +363,7 @@ describe('REQ-OPERATOR-063: reservation denial private wire', () => {
     }, { repositoryOnly: true, operationLimit: 128 }));
 });
 
+// REQ-OPERATOR-103: Dispatcher operation accounting.
 describe('REQ-OPERATOR-047: generic Activity mutation receipts and resolution', () => {
   it('exposes the configured API origin only to repository-only Loader code', async () => {
     for (const repositoryOnly of [false, true]) await fixture(async f => {
@@ -358,15 +380,24 @@ describe('REQ-OPERATOR-047: generic Activity mutation receipts and resolution', 
         expect((await f.capability.fetch(new Request(genericWire('source', { operationId: 'cancelled-mutation', method: 'POST',
           url: 'https://github.enterprise.test/repos/another/service/issues/17/comments', body: '{}' }), { signal: controller.signal }))).status).toBe(403);
         expect(f.sent).toEqual([]);
-        const request = () => genericWire('source', { operationId: 'merge-cas', method: 'PUT',
-          url: 'https://github.enterprise.test/repos/another/service/pulls/17/merge', body: '{"sha":"expected-head"}' });
-        expect((await f.capability.fetch(request())).status).toBe(200);
-        expect((await f.capability.fetch(request())).status).toBe(200);
-        expect(f.sent.filter(value => value.method === 'PUT')).toHaveLength(1);
-        expect(await f.sent.filter(value => value.method === 'PUT')[0].json()).toEqual({ sha: 'expected-head' });
       }
     }, { repositoryOnly, githubApiHost: 'github.enterprise.test' });
   });
+  it('forwards exact configured-API PUT bytes once without a domain preflight', () => fixture(async f => {
+    await startApplication(f);
+    const mutation = { operationId: 'merge-cas', method: 'PUT',
+      url: 'https://github.enterprise.test/repos/another/service/pulls/17/merge', body: '{"sha":"expected-head"}' };
+    const first = await f.capability.fetch(applicationWire(f, 'source', mutation));
+    expect(first.status).toBe(200);
+    const original = await first.text();
+    const cached = await f.capability.fetch(applicationWire(f, 'source', mutation));
+    expect(cached.status).toBe(200);
+    expect(await cached.text()).toBe(original);
+    expect(f.sent.map(request => ({ url: request.url, method: request.method }))).toEqual([
+      { url: mutation.url, method: 'PUT' },
+    ]);
+    expect(await f.sent[0].json()).toEqual({ sha: 'expected-head' });
+  }, { ...applicationOptions, githubApiHost: 'github.enterprise.test' }));
   it('projects actual journal consumption on receipts without charging cached receipt observations', async () => fixture(async f => {
     await start(f);
     const source = { operationId: 'budget-read', url: 'https://api.github.com/repos/another/service' };
@@ -385,47 +416,47 @@ describe('REQ-OPERATOR-047: generic Activity mutation receipts and resolution', 
       const mutation = { operationId: 'ambiguous-comment', method: 'POST',
         url: 'https://api.github.com/repos/another/service/issues/17/comments', body: '{"body":"judgment"}' };
       f.loseResponse();
-      expect((await f.capability.fetch(genericWire('source', mutation))).status).toBe(409);
+      expect((await f.capability.fetch(applicationWire(f, 'source', mutation))).status).toBe(409);
       f.restoreTransport(); f.genericReadback(evidence);
-      const readback = await (await f.capability.fetch(genericWire('source', { operationId: 'ambiguous-read', url: mutation.url }))).json() as { body: string };
+      const readback = await (await f.capability.fetch(applicationWire(f, 'source', { operationId: 'ambiguous-read', url: mutation.url }))).json() as { body: string };
       expect(JSON.parse(readback.body)).toEqual(evidence);
       // No unique package-validated domain receipt exists: do not call resolve.
-      expect((await f.capability.fetch(genericWire('receipt', { operationId: mutation.operationId }))).status).toBe(200);
-      expect(await (await f.capability.fetch(genericWire('source', mutation))).json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
+      expect((await f.capability.fetch(applicationWire(f, 'receipt', { operationId: mutation.operationId }))).status).toBe(200);
+      expect(await (await f.capability.fetch(applicationWire(f, 'source', mutation))).json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
       f.revoke();
-      expect((await f.capability.fetch(genericWire('source', mutation))).status).toBe(403);
+      expect((await f.capability.fetch(applicationWire(f, 'source', mutation))).status).toBe(403);
       expect(f.sent.filter(value => value.method === 'POST')).toHaveLength(1);
-    }, { repositoryOnly: true });
+    }, writableApplication);
   });
   it('never repeats an uncertain mutation; permits readback and immutable resolution', async () => {
     await fixture(async f => {
       await start(f);
       const mutation = { operationId: 'comment-once', method: 'POST', url: 'https://api.github.com/repos/another/service/issues/17/comments', body: '{"body":"judgment"}' };
       f.loseResponse();
-      expect(await (await f.capability.fetch(genericWire('source', mutation))).json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
-      expect(await (await f.capability.fetch(genericWire('source', mutation))).json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
+      expect(await (await f.capability.fetch(applicationWire(f, 'source', mutation))).json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
+      expect(await (await f.capability.fetch(applicationWire(f, 'source', mutation))).json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
       expect(f.sent.filter(request => request.method === 'POST')).toHaveLength(1);
-      expect(await (await f.capability.fetch(genericWire('source', { ...mutation, body: '{"body":"changed"}' }))).json()).toMatchObject({ code: 'OPERATOR_OPERATION_CONFLICT' });
-      const original = await (await f.capability.fetch(genericWire('receipt', { operationId: mutation.operationId }))).json() as { requestDigest: string };
+      expect(await (await f.capability.fetch(applicationWire(f, 'source', { ...mutation, body: '{"body":"changed"}' }))).json()).toMatchObject({ code: 'OPERATOR_OPERATION_CONFLICT' });
+      const original = await (await f.capability.fetch(applicationWire(f, 'receipt', { operationId: mutation.operationId }))).json() as { requestDigest: string };
       const unresolved = { operationId: mutation.operationId, requestDigest: original.requestDigest, readbacks: [] };
-      expect((await f.capability.fetch(genericWire('resolve', unresolved))).status).toBe(403);
+      expect((await f.capability.fetch(applicationWire(f, 'resolve', unresolved))).status).toBe(403);
       const absent = { operationId: 'missing', requestDigest: 'a'.repeat(64), responseDigest: 'b'.repeat(64) };
-      expect(await (await f.capability.fetch(genericWire('resolve', { ...unresolved, readbacks: [absent] }))).json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
+      expect(await (await f.capability.fetch(applicationWire(f, 'resolve', { ...unresolved, readbacks: [absent] }))).json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
       f.restoreTransport();
       const readback = { operationId: 'read-comment', url: mutation.url };
-      const evidence = await (await f.capability.fetch(genericWire('source', readback))).json() as { body: string };
+      const evidence = await (await f.capability.fetch(applicationWire(f, 'source', readback))).json() as { body: string };
       // Package code validates the remote actor/target/text before asking the generic parent to seal references.
       expect(JSON.parse(evidence.body)).toEqual([{ id: 91, body: 'judgment', user: { id: 42 } }]);
-      const reference = await (await f.capability.fetch(genericWire('receipt', { operationId: readback.operationId }))).json() as { operationId: string; requestDigest: string; responseDigest: string };
+      const reference = await (await f.capability.fetch(applicationWire(f, 'receipt', { operationId: readback.operationId }))).json() as { operationId: string; requestDigest: string; responseDigest: string };
       const resolution = { ...unresolved, readbacks: [{ operationId: reference.operationId,
         requestDigest: reference.requestDigest, responseDigest: reference.responseDigest }] };
-      expect(await (await f.capability.fetch(genericWire('resolve', { ...resolution, readbacks: [resolution.readbacks[0], resolution.readbacks[0]] }))).json()).toMatchObject({ code: 'OPERATOR_CAPABILITY_DENIED' });
-      expect(await (await f.capability.fetch(genericWire('resolve', resolution))).json()).toEqual({ resolved: true, operationId: mutation.operationId, requestDigest: original.requestDigest });
-      expect(await (await f.capability.fetch(genericWire('resolve', resolution))).json()).toEqual({ resolved: true, operationId: mutation.operationId, requestDigest: original.requestDigest });
+      expect(await (await f.capability.fetch(applicationWire(f, 'resolve', { ...resolution, readbacks: [resolution.readbacks[0], resolution.readbacks[0]] }))).json()).toMatchObject({ code: 'OPERATOR_CAPABILITY_DENIED' });
+      expect(await (await f.capability.fetch(applicationWire(f, 'resolve', resolution))).json()).toEqual({ resolved: true, operationId: mutation.operationId, requestDigest: original.requestDigest });
+      expect(await (await f.capability.fetch(applicationWire(f, 'resolve', resolution))).json()).toEqual({ resolved: true, operationId: mutation.operationId, requestDigest: original.requestDigest });
       expect(f.sent.filter(request => request.method === 'POST')).toHaveLength(1);
       f.revokeSession();
-      expect((await f.capability.fetch(genericWire('resolve', resolution))).status).toBe(403);
-    }, { repositoryOnly: true });
+      expect((await f.capability.fetch(applicationWire(f, 'resolve', resolution))).status).toBe(403);
+    }, writableApplication);
   });
 });
 
@@ -532,7 +563,8 @@ describe('REQ-OPERATOR-063: retained host preparation cause', () => {
   const sourceUrl = 'https://api.github.com/repos/another/service';
   const corrected = (id: string) => genericWire('source', { operationId: id, url: sourceUrl });
   const receipt = async (f: DispatcherFixture, id: string) => {
-    const response = await f.capability.fetch(genericWire('receipt', { operationId: id })); expect(response.status).toBe(200);
+    const response = await f.capability.fetch(f.normalTransport
+      ? applicationWire(f, 'receipt', { operationId: id }) : genericWire('receipt', { operationId: id })); expect(response.status).toBe(200);
     return response.json();
   };
   const options = { repositoryOnly: true, inferenceRequestBytes: byteLimit, capacityPolicy: { dispatcherRequestBytes: byteLimit } };
@@ -673,7 +705,7 @@ describe('REQ-OPERATOR-063: retained host preparation cause', () => {
       const mutation = { operationId: 'original-unknown-write', method: 'POST',
         url: `${sourceUrl}/issues/17/comments`, body: '{"body":"Original uncertain effect"}' };
       f.loseResponse();
-      expect((await f.capability.fetch(genericWire('source', mutation))).status).toBe(409);
+      expect((await f.capability.fetch(applicationWire(f, 'source', mutation))).status).toBe(409);
       f.restoreTransport();
       const originalReceipt = await receipt(f, mutation.operationId);
       expect(originalReceipt).toMatchObject({ phase: 'unknown', operationCount: 1 });
@@ -684,15 +716,15 @@ describe('REQ-OPERATOR-063: retained host preparation cause', () => {
       }
       try {
         await invalidPreparationRefusal(await f.capability.fetch(new Request('https://operator.internal/v1/dispatcher/inference',
-          { method: 'POST', headers: { 'content-type': 'application/json' }, body: 'x'.repeat(byteLimit + 1) })));
+          { method: 'POST', headers: applicationWire(f, 'inference', {}).headers, body: 'x'.repeat(byteLimit + 1) })));
         await f.drainBackground();
       } finally { vi.restoreAllMocks(); setLogLevel('silent'); }
       expect(await receipt(f, mutation.operationId)).toEqual(originalReceipt);
-      expect((await f.capability.fetch(genericWire('source', mutation))).status).toBe(409);
+      expect((await f.capability.fetch(applicationWire(f, 'source', mutation))).status).toBe(409);
       expect(await f.readRemoteComments()).toEqual(remote);
       expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
       expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
-      expect((await f.capability.fetch(corrected('authorized-after-observer-outage'))).status).toBe(200);
+      expect((await f.capability.fetch(applicationWire(f, 'source', { operationId: 'authorized-after-observer-outage', url: sourceUrl }))).status).toBe(200);
       expect(await receipt(f, 'authorized-after-observer-outage')).toMatchObject({ operationCount: 2 });
       if (mode === 'recorder unavailable') {
         expect((await diagnosticSummary(f)).health.gaps).toContain('recorder-unavailable');
@@ -701,7 +733,7 @@ describe('REQ-OPERATOR-063: retained host preparation cause', () => {
         expect((await diagnosticSummary(f)).capture).toBe('disabled');
         expect((await preparationFailures(f)).filter(record => record.preparation !== undefined)).toEqual([]);
       }
-    }, { ...options, loggingEnabled: mode !== 'OFF' }));
+    }, { ...options, ...writableApplication, loggingEnabled: mode !== 'OFF' }));
 
   it.each(['producer', 'runtime', 'protected request'])(
     'REQ-OPERATOR-081: AC2 child %s cannot supply host preparation metadata', channel => fixture(async f => {
@@ -822,20 +854,34 @@ describe('REQ-OPERATOR-081: protected synthetic SDK runtime import', () => {
     }, options));
 
   it('REQ-OPERATOR-081: AC1/3/4 late original runtime metadata enriches retired history without reopening owned work', () => fixture(async f => {
-    await start(f); const first = await runtimeEnvelope(f); await importRuntime(f, first);
-    await f.activity.cancelDrive(); const before = await f.activity.getBrowserDetail();
+    expect(await start(f)).toMatchObject({ ok: true, state: { generation: 1, status: 'running' } });
+    const first = await runtimeEnvelope(f); await importRuntime(f, first);
+    const [readOriginal] = f.ownedChildReadbacks();
+    const originalSnapshot = await (await readOriginal()).text();
+    const submissions = [...f.childSubmissions];
+    expect(await f.activity.cancelDrive()).toMatchObject({ ok: true, state: { status: 'cancel-requested' } });
+    expect(f.abortStatus()).toBe('cancel-requested');
+    const before = await f.activity.getBrowserDetail();
     const late = await runtimeEnvelope(f, 2); late.boundary = 'release'; late.source.boundary = 'release';
     late.code = 'cleanup-failed'; await importRuntime(f, late);
     f.restart(); await f.drainBackground();
     expect(await sdkRecords(f)).toHaveLength(2);
     expect(await f.environment.OPERATOR_ACTIVITY!.getByName(f.activityId).getBrowserDetail()).toEqual(before);
-    for (const read of f.ownedChildReadbacks()) await expect(read()).rejects.toThrow();
+    // This unkeyed legacy lease delivers abort, not physical stub invalidation.
+    // Late metadata may not change its read-only bytes or reopen execution.
+    for (const read of f.ownedChildReadbacks()) {
+      const response = await read();
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe(originalSnapshot);
+    }
+    expect(f.childSubmissions).toEqual(submissions);
+    expect(await f.activity.beginDrive()).toEqual({ ok: false, reason: 'drive-settled' });
     expect((await f.capability.fetch(genericWire('source', { operationId: 'late-import-no-effect',
       method: 'POST', url: 'https://api.github.com/repos/another/service/issues/17/comments',
       body: '{"body":"must not execute"}' }))).status).toBe(403);
     expect(await f.readRemoteComments()).toEqual([]);
     expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
-  }, { ...options, intent4: true, facetContract: true }));
+  }, { ...options, facetContract: true }));
 
   it('REQ-OPERATOR-081: AC1/2/4 normal SDK response header imports already-read evidence without changing settlement or collection', () => fixture(async f => {
     await start(f); await diagnosticSummary(f);
@@ -995,19 +1041,19 @@ describe('REQ-OPERATOR-081: deterministic recorder integrity and budgets', () =>
     await start(f); await importRuntime(f, await runtimeEnvelope(f));
     const wire = { operationId: 'PRIVATE_CACHE_DURING_RECORDER_OUTAGE', method: 'POST',
       url: 'https://api.github.com/repos/another/service/issues/17/comments', body: '{"body":"PRIVATE_ORIGINAL_EFFECT"}' };
-    const response = await f.capability.fetch(genericWire('source', wire));
+    const response = await f.capability.fetch(applicationWire(f, 'source', wire));
     expect(response.status).toBe(200); const original = await response.text();
     const remote = await f.readRemoteComments();
     await denyDiagnosticWrites(f);
     try {
-      expect(await (await f.capability.fetch(genericWire('source', wire))).text()).toBe(original);
+      expect(await (await f.capability.fetch(applicationWire(f, 'source', wire))).text()).toBe(original);
       expect(await f.readRemoteComments()).toEqual(remote);
       await f.activity.cancelDrive();
-      expect((await f.capability.fetch(genericWire('source', wire))).status).toBe(403);
+      expect((await f.capability.fetch(applicationWire(f, 'source', wire))).status).toBe(403);
     } finally { vi.restoreAllMocks(); }
     expect((await diagnosticSummary(f)).fence).toMatchObject({ code: 'cancelled' });
     expect(await f.readRemoteComments()).toEqual(remote);
-  }, { ...options, receiptFixture: true }));
+  }, { ...writableApplication, sdkDiagnostics: true, recovery: true, receiptFixture: true }));
 
   it.each(['missing', 'null', 'version', 'foreign-binding', 'invalid-counter', 'overflow-list'])(
     'REQ-OPERATOR-081: AC4 expected %s index reconstructs as unavailable rather than legacy or zero loss', fault => fixture(async f => {
@@ -1135,6 +1181,7 @@ describe('REQ-OPERATOR-081: deterministic recorder integrity and budgets', () =>
   }, options));
 });
 
+// REQ-OPERATOR-103, REQ-OPERATOR-106: Extracted operation accounting and observation recovery.
 describe('REQ-OPERATOR-047/048: future inference attempt accounting', () => {
   const accountingRetryPolicy = { inferenceRetryBaseMs: 1, inferenceRetryMaxMs: 2 };
   const inference = (text = 'PRIVATE_INFERENCE_PROMPT') => genericWire('inference', { operationId: 'logical-inference',
@@ -1392,19 +1439,51 @@ describe('REQ-OPERATOR-047/048: future inference attempt accounting', () => {
     } });
   });
 
-  it('REQ-OPERATOR-062: inference recovery neither repeats nor erases an unrelated uncertain repository write', () => fixture(async f => {
-    await start(f); await anchor(f); f.loseResponse();
-    const write = () => genericWire('source', { operationId: 'uncertain-comment', method: 'POST',
-      url: 'https://api.github.com/repos/another/service/issues/17/comments', body: '{"body":"uncertain judgment"}' });
-    expect((await f.capability.fetch(write())).status).toBe(409);
+  it('REQ-OPERATOR-062: SDK model recovery neither repeats nor erases an unrelated uncertain repository write', () => fixture(async f => {
+    await startApplication(f);
+    const anchor = { operationId: 'application-budget-anchor', url: applicationBase };
+    expect((await f.capability.fetch(applicationWire(f, 'source', anchor))).status).toBe(200);
+    f.loseResponse();
+    const mutation = applicationComment('uncertain-comment');
+    expect((await f.capability.fetch(applicationWire(f, 'source', mutation))).status).toBe(409);
     f.restoreTransport();
-    expect(await (await f.capability.fetch(inference())).text()).toBe(complete);
-    expect((await f.capability.fetch(write())).status).toBe(409);
-    const receipt = await f.capability.fetch(genericWire('receipt', { operationId: 'uncertain-comment' }));
+    // The SDK owns successor selection. Exercise the real protected model wires,
+    // not a replacement retry coordinator or a retired domain controller.
+    const callback = (path: string, body: unknown) => f.installationCapability.fetch(normalCallback(f.activityId, path, body,
+      { 'x-codeflare-dispatcher-delivery': applicationDelivery(f) }));
+    const request = { url: 'https://api.openai.com/v1/chat/completions', method: 'POST',
+      headers: [['content-type', 'application/json']], bodyBase64: btoa(JSON.stringify({ model: 'approved',
+        messages: [{ role: 'user', content: 'Bounded application task' }], stream: true })) };
+    const admit = async (operationId: string) => {
+      const response = await callback('model-admission', { operationId, deliveryToken: applicationDelivery(f),
+        context: { messages: [{ role: 'user', content: 'Bounded application task', timestamp: 1 }] }, options: { maxTokens: 16 } });
+      expect(response.status).toBe(200);
+      return (await response.json() as { permitId: string }).permitId;
+    };
+    const firstId = 'logical-inference-first';
+    const firstPermit = await admit(firstId);
+    const first = await callback('model-fetch', { operationId: firstId, permitId: firstPermit, request });
+    expect(first.status).toBe(503);
+    expect(await first.text()).toBe('Retryable model transport failure');
+    f.restart();
+    const replay = await callback('model-fetch', { operationId: firstId, permitId: firstPermit, request });
+    expect(replay.status).toBe(503);
+    expect(await replay.text()).toBe('Retryable model transport failure');
+    const successorId = 'logical-inference-successor';
+    const successorPermit = await admit(successorId);
+    const successor = await callback('model-fetch', { operationId: successorId, permitId: successorPermit, request });
+    expect(successor.status).toBe(200);
+    expect(await successor.text()).toBe(complete);
+    expect((await f.capability.fetch(applicationWire(f, 'source', mutation))).status).toBe(409);
+    const receipt = await f.capability.fetch(applicationWire(f, 'receipt', { operationId: mutation.operationId }));
+    expect(receipt.status).toBe(200);
     expect(await receipt.json()).toMatchObject({ phase: 'unknown', operationCount: 4 });
     expect(f.sent.filter(request => request.url.endsWith('/comments') && request.method === 'POST')).toHaveLength(1);
     expect(paid(f)).toHaveLength(2);
-  }, { repositoryOnly: true, recovery: true, capacityPolicy: accountingRetryPolicy, inferenceTransport: async (_request, attempt) => sse(attempt === 1 ? incomplete : complete) }));
+    expect(f.ownerPortRequests).toEqual([]);
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+  }, { ...applicationOptions, inferenceTransport: async (_request, attempt) => attempt === 1
+    ? new Response('Retryable model transport failure', { status: 503 }) : sse() }));
 
   it('REQ-OPERATOR-048: historical admissions retain their original cached error bytes despite the new default policy', () => fixture(async f => {
     await start(f);
@@ -1431,6 +1510,7 @@ describe('REQ-OPERATOR-081: host construction source boundary', () => {
   }, { repositoryOnly: true }));
 });
 
+// REQ-OPERATOR-101: Operator budget policy.
 describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effects', () => {
   it.each([true, false])('REQ-OPERATOR-079: the real Tail entrypoint honors logging=%s without forwarding private child records', async loggingEnabled => {
     const records: string[] = [];
@@ -1468,7 +1548,7 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
       ]);
       expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: before!.executionStatus,
         cleanupStatus: before!.cleanupStatus, checkpoint: before!.checkpoint, result: before!.result });
-      expect((await f.capability.fetch(read('after-valid-report'))).status).toBe(200);
+      expect((await f.capability.fetch(sourceRead('after-valid-report', 'https://api.github.com/repos/owner/repo/pulls/17'))).status).toBe(200);
     } finally { spy.mockRestore(); setLogLevel('silent'); }
   }));
 
@@ -1530,9 +1610,9 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     expect((await f.capability.fetch(diagnosticReport(report))).status).toBe(204);
     // Legacy producers can omit all new fields; no new ABI or success authority is implied.
     expect((await f.capability.fetch(diagnosticReport({ stage: 'producer', role: 'comment', outcome: 'completed', code: 'none' }))).status).toBe(204);
-    const later = await f.capability.fetch(read('after-refusal-report'));
+    const later = await f.capability.fetch(sourceRead('after-refusal-report', 'https://api.github.com/repos/owner/repo/pulls/17'));
     expect(later.status).toBe(200);
-    expect(await later.json()).toMatchObject({ number: 17, head: { sha: 'b'.repeat(40) } });
+    expect(JSON.parse((await later.json() as { body: string }).body)).toMatchObject({ number: 17, head: { sha: 'b'.repeat(40) } });
     await f.drainBackground();
     const assessment = { readOnly: true, observedHead: 'b'.repeat(40), assessment: { classification: 'unknown' } };
     f.messages([{ submissionId: 'submission-1', parts: [{ type: 'data-assessment', data: assessment }] }]);
@@ -1574,7 +1654,7 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
         causes: [], loss: [], fingerprintScope: 'unavailable', ...metadata } });
     const history = await diagnosticTraversal(get);
     expect(history.records.find(record => record.id === originating!.id)).toEqual(originating);
-    expect((await f.capability.fetch(read('after-transport-only-report'))).status).toBe(200);
+    expect((await f.capability.fetch(sourceRead('after-transport-only-report', 'https://api.github.com/repos/owner/repo/pulls/17'))).status).toBe(200);
     expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
     expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
     expect(await f.activity.getDispatcherDiagnostics('f'.repeat(64))).toBeNull();
@@ -1592,9 +1672,9 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     const history = await diagnosticTraversal(diagnosticsBrowser(f));
     expect(history.records.filter(record => record.owner === 'producer')).toEqual([]);
     expect(JSON.stringify(history)).not.toContain('PRIVATE_REFUSAL_BODY');
-    const response = await f.capability.fetch(read('after-invalid-refusal-metadata'));
+    const response = await f.capability.fetch(sourceRead('after-invalid-refusal-metadata', 'https://api.github.com/repos/owner/repo/pulls/17'));
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ number: 17, head: { sha: 'b'.repeat(40) } });
+    expect(JSON.parse((await response.json() as { body: string }).body)).toMatchObject({ number: 17, head: { sha: 'b'.repeat(40) } });
     expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
   }));
 
@@ -1608,7 +1688,7 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     expect(history.records.filter(record => record.owner === 'producer')).toEqual([]);
     expect(JSON.stringify(history)).not.toContain('transportReason');
     expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
-    expect((await f.capability.fetch(read('after-suppressed-report'))).status).toBe(200);
+    expect((await f.capability.fetch(sourceRead('after-suppressed-report', 'https://api.github.com/repos/owner/repo/pulls/17'))).status).toBe(200);
     expect(f.sent.map(request => request.method)).toEqual(['GET']);
   }, { loggingEnabled: false }));
 
@@ -1676,7 +1756,7 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     }
     expect((await f.staleCapability.fetch(diagnosticReport())).status).toBe(403);
     expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
-    expect((await f.capability.fetch(read('after-rejected-report'))).status).toBe(200);
+    expect((await f.capability.fetch(sourceRead('after-rejected-report', 'https://api.github.com/repos/owner/repo/pulls/17'))).status).toBe(200);
   }));
 
   it('REQ-OPERATOR-048: bounded diagnostic report refuses an unfinished body without holding the Activity', () => fixture(async f => {
@@ -1719,7 +1799,7 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     expect((await f.capability.fetch(diagnosticReport())).status).toBe(204);
     f.expire();
     expect((await f.capability.fetch(diagnosticReport())).status).toBe(403);
-    expect((await f.capability.fetch(read('after-report-expiry'))).status).toBe(403);
+    expect((await f.capability.fetch(sourceRead('after-report-expiry', 'https://api.github.com/repos/owner/repo/pulls/17'))).status).toBe(403);
     expect((await f.activity.getBrowserDetail())?.result).toBeNull();
   }));
 
@@ -1753,337 +1833,38 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     } finally { spy.mockRestore(); setLogLevel('silent'); }
   }));
 
-  it('exposes only PR identity, never a secret-bearing description', () => fixture(async f => {
-    await start(f);
-    const response = await f.capability.fetch(read('project-pr'));
-    expect(response.status).toBe(200);
-    const body = await response.json();
-    expect(body).toMatchObject({ number: 17, head: { sha: 'b'.repeat(40) }, base: { sha: 'a'.repeat(40) },
-      user: { login: 'fork-specific-bot[bot]', id: 42, type: 'Bot' } });
-    expect(JSON.stringify(body)).not.toContain('inline-secret');
-  }));
-  it('passes only complete image deltas from PR files, never secret-bearing patch context or other changes', () => fixture(async f => {
-    await start(f);
-    f.files([{ ...changedCompose('middleware/dozzle/compose.yaml'),
-      patch: '@@ -1,3 +1,3 @@\n- image: amir20/dozzle:v11.1.1\n+ image: amir20/dozzle:v11.1.2\n  password: inline-secret' },
-    { ...changedCompose('tools/dozzle_agent/compose.yaml'), additions: 2, deletions: 2,
-      patch: '- image: amir20/dozzle:v11.1.1\n+ image: amir20/dozzle:v11.1.2\n- DOZZLE_AUTH_TOKEN=inline-secret\n+ DOZZLE_AUTH_TOKEN=other-secret' },
-    { filename: 'private/inline-secret.txt', status: 'modified', additions: 1, deletions: 1,
-      patch: '-password=inline-secret\n+password=other-secret' }]);
-    const response = await f.capability.fetch(read('safe-files', { resource: 'files' }));
-    expect(response.status).toBe(200);
-    const result = await response.json() as { data: Array<{ patch: string | null; filename: string }> };
-    expect(result.data).toMatchObject([
-      { filename: 'middleware/dozzle/compose.yaml', patch: '- image: amir20/dozzle:v11.1.1\n+ image: amir20/dozzle:v11.1.2' },
-      { filename: 'tools/dozzle_agent/compose.yaml', patch: null },
-      { filename: '[other-changed-file]', patch: null },
-    ]);
-    expect(JSON.stringify(result)).not.toContain('inline-secret');
-    expect(JSON.stringify(result)).not.toContain('other-secret');
-  }));
-  it('projects version-relevant default server and agent configuration without disclosing stable private values', () => fixture(async f => {
-    await start(f);
-    const paths = ['middleware/dozzle/compose.yaml', 'ai_llm/dozzle_agent/compose.yaml'];
-    f.files(paths.map(path => changedCompose(path)));
-    const bodies: Record<string, unknown> = {};
-    for (const [index, path] of paths.entries()) {
-      for (const [ref, tag, sha] of [['a'.repeat(40), 'v11.1.1', 'e'.repeat(40)],
-        ['b'.repeat(40), 'v11.1.2', 'd'.repeat(40)]]) {
-        bodies[`${ref}:${path}`] = composeBlob(path, sha, index === 0
-          ? `services:\n  dozzle:\n    image: amir20/dozzle:${tag}\n    environment:\n      DOZZLE_REMOTE_AGENT: agent.internal:7007\n    volumes:\n      - /private/docker.sock:/var/run/docker.sock:ro\n    ports:\n      - '8080:8080'\n`
-          : `services:\n  dozzle-agent:\n    image: amir20/dozzle:${tag}\n    command: agent\n    volumes:\n      - /private/docker.sock:/var/run/docker.sock:ro\n    ports:\n      - '7007:7007'\n`);
+  // Dispatcher owns assessment/eligibility and publication. Package equivalents:
+  // test/renovate/renovate.test.ts, assessment-evidence.test.ts and release-evidence.test.ts.
+  // These do NOT cover the old Root Compose projection/tag/blob/timeout matrix;
+  // that displaced domain matrix is a package coverage gap, not passing Root evidence.
+  it.each(['pull-request', 'files', 'changed-compose', 'release-notes', 'upstream-guide', 'checks', 'open-pull-requests'])(
+    'REQ-OPERATOR-047/051: retired %s projection refuses before I/O without consuming or replacing source evidence', resource => fixture(async f => {
+      await start(f);
+      const source = { operationId: 'retirement-control', url: 'https://api.github.com/repos/owner/repo/pulls/17' };
+      const original = await f.capability.fetch(genericWire('source', source));
+      expect(original.status).toBe(200);
+      const bytes = await original.text();
+      const observed = await f.capability.fetch(genericWire('receipt', { operationId: source.operationId }));
+      expect(observed.status).toBe(200);
+      const receipt = await observed.json();
+      expect(receipt).toMatchObject({ phase: 'completed', operationCount: 1 });
+      const sent = [...f.sent];
+      for (const extra of [{}, { path: 'other/compose.yaml' }, { ref: 'main' },
+        { url: 'https://evil.invalid/' }, { repository: 'other/repo', headers: { authorization: 'forged' } }]) {
+        const denied = await f.capability.fetch(genericWire('github/read', { operationId: 'retired-projection', resource, ...extra }));
+        expect(denied.status).toBe(403);
+        expect(await denied.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED', reason: 'request-invalid', disposition: 'operation-local' });
+        expect((await f.capability.fetch(genericWire('receipt', { operationId: 'retired-projection' }))).status).toBe(403);
+        expect(await (await f.capability.fetch(genericWire('receipt', { operationId: source.operationId }))).json()).toEqual(receipt);
+        const cached = await f.capability.fetch(genericWire('source', source));
+        expect(cached.status).toBe(200);
+        expect(await cached.text()).toBe(bytes);
+        expect(f.sent).toEqual(sent);
+        expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
+        expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
       }
-    }
-    f.compose(bodies);
-    const response = await f.capability.fetch(composeRead());
-    expect(response.status).toBe(200);
-    const result = await response.json();
-    expect(result).toMatchObject({ files: [
-      { path: paths[0], unchangedConfiguration: true,
-        before: { services: [{ mode: 'server', redacted: true, environmentKeys: ['DOZZLE_REMOTE_AGENT'] }] },
-        after: { services: [{ mode: 'server', redacted: true, environmentKeys: ['DOZZLE_REMOTE_AGENT'] }] } },
-      { path: paths[1], unchangedConfiguration: true,
-        before: { services: [{ mode: 'agent', redacted: false }] },
-        after: { services: [{ mode: 'agent', redacted: false }] } },
-    ] });
-    expect(JSON.stringify(result)).not.toContain('agent.internal');
-    expect(JSON.stringify(result)).not.toContain('/private/docker.sock');
-  }));
-  it('does not hide harmless unchanged ports and Docker socket mounts on a default server', () => fixture(async f => {
-    await start(f); const path = 'middleware/dozzle/compose.yaml'; f.files([changedCompose(path)]);
-    const bodies: Record<string, unknown> = {};
-    for (const [ref, tag, sha] of [['a'.repeat(40), 'v11.1.1', 'e'.repeat(40)],
-      ['b'.repeat(40), 'v11.1.2', 'd'.repeat(40)]]) {
-      bodies[`${ref}:${path}`] = composeBlob(path, sha,
-        `services:\n  dozzle:\n    image: amir20/dozzle:${tag}\n    container_name: private-dozzle\n    restart: unless-stopped\n    network_mode: bridge\n    volumes:\n      - /private/docker.sock:/var/run/docker.sock:ro\n    ports:\n      - '8080:8080'\n`);
-    }
-    f.compose(bodies);
-    const response = await f.capability.fetch(composeRead());
-    expect(response.status).toBe(200);
-    const output = await response.json();
-    expect(output).toMatchObject({ files: [{ unchangedConfiguration: true,
-      before: { services: [{ mode: 'server', redacted: false }] },
-      after: { services: [{ mode: 'server', redacted: false }] } }] });
-    expect(JSON.stringify(output)).not.toContain('/private/docker.sock');
-    expect(JSON.stringify(output)).not.toContain('private-dozzle');
-  }));
-  it.each([
-    { name: 'persistent /data', property: "    volumes:\n      - /private/dozzle:/data\n" },
-    { name: 'external env file', property: "    env_file: /private/agent.env\n" },
-    { name: 'interpolated settings', property: "    environment:\n      DOZZLE_REMOTE_AGENT: ${DOZZLE_AGENTS}\n" },
-    { name: 'external override', property: "    extends:\n      file: /private/shared.yml\n      service: dozzle\n" },
-  ])('keeps $name unresolved despite unchanged image-excluded configuration', ({ property }) => fixture(async f => {
-    await start(f); const path = 'middleware/dozzle/compose.yaml'; f.files([changedCompose(path)]);
-    const bodies: Record<string, unknown> = {};
-    for (const [ref, tag, sha] of [['a'.repeat(40), 'v11.1.1', 'e'.repeat(40)],
-      ['b'.repeat(40), 'v11.1.2', 'd'.repeat(40)]]) {
-      bodies[`${ref}:${path}`] = composeBlob(path, sha,
-        `services:\n  dozzle:\n    image: amir20/dozzle:${tag}\n${property}`);
-    }
-    f.compose(bodies);
-    const response = await f.capability.fetch(composeRead());
-    expect(response.status).toBe(200);
-    const output = await response.json();
-    expect(output).toMatchObject({ files: [{ unchangedConfiguration: true,
-      after: { services: [{ redacted: true }] } }] });
-    expect(JSON.stringify(output)).not.toContain('/private/');
-    expect(JSON.stringify(output)).not.toContain('${DOZZLE_AGENTS}');
-  }));
-  it('projects every admitted server and agent Compose blob at pinned base/head without leaking inline secrets', () => fixture(async f => {
-    await start(f);
-    const paths = ['middleware/dozzle/compose.yaml', 'tools/dozzle_agent/compose.yaml'];
-    f.files(paths.map(path => changedCompose(path)));
-    const bodies: Record<string, unknown> = {};
-    for (const [index, path] of paths.entries()) {
-      const service = index === 0 ? 'dozzle' : 'dozzle-agent';
-      for (const [ref, tag, sha] of [['a'.repeat(40), 'v11.1.1', 'e'.repeat(40)],
-        ['b'.repeat(40), 'v11.1.2', 'd'.repeat(40)]]) {
-        bodies[`${ref}:${path}`] = composeBlob(path, sha,
-          `services:\n  ${service}:\n    image: amir20/dozzle:${tag}\n    command: ${index === 0 ? 'server' : 'agent'}\n    environment:\n      DOZZLE_AUTH_TOKEN: inline-secret\n`);
-      }
-    }
-    f.compose(bodies);
-    const response = await f.capability.fetch(composeRead());
-    expect(response.status).toBe(200);
-    const result = await response.json() as { files: unknown[] };
-    expect(result).toMatchObject({ repository: 'owner/repo', pullRequest: 17,
-      baseSha: 'a'.repeat(40), observedHead: 'b'.repeat(40), files: paths.map(path => ({ path,
-        before: { sha: 'e'.repeat(40), services: [{ image: 'amir20/dozzle:v11.1.1', mode: path.includes('agent') ? 'agent' : 'server', redacted: true }] },
-        after: { sha: 'd'.repeat(40), services: [{ image: 'amir20/dozzle:v11.1.2', mode: path.includes('agent') ? 'agent' : 'server', redacted: true }] } })) });
-    expect(JSON.stringify(result)).not.toContain('inline-secret');
-    expect(JSON.stringify(result)).toContain('DOZZLE_AUTH_TOKEN');
-  }));
-  it.each([1000, 2000])('REQ-OPERATOR-047: admitted compose-read timeout %i bounds pinned configuration research', composeReadTimeoutMs => fixture(async f => {
-    await start(f);
-    const path = 'middleware/dozzle/compose.yaml';
-    f.files([changedCompose(path)]);
-    f.compose({ [`${'a'.repeat(40)}:${path}`]: composeBlob(path, 'e'.repeat(40), 'services:\n  dozzle:\n    image: amir20/dozzle:v11.1.1\n'),
-      [`${'b'.repeat(40)}:${path}`]: composeBlob(path, 'd'.repeat(40), 'services:\n  dozzle:\n    image: amir20/dozzle:v11.1.2\n') });
-    f.exceedComposeDeadline();
-    const response = await f.capability.fetch(composeRead());
-    expect(response.status).toBe(composeReadTimeoutMs === 1000 ? 409 : 200);
-    if (response.ok) expect(await response.json()).toMatchObject({ files: [{ path, unchangedConfiguration: true }] });
-  }, { capacityPolicy: { composeReadTimeoutMs } }));
+    }, { repositoryOnly: true }));
 
-  it('reads pinned Compose blobs despite an omitted diff patch without inferring safety', () => fixture(async f => {
-    await start(f);
-    const path = 'middleware/dozzle/compose.yaml';
-    f.files([{ ...changedCompose(path), patch: undefined }]);
-    f.compose({ [`${'a'.repeat(40)}:${path}`]: composeBlob(path, 'e'.repeat(40),
-      'services:\n  dozzle:\n    image: amir20/dozzle:v11.1.1\n'),
-    [`${'b'.repeat(40)}:${path}`]: composeBlob(path, 'd'.repeat(40),
-      'services:\n  dozzle:\n    image: amir20/dozzle:v11.1.2\n') });
-    const response = await f.capability.fetch(composeRead());
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ files: [{ path, unchangedConfiguration: true,
-      before: { sha: 'e'.repeat(40), services: [{ mode: 'server', redacted: false }] },
-      after: { sha: 'd'.repeat(40), services: [{ mode: 'server', redacted: false }] } }] });
-  }));
-  it.each(['missing', 'wrong-sha', 'oversized', 'redirect', 'moved-base', 'moved-head', 'pagination', 'foreign-path'])('rejects $name changed Compose provenance', name => fixture(async f => {
-    await start(f);
-    const path = 'middleware/dozzle/compose.yaml';
-    f.files(name === 'pagination' ? Array.from({ length: 101 }, (_, index) => changedCompose(`group-${index}/compose.yaml`))
-      : [changedCompose(name === 'foreign-path' ? '../secrets/compose.yaml' : path)]);
-    const before = composeBlob(path, 'e'.repeat(40), 'services:\n  dozzle:\n    image: amir20/dozzle:v11.1.1\n');
-    const after = composeBlob(path, name === 'wrong-sha' ? 'f'.repeat(40) : 'd'.repeat(40),
-      name === 'oversized' ? `services:\n  dozzle:\n    image: amir20/dozzle:v11.1.2\n    labels: ${'x'.repeat(70_000)}`
-        : 'services:\n  dozzle:\n    image: amir20/dozzle:v11.1.2\n');
-    f.compose({ [`${'a'.repeat(40)}:${path}`]: before,
-      ...name === 'missing' ? {} : { [`${'b'.repeat(40)}:${path}`]: name === 'redirect'
-        ? new Response(null, { status: 302, headers: { location: 'https://evil.invalid/' } }) : after } });
-    if (name === 'moved-base') f.moveBaseAfterContents();
-    if (name === 'moved-head') f.moveHeadAfterFiles();
-    expect((await f.capability.fetch(composeRead())).status).toBe(409);
-  }));
-  it('rejects child-selected paths, refs and URLs before protected Compose I/O', () => fixture(async f => {
-    await start(f);
-    expect((await f.capability.fetch(composeRead('chosen', { path: 'other/compose.yaml' }))).status).toBe(403);
-    expect((await f.capability.fetch(composeRead('chosen-ref', { ref: 'a'.repeat(40) }))).status).toBe(403);
-    expect((await f.capability.fetch(composeRead('chosen-url', { url: 'https://evil.invalid/' }))).status).toBe(403);
-  }));
-  it('reads only the release identified by the admitted PR diff and returns a pinned receipt', () => fixture(async f => {
-    await start(f); f.files(dozzleFiles());
-    const response = await f.capability.fetch(releaseRead());
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ observedHead: 'b'.repeat(40),
-      source: 'https://github.com/amir20/dozzle/releases/tag/v11.1.2',
-      repository: 'amir20/dozzle', tag: 'v11.1.2', body: 'No configuration changes' });
-    expect(f.sent.map(r => r.url)).toEqual([
-      'https://api.github.com/repos/owner/repo/pulls/17',
-      'https://api.github.com/repos/owner/repo/pulls/17/files?per_page=100&page=1',
-      'https://api.github.com/repos/owner/repo/pulls/17',
-      'https://api.github.com/repos/amir20/dozzle/releases/tags/v11.1.2',
-      'https://api.github.com/repos/owner/repo/pulls/17',
-    ]);
-    expect(f.sent.every(r => !r.headers.has('authorization') && r.redirect === 'manual')).toBe(true);
-  }));
-  it('reads one cited upstream release for thirteen compose image changes of Komodo #1299', () => fixture(async f => {
-    await start(f);
-    f.files(['ai_llm', 'dns_ntp', 'komodo_core', 'media_servers', 'minecraft', 'nextcloud',
-      'openziti-i', 'openziti-ii', 'openziti-iii', 'servarr', 'storage', 'tools']
-      .map(group => ({ ...dozzleFiles()[0], filename: `${group}/dozzle_agent/compose.yaml` }))
-      .concat([{ ...dozzleFiles()[0], filename: 'middleware/dozzle/compose.yaml' }]));
-    const response = await f.capability.fetch(releaseRead());
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ tag: 'v11.1.2', repository: 'amir20/dozzle',
-      observedHead: 'b'.repeat(40) });
-  }));
-  it('derives a later eligible upstream release from the admitted PR rather than hardcoding #1299', () => fixture(async f => {
-    await start(f); f.files(dozzleFiles('v11.1.2', 'v11.1.3'));
-    f.release({ tag_name: 'v11.1.3', body: 'New migration notes',
-      html_url: 'https://github.com/amir20/dozzle/releases/tag/v11.1.3' });
-    const response = await f.capability.fetch(releaseRead());
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ tag: 'v11.1.3', body: 'New migration notes',
-      source: 'https://github.com/amir20/dozzle/releases/tag/v11.1.3', observedHead: 'b'.repeat(40) });
-  }));
-  it('reads an immutable version-tagged official agent guide through a fixed parent source', () => fixture(async f => {
-    await start(f); f.files(dozzleFiles());
-    const response = await f.capability.fetch(guideRead());
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ repository: 'amir20/dozzle', tag: 'v11.1.2',
-      observedHead: 'b'.repeat(40), commitSha: '1'.repeat(40),
-      source: `https://github.com/amir20/dozzle/blob/${'1'.repeat(40)}/docs/guide/agent.md`,
-      body: expect.stringContaining('run Dozzle with the `agent` subcommand') });
-    expect(f.sent.map(r => r.url)).toContain(
-      `https://api.github.com/repos/amir20/dozzle/contents/docs/guide/agent.md?ref=${'1'.repeat(40)}`);
-    expect(f.sent.every(r => !r.headers.has('authorization') && r.redirect === 'manual')).toBe(true);
-  }));
-  it.each([8000, 10000])('REQ-OPERATOR-047: admitted release-read timeout %i bounds late complete research', releaseReadTimeoutMs => fixture(async f => {
-    await start(f); f.files(dozzleFiles()); f.exceedReleaseDeadline();
-    const response = await f.capability.fetch(releaseRead());
-    expect(response.status).toBe(releaseReadTimeoutMs === 8000 ? 409 : 200);
-    if (response.ok) expect(await response.json()).toMatchObject({ body: 'No configuration changes', tag: 'v11.1.2' });
-  }, { capacityPolicy: { releaseReadTimeoutMs } }));
-
-  it.each([18000, 20000])('REQ-OPERATOR-047: admitted guide-read timeout %i bounds late verified research', guideReadTimeoutMs => fixture(async f => {
-    await start(f); f.files(dozzleFiles()); f.exceedGuideDeadline();
-    const response = await f.capability.fetch(guideRead());
-    expect(response.status).toBe(guideReadTimeoutMs === 18000 ? 409 : 200);
-    if (response.ok) expect(await response.json()).toMatchObject({ body: guideExcerpt, commitSha: '1'.repeat(40) });
-  }, { capacityPolicy: { guideReadTimeoutMs } }));
-
-  it.each([new TextEncoder().encode(guideExcerpt).byteLength - 1, new TextEncoder().encode(guideExcerpt).byteLength])(
-    'REQ-OPERATOR-047: admitted guide-byte limit %i preserves exact verified text or refuses it', guideBytes => fixture(async f => {
-      await start(f); f.files(dozzleFiles());
-      const response = await f.capability.fetch(guideRead());
-      expect(response.status).toBe(guideBytes < new TextEncoder().encode(guideExcerpt).byteLength ? 409 : 200);
-      if (response.ok) expect(await response.json()).toMatchObject({ body: guideExcerpt, blobSha: guideBlobSha });
-    }, { capacityPolicy: { guideBytes } }));
-
-  it('also binds a lightweight tag directly to a pinned guide commit', () => fixture(async f => {
-    await start(f); f.files(dozzleFiles());
-    f.tag({ ref: 'refs/tags/v11.1.2', object: { type: 'commit', sha: '1'.repeat(40) } });
-    const response = await f.capability.fetch(guideRead());
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ tag: 'v11.1.2', commitSha: '1'.repeat(40) });
-    expect(f.sent.some(r => r.url.includes('/git/tags/'))).toBe(false);
-  }));
-  it.each([
-    { name: 'wrong version tag', replace: (f: { tag: (value: unknown) => void }) =>
-      f.tag({ ref: 'refs/tags/v11.1.1', object: { type: 'tag', sha: '3'.repeat(40) } }) },
-    { name: 'unresolved tag object', replace: (f: { annotatedTag: (value: unknown) => void }) =>
-      f.annotatedTag({ tag: 'v11.1.2', object: { type: 'tag', sha: '1'.repeat(40) } }) },
-    { name: 'mismatched annotated tag', replace: (f: { annotatedTag: (value: unknown) => void }) =>
-      f.annotatedTag({ tag: 'v11.1.1', object: { type: 'commit', sha: '1'.repeat(40) } }) },
-    { name: 'wrong guide path', replace: (f: { guide: (value: unknown) => void }) =>
-      f.guide(composeBlob('docs/other.md', '2'.repeat(40), 'not an agent guide')) },
-    { name: 'redirected guide', replace: (f: { guide: (value: unknown) => void }) =>
-      f.guide(Response.json({ message: 'Moved' }, { status: 302 })) },
-    { name: 'missing guide', replace: (f: { guide: (value: unknown) => void }) =>
-      f.guide(Response.json({ message: 'Missing' }, { status: 404 })) },
-    { name: 'invalid guide encoding', replace: (f: { guide: (value: unknown) => void }) =>
-      f.guide({ ...composeBlob('docs/guide/agent.md', '2'.repeat(40), 'agent'), content: '$not-base64' }) },
-    { name: 'mismatched guide blob SHA', replace: (f: { guide: (value: unknown) => void }) =>
-      f.guide(composeBlob('docs/guide/agent.md', '2'.repeat(40), guideExcerpt)) },
-    { name: 'oversized guide', replace: (f: { guide: (value: unknown) => void }) =>
-      f.guide(composeBlob('docs/guide/agent.md', '2'.repeat(40), 'x'.repeat(70_000))) },
-  ])('rejects a $name without exposing a guide to the child', ({ replace }) => fixture(async f => {
-    await start(f); f.files(dozzleFiles()); replace(f);
-    expect((await f.capability.fetch(guideRead())).status).toBe(409);
-  }));
-  it('rejects a moved PR while reading the version-tagged guide', () => fixture(async f => {
-    await start(f); f.files(dozzleFiles()); f.moveHeadAfterRelease();
-    expect((await f.capability.fetch(guideRead())).status).toBe(409);
-  }));
-  it('rejects a moved base while reading the version-tagged guide', () => fixture(async f => {
-    await start(f); f.files(dozzleFiles()); f.moveBaseAfterGuide();
-    expect((await f.capability.fetch(guideRead())).status).toBe(409);
-  }));
-  it('rejects a late guide even when the upstream transport ignores abort', () => fixture(async f => {
-    await start(f); f.files(dozzleFiles()); f.exceedGuideDeadline();
-    expect((await f.capability.fetch(guideRead())).status).toBe(409);
-  }, { capacityPolicy: { guideReadTimeoutMs: 18000 } }));
-  it('denies child-selected guide URL, repository and ref before upstream I/O', () => fixture(async f => {
-    await start(f); f.files(dozzleFiles());
-    for (const extra of [{ url: 'https://evil.invalid/' }, { repository: 'other/repo' }, { ref: 'main' }]) {
-      expect((await f.capability.fetch(guideRead('chosen', extra))).status).toBe(403);
-    }
-    expect(f.sent.every(r => !r.url.includes('/git/ref/tags/'))).toBe(true);
-  }));
-  it('rejects release evidence when the PR head changes after the files read', () => fixture(async f => {
-    await start(f); f.files(dozzleFiles()); f.moveHeadAfterFiles();
-    expect((await f.capability.fetch(releaseRead())).status).toBe(409);
-  }));
-  it('rejects release evidence when the PR head changes during the upstream read', () => fixture(async f => {
-    await start(f); f.files(dozzleFiles()); f.moveHeadAfterRelease();
-    expect((await f.capability.fetch(releaseRead())).status).toBe(409);
-  }));
-  it('does not return late upstream notes even when a transport ignores abort', () => fixture(async f => {
-    await start(f); f.files(dozzleFiles()); f.exceedReleaseDeadline();
-    expect((await f.capability.fetch(releaseRead())).status).toBe(409);
-  }, { capacityPolicy: { releaseReadTimeoutMs: 8000 } }));
-  it.each([
-    { files: [], name: 'no matching diff' },
-    { files: [...dozzleFiles(), { filename: 'agent/compose.yaml', status: 'modified', additions: 1,
-      deletions: 1 }], name: 'unavailable Compose patch' },
-    { files: [{ ...dozzleFiles()[0], additions: 2,
-      patch: `${dozzleFiles()[0].patch}\n+ image: amir20/dozzle:v11.1.3` }], name: 'mixed edits in one Compose patch' },
-    { files: [{ ...dozzleFiles()[0], additions: 2 }], name: 'truncated Compose patch' },
-    { files: [{ filename: 'compose.yaml', status: 'modified', additions: 1, deletions: 1,
-      patch: '- image: amir20/dozzle:v11.1.1\n+ image: attacker/dozzle:v11.1.2' }], name: 'foreign image' },
-    { files: [...dozzleFiles(), { filename: 'other/compose.yaml', status: 'modified', additions: 1, deletions: 1,
-      patch: '- image: amir20/dozzle:v11.1.1\n+ image: amir20/dozzle:v11.1.3' }], name: 'conflicting image tag' },
-  ])('does not fetch upstream for $name', ({ files }) => fixture(async f => {
-    await start(f); f.files(files);
-    expect((await f.capability.fetch(releaseRead())).status).toBe(409);
-    expect(f.sent.every(r => !r.url.includes('/releases/'))).toBe(true);
-  }));
-  it.each([
-    { value: { tag_name: 'v11.1.2', body: 'notes', html_url: 'https://evil.test/note' }, status: 200 },
-    { value: { tag_name: 'v11.1.1', body: 'notes', html_url: 'https://github.com/amir20/dozzle/releases/tag/v11.1.1' }, status: 200 },
-    { value: { message: 'Moved' }, status: 302 },
-    { value: { tag_name: 'v11.1.2', body: 'x'.repeat(70_000), html_url: 'https://github.com/amir20/dozzle/releases/tag/v11.1.2' }, status: 200 },
-  ])('rejects unverified, redirecting or oversized upstream notes', ({ value, status }) => fixture(async f => {
-    await start(f); f.files(dozzleFiles()); f.release(value, status);
-    expect((await f.capability.fetch(releaseRead())).status).toBe(409);
-  }, { capacityPolicy: { dispatcherRequestBytes: 65536 } }));
-  it('denies child URL, repository and credential selection on release read', () => fixture(async f => {
-    await start(f); f.files(dozzleFiles());
-    expect((await f.capability.fetch(releaseRead('release-foreign', { url: 'https://evil.test/' }))).status).toBe(403);
-    expect((await f.capability.fetch(releaseRead('release-other', { repository: 'other/repo' }))).status).toBe(403);
-    expect(f.sent.every(r => !r.url.includes('/releases/tags/'))).toBe(true);
-  }));
   it('reserves once; admission and unrelated settlement remain running; exact settlement alone permits continuation', () => fixture(async f => {
     expect(await start(f)).toMatchObject({ ok: true, state: { status: 'running', generation: 1 } });
     expect(await start(f)).toEqual({ ok: false, reason: 'drive-active' });
@@ -2094,7 +1875,7 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     // REQ-OPERATOR-081 AC1 and REQ-OPERATOR-083 AC1/2: real protected operations and the actual
     // waiting/continuation path, not a synthetic generation/index snapshot.
     for (let index = 0; index < 16; index++) {
-      expect((await f.capability.fetch(read(index === 0 ? 'read-1' : `continuation-read-${index}`))).status).toBe(200);
+      expect((await f.capability.fetch(sourceRead(index === 0 ? 'read-1' : `continuation-read-${index}`, 'https://api.github.com/repos/owner/repo/pulls/17'))).status).toBe(200);
     }
     f.settle(); await f.activity.reconcileDispatcherLease();
     expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('waiting');
@@ -2107,10 +1888,10 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     const priorOperation = prior.records.find(record => record.id === `o-1-${operationDigest}`)!;
     expect(priorOperation).toMatchObject({ kind: 'operation', generation: 1, operationDigest });
     expect(await f.activity.beginDrive()).toMatchObject({ ok: true, state: { generation: 2 } });
-    expect((await f.capability.fetch(read())).status).toBe(403);
+    expect((await f.capability.fetch(sourceRead('read-1', 'https://api.github.com/repos/owner/repo/pulls/17'))).status).toBe(403);
     expect(await f.activity.admitDispatcher(2, f.bundle, f.artifactDigest, f.input))
       .toMatchObject({ ok: true, state: { status: 'running', generation: 2 } });
-    expect((await f.staleCapability.fetch(read())).status).toBe(200);
+    expect((await f.staleCapability.fetch(sourceRead('read-1', 'https://api.github.com/repos/owner/repo/pulls/17'))).status).toBe(200);
     f.restart(); await f.drainBackground();
     const summary = await diagnosticSummary(f);
     expect(summary.binding).toEqual({ ...first.binding, generation: 2 });
@@ -2213,12 +1994,12 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     f.settle(); await f.activity.reconcileDispatcherLease();
     expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
     expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
-    expect((await f.capability.fetch(read('late-assessment'))).status).toBe(403);
+    expect((await f.capability.fetch(sourceRead('late-assessment', 'https://api.github.com/repos/owner/repo/pulls/17'))).status).toBe(403);
   }));
   it('never outlives a shorter original human-authorization deadline', () => fixture(async f => {
     await start(f);
     f.advanceClock(43_000);
-    expect((await f.capability.fetch(read('before-human-expiry'))).status).toBe(200);
+    expect((await f.capability.fetch(sourceRead('before-human-expiry', 'https://api.github.com/repos/owner/repo/pulls/17'))).status).toBe(200);
     f.advanceClock(46_000);
     expect((await f.capability.fetch(new Request('https://operator.internal/v1/dispatcher/inference', {
       method: 'POST', headers: { 'content-type': 'application/json' },
@@ -2231,9 +2012,9 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
   it('denies a revoked invoker past the former 90-second cutoff while human authority is otherwise current', () => fixture(async f => {
     await start(f);
     f.advanceClock(112_000);
-    expect((await f.capability.fetch(read('before-revocation'))).status).toBe(200);
+    expect((await f.capability.fetch(sourceRead('before-revocation', 'https://api.github.com/repos/owner/repo/pulls/17'))).status).toBe(200);
     f.revoke();
-    expect((await f.capability.fetch(read('after-revocation'))).status).toBe(403);
+    expect((await f.capability.fetch(sourceRead('after-revocation', 'https://api.github.com/repos/owner/repo/pulls/17'))).status).toBe(403);
     f.settle(); await f.activity.reconcileDispatcherLease();
     expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
   }));
@@ -2491,7 +2272,7 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
         expect(detail?.executionStatus).toBe('unknown');
         expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
         expect(await start(f)).toEqual({ ok: false, reason: 'drive-settled' });
-        expect((await f.capability.fetch(read('after-failed'))).status).toBe(403);
+        expect((await f.capability.fetch(sourceRead('after-failed', 'https://api.github.com/repos/owner/repo/pulls/17'))).status).toBe(403);
         await retainedFence(f, 'settlement-failed', 'settlement');
         const history = await diagnosticTraversal(diagnosticsBrowser(f));
         expect(history.records).toEqual(expect.arrayContaining([expect.objectContaining({
@@ -2600,51 +2381,20 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
       expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
       expect((await f.activity.getBrowserDetail())?.result).toBeNull();
     }, { capacityPolicy: { assessmentBytes: 65536 } }));
-  it('fences a single checks page exceeding the protected 64 KiB response bound', () => fixture(async f => {
+  it('REQ-OPERATOR-047: generic source refuses an oversized checks body without claiming projected conclusions', () => fixture(async f => {
     await start(f);
-    expect((await f.capability.fetch(read('submission-pull-request'))).status).toBe(200);
     f.oversizedChecks(1, 70_000);
-    expect((await f.capability.fetch(read('submission-checks', { resource: 'checks' }))).status).toBe(409);
-    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
-  }, { capacityPolicy: { dispatcherRequestBytes: 65536 } }));
-  it('returns all 76 authorized check conclusions from bounded pages without forwarding large metadata', () => fixture(async f => {
-    await start(f); f.oversizedChecks();
-    const response = await f.capability.fetch(read('submission-checks', { resource: 'checks' }));
-    expect(response.status).toBe(200);
-    const evidence = await response.json() as { data: { check_runs: unknown[] }; truncated: boolean };
-    expect(evidence.truncated).toBe(false);
-    expect(evidence.data.check_runs).toHaveLength(76);
-    expect(evidence.data.check_runs[75]).toEqual({ name: 'check-75', conclusion: 'success' });
-    expect(new TextEncoder().encode(JSON.stringify(evidence)).byteLength).toBeLessThan(64 * 1024);
-    expect(f.sent.some(request => new URL(request.url).searchParams.get('page') === '8')).toBe(true);
-    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
-  }));
-  it.each([2, 3])('REQ-OPERATOR-047: configured %i pages of three checks preserves complete conclusions or explicit truncation', checkRunPageLimit => fixture(async f => {
-    await start(f); f.oversizedChecks(7, 0);
-    const response = await f.capability.fetch(read('configured-check-pages', { resource: 'checks' }));
-    expect(response.status).toBe(200);
-    const evidence = await response.json() as { data: { check_runs: unknown[] }; truncated: boolean };
-    expect(evidence.truncated).toBe(checkRunPageLimit === 2);
-    if (checkRunPageLimit === 3) expect(evidence.data.check_runs).toEqual(Array.from({ length: 7 }, (_, index) => ({ name: `check-${index}`, conclusion: 'success' })));
-    else expect(evidence.data.check_runs.length).toBeLessThanOrEqual(6);
-  }, { capacityPolicy: { checkRunPageLimit, checkRunPageSize: 3 } }));
+    const url = 'https://api.github.com/repos/owner/repo/commits/' + 'b'.repeat(40) + '/check-runs?per_page=1&page=1';
+    const response = await f.capability.fetch(sourceRead('bounded-checks-source', url));
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ code: 'OPERATOR_SOURCE_INCOMPLETE' });
+    const receipt = await f.capability.fetch(genericWire('receipt', { operationId: 'bounded-checks-source' }));
+    expect(receipt.status).toBe(200);
+    expect(await receipt.json()).toMatchObject({ phase: 'completed', operationCount: 1 });
+    expect(f.sent.map(request => request.url)).toEqual([url]);
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
+  }, { repositoryOnly: true, sourceResponseBytes: 65536 }));
 
-  it('marks a check list beyond the 100-run bound as truncated rather than complete', () => fixture(async f => {
-    await start(f); f.oversizedChecks(101);
-    const response = await f.capability.fetch(read('submission-checks', { resource: 'checks' }));
-    expect(response.status).toBe(200);
-    const evidence = await response.json() as { data: { check_runs: unknown[] }; truncated: boolean };
-    expect(evidence.truncated).toBe(true);
-    expect(evidence.data.check_runs.length).toBeLessThanOrEqual(100);
-    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
-  }, { capacityPolicy: { checkRunPageLimit: 10 } }));
-  it('marks overlapping check pages incomplete even when the row count matches', () => fixture(async f => {
-    await start(f); f.oversizedChecks(20, 3000, true);
-    const response = await f.capability.fetch(read('submission-checks', { resource: 'checks' }));
-    expect(response.status).toBe(200);
-    const evidence = await response.json() as { truncated: boolean };
-    expect(evidence.truncated).toBe(true);
-  }));
   it('fences expired leases even when their exact settlement arrives late', () => fixture(async f => {
   // REQ-OPERATOR-081: additive retained-evidence assertions; original anchor/title preserved.
     await start(f); f.expire(); f.settle(); await f.activity.reconcileDispatcherLease();
@@ -2667,30 +2417,30 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
   }));
   it('fences before signaling facet abort and rejects late settlement and warmed effects', () => fixture(async f => {
   // REQ-OPERATOR-081: additive retained-evidence assertions; original anchor/title preserved.
-    await start(f); expect((await f.capability.fetch(read())).status).toBe(200);
+    await start(f); expect((await f.capability.fetch(sourceRead('read-1', 'https://api.github.com/repos/owner/repo/pulls/17'))).status).toBe(200);
     await f.activity.cancelDrive(); expect(f.abortStatus()).toBe('cancel-requested');
     f.settle(); await f.activity.reconcileDispatcherLease();
     expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('cancel-requested');
-    expect((await f.capability.fetch(read('read-2'))).status).toBe(403);
+    expect((await f.capability.fetch(sourceRead('read-2', 'https://api.github.com/repos/owner/repo/pulls/17'))).status).toBe(403);
     await retainedFence(f, 'cancelled', 'fence');
   }));
   it.each(['expire', 'revoke'] as const)('denies %s without new protected effects', action => fixture(async f => {
-    await start(f); expect((await f.capability.fetch(read())).status).toBe(200);
-    f[action](); expect((await f.capability.fetch(read('read-2'))).status).toBe(403);
+    await start(f); expect((await f.capability.fetch(sourceRead('read-1', 'https://api.github.com/repos/owner/repo/pulls/17'))).status).toBe(200);
+    f[action](); expect((await f.capability.fetch(sourceRead('read-2', 'https://api.github.com/repos/owner/repo/pulls/17'))).status).toBe(403);
     expect(f.sent.map(r => r.url)).toEqual(['https://api.github.com/repos/owner/repo/pulls/17']);
   }));
-  it('sends the parent-owned GitHub REST User-Agent for both bounded PR and files reads', () => fixture(async f => {
+  it('sends the parent-owned GitHub REST User-Agent for generic files research', () => fixture(async f => {
     await start(f);
-    expect((await f.capability.fetch(read('files-read', { resource: 'files' }))).status).toBe(200);
+    expect((await f.capability.fetch(sourceRead('files-read', 'https://api.github.com/repos/owner/repo/pulls/17/files'))).status).toBe(200);
     expect(f.sent.map(request => request.headers.get('user-agent'))).toEqual([
-      'Codeflare-Operator-Dispatcher', 'Codeflare-Operator-Dispatcher',
+      'Codeflare-Operator-Dispatcher',
     ]);
     expect(f.sent.every(request => !request.headers.has('authorization'))).toBe(true);
   }));
   it('reconciles completed operation output and conflicts on changed semantics', () => fixture(async f => {
-    await start(f); const first = await f.capability.fetch(read());
-    expect(await (await f.capability.fetch(read())).text()).toBe(await first.text());
-    expect((await f.capability.fetch(read('read-1', { resource: 'files' }))).status).toBe(409);
+    await start(f); const first = await f.capability.fetch(sourceRead('read-1', 'https://api.github.com/repos/owner/repo/pulls/17'));
+    expect(await (await f.capability.fetch(sourceRead('read-1', 'https://api.github.com/repos/owner/repo/pulls/17'))).text()).toBe(await first.text());
+    expect((await f.capability.fetch(sourceRead('read-1', 'https://api.github.com/repos/owner/repo/pulls/17/files'))).status).toBe(409);
     expect(f.sent.map(r => r.method)).toEqual(['GET']);
   }));
   it.each([
@@ -2838,44 +2588,41 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
       expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
     } finally { spy.mockRestore(); setLogLevel('silent'); }
   }, { repositoryOnly: true }));
+  const diagnosticInference = (operationId: string) => genericWire('inference', { operationId,
+    input: { messages: [{ role: 'user', content: 'PRIVATE_PROMPT_NOT_LOGGED' }] } });
   it.each([
-    { name: 'conflict', stage: 'reservation', resource: 'files', deadline: 'current', status: 409,
+    { name: 'conflict', stage: 'reservation', resource: 'source', deadline: 'current', status: 409,
       exercise: async (f: Parameters<Parameters<typeof fixture>[0]>[0]) => {
-        await f.capability.fetch(read('diagnostic-conflict'));
-        return f.capability.fetch(read('diagnostic-conflict', { resource: 'files' }));
+        await f.capability.fetch(sourceRead('diagnostic-conflict', 'https://api.github.com/repos/owner/repo/pulls/17'));
+        return f.capability.fetch(sourceRead('diagnostic-conflict', 'https://api.github.com/repos/owner/repo/pulls/17/files'));
       } },
-    { name: 'rejected transport uncertain operation', stage: 'effect', resource: 'pull-request', deadline: 'current', status: 409,
+    { name: 'rejected transport uncertain operation', stage: 'effect', resource: 'inference', deadline: 'current', status: 409,
       exercise: async (f: Parameters<Parameters<typeof fixture>[0]>[0]) => {
-        f.throwTransport(); return f.capability.fetch(read('diagnostic-uncertain'));
+        return f.capability.fetch(diagnosticInference('diagnostic-uncertain'));
       } },
-    { name: 'unreadable completed response', stage: 'effect', resource: 'pull-request', deadline: 'current', status: 409,
+    { name: 'unreadable completed response', stage: 'effect', resource: 'inference', deadline: 'current', status: 409,
       exercise: async (f: Parameters<Parameters<typeof fixture>[0]>[0]) => {
-        f.emptyResponse(); return f.capability.fetch(read('diagnostic-empty'));
+        return f.capability.fetch(diagnosticInference('diagnostic-empty'));
       } },
     { name: 'expired authority', stage: 'authority', resource: 'unparsed', deadline: 'expired', status: 403,
       exercise: async (f: Parameters<Parameters<typeof fixture>[0]>[0]) => {
-        f.expire(); return f.capability.fetch(read('diagnostic-expired'));
+        f.expire(); return f.capability.fetch(sourceRead('diagnostic-expired', 'https://api.github.com/repos/owner/repo/pulls/17'));
       } },
     { name: 'stale generation with current deadline', stage: 'authority', resource: 'unparsed', deadline: 'current', status: 403,
-      exercise: async (f: Parameters<Parameters<typeof fixture>[0]>[0]) => f.staleCapability.fetch(read('diagnostic-stale')) },
-    { name: 'upstream non-success response', stage: 'upstream', resource: 'pull-request', deadline: 'current', status: 409,
+      exercise: async (f: Parameters<Parameters<typeof fixture>[0]>[0]) => f.staleCapability.fetch(sourceRead('diagnostic-stale', 'https://api.github.com/repos/owner/repo/pulls/17')) },
+    { name: 'upstream non-success response', stage: 'upstream', resource: 'inference', deadline: 'current', status: 409,
       exercise: async (f: Parameters<Parameters<typeof fixture>[0]>[0]) => {
-        f.loseResponse(); return f.capability.fetch(read('diagnostic-upstream'));
+        return f.capability.fetch(diagnosticInference('diagnostic-upstream'));
       } },
     { name: 'inference upstream non-success response', stage: 'upstream', resource: 'inference', deadline: 'current', status: 409,
+      exercise: async (f: Parameters<Parameters<typeof fixture>[0]>[0]) => f.capability.fetch(diagnosticInference('diagnostic-inference')) },
+    { name: 'forwarded upstream HTTP 409', stage: 'forwarded-upstream', resource: 'inference', deadline: 'current', status: 409,
       exercise: async (f: Parameters<Parameters<typeof fixture>[0]>[0]) => {
-        f.loseResponse(); return f.capability.fetch(new Request('https://operator.internal/v1/dispatcher/inference', {
-          method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ operationId: 'diagnostic-inference', input: { messages: [{ role: 'user', content: 'PRIVATE_PROMPT_NOT_LOGGED' }] } }),
-        }));
+        return f.capability.fetch(diagnosticInference('diagnostic-forwarded'));
       } },
-    { name: 'forwarded upstream HTTP 409', stage: 'forwarded-upstream', resource: 'pull-request', deadline: 'current', status: 409,
+    { name: 'expired result commit', stage: 'commit', resource: 'inference', deadline: 'expired', status: 409,
       exercise: async (f: Parameters<Parameters<typeof fixture>[0]>[0]) => {
-        f.upstreamConflict(true); return f.capability.fetch(read('diagnostic-forwarded'));
-      } },
-    { name: 'expired result commit', stage: 'commit', resource: 'pull-request', deadline: 'expired', status: 409,
-      exercise: async (f: Parameters<Parameters<typeof fixture>[0]>[0]) => {
-        f.expireAfterRead(); return f.capability.fetch(read('diagnostic-commit'));
+        return f.capability.fetch(diagnosticInference('diagnostic-commit'));
       } },
   ])('REQ-OPERATOR-047/048: emits bounded $name diagnostic with its fenced response', ({ name, stage, resource, deadline, status, exercise }) => fixture(async f => {
     await start(f);
@@ -2901,29 +2648,70 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
       expect(JSON.stringify(events)).not.toMatch(/private transport failure|lost response|diagnostic-conflict|diagnostic-uncertain|diagnostic-empty|diagnostic-expired|diagnostic-stale|diagnostic-upstream|diagnostic-forwarded|diagnostic-commit|diagnostic-inference|PRIVATE_PROMPT_NOT_LOGGED|private\.jwt|inline-secret/);
       if (name === 'forwarded upstream HTTP 409') {
         expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
-        f.upstreamConflict(false);
-        const replay = await f.capability.fetch(read('diagnostic-forwarded'));
+        const replay = await f.capability.fetch(diagnosticInference('diagnostic-forwarded'));
         expect(replay.status).toBe(409);
         expect(await replay.json()).toEqual({ error: 'upstream-conflict' });
         expect(emitted.filter(value => value.includes('Dispatcher operation rejected'))).toHaveLength(1);
-        expect((await f.capability.fetch(read('diagnostic-fresh'))).status).toBe(200);
+        expect((await f.capability.fetch(sourceRead('diagnostic-fresh', 'https://api.github.com/repos/owner/repo/pulls/17'))).status).toBe(200);
       } else if (stage === 'effect' || stage === 'upstream' || stage === 'commit') {
         expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
-        expect((await f.capability.fetch(read('diagnostic-followup'))).status).toBe(403);
+        expect((await f.capability.fetch(sourceRead('diagnostic-followup', 'https://api.github.com/repos/owner/repo/pulls/17'))).status).toBe(403);
       } else if (stage === 'reservation' || deadline === 'current') {
-        expect((await f.capability.fetch(read('diagnostic-fresh'))).status).toBe(200);
+        expect((await f.capability.fetch(sourceRead('diagnostic-fresh', 'https://api.github.com/repos/owner/repo/pulls/17'))).status).toBe(200);
       } else {
         expect(f.sent.some(request => request.url.startsWith('https://api.github.com/'))).toBe(false);
       }
     } finally { setLogLevel('silent'); }
-  }));
+  }, { repositoryOnly: true, inferenceTransport: async () => {
+    if (name === 'rejected transport uncertain operation') throw new Error('private transport failure');
+    if (name === 'unreadable completed response') return new Response(null, { status: 200 });
+    if (name === 'forwarded upstream HTTP 409') return Response.json({ error: 'upstream-conflict' }, { status: 409 });
+    if (name === 'expired result commit') return new Response(new ReadableStream<Uint8Array>({ pull(controller) {
+      // Expire only once the authorized transport response is being consumed.
+      vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 301_000);
+      controller.enqueue(new TextEncoder().encode('data: [DONE]\n\n')); controller.close();
+    } }, { highWaterMark: 0 }), { headers: { 'content-type': 'text/event-stream' } });
+    return Response.json({ error: 'lost response' }, { status: 502 });
+  } }));
+  it.each([409, 502])('REQ-OPERATOR-047: generic source retains upstream HTTP %i as immutable evidence, not a domain verdict', status => fixture(async f => {
+    await start(f);
+    if (status === 409) f.upstreamConflict(true);
+    else f.loseResponse();
+    const url = 'https://api.github.com/repos/owner/repo/pulls/17';
+    const response = await f.capability.fetch(sourceRead('source-status-evidence', url));
+    expect(response.status).toBe(200);
+    const bytes = await response.text();
+    expect(JSON.parse(bytes)).toMatchObject({ url, status,
+      body: JSON.stringify({ error: status === 409 ? 'upstream-conflict' : 'lost response' }) });
+    const receipt = await f.capability.fetch(genericWire('receipt', { operationId: 'source-status-evidence' }));
+    expect(receipt.status).toBe(200);
+    expect(await receipt.json()).toMatchObject({ phase: 'completed', operationCount: 1 });
+    f.restoreTransport(); f.upstreamConflict(false); f.restart(); f.throwTransport();
+    const cached = await f.capability.fetch(sourceRead('source-status-evidence', url));
+    expect(cached.status).toBe(200);
+    expect(await cached.text()).toBe(bytes);
+    expect(f.sent.map(request => ({ url: request.url, method: request.method }))).toEqual([{ url, method: 'GET' }]);
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+  }, { repositoryOnly: true }));
+
   it('does not replay uncertain effects and cannot commit waiting afterward', () => fixture(async f => {
-    await start(f); f.loseResponse(); expect((await f.capability.fetch(read())).status).toBe(409);
-    expect((await f.capability.fetch(read())).status).toBe(403);
-    f.settle(); await f.activity.reconcileDispatcherLease();
+    await startApplication(f);
+    const mutation = applicationComment('unresolved-before-settlement');
+    f.loseResponse();
+    const first = await f.capability.fetch(applicationWire(f, 'source', mutation));
+    expect(first.status).toBe(409);
+    expect(await first.json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN', reason: 'effect-uncertain' });
+    f.restart();
+    const retry = await f.capability.fetch(applicationWire(f, 'source', mutation));
+    expect(retry.status).toBe(409);
+    expect(await retry.json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN', reason: 'effect-uncertain' });
+    f.normalTransport!.settle('completed', [{ name: 'application-result', data: { completed: true } }]);
+    await f.activity.reconcileDispatcherLease();
     expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
-    expect(f.sent.map(r => r.method)).toEqual(['GET']);
-  }));
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    expect(remoteMutations(f).map(request => request.url)).toEqual([mutation.url]);
+  }, applicationOptions));
   it.each([
     { tools: 2, maxTokens: 10, status: 200 },
     { tools: 3, maxTokens: 10, status: 403 },
@@ -2969,8 +2757,10 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     await expect(parseDispatcherOperation(genericWire('source', unicodeUrl), undefined,
       { sourceUrlChars: unicodeUrl.url.length - 1 })).rejects.toThrow();
     const comment = { operationId: 'comment-bound', target: { pullRequest: 17, headSha: 'b'.repeat(40) }, decision: 'DO_NOT_MERGE', comment: '🙂' };
-    expect((await parseDispatcherOperation(genericWire('github/comment', comment), undefined, { commentChars: 2 })).body).toEqual(comment);
-    await expect(parseDispatcherOperation(genericWire('github/comment', comment), undefined, { commentChars: 1 })).rejects.toThrow();
+    for (const commentChars of [1, 2]) {
+      await expect(parseDispatcherOperation(genericWire('github/comment', comment), undefined, { commentChars }))
+        .rejects.toThrow('Dispatcher route denied');
+    }
     const resolution = { operationId: 'unknown-write', requestDigest: 'a'.repeat(64), readbacks: [
       { operationId: 'read-1', requestDigest: 'b'.repeat(64), responseDigest: 'c'.repeat(64) },
       { operationId: 'read-2', requestDigest: 'd'.repeat(64), responseDigest: 'e'.repeat(64) },
@@ -3118,7 +2908,7 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     }, { sourceResponseBytes: 131072, inferenceRequestBytes: 65536 });
     await fixture(async f => {
       await start(f);
-      expect((await f.capability.fetch(read('source-unchanged', { padding: 'x'.repeat(65537) }))).status).toBe(403);
+      expect((await f.capability.fetch(sourceRead('source-unchanged', 'https://api.github.com/repos/owner/repo/pulls/17', { padding: 'x'.repeat(65537) }))).status).toBe(403);
     }, { inferenceRequestBytes: Number.MAX_SAFE_INTEGER });
   });
 
@@ -3143,10 +2933,11 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     expect((await f.capability.fetch(genericWire('inference', { operationId: 'revoked-summary',
       input: { messages, max_tokens: 5120 } }))).status).toBe(403);
   }));
-  it('denies foreign resources, unknown routes, oversized input and foreign/root scheduling while allowed reads work', () => fixture(async f => {
-    await start(f); expect((await f.capability.fetch(read())).status).toBe(200);
-    for (const request of [read('x', { repository: 'other/repo' }), read('x', { resource: 'merge' }),
-      read('x', { padding: 'x'.repeat(65537) }), new Request('https://operator.internal/v1/session'),
+  it('denies child authority fields, unknown routes, oversized input and foreign/root scheduling while generic reads work', () => fixture(async f => {
+    await start(f); expect((await f.capability.fetch(sourceRead('read-1', 'https://api.github.com/repos/owner/repo/pulls/17'))).status).toBe(200);
+    for (const request of [sourceRead('x', 'https://api.github.com/repos/owner/repo', { repository: 'other/repo' }),
+      sourceRead('x', 'https://api.github.com/repos/owner/repo', { resource: 'merge' }),
+      sourceRead('x', 'https://api.github.com/repos/owner/repo', { padding: 'x'.repeat(65537) }), new Request('https://operator.internal/v1/session'),
       new Request('https://example.test/v1/dispatcher/github/read', { method: 'POST', body: '{}' })]) {
       expect((await f.capability.fetch(request)).status).toBe(403);
     }
@@ -3207,7 +2998,7 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     await expect(wake()).resolves.toBeUndefined();
     await expect(checkFibers()).resolves.toBe(0);
     for (const readback of f.ownedChildReadbacks()) await expect(readback()).rejects.toBeInstanceOf(Error);
-    expect((await f.capability.fetch(read('retired-after-connection-recovery'))).status).toBe(403);
+    expect((await f.capability.fetch(sourceRead('retired-after-connection-recovery', 'https://api.github.com/repos/owner/repo/pulls/17'))).status).toBe(403);
   }, { facetContract: true }));
   // Historical storage contract: these rows predate host generation envelopes.
   // Seed authentic column shapes, then observe migration through the public bridge.
@@ -3467,13 +3258,22 @@ describe('REQ-OPERATOR-047: package-selected research under managed parent autho
     f.revokeSession();
     expect((await f.capability.fetch(sourceRead('revoked', 'https://docs.example.test/migration'))).status).toBe(403);
   }, { repositoryOnly: true }));
-  it('keeps the legacy single-PR package confined to its original interface', () => fixture(async f => {
+  it('keeps retired single-PR controllers denied while generic research remains supported', () => fixture(async f => {
     await start(f);
-    expect((await f.capability.fetch(sourceRead('legacy', 'https://docs.example.test/migration'))).status).toBe(403);
+    const before = [...f.sent];
+    const denied = await f.capability.fetch(read('retired'));
+    expect(denied.status).toBe(403);
+    expect(await denied.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED', reason: 'request-invalid', disposition: 'operation-local' });
+    expect(f.sent).toEqual(before);
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    const response = await f.capability.fetch(sourceRead('legacy', 'https://docs.example.test/migration'));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ body: 'Official migration guidance' });
   }));
 });
 
 
+// REQ-OPERATOR-103: Dispatcher operation accounting.
 describe('REQ-OPERATOR-047/048: parent-composed source response allowance', () => {
   it.each([undefined, 131072])('REQ-OPERATOR-047: exposes source allowance %s only to repository Loader', async sourceResponseBytes => {
     for (const repositoryOnly of [false, true]) await fixture(async f => {
@@ -3500,50 +3300,6 @@ describe('REQ-OPERATOR-047/048: parent-composed source response allowance', () =
     expect(await cached.json()).toEqual(body);
   }, { repositoryOnly: true, sourceResponseBytes, sourceBody: 'x'.repeat(100 * 1024) }));
 
-  it('REQ-OPERATOR-047: SQL-backed default capacity completes 1024 distinct maximum-length source URLs and reuses cached slots after reload', () => withCollectedLargeLogs(true, output => fixture(async f => {
-    await start(f);
-    const urlFor = (index: number) => {
-      const prefix = `https://docs.example.test/migration?request=${String(index).padStart(4, '0')}&padding=`;
-      return prefix + 'x'.repeat(4096 - prefix.length);
-    };
-    const receipt = async (index: number, count: number) => {
-      const response = await f.capability.fetch(genericWire('receipt', { operationId: `max-url-${index}` }));
-      expect(response.status).toBe(200);
-      expect(await response.json()).toMatchObject({ operationId: `max-url-${index}`, generation: 1,
-        method: 'GET', url: urlFor(index), phase: 'completed', operationCount: count, operationLimit: 1024 });
-    };
-    // Real native SQLite KV enforces the platform's 2 MiB serialized value limit.
-    // Only the upstream transport is controlled: no real network or synthetic journal limit.
-    for (let index = 0; index < 1024; index++) {
-      const response = await f.capability.fetch(sourceRead(`max-url-${index}`, urlFor(index)));
-      expect(response.status, `source reservation/completion ${index + 1} of 1024`).toBe(200);
-      expect(await response.json()).toEqual({ url: urlFor(index), status: 200,
-        headers: { 'content-type': 'text/plain', etag: 'guide-v3' }, body: 'Official migration guidance' });
-      if (index === 0 || index === 511 || index === 1023) await receipt(0, index + 1);
-    }
-    const preparedById = new Map((collectedRawValues(output, 'operation-prepared') as Array<{
-      body: { operationId: string; url: string };
-    }>).map(value => [value.body.operationId, value.body]));
-    for (let index = 0; index < 1024; index++) {
-      expect(preparedById.get(`max-url-${index}`)).toEqual({ operationId: `max-url-${index}`, url: urlFor(index) });
-    }
-    f.sourceBody('Changed upstream content must not replace completed long-URL receipts');
-    f.restart();
-    for (const index of [0, 511, 1023]) {
-      const cached = await f.capability.fetch(sourceRead(`max-url-${index}`, urlFor(index)));
-      expect(cached.status).toBe(200);
-      expect(await cached.json()).toEqual({ url: urlFor(index), status: 200,
-        headers: { 'content-type': 'text/plain', etag: 'guide-v3' }, body: 'Official migration guidance' });
-      await receipt(index, 1024);
-    }
-    const denied = await f.capability.fetch(sourceRead('max-url-next', urlFor(1024)));
-    expect(denied.status).toBe(403);
-    expect(await denied.json()).toMatchObject({ code: 'OPERATOR_CAPABILITY_DENIED' });
-    expect((await f.capability.fetch(genericWire('receipt', { operationId: 'max-url-next' }))).status).toBe(403);
-    await receipt(0, 1024);
-    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
-  }, { repositoryOnly: true })), 120000);
-
   it.each(['reserved', 'unknown'] as const)(
     'REQ-OPERATOR-047: legacy aggregate recovery preserves counts cached receipts conflicts and %s mutation ordering across reload', phase => fixture(async f => {
       await start(f);
@@ -3561,7 +3317,7 @@ describe('REQ-OPERATOR-047/048: parent-composed source response allowance', () =
       ]);
       f.restart();
       const receipt = async (operationId: string, count: number) => {
-        const response = await f.capability.fetch(genericWire('receipt', { operationId }));
+        const response = await f.capability.fetch(applicationWire(f, 'receipt', { operationId }));
         expect(response.status).toBe(200);
         const value = await response.json() as { operationId: string; requestDigest: string; responseDigest: string; phase: string };
         expect(value).toMatchObject({ operationId, operationCount: count, operationLimit: 4 });
@@ -3575,37 +3331,37 @@ describe('REQ-OPERATOR-047/048: parent-composed source response allowance', () =
       expect(['reserved', 'unknown']).toContain(original.phase);
       f.genericReadback([{ id: 9999, body: 'Changed upstream must not replace legacy cached responses', user: { id: 42 } }]);
       for (const body of [oldRead, laterRead]) {
-        const cached = await f.capability.fetch(genericWire('source', body));
+        const cached = await f.capability.fetch(applicationWire(f, 'source', body));
         expect(cached.status).toBe(200);
         expect(await cached.json()).toEqual(cachedEnvelope);
       }
-      const conflict = await f.capability.fetch(genericWire('source', { ...mutation, body: '{"body":"changed judgment"}' }));
+      const conflict = await f.capability.fetch(applicationWire(f, 'source', { ...mutation, body: '{"body":"changed judgment"}' }));
       expect(conflict.status).toBe(409);
       expect(await conflict.json()).toMatchObject({ code: 'OPERATOR_OPERATION_CONFLICT' });
       for (let reload = 0; reload < 2; reload++) {
         f.restart();
-        const unresolved = await f.capability.fetch(genericWire('source', mutation));
+        const unresolved = await f.capability.fetch(applicationWire(f, 'source', mutation));
         expect(unresolved.status).toBe(409);
         expect(await unresolved.json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
         expect(await receipt(mutation.operationId, 3)).toMatchObject({ phase: 'unknown', requestDigest: original.requestDigest });
       }
       const resolution = { operationId: mutation.operationId, requestDigest: original.requestDigest,
         readbacks: [reference(await receipt(oldRead.operationId, 3))] };
-      const tooEarly = await f.capability.fetch(genericWire('resolve', resolution));
+      const tooEarly = await f.capability.fetch(applicationWire(f, 'resolve', resolution));
       expect(tooEarly.status).toBe(409);
       expect(await tooEarly.json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
       // A fresh read after recovery must have a later reservation order and consume
       // exactly one slot. Its empty remote result also proves the seeded write was not replayed.
       const freshRead = { operationId: 'legacy-fresh-read', url };
       f.genericReadback(undefined);
-      const observed = await f.capability.fetch(genericWire('source', freshRead));
+      const observed = await f.capability.fetch(applicationWire(f, 'source', freshRead));
       expect(observed.status).toBe(200);
       expect(JSON.parse((await observed.json() as { body: string }).body)).toEqual([]);
       await receipt(oldRead.operationId, 4);
       f.restart();
       f.genericReadback([{ id: 9999, body: 'Changed upstream after reload must not replace legacy cache', user: { id: 42 } }]);
       for (const body of [oldRead, laterRead]) {
-        const cached = await f.capability.fetch(genericWire('source', body));
+        const cached = await f.capability.fetch(applicationWire(f, 'source', body));
         expect(cached.status).toBe(200);
         expect(await cached.json()).toEqual(cachedEnvelope);
       }
@@ -3614,22 +3370,22 @@ describe('REQ-OPERATOR-047/048: parent-composed source response allowance', () =
       const readbacks = [reference(await receipt(laterRead.operationId, 4)), reference(await receipt(freshRead.operationId, 4))];
       for (let reload = 0; reload < 2; reload++) {
         f.restart();
-        const resolved = await f.capability.fetch(genericWire('resolve', { ...resolution, readbacks }));
+        const resolved = await f.capability.fetch(applicationWire(f, 'resolve', { ...resolution, readbacks }));
         expect(resolved.status).toBe(200);
         expect(await resolved.json()).toEqual({ resolved: true, operationId: mutation.operationId, requestDigest: original.requestDigest });
         expect(await receipt(mutation.operationId, 4)).toMatchObject({ phase: 'completed', requestDigest: original.requestDigest });
-        const cached = await f.capability.fetch(genericWire('source', mutation));
+        const cached = await f.capability.fetch(applicationWire(f, 'source', mutation));
         expect(cached.status).toBe(200);
         expect(await cached.json()).toEqual({ resolved: true, operationId: mutation.operationId, requestDigest: original.requestDigest });
       }
-      const changed = await f.capability.fetch(genericWire('source', { ...mutation, body: '{"body":"changed judgment"}' }));
+      const changed = await f.capability.fetch(applicationWire(f, 'source', { ...mutation, body: '{"body":"changed judgment"}' }));
       expect(changed.status).toBe(409);
       expect(await changed.json()).toMatchObject({ code: 'OPERATOR_OPERATION_CONFLICT' });
-      const denied = await f.capability.fetch(genericWire('source', { operationId: 'legacy-over-budget', url }));
+      const denied = await f.capability.fetch(applicationWire(f, 'source', { operationId: 'legacy-over-budget', url }));
       expect(denied.status).toBe(403);
       expect(await denied.json()).toMatchObject({ code: 'OPERATOR_CAPABILITY_DENIED' });
       await receipt(mutation.operationId, 4);
-    }, { repositoryOnly: true, operationLimit: 4 }));
+    }, { ...applicationOptions, operationLimit: 4 }));
 
   it('REQ-OPERATOR-047: SQL-backed Activity journals and reloads an exact 1 MiB source envelope', async () => {
     const url = 'https://docs.example.test/migration';
@@ -3774,326 +3530,412 @@ describe('REQ-OPERATOR-047/048: parent-composed source response allowance', () =
   }, { repositoryOnly: true, sourceResponseBytes: 131072, capacityPolicy: { assessmentBytes: 65536 } }));
 });
 
-describe('REQ-OPERATOR-047/048/061/062/071: repository-only prospective parent authority', () => {
-  it.each([false, true])('reauthorizes a stored settled assessment at public collection; prospective actor revoked=%s', revoked => fixture(async f => {
-    await start(f);
-    const assessment = { repository: prospectiveRepo, results: [{ pullRequest: 17, headSha: f.proof.head,
-      decision: 'DO_NOT_MERGE', comment: 'Evidence does not justify merging', outcome: 'NOT_MERGED' }] };
-    f.messages([{ submissionId: 'submission-1', parts: [{ type: 'data-assessment', data: assessment }] }]);
-    f.settle();
+// Ownership migration from the retired prospective parent controller:
+// - OPERATOR_ADMITTED_TARGET, proof/actor/registration pins, creation cutoff and
+//   target eligibility now belong to the Dispatcher SDK application. See
+//   codeflare-operator-dispatcher/test/renovate/legacy-admission-parity.test.ts
+//   (renovate-admission) and renovate-discovery.test.ts (identity/cutoff/paging).
+// - Comment limits/body policy, PR/head/base preflight, merge CAS and positive
+//   publisher/readback interpretation belong to test/renovate/github-effects.test.ts.
+//   Root's generic transport does not validate those domain semantics.
+// - Registration session/bucket/delegation fields no longer authorize execution.
+//   Current runtime authority below is the sealed execution context plus live
+//   invoker/revision/deadline/role checks, not the historical registration.
+const applicationRepository = 'another/service';
+const applicationBase = `https://api.github.com/repos/${applicationRepository}`;
+const applicationOptions = { applicationWorkflow: true, normalHosting: true, repositoryOnly: true,
+  applicationConfiguration: { repository: applicationRepository }, applicationWriteRepositoriesPath: '/repository' };
+const applicationComment = (operationId = 'application-comment', base = applicationBase) => ({ operationId,
+  method: 'POST', url: `${base}/issues/17/comments`, body: JSON.stringify({ body: 'Original application write' }) });
+const applicationDelivery = (f: DispatcherFixture) => {
+  const plan = f.normalTransport!.requests.filter(request => request.path === '/control/plan').at(-1)!.body;
+  const delivery = plan.delivery as { token: string };
+  return delivery.token;
+};
+const applicationWire = (f: DispatcherFixture, path: string, body: unknown) => {
+  const request = genericWire(path, body);
+  request.headers.set('x-codeflare-dispatcher-delivery', applicationDelivery(f));
+  return request;
+};
+const applicationInference = (f: DispatcherFixture, operationId: string) => applicationWire(f, 'inference', {
+  operationId, context: { messages: [{ role: 'user', content: 'Bounded application task' }] }, options: {},
+});
+const startApplication = async (f: DispatcherFixture) => {
+  expect(await start(f)).toMatchObject({ ok: true });
+  expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
+  expect(f.normalTransport!.admissions.size).toBe(1);
+};
+// Deliberately corrupt trusted persisted metadata, not public request fields.
+// Re-encryption preserves the real protection boundary so malformed delegation
+// is refused by the runtime parser rather than an unrelated authentication tag.
+const replaceApplicationDelegation = async (f: DispatcherFixture, delegation: unknown) => {
+  const plan = (await f.activity.getRuntimePlan())!;
+  const context = plan.executionContext;
+  const binding = { purpose: 'human-access' as const, recordId: context.activityId };
+  const payload = JSON.parse(await openOperatorSecret(context.protectedAccessCiphertext, f.environment, binding));
+  const protectedAccessCiphertext = await sealOperatorSecret(JSON.stringify({ ...payload, delegation }), f.environment, binding);
+  await f.mutateEvidence(async storage => {
+    const admission = (await storage.get<Record<string, unknown>>('admission'))!;
+    await storage.put('admission', { ...admission, executionContext: { ...context, protectedAccessCiphertext } });
+  });
+};
+
+describe('REQ-OPERATOR-047/048/061/062/071: registered application parent authority', () => {
+  it.each([false, true])('reauthorizes a settled application before final completion after reconstruction; invoker revoked=%s', revoked => fixture(async f => {
+    await startApplication(f);
+    const submitted = [...f.normalTransport!.admissions.values()];
+    f.normalTransport!.settle('completed', [{ name: 'application-result', data: { completed: true } }]);
+    // Revoke during the awaited SDK observation, before Root accepts a final decision.
+    if (revoked) f.normalTransport!.afterNextRead(() => f.revokeGrant());
+    f.restart();
     await f.activity.reconcileDispatcherLease();
-    // Real settlement persists the assessment but the targeted legacy drive still awaits public collection.
-    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'waiting',
-      collectionStatus: 'unavailable', result: null });
-    const submitted = await Promise.all(f.childSubmissions.map(async request => ({ method: request.method,
-      url: request.url, body: await request.clone().text() })));
-    expect(submitted.length).toBeGreaterThan(0);
-    f.sent.splice(0);
-    if (revoked) f.changeRegistration(null);
-    const restarted = f.restart();
     if (revoked) {
-      expect(await restarted.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
-      expect(await restarted.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
-      expect(await restarted.getBrowserDetail()).toMatchObject({ executionStatus: 'waiting',
-        collectionStatus: 'unavailable', result: null });
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      expect((await f.activity.getBrowserDetail())?.result).toBeNull();
     } else {
-      // Same settled fixture, current authority: collection really can expose this immutable result.
-      expect(await restarted.collectBrowserResult()).toMatchObject({ ok: true, detail: {
-        executionStatus: 'completed', collectionStatus: 'consumed', result: assessment } });
+      expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: {
+        executionStatus: 'completed', collectionStatus: 'consumed', result: { completed: true } } });
     }
-    expect(await Promise.all(f.childSubmissions.map(async request => ({ method: request.method,
-      url: request.url, body: await request.clone().text() })))).toEqual(submitted);
+    expect([...f.normalTransport!.admissions.values()]).toEqual(submitted);
     expect(f.sent).toEqual([]);
-  }, { prospective: true, legacyProspective: true }));
+  }, applicationOptions));
 
-  it('authorizes repository-only work and projects one closed nonsecret target into the actual Loader, identically after reconstruction', () => fixture(async f => {
-    await startProspective(f);
-    expect(f.input).toEqual({ repository: prospectiveRepo });
-    const loaded = await f.loaderEnv();
-    expect(typeof loaded.OPERATOR_ADMITTED_TARGET).toBe('string');
-    // Intent-3 Loader wire is an intentional closed metadata contract, not public input or a grant.
-    expect(JSON.parse(loaded.OPERATOR_ADMITTED_TARGET as string)).toEqual(f.admittedTarget);
-    const loadedKeys = Object.keys(loaded).sort();
-    expect(loadedKeys).toEqual(['GITHUB_API_ORIGIN', 'OPERATOR', 'OPERATOR_ADMITTED_TARGET', 'OPERATOR_SOURCE_RESPONSE_BYTES', 'OPERATOR_SUBMISSION_ATTEMPT_LIMIT']);
-    expect(loaded.OPERATOR_ADMITTED_TARGET).not.toContain('private.jwt');
-    const restarted = f.restart();
-    expect((await f.capability.fetch(genericWire('source', { operationId: 'reconstructed-read',
-      url: `${prospectiveBase}/pulls/17` }))).status).toBe(200);
-    await restarted.reconcileDispatcherLease();
-    expect((await f.loaderEnv()).OPERATOR_ADMITTED_TARGET).toBe(loaded.OPERATOR_ADMITTED_TARGET);
+  it('passes saved configuration to the actual application and survives reconstruction without retired registration authority', () => fixture(async f => {
+    await startApplication(f);
+    const firstPlan = f.normalTransport!.requests.find(request => request.path === '/control/plan')!.body;
+    expect(firstPlan).toMatchObject({ checkpoint: null, initialData: {
+      input: f.input, configuration: { repository: applicationRepository } } });
+    expect(JSON.stringify(firstPlan)).not.toContain('private.jwt');
+    const submitted = [...f.normalTransport!.admissions.values()];
+    f.changeProof(null); f.changeRegistration(null);
+    f.restart();
+    expect((await f.capability.fetch(applicationWire(f, 'source', {
+      operationId: 'reconstructed-read', url: `${applicationBase}/pulls/17` }))).status).toBe(200);
+    await f.activity.reconcileDispatcherLease();
+    expect([...f.normalTransport!.admissions.values()]).toEqual(submitted);
     expect(remoteMutations(f)).toEqual([]);
-  }, { prospective: true }));
+  }, applicationOptions));
 
-  it.each([1, 2])('REQ-OPERATOR-047: admitted-target comment UTF-16 limit %i admits a complete judgment or denies before effect', targetCommentChars => fixture(async f => {
-    await startProspective(f);
-    const body = JSON.stringify({ body: '🙂' });
-    const response = await f.capability.fetch(genericWire('source', { ...prospectiveComment('comment-text-bound'), body }));
-    expect(response.status).toBe(targetCommentChars === 1 ? 403 : 200);
-    if (response.ok) {
-      const envelope = await response.json() as { status: number; body: string };
-      expect(envelope.status).toBe(201);
-      expect(JSON.parse(envelope.body)).toMatchObject({ body: '🙂' });
-    } else expect(remoteMutations(f)).toEqual([]);
-  }, { prospective: true, capacityPolicy: { targetCommentChars } }));
-
-  it('accepts canonical GitHub second-resolution creation time without weakening the immutable cutoff', () => fixture(async f => {
-    const createdAt = f.proof.createdAt.replace(/\.\d{3}Z$/, 'Z');
-    f.changeProof({ createdAt }); f.changeTarget({ created_at: createdAt });
-    await startProspective(f);
-    expect(JSON.parse((await f.loaderEnv()).OPERATOR_ADMITTED_TARGET as string))
-      .toEqual({ ...f.admittedTarget, createdAt });
-    expect((await f.capability.fetch(genericWire('source', prospectiveComment()))).status).toBe(200);
-    expect(remoteMutations(f).map(request => request.url)).toEqual([`${prospectiveBase}/issues/17/comments`]);
-  }, { prospective: true }));
-
-  it.each([
-    ['missing proof', null], ['foreign Activity', { activityId: 'foreign-activity' }],
-    ['foreign installation', { installationId: 'foreign-installation' }], ['foreign owner', { ownerKey: 'f'.repeat(64) }],
-    ['foreign repository ID', { repositoryId: 1 }], ['missing PR', { pullRequest: undefined }],
-    ['nonpositive PR', { pullRequest: 0 }], ['unsafe PR', { pullRequest: Number.MAX_SAFE_INTEGER + 1 }],
-    ['malformed head', { head: 'expected-head' }], ['uppercase head', { head: 'B'.repeat(40) }],
-    ['invalid creation date', { createdAt: 'not-a-date' }], ['invalid cutoff', { activatedAt: 'not-a-date' }],
-    ['future creation date', { createdAt: '2099-01-01T00:00:00Z' }],
-    ['cutoff differs from original registration', { activatedAt: '2000-01-01T00:00:00Z' }],
-  ] as Array<[string, Record<string, unknown> | null]>)('denies %s rather than treating proof as optional', (_name, patch) => fixture(async f => {
-    await startProspective(f);
-    f.changeProof(patch);
-    expect((await f.capability.fetch(genericWire('source', prospectiveComment()))).status).toBe(403);
-    expect((await f.capability.fetch(genericWire('inference', { operationId: 'invalid-proof-inference',
-      input: { messages: [{ role: 'user', content: 'assess' }] } }))).status).toBe(403);
-    expect(remoteMutations(f)).toEqual([]);
-  }, { prospective: true }));
-
-  it.each(['pre-cutoff', 'equal-cutoff', 'foreign subject', 'foreign issuer', 'foreign email', 'foreign audience'])('denies %s proof coordinates', name => fixture(async f => {
-    await startProspective(f);
-    if (name === 'pre-cutoff' || name === 'equal-cutoff') f.changeProof({ createdAt: name === 'equal-cutoff'
-      ? f.proof.activatedAt : new Date(Date.parse(f.proof.activatedAt) - 1).toISOString() });
-    else f.changeProof({ actor: { ...f.proof.actor, ...(name === 'foreign subject' ? { subject: 'other-human' }
-      : name === 'foreign issuer' ? { issuer: 'https://other.example.test' }
-        : name === 'foreign email' ? { email: 'other@example.test' } : { audiences: ['other-audience'] }) } });
-    expect((await f.capability.fetch(genericWire('source', prospectiveComment()))).status).toBe(403);
-    expect(remoteMutations(f)).toEqual([]);
-  }, { prospective: true }));
-
-  it.each([
-    { pullRequest: 18 }, { createdAfter: '2000-01-01T00:00:00.000Z' }, { actor: 'other-human' },
-    { OPERATOR_ADMITTED_TARGET: { repository: prospectiveRepo, pullRequest: 18, headSha: 'c'.repeat(40) } },
-  ])('does not accept public target/cutoff/principal metadata as prospective authority %j', inputExtra => fixture(async f => {
-    await start(f);
-    expect((await f.capability.fetch(genericWire('source', prospectiveComment()))).status).toBe(403);
-    expect(remoteMutations(f)).toEqual([]);
-  }, { prospective: true, inputExtra }));
-
-  it('admits only canonical comment and merge wires at the configured API, preserving expected-head CAS and parent identity', () => fixture(async f => {
-    await start(f);
-    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
-    const base = `https://github.enterprise.test/repos/${prospectiveRepo}`;
-    for (const mutation of [prospectiveComment('comment', base), prospectiveMerge('merge', base)]) {
-      const response = await f.capability.fetch(genericWire('source', mutation));
+  it('forwards configured-repository POST and PUT bytes at the configured API without domain preflight or caller credentials', () => fixture(async f => {
+    await startApplication(f);
+    const base = `https://github.enterprise.test/repos/${applicationRepository}`;
+    // Neither endpoint names nor PR numbers are a Root grant. These generic
+    // fixture endpoints retain the request bytes without simulating SDK policy.
+    const mutations = [{ ...applicationComment('comment', base), url: `${base}/issues/18/comments` },
+      { operationId: 'merge', method: 'PUT', url: `${base}/pulls/18/merge`,
+        body: JSON.stringify({ sha: 'b'.repeat(40), merge_method: 'merge' }) }];
+    for (const mutation of mutations) {
+      const response = await f.capability.fetch(applicationWire(f, 'source', mutation));
       expect(response.status).toBe(200);
-      expect(await response.json()).toMatchObject({ url: mutation.url, status: mutation.method === 'POST' ? 201 : 200 });
+      expect(await response.json()).toMatchObject({ url: mutation.url, status: 200 });
     }
     const writes = remoteMutations(f);
-    expect(writes.map(request => ({ method: request.method, url: request.url }))).toEqual([
-      { method: 'POST', url: `${base}/issues/17/comments` }, { method: 'PUT', url: `${base}/pulls/17/merge` },
-    ]);
-    expect(await writes[0].clone().json()).toEqual({ body: 'Exact admitted judgment' });
-    expect(await writes[1].clone().json()).toEqual({ sha: f.proof.head, merge_method: 'merge' });
+    expect(writes.map(request => ({ method: request.method, url: request.url }))).toEqual(
+      mutations.map(({ method, url }) => ({ method, url })));
+    expect(await Promise.all(writes.map(request => request.clone().text()))).toEqual(mutations.map(value => value.body));
     expect(writes.every(request => !request.headers.has('authorization') && !request.headers.has('cookie')
       && request.redirect === 'manual')).toBe(true);
-    expect(f.sent.some(request => request.method === 'GET' && request.url === `${base}/pulls/17`)).toBe(true);
-    expect(f.sent.some(request => request.method === 'GET' && request.url === base)).toBe(true);
-  }, { prospective: true, githubApiHost: 'github.enterprise.test' }));
+    expect(f.sent.filter(request => request.method === 'GET')).toEqual([]);
+  }, { ...applicationOptions, githubApiHost: 'github.enterprise.test', receiptFixture: true }));
 
   it.each([
-    ['foreign PR', 'POST', `${prospectiveBase}/issues/18/comments`],
     ['foreign repository', 'POST', 'https://api.github.com/repos/other/project/issues/17/comments'],
-    ['foreign endpoint', 'POST', `${prospectiveBase}/pulls/17/reviews`],
-    ['issue edit', 'PUT', `${prospectiveBase}/issues/17`],
-    ['workflow dispatch', 'POST', `${prospectiveBase}/actions/workflows/1/dispatches`],
-    ['wrong method', 'PUT', `${prospectiveBase}/issues/17/comments`],
-    ['wrong merge method', 'POST', `${prospectiveBase}/pulls/17/merge`],
-    ['public host alias', 'POST', `https://github.com/repos/${prospectiveRepo}/issues/17/comments`],
-    ['lookalike host', 'POST', `https://api.github.com.evil.test/repos/${prospectiveRepo}/issues/17/comments`],
-    ['query', 'POST', `${prospectiveBase}/issues/17/comments?target=18`],
-    ['empty query delimiter', 'POST', `${prospectiveBase}/issues/17/comments?`],
-    ['encoded PR', 'POST', `${prospectiveBase}/issues/%31%37/comments`],
-    ['encoded slash', 'POST', `${prospectiveBase}/issues%2f17/comments`],
-    ['encoded repo', 'POST', 'https://api.github.com/repos/nikolanovoselec/%6bomodo/issues/17/comments'],
-    ['traversal alias', 'POST', `${prospectiveBase}/pulls/../issues/17/comments`],
-    ['duplicate slash', 'POST', `${prospectiveBase}//issues/17/comments`],
-    ['trailing slash', 'POST', `${prospectiveBase}/issues/17/comments/`],
-  ])('rejects raw source %s before remote mutation', (_name, method, url) => fixture(async f => {
-    await startProspective(f);
-    expect((await f.capability.fetch(genericWire('source', { ...prospectiveComment(), method, url }))).status).toBe(403);
+    ['repository prefix', 'POST', `${applicationBase}-other/issues/17/comments`],
+    ['public host alias', 'POST', `https://github.com/repos/${applicationRepository}/issues/17/comments`],
+    ['unconfigured API', 'POST', `https://github.enterprise.test/repos/${applicationRepository}/issues/17/comments`],
+    ['lookalike host', 'POST', `https://api.github.com.evil.test/repos/${applicationRepository}/issues/17/comments`],
+    ['query', 'POST', `${applicationBase}/issues/17/comments?target=18`],
+    ['encoded repository', 'POST', 'https://api.github.com/repos/another/%73ervice/issues/17/comments'],
+    ['repository traversal', 'POST', `${applicationBase}/../../other/project/issues/17/comments`],
+    ['credentials', 'POST', `https://other:secret@api.github.com/repos/${applicationRepository}/issues/17/comments`],
+    ['fragment', 'POST', `${applicationBase}/issues/17/comments#foreign`],
+    ['unsupported PATCH', 'PATCH', `${applicationBase}/issues/17`],
+    ['unsupported DELETE', 'DELETE', `${applicationBase}/issues/17`],
+  ])('rejects generic source %s before remote mutation and keeps the valid write usable', (_name, method, url) => fixture(async f => {
+    await startApplication(f);
+    const denied = await f.capability.fetch(applicationWire(f, 'source', { ...applicationComment('refused'), method, url }));
+    expect(denied.status).toBe(403);
     expect(remoteMutations(f)).toEqual([]);
-  }, { prospective: true }));
+    expect((await f.capability.fetch(applicationWire(f, 'source', applicationComment('valid')))).status).toBe(200);
+    expect(remoteMutations(f).map(request => request.url)).toEqual([applicationComment().url]);
+  }, applicationOptions));
 
-  it.each([
-    ['comment invalid JSON', false, '{'], ['comment empty', false, '{"body":""}'],
-    ['comment blank', false, '{"body":"  "}'], ['comment nonstring', false, '{"body":42}'],
-    ['comment extra selector', false, '{"body":"judgment","pullRequest":18}'],
-    ['comment list', false, '[{"body":"judgment"}]'],
-    ['merge wrong SHA', true, JSON.stringify({ sha: 'c'.repeat(40), merge_method: 'merge' })],
-    ['merge missing SHA', true, '{"merge_method":"merge"}'],
-    ['merge missing method', true, JSON.stringify({ sha: 'b'.repeat(40) })],
-    ['merge unsupported method', true, JSON.stringify({ sha: 'b'.repeat(40), merge_method: 'squash' })],
-    ['merge extra selector', true, JSON.stringify({ sha: 'b'.repeat(40), merge_method: 'merge', pullRequest: 18 })],
-  ] as Array<[string, boolean, string]>)('rejects %s at the prospective wire boundary', (_name, merge, body) => fixture(async f => {
-    await startProspective(f);
-    expect((await f.capability.fetch(genericWire('source', { ...(merge ? prospectiveMerge() : prospectiveComment()), body }))).status).toBe(403);
+  it('keeps reads independent of the write repository and does not treat input as a repository grant', () => fixture(async f => {
+    await startApplication(f);
+    const foreign = 'https://api.github.com/repos/other/project';
+    expect((await f.capability.fetch(applicationWire(f, 'source', { operationId: 'foreign-read', url: foreign }))).status).toBe(200);
+    expect((await f.capability.fetch(applicationWire(f, 'source', {
+      ...applicationComment('foreign-write'), url: `${foreign}/issues/17/comments` }))).status).toBe(403);
     expect(remoteMutations(f)).toEqual([]);
-  }, { prospective: true }));
+    expect((await f.capability.fetch(applicationWire(f, 'source', applicationComment('configured-write')))).status).toBe(200);
+  }, { ...applicationOptions, applicationInput: { repository: 'other/project', createdAfter: '2000-01-01', actor: 'other-human',
+    OPERATOR_ADMITTED_TARGET: { repository: 'other/project', pullRequest: 18, headSha: 'c'.repeat(40) } } }));
 
-  it('does not let standard Loader outbound or schema-valid legacy effects/discovery escape the source fence', () => fixture(async f => {
-    // Typed effects have an independent current-admin gate before the prospective endpoint guard.
-    // Supply that valid external role port, not a bypass of Activity or the operation under test.
-    f.environment.KV = { get: async (key: string) => key === 'user:owner@example.test'
-      ? '{"role":"admin"}' : null } as unknown as KVNamespace;
-    await startProspective(f);
-    // Admission's canonical source read above is the positive control. Observe only subsequent remote I/O.
-    f.sent.splice(0);
-    const outbound = await f.loaderOutbound();
-    if (!outbound) throw new Error('Repository Loader outbound missing');
-    const response = await outbound.fetch(new Request(`${prospectiveBase}/issues/18/comments`, { method: 'POST',
-      headers: { 'x-codeflare-operator-operation-id': 'outbound-bypass', 'content-type': 'application/json' }, body: '{"body":"foreign"}' }));
-    expect(response.status).toBe(403);
-    const legacyWires = [
-      { path: 'github/comment', body: { operationId: 'typed-comment', target: { pullRequest: 17, headSha: f.proof.head },
-        decision: 'DO_NOT_MERGE', comment: 'Judgment' } },
-      { path: 'github/merge', body: { operationId: 'typed-merge', target: { pullRequest: 17, headSha: f.proof.head },
-        decision: 'MERGE', comment: 'Judgment' } },
-      { path: 'github/read', body: { operationId: 'typed-discovery', resource: 'open-pull-requests' } },
-    ];
-    for (const { path, body } of legacyWires) {
-      const request = genericWire(path, body);
-      // Valid legacy transport is the contract: a parse rejection is not evidence of the prospective guard.
-      expect((await parseDispatcherOperation(request.clone())).body).toEqual(body);
+  it.each(['foreign-url', 'different-path', 'extra-artifact-field', 'missing-url'])(
+    'REQ-OPERATOR-010/035: %s stored artifact cannot authorize a configured GitHub write', fault => fixture(async f => {
+      await startApplication(f);
+      // Establish that the acquisition-shaped pin permits the configured resource.
+      expect((await f.capability.fetch(applicationWire(f, 'source', applicationComment('before-corruption')))).status).toBe(200);
+      const before = [...f.sent];
+      const selected = await f.environment.OPERATOR_REGISTRY!.getByName('registry').resolveManagementExecution(f.proof.installationId);
+      if (!selected.ok) throw Error('Fixture installation unavailable');
+      const stored = JSON.parse(selected.value.manifestJson);
+      if (fault === 'foreign-url') stored.artifact.url = 'https://foreign.example.test/operator-bundle.json';
+      if (fault === 'different-path') stored.artifact.url = 'https://github.com/other-bundle.json';
+      if (fault === 'extra-artifact-field') stored.artifact.authority = 'PRIVATE_ARTIFACT_AUTHORITY';
+      if (fault === 'missing-url') delete stored.artifact.url;
+      const manifestJson = JSON.stringify(stored);
+      const plan = (await f.activity.getRuntimePlan())!;
+      if (!('selection' in plan.receipt)) throw Error('Fixture management receipt unavailable');
+      const receipt = { ...plan.receipt, selection: { ...plan.receipt.selection, manifestJson } };
+      // Corrupt both trusted copies so rejection proves manifest validation,
+      // rather than merely the independent current-versus-admitted pin fence.
+      selected.value.manifestJson = manifestJson;
+      await f.mutateEvidence(async storage => {
+        const admission = await storage.get<Record<string, unknown>>('admission');
+        await storage.put('admission', { ...admission, receipt });
+      });
+      f.restart();
+      const denied = await f.capability.fetch(applicationWire(f, 'source', applicationComment('after-corruption')));
+      expect(denied.status).toBe(403);
+      expect(await denied.json()).toMatchObject({ code: 'OPERATOR_CAPABILITY_DENIED' });
+      expect(f.sent).toEqual(before);
+      expect((await f.activity.getBrowserDetail())?.result).toBeNull();
+    }, applicationOptions));
+
+  it('requires an explicit saved write-repository selector while retaining authorized research', () => fixture(async f => {
+    await startApplication(f);
+    expect((await f.capability.fetch(applicationWire(f, 'source', applicationComment()))).status).toBe(403);
+    expect(remoteMutations(f)).toEqual([]);
+    expect((await f.capability.fetch(applicationWire(f, 'source', {
+      operationId: 'read-only', url: applicationBase }))).status).toBe(200);
+  }, { ...applicationOptions, applicationWriteRepositoriesPath: undefined }));
+
+  it('applies the same repository fence to standard outbound and refuses retired typed effects/discovery', () => fixture(async f => {
+    await startApplication(f);
+    const headers = { 'x-codeflare-operator-operation-id': 'outbound',
+      'x-codeflare-dispatcher-delivery': applicationDelivery(f), 'content-type': 'application/json' };
+    expect((await f.capability.fetch(new Request('https://api.github.com/repos/other/project/issues/17/comments', {
+      method: 'POST', headers, body: '{"body":"foreign"}' }))).status).toBe(403);
+    for (const [path, body] of [
+      ['github/comment', { operationId: 'typed-comment', target: { pullRequest: 17, headSha: 'b'.repeat(40) },
+        decision: 'DO_NOT_MERGE', comment: 'Judgment' }],
+      ['github/merge', { operationId: 'typed-merge', target: { pullRequest: 17, headSha: 'b'.repeat(40) },
+        decision: 'MERGE', comment: 'Judgment' }],
+      ['github/read', { operationId: 'typed-discovery', resource: 'open-pull-requests' }],
+    ] as const) {
+      const request = applicationWire(f, path, body);
+      await expect(parseDispatcherOperation(request.clone())).rejects.toThrow('Dispatcher route denied');
       const denied = await f.capability.fetch(request);
       expect(denied.status).toBe(403);
       expect(await denied.json()).toMatchObject({ code: 'OPERATOR_CAPABILITY_DENIED' });
       expect(f.sent).toEqual([]);
     }
-    // If legacy targeted reads remain available, they cannot adopt another PR/head.
-    expect((await f.capability.fetch(read('typed-foreign', { target: { pullRequest: 18, headSha: f.proof.head } }))).status).toBe(403);
-    expect(f.sent).toEqual([]);
-    // The installation/claim remains usable through the admitted canonical source endpoint.
-    expect((await f.capability.fetch(genericWire('source', prospectiveComment('after-legacy-denial')))).status).toBe(200);
-    const writes = remoteMutations(f);
-    expect(writes.map(request => ({ method: request.method, url: request.url }))).toEqual([
-      { method: 'POST', url: `${prospectiveBase}/issues/17/comments` },
-    ]);
-    expect(await writes[0].clone().json()).toEqual({ body: 'Exact admitted judgment' });
-  }, { prospective: true }));
+    const valid = await f.capability.fetch(new Request(applicationComment().url, {
+      method: 'POST', headers: { ...headers, 'x-codeflare-operator-operation-id': 'outbound-valid' },
+      body: applicationComment().body }));
+    expect(valid.status).toBe(201);
+    expect(await valid.json()).toMatchObject({ body: 'Original application write' });
+    expect(remoteMutations(f).map(request => request.url)).toEqual([applicationComment().url]);
+  }, applicationOptions));
 
-  it.each(([
-    ['changed head', { head: { sha: 'c'.repeat(40) } }], ['wrong PR', { number: 18 }],
-    ['changed date', { created_at: '2099-01-01T00:00:00.000Z' }],
-    ['changed base', { base: { ref: 'develop', sha: 'a'.repeat(40), repo: { id: 973175879, full_name: prospectiveRepo } } }],
-    ['foreign base repo', { base: { ref: 'main', sha: 'a'.repeat(40), repo: { id: 1, full_name: 'other/repo' } } }],
-    ['foreign authenticated repo ID', { repository: { id: 1, full_name: prospectiveRepo } }],
-    ['closed target', { state: 'closed' }], ['draft target', { draft: true }],
-  ] as Array<[string, Record<string, unknown>]>).flatMap(([name, patch]) =>
-    ['comment', 'merge'].map(phase => ({ name, patch, phase }))))('fresh authenticated preflight denies $phase for $name', ({ patch, phase }) => fixture(async f => {
-    await startProspective(f);
-    f.changeTarget(patch);
-    const response = await f.capability.fetch(genericWire('source', phase === 'merge' ? prospectiveMerge() : prospectiveComment()));
-    expect(response.ok).toBe(false);
-    expect(remoteMutations(f)).toEqual([]);
-  }, { prospective: true }));
+  it.each(['session', 'grant', 'installation', 'installation-revision', 'release', 'expiry', 'cancel', 'stale-capability'] as const)(
+    'fences warmed and reconstructed reads writes receipts and inference on current %s loss', fault => fixture(async f => {
+      await startApplication(f);
+      const read = { operationId: 'authorized-read', url: applicationBase };
+      expect((await f.capability.fetch(applicationWire(f, 'source', read))).status).toBe(200);
+      expect((await f.capability.fetch(applicationInference(f, 'authorized-inference'))).status).toBe(200);
+      if (fault === 'session') f.revokeSession();
+      if (fault === 'grant') f.revokeGrant();
+      if (fault === 'installation') f.revoke();
+      if (fault === 'installation-revision') f.changeInferenceAuthority('installation');
+      if (fault === 'release') f.changeInferenceAuthority('digest');
+      if (fault === 'expiry') f.expire();
+      if (fault === 'cancel') await f.activity.cancelDrive();
+      const capability = fault === 'stale-capability' ? f.staleCapability : f.capability;
+      const before = [...f.sent];
+      const ownerRequests = [...f.ownerPortRequests];
+      for (const reload of [false, true]) {
+        if (reload) f.restart();
+        for (const request of [applicationWire(f, 'source', applicationComment(`fenced-write-${reload}`)),
+          applicationWire(f, 'source', read), applicationWire(f, 'receipt', { operationId: read.operationId }),
+          applicationInference(f, `fenced-inference-${reload}`)]) {
+          expect((await capability.fetch(request)).status).toBe(403);
+        }
+      }
+      expect(f.sent).toEqual(before);
+      expect(f.ownerPortRequests).toEqual(ownerRequests);
+    }, applicationOptions));
 
-  it.each(['unavailable', 'incomplete'])('denies a new write when target authority reads are %s', name => fixture(async f => {
-    await startProspective(f);
-    if (name === 'unavailable') f.throwTransport(); else f.emptyResponse();
-    expect((await f.capability.fetch(genericWire('source', prospectiveComment()))).ok).toBe(false);
-    expect(remoteMutations(f)).toEqual([]);
-  }, { prospective: true }));
+  it.each(['grant', 'session', 'revision', 'cancel'] as const)(
+    'rechecks %s lost while reading the request body before forwarding', fault => fixture(async f => {
+      await startApplication(f);
+      let changed = false;
+      const request = new Request('https://operator.internal/v1/dispatcher/source', { method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-codeflare-dispatcher-delivery': applicationDelivery(f) },
+        body: new ReadableStream<Uint8Array>({ async pull(controller) {
+          changed = true;
+          if (fault === 'grant') f.revokeGrant();
+          if (fault === 'session') f.revokeSession();
+          if (fault === 'revision') f.changeInferenceAuthority('installation');
+          if (fault === 'cancel') await f.activity.cancelDrive();
+          controller.enqueue(new TextEncoder().encode(JSON.stringify(applicationComment()))); controller.close();
+        } }, { highWaterMark: 0 }) });
+      expect((await f.capability.fetch(request)).status).toBe(403);
+      expect(changed).toBe(true);
+      expect(f.sent).toEqual([]);
+    }, applicationOptions));
 
-  it.each(['grant', 'session', 'registration', 'cancel'])('rechecks %s loss after awaited preflight before forwarding', name => fixture(async f => {
-    await startProspective(f);
-    f.afterTargetRead(async () => {
-      if (name === 'grant') f.revokeGrant();
-      else if (name === 'session') f.revokeSession();
-      else if (name === 'registration') f.changeRegistration(null);
-      else await f.activity.cancelDrive();
-    });
-    expect((await f.capability.fetch(genericWire('source', prospectiveComment()))).ok).toBe(false);
-    expect(f.sent.some(request => request.method === 'GET' && request.url === `${prospectiveBase}/pulls/17`)).toBe(true);
-    expect(remoteMutations(f)).toEqual([]);
-  }, { prospective: true }));
-
-  it.each(['session', 'grant', 'installation', 'expiry', 'actor', 'bucket', 'session-id', 'session-generation', 'registration-installation', 'registration-loss', 'stale-capability'])('fences warmed and reconstructed protected work on %s loss', name => fixture(async f => {
-    await startProspective(f);
-    if (name === 'session') f.revokeSession();
-    else if (name === 'grant') f.revokeGrant();
-    else if (name === 'installation') f.revoke();
-    else if (name === 'expiry') f.expire();
-    else if (name === 'actor') f.changeRegistration({ human: { subject: 'another-current-admin', email: 'owner@example.test',
-      issuer: f.proof.actor.issuer, audiences: ['audience'], issuedAt: Math.floor(Date.now() / 1000) - 1,
-      expiresAt: Math.floor(Date.now() / 1000) + 300 } });
-    else if (name === 'bucket') f.changeRegistration({ bucket: 'other-bucket' });
-    else if (name === 'session-id') f.changeRegistration({ sessionId: 'replacement-session' });
-    else if (name === 'session-generation') f.changeRegistration({ sessionGeneration: 4 });
-    else if (name === 'registration-installation') f.changeRegistration({ installationId: 'other-installation' });
-    else if (name === 'registration-loss') f.changeRegistration(null);
-    const capability = name === 'stale-capability' ? f.staleCapability : f.capability;
-    for (const reconstruct of [false, true]) {
-      if (reconstruct) f.restart();
-      expect((await capability.fetch(genericWire('source', prospectiveComment(`fenced-write-${reconstruct}`)))).status).toBe(403);
-      expect((await capability.fetch(genericWire('source', { operationId: `fenced-read-${reconstruct}`, url: `${prospectiveBase}/pulls/17` }))).status).toBe(403);
-      expect((await capability.fetch(genericWire('inference', { operationId: `fenced-inference-${reconstruct}`,
-        input: { messages: [{ role: 'user', content: 'assess' }] } }))).status).toBe(403);
-    }
-    expect(remoteMutations(f)).toEqual([]);
-  }, { prospective: true }));
-
-  it('returns identical completed bytes after target moves/closes and reconstruction; changed semantics still conflict', () => fixture(async f => {
-    await startProspective(f);
-    const mutation = prospectiveComment();
-    const first = await f.capability.fetch(genericWire('source', mutation));
+  it('returns identical completed bytes after reconstruction and upstream change; changed arguments still conflict', () => fixture(async f => {
+    await startApplication(f);
+    const mutation = applicationComment();
+    const first = await f.capability.fetch(applicationWire(f, 'source', mutation));
     expect(first.status).toBe(200);
     const original = await first.text();
-    f.changeTarget({ state: 'closed', head: { sha: 'c'.repeat(40) } });
-    f.restart();
-    // No new-write preflight may displace a previously completed operation's original receipt.
-    f.throwTransport();
-    const retry = await f.capability.fetch(genericWire('source', mutation));
+    f.genericReadback([{ id: 999, body: 'Changed remote content', user: { id: 42 } }]);
+    f.restart(); f.throwTransport();
+    const retry = await f.capability.fetch(applicationWire(f, 'source', mutation));
     expect(retry.status).toBe(200);
     expect(await retry.text()).toBe(original);
-    expect((await f.capability.fetch(genericWire('source', { ...mutation, body: '{"body":"changed"}' }))).status).toBe(409);
+    const conflict = await f.capability.fetch(applicationWire(f, 'source', { ...mutation, body: '{"body":"changed"}' }));
+    expect(conflict.status).toBe(409);
+    expect(await conflict.json()).toMatchObject({ code: 'OPERATOR_OPERATION_CONFLICT' });
     expect(remoteMutations(f).map(request => request.url)).toEqual([mutation.url]);
-  }, { prospective: true }));
+  }, applicationOptions));
 
-  it('preserves unknown writes without replay, allows closed/moved target readback, and seals only same-generation receipt references', () => fixture(async f => {
-    await startProspective(f);
-    const mutation = prospectiveComment('unknown-admitted-comment');
+  it.each([false, true])('preserves unknown writes without replay and resolves only with same-generation receipt references (delegated=%s)', delegated => fixture(async f => {
+    await startApplication(f);
+    const mutation = applicationComment('unknown-original');
     f.loseResponse();
-    expect(await (await f.capability.fetch(genericWire('source', mutation))).json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
+    const first = await f.capability.fetch(applicationWire(f, 'source', mutation));
+    expect(first.status).toBe(409);
+    expect(await first.json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
     f.restoreTransport();
-    f.changeTarget({ state: 'closed', head: { sha: 'c'.repeat(40) } });
-    f.restart();
-    f.throwTransport();
-    expect(await (await f.capability.fetch(genericWire('source', mutation))).json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
-    expect((await f.capability.fetch(genericWire('source', { ...mutation, body: '{"body":"changed"}' }))).status).toBe(409);
+    if (delegated) f.revokeSession();
+    f.restart(); f.throwTransport();
+    const retry = await f.capability.fetch(applicationWire(f, 'source', mutation));
+    expect(retry.status).toBe(409);
+    expect(await retry.json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
+    expect((await f.capability.fetch(applicationWire(f, 'source', { ...mutation, body: '{"body":"changed"}' }))).status).toBe(409);
     f.restoreTransport();
-    const readback = { operationId: 'admitted-positive-readback', url: mutation.url };
-    const observed = await f.capability.fetch(genericWire('source', readback));
+    const readback = { operationId: 'positive-readback', url: mutation.url };
+    const observed = await f.capability.fetch(applicationWire(f, 'source', readback));
     expect(observed.status).toBe(200);
     expect(JSON.parse((await observed.json() as { body: string }).body)).toEqual([
-      { id: 91, body: 'Exact admitted judgment', user: { id: 42 } },
+      { id: 91, body: 'Original application write', user: { id: 42 } },
     ]);
-    const original = await (await f.capability.fetch(genericWire('receipt', { operationId: mutation.operationId }))).json() as { requestDigest: string };
-    const reference = await (await f.capability.fetch(genericWire('receipt', { operationId: readback.operationId }))).json() as {
-      operationId: string; requestDigest: string; responseDigest: string };
+    const originalResponse = await f.capability.fetch(applicationWire(f, 'receipt', { operationId: mutation.operationId }));
+    expect(originalResponse.status).toBe(200);
+    const original = await originalResponse.json() as { requestDigest: string };
+    const referenceResponse = await f.capability.fetch(applicationWire(f, 'receipt', { operationId: readback.operationId }));
+    expect(referenceResponse.status).toBe(200);
+    const reference = await referenceResponse.json() as { operationId: string; requestDigest: string; responseDigest: string };
     const resolution = { operationId: mutation.operationId, requestDigest: original.requestDigest,
       readbacks: [{ operationId: reference.operationId, requestDigest: reference.requestDigest, responseDigest: reference.responseDigest }] };
-    expect((await f.staleCapability.fetch(genericWire('resolve', resolution))).status).toBe(403);
-    expect(await (await f.capability.fetch(genericWire('resolve', { ...resolution,
-      readbacks: [{ ...resolution.readbacks[0], responseDigest: 'f'.repeat(64) }] }))).json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
-    expect(await (await f.capability.fetch(genericWire('resolve', resolution))).json()).toEqual({ resolved: true,
-      operationId: mutation.operationId, requestDigest: original.requestDigest });
-    expect(await (await f.capability.fetch(genericWire('source', mutation))).json()).toEqual({ resolved: true,
-      operationId: mutation.operationId, requestDigest: original.requestDigest });
+    expect((await f.staleCapability.fetch(applicationWire(f, 'resolve', resolution))).status).toBe(403);
+    const forged = await f.capability.fetch(applicationWire(f, 'resolve', { ...resolution,
+      readbacks: [{ ...resolution.readbacks[0], responseDigest: 'f'.repeat(64) }] }));
+    expect(forged.status).toBe(409);
+    expect(await forged.json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
+    const expected = { resolved: true, operationId: mutation.operationId, requestDigest: original.requestDigest };
+    for (const reload of [false, true]) {
+      if (reload) f.restart();
+      const resolved = await f.capability.fetch(applicationWire(f, 'resolve', resolution));
+      expect(resolved.status).toBe(200);
+      expect(await resolved.json()).toEqual(expected);
+      const cached = await f.capability.fetch(applicationWire(f, 'source', mutation));
+      expect(cached.status).toBe(200);
+      expect(await cached.json()).toEqual(expected);
+    }
     expect(remoteMutations(f).map(request => request.url)).toEqual([mutation.url]);
-  }, { prospective: true }));
+  }, { ...applicationOptions, delegated, recovery: true }));
+});
+
+describe('REQ-OPERATOR-047 AC3/7 /048 AC5 /061 AC3: sealed application delegation', () => {
+  it('retains protected source receipts and writes after external logout and reconstruction', () => fixture(async f => {
+    await startApplication(f); f.revokeSession();
+    for (const reload of [false, true]) {
+      if (reload) f.restart();
+      const operationId = `delegated-source-${reload}`;
+      expect((await f.capability.fetch(applicationWire(f, 'source', { operationId, url: applicationBase }))).status).toBe(200);
+      expect((await f.capability.fetch(applicationWire(f, 'receipt', { operationId }))).status).toBe(200);
+      expect((await f.capability.fetch(applicationWire(f, 'source', applicationComment(`delegated-write-${reload}`)))).status).toBe(200);
+    }
+    expect(remoteMutations(f).map(request => request.url)).toEqual([applicationComment().url, applicationComment().url]);
+    // Installed-SDK inference after logout is covered by dispatcher-r2-services.test.ts
+    // (delegated normal SDK services), not the legacy live-owner inference bridge.
+  }, { ...applicationOptions, delegated: true }));
+
+  it.each(['role', 'grant', 'installation', 'revision', 'expiry', 'cancel'] as const)(
+    'fresh current %s loss fences delegated work after logout, including cached receipts', fault => fixture(async f => {
+      await startApplication(f);
+      const read = { operationId: 'delegated-original', url: applicationBase };
+      expect((await f.capability.fetch(applicationWire(f, 'source', read))).status).toBe(200);
+      expect((await f.capability.fetch(applicationInference(f, 'delegated-live-inference'))).status).toBe(200);
+      f.revokeSession();
+      if (fault === 'role') f.environment.KV = { get: async () => '{"role":"user"}' } as unknown as KVNamespace;
+      if (fault === 'grant') f.revokeGrant();
+      if (fault === 'installation') f.revoke();
+      if (fault === 'revision') f.changeInferenceAuthority('installation');
+      if (fault === 'expiry') f.expire();
+      if (fault === 'cancel') await f.activity.cancelDrive();
+      const before = [...f.sent];
+      const ownerRequests = [...f.ownerPortRequests];
+      for (const reload of [false, true]) {
+        if (reload) f.restart();
+        for (const request of [applicationWire(f, 'source', applicationComment()), applicationWire(f, 'source', read),
+          applicationWire(f, 'receipt', { operationId: read.operationId }), applicationInference(f, 'delegated-inference')]) {
+          expect((await f.capability.fetch(request)).status).toBe(403);
+        }
+      }
+      expect(f.sent).toEqual(before);
+      expect(f.ownerPortRequests).toEqual(ownerRequests);
+    }, { ...applicationOptions, delegated: true }));
+
+  it.each(['role', 'grant', 'cancel'] as const)(
+    'current local %s loss during an awaited delegated request prevents forwarding', fault => fixture(async f => {
+      await startApplication(f); f.revokeSession();
+      const request = new Request('https://operator.internal/v1/dispatcher/source', { method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-codeflare-dispatcher-delivery': applicationDelivery(f) },
+        body: new ReadableStream<Uint8Array>({ async pull(controller) {
+          if (fault === 'role') f.environment.KV = { get: async () => '{"role":"user"}' } as unknown as KVNamespace;
+          if (fault === 'grant') f.revokeGrant();
+          if (fault === 'cancel') await f.activity.cancelDrive();
+          controller.enqueue(new TextEncoder().encode(JSON.stringify(applicationComment()))); controller.close();
+        } }, { highWaterMark: 0 }) });
+      expect((await f.capability.fetch(request)).status).toBe(403);
+      expect(f.sent).toEqual([]);
+    }, { ...applicationOptions, delegated: true }));
+
+  it.each([{ version: 2, routingGroups: [] }, { version: 1 }, null, { version: 1, routingGroups: 'all' }])(
+    'malformed sealed delegation denies rather than falling back to live authority: %j', delegation => fixture(async f => {
+      await startApplication(f);
+      await replaceApplicationDelegation(f, delegation);
+      for (const reload of [false, true]) {
+        if (reload) f.restart();
+        expect((await f.capability.fetch(applicationWire(f, 'source', applicationComment()))).status).toBe(403);
+      }
+      expect(remoteMutations(f)).toEqual([]);
+    }, { ...applicationOptions, delegated: true }));
+
+  it('client delegation flags cannot upgrade live-bound work', () => fixture(async f => {
+    await startApplication(f); f.revokeSession();
+    expect((await f.capability.fetch(applicationWire(f, 'source', { ...applicationComment(),
+      delegated: true, delegation: { version: 1, routingGroups: [] } }))).status).toBe(403);
+    expect(remoteMutations(f)).toEqual([]);
+  }, applicationOptions));
+});
+
+describe('REQ-OPERATOR-047 AC7 /061 AC3: current delegated routing restrictions', () => {
+  it('intersects sealed routing labels with current configured groups in current order; never adds a new membership', () => fixture(async f => {
+    await replaceApplicationDelegation(f, { version: 1, routingGroups: ['old', 'second', 'first'] });
+    let configured = 'first,second,new';
+    f.environment.KV = { get: async (key: string) => key === 'user:owner@example.test' ? '{"role":"admin"}' : configured } as unknown as KVNamespace;
+    const plan = (await f.activity.getRuntimePlan())!;
+    f.revokeSession();
+    expect(await dispatcherRoutingGroups(await authorizeDispatcherPlan(plan, f.environment), f.environment)).toEqual(['first', 'second']);
+    configured = 'new';
+    expect(await dispatcherRoutingGroups(await authorizeDispatcherPlan(plan, f.environment), f.environment)).toEqual([]);
+  }, { ...applicationOptions, delegated: true }));
 });
