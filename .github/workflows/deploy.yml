@@ -483,8 +483,8 @@ jobs:
 
           # Override max_instances if MAX_INSTANCES variable is set
           if [ -n "$MAX_INSTANCES_OVERRIDE" ]; then
-            if ! echo "$MAX_INSTANCES_OVERRIDE" | grep -qE '^[1-9][0-9]*$'; then
-              echo "::error::MAX_INSTANCES must be a positive integer, got: $MAX_INSTANCES_OVERRIDE"
+            if [[ ! $MAX_INSTANCES_OVERRIDE =~ ^[1-9][0-9]*$ ]]; then
+              echo '::error::MAX_INSTANCES must be a positive integer'
               exit 1
             fi
             MAX_INSTANCES="$MAX_INSTANCES_OVERRIDE"

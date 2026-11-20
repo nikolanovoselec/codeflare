@@ -290,11 +290,11 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. Per-deployment resource profiles (CPU in vCPU, memory in GiB, disk in GB) are low 0.25/1/4, default and saas 1/3/6, and high 2/6/12. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
-2. All tiers default to 10 concurrent instances. <!-- @manual -->
-3. The concurrent-instance cap is overridable per deployment and must be a positive integer. <!-- @manual -->
+1. Per-deployment resource profiles (CPU in vCPU, memory in GiB, disk in GB) are low 0.25/1/4, default and saas 1/3/6, and high 2/6/12. <!-- @impl: .github/workflows/deploy.yml::Apply container resource tier --> <!-- @manual -->
+2. All tiers default to 10 concurrent instances. <!-- @impl: .github/workflows/deploy.yml::Apply container resource tier --> <!-- @manual -->
+3. The concurrent-instance cap is overridable per deployment and must be a positive integer. <!-- @impl: .github/workflows/deploy.yml::Apply container resource tier --> <!-- @manual -->
 4. Per-user concurrent session limits are configurable per deployment, with separate defaults for regular users (3) and admins (10). <!-- @impl: src/lib/constants.ts::getMaxSessions --> <!-- @manual -->
-5. Tier and instance configuration is applied at deploy time, not at runtime. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/workflow-deploy-max-instances.test.js (REQ-OPS-012: Per-environment container concurrency limit) -->
+5. Tier and instance configuration is applied at deploy time, not at runtime. <!-- @impl: .github/workflows/deploy.yml::Apply container resource tier --> <!-- @manual -->
 
 **Constraints:**
 
@@ -306,7 +306,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
 
-**Verification:** Automated: [workflow-deploy-max-instances.test.js](../../host/__tests__/workflow-deploy-max-instances.test.js); Manual: [Allocation and image binding acceptance](../../documentation/lanes/deployment.md#allocation-and-image-binding-acceptance)
+**Verification:** Manual: [Allocation and image binding acceptance](../../documentation/lanes/deployment.md#allocation-and-image-binding-acceptance)
 
 **Status:** Implemented
 
@@ -455,10 +455,10 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. Operators can override the default concurrent-instance cap per deployment. <!-- @test: host/__tests__/workflow-deploy-max-instances.test.js (REQ-OPS-012: Per-environment container concurrency limit) --> <!-- @manual -->
-2. The override is independent of resource tier. <!-- @test: host/__tests__/workflow-deploy-max-instances.test.js (REQ-OPS-012: Per-environment container concurrency limit) --> <!-- @manual -->
-3. The override must be a positive integer. <!-- @test: host/__tests__/workflow-deploy-max-instances.test.js (REQ-OPS-012 AC3: MAX_INSTANCES must be a positive integer (enforced with regex validation)) --> <!-- @manual -->
-4. The override is applied at deploy time as part of the deployment configuration. <!-- @test: host/__tests__/workflow-deploy-max-instances.test.js (REQ-OPS-012 AC4: MAX_INSTANCES is applied during deploy via wrangler.toml patching) --> <!-- @manual -->
+1. Operators can override the default concurrent-instance cap per deployment. <!-- @impl: .github/workflows/deploy.yml::Apply container resource tier --> <!-- @manual -->
+2. The override is independent of resource tier. <!-- @impl: .github/workflows/deploy.yml::Apply container resource tier --> <!-- @manual -->
+3. The entire override value must be one positive integer. Invalid values fail before the configuration is changed. <!-- @impl: .github/workflows/deploy.yml::Apply container resource tier --> <!-- @test: host/__tests__/workflow-deploy-max-instances.test.js (REQ-OPS-012 AC3: rejects invalid whole values without changing the config) --> <!-- @manual -->
+4. The override is applied at deploy time as part of the deployment configuration. <!-- @impl: .github/workflows/deploy.yml::Apply container resource tier --> <!-- @test: host/__tests__/workflow-deploy-max-instances.test.js (keeps the default cap and applies a valid override across resource profiles) --> <!-- @manual -->
 
 **Constraints:** None.
 
@@ -466,7 +466,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
 
-**Verification:** Manual: [Allocation and image binding acceptance](../../documentation/lanes/deployment.md#allocation-and-image-binding-acceptance)
+**Verification:** Automated: [workflow-deploy-max-instances.test.js](../../host/__tests__/workflow-deploy-max-instances.test.js); Manual: [Allocation and image binding acceptance](../../documentation/lanes/deployment.md#allocation-and-image-binding-acceptance)
 
 **Status:** Implemented
 
@@ -534,8 +534,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Acceptance Criteria:**
 
 1. Deployment binds the selected image: a freshly pushed registry tag or the verified digest of a reused image. The deploy step does not rebuild it. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
-2. Container resource sizing is applied per the configured tier (low, default/saas, or high). <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
-3. All tiers default to 10 concurrent instances; the cap is overridable per deployment. <!-- @manual -->
+2. Container resource sizing is applied per the configured tier (low, default/saas, or high). <!-- @impl: .github/workflows/deploy.yml::Apply container resource tier --> <!-- @manual -->
+3. All tiers default to 10 concurrent instances; the cap is overridable per deployment. <!-- @impl: .github/workflows/deploy.yml::Apply container resource tier --> <!-- @manual -->
 4. Cache bust bypasses registry reuse and supplies the current commit SHA to agent installation layers. A changed token invalidates affected layers while leaving unrelated BuildKit caching available; rerunning the same token does not guarantee a fresh layer. <!-- @impl: .github/workflows/deploy.yml::cache_bust --> <!-- @impl: .github/workflows/container-image.yml::Write cache buster (force fresh npm install layers) --> <!-- @impl: Dockerfile::.cache-bust --> <!-- @manual -->
 5. Source-controlled container configuration disables SSH and contains no authorized key. <!-- @impl: wrangler.toml::containers.ssh --> <!-- @test: host/__tests__/container-ssh-config.test.js (keeps SSH disabled when the repository secret is absent) -->
 6. The image workflow captures the content-addressed tag for downstream binding. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual -->

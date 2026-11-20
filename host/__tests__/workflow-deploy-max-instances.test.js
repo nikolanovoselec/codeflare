@@ -1,90 +1,50 @@
-// Structural audit of .github/workflows/deploy.yml for REQ-OPS-012
-// (Per-environment container concurrency limit).
-//
-// The deploy workflow patches wrangler.toml at deploy time with the resolved
-// max_instances value. These tests verify that the patching logic, the
-// MAX_INSTANCES override path, the positive-integer validation, and the
-// RESSOURCE_TIER independence are all present in the workflow file.
-//
-// Gut-check: removing the MAX_INSTANCES_OVERRIDE block or the positive-integer
-// regex from deploy.yml causes the relevant test to fail immediately.
-import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { describe, it } from 'node:test';
+import { parse } from 'yaml';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const repoRoot = resolve(__dirname, '../..');
-const workflow = readFileSync(resolve(repoRoot, '.github/workflows/deploy.yml'), 'utf8');
+const workflow = parse(readFileSync(new URL('../../.github/workflows/deploy.yml', import.meta.url), 'utf8'));
+const allocation = workflow.jobs.deploy.steps.find(step => step.name === 'Apply container resource tier');
+const original = 'name = "fixture"\n[[containers]]\nclass_name = "container"\nmax_instances = 3\ninstance_type = "basic"\n';
 
-// ---------------------------------------------------------------------------
-// REQ-OPS-012: Per-environment container concurrency limit
-// ---------------------------------------------------------------------------
+function applyAllocation(tier, override) {
+  const directory = mkdtempSync(join(tmpdir(), 'codeflare-allocation-'));
+  const config = join(directory, 'wrangler.toml');
+  try {
+    writeFileSync(config, original);
+    const result = spawnSync('bash', ['-e', '-c', allocation.run], {
+      cwd: directory, encoding: 'utf8',
+      env: { PATH: process.env.PATH, TIER: tier, MAX_INSTANCES_OVERRIDE: override },
+    });
+    if (result.error) throw result.error;
+    return { status: result.status, output: result.stdout + result.stderr, config: readFileSync(config, 'utf8') };
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
 
 describe('REQ-OPS-012: Per-environment container concurrency limit', () => {
-  it('REQ-OPS-012 AC1: MAX_INSTANCES GitHub Actions variable overrides the default 10 max instances', () => {
-    assert.ok(
-      workflow.includes('MAX_INSTANCES_OVERRIDE: ${{ vars.MAX_INSTANCES }}'),
-      'deploy.yml must expose vars.MAX_INSTANCES as MAX_INSTANCES_OVERRIDE env var'
-    );
-    assert.ok(
-      workflow.includes('MAX_INSTANCES=10'),
-      'deploy.yml must default MAX_INSTANCES to 10 when the override is not set'
-    );
-    // The override must be applied when the variable is non-empty
-    assert.ok(
-      workflow.includes('MAX_INSTANCES="$MAX_INSTANCES_OVERRIDE"'),
-      'deploy.yml must apply MAX_INSTANCES_OVERRIDE when it is set'
-    );
+  it('keeps the default cap and applies a valid override across resource profiles', () => {
+    for (const [tier, profile] of [['low', 'instance_type = "basic"'], ['default', 'memory_mib = 3072'],
+      ['saas', 'memory_mib = 3072'], ['high', 'memory_mib = 6144']]) {
+      for (const [input, expected] of [['', 10], ['24', 24]]) {
+        const result = applyAllocation(tier, input);
+        assert.equal(result.status, 0, result.output);
+        assert.match(result.config, new RegExp(`^max_instances = ${expected}$`, 'm'));
+        assert.ok(result.config.includes(profile));
+      }
+    }
   });
 
-  it('REQ-OPS-012 AC2: MAX_INSTANCES override is independent of RESSOURCE_TIER', () => {
-    // The override block must come AFTER the TIER case statement, not inside any specific branch
-    const tierCaseIdx = workflow.indexOf('case "$TIER"');
-    const esacIdx = workflow.indexOf('esac', tierCaseIdx);
-    const overrideIdx = workflow.indexOf('MAX_INSTANCES_OVERRIDE');
-
-    assert.ok(tierCaseIdx !== -1, 'deploy.yml must contain a case "$TIER" block');
-    assert.ok(esacIdx !== -1, 'deploy.yml case block must end with esac');
-    assert.ok(overrideIdx !== -1, 'deploy.yml must contain MAX_INSTANCES_OVERRIDE');
-
-    // The override application (MAX_INSTANCES="$MAX_INSTANCES_OVERRIDE") must be
-    // outside the tier case block - i.e. after the esac keyword
-    const applyIdx = workflow.indexOf('MAX_INSTANCES="$MAX_INSTANCES_OVERRIDE"');
-    assert.ok(
-      applyIdx > esacIdx,
-      'deploy.yml MAX_INSTANCES override must be applied after the RESSOURCE_TIER case block (independent of tier)'
-    );
-  });
-
-  it('REQ-OPS-012 AC3: MAX_INSTANCES must be a positive integer (enforced with regex validation)', () => {
-    // The workflow must validate that the override value matches [1-9][0-9]*
-    assert.ok(
-      workflow.includes("grep -qE '^[1-9][0-9]*$'"),
-      "deploy.yml must validate MAX_INSTANCES with regex '^[1-9][0-9]*$' (positive integer)"
-    );
-    assert.ok(
-      workflow.includes('MAX_INSTANCES must be a positive integer'),
-      'deploy.yml must emit an error message when MAX_INSTANCES is not a positive integer'
-    );
-  });
-
-  it('REQ-OPS-012 AC4: MAX_INSTANCES is applied during deploy via wrangler.toml patching', () => {
-    // The awk script that patches max_instances in wrangler.toml must reference
-    // the resolved max_instances variable
-    assert.ok(
-      workflow.includes('max_instances = ') || workflow.includes('max_instances ='),
-      'deploy.yml must patch the max_instances field in wrangler.toml'
-    );
-    assert.ok(
-      workflow.includes('wrangler.toml'),
-      'deploy.yml must reference wrangler.toml as the target for max_instances patching'
-    );
-    // The awk script must write max_instances with the resolved value
-    assert.ok(
-      workflow.includes('-v max_instances=') || workflow.includes('max_instances = " max_instances'),
-      'deploy.yml awk script must substitute the resolved max_instances value into wrangler.toml'
-    );
+  it('REQ-OPS-012 AC3: rejects invalid whole values without changing the config', () => {
+    for (const value of ['0', '-1', '1.5', ' 4', '4 ', '04', '+4', '4\n5', '4\n', 'bad\n4']) {
+      const result = applyAllocation('default', value);
+      assert.equal(result.status, 1, JSON.stringify(value));
+      assert.match(result.output, /MAX_INSTANCES must be a positive integer/);
+      assert.equal(result.config, original);
+    }
   });
 });
