@@ -74,6 +74,28 @@
   opacity: 1;
 }
 
+.floating-voice-diagnostic {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 64px);
+  left: var(--space-3);
+  right: var(--space-3);
+  max-height: 32dvh;
+  overflow: auto;
+  z-index: 51;
+  padding: var(--space-2);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-elevated);
+  color: var(--color-text-primary);
+}
+
+.floating-voice-diagnostic pre {
+  margin: 0;
+  font-size: var(--text-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* Desktop mic button — same style as mobile floating buttons */
 .floating-mic-desktop {
   position: fixed;

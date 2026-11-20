@@ -21,6 +21,7 @@ interface SpeechRecognitionInstance {
   continuous: boolean;
   interimResults: boolean;
   maxAlternatives: number;
+  onstart: (() => void) | null;
   onresult: ((event: SpeechRecognitionResultEvent) => void) | null;
   onend: (() => void) | null;
   onerror: ((event: { error: string }) => void) | null;
@@ -43,6 +44,11 @@ let onTextCallback: ((text: string) => void) | null = null;
 /** True if the browser supports the Web Speech API. */
 export function isSpeechSupported(): boolean {
   return !!SR;
+}
+
+/** The temporary trace is enabled only on the Enterprise Integration app. */
+export function isVoiceDiagnosticOrigin(origin: string): boolean {
+  return origin === 'https://enterprise.codeflare.ch';
 }
 
 /** True while speech recognition is actively listening. */
@@ -68,11 +74,21 @@ export async function getMicPermissionState(): Promise<string> {
  * Must be called from a user gesture (click/tap) for permission prompt.
  * Returns true if recognition started, false if unsupported or already listening.
  */
-export function startListening(onText: (text: string) => void, onEnd?: () => void): boolean {
-  if (!SR || listening) return false;
+export function startListening(onText: (text: string) => void, onEnd?: () => void, trace?: (event: string) => void): boolean {
+  if (!SR || listening) {
+    trace?.(SR ? 'recognition already listening' : 'recognition unsupported');
+    return false;
+  }
   onTextCallback = onText;
 
-  recognition = new SR();
+  try {
+    recognition = new SR();
+  } catch (error) {
+    if (!trace) throw error;
+    trace('recognition constructor threw');
+    return false;
+  }
+  if (trace) recognition.onstart = () => trace('recognition start event');
   recognition.lang = 'en-US';
   recognition.continuous = false;
   recognition.interimResults = false;
@@ -88,20 +104,30 @@ export function startListening(onText: (text: string) => void, onEnd?: () => voi
   };
 
   recognition.onend = () => {
+    trace?.('recognition end event');
     listening = false;
     onEnd?.();
   };
 
-  recognition.onerror = () => {
+  recognition.onerror = (event) => {
+    if (trace) {
+      const code = ['aborted', 'audio-capture', 'bad-grammar', 'language-not-supported', 'network', 'no-speech', 'not-allowed', 'phrases-not-supported', 'service-not-allowed']
+        .includes(event.error) ? event.error : 'other';
+      trace(`recognition error: ${code}`);
+    }
     listening = false;
     onEnd?.();
   };
 
   try {
     recognition.start();
+    trace?.('recognition.start returned');
     listening = true;
     return true;
-  } catch {
+  } catch (error) {
+    const name = error instanceof Error ? error.name : '';
+    const code = ['InvalidStateError', 'NotAllowedError', 'NotSupportedError', 'SecurityError'].includes(name) ? name : 'other';
+    trace?.(`recognition.start threw: ${code}`);
     listening = false;
     return false;
   }

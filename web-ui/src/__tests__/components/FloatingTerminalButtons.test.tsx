@@ -7,7 +7,7 @@ import { terminalWorkspaceStore } from '../../stores/terminal-workspace';
 import { sendTerminalKey } from '../../lib/touch-gestures';
 import { setIframeInput } from '../../lib/xterm-internals';
 import { beginClipboardWrite, retainFailedClipboardWrite } from '../../lib/osc52';
-import { startListening, stopListening } from '../../lib/speech-input';
+import { getMicPermissionState, startListening, stopListening } from '../../lib/speech-input';
 
 // Mocks for mobile detection
 const mobileMock = vi.hoisted(() => ({
@@ -70,12 +70,14 @@ vi.mock('../../stores/session', () => ({
 const speechMock = vi.hoisted(() => ({
   supported: true as boolean,
   listening: false,
+  trace: false,
   permissionState: 'prompt' as 'granted' | 'denied' | 'prompt' | 'unknown',
 }));
 
 vi.mock('../../lib/speech-input', () => ({
   isSpeechSupported: vi.fn(() => speechMock.supported),
   isListening: vi.fn(() => speechMock.listening),
+  isVoiceDiagnosticOrigin: vi.fn(() => speechMock.trace),
   startListening: vi.fn(() => true),
   stopListening: vi.fn(),
   getMicPermissionState: vi.fn(async () => speechMock.permissionState),
@@ -97,6 +99,7 @@ describe('FloatingTerminalButtons / REQ-MOB-006 (sticky Ctrl button)', () => {
     settingsMock.clipboardAccess = false;
     speechMock.supported = true;
     speechMock.listening = false;
+    speechMock.trace = false;
     speechMock.permissionState = 'prompt';
   });
 
@@ -212,6 +215,33 @@ describe('FloatingTerminalButtons / REQ-MOB-006 (sticky Ctrl button)', () => {
       expect(screen.getByRole('button', { name: 'TAB' })).toBeVisible();
       expect(screen.queryByRole('button', { name: /voice input/i, hidden: true })).not.toBeInTheDocument();
       expect(screen.queryByTitle('Voice Input')).not.toBeInTheDocument();
+    });
+
+    it('displays pending and failed voice startup without collecting terminal content', async () => {
+      speechMock.trace = true;
+      let finishPermission!: (state: string) => void;
+      vi.mocked(getMicPermissionState).mockImplementationOnce(() => new Promise(resolve => { finishPermission = resolve; }));
+      vi.mocked(startListening).mockImplementationOnce((onText, _onEnd, trace) => {
+        onText('private dictated text');
+        trace?.('recognition error: not-allowed');
+        return false;
+      });
+      const term = { input: vi.fn(), textarea: document.createElement('textarea') };
+      (sessionStore as any).activeSessionId = 'test-session';
+      vi.mocked(terminalStore.getTerminal).mockReturnValue(term as any);
+      render(() => <FloatingTerminalButtons showTerminal={true} />);
+      screen.getByTitle('Voice Input').click();
+      const status = screen.getByRole('status', { name: 'Voice diagnostic' });
+      expect(status).toHaveTextContent('permission query: pending');
+      finishPermission('granted');
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(status).toHaveTextContent('permission query: granted');
+      expect(status).toHaveTextContent('recognition error: not-allowed');
+      expect(status).not.toHaveTextContent('private dictated text');
+      expect(term.input).toHaveBeenCalledWith('private dictated text', false);
+      screen.getByRole('button', { name: 'Dismiss voice diagnostic' }).click();
+      expect(screen.queryByRole('status', { name: 'Voice diagnostic' })).not.toBeInTheDocument();
     });
 
     it('REQ-MOB-013 AC1: dismisses the mobile keyboard before speech may issue a first prompt when permission state is unknown', async () => {

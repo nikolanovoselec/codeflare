@@ -11,7 +11,7 @@ import { markScrollIntent } from '../lib/terminal-scroll-intent';
 import { loadSettings } from '../lib/settings';
 import { BUTTON_LABEL_VISIBLE_DURATION_MS } from '../lib/constants';
 import { getIframeInput, scrollBufferLines } from '../lib/xterm-internals';
-import { isSpeechSupported, isListening, startListening, stopListening, getMicPermissionState } from '../lib/speech-input';
+import { isSpeechSupported, isListening, startListening, stopListening, getMicPermissionState, isVoiceDiagnosticOrigin } from '../lib/speech-input';
 import { resolveTerminalMode } from '../types';
 import { takeFailedClipboardWrite } from '../lib/osc52';
 import '../styles/floating-terminal-buttons.css';
@@ -25,6 +25,12 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
   const [showLabels, setShowLabels] = createSignal(loadSettings().showButtonLabels !== false);
   const [ctrlActive, setCtrlActive] = createSignal(false);
   const [voiceActive, setVoiceActive] = createSignal(false);
+  const [voiceTrace, setVoiceTrace] = createSignal<string[]>([]);
+  let voiceAttempt = 0;
+  const dismissVoiceTrace = () => {
+    voiceAttempt++;
+    setVoiceTrace([]);
+  };
 
   // Show labels for 3 seconds each time the floating buttons appear
   createEffect(() => {
@@ -60,6 +66,24 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
   };
 
   const getActiveTerm = () => getActiveTerminalTarget()?.term ?? null;
+
+  function beginVoiceTrace(event: MouseEvent) {
+    if (!isVoiceDiagnosticOrigin(window.location.origin)) return;
+    const attempt = ++voiceAttempt;
+    const documentPolicy = document as Document & {
+      permissionsPolicy?: { allowsFeature(name: string): boolean };
+      featurePolicy?: { allowsFeature(name: string): boolean };
+    };
+    const microphone = (documentPolicy.permissionsPolicy ?? documentPolicy.featurePolicy)?.allowsFeature('microphone');
+    const standalone = window.matchMedia?.('(display-mode: standalone)').matches ?? 'unknown';
+    setVoiceTrace([
+      `tap: ${event.isTrusted ? 'trusted' : 'synthetic'}; standalone: ${standalone}`,
+      `document microphone policy: ${microphone ?? 'unknown'}; secure: ${window.isSecureContext}`,
+    ]);
+    return (line: string) => {
+      if (voiceAttempt === attempt) setVoiceTrace(lines => [...lines.slice(-15), line]);
+    };
+  }
 
   // Stop speech recognition on component unmount
   onCleanup(() => { if (isListening()) stopListening(); });
@@ -210,10 +234,12 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
               class={`floating-terminal-btn ${voiceActive() ? 'floating-terminal-btn--active' : ''}`}
               tabIndex={-1}
               onPointerDown={preventFocusSteal}
-              onClick={async () => {
+              onClick={async (event) => {
+                const trace = beginVoiceTrace(event);
                 const term = getActiveTerm();
-                if (!term) return;
+                if (!term) { trace?.('terminal: missing'); return; }
                 if (isListening()) {
+                  trace?.('recognition already listening; stopping');
                   stopListening();
                   setVoiceActive(false);
                   refocusTerminal();
@@ -221,15 +247,21 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
                 }
                 // On first use, browser shows a permission prompt. On mobile it
                 // appears behind the keyboard. Dismiss keyboard so user sees it.
+                trace?.(`permission query: pending; activation: ${navigator.userActivation?.isActive ?? 'unknown'}`);
                 const permState = await getMicPermissionState();
+                trace?.(`permission query: ${permState}; activation: ${navigator.userActivation?.isActive ?? 'unknown'}`);
                 if (permState === 'prompt' || permState === 'unknown') {
                   const iframeInput = getIframeInput(term);
+                  trace?.(iframeInput ? 'dismissing input keyboard' : 'iframe input not found');
                   if (iframeInput) iframeInput.blur();
                 }
+                trace?.(`starting recognition; activation: ${navigator.userActivation?.isActive ?? 'unknown'}`);
                 const started = startListening(
                   (text) => term.input(text, false),
                   () => setVoiceActive(false),
+                  trace,
                 );
+                trace?.(`start accepted: ${started}`);
                 setVoiceActive(started);
               }}
               title="Voice Input"
@@ -323,6 +355,13 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
           </button>
         </div>
       </div>
+    </Show>
+
+    <Show when={props.showTerminal && voiceTrace().length > 0}>
+      <aside class="floating-voice-diagnostic">
+        <button type="button" aria-label="Dismiss voice diagnostic" onClick={dismissVoiceTrace}>Dismiss</button>
+        <pre role="status" aria-label="Voice diagnostic">{voiceTrace().join('\n')}</pre>
+      </aside>
     </Show>
 
     {/* Desktop mic button — bottom-right corner, same style as mobile buttons */}

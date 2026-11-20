@@ -149,6 +149,22 @@ describe('speech-input / REQ-MOB-007 (voice input via Web Speech API)', () => {
       expect(onEnd).toHaveBeenCalled();
     });
 
+    it('limits the temporary trace to the Enterprise Integration origin', () => {
+      expect(mod.isVoiceDiagnosticOrigin('https://enterprise.codeflare.ch')).toBe(true);
+      expect(mod.isVoiceDiagnosticOrigin('https://codeflare.swisspost.dev')).toBe(false);
+      expect(mod.isVoiceDiagnosticOrigin('https://codeflare.ch')).toBe(false);
+    });
+
+    it('reports sanitized recognition failures', () => {
+      const trace = vi.fn();
+      expect(mod.startListening(vi.fn(), undefined, trace)).toBe(true);
+      mockRecognition.onerror!({ error: 'not-allowed', message: 'private detail' });
+      expect(trace).toHaveBeenCalledWith('recognition error: not-allowed');
+      mockRecognition.onerror!({ error: 'unexpected private detail' });
+      expect(trace).toHaveBeenLastCalledWith('recognition error: other');
+      expect(JSON.stringify(trace.mock.calls)).not.toContain('private detail');
+    });
+
     // REQ-MOB-013 AC1: detect microphone permission state so the caller can
     // blur the input BEFORE recognition.start() runs (mobile browsers stack
     // the permission prompt under the virtual keyboard otherwise).
