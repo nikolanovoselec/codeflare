@@ -2,7 +2,7 @@ import { createStore, produce } from 'solid-js/store';
 import * as storageApi from '../api/storage';
 import { getStartupStatus, getUser } from '../api/client';
 import { shouldUseMultipart, splitIntoParts, fileToBase64 } from '../lib/file-upload';
-import { STORAGE_BROWSE_RETRY_DELAY_MS, UPLOAD_DISMISS_DELAY_MS } from '../lib/constants';
+import { DASHBOARD_LIST_FRESHNESS_MS, STORAGE_BROWSE_RETRY_DELAY_MS, UPLOAD_DISMISS_DELAY_MS } from '../lib/constants';
 import type { FileWithPath } from '../lib/file-upload';
 
 interface StorageObject {
@@ -55,6 +55,8 @@ interface StorageState {
   loadMoreError: string | null;
   paginationStarted: boolean;
   browseGeneration: number;
+  lastBrowseAttemptAt: number | null;
+  hasListing: boolean;
   error: string | null;
   uploads: UploadItem[];
   selectedKeys: string[];
@@ -89,6 +91,8 @@ const initialState: StorageState = {
   loadMoreError: null,
   paginationStarted: false,
   browseGeneration: 0,
+  lastBrowseAttemptAt: null,
+  hasListing: false,
   error: null,
   uploads: [],
   selectedKeys: [],
@@ -232,6 +236,14 @@ export const storageStore = {
     return parts.map((_, i) => parts.slice(0, i + 1).join('/') + '/');
   },
 
+  async refreshListingOnReturn() {
+    if (state.loading || state.backgroundRefreshing || state.paginationStarted
+      || state.selectedKeys.length || state.selectedPrefixes.length
+      || state.uploads.some(upload => upload.status === 'pending' || upload.status === 'uploading')
+      || (state.lastBrowseAttemptAt !== null && Date.now() - state.lastBrowseAttemptAt < DASHBOARD_LIST_FRESHNESS_MS)) return;
+    await storageStore.browse(undefined, { silent: state.hasListing });
+  },
+
   async browse(prefix?: string, options?: { silent?: boolean }) {
     const browsePrefix = prefix ?? state.currentPrefix;
     const silent = options?.silent ?? false;
@@ -239,7 +251,9 @@ export const storageStore = {
 
     setState(produce((s) => {
       s.browseGeneration = generation;
+      if (s.currentPrefix !== browsePrefix) s.hasListing = false;
       s.currentPrefix = browsePrefix;
+      s.lastBrowseAttemptAt = Date.now();
       s.loading = !silent;
       s.backgroundRefreshing = silent;
       s.loadingMore = false;
@@ -252,6 +266,7 @@ export const storageStore = {
     const applyResult = (result: Awaited<ReturnType<typeof storageApi.browseStorage>>) => {
       if (!isCurrentBrowse()) return;
       setState(produce((s) => {
+        s.hasListing = true;
         s.objects = result.objects.filter((object) => object.key !== browsePrefix);
         s.prefixes = result.prefixes;
         s.isTruncated = result.isTruncated;
@@ -265,6 +280,10 @@ export const storageStore = {
       applyResult(await storageApi.browseStorage(browsePrefix));
     } catch {
       if (!isCurrentBrowse()) return;
+      if (silent) {
+        setState('backgroundRefreshing', false);
+        return;
+      }
       // Auto-retry once after delay (handles post-setup bucket creation / secret propagation)
       try {
         await new Promise((resolve) => setTimeout(resolve, STORAGE_BROWSE_RETRY_DELAY_MS));
@@ -335,7 +354,6 @@ export const storageStore = {
   },
 
   async navigateTo(prefix: string) {
-    setState('currentPrefix', prefix);
     setState('selectedKeys', []);
     setState('selectedPrefixes', []);
     await storageStore.browse(prefix);

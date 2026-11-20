@@ -196,6 +196,44 @@ describe('Storage Store', () => {
     });
   });
 
+  it('REQ-STOR-018 AC7: reuses fresh folder rows and quietly refreshes a stale return', async () => {
+    const row = (name: string) => ({ key: `Notes/${name}`, size: 1, lastModified: '2026-11-20T12:00:00Z' });
+    const page = (name: string) => ({ objects: [row(name)], prefixes: [], isTruncated: false });
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000);
+    try {
+      mockBrowseStorage.mockResolvedValueOnce(page('old.md')).mockResolvedValueOnce(page('fresh.md'));
+      await storageStore.navigateTo('Notes/');
+      now.mockReturnValue(300_999);
+      await storageStore.refreshListingOnReturn();
+      expect(storageStore.objects).toEqual([row('old.md')]);
+      now.mockReturnValue(301_000);
+      const refresh = storageStore.refreshListingOnReturn();
+      expect(storageStore.loading).toBe(false);
+      expect(storageStore.objects).toEqual([row('old.md')]);
+      await refresh;
+      expect(storageStore.currentPrefix).toBe('Notes/');
+      expect(storageStore.objects).toEqual([row('fresh.md')]);
+    } finally { now.mockRestore(); }
+  });
+
+  it('REQ-STOR-018 AC7: keeps accumulated pages on return but manual reload replaces them', async () => {
+    const first = { key: 'first.md', size: 2, lastModified: '2026-11-20T12:00:00Z' };
+    const next = { ...first, key: 'next.md' };
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000);
+    try {
+      mockBrowseStorage.mockResolvedValueOnce({ objects: [first], prefixes: [], isTruncated: true, nextContinuationToken: 'next' })
+        .mockResolvedValueOnce({ objects: [next], prefixes: [], isTruncated: false });
+      await storageStore.refreshListingOnReturn();
+      await storageStore.loadMore();
+      now.mockReturnValue(301_000);
+      mockBrowseStorage.mockResolvedValueOnce({ objects: [], prefixes: [], isTruncated: false });
+      await storageStore.refreshListingOnReturn();
+      expect(storageStore.objects).toEqual([first, next]);
+      await storageStore.refresh();
+      expect(storageStore.objects).toEqual([]);
+    } finally { now.mockRestore(); }
+  });
+
   describe('loadMore()', () => {
     const pageOne = {
       objects: [{ key: 'Notes/a.md', size: 1, lastModified: '2026-07-14T00:00:00Z' }],

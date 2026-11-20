@@ -35,7 +35,7 @@ const GitHubPanel: Component<GitHubPanelProps> = (props) => {
   // revealed (and focused) on tap/click, hidden again on a second tap. Only the
   // on-screen-keyboard scroll-into-view is touch-specific.
   const touch = isTouchDevice();
-  const [searchOpen, setSearchOpen] = createSignal(false);
+  const [searchOpen, setSearchOpen] = createSignal(Boolean(githubStore.searchQuery));
   let searchInput: HTMLInputElement | undefined;
   const toggleSearch = () => {
     const next = !searchOpen();

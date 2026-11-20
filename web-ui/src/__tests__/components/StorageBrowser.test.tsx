@@ -9,7 +9,6 @@ let mockCurrentPrefix = '';
 let mockLoading = false;
 let mockLoadingMore = false;
 let mockLoadMoreError: string | null = null;
-let mockPaginationStarted = false;
 let mockError: string | null = null;
 let mockUploads: any[] = [];
 let mockSelectedKeys: string[] = [];
@@ -28,6 +27,7 @@ let mockSyncing = false;
 let mockDownloadsDisabled = false;
 
 const mockBrowse = vi.fn();
+const mockRefreshListingOnReturn = vi.fn();
 const mockNavigateTo = vi.fn();
 const mockNavigateUp = vi.fn();
 const mockRefresh = vi.fn();
@@ -71,7 +71,6 @@ vi.mock('../../stores/storage', () => ({
     get loading() { return mockLoading; },
     get loadingMore() { return mockLoadingMore; },
     get loadMoreError() { return mockLoadMoreError; },
-    get paginationStarted() { return mockPaginationStarted; },
     get error() { return mockError; },
     get uploads() { return mockUploads; },
     get selectedKeys() { return mockSelectedKeys; },
@@ -84,6 +83,7 @@ vi.mock('../../stores/storage', () => ({
     showDownloadsNotice: (...args: any[]) => mockShowDownloadsNotice(...args),
     refreshDownloadsDisabled: (...args: any[]) => mockRefreshDownloadsDisabled(...args),
     browse: (...args: any[]) => mockBrowse(...args),
+    refreshListingOnReturn: mockRefreshListingOnReturn,
     syncNow: (...args: any[]) => mockSyncNow(...args),
     navigateTo: (...args: any[]) => mockNavigateTo(...args),
     navigateUp: (...args: any[]) => mockNavigateUp(...args),
@@ -186,7 +186,6 @@ describe('StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-shee
     mockLoading = false;
     mockLoadingMore = false;
     mockLoadMoreError = null;
-    mockPaginationStarted = false;
     mockError = null;
     mockUploads = [];
     mockSelectedKeys = [];
@@ -211,9 +210,9 @@ describe('StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-shee
       expect(screen.getByTestId('storage-browser')).toBeInTheDocument();
     });
 
-    it('calls storageStore.browse on mount with empty prefix (bucket root)', () => {
+    it('checks file list freshness when the panel returns', () => {
       render(() => <StorageBrowser />);
-      expect(mockBrowse).toHaveBeenCalledWith('');
+      expect(mockRefreshListingOnReturn).toHaveBeenCalled();
     });
 
     it('does not render a close button', () => {
@@ -660,35 +659,13 @@ describe('StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-shee
       expect(mockRetryLoadMore).toHaveBeenCalledTimes(1);
     });
 
-    it('REQ-STOR-018 AC7: suppresses listing refresh after pagination starts while stats continue', async () => {
+    it('REQ-STOR-018 AC7: keeps periodic stats without periodically reloading the file list', async () => {
       vi.useFakeTimers();
       render(() => <StorageBrowser />);
-      mockRefresh.mockClear();
-      mockFetchStats.mockClear();
-
-      await vi.advanceTimersByTimeAsync(30_000);
-      expect(mockRefresh).toHaveBeenCalledWith({ silent: true });
-      expect(mockFetchStats).toHaveBeenCalledTimes(1);
-
-      mockPaginationStarted = true;
-      mockRefresh.mockClear();
-      mockFetchStats.mockClear();
-      await vi.advanceTimersByTimeAsync(30_000);
+      await vi.advanceTimersByTimeAsync(300_000);
+      expect(mockFetchStats).toHaveBeenCalled();
+      expect(mockBrowse).not.toHaveBeenCalled();
       expect(mockRefresh).not.toHaveBeenCalled();
-      expect(mockFetchStats).toHaveBeenCalledTimes(1);
-    });
-
-    it('keeps listing replacement suppressed after a continuation error', async () => {
-      vi.useFakeTimers();
-      mockPaginationStarted = true;
-      mockLoadMoreError = 'page unavailable';
-      render(() => <StorageBrowser />);
-      mockRefresh.mockClear();
-      mockFetchStats.mockClear();
-
-      await vi.advanceTimersByTimeAsync(30_000);
-      expect(mockRefresh).not.toHaveBeenCalled();
-      expect(mockFetchStats).toHaveBeenCalledTimes(1);
     });
 
     it('preserves the existing idle suppression while initial browse is loading', async () => {
@@ -837,8 +814,7 @@ describe('StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-shee
       render(() => <StorageBrowser />);
       const syncBtn = screen.getByTestId('storage-sync-btn');
       fireEvent.click(syncBtn);
-      // 1 on mount + 1 on click
-      expect(mockBrowse).toHaveBeenCalledTimes(2);
+      expect(mockBrowse).toHaveBeenCalledTimes(1);
     });
 
     it('refresh button works the same with or without active session', () => {
@@ -846,7 +822,7 @@ describe('StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-shee
       render(() => <StorageBrowser />);
       const syncBtn = screen.getByTestId('storage-sync-btn');
       fireEvent.click(syncBtn);
-      expect(mockBrowse).toHaveBeenCalledTimes(2);
+      expect(mockBrowse).toHaveBeenCalledTimes(1);
     });
   });
 

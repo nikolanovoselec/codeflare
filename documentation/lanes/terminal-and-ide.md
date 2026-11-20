@@ -74,6 +74,8 @@ For [REQ-GITHUB-002](../../sdd/spec/github.md#req-github-002-github-panel-and-re
 
 Repository search is disclosed on demand at every breakpoint. Opening the magnify toggle reveals and synchronously focuses the input; touch also scrolls it above the keyboard. Closing hides the input and clears the filter, so hidden search cannot silently narrow the list. <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::toggleSearch --> [REQ-GITHUB-011](../../sdd/spec/github.md#req-github-011-mobile-search-disclosure-with-autofocus). Pixel allocation and protected-deployment viewport checks retain their manual qualifiers; source descriptions do not establish device acceptance.
 
+On Dashboard return, the GitHub panel reuses its repository list and search. An unpaginated list may refresh quietly after five minutes; accumulated pages wait for explicit reload. A changed connection discards the prior account's repositories. This policy applies only to file and repository listings, not session status, readiness, or quota polling. <!-- @impl: web-ui/src/stores/github.ts::loadStatus -->
+
 ### GitHub workspace manual acceptance
 
 Reuse the protected Integration viewport checks in [REQ-GITHUB-012](../../sdd/spec/github.md#req-github-012-responsive-github-and-storage-panel-allocation) and the [Integration checklist](deployment.md#integration-acceptance-checklist), with an authorized connected test account. Record browser/device/version and viewport; these are methods, not executed results.

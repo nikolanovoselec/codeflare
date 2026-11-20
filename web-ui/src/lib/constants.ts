@@ -7,6 +7,9 @@
 // Polling Intervals
 // =============================================================================
 
+/** Minimum time between automatic Dashboard list refresh attempts. No timer drives these lists. */
+export const DASHBOARD_LIST_FRESHNESS_MS = 5 * 60_000;
+
 /** Interval for polling startup status during session initialization (ms) */
 export const STARTUP_POLL_INTERVAL_MS = 1500;
 
