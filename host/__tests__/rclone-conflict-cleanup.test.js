@@ -222,7 +222,10 @@ pgrep() { return 1; }
 `;
 
 it('REQ-STOR-054 AC6: startup and baseline share their existing transfer deadline with cleanup', t => {
-  for (const [name, policy] of [['initial_sync_from_r2', 'SYNC_TIMEOUT=120'], ['establish_bisync_baseline', 'BISYNC_TIMEOUT=600']]) {
+  for (const [name, policy, expectedExit] of [
+    ['initial_sync_from_r2', 'SYNC_TIMEOUT=120', 0],
+    ['establish_bisync_baseline', 'BISYNC_TIMEOUT=600', 124],
+  ]) {
     const f = fixture(t);
     f.put(f.local, 'budget.conflict1'); f.put(f.remote, 'budget.conflict1');
     const fn = extractFunction(name).replace(policy, policy.replace(/=\d+/, '=1'));
@@ -234,7 +237,8 @@ timeout() {
 ${fn}
 ${name}
 `, { DELETE_STALL: '1' });
-    assert.equal(r.status, 0, r.stderr); // Existing startup timeout policy continues startup.
+    // Initial restore continues startup; an exhausted baseline must report timeout to its caller.
+    assert.equal(r.status, expectedExit, r.stderr);
     const log = readFileSync(join(f.root, 'runtime/sync/sync.log'), 'utf8');
     assert.match(log, /sync deadline exhausted/);
     assert.equal(existsSync(join(f.local, 'budget.conflict1')), false);

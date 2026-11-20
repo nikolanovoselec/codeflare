@@ -270,6 +270,7 @@ vi.mock('../lib/push-sender', () => ({
 
 // Import AFTER mocks are set up
 import { container } from '../container/index';
+import { onStart, type LifecycleHost } from '../container/container-lifecycle';
 import {
   drainFinalSync,
   FINAL_SYNC_BUDGET_MS,
@@ -658,6 +659,9 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
   });
 
   describe('onStart', () => {
+    const completeClaimedStart = () => onStart(containerInstance as unknown as LifecycleHost,
+      { ownerKey: 'test-bucket', sessionId: 'testsession123456', generation: 0 });
+
     beforeEach(() => {
       mockKV._set('session:test-bucket:testsession123456', {
         id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'starting',
@@ -666,7 +670,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     });
 
     it('should call schedule(60, "collectMetrics") on start', async () => {
-      await containerInstance.onStart();
+      await completeClaimedStart();
 
       // Check that schedule was called with correct args
       expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
@@ -674,7 +678,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     });
 
     it('preserves generation ownership and idle baseline on a duplicate onStart', async () => {
-      await containerInstance.onStart();
+      await completeClaimedStart();
       const startedAt = await storage().get<number>('containerStartedAt');
       const recovery = {
         attemptId: 'preserve-this-recovery', startedAt: Date.now(), lastAttemptAt: Date.now(),
@@ -711,7 +715,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     });
 
     it('rejects a stale onStart replay without clearing shutdown ownership', async () => {
-      await containerInstance.onStart();
+      await completeClaimedStart();
       await storage().put('lifecycleGeneration', 99);
       await storage().put('shutdownRequested', Date.now());
 
@@ -742,7 +746,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
         status: 'resetting',
       });
 
-      await containerInstance.onStart();
+      await completeClaimedStart();
 
       expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
       testState.scheduleCalls = [];
@@ -761,7 +765,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
         await storage().put(TRANSPORT_RECOVERY_KEY, { status: 'resetting' });
         testState.storageDeleteFailures.add(failedKey);
 
-        await expect(containerInstance.onStart()).rejects.toThrow(`storage delete failed: ${failedKey}`);
+        await expect(completeClaimedStart()).rejects.toThrow(`storage delete failed: ${failedKey}`);
 
         expect(testState.scheduleCalls).toEqual([]);
         expect(await storage().get(TRANSPORT_FAILURE_STREAK_KEY)).toBe(2);

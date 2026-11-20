@@ -572,7 +572,7 @@ describe('Container Lifecycle Routes', () => {
       expect(body.code).toBe('CONTAINER_ERROR');
     });
 
-    it('restarts container when bucket name changed', async () => {
+    it('REQ-SESSION-008: Start leaves a conflicting running bucket untouched', async () => {
       const fetch = createLifecycleApp('new-bucket');
       mockKV._set('session:new-bucket:abcdef1234567890abcdef12', {
         id: 'abcdef1234567890abcdef12',
@@ -584,20 +584,19 @@ describe('Container Lifecycle Routes', () => {
       });
       container().getState.mockResolvedValue({ status: 'running' });
 
-      // First fetch: getBucketName returns different bucket
-      // Second fetch: setBucketName succeeds
+      let running = true;
+      container().destroy.mockImplementation(async () => { running = false; });
       container().fetch
-        .mockResolvedValueOnce(
-          new Response(JSON.stringify({ bucketName: 'old-bucket' }), { status: 200 })
-        )
-        .mockResolvedValueOnce(new Response('', { status: 200 })); // setBucketName
+        .mockResolvedValueOnce(Response.json({ bucketName: 'old-bucket' }))
+        .mockResolvedValueOnce(Response.json({ error: 'Session configuration no longer authorized' }, { status: 412 }));
 
-      const res = await fetch('/container/start?sessionId=abcdef1234567890abcdef12', {
-        method: 'POST',
-      });
+      const res = await fetch('/container/start?sessionId=abcdef1234567890abcdef12', { method: 'POST' });
 
-      expect(res.status).toBe(200);
-      expect(container().destroy).toHaveBeenCalled();
+      expect(res.status).toBe(500);
+      expect(await res.json()).toMatchObject({ code: 'CONTAINER_ERROR' });
+      expect(running).toBe(true);
+      expect(await mockKV.get('session:new-bucket:abcdef1234567890abcdef12', 'json'))
+        .toMatchObject({ status: 'running', userId: 'new-bucket' });
     });
 
     it('throws ContainerError when setBucketName fails (Q11)', async () => {

@@ -1867,7 +1867,7 @@ describe('Session Store', () => {
       { generation: 8, lifecycle: 'starting' as const },
       { generation: 7, lifecycle: 'stopping' as const },
     ])('REQ-SESSION-018 AC4: a late Ready cannot override accepted $lifecycle authority', async ({ generation, lifecycle }) => {
-      const editor = { id: 'session-1', name: 'Editor', workspace: 'vscode' as const, editorReady: false,
+      const editor = { id: `late-ready-${lifecycle}`, name: 'Editor', workspace: 'vscode' as const, editorReady: false,
         createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString() };
       mockGetSessions.mockResolvedValue([{ ...editor, status: 'stopped', lifecycle: 'stopped', generation: 6, revision: 1 }]);
       mockGetBatchSessionStatus.mockResolvedValue({ statuses: {} });
@@ -1880,12 +1880,14 @@ describe('Session Store', () => {
       const start = sessionStore.startSession(editor.id);
       const replacement = { ...editor, generation, lifecycle, status: lifecycle, revision: 4 };
       mockGetSessions.mockResolvedValue([replacement]);
+      const readEditor = () => sessionStore.sessions.find(session => session.id === editor.id);
       await sessionStore.loadSessions();
-      expect(sessionStore.sessions[0]).toMatchObject({ generation, lifecycle });
+      expect(readEditor()).toMatchObject({ generation, lifecycle });
       const staleReady = expect(start).rejects.toThrow('superseded');
       complete(7);
       await staleReady;
-      expect(sessionStore.sessions[0]).toMatchObject({ generation, lifecycle, editorReady: false });
+      await vi.waitFor(() => expect(sessionStore.loading).toBe(false));
+      expect(readEditor()).toMatchObject({ generation, lifecycle, editorReady: false });
       expect(sessionStore.isSessionInitializing(editor.id)).toBe(false);
       expect(sessionStore.getTerminalsForSession(editor.id)).toBeNull();
     });

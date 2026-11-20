@@ -306,7 +306,7 @@ describe('REQ-SESSION-008: startup configuration uses the admitted run and bucke
       method: 'POST', body: JSON.stringify({ bucketName: ref.bucket, sessionId: ref.sessionId, workspaceSyncEnabled: true }),
     }));
     expect(response.status).toBe(412);
-    expect(instance.envVars.SYNC_MODE).toBe('none');
+    expect(instance.envVars?.SYNC_MODE).toBe('none');
     expect(f.running()).toBe(true);
     expect(await f.read()).toMatchObject({ lifecycleState: 'running', lifecycleGeneration: 8 });
   });

@@ -22,9 +22,9 @@ const PROJECTION_ALL = 'v1:claude-code,codex,copilot,antigravity,opencode,pi';
 const testState = vi.hoisted(() => ({
   kv: null as ReturnType<typeof createMockKV> | null,
   container: null as {
-    fetch: ReturnType<typeof vi.fn>;
+    fetch: ReturnType<typeof vi.fn<(request: Request) => Promise<Response>>>;
     destroy: ReturnType<typeof vi.fn>;
-    getState: ReturnType<typeof vi.fn>;
+    getState: ReturnType<typeof vi.fn<() => Promise<{ status: string }>>>;
     startSession: ReturnType<typeof vi.fn>;
   } | null,
   createBucketResult: { success: true, created: false } as { success: boolean; error?: string; created?: boolean },
@@ -126,11 +126,11 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
 
   function makeContainer() {
     return {
-      fetch: vi.fn().mockResolvedValue(
+      fetch: vi.fn<(request: Request) => Promise<Response>>().mockResolvedValue(
         new Response(JSON.stringify({ bucketName: null }), { status: 200 })
       ),
       destroy: vi.fn().mockResolvedValue(undefined),
-      getState: vi.fn().mockResolvedValue({ status: 'stopped' }),
+      getState: vi.fn<() => Promise<{ status: string }>>().mockResolvedValue({ status: 'stopped' }),
       startSession: vi.fn().mockResolvedValue(undefined),
     };
   }
