@@ -83,7 +83,7 @@ vi.mock('../../stores/storage', () => ({
     showDownloadsNotice: (...args: any[]) => mockShowDownloadsNotice(...args),
     refreshDownloadsDisabled: (...args: any[]) => mockRefreshDownloadsDisabled(...args),
     browse: (...args: any[]) => mockBrowse(...args),
-    refreshListingOnReturn: mockRefreshListingOnReturn,
+    refreshListingOnReturn: () => mockRefreshListingOnReturn(),
     syncNow: (...args: any[]) => mockSyncNow(...args),
     navigateTo: (...args: any[]) => mockNavigateTo(...args),
     navigateUp: (...args: any[]) => mockNavigateUp(...args),
