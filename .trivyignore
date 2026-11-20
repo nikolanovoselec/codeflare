@@ -6,9 +6,12 @@
 # which is absent from the checksum-verified pip wheel. Managed CPython's
 # installed setuptools is 84.2.0 (already patched), not the vendored version.
 # This CVE-level suppression is IMAGE-WIDE, not path- or version-scoped.
-# Recheck by 2026-11-20; remove if an affected full setuptools copy appears
+# Rechecked 2026-11-20 after Integration scans 44698059792 / 44698059810:
+# pip 26.3 is still the latest stable release, and its verified wheel still
+# lacks package_index.py. The scanner supplied no package path for this finding.
+# Recheck by 2026-11-27; remove if an affected full setuptools copy appears
 # or pip no longer reports this non-affected subset as setuptools 70.3.0.
-CVE-2025-47273 exp:2026-11-20
+CVE-2025-47273 exp:2026-11-27
 #
 # Owner-authorized release exceptions, 2026-10-26; expire 2026-11-02.
 # Deploy scans 40247521604 / 40247521566 found these vendored npm DoS issues
