@@ -457,7 +457,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
             <Show when={cloudflareRetryMessage(props.cloudflareReturn)}>
               {(message) => <p class="settings-hint type-hint" role="alert">{message()}</p>}
             </Show>
-            <DeployKeysSection />
+            <DeployKeysSection accountSelectionReturn={props.cloudflareReturn === 'select-account'} />
           </AccordionSection>
 
           <AccordionSection

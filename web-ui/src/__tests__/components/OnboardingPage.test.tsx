@@ -13,6 +13,7 @@ vi.mock('../../api/client', () => ({
 // Connect now flows through the OAuth status/disconnect APIs (via createConnections).
 const mockGetGithubStatus = vi.fn();
 const mockGetCloudflareStatus = vi.fn();
+const mockDisconnectCloudflare = vi.fn().mockResolvedValue({ success: true });
 vi.mock('../../api/github', () => ({
   getGithubStatus: () => mockGetGithubStatus(),
   disconnectGithub: vi.fn().mockResolvedValue({ success: true }),
@@ -20,7 +21,7 @@ vi.mock('../../api/github', () => ({
 }));
 vi.mock('../../api/cloudflare', () => ({
   getCloudflareStatus: () => mockGetCloudflareStatus(),
-  disconnectCloudflare: vi.fn().mockResolvedValue({ success: true }),
+  disconnectCloudflare: () => mockDisconnectCloudflare(),
   selectCloudflareAccount: vi.fn().mockResolvedValue({ success: true, accountId: 'a' }),
   cloudflareConnectUrl: () => '/api/cloudflare/connect',
 }));
@@ -80,6 +81,7 @@ describe('OnboardingPage / REQ-AUTH-015 (onboarding-mode public landing page)', 
     expect(await cloudflare.findByTestId('cloudflare-connected-badge')).toBeVisible();
     expect(cloudflare.getByRole('button', { name: 'Disconnect' })).toBeEnabled();
     expect(cloudflare.queryByRole('button', { name: 'Re-authorize' })).not.toBeInTheDocument();
+    expect(cloudflare.queryByRole('button', { name: 'Retry authorization' })).not.toBeInTheDocument();
   });
 
   it.each([
@@ -92,6 +94,50 @@ describe('OnboardingPage / REQ-AUTH-015 (onboarding-mode public landing page)', 
     expect(cloudflare.getByRole('alert')).toHaveTextContent(message);
     expect(cloudflare.getByRole('button', { name: 'Connect Cloudflare' })).toBeEnabled();
     expect(cloudflare.queryByRole('button', { name: 'Re-authorize' })).not.toBeInTheDocument();
+  });
+
+  it.each(['error', 'no-accounts'])('retries OAuth %s with a saved Guided Setup grant only after explicit tier selection', async (outcome) => {
+    mockLocation.search = `?cloudflare=${outcome}`;
+    mockGetCloudflareStatus.mockResolvedValue({ configured: true, connected: true, accountId: 'saved' });
+    render(() => <OnboardingPage />);
+    const cloudflare = within(await screen.findByTestId('onboarding-cloudflare-section'));
+    const retry = () => cloudflare.getByRole('button', { name: 'Retry authorization' });
+    expect(cloudflare.getByRole('alert')).toBeVisible();
+    fireEvent.click(retry());
+    const proceed = () => cloudflare.getByRole('button', { name: 'Continue to Cloudflare' });
+    expect(proceed()).toBeDisabled();
+    for (const name of ['Minimal', 'Recommended', 'Advanced']) {
+      expect(cloudflare.getByRole('radio', { name })).not.toBeChecked();
+    }
+    expect(mockLocation.href).toBe('');
+    fireEvent.click(cloudflare.getByRole('radio', { name: 'Advanced' }));
+    fireEvent.click(cloudflare.getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(retry()).toHaveFocus());
+    expect(cloudflare.getByText('saved', { exact: true })).toBeVisible();
+    expect(cloudflare.queryByRole('button', { name: 'Re-authorize' })).not.toBeInTheDocument();
+    expect(mockLocation.href).toBe('');
+    expect(mockDisconnectCloudflare).not.toHaveBeenCalled();
+
+    fireEvent.click(retry());
+    expect(proceed()).toBeDisabled();
+    fireEvent.click(cloudflare.getByRole('radio', { name: 'Minimal' }));
+    fireEvent.click(proceed());
+    expect(mockLocation.href).toBe('/api/cloudflare/connect?tier=minimal');
+    expect(mockDisconnectCloudflare).not.toHaveBeenCalled();
+  });
+
+  it('reloads missing Cloudflare accounts in Guided Setup without restarting OAuth', async () => {
+    mockLocation.search = '?cloudflare=select-account';
+    mockGetCloudflareStatus.mockResolvedValueOnce({ configured: true, connected: true })
+      .mockResolvedValueOnce({ configured: true, connected: true, accounts: [{ id: 'a', name: 'Account A' }] });
+    render(() => <OnboardingPage />);
+    const cloudflare = within(await screen.findByTestId('onboarding-cloudflare-section'));
+    expect(cloudflare.queryByRole('combobox')).not.toBeInTheDocument();
+    fireEvent.click(cloudflare.getByRole('button', { name: 'Retry loading accounts' }));
+    expect(within(await cloudflare.findByRole('combobox')).getByRole('option', { name: 'Account A' })).toHaveValue('a');
+    expect(cloudflare.queryByRole('button', { name: 'Retry loading accounts' })).not.toBeInTheDocument();
+    expect(mockLocation.href).toBe('');
+    expect(mockDisconnectCloudflare).not.toHaveBeenCalled();
   });
 
   it('shows the existing Cloudflare account picker on a Guided Setup account-selection return', async () => {

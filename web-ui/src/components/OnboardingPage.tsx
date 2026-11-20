@@ -260,6 +260,9 @@ const OnboardingPage: Component = () => {
               selectedAccountId={conn.cloudflare().accountId}
               onSelectAccount={(id) => { void conn.selectCloudflareAccount(id); }}
               tierOptions={{ tiers: CLOUDFLARE_TIERS, selected: cfTier(), onSelect: (v) => setCfTier(v) }}
+              retryAuthorization={cloudflareReturn === 'error' || cloudflareReturn === 'no-accounts'}
+              onRetryAccounts={cloudflareReturn === 'select-account'
+                ? () => conn.refreshCloudflare({ retryAccounts: true }) : undefined}
             />
           </div>
 

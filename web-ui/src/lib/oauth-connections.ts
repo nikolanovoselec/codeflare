@@ -26,7 +26,7 @@ export interface Connections {
   cloudflare: Accessor<CloudflareConnectionState>;
   refresh: () => Promise<void>;
   refreshGithub: () => Promise<void>;
-  refreshCloudflare: () => Promise<void>;
+  refreshCloudflare: (options?: { retryAccounts?: boolean }) => Promise<void>;
   disconnectGithub: () => Promise<void>;
   disconnectCloudflare: () => Promise<void>;
   selectCloudflareAccount: (accountId: string) => Promise<void>;
@@ -52,9 +52,11 @@ export function createConnections(): Connections {
     }
   }
 
-  async function refreshCloudflare(): Promise<void> {
+  async function refreshCloudflare({ retryAccounts = false } = {}): Promise<void> {
+    const previous = cloudflare();
     try {
       const s = await getCloudflareStatus();
+      if (retryAccounts && cloudflare() !== previous) return;
       setCloudflare({
         availability: s.configured === true ? 'available' : s.configured === false ? 'unconfigured' : 'error',
         ...(s.connected
@@ -62,7 +64,8 @@ export function createConnections(): Connections {
           : { status: 'disconnected' as const }),
       });
     } catch {
-      setCloudflare({ status: 'disconnected', availability: 'error' });
+      // A failed picker reload does not invalidate the last confirmed connection.
+      if (!retryAccounts) setCloudflare({ status: 'disconnected', availability: 'error' });
     }
   }
 

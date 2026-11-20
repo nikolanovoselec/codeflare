@@ -328,6 +328,34 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     expect(window.location.search).toBe('');
   });
 
+  it('REQ-AGENT-239 AC6: Integrations retries loading missing Cloudflare accounts without restarting OAuth', async () => {
+    navigationRendering.realSettingsPanel = true;
+    appAuth.getUser.mockResolvedValue({ email: 'owner@example.com', role: 'user', authenticated: true });
+    let finishRead!: (value: { configured: true; connected: true; accounts: { id: string; name: string }[] }) => void;
+    cloudflare.getStatus.mockResolvedValueOnce({ configured: true, connected: true })
+      .mockRejectedValueOnce(new Error('status unavailable'))
+      .mockImplementationOnce(() => new Promise(resolve => { finishRead = resolve; }));
+    window.history.replaceState(null, '', '/app/?cloudflare=select-account');
+
+    render(() => <App />);
+    const panel = within(await screen.findByRole('dialog', { name: 'Settings' }));
+    const integrations = within(panel.getByRole('region', { name: 'Integrations' }));
+    const retry = await integrations.findByRole('button', { name: 'Retry loading accounts' });
+    fireEvent.click(retry);
+    await waitFor(() => expect(retry).toBeEnabled());
+    expect(integrations.getByText('Connected', { exact: true })).toBeVisible();
+    expect(integrations.queryByRole('combobox')).not.toBeInTheDocument();
+    fireEvent.click(retry);
+    expect(retry).toBeDisabled();
+    finishRead({ configured: true, connected: true, accounts: [{ id: 'a', name: 'Account A' }] });
+    const picker = await integrations.findByRole('combobox', { name: 'Cloudflare account' });
+    expect(within(picker).getByRole('option', { name: 'Account A' })).toHaveValue('a');
+    expect(integrations.queryByRole('button', { name: 'Retry loading accounts' })).not.toBeInTheDocument();
+    expect(window.location.pathname).toBe('/app/');
+    expect(window.location.search).toBe('');
+    expect(cloudflare.selectAccount).not.toHaveBeenCalled();
+  });
+
   it('REQ-AGENT-239 AC4: a failed Cloudflare return offers retry in Integrations without disconnecting', async () => {
     navigationRendering.realSettingsPanel = true;
     appAuth.getUser.mockResolvedValue({ email: 'owner@example.com', role: 'user', authenticated: true });

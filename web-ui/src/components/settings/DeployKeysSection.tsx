@@ -8,7 +8,7 @@ import { CLOUDFLARE_TIERS, type ScopeTier } from '../../lib/token-scopes';
  * Settings Integrations reuses the compact OAuth card and shared connection hook.
  * A configured client makes Cloudflare available; the user still chooses Connect.
  */
-const DeployKeysSection: Component = () => {
+const DeployKeysSection: Component<{ accountSelectionReturn?: boolean }> = (props) => {
   const conn = createConnections();
   const [cfTier, setCfTier] = createSignal<ScopeTier>('recommended');
 
@@ -43,6 +43,8 @@ const DeployKeysSection: Component = () => {
           selectedAccountId={conn.cloudflare().accountId}
           onSelectAccount={(id) => { void conn.selectCloudflareAccount(id); }}
           tierOptions={{ tiers: CLOUDFLARE_TIERS, selected: cfTier(), onSelect: (v) => setCfTier(v) }}
+          onRetryAccounts={props.accountSelectionReturn
+            ? () => conn.refreshCloudflare({ retryAccounts: true }) : undefined}
         />
 
         <div class="setting-row setting-row--column-gap">

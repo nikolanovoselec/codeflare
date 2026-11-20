@@ -89,6 +89,30 @@
   background: var(--color-accent);
 }
 
+.oauth-connect-recovery {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+}
+
+.oauth-connect-recovery > p {
+  margin: 0;
+}
+
+.oauth-connect-recovery > .settings-connection-actions {
+  width: 100%;
+}
+
+.oauth-connect-recovery .oauth-connect-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.oauth-connect-recovery .oauth-connect-tier-option:has(:focus-visible) {
+  outline: 2px solid var(--color-text-primary);
+  outline-offset: -2px;
+}
+
 /* Tier selector for the Settings / Guided Setup connect cards: a segmented
    Minimal│Recommended│Advanced toggle + a subtitle describing the selected
    level. Mirrors the production scope-tier control so the two surfaces read

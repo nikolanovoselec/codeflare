@@ -41,12 +41,16 @@ interface OAuthConnectCardProps {
   identityLabel?: string;
   /** Non-secret connection selector shown before connecting (for multi-portal cards). */
   description?: string;
-  /** Scope-tier selector for Connect and, in Settings, Re-authorize. */
+  /** Scope-tier selector for Connect, Re-authorize and authorization retry. */
   tierOptions?: OAuthTierOptions;
+  /** Guided Setup only: offer a non-destructive retry after an OAuth error. */
+  retryAuthorization?: boolean;
   /** Account picker shown in the connected state (Cloudflare multi-account). */
   accounts?: OAuthAccountOption[];
   selectedAccountId?: string;
   onSelectAccount?: (id: string) => void;
+  /** Retry reading account choices after an account-selection return. */
+  onRetryAccounts?: () => Promise<void>;
 }
 
 /**
@@ -59,6 +63,10 @@ interface OAuthConnectCardProps {
 const OAuthConnectCard: Component<OAuthConnectCardProps> = (props) => {
   const [reauthorizing, setReauthorizing] = createSignal(false);
   const [reauthorizationTier, setReauthorizationTier] = createSignal<ScopeTier>();
+  const [reloadingAccounts, setReloadingAccounts] = createSignal(false);
+  const primaryActionClass = () => props.compact
+    ? 'settings-action settings-action--accent' : 'oauth-connect-btn oauth-connect-btn--connect';
+  const connectedActionsClass = () => props.compact ? 'settings-connection-actions' : 'oauth-connect-body';
   let reauthorizeButton: HTMLButtonElement | undefined;
   let reauthorizePrompt: HTMLParagraphElement | undefined;
 
@@ -99,6 +107,7 @@ const OAuthConnectCard: Component<OAuthConnectCardProps> = (props) => {
       class="oauth-connect-disconnect"
       aria-label={props.description ? `Disconnect ${props.name} ${props.description}` : undefined}
       data-testid={`${props.provider}-disconnect-btn`}
+      disabled={reloadingAccounts()}
       onClick={() => props.onDisconnect()}
     >
       Disconnect
@@ -139,39 +148,50 @@ const OAuthConnectCard: Component<OAuthConnectCardProps> = (props) => {
             </Show>
           </div>
         </Show>
+        <Show when={!props.selectedAccountId && !props.accounts?.length ? props.onRetryAccounts : undefined}>
+          {(retry) => <div class="oauth-connect-recovery">
+            <p class="oauth-connect-identity" role="status">{props.name} accounts could not be loaded.</p>
+            <button type="button" class={primaryActionClass()} disabled={reloadingAccounts()}
+              onClick={async () => {
+                if (reloadingAccounts()) return;
+                setReloadingAccounts(true);
+                try { await retry()(); } finally { setReloadingAccounts(false); }
+              }}>Retry loading accounts</button>
+          </div>}
+        </Show>
       </Show>
 
-      <Show when={props.status === 'connected' && props.compact}>
+      <Show when={props.status === 'connected' && (props.compact || (props.retryAuthorization && props.tierOptions))}>
         <Show when={reauthorizing() ? props.tierOptions : undefined} fallback={
-          <div class="settings-connection-actions">
+          <div class={connectedActionsClass()}>
             <Show when={props.tierOptions}>
-              <button type="button" class="settings-action settings-action--accent" ref={reauthorizeButton}
+              <button type="button" class={primaryActionClass()} ref={reauthorizeButton} disabled={reloadingAccounts()}
                 onClick={() => {
                   setReauthorizationTier(undefined);
                   setReauthorizing(true);
                   queueMicrotask(() => reauthorizePrompt?.focus());
-                }}>Re-authorize</button>
+                }}>{props.compact ? 'Re-authorize' : 'Retry authorization'}</button>
             </Show>
-            <DisconnectButton />
+            <Show when={props.compact}><DisconnectButton /></Show>
           </div>
         }>
-          {(tier) => <>
-            <p class="settings-hint type-hint" tabindex={-1} ref={reauthorizePrompt}>
+          {(tier) => <div class="oauth-connect-recovery">
+            <p class={props.compact ? 'settings-hint type-hint' : 'oauth-connect-identity'} tabindex={-1} ref={reauthorizePrompt}>
               Choose the access level to request from {props.name}.
             </p>
             <TierSelector tiers={tier().tiers} selected={reauthorizationTier()} onSelect={setReauthorizationTier} />
-            <div class="settings-connection-actions">
-              <button type="button" class="settings-action settings-action--accent" disabled={!reauthorizationTier()}
+            <div class={connectedActionsClass()}>
+              <button type="button" class={primaryActionClass()} disabled={!reauthorizationTier() || reloadingAccounts()}
                 onClick={() => {
                   const selected = reauthorizationTier();
                   if (selected) window.location.href = href(selected);
                 }}>Continue to {props.name}</button>
-              <button type="button" class="settings-action" onClick={() => {
+              <button type="button" class={props.compact ? 'settings-action' : 'oauth-connect-btn'} onClick={() => {
                 setReauthorizing(false);
                 queueMicrotask(() => reauthorizeButton?.focus());
               }}>Cancel</button>
             </div>
-          </>}
+          </div>}
         </Show>
       </Show>
 
