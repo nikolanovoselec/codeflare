@@ -33,7 +33,7 @@ interface SettingsPanelProps {
   onClose: () => void;
   currentUserEmail?: string;
   mcpReturnOutcome?: import('../lib/mcp-portal-recovery').McpReturnOutcome;
-  cloudflareReturn?: 'select-account' | 'error';
+  cloudflareReturn?: 'select-account' | 'error' | 'no-accounts';
   currentUserRole?: 'admin' | 'user';
   currentUserAccessTier?: import('../types').AccessTier;
   enterpriseMode?: boolean;
@@ -453,8 +453,10 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
             isOpen={openGroup() === 'deploy'}
             onToggle={() => handleAccordionClick('deploy')}
           >
-            <Show when={props.cloudflareReturn === 'error'}>
-              <p class="settings-hint type-hint" role="alert">Cloudflare authorization could not be completed. Try again.</p>
+            <Show when={props.cloudflareReturn === 'error' || props.cloudflareReturn === 'no-accounts'}>
+              <p class="settings-hint type-hint" role="alert">{props.cloudflareReturn === 'no-accounts'
+                ? 'No Cloudflare accounts were authorized. Choose a Cloudflare account you can access and try again.'
+                : 'Cloudflare authorization could not be completed. Try again.'}</p>
             </Show>
             <DeployKeysSection />
           </AccordionSection>

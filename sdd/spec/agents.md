@@ -1519,7 +1519,7 @@ None.
 2. Connecting runs Cloudflare OAuth without manual token entry; owner grants stay server-side, encrypted when deployment encryption is configured, and are never returned to the browser. <!-- @impl: src/lib/cloudflare-token.ts::connectCloudflare --> <!-- @impl: src/lib/kv-crypto.ts::encryptAndStore --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (Enterprise encrypted Cloudflare owner grants) --> <!-- @test: src/__tests__/routes/cloudflare-oauth.test.ts (GET /auth/cloudflare/connect/callback) -->
 3. Cloudflare Disconnect revokes and clears only the current owner’s stored Cloudflare connection. <!-- @impl: src/lib/cloudflare-token.ts::disconnectCloudflare --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (revokes an oauth token at Cloudflare and clears the stored fields) -->
 4. A connected card shows the account identity; Settings labels the Cloudflare value Account ID and retains the account picker when available. <!-- @impl: web-ui/src/components/connect/OAuthConnectCard.tsx::OAuthConnectCard --> <!-- @test: web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx (OAuthConnectCard) --> <!-- @test: web-ui/src/__tests__/components/settings/DeployKeysSection.test.tsx (keeps account selection and refreshed selected identity for connected users) -->
-5. The connected Cloudflare card in Settings offers Re-authorize separately from Disconnect; Guided Setup does not expose Re-authorize. <!-- @impl: web-ui/src/components/connect/OAuthConnectCard.tsx::OAuthConnectCard --> <!-- @test: web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx (keeps Re-authorize out of connected onboarding cards with tier options) --> <!-- @test: web-ui/src/__tests__/components/settings/DeployKeysSection.test.tsx (REQ-AGENT-018 AC5 / REQ-AGENT-028 AC4: re-authorizes only with a newly chosen permission tier and without disconnecting) -->
+5. The connected Cloudflare card in Settings offers Re-authorize separately from Disconnect; Guided Setup does not expose Re-authorize. <!-- @impl: web-ui/src/components/connect/OAuthConnectCard.tsx::OAuthConnectCard --> <!-- @test: web-ui/src/__tests__/components/OnboardingPage.test.tsx (REQ-AGENT-018 AC5: connected Guided Setup offers Cloudflare Disconnect but not Re-authorize) --> <!-- @test: web-ui/src/__tests__/components/settings/DeployKeysSection.test.tsx (REQ-AGENT-018 AC5 / REQ-AGENT-028 AC4: re-authorizes only with a newly chosen permission tier and without disconnecting) -->
 6. Cloudflare OAuth credentials stay Worker-held; containers receive only managed placeholders for owner-bound API interception. <!-- @impl: src/lib/cloudflare-token.ts::applyCloudflareOAuthToken --> <!-- @impl: src/cloudflare-browser-interceptor.ts::fetchOAuth --> <!-- @impl: src/cloudflare-browser-interceptor.ts::fetchOwnerApi --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-BROWSER-008/REQ-AGENT-078: Enterprise startup with a connected owner) -->
 7. GitHub connection controls remain on the dashboard, not in Settings. <!-- @impl: web-ui/src/components/settings/DeployKeysSection.tsx::DeployKeysSection --> <!-- @test: web-ui/src/__tests__/components/settings/DeployKeysSection.test.tsx (offers only Cloudflare, never GitHub or other provider placeholders) -->
 
@@ -1531,7 +1531,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-010](#req-agent-010-deploy-credential-storage-github-pat-cf-api-token)
 
-**Verification:** Automated: [container-env.test.ts](../../src/__tests__/container/container-env.test.ts), [deploy-keys.test.ts](../../src/__tests__/routes/deploy-keys.test.ts), [github-token.test.ts](../../src/__tests__/lib/github-token.test.ts), [cloudflare-token.test.ts](../../src/__tests__/lib/cloudflare-token.test.ts), [OAuthConnectCard.test.tsx](../../web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx), [DeployKeysSection.test.tsx](../../web-ui/src/__tests__/components/settings/DeployKeysSection.test.tsx); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
+**Verification:** Automated: [container-env.test.ts](../../src/__tests__/container/container-env.test.ts), [deploy-keys.test.ts](../../src/__tests__/routes/deploy-keys.test.ts), [github-token.test.ts](../../src/__tests__/lib/github-token.test.ts), [cloudflare-token.test.ts](../../src/__tests__/lib/cloudflare-token.test.ts), [OAuthConnectCard.test.tsx](../../web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx), [DeployKeysSection.test.tsx](../../web-ui/src/__tests__/components/settings/DeployKeysSection.test.tsx), [OnboardingPage.test.tsx](../../web-ui/src/__tests__/components/OnboardingPage.test.tsx); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
 
 **Status:** Implemented
 
@@ -3244,13 +3244,11 @@ None.
 
 1. The Cloudflare OAuth integration supports authorize, exchange, refresh, and revoke. <!-- @impl: src/lib/cloudflare-token.ts::postToken --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (CloudflareOAuthProvider) -->
 2. Cloudflare connection and disconnection APIs require active-user authorization; their callback reauthenticates the live session. Guided Setup and Settings expose connection without an advanced-session entitlement. API access still rejects pending/blocked users in app-owned OIDC modes; credentials never reach the browser. <!-- @impl: src/routes/cloudflare.ts::app --> <!-- @impl: src/middleware/auth.ts::requireActiveUser --> <!-- @impl: src/routes/cloudflare-auth.ts::app --> <!-- @test: src/__tests__/routes/cloudflare-oauth.test.ts (GET /auth/cloudflare/connect/callback) --> <!-- @test: src/__tests__/middleware/auth-saas.test.ts (requireActiveUser / REQ-AUTH-005 AC2 (active-tier check, PENDING/BLOCKED responses, outside-SaaS and authMiddleware backward compatibility)) -->
-3. OAuth success saves the new grant and keeps a still-accessible prior account or selects the sole accessible account. Without a valid selection, the callback redirects to account selection. <!-- @impl: src/lib/cloudflare-token.ts::connectCloudflare --> <!-- @test: src/__tests__/routes/cloudflare-oauth.test.ts (GET /auth/cloudflare/connect/callback) --> <!-- @test: src/__tests__/routes/cloudflare-oauth.test.ts (REQ-AGENT-064 AC3: reauthorization routes and reports the account for a prior selection of %s) -->
+3. OAuth success saves the new grant and keeps a still-accessible prior account or selects the sole accessible account, based on all account pages. <!-- @impl: src/lib/cloudflare-token.ts::connectCloudflare --> <!-- @test: src/__tests__/routes/cloudflare-oauth.test.ts (GET /auth/cloudflare/connect/callback) --> <!-- @test: src/__tests__/routes/cloudflare-oauth.test.ts (REQ-AGENT-064 AC3: reauthorization routes and reports the account for a prior selection of %s) -->
 4. A currently valid token is returned, refreshed within the skew window, and fails closed rather than returning a stale token. <!-- @impl: src/lib/cloudflare-token.ts::getValidCloudflareToken --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (getValidCloudflareToken) -->
 5. The connect URL carries a scope `tier`; the server maps it to the OAuth `scope`, with every tier including `analytics.read` and `offline_access` so zone analytics are readable and a refresh token is issued. <!-- @impl: src/lib/oauth-scopes.ts::cloudflareScopeForTier --> <!-- @test: src/__tests__/routes/cloudflare-oauth.test.ts (feeds every scope tier into OAuth with Analytics read and offline access) -->
 6. Enterprise supports configured owner Cloudflare OAuth independently of its administrator-owned Browser Run credentials ([REQ-BROWSER-007](browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)). <!-- @impl: src/lib/cloudflare-token.ts::getCloudflareProvider --> <!-- @impl: src/routes/cloudflare.ts::app --> <!-- @impl: src/routes/cloudflare-auth.ts::app --> <!-- @impl: src/lib/browser-render-token.ts::applyEnterpriseBrowserToken --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (resolves the configured OAuth client in every deployment mode: %j) -->
 7. The callback rejects forged, expired, or replayed OAuth state before exchanging the code. Valid state is signed, single-use and bound to the initiating owner's bucket. <!-- @impl: src/routes/cloudflare-auth.ts::app --> <!-- @test: src/__tests__/routes/cloudflare-oauth.test.ts (GET /auth/cloudflare/connect/callback) -->
-8. A failed account lookup leaves the previous grant and selection usable and returns an error with a retry prompt in Settings. <!-- @impl: src/lib/cloudflare-token.ts::connectCloudflare --> <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel --> <!-- @test: src/__tests__/routes/cloudflare-oauth.test.ts (REQ-AGENT-064 AC8: an unavailable accounts lookup leaves the existing grant usable) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-AGENT-064 AC8: a failed Cloudflare return offers retry in Integrations without disconnecting) -->
-9. An account-selection return opens Settings → Integrations so the owner can choose from accounts the new grant can access. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-AGENT-064 AC9: the account-selection return opens Integrations and lets the owner pick an account) -->
 
 **Constraints:**
 
@@ -3263,7 +3261,31 @@ None.
 
 **Dependencies:** [REQ-AGENT-029](#req-agent-029-deploy-credential-propagation-to-container), [REQ-AGENT-235](#req-agent-235-cloudflare-oauth-storage-and-exchange-compatibility)
 
-**Verification:** Automated: [cloudflare-token.test.ts](../../src/__tests__/lib/cloudflare-token.test.ts), [cloudflare-oauth.test.ts](../../src/__tests__/routes/cloudflare-oauth.test.ts), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx)
+**Verification:** Automated: [cloudflare-token.test.ts](../../src/__tests__/lib/cloudflare-token.test.ts), [cloudflare-oauth.test.ts](../../src/__tests__/routes/cloudflare-oauth.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-239: Cloudflare OAuth account selection and retry
+
+**Intent:** Owners can finish Cloudflare account selection or retry authorization without losing a working connection.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. When the new grant is saved without a selected account, the return opens Settings → Integrations with the accessible account choices. <!-- @impl: src/routes/cloudflare-auth.ts::app --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: src/__tests__/routes/cloudflare-oauth.test.ts (REQ-AGENT-064 AC3: reauthorization routes and reports the account for a prior selection of %s) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-AGENT-239 AC1: the account-selection return opens Integrations and lets the owner pick an account) -->
+2. A failed or incomplete account lookup leaves the saved grant and selection usable and opens Integrations with a retry prompt. <!-- @impl: src/lib/cloudflare-token.ts::connectCloudflare --> <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel --> <!-- @test: src/__tests__/routes/cloudflare-oauth.test.ts (REQ-AGENT-239 AC2/3: %s leaves the existing grant usable) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-AGENT-239 AC2: a failed Cloudflare return offers retry in Integrations without disconnecting) -->
+3. A grant with no accessible accounts does not replace the saved connection. Integrations explains that the owner must authorize an accessible account to retry. <!-- @impl: src/lib/cloudflare-token.ts::connectCloudflare --> <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel --> <!-- @test: src/__tests__/routes/cloudflare-oauth.test.ts (REQ-AGENT-239 AC2/3: %s leaves the existing grant usable) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-AGENT-239 AC3: a no-accounts return explains how to retry without disconnecting) -->
+
+**Constraints:** None.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-018](#req-agent-018-push--deploy-credential-management-ui), [REQ-AGENT-064](#req-agent-064-connect-to-cloudflare-via-oauth)
+
+**Verification:** Automated: [cloudflare-oauth.test.ts](../../src/__tests__/routes/cloudflare-oauth.test.ts), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx)
 
 **Status:** Implemented
 

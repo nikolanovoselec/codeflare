@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, fireEvent, cleanup, waitFor } from '@solidjs/testing-library';
+import { render, screen, fireEvent, cleanup, waitFor, within } from '@solidjs/testing-library';
 import OnboardingPage from '../../components/OnboardingPage';
 
 // api/client: only the non-connect endpoints OnboardingPage still uses.
@@ -73,12 +73,13 @@ describe('OnboardingPage / REQ-AUTH-015 (onboarding-mode public landing page)', 
     expect(screen.getByTestId('github-identity')).toHaveTextContent('octocat');
   });
 
-  it('shows the Cloudflare card connected when the status reports a connection', async () => {
+  it('REQ-AGENT-018 AC5: connected Guided Setup offers Cloudflare Disconnect but not Re-authorize', async () => {
     mockGetCloudflareStatus.mockResolvedValue({ configured: true, connected: true, accountId: 'acct-1' });
     render(() => <OnboardingPage />);
-    await waitFor(() => {
-      expect(screen.getByTestId('cloudflare-connected-badge')).toBeInTheDocument();
-    });
+    const cloudflare = within(await screen.findByTestId('onboarding-cloudflare-section'));
+    expect(await cloudflare.findByTestId('cloudflare-connected-badge')).toBeVisible();
+    expect(cloudflare.getByRole('button', { name: 'Disconnect' })).toBeEnabled();
+    expect(cloudflare.queryByRole('button', { name: 'Re-authorize' })).not.toBeInTheDocument();
   });
 
   // REQ-AGENT-028: both provider parents own the recommended default and selected-tier navigation.

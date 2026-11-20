@@ -236,44 +236,52 @@ describe('GET /auth/cloudflare/connect/callback', () => {
     configureClient();
     const state = await validState();
     const accounts = [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }];
+    const replacementAccounts = (url: string, init: RequestInit) => {
+      if (new Headers(init.headers).get('Authorization') !== 'Bearer replacement') return { ok: false, status: 403 };
+      const page = Number(new URL(url).searchParams.get('page') ?? '1');
+      return ok({ success: true, result: [accounts[page - 1]],
+        result_info: { page, per_page: 1, count: 1, total_count: accounts.length } });
+    };
     mockKV._set(KEY, { cloudflareApiToken: 'old-token', cloudflareTokenSource: 'oauth', cloudflareAccountId: previous } satisfies DeployKeys);
     mockFetch
       .mockResolvedValueOnce(ok({ access_token: 'replacement', refresh_token: 'new-refresh', expires_in: 3_600 }))
-      .mockResolvedValueOnce(ok({ success: true, result: accounts }));
+      .mockImplementationOnce(replacementAccounts).mockImplementationOnce(replacementAccounts);
     const app = createTestApp(BASE_ENV);
     const callback = await app.request(`/auth/cloudflare/connect/callback?code=abc&state=${encodeURIComponent(state)}`);
     expect(callback.status).toBe(302);
     expect(callback.headers.get('location')).toContain(`cloudflare=${outcome}`);
 
-    const replacementAccounts = (_url: string, init: RequestInit) =>
-      new Headers(init.headers).get('Authorization') === 'Bearer replacement'
-        ? ok({ success: true, result: accounts })
-        : { ok: false, status: 403 };
-    if (!selected) mockFetch.mockImplementationOnce(replacementAccounts);
+    if (!selected) mockFetch.mockImplementationOnce(replacementAccounts).mockImplementationOnce(replacementAccounts);
     const status = await app.request('/api/cloudflare/status');
     expect(status.status).toBe(200);
     const connected = { configured: true, connected: true, source: 'oauth' };
     expect(await status.json()).toEqual(selected ? { ...connected, accountId: selected } : { ...connected, accounts });
 
-    mockFetch.mockImplementationOnce(replacementAccounts);
-    const accountId = selected ?? 'a';
+    mockFetch.mockImplementationOnce(replacementAccounts).mockImplementationOnce(replacementAccounts);
+    const accountId = selected ?? 'b';
     const pick = await app.request('/api/cloudflare/account', { method: 'POST',
       headers: { 'content-type': 'application/json' }, body: JSON.stringify({ accountId }) });
     expect(pick.status).toBe(200);
     expect(await (await app.request('/api/cloudflare/status')).json()).toEqual({ ...connected, accountId });
   });
 
-  it('REQ-AGENT-064 AC8: an unavailable accounts lookup leaves the existing grant usable', async () => {
+  it.each([
+    ['an unavailable lookup', 'error', [{ ok: false, status: 503 }]],
+    ['an incomplete account list', 'error', [
+      ok({ success: true, result: [{ id: 'a', name: 'A' }], result_info: { page: 1, per_page: 1, total_count: 2 } }),
+      ok({ success: true, result: [], result_info: { page: 2, per_page: 1, total_count: 2 } }),
+    ]],
+    ['no accessible accounts', 'no-accounts', [ok({ success: true, result: [] })]],
+  ] as const)('REQ-AGENT-239 AC2/3: %s leaves the existing grant usable', async (_scenario, outcome, pages) => {
     configureClient();
     mockKV._set(KEY, { cloudflareApiToken: 'old-token', cloudflareTokenSource: 'oauth', cloudflareAccountId: 'old-account' } satisfies DeployKeys);
-    mockFetch
-      .mockResolvedValueOnce(ok({ access_token: 'replacement', refresh_token: 'new-refresh', expires_in: 3_600 }))
-      .mockResolvedValueOnce({ ok: false, status: 503 });
+    mockFetch.mockResolvedValueOnce(ok({ access_token: 'replacement', refresh_token: 'new-refresh', expires_in: 3_600 }));
+    for (const page of pages) mockFetch.mockResolvedValueOnce(page);
     const app = createTestApp(BASE_ENV);
     const state = await validState();
     const callback = await app.request(`/auth/cloudflare/connect/callback?code=abc&state=${encodeURIComponent(state)}`);
     expect(callback.status).toBe(302);
-    expect(callback.headers.get('location')).toContain('cloudflare=error');
+    expect(new URL(callback.headers.get('location')!).searchParams.get('cloudflare')).toBe(outcome);
     expect(await (await app.request('/api/cloudflare/status')).json()).toEqual({
       configured: true, connected: true, source: 'oauth', accountId: 'old-account',
     });

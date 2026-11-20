@@ -239,7 +239,8 @@ vi.mock('../../stores/terminal-workspace', () => ({
 }));
 
 let mockIsSamsungBrowser = false;
-vi.mock('../../lib/mobile', () => ({
+vi.mock('../../lib/mobile', async importOriginal => ({
+  ...await importOriginal<typeof import('../../lib/mobile')>(),
   forceResetKeyboardState: vi.fn(),
   enableVirtualKeyboardOverlay: vi.fn(),
   cleanupDebugOverlay: vi.fn(),
@@ -303,7 +304,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     vi.useRealTimers();
   });
 
-  it('REQ-AGENT-064 AC9: the account-selection return opens Integrations and lets the owner pick an account', async () => {
+  it('REQ-AGENT-239 AC1: the account-selection return opens Integrations and lets the owner pick an account', async () => {
     navigationRendering.realSettingsPanel = true;
     appAuth.getUser.mockResolvedValue({ email: 'owner@example.com', role: 'user', authenticated: true });
     const accounts = [{ id: 'a', name: 'Account A' }, { id: 'b', name: 'Account B' }];
@@ -327,7 +328,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     expect(window.location.search).toBe('');
   });
 
-  it('REQ-AGENT-064 AC8: a failed Cloudflare return offers retry in Integrations without disconnecting', async () => {
+  it('REQ-AGENT-239 AC2: a failed Cloudflare return offers retry in Integrations without disconnecting', async () => {
     navigationRendering.realSettingsPanel = true;
     appAuth.getUser.mockResolvedValue({ email: 'owner@example.com', role: 'user', authenticated: true });
     cloudflare.getStatus.mockResolvedValue({ configured: true, connected: true, accountId: 'saved' });
@@ -339,6 +340,21 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     expect(integrations.getByRole('alert')).toHaveTextContent('Try again');
     expect(await integrations.findByRole('button', { name: 'Re-authorize' })).toBeEnabled();
     expect(integrations.getByText('saved', { exact: true })).toBeVisible();
+    expect(window.location.search).toBe('');
+  });
+
+  it('REQ-AGENT-239 AC3: a no-accounts return explains how to retry without disconnecting', async () => {
+    navigationRendering.realSettingsPanel = true;
+    appAuth.getUser.mockResolvedValue({ email: 'owner@example.com', role: 'user', authenticated: true });
+    cloudflare.getStatus.mockResolvedValue({ configured: true, connected: true, accountId: 'saved' });
+    window.history.replaceState(null, '', '/app/?cloudflare=no-accounts');
+
+    render(() => <App />);
+    const panel = within(await screen.findByRole('dialog', { name: 'Settings' }));
+    const integrations = within(panel.getByRole('region', { name: 'Integrations' }));
+    expect(integrations.getByRole('alert')).toHaveTextContent(/choose a Cloudflare account.*try again/i);
+    expect(await integrations.findByRole('button', { name: 'Re-authorize' })).toBeEnabled();
+    expect(integrations.queryByRole('combobox')).not.toBeInTheDocument();
     expect(window.location.search).toBe('');
   });
 

@@ -16,6 +16,7 @@
  * The configured client supports user connections in every deployment mode;
  * Enterprise admin Browser Run credentials remain separate from owner grants.
  */
+import { z } from 'zod';
 import type { DeployKeys, Env } from '../types';
 import { getDeployKeysKey, SETUP_KEYS } from './kv-keys';
 import { getAndDecrypt, encryptAndStore, getOrImportKey } from './kv-crypto';
@@ -138,21 +139,51 @@ export async function getCloudflareConnectionStatus(
 
 // --- accounts --------------------------------------------------------------
 
-/**
- * List the Cloudflare accounts the token can act on (also validates the token).
- * Throws on an invalid token or API error.
- */
+const accountsPageSchema = z.object({
+  success: z.literal(true),
+  result: z.array(z.object({ id: z.string().min(1), name: z.string() })),
+  result_info: z.object({
+    page: z.number().int().positive().optional(),
+    count: z.number().int().nonnegative().optional(),
+    per_page: z.number().int().positive().optional(),
+    total_count: z.number().int().nonnegative().optional(),
+  }).optional(),
+});
+
+/** List accounts without ever returning a partial paged result. */
 export async function fetchCloudflareAccounts(accessToken: string): Promise<CloudflareAccount[]> {
-  const res = await fetch(ACCOUNTS_URL, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-    signal: AbortSignal.timeout(8000),
-  });
-  if (!res.ok) throw new Error(`Cloudflare accounts endpoint returned ${res.status}`);
-  const body = (await res.json()) as { success: boolean; result?: CloudflareAccount[] };
-  if (!body.success || !Array.isArray(body.result)) {
-    throw new Error('Cloudflare accounts API returned an error');
+  const accounts = new Map<string, CloudflareAccount>();
+  let total: number | undefined;
+  let pageSize: number | undefined;
+  const signal = AbortSignal.timeout(8000);
+  for (let page = 1; page <= 100; page++) {
+    const res = await fetch(page === 1 ? ACCOUNTS_URL : `${ACCOUNTS_URL}?page=${page}`, {
+      headers: { Authorization: `Bearer ${accessToken}` }, signal,
+    });
+    if (!res.ok) throw new Error(`Cloudflare accounts endpoint returned ${res.status}`);
+    const parsed = accountsPageSchema.safeParse(await res.json());
+    if (!parsed.success) throw new Error('Cloudflare accounts API returned an invalid result');
+    const { result, result_info: info } = parsed.data;
+    if ((page > 1 && !info)
+      || (info?.page !== undefined && info.page !== page)
+      || (info?.count !== undefined && info.count !== result.length)
+      || (info?.total_count !== undefined && total !== undefined && total !== info.total_count)
+      || (info?.per_page !== undefined && pageSize !== undefined && pageSize !== info.per_page)) break;
+    total ??= info?.total_count;
+    pageSize ??= info?.per_page;
+    if (pageSize !== undefined && result.length > pageSize) break;
+    for (const account of result) {
+      if (accounts.has(account.id)) throw new Error('Cloudflare accounts API repeated an account');
+      accounts.set(account.id, account);
+    }
+    if (total !== undefined) {
+      if (accounts.size === total) return [...accounts.values()];
+      if (accounts.size > total || result.length === 0) break;
+    } else if (pageSize === undefined || result.length < pageSize) {
+      return [...accounts.values()];
+    }
   }
-  return body.result;
+  throw new Error('Cloudflare accounts API returned an incomplete list');
 }
 
 // --- provider --------------------------------------------------------------
@@ -373,12 +404,14 @@ export async function connectCloudflare(
   if (!provider) throw new Error('Cloudflare integration not configured');
   const conn = await provider.exchangeCode(code, redirectUri);
 
-  // A failed lookup is not an empty account list. Leave the stored grant unchanged
-  // and let the callback report the existing retryable authorization error.
+  // Do not replace a saved grant unless the new grant exposes an account.
   const accounts = await fetchCloudflareAccounts(conn.accessToken);
+  if (accounts.length === 0) throw new CloudflareNoAccountsError('Cloudflare authorization returned no accessible accounts');
   const accountId = await storeCloudflareConnection(env, bucketName, conn, accounts);
   return { accounts, accountId };
 }
+
+export class CloudflareNoAccountsError extends Error {}
 
 /**
  * Select the Cloudflare account for an already-connected token. Re-validates the

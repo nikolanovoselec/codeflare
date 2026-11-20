@@ -124,10 +124,3 @@ describe.each([false, true])('OAuthConnectCard (compact=%s)', compact => {
     });
   });
 });
-
-it('keeps Re-authorize out of connected onboarding cards with tier options', () => {
-  render(() => <OAuthConnectCard {...base} status="connected"
-    tierOptions={{ tiers: GITHUB_TIERS, selected: 'recommended', onSelect: vi.fn() }} />);
-  expect(screen.getByRole('button', { name: 'Disconnect' })).toBeEnabled();
-  expect(screen.queryByRole('button', { name: 'Re-authorize' })).not.toBeInTheDocument();
-});

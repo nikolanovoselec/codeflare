@@ -76,7 +76,7 @@ const Layout: Component<LayoutProps> = (props) => {
   const usageWarning = () => getUsageWarningLevel();
   const [terminalError, setTerminalError] = createSignal<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = createSignal(false);
-  const [cloudflareReturn, setCloudflareReturn] = createSignal<'select-account' | 'error'>();
+  const [cloudflareReturn, setCloudflareReturn] = createSignal<'select-account' | 'error' | 'no-accounts'>();
   const [isStoragePanelOpen, setIsStoragePanelOpen] = createSignal(false);
   const [showTilingOverlay, setShowTilingOverlay] = createSignal(false);
   const [viewState, setViewState] = createSignal<ViewState>('dashboard');
@@ -369,7 +369,7 @@ const Layout: Component<LayoutProps> = (props) => {
     if (window.location.pathname === dashboardPath()) {
       const query = new URLSearchParams(window.location.search);
       const outcome = query.get('cloudflare');
-      if (outcome === 'select-account' || outcome === 'error') {
+      if (outcome === 'select-account' || outcome === 'error' || outcome === 'no-accounts') {
         query.delete('cloudflare');
         const rest = query.toString();
         window.history.replaceState(window.history.state, '', `${dashboardPath()}${rest ? `?${rest}` : ''}${window.location.hash}`);

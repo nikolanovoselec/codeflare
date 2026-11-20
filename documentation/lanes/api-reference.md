@@ -646,9 +646,11 @@ When the client is unconfigured, `/api/cloudflare/connect` returns `503 CLOUDFLA
 
 | Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
-| GET | `/auth/cloudflare/connect/callback` | Session cookie | [REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth) | Connect-Cloudflare callback; redirects with `?cloudflare=connected\|select-account\|denied\|expired\|unavailable\|error`. |
+| GET | `/auth/cloudflare/connect/callback` | Session cookie | [REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth) | Connect-Cloudflare callback; redirects with `?cloudflare=connected\|select-account\|no-accounts\|denied\|expired\|unavailable\|error`. |
 
-The callback re-derives identity from the live session and verifies bucket-bound, single-use OAuth state before exchanging the code. It keeps a still-accessible prior account or selects the sole accessible account. Without a selection it returns `select-account`, which opens Settings → Integrations. If account lookup fails, it returns `error` without replacing the grant. It never mints a session cookie. The OAuth client registers this exact URL.
+The callback re-derives session identity and verifies bucket-bound, single-use OAuth state before exchanging the code. After resolving accessible accounts, it saves the new grant and keeps a valid prior selection or selects the sole accessible account ([REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth)).
+
+If the saved grant has no selected account, `select-account` opens Settings → Integrations. A failed lookup (`error`) or a grant with no accessible accounts (`no-accounts`) leaves the previous connection intact and opens Integrations for retry ([REQ-AGENT-239](../../sdd/spec/agents.md#req-agent-239-cloudflare-oauth-account-selection-and-retry)). The callback never mints a session cookie. Register this exact callback URL.
 
 ## Public (Unauthenticated)
 
