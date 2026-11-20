@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { createComponent } from 'solid-js';
 import { cleanup, fireEvent, render, screen, waitFor } from '@solidjs/testing-library';
 import { ApiError } from '../../api/fetch-helper';
 import UploadQueue from '../../components/storage/UploadQueue';
@@ -649,7 +650,7 @@ describe('Storage Store', () => {
       const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValue(true);
       try {
         await upload();
-        render(UploadQueue);
+        render(() => createComponent(UploadQueue, {}));
         const button = () => screen.getByRole('button', { name: 'Abort upload' });
         expect(screen.getByText(/completion could not be confirmed/i)).toBeInTheDocument();
         expect(abort).not.toHaveBeenCalled();
