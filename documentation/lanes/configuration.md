@@ -218,7 +218,7 @@ In every deployment mode, Settings → Integrations shows Cloudflare when its OA
 
 A connected Settings card labels the selected **Account ID** ([REQ-AGENT-018](../../sdd/spec/agents.md#req-agent-018-push--deploy-credential-management-ui)). **Re-authorize** asks for a permission tier with nothing preselected. **Cancel** makes no change; **Continue to Cloudflare** starts OAuth with the chosen tier without disconnecting ([REQ-AGENT-028](../../sdd/spec/agents.md#req-agent-028-deploy-credential-token-creation-ux)).
 
-Dashboard returns open Integrations when a new account choice or retry is needed. If Guided Setup is still required, use its Cloudflare card instead. A failed lookup or a grant with no accessible accounts leaves the saved connection intact. In Guided Setup, use **Retry authorization** for a saved connection, then explicitly choose the permission tier; you do not need to disconnect.
+Dashboard returns open Integrations when a new account choice or retry is needed. If Guided Setup is still required, use its Cloudflare card instead. A failed lookup or a grant with no accessible accounts leaves the saved connection intact. In Guided Setup, use **Retry authorization** for a saved connection, then explicitly choose the permission tier; you do not need to disconnect ([REQ-AGENT-239](../../sdd/spec/agents.md#req-agent-239-cloudflare-oauth-account-selection-and-retry)).
 
 After an account-selection return, if the connected card shows neither a selected account nor any choices, choose **Retry loading accounts** in Settings → Integrations or Guided Setup. This reloads the choices without restarting OAuth ([REQ-AGENT-239](../../sdd/spec/agents.md#req-agent-239-cloudflare-oauth-account-selection-and-retry)).
 

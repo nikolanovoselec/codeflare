@@ -126,7 +126,7 @@ describe('OnboardingPage / REQ-AUTH-015 (onboarding-mode public landing page)', 
     expect(mockDisconnectCloudflare).not.toHaveBeenCalled();
   });
 
-  it('reloads missing Cloudflare accounts in Guided Setup without restarting OAuth', async () => {
+  it.each(['another control', 'the page body'])('reloads missing Cloudflare accounts without restarting OAuth or reclaiming focus from %s', async (destination) => {
     mockLocation.search = '?cloudflare=select-account';
     let finishRead!: (value: { configured: true; connected: true; accounts: { id: string; name: string }[] }) => void;
     mockGetCloudflareStatus.mockResolvedValueOnce({ configured: true, connected: true })
@@ -137,13 +137,15 @@ describe('OnboardingPage / REQ-AUTH-015 (onboarding-mode public landing page)', 
     const retry = cloudflare.getByRole('button', { name: 'Retry loading accounts' });
     retry.focus();
     fireEvent.click(retry);
-    const skip = screen.getByRole('link', { name: 'Skip and continue to Codeflare' });
-    skip.focus();
+    const focusTarget = destination === 'another control'
+      ? screen.getByRole('link', { name: 'Skip and continue to Codeflare' }) : document.body;
+    if (focusTarget === document.body) retry.blur();
+    else focusTarget.focus();
+    expect(document.activeElement).toBe(focusTarget);
     finishRead({ configured: true, connected: true, accounts: [{ id: 'a', name: 'Account A' }] });
     expect(within(await cloudflare.findByRole('combobox')).getByRole('option', { name: 'Account A' })).toHaveValue('a');
-    await Promise.resolve();
-    expect(skip).toHaveFocus();
-    expect(cloudflare.queryByRole('button', { name: 'Retry loading accounts' })).not.toBeInTheDocument();
+    await waitFor(() => expect(cloudflare.queryByRole('button', { name: 'Retry loading accounts' })).not.toBeInTheDocument());
+    expect(document.activeElement).toBe(focusTarget);
     expect(mockLocation.href).toBe('');
     expect(mockDisconnectCloudflare).not.toHaveBeenCalled();
   });

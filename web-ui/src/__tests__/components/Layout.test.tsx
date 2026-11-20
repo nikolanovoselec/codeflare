@@ -347,9 +347,15 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     expect(retry).toHaveFocus();
     expect(integrations.getByText('Connected', { exact: true })).toBeVisible();
     expect(integrations.queryByRole('combobox')).not.toBeInTheDocument();
+    retry.blur();
+    expect(retry).not.toHaveFocus();
+    const readsBeforeRetry = cloudflare.getStatus.mock.calls.length;
     fireEvent.click(retry);
     expect(retry).toHaveAttribute('aria-disabled', 'true');
+    retry.focus();
     expect(retry).toHaveFocus();
+    fireEvent.click(retry);
+    expect(cloudflare.getStatus).toHaveBeenCalledTimes(readsBeforeRetry + 1);
     finishRead({ configured: true, connected: true, accounts: [{ id: 'a', name: 'Account A' }] });
     const picker = await integrations.findByRole('combobox', { name: 'Cloudflare account' });
     await waitFor(() => expect(picker).toHaveFocus());

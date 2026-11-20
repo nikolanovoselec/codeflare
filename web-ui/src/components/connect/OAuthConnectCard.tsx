@@ -1,4 +1,4 @@
-import { Component, Show, For, createSignal, onCleanup } from 'solid-js';
+import { Component, Show, For, createSignal } from 'solid-js';
 import { mdiCheck } from '@mdi/js';
 import Icon from '../Icon';
 import Select from '../ui/Select';
@@ -70,28 +70,15 @@ const OAuthConnectCard: Component<OAuthConnectCardProps> = (props) => {
   let reauthorizeButton: HTMLButtonElement | undefined;
   let reauthorizePrompt: HTMLParagraphElement | undefined;
   let accountPicker: HTMLSelectElement | undefined;
-  let stopWatchingRetryFocus: (() => void) | undefined;
-  onCleanup(() => stopWatchingRetryFocus?.());
 
   const reloadAccounts = async (button: HTMLButtonElement, retry: () => Promise<void>) => {
     if (reloadingAccounts()) return;
-    const doc = button.ownerDocument;
-    let keepFocus = doc.activeElement === button;
-    const focusMoved = (event: FocusEvent) => {
-      if (event.target !== button) keepFocus = false;
-    };
-    doc.addEventListener('focusin', focusMoved);
-    const stopWatching = () => doc.removeEventListener('focusin', focusMoved);
-    stopWatchingRetryFocus = stopWatching;
     setReloadingAccounts(true);
     try {
       await retry();
-      // A focusable busy button retains focus until the picker replaces it.
-      if (keepFocus && !button.isConnected && props.onRetryAccounts && accountPicker?.isConnected
-        && doc.activeElement === doc.body) accountPicker.focus();
+      // Keep Retry mounted until the picker is ready so we can check focus before removal.
+      if (button.ownerDocument.activeElement === button && accountPicker?.isConnected) accountPicker.focus();
     } finally {
-      stopWatching();
-      stopWatchingRetryFocus = undefined;
       setReloadingAccounts(false);
     }
   };
@@ -175,7 +162,7 @@ const OAuthConnectCard: Component<OAuthConnectCardProps> = (props) => {
             </Show>
           </div>
         </Show>
-        <Show when={!props.selectedAccountId && !props.accounts?.length ? props.onRetryAccounts : undefined}>
+        <Show when={reloadingAccounts() || (!props.selectedAccountId && !props.accounts?.length) ? props.onRetryAccounts : undefined}>
           {(retry) => <div class="oauth-connect-recovery">
             <p class="oauth-connect-identity" role="status">{props.name} accounts could not be loaded.</p>
             <button type="button" class={primaryActionClass()} aria-disabled={reloadingAccounts()}
