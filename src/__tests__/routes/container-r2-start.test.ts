@@ -185,7 +185,7 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
     if (saved) mockKV._set('user-prefs:test-bucket', { sleepAfter: saved });
     testState.saasMode = !enterprise;
     const fetch = createApp(enterprise ? { ENTERPRISE_MODE: 'active' } : { SAAS_MODE: 'active' }, {
-      email: 'test@example.com', authenticated: true, role: 'user', accessTier: tier, subscriptionTier: tier,
+      email: 'test@example.com', authenticated: true, role: 'user', accessTier: 'standard', subscriptionTier: tier,
     });
     const response = await fetch('/container/start?sessionId=abcdef1234567890abcdef12', { method: 'POST' });
     expect(response.status, await response.clone().text()).toBe(200);

@@ -40,7 +40,7 @@ import { codingAgentProjectionIdentity } from '../../../scripts/ci/coding-agent-
 // Re-exported so existing importers (and the spec-anchored unit tests that
 // import these from './lifecycle') keep resolving them after the CF-024b split
 // into lifecycle-validation.ts and lifecycle-init.ts.
-export { resolveEffectiveSleepAfter, validateSessionAndCheckLimits } from './lifecycle-validation';
+export { validateSessionAndCheckLimits } from './lifecycle-validation';
 export { ensureBucketAndSeed, configureContainerDO } from './lifecycle-init';
 
 // ---------------------------------------------------------------------------
