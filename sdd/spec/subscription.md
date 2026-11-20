@@ -92,13 +92,14 @@ Tiers, billing, usage tracking, and quotas.
 
 **Acceptance Criteria:**
 
-1. The subscribe endpoint activates the free tier directly without any payment-provider interaction. <!-- @manual -->
+1. An admitted Free signup activates directly without payment-provider interaction. New Free signups remain subject to the paid-slot capacity gate under [AD39](../../documentation/decisions/README.md#ad39-max-users-capacity-cap-counts-paid-slots-only). <!-- @impl: src/routes/auth.ts::app --> <!-- @manual -->
 2. The free tier has a zero monthly price. <!-- @impl: src/lib/subscription.ts::getDefaultTiers --> <!-- @test: src/__tests__/lib/subscription.test.ts (getDefaultTiers / REQ-SUB-001 AC1/AC2 (8 default tiers in canonical order) / REQ-SUB-003 (free tier requires no payment)) -->
 3. Even when the payment provider is configured, the free tier still bypasses external checkout. <!-- @impl: src/routes/auth.ts::app --> <!-- @test: src/__tests__/routes/auth-subscribe.test.ts (allows free tier even when STRIPE_SECRET_KEY is set) --> <!-- @manual -->
 4. Free-tier activation removes all provider-owned billing-state fields while preserving unrelated user fields; persisted records contain no `undefined` patch values. <!-- @impl: src/routes/auth.ts::default --> <!-- @test: src/__tests__/routes/auth-subscribe.test.ts (DEEP-18-001/004: payment-less activation removes stale billing state without undefined values) -->
 
 **Constraints:**
 
+- Free users do not occupy paid slots, but a full positive cap can block a new Free signup. <!-- @impl: src/lib/subscription.ts::countPaidSlots --> <!-- @test: src/__tests__/lib/subscription.test.ts (excludes free, pending, and blocked users) -->
 - Free uses the common idle preference and one-hour default under [REQ-SESSION-014](session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings).
 - Free defaults to one concurrent session. Start uses the configured tier cap and best-effort admission under [REQ-SESSION-007](session-lifecycle.md#req-session-007-running-session-count-limited-per-tier).
 
@@ -262,12 +263,12 @@ Tiers, billing, usage tracking, and quotas.
 
 **Acceptance Criteria:**
 
-1. Before provisioning a container, Start compares the user's flushed current-month KV usage with the effective tier's compute allotment. Pending Timekeeper usage and historical D1 totals are not part of this comparison. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)) -->
-2. The comparison is skipped for tiers with no compute cap (unlimited). <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)) -->
-3. When the recorded usage reaches or exceeds the allotment, Start returns HTTP 402 with `QUOTA_EXCEEDED`. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)) -->
+1. Before provisioning a container, Start compares the user's flushed current-month KV usage with the effective tier's compute allotment. Pending Timekeeper usage and historical D1 totals are not part of this comparison. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @manual: Match retained finite SaaS Start records and observed quota authority as described in the billing lane. -->
+2. The comparison is skipped for tiers with no compute cap (unlimited). <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @manual: Match retained unlimited-tier Start records and observed quota authority as described in the billing lane. -->
+3. When the recorded usage reaches or exceeds the allotment, Start returns HTTP 402 with `QUOTA_EXCEEDED`. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @manual: Match retained finite SaaS Start records and observed quota authority as described in the billing lane. -->
 4. In SaaS mode, when the frontend's usage state has a positive monthly quota and usage reaches or exceeds it, Layout displays a non-dismissible quota-exceeded banner with an upgrade link to `/app/subscribe`; this banner is absent outside SaaS mode. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/src/stores/session-usage.ts::getUsageWarningLevel --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (offers the subscription upgrade from the SaaS quota-exceeded banner) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (AC3: surfaces no usage banner outside SaaS mode even at 100% usage) -->
-5. Quota enforcement is skipped in non-billed deployment modes and in stress-test mode. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/index.test.ts (REQ-SUB-007 AC5 + REQ-SUB-022 AC1: accumulates the durable monthly total without enforcing quota outside SaaS) -->
-6. A live usage KV read failure skips the quota check. D1 session-authority failure still fails Start closed. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)) -->
+5. Quota enforcement is skipped in non-billed deployment modes and in stress-test mode. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/index.test.ts (REQ-SUB-007 AC5 + REQ-SUB-022 AC1: accumulates the durable monthly total without enforcing quota outside SaaS) --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (REQ-ENTERPRISE-001 AC3: enterprise users are never blocked by the monthly compute quota) -->
+6. A live usage KV read failure skips the quota check. D1 session-authority failure still fails Start closed. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (AC5: unavailable D1 rejects admission without changing durable authority) --> <!-- @manual: Match retained finite SaaS Start records and observed quota authority as described in the billing lane. -->
 
 **Constraints:**
 
@@ -278,7 +279,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-006](#req-sub-006-real-time-usage-tracking-via-timekeeper-do), [REQ-SUB-012](#req-sub-012-billing-status-enforcement-effective-tier)
 
-**Verification:** Automated: [index.test.ts](../../src/__tests__/timekeeper/index.test.ts), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx)
+**Verification:** Automated: [index.test.ts](../../src/__tests__/timekeeper/index.test.ts), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx), [container-lifecycle-helpers.test.ts](../../src/__tests__/routes/container-lifecycle-helpers.test.ts), [session-authority-outcomes.test.ts](../../src/__tests__/lib/session-authority-outcomes.test.ts); Manual: [Session-start quota gate](../../documentation/lanes/billing.md#session-start-quota-gate)
 
 **Status:** Implemented
 

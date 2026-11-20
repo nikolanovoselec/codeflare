@@ -886,10 +886,11 @@ When `OAUTH_CLIENT_ID` is configured in SaaS mode, the Worker handles authentica
 
 **Decision:** `countPaidSlots()` excludes free/pending/blocked users from the cap.
 
-The `setup:max_users` KV key limits subscribing users. Free tier users (4h/month, 1 session) use minimal resources and shouldn't block paid customers. `countPaidSlots()` counts admins + users with paid tiers (standard/advanced/max/unlimited) whose billing is active or trialing. Canceled users count until `billingPeriodEnd` expires. Unlimited free users allowed without hitting cap.
+The `setup:max_users` KV key limits subscribing users. Free tier users (4h/month, 1 session) do not occupy paid slots. `countPaidSlots()` counts admins and users on paid tiers (standard/advanced/max/unlimited) with active or trialing billing. Canceled users count until `billingPeriodEnd` expires.
 
+**Amendment (2026-11-20):** Keep the existing signup gate: when the positive cap is full, the direct signup route blocks new Free signups as well as new paid signups. This does not change which accounts the counter counts or impose a payment requirement on an admitted Free signup.
 
-**Consequences:** The original compact ADR did not record a separate consequences field.
+**Consequences:** Adding Free accounts does not fill capacity. Paid occupancy reaching the cap still prevents new Free signups.
 
 ---
 
@@ -4257,6 +4258,8 @@ Herdr live processes, pane history, sockets, logs, plugins, updater state, and u
 `EgressController` classifies every protected-mode own-R2 mutation immediately before signing with the user's scoped credential. Protected exact paths and exclusive roots return S3 denial, and logs retain only operation, identity/hash prefixes, request ID, and reason ([REQ-ENTERPRISE-029](../../sdd/spec/security.md#req-enterprise-029-managed-resource-egress-enforcement)). Container-restored policy generates rclone exclusions only and grants no authority.
 
 **Consequences:** Protected files cannot become user-owned by dropping metadata, retired paths cannot be recreated, and exclusive resource roots cannot persist personal additions. Mutable mode and personal paths outside active coverage retain AD118 ownership behavior. Policy uncertainty blocks mutation or session admission. No policy database, KV distribution, deployment-wide signer, queue, or Durable Object persistence exists.
+
+**Amendment (2026-11-20):** Keep Exclusive bulk cleanup key-based within the existing governed-root, workload-ownership, and listing bounds. Do not block cleanup solely because R2 does not document an atomic compare-and-delete operation. Exclusive batches do not detect concurrent replacements at listed keys. Existing conditional per-object cleanup is unchanged.
 
 **Related REQs:** [REQ-SETUP-013](../../sdd/spec/setup.md#req-setup-013-managed-environment-configuration), [REQ-SETUP-015](../../sdd/spec/setup.md#req-setup-015-managed-resource-persistence-controls), [REQ-SETUP-016](../../sdd/spec/setup.md#req-setup-016-managed-resource-policy-safety), [REQ-STOR-028](../../sdd/spec/storage.md#req-stor-028-canonical-managed-resource-persistence-policy), [REQ-STOR-029](../../sdd/spec/storage.md#req-stor-029-managed-resource-reconciliation), [REQ-STOR-030](../../sdd/spec/storage.md#req-stor-030-managed-resource-policy-loading), [REQ-STOR-031](../../sdd/spec/storage.md#req-stor-031-managed-resource-container-sync), [REQ-STOR-032](../../sdd/spec/storage.md#req-stor-032-exclusive-managed-resource-boundaries), [REQ-ENTERPRISE-027](../../sdd/spec/security.md#req-enterprise-027-managed-resource-admission-and-transport), [REQ-ENTERPRISE-028](../../sdd/spec/security.md#req-enterprise-028-managed-resource-request-classification), [REQ-ENTERPRISE-029](../../sdd/spec/security.md#req-enterprise-029-managed-resource-egress-enforcement), [REQ-ENTERPRISE-030](../../sdd/spec/storage.md#req-enterprise-030-managed-resource-storage-enforcement).
 
