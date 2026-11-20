@@ -4,7 +4,6 @@ import {
   mkdir,
   mkdtemp,
   open,
-  readFile,
   realpath,
   rename,
   rm,
@@ -26,6 +25,11 @@ interface ExtensionRecord {
   targetPlatform?: string;
   installedAt?: string;
   sha256?: string;
+}
+
+interface CaptureHandoff {
+  pins: Record<string, { version: string; observed: ExtensionRecord }>;
+  removals: Record<string, { marker: string; observed: ExtensionRecord }>;
 }
 
 interface ExtensionManifest {
@@ -113,6 +117,7 @@ const COMPANY_RECONCILE_CONCURRENCY = 2;
 const COMPANY_REQUEST_TIMEOUT_MS = 30_000;
 const COMPANY_REDIRECT_HOST = 'openvsx.eclipsecontent.org';
 const COMPANY_MARKER = '.codeflare-company-extensions.json';
+const CAPTURE_HANDOFF = '.codeflare-extension-capture.json';
 const managedExtensionKeys = new Set([
   'id',
   'publisher',
@@ -200,7 +205,7 @@ async function readBoundedRegularFile(path: string, maxBytes: number): Promise<B
 export async function loadExtensionManifest(manifestPath: string): Promise<ManifestLoadResult> {
   try {
     const bytes = await readBoundedRegularFile(manifestPath, policy.manifestMaxBytes);
-    const parsed: unknown = JSON.parse(bytes.toString('utf8'));
+    const parsed: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes));
     return isManifest(parsed) ? { state: 'valid', manifest: parsed } : { state: 'invalid' };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { state: 'absent' };
@@ -245,8 +250,11 @@ async function loadManagedExtensions(
   expectedReleaseDigest: string | null,
   expectedManifestDigest: string | null,
 ): Promise<ManagedExtensionRecord[]> {
-  if (!expectedReleaseDigest) return [];
-  if (!expectedManifestDigest) throw new Error('missing trusted company extension manifest digest');
+  if (process.env.REMOTE_CURATION_ACTIVE !== 'true' && !expectedReleaseDigest && !expectedManifestDigest) return [];
+  if (!expectedReleaseDigest || !sha256Pattern.test(expectedReleaseDigest)
+    || !expectedManifestDigest || !sha256Pattern.test(expectedManifestDigest)) {
+    throw new Error('missing or invalid company extension manifest identity');
+  }
   try {
     const bytes = await readBoundedRegularFile(path, COMPANY_MANIFEST_MAX_BYTES);
     if (createHash('sha256').update(bytes).digest('hex') !== expectedManifestDigest) {
@@ -383,18 +391,61 @@ async function loadObsolete(extensionsDir: string): Promise<Set<string>> {
   }
 }
 
-function obsoleteProvesUninstall(
-  id: string,
-  observed: ExtensionRecord,
-  obsolete: Set<string>,
-  persisted?: ExtensionRecord,
-): boolean {
-  const records = persisted?.version === observed.version ? [observed, persisted] : [observed];
-  return records.some((record) => {
-    const stem = `${id}-${record.version}`;
-    return obsolete.has(stem)
-      || (record.targetPlatform !== undefined && obsolete.has(`${stem}-${record.targetPlatform}`));
-  });
+function obsoleteMarker(id: string, record: ExtensionRecord, obsolete: Set<string>): string | undefined {
+  const stem = `${id}-${record.version}`;
+  const key = record.targetPlatform && `${stem}-${record.targetPlatform}`;
+  return obsolete.has(stem) ? stem : key && obsolete.has(key) ? key : undefined;
+}
+
+function sameRegistryRow(left: ExtensionRecord, right: ExtensionRecord): boolean {
+  return left.version === right.version && left.targetPlatform === right.targetPlatform && left.installedAt === right.installedAt;
+}
+
+async function readCaptureHandoff(extensionsDir: string): Promise<CaptureHandoff> {
+  try {
+    const bytes = await readBoundedRegularFile(join(extensionsDir, CAPTURE_HANDOFF), policy.manifestMaxBytes);
+    const value: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes));
+    if (!isRecord(value) || Object.keys(value).length !== 2 || !isRecord(value.pins) || !isRecord(value.removals)) {
+      throw new Error('invalid extension capture handoff');
+    }
+    for (const [kind, entries] of [['pins', value.pins], ['removals', value.removals]] as const) {
+      if (Object.keys(entries).length > policy.extensionMaxCount) throw new Error('capture handoff exceeds bound');
+      for (const [id, entry] of Object.entries(entries)) {
+        if (!extensionIdPattern.test(id) || fixedExtensionIds.has(id) || !isRecord(entry)
+          || Object.keys(entry).length !== 2 || !isExtensionRecord(entry.observed)) throw new Error('invalid capture handoff entry');
+        if (kind === 'pins') {
+          if (!isExtensionRecord({ version: entry.version })) throw new Error('invalid saved pin');
+        } else {
+          const stem = `${id}-${entry.observed.version}-`;
+          if (typeof entry.marker !== 'string' || !entry.marker.startsWith(stem)
+            || !targetPlatformPattern.test(entry.marker.slice(stem.length))) throw new Error('invalid removal marker');
+        }
+      }
+    }
+    return value as unknown as CaptureHandoff;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { pins: {}, removals: {} };
+    throw error;
+  }
+}
+
+async function writeCaptureHandoff(extensionsDir: string, current: CaptureHandoff, next: CaptureHandoff): Promise<void> {
+  const payload = `${JSON.stringify(next)}\n`;
+  if (JSON.stringify(current) === JSON.stringify(next)) return;
+  if (Buffer.byteLength(payload) > policy.manifestMaxBytes) throw new Error('capture handoff exceeds bound');
+  await atomicWrite(join(extensionsDir, CAPTURE_HANDOFF), payload);
+}
+
+function observedRemoval(
+  id: string, observed: ExtensionRecord, persisted: ExtensionRecord | undefined,
+  obsolete: Set<string>, handoff: CaptureHandoff,
+): string | undefined {
+  if (observed.targetPlatform !== undefined) return undefined;
+  const prior = handoff.removals[id];
+  if (prior && sameRegistryRow(prior.observed, observed) && obsolete.has(prior.marker)) return prior.marker;
+  const key = persisted?.version === observed.version && persisted.targetPlatform !== undefined
+    ? `${id}-${persisted.version}-${persisted.targetPlatform}` : undefined;
+  return key && obsolete.has(key) ? key : undefined;
 }
 
 function stableValue(value: JsonValue | ExtensionManifest): unknown {
@@ -519,9 +570,11 @@ async function persistSecurityAcknowledgement(options: ResolvedOptions): Promise
   let present: Record<string, ExtensionRecord>;
   let obsolete: Set<string>;
   let companyIds: Set<string>;
+  let handoff: CaptureHandoff;
   try {
     present = await loadRegistry(options.extensionsDir);
     obsolete = await loadObsolete(options.extensionsDir);
+    handoff = await readCaptureHandoff(options.extensionsDir);
     companyIds = await companyProvenanceIds(
       options.extensionsDir,
       options.managedExtensionsPath,
@@ -533,7 +586,8 @@ async function persistSecurityAcknowledgement(options: ResolvedOptions): Promise
   }
   const effectivePresent = Object.entries(present).filter(([id, observed]) => (
     !companyIds.has(id)
-    && !obsoleteProvesUninstall(id, observed, obsolete, current.extensions[id])
+    && !obsoleteMarker(id, observed, obsolete)
+    && !observedRemoval(id, observed, current.extensions[id], obsolete, handoff)
   ));
   if (effectivePresent.length === 0) return true;
   if (!(await acknowledgeExtensionSecurity())) return false;
@@ -563,18 +617,28 @@ export async function captureExtensionManifest(
       options.managedReleaseDigest ?? null,
       options.managedManifestDigest ?? null,
     );
+    const handoff = await readCaptureHandoff(options.extensionsDir);
+    const nextHandoff: CaptureHandoff = { pins: {}, removals: {} };
     const extensions: Record<string, ExtensionRecord> = {};
     for (const [id, record] of Object.entries(current.extensions)) {
-      if (companyIds.has(id)) {
-        extensions[id] = record;
-      } else if (present[id] === undefined && !obsoleteProvesUninstall(id, record, obsolete)) {
-        extensions[id] = record;
-      }
+      if (companyIds.has(id) || !obsoleteMarker(id, record, obsolete)) extensions[id] = record;
     }
     for (const [id, observed] of Object.entries(present)) {
-      if (companyIds.has(id) || obsoleteProvesUninstall(id, observed, obsolete, current.extensions[id])) continue;
-      const digest = current.extensions[id]?.sha256;
-      extensions[id] = digest === undefined ? observed : { ...observed, sha256: digest };
+      if (companyIds.has(id)) continue;
+      const saved = current.extensions[id];
+      const direct = obsoleteMarker(id, observed, obsolete);
+      const removal = direct ? undefined : observedRemoval(id, observed, saved, obsolete, handoff);
+      if (direct || removal) {
+        if (removal) nextHandoff.removals[id] = { marker: removal, observed };
+        if (saved?.version === observed.version) delete extensions[id];
+        continue;
+      }
+      const pin = handoff.pins[id];
+      if (saved && pin?.version === saved.version && sameRegistryRow(pin.observed, observed)) {
+        nextHandoff.pins[id] = pin;
+        continue;
+      }
+      extensions[id] = saved?.sha256 === undefined ? observed : { ...observed, sha256: saved.sha256 };
     }
     if (Object.keys(extensions).length > policy.extensionMaxCount) return false;
 
@@ -591,6 +655,8 @@ export async function captureExtensionManifest(
     if (!isManifest(next)) return false;
     const payload = stableJson(next);
     if (Buffer.byteLength(payload) > policy.manifestMaxBytes) return false;
+    // Save the exact obsolete evidence before removing the persisted record.
+    await writeCaptureHandoff(options.extensionsDir, handoff, nextHandoff);
     if (loaded.state === 'valid' && stableJson(current) === payload) return false;
     await atomicWrite(options.manifestPath, payload);
     await signalSync(options.syncPidFile);
@@ -695,21 +761,15 @@ export async function reconcileCompanyExtensions(
   const suppliedReleaseDigest = options.managedReleaseDigest !== undefined
     ? options.managedReleaseDigest
     : process.env.REMOTE_CURATION_RELEASE_DIGEST ?? null;
-  const expectedReleaseDigest = suppliedReleaseDigest && sha256Pattern.test(suppliedReleaseDigest)
-    ? suppliedReleaseDigest
-    : null;
   const suppliedManifestDigest = options.managedManifestDigest !== undefined
     ? options.managedManifestDigest
     : process.env.REMOTE_CURATION_MANIFEST_DIGEST ?? null;
-  const expectedManifestDigest = suppliedManifestDigest && sha256Pattern.test(suppliedManifestDigest)
-    ? suppliedManifestDigest
-    : null;
   let managed: ManagedExtensionRecord[];
   try {
     managed = await loadManagedExtensions(
       options.managedExtensionsPath,
-      expectedReleaseDigest,
-      expectedManifestDigest,
+      suppliedReleaseDigest,
+      suppliedManifestDigest,
     );
   } catch {
     try {
@@ -856,6 +916,18 @@ export async function restoreExtensionManifest(
     .filter(([id, record]) => !managedIds.has(id) && installed[id]?.version !== record.version)
     .sort(([left], [right]) => left.localeCompare(right));
   const failures: string[] = [];
+  let handoff: CaptureHandoff;
+  const pins: CaptureHandoff['pins'] = {};
+  try {
+    handoff = await readCaptureHandoff(options.extensionsDir);
+    for (const [id, record] of missing) {
+      if (installed[id]) pins[id] = { version: record.version, observed: installed[id] };
+    }
+    // Reap may run even if this activation never reaches its first capture.
+    await writeCaptureHandoff(options.extensionsDir, handoff, { ...handoff, pins });
+  } catch {
+    return { failures: [] };
+  }
 
   const restoreOne = async ([id, record]: [string, ExtensionRecord]) => {
     try {
@@ -893,6 +965,9 @@ export async function restoreExtensionManifest(
       },
     );
   }
+  const failed = new Set(failures);
+  const failedPins = Object.fromEntries(Object.entries(pins).filter(([id]) => failed.has(id)));
+  await writeCaptureHandoff(options.extensionsDir, { ...handoff, pins }, { ...handoff, pins: failedPins }).catch(() => undefined);
   await restoreSettings(manifest.settings);
   failures.sort();
   if (failures.length > 0) {
@@ -914,18 +989,10 @@ function resolveOptions(options: PersistenceOptions = {}): ResolvedOptions {
     manifestPath: options.manifestPath ?? process.env.CODEFLARE_IDE_EXTENSIONS_MANIFEST ?? join(home, '.codeflare', 'ide-extensions.json'),
     syncPidFile: options.syncPidFile ?? process.env.CODEFLARE_SYNC_DAEMON_PIDFILE ?? '/run/codeflare/sync/sync-daemon.pid',
     managedExtensionsPath: options.managedExtensionsPath ?? join(home, '.codeflare', 'managed-extensions.json'),
-    managedReleaseDigest: (() => {
-      const value = options.managedReleaseDigest !== undefined
-        ? options.managedReleaseDigest
-        : process.env.REMOTE_CURATION_RELEASE_DIGEST ?? null;
-      return value && sha256Pattern.test(value) ? value : null;
-    })(),
-    managedManifestDigest: (() => {
-      const value = options.managedManifestDigest !== undefined
-        ? options.managedManifestDigest
-        : process.env.REMOTE_CURATION_MANIFEST_DIGEST ?? null;
-      return value && sha256Pattern.test(value) ? value : null;
-    })(),
+    managedReleaseDigest: options.managedReleaseDigest !== undefined
+      ? options.managedReleaseDigest : process.env.REMOTE_CURATION_RELEASE_DIGEST ?? null,
+    managedManifestDigest: options.managedManifestDigest !== undefined
+      ? options.managedManifestDigest : process.env.REMOTE_CURATION_MANIFEST_DIGEST ?? null,
     debounceMs: options.debounceMs ?? 2_000,
   };
 }

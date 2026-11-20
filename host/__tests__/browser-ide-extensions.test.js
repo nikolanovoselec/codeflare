@@ -31,7 +31,7 @@ function fixture() {
   return { root, extensionsDir, manifest };
 }
 
-function capture(extensionsDir, manifest, expectedManagedManifestDigest) {
+function capture(extensionsDir, manifest, expectedManagedManifestDigest, identity) {
   const managedPath = join(manifest, '..', 'managed-extensions.json');
   const managedManifestDigest = expectedManagedManifestDigest ?? (existsSync(managedPath)
     ? createHash('sha256').update(readFileSync(managedPath)).digest('hex')
@@ -45,8 +45,10 @@ function capture(extensionsDir, manifest, expectedManagedManifestDigest) {
   ], {
     env: {
       ...process.env,
-      REMOTE_CURATION_RELEASE_DIGEST: 'a'.repeat(64),
-      ...(managedManifestDigest && { REMOTE_CURATION_MANIFEST_DIGEST: managedManifestDigest }),
+      REMOTE_CURATION_ACTIVE: managedManifestDigest ? 'true' : '',
+      REMOTE_CURATION_RELEASE_DIGEST: managedManifestDigest ? 'a'.repeat(64) : '',
+      REMOTE_CURATION_MANIFEST_DIGEST: managedManifestDigest ?? '',
+      ...identity,
     },
   });
 }
@@ -145,6 +147,10 @@ test('REQ-IDE-036 AC3: malformed or unsafe manifests stay byte-for-byte unchange
     '{not-json',
     `${' '.repeat(65 * 1024)}\n`,
     JSON.stringify({ version: 2, extensions: {}, settings: {} }),
+    JSON.stringify({ ...manifest(), version: true }),
+    ...['targetPlatform', 'installedAt', 'sha256'].map(field => JSON.stringify(manifest({
+      'publisher.extension': { version: '1.0.0', [field]: null },
+    }))),
     JSON.stringify({ version: 1, unknown: true, extensions: {}, settings: {} }),
     JSON.stringify(manifest({ 'RedHat.vscode-yaml': { version: '1.24.0' } })),
     JSON.stringify(manifest(Object.fromEntries(Array.from({ length: 51 }, (_, index) => [
@@ -184,6 +190,80 @@ test('REQ-IDE-036 AC3: malformed or unsafe manifests stay byte-for-byte unchange
 
   assert.equal(lstatSync(manifestPath).isSymbolicLink(), true);
   assert.equal(readFileSync(target, 'utf8'), original);
+});
+
+test('REQ-IDE-037 AC4: reap preserves a pending pin until the conflicting registry row changes', () => {
+  const { extensionsDir, manifest: manifestPath } = fixture();
+  const id = 'publisher.extension';
+  const saved = { version: '1.0.0', targetPlatform: 'universal', sha256: 'a'.repeat(64) };
+  const original = JSON.stringify(manifest({ [id]: saved }));
+  writeFileSync(manifestPath, original);
+  writeFileSync(join(extensionsDir, '.codeflare-extension-capture.json'), JSON.stringify({
+    pins: { [id]: { version: saved.version, observed: { version: '2.0.0', targetPlatform: 'universal', installedAt: '2026-08-16T23:00:00.000Z' } } },
+    removals: {},
+  }));
+  writeFileSync(join(extensionsDir, 'extensions.json'), JSON.stringify([registryEntry(id, '2.0.0')]));
+  capture(extensionsDir, manifestPath);
+  assert.equal(readFileSync(manifestPath, 'utf8'), original);
+  writeFileSync(join(extensionsDir, 'extensions.json'), JSON.stringify([registryEntry(id, '3.0.0')]));
+  capture(extensionsDir, manifestPath);
+  assert.equal(JSON.parse(readFileSync(manifestPath, 'utf8')).extensions[id].version, '3.0.0');
+});
+
+test('REQ-IDE-062 AC3: repeated reap cannot resurrect platform-less obsolete intent, but reinstall can', () => {
+  const { extensionsDir, manifest: manifestPath } = fixture();
+  const id = 'publisher.extension';
+  writeFileSync(manifestPath, JSON.stringify(manifest({ [id]: { version: '1.0.0', targetPlatform: 'universal' } })));
+  const { metadata: _metadata, ...stale } = registryEntry(id, '1.0.0');
+  writeFileSync(join(extensionsDir, 'extensions.json'), JSON.stringify([stale]));
+  writeFileSync(join(extensionsDir, '.obsolete'), JSON.stringify({ [`${id}-1.0.0-universal`]: true }));
+  capture(extensionsDir, manifestPath);
+  const read = () => JSON.parse(readFileSync(manifestPath, 'utf8')).extensions;
+  assert.deepEqual(read(), {});
+  capture(extensionsDir, manifestPath);
+  assert.deepEqual(read(), {});
+  writeFileSync(join(extensionsDir, '.obsolete'), '{}');
+  capture(extensionsDir, manifestPath);
+  assert.deepEqual(read(), { [id]: { version: '1.0.0' } });
+});
+
+test('REQ-IDE-042 AC1: reap capture refuses incomplete active company identity', () => {
+  for (const fault of ['release-missing', 'release-malformed', 'wrong-release', 'file-missing']) {
+    const { extensionsDir, manifest: manifestPath } = fixture();
+    const prior = JSON.stringify(manifest({ 'acme.company': { version: '0.9.0' } }));
+    writeFileSync(manifestPath, prior);
+    writeFileSync(join(extensionsDir, 'extensions.json'), JSON.stringify([
+      registryEntry('acme.company', '1.0.0'), registryEntry('publisher.personal', '2.0.0'),
+    ]));
+    const managedPath = join(manifestPath, '..', 'managed-extensions.json');
+    if (fault !== 'file-missing') writeFileSync(managedPath, JSON.stringify(managedManifest([managedExtension('acme.company', '1.0.0')])));
+    const release = fault === 'release-missing' ? '' : fault === 'release-malformed' ? 'invalid'
+      : fault === 'wrong-release' ? 'b'.repeat(64) : 'a'.repeat(64);
+    capture(extensionsDir, manifestPath, undefined, { REMOTE_CURATION_ACTIVE: 'true', REMOTE_CURATION_RELEASE_DIGEST: release });
+    assert.equal(readFileSync(manifestPath, 'utf8'), prior, fault);
+  }
+});
+
+test('REQ-IDE-042 AC5: disabled curation and a verified empty release permit personal reap capture', () => {
+  for (const active of [false, true]) {
+    const { extensionsDir, manifest: manifestPath } = fixture();
+    const company = 'acme.company';
+    const personal = 'publisher.personal';
+    writeFileSync(join(extensionsDir, '.codeflare-company-extensions.json'), JSON.stringify([company]));
+    writeFileSync(join(manifestPath, '..', 'managed-extensions.json'), JSON.stringify(managedManifest(
+      active ? [] : [managedExtension(personal, '2.0.0')],
+    )));
+    writeFileSync(manifestPath, JSON.stringify(manifest()));
+    writeFileSync(join(extensionsDir, 'extensions.json'), JSON.stringify([
+      registryEntry(company, '1.0.0'), registryEntry(personal, '2.0.0'),
+    ]));
+    capture(extensionsDir, manifestPath, undefined, active ? undefined : {
+      REMOTE_CURATION_ACTIVE: '', REMOTE_CURATION_RELEASE_DIGEST: '', REMOTE_CURATION_MANIFEST_DIGEST: '',
+    });
+    const captured = JSON.parse(readFileSync(manifestPath, 'utf8')).extensions;
+    assert.deepEqual(Object.keys(captured), [personal]);
+    assert.equal(captured[personal].version, '2.0.0');
+  }
 });
 
 test('REQ-IDE-042 AC5: generation-reap capture preserves prior intent but never creates it solely from company installs', () => {

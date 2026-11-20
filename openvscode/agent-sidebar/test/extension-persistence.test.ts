@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, test, vi } from 'vitest';
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
@@ -142,6 +144,14 @@ function writeRegistry(
   }))));
 }
 
+function reapExtensionIntent(extensionsDir: string, manifestPath: string) {
+  const script = fileURLToPath(new URL('../../../scripts/browser-ide-extensions.py', import.meta.url));
+  const policy = fileURLToPath(new URL('../../extension-persistence-policy.json', import.meta.url));
+  execFileSync('python3', [script, 'capture', '--extensions-dir', extensionsDir, '--manifest', manifestPath, '--policy', policy], {
+    env: { ...process.env, REMOTE_CURATION_ACTIVE: '', REMOTE_CURATION_RELEASE_DIGEST: '', REMOTE_CURATION_MANIFEST_DIGEST: '' },
+  });
+}
+
 function validManifest(extensions: Record<string, Record<string, unknown>>, settings: Record<string, unknown> = {}) {
   return {
     version: 1,
@@ -181,6 +191,7 @@ afterEach(() => {
   delete process.env.CODEFLARE_OPENVSCODE_EXTENSIONS_DIR;
   delete process.env.CODEFLARE_IDE_EXTENSIONS_MANIFEST;
   delete process.env.CODEFLARE_SYNC_DAEMON_PIDFILE;
+  delete process.env.REMOTE_CURATION_ACTIVE;
   delete process.env.REMOTE_CURATION_RELEASE_DIGEST;
   delete process.env.REMOTE_CURATION_MANIFEST_DIGEST;
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
@@ -292,6 +303,31 @@ test('REQ-IDE-045 AC6: a missing active-release manifest preserves prior company
   assert.deepEqual(result, { failures: ['managed-extension-manifest'], managedIds: [priorId] });
   assert.equal(host.commands.length, 0);
   assert.deepEqual(JSON.parse(readFileSync(join(extensionsDir, '.codeflare-company-extensions.json'), 'utf8')), [priorId]);
+});
+
+test.each([undefined, 'invalid'])('REQ-IDE-045 AC6: incomplete active release %s cannot uninstall or rewrite intent', async release => {
+  const { extensionsDir, manifestPath, managedExtensionsPath, syncPidFile } = fixture();
+  const marker = join(extensionsDir, '.codeflare-company-extensions.json');
+  const prior = '["acme.company"]\n';
+  writeFileSync(marker, prior);
+  const intent = JSON.stringify({ ...validManifest({ 'acme.company': { version: '0.9.0' } }), securityWarningShown: true });
+  writeFileSync(manifestPath, intent);
+  writeRegistry(extensionsDir, [{ id: 'acme.company', version: '1.0.0' }, { id: 'publisher.personal', version: '2.0.0' }]);
+  process.env.REMOTE_CURATION_ACTIVE = 'true';
+  if (release !== undefined) process.env.REMOTE_CURATION_RELEASE_DIGEST = release;
+
+  const subscriptions: Array<{ dispose(): void }> = [];
+  const deactivate = await activateExtensionPersistence({ subscriptions } as never,
+    { extensionsDir, manifestPath, managedExtensionsPath, syncPidFile });
+  try {
+    assert.deepEqual(host.commands, []);
+    assert.equal(readFileSync(marker, 'utf8'), prior);
+    assert.equal(readFileSync(manifestPath, 'utf8'), intent);
+    assert.ok(host.warnings.some(message => message.startsWith('Managed Browser IDE extensions could not be verified.')));
+  } finally {
+    await deactivate();
+    for (const subscription of subscriptions) subscription.dispose();
+  }
 });
 
 test('REQ-IDE-045 AC6: manifest failure preserves company ownership while unrelated personal restore continues', async () => {
@@ -542,6 +578,32 @@ test('disabling company enforcement preserves personal extension intent', async 
   assert.equal(JSON.parse(readFileSync(manifestPath, 'utf8')).extensions[company.id].version, '0.2.0');
 });
 
+test('REQ-IDE-045 AC6: disabled curation does not treat a stale managed document as active', async () => {
+  const { extensionsDir, manifestPath, managedExtensionsPath, syncPidFile } = fixture();
+  const company = managedExtension();
+  writeManagedExtensions(managedExtensionsPath, [company]);
+  delete process.env.REMOTE_CURATION_ACTIVE;
+  delete process.env.REMOTE_CURATION_RELEASE_DIGEST;
+  delete process.env.REMOTE_CURATION_MANIFEST_DIGEST;
+  writeFileSync(join(extensionsDir, '.codeflare-company-extensions.json'), JSON.stringify([company.id]));
+  writeFileSync(manifestPath, JSON.stringify({ ...validManifest({ [company.id]: { version: '0.2.0' } }), securityWarningShown: true }));
+  host.execute = async (_command, selector) => {
+    if (selector === company.id) writeRegistry(extensionsDir);
+    if (selector === `${company.id}@0.2.0`) writeRegistry(extensionsDir, [{ id: company.id, version: '0.2.0' }]);
+  };
+  const subscriptions: Array<{ dispose(): void }> = [];
+  const deactivate = await activateExtensionPersistence({ subscriptions } as never,
+    { extensionsDir, manifestPath, managedExtensionsPath, syncPidFile });
+  try {
+    assert.deepEqual(host.commands.map(({ arguments: args }) => args[0]), [company.id, `${company.id}@0.2.0`]);
+    assert.deepEqual(host.warnings, []);
+    assert.equal(JSON.parse(readFileSync(manifestPath, 'utf8')).extensions[company.id].version, '0.2.0');
+  } finally {
+    await deactivate();
+    for (const subscription of subscriptions) subscription.dispose();
+  }
+});
+
 test('REQ-IDE-042 AC7: removed company extensions are uninstalled before personal intent is restored', async () => {
   const { extensionsDir, manifestPath, managedExtensionsPath } = fixture();
   const company = managedExtension();
@@ -651,6 +713,21 @@ test('REQ-IDE-036 AC1+AC2+AC3: malformed manifests fail closed and valid manifes
   assert.deepEqual(loaded.manifest?.settings, { 'yaml.validate': true });
 });
 
+test('REQ-IDE-036 AC3: refuses invalid UTF-8 without applying settings or replacing bytes', async () => {
+  const { extensionsDir, manifestPath, syncPidFile } = fixture();
+  const manifest = { ...validManifest({ 'redhat.vscode-yaml': { version: '1.24.0' } }, { 'yaml.validate': 'invalid byte here' }), securityWarningShown: true };
+  const bytes = Buffer.from(JSON.stringify(manifest));
+  bytes[bytes.indexOf('invalid byte here')] = 0xff;
+  writeFileSync(manifestPath, bytes);
+  writeRegistry(extensionsDir, [{ id: 'redhat.vscode-yaml', version: '1.25.0' }]);
+
+  await restoreExtensionManifest({ extensionsDir, manifestPath });
+  assert.deepEqual(host.commands, []);
+  assert.deepEqual(host.settingsUpdates, []);
+  assert.equal(await captureExtensionManifest({ extensionsDir, manifestPath, syncPidFile }), false);
+  assert.deepEqual(readFileSync(manifestPath), bytes);
+});
+
 test('REQ-IDE-036 AC3: redirected manifest parent is ignored without restoring or changing outside bytes', async () => {
   const { root, extensionsDir, manifestPath } = fixture();
   const outside = join(root, 'outside');
@@ -665,6 +742,36 @@ test('REQ-IDE-036 AC3: redirected manifest parent is ignored without restoring o
   assert.deepEqual(host.commands, []);
   assert.deepEqual(host.settingsUpdates, []);
   assert.equal(readFileSync(outsideFile, 'utf8'), bytes);
+});
+
+test('REQ-IDE-037 AC4: an unchanged registry row cannot replace a failed pin during live or reap capture', async () => {
+  const { extensionsDir, manifestPath, managedExtensionsPath, syncPidFile } = fixture();
+  const pinned = 'publisher.pinned';
+  const fallback = 'publisher.fallback';
+  const pin = { version: '1.0.0', targetPlatform: 'universal' };
+  const registry = [{ id: pinned, version: '2.0.0' }, { id: fallback, version: '2.0.0' }];
+  writeRegistry(extensionsDir, registry);
+  writeFileSync(manifestPath, JSON.stringify({ ...validManifest({ [pinned]: pin, [fallback]: pin }), securityWarningShown: true }));
+  host.execute = async (_command, selector) => {
+    if (selector === `${pinned}@1.0.0`) throw new Error('registry unavailable');
+    if (selector === `${fallback}@1.0.0`) throw Object.assign(new Error('version unavailable'), { code: 'ExtensionNotFound' });
+  };
+  const subscriptions: Array<{ dispose(): void }> = [];
+  const deactivate = await activateExtensionPersistence({ subscriptions } as never,
+    { extensionsDir, manifestPath, managedExtensionsPath, syncPidFile });
+  try {
+    const read = () => JSON.parse(readFileSync(manifestPath, 'utf8')).extensions;
+    assert.deepEqual(read()[pinned], pin);
+    assert.equal(read()[fallback].version, '2.0.0');
+    await deactivate();
+    reapExtensionIntent(extensionsDir, manifestPath);
+    assert.deepEqual(read()[pinned], pin);
+    writeRegistry(extensionsDir, [{ id: pinned, version: '3.0.0' }, registry[1]]);
+    reapExtensionIntent(extensionsDir, manifestPath);
+    assert.equal(read()[pinned].version, '3.0.0');
+  } finally {
+    for (const subscription of subscriptions) subscription.dispose();
+  }
 });
 
 test('REQ-IDE-016 AC3 + REQ-IDE-037 AC1+AC3+AC4: restores exact versions, falls back once, and preserves failures', async () => {
@@ -896,6 +1003,12 @@ test('REQ-IDE-036 AC6: obsolete evidence removes a stale registry entry without 
 
   assert.equal(await captureExtensionManifest({ extensionsDir, manifestPath, syncPidFile }), true);
   assert.deepEqual(JSON.parse(readFileSync(manifestPath, 'utf8')).extensions, {});
+  assert.equal(await captureExtensionManifest({ extensionsDir, manifestPath, syncPidFile }), false);
+  reapExtensionIntent(extensionsDir, manifestPath);
+  assert.deepEqual(JSON.parse(readFileSync(manifestPath, 'utf8')).extensions, {});
+  unlinkSync(join(extensionsDir, '.obsolete'));
+  assert.equal(await captureExtensionManifest({ extensionsDir, manifestPath, syncPidFile }), true);
+  assert.equal(JSON.parse(readFileSync(manifestPath, 'utf8')).extensions['publisher.extension'].version, '1.0.0');
 });
 
 test('REQ-IDE-038 AC1+AC4: capture warns once before the first persisted user extension', async () => {
