@@ -3232,7 +3232,7 @@ configure_pi_packages_and_review_inventory() {
 const fs = require('fs');
 const path = process.argv[2];
 const required = [
-  'npm:@calesennett/pi-codex-fast@0.1.13',
+  'npm:@calesennett/pi-codex-fast@0.1.14',
   'npm:@gotgenes/pi-subagents@25.0.5',
   // Pi tool extensions, always enabled (in `required`) so they are available
   // independently of the context-mode toggle — toggling /ctx never disables them.

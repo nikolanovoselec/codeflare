@@ -366,7 +366,7 @@ describe('REQ-AGENT-056 / REQ-AGENT-209: Open TUI adoption and managed Usage ret
 
 // Exact package identity and settings preservation are the managed migration contract.
 describe('REQ-AGENT-224: managed Fast/Ultrafast startup', () => {
-  const expected = 'npm:@calesennett/pi-codex-fast@0.1.13';
+  const expected = 'npm:@calesennett/pi-codex-fast@0.1.14';
   it('REQ-AGENT-224: fresh startup registers the pinned extension once', () => {
     const settings = runAssembly('{}', 2);
     assert.deepEqual(settings.packages.filter(entry => sourceOf(entry).startsWith('npm:@calesennett/pi-codex-fast@')), [expected]);
