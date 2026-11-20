@@ -245,21 +245,46 @@ describe('GET /auth/cloudflare/connect/callback', () => {
     expect(callback.status).toBe(302);
     expect(callback.headers.get('location')).toContain(`cloudflare=${outcome}`);
 
-    if (!selected) mockFetch.mockResolvedValueOnce(ok({ success: true, result: accounts }));
+    const replacementAccounts = (_url: string, init: RequestInit) =>
+      new Headers(init.headers).get('Authorization') === 'Bearer replacement'
+        ? ok({ success: true, result: accounts })
+        : { ok: false, status: 403 };
+    if (!selected) mockFetch.mockImplementationOnce(replacementAccounts);
     const status = await app.request('/api/cloudflare/status');
     expect(status.status).toBe(200);
-    const body = await status.json();
     const connected = { configured: true, connected: true, source: 'oauth' };
-    if (selected) {
-      expect(body).toEqual({ ...connected, accountId: selected });
-    } else {
-      expect(body).toEqual({ ...connected, accounts });
-      mockFetch.mockResolvedValueOnce(ok({ success: true, result: accounts }));
-      const pick = await app.request('/api/cloudflare/account', { method: 'POST',
-        headers: { 'content-type': 'application/json' }, body: JSON.stringify({ accountId: 'a' }) });
-      expect(pick.status).toBe(200);
-      expect(await (await app.request('/api/cloudflare/status')).json()).toEqual({ ...connected, accountId: 'a' });
-    }
+    expect(await status.json()).toEqual(selected ? { ...connected, accountId: selected } : { ...connected, accounts });
+
+    mockFetch.mockImplementationOnce(replacementAccounts);
+    const accountId = selected ?? 'a';
+    const pick = await app.request('/api/cloudflare/account', { method: 'POST',
+      headers: { 'content-type': 'application/json' }, body: JSON.stringify({ accountId }) });
+    expect(pick.status).toBe(200);
+    expect(await (await app.request('/api/cloudflare/status')).json()).toEqual({ ...connected, accountId });
+  });
+
+  it('REQ-AGENT-064 AC8: an unavailable accounts lookup leaves the existing grant usable', async () => {
+    configureClient();
+    mockKV._set(KEY, { cloudflareApiToken: 'old-token', cloudflareTokenSource: 'oauth', cloudflareAccountId: 'old-account' } satisfies DeployKeys);
+    mockFetch
+      .mockResolvedValueOnce(ok({ access_token: 'replacement', refresh_token: 'new-refresh', expires_in: 3_600 }))
+      .mockResolvedValueOnce({ ok: false, status: 503 });
+    const app = createTestApp(BASE_ENV);
+    const state = await validState();
+    const callback = await app.request(`/auth/cloudflare/connect/callback?code=abc&state=${encodeURIComponent(state)}`);
+    expect(callback.status).toBe(302);
+    expect(callback.headers.get('location')).toContain('cloudflare=error');
+    expect(await (await app.request('/api/cloudflare/status')).json()).toEqual({
+      configured: true, connected: true, source: 'oauth', accountId: 'old-account',
+    });
+
+    mockFetch.mockImplementationOnce((_url: string, init: RequestInit) =>
+      new Headers(init.headers).get('Authorization') === 'Bearer old-token'
+        ? ok({ success: true, result: [{ id: 'old-account', name: 'Old account' }] })
+        : { ok: false, status: 403 });
+    const pick = await app.request('/api/cloudflare/account', { method: 'POST',
+      headers: { 'content-type': 'application/json' }, body: JSON.stringify({ accountId: 'old-account' }) });
+    expect(pick.status).toBe(200);
   });
 
   it('redirects expired on an invalid state and never exchanges a code', async () => {

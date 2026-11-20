@@ -373,12 +373,9 @@ export async function connectCloudflare(
   if (!provider) throw new Error('Cloudflare integration not configured');
   const conn = await provider.exchangeCode(code, redirectUri);
 
-  let accounts: CloudflareAccount[] = [];
-  try {
-    accounts = await fetchCloudflareAccounts(conn.accessToken);
-  } catch (err) {
-    logger.warn('Cloudflare account resolution failed after connect', { err: String(err) });
-  }
+  // A failed lookup is not an empty account list. Leave the stored grant unchanged
+  // and let the callback report the existing retryable authorization error.
+  const accounts = await fetchCloudflareAccounts(conn.accessToken);
   const accountId = await storeCloudflareConnection(env, bucketName, conn, accounts);
   return { accounts, accountId };
 }

@@ -33,6 +33,7 @@ interface SettingsPanelProps {
   onClose: () => void;
   currentUserEmail?: string;
   mcpReturnOutcome?: import('../lib/mcp-portal-recovery').McpReturnOutcome;
+  cloudflareReturn?: 'select-account' | 'error';
   currentUserRole?: 'admin' | 'user';
   currentUserAccessTier?: import('../types').AccessTier;
   enterpriseMode?: boolean;
@@ -54,7 +55,7 @@ interface AccordionSectionProps {
  *
  * - Only one group is expanded at a time; clicking a collapsed header opens it
  *   and closes the current one. Clicking the open header is a no-op.
- * - Resets to "Appearance" whenever the parent panel is closed and reopened.
+ * - Opens to Appearance by default, or Integrations after a Cloudflare return.
  * - ARIA follows the WAI-ARIA Accordion Pattern: h3 wraps button (not vice
  *   versa), button has aria-expanded & aria-controls, content region has
  *   role="region" and aria-labelledby.
@@ -148,7 +149,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
       onCleanup(() => { current = false; });
       setLiveAllowedModes(undefined);
       if (!isOpen) return;
-      if (!previous?.[0]) setOpenGroup('appearance');
+      if (!previous?.[0]) setOpenGroup(props.cloudflareReturn ? 'deploy' : 'appearance');
       getUser().then((user) => {
         if (!current || !props.isOpen || props.currentUserEmail !== owner
           || sessionStore.saasMode !== saasMode || (owner && user.email !== owner)) return;
@@ -452,6 +453,9 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
             isOpen={openGroup() === 'deploy'}
             onToggle={() => handleAccordionClick('deploy')}
           >
+            <Show when={props.cloudflareReturn === 'error'}>
+              <p class="settings-hint type-hint" role="alert">Cloudflare authorization could not be completed. Try again.</p>
+            </Show>
             <DeployKeysSection />
           </AccordionSection>
 

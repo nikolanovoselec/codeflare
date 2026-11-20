@@ -7,7 +7,8 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 ## 2026-11-20: Re-authorize a Cloudflare integration
 
 - REQ-AGENT-018 and REQ-AGENT-028 label the connected Account ID and add Re-authorize to Settings. Select a permission tier to continue without disconnecting; Cancel leaves the connection unchanged.
-- REQ-AGENT-064 keeps the previously selected account only if the new grant can access it. If no selection is valid, Codeflare selects the sole accessible account or offers account selection.
+- REQ-AGENT-064 keeps the prior account if the new grant can access it, selects a sole accessible account, or opens Integrations for account selection. A failed lookup leaves the saved connection intact.
+- REQ-AGENT-228 renames the existing MCP action to Re-authorize; Disconnect remains separate.
 
 ## 2026-11-19: Resolve local Review before GitHub discovery
 

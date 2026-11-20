@@ -101,13 +101,6 @@ describe.each([false, true])('OAuthConnectCard (compact=%s)', compact => {
       expect(onDisconnect).toHaveBeenCalled();
     });
 
-    it.runIf(!compact)('keeps Re-authorize out of connected onboarding cards with tier options', () => {
-      render(() => <OAuthConnectCard {...card} status="connected"
-        tierOptions={{ tiers: GITHUB_TIERS, selected: 'recommended', onSelect: vi.fn() }} />);
-      expect(screen.getByRole('button', { name: 'Disconnect' })).toBeEnabled();
-      expect(screen.queryByRole('button', { name: 'Re-authorize' })).not.toBeInTheDocument();
-    });
-
     it('renders an account picker and routes selection when accounts are provided', () => {
       const onSelectAccount = vi.fn();
       render(() => (
@@ -130,4 +123,11 @@ describe.each([false, true])('OAuthConnectCard (compact=%s)', compact => {
       expect(document.querySelector('.oauth-connect-account')).toBeNull();
     });
   });
+});
+
+it('keeps Re-authorize out of connected onboarding cards with tier options', () => {
+  render(() => <OAuthConnectCard {...base} status="connected"
+    tierOptions={{ tiers: GITHUB_TIERS, selected: 'recommended', onSelect: vi.fn() }} />);
+  expect(screen.getByRole('button', { name: 'Disconnect' })).toBeEnabled();
+  expect(screen.queryByRole('button', { name: 'Re-authorize' })).not.toBeInTheDocument();
 });

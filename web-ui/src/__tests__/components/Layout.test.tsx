@@ -11,7 +11,14 @@ vi.mock('../../api/client', async importOriginal => ({
 }));
 vi.mock('../../api/mcp-portals', () => ({ getMcpPortalStatuses: async () => [] }));
 
-const navigationRendering = vi.hoisted(() => ({ realTerminalArea: false }));
+const navigationRendering = vi.hoisted(() => ({ realTerminalArea: false, realSettingsPanel: false }));
+const cloudflare = vi.hoisted(() => ({ getStatus: vi.fn(), selectAccount: vi.fn() }));
+vi.mock('../../api/cloudflare', () => ({
+  getCloudflareStatus: cloudflare.getStatus,
+  selectCloudflareAccount: cloudflare.selectAccount,
+  disconnectCloudflare: vi.fn(),
+  cloudflareConnectUrl: () => '/api/cloudflare/connect',
+}));
 
 vi.mock('../../components/Dashboard', () => ({
   default: (props: any) => <section aria-label="Session dashboard">
@@ -63,12 +70,14 @@ vi.mock('../../components/SplashCursor', () => ({
   default: () => <div data-testid="splash-cursor" />
 }));
 
-vi.mock('../../components/SettingsPanel', () => ({
-  default: (props: any) => {
+vi.mock('../../components/SettingsPanel', async importOriginal => {
+  const { default: ActualSettingsPanel } = await importOriginal<typeof import('../../components/SettingsPanel')>();
+  return { default: (props: any) => {
+    if (navigationRendering.realSettingsPanel) return <ActualSettingsPanel {...props} />;
     (window as any).__settingsPanelProps = props;
     return <div data-testid="settings-panel" />;
-  }
-}));
+  } };
+});
 
 vi.mock('../../components/StoragePanel', () => ({
   default: (props: any) => {
@@ -261,6 +270,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
   beforeEach(() => {
     vi.clearAllMocks();
     navigationRendering.realTerminalArea = false;
+    navigationRendering.realSettingsPanel = false;
     mockSessions = [];
     mockActiveSessionId = null;
     mockPreferences = {};
@@ -291,6 +301,45 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
   afterEach(() => {
     cleanup();
     vi.useRealTimers();
+  });
+
+  it('REQ-AGENT-064 AC9: the account-selection return opens Integrations and lets the owner pick an account', async () => {
+    navigationRendering.realSettingsPanel = true;
+    appAuth.getUser.mockResolvedValue({ email: 'owner@example.com', role: 'user', authenticated: true });
+    const accounts = [{ id: 'a', name: 'Account A' }, { id: 'b', name: 'Account B' }];
+    let selected: string | undefined;
+    cloudflare.getStatus.mockImplementation(async () => ({ configured: true, connected: true,
+      ...(selected ? { accountId: selected } : { accounts }) }));
+    cloudflare.selectAccount.mockImplementation(async (accountId: string) => {
+      selected = accountId;
+      return { success: true, accountId };
+    });
+    window.history.replaceState(null, '', '/app/?cloudflare=select-account');
+
+    render(() => <App />);
+    const panel = within(await screen.findByRole('dialog', { name: 'Settings' }));
+    expect(panel.getByRole('button', { name: 'Integrations' })).toHaveAttribute('aria-expanded', 'true');
+    const integrations = within(panel.getByRole('region', { name: 'Integrations' }));
+    const picker = await integrations.findByRole('combobox', { name: 'Cloudflare account' });
+    fireEvent.change(picker, { target: { value: 'b' } });
+    expect(await integrations.findByText('Account ID')).toBeVisible();
+    expect(integrations.getByText('b', { exact: true })).toBeVisible();
+    expect(window.location.search).toBe('');
+  });
+
+  it('REQ-AGENT-064 AC8: a failed Cloudflare return offers retry in Integrations without disconnecting', async () => {
+    navigationRendering.realSettingsPanel = true;
+    appAuth.getUser.mockResolvedValue({ email: 'owner@example.com', role: 'user', authenticated: true });
+    cloudflare.getStatus.mockResolvedValue({ configured: true, connected: true, accountId: 'saved' });
+    window.history.replaceState(null, '', '/app/?cloudflare=error');
+
+    render(() => <App />);
+    const panel = within(await screen.findByRole('dialog', { name: 'Settings' }));
+    const integrations = within(panel.getByRole('region', { name: 'Integrations' }));
+    expect(integrations.getByRole('alert')).toHaveTextContent('Try again');
+    expect(await integrations.findByRole('button', { name: 'Re-authorize' })).toBeEnabled();
+    expect(integrations.getByText('saved', { exact: true })).toBeVisible();
+    expect(window.location.search).toBe('');
   });
 
   it('REQ-OPERATOR-033 AC5: real Layout never renders cached A sessions under B while B reload is pending', async () => {

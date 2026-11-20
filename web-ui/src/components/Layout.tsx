@@ -76,6 +76,7 @@ const Layout: Component<LayoutProps> = (props) => {
   const usageWarning = () => getUsageWarningLevel();
   const [terminalError, setTerminalError] = createSignal<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = createSignal(false);
+  const [cloudflareReturn, setCloudflareReturn] = createSignal<'select-account' | 'error'>();
   const [isStoragePanelOpen, setIsStoragePanelOpen] = createSignal(false);
   const [showTilingOverlay, setShowTilingOverlay] = createSignal(false);
   const [viewState, setViewState] = createSignal<ViewState>('dashboard');
@@ -365,6 +366,18 @@ const Layout: Component<LayoutProps> = (props) => {
   // store is the ownership boundary: a syntactically valid ID is not selectable
   // until it appears in this loaded list.
   onMount(() => {
+    if (window.location.pathname === dashboardPath()) {
+      const query = new URLSearchParams(window.location.search);
+      const outcome = query.get('cloudflare');
+      if (outcome === 'select-account' || outcome === 'error') {
+        query.delete('cloudflare');
+        const rest = query.toString();
+        window.history.replaceState(window.history.state, '', `${dashboardPath()}${rest ? `?${rest}` : ''}${window.location.hash}`);
+        setCloudflareReturn(outcome);
+        setIsSettingsOpen(true);
+      }
+    }
+
     let disposed = false;
     let routeReady = false;
     const handlePopState = () => {
@@ -749,10 +762,11 @@ const Layout: Component<LayoutProps> = (props) => {
 
   const handleSettingsClose = () => {
     setIsSettingsOpen(false);
+    setCloudflareReturn(undefined);
   };
 
   const handleStoragePanelToggle = () => {
-    setIsSettingsOpen(false);
+    handleSettingsClose();
     setIsStoragePanelOpen(!isStoragePanelOpen());
   };
 
@@ -883,7 +897,7 @@ const Layout: Component<LayoutProps> = (props) => {
       </div>
 
       {/* Settings Panel - slides in from right */}
-      <SettingsPanel isOpen={isSettingsOpen()} onClose={handleSettingsClose} currentUserEmail={props.userName} currentUserRole={props.userRole} currentUserAccessTier={props.userAccessTier} enterpriseMode={props.enterpriseMode} mcpReturnOutcome={props.mcpReturnOutcome} />
+      <SettingsPanel isOpen={isSettingsOpen()} onClose={handleSettingsClose} currentUserEmail={props.userName} currentUserRole={props.userRole} currentUserAccessTier={props.userAccessTier} enterpriseMode={props.enterpriseMode} mcpReturnOutcome={props.mcpReturnOutcome} cloudflareReturn={cloudflareReturn()} />
 
       {/* Storage Panel - slides in from right */}
       <StoragePanel isOpen={isStoragePanelOpen()} onClose={handleStoragePanelClose} />

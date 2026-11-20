@@ -648,7 +648,7 @@ When the client is unconfigured, `/api/cloudflare/connect` returns `503 CLOUDFLA
 |--------|----------|------|------------|-------------|
 | GET | `/auth/cloudflare/connect/callback` | Session cookie | [REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth) | Connect-Cloudflare callback; redirects with `?cloudflare=connected\|select-account\|denied\|expired\|unavailable\|error`. |
 
-The Connect-Cloudflare callback re-derives identity from the live session, verifies the bucket-bound single-use OAuth state, exchanges the code, persists the token, and auto-selects the account when exactly one is accessible; otherwise it redirects to a picker. It never mints a session cookie. The OAuth client registers this exact URL.
+The callback re-derives identity from the live session and verifies bucket-bound, single-use OAuth state before exchanging the code. It keeps a still-accessible prior account or selects the sole accessible account. Without a selection it returns `select-account`, which opens Settings → Integrations. If account lookup fails, it returns `error` without replacing the grant. It never mints a session cookie. The OAuth client registers this exact URL.
 
 ## Public (Unauthenticated)
 
