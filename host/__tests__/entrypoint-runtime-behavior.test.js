@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { closeSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -381,10 +381,35 @@ describe('entrypoint production helpers', () => {
     assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), EXPECTED_PLAN_MODE_SETTINGS);
     assert.equal(existsSync(conflictingPath), false);
 
-    writeFileSync(configPath, '{"thinkingLevel":"max","toggleShortcut":"ctrl+alt+p","unknown":"drop"}\n');
-    const second = runStartupInvocation('configure_pi_plan_mode', env);
-    assert.equal(second.status, 0, second.stderr);
-    assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), EXPECTED_PLAN_MODE_SETTINGS);
+    const oldBytes = '{"thinkingLevel":"max","toggleShortcut":"ctrl+alt+p","unknown":"drop"}\n';
+    writeFileSync(configPath, oldBytes);
+    const priorReader = openSync(configPath, 'r');
+    try {
+      const second = runStartupInvocation('configure_pi_plan_mode', env);
+      assert.equal(second.status, 0, second.stderr);
+      // A reader that opened the old document before publication still sees it whole.
+      assert.equal(readFileSync(priorReader, 'utf8'), oldBytes);
+      assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), EXPECTED_PLAN_MODE_SETTINGS);
+    } finally { closeSync(priorReader); }
+  });
+
+  it('REQ-AGENT-266 AC1: a blocked Plan Mode replacement warns and leaves startup eligible', (t) => {
+    const home = mkdtempSync(join(tmpdir(), 'pi-plan-mode-blocked-'));
+    t.after(() => rmSync(home, { recursive: true, force: true }));
+    const configPath = join(home, '.pi/agent/pi-plan-mode.json');
+    mkdirSync(configPath, { recursive: true });
+    const sentinel = join(configPath, 'keep.json');
+    writeFileSync(sentinel, '{"unchanged":true}\n');
+
+    const result = runStartupInvocation('configure_pi_plan_mode', {
+      USER_HOME: home, CODEFLARE_RUNTIME_ROOT: join(home, 'runtime'),
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /WARNING: Pi Plan Mode configuration failed; continuing startup/);
+    assert.doesNotMatch(result.stdout, /Pi Plan Mode policy configured/);
+    assert.equal(readFileSync(sentinel, 'utf8'), '{"unchanged":true}\n');
+    assert.deepEqual(readdirSync(dirname(configPath)), ['pi-plan-mode.json']);
   });
 
   it('REQ-AGENT-023: restores a missing Graphify CLI path without replacing an existing destination', () => {

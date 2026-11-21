@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -355,6 +355,30 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
     assert.deepEqual(inspected, Object.values(commands).map(({ path }) => path));
     assert.deepEqual(started, ['/agents/claude', '/agents/codex', '/agents/pi']);
     assert.equal(versions.copilot, null);
+  });
+
+  it('REQ-OPS-011 AC2: selected launcher smoke rejects absence, nonzero exit, signal and timeout', async (t) => {
+    const root = mkdtempSync(join(tmpdir(), 'missing-agent-launcher-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const hasCodingAgent = (selection, agent) => selection === agent;
+    await assert.rejects(verifySelectedAgentLaunchers('pi', {
+      commands: { pi: { path: join(root, 'missing'), args: ['--version'] } }, hasCodingAgent,
+    }), { code: 'ENOENT' });
+
+    for (const [script, error] of [
+      ['process.exit(19)', { status: 19 }],
+      ["process.kill(process.pid, 'SIGTERM')", { signal: 'SIGTERM' }],
+      ['setInterval(() => {}, 1000)', { code: 'ETIMEDOUT' }],
+    ]) {
+      await assert.rejects(verifySelectedAgentLaunchers('pi', {
+        commands: { pi: { path: process.execPath, args: ['-e', script] } },
+        hasCodingAgent,
+        run(path, args, options) {
+          assert.equal(options.timeout, 10_000);
+          return execFileSync(path, args, options);
+        },
+      }), error);
+    }
   });
 
   it('REQ-AGENT-211 AC2: complete-image smoke rejects Pi missing-session warnings for a seeded Classic ID', async () => {

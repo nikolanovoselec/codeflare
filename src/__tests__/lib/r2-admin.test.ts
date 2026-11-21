@@ -34,6 +34,8 @@ vi.mock('../../lib/r2-client', () => ({
 import { createBucketIfNotExists, createScopedR2Token, deleteR2BucketIfExists, deleteScopedR2Token, getOrCreateScopedR2Token } from '../../lib/r2-admin';
 import { parseCfResponse } from '../../lib/cf-api';
 import { r2AdminCB } from '../../lib/circuit-breakers';
+import { decryptFromKV, importEncryptionKey } from '../../lib/kv-crypto';
+import { createMockKV } from '../helpers/mock-kv';
 
 const mockParseCfResponse = parseCfResponse as ReturnType<typeof vi.fn>;
 const mockR2AdminCB = r2AdminCB as unknown as { execute: ReturnType<typeof vi.fn> };
@@ -518,6 +520,29 @@ describe('r2-admin / REQ-SEC-003 (per-user R2 tokens scoped to user bucket) / RE
         'r2token:user@example.com',
         expect.stringContaining('new-tok'),
       );
+    });
+
+    it('REQ-SEC-003 AC3: configured encryption stores the scoped credentials and reuses their ciphertext', async () => {
+      const kv = createMockKV();
+      const cryptoKey = await importEncryptionKey(btoa('k'.repeat(32)));
+      const email = 'encrypted-cache@example.test';
+      const key = `r2token:${email}`;
+      const bucket = 'encrypted-cache-bucket';
+      mockFetch.mockResolvedValueOnce(Response.json({ success: true, result: { id: 'test-token-id', value: 'test-token-value' } }));
+      mockFetch.mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+      const resolveToken = () => getOrCreateScopedR2Token(email, 'account-123', 'api-token', bucket, kv as unknown as KVNamespace, cryptoKey);
+      const created = await resolveToken();
+      expect(created.accessKeyId).toBe('test-token-id');
+      const ciphertext = await kv.get(key, 'text');
+      expect(ciphertext).toMatch(/^v1:/);
+      for (const secret of [...Object.values(created), 'test-token-value']) expect(ciphertext).not.toContain(secret);
+      expect(JSON.parse(await decryptFromKV(String(ciphertext).slice(3), cryptoKey, key)))
+        .toMatchObject({ ...created, bucketName: bucket });
+
+      expect(await resolveToken()).toEqual(created);
+      expect(await kv.get(key, 'text')).toBe(ciphertext);
+      expect(mockFetch.mock.calls.map(([, init]) => init.method)).toEqual(['POST', 'GET']);
     });
 
     it('should return creds directly (in-memory) without KV read-back', async () => {
