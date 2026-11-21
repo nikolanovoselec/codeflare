@@ -54,8 +54,8 @@ try {
 const failedTests = report.numFailedTests;
 const failedSuites = report.numFailedTestSuites;
 const total = report.numTotalTests;
-if (![failedTests, failedSuites, total].every(Number.isInteger)) {
-  fail('report is missing numFailedTests/numFailedTestSuites/numTotalTests');
+if (![failedTests, failedSuites, total].every(value => Number.isInteger(value) && value >= 0)) {
+  fail('report has missing or invalid numFailedTests/numFailedTestSuites/numTotalTests');
 }
 if (total < 1) fail(`report shows ${total} collected tests`);
 
@@ -68,7 +68,7 @@ if (total < 1) fail(`report shows ${total} collected tests`);
 // permanently false, silently — and the `.skip` backstop it provides vanishes
 // with no signal. The three counts above are already integer-checked; these
 // deserve the same, since nothing downstream would notice their absence.
-if (!Number.isInteger(report.numPendingTests) || !Number.isInteger(report.numTodoTests)) {
+if (![report.numPendingTests, report.numTodoTests].every(value => Number.isInteger(value) && value >= 0)) {
   fail('report is missing numPendingTests/numTodoTests — the skipped-test gate cannot run against this reporter output');
 }
 const pending = report.numPendingTests;
@@ -97,6 +97,17 @@ if (!Array.isArray(report.testResults)) {
   fail("report has no testResults array, so no per-file evidence exists to check");
 }
 const results = report.testResults;
+// Summary counters cannot override failed files or unfinished/failed assertions.
+// The pinned Vitest JSON reporter emits `passed` only for completed passing tests.
+for (const file of results) {
+  if (file?.status !== 'passed') {
+    fail('report contains a non-passing test file despite zero summary failures');
+  }
+  if (!Array.isArray(file?.assertionResults)
+    || file.assertionResults.some(assertion => assertion?.status !== 'passed')) {
+    fail('report contains a missing or non-passing assertion outcome');
+  }
+}
 // The summary counts and the per-file detail must agree. A report that claims
 // N tests while carrying assertions for fewer is not a report we can gate on.
 const asserted = results.reduce(

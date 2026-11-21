@@ -1516,6 +1516,7 @@ const passing = (files = 2) => ({
   numTodoTests: 0,
   testResults: Array.from({ length: files }, (_, i) => ({
     name: `/checkout/src/${i}.test.ts`,
+    status: 'passed',
     assertionResults: [{ status: 'passed' }],
   })),
 });
@@ -1529,6 +1530,37 @@ describe('REQ-OPS-023 AC1: vitest report gate', () => {
     const r = passing();
     r.numFailedTests = 1;
     expect(runReportGate(0, r, '').status).toBe(1);
+  });
+
+  it.each([0, 1])('rejects non-passing assertion outcomes despite zero summary failures (exit %i)', (exit) => {
+    for (const status of ['failed', 'pending', 'skipped', 'todo', 'disabled', 'unknown', undefined]) {
+      const report = {
+        ...passing(1),
+        testResults: [{
+          name: '/checkout/src/contradictory.test.ts',
+          status: 'passed',
+          assertionResults: [status === undefined ? {} : { status }],
+        }],
+      };
+      expect(runReportGate(exit, report, TEARDOWN_CRASH).status).toBe(1);
+    }
+  });
+
+  it.each([0, 1])('rejects a failed file despite passing assertions and zero summary failures (exit %i)', (exit) => {
+    const report = passing();
+    report.testResults[0].status = 'failed';
+    expect(runReportGate(exit, report, TEARDOWN_CRASH).status).toBe(1);
+  });
+
+  it.each([0, 1])('rejects a missing file outcome despite passing assertions (exit %i)', (exit) => {
+    const { status: _omitted, ...file } = passing(1).testResults[0];
+    expect(runReportGate(exit, { ...passing(1), testResults: [file] }, TEARDOWN_CRASH).status).toBe(1);
+  });
+
+  it.each([0, 1])('rejects negative failure and pending counters (exit %i)', (exit) => {
+    for (const counter of ['numFailedTests', 'numFailedTestSuites', 'numPendingTests', 'numTodoTests']) {
+      expect(runReportGate(exit, { ...passing(), [counter]: -1 }, TEARDOWN_CRASH).status).toBe(1);
+    }
   });
 
   it('rejects a run that collected zero tests', () => {

@@ -241,6 +241,7 @@ jobs:
               - '.github/**'
               - 'host/**'
               - 'preseed/**'
+              - 'scripts/ci/resolve-kv-namespace.sh'
               - 'scripts/browser-ide-ui-state.py'
               # browser-ide-extensions.py is guarded by
               # host/__tests__/browser-ide-extensions.test.js; without it here a PR
