@@ -149,6 +149,7 @@ describe('Session Store', () => {
     it('REQ-GITHUB-320 AC6: Dashboard clone notification survives picker dismissal and clears after success', async () => {
       const [pickerOpen, setPickerOpen] = createSignal(true);
       render(() => createComponent(Show, {
+        keyed: true,
         get when() { return pickerOpen(); },
         get children() { return createComponent(ClonePicker, { repo, onClose: () => setPickerOpen(false) }); },
       }));
