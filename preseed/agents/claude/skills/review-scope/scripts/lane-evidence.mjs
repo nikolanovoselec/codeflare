@@ -294,8 +294,8 @@ function resolveAnchors(repo, files, targets = null) {
 }
 
 // Every backticked identifier or path in a touched doc, answered against the
-// tree. This is Pass 8 and Pass 12 -- "does this reference resolve to real
-// code?" -- which the doc lane otherwise runs one `git grep` at a time.
+// tree. This supplies reference-existence evidence, not Pass 8's assertion
+// truth-check or Pass 12's reader-comprehension evidence.
 // A doc naming a script or rule by basename -- `run-review-lane`, not
 // `.../run-review-lane.sh` -- reached the symbol branch and failed there,
 // because the path branch only fires on a candidate carrying a `/` or a `.`.

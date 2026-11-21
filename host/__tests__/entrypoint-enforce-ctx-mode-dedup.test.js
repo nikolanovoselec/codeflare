@@ -169,6 +169,34 @@ describe('entrypoint settings.json hook merge - enforce-ctx-mode.sh dedup', () =
     );
   });
 
+  for (const [mode, config] of [['advanced', advancedContextModeSettingsConfig()], ['default', defaultModeSettingsConfig()]]) {
+    it(`REQ-AGENT-099 AC1/AC6: ${mode} preserves same-basename user hooks while retiring managed paths`, () => {
+      const custom = [
+        { type: 'command', command: 'bash /workspace/tools/enforce-ctx-mode.sh', timeout: 17 },
+        { type: 'command', command: 'node /workspace/tools/context-mode-cache-heal.mjs', timeout: 23 },
+        { type: 'command', command: 'bash /home/user/.claude/hooks/enforce-ctx-mode.sh.user' },
+        { type: 'command', command: 'bash /workspace/project/.claude/hooks/enforce-ctx-mode.sh' },
+        { type: 'command', command: 'node /workspace/project/.claude/hooks/context-mode-cache-heal.mjs' },
+        { type: 'command', command: 'echo "/home/user/.claude/hooks/enforce-ctx-mode.sh"' },
+        { type: 'command', command: 'node metadata.js /home/user/.claude/hooks/context-mode-cache-heal.mjs' },
+      ];
+      const managed = [
+        { type: 'command', command: 'bash /home/user/.claude/hooks/enforce-ctx-mode.sh' },
+        { type: 'command', command: 'bash /home/user/.claude/plugins/context-mode/scripts/enforce-ctx-mode.sh' },
+        { type: 'command', command: '"/home/user/.claude/hooks/context-mode-cache-heal.mjs"' },
+      ];
+      const existing = {
+        theme: { contrast: 'custom' },
+        hooks: { PreToolUse: [{ matcher: 'Bash|WebFetch|Grep', hooks: [...managed, ...custom] }] },
+      };
+      const merged = runJqMerge(JSON.stringify(existing), config);
+      const expectedManaged = config.hooks?.PreToolUse?.find((entry) => entry.matcher === 'Bash|WebFetch|Grep')?.hooks ?? [];
+      assert.deepEqual(strictHookEntries(merged), [...custom, ...expectedManaged]);
+      assert.deepEqual(merged.theme, existing.theme);
+      assert.deepEqual(runJqMerge(JSON.stringify(merged), config), merged);
+    });
+  }
+
   it('user-added hooks on unmanaged matchers are preserved', () => {
     const merged = runJqMerge(accumulatedSettingsFixture(), advancedContextModeSettingsConfig());
     const userMatcher = merged.hooks.PreToolUse.find((e) => e.matcher === 'Edit');

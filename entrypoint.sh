@@ -4848,8 +4848,8 @@ if [ -f "$SETTINGS_FILE" ]; then
     # "Managed" = command path contains plugins/(codeflare-(hooks|memory|
     # vault)|graphify)/scripts/ (anchored on the literal `plugins/` segment
     # so unrelated future directories with the same basename cannot match),
-    # references enforce-ctx-mode.sh (both the legacy ~/.claude/hooks/ path
-    # and the current ~/.claude/plugins/context-mode/scripts/ path),
+    # invokes enforce-ctx-mode.sh through an exact legacy managed-home
+    # command, not a matching workspace path or a pathname mentioned as data,
     # references context-mode-cache-heal.mjs (a SessionStart hook an older
     # context-mode self-installed by bare path; it repairs symlinks under
     # ~/.claude/plugins/cache/, which this product never populates because
@@ -4863,6 +4863,18 @@ if [ -f "$SETTINGS_FILE" ]; then
     # build-time install landed). Adding to MANAGED_HOOKS_REGEX must
     # happen here AND in any other place that prunes managed hooks.
     if jq --argjson cfg "$SETTINGS_CONFIG" '
+      def quoted_hook_paths:
+        ., ("\"" + . + "\""), ("\u0027" + . + "\u0027");
+      def legacy_context_hook:
+        (.command // "") as $command |
+        [
+          ["bash", "/home/user/.claude/hooks/enforce-ctx-mode.sh"],
+          ["bash", "/home/user/.claude/plugins/context-mode/scripts/enforce-ctx-mode.sh"],
+          ["node", "/home/user/.claude/hooks/context-mode-cache-heal.mjs"],
+          ["", "/home/user/.claude/hooks/context-mode-cache-heal.mjs"]
+        ] | any(.[]; .[0] as $launcher | .[1] as $target |
+          any($target | quoted_hook_paths;
+            $command == (if $launcher == "" then . else $launcher + " " + . end)));
       . as $orig |
       (del(.hooks) * ($cfg | del(.hooks))) +
       {hooks: (
@@ -4874,7 +4886,7 @@ if [ -f "$SETTINGS_FILE" ]; then
             [($existArr[] | .matcher // ""), ($cfgArr[] | .matcher // "")] | unique |
             map(. as $m |
               [$existArr[] | select((.matcher // "") == $m) | (.hooks // [])[] |
-                select((.command // "") | test("plugins/(codeflare-(hooks|memory|vault)|graphify)/scripts/|/usr/local/bin/codeflare-agent-event|enforce-ctx-mode\\.sh|context-mode-cache-heal\\.mjs|(^context-mode |(bunx|npx) (-y )?context-mode@.* hook claude-code)") | not)
+                select((legacy_context_hook or ((.command // "") | test("plugins/(codeflare-(hooks|memory|vault)|graphify)/scripts/|/usr/local/bin/codeflare-agent-event|(^context-mode |(bunx|npx) (-y )?context-mode@.* hook claude-code)"))) | not)
               ] as $user |
               [$cfgArr[] | select((.matcher // "") == $m) | (.hooks // [])[]] as $mgr |
               {matcher: $m, hooks: ($user + $mgr)}

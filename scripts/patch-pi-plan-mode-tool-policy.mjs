@@ -54,12 +54,15 @@ function validateReviewedSources(root, profile) {
     // Reverse only our exact owned edits before checking the full pristine identity.
     source = source.replaceAll(REGISTERED_HELPERS, ACTIVE_HELPERS)
       .replace(REGISTERED_AVAILABLE_POLICY, AVAILABLE_POLICY)
-      .replaceAll(`// ${PARSED_POLICY_MARKER}`, 'if (matchesConfiguredSafeSubcommand(segment, safeSubcommands)) return true;');
+      .replaceAll(`// ${PARSED_POLICY_MARKER}`, 'if (matchesConfiguredSafeSubcommand(segment, safeSubcommands)) return true;')
+      .replaceAll(VERSION_ONLY_QUERY, VERSION_QUERY);
     if (createHash('sha256').update(source).digest('hex') !== expected) {
       throw new Error(`Plan Mode source digest changed: ${path}`);
     }
   }
 }
+const VERSION_QUERY = 'if (args.includes("--version")) return true;';
+const VERSION_ONLY_QUERY = 'if (args.length === 1 && args[0] === "--version") return true; // CODEFLARE_PLAN_VERSION_ONLY';
 const PARSED_POLICY_MARKER = 'CODEFLARE_PLAN_PARSED_COMMAND_POLICY';
 const USER_PROMPT_MARKER = 'CODEFLARE_PLAN_USER_PROMPT_BOUNDARY';
 export const REGISTERED_HELPERS_MARKER = 'CODEFLARE_PLAN_REGISTERED_HELPERS';
@@ -125,6 +128,14 @@ function patchParsedCommandPolicy(source, returned = 'undefined', argument = 'co
   return source.replaceAll(anchor, `// ${PARSED_POLICY_MARKER}`);
 }
 
+function patchVersionOnlyQueries(source) {
+  if (count(source, VERSION_ONLY_QUERY) === 1 && count(source, VERSION_QUERY) === 0) return source;
+  if (count(source, VERSION_QUERY) !== 1 || source.includes('CODEFLARE_PLAN_VERSION_ONLY')) {
+    throw new Error('Plan Mode version-query policy anchor is missing or ambiguous');
+  }
+  return source.replace(VERSION_QUERY, VERSION_ONLY_QUERY);
+}
+
 function patchUserPromptBoundary(source, kind) {
   const anchor = `  pi.on("before_agent_start", (_event, ctx) => {
     refreshStateForFirstPrompt(ctx);
@@ -170,9 +181,14 @@ export function patchPiPlanModeDirectory(version, root) {
   if (version === '0.56.0' || version === '0.58.3' || version === '0.59.2' || version === '0.59.4' || version === '0.59.6' || version === '0.60.0' || version === '0.60.1') {
     const current = version === '0.59.2' || version === '0.59.4' || version === '0.59.6' || version === '0.60.0' || version === '0.60.1';
     const path = join(root, 'src', 'tool-policy.ts');
-    patched.push({ path, source: patchParsedCommandPolicy(readFileSync(path, 'utf8'), current ? 'true' : 'undefined', current ? 'segment' : 'command') });
+    const versionOnly = ['0.59.4', '0.59.6', '0.60.0', '0.60.1'].includes(version);
+    const preparePolicy = (source, returned) => {
+      const parsed = patchParsedCommandPolicy(source, returned, current ? 'segment' : 'command');
+      return versionOnly ? patchVersionOnlyQueries(parsed) : parsed;
+    };
+    patched.push({ path, source: preparePolicy(readFileSync(path, 'utf8'), current ? 'true' : 'undefined') });
     const chunk = join(root, 'dist', 'chunks', (version === '0.60.0' || version === '0.60.1') ? 'chunk-UJ6TV2YV.ts' : version === '0.59.6' ? 'chunk-W7D6N2MI.ts' : current ? 'chunk-MJV6WNHK.ts' : version === '0.58.3' ? 'chunk-L2CXUWCH.ts' : 'chunk-57OBPS7P.js');
-    patched.push({ path: chunk, source: patchParsedCommandPolicy(readFileSync(chunk, 'utf8'), current ? 'true' : 'void 0', current ? 'segment' : 'command') });
+    patched.push({ path: chunk, source: preparePolicy(readFileSync(chunk, 'utf8'), current ? 'true' : 'void 0') });
   }
   for (const file of patched) writeFileSync(file.path, file.source);
 }

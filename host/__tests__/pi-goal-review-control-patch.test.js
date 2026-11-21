@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { createRequire } from 'node:module';
 import { describe, it } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -741,8 +742,32 @@ const PINNED_RUNTIME_STUBS = {
   },
 };
 
+const fixtureRequire = createRequire(import.meta.url);
+function fixtureEsbuild() {
+  let modulePath;
+  let imageFallback = false;
+  try {
+    modulePath = fixtureRequire.resolve('esbuild');
+  } catch (error) {
+    const installedPackage = fixtureRequire.resolve.paths('esbuild')
+      ?.some((root) => existsSync(join(root, 'esbuild/package.json')));
+    if (error.code !== 'MODULE_NOT_FOUND' || installedPackage) throw error;
+    const imageRoot = '/opt/codeflare/npm-tools/node_modules/esbuild';
+    const locked = JSON.parse(readFileSync(new URL('../../package-lock.json', import.meta.url), 'utf8'))
+      .packages['node_modules/esbuild'].version;
+    const installed = JSON.parse(readFileSync(join(imageRoot, 'package.json'), 'utf8'));
+    if (installed.name !== 'esbuild' || installed.version !== locked) {
+      throw new Error(`Approved image esbuild must match the locked version ${locked}`);
+    }
+    modulePath = join(imageRoot, 'lib/main.js');
+    imageFallback = true;
+  }
+  // Loading failures are not a missing-package fallback: preserve them as failures.
+  return { esbuild: fixtureRequire(modulePath), imageFallback };
+}
+
 async function bundleFixture(entryPoint, outputPath, exportName = 'default') {
-  const { build } = await import('esbuild');
+  const { esbuild: { build }, imageFallback } = fixtureEsbuild();
   await build({
     entryPoints: [entryPoint],
     outfile: outputPath,
@@ -752,7 +777,8 @@ async function bundleFixture(entryPoint, outputPath, exportName = 'default') {
     target: 'node22',
     logLevel: 'silent',
     plugins: [PINNED_RUNTIME_STUBS],
-    nodePaths: [join(process.cwd(), 'node_modules')],
+    // Only image-backed fixtures may resolve peers from the installed image runtime.
+    nodePaths: [join(process.cwd(), 'node_modules'), ...(imageFallback ? ['/opt/codeflare/npm-tools/node_modules'] : [])],
   });
   const fixture = await import(`${pathToFileURL(outputPath).href}?fixture=${Date.now()}`);
   return exportName === 'namespace' ? fixture : fixture.default;
@@ -950,6 +976,44 @@ for (const [key, version, paths] of [
     }
   });
 }
+
+it('REQ-AGENT-266 AC2/AC3: prepared Plan rejects scripts carrying version flags while retaining standalone version reads', async t => {
+  const root = mkdtempSync(join(tmpdir(), 'pi-plan-version-only-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  extractPackage('bump:plan', undefined, root);
+  patchPiPlanModeDirectory('0.60.1', root);
+  const configured = { git: ['status', 'diff'], gh: ['pr view'] };
+  const denied = [
+    'node action.js --version', 'node --no-warnings action.js --version',
+    'node -e "void 0" --version', 'python action.py --version',
+    'python3 -c "print(1)" --version', 'tsc action.ts --version',
+    'biome check . --version', 'ruff check . --version', 'ty check . --version',
+  ];
+  for (const [index, file] of ['src/tool-policy.ts', 'dist/chunks/chunk-UJ6TV2YV.ts'].entries()) {
+    const policy = await bundleFixture(join(root, file), join(root, `version-policy-${index}.mjs`), 'namespace');
+    for (const command of ['node --version', 'python --version', 'python3 --version', 'tsc --version', 'git status']) {
+      assert.equal(policy.findBlockedCommandSegment(command, configured), undefined, command);
+    }
+    assert.equal(policy.findBlockedPowerShellCommandSegment('git status', configured), undefined);
+    // PowerShell already rejects interpreter commands; do not widen its existing policy.
+    assert.notEqual(policy.findBlockedPowerShellCommandSegment('node --version', configured), undefined);
+    for (const check of [policy.findBlockedCommandSegment, policy.findBlockedPowerShellCommandSegment]) {
+      for (const command of denied) assert.notEqual(check(command, configured), undefined, command);
+    }
+  }
+  const extension = await bundleFixture(join(root, 'dist/index.ts'), join(root, 'version-plan.mjs'));
+  const harness = createExtensionHarness();
+  extension(harness.api, { settingsPath: join(root, 'settings.json') });
+  await harness.startSession();
+  t.after(() => harness.dispatch('session_shutdown'));
+  harness.api.setActiveTools(['read']);
+  await harness.commands.get('plan').handler('start', harness.ctx);
+  await harness.runContext();
+  // The real exposure finalizer activates the captured policy before execution.
+  harness.api.setActiveTools(['read', 'bash']);
+  assert.equal(await harness.dispatch('tool_call', { toolName: 'bash', input: { command: 'node --version' } }), undefined);
+  assert.equal((await harness.dispatch('tool_call', { toolName: 'bash', input: { command: 'node action.js --version' } }))?.block, true);
+});
 
 it('task146: Goal 0.55.0 review pause never aborts the caller and settings rollback does not publish or abort a blocked goal', async t => {
   const root = mkdtempSync(join(tmpdir(), 'task146-goal-settings-'));
