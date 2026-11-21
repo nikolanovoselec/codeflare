@@ -501,6 +501,11 @@ it('REQ-GITHUB-319 AC1+AC2: successful overflow clones persist only twenty candi
 
 it.each([['default', {}], ['saas', { SAAS_MODE: 'active' }], ['enterprise', ENT]] as const)(
   'REQ-GITHUB-317 AC1+AC3: %s nonadvanced connection is additive and authentication guards every connection action', async (_mode, mode) => {
+    // A missing tier is pending in SaaS; exercise an active, nonadvanced user.
+    vi.mocked(authenticateRequest).mockResolvedValue({
+      user: { email: 'u@example.com', authenticated: true, role: 'user', subscriptionTier: 'free' },
+      bucketName: 'test-bucket',
+    });
     const env = { ...mode, OAUTH_CLIENT_ID: 'oauth-cid', OAUTH_CLIENT_SECRET: 'oauth-sec', OAUTH_JWT_SECRET: 'state-secret' };
     const app = createTestApp(env);
     mockKV._set(KEY, { cloudflareApiToken: 'prior-cloudflare-grant', cloudflareAccountId: 'account' } satisfies DeployKeys);

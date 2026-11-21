@@ -1,12 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../../types';
-import { validateConfigurationValues } from '../../lib/admin-configuration';
+import { executeConfigurationTask, validateConfigurationValues } from '../../lib/admin-configuration';
+import { loadEnterpriseRouteConfig } from '../../lib/access';
+import { parseReasoningConfiguration } from '../../lib/reasoning-configuration';
 import { createMockKV } from '../helpers/mock-kv';
 import { SETUP_KEYS } from '../../lib/kv-keys';
 import { CapabilitySummarySchema } from '../../../web-ui/src/lib/schemas';
 import { parseCapabilitySummary } from '../../lib/ai-capability-discovery/contract';
 import { capabilityCandidates } from '../../lib/ai-capability-discovery';
-import { checkedRouteInventory, connectionFingerprint, verificationMatches } from '../../lib/reasoning-verification';
+import { checkedRouteInventory, connectionFingerprint, issueRouteCheck, verificationMatches } from '../../lib/reasoning-verification';
 import { PI_WIRE_CANARY_VERSION } from '../../lib/reasoning-discovery';
 import { normalizeCustomProfile } from '../../lib/reasoning-profiles';
 
@@ -117,24 +119,66 @@ describe('Browser input is not administrator authority', () => {
         AIG_GATEWAY_ID: connection.gatewayId, AIG_TOKEN: connection.token } as unknown as Env;
       const before = new Map(kv._store);
       const requests: Request[] = [];
+      const elements = [
+        { id: 'start', type: 'start', outputs: { next: { elementId: 'model' } } },
+        { id: 'model', type: 'model', properties: { provider: 'aws-bedrock', model: 'synthetic-model' }, outputs: { success: { elementId: 'end' } } },
+        { id: 'end', type: 'end', outputs: {} },
+      ];
       vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
         const request = new Request(input, init); requests.push(request);
         if (request.url.endsWith('/routes')) return Response.json({ result: { routes: [{ id: 'route', name: 'future' }] } });
-        return Response.json({ result: { version: { version_id: 'synthetic-version', active: true, data: [
-          { id: 'start', type: 'start', outputs: { next: { elementId: 'model' } } },
-          { id: 'model', type: 'model', properties: { provider: 'aws-bedrock', model: 'synthetic-model' }, outputs: { success: { elementId: 'end' } } },
-          { id: 'end', type: 'end', outputs: {} },
-        ] } } });
+        return Response.json({ result: { version: { version_id: 'synthetic-version', active: true, data: elements } } });
       });
-      const result = await validateConfigurationValues(env, 'aiRouting', 'enterprise', {
+      const proposed = {
         gatewayUrl: connection.gatewayUrl, gatewayId: connection.gatewayId, replacementToken: '', dynamicRoutes: ['future'],
         defaultRoute: { route: '', reasoning: 'off' }, routeContextWindows: { future: 200000 }, groupRouting: [],
         fallbackRouting: { enabled: false }, reasoningConfiguration: { schemaVersion: 1, customProfileRevisions: [profile],
           routeAssignments: { future: { activeProfile: { id: profile.id, revision: profile.revision, hash: profile.hash } } } },
-      });
-      expect(result.values).toBeUndefined();
-      expect(result.fieldErrors).toHaveProperty('reasoningConfiguration');
+      };
+      // A definition/assignment may be saved as an inert draft. Its generated
+      // namespace is not verification and must not make the route usable.
+      const draft = await validateConfigurationValues(env, 'aiRouting', 'enterprise', proposed);
+      expect(draft.fieldErrors).toBeUndefined();
+      expect(draft.values?.dynamicRoutes).toEqual([]);
       expect(kv._store).toEqual(before);
+      const context = { mode: 'enterprise' as const, requestUrl: 'https://codeflare.example.test', resultingRevision: 1 };
+      await executeConfigurationTask(env, 'configure_model_routing', draft.values!, context);
+      const saved = parseReasoningConfiguration(await kv.get(SETUP_KEYS.REASONING_CONFIGURATION));
+      expect(saved.customProfileRevisions).toEqual([profile]);
+      expect(saved.routeAssignments.future.verification).toBeUndefined();
+      expect((await loadEnterpriseRouteConfig(env, ['engineering'])).routeCatalog).toEqual([]);
+
+      const level = profile.supportedLevels[0] ?? 'off';
+      const active = { ...proposed, defaultRoute: { route: 'future', reasoning: level },
+        groupRouting: [{ accessGroup: 'engineering', routes: ['future'], defaultRoute: 'future', reasoning: level }] };
+      const savedBeforeActivation = new Map(kv._store);
+      const denied = await validateConfigurationValues(env, 'aiRouting', 'enterprise', active);
+      expect(denied.values).toBeUndefined();
+      expect(denied.fieldErrors).toEqual({ reasoningConfiguration: [expect.stringContaining('requires a successful check')] });
+      expect(kv._store).toEqual(savedBeforeActivation);
+
+      // Positive control: the real server issuer, not a browser verification
+      // field, supplies exact administrator authority for this same profile.
+      const inventory = checkedRouteInventory({ versionId: 'synthetic-version', elements });
+      const authority = { schemaVersion: 1 as const, method: 'administrator' as const,
+        profileRef: { id: profile.id, revision: profile.revision, hash: profile.hash },
+        routeVersion: inventory.inventory.versionId, inventoryDigest: inventory.inventoryDigest,
+        connectionFingerprint: connectionFingerprint(connection)!, canaryVersion: PI_WIRE_CANARY_VERSION,
+        supportedLevels: profile.supportedLevels, scope: inventory.scope, checkedAt: new Date().toISOString() };
+      // Even an exact copy of the confirmation is not a receipt-backed Save.
+      const forged = await validateConfigurationValues(env, 'aiRouting', 'enterprise', { ...active,
+        reasoningConfiguration: { ...active.reasoningConfiguration,
+          routeAssignments: { future: { ...active.reasoningConfiguration.routeAssignments.future, verification: authority } } } });
+      expect(forged.values).toBeUndefined();
+      expect(forged.fieldErrors).toEqual(denied.fieldErrors);
+      expect(kv._store).toEqual(savedBeforeActivation);
+      const checkId = await issueRouteCheck(kv as unknown as KVNamespace, 'future', authority);
+      const admitted = await validateConfigurationValues(env, 'aiRouting', 'enterprise', { ...active, routeChecks: { future: checkId } });
+      expect(admitted.fieldErrors).toBeUndefined();
+      await executeConfigurationTask(env, 'configure_model_routing', admitted.values!, { ...context, resultingRevision: 2 });
+      expect(parseReasoningConfiguration(await kv.get(SETUP_KEYS.REASONING_CONFIGURATION)).routeAssignments.future.verification).toEqual(authority);
+      expect((await loadEnterpriseRouteConfig(env, ['engineering'])).routeCatalog).toEqual(['future']);
+      expect((await loadEnterpriseRouteConfig(env, ['unmatched'])).routeCatalog).toEqual([]);
       expect(requests.filter(request => request.method !== 'GET')).toEqual([]);
     },
   );

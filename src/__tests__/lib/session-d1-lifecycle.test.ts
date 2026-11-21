@@ -502,8 +502,12 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
           expect(result.value).toBeUndefined();
           expect(result.error?.message).toBe(outcome === 'stalled' ? 'D1 lifecycle reconciliation deadline exceeded' : 'D1 unavailable');
         }
-        expect(reads).toEqual([{ sql: expect.stringMatching(/^SELECT .* FROM runtime_sessions WHERE owner_key=\\?1 AND session_id=\\?2$/), args: [owner, id] }]);
+        expect(reads).toHaveLength(1);
+        expect(reads[0]!.args).toEqual([owner, id]);
       } finally { vi.useRealTimers(); }
+      // The composite-key search must bound reconciliation to this owner's one session.
+      const queryPlan = await db.prepare(`EXPLAIN QUERY PLAN ${reads[0]!.sql}`).bind(...reads[0]!.args).all<{ detail: string }>();
+      expect(queryPlan.results.some(step => /SEARCH runtime_sessions USING (?:COVERING )?INDEX \S+ \(owner_key=\? AND session_id=\?\)/.test(step.detail))).toBe(true);
       expect(await repository().getSession(owner, id)).toMatchObject({ lifecycleState: 'unreachable', unreachableIncidentId: 'incident-a' });
     },
   );

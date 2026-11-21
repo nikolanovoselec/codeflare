@@ -433,8 +433,9 @@ it('REQ-GITHUB-003 AC1: registered GitHub destinations dispatch to GitHub while 
     }));
     expect(response.status).toBe(200);
     expect(await response.text()).toBe('upstream-ok');
-    expect(lastFetch?.headers.get('authorization')).toBe(authorization);
-    expect(lastFetch?.url).toBe(url.includes('api.openai.com')
+    const capturedRequest = lastFetch as { url: string; method: string; headers: Headers } | null;
+    expect(capturedRequest?.headers.get('authorization')).toBe(authorization);
+    expect(capturedRequest?.url).toBe(url.includes('api.openai.com')
       ? 'https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/ai/v1/models' : url);
   }
 });

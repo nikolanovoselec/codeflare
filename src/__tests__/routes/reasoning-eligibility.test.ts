@@ -857,7 +857,12 @@ describe('REQ-ENTERPRISE-043 server-issued verification', () => {
     }) });
     expect(response.status).toBe(400); expect(fetch).not.toHaveBeenCalled();
     expect(f.kv._store.has(SETUP_KEYS.REASONING_CONFIGURATION)).toBe(false);
-    expect(f.kv._store).toEqual(before);
+    // Rejected Setup requests still consume their rate-limit allowance; only
+    // that bookkeeping key may change, never configuration or check receipts.
+    const rateLimitKey = 'setup-configure:anonymous';
+    const protectedState = (store: Map<string, string>) => new Map([...store].filter(([key]) => key !== rateLimitKey));
+    expect(protectedState(f.kv._store)).toEqual(protectedState(before));
+    expect(JSON.parse(f.kv._store.get(rateLimitKey)!)).toEqual({ count: 1, windowStart: expect.any(Number) });
     expect(attempted).toEqual([]);
   });
   it('fails closed on delayed receipt visibility with retry advice and no automatic paid checks', async () => {

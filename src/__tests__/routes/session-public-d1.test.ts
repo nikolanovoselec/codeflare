@@ -198,9 +198,9 @@ describe('REQ-SESSION-028/030: legacy session records have no authority', () => 
     expect((await request(application, `/sessions/${session.id}`, 'PATCH', { name: 'Renamed in D1' })).status).toBe(200);
     expect((await application.request(`/sessions/${session.id}`, { method: 'DELETE' })).status).toBe(200);
     expect(await new D1SessionRepository(db).getSession(owner, session.id)).toBeNull();
-    // KV list cannot enumerate legacy sessions indirectly, including a broad list.
+    // No enumeration or legacy session:* access; independent session-create/delete rate-limit KV is allowed.
     expect(operations.filter(operation => operation.method === 'list'
-      || (typeof operation.key === 'string' && /^session(?::|-)/.test(operation.key)))).toEqual([]);
+      || (typeof operation.key === 'string' && operation.key.startsWith('session:')))).toEqual([]);
     for (const [key, value] of sentinels) expect(await bindings.KV.get(key)).toBe(value);
   });
 
@@ -256,10 +256,11 @@ describe('REQ-SESSION-010 subsets: real D1 batch route with supplied owner conte
     expect(response.status).toBe(200);
     expect(Object.keys((await response.json() as { statuses: object }).statuses).sort()).toEqual(['session01', 'session02']);
     expect(forbidden).toEqual([]);
-    expect(reads).toEqual([{ sql: expect.stringMatching(/^SELECT .* FROM runtime_sessions WHERE owner_key=\\?1 ORDER BY /),
-      args: [owner], method: 'all' }]);
-    const queryPlan = await db.prepare(`EXPLAIN QUERY PLAN ${reads[0]!.sql}`).bind(owner).all<{ detail: string }>();
-    expect(queryPlan.results.some(step => /USING INDEX runtime_sessions_owner_activity/.test(step.detail))).toBe(true);
+    expect(reads).toHaveLength(1);
+    expect(reads[0]).toMatchObject({ args: [owner], method: 'all' });
+    // Assert the owner-indexed access path, not the query's formatting or selected columns.
+    const queryPlan = await db.prepare(`EXPLAIN QUERY PLAN ${reads[0]!.sql}`).bind(...reads[0]!.args).all<{ detail: string }>();
+    expect(queryPlan.results.some(step => /SEARCH runtime_sessions USING (?:COVERING )?INDEX runtime_sessions_owner_activity \(owner_key=\?\)/.test(step.detail))).toBe(true);
     // Direct D1 binding access uses the primary by default; hosted replica routing is not simulated here.
   });
 
