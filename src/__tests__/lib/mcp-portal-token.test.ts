@@ -375,9 +375,16 @@ describe('Worker-owned MCP portal OAuth', () => {
 
   it('REQ-AGENT-226 AC7: disconnect affects only selected owner/portal and never restores failed revocation', async () => {
     const f = await mcpPortalFixture(); await f.begin(); await f.finish(); await f.begin('other'); await f.finish('other');
-    const secondPortal = { ...portal, name: 'second' };
+    const secondPortal = { name: 'second', url: 'https://portal.example/second' };
     await f.kv.put(SETUP_KEYS.MCP_PORTALS, JSON.stringify([portal, secondPortal]));
-    f.visitAuthorization(await beginMcpPortalConnect(f.env, 'owner', secondPortal, instance, f.send));
+    f.resource(secondPortal.url);
+    const secondSend: typeof fetch = async (input, init) => {
+      const request = new Request(input, init);
+      if (request.url === secondPortal.url) return new Response(null, { status: 401,
+        headers: { 'WWW-Authenticate': 'Bearer resource_metadata="https://portal.example/.well-known/oauth-protected-resource"' } });
+      return f.send(request);
+    };
+    f.visitAuthorization(await beginMcpPortalConnect(f.env, 'owner', secondPortal, instance, secondSend));
     await f.finish();
     await f.kv.put('deploy-keys:owner', 'unrelated-GitHub-Cloudflare-state');
     const unavailable: typeof fetch = async () => { throw Error('revocation unavailable'); };
@@ -400,7 +407,7 @@ describe('Worker-owned MCP portal OAuth', () => {
       .toMatchObject({ ciphertext: null, legacyImportEligible: true });
     // Replica readback stays stale even after the underlying KV deletion succeeds.
     f.readConnection(legacy);
-    const revocations: Array<{ url: string; method: string; body: Record<string, string>; redirect: RequestRedirect }> = [];
+    const revocations: Array<{ url: string; method: string; body: Record<string, string>; redirect: Request['redirect'] }> = [];
     const visibleDuringRevocation: Array<string | null> = [];
     await disconnectMcpPortal(f.env, 'owner', portal, async (input, init) => {
       const request = new Request(input, init);
@@ -830,6 +837,7 @@ describe('Atomic owner MCP state and durable offboarding', () => {
     const first = await f.owner.mcpPortalBeginOffboarding('owner', 'owner@example.com');
     f.owners.reconstruct('owner');
     await expect(f.owner.mcpPortalRead('owner', portal.name)).rejects.toThrow();
+    await expect(f.owner.mcpPortalDisconnect('owner', portal.name)).rejects.toThrow(/offboarding/);
     const second = await f.owner.mcpPortalBeginOffboarding('owner', 'owner@example.com');
     expect(second.operationId).not.toBe(first.operationId);
     expect(await f.owner.mcpPortalCompleteOffboarding('owner', first.operationId)).toBe(false);
@@ -890,7 +898,7 @@ describe('Atomic owner MCP state and durable offboarding', () => {
     const f = await mcpPortalFixture(); await f.begin(); await f.finish();
     const owner = f.owners.owner('owner');
     const original = await owner.mcpPortalRead('owner', portal.name);
-    const alternate = { ...portal, name: 'alternate' };
+    const alternate = { name: 'alternate', url: 'https://portal.example/alternate' };
     await f.kv.put(SETUP_KEYS.MCP_PORTALS, JSON.stringify([portal, alternate]));
     const target = await owner.mcpPortalRead('owner', alternate.name);
     await owner.mcpPortalPublish('owner', alternate.name, target.fence, original.ciphertext!);

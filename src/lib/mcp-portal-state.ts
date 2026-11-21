@@ -62,14 +62,20 @@ export class McpPortalState {
     return initial;
   }
   private async snapshot(txn: DurableObjectTransaction, meta: OwnerState, name: string): Promise<McpSnapshot> {
-    if (meta.operationId) throw new Error(CLOSED);
     const grant = await txn.get<GrantState>(GRANT + name);
     return { fence: { epoch: meta.epoch, revision: grant?.revision ?? 0 }, ciphertext: grant?.ciphertext ?? null,
       legacyImportEligible: !meta.legacyClosed && !grant };
   }
-  read(name: string): Promise<McpSnapshot> {
+  async read(name: string): Promise<McpSnapshot> {
     portalName(name);
-    return this.storage.transaction(async txn => this.snapshot(txn, await this.metadata(txn), name));
+    const result = await this.storage.transaction(async txn => {
+      const meta = await this.metadata(txn);
+      return meta.operationId ? null : this.snapshot(txn, meta, name);
+    });
+    // Expected policy refusals are not storage failures: finish the transaction
+    // before rejecting the caller, without aborting its native storage gate.
+    if (!result) throw new Error(CLOSED);
+    return result;
   }
   private replace(name: string, expected: McpFence, ciphertext: string, importing: boolean): Promise<McpSnapshot | null> {
     portalName(name); ciphertextOnly(ciphertext);
@@ -130,14 +136,17 @@ export class McpPortalState {
       return { portalName: pending.portalName, fence: pending.fence, ciphertext: pending.ciphertext };
     });
   }
-  disconnect(name: string): Promise<{ previous: McpSnapshot; current: McpSnapshot }> {
+  async disconnect(name: string): Promise<{ previous: McpSnapshot; current: McpSnapshot }> {
     portalName(name);
-    return this.storage.transaction(async txn => {
+    const result = await this.storage.transaction(async txn => {
       const meta = await this.metadata(txn);
+      if (meta.operationId) return null;
       const previous = await this.snapshot(txn, meta, name);
       await txn.put(GRANT + name, { revision: previous.fence.revision + 1, ciphertext: null });
       return { previous, current: await this.snapshot(txn, meta, name) };
     });
+    if (!result) throw new Error(CLOSED);
+    return result;
   }
   beginOffboarding(): Promise<{ operationId: string; epoch: string }> {
     return this.storage.transaction(async txn => {
