@@ -26,6 +26,9 @@ export const CLOUDFLARE_TEST_OPTIONS = {
       'enable_nodejs_v8_module',
       'enable_nodejs_process_v2',
       'increase_websocket_message_size',
+      // The production compatibility date predates the workerd #6020 fix.
+      // Check for unhandled rejections after promise adoption has settled.
+      'unhandled_rejection_after_microtask_checkpoint',
     ],
   },
   wrangler: { configPath: './wrangler.toml' },

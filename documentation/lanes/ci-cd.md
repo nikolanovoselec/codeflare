@@ -623,6 +623,8 @@ Root/web-ui use separate lock-backed installs/configs of Vitest; root Workers pl
 
 The Workers suite pairs Vitest 5.1.0 with Cloudflare's plugin 1.6.1. That release contains the upstream inactive-AsyncLocalStorage compatibility fix ([workers-sdk #16699](https://github.com/cloudflare/workers-sdk/pull/16699)); active-storage errors remain enforced. Later plugin versions add automatic Container startup/building, so this pin avoids that separate test-runtime migration without changing production Wrangler configuration.
 
+The Workers test runner explicitly checks for unhandled rejections after the microtask checkpoint ([workerd #6020](https://github.com/cloudflare/workerd/issues/6020)). This lets V8 finish adopting promise chains before reporting a rejection. The test-only flag changes when reporting runs, not whether genuine unhandled rejections fail CI. The production compatibility date is unchanged. <!-- @impl: vitest.config.ts::CLOUDFLARE_TEST_OPTIONS -->
+
 <a id="specification-coverage"></a>
 ## Requirement and Source Map
 
