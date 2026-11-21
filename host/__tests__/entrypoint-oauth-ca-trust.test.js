@@ -74,7 +74,7 @@ function runOAuthCaTrust({ enterpriseMode = undefined, caPresent = true, existin
     `export PATH='${shimDir}':"$PATH"`,
     `CF_OAUTH_CA_SRC='${caPath}'`,
     `USER_HOME='${dir}'`,
-    enterpriseMode !== undefined ? `ENTERPRISE_MODE='${enterpriseMode}'` : '',
+    enterpriseMode !== undefined ? `ENTERPRISE_MODE='${enterpriseMode}'` : 'unset ENTERPRISE_MODE',
     block,
   ].join('\n');
 

@@ -406,6 +406,29 @@ describe('entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2
     }
   });
 
+  describe('REQ-STOR-011 AC4: excludes directories ending in node_modules in both persistence modes', () => {
+    const transient = [
+      'root-node_modules/pkg/index.js',
+      '.pi/agent/installer-scratch/installer-node_modules/pkg/index.js',
+      'Temporary/build-copy/vendor_node_modules/pkg/index.js',
+      'workspace/repo/node_modules/pkg/index.js',
+    ];
+    const durable = [
+      '.pi/agent/installer-scratch/notes.md',
+      '.pi/agent/local-packages/custom-package/package.json',
+      'Temporary/build-copy/node_modules-notes/README.md',
+      'Uploads/notes-node_modules',
+    ];
+    const extraFixtures = Object.fromEntries([...transient, ...durable].map(path => [path, 'fixture']));
+    for (const syncPolicyMode of ['include', 'exclude']) {
+      it(`skips dependency trees and preserves unrelated paths in ${syncPolicyMode} mode`, () => {
+        const verdict = verdictUnder({ sessionMode: 'advanced', syncPolicyMode, extraFixtures });
+        for (const path of transient) assert.equal(verdict[path], 'EXCLUDED', path);
+        for (const path of durable) assert.equal(verdict[path], 'INCLUDED', path);
+      });
+    }
+  });
+
   it('REQ-STOR-011 AC4: excludes only root Pi work-evidence in every sync scope', () => {
     const evidence = '.pi/agent/work-evidence/investigation/report.json';
     const adjacent = '.pi/agent/work-evidence.json';

@@ -10,7 +10,7 @@
 // search would not catch a silently-renamed export; running the block does.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, mkdtempSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, mkdtempSync, writeFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
@@ -78,6 +78,46 @@ function extractCopilotLimitBlock() {
   if (end === -1) throw new Error('Copilot token-limit block end not found in entrypoint.sh');
   return entrypoint.slice(start, end + '    fi\n'.length);
 }
+
+describe('REQ-ENTERPRISE-005 AC2: terminal server CA inheritance', () => {
+  for (const [name, mode, mounted, expected] of [
+    ['Enterprise with mounted CA', 'active', true, true],
+    ['Enterprise without mounted CA', 'active', false, false],
+    ['non-Enterprise with mounted CA', '', true, false],
+  ]) {
+    it(`REQ-ENTERPRISE-005 AC2: ${name} starts the terminal server with the expected CA environment before shell setup`, () => {
+      const home = mkdtempSync(join(tmpdir(), 'early-terminal-ca-'));
+      try {
+        const caPath = join(home, 'interception-ca.crt');
+        mkdirSync(join(home, 'services'));
+        if (mounted) writeFileSync(caPath, 'fixture mount');
+
+        const start = entrypoint.indexOf('export CODEFLARE_CLONE_RESTORE_FLAG_FILE=');
+        const end = entrypoint.indexOf('# Probe port 8080', start);
+        assert.ok(start >= 0 && end > start, 'terminal launch fixture boundary not found');
+        const launch = entrypoint.slice(start, end)
+          .replaceAll('/etc/cloudflare/certs/cloudflare-containers-ca.crt', caPath)
+          .replace('cd /app/host', 'cd "$USER_HOME"');
+        const script = [
+          'set -eo pipefail',
+          // Stand in for the server and inspect its exported environment in a real child.
+          'node() { bash -c \'test ! -e "$HOME/.bashrc" && printf "server-ca=%s|%s|%s\\n" "${NODE_EXTRA_CA_CERTS:-}" "${SSL_CERT_FILE:-}" "${REQUESTS_CA_BUNDLE:-}"\'; }',
+          launch,
+          'wait "$TERMINAL_PID"',
+        ].join('\n');
+        const env = { ...process.env, ENTERPRISE_MODE: mode, USER_HOME: home, CODEFLARE_RUNTIME_ROOT: home };
+        for (const key of ['NODE_EXTRA_CA_CERTS', 'SSL_CERT_FILE', 'REQUESTS_CA_BUNDLE']) delete env[key];
+        const result = spawnSync('bash', ['-c', script], { env, encoding: 'utf8' });
+        assert.equal(result.status, 0, result.stderr);
+        const bundle = '/etc/ssl/certs/ca-certificates.crt';
+        assert.equal(result.stdout.split('\n').find(line => line.startsWith('server-ca=')),
+          expected ? `server-ca=${caPath}|${bundle}|${bundle}` : 'server-ca=||');
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    });
+  }
+});
 
 // ---------------------------------------------------------------------------
 // AC2: CA trust → .bashrc
@@ -175,7 +215,7 @@ describe('REQ-ENTERPRISE-005 AC2: CA trust env prepended to .bashrc (entrypoint.
     const script = [
       'set -euo pipefail',
       `USER_HOME='${dir}'`,
-      // ENTERPRISE_MODE deliberately NOT set — mirrors the unset deployment scenario.
+      'unset ENTERPRISE_MODE',
       `if [ "\${ENTERPRISE_MODE:-}" = "active" ]; then`,
       // Inside the gate: write the CA sentinel (would happen if block ran).
       `  printf '# enterprise-ca-trust\\nexport NODE_EXTRA_CA_CERTS=fake\\n' >> '${bashrcPath}'`,
@@ -339,7 +379,7 @@ describe('REQ-ENTERPRISE-005 AC3: Copilot BYOK env prepended to .bashrc (entrypo
     const script = [
       'set -euo pipefail',
       `USER_HOME='${dir}'`,
-      // ENTERPRISE_MODE deliberately NOT set.
+      'unset ENTERPRISE_MODE',
       `if [ "\${ENTERPRISE_MODE:-}" = "active" ]; then`,
       `  printf '# enterprise-copilot-byok\\nexport COPILOT_PROVIDER_BASE_URL=fake\\n' >> '${bashrcPath}'`,
       `fi`,

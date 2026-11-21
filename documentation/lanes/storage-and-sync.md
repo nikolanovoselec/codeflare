@@ -259,7 +259,8 @@ All modes always exclude these groups:
 
 - Shell/runtime caches: `.bashrc`, `.bash_profile`, `.npm/**`, `.bun/**`, `.cache/**`, `.wrangler/**`, `.config/**`, `.local/state/**`, `.local/share/code-server/coder-logs/**`, `.local/share/Trash/**`, `.cpan/**`.
 - Python artifacts: contents of `.venv/`, `.venv-*/` and `__pycache__/` directories at any depth, plus `*.pyc` and `*.pyo` files. These exclusions precede positive agent, Vault and tray rules.
-- Dependency and graph caches: `**/node_modules/**`, `**/graphify-out/**`, `.graphify/**`, `.claude/context-mode/**`, `.pi/context-mode/**`.
+- Dependency trees: Include and Exclude skip directories named `node_modules` or ending in `node_modules` at any depth, such as `installer-node_modules`. This does not exclude ordinary files by suffix or dependency manifests outside those trees. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON -->
+- Graph and context caches: `**/graphify-out/**`, `.graphify/**`, `.claude/context-mode/**`, `.pi/context-mode/**`.
 - Local tool stores: `.local/share/claude/**`, `.local/share/uv/**`, `.local/bin/uv`, `.local/bin/uvx`, `.claude/mcp-*.json`.
 - Copilot/OpenCode/Gemini state: `.copilot/logs/**`, `.copilot/pkg/**`, `.copilot/session-state/**`, `.copilot/*.db-wal`, `.copilot/*.db-shm`, `.gemini/tmp/**`, `.local/share/opencode/log/**`, `.local/share/opencode/opencode.db-shm`, `.local/share/opencode/opencode.db-wal`.
 - Codex volatile state: `.codex/sessions/**`, `.codex/plugins/cache/**`, `.codex/cache/**`, `.codex/logs*.sqlite*`, `.codex/*.sqlite-shm`, `.codex/*.sqlite-wal`, `.codex/.tmp/**`, `.codex/log/**`, `.codex/models_cache.json`, `.codex/.personality_migration`, `.codex/shell_snapshots/**`, `.codex/tmp/**`, `.codex/version.json`, `.codex/skills/.system/**`.

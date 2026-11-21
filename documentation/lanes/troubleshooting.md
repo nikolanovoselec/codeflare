@@ -656,11 +656,11 @@ Check container logs for `[entrypoint] WARNING: /etc/cloudflare/certs/cloudflare
 
 **Cause detail:**
 
-The Node/Python CA-trust exports are missing from the agent's shell: `entrypoint.sh` writes `NODE_EXTRA_CA_CERTS` / `REQUESTS_CA_BUNDLE` into `.bashrc`, but the block was skipped (CA file absent when the `[ -f "$CF_CA_SRC" ]` guard ran) or never sourced. `curl` keeps working because it reads the system store, which masks the cause; the agent's runtime uses its own bundled CA list and rejects the intercepted cert before the request reaches the interceptor (no `LlmInterceptor.fetch` log line).
+A running Node process can lack trust for the interception CA even when `curl` uses it through the system trust store. On older images, the terminal server started without the CA exports; a Pi process launched before `.bashrc` setup then kept the old environment. Current Enterprise startup passes the mounted CA settings to the terminal server before it launches. <!-- @impl: entrypoint.sh::export_enterprise_ca_environment -->
 
 **Fix detail:**
 
-In the agent's tab run `grep -A3 'enterprise-ca-trust' ~/.bashrc` — the three `export` lines should be present and `echo $NODE_EXTRA_CA_CERTS` should print the CA path. If absent: confirm `ENTERPRISE_MODE=active`, that the CA file existed at boot (`[entrypoint] Enterprise Mode: ... CA installed` log line, no `$CF_CA_SRC not found` WARNING), and the image is current; then restart the container to regenerate `.bashrc`. If the marker is present but the path is stale, delete the `# enterprise-ca-trust` block and restart.
+In an authorized Bash tab, check `NODE_EXTRA_CA_CERTS` and verify the mounted certificate is readable. If a fresh Node TLS handshake succeeds but an existing Pi process lacks the variable, launch Pi from that working shell and resume the transcript. `/reload` does not reload Node’s trust store. If a fresh Node handshake fails too, check the boot warnings and mounted CA rather than disabling TLS verification.
 
 <a id="enterprise-mode-agent-hits-a-non-openai-provider-error-uses-the-wrong"></a>
 #### Enterprise Mode: agent hits a non-OpenAI provider error (e.g. Pi → AWS Bedrock `UnrecognizedClientException`), uses the wrong model, or **no request reaches the AI Gateway** (empty gateway logs)
