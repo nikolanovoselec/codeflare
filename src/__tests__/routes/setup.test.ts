@@ -469,6 +469,77 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
       expect(body.code).toBe('VALIDATION_ERROR');
     });
 
+    it.each(['{', JSON.stringify({ ...standardBody, allowedUsers: ['not-an-email'] })])(
+      'REQ-SEC-009 AC1: invalid setup body %s returns JSON validation before provisioning', async body => {
+        const app = createTestApp();
+        mockKV._set('user:existing@example.com', { role: 'admin' });
+        mockKV._store.set('setup:custom_domain', 'existing.example.com');
+        const before = [...mockKV._store.entries()];
+        globalThis.fetch = vi.fn(async () => { throw new Error('Provisioning must not start'); }) as typeof fetch;
+        const res = await app.request(`${TEST_WORKER_BASE_URL}/api/setup/configure`, {
+          method: 'POST', headers: jsonHeaders, body,
+        });
+        expect(res.status).toBe(400);
+        expect(res.headers.get('Content-Type')).toContain('application/json');
+        expect(await res.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
+        for (const [key, value] of before) expect(mockKV._store.get(key)).toBe(value);
+        expect(await mockKV.get('setup:configuring')).toBeNull();
+        expect(await mockKV.get('setup:complete')).toBeNull();
+        expect(await mockKV.get('user:user@example.com')).toBeNull();
+      },
+    );
+
+    it('REQ-SETUP-011 AC2: failed configure ends with the cumulative attempted-step outcomes', async () => {
+      const app = createTestApp();
+      globalThis.fetch = createUrlMockFetch({
+        ...baseFlowMocks(),
+        '/secrets': () => new Response(JSON.stringify({ success: false, errors: [{ code: 1000, message: 'Secret write refused' }] }), { status: 403, headers: jsonHeaders }),
+      });
+      const res = await app.request(`${TEST_WORKER_BASE_URL}/api/setup/configure`, {
+        method: 'POST', headers: jsonHeaders, body: JSON.stringify(standardBody),
+      });
+      expect(res.status).toBe(200);
+      const lines = await readNdjson(res);
+      const summary = getNdjsonSummary(lines);
+      const steps = [
+        { step: 'get_account', status: 'success' },
+        { step: 'derive_r2_credentials', status: 'success' },
+        { step: 'set_secrets', status: 'error', error: expect.any(String) },
+      ];
+      expect(summary).toEqual({ done: true, success: false, steps, error: expect.any(String) });
+      expect(lines.at(-1)).toEqual(summary);
+      expect(lines.filter(line => line.done === true)).toEqual([summary]);
+      expect(lines.filter(line => line.status !== 'running' && !line.done)).toEqual(steps);
+      expect(await mockKV.get('setup:complete')).toBeNull();
+    });
+
+    it('REQ-SETUP-004 AC3: failed reconfiguration preserves completion and the existing admin gate', async () => {
+      mockKV._store.set('setup:complete', 'true');
+      mockKV._store.set('setup:completed_at', '2025-01-01T00:00:00.000Z');
+      mockKV._store.set('setup:custom_domain', 'existing.example.com');
+      mockKV._set('user:admin@example.com', { role: 'admin', subscriptionTier: 'unlimited' });
+      const before = [...mockKV._store.entries()];
+      const container = {
+        idFromName: (name: string) => name,
+        get: () => ({ claimBucketOwner: async () => 'owned' }),
+      } as unknown as Env['CONTAINER'];
+      const app = createTestApp({ CONTAINER: container });
+      globalThis.fetch = createUrlMockFetch({ '/accounts': () => new Response(JSON.stringify({ success: false, result: [] }), { headers: jsonHeaders }) });
+      const failed = await app.request(`${TEST_WORKER_BASE_URL}/api/setup/configure`, {
+        method: 'POST', headers: { ...jsonHeaders, 'cf-access-authenticated-user-email': 'admin@example.com' },
+        body: JSON.stringify(standardBody),
+      });
+      expect(failed.status).toBe(200);
+      expect(getNdjsonSummary(await readNdjson(failed))).toMatchObject({ done: true, success: false });
+      // A failed rerun must not turn the completed instance back into public bootstrap.
+      const denied = await app.request(`${TEST_WORKER_BASE_URL}/api/setup/configure`, {
+        method: 'POST', headers: jsonHeaders, body: JSON.stringify(standardBody),
+      });
+      expect(denied.status).toBe(401);
+      for (const [key, value] of before) expect(mockKV._store.get(key)).toBe(value);
+      expect(await mockKV.get('user:user@example.com')).toBeNull();
+    });
+
     it('reads token from env, not from request body', async () => {
       const app = createTestApp({ CLOUDFLARE_API_TOKEN: 'my-env-token' });
       mockFullSuccessFlow();
@@ -517,6 +588,55 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
       );
       const summary = getNdjsonSummary(lines);
       expect(summary.success).toBe(false);
+    });
+
+    it('REQ-SETUP-004 AC2 / REQ-SETUP-002 AC4: retry preserves partial resources and canonical user ownership', async () => {
+      const app = createTestApp();
+      const secrets = new Map<string, string>();
+      let dnsRecord: Record<string, unknown> | null = null;
+      let refuseRoute = true;
+      const dnsWrites: { method: string; path: string }[] = [];
+      globalThis.fetch = createUrlMockFetch({
+        ...baseFlowMocks(), ...customDomainFlowMocks(), ...accessAppFlowMocks(),
+        '/secrets': (_url, init) => {
+          const body = JSON.parse(String(init?.body)) as { name: string; text: string };
+          secrets.set(body.name, body.text);
+          return new Response('', { status: 200 });
+        },
+        '~/dns_records': (url, init) => {
+          if (!init?.method || init.method === 'GET') return _jsonResponse({ success: true, result: dnsRecord ? [dnsRecord] : [] });
+          dnsWrites.push({ method: init.method, path: new URL(url).pathname });
+          dnsRecord = { ...JSON.parse(String(init.body)), id: 'dns_retained' };
+          return _jsonResponse({ success: true, result: dnsRecord });
+        },
+        '/workers/routes': () => refuseRoute
+          ? _jsonResponse({ success: false, errors: [{ code: 1000, message: 'Route refused' }] }, 403)
+          : mockResponses.workerRouteCreate(),
+      });
+      const request = () => app.request(`${TEST_WORKER_BASE_URL}/api/setup/configure`, {
+        method: 'POST', headers: jsonHeaders, body: JSON.stringify(standardBody),
+      });
+      const failed = await readNdjson(await request());
+      expect(getNdjsonSummary(failed)).toMatchObject({ success: false });
+      expect(await mockKV.get('setup:complete')).toBeNull();
+      expect(dnsRecord).toMatchObject({ id: 'dns_retained', type: 'CNAME', proxied: true });
+      const retainedSecrets = [...secrets];
+      expect(retainedSecrets.map(([name]) => name).sort()).toEqual(['R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY']);
+      refuseRoute = false;
+      const retried = await readNdjson(await request());
+      expect(retried[0]).toEqual({ step: 'get_account', status: 'running' });
+      expect(getNdjsonSummary(retried)).toMatchObject({ success: true });
+      expect([...secrets]).toEqual(retainedSecrets);
+      expect(dnsWrites).toEqual([
+        { method: 'POST', path: '/client/v4/zones/zone123/dns_records' },
+        { method: 'PUT', path: '/client/v4/zones/zone123/dns_records/dns_retained' },
+      ]);
+      expect(dnsRecord).toMatchObject({ id: 'dns_retained', content: 'codeflare.test-account.workers.dev', proxied: true });
+      expect(await mockKV.get('setup:complete')).toBe('true');
+      expect(await mockKV.get('setup:custom_domain')).toBe(standardBody.customDomain);
+      expect(await mockKV.get('user:user@example.com', 'json')).toMatchObject({ role: 'admin', addedBy: 'setup' });
+      expect(await mockKV.get('setup:user:user@example.com')).toBeNull();
+      expect(await mockKV.get('user-prefs:user@example.com')).toBeNull();
     });
 
     it('progresses through steps correctly on success', async () => {

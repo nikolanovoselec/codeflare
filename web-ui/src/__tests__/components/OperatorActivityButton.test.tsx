@@ -497,6 +497,30 @@ describe('REQ-OPERATOR-027: readable owned activity and bounded history', () => 
     expect(screen.queryByText('Needs attention')).toBeNull();
   });
 
+  it('REQ-OPERATOR-057 AC7: source-less activity detail omits source and session links', async () => {
+    const item = { ...active, source: null, sessionId: null, executionStatus: 'completed' as const,
+      cleanupStatus: 'unknown' as const, collectionStatus: 'ready' as const };
+    listMock.mockResolvedValue({ items: [item] });
+    detailMock.mockResolvedValue({ ...item, checkpoint: null, result: { verdict: 'incomplete' } });
+    render(() => <OperatorActivityButton enabled />);
+    await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
+    const row = await screen.findByRole('article');
+    expect(within(row).getByText('completed')).toBeVisible();
+    expect(within(row).queryAllByRole('link')).toHaveLength(0);
+    await fireEvent.click(within(row).getByRole('button', { name: 'View activity-1' }));
+    expect(await screen.findByText('Conclusion: incomplete')).toBeVisible();
+    const detail = within(screen.getByRole('dialog', { name: /operator activity/i }));
+    expect(detail.getByText('Execution: completed')).toBeVisible();
+    expect(detail.getByText('Cleanup: unknown')).toBeVisible();
+    expect(detail.getByText('Collection: ready')).toBeVisible();
+    // This result has no result-owned links either: any anchor would invent navigation.
+    expect(detail.queryAllByRole('link')).toHaveLength(0);
+    expect(detail.queryByText('Repository dispatch')).toBeNull();
+    await fireEvent.click(detail.getByRole('button', { name: 'Back to activities' }));
+    expect(await screen.findByRole('button', { name: 'View activity-1' })).toBeVisible();
+    expect(within(screen.getByRole('article')).queryAllByRole('link')).toHaveLength(0);
+  });
+
   it('opens an in-app owner-scoped readable result, with diagnostics and a way back, without collecting or restarting', async () => {
     listMock.mockResolvedValue({ items: [active] });
     detailMock.mockResolvedValue({ ...active, executionStatus: 'completed', cleanupStatus: 'unknown',

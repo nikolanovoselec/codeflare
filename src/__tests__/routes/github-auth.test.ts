@@ -32,7 +32,7 @@ vi.mock('../../lib/access', () => ({
 // Import mocked functions after vi.mock so overrides work per-test
 import { signSessionJWT } from '../../lib/session-jwt';
 import githubAuthRoutes from '../../routes/github-auth';
-import { signOauthState } from '../../lib/oauth-state';
+import { signOauthState, verifyOauthState } from '../../lib/oauth-state';
 import { connectGithub } from '../../lib/github-token';
 import { authenticateRequest } from '../../lib/access';
 
@@ -109,6 +109,30 @@ describe('GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)'
       expect(state.split('.')).toHaveLength(3);
     });
 
+    it('REQ-AUTH-002 AC2: login state verifies against the configured HMAC key without a state cookie', async () => {
+      const res = await createApp().request('/login');
+
+      expect(res.status).toBe(302);
+      expect(res.headers.get('Set-Cookie')).toBeNull();
+      const location = new URL(res.headers.get('Location')!);
+      expect(location.origin + location.pathname).toBe('https://github.com/login/oauth/authorize');
+      const state = location.searchParams.get('state')!;
+      expect(state).toBeTruthy();
+      const [nonce, issuedAt, signature] = state.split('.');
+      // Independently verify the documented state wire format, not its signer/validator.
+      const key = await crypto.subtle.importKey(
+        'raw', new TextEncoder().encode(TEST_SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['verify'],
+      );
+      const signatureBytes = Uint8Array.from(
+        atob(signature.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - signature.length % 4) % 4)),
+        character => character.charCodeAt(0),
+      );
+      const payload = new TextEncoder().encode(`oauth-state:v1:${nonce}:${issuedAt}`);
+      expect(await crypto.subtle.verify('HMAC', key, signatureBytes, payload)).toBe(true);
+      const changedPayload = new TextEncoder().encode(`oauth-state:v1:${nonce}:${Number(issuedAt) - 1}`);
+      expect(await crypto.subtle.verify('HMAC', key, signatureBytes, changedPayload)).toBe(false);
+    });
+
     it('returns 404 (looks unmounted) when OAUTH_CLIENT_ID missing', async () => {
       const app = createApp({ OAUTH_CLIENT_ID: undefined } as unknown as Partial<Env>);
       const res = await app.request('/login');
@@ -178,6 +202,77 @@ describe('GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)'
 
       expect(res.status).toBe(302);
       expect(res.headers.get('Location')).toContain('error=session-expired');
+    });
+
+    it('REQ-AUTH-002 AC3: rejects a genuinely signed state older than 30 minutes without issuing a session or consuming the nonce', async () => {
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() - 1_801_000);
+      let state: string;
+      try {
+        state = await signOauthState(TEST_SECRET);
+        expect(await verifyOauthState(state, TEST_SECRET)).toBe(true);
+      } finally {
+        clock.mockRestore();
+      }
+      const before = new Map(mockKV._store);
+      const provider = vi.fn(async () => { throw new Error('Expired state must not reach GitHub'); });
+      globalThis.fetch = provider;
+      const startedAt = Date.now();
+      const res = await createApp().request(`/callback?code=test-code&state=${encodeURIComponent(state)}`);
+
+      expect(res.status).toBe(302);
+      const location = new URL(res.headers.get('Location')!);
+      expect(location.pathname + location.search).toBe('/?error=session-expired');
+      expect(res.headers.get('Set-Cookie')).toBeNull();
+      expect(provider).not.toHaveBeenCalled();
+      // Only public rate-limit bookkeeping may change; nonce and user storage stay intact.
+      const rateLimit = JSON.parse(mockKV._store.get('github-auth:anonymous')!);
+      expect(rateLimit).toEqual({ count: 1, windowStart: expect.any(Number) });
+      expect(rateLimit.windowStart).toBeGreaterThanOrEqual(startedAt);
+      expect(rateLimit.windowStart).toBeLessThanOrEqual(Date.now());
+      before.set('github-auth:anonymous', JSON.stringify(rateLimit));
+      expect([...mockKV._store]).toEqual([...before]);
+    });
+
+    it.each([
+      { tier: 'standard', destination: '/app/' },
+      { tier: 'blocked', destination: '/app/subscribe' },
+    ])('REQ-AUTH-002 AC4: $tier callback issues a real session and redirects to $destination without persisting or exposing the GitHub token', async ({ tier, destination }) => {
+      mockGitHubSuccess();
+      mockKV._set('user:alice@example.com', { subscriptionTier: tier });
+      const before = new Map(mockKV._store);
+      const realSession = await vi.importActual<typeof import('../../lib/session-jwt')>('../../lib/session-jwt');
+      vi.mocked(signSessionJWT).mockImplementationOnce(realSession.signSessionJWT);
+      const app = createApp();
+      const login = await app.request('/login');
+      const state = new URL(login.headers.get('Location')!).searchParams.get('state')!;
+      const startedAt = Date.now();
+      const res = await app.request(`/callback?code=test-code&state=${encodeURIComponent(state)}`);
+
+      expect(res.status).toBe(302);
+      expect(new URL(res.headers.get('Location')!).pathname).toBe(destination);
+      const cookie = res.headers.get('Set-Cookie')!;
+      expect(cookie).toMatch(/^codeflare_session=[^;]+; HttpOnly; Secure; SameSite=Lax; Path=\/; Max-Age=3600$/);
+      const token = cookie.match(/^codeflare_session=([^;]+)/)![1];
+      const claims = await realSession.verifySessionJWT(token, TEST_SECRET, realSession.SESSION_JWT_AUD);
+      expect(claims).toEqual({
+        email: 'alice@example.com', sub: '12345', ghLogin: 'alice', aud: 'codeflare-session',
+        iat: expect.any(Number), exp: expect.any(Number),
+      });
+      expect(claims!.exp - claims!.iat).toBe(3600);
+      expect(JSON.stringify([...res.headers])).not.toContain('gho_test_token');
+      expect(await res.text()).not.toContain('gho_test_token');
+      // Full storage allowlist: existing user, login/callback counters and redeemed nonce only.
+      const loginLimit = JSON.parse(mockKV._store.get('github-login:anonymous')!);
+      const callbackLimit = JSON.parse(mockKV._store.get('github-auth:anonymous')!);
+      expect(loginLimit).toEqual({ count: 1, windowStart: expect.any(Number) });
+      expect(callbackLimit).toEqual({ count: 1, windowStart: expect.any(Number) });
+      expect(callbackLimit.windowStart).toBeGreaterThanOrEqual(startedAt);
+      expect(callbackLimit.windowStart).toBeLessThanOrEqual(Date.now());
+      before.set('github-login:anonymous', JSON.stringify(loginLimit));
+      before.set('github-auth:anonymous', JSON.stringify(callbackLimit));
+      before.set(`oauth-nonce:${state.split('.')[0]}`, '1');
+      expect([...mockKV._store]).toEqual([...before]);
+      expect(connectGithub).not.toHaveBeenCalled();
     });
 
     it('sets codeflare_session cookie on success', async () => {

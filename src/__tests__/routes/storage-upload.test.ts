@@ -31,11 +31,13 @@ import deleteRoutes from '../../routes/storage/delete';
 describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT)', () => {
   let mockKV: ReturnType<typeof createMockKV>;
   let multipartReceipts: Map<string, unknown>;
+  let multipartOwnerStores: Map<string, Map<string, unknown>>;
   const seedManagedUpload = (key: string, id: string) => multipartReceipts.set(`multipart:upload:${id}`, { key, generation: 0, regime: 'sse-c' });
 
   beforeEach(() => {
     mockKV = createMockKV();
     multipartReceipts = new Map();
+    multipartOwnerStores = new Map([['storage:test-bucket', multipartReceipts]]);
     mockFetch.mockReset();
     managedState.snapshot = { configured: false, enabled: false };
   });
@@ -46,15 +48,24 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
 
   function createApp(bucketName = 'test-bucket', envOverrides: Partial<Env> = {}) {
     const env = { KV: mockKV, R2_ACCESS_KEY_ID: 'test-key', R2_SECRET_ACCESS_KEY: 'test-secret', ...envOverrides } as unknown as Env;
-    const storage = {
-      get: async (key: string) => multipartReceipts.get(key),
-      put: async (key: string, value: unknown) => { multipartReceipts.set(key, value); },
-      delete: async (key: string) => multipartReceipts.delete(key),
-    } as unknown as Pick<DurableObjectStorage, 'get' | 'put' | 'delete'>;
+    // Model the existing DO namespace's per-name storage, not its owner guard
+    // or serialization. Route tests still execute the real multipart operation.
+    const container = { getByName: (name: string) => {
+      let values = multipartOwnerStores.get(name);
+      if (!values) { values = new Map(); multipartOwnerStores.set(name, values); }
+      const receipts = values;
+      const storage = {
+        get: async (key: string) => receipts.get(key),
+        put: async (key: string, value: unknown) => { receipts.set(key, value); },
+        delete: async (key: string) => receipts.delete(key),
+      } as unknown as Pick<DurableObjectStorage, 'get' | 'put' | 'delete'>;
+      return { runBucketMultipart: async (input: Parameters<typeof performBucketMultipart>[2] | Request) =>
+        performBucketMultipart(env, storage, input instanceof Request ? await input.json() as Parameters<typeof performBucketMultipart>[2] : input) };
+    } } as unknown as Env['CONTAINER'];
     return createTestApp({
       routes: [{ path: '/upload', handler: uploadRoutes }, { path: '/delete', handler: deleteRoutes }],
       mockKV, bucketName,
-      envOverrides: { ...env, CONTAINER: { getByName: () => ({ runBucketMultipart: async (input: Parameters<typeof performBucketMultipart>[2] | Request) => performBucketMultipart(env, storage, input instanceof Request ? await input.json() as Parameters<typeof performBucketMultipart>[2] : input) }) } as unknown as Env['CONTAINER'] },
+      envOverrides: { ...env, CONTAINER: container },
     });
   }
 
@@ -411,6 +422,51 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
   // REQ-STOR-008 AC2: POST /api/storage/upload/part uploads a single part (base64 body) for a given upload ID
 
   describe('POST /upload/part (multipart part)', () => {
+    it.each(['wrong-owner', 'wrong-key', 'stale-generation', 'wrong-regime'] as const)(
+      'REQ-STOR-008 AC1/AC2: %s part replay is rejected without changing stored receipts or part bytes', async scenario => {
+        const key = 'Uploads/bound.bin';
+        const state = { status: 'ready', regime: 'plain', generation: 5 };
+        mockKV._set('r2-regime:test-bucket', state);
+        mockKV._set('r2-regime:other-bucket', state);
+        multipartOwnerStores.set('storage:other-bucket', new Map());
+        let remotePart = 'previous part bytes';
+        mockFetch.mockImplementation(async (url: string, init: RequestInit) => {
+          if (new URL(url).search === '?uploads') {
+            return new Response('<UploadId>upload-id-123</UploadId>');
+          }
+          remotePart = await new Response(init.body).text();
+          return new Response('', { headers: { etag: 'new-part-etag' } });
+        });
+        const initiated = await createApp().request('/upload/initiate', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key }),
+        });
+        expect(initiated.status).toBe(200);
+        const { uploadId } = await initiated.json() as { uploadId: string };
+        expect(multipartReceipts.get(`multipart:upload:${uploadId}`))
+          .toEqual({ key, generation: 5, regime: 'plain' });
+
+        if (scenario === 'stale-generation') {
+          // Durable generation has advanced while the KV observation is old.
+          multipartReceipts.set('multipart:regime', { generation: 6, regime: 'plain' });
+        } else if (scenario === 'wrong-regime') {
+          mockKV._set('r2-regime:test-bucket', { ...state, regime: 'sse-c' });
+        }
+        const receiptsBefore = structuredClone(multipartOwnerStores);
+        // A fresh route/RPC facade must use the retained receipt, not transient
+        // request state. Only the owner scenario changes the supplied auth bucket.
+        const response = await createApp(scenario === 'wrong-owner' ? 'other-bucket' : 'test-bucket').request('/upload/part', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: scenario === 'wrong-key' ? 'Uploads/other.bin' : key,
+            uploadId, partNumber: 1, content: btoa('replacement part bytes') }),
+        });
+        expect(response.status).toBe(409);
+        expect(await response.json()).toMatchObject({ code: 'MULTIPART_RESTART_REQUIRED' });
+        expect(remotePart).toBe('previous part bytes');
+        expect(multipartOwnerStores).toEqual(receiptsBefore);
+      },
+    );
+
     it('returns etag on success', async () => {
       seedManagedUpload('workspace/large.zip', 'upload-id-123');
       const app = createApp();

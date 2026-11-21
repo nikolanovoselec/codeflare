@@ -50,6 +50,7 @@ import worker from '../index';
 import { resetSetupCache as resetSetupCacheShared } from '../lib/cache-reset';
 import { validateWebSocketRoute, handleWebSocketUpgrade } from '../routes/terminal';
 import { createMockKV } from './helpers/mock-kv';
+import { signSessionJWT, SESSION_JWT_AUD } from '../lib/session-jwt';
 
 function createMockEnv(): { env: Env; mockKV: ReturnType<typeof createMockKV>; mockAssets: { fetch: ReturnType<typeof vi.fn> } } {
   const mockKV = createMockKV();
@@ -304,6 +305,57 @@ describe('Edge-level setup redirect', () => {
     expect(response.status).toBe(200);
     const fetchedRequest = mockAssets.fetch.mock.calls[0][0] as Request;
     expect(new URL(fetchedRequest.url).pathname).toBe('/landing/');
+  });
+
+  it.each([
+    { state: 'active', tier: 'advanced', destination: '/app/' },
+    { state: 'pending', tier: 'pending', destination: '/app/subscribe' },
+    { state: 'blocked', tier: 'blocked', destination: '/app/subscribe' },
+  ] as const)('REQ-LANDING-017 AC4: signed-in SaaS $state user redirects GET / to $destination without landing assets', async ({ tier, destination }) => {
+    const { env, mockKV, mockAssets } = createMockEnv();
+    const email = 'active@example.com';
+    const secret = 'test-session-signing-secret';
+    env.SAAS_MODE = 'active';
+    env.OAUTH_CLIENT_ID = 'gh-client-id';
+    env.OAUTH_JWT_SECRET = secret;
+    mockKV._store.set('setup:complete', 'true');
+    mockKV._set(`user:${email}`, {
+      addedBy: 'setup', addedAt: '2024-01-01', role: 'user',
+      accessTier: tier, subscriptionTier: tier,
+    });
+    // Reuse the access.test.ts bucket-identity fixture; only the storage
+    // boundary is simulated, not authentication or root dispatch.
+    const bucketOwners = new Map<string, string>();
+    env.CONTAINER = {
+      idFromName: (name: string) => name,
+      get: (id: string) => ({
+        claimBucketOwner: async (owner: string, allowInitialClaim: boolean) => {
+          const existing = bucketOwners.get(id);
+          if (existing === owner) return 'owned' as const;
+          if (existing) return 'conflict' as const;
+          if (!allowInitialClaim) return 'ambiguous' as const;
+          bucketOwners.set(id, owner);
+          return 'owned' as const;
+        },
+      }),
+    } as unknown as Env['CONTAINER'];
+    const landingBody = '<!doctype html><title>Landing asset sentinel</title>';
+    mockAssets.fetch.mockResolvedValue(new Response(landingBody, {
+      headers: { 'Content-Type': 'text/html' },
+    }));
+    // Same real HMAC signer, audience and fresh TTL as session-refresh-transparent.test.ts.
+    const token = await signSessionJWT(
+      { email, sub: 'gh|1', ghLogin: 'octocat', aud: SESSION_JWT_AUD }, secret, 3600,
+    );
+
+    const response = await worker.fetch(new Request('https://example.com/', {
+      method: 'GET', headers: { Cookie: `codeflare_session=${token}` },
+    }), env, createMockCtx());
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get('Location')).toBe(destination);
+    expect(await response.text()).not.toContain(landingBody);
+    expect(mockAssets.fetch).not.toHaveBeenCalled();
   });
 
   it('REQ-LANDING-001: keeps redirecting / to /app in default mode (no landing)', async () => {

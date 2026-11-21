@@ -29,7 +29,10 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { once } from 'node:events';
+import http from 'node:http';
+import { setTimeout as delay } from 'node:timers/promises';
 import {
   mkdtempSync,
   mkdirSync,
@@ -234,6 +237,36 @@ relay_managed_pi_extensions() { :; }
     // Skeleton dirs the function guarantees exist (mkdir -p, idempotent).
     for (const d of ['Raw/Sessions', 'Notes', 'References', 'graphify-out', '.silverbullet/_plug']) {
       assert.ok(existsSync(join(vault, d)), `init_user_vault must ensure ~/Vault/${d} exists`);
+    }
+  });
+
+  it('REQ-VAULT-001 AC5: initializer creates missing Uploads and Temporary and preserves user content on re-run', (t) => {
+    const root = mkTmp('vault-trays-');
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const userHome = join(root, 'home');
+    const preseedDir = join(root, 'preseed');
+    const note = join(userHome, 'Vault', 'Notes', 'retained.md');
+    mkdirSync(dirname(note), { recursive: true });
+    mkdirSync(preseedDir);
+    writeFileSync(note, 'restored user note\n');
+    for (const tray of ['Uploads', 'Temporary']) {
+      assert.equal(existsSync(join(userHome, tray)), false);
+    }
+
+    const script = buildInitVaultHarness({ userHome, preseedDir });
+    const first = runBash(script);
+    assert.equal(first.status, 0, first.stderr);
+    for (const tray of ['Uploads', 'Temporary']) {
+      assert.ok(statSync(join(userHome, tray)).isDirectory(), `${tray} must be created by init_user_vault`);
+      writeFileSync(join(userHome, tray, 'user.txt'), `${tray} user bytes\n`);
+    }
+    assert.equal(readFileSync(note, 'utf8'), 'restored user note\n');
+
+    const second = runBash(script);
+    assert.equal(second.status, 0, second.stderr);
+    assert.equal(readFileSync(note, 'utf8'), 'restored user note\n');
+    for (const tray of ['Uploads', 'Temporary']) {
+      assert.equal(readFileSync(join(userHome, tray, 'user.txt'), 'utf8'), `${tray} user bytes\n`);
     }
   });
 
@@ -534,6 +567,103 @@ relay_managed_pi_extensions() { :; }
       'init_user_vault must only manage Library/Codeflare, never other Library subdirs',
     );
   });
+});
+
+describe('SilverBullet supervisor launch boundary (real entrypoint function)', () => {
+  async function exerciseSupervisor(overrideHost) {
+    const expectedHost = overrideHost ?? '127.0.0.1';
+    const root = mkTmp('vault-supervisor-');
+    const home = join(root, 'home');
+    const runtime = join(root, 'runtime');
+    const launchesFile = join(root, 'launches.jsonl');
+    const binary = join(root, 'silverbullet-peer.cjs');
+    const pidFile = join(runtime, 'services', 'silverbullet.pid');
+    mkdirSync(join(home, 'Vault'), { recursive: true });
+    mkdirSync(join(runtime, 'services'), { recursive: true });
+
+    // Controlled editor executable, not a replacement supervisor: consume the
+    // real launcher's argv, bind that address, and keep running until killed.
+    writeFileSync(binary, `#!${process.execPath}
+const http = require('node:http');
+const { appendFileSync } = require('node:fs');
+const args = process.argv.slice(2);
+const server = http.createServer((_req, res) => res.end(JSON.stringify({ pid: process.pid })));
+server.listen(Number(args[args.indexOf('--port') + 1]), args[args.indexOf('--hostname') + 1], () => {
+  appendFileSync(process.env.LAUNCHES_FILE, JSON.stringify({
+    pid: process.pid, address: server.address(), vault: args.at(-1), index: process.env.SB_INDEX_PAGE
+  }) + '\\n');
+});
+`);
+    chmodSync(binary, 0o755);
+    const env = { ...process.env, HOME: home, CODEFLARE_RUNTIME_ROOT: runtime,
+      SILVERBULLET_BIN: binary, SILVERBULLET_PORT: '0', LAUNCHES_FILE: launchesFile };
+    // Do not let inherited configuration turn the default case into an override.
+    delete env.SILVERBULLET_HOST;
+    if (overrideHost !== undefined) env.SILVERBULLET_HOST = overrideHost;
+    const host = spawn('bash', ['-c', `${extractFunctionBody('start_silverbullet_supervisor')}
+start_silverbullet_supervisor
+wait "$SILVERBULLET_SUPERVISOR_PID"
+`], { env, stdio: 'ignore' });
+    const hostExit = once(host, 'exit');
+    const launches = () => existsSync(launchesFile)
+      ? readFileSync(launchesFile, 'utf8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line))
+      : [];
+    const waitForLaunch = async (count) => {
+      const deadline = Date.now() + 9000;
+      while (Date.now() < deadline) {
+        const observed = launches();
+        if (observed.length >= count) return observed[count - 1];
+        assert.equal(host.exitCode, null, 'launcher host must remain alive');
+        await delay(25);
+      }
+      assert.fail(`editor launch ${count} not observed; log: ${readFileSync(join(runtime, 'services', 'silverbullet.log'), 'utf8')}`);
+    };
+    const probe = (port) => new Promise((resolve, reject) => {
+      const request = http.get({ hostname: expectedHost, port }, (response) => {
+        let body = '';
+        response.setEncoding('utf8');
+        response.on('data', (chunk) => { body += chunk; });
+        response.on('end', () => resolve(JSON.parse(body)));
+        response.on('error', reject);
+      });
+      request.setTimeout(1000, () => request.destroy(new Error('editor probe timed out')));
+      request.on('error', reject);
+    });
+    try {
+      await once(host, 'spawn');
+      const first = await waitForLaunch(1);
+      assert.equal(first.address.address, expectedHost);
+      assert.equal(first.vault, join(home, 'Vault'));
+      assert.equal(first.index, 'Index');
+      assert.deepEqual(await probe(first.address.port), { pid: first.pid });
+      const supervisorPid = readFileSync(pidFile, 'utf8');
+
+      const crashedAt = Date.now();
+      process.kill(first.pid, 'SIGKILL');
+      const restarted = await waitForLaunch(2);
+      assert.notEqual(restarted.pid, first.pid);
+      assert.equal(restarted.address.address, expectedHost);
+      assert.deepEqual(await probe(restarted.address.port), { pid: restarted.pid });
+      assert.ok(Date.now() - crashedAt < 9000, 'restart must complete within the 5s backoff plus local scheduling allowance');
+      assert.equal(readFileSync(pidFile, 'utf8'), supervisorPid, 'same supervisor survives the editor crash');
+      assert.equal(host.exitCode, null, 'surrounding launcher host must survive the editor crash');
+      assert.equal(host.signalCode, null);
+    } finally {
+      // The production supervisor owns a separate process group. Stop that
+      // entire group before removing the isolated runtime, including on failure.
+      if (existsSync(pidFile)) {
+        try { process.kill(-Number(readFileSync(pidFile, 'utf8').trim()), 'SIGKILL'); }
+        catch (error) { if (error.code !== 'ESRCH') throw error; }
+      }
+      host.kill('SIGKILL');
+      await hostExit;
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  it('REQ-VAULT-005 AC2/AC6: launches on loopback and restarts a crashed editor without restarting its host', { timeout: 15000 }, () => exerciseSupervisor());
+
+  it('REQ-VAULT-005 AC2/AC6: launches on loopback and restarts a crashed editor without restarting its host (SILVERBULLET_HOST=127.0.0.2)', { timeout: 15000 }, () => exerciseSupervisor('127.0.0.2'));
 });
 
 // ---------------------------------------------------------------------------

@@ -210,6 +210,55 @@ describe('REQ-SUB-028 AC1: daily retention claim', () => {
   });
 });
 
+describe('REQ-SUB-028 AC3/4: persisted retention boundaries', () => {
+  it('prunes only periods before each cutoff and retains named deleted-user history through sixty months', async () => {
+    await db.prepare(`INSERT INTO usage_users (user_key, email, account_status, data_since)
+      VALUES ('active-boundary', 'active@example.com', 'active', '2020-01-01T00:00:00.000Z')`).run();
+    const periods = [
+      { kind: 'day', before: '2026-07-11', at: '2026-07-12', after: '2026-07-13' },
+      { kind: 'month', before: '2022-08', at: '2022-09', after: '2022-10' },
+      { kind: 'week', before: '2026-06-15', at: '2026-06-22', after: '2026-06-29' },
+      { kind: 'year', before: '2022', at: '2023', after: '2024' },
+    ];
+    for (const { kind, before, at, after } of periods) {
+      for (const start of [before, at, after]) {
+        await db.prepare(`INSERT INTO usage_periods
+          (user_key, period_kind, period_start, runtime_seconds, session_count, source_sequence, updated_at)
+          VALUES ('active-boundary', ?1, ?2, 120, 2, 1, '2027-08-15T12:00:00.000Z')`).bind(kind, start).run();
+      }
+    }
+    for (const [key, deletedAt] of [
+      ['deleted-before', '2022-07-31T23:59:59.999Z'],
+      ['deleted-at', '2022-08-01T00:00:00.000Z'],
+      ['deleted-after', '2022-08-01T00:00:00.001Z'],
+    ]) {
+      await db.prepare(`INSERT INTO usage_users (user_key, email, account_status, data_since, deleted_at)
+        VALUES (?1, ?2, 'deleted', '2020-01-01T00:00:00.000Z', ?3)`)
+        .bind(key, `${key}@example.com`, deletedAt).run();
+      await db.prepare(`INSERT INTO usage_periods
+        (user_key, period_kind, period_start, runtime_seconds, session_count, source_sequence, updated_at)
+        VALUES (?1, 'year', '2020', 3600, 3, 1, '2022-07-01T00:00:00.000Z')`).bind(key).run();
+    }
+
+    await runUsageRetention(db, new Date('2027-08-15T12:00:00.000Z'), 'retention-boundaries');
+
+    const active = await db.prepare(`SELECT period_kind, period_start, runtime_seconds, session_count
+      FROM usage_periods WHERE user_key = 'active-boundary' ORDER BY period_kind, period_start`).all();
+    expect(active.results).toEqual(periods.flatMap(({ kind, at, after }) => [at, after].map(start => ({
+      period_kind: kind, period_start: start, runtime_seconds: 120, session_count: 2,
+    }))));
+    const deleted = await db.prepare(`SELECT u.email, p.runtime_seconds, p.session_count
+      FROM usage_users u JOIN usage_periods p ON p.user_key = u.user_key
+      WHERE u.account_status = 'deleted' ORDER BY u.email`).all();
+    expect(deleted.results).toEqual([
+      { email: 'deleted-after@example.com', runtime_seconds: 3600, session_count: 3 },
+      { email: 'deleted-at@example.com', runtime_seconds: 3600, session_count: 3 },
+    ]);
+    expect(await db.prepare("SELECT user_key FROM usage_users WHERE user_key = 'deleted-before'").first()).toBeNull();
+    expect(await db.prepare("SELECT user_key FROM usage_periods WHERE user_key = 'deleted-before'").first()).toBeNull();
+  });
+});
+
 describe('REQ-SUB-028 AC2: retention rollback', () => {
   it('rolls back the daily claim when a prune fails', async () => {
     await db.prepare(`INSERT INTO usage_users (user_key, email, account_status, data_since)

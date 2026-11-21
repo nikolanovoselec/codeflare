@@ -124,9 +124,10 @@ describe('REQ-AUTH-020 / REQ-AUTH-021: onboarding login + access-request', () =>
      * Mocks GitHub OAuth (token + profile + emails) AND the Resend email API.
      * Records every Resend recipient address so tests can assert who got mailed.
      */
-    function mockExternalCalls(opts: { email?: string } = {}): { resendRecipients: string[] } {
+    function mockExternalCalls(opts: { email?: string; failRecipient?: string } = {}) {
       const email = opts.email ?? 'alice@example.com';
       const resendRecipients: string[] = [];
+      const resendDeliveries: Array<{ to: string[]; status: number; requestedAt: unknown }> = [];
       globalThis.fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
         const u = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
         if (u.includes('github.com/login/oauth/access_token')) {
@@ -143,11 +144,14 @@ describe('REQ-AUTH-020 / REQ-AUTH-021: onboarding login + access-request', () =>
         if (u.includes('api.resend.com/emails')) {
           const body = JSON.parse(String(init?.body ?? '{}')) as { to: string[] };
           for (const addr of body.to) resendRecipients.push(addr);
-          return new Response(JSON.stringify({ id: 'email-id' }), { status: 200 });
+          const status = opts.failRecipient && body.to.includes(opts.failRecipient) ? 503 : 200;
+          const record = await mockKV.get(`user:${email}`, 'json') as Record<string, unknown> | null;
+          resendDeliveries.push({ to: body.to, status, requestedAt: record?.requestedAt });
+          return new Response(JSON.stringify(status === 200 ? { id: 'email-id' } : { error: 'unavailable' }), { status });
         }
         return new Response('unexpected', { status: 500 });
       }) as typeof globalThis.fetch;
-      return { resendRecipients };
+      return { resendRecipients, resendDeliveries };
     }
 
     function createApp(envOverrides: Partial<Env> = {}) {
@@ -217,6 +221,81 @@ describe('REQ-AUTH-020 / REQ-AUTH-021: onboarding login + access-request', () =>
       // requestedAt preserved (not re-stamped).
       const record = await mockKV.get('user:alice@example.com', 'json') as Record<string, unknown>;
       expect(record.requestedAt).toBe('2025-01-02T00:00:00.000Z');
+    });
+
+    it.each([
+      { failed: 'administrator notification', failRecipient: 'admin@example.com' },
+      { failed: 'user confirmation', failRecipient: 'alice@example.com' },
+    ])('REQ-AUTH-021 AC6: failed $failed preserves the request, independent email and redirect without retry delivery', async ({ failRecipient }) => {
+      const { resendDeliveries } = mockExternalCalls({ failRecipient });
+      mockKV._set('user:admin@example.com', { role: 'admin', addedBy: 'setup', addedAt: '2025-01-01' });
+      const app = createApp({ ONBOARDING_LANDING_PAGE: 'active' });
+      const startedAt = Date.now();
+      const res = await callback(app);
+
+      expect(res.status).toBe(302);
+      const location = new URL(res.headers.get('Location')!);
+      expect(location.pathname + location.search).toBe('/login?status=requested');
+      expect(res.headers.get('Set-Cookie')).toBe('codeflare_session=mock-jwt-token; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=3600');
+      const record = await mockKV.get('user:alice@example.com', 'json') as Record<string, unknown>;
+      expect(record).toMatchObject({
+        role: 'user', accessTier: 'pending', subscriptionTier: 'pending', requestedAt: expect.any(String),
+      });
+      const requestedAt = record.requestedAt as string;
+      expect(Date.parse(requestedAt)).toBeGreaterThanOrEqual(startedAt);
+      expect(Date.parse(requestedAt)).toBeLessThanOrEqual(Date.now());
+      // The real email helpers reach both provider requests after the durable stamp,
+      // even when either individual request receives an unsuccessful response.
+      const expectedDeliveries = ['admin@example.com', 'alice@example.com'].map(recipient => ({
+        to: [recipient], status: recipient === failRecipient ? 503 : 200, requestedAt,
+      }));
+      expect(resendDeliveries).toEqual(expectedDeliveries);
+
+      const retry = await callback(app); // New, genuinely signed state; not a nonce replay.
+      expect(retry.status).toBe(302);
+      expect(retry.headers.get('Location')).toBe(res.headers.get('Location'));
+      expect(retry.headers.get('Set-Cookie')).toBe(res.headers.get('Set-Cookie'));
+      expect(await mockKV.get('user:alice@example.com', 'json')).toEqual(record);
+      expect(resendDeliveries).toEqual(expectedDeliveries);
+    });
+
+    it.each([
+      { tier: 'legacy missing tier', subscriptionTier: undefined, destination: '/app/' },
+      { tier: 'blocked', subscriptionTier: 'blocked', destination: '/login?status=requested' },
+      { tier: 'pending', subscriptionTier: 'pending', destination: '/login?status=requested' },
+      { tier: 'free', subscriptionTier: 'free', destination: '/app/' },
+      { tier: 'trial', subscriptionTier: 'trial', destination: '/app/' },
+      { tier: 'standard', subscriptionTier: 'standard', destination: '/app/' },
+      { tier: 'advanced', subscriptionTier: 'advanced', destination: '/app/' },
+      { tier: 'max', subscriptionTier: 'max', destination: '/app/' },
+      { tier: 'unlimited', subscriptionTier: 'unlimited', destination: '/app/' },
+    ])('REQ-AUTH-021 AC2: onboarding preserves $tier and redirects to $destination', async ({ subscriptionTier, destination }) => {
+      const { resendRecipients } = mockExternalCalls();
+      mockKV._set('user:admin@example.com', { role: 'admin', addedBy: 'setup', addedAt: '2025-01-01' });
+      const stored = {
+        role: 'user', addedBy: 'legacy-import', addedAt: '2025-01-01',
+        accessTier: 'advanced', subscribedMode: 'advanced', onboardingComplete: true,
+        ...(subscriptionTier === undefined ? {} : { subscriptionTier }),
+      };
+      mockKV._set('user:alice@example.com', stored);
+      const app = createApp({ ONBOARDING_LANDING_PAGE: 'active' });
+      const startedAt = Date.now();
+      const response = await callback(app);
+
+      expect(response.status).toBe(302);
+      const location = new URL(response.headers.get('Location')!);
+      expect(location.pathname + location.search).toBe(destination);
+      expect(response.headers.get('Set-Cookie')).toBe('codeflare_session=mock-jwt-token; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=3600');
+      const record = await mockKV.get('user:alice@example.com', 'json') as Record<string, unknown>;
+      if (destination === '/login?status=requested') {
+        expect(record).toEqual({ ...stored, requestedAt: expect.any(String) });
+        expect(Date.parse(record.requestedAt as string)).toBeGreaterThanOrEqual(startedAt);
+        expect(Date.parse(record.requestedAt as string)).toBeLessThanOrEqual(Date.now());
+        expect(resendRecipients).toEqual(['admin@example.com', 'alice@example.com']);
+      } else {
+        expect(record).toEqual(stored);
+        expect(resendRecipients).toEqual([]);
+      }
     });
 
     it('SaaS + non-active user → /app/subscribe UNCHANGED, no onboarding emails', async () => {

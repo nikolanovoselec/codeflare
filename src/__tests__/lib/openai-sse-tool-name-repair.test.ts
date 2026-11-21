@@ -9,11 +9,18 @@ async function run(events: string[], names: string[]): Promise<string> {
 describe('REQ-ENTERPRISE-050 Bedrock tool-name repair', () => {
   it('REQ-ENTERPRISE-059: suppresses only repeated complete Bedrock tool names', async () => {
     const first = 'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call","function":{"name":"lookup","arguments":""}}]}}]}\n\n';
-    const repeated = 'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"name":"lookup","arguments":"{\\"x\\":1}"}}]}}]}\n\n';
+    const repeated = 'data: {"choices":[{"index":0,"delta":{"content":"Safe visible text.","tool_calls":[{"index":0,"function":{"name":"lookup","arguments":"{\\"x\\":1}"}}]},"finish_reason":"tool_calls"}]}\n\n';
     const output = await run([first, repeated, 'data: [DONE]\n\n'], ['lookup']);
     expect(output.match(/lookup/g)).toHaveLength(1);
     expect(output).toContain('{\\"x\\":1}');
     expect(output).toContain('"id":"call"');
+    const events = output.split('\n').filter(line => line.startsWith('data: {')).map(line => JSON.parse(line.slice(6)));
+    expect(events).toEqual([
+      { choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 'call', function: { name: 'lookup', arguments: '' } }] } }] },
+      { choices: [{ index: 0, delta: { content: 'Safe visible text.', tool_calls: [{ index: 0,
+        function: { name: '', arguments: '{"x":1}' } }] }, finish_reason: 'tool_calls' }] },
+    ]);
+    expect(output.endsWith('data: [DONE]\n\n')).toBe(true);
   });
 
   it('REQ-ENTERPRISE-059: leaves ordinary fragmented tool names and Dynamic Route streams unchanged', async () => {

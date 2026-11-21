@@ -100,6 +100,25 @@ describe('REQ-SESSION-001 subsets: public CRUD with supplied owner context and r
     expect(await new D1SessionRepository(db).listSessions(owner)).toEqual([]);
   });
 
+  it('REQ-STOR-006 AC4: zero storage cap rejects Create with nonzero cached usage and leaves no D1 row', async () => {
+    await bindings.KV.put(getTiersConfigKey(), JSON.stringify(getDefaultTiers().map(tier => tier.id === 'free' ? { ...tier, maxStorageBytes: 0 } : tier)));
+    await bindings.KV.put(`storage-stats:${owner}`, JSON.stringify({ totalSizeBytes: 1 }));
+    const response = await request(app({ SAAS_MODE: 'active' }), '/sessions', 'POST', { name: 'Zero-cap refusal' });
+    expect(response.status).toBe(400);
+    expect(JSON.stringify(await response.json())).toContain('Storage quota exceeded');
+    expect(await new D1SessionRepository(db).listSessions(owner)).toEqual([]);
+  });
+
+  it('REQ-STOR-006 AC4: zero storage cap admits Create when cached usage is zero', async () => {
+    await bindings.KV.put(getTiersConfigKey(), JSON.stringify(getDefaultTiers().map(tier => tier.id === 'free' ? { ...tier, maxStorageBytes: 0 } : tier)));
+    await bindings.KV.put(`storage-stats:${owner}`, JSON.stringify({ totalSizeBytes: 0 }));
+    const response = await request(app({ SAAS_MODE: 'active' }), '/sessions', 'POST', { name: 'Empty zero-cap workspace' });
+    expect(response.status).toBe(201);
+    const body = await response.json() as { session: { id: string } };
+    expect(await new D1SessionRepository(db).getSession(owner, body.session.id))
+      .toMatchObject({ name: 'Empty zero-cap workspace', lifecycleState: 'stopped', lifecycleGeneration: 0 });
+  });
+
   it('REQ-SUB-002 AC2: unlimited storage admits creation despite high cached usage', async () => {
     const previousTier = user.subscriptionTier;
     user.subscriptionTier = 'unlimited';

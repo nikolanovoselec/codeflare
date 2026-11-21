@@ -659,6 +659,16 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
       expect(screen.getByTestId('header-user-dropdown-profile')).toBeInTheDocument();
     });
 
+    it('REQ-SUB-023 AC1/6/7: SaaS account menu retains Usage, Guided Setup, and Logout', () => {
+      sessionStoreState.saasMode = true;
+      render(() => <Header {...defaultSessionProps} />);
+      fireEvent.click(screen.getByTestId('header-user-menu'));
+      expect(screen.getByTestId('header-user-dropdown-profile')).toBeInTheDocument();
+      expect(screen.getByTestId('header-user-dropdown-usage')).toBeInTheDocument();
+      expect(screen.getByTestId('header-user-dropdown-onboarding')).toBeInTheDocument();
+      expect(screen.getByTestId('header-user-dropdown-logout')).toBeInTheDocument();
+    });
+
     it('shows Usage but hides Subscription in onboarding/default mode', () => {
       render(() => <Header {...defaultSessionProps} />);
 

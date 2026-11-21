@@ -23,7 +23,8 @@ RECOVERY_FILTER_FILE="$CODEFLARE_RUNTIME_ROOT/sync/recovery-filters.txt"
 function runtimeEnv(env = {}) {
   const runtimeRoot = env.CODEFLARE_RUNTIME_ROOT ?? mkdtempSync(join(tmpdir(), 'entrypoint-runtime-'));
   mkdirSync(join(runtimeRoot, 'sync'), { recursive: true });
-  return { ...process.env, CODEFLARE_RUNTIME_ROOT: runtimeRoot, ...env };
+  // These ordinary-start fixtures must not inherit the runner's protected policy.
+  return { ...process.env, MANAGED_RESOURCE_POLICY: 'mutable', CODEFLARE_RUNTIME_ROOT: runtimeRoot, ...env };
 }
 
 function extractFunction(name) {
@@ -376,6 +377,15 @@ describe('entrypoint production helpers', () => {
     assert.equal(first.status, 0, first.stderr);
     assert.equal(lstatSync(destination).isSymbolicLink(), true);
     assert.equal(resolve(dirname(destination), readlinkSync(destination)), source);
+
+    rmSync(destination);
+    symlinkSync(join(fixture, 'missing-target'), destination);
+    assert.equal(existsSync(destination), false);
+    const dangling = runFunction('ensure_graphify_cli_path', '', 'ensure_graphify_cli_path',
+      { GRAPHIFY_BIN_SRC: source, GRAPHIFY_BIN_DST: destination });
+    assert.equal(dangling.status, 0, dangling.stderr);
+    assert.equal(resolve(dirname(destination), readlinkSync(destination)), source);
+    assert.equal(spawnSync(destination).status, 0, 'repaired command must be executable');
 
     rmSync(destination);
     writeFileSync(destination, 'operator-owned\n');

@@ -642,6 +642,36 @@ describe('POST /auth/subscribe', () => {
   // Idempotency: already subscribed
   // ---------------------------------------------------------------------------
 
+  it.each(['default', 'advanced'] as const)('REQ-SUB-011 AC2: same-tier %s activation acknowledges without rewriting the user record', async mode => {
+    mockAuthResult.user = {
+      email: 'subscribed@example.com', authenticated: true, role: 'user',
+      accessTier: 'standard', subscriptionTier: 'standard',
+    };
+    mockAuthResult.bucketName = 'codeflare-subscribed';
+    mockKV._set('user:subscribed@example.com', {
+      role: 'user', accessTier: 'standard', subscriptionTier: 'standard',
+      subscribedMode: mode, subscribedAt: '2025-01-02T00:00:00Z',
+      billingStatus: 'active', stripeCustomerId: 'cus_retained',
+      stripeSubscriptionId: 'sub_retained', onboardingComplete: true, trialUsed: true,
+    });
+    mockKV._set('user-prefs:codeflare-subscribed', { sessionMode: mode, theme: 'dark' });
+    const before = [...mockKV._store.entries()];
+    // State-preservation boundary: even a redundant write of identical bytes is forbidden.
+    // Rate-limit bookkeeping is not a user/billing mutation and remains operational.
+    const put = mockKV.put.getMockImplementation()!;
+    mockKV.put.mockImplementation(async (key, value, options) => {
+      if (key.startsWith('user:')) {
+        throw new Error(`Unexpected activation write: ${key}`);
+      }
+      return put(key, value, options);
+    });
+    const app = createApp();
+    const res = await postSubscribe(app, { tier: 'standard', mode });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ success: true, tier: 'standard', trialQuotaHours: 0, onboardingComplete: true });
+    for (const [key, value] of before) expect(mockKV._store.get(key)).toBe(value);
+  });
+
   it('returns success idempotently when user is already subscribed', async () => {
     mockAuthResult.user = {
       email: 'subscribed@example.com',

@@ -216,6 +216,45 @@ describe('POST /billing/checkout / REQ-SUB-020 (multi-currency pricing from CF-I
     expect(opts.billingCycleAnchor!).toBeLessThanOrEqual(before + 32 * 86400);
   });
 
+  it.each([
+    { now: '2026-01-15T12:34:56.000Z', trialUsed: true, anchor: '2026-02-01T00:00:00.000Z' },
+    { now: '2026-12-31T23:59:58.000Z', trialUsed: true, anchor: '2027-01-01T00:00:00.000Z' },
+    { now: '2026-01-25T00:00:00.000Z', trialUsed: false, anchor: '2026-03-01T00:00:00.000Z' },
+    { now: '2028-02-22T12:00:00.000Z', trialUsed: false, anchor: '2028-03-01T00:00:00.000Z' },
+  ])('REQ-SUB-021 AC1/6: checkout emits exact UTC anchor $anchor from $now (trialUsed=$trialUsed)', async ({ now, trialUsed, anchor }) => {
+    const realStripe = await vi.importActual<typeof import('../../lib/stripe')>('../../lib/stripe');
+    vi.mocked(createCheckoutSession).mockImplementationOnce(realStripe.createCheckoutSession);
+    const originalFetch = globalThis.fetch;
+    const forms: URLSearchParams[] = [];
+    globalThis.fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      expect(String(input)).toBe('https://api.stripe.com/v1/checkout/sessions');
+      forms.push(new URLSearchParams(String(init?.body)));
+      return new Response(JSON.stringify({ id: 'cs_exact_anchor', url: 'https://checkout.stripe.com/exact-anchor' }));
+    }) as typeof fetch;
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(now));
+    try {
+      const { app, mockKV } = createApp();
+      mockKV._set('user:user@example.com', { trialUsed });
+      const res = await app.request('/billing/checkout', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'CF-IPCountry': 'DE' },
+        body: JSON.stringify({ tier: 'standard', mode: 'advanced', turnstileToken: 'valid-token', email: 'spoof@example.com' }),
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ checkoutUrl: 'https://checkout.stripe.com/exact-anchor' });
+      expect(forms.map(form => Object.fromEntries(form))).toEqual([expect.objectContaining({
+        mode: 'subscription', customer_email: 'user@example.com', currency: 'eur',
+        'line_items[0][price]': 'price_std_advanced',
+        'metadata[email]': 'user@example.com', 'metadata[tier]': 'standard', 'metadata[mode]': 'advanced',
+        'subscription_data[billing_cycle_anchor]': String(Date.parse(anchor) / 1000),
+      })]);
+      expect(forms[0].get('subscription_data[trial_period_days]')).toBe(trialUsed ? null : '7');
+    } finally {
+      globalThis.fetch = originalFetch;
+      vi.useRealTimers();
+    }
+  });
+
   it('rejects free tier', async () => {
     const { app } = createApp();
     const res = await app.request('/billing/checkout', {
@@ -501,6 +540,28 @@ describe('POST /public/stripe/webhook', () => {
       body: JSON.stringify({ id: 'evt_1', type: 'test', data: { object: {} } }),
     });
     expect(res.status).toBe(400);
+  });
+
+  it.each([
+    { signature: undefined, error: 'Missing Stripe-Signature header' },
+    { signature: 'v1=abc', error: 'Invalid signature' },
+    { signature: 't=123', error: 'Invalid signature' },
+  ])('REQ-SUB-035 AC2: webhook distinguishes signature $signature without billing effects', async ({ signature, error }) => {
+    const { app, mockKV } = createApp();
+    mockKV._set('user:buyer@example.com', { subscriptionTier: 'free', role: 'user' });
+    const before = [...mockKV._store.entries()];
+    const res = await app.request('/public/stripe/webhook', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(signature ? { 'Stripe-Signature': signature } : {}) },
+      body: JSON.stringify({ id: 'evt_rejected_signature', type: 'checkout.session.completed', data: { object: {
+        customer_email: 'buyer@example.com', customer: 'cus_buyer', subscription: 'sub_buyer',
+      } } }),
+    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error });
+    for (const [key, value] of before) expect(mockKV._store.get(key)).toBe(value);
+    expect(await mockKV.get('stripe:event:evt_rejected_signature')).toBeNull();
+    expect(await mockKV.get('stripe-customer:cus_buyer')).toBeNull();
   });
 
   it('rejects bad signature', async () => {
@@ -857,6 +918,68 @@ describe('POST /billing/switch', () => {
     const body = await res.json() as { portalUrl: string };
     expect(body.portalUrl).toBe('https://billing.stripe.com/switch');
     expect(createSwitchPortalSession).toHaveBeenCalled();
+  });
+
+  it('REQ-SUB-016 AC3: switch emits the provider-resolved item and selected price to the portal', async () => {
+    const realStripe = await vi.importActual<typeof import('../../lib/stripe')>('../../lib/stripe');
+    vi.mocked(fetchSubscription).mockImplementationOnce(realStripe.fetchSubscription);
+    vi.mocked(createSwitchPortalSession).mockImplementationOnce(realStripe.createSwitchPortalSession);
+    const originalFetch = globalThis.fetch;
+    const requests: { url: string; form?: Record<string, string> }[] = [];
+    globalThis.fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(String(input));
+      requests.push({ url: url.href, ...(init?.body ? { form: Object.fromEntries(new URLSearchParams(String(init.body))) } : {}) });
+      if (url.pathname === '/v1/subscriptions/sub_123') return new Response(JSON.stringify({
+        id: 'sub_123', customer: 'cus_123', status: 'active',
+        items: { data: [{ id: 'si_provider_current', price: { id: 'price_std_default' } }] },
+      }));
+      if (url.pathname === '/v1/billing_portal/sessions') return new Response(JSON.stringify({
+        id: 'bps_resolved', url: 'https://billing.stripe.com/resolved',
+      }));
+      throw new Error(`Unexpected provider request: ${url}`);
+    }) as typeof fetch;
+    try {
+      const { app, mockKV } = createApp();
+      mockKV._set('user:user@example.com', { stripeCustomerId: 'cus_123', stripeSubscriptionId: 'sub_123' });
+      const res = await app.request('/billing/switch', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tier: 'advanced', mode: 'advanced' }),
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ portalUrl: 'https://billing.stripe.com/resolved' });
+      expect(requests).toEqual([
+        { url: 'https://api.stripe.com/v1/subscriptions/sub_123?expand[]=items.data.price' },
+        { url: 'https://api.stripe.com/v1/billing_portal/sessions', form: expect.objectContaining({
+          customer: 'cus_123', 'flow_data[type]': 'subscription_update_confirm',
+          'flow_data[subscription_update_confirm][subscription]': 'sub_123',
+          'flow_data[subscription_update_confirm][items][0][id]': 'si_provider_current',
+          'flow_data[subscription_update_confirm][items][0][price]': 'price_adv_advanced',
+        }) },
+      ]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('REQ-SUB-016 AC4: expired switch returns checkout restart and removes stale billing state', async () => {
+    vi.mocked(fetchSubscription).mockResolvedValueOnce(null);
+    const { app, mockKV } = createApp();
+    mockKV._set('user:user@example.com', {
+      role: 'user', addedBy: 'admin', onboardingComplete: true, trialUsed: true,
+      subscriptionTier: 'standard', accessTier: 'standard',
+      stripeCustomerId: 'cus_expired', stripeSubscriptionId: 'sub_expired', stripePriceId: 'price_old',
+      billingStatus: 'active', billingPeriodEnd: '2026-01-01T00:00:00Z',
+      checkoutSessionId: 'cs_old', cancelAtPeriodEnd: true, lastSyncedAt: '2025-12-01T00:00:00Z',
+    });
+    const res = await app.request('/billing/switch', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tier: 'advanced' }),
+    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ code: 'VALIDATION_ERROR', error: 'Subscription expired. Redirecting to checkout.' });
+    expect(await mockKV.get('user:user@example.com', 'json')).toEqual({
+      role: 'user', addedBy: 'admin', onboardingComplete: true, trialUsed: true,
+      subscriptionTier: 'pending', accessTier: 'pending',
+    });
   });
 
   it('rejects user without stripeSubscriptionId', async () => {

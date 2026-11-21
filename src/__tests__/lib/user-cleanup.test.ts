@@ -160,6 +160,45 @@ describe('cleanupUserData', () => {
     expect(await mockKV.get(`user:${email}`)).toBeNull();
   });
 
+  it('REQ-AUTH-026 AC2: erases every owned local resource before the user record and preserves neighboring data', async () => {
+    const userKey = `user:${email}`;
+    const owned = [
+      `session:${bucketName}:abcdef0123456789`,
+      `storage-stats:${bucketName}`, `presets:${bucketName}`, `user-prefs:${bucketName}`,
+      `llm-keys:${bucketName}`, `deploy-keys:${bucketName}`, `timekeeper:${bucketName}`,
+      `r2-regime:${bucketName}`, `pushsub:${bucketName}:subscription`, `r2token:${email}`,
+    ];
+    const user = { role: 'user', addedBy: 'setup', addedAt: '2025-01-01' };
+    mockKV._set(userKey, user);
+    for (const key of owned) mockKV._set(key, { retained: key });
+    mockKV._set(owned[0]!, {
+      id: 'abcdef0123456789', name: 'Owned session', userId: email, createdAt: '', lastAccessedAt: '',
+    });
+    mockKV._set(`r2token:${email}`, { tokenId: 'scoped-token', bucketName });
+    const neighborKeys = owned.map(key => key.replace(bucketName, `${bucketName}-neighbor`).replace(email, 'neighbor@example.com'));
+    neighborKeys.push('user:neighbor@example.com');
+    for (const key of neighborKeys) mockKV._set(key, { retained: key });
+    const neighboringData = neighborKeys.map(key => [key, mockKV._store.get(key)]);
+    let beforeUserRemoval: { user: string | undefined; remaining: string[] } | undefined;
+    const remove = mockKV.delete.getMockImplementation()!;
+    mockKV.delete.mockImplementation(async key => {
+      if (key === userKey) {
+        beforeUserRemoval = {
+          user: mockKV._store.get(userKey), remaining: owned.filter(name => mockKV._store.has(name)),
+        };
+      }
+      return remove(key);
+    });
+
+    expect(await cleanupUserData(email, createEnv())).toEqual({
+      deletedSessions: 1, bucketDeleted: true, tokenDeleted: true,
+    });
+    expect(beforeUserRemoval).toEqual({ user: JSON.stringify(user), remaining: [] });
+    expect(owned.filter(key => mockKV._store.has(key))).toEqual([]);
+    expect(await mockKV.get(userKey)).toBeNull();
+    expect(neighborKeys.map(key => [key, mockKV._store.get(key)])).toEqual(neighboringData);
+  });
+
   it('REQ-AUTH-026 AC2: removes bucket-keyed settings and legacy presets', async () => {
     const keys = [`storage-stats:${bucketName}`, `user-prefs:${bucketName}`, `presets:${bucketName}`];
     for (const key of keys) mockKV._set(key, { existing: true });
@@ -457,6 +496,12 @@ describe('cleanupUserData', () => {
       mockKV._set('setup:cloudflare_oauth_client_secret', { secret: 'cf-secret' });
       const env = createEnv({ OAUTH_CLIENT_ID: 'oauth-cid', OAUTH_CLIENT_SECRET: 'oauth-sec' });
       const providerActive = { github: true, cloudflare: true };
+      mockKV._set(`session:${bucketName}:abcdef0123456789`, {
+        id: 'abcdef0123456789', name: 'Active session', userId: email, createdAt: '', lastAccessedAt: '',
+      });
+      let containerLive = true;
+      let providerSawLiveContainer = false;
+      mockContainerDestroy.mockImplementation(async () => { containerLive = false; });
       const bucketObjects = new Map([['workspace/retry.txt', 'retained user bytes']]);
       let bucketExists = true;
       let scopedTokenActive = true;
@@ -477,12 +522,14 @@ describe('cleanupUserData', () => {
       mockFetch.mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
         const url = String(input);
         if (url.includes('/applications/oauth-cid/token')) {
+          providerSawLiveContainer ||= containerLive;
           expect(JSON.parse(String(init?.body))).toEqual({ access_token: 'gho_retry' });
           if (failedProvider === 'github') return new Response(null, { status: 503 });
           providerActive.github = false;
           return new Response(null, { status: 204 });
         }
         if (url === 'https://dash.cloudflare.com/oauth2/revoke') {
+          providerSawLiveContainer ||= containerLive;
           const body = new URLSearchParams(String(init?.body));
           expect(body.get('token')).toBe('cf_refresh');
           if (failedProvider === 'cloudflare') return new Response(null, { status: 503 });
@@ -515,6 +562,8 @@ describe('cleanupUserData', () => {
 
       await expect(cleanupUserData(email, env)).resolves.toMatchObject({ bucketDeleted: true, tokenDeleted: true });
       expect(providerActive).toEqual({ github: false, cloudflare: false });
+      expect(containerLive).toBe(false);
+      expect(providerSawLiveContainer).toBe(false);
       expect(destroyedBeforeRevocation).toBe(false);
       expect(bucketExists).toBe(false);
       expect(bucketObjects.size).toBe(0);

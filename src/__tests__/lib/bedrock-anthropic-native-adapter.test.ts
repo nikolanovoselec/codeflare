@@ -142,7 +142,7 @@ describe('Bedrock Anthropic native adapter', () => {
   });
 
   it('REQ-ENTERPRISE-073/076/085: does not publish or persist an Invoke tool call truncated by max_tokens', async () => {
-    const replay = state();
+    const replay = liveState();
     const response = await adaptBedrockAnthropicResponse(Response.json({
       id: 'msg_truncated', model: 'claude', stop_reason: 'max_tokens',
       content: [
@@ -156,11 +156,12 @@ describe('Bedrock Anthropic native adapter', () => {
     expect(body.choices[0].finish_reason).toBe('length');
     expect(body.choices[0].message.content).toBe('I started preparing the command.');
     expect(body.choices[0].message).not.toHaveProperty('tool_calls');
-    expect(replay.save).not.toHaveBeenCalled();
+    expect(body.usage).toEqual({ prompt_tokens: 10, completion_tokens: 128, total_tokens: 138 });
+    expect(await replay.load('call_truncated')).toBeNull();
   });
 
   it('REQ-ENTERPRISE-073/076/085: terminates Eventstream as length without publishing partial tool JSON', async () => {
-    const replay = state();
+    const replay = liveState();
     const events = [
       { type: 'message_start', message: { id: 'msg_truncated', model: 'claude', usage: { input_tokens: 10 } } },
       { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
@@ -183,7 +184,12 @@ describe('Bedrock Anthropic native adapter', () => {
     expect(wire).not.toContain('tool_calls');
     expect(wire).not.toContain('NATIVE_BEDROCK_STREAM_ERROR');
     expect(wire.match(/data: \[DONE\]/g)).toHaveLength(1);
-    expect(replay.save).not.toHaveBeenCalled();
+    const chunks = wire.split('\n').filter(line => line.startsWith('data: {')).map(line => JSON.parse(line.slice(6)));
+    expect(chunks.filter(chunk => chunk.choices?.[0]?.finish_reason)).toEqual([
+      expect.objectContaining({ choices: [{ index: 0, delta: {}, finish_reason: 'length' }],
+        usage: { prompt_tokens: 10, completion_tokens: 128, total_tokens: 138 } }),
+    ]);
+    expect(await replay.load('call_truncated')).toBeNull();
   });
 
   it('REQ-ENTERPRISE-073/076/085: omits an unexecuted poisoned tool turn after a new user turn', async () => {
@@ -203,6 +209,28 @@ describe('Bedrock Anthropic native adapter', () => {
       { role: 'user', content: [{ type: 'text', text: 'Create the file.' }] },
       { role: 'user', content: [{ type: 'text', text: 'Continue without that interrupted command.' }] },
     ]);
+  });
+
+  it.each([
+    { label: 'string', content: 'I can continue safely.', expected: [{ type: 'text', text: 'I can continue safely.' }] },
+    { label: 'text blocks', content: [{ type: 'text', text: 'Safe prefix. ' }, { type: 'text', text: 'Grüße 🌍' }],
+      expected: [{ type: 'text', text: 'Safe prefix. ' }, { type: 'text', text: 'Grüße 🌍' }] },
+  ])('REQ-ENTERPRISE-085 AC3: preserves safe assistant $label when abandoning a zero-result proposal', async ({ content, expected }) => {
+    const messages = [
+      { role: 'user', content: 'Create the file.' },
+      { role: 'assistant', content, tool_calls: [
+        { id: 'call_abandoned', type: 'function', function: { name: 'bash', arguments: '{"cmd":"unfinished' } },
+      ] },
+      { role: 'user', content: 'Continue without that command.' },
+    ];
+    const before = structuredClone(messages);
+    const result = await buildBedrockAnthropicRequest(continuation(messages), liveState());
+    expect(result.messages).toEqual([
+      { role: 'user', content: [{ type: 'text', text: 'Create the file.' }] },
+      { role: 'assistant', content: expected },
+      { role: 'user', content: [{ type: 'text', text: 'Continue without that command.' }] },
+    ]);
+    expect(messages).toEqual(before);
   });
 
   it('REQ-ENTERPRISE-077: builds the region-scoped provider-native transport path', () => {

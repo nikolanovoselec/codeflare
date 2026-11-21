@@ -1175,3 +1175,160 @@ test('REQ-IDE-016 AC4: extension-host changes debounce one capture', async () =>
   assert.equal(JSON.parse(readFileSync(manifestPath, 'utf8')).extensions['publisher.extension'].version, '1.0.0');
   assert.equal(kill.mock.calls.length, 1);
 });
+
+
+const boundaryExtensions = (count: number) => Object.fromEntries(
+  Array.from({ length: count }, (_, index) => [`publisher.extension-${index}`, { version: '1.0.0' }]),
+);
+const nestedSetting = (depth: number): unknown => depth === 0 ? true : { child: nestedSetting(depth - 1) };
+const aggregateSettings = (bytes: number) => {
+  const settings: Record<string, string> = Object.fromEntries(
+    Array.from({ length: 15 }, (_, index) => [`key${index}`, 'x'.repeat(2046)]),
+  );
+  settings.tail = '';
+  settings.tail = 'x'.repeat(bytes - Buffer.byteLength(JSON.stringify(settings)));
+  return settings;
+};
+
+for (const [label, valid, manifest] of [
+  ['50 extensions', true, validManifest(boundaryExtensions(50))],
+  ['51 extensions', false, validManifest(boundaryExtensions(51))],
+  ['64-character version', true, validManifest({ 'publisher.extension': { version: `1.0.0-${'x'.repeat(58)}` } })],
+  ['65-character version', false, validManifest({ 'publisher.extension': { version: `1.0.0-${'x'.repeat(59)}` } })],
+  ['64-character platform', true, validManifest({ 'publisher.extension': { version: '1.0.0', targetPlatform: 'x'.repeat(64) } })],
+  ['65-character platform', false, validManifest({ 'publisher.extension': { version: '1.0.0', targetPlatform: 'x'.repeat(65) } })],
+  ['256-character setting key', true, validManifest({}, { ['k'.repeat(256)]: true })],
+  ['257-character setting key', false, validManifest({}, { ['k'.repeat(257)]: true })],
+  ['empty setting key', false, validManifest({}, { '': true })],
+  ['256-character nested key', true, validManifest({}, { option: { ['k'.repeat(256)]: true } })],
+  ['257-character nested key', false, validManifest({}, { option: { ['k'.repeat(257)]: true } })],
+  ['empty nested key', false, validManifest({}, { option: { '': true } })],
+  ['2048-byte UTF-8 value', true, validManifest({}, { option: 'é'.repeat(1023) })],
+  ['2049-byte UTF-8 value', false, validManifest({}, { option: `${'é'.repeat(1023)}x` })],
+  ['32768-byte settings object', true, validManifest({}, aggregateSettings(32768))],
+  ['32769-byte settings object', false, validManifest({}, aggregateSettings(32769))],
+  ['four nested setting objects', true, validManifest({}, { option: nestedSetting(4) })],
+  ['five nested setting objects', false, validManifest({}, { option: nestedSetting(5) })],
+] as const) {
+  test(`REQ-IDE-036 AC1+AC2: ${valid ? 'accepts' : 'ignores without mutation'} ${label}`, async () => {
+    const { extensionsDir, manifestPath, syncPidFile } = fixture();
+    const bytes = JSON.stringify({ ...manifest, securityWarningShown: true });
+    writeFileSync(manifestPath, bytes);
+    writeRegistry(extensionsDir);
+    const loaded = await loadExtensionManifest(manifestPath);
+    if (valid) {
+      assert.equal(loaded.state, 'valid');
+      if (loaded.state === 'valid') assert.deepEqual(loaded.manifest, JSON.parse(bytes));
+    } else {
+      assert.deepEqual(loaded, { state: 'invalid' });
+      await restoreExtensionManifest({ extensionsDir, manifestPath });
+      assert.equal(await captureExtensionManifest({ extensionsDir, manifestPath, syncPidFile }), false);
+      assert.deepEqual(host.commands, []);
+      assert.deepEqual(host.settingsUpdates, []);
+      assert.equal(readFileSync(manifestPath, 'utf8'), bytes);
+    }
+  });
+}
+
+for (const size of [65536, 65537]) {
+  test(`REQ-IDE-036 AC1+AC2: ${size === 65536 ? 'accepts' : 'ignores'} a ${size}-byte manifest`, async () => {
+    const { extensionsDir, manifestPath, syncPidFile } = fixture();
+    const json = JSON.stringify(validManifest({}));
+    const bytes = json + ' '.repeat(size - Buffer.byteLength(json));
+    writeFileSync(manifestPath, bytes);
+    writeRegistry(extensionsDir);
+    assert.equal((await loadExtensionManifest(manifestPath)).state, size === 65536 ? 'valid' : 'invalid');
+    if (size > 65536) {
+      await restoreExtensionManifest({ extensionsDir, manifestPath });
+      assert.equal(await captureExtensionManifest({ extensionsDir, manifestPath, syncPidFile }), false);
+      assert.deepEqual(host.commands, []);
+      assert.deepEqual(host.settingsUpdates, []);
+      assert.equal(readFileSync(manifestPath, 'utf8'), bytes);
+    }
+  });
+}
+
+for (const [label, redirect] of [
+  ['HTTP', (url: URL) => { url.protocol = 'http:'; }],
+  ['foreign host', (url: URL) => { url.hostname = 'example.invalid'; }],
+  ['host suffix', (url: URL) => { url.hostname += '.example.invalid'; }],
+  ['port', (url: URL) => { url.port = '8443'; }],
+  ['username', (url: URL) => { url.username = 'user'; }],
+  ['password', (url: URL) => { url.password = 'password'; }],
+  ['query', (url: URL) => { url.search = '?download=1'; }],
+  ['fragment', (url: URL) => { url.hash = '#download'; }],
+  ['different publisher', (url: URL) => { url.pathname = url.pathname.replace('/acme/', '/other/'); }],
+  ['different name', (url: URL) => { url.pathname = url.pathname.replace('/extension/', '/other/'); }],
+  ['different version', (url: URL) => { url.pathname = url.pathname.replace('/1.0.0/', '/2.0.0/'); }],
+  ['different filename', (url: URL) => { url.pathname += '.other'; }],
+] as const) {
+  test(`REQ-IDE-044 AC2: rejects ${label} in a company redirect before fetching it`, async () => {
+    const { extensionsDir, managedExtensionsPath } = fixture();
+    const record = managedExtension('acme.extension', '1.0.0');
+    writeManagedExtensions(managedExtensionsPath, [record]);
+    const url = new URL(`https://openvsx.eclipsecontent.org/acme/extension/1.0.0/${basename(record.downloadUrl)}`);
+    redirect(url);
+    const fetched: string[] = [];
+    vi.stubGlobal('fetch', async (request: Request) => {
+      fetched.push(request.url);
+      return new Response(null, { status: 302, headers: { location: url.href } });
+    });
+    const result = await reconcileCompanyExtensions({ extensionsDir, managedExtensionsPath });
+    assert.deepEqual(result.failures, [record.id]);
+    assert.deepEqual(fetched, [record.downloadUrl]);
+    assert.deepEqual(host.commands, []);
+  });
+}
+
+for (const mode of ['missing location', 'relative location', 'second hop'] as const) {
+  test(`REQ-IDE-044 AC2: rejects a company redirect with ${mode}`, async () => {
+    const { extensionsDir, managedExtensionsPath } = fixture();
+    const record = managedExtension('acme.extension', '1.0.0');
+    writeManagedExtensions(managedExtensionsPath, [record]);
+    const approved = `https://openvsx.eclipsecontent.org/acme/extension/1.0.0/${basename(record.downloadUrl)}`;
+    const fetched: string[] = [];
+    vi.stubGlobal('fetch', async (request: Request) => {
+      fetched.push(request.url);
+      return new Response(null, { status: 302, headers: mode === 'missing location' ? {} : {
+        location: mode === 'relative location' ? '/acme/extension/1.0.0/file.vsix' : approved,
+      } });
+    });
+    const result = await reconcileCompanyExtensions({ extensionsDir, managedExtensionsPath });
+    assert.deepEqual(result.failures, [record.id]);
+    assert.deepEqual(fetched, mode === 'second hop' ? [record.downloadUrl, approved] : [record.downloadUrl]);
+    assert.deepEqual(host.commands, []);
+  });
+}
+
+
+test('REQ-IDE-036 AC2: ignores a non-finite JSON setting without applying or replacing it', async () => {
+  const { extensionsDir, manifestPath, syncPidFile } = fixture();
+  const bytes = '{"version":1,"extensions":{},"settings":{"option":1e999}}';
+  writeFileSync(manifestPath, bytes);
+  writeRegistry(extensionsDir);
+  assert.deepEqual(await loadExtensionManifest(manifestPath), { state: 'invalid' });
+  await restoreExtensionManifest({ extensionsDir, manifestPath });
+  assert.equal(await captureExtensionManifest({ extensionsDir, manifestPath, syncPidFile }), false);
+  assert.deepEqual(host.settingsUpdates, []);
+  assert.deepEqual(host.commands, []);
+  assert.equal(readFileSync(manifestPath, 'utf8'), bytes);
+});
+
+test('REQ-IDE-038 AC2: preinstalled restore waits for acknowledgement before applying contributed settings', async () => {
+  const { extensionsDir, manifestPath } = fixture();
+  const original = JSON.stringify(validManifest({ 'publisher.extension': { version: '1.0.0' } }, { 'fixture.enabled': true }));
+  writeFileSync(manifestPath, original);
+  writeRegistry(extensionsDir, [{ id: 'publisher.extension', version: '1.0.0' }]);
+  host.acknowledgeSecurity = false;
+  await restoreExtensionManifest({ extensionsDir, manifestPath });
+  assert.equal(host.warnings.length, 1);
+  assert.deepEqual(host.commands, []);
+  assert.deepEqual(host.settingsUpdates, []);
+  assert.equal(readFileSync(manifestPath, 'utf8'), original);
+
+  host.acknowledgeSecurity = true;
+  await restoreExtensionManifest({ extensionsDir, manifestPath });
+  assert.equal(JSON.parse(readFileSync(manifestPath, 'utf8')).securityWarningShown, true);
+  assert.deepEqual(host.commands, []);
+  assert.deepEqual(host.settingsUpdates, [{ key: 'fixture.enabled', value: true, target: 1 }]);
+});
