@@ -3037,7 +3037,7 @@ None.
 
 1. The attribution guard fires not only on `git commit` and `gh pr create` but across `git merge`, `git tag`, `git notes`, and the `gh pr`, `gh issue`, and `gh release` subcommand families, including accepted global-option forms. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::attributionBlockReason --> <!-- @manual -->
 2. The attribution detection set matches genuine attribution signatures only - the canonical commit-attribution-block set plus the brain emoji and `ChatGPT` as a deliberate Pi-guard superset since a Pi session may run a non-Claude model. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::attributionBlockReason --> <!-- @manual -->
-3. The attribution guard does not match a bare `Claude`, so `git`/`gh` commands that name `preseed/agents/claude/` paths are not false-positives. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::attributionBlockReason --> <!-- @manual -->
+3. The attribution guard does not match a bare `Claude`; mentioning a Claude preseed source path in a `git` or `gh` command is not attribution. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::attributionBlockReason --> <!-- @manual -->
 
 **Constraints:**
 
@@ -4793,7 +4793,7 @@ None.
 1. On each container startup, context-mode stays installed but Pi loads none of its extensions or skills, and the managed foreground owner initializes no context-mode runtime or tools until explicit `/ctx on`. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::attachConfiguredContextMode --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode disabled) --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1/AC2: next container boot restores the disabled default after /ctx on while preserving managed and unrelated settings) -->
 2. Standard and Advanced Pi expose a state-changing `/ctx` command that reloads Pi into the selected enabled or disabled state. <!-- @impl: preseed/agents/pi/extensions/ctx-command.ts::handleContextModeCommand --> <!-- @manual: Start fresh Standard and Advanced sessions and confirm `/ctx` reports disabled and no context-mode runtime is initialized; run `/ctx on`, activate one context tool through `capability` and confirm it works; run `/ctx off` and confirm reload removes its tools. -->
 3. Build-time patching neutralizes context-mode's npm update probe in both installed copies. <!-- @impl: scripts/patch-context-mode-bundles.mjs::patchContextModeInstallations --> <!-- @test: host/__tests__/dockerfile-context-mode-patch.test.js (Context-mode installation patch (createRequire shim + REQ-AGENT-076 AC5 update-check disable)) -->
-4. Entrypoint leaves inherited `CONTEXT_MODE_BRIDGE_IDLE_MS` untouched and creates no override. Before upstream context-mode initialization, Pi clears the process-wide override so upstream root/subagent ownership and idle-reaping policy apply; inherited values are not preserved end to end. <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::clearInheritedContextModeBridgeIdleOverride --> <!-- @test: host/__tests__/entrypoint-context-mode-runtime.test.js (REQ-AGENT-076 AC7: entrypoint preserves context-mode bridge idle reaping) -->
+4. Container startup leaves an inherited context-mode bridge idle override untouched and creates none. Pi clears the process-wide override before context-mode initializes so upstream root/subagent ownership and idle reaping apply; inherited values are not preserved end to end. <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::clearInheritedContextModeBridgeIdleOverride --> <!-- @test: host/__tests__/entrypoint-context-mode-runtime.test.js (REQ-AGENT-076 AC7: entrypoint preserves context-mode bridge idle reaping) -->
 
 **Constraints:**
 
@@ -4870,7 +4870,7 @@ None.
 
 ### REQ-AGENT-222: Pi Smart Compact defaults
 
-**Intent:** Both Pi modes receive bounded, provider-neutral compaction at Pi's native pressure boundary without replacing existing memory or UI ownership.
+**Intent:** Both Pi modes receive a bounded, provider-neutral Smart Compact preset for Pi-requested compaction, without replacing existing memory or UI ownership.
 
 **Applies To:** User
 
@@ -4878,7 +4878,7 @@ None.
 
 1. Both Pi modes install the exact integrity-locked Smart Compact package once. <!-- @impl: entrypoint.sh::configure_pi_packages_and_review_inventory --> <!-- @test: host/__tests__/pi-settings-packages.test.js (Pi settings.json packages assembly (entrypoint.sh)) -->
 2. The provider-neutral EESV preset uses Auto mode, low summary thinking, at most four calls, a 120-second generation ceiling, scrubbed backups, and lost-detail monitoring. <!-- @impl: preseed/agents/pi/extensions/00-smart-compact-config.ts::configureSmartCompact --> <!-- @test: src/__tests__/lib/pi-smart-compact-config.test.ts (REQ-AGENT-223: provider-neutral Smart Compact settings preparation) -->
-3. Automatic `native-hook` replacement occurs only when Pi requests compaction. <!-- @impl: preseed/agents/pi/extensions/00-smart-compact-config.ts::configureSmartCompact --> <!-- @test: src/__tests__/lib/pi-smart-compact-config.test.ts (REQ-AGENT-223: initializes an absent settings file with the full managed preset in auto mode) --> <!-- @test: host/__tests__/pi-hermes-native.test.js (REQ-AGENT-222 AC3: native hook leaves above-floor ordinary turns uncompacted) -->
+3. The managed preset enables automatic compaction using Smart Compact’s `native-hook` strategy, not a separate automatic trigger. <!-- @impl: preseed/agents/pi/extensions/00-smart-compact-config.ts::configureSmartCompact --> <!-- @test: src/__tests__/lib/pi-smart-compact-config.test.ts (REQ-AGENT-223: initializes an absent settings file with the full managed preset in auto mode) -->
 4. The footer, additional memory, agent tools, and overlapping cleanup/navigation features default off. <!-- @impl: preseed/agents/pi/extensions/00-smart-compact-config.ts::configureSmartCompact --> <!-- @test: src/__tests__/lib/pi-smart-compact-config.test.ts (REQ-AGENT-223: provider-neutral Smart Compact settings preparation) -->
 
 **Constraints:**
@@ -4889,7 +4889,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-076](#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults)
 
-**Verification:** Automated: [pi-settings-packages.test.js](../../host/__tests__/pi-settings-packages.test.js), [pi-smart-compact-config.test.ts](../../src/__tests__/lib/pi-smart-compact-config.test.ts), [pi-hermes-native.test.js](../../host/__tests__/pi-hermes-native.test.js)
+**Verification:** Automated: [pi-settings-packages.test.js](../../host/__tests__/pi-settings-packages.test.js), [pi-smart-compact-config.test.ts](../../src/__tests__/lib/pi-smart-compact-config.test.ts)
 
 **Status:** Implemented
 

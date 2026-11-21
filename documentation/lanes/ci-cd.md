@@ -608,7 +608,7 @@ Use module-level `vi.mock` before imports, `vi.hoisted` for mock-factory mutable
 
 `host/package.json` Node runner; `cd host && npm test`. CI excludes image-only cases through the maintained exclusion ledger. Covers PTY fixed 1.5-second first-output settlement, activity/input tracking, host HTTP/WS/proxy security, sync filters, lifecycle/memory/metrics, entrypoint/agent configuration, graph hooks and migration. Package references own detailed inventories.
 
-For [REQ-OPS-003 AC3](../../sdd/spec/operations.md#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit), the shard that selects `entrypoint-rclone-filters.test.js` must report all 60 passing cases in the storage persistence matrix. A green Node exit and a nonzero shard test count do not substitute for its completed JUnit suite. CI retains the Host JUnit file on failure when the reporter produced it. This gate detects missing results; it does not attribute the cause. <!-- @impl: scripts/ci/check-host-persistence-report.py::check_report -->
+For [REQ-OPS-003 AC3](../../sdd/spec/operations.md#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit), the shard selecting `entrypoint-rclone-filters.test.js` runs that file once without forced exit and validates its own JUnit report. A green Node exit or nonzero shard count cannot substitute for the 60 distinct passing matrix cases. Other Host files keep their existing invocation. CI retains available Host reports on failure; the gate detects missing results without attributing their cause. <!-- @impl: scripts/ci/check-host-persistence-report.py::check_report -->
 
 ### Property-Based Fuzz Tests
 

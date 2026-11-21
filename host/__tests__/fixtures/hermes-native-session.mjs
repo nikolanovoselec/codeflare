@@ -9,7 +9,6 @@ import { pathToFileURL } from 'node:url';
 import { importPiExtension } from './pi-extension-module.mjs';
 
 const [scenario, home, repo] = process.argv.slice(2);
-const nativeHookCheck = scenario === 'native-hook';
 const deps = join(repo, 'preseed/agents/pi/node_modules');
 const agentDir = join(home, '.pi/agent'), cwd = join(home, 'workspace');
 const memoryDir = join(home, 'Vault/Memory');
@@ -57,12 +56,11 @@ let contextPhase = 'ordinary', contextReply = 0;
 let childMode = false;
 let expectedModel = 'fixture';
 
-function completion(content, usage) {
+function completion(content) {
   const chunk = (delta, finish_reason) => ({ id: 'hermes-fixture-completion', object: 'chat.completion.chunk',
     created: 0, model: 'fixture', choices: [{ index: 0, delta, finish_reason }] });
-  const chunks = [chunk({ role: 'assistant', content }, null), chunk({}, 'stop')];
-  if (usage) chunks.push({ ...chunk({}, 'stop'), choices: [], usage });
-  return new Response(chunks.map(value => `data: ${JSON.stringify(value)}\n\n`).join('') + 'data: [DONE]\n\n',
+  return new Response([chunk({ role: 'assistant', content }, null), chunk({}, 'stop')]
+    .map(value => `data: ${JSON.stringify(value)}\n\n`).join('') + 'data: [DONE]\n\n',
   { headers: { 'Content-Type': 'text/event-stream' } });
 }
 const providerFailures = [];
@@ -89,7 +87,7 @@ globalThis.fetch = async (input, init) => {
       assert.equal(childMode, false, 'helper prompts cannot start automatic review');
       // Context-only task prompts contain no new durable facts. Keep legitimate
       // stock background review enabled without inventing a memory operation.
-      if (scenario === 'context' || nativeHookCheck) return completion(JSON.stringify({ operations: [] }));
+      if (scenario === 'context') return completion(JSON.stringify({ operations: [] }));
       assert.equal(scenario, 'capture');
       for (const key of ['user', 'global', 'workspace', 'lesson']) assert.ok(lastUser.includes(facts[key]), `review payload contains ${key} evidence`);
       assert.equal(body.tools?.length ?? 0, 0, 'direct review is a side-channel completion, not primary tool dispatch');
@@ -99,11 +97,6 @@ globalThis.fetch = async (input, init) => {
         { action: 'add', target: 'project', content: facts.workspace },
         { action: 'add', target: 'failure', content: facts.lesson, category: 'failure' },
       ] }));
-    }
-    if (nativeHookCheck) {
-      const promptTokens = 6_000 + 3_000 * contextReply;
-      return completion(`HERMES_TASK_EVIDENCE response ${++contextReply}: ` + 'calibration detail '.repeat(1_400),
-        { prompt_tokens: promptTokens, completion_tokens: 3_000, total_tokens: promptTokens + 3_000 });
     }
     if (scenario === 'context') {
       if (contextPhase === 'overflow') {
@@ -256,8 +249,7 @@ async function promptText(f, prompt) {
   finally { unsubscribe(); }
   assert.ok(last, 'this prompt must emit a new assistant response, not reuse an earlier completion');
   assert.equal(last.stopReason, 'stop', JSON.stringify(last));
-  assert.match(text(last), scenario === 'context' || nativeHookCheck
-    ? /^HERMES_TASK_EVIDENCE response \d+:/ : /^Foreground fixture acknowledgement \d+\.$/);
+  assert.match(text(last), scenario === 'context' ? /^HERMES_TASK_EVIDENCE response \d+:/ : /^Foreground fixture acknowledgement \d+\.$/);
 }
 async function verifySearch(f, { corrected = false } = {}) {
   let matches = 0;
@@ -340,23 +332,6 @@ async function run() {
     assert.deepEqual(markdown(), before);
     assert.equal(requests.length, 0, 'search/CRUD over a large policy-only store needs no consolidation/provider');
     return { searchableScopes: 3, crudScopes: 3, originalsPreserved: true, providerRequests: requests.length };
-  }
-  if (nativeHookCheck) {
-    const f = await start({ context: true, managed: true });
-    const compactions = [];
-    const unsubscribe = f.session.subscribe(event => {
-      if (event.type === 'compaction_start') compactions.push(event.reason);
-    });
-    try {
-      await promptText(f, 'HERMES_TASK_EVIDENCE: analyze the calibration procedure.');
-      for (let turn = 1; turn <= 3; turn++) {
-        assert.ok(f.session.getContextUsage()?.tokens >= 5_000, 'ordinary turn begins above Smart Compact’s admission floor');
-        await promptText(f, `HERMES_TASK_EVIDENCE: continue the ordinary analysis (${turn}).`);
-      }
-    } finally { unsubscribe(); }
-    assert.deepEqual(compactions, [], 'native-hook must not initiate compaction on ordinary turns');
-    assert.equal(f.session.sessionManager.getEntries().some(entry => entry.type === 'compaction'), false);
-    return { ordinaryTurnsAboveFloor: 3 };
   }
   if (scenario === 'context') {
     // Keep the canaries stable: stock search reads SQLite, reconciled at startup

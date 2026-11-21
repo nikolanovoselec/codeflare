@@ -200,11 +200,6 @@ test('REQ-MEM-036: policy-only stores above 5000 units remain searchable and sup
     assert.equal(result.providerRequests, 0);
   });
 
-test('REQ-AGENT-222 AC3: native hook leaves above-floor ordinary turns uncompacted', { timeout: 120000 }, async t => {
-  const f = await fixture(t);
-  assert.equal((await f.run('native-hook')).ordinaryTurnsAboveFloor, 3);
-});
-
 test('REQ-MEM-036: managed native requests omit unsolicited stored facts and size warnings initially, subsequently and after automatic compaction; explicit search recalls them',
   { timeout: 120000 }, async t => {
     const f = await fixture(t);

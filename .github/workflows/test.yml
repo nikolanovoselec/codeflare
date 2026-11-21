@@ -1357,10 +1357,22 @@ jobs:
           set -euo pipefail
           # Keep the test owner outside worker limits, inside its delegated subtree.
           sudo sh -c 'printf "%s\n" "$1" > "$2/cgroup.procs"' sh "$$" "/sys/fs/cgroup/codeflare-trim-workers/ci-owner"
-          xargs -a "$RUNNER_TEMP/host-tests.txt" \
+          persistence='host/__tests__/entrypoint-rclone-filters.test.js'
+          grep -Fxv "$persistence" "$RUNNER_TEMP/host-tests.txt" > "$RUNNER_TEMP/host-tests-regular.txt"
+          xargs -a "$RUNNER_TEMP/host-tests-regular.txt" \
             node --experimental-test-module-mocks --test --test-force-exit --test-timeout=60000 \
               --test-reporter=spec --test-reporter-destination=stdout \
               --test-reporter=junit --test-reporter-destination="$RUNNER_TEMP/host-report-1.xml"
+
+          # Run the persistence file once, without forced exit. A successful
+          # Node exit alone has not guaranteed a complete matrix report.
+          if grep -Fxq "$persistence" "$RUNNER_TEMP/host-tests.txt"; then
+            node --experimental-test-module-mocks --test --test-timeout=60000 \
+              --test-reporter=spec --test-reporter-destination=stdout \
+              --test-reporter=junit --test-reporter-destination="$RUNNER_TEMP/host-report-persistence.xml" \
+              "$persistence"
+            python3 scripts/ci/check-host-persistence-report.py "$RUNNER_TEMP/host-report-persistence.xml"
+          fi
 
           # node --test exits 0 when selected files define no tests. Count actual
           # testcases rather than trusting exit 0.
@@ -1370,42 +1382,14 @@ jobs:
             exit 1
           fi
           echo "Host lane executed ${COUNT} tests."
-          if grep -Fxq 'host/__tests__/entrypoint-rclone-filters.test.js' "$RUNNER_TEMP/host-tests.txt"; then
-            if ! python3 scripts/ci/check-host-persistence-report.py "$RUNNER_TEMP/host-report-1.xml"; then
-              echo 'persistence_gate_failed=true' >> "$GITHUB_OUTPUT"
-              exit 1
-            fi
-          fi
         timeout-minutes: 5
-
-      - name: Compare incomplete persistence report without forced exit
-        # The same file already produced an incomplete report in isolation with
-        # forced exit. Remove only that flag in this bounded diagnostic.
-        if: failure() && steps.host-tests.outputs.persistence_gate_failed == 'true'
-        run: |
-          set -euo pipefail
-          sudo sh -c 'printf "%s\n" "$1" > "$2/cgroup.procs"' sh "$$" "/sys/fs/cgroup/codeflare-trim-workers/ci-owner"
-          node --experimental-test-module-mocks --test --test-timeout=60000 \
-            --test-reporter=spec --test-reporter-destination=stdout \
-            --test-reporter=junit --test-reporter-destination="$RUNNER_TEMP/host-persistence-isolated.xml" \
-            host/__tests__/entrypoint-rclone-filters.test.js
-          python3 scripts/ci/check-host-persistence-report.py "$RUNNER_TEMP/host-persistence-isolated.xml"
-        timeout-minutes: 2
-
-      - name: Retain isolated Host persistence report
-        if: failure() && steps.host-tests.outputs.persistence_gate_failed == 'true'
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: host-persistence-isolated-${{ matrix.slug }}
-          path: ${{ runner.temp }}/host-persistence-isolated.xml
-          if-no-files-found: ignore
 
       - name: Retain failed Host test report
         if: failure() && steps.host-tests.outcome == 'failure'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: host-report-${{ matrix.slug }}
-          path: ${{ runner.temp }}/host-report-1.xml
+          path: ${{ runner.temp }}/host-report-*.xml
           if-no-files-found: ignore
 
   browser-run-timeouts:
