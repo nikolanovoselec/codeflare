@@ -524,16 +524,23 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         get: () => ({ claimBucketOwner: async () => 'owned' }),
       } as unknown as Env['CONTAINER'];
       const app = createTestApp({ CONTAINER: container });
+      const headers = { ...jsonHeaders, 'X-Requested-With': 'XMLHttpRequest' };
+      const body = JSON.stringify({
+        ...standardBody,
+        allowedUsers: ['admin@example.com', 'user@example.com'],
+        adminUsers: ['admin@example.com'],
+      });
       globalThis.fetch = createUrlMockFetch({ '/accounts': () => new Response(JSON.stringify({ success: false, result: [] }), { headers: jsonHeaders }) });
       const failed = await app.request(`${TEST_WORKER_BASE_URL}/api/setup/configure`, {
-        method: 'POST', headers: { ...jsonHeaders, 'cf-access-authenticated-user-email': 'admin@example.com' },
-        body: JSON.stringify(standardBody),
+        method: 'POST', headers: { ...headers, 'cf-access-authenticated-user-email': 'admin@example.com' }, body,
       });
       expect(failed.status).toBe(200);
-      expect(getNdjsonSummary(await readNdjson(failed))).toMatchObject({ done: true, success: false });
+      expect(getNdjsonSummary(await readNdjson(failed))).toMatchObject({
+        done: true, success: false, steps: [{ step: 'get_account', status: 'error' }],
+      });
       // A failed rerun must not turn the completed instance back into public bootstrap.
       const denied = await app.request(`${TEST_WORKER_BASE_URL}/api/setup/configure`, {
-        method: 'POST', headers: jsonHeaders, body: JSON.stringify(standardBody),
+        method: 'POST', headers, body,
       });
       expect(denied.status).toBe(401);
       for (const [key, value] of before) expect(mockKV._store.get(key)).toBe(value);

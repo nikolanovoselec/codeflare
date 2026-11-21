@@ -137,7 +137,10 @@ describe('REQ-OPERATOR-024 AC6: per-operation receipts remain independent of cle
       'read-failed', 'corrupt-file', 'verified'] as const)(
       'retains exact %s evidence without borrowing a verified sibling receipt', fault =>
         withNativeConductor(async (activity, ctx, activityEnv) => {
-          const session = ownedSessionFixture();
+          const fixture = ownedSessionFixture();
+          // This matrix reaches getContainerId, which requires 8–24 lowercase alphanumeric characters.
+          const sessionId = 'session1';
+          const session = { ...fixture, sessionId, profile: { ...fixture.profile, sessionId } };
           const context = (await activity.getExecutionContext())!;
           const deadline = (await activity.getRuntimePlan())!.deadline;
           const encode = (value: unknown) => new TextEncoder().encode(JSON.stringify(value));

@@ -944,7 +944,18 @@ for (const [category, args] of [
 for (const failure of ['command', 'async dispatch'] as const) {
   for (const nextMode of ['chat', 'inline-edit'] as const) {
     test(`REQ-IDE-028 AC2+AC4: ${nextMode} succeeds after a real backend ${failure} failure`, async () => {
-      const spawner = new FakePiSpawner();
+      // Generation reaping cannot find fake OS processes; model the child's
+      // asynchronous exit when the real disposal path sends its signal.
+      class TerminatingPiChild extends FakePiChild {
+        override signal(): void { queueMicrotask(() => this.emitExit()); }
+      }
+      const spawner = new class extends FakePiSpawner {
+        override spawn(_spec: PiSpawnSpec): PiChildProcess {
+          const child = new TerminatingPiChild();
+          this.children.push(child);
+          return child;
+        }
+      }();
       const runtime = new NativePiRuntime(() => new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost())));
       const input = { prompt: 'request', history: [], openFiles: [], diagnostics: [], references: [] };
       const cancellation = { isCancellationRequested: false, onCancellationRequested: () => ({ dispose() {} }) };

@@ -79,7 +79,9 @@ describe('cleanupUserData', () => {
     // The shared fixture owns the SDK base seam; cleanup supplies only its
     // external session-destruction transport, never an MCP state implementation.
     mockGetContainer.mockReturnValue(containerState as unknown as ReturnType<typeof getContainer>);
-    mockContainerDestroy.mockResolvedValue(undefined);
+    // Cleanup stops at the first failed destroy; discard unconsumed one-shot
+    // results so later cases exercise their own container transport.
+    mockContainerDestroy.mockReset().mockResolvedValue(undefined);
     mockEmptyR2Bucket.mockResolvedValue(0);
     mockCreateR2Client.mockReturnValue({});
     mockResolveBucketName.mockResolvedValue(bucketName);

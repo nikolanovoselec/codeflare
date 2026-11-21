@@ -965,7 +965,7 @@ describe('POST /billing/switch', () => {
     vi.mocked(fetchSubscription).mockResolvedValueOnce(null);
     const { app, mockKV } = createApp();
     mockKV._set('user:user@example.com', {
-      role: 'user', addedBy: 'admin', onboardingComplete: true, trialUsed: true,
+      role: 'user', addedBy: 'admin', addedAt: '2025-01-01T00:00:00Z', onboardingComplete: true, trialUsed: true,
       subscriptionTier: 'standard', accessTier: 'standard',
       stripeCustomerId: 'cus_expired', stripeSubscriptionId: 'sub_expired', stripePriceId: 'price_old',
       billingStatus: 'active', billingPeriodEnd: '2026-01-01T00:00:00Z',
@@ -977,7 +977,7 @@ describe('POST /billing/switch', () => {
     expect(res.status).toBe(400);
     expect(await res.json()).toMatchObject({ code: 'VALIDATION_ERROR', error: 'Subscription expired. Redirecting to checkout.' });
     expect(await mockKV.get('user:user@example.com', 'json')).toEqual({
-      role: 'user', addedBy: 'admin', onboardingComplete: true, trialUsed: true,
+      role: 'user', addedBy: 'admin', addedAt: '2025-01-01T00:00:00Z', onboardingComplete: true, trialUsed: true,
       subscriptionTier: 'pending', accessTier: 'pending',
     });
   });
