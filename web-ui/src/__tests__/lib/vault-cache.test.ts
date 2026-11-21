@@ -120,18 +120,25 @@ describe('sweepOrphanVaultCaches (REQ-VAULT-015 AC4 / REQ-VAULT-023)', () => {
   });
 
   it('removes vault-session-<sid> readiness markers for orphan sessions, preserving active', async () => {
-    const { fake, store } = installFakeLocalStorage();
-    store.set('vault-session-active1', '1');
-    store.set('vault-session-active1-scope', 'https://codeflare.ch/api/vault/0123456789abcdef0123456789abcdef/');
+    const { store } = installFakeLocalStorage();
+    const retained = new Map([
+      ['vault-session-active1', '1'],
+      ['vault-session-active1-idbs', JSON.stringify(['sb_files_active'])],
+      ['vault-session-active1-scope', 'https://codeflare.ch/api/vault/0123456789abcdef0123456789abcdef/'],
+      ['vault-session-active1-prewarmed', '1'],
+      ['unrelated-preference', 'keep'],
+    ]);
+    for (const [key, value] of retained) store.set(key, value);
     store.set('vault-session-orphan', '1');
     store.set('vault-session-orphan-idbs', JSON.stringify(['sb_files_orphan']));
     store.set('vault-session-orphan-scope', 'https://codeflare.ch/api/vault/fedcba9876543210fedcba9876543210/');
+    store.set('vault-session-orphan-prewarmed', '1');
+
     await sweepOrphanVaultCaches(['active1']);
-    expect(fake.removeItem).toHaveBeenCalledWith('vault-session-orphan');
-    expect(fake.removeItem).toHaveBeenCalledWith('vault-session-orphan-idbs');
-    expect(fake.removeItem).toHaveBeenCalledWith('vault-session-orphan-scope');
-    expect(fake.removeItem).not.toHaveBeenCalledWith('vault-session-active1');
-    expect(fake.removeItem).not.toHaveBeenCalledWith('vault-session-active1-scope');
+
+    // REQ-VAULT-034 AC2: observe actual deletion and preservation, not just
+    // removeItem invocations. No additional orphan-sweep case is needed.
+    expect(store).toEqual(retained);
   });
 
   it('is a no-op when every marker matches an active session', async () => {

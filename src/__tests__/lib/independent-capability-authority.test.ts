@@ -3,6 +3,7 @@ import type { Env } from '../../types';
 import { validateConfigurationValues } from '../../lib/admin-configuration';
 import { createMockKV } from '../helpers/mock-kv';
 import { SETUP_KEYS } from '../../lib/kv-keys';
+import { CapabilitySummarySchema } from '../../../web-ui/src/lib/schemas';
 import { parseCapabilitySummary } from '../../lib/ai-capability-discovery/contract';
 import { capabilityCandidates } from '../../lib/ai-capability-discovery';
 import { checkedRouteInventory, connectionFingerprint, verificationMatches } from '../../lib/reasoning-verification';
@@ -23,6 +24,26 @@ const verification = (raw: unknown, profile = defaultProfile) => ({ schemaVersio
 
 // REQ-ENTERPRISE-095: Discovery capability evidence authority.
 describe('REQ-ENTERPRISE-035/043: independent evidence remains exact server-owned authority', () => {
+  it('REQ-ENTERPRISE-095 AC1: Worker and browser decoders preserve valid v1/v2 documents and reject the same malformed envelopes', () => {
+    for (const document of [legacy, evidence, { ...evidence, mappings: [] }]) {
+      const before = structuredClone(document);
+      expect(parseCapabilitySummary(document)).toEqual(before);
+      expect(CapabilitySummarySchema.parse(document)).toEqual(before);
+      expect(document).toEqual(before);
+    }
+    for (const document of [null, [], {}, { ...legacy, schemaVersion: 3 },
+      { ...legacy, extra: true }, { ...legacy, tools: 'true' }, { ...legacy, grade: undefined },
+      { ...evidence, extra: true }, { ...evidence, mappings: null },
+      { ...evidence, mappings: [{ ...mapping, transport: 'unknown' }] },
+      { ...evidence, mappings: [{ ...mapping, privateKey: 'must-not-survive' }] },
+      { ...evidence, mappings: [{ ...mapping, levels: ['low'], reasoning: 'provider-default' }] },
+      { ...evidence, mappings: [{ ...mapping, levels: ['low', 'low'], reasoning: 'observed-enabled' }] },
+    ]) {
+      expect(() => parseCapabilitySummary(document)).toThrow();
+      expect(CapabilitySummarySchema.safeParse(document).success).toBe(false);
+    }
+  });
+
   it('round-trips per-mapping evidence and authorizes verified tools without input cache evidence', () => {
     expect(parseCapabilitySummary(evidence)).toEqual(evidence);
     expect(verificationMatches(verification(evidence), defaultProfile, connection)).toBe(true);
@@ -89,6 +110,35 @@ describe('REQ-ENTERPRISE-035/043: independent evidence remains exact server-owne
 afterEach(() => vi.restoreAllMocks());
 
 describe('Browser input is not administrator authority', () => {
+  it.each([...capabilityCandidates(false), ...capabilityCandidates(true)])(
+    'REQ-ENTERPRISE-043 AC2: generated profile $id cannot create saved authority without a server receipt', async (profile) => {
+      const kv = createMockKV();
+      const env = { KV: kv, ENTERPRISE_MODE: 'active', AIG_GATEWAY_URL: connection.gatewayUrl,
+        AIG_GATEWAY_ID: connection.gatewayId, AIG_TOKEN: connection.token } as unknown as Env;
+      const before = new Map(kv._store);
+      const requests: Request[] = [];
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+        const request = new Request(input, init); requests.push(request);
+        if (request.url.endsWith('/routes')) return Response.json({ result: { routes: [{ id: 'route', name: 'future' }] } });
+        return Response.json({ result: { version: { version_id: 'synthetic-version', active: true, data: [
+          { id: 'start', type: 'start', outputs: { next: { elementId: 'model' } } },
+          { id: 'model', type: 'model', properties: { provider: 'aws-bedrock', model: 'synthetic-model' }, outputs: { success: { elementId: 'end' } } },
+          { id: 'end', type: 'end', outputs: {} },
+        ] } } });
+      });
+      const result = await validateConfigurationValues(env, 'aiRouting', 'enterprise', {
+        gatewayUrl: connection.gatewayUrl, gatewayId: connection.gatewayId, replacementToken: '', dynamicRoutes: ['future'],
+        defaultRoute: { route: '', reasoning: 'off' }, routeContextWindows: { future: 200000 }, groupRouting: [],
+        fallbackRouting: { enabled: false }, reasoningConfiguration: { schemaVersion: 1, customProfileRevisions: [profile],
+          routeAssignments: { future: { activeProfile: { id: profile.id, revision: profile.revision, hash: profile.hash } } } },
+      });
+      expect(result.values).toBeUndefined();
+      expect(result.fieldErrors).toHaveProperty('reasoningConfiguration');
+      expect(kv._store).toEqual(before);
+      expect(requests.filter(request => request.method !== 'GET')).toEqual([]);
+    },
+  );
+
   it.each([
     { label: 'generated namespace alone', method: undefined, capabilities: undefined },
     { label: 'administrator method alone', method: 'administrator', capabilities: undefined },

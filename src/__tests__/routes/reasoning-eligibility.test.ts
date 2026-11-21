@@ -847,6 +847,9 @@ describe('REQ-ENTERPRISE-043 server-issued verification', () => {
   it('rejects forged verification at the legacy Setup boundary before external work', async () => {
     const f = setup(); const checked = await (await f.check()).json() as any;
     vi.mocked(fetch).mockClear();
+    const before = new Map(f.kv._store);
+    const attempted: string[] = [];
+    vi.mocked(fetch).mockImplementation(async input => { attempted.push(String(input)); return new Response(null, { status: 503 }); });
     const response = await f.app.request('/api/setup/configure', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
       customDomain: 'codeflare.example.com', adminUsers: ['admin@example.com'], allowedUsers: ['admin@example.com'],
       dynamicRoutes: ['working'], defaultRoute: { route: 'working', reasoning: 'off' }, routeContextWindows: { working: 10000 },
@@ -854,6 +857,8 @@ describe('REQ-ENTERPRISE-043 server-issued verification', () => {
     }) });
     expect(response.status).toBe(400); expect(fetch).not.toHaveBeenCalled();
     expect(f.kv._store.has(SETUP_KEYS.REASONING_CONFIGURATION)).toBe(false);
+    expect(f.kv._store).toEqual(before);
+    expect(attempted).toEqual([]);
   });
   it('fails closed on delayed receipt visibility with retry advice and no automatic paid checks', async () => {
     const f = setup(); const checked = await (await f.check()).json() as any;

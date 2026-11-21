@@ -12,7 +12,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { setTimeout as delay } from 'node:timers/promises';
 import {
-  mkdirSync, writeFileSync, existsSync, readFileSync, copyFileSync, chmodSync, unlinkSync,
+  mkdirSync, writeFileSync, existsSync, readFileSync, copyFileSync, chmodSync, unlinkSync, rmSync,
 } from 'node:fs';
 import { tempDir } from './helpers/temp-dirs.js';
 import { join, resolve, dirname } from 'node:path';
@@ -279,6 +279,41 @@ describe('memory-capture.sh - user-message counting', () => {
     assert.equal(readFileSync(vaultCounter, 'utf-8'), '20\n');
     assert.equal(existsSync(join(fx.home, '.cache', 'codeflare-hooks', 'vault-extract.vars')), false);
   });
+
+  for (const reason of ['scanner missing', 'Vault missing', 'extraction marker pending']) {
+    it(`REQ-VAULT-031 AC3: advances the Vault cadence when ${reason}`, () => {
+      const fx = makeFixture();
+      installVaultManifest(fx);
+      writeFileSync(join(fx.home, 'Vault', 'Notes', 'changed.md'), 'not yet extracted\n');
+      const marker = join(fx.home, '.cache', 'codeflare-hooks', 'vault-extract.vars');
+      const pending = `VAULT_ROOT=${join(fx.home, 'Vault')}\nTRIGGERED_AT=2026-07-01T00:00:00Z\nCHANGED_FILES<<EOF\npending.md\nEOF\n`;
+      if (reason === 'scanner missing') {
+        unlinkSync(join(fx.home, '.claude', 'plugins', 'codeflare-vault', 'scripts', 'vault-manifest.py'));
+      } else if (reason === 'Vault missing') {
+        rmSync(join(fx.home, 'Vault'), { recursive: true });
+      } else {
+        mkdirSync(dirname(marker), { recursive: true });
+        writeFileSync(marker, pending);
+      }
+      const sessionId = 'sess-vault-skip';
+      writeFileSync(join(fx.counterDir, sessionId), '19\n1\n');
+      const vaultCounter = join(fx.counterDir, `${sessionId}.vault-count`);
+      writeFileSync(vaultCounter, '0\n');
+      const transcriptPath = writeTranscript(fx.home,
+        Array.from({ length: 20 }, (_, index) => realUserLine(`prompt ${index + 1}`)));
+
+      const result = runHook(fx, { transcriptPath, sessionId });
+
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(readFileSync(vaultCounter, 'utf8'), '20\n');
+      assert.equal(existsSync(join(fx.counterDir, `${sessionId}.vars`)), false);
+      if (reason === 'extraction marker pending') {
+        assert.equal(readFileSync(marker, 'utf8'), pending, 'pending extraction must not be replaced');
+      } else {
+        assert.equal(existsSync(marker), false, 'a skipped scan must not arm extraction');
+      }
+    });
+  }
 
   it('retries the Vault hash check on the next prompt after a partial file-read failure', () => {
     const fx = makeFixture();

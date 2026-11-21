@@ -800,6 +800,61 @@ describe('access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JI
       expect(await mockKV.get('welcome-sent:new@example.com')).toBeNull();
     });
 
+    it('REQ-AUTH-012 AC4: an unconfigured welcome stays unclaimed until a later configured login retries the same key', async () => {
+      const actualEmail = await vi.importActual<typeof import('../../lib/email')>('../../lib/email');
+      const providerEnv: { RESEND_API_KEY?: string } = {};
+      const attemptedKeys: Array<string | undefined> = [];
+      const deliveries: Array<{ url: string; key: string | null; body: unknown }> = [];
+      mockSendWelcomeEmail.mockImplementation(async opts => {
+        attemptedKeys.push(opts.idempotencyKey);
+        return actualEmail.sendWelcomeEmail({
+          ...opts as Parameters<typeof actualEmail.sendWelcomeEmail>[0], env: providerEnv,
+        });
+      });
+      vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = new Request(input, init);
+        deliveries.push({ url: request.url, key: request.headers.get('Idempotency-Key'), body: await request.json() });
+        return new Response(null, { status: 202 });
+      });
+      const timekeeper = createWelcomeTimekeeper();
+      const statuses: number[] = [];
+      const env = {
+        SAAS_MODE: 'active', KV: mockKV,
+        TIMEKEEPER: {
+          idFromName: (name: string) => name,
+          get: () => ({ fetch: async (request: Request) => {
+            const response = await timekeeper.fetch(request);
+            statuses.push(response.status);
+            return response;
+          } }),
+        },
+      } as unknown as Env;
+      const login = () => resolveOrProvisionUser(
+        mockKV as unknown as KVNamespace, 'new@example.com', env, 'codeflare-new-example-com',
+      );
+      try {
+        expect(await login()).toMatchObject({ role: 'user', accessTier: 'pending', subscriptionTier: 'pending' });
+        const record = await mockKV.get('user:new@example.com', 'json');
+        expect(record).toMatchObject({ addedBy: 'jit', role: 'user' });
+        expect(statuses).toEqual([503]);
+        expect(deliveries).toEqual([]);
+
+        providerEnv.RESEND_API_KEY = 'synthetic-resend-key';
+        await login();
+        await login();
+        expect(statuses).toEqual([503, 202, 204]);
+        expect(attemptedKeys).toEqual([expect.stringMatching(/^codeflare-welcome-v1-[a-f0-9]{64}$/), attemptedKeys[0]]);
+        expect(deliveries).toEqual([{
+          url: 'https://api.resend.com/emails', key: attemptedKeys[0],
+          body: expect.objectContaining({ to: ['new@example.com'], subject: 'Welcome to Codeflare' }),
+        }]);
+        expect(await mockKV.get('user:new@example.com', 'json')).toEqual(record);
+        expect(await mockKV.get('welcome-sent:new@example.com')).toBeNull();
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
     it('serializes concurrent claims and never sends again after provider acceptance', async () => {
       const timekeeper = createWelcomeTimekeeper();
 

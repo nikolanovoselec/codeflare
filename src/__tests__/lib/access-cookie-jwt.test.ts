@@ -12,7 +12,7 @@ vi.mock('../../lib/jwt', () => ({
 }));
 
 import { getUserFromRequest, resetAuthConfigCache } from '../../lib/access';
-import { signSessionJWT, SESSION_JWT_AUD } from '../../lib/session-jwt';
+import { signSessionJWT, verifySessionJWT, SESSION_JWT_AUD } from '../../lib/session-jwt';
 
 describe('getUserFromRequest cookie JWT fallback', () => {
   beforeEach(() => {
@@ -99,6 +99,34 @@ describe('getUserFromRequest cookie JWT fallback', () => {
       }
     },
   );
+
+  it('REQ-AUTH-021 AC4: a valid app cookie cannot authenticate outside session-OIDC mode', async () => {
+    const mockKV = createMockKV();
+    mockKV._store.set('setup:auth_domain', 'team.cloudflareaccess.com');
+    mockKV._store.set('setup:access_aud', 'aud-single');
+    const secret = 'synthetic-session-secret-32-chars!!';
+    const session = await signSessionJWT({
+      email: 'session@example.com', sub: 'fixture-user', ghLogin: 'fixture', aud: SESSION_JWT_AUD,
+    }, secret);
+    expect(await verifySessionJWT(session, secret, SESSION_JWT_AUD)).toMatchObject({
+      email: 'session@example.com', aud: SESSION_JWT_AUD,
+    });
+    // Keep OAuth configured: only the deployment mode prevents app-cookie trust.
+    const env = { ...makeEnv(mockKV), OAUTH_CLIENT_ID: 'fixture-client', OAUTH_JWT_SECRET: secret } as Env;
+    const request = (accessToken?: string) => new Request('https://example.com/', {
+      headers: {
+        Cookie: `codeflare_session=${session}`,
+        'cf-access-authenticated-user-email': 'untrusted@example.com',
+        ...(accessToken ? { 'cf-access-jwt-assertion': accessToken } : {}),
+      },
+    });
+
+    expect(await getUserFromRequest(request(), env)).toEqual({ email: '', authenticated: false });
+    expect(await getUserFromRequest(request('invalid-access'), env)).toEqual({ email: '', authenticated: false });
+    expect(await getUserFromRequest(request('cookie-token'), env)).toEqual({
+      email: 'cookie-user@example.com', authenticated: true,
+    });
+  });
 
   it('falls back to single access_aud when access_aud_list is absent', async () => {
     const mockKV = createMockKV();

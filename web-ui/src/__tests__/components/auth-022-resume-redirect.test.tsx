@@ -128,6 +128,29 @@ describe('REQ-AUTH-024 AC1/AC2: bootstrap service failures remain recoverable wi
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
+  it.each([
+    ['object', { code: 'BLOCKED' }],
+    ['JSON', JSON.stringify({ code: 'BLOCKED' })],
+  ])('REQ-AUTH-024 AC3: a blocked %s response navigates to subscription instead of service recovery', async (_encoding, body) => {
+    vi.stubEnv('DEV', false);
+    const navigations: string[] = [];
+    Object.defineProperty(window, 'location', {
+      configurable: true, writable: true,
+      value: {
+        ...window.location,
+        get href() { return 'http://localhost/app'; },
+        set href(value: string) { navigations.push(value); },
+      },
+    });
+    getUserMock.mockRejectedValue(new ApiError('Blocked', 403, 'Forbidden', body));
+    render(() => <App />);
+
+    await waitFor(() => expect(navigations).toEqual(['/app/subscribe']));
+    expect(screen.queryByTestId('bootstrap-service-error')).toBeNull();
+    expect(screen.queryByTestId('bootstrap-access-error')).toBeNull();
+    expect(screen.queryByTestId('auth-redirecting')).toBeNull();
+  });
+
   it('keeps a forbidden account separate from a recoverable service failure', async () => {
     vi.stubEnv('DEV', false);
     getUserMock.mockRejectedValue(new ApiError('Forbidden', 403, 'Forbidden'));
@@ -225,6 +248,25 @@ describe('REQ-AUTH-022 AC6: restored app resume revalidates once and preserves v
 });
 
 describe('REQ-AUTH-022 AC3: RootPage renders a non-empty redirect state (no blank document)', () => {
+  it.each([
+    { mode: 'SaaS', providers: [{ id: 'github' }], onboarding: false, target: 'login-page' },
+    { mode: 'onboarding', providers: [], onboarding: true, target: 'onboarding' },
+    { mode: 'Enterprise', providers: [], onboarding: false, target: 'root-redirecting' },
+  ])('REQ-AUTH-022 AC3: $mode root stays nonempty while loading and after mode resolution', async ({ providers, onboarding, target }) => {
+    stubLocation('/');
+    let resolveProviders!: (value: { providers: Array<{ id: string }> }) => void;
+    getAuthProvidersMock.mockImplementationOnce(() => new Promise(resolve => { resolveProviders = resolve; }));
+    getOnboardingConfigMock.mockResolvedValue({ active: onboarding, turnstileSiteKey: null });
+    const view = render(() => <App />);
+    expect(view.container.textContent?.trim()).toBeTruthy();
+    expect(screen.queryByTestId(target)).toBeNull();
+
+    resolveProviders({ providers });
+    await waitFor(() => expect(screen.getByTestId(target)).toBeInTheDocument());
+    expect(screen.getByTestId(target).textContent?.trim()).toBeTruthy();
+    expect(view.container.textContent?.trim()).toBeTruthy();
+  });
+
   it('shows the root-redirecting state when no provider/onboarding mode applies', async () => {
     stubLocation('/');
     render(() => <App />);
@@ -233,6 +275,27 @@ describe('REQ-AUTH-022 AC3: RootPage renders a non-empty redirect state (no blan
 });
 
 describe('REQ-AUTH-022 AC4: top-level ErrorBoundary catches a render throw', () => {
+  it('REQ-AUTH-022 AC4: the render-failure Reload control reloads the document and restores the app', async () => {
+    layoutShouldThrow = true;
+    getUserMock.mockResolvedValue(authenticatedUser);
+    let view = render(() => <App />);
+    await waitFor(() => expect(screen.getByTestId('app-error-boundary')).toBeInTheDocument());
+    const reload = screen.getByRole('button', { name: 'Reload' });
+    expect(reload).toBeEnabled();
+    const navigations: string[] = [];
+    window.location.reload = () => {
+      navigations.push('reload');
+      view.unmount();
+      layoutShouldThrow = false;
+      view = render(() => <App />);
+    };
+
+    fireEvent.click(reload);
+    await waitFor(() => expect(screen.getByTestId('layout')).toBeInTheDocument());
+    expect(navigations).toEqual(['reload']);
+    expect(screen.queryByTestId('app-error-boundary')).toBeNull();
+  });
+
   it('renders the error-boundary fallback instead of a blank document', async () => {
     layoutShouldThrow = true;
     getUserMock.mockResolvedValue(authenticatedUser);

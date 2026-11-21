@@ -1,6 +1,6 @@
 // Public route outcomes with supplied auth context and real pool D1/KV.
-// These cases do not qualify real authentication, container no-start, query
-// budgets, primary consistency or hosted runtime behavior.
+// These cases do not qualify real authentication or hosted runtime behavior.
+// Boundary traces below observe actual D1/KV/namespace operations, not physical isolation.
 import { env } from 'cloudflare:test';
 import { Hono } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
@@ -171,6 +171,39 @@ describe('REQ-SESSION-028/030: legacy session records have no authority', () => 
     expect(await bindings.KV.get(getPreferencesKey(owner))).toBe(preferences);
   });
 
+  it('REQ-SESSION-028 AC1-3: CRUD leaves unrelated KV bytes intact and never accesses session KV', async () => {
+    const sentinels = new Map([
+      [`session:${owner}:legacy01`, JSON.stringify({ id: 'legacy01', status: 'running' })],
+      [getPreferencesKey(owner), JSON.stringify({ sleepAfter: '1h', userTimezone: 'UTC' })],
+      [`storage-stats:${owner}`, JSON.stringify({ totalSizeBytes: 17 })],
+      [`unrelated:${owner}`, 'opaque unrelated bytes'],
+    ]);
+    for (const [key, value] of sentinels) await bindings.KV.put(key, value);
+    const operations: Array<{ method: string; key: unknown }> = [];
+    const observedKV = new Proxy(bindings.KV, { get(target, property) {
+      const value = Reflect.get(target, property);
+      if (typeof value !== 'function') return value;
+      return (...args: unknown[]) => {
+        operations.push({ method: String(property), key: args[0] });
+        return value.apply(target, args);
+      };
+    } });
+    const application = app({ KV: observedKV });
+    const created = await request(application, '/sessions', 'POST', { name: 'Only in D1' });
+    expect(created.status).toBe(201);
+    const { session } = await created.json() as { session: { id: string } };
+    expect((await application.request('/sessions')).status).toBe(200);
+    expect((await application.request('/sessions/batch-status')).status).toBe(200);
+    expect((await application.request(`/sessions/${session.id}`)).status).toBe(200);
+    expect((await request(application, `/sessions/${session.id}`, 'PATCH', { name: 'Renamed in D1' })).status).toBe(200);
+    expect((await application.request(`/sessions/${session.id}`, { method: 'DELETE' })).status).toBe(200);
+    expect(await new D1SessionRepository(db).getSession(owner, session.id)).toBeNull();
+    // KV list cannot enumerate legacy sessions indirectly, including a broad list.
+    expect(operations.filter(operation => operation.method === 'list'
+      || (typeof operation.key === 'string' && /^session(?::|-)/.test(operation.key)))).toEqual([]);
+    for (const [key, value] of sentinels) expect(await bindings.KV.get(key)).toBe(value);
+  });
+
   it('fails closed during a D1 outage rather than falling back to preserved legacy sessions', async () => {
     const key = `session:${owner}:legacy01`;
     const legacy = JSON.stringify({ id: 'legacy01', name: 'Legacy only', status: 'running', userId: owner });
@@ -189,6 +222,47 @@ describe('REQ-SESSION-028/030: legacy session records have no authority', () => 
 });
 
 describe('REQ-SESSION-010 subsets: real D1 batch route with supplied owner context', () => {
+  it('REQ-SESSION-010 AC1: multi-session batch uses one owner-bound direct D1 read and no KV or container probe', async () => {
+    const repository = new D1SessionRepository(db);
+    for (const [ownerKey, sessionId] of [[owner, 'session01'], [owner, 'session02'], [`${owner}-other`, 'foreign01']] as const) {
+      await repository.create({ ownerKey, sessionId, name: sessionId, createdAt: '2027-01-01T00:00:00.000Z',
+        lastAccessedAt: '2027-01-01T00:00:00.000Z', workspace: 'terminal', terminalMode: 'classic' });
+    }
+    const reads: Array<{ sql: string; args: unknown[]; method: string }> = [];
+    const observedDB = new Proxy(db, { get(target, property) {
+      if (property === 'prepare') return (sql: string) => {
+        const wrap = (statement: D1PreparedStatement, args: unknown[] = []): D1PreparedStatement => new Proxy(statement, {
+          get(prepared, operation) {
+            if (operation === 'bind') return (...values: unknown[]) => wrap(prepared.bind(...values), values);
+            const value = Reflect.get(prepared, operation);
+            if (typeof value !== 'function') return value;
+            return (...values: unknown[]) => {
+              reads.push({ sql, args, method: String(operation) });
+              return value.apply(prepared, values);
+            };
+          },
+        });
+        return wrap(target.prepare(sql));
+      };
+      const value = Reflect.get(target, property);
+      return typeof value === 'function' ? value.bind(target) : value;
+    } });
+    const forbidden: string[] = [];
+    const deny = (label: string) => new Proxy({}, { get(_target, method) {
+      return () => { forbidden.push(`${label}.${String(method)}`); throw new Error('Forbidden batch I/O'); };
+    } });
+    const response = await app({ USAGE_DB: observedDB, KV: deny('KV') as KVNamespace,
+      CONTAINER: deny('CONTAINER') as Env['CONTAINER'] }).request('/sessions/batch-status?include=storage,usage&includePreseedCheck=true');
+    expect(response.status).toBe(200);
+    expect(Object.keys((await response.json() as { statuses: object }).statuses).sort()).toEqual(['session01', 'session02']);
+    expect(forbidden).toEqual([]);
+    expect(reads).toEqual([{ sql: expect.stringMatching(/^SELECT .* FROM runtime_sessions WHERE owner_key=\\?1 ORDER BY /),
+      args: [owner], method: 'all' }]);
+    const queryPlan = await db.prepare(`EXPLAIN QUERY PLAN ${reads[0]!.sql}`).bind(owner).all<{ detail: string }>();
+    expect(queryPlan.results.some(step => /USING INDEX runtime_sessions_owner_activity/.test(step.detail))).toBe(true);
+    // Direct D1 binding access uses the primary by default; hosted replica routing is not simulated here.
+  });
+
   it('AC1/2 subsets: owner filtering, seeded lifecycle metadata and no-store response contract', async () => {
     const repository = new D1SessionRepository(db);
     const create = (ownerKey: string, sessionId: string) => repository.create({ ownerKey, sessionId, name: 'Terminal', createdAt: '2027-01-01T00:00:00.000Z', lastAccessedAt: '2027-01-01T00:00:00.000Z', workspace: 'terminal', terminalMode: 'classic' });
@@ -204,6 +278,10 @@ describe('REQ-SESSION-010 subsets: real D1 batch route with supplied owner conte
     const body = await response.json() as { statuses: Record<string, unknown> };
     expect(Object.keys(body)).toEqual(['statuses']);
     expect(Object.keys(body.statuses)).toEqual(['session01']);
+    for (const field of ['unreachableFirstObservedAt', 'readinessObservedAt', 'editorReadyObservedAt',
+      'unreachable_first_observed_at', 'readiness_observed_at']) {
+      expect(body.statuses.session01).not.toHaveProperty(field);
+    }
     expect(body.statuses.session01).toMatchObject({ status: 'unreachable', lifecycle: 'unreachable', generation: 1, revision: 3,
       editorReady: true, editorReadyError: false, unreachableIncidentId: 'incident-one', unreachableDeadlineMs: Date.parse('2027-01-01T00:02:03.000Z'),
       metrics: { cpu: '12%', mem: '1GB', hdd: '2GB', syncStatus: 'success', updatedAt: '2027-01-01T00:00:02.000Z' } });

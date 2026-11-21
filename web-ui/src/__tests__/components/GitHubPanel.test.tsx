@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup, waitFor } from '@solidjs/testing-library';
+import { render, screen, fireEvent, cleanup, waitFor, within } from '@solidjs/testing-library';
 import { mdiConnection, mdiMagnify } from '@mdi/js';
 
 // API mocks (hoisted so the vi.mock factory can reference them).
@@ -299,7 +299,15 @@ describe('GitHubPanel Component', () => {
     render(() => <GitHubPanel />);
 
     await waitFor(() => expect(screen.getByTestId('github-repo-rows')).toBeInTheDocument());
-    expect(screen.getAllByTestId('github-repo-row')).toHaveLength(15);
+    const panel = screen.getByTestId('github-panel');
+    const scroll = within(panel).getByTestId('github-repo-rows');
+    const rows = within(scroll).getAllByTestId('github-repo-row');
+    expect(rows).toHaveLength(15);
+    expect(rows).toEqual(screen.getAllByTestId('github-repo-row'));
+    for (const [index, row] of rows.entries()) {
+      expect(scroll.contains(row)).toBe(true);
+      expect(within(row).getByTestId('github-repo-link')).toHaveAttribute('href', `https://github.com/octocat/r${index}`);
+    }
   });
 
   it('REQ-GITHUB-009: shows the no-repositories empty state only when the account has no repos', async () => {
@@ -422,4 +430,36 @@ describe('GitHubPanel Component', () => {
     fireEvent.click(toggle);
     await waitFor(() => expect(screen.getByTestId('github-search-input')).toBeInTheDocument());
   });
+});
+
+it('REQ-GITHUB-002 AC2: clearing zero matches restores Load more and appends organization rows inside the same panel', async () => {
+  vi.clearAllMocks();
+  _resetForTests();
+  sessionStore.setEnterpriseMode(false);
+  window.history.replaceState({}, '', '/app/');
+  mockGetGithubStatus.mockResolvedValueOnce({ enabled: true, connected: true, login: 'octocat' });
+  mockGetGithubRepos.mockResolvedValueOnce({ repos: [makeRepo({ full_name: 'team/first', name: 'first', owner: 'team' })], page: 1, hasMore: true })
+    .mockResolvedValueOnce({ repos: [makeRepo({ full_name: 'team/last', name: 'last', owner: 'team' })], page: 2, hasMore: false });
+  try {
+    render(() => <GitHubPanel />);
+    await screen.findByRole('button', { name: 'Load more' });
+    const panel = screen.getByTestId('github-panel');
+    fireEvent.click(screen.getByTestId('github-search-toggle-btn'));
+    const search = screen.getByTestId('github-search-input');
+    fireEvent.input(search, { target: { value: 'no-matching-repository' } });
+    await waitFor(() => expect(within(panel).getByTestId('github-empty')).toHaveAttribute('data-empty-state', 'no-search-results'));
+    expect(within(panel).queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument();
+    fireEvent.input(search, { target: { value: '' } });
+    fireEvent.click(await within(panel).findByRole('button', { name: 'Load more' }));
+    await waitFor(() => expect(within(panel).getAllByTestId('github-repo-row')).toHaveLength(2));
+    expect(mockGetGithubRepos.mock.calls.map(([page]) => page)).toEqual([1, 2]);
+    const scroll = within(panel).getByTestId('github-repo-rows');
+    expect(within(scroll).getAllByTestId('github-repo-link').map(link => link.getAttribute('href')))
+      .toEqual(['https://github.com/team/first', 'https://github.com/team/last']);
+    expect(within(scroll).getAllByTestId('github-repo-row')).toEqual(screen.getAllByTestId('github-repo-row'));
+    expect(within(panel).queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument();
+  } finally {
+    cleanup();
+    _resetForTests();
+  }
 });

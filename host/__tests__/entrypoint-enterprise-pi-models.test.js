@@ -14,12 +14,12 @@
 // configured catalog shape. Revert the fix (def back) and this test fails.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, writeFileSync, mkdtempSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { enterpriseStartup, authorizedRoutes, nativeHandle, nativeLevels, siblingProvider, extractPiCleanup } from '../__fixtures__/enterprise-pi-startup.mjs';
+import { enterpriseStartup, authorizedRoutes, nativeHandle, nativeLevels, siblingProvider, extractPiCleanup, systemTrustIsolation } from '../__fixtures__/enterprise-pi-startup.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const entrypoint = readFileSync(resolve(__dirname, '../../entrypoint.sh'), 'utf8');
@@ -317,6 +317,26 @@ describe('entrypoint enterprise Pi models.json build (REQ-ENTERPRISE-005 / REQ-E
     assert.ok(models.providers.other);
     assert.deepEqual(settings, { packages: ['keep'] });
     assert.equal(readFileSync(join(dir, '.bashrc'), 'utf8'), 'keep-me\n');
+  });
+
+  it('REQ-ENTERPRISE-058 AC3: malformed raw catalog without a default fails before cleanup and leaves restored state untouched', (t) => {
+    const home = mkdtempSync(join(tmpdir(), 'ent-pi-malformed-'));
+    t.after(() => rmSync(home, { recursive: true, force: true }));
+    const agentDir = join(home, '.pi/agent');
+    mkdirSync(agentDir, { recursive: true });
+    const files = {
+      [join(agentDir, 'models.json')]: JSON.stringify({ providers: { 'codeflare-gateway': { models: [{ id: 'stale' }] }, other: siblingProvider } }),
+      [join(agentDir, 'settings.json')]: JSON.stringify({ defaultProvider: 'codeflare-gateway', defaultModel: 'stale', theme: 'dark' }),
+      [join(home, '.bashrc')]: '# enterprise-copilot-byok\nexport COPILOT_MODEL="stale"\n# end-enterprise-copilot-byok\nkeep-me\n',
+    };
+    for (const [path, text] of Object.entries(files)) writeFileSync(path, text);
+    const result = spawnSync('bash', ['-c', `set -euo pipefail\n${systemTrustIsolation}\n${extractEnterpriseBlock()}`], {
+      encoding: 'utf8', env: { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: home, USER_HOME: home,
+        ENTERPRISE_MODE: 'active', ENTERPRISE_ROUTE_CATALOG: '{malformed' },
+    });
+    assert.notEqual(result.status, 0);
+    assert.doesNotMatch(result.stdout, /Pi pinned to|authoritative empty model catalog applied/);
+    for (const [path, text] of Object.entries(files)) assert.equal(readFileSync(path, 'utf8'), text);
   });
 
   it('keeps the inner model builder nonempty when invoked independently', () => {

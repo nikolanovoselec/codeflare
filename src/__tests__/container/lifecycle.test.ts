@@ -4,6 +4,7 @@ import { createMockSessionD1 } from '../helpers/mock-session-d1';
 import { D1SessionRepository } from '../../lib/session-repository';
 import { onStart, type LifecycleHost } from '../../container/container-lifecycle';
 import { FINAL_SYNC_AUDIT_KEY } from '../../container/container-metrics';
+import { buildEnvVars } from '../../container/container-env';
 
 // Shared, hoisted call-order log so the mocked base Container can record when
 // super.startAndWaitForPorts() runs relative to interceptOutboundHttps() — used
@@ -618,6 +619,11 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       (mockCtx as any).waitUntil = vi.fn();
       const instance = new ContainerClass(mockCtx as any, mockEnv);
       await vi.waitFor(() => expect(instance.envVars?.CONTAINER_AUTH_TOKEN).toEqual(expect.any(String)));
+      expect((await invokeConfigurationHandler(instance, new Request('http://container/_internal/setBucketName', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bucketName: 'test-bucket', sessionMode: 'advanced' }),
+      }))).status).toBe(409);
+      expect(buildEnvVars(instance as any, mockEnv).SESSION_MODE).toBe('advanced');
       const warm = instance as any;
       warm._openaiApiKey = 'old-secret'; warm._containerAuthToken = 'old-auth';
       warm.envVars = { CODEFLARE_OPENAI_API_KEY: 'old-secret' };
@@ -625,6 +631,8 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       mockStorage.get.mockImplementation(async key => key === 'lifecycleGeneration' ? 0 : null);
       await expect(instance.killSession({ bucket: 'test-bucket', sessionId: 'sess123', generation: 0 })).rejects.toThrow('persistent deletion unavailable');
       expect(warm._openaiApiKey).toBeNull(); expect(warm._containerAuthToken).toBeNull();
+      // REQ-SESSION-009 AC2: even rejected persistent cleanup must not emit advanced mode on reuse.
+      expect(buildEnvVars(instance as any, mockEnv).SESSION_MODE).toBe('default');
       expect(warm.envVars).toEqual({});
       const retained = await sessionKV.get('session:test-bucket:sess123', 'json') as any;
       expect(retained.status).toBe('stopping');
@@ -645,10 +653,16 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       (mockCtx as any).waitUntil = vi.fn();
       const instance = new ContainerClass(mockCtx as any, mockEnv);
       await vi.waitFor(() => expect(instance.envVars?.CONTAINER_AUTH_TOKEN).toEqual(expect.any(String)));
+      expect((await invokeConfigurationHandler(instance, new Request('http://container/_internal/setBucketName', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bucketName: 'test-bucket', sessionMode: 'advanced' }),
+      }))).status).toBe(409);
+      expect(buildEnvVars(instance as any, mockEnv).SESSION_MODE).toBe('advanced');
       const warm = instance as any;
       for (const key of ['_openaiApiKey', '_geminiApiKey', '_githubToken', '_cloudflareApiToken', '_encryptionKey', '_r2SecretAccessKey']) warm[key] = 'old-secret';
       warm.envVars = { CODEFLARE_OPENAI_API_KEY: 'old-secret', ENCRYPTION_KEY: 'old-secret' };
       await expect(instance.destroy()).rejects.toThrow('Operational storage cleanup incomplete');
+      expect(buildEnvVars(instance as any, mockEnv).SESSION_MODE).toBe('default');
       expect(warm.envVars).toEqual({});
       for (const key of ['_openaiApiKey', '_geminiApiKey', '_githubToken', '_cloudflareApiToken', '_encryptionKey', '_r2SecretAccessKey', '_containerAuthToken', '_bucketName', '_sessionId']) expect(warm[key]).toBeNull();
       expect(durable.get('lifecycleGeneration')).toBe(7);

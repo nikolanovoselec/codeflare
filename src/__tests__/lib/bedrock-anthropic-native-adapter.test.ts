@@ -387,6 +387,25 @@ describe('Bedrock Anthropic native adapter', () => {
     ] }, state())).rejects.toThrow();
   });
 
+  it.each(['invoke', 'eventstream'] as const)('REQ-ENTERPRISE-073 AC4: %s restores historical signed blocks byte-exactly after a new question', async (transport) => {
+    const blocks = [{ type: 'text', text: 'Grüße 🌍' }, { type: 'thinking', thinking: 'private historical plan', signature: 'signed-history' },
+      { type: 'redacted_thinking', data: 'private-history-bytes' }, { type: 'tool_use', id: 'historical_call', name: 'lookup', input: { z: 1, a: 'é' } }];
+    const snapshot = JSON.stringify(blocks);
+    const replay = liveState();
+    const emitted = await readOpenAiToolTurn(await adaptBedrockAnthropicResponse(bedrockToolResponse(blocks, transport), transport, replay, true));
+    const payload = continuation([{ role: 'user', content: 'First question' }, emitted.message,
+      { role: 'tool', tool_call_id: emitted.message.tool_calls[0].id, content: 'Found' },
+      { role: 'assistant', content: 'Completed' }, { role: 'user', content: 'A new question' }]);
+    const before = structuredClone(payload);
+    const native = await buildBedrockAnthropicRequest(payload, replay);
+    expect(JSON.stringify(native.messages[1].content)).toBe(snapshot);
+    expect(native.messages.at(-1)).toEqual({ role: 'user', content: [{ type: 'text', text: 'A new question' }] });
+    expect(payload).toEqual(before);
+    expect(JSON.stringify(await replay.load('historical_call'))).toBe(snapshot);
+    expect(emitted.wire).not.toContain('signed-history');
+    expect(emitted.wire).not.toContain('private-history');
+  });
+
   it('REQ-ENTERPRISE-073: restores active signed continuation after completed unsigned history', async () => {
     const signed = [
       { type: 'thinking', thinking: '', signature: 'current-signature' },

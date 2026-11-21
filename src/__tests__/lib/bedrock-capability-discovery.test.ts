@@ -211,7 +211,7 @@ describe('REQ-ENTERPRISE-074: target-bound capability discovery', () => {
     // scan or an extra canary for the Minimal -> Low alias.
     expect(new Set(fixture.requests.map((request) => request.form)).size).toBeLessThanOrEqual(7);
     expect(result.accounting.httpAttempts).toBe(fixture.requests.length);
-    expect(fixture.requests.length).toBeLessThanOrEqual(40);
+    expect(fixture.requests.length).toBeLessThanOrEqual(34);
     const cachePair = fixture.requests.filter((request) => request.form === 'low' && request.stage === 'cache');
     expect(cachePair).toHaveLength(2);
     expectNativeCachePair(cachePair[0].body, cachePair[1].body);
@@ -285,6 +285,39 @@ describe('REQ-ENTERPRISE-074: target-bound capability discovery', () => {
     ]) });
     expect(result.profile?.supportedLevels).toEqual(expect.arrayContaining(['high', 'xhigh', 'max']));
     expect(fixture.requests.length).toBeLessThanOrEqual(40);
+  });
+
+  it.each([false, true])('REQ-ENTERPRISE-075 AC7: actual upstream submissions obey the shared 34 bound with default fallback=%s', async (fallback) => {
+    const fixture = nativeCapabilityFixture({ cache: 'none', reject: fallback ? ['off', 'low', 'medium', 'high', 'xhigh', 'max'] : [] });
+    const result = await discoverTargetCapabilities({ ...input(), fetcher: fixture.fetcher });
+    expect(result.assignable).toBe(true);
+    expect(result.accounting.httpAttempts).toBe(fixture.requests.length);
+    expect(result.attempts.reduce((sum, attempt) => sum + attempt.httpAttempts, 0)).toBe(fixture.requests.length);
+    expect(fixture.requests.length).toBeLessThanOrEqual(34);
+    for (const form of nativeForms.filter(form => form !== 'default')) {
+      const requests = fixture.requests.filter(request => request.form === form);
+      expect(requests.length).toBeLessThanOrEqual(5);
+      expect(requests.map(request => request.stage)).toEqual(fallback ? ['reasoning'] : ['reasoning', 'tool', 'replay', 'cache', 'cache']);
+    }
+    expect(fixture.requests.filter(request => request.form === 'default').map(request => request.stage))
+      .toEqual(fallback ? ['tool', 'replay', 'cache', 'cache'] : []);
+    expect(fixture.requests).toHaveLength(fallback ? 10 : 30);
+  });
+
+  it('REQ-ENTERPRISE-075 AC7: expiration of the shared campaign deadline prevents later upstream forms', async () => {
+    const fixture = nativeCapabilityFixture();
+    const began = Date.now(); let now = began;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    try {
+      const result = await discoverTargetCapabilities({ ...input(), fetcher: async (url, init) => {
+        const response = await fixture.fetcher(url, init);
+        now = began + 10 * 60_000;
+        return response;
+      } });
+      expect(result.assignable).toBe(false);
+      expect(fixture.requests).toHaveLength(1);
+      expect(result.accounting.httpAttempts).toBe(1);
+    } finally { clock.mockRestore(); }
   });
 
   it('REQ-ENTERPRISE-072: uses provider default only when every configurable native form is rejected', async () => {

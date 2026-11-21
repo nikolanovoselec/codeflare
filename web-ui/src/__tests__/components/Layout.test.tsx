@@ -2031,6 +2031,48 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
   // =========================================================================
 
   describe('REQ-VAULT-019 AC4 (vault open-intent clearing)', () => {
+    it('REQ-VAULT-036 AC1: opening the Vault tab clears intent before a later readiness loss', async () => {
+      mockSessions = [createMockSession({ id: 'sess1', status: 'running' })];
+      mockActiveSessionId = 'sess1';
+      mockPreferences = { sessionMode: 'advanced' };
+      const openedUrls: string[] = [];
+      const open = vi.spyOn(window, 'open').mockImplementation((url) => {
+        openedUrls.push(String(url));
+        return { closed: false } as Window;
+      });
+
+      try {
+        render(() => <Layout />);
+        vaultProbeMock.latestOptions.setLatch();
+        await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('available'));
+        await (window as any).__headerProps.onVaultOpen();
+        await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('preparing'));
+        const preparation = vaultPrewarmMock.latestOptions;
+        preparation.onReady(vaultPrewarmProof);
+        await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('armed'));
+
+        await (window as any).__headerProps.onVaultOpen();
+        expect(openedUrls).toEqual(['/api/vault/sess1/.codeflare-bootstrap']);
+        expect((window as any).__headerProps.vaultStatus).toBe('armed');
+
+        // A ready prewarm and a stale armed intent both look green. Drive a
+        // late readiness error through the existing fixture callback so the
+        // public state can distinguish them without reading the private signal.
+        preparation.onError('error', 'late readiness loss');
+        await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('available'));
+        expect((window as any).__headerProps.vaultReady).toBe(false);
+        expect(openedUrls).toEqual(['/api/vault/sess1/.codeflare-bootstrap']);
+
+        // No automatic reprepare/reopen: a fresh user gesture starts preparation
+        // rather than opening again from the discarded armed intent.
+        await (window as any).__headerProps.onVaultOpen();
+        await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('preparing'));
+        expect(openedUrls).toEqual(['/api/vault/sess1/.codeflare-bootstrap']);
+      } finally {
+        open.mockRestore();
+      }
+    });
+
     it('clears the open-intent (vaultStatus leaves "preparing") when the session stops', async () => {
       mockSessions = [createMockSession({ id: 'sess1', status: 'running' })];
       mockActiveSessionId = 'sess1';

@@ -522,6 +522,35 @@ describe('StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-shee
       expect(pathLine?.textContent).toContain('/home/user/Vault');
     });
 
+    it.each([
+      {
+        folder: 'Uploads',
+        id: 'uploads',
+        path: '/home/user/Uploads',
+        purpose: 'Drag-zone for files you want to keep across sessions. Anything dropped here is available inside the container and on every device.',
+      },
+      {
+        folder: 'Temporary',
+        id: 'temporary',
+        path: '/home/user/Temporary',
+        purpose: 'Scratch space. Files here persist across sessions via R2 sync, but treat the folder as transient: prune freely.',
+      },
+    ])('REQ-VAULT-001 AC6: $folder tooltip renders its container path and purpose', ({ folder, id, path, purpose }) => {
+      render(() => <StorageBrowser />);
+      const row = screen.getByTestId(`folder-${folder}`);
+      expect(screen.queryByTestId(`special-folder-tooltip-${id}`)).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByTestId(`special-folder-icon-${id}`));
+
+      const tooltip = screen.getByTestId(`special-folder-tooltip-${id}`);
+      expect(row).toContainElement(tooltip);
+      expect(tooltip).toBeVisible();
+      // Intentional user-copy contract: both the path and the purpose must be
+      // rendered, rather than merely present in the special-folder registry.
+      expect(tooltip).toHaveTextContent(path);
+      expect(tooltip).toHaveTextContent(purpose);
+    });
+
     it('opening a second tooltip closes the first (single-open behaviour)', () => {
       mockPrefixes = ['workspace/'];
       render(() => <StorageBrowser />);

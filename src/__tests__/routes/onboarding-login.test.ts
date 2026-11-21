@@ -100,6 +100,35 @@ describe('REQ-AUTH-020 / REQ-AUTH-021: onboarding login + access-request', () =>
       expect(new URL(fetched.url).pathname).toBe('/landing/login/');
     });
 
+    it.each([
+      { path: '/login/', available: true },
+      { path: '/login', available: false },
+      { path: '/login/', available: false },
+    ])('REQ-AUTH-020 AC1: $path returns landing when available=$available and otherwise the Assets SPA fallback', async ({ path, available }) => {
+      const { env, mockAssets } = createWorkerEnv({ ONBOARDING_LANDING_PAGE: 'active' });
+      const assetRequests: string[] = [];
+      const landingHtml = '<html><body>dedicated onboarding login fixture</body></html>';
+      const spaHtml = '<html><body>SPA index fallback fixture</body></html>';
+      // Model the existing Assets single-page-application policy at its I/O boundary.
+      const files = new Map([['/index.html', spaHtml]]);
+      if (available) files.set('/landing/login/', landingHtml);
+      mockAssets.fetch.mockImplementation(async (...args: unknown[]) => {
+        const request = args[0] as Request;
+        const assetPath = new URL(request.url).pathname;
+        assetRequests.push(assetPath);
+        return new Response(files.get(assetPath) ?? files.get('/index.html'), {
+          status: 200, headers: { 'Content-Type': 'text/html' },
+        });
+      });
+
+      const response = await worker.fetch(new Request(`https://example.com${path}`), env, createMockCtx());
+      expect(response.status).toBe(200);
+      expect(response.headers.get('Content-Type')).toBe('text/html');
+      expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
+      expect(await response.text()).toBe(available ? landingHtml : spaHtml);
+      expect(assetRequests).toEqual(['/landing/login/']);
+    });
+
     it('SaaS active → /login is NOT rewritten to /landing/login/ (falls through to SPA)', async () => {
       const { env, mockAssets } = createWorkerEnv({
         ONBOARDING_LANDING_PAGE: 'active',

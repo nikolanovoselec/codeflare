@@ -140,6 +140,7 @@ vi.mock('../../stores/session', async () => {
       get preferences() { return { sessionMode: _sessionMode }; },
       isAtSessionLimit: () => _isAtLimit,
       startR2Polling: vi.fn(),
+      updatePreferences: vi.fn().mockResolvedValue(undefined),
       killSession: vi.fn().mockResolvedValue(undefined),
       _setSessionMode: (v: string) => { _sessionMode = v; },
       _setTestLimit: (atLimit: boolean, max?: number) => {
@@ -262,6 +263,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     vi.mocked(githubStore.loadStatus).mockReset();
     vi.mocked(storageStore.fetchStats).mockReset();
     vi.mocked(sessionStore.startR2Polling).mockReset();
+    vi.mocked(sessionStore.updatePreferences).mockReset().mockResolvedValue(undefined);
     vi.mocked(sessionStore.killSession).mockReset().mockResolvedValue(undefined);
     vi.mocked(upgradeRecovery.retryPreseedUpgrade).mockReset().mockResolvedValue(undefined);
     upgradeRecovery.preseedUpgradeFailed = false;
@@ -1085,6 +1087,33 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
   });
 
   // === Interaction Tests ===
+
+  it('REQ-SESSION-016 AC5: Dashboard mount sends the browser timezone and stays usable after rejection', async () => {
+    const resolved = Intl.DateTimeFormat().resolvedOptions();
+    const timezone = vi.spyOn(Intl.DateTimeFormat.prototype, 'resolvedOptions')
+      .mockReturnValue({ ...resolved, timeZone: 'Europe/Zurich' });
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const updates: unknown[] = [];
+    const created: unknown[][] = [];
+    vi.mocked(sessionStore.updatePreferences).mockImplementationOnce(async prefs => {
+      updates.push(prefs);
+      throw new Error('Preference service unavailable');
+    });
+    try {
+      render(() => <Dashboard {...defaultProps} onCreateSession={(...args) => { created.push(args); }} />);
+      await waitFor(() => expect(updates).toEqual([{ userTimezone: 'Europe/Zurich' }]));
+      // Let the actual best-effort helper handle the rejection, then exercise a real dashboard action.
+      await Promise.resolve();
+      fireEvent.click(screen.getByTestId('dashboard-new-session'));
+      expect(screen.getByTestId('create-session-dialog').getAttribute('data-open')).toBe('true');
+      fireEvent.click(screen.getByTestId('csd-select-agent'));
+      expect(created).toEqual([['claude-code', undefined]]);
+      expect(screen.getByTestId('dashboard-new-session')).toBeDefined();
+    } finally {
+      timezone.mockRestore();
+      warning.mockRestore();
+    }
+  });
 
   it('opens CreateSessionDialog when New Session button clicked', () => {
     render(() => <Dashboard {...defaultProps} />);

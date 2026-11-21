@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { Hono } from 'hono';
+import { authMiddleware, type AuthVariables } from '../../middleware/auth';
+import { AppError } from '../../lib/error-types';
 import { verifyAccessJWT, verifyHumanAccessJWT, resetJWKSCache } from '../../lib/jwt';
-import { getUserFromRequest, requireOperatorHumanContext, resetAuthConfigCache } from '../../lib/access';
+import { authenticateRequest, getUserFromRequest, requireOperatorHumanContext, resetAuthConfigCache } from '../../lib/access';
 import { createMockKV } from '../helpers/mock-kv';
 import { SETUP_KEYS } from '../../lib/kv-keys';
 import type { Env } from '../../types';
@@ -122,6 +125,169 @@ describe('JWT verification / REQ-AUTH-003 (CF Access JWT validation + JWKS cachi
   afterEach(() => {
     globalThis.fetch = originalFetch;
     resetJWKSCache();
+  });
+
+  it.each([
+    { label: 'first', logins: 1 },
+    { label: 'concurrent first', logins: 2 },
+  ])('REQ-AUTH-006 AC2 / REQ-ENTERPRISE-010 AC1/AC4: $label Access login normalizes identity before group-gated JIT persistence', async ({ logins }) => {
+    resetAuthConfigCache();
+    const kv = createMockKV();
+    kv._store.set(SETUP_KEYS.AUTH_DOMAIN, TEST_AUTH_DOMAIN);
+    kv._store.set(SETUP_KEYS.ACCESS_AUD, TEST_AUD);
+    kv._store.set(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP, 'engineers');
+    const initialState = Object.fromEntries(kv._store);
+    const userReads: string[] = [];
+    const read = kv.get.getMockImplementation()!;
+    kv.get.mockImplementation(async (key, type) => {
+      if (key.startsWith('user:')) userReads.push(key);
+      return read(key, type);
+    });
+    const owners = new Map<string, string>();
+    const env = {
+      KV: kv, ENTERPRISE_MODE: 'active', CLOUDFLARE_WORKER_NAME: 'codeflare',
+      CONTAINER: {
+        idFromName: (name: string) => name,
+        get: (id: string) => ({ claimBucketOwner: async (email: string, allowInitial: boolean) => {
+          const owner = owners.get(id);
+          if (owner === email) return 'owned';
+          if (owner) return 'conflict';
+          if (!allowInitial) return 'ambiguous';
+          owners.set(id, email);
+          return 'owned';
+        } }),
+      },
+    } as unknown as Env;
+    const now = Math.floor(Date.now() / 1000);
+    const token = await createTestJWT({
+      aud: [TEST_AUD], email: '  Mixed.User@Example.com  ', sub: 'idp-subject-not-an-email',
+      iss: `https://${TEST_AUTH_DOMAIN}`, iat: now - 60, exp: now + 3600,
+    }, testKeyPair.privateKey, testKeyPair.kid);
+    const groupObservations: Array<{ cookie: string | null; reads: string[]; record: string | undefined }> = [];
+    const outbound: string[] = [];
+    let releaseGroup!: () => void;
+    const groupGate = new Promise<void>(resolve => { releaseGroup = resolve; });
+    const certFetch = globalThis.fetch;
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init);
+      outbound.push(request.url);
+      if (request.url === `https://${TEST_AUTH_DOMAIN}/cdn-cgi/access/certs`) return certFetch(input, init);
+      if (request.url !== `https://${TEST_AUTH_DOMAIN}/cdn-cgi/access/get-identity`) {
+        throw new Error('Unexpected external I/O during authentication');
+      }
+      groupObservations.push({
+        cookie: request.headers.get('Cookie'), reads: [...userReads],
+        record: kv._store.get('user:mixed.user@example.com'),
+      });
+      if (groupObservations.length === logins) releaseGroup();
+      await groupGate;
+      return Response.json({ groups: [{ name: 'engineers' }] });
+    };
+
+    const results = await Promise.all(Array.from({ length: logins }, () => authenticateRequest(
+      new Request('https://app.example.com/api/user', {
+        headers: { 'cf-access-jwt-assertion': token, 'cf-access-authenticated-user-email': 'spoof@example.com' },
+      }), env,
+    )));
+    for (const result of results) {
+      expect(result).toMatchObject({
+        user: { email: 'mixed.user@example.com', authenticated: true, role: 'user',
+          accessTier: 'advanced', subscriptionTier: 'unlimited', subscribedMode: 'advanced' },
+        bucketName: 'codeflare-mixed-user-example-com',
+      });
+    }
+    expect(groupObservations).toHaveLength(logins);
+    for (const observation of groupObservations) {
+      expect(observation.cookie).toBe(`CF_Authorization=${token}`);
+      expect(observation.reads.length).toBeGreaterThan(0);
+      expect(new Set(observation.reads)).toEqual(new Set(['user:mixed.user@example.com']));
+      expect(observation.record).toBeUndefined();
+    }
+    const record = await kv.get('user:mixed.user@example.com', 'json');
+    expect(record).toEqual({
+      addedBy: 'enterprise-jit', addedAt: expect.any(String), role: 'user',
+      accessTier: 'advanced', subscriptionTier: 'unlimited', subscribedMode: 'advanced',
+    });
+    expect(Object.fromEntries(kv._store)).toEqual({ ...initialState, 'user:mixed.user@example.com': JSON.stringify(record) });
+    expect([...owners]).toEqual([['bucket-owner:codeflare-mixed-user-example-com', 'mixed.user@example.com']]);
+    expect(outbound.every(url => [
+      `https://${TEST_AUTH_DOMAIN}/cdn-cgi/access/certs`,
+      `https://${TEST_AUTH_DOMAIN}/cdn-cgi/access/get-identity`,
+    ].includes(url))).toBe(true);
+  });
+
+  it('REQ-AUTH-003 AC2: protected HTTP requests revalidate a repeated Access credential and refuse invalid or expired credentials', async () => {
+    resetAuthConfigCache();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1_800_000_000_000);
+    try {
+      const kv = createMockKV();
+      kv._store.set(SETUP_KEYS.AUTH_DOMAIN, TEST_AUTH_DOMAIN);
+      kv._store.set(SETUP_KEYS.ACCESS_AUD, TEST_AUD);
+      kv._set(`user:${TEST_EMAIL}`, { addedBy: 'setup', addedAt: '2024-01-01', role: 'user' });
+      const initialState = Object.fromEntries(kv._store);
+      const bucketName = 'codeflare-user-example-com';
+      const env = {
+        KV: kv,
+        CONTAINER: {
+          idFromName: (name: string) => name,
+          get: (id: string) => ({ claimBucketOwner: async (email: string) =>
+            id === `bucket-owner:${bucketName}` && email === TEST_EMAIL ? 'owned' : 'conflict' }),
+        },
+      } as unknown as Env;
+      const now = Math.floor(Date.now() / 1000);
+      const token = await createTestJWT({
+        aud: [TEST_AUD], email: TEST_EMAIL, iss: `https://${TEST_AUTH_DOMAIN}`,
+        iat: now - 60, exp: now + 60,
+      }, testKeyPair.privateKey, testKeyPair.kid);
+      const [header, payload, signature] = token.split('.');
+      const invalidToken = `${header}.${payload}.${signature[0] === 'A' ? 'B' : 'A'}${signature.slice(1)}`;
+      const delivered: Array<{ readId: string; email: string; bucketName: string; content: string }> = [];
+      // Same Hono middleware/response seam as middleware/auth.test.ts, without its auth mock.
+      const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
+      app.use('*', authMiddleware);
+      app.get('/protected/:readId', c => {
+        const resource = {
+          readId: c.req.param('readId'), email: c.get('user').email,
+          bucketName: c.get('bucketName'), content: 'protected-resource-canary',
+        };
+        delivered.push(resource);
+        return c.json(resource);
+      });
+      app.onError((error, c) => error instanceof AppError
+        ? c.json(error.toJSON(), error.statusCode as 400 | 401 | 403 | 404)
+        : c.json({ error: 'Unexpected error' }, 500));
+      const request = (readId: string, credential: string) => app.request(`https://example.test/protected/${readId}`, {
+        headers: {
+          Cookie: `CF_Authorization=${credential}`,
+          'cf-access-authenticated-user-email': TEST_EMAIL,
+        },
+      }, env);
+      const expectedDelivered = ['first', 'repeat'].map(readId => ({
+        readId, email: TEST_EMAIL, bucketName, content: 'protected-resource-canary',
+      }));
+      for (const [index, expected] of expectedDelivered.entries()) {
+        clock.mockReturnValue(1_800_000_000_000 + index * 10_000);
+        const response = await request(expected.readId, token);
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual(expected);
+      }
+      expect(delivered).toEqual(expectedDelivered);
+
+      for (const [readId, credential, time] of [
+        ['invalid', invalidToken, 1_800_000_020_000],
+        ['expired', token, 1_800_000_061_000],
+      ] as const) {
+        clock.mockReturnValue(time);
+        const response = await request(readId, credential);
+        expect(response.status).toBe(401);
+        expect(await response.json()).toEqual({ error: 'Authentication required', code: 'AUTH_ERROR' });
+        expect(delivered).toEqual(expectedDelivered);
+      }
+      expect(Object.fromEntries(kv._store)).toEqual(initialState);
+    } finally {
+      clock.mockRestore();
+      resetAuthConfigCache();
+    }
   });
 
   describe('REQ-OPERATOR-001: verified human Access context', () => {

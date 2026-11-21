@@ -821,6 +821,46 @@ describe('Preferences Routes', () => {
 
   // REQ-SESSION-016 AC1 (PATCH /api/preferences accepts userTimezone, validates IANA, max 64 chars; invalid returns ValidationError)
   describe('userTimezone (REQ-SESSION-016 AC1)', () => {
+    it('REQ-SESSION-016 AC1: rejects over-64-character timezone without changing saved preferences', async () => {
+      const saved = JSON.stringify({ userTimezone: 'Europe/Zurich', sleepAfter: '1h' });
+      await mockKV.put('user-prefs:codeflare-test-user', saved);
+      const response = await createTestApp().request('/preferences', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userTimezone: `Europe/${'a'.repeat(58)}` }),
+      });
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      // Length is the intended boundary, independent from IANA-name validity.
+      expect(JSON.stringify(body)).toMatch(/64/);
+      expect(await mockKV.get('user-prefs:codeflare-test-user')).toBe(saved);
+    });
+
+    it('REQ-SESSION-016 AC4: saving a timezone for a running session does not contact its container', async () => {
+      mockKV._set('session:codeflare-test-user:running01', { id: 'running01', userId: 'codeflare-test-user', status: 'running' });
+      mockKV._set('user-prefs:codeflare-test-user', { userTimezone: 'UTC' });
+      const accesses: string[] = [];
+      const { getContainer } = await import('@cloudflare/containers');
+      const original = vi.mocked(getContainer).getMockImplementation()!;
+      vi.mocked(getContainer).mockImplementation(() => {
+        accesses.push('getContainer');
+        throw new Error('Timezone preference must not contact a live container');
+      });
+      const namespace = new Proxy({}, { get(_target, property) {
+        accesses.push(`CONTAINER.${String(property)}`);
+        throw new Error('Timezone preference must not contact a live container');
+      } }) as Env['CONTAINER'];
+      try {
+        const response = await createTestApp({ CONTAINER: namespace }).request('/preferences', {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userTimezone: 'Europe/Zurich' }),
+        });
+        expect(response.status).toBe(200);
+        expect(await mockKV.get('user-prefs:codeflare-test-user', 'json')).toMatchObject({ userTimezone: 'Europe/Zurich' });
+        expect(await mockKV.get('session:codeflare-test-user:running01', 'json')).toMatchObject({ status: 'running' });
+        expect(accesses).toEqual([]);
+      } finally { vi.mocked(getContainer).mockImplementation(original); }
+    });
+
     it('accepts a valid IANA timezone and persists it', async () => {
       const app = createTestApp();
       const res = await app.request('/preferences', {

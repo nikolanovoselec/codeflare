@@ -462,6 +462,52 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
     await expect(new D1SessionRepository(ambiguousDatabase(true)).observeUnreachable(owner, id, 1, 2, 'incident-a', at)).rejects.toThrow('D1 unavailable');
   });
 
+  it.each(['readable', 'unavailable', 'stalled'] as const)(
+    'REQ-SESSION-018 AC6: ambiguous write with %s reconciliation performs one bounded read', async outcome => {
+      await running();
+      const reads: Array<{ sql: string; args: unknown[] }> = [];
+      let readStartedAt = 0;
+      const ambiguous = ambiguousDatabase(outcome === 'unavailable');
+      const observed = { prepare(sql: string) {
+        const wrap = (statement: D1PreparedStatement, args: unknown[] = []): D1PreparedStatement => new Proxy(statement, {
+          get(target, property) {
+            if (property === 'bind') return (...values: unknown[]) => wrap(target.bind(...values), values);
+            if (property === 'first') return () => {
+              readStartedAt = Date.now();
+              reads.push({ sql, args });
+              return outcome === 'stalled' ? new Promise(() => {}) : target.first();
+            };
+            const value = Reflect.get(target, property);
+            return typeof value === 'function' ? value.bind(target) : value;
+          },
+        });
+        return wrap(ambiguous.prepare(sql));
+      } } as D1Database;
+      vi.useFakeTimers();
+      try {
+        let settled = false;
+        const pending = new D1SessionRepository(observed).observeUnreachable(owner, id, 1, 1, 'incident-a', at)
+          .then(value => { settled = true; return { value, error: undefined }; },
+            error => { settled = true; return { value: undefined, error: error as Error }; });
+        // Let the real D1 write finish before advancing only the reconciliation clock.
+        await vi.waitFor(() => expect(reads.length).toBe(1));
+        if (outcome === 'stalled') {
+          await vi.advanceTimersByTimeAsync(10_000 - (Date.now() - readStartedAt) - 1);
+          expect(settled).toBe(false);
+          await vi.advanceTimersByTimeAsync(1);
+        }
+        const result = await pending;
+        if (outcome === 'readable') expect(result.value).toMatchObject({ unreachableIncidentId: 'incident-a', unreachableDeadlineMs: at + 120_000 });
+        else {
+          expect(result.value).toBeUndefined();
+          expect(result.error?.message).toBe(outcome === 'stalled' ? 'D1 lifecycle reconciliation deadline exceeded' : 'D1 unavailable');
+        }
+        expect(reads).toEqual([{ sql: expect.stringMatching(/^SELECT .* FROM runtime_sessions WHERE owner_key=\\?1 AND session_id=\\?2$/), args: [owner, id] }]);
+      } finally { vi.useRealTimers(); }
+      expect(await repository().getSession(owner, id)).toMatchObject({ lifecycleState: 'unreachable', unreachableIncidentId: 'incident-a' });
+    },
+  );
+
   async function runtimeFixture() {
     await running();
     let now = at;

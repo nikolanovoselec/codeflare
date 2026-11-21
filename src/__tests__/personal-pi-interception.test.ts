@@ -95,6 +95,23 @@ it.each(['permission-read', 'owner', 'session', 'missing', 'stopping', 'stopped'
     expect(f.accessRequests).toEqual([]);
   },
 );
+it.each(['session-read', 'parent-rpc', 'missing-generation', 'malformed-groups', 'null-parent'] as const)(
+  'REQ-ENTERPRISE-090 AC2: failed or malformed parent context %s denies native provider I/O', async reason => {
+    const f = fixture();
+    if (reason === 'session-read') f.env.USAGE_DB = { prepare: () => { throw Error('Session catalog unavailable'); } } as unknown as D1Database;
+    else f.env.CONTAINER = { getByName: () => ({ getPersonalPiSession: async () => {
+      if (reason === 'parent-rpc') throw Error('Parent unavailable');
+      if (reason === 'null-parent') return null;
+      return reason === 'missing-generation' ? { groups: ['Engineering'] } : { generation: 1, groups: null };
+    } }) } as unknown as Env['CONTAINER'];
+    const response = await f.send();
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({ code: 'PERSONAL_PI_DENIED' });
+    expect(f.requests).toEqual([]);
+    expect(f.egressRequests).toEqual([]);
+  },
+);
+
 it('REQ-ENTERPRISE-088 AC6: strict personal transport requires its binding and does not use platform exemption', async () => {
   const f = fixture(true);
   expect(await (await f.send()).text()).toBe('inspected-response');
@@ -299,6 +316,69 @@ it('REQ-ENTERPRISE-088 AC5: an unbound native request cannot borrow the legacy g
   expect(f.requests).toEqual([]);
 });
 
+
+
+it('REQ-ENTERPRISE-091 AC1: native Operator wire uses derived owner auth only while its parent generation and owner are current', async () => {
+  const f = fixture();
+  const deadline = Date.now() + 60_000;
+  const selection = { source: 'pi-native' as const, provider: 'openai-codex', model: 'gpt-6.1-sol',
+    api: 'openai-codex-responses', reasoningLevel: 'low', profileDigest: 'c'.repeat(64) };
+  const binding = { ownerKey: await operatorOwnerKey(f.human), activityId: 'operator-activity', sessionId: owner.sessionId,
+    generation: 1, selectionDigest: Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',
+      new TextEncoder().encode(JSON.stringify(selection))))).map(byte => byte.toString(16).padStart(2, '0')).join(''),
+    profileDigest: selection.profileDigest, deadline };
+  const inference = { allowedSources: ['pi-native'], routeIds: [], defaultRouteId: null,
+    reasoningLevels: ['low'], defaultReasoningLevel: 'low', inheritUserDefaults: false };
+  const managementPolicy = { capabilities: ['session', 'pi', 'storage'], inference };
+  const pinned = { controlsRevision: 1, operator: { operatorId: 'operator', profile: 'conductor', revision: 1, policy: managementPolicy },
+    installation: { id: 'installation', revision: 1, policy: managementPolicy }, release: { bundleDigest: 'a'.repeat(64) } };
+  const invocation = { schemaVersion: 1, interfaceVersion: 1, consumerId: 'boundary-reviews', activityId: binding.activityId,
+    operatorId: 'operator', runId: binding.activityId, source: { kind: 'session', reference: 'owner/repo' },
+    revision: { reference: 'a'.repeat(40), digest: 'b'.repeat(64) }, inputDigest: 'c'.repeat(64), input: {}, attachments: [],
+    resources: { inference: selection, session: { profileId: 'review-profile' }, storage: { scopeId: 'review-profile' } } };
+  const plan = { activityId: binding.activityId, deadline, receipt: { selection: pinned }, invocationJson: JSON.stringify(invocation),
+    executionContext: { policyDigest: 'e'.repeat(64) }, authFailure: undefined as unknown };
+  vi.spyOn(execution, 'openOperatorExecutionAccess').mockResolvedValue({ human: f.human, accessJwt: 'synthetic-sealed-assertion' });
+  vi.spyOn(access, 'resolveOperatorGroupIdentity').mockResolvedValue(f.human);
+  vi.spyOn(access, 'resolveBucketName').mockResolvedValue(owner.bucket);
+  vi.spyOn(access, 'canInvokeOperator').mockReturnValue(true);
+  vi.spyOn(access, 'resolveSessionAccessGroup').mockResolvedValue(['Engineering']);
+  vi.spyOn(access, 'loadEnterpriseRouteConfig').mockResolvedValue({ routeCatalog: [], defaultRoute: '', defaultReasoning: '',
+    allowPersonalPiProviders: true } as never);
+  let currentGeneration = 1;
+  f.env.OPERATOR_ACTIVITY = { getByName: () => ({ operatorGenerationCurrent: async (generation: number) => generation === currentGeneration, getRuntimePlan: async () => structuredClone(plan) }) } as never;
+  f.env.OPERATOR_REGISTRY = { getByName: () => ({ resolveManagementExecution: async () => ({ ok: true, value: pinned }) }) } as never;
+  const host = { ...f.host, _jwtAuthority: { human: f.human, accessJwt: 'synthetic-sealed-assertion' },
+    _operatorContainerProfile: { schemaVersion: 1, activityId: binding.activityId, operatorId: 'operator', sessionId: owner.sessionId,
+      ownerBucket: owner.bucket, policyDigest: plan.executionContext.policyDigest, deadline, outputPrefix: 'Operators/',
+      human: f.human, policy: { schemaVersion: 1, networkHosts: [], github: { repositories: [], methods: [] },
+        storage: { readPrefixes: [], writePrefixes: [] }, inference }, jwtPolicy: { mode: 'off', destinations: [] },
+      piProfile: { source: 'pi-native', provider: selection.provider, model: selection.model, api: selection.api,
+        thinkingLevel: 'low', systemPrompt: 'Bound native work', tools: ['read', 'write'], authBinding: binding } } } as unknown as InterceptionHost;
+  const ref = { bucket: owner.bucket, sessionId: owner.sessionId, email: owner.user };
+  f.env.CONTAINER = { getByName: () => ({ getPersonalPiSession: (reference: typeof ref) => getPersonalPiSession(host, reference) }) } as unknown as Env['CONTAINER'];
+  const nativeProps = { user: owner.user, personalPi: { ...owner, generation: 1 },
+    operatorInference: { activityId: binding.activityId },
+    operatorNative: { provider: selection.provider, model: selection.model, api: selection.api, reasoningLevel: 'low', binding } };
+  const interceptor = new LlmInterceptor({ props: nativeProps } as unknown as ExecutionContext, f.env);
+  const send = () => interceptor.fetch(new Request('https://chatgpt.com/backend-api/codex/responses', {
+    method: 'POST', headers: { authorization: 'Bearer derived-owner-auth-canary', 'content-type': 'application/json' },
+    body: JSON.stringify({ model: selection.model, reasoning: { effort: 'low' }, input: 'synthetic native input' }),
+  }));
+  const admitted = await send();
+  expect(admitted.status).toBe(200);
+  expect(await admitted.text()).toBe('personal-response');
+  expect(f.requests.map(request => request.url)).toEqual(['https://chatgpt.com/backend-api/codex/responses']);
+  expect(f.requests[0].headers.get('authorization')).toBe('Bearer derived-owner-auth-canary');
+  expect(await f.requests[0].json()).toEqual({ model: selection.model, reasoning: { effort: 'low' }, input: 'synthetic native input' });
+  currentGeneration = 2;
+  expect((await send()).status).toBe(403);
+  expect(f.requests).toHaveLength(1);
+  currentGeneration = 1;
+  host._userEmail = 'foreign@example.test';
+  expect((await send()).status).toBe(403);
+  expect(f.requests).toHaveLength(1);
+});
 
 it.each(['already-stopped', 'during-authorization', 'dispatcher-source'] as const)(
   'REQ-OPERATOR-058/047: actual Conductor parent grant refuses %s without broadening or retiring original authority', async when => {

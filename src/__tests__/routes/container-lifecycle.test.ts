@@ -391,6 +391,27 @@ describe('Container Lifecycle Routes', () => {
       );
     });
 
+    it.each(['Europe/Zurich', undefined] as const)(
+      'REQ-SESSION-016 AC3: Start consumes saved timezone %s without inventing an absent override', async userTimezone => {
+        const fetch = createLifecycleApp();
+        if (userTimezone !== undefined) mockKV._set('user-prefs:test-bucket', { userTimezone });
+        const requests: Array<{ path: string; body: Record<string, unknown> | null }> = [];
+        container().fetch.mockImplementation(async (request: Request) => {
+          const path = new URL(request.url).pathname;
+          requests.push({ path, body: request.method === 'POST' ? await request.clone().json() : null });
+          return Response.json({ bucketName: null });
+        });
+        const response = await fetch('/container/start?sessionId=abcdef1234567890abcdef12', { method: 'POST' });
+        expect(response.status).toBe(200);
+        const configuration = requests.filter(request => request.path === '/_internal/setBucketName');
+        expect(configuration).toHaveLength(1);
+        if (userTimezone === undefined) expect(configuration[0].body).not.toHaveProperty('userTimezone');
+        else expect(configuration[0].body).toMatchObject({ userTimezone: 'Europe/Zurich' });
+        expect(await new D1SessionRepository(createMockSessionD1(mockKV)).getSession('test-bucket', 'abcdef1234567890abcdef12'))
+          .toMatchObject({ lifecycleState: 'starting', lifecycleGeneration: 1 });
+      },
+    );
+
     it.each([undefined, 'include', 'exclude'] as const)('REQ-SESSION-008: transports current global sync policy %s on start', async policy => {
       const fetch = createLifecycleApp('my-bucket');
       mockKV._set('session:my-bucket:abcdef1234567890abcdef12', {

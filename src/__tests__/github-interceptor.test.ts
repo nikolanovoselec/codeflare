@@ -20,6 +20,11 @@ import type { Env } from '../types';
 import { createMockKV } from './helpers/mock-kv';
 import { GitHubInterceptor, interceptedGithubHosts } from '../github-interceptor';
 import { storeGithubConnection } from '../lib/github-token';
+import { LlmInterceptor } from '../llm-interceptor';
+import { wireContainerInterception, type InterceptionHost } from '../container/container-interception';
+import { buildEnvVars, type ContainerEnvState } from '../container/container-env';
+import type { OperatorContainerProfile } from '../container/operator-context';
+import { ENTERPRISE_GH_TOKEN_PLACEHOLDER } from '../lib/constants';
 import type { OperatorPolicy } from '../operators/policy';
 import type { JwtStampingAuthority, JwtStampingPolicy } from '../operators/jwt-stamping';
 
@@ -383,4 +388,74 @@ describe('REQ-GITHUB-003: host configuration', () => {
     expect(res.status).toBe(400);
     expect(lastFetch).toBeNull();
   });
+});
+
+describe('REQ-GITHUB-003 AC3: unavailable credentials deny every GitHub protocol', () => {
+  it.each(['missing', 'expired'] as const)('%s token denies git and MCP without upstream I/O', async state => {
+    if (state === 'expired') await storeGithubConnection(makeEnv(), BUCKET, {
+      accessToken: 'expired-private-canary', source: 'app', expiresAt: Date.now() - 1000,
+    });
+    for (const url of ['https://github.com/octo/repo.git/info/refs?service=git-upload-pack', 'https://api.githubcopilot.com/mcp']) {
+      const response = await makeInterceptor().fetch(new Request(url, { headers: { Authorization: 'Bearer supplied-bypass-canary' } }));
+      expect(response.status).toBe(401);
+      expect(await response.json()).toMatchObject({ code: 'GITHUB_NOT_CONNECTED' });
+      expect(lastFetch).toBeNull();
+    }
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+});
+
+it('REQ-GITHUB-003 AC1: registered GitHub destinations dispatch to GitHub while the AI destination reaches the LLM gateway', async () => {
+  const env = makeEnv({ ENTERPRISE_MODE: 'active',
+    AIG_GATEWAY_URL: 'https://gateway.ai.cloudflare.com/v1/0123456789abcdef0123456789abcdef/gw', AIG_TOKEN: 'gateway-private-canary' });
+  await connect('github-private-canary', env);
+  const registered = new Map<string, { fetch(request: Request): Promise<Response> }>();
+  const host = {
+    env, _bucketName: BUCKET, _sessionId: null, _userEmail: SESSION_USER, _userGroups: [],
+    _cloudflareApiToken: null, _r2AccountId: null, _r2AccessKeyId: null, _r2SecretAccessKey: null,
+    logger: { info() {}, warn() {}, error() {} },
+    ctx: { exports: {
+      GitHubInterceptor: ({ props }: { props: unknown }) => new GitHubInterceptor({ props } as ExecutionContext, env),
+      LlmInterceptor: ({ props }: { props: unknown }) => new LlmInterceptor({ props } as ExecutionContext, env),
+      CloudflareBrowserInterceptor: () => ({ fetch: async () => new Response('not part of this test', { status: 418 }) }),
+    }, container: { interceptOutboundHttps: (pattern: string, fetcher: { fetch(request: Request): Promise<Response> }) => { registered.set(pattern, fetcher); } } },
+  } as unknown as InterceptionHost;
+  await wireContainerInterception(host);
+  for (const [url, authorization] of [
+    ['https://github.com/octo/repo.git/info/refs?service=git-upload-pack', `Basic ${btoa('x-access-token:github-private-canary')}`],
+    ['https://api.github.com/user/repos', 'Bearer github-private-canary'],
+    ['https://api.githubcopilot.com/mcp', 'Bearer github-private-canary'],
+    ['https://api.openai.com/v1/models', 'Bearer gateway-private-canary'],
+  ]) {
+    lastFetch = null;
+    const response = await registered.get(new URL(url).hostname)!.fetch(new Request(url, {
+      headers: { Authorization: 'Bearer codeflare-enterprise' },
+    }));
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('upstream-ok');
+    expect(lastFetch?.headers.get('authorization')).toBe(authorization);
+    expect(lastFetch?.url).toBe(url.includes('api.openai.com')
+      ? 'https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/ai/v1/models' : url);
+  }
+});
+
+it.each([false, true])('REQ-GITHUB-317 AC3: restricted Operator keeps GitHub credentials mediated in enterprise=%s', enterprise => {
+  const profile: OperatorContainerProfile = {
+    schemaVersion: 1, activityId: 'activity', operatorId: 'operator', sessionId: 'session', ownerBucket: BUCKET,
+    policyDigest: 'a'.repeat(64), deadline: Date.now() + 60_000, outputPrefix: 'operator/output/',
+    human: { subject: 'human', email: SESSION_USER, issuer: 'https://access.example.test', audiences: ['audience'] },
+    policy: operatorPolicy(), jwtPolicy: { mode: 'off', destinations: [] },
+    piProfile: { provider: 'codeflare', model: 'codeflare-enterprise', thinkingLevel: 'off', systemPrompt: 'test', tools: [] },
+  };
+  const state = { _bucketName: BUCKET, _sessionId: 'session', _userEmail: SESSION_USER,
+    _r2AccountId: 'account', _r2Endpoint: 'https://r2.test', _r2AccessKeyId: 'r2-key', _r2SecretAccessKey: 'r2-secret',
+    _sessionMode: 'default', _sessionWorkspace: 'terminal', _terminalMode: 'classic',
+    _routeCatalog: [], _routeContextWindows: {}, _routeReasoningLevels: {}, _githubToken: 'github-private-canary',
+    _operatorContainerProfile: profile } as unknown as ContainerEnvState;
+  const env = makeEnv(enterprise ? { ENTERPRISE_MODE: 'active' } : {});
+  const restricted = buildEnvVars(state, env);
+  expect(restricted.GH_TOKEN).toBe(ENTERPRISE_GH_TOKEN_PLACEHOLDER);
+  expect(JSON.stringify(restricted)).not.toContain('github-private-canary');
+  const human = buildEnvVars({ ...state, _operatorContainerProfile: undefined }, env);
+  expect(human.GH_TOKEN).toBe(enterprise ? ENTERPRISE_GH_TOKEN_PLACEHOLDER : 'github-private-canary');
 });
