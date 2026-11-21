@@ -1,4 +1,4 @@
-import { Component, For, Show, createEffect, createMemo, Setter } from 'solid-js';
+import { Component, For, Show, createEffect, createMemo, Setter, type JSX } from 'solid-js';
 import Terminal from './Terminal';
 import TerminalTabs from './TerminalTabs';
 import TilingButton from './TilingButton';
@@ -14,6 +14,7 @@ import { resolveTerminalMode, type TileLayout, type AgentType, type TabConfig, t
 import { generateSessionName } from '../lib/session-utils';
 
 interface TerminalAreaProps {
+  repositoryRestoreNotices?: JSX.Element;
   showTerminal: boolean;
   showTilingOverlay: boolean;
   onTilingButtonClick: () => void;
@@ -143,6 +144,8 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
       <Show when={props.showTerminal && activeTerminalSession() && !isMultiViewWorkspace() && !isHerdrSession()}>
         <TerminalTabs sessionId={activeTerminalSession()!.id} />
       </Show>
+
+      <div class="repository-restore-anchor">{props.repositoryRestoreNotices}</div>
 
       {/* Terminal container: render only visible workspace panes.
           Hidden (display:none) when on dashboard to prevent bleed-through and

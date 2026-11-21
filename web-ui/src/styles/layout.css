@@ -129,6 +129,12 @@ html, body {
 
 
 /* Out-of-flow status: never move Dashboard metrics or cover the mobile keyboard. */
+.repository-restore-anchor {
+  position: relative;
+  z-index: 30;
+  flex: none;
+}
+
 .repository-restore-notices {
   position: fixed;
   z-index: 30;
@@ -165,19 +171,21 @@ html, body {
   min-block-size: 44px;
   display: grid;
   place-items: center;
-  background: none;
+  background: var(--color-accent);
   border: none;
-  color: inherit;
+  border-radius: var(--radius-sm);
+  color: var(--color-accent-contrast);
   cursor: pointer;
   pointer-events: auto;
 }
 
 @media (pointer: coarse), (max-width: 600px) {
   .repository-restore-notices {
+    position: absolute;
     inset-inline-start: auto;
     inset-inline-end: max(1rem, env(safe-area-inset-right));
     inset-block-end: auto;
-    inset-block-start: calc(var(--header-height) + env(safe-area-inset-top) + 0.5rem);
+    inset-block-start: 0.5rem;
   }
 }
 

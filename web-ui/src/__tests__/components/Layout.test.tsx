@@ -39,7 +39,7 @@ vi.mock('../../components/Terminal', async () => {
     </div>
   </Show> };
 });
-vi.mock('../../components/TerminalTabs', () => ({ default: () => <div /> }));
+vi.mock('../../components/TerminalTabs', () => ({ default: () => <div role="tablist" aria-label="Terminals" /> }));
 vi.mock('../../components/FloatingTerminalButtons', () => ({ default: () => <div /> }));
 
 // Existing isolated tests keep their lightweight child; navigation regressions
@@ -61,6 +61,7 @@ vi.mock('../../components/TerminalArea', async () => {
     return (
       <main data-testid="terminal-area">
         Terminal Area
+        {props.repositoryRestoreNotices}
       </main>
     );
   } };
@@ -312,12 +313,27 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     render(() => <Layout />);
     expect(screen.getByText('Restoring repositories…')).toBeInTheDocument();
     expect(within(screen.getByRole('region', { name: 'Repository restore notifications' })).getByText('Payments workspace')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Dismiss repository restore notification' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Dismiss repository restore notification' })).toBeInTheDocument();
     mockRepositoryNotices = { sess1: 'issues' };
     bumpSessionStoreVersion();
     expect(screen.getByText('Some repositories weren’t restored')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss repository restore notification' }));
     expect(screen.queryByText('Some repositories weren’t restored')).toBeNull();
+  });
+
+  it('REQ-GITHUB-320: places restore notice after the open session tabs and dismisses it while restoring', async () => {
+    navigationRendering.realTerminalArea = true;
+    const sessionId = 'abcdef0123456789';
+    mockSessions = [createMockSession({ id: sessionId })];
+    mockRepositoryNotices = { [sessionId]: 'restoring' };
+    window.history.replaceState(null, '', `/app/session/${sessionId}`);
+    render(() => <Layout />);
+    const tabs = await screen.findByRole('tablist', { name: 'Terminals' });
+    const notice = screen.getByRole('region', { name: 'Repository restore notifications' });
+    expect(tabs.compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(within(notice).getByRole('button', { name: 'Dismiss repository restore notification' }));
+    expect(screen.queryByText('Restoring repositories…')).toBeNull();
+    expect(tabs).toBeInTheDocument();
   });
 
   afterEach(() => {
