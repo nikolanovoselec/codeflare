@@ -148,6 +148,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 - Flue native cases use three isolated processes with complete non-overlapping ownership, fresh workerd/case and original assertions/deadlines. <!-- @test: src/__tests__/ci/flue-case-shard.test.ts (REQ-OPS-003: parallel Flue case ownership) --> <!-- @impl: src/__tests__/operators/fixtures/flue-case-shard.ts::createFlueCaseShard -->
 - PR Dependency Review covers the reviewed tree/main squash; registry audits run only on explicit full dispatch.
 - `summary` publishes required `test`: failed or cancelled lanes fail. Diff-filtered runs permit skipped unaffected lanes; full runs reject unexpected skips, with the PR-only Dependency Review lane exempt.
+- The Host shard that selects the storage persistence matrix requires a completed JUnit suite with 60 distinct passing cases from that file; a nonzero shard total alone is insufficient. <!-- @impl: scripts/ci/check-host-persistence-report.py::check_report --> <!-- @test: host/__tests__/host-test-inventory.test.js (requires a completed Host persistence matrix with all 60 passing cases) -->
 - Workers-pool concurrency stays; [REQ-OPS-023](#req-ops-023-suite-results-are-gated-on-machine-readable-reports) report/reconciliation gates govern teardown-bug trustworthiness, not serialization.
 - [REQ-OPS-022](#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence) separately gates coverage evidence; backend/frontend coverage runs only for affected paths or full runs.
 
