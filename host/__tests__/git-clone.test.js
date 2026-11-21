@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { spawnSync } from 'node:child_process';
 import http from 'node:http';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
