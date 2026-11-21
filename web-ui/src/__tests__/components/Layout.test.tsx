@@ -135,6 +135,7 @@ const vaultPrewarmProof = {
 // Session store mock with controllable state.
 // Module-level variables allow tests to set up specific states before rendering.
 let mockSessions: any[] = [];
+let mockRepositoryNotices: Record<string, 'restoring' | 'complete' | 'issues'> = {};
 let mockActiveSessionId: string | null = null;
 let mockPreferences: Record<string, any> = {};
 let mockVisiblePanes: Array<{ sessionId: string; terminalId: string }> = [];
@@ -149,6 +150,11 @@ let bumpSessionStoreVersion = () => {};
 vi.mock('../../stores/session', () => ({
   sessionStore: {
     get sessions() { readSessionStoreVersion(); return mockSessions; },
+    get repositoryRestoreNotices() { readSessionStoreVersion(); return mockRepositoryNotices; },
+    dismissRepositoryRestore: (id: string) => {
+      delete mockRepositoryNotices[id];
+      bumpSessionStoreVersion();
+    },
     get activeSessionId() { readSessionStoreVersion(); return mockActiveSessionId; },
     get saasMode() { readSessionStoreVersion(); return mockSaasMode; },
     get error() { return null; },
@@ -273,6 +279,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     navigationRendering.realTerminalArea = false;
     navigationRendering.realSettingsPanel = false;
     mockSessions = [];
+    mockRepositoryNotices = {};
     mockActiveSessionId = null;
     mockPreferences = {};
     mockVisiblePanes = [];
@@ -297,6 +304,20 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     window.history.replaceState(null, '', '/app/');
     delete (window as any).__terminalAreaProps;
     delete (window as any).__headerProps;
+  });
+
+  it('REQ-GITHUB-320: shows restore progress on the Dashboard and dismisses a partial outcome', () => {
+    mockSessions = [createMockSession({ name: 'Payments workspace' })];
+    mockRepositoryNotices = { sess1: 'restoring' };
+    render(() => <Layout />);
+    expect(screen.getByText('Restoring repositories…')).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Repository restore notifications' })).getByText('Payments workspace')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Dismiss repository restore notification' })).toBeNull();
+    mockRepositoryNotices = { sess1: 'issues' };
+    bumpSessionStoreVersion();
+    expect(screen.getByText('Some repositories weren’t restored')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss repository restore notification' }));
+    expect(screen.queryByText('Some repositories weren’t restored')).toBeNull();
   });
 
   afterEach(() => {

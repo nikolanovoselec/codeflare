@@ -39,6 +39,21 @@ export function isWorkspaceInventoryReady(): boolean {
   return fs.existsSync(flagPath);
 }
 
+export function getRepositoryRestoreStatus(): 'pending' | 'restoring' | 'complete' | 'issues' | undefined {
+  const flag = process.env.CODEFLARE_CLONE_RESTORE_FLAG_FILE;
+  if (!flag || process.env.CODEFLARE_OPERATOR_SESSION === 'true'
+    || !(process.env.GIT_CLONE_TARGETS?.trim() || process.env.GIT_CLONE_REPO)) return undefined;
+  try {
+    const value = fs.readFileSync(flag, 'utf8').trim();
+    if (value === 'complete' || value === 'issues') return value;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return fs.existsSync(`${flag}.running`) ? 'restoring' : 'pending';
+    }
+  }
+  return undefined;
+}
+
 /**
  * REQ-GITHUB-015 AC1: report the GitHub repositories checked out at the top of
  * the workspace, whichever way they arrived (session clone, repository panel, or

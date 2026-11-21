@@ -37,7 +37,7 @@ function createFakeGit(root) {
 function extractStartupCloneBlock() {
   const entrypoint = readFileSync(resolve(repoRoot, 'entrypoint.sh'), 'utf8');
   const start = entrypoint.indexOf('# REQ-GITHUB-014 / REQ-GITHUB-015: repository restore at container start.');
-  const end = entrypoint.indexOf('\n# Configure tab auto-start\n', start);
+  const end = entrypoint.indexOf('\n)\n\ncomplete_managed_curation_startup()', start);
   assert.ok(start >= 0 && end > start, 'entrypoint startup clone block is missing');
   return entrypoint.slice(start, end);
 }
@@ -57,6 +57,7 @@ function runStartupClone({ repo, ref, existing = false, gitStatus = 0 }) {
     PATH: `${fake.bin}:${process.env.PATH ?? ''}`,
     USER_WORKSPACE: workspace,
     GIT_CLONE_REPO: repo,
+    CODEFLARE_CLONE_RESTORE_FLAG_FILE: join(root, 'clone-outcome'),
     GIT_CLONE_REF: ref ?? '',
     GITHUB_HOST: 'github.example.com',
     FAKE_GIT_LOG: fake.log,
@@ -76,6 +77,7 @@ function runStartupClones({ targets, existingDirs = [], gitStatus = 0, gitSleep,
   const root = mkdtempSync(join(tmpdir(), 'entrypoint-clone-targets-'));
   const workspace = join(root, 'workspace');
   const fake = createFakeGit(root);
+  const outcome = join(root, 'clone-outcome');
   writeFileSync(fake.log, '');
   mkdirSync(workspace, { recursive: true });
   for (const dir of existingDirs) mkdirSync(join(workspace, dir), { recursive: true });
@@ -84,6 +86,7 @@ function runStartupClones({ targets, existingDirs = [], gitStatus = 0, gitSleep,
     PATH: `${fake.bin}:${process.env.PATH ?? ''}`,
     USER_WORKSPACE: workspace,
     GIT_CLONE_TARGETS: targets,
+    CODEFLARE_CLONE_RESTORE_FLAG_FILE: outcome,
     GITHUB_HOST: 'github.example.com',
     FAKE_GIT_LOG: fake.log,
     FAKE_EVENT_LOG: fake.events,
@@ -97,7 +100,7 @@ function runStartupClones({ targets, existingDirs = [], gitStatus = 0, gitSleep,
   delete env.GIT_CLONE_REF;
   const script = `${extractStartupCloneBlock()}\nprintf 'autostart\\n' >> "$FAKE_EVENT_LOG"\n`;
   const result = spawnSync('bash', ['-c', script], { encoding: 'utf8', env });
-  return { root, workspace, fake, result };
+  return { root, workspace, fake, result, outcome };
 }
 
 /** Clone target directories in the order git was asked to create them. */
@@ -423,6 +426,15 @@ describe('REQ-GITHUB-014: entrypoint startup clone path (real shell behavior)', 
 });
 
 describe('REQ-GITHUB-015: bounded multi-repository restore (real shell behavior)', () => {
+  it('REQ-GITHUB-320: publishes successful and partial restore outcomes', t => {
+    for (const [gitStatus, expected] of [[0, 'complete'], [7, 'issues']]) {
+      const run = runStartupClones({ targets: 'octo/api octo/web', gitStatus });
+      t.after(() => rmSync(run.root, { recursive: true, force: true }));
+      assert.equal(run.result.status, 0, run.result.stderr);
+      assert.equal(readFileSync(run.outcome, 'utf8').trim(), expected);
+    }
+  });
+
   it('REQ-GITHUB-015 AC4: restores every tracked repository in order and leaves an existing folder alone', () => {
     const { workspace, fake, result } = runStartupClones({
       targets: 'octo/api#develop octo/web octo/kept',

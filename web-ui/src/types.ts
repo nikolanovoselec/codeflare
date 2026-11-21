@@ -345,7 +345,10 @@ interface InitProgressDetail {
   status?: 'ok' | 'error' | 'pending';
 }
 
+export type RepositoryRestoreStatus = 'pending' | 'restoring' | 'complete' | 'issues';
+
 export interface InitProgress {
+  repositoryRestore?: RepositoryRestoreStatus;
   stage: InitStage;
   progress: number;
   message: string;
@@ -369,6 +372,7 @@ export interface StartupStatusResponse {
     syncError?: string | null;
     healthServerOk?: boolean;
     terminalServerOk?: boolean;
+    repositoryRestore?: RepositoryRestoreStatus;
     editorReady?: boolean;
     // System metrics from health server
     cpu?: string;

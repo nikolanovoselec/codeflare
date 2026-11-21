@@ -1299,7 +1299,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 **Acceptance Criteria:**
 
 1. On first bucket creation, mode-appropriate preseed files are written to the user's R2 bucket without overwriting any existing objects and without removing anything. <!-- @impl: src/lib/r2-seed.ts::seedAgentConfigs --> <!-- @manual --> <!-- @test: src/__tests__/lib/r2-seed.test.ts (seeds only missing agent configs when overwrite=false) -->
-2. Startup waits for initial R2-to-local preseed restore into each supported agent’s per-user config directory before launch, bounded by [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start). Successful sync restores those files; timeout never bypasses required managed-content startup checks. <!-- @impl: entrypoint.sh::initial_sync_from_r2 --> <!-- @impl: entrypoint.sh::run_initial_r2_restore --> <!-- @manual -->
+2. Startup waits for initial R2-to-local preseed restore into each supported agent’s per-user config directory before launch, bounded by [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start). Successful sync restores those files; timeout never bypasses required managed-content startup checks. <!-- @impl: entrypoint.sh::initial_sync_from_r2 --> <!-- @impl: entrypoint.sh::run_initial_r2_restore --> <!-- @impl: entrypoint.sh::run_managed_curation_startup --> <!-- @impl: host/src/workspace-readiness.ts::workspaceStartupDecision --> <!-- @test: host/__tests__/workspace-readiness.test.js (REQ-SESSION-015: the fallback bypasses an init flag but not protected policy verification) --> <!-- @manual -->
 
 **Constraints:**
 

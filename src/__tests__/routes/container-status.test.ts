@@ -136,6 +136,27 @@ describe('Container Status Routes', () => {
       expect(body.progress).toBe(10);
     });
 
+    it.each(['failed', 'timeout'] as const)('REQ-SESSION-015: unverified managed policy reports %s without Ready', async startupPolicyError => {
+      const app = createStatusApp();
+      testState.container!.getState.mockResolvedValue({ status: 'running' });
+      testState.container!.fetch.mockResolvedValue(new Response(JSON.stringify({
+        syncStatus: 'success', prewarmReady: false, startupPolicyError,
+      })));
+      const response = await app.request(`/container/startup-status${sessionQuery}`);
+      expect(await response.json()).toMatchObject({ stage: 'error', progress: 0,
+        error: startupPolicyError === 'failed' ? 'Managed file policy could not be verified.' : 'Managed file policy verification timed out.' });
+    });
+
+    it('REQ-GITHUB-320: Ready carries a nonblocking repository restore state', async () => {
+      const app = createStatusApp();
+      testState.container!.getState.mockResolvedValue({ status: 'running' });
+      testState.container!.fetch.mockImplementation(async (request: Request) => new Response(JSON.stringify(
+        request.url.endsWith('/sessions') ? [] : { syncStatus: 'success', prewarmReady: true, repositoryRestore: 'restoring' },
+      )));
+      const response = await app.request(`/container/startup-status${sessionQuery}`);
+      expect(await response.json()).toMatchObject({ stage: 'ready', details: { repositoryRestore: 'restoring' } });
+    });
+
     it('returns stopped stage when getState throws', async () => {
       const app = createStatusApp();
       testState.container!.getState.mockRejectedValue(new Error('Not found'));

@@ -49,6 +49,7 @@ import {
   EDITOR_WARMING_BUDGET_MS,
   resolveSessionWorkspace,
   startWorkspaceServices,
+  workspaceStartupDecision,
   waitForEditorReady,
 } from './workspace-readiness.js';
 import { SessionManager, PREWARM_SESSION_ID } from './session-manager.js';
@@ -258,6 +259,7 @@ let initFlagObserved = false;
 // state (no .claude.json yet, no .bashrc autostart yet — which would land
 // the user in bare bash instead of their configured agent).
 let terminalServiceReady = false;
+let startupPolicyError: 'failed' | 'timeout' | undefined;
 // VS Code workspaces have no host PTY readiness. This flips only after the
 // eager editor answers its private loopback health probe.
 let editorReady = false;
@@ -309,7 +311,7 @@ const server = http.createServer(createRequestHandler({
   log,
   serverStartTime: SERVER_START_TIME,
   prepareFinalSync: deadline => shutdownPiMemoryOwners('/home/user/.cache/pi-hermes-memory/owners', deadline),
-  readiness: () => ({ prewarmReady, initFlagObserved, terminalServiceReady, editorReady, editorReadyTimedOut }),
+  readiness: () => ({ prewarmReady, initFlagObserved, terminalServiceReady, editorReady, editorReadyTimedOut, startupPolicyError }),
   silverbullet: SILVERBULLET,
   openvscode: OPENVSCODE,
   enqueueAgentEvent: (kind) => {
@@ -381,18 +383,29 @@ const PREWARM_INIT_POLL_MS = 250;
 // No-ops in tests and dev mode where CODEFLARE_INIT_FLAG_FILE is unset.
 function waitForInitFlag(): Promise<void> {
   const flagPath = process.env.CODEFLARE_INIT_FLAG_FILE;
-  if (!flagPath) return Promise.resolve();
+  const protectedStartup = process.env.MANAGED_RESOURCE_POLICY === 'immutable'
+    || process.env.MANAGED_RESOURCE_POLICY === 'exclusive';
+  if (!flagPath && !protectedStartup) return Promise.resolve();
   const start = Date.now();
   return new Promise((resolve) => {
     const tick = (): void => {
-      if (fs.existsSync(flagPath)) {
-        initFlagObserved = true;
-        log('info', 'Init-complete flag observed, starting pre-warm', { flagPath, waitedMs: Date.now() - start });
+      let policyStatus: string | undefined;
+      if (protectedStartup && process.env.CODEFLARE_POLICY_STATUS_FILE) {
+        try { policyStatus = fs.readFileSync(process.env.CODEFLARE_POLICY_STATUS_FILE, 'utf8').trim(); }
+        catch { /* A missing or unreadable marker is not proof. */ }
+      }
+      const decision = workspaceStartupDecision(protectedStartup, policyStatus,
+        !!flagPath && fs.existsSync(flagPath), Date.now() - start >= PREWARM_INIT_WAIT_MS);
+      if (decision === 'failed' || decision === 'timeout') {
+        startupPolicyError = decision;
+        log('warn', 'Managed resource policy not verified; workspace startup blocked', { decision });
         resolve();
         return;
       }
-      if (Date.now() - start >= PREWARM_INIT_WAIT_MS) {
-        log('warn', 'Init-complete flag not seen within timeout, starting pre-warm anyway', { flagPath, timeoutMs: PREWARM_INIT_WAIT_MS });
+      if (decision === 'initialized' || decision === 'degraded') {
+        initFlagObserved = decision === 'initialized';
+        if (initFlagObserved) log('info', 'Init-complete flag observed, starting pre-warm', { flagPath, waitedMs: Date.now() - start });
+        else log('warn', 'Init-complete flag not seen within timeout, starting pre-warm anyway', { flagPath, timeoutMs: PREWARM_INIT_WAIT_MS });
         resolve();
         return;
       }
@@ -411,6 +424,7 @@ server.listen(PORT, '0.0.0.0', async () => {
   sessionManager.startCleanup();
 
   await waitForInitFlag();
+  if (startupPolicyError) return;
 
   let prewarmSession: Session | undefined;
   while (!prewarmSession) {

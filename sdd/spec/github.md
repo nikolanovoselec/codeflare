@@ -130,7 +130,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 **Acceptance Criteria:**
 
 1. Clone offers running sessions first and a separated new-session option; all rows share the option layout and left edge, while running rows use their session agent icon and subtitle. <!-- @impl: web-ui/src/components/github/ClonePickerOptionRow.tsx::ClonePickerOptionRow --> <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @impl: web-ui/src/components/github/ClonePickerSessionRow.tsx::ClonePickerSessionRow --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (renders the running group before the new-session group through shared option rows) -->
-2. On session creation, startup attempts the `clone` before normal agent release. The degraded prewarm fallback can start the agent before clone completes. A running-session clone instead targets the authenticated live session. <!-- @test: src/__tests__/routes/github.test.ts (forwards to the container /internal/git-clone and relays a 200) --> <!-- @manual -->
+2. On session creation, startup attempts the `clone` without gating terminal readiness. VS Code retains its existing restore-before-release order. A running-session clone instead targets the authenticated live session. <!-- @test: src/__tests__/routes/github.test.ts (forwards to the container /internal/git-clone and relays a 200) --> <!-- @manual -->
 3. The validated repository basename is preserved verbatim as a direct child of the normalized user workspace; cloning refuses an existing target with a clear message. <!-- @impl: host/src/git-clone.ts::resolveGitClone --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-004: resolveGitClone validation + dir computation) -->
 4. Both live-session and new-session clone actions omit a ref and clone the repository's default branch. <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (selecting a running session clones with {repo, sessionId} and NO ref) --> <!-- @impl: host/src/git-clone.ts::buildCloneArgs -->
 5. The cloned working tree is ephemeral by default and participates in workspace sync when the user has it enabled. <!-- @impl: host/src/git-clone.ts::resolveGitClone --> <!-- @manual -->
@@ -160,13 +160,13 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Acceptance Criteria:**
 
-1. Resume re-applies the tracked repository list with the original repository first. Attempts follow [REQ-GITHUB-016](#req-github-016-tracked-repository-restoration); the degraded prewarm fallback does not wait for them to finish. <!-- @impl: src/container/container-router.ts::dispatchInternalRoute --> <!-- @impl: src/container/container-env.ts::applyPrefsOnRestart --> <!-- @test: src/__tests__/container/container-router.test.ts (REQ-GITHUB-014 AC1: restores the clone directive when a stopped session resumes with a fresh container) -->
-2. Startup is blocked if the session's clone configuration cannot be restored. <!-- @impl: src/routes/container/lifecycle-init.ts::configureContainerDO --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (REQ-GITHUB-014 AC2: blocks resume when clone restoration returns an unexpected status) --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (REQ-GITHUB-014 AC2: blocks resume when clone restoration cannot reach the container) -->
-3. Before normal agent release, startup makes one clone attempt per missing tracked target within the restore budget of [REQ-GITHUB-016](#req-github-016-tracked-repository-restoration). <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-014 AC3: preserves a validated .git basename, branches safely, and keeps argv separated) -->
-4. A failed clone attempt is logged. <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-014 AC4+AC5: logs a clone failure and continues startup successfully) -->
-5. A failed clone attempt does not block startup. <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-014 AC4+AC5: logs a clone failure and continues startup successfully) -->
-6. An existing target remains unchanged. <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-014 AC6+AC7: rejects option-leading refs and refuses an existing target without invoking git) -->
-7. Git is not invoked for an existing target. <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-014 AC6+AC7: rejects option-leading refs and refuses an existing target without invoking git) -->
+1. Resume re-applies the tracked repository list with the original repository first. Attempts follow [REQ-GITHUB-016](#req-github-016-tracked-repository-restoration). Terminal readiness does not wait for them. <!-- @impl: src/lib/clone-targets.ts::buildCloneTargets --> <!-- @impl: src/container/container-router.ts::dispatchInternalRoute --> <!-- @impl: src/container/container-env.ts::applyPrefsOnRestart --> <!-- @test: src/__tests__/container/container-router.test.ts (REQ-GITHUB-014 AC1: restores the clone directive when a stopped session resumes with a fresh container) -->
+2. A failed container configuration request blocks the Start attempt when it carries either the original clone directive or a nonempty tracked target list. This is separate from a later Git clone failure. <!-- @impl: src/routes/container/lifecycle-init.ts::configureContainerDO --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (REQ-GITHUB-014 AC2: blocks resume when clone restoration returns an unexpected status) --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (REQ-GITHUB-014 AC2: blocks resume when clone restoration cannot reach the container) --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (REQ-GITHUB-014 AC2: tracked-only restoration %s controls startup) -->
+3. Startup makes one clone attempt per missing tracked target within the restore budget of [REQ-GITHUB-016](#req-github-016-tracked-repository-restoration). <!-- @impl: entrypoint.sh::restore_startup_repositories --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-014 AC3: preserves a validated .git basename, branches safely, and keeps argv separated) -->
+4. A failed clone attempt is logged. <!-- @impl: entrypoint.sh::restore_startup_repositories --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-014 AC4+AC5: logs a clone failure and continues startup successfully) -->
+5. A failed clone attempt does not block startup. <!-- @impl: entrypoint.sh::restore_startup_repositories --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-014 AC4+AC5: logs a clone failure and continues startup successfully) -->
+6. An existing target remains unchanged. <!-- @impl: entrypoint.sh::restore_startup_repositories --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-014 AC6+AC7: rejects option-leading refs and refuses an existing target without invoking git) -->
+7. Git is not invoked for an existing target. <!-- @impl: entrypoint.sh::restore_startup_repositories --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-014 AC6+AC7: rejects option-leading refs and refuses an existing target without invoking git) -->
 
 **Constraints:** Clone authentication continues to use the per-mode credential path defined by [REQ-GITHUB-004](#req-github-004-clone-a-repository-into-a-session).
 
@@ -241,13 +241,13 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Acceptance Criteria:**
 
-1. Resume attempts each tracked repository whose workspace folder is absent. <!-- @impl: src/lib/clone-targets.ts::buildCloneTargets --> <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: src/__tests__/container/container-router.test.ts (REQ-GITHUB-015 AC4: restores every tracked repository when a stopped session resumes) --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (REQ-GITHUB-015 AC4: forwards every tracked repository with the session repository first) -->
-2. Resume leaves an existing workspace folder untouched. <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-015 AC4: restores every tracked repository in order and leaves an existing folder alone) -->
-3. No restore attempt starts after the overall budget (180 seconds by default, configurable with `GIT_CLONE_TOTAL_BUDGET_SECONDS`) is spent; the budget is checked before attempts, not a hard deadline on an already-running attempt. <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-015 AC5: stops attempting repositories once the overall budget is spent) -->
-4. Each started restore attempt uses a default per-repository timeout of 120 seconds, overridden by `GIT_CLONE_PER_REPO_TIMEOUT_SECONDS`; `0` disables this timeout and larger values are not clamped. <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-015 AC5: abandons a repository that exceeds its own time limit and still tries the next) -->
-5. Restore never waits for interactive credentials. <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-015 AC6+AC7: never prompts for credentials, logs failures, and always reaches autostart) -->
-6. Every abandoned or failed restore attempt is logged. <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-015 AC6+AC7: never prompts for credentials, logs failures, and always reaches autostart) -->
-7. Restore failure does not prevent the session from reaching a usable state. <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-015 AC6+AC7: never prompts for credentials, logs failures, and always reaches autostart) -->
+1. Resume attempts tracked repositories whose workspace folders are absent, while the overall budget in AC3 still permits starting an attempt. <!-- @impl: src/lib/clone-targets.ts::buildCloneTargets --> <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @impl: entrypoint.sh::restore_startup_repositories --> <!-- @test: src/__tests__/container/container-router.test.ts (REQ-GITHUB-015 AC4: restores every tracked repository when a stopped session resumes) --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (REQ-GITHUB-015 AC4: forwards every tracked repository with the session repository first) -->
+2. Resume leaves an existing workspace folder untouched. <!-- @impl: entrypoint.sh::restore_startup_repositories --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-015 AC4: restores every tracked repository in order and leaves an existing folder alone) -->
+3. No restore attempt starts after the overall budget (180 seconds by default, configurable with `GIT_CLONE_TOTAL_BUDGET_SECONDS`) is spent; the budget is checked before attempts, not a hard deadline on an already-running attempt. <!-- @impl: entrypoint.sh::restore_startup_repositories --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-015 AC5: stops attempting repositories once the overall budget is spent) -->
+4. Each started restore attempt uses a default per-repository timeout of 120 seconds, overridden by `GIT_CLONE_PER_REPO_TIMEOUT_SECONDS`; `0` disables this timeout and larger values are not clamped. <!-- @impl: entrypoint.sh::restore_startup_repositories --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-015 AC5: abandons a repository that exceeds its own time limit and still tries the next) -->
+5. Restore never waits for interactive credentials. <!-- @impl: entrypoint.sh::restore_startup_repositories --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-015 AC6+AC7: never prompts for credentials, logs failures, and always reaches autostart) -->
+6. Every abandoned or failed restore attempt is logged. <!-- @impl: entrypoint.sh::restore_startup_repositories --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-015 AC6+AC7: never prompts for credentials, logs failures, and always reaches autostart) -->
+7. Restore failure does not prevent the session from reaching a usable state. <!-- @impl: entrypoint.sh::restore_startup_repositories --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-015 AC6+AC7: never prompts for credentials, logs failures, and always reaches autostart) -->
 
 **Constraints:**
 
@@ -260,6 +260,28 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 **Dependencies:** [REQ-GITHUB-004](#req-github-004-clone-a-repository-into-a-session), [REQ-GITHUB-014](#req-github-014-clone-created-session-resume), [REQ-GITHUB-015](#req-github-015-workspace-repository-tracking), [REQ-SESSION-006](session-lifecycle.md#req-session-006-user-can-stop-restart-and-delete-sessions)
 
 **Verification:** Automated: [git-clone.test.js](../../host/__tests__/git-clone.test.js), [container-router.test.ts](../../src/__tests__/container/container-router.test.ts), [container-lifecycle-helpers.test.ts](../../src/__tests__/routes/container-lifecycle-helpers.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-GITHUB-320: Nonblocking terminal repository restore notice
+
+**Intent:** Users can open a ready terminal while repository restoration continues and see whether that restore finished.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Terminal Open becomes available after normal terminal readiness, even while repository restore runs. <!-- @impl: entrypoint.sh::complete_managed_curation_startup --> <!-- @impl: src/routes/container/status.ts::app --> <!-- @test: src/__tests__/routes/container-status.test.ts (REQ-GITHUB-320: Ready carries a nonblocking repository restore state) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-GITHUB-320: enables Open while restoration runs and shows its later partial outcome) -->
+2. The startup restore reports success separately from failed or skipped repositories. The workspace inventory remains withheld until the restore loop ends. <!-- @impl: entrypoint.sh::restore_startup_repositories --> <!-- @impl: host/src/metrics.ts::isWorkspaceInventoryReady --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-320: publishes successful and partial restore outcomes) -->
+3. A floating notice follows the current restore without shifting the Dashboard metrics or requiring an open view. Success clears automatically; issues stay dismissible. No notice appears when no clone is needed. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/src/stores/session.ts::watchRepositoryRestore --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-GITHUB-320: shows restore progress on the Dashboard and dismisses a partial outcome) --> <!-- @manual -->
+
+**Priority:** P1
+
+**Dependencies:** [REQ-GITHUB-016](#req-github-016-tracked-repository-restoration), [REQ-SESSION-015](session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition)
+
+**Verification:** Automated: [git-clone.test.js](../../host/__tests__/git-clone.test.js), [container-status.test.ts](../../src/__tests__/routes/container-status.test.ts), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx); Manual: [Repository restore notice](../../documentation/lanes/terminal-and-ide.md#repository-restore-notice)
 
 **Status:** Implemented
 

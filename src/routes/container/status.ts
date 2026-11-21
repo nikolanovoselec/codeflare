@@ -180,6 +180,7 @@ app.get('/startup-status', async (c) => {
       healthServerOk?: boolean;
       terminalServerOk?: boolean;
       editorReady?: boolean;
+      repositoryRestore?: HealthData['repositoryRestore'];
       cpu?: string;
       mem?: string;
       hdd?: string;
@@ -268,6 +269,16 @@ app.get('/startup-status', async (c) => {
       response.details.healthServerOk = false;
       return c.json(response);
     }
+
+    if (healthData.startupPolicyError === 'failed' || healthData.startupPolicyError === 'timeout') {
+      response.stage = 'error';
+      response.message = healthData.startupPolicyError === 'failed'
+        ? 'Managed file policy could not be verified.' : 'Managed file policy verification timed out.';
+      response.error = response.message;
+      return c.json(response);
+    }
+    if (healthData.repositoryRestore === 'pending' || healthData.repositoryRestore === 'restoring' || healthData.repositoryRestore === 'complete'
+      || healthData.repositoryRestore === 'issues') response.details.repositoryRestore = healthData.repositoryRestore;
 
     // Step 3: Check R2 sync status
     // syncStatus values: "pending", "syncing", "success", "failed", "skipped"

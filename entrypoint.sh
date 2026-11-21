@@ -2886,14 +2886,14 @@ init_sync_log
 # for sync + prewarm) while moving the slow init work off the port-wait path.
 # ============================================================================
 export CODEFLARE_INIT_FLAG_FILE=$CODEFLARE_RUNTIME_ROOT/services/init-complete
-rm -f "$CODEFLARE_INIT_FLAG_FILE"
+export CODEFLARE_POLICY_STATUS_FILE=$CODEFLARE_RUNTIME_ROOT/services/managed-policy-status
+rm -f "$CODEFLARE_INIT_FLAG_FILE" "$CODEFLARE_POLICY_STATUS_FILE"
 
 # REQ-GITHUB-015 AC1: gates the /health workspace repository inventory so a
 # repository the restore below has not yet recreated is never reported as
-# absent-and-therefore-untracked. Touched once run_post_restore_startup's
-# clone loop finishes (success, failure, or budget exhaustion all count).
+# absent-and-therefore-untracked. Published once the clone loop finishes.
 export CODEFLARE_CLONE_RESTORE_FLAG_FILE=$CODEFLARE_RUNTIME_ROOT/services/clone-restore-complete
-rm -f "$CODEFLARE_CLONE_RESTORE_FLAG_FILE"
+rm -f "$CODEFLARE_CLONE_RESTORE_FLAG_FILE" "$CODEFLARE_CLONE_RESTORE_FLAG_FILE.running"
 
 echo "[entrypoint] Starting terminal server on port 8080..."
 # Subshell-scope the cd so the rest of the entrypoint's cwd is unchanged.
@@ -4971,21 +4971,11 @@ configure_fast_start_tool_settings() {
 }
 configure_fast_start_tool_settings
 
-# REQ-GITHUB-014 / REQ-GITHUB-015: repository restore at container start. Runs
-# AFTER the git credential helper above (so private repos authenticate via
-# $GH_TOKEN, or the enterprise egress GitHubInterceptor injects the real token)
-# and BEFORE configure_tab_autostart launches the agent, so the workspace is
-# populated when the user lands.
-#
-# GIT_CLONE_TARGETS carries every repository tracked for the session as
-# space-separated `owner/name[#ref]` entries, the session's own repository
-# first. GIT_CLONE_REPO/GIT_CLONE_REF remain the single-repository fallback for
-# a Worker that predates the list.
-#
-# Bounded and fail-open (REQ-GITHUB-015 AC5-AC7): each attempt gets its own
-# timeout, the loop stops once the overall budget is spent, credentials are
-# never prompted for interactively, and every failure is logged without
-# aborting start.
+configure_tab_autostart
+}
+
+restore_startup_repositories() (
+# REQ-GITHUB-014 / REQ-GITHUB-015: repository restore at container start.
 clone_targets="${GIT_CLONE_TARGETS:-}"
 if [ -z "$clone_targets" ] && [ -n "${GIT_CLONE_REPO:-}" ]; then
     if [ -n "${GIT_CLONE_REF:-}" ]; then
@@ -4994,6 +4984,8 @@ if [ -z "$clone_targets" ] && [ -n "${GIT_CLONE_REPO:-}" ]; then
         clone_targets="$GIT_CLONE_REPO"
     fi
 fi
+outcome=complete
+attempted=0
 if [ -n "$clone_targets" ]; then
     clone_per_repo_timeout="${GIT_CLONE_PER_REPO_TIMEOUT_SECONDS:-120}"
     # A malformed override must not abort startup under `set -euo pipefail`
@@ -5005,6 +4997,7 @@ if [ -n "$clone_targets" ]; then
     clone_deadline=$(( $(date +%s) + clone_total_budget ))
     for clone_target in $clone_targets; do
         if [ "$(date +%s)" -ge "$clone_deadline" ]; then
+            outcome=issues
             echo "[entrypoint] clone budget exhausted; skipping remaining repositories"
             break
         fi
@@ -5022,6 +5015,7 @@ if [ -n "$clone_targets" ]; then
         if ! printf '%s' "$clone_repo" | grep -qE '^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$' \
            || [ "${clone_repo##*/}" = '.' ] || [ "${clone_repo##*/}" = '..' ] \
            || { [ -n "$clone_ref" ] && ! printf '%s' "$clone_ref" | grep -qE '^[A-Za-z0-9._/][A-Za-z0-9._/-]*$'; }; then
+            outcome=issues
             echo "[entrypoint] Skipping clone: invalid repo/ref"
             continue
         fi
@@ -5031,15 +5025,19 @@ if [ -n "$clone_targets" ]; then
             echo "[entrypoint] Skipping clone: $CLONE_DIR already exists (collision refuse)"
             continue
         fi
+        if [ "$attempted" = 0 ] && [ -n "${CODEFLARE_CLONE_RESTORE_FLAG_FILE:-}" ]; then
+            touch "$CODEFLARE_CLONE_RESTORE_FLAG_FILE.running"
+        fi
+        attempted=1
         echo "[entrypoint] Cloning $clone_repo into $CLONE_DIR"
         if [ -n "$clone_ref" ]; then
             GIT_TERMINAL_PROMPT=0 timeout "$clone_per_repo_timeout" \
                 git clone --branch "$clone_ref" -- "https://${GITHUB_HOST:-github.com}/${clone_remote}.git" "$CLONE_DIR" \
-                || echo "[entrypoint] clone failed for $clone_repo (ref $clone_ref); continuing startup"
+                || { outcome=issues; echo "[entrypoint] clone failed for $clone_repo (ref $clone_ref); continuing startup"; }
         else
             GIT_TERMINAL_PROMPT=0 timeout "$clone_per_repo_timeout" \
                 git clone -- "https://${GITHUB_HOST:-github.com}/${clone_remote}.git" "$CLONE_DIR" \
-                || echo "[entrypoint] clone failed for $clone_repo; continuing startup"
+                || { outcome=issues; echo "[entrypoint] clone failed for $clone_repo; continuing startup"; }
         fi
     done
 fi
@@ -5048,18 +5046,14 @@ fi
 # including when there were no targets at all. No-op if unset (e.g. a Worker
 # that predates this variable, or this block run standalone in tests).
 if [ -n "${CODEFLARE_CLONE_RESTORE_FLAG_FILE:-}" ]; then
-    touch "$CODEFLARE_CLONE_RESTORE_FLAG_FILE"
+    if [ "$attempted" = 0 ] && [ "$outcome" = complete ]; then outcome=not-needed; fi
+    printf '%s\n' "$outcome" > "$CODEFLARE_CLONE_RESTORE_FLAG_FILE.tmp"
+    mv -f "$CODEFLARE_CLONE_RESTORE_FLAG_FILE.tmp" "$CODEFLARE_CLONE_RESTORE_FLAG_FILE"
 fi
 
-# Configure tab auto-start
-configure_tab_autostart
-}
+)
 
 complete_managed_curation_startup() {
-    # The restored policy is non-authoritative container input, but validating it
-    # before baseline keeps protected local edits from poisoning normal bisync.
-    prepare_managed_resource_filter || return 1
-
     # REQ-STOR-017 / AD90: make image-baked Pi extension ownership authoritative BEFORE the
     # bisync baseline. Baked seed restores matching extension bytes; remote curation preserves
     # release-owned bytes while restoring their image-owned runtime companion. Placed before PTY
@@ -5078,7 +5072,13 @@ complete_managed_curation_startup() {
 
     # The terminal server has been polling this flag before spawning tab 1. Run
     # requested updates, prune restored transcripts, then release the agent PTY.
+    if [ "${CODEFLARE_SESSION_WORKSPACE:-terminal}" = "vscode" ]; then
+        restore_startup_repositories
+    fi
     release_agent_pty_after_fast_start_updates
+    if [ "${CODEFLARE_SESSION_WORKSPACE:-terminal}" != "vscode" ]; then
+        restore_startup_repositories
+    fi
 
     # VS Code workspaces warm the editor as soon as initialization completes.
     # Terminal workspaces retain the existing lazy first-request launch below.
@@ -5151,6 +5151,9 @@ run_operator_startup() {
     validate_coding_agent_selection
     update_sync_status "skipped" "null"
     run_post_restore_startup
+    if [ -n "${CODEFLARE_CLONE_RESTORE_FLAG_FILE:-}" ]; then
+        touch "$CODEFLARE_CLONE_RESTORE_FLAG_FILE"
+    fi
 
     local operator_root
     operator_root=$(node --input-type=commonjs <<'NODE'
@@ -5222,6 +5225,17 @@ run_managed_curation_startup() {
         return
     fi
     run_initial_r2_restore
+    if ! prepare_managed_resource_filter; then
+        if [ "${MANAGED_RESOURCE_POLICY:-mutable}" != mutable ] && [ -n "${CODEFLARE_POLICY_STATUS_FILE:-}" ]; then
+            printf 'failed\n' > "$CODEFLARE_POLICY_STATUS_FILE"
+            # Give the existing startup poll time to report the error, then exit.
+            sleep 15
+        fi
+        return 1
+    fi
+    if [ -n "${CODEFLARE_POLICY_STATUS_FILE:-}" ]; then
+        printf 'verified\n' > "$CODEFLARE_POLICY_STATUS_FILE"
+    fi
     run_post_restore_startup
     complete_managed_curation_startup
 }

@@ -300,6 +300,7 @@ export const StartupStatusResponseSchema = z.object({
     syncError: z.string().nullable().optional(),
     healthServerOk: z.boolean().optional(),
     terminalServerOk: z.boolean().optional(),
+    repositoryRestore: z.enum(['pending', 'restoring', 'complete', 'issues']).optional(),
     editorReady: z.boolean().optional(),
     cpu: z.string().optional(),
     mem: z.string().optional(),

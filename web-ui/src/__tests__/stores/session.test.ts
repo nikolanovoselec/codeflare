@@ -1873,6 +1873,38 @@ describe('Session Store', () => {
       } finally { cleanup(); }
     });
 
+    it('REQ-GITHUB-320: enables Open while restoration runs and shows its later partial outcome', async () => {
+      vi.useFakeTimers();
+      const id = 'terminal-repository-restore';
+      try {
+        mockGetSessions.mockResolvedValue([{
+          id, name: 'Terminal', workspace: 'terminal', status: 'stopped', lifecycle: 'stopped', generation: 6, revision: 1,
+          createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+        }]);
+        await sessionStore.loadSessions();
+        vi.mocked(api.startSession).mockImplementation((_id, onProgress, onComplete) => {
+          queueMicrotask(() => {
+            onProgress({ stage: 'ready', progress: 100, message: 'Container ready', repositoryRestore: 'restoring' });
+            onComplete(7);
+          });
+          return () => {};
+        });
+        vi.mocked(api.getStartupStatus).mockResolvedValue({ stage: 'ready', generation: 7, progress: 100,
+          message: 'Container ready', details: { bucketName: 'bucket', container: 'container', path: '/', repositoryRestore: 'issues' } });
+        await sessionStore.startSession(id);
+        expect(sessionStore.getInitProgressForSession(id)?.stage).toBe('ready');
+        expect(sessionStore.repositoryRestoreNotices[id]).toBe('restoring');
+        sessionStore.dismissInitProgressForSession(id);
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(sessionStore.repositoryRestoreNotices[id]).toBe('issues');
+        sessionStore.dismissRepositoryRestore(id);
+        expect(sessionStore.repositoryRestoreNotices[id]).toBeUndefined();
+      } finally {
+        sessionStore.stopAllPolling();
+        vi.useRealTimers();
+      }
+    });
+
     it('REQ-IDE-048 AC2 + REQ-IDE-050 AC1: completes VS Code startup without creating terminal state', async () => {
       sessionStore.initializeTerminalsForSession('session-1');
       expect(sessionStore.getTerminalsForSession('session-1')).not.toBeNull();

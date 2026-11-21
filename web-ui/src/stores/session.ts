@@ -1,6 +1,6 @@
 import { createStore, produce } from 'solid-js/store';
 import { createSignal } from 'solid-js';
-import type { SessionWithStatus, SessionStatus, InitProgress, SessionTerminals, AgentType, TabConfig, UserPreferences } from '../types';
+import type { SessionWithStatus, SessionStatus, InitProgress, RepositoryRestoreStatus, SessionTerminals, AgentType, TabConfig, UserPreferences } from '../types';
 import * as api from '../api/client';
 import { ApiError } from '../api/fetch-helper';
 import { upgradeAgentConfigs } from '../api/storage';
@@ -9,7 +9,7 @@ import { terminalStore } from './terminal';
 import { logger } from '../lib/logger';
 import { applyOrderedProjection, type BackendLifecycle } from '../lib/session-presentation';
 import { cleanupSessionVaultCache, sweepOrphanVaultCaches } from '../lib/vault-cache';
-import { MAX_STOP_POLL_ATTEMPTS, STOP_POLL_INTERVAL_MS, MAX_STOP_POLL_ERRORS, CONTEXT_EXPIRY_MS } from '../lib/constants';
+import { MAX_STOP_POLL_ATTEMPTS, STOP_POLL_INTERVAL_MS, MAX_STOP_POLL_ERRORS, MAX_STARTUP_POLL_ERRORS, SESSION_POLL_TRANSITION_MS, CONTEXT_EXPIRY_MS } from '../lib/constants';
 import {
   setTilingLayout,
   getTilingForSession,
@@ -606,6 +606,7 @@ async function renameSession(id: string, name: string): Promise<void> {
 }
 
 async function deleteSession(id: string): Promise<void> {
+  dismissRepositoryRestore(id);
   try {
     const startupCleanup = startupCleanups.get(id);
     if (startupCleanup) {
@@ -637,7 +638,61 @@ async function deleteSession(id: string): Promise<void> {
   }
 }
 
+const [repositoryRestoreNotices, setRepositoryRestoreNotices] = createStore<Record<string, Exclude<RepositoryRestoreStatus, 'pending'>>>({});
+const repositoryRestoreTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function dismissRepositoryRestore(id: string): void {
+  clearTimeout(repositoryRestoreTimers.get(id));
+  repositoryRestoreTimers.delete(id);
+  setRepositoryRestoreNotices(produce(notices => { delete notices[id]; }));
+}
+
+function watchRepositoryRestore(id: string, generation: number, initial: RepositoryRestoreStatus): void {
+  let failures = 0;
+  const deadline = Date.now() + 10 * 60_000;
+  const ownsObservation = () => {
+    const session = state.sessions.find(item => item.id === id);
+    return !!session && (session.status === 'running' || session.status === 'unreachable')
+      && (session.generation === undefined || session.generation <= generation);
+  };
+  const update = (status: RepositoryRestoreStatus) => {
+    if (status !== 'pending') setRepositoryRestoreNotices(id, status);
+    if (status === 'complete') {
+      repositoryRestoreTimers.set(id, setTimeout(() => dismissRepositoryRestore(id), 5_000));
+    } else if (status === 'pending' || status === 'restoring') {
+      const timer = setTimeout(async () => {
+        const current = () => repositoryRestoreTimers.get(id) === timer;
+        if (!current()) return;
+        if (!ownsObservation() || Date.now() >= deadline) {
+          dismissRepositoryRestore(id);
+          return;
+        }
+        try {
+          const observation = await api.getStartupStatus(id);
+          if (!current()) return;
+          if (!ownsObservation() || observation.generation !== generation || !observation.details.repositoryRestore
+            || observation.stage === 'error') {
+            dismissRepositoryRestore(id);
+            return;
+          }
+          failures = 0;
+          update(observation.details.repositoryRestore);
+        } catch {
+          if (!current()) return;
+          if (++failures >= MAX_STARTUP_POLL_ERRORS) dismissRepositoryRestore(id);
+          else update(status);
+        }
+      }, SESSION_POLL_TRANSITION_MS);
+      repositoryRestoreTimers.set(id, timer);
+    } else {
+      repositoryRestoreTimers.delete(id);
+    }
+  };
+  update(initial);
+}
+
 function startSession(id: string): Promise<void> {
+  dismissRepositoryRestore(id);
   const session = state.sessions.find((candidate) => candidate.id === id);
   const retryEditorTimeout = session?.workspace === 'vscode' && session.editorReadyError === true;
 
@@ -687,6 +742,8 @@ function startSession(id: string): Promise<void> {
         }
         startupCleanups.delete(id);
         updateSessionStatus(id, 'running');
+        const repositoryRestore = readyProgress?.repositoryRestore;
+        if (current.workspace !== 'vscode' && repositoryRestore) watchRepositoryRestore(id, generation, repositoryRestore);
         if (index !== -1 && state.sessions[index].workspace === 'vscode') {
           setState('sessions', index, 'editorReady', true);
           setState('sessions', index, 'editorReadyError', false);
@@ -734,6 +791,7 @@ function startSession(id: string): Promise<void> {
 }
 
 async function stopSession(id: string): Promise<void> {
+  dismissRepositoryRestore(id);
   if (localStopAttempts.has(id)) return;
   // A delayed Stop response can only confirm exit for its original runtime.
   const attemptedSession = state.sessions.find((session) => session.id === id);
@@ -850,6 +908,7 @@ async function stopSession(id: string): Promise<void> {
 }
 
 function killSession(id: string): Promise<void> {
+  dismissRepositoryRestore(id);
   reconcileKillGeneration(id);
   const pending = localKillAttempts.get(id);
   if (pending?.request) return pending.request;
@@ -906,6 +965,7 @@ function getInitProgressForSession(sessionId: string): InitProgress | null {
 }
 
 function stopAllPolling(): void {
+  for (const id of new Set([...repositoryRestoreTimers.keys(), ...Object.keys(repositoryRestoreNotices)])) dismissRepositoryRestore(id);
   for (const [sessionId, cleanup] of startupCleanups) {
     cleanup();
     logger.debug(`[SessionStore] Stopped startup polling for session ${sessionId}`);
@@ -937,6 +997,8 @@ function hasRecentContext(session: SessionWithStatus): boolean {
 }
 
 export const sessionStore = {
+  repositoryRestoreNotices,
+  dismissRepositoryRestore,
   get sessions() { return state.sessions; },
   get activeSessionId() { return state.activeSessionId; },
   get loading() { return state.loading; },

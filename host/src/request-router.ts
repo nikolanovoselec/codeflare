@@ -15,7 +15,7 @@ import { checkContainerAuth } from './auth-check.js';
 import { ownerInference, OperatorInferenceRefusal, type OperatorInferenceOwner,
   type OperatorInferenceOwnerResolver } from './operator-inference.js';
 import { emitRaw, type RawLogContext } from './operator-raw-logging.js';
-import { getSyncStatus, getSystemMetrics, collectWorkspaceRepos, isWorkspaceInventoryReady } from './metrics.js';
+import { getSyncStatus, getSystemMetrics, collectWorkspaceRepos, isWorkspaceInventoryReady, getRepositoryRestoreStatus } from './metrics.js';
 import { evaluateFinalSync } from './final-sync.js';
 import type { PiMemoryShutdown } from './pi-memory-shutdown.js';
 import { AGENT_EVENT_LIMITS, type AgentEventDrainResult, type AgentEventKind } from './agent-events.js';
@@ -78,6 +78,7 @@ export interface ReadinessFlags {
   terminalServiceReady: boolean;
   editorReady: boolean;
   editorReadyTimedOut: boolean;
+  startupPolicyError?: 'failed' | 'timeout';
 }
 
 export interface RequestRouterDeps {
@@ -483,7 +484,7 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
       const workspaceRepos = isWorkspaceInventoryReady()
         ? await collectWorkspaceRepos(resolveWorkspaceRoot(process.env), log)
         : undefined;
-      const { prewarmReady, initFlagObserved, terminalServiceReady, editorReady, editorReadyTimedOut } = deps.readiness();
+      const { prewarmReady, initFlagObserved, terminalServiceReady, editorReady, editorReadyTimedOut, startupPolicyError } = deps.readiness();
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(
@@ -499,6 +500,8 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
           terminalServiceReady,
           editorReady,
           editorReadyTimedOut,
+          startupPolicyError,
+          repositoryRestore: getRepositoryRestoreStatus(),
           cpu: sysMetrics.cpu,
           mem: sysMetrics.mem,
           hdd: sysMetrics.hdd,
@@ -533,6 +536,12 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
 
     // Create session
     if (pathname === '/sessions' && method === 'POST') {
+      if ((process.env.MANAGED_RESOURCE_POLICY === 'immutable' || process.env.MANAGED_RESOURCE_POLICY === 'exclusive')
+        && !deps.readiness().terminalServiceReady) {
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Terminal is not ready' }));
+        return;
+      }
       const MAX_BODY_SIZE = 64 * 1024; // 64KB
       let body = '';
       let bodySize = 0;

@@ -1,4 +1,4 @@
-import { Component, createSignal, createMemo, createEffect, onMount, onCleanup, Show, untrack } from 'solid-js';
+import { Component, createSignal, createMemo, createEffect, onMount, onCleanup, For, Show, untrack } from 'solid-js';
 import Header from './Header';
 import TerminalArea from './TerminalArea';
 import SettingsPanel from './SettingsPanel';
@@ -898,6 +898,32 @@ const Layout: Component<LayoutProps> = (props) => {
 
       {/* Settings Panel - slides in from right */}
       <SettingsPanel isOpen={isSettingsOpen()} onClose={handleSettingsClose} currentUserEmail={props.userName} currentUserRole={props.userRole} enterpriseMode={props.enterpriseMode} mcpReturnOutcome={props.mcpReturnOutcome} cloudflareReturn={cloudflareReturn()} />
+
+      <section class="repository-restore-notices" aria-label="Repository restore notifications">
+        <For each={Object.keys(sessionStore.repositoryRestoreNotices ?? {})}>{id => {
+          const status = () => sessionStore.repositoryRestoreNotices[id];
+          const name = () => sessionStore.sessions.find(session => session.id === id)?.name;
+          return (
+            <Show when={status() && name()}>
+              <div class="repository-restore-notice">
+                <div role="status" aria-atomic="true">
+                  <strong>{status() === 'restoring' ? 'Restoring repositories…'
+                    : status() === 'complete' ? 'Repositories restored' : 'Some repositories weren’t restored'}</strong>
+                  <div class="repository-restore-notice__session">{name()}</div>
+                </div>
+                <Show when={status() === 'issues'}>
+                  <button type="button" aria-label="Dismiss repository restore notification"
+                    onClick={() => sessionStore.dismissRepositoryRestore(id)}>
+                    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="m6 6 12 12M18 6 6 18" />
+                    </svg>
+                  </button>
+                </Show>
+              </div>
+            </Show>
+          );
+        }}</For>
+      </section>
 
       {/* Storage Panel - slides in from right */}
       <StoragePanel isOpen={isStoragePanelOpen()} onClose={handleStoragePanelClose} />

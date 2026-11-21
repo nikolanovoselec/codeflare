@@ -79,7 +79,7 @@ function fixture() {
   return { root, home, bake, warm, runtimeRoot, events: join(root, 'events') };
 }
 
-function runStartup(remoteCurationActive, codingAgents = 'claude-code,codex,copilot,antigravity,opencode,pi') {
+function runStartup(remoteCurationActive, codingAgents = 'claude-code,codex,copilot,antigravity,opencode,pi', policyFails = false) {
   const f = fixture();
   const result = spawnSync('bash', ['-c', [
     'set -euo pipefail',
@@ -93,6 +93,8 @@ function runStartup(remoteCurationActive, codingAgents = 'claude-code,codex,copi
     `CODEFLARE_CODING_AGENTS='${codingAgents}'`,
     "R2_SSE_DISABLED='true'",
     "RCLONE_CONFIG_RESULT='0'",
+    `CODEFLARE_INIT_FLAG_FILE='${join(f.root, 'init-complete')}'`,
+    'CODEFLARE_POLICY_STATUS_FILE=',
     "ENTERPRISE_MODE=''",
     "SYNC_ERROR='null'",
     "SESSION_MODE='default'",
@@ -106,8 +108,8 @@ function runStartup(remoteCurationActive, codingAgents = 'claude-code,codex,copi
     '}',
     'update_sync_status() { :; }',
     `initial_sync_from_r2() { echo initial >> "$EVENTS"; printf '%s\\n' '{"theme":"restored-user-theme","packages":["npm:pi-caveman@1.0.0"],"extensions":["./user-extension.ts","builtin:mcp"]}' > "$PI_SETTINGS_FILE"; }`,
-    'prepare_managed_resource_filter() { echo prepare-filter >> "$EVENTS"; }',
-    'release_agent_pty_after_fast_start_updates() { echo cleanup >> "$EVENTS"; }',
+    `prepare_managed_resource_filter() { echo prepare-filter >> "$EVENTS"; return ${policyFails ? 1 : 0}; }`,
+    'release_agent_pty_after_fast_start_updates() { echo cleanup >> "$EVENTS"; touch "$CODEFLARE_INIT_FLAG_FILE"; }',
     `establish_bisync_baseline() { command cp "$PI_SETTINGS_FILE" '${join(f.root, 'baseline-settings.json')}'; echo baseline >> "$EVENTS"; }`,
     'init_user_vault() { :; }',
     'start_sync_daemon() { :; }',
@@ -115,6 +117,7 @@ function runStartup(remoteCurationActive, codingAgents = 'claude-code,codex,copi
     'start_silverbullet_supervisor() { :; }',
     'start_openvscode_supervisor() { :; }',
     'run_post_restore_startup() { echo post-restore >> "$EVENTS"; }',
+    'restore_startup_repositories() { test -f "$CODEFLARE_INIT_FLAG_FILE"; echo clones >> "$EVENTS"; }',
     'renice() { :; }',
     'ionice() { :; }',
     validateSelection,
@@ -175,7 +178,7 @@ describe('managed curation entrypoint behavior', () => {
     // companion's bytes are checked above; all relay writes must precede cleanup.
     const events = readFileSync(run.events, 'utf8').trim().split('\n');
     assert.deepEqual(events.filter(event => event !== 'relay'), [
-      'initial', 'post-restore', 'prepare-filter', 'cleanup', 'baseline',
+      'initial', 'prepare-filter', 'post-restore', 'cleanup', 'clones', 'baseline',
     ]);
     assert.ok(events.indexOf('relay') > events.indexOf('prepare-filter'));
     assert.ok(events.lastIndexOf('relay') < events.indexOf('cleanup'));
@@ -191,12 +194,20 @@ describe('managed curation entrypoint behavior', () => {
       'laydown',
       'laydown',
       'initial',
-      'post-restore',
       'prepare-filter',
+      'post-restore',
       'relay',
       'cleanup',
+      'clones',
       'baseline',
     ]);
+  });
+
+  it('REQ-SESSION-015: a failed policy check prevents terminal release and cloning', t => {
+    const run = runStartup(true, undefined, true);
+    t.after(() => rmSync(run.root, { recursive: true, force: true }));
+    assert.equal(run.result.status, 1);
+    assert.deepEqual(readFileSync(run.events, 'utf8').trim().split('\n'), ['initial', 'prepare-filter']);
   });
 
   it('REQ-STOR-024: lays down only selected agent roots and skips the Pi relay when Pi is inactive', () => {

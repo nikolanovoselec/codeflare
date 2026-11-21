@@ -506,3 +506,9 @@ AC1: On Android Chrome, open terminal input, background the browser, then return
 - [Storage & Sync](storage-and-sync.md)
 - [Security](security.md)
 - [Troubleshooting](troubleshooting.md)
+
+### Repository restore notice
+
+[REQ-GITHUB-320](../../sdd/spec/github.md#req-github-320-nonblocking-terminal-repository-restore-notice) keeps terminal Open independent of cloning. On desktop the restore notice floats bottom-right. On touch tablets it moves below the header; on phones it spans the available width below the header with safe-area clearance. It never changes the session-card metrics layout or takes focus.
+
+For an authorized test session with a slow clone, compare Dashboard and terminal views on desktop, tablet and phone, including the on-screen keyboard. Check that Open is usable while the notice says **Restoring repositories…**, success clears, and partial restore stays dismissible. An already-populated workspace needs no notice. Compare the recorded clone outcome rather than assuming the browser notification proves every repository was restored.

@@ -276,6 +276,8 @@ describe('Pi Hermes startup (actual entrypoint helper)', () => {
       functionSource('run_managed_curation_startup'),
       'run_initial_r2_restore() { mkdir -p "$USER_HOME/Vault/Memory"; printf "Restored user preference" > "$USER_HOME/Vault/Memory/USER.md"; STEP1_RESULT=0; }',
       'run_post_restore_startup() { :; }',
+      'CODEFLARE_POLICY_STATUS_FILE=',
+      'restore_startup_repositories() { :; }',
       'prepare_managed_resource_filter() { :; }',
       'relay_managed_pi_extensions() { :; }',
       'configure_pi_packages_and_review_inventory() { :; }',

@@ -150,6 +150,8 @@ export interface HealthResponse {
   readonly terminalServiceReady: boolean;
   readonly editorReady: boolean;
   readonly editorReadyTimedOut: boolean;
+  readonly startupPolicyError?: 'failed' | 'timeout';
+  readonly repositoryRestore?: 'pending' | 'restoring' | 'complete' | 'issues';
   readonly cpu: string;
   readonly mem: string;
   readonly hdd: string;

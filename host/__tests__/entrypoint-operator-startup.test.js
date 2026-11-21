@@ -20,10 +20,12 @@ function run(operator) {
   const script = [
     'set -euo pipefail',
     'LOG=""',
+    'CODEFLARE_POLICY_STATUS_FILE=',
     'run_operator_startup() { LOG="${LOG}operator,"; }',
     'restore_operator_attachments() { LOG="${LOG}attachments,"; }',
     extract('run_operator_attachment_startup'),
     'run_initial_r2_restore() { LOG="${LOG}restore,"; }',
+    'prepare_managed_resource_filter() { LOG="${LOG}policy,"; }',
     'run_post_restore_startup() { LOG="${LOG}post,"; }',
     'complete_managed_curation_startup() { LOG="${LOG}complete,"; }',
     `CODEFLARE_OPERATOR_SESSION='${operator ? 'true' : ''}'`,
@@ -43,7 +45,7 @@ test('REQ-OPERATOR-022: operator startup selects only restricted initialization'
 test('REQ-OPERATOR-022: ordinary startup retains restore, post-restore and completion flow', () => {
   const result = run(false);
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.stdout, 'restore,post,complete,');
+  assert.equal(result.stdout, 'restore,policy,post,complete,');
 });
 
 test('REQ-OPERATOR-053: generated Pi inventory excludes independently loaded local and remote Review', () => {

@@ -7,6 +7,17 @@ export const EDITOR_WARMING_BUDGET_MS = 120000;
 const EDITOR_READINESS_POLL_MS = 250;
 const EDITOR_PROBE_PATH = '/healthz';
 
+export function workspaceStartupDecision(
+  requiresPolicy: boolean, policy: string | undefined, initialized: boolean, deadlineReached: boolean,
+): 'wait' | 'initialized' | 'degraded' | 'failed' | 'timeout' {
+  if (requiresPolicy && policy !== 'verified') {
+    if (policy === 'failed') return 'failed';
+    return deadlineReached ? 'timeout' : 'wait';
+  }
+  if (initialized) return 'initialized';
+  return deadlineReached ? 'degraded' : 'wait';
+}
+
 export function resolveSessionWorkspace(value: string | undefined): SessionWorkspace {
   return value === 'vscode' ? 'vscode' : 'terminal';
 }
