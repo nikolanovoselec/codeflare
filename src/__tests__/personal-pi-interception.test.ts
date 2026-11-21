@@ -379,6 +379,13 @@ it('REQ-ENTERPRISE-091 AC1: native Operator wire uses derived owner auth only wh
   expect((await send()).status).toBe(403);
   expect(f.requests).toHaveLength(1);
   currentGeneration = 1;
+  // Compare an awaited-storage denial with the immediate foreign-owner denial below.
+  f.records.set('shutdownRequested', Date.now());
+  const stopped = await send();
+  expect(stopped.status).toBe(403);
+  expect(await stopped.json()).toMatchObject({ code: 'PERSONAL_PI_DENIED' });
+  expect(f.requests).toHaveLength(1);
+  f.records.delete('shutdownRequested');
   host._userEmail = 'foreign@example.test';
   expect((await send()).status).toBe(403);
   expect(f.requests).toHaveLength(1);
