@@ -75,6 +75,45 @@ async function query(cwd: string) {
   });
 }
 
+describe('REQ-AGENT-245: active repository routing', () => {
+  it.each(['absolute', 'relative', 'single-quoted'] as const)(
+    'REQ-AGENT-245 AC1: git -C selects the command repository (%s)', async form => {
+      const cwd = join(root, 'initial');
+      const target = join(root, 'target checkout');
+      mkdirSync(join(cwd, '.git'), { recursive: true });
+      mkdirSync(join(target, '.git'), { recursive: true });
+      const command = form === 'relative' ? 'git -C "../target checkout" status'
+        : form === 'single-quoted' ? `git -C '${target}' status` : `git -C "${target}" status`;
+      const handlers = new Map<string, Array<(event: any, ctx: any) => unknown>>();
+      registerRuntime({
+        on(name: string, handler: any) { handlers.set(name, [...(handlers.get(name) ?? []), handler]); },
+        registerCommand() {},
+      } as never);
+      for (const handler of handlers.get('tool_call') ?? []) {
+        await handler({ toolName: 'bash', toolCallId: 'git-c-routing', input: { command } }, {
+          sessionManager: { getCwd: () => cwd }, ui: { notify() {} },
+        });
+      }
+      expect(readFileSync(sentinel, 'utf8')).toBe(`${target}\n`);
+    },
+  );
+
+  it('REQ-AGENT-245 AC2: a graphless known cwd repository rejects a foreign sentinel graph', async () => {
+    const cwd = join(root, 'graphless-checkout');
+    const foreign = join(root, 'foreign-checkout');
+    mkdirSync(join(cwd, '.git'), { recursive: true });
+    mkdirSync(join(foreign, '.git'), { recursive: true });
+    mkdirSync(join(foreign, 'graphify-out'));
+    writeFileSync(join(foreign, 'graphify-out', 'graph.json'), '{"nodes":[]}');
+    writeFileSync(sentinel, `${foreign}\n`);
+    const result = await query(cwd);
+    expect(result.isError).not.toBe(true);
+    expect(result.details.graph).toBe('/home/user/.graphify/global-graph.json');
+    expect(result.content).toEqual([{ type: 'text', text: 'fixture graph result' }]);
+    expect(readFileSync(sentinel, 'utf8')).toBe(`${foreign}\n`);
+  });
+});
+
 describe('REQ-VAULT-004 AC3: a Git-initialized Vault never becomes the active repository', () => {
   for (const marker of ['directory', 'worktree-file']) {
     it(`preserves the active sentinel and global query scope for a Vault with a ${marker}`, async () => {

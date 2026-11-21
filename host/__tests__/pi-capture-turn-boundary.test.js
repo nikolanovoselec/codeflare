@@ -46,3 +46,66 @@ test('REQ-MEM-015 AC3: frozen capture dispatch and correlated finalization progr
   assert.equal(fs.readFileSync(join(paths.vaultRoot,'Raw/Sessions',request.captureFilename),'utf8'),note);
   assert.deepEqual(sent.filter(m=>m.customType==='background-extraction-launch'),[launch]);
 });
+
+for (const [label, timezone, expected] of [
+  ['process TZ without a user preference', 'Asia/Kathmandu', '2026-07-01T17-45-00+0545'],
+  ['UTC without either timezone setting', undefined, '2026-07-01T12-00-00+0000'],
+]) {
+  test(`REQ-MEM-001 AC4: Pi capture uses ${label}`, async t => {
+    const { registerMemoryVault } = await importPiExtension('memory-vault');
+    t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-07-01T12:00:00Z') });
+    const previous = { USER_TIMEZONE: process.env.USER_TIMEZONE, TZ: process.env.TZ };
+    t.after(() => {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    });
+    delete process.env.USER_TIMEZONE;
+    if (timezone === undefined) delete process.env.TZ;
+    else process.env.TZ = timezone;
+
+    const root = fs.mkdtempSync(join(tmpdir(), 'pi-capture-timezone-'));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    const paths = {
+      vaultRoot: join(root, 'Vault'), cacheDir: join(root, 'cache'),
+      memoryCounterDir: join(root, 'counters'),
+      memoryPromptFile: join(root, 'memory.md'), vaultPromptFile: join(root, 'vault.md'),
+      vaultManifestFile: join(root, 'Vault/graphify-out/manifest.json'),
+      vaultInitializationFile: join(root, 'Vault/graphify-out/initialized'),
+      vaultMarkerFile: join(root, 'marker'),
+    };
+    fs.writeFileSync(paths.memoryPromptFile, 'Capture the frozen request');
+    fs.writeFileSync(paths.vaultPromptFile, 'Extract changed files');
+    // No graph exists, so session_start cannot publish to the global graph.
+    fs.mkdirSync(join(paths.vaultRoot, 'graphify-out'), { recursive: true });
+    fs.writeFileSync(paths.vaultInitializationFile, '1\n');
+    const rows = [{ type: 'session', version: 3, id: 'timezone-fixture' }];
+    const file = join(root, 'session.jsonl');
+    fs.writeFileSync(file, jsonl(rows));
+    const handlers = new Map();
+    const pi = {
+      on(name, handler) { handlers.set(name, handler); }, events: { emit() {} },
+      getActiveTools: () => [], getAllTools: () => [], setActiveTools() {}, sendMessage() {},
+    };
+    const ctx = { sessionManager: {
+      getSessionId: () => 'timezone-fixture', getSessionFile: () => file, getHeader: () => rows[0],
+    } };
+    registerMemoryVault(pi, { paths, randomUUID: () => '00000000-0000-4000-8000-000000000001' });
+    t.after(() => handlers.get('session_shutdown')?.({}, ctx));
+    await handlers.get('session_start')({}, ctx);
+    fs.writeFileSync(join(paths.memoryCounterDir, 'timezone-fixture.count'), '0');
+    for (let ordinal = 1; ordinal <= 20; ordinal++) {
+      rows.push({ type: 'message', id: `prompt-${ordinal}`, message: { role: 'user', content: `Real prompt ${ordinal}` } });
+    }
+    fs.writeFileSync(file, jsonl(rows));
+    await handlers.get('before_agent_start')({ prompt: 'Real prompt 20' }, ctx);
+    const pointer = JSON.parse(fs.readFileSync(join(paths.memoryCounterDir, 'timezone-fixture.vars'), 'utf8'));
+    const request = JSON.parse(fs.readFileSync(
+      join(paths.cacheDir, `memory-capture.timezone-fixture.${pointer.requestId}.vars`), 'utf8'));
+    assert.equal(request.captureTimestamp, expected);
+    assert.equal(request.captureFilename, `${expected}--fixture.md`);
+    assert.equal(request.promptCount, 20);
+    assert.match(request.transcript, /Real prompt 20/);
+  });
+}

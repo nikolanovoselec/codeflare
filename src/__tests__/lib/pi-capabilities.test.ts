@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import capabilityExtension from '../../../preseed/agents/pi/extensions/capability';
 import toolExposureFinalizer from '../../../preseed/agents/pi/extensions/zz-tool-exposure-finalizer';
+import { attachConfiguredContextMode, CONTEXT_MODE_PACKAGE } from '../../../preseed/agents/pi/extensions/context-mode-runtime';
 import capabilityHelpersExtension, {
   activateRegisteredTools,
   activationGroup,
@@ -509,6 +510,39 @@ describe('REQ-AGENT-096: native Hermes tool discovery and activation', () => {
 });
 
 describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
+  it('REQ-AGENT-096 AC4: enabled foreground context tools stay deferred until exact capability activation', async () => {
+    const tools = [
+      { name: 'read', description: 'Read files' },
+      { name: 'bash', description: 'Run shell commands' },
+      { name: 'edit', description: 'Edit files' },
+      { name: 'write', description: 'Write files' },
+      { name: 'capability', description: 'Search tools' },
+    ];
+    const fixture = discoveryFixture({ tools });
+    const contextTools = [
+      { name: 'ctx_search', description: 'Search indexed context' },
+      { name: 'ctx_execute', description: 'Execute code in context sandbox' },
+    ];
+    // Real foreground admission, with a controlled upstream initializer that
+    // exposes tools just as a native registration does. No context server starts.
+    await attachConfiguredContextMode({ packages: [{ source: CONTEXT_MODE_PACKAGE, extensions: [] }] }, {}, fixture.pi, async () => {
+      tools.push(...contextTools);
+      fixture.pi.setActiveTools([...fixture.pi.getActiveTools(), ...contextTools.map(tool => tool.name)]);
+    });
+    toolExposureFinalizer(fixture.pi, () => 'after-first-goal');
+    await fixture.handlers.get('before_agent_start')({}, {});
+    const bootstrap = ['read', 'bash', 'edit', 'write', 'capability'];
+    expect(fixture.pi.getActiveTools()).toEqual(bootstrap);
+
+    expect(identities(await fixture.search('tool:ctx_search'))).toContain('tool:ctx_search');
+    expect(identities(await fixture.search('tool:ctx_execute'))).toContain('tool:ctx_execute');
+    expect(fixture.pi.getActiveTools()).toEqual(bootstrap);
+    expect(await fixture.capability.execute('activate-context-search', { name: 'ctx_search' })).toMatchObject({
+      details: { name: 'ctx_search', added: ['ctx_search'] },
+    });
+    expect(fixture.pi.getActiveTools()).toEqual([...bootstrap, 'ctx_search']);
+  });
+
   it('loads the helper module as a side-effect-free standalone extension', () => {
     expect(capabilityHelpersExtension()).toBeUndefined();
   });

@@ -85,10 +85,16 @@ function mkTmp(prefix) {
 function runBash(script) {
   const runtimeRoot = mkTmp('vault-boot-runtime-');
   mkdirSync(join(runtimeRoot, 'locks'), { recursive: true });
-  return spawnSync('bash', ['-c', script], {
-    encoding: 'utf8',
-    env: { ...process.env, CODEFLARE_RUNTIME_ROOT: runtimeRoot },
-  });
+  try {
+    return spawnSync('bash', ['-c', script], {
+      encoding: 'utf8',
+      timeout: 10_000,
+      killSignal: 'SIGKILL',
+      env: { ...process.env, CODEFLARE_RUNTIME_ROOT: runtimeRoot },
+    });
+  } finally {
+    rmSync(runtimeRoot, { recursive: true, force: true });
+  }
 }
 
 // REQ-VAULT-010: Codeflare-authoritative files preseeded into the vault on every boot
@@ -269,6 +275,111 @@ relay_managed_pi_extensions() { :; }
       assert.equal(readFileSync(join(userHome, tray, 'user.txt'), 'utf8'), `${tray} user bytes\n`);
     }
   });
+
+  it('REQ-VAULT-001 AC3: creates missing Raw/Pasted on first initialization and restores it on reinitialization', (t) => {
+    const root = mkTmp('vault-pasted-');
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const userHome = join(root, 'home');
+    const preseedDir = join(root, 'preseed');
+    mkdirSync(preseedDir);
+    const pasted = join(userHome, 'Vault', 'Raw', 'Pasted');
+    const script = buildInitVaultHarness({ userHome, preseedDir });
+    assert.equal(existsSync(pasted), false);
+    for (let boot = 0; boot < 2; boot++) {
+      const result = runBash(script);
+      assert.equal(result.status, 0, result.stderr);
+      assert.ok(statSync(pasted).isDirectory());
+      rmSync(pasted, { recursive: true });
+    }
+  });
+
+  it('REQ-VAULT-010 AC2: authoritative page refresh preserves bytes and mtimes in every user-owned content directory', (t) => {
+    const root = mkTmp('vault-owned-');
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const userHome = join(root, 'home');
+    const preseedDir = join(root, 'preseed');
+    const vault = join(userHome, 'Vault');
+    mkdirSync(preseedDir);
+    const retained = [];
+    const oldTime = new Date('2025-02-03T04:05:06Z');
+    for (const directory of ['Notes', 'References', 'Inbox', 'Journal', 'Raw/Pasted', 'Raw/Sessions']) {
+      const path = join(vault, directory, 'nested', 'user.md');
+      const bytes = Buffer.from(`User-owned ${directory}\n\0\u00e9\n`);
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, bytes);
+      utimesSync(path, oldTime, oldTime);
+      retained.push({ path, bytes, mtime: statSync(path).mtimeMs });
+      const preseedPath = join(preseedDir, directory, 'nested', 'user.md');
+      mkdirSync(dirname(preseedPath), { recursive: true });
+      writeFileSync(preseedPath, 'must not replace user content\n');
+    }
+    const script = buildInitVaultHarness({ userHome, preseedDir });
+    for (const revision of ['first', 'second']) {
+      for (const page of ['CONFIG.md', 'README.md', 'STYLES.md']) {
+        writeFileSync(join(preseedDir, page), `${revision} authoritative ${page}\n`);
+      }
+      const result = runBash(script);
+      assert.equal(result.status, 0, result.stderr);
+      for (const page of ['CONFIG.md', 'README.md', 'STYLES.md']) {
+        assert.equal(readFileSync(join(vault, page), 'utf8'), `${revision} authoritative ${page}\n`);
+      }
+      for (const { path, bytes, mtime } of retained) {
+        assert.deepEqual(readFileSync(path), bytes, path);
+        assert.equal(statSync(path).mtimeMs, mtime, path);
+      }
+    }
+  });
+
+  it('REQ-VAULT-010 AC4: seeds a valid empty graph only when absent and preserves populated graph bytes on rerun', (t) => {
+    const root = mkTmp('vault-empty-graph-');
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const userHome = join(root, 'home');
+    const preseedDir = join(root, 'preseed');
+    mkdirSync(preseedDir);
+    const graph = join(userHome, 'Vault', 'graphify-out', 'graph.json');
+    const script = buildInitVaultHarness({ userHome, preseedDir });
+    assert.equal(existsSync(graph), false);
+    const first = runBash(script);
+    assert.equal(first.status, 0, first.stderr);
+    // Intentional serialized graph contract, not a snapshot of implementation.
+    assert.deepEqual(JSON.parse(readFileSync(graph, 'utf8')), {
+      directed: true, multigraph: false, graph: {}, nodes: [], links: [],
+    });
+    const populated = '{"directed":true,"multigraph":false,"graph":{},"nodes":[{"id":"retained"}],"links":[]}\n';
+    writeFileSync(graph, populated);
+    const second = runBash(script);
+    assert.equal(second.status, 0, second.stderr);
+    assert.equal(readFileSync(graph, 'utf8'), populated);
+  });
+
+  for (const page of ['README.md', 'STYLES.md']) {
+    for (const state of ['changed', 'unchanged']) {
+      it(`REQ-VAULT-023 AC1: ${page} ${state} bytes receive the preseed mtime on each boot`, (t) => {
+        const root = mkTmp('vault-page-mtime-');
+        t.after(() => rmSync(root, { recursive: true, force: true }));
+        const userHome = join(root, 'home');
+        const preseedDir = join(root, 'preseed');
+        const vault = join(userHome, 'Vault');
+        mkdirSync(preseedDir);
+        mkdirSync(vault, { recursive: true });
+        const source = join(preseedDir, page);
+        const target = join(vault, page);
+        writeFileSync(source, `authoritative ${page}\n`);
+        const sourceTime = new Date('2025-03-04T05:06:07Z');
+        utimesSync(source, sourceTime, sourceTime);
+        const script = buildInitVaultHarness({ userHome, preseedDir });
+        for (let boot = 0; boot < 2; boot++) {
+          writeFileSync(target, state === 'changed' ? `stale boot ${boot}\n` : readFileSync(source));
+          const drifted = new Date('2026-07-08T09:10:11Z');
+          utimesSync(target, drifted, drifted);
+          const result = runBash(script);
+          assert.equal(result.status, 0, result.stderr);
+          assert.deepEqual(readFileSync(target), readFileSync(source));
+          assert.equal(statSync(target).mtimeMs, statSync(source).mtimeMs);
+        }
+      });
+    }
+  }
 
   // -------------------------------------------------------------------------
   // Deterministic preseed-page mtimes — the warm 2nd-start "stuck preparing"

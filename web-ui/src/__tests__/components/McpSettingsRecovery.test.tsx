@@ -40,6 +40,33 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const openMcp = () => fireEvent.click(screen.getByTestId('accordion-header-mcp'));
 
 describe('REQ-AGENT-228 AC4: mounted Settings MCP status recovery', () => {
+  it('REQ-AGENT-251 AC2: opening other Settings sections sends no MCP status request', async () => {
+    const requests: string[] = [];
+    statusResponse = async () => {
+      requests.push('GET /api/mcp-portals');
+      return response([saved]);
+    };
+    const [isOpen, setIsOpen] = createSignal(false);
+    render(() => <SettingsPanel isOpen={isOpen()} onClose={() => setIsOpen(false)} currentUserEmail="owner@example.test" enterpriseMode />);
+
+    setIsOpen(true);
+    expect(await screen.findByTestId('accordion-header-appearance')).toHaveAttribute('aria-expanded', 'true');
+    await fireEvent.click(screen.getByTestId('accordion-header-session'));
+    expect(screen.getByTestId('accordion-header-session')).toHaveAttribute('aria-expanded', 'true');
+    await Promise.resolve();
+    expect(requests).toEqual([]);
+
+    setIsOpen(false);
+    setIsOpen(true);
+    expect(screen.getByTestId('accordion-header-appearance')).toHaveAttribute('aria-expanded', 'true');
+    await Promise.resolve();
+    expect(requests).toEqual([]);
+
+    await openMcp();
+    expect(await screen.findByRole('button', { name: 'Disconnect Model Context Protocol portal alpha' })).toBeEnabled();
+    expect(requests).toEqual(['GET /api/mcp-portals']);
+  });
+
   it('refreshes on panel reopening and on section reopening without remounting Settings', async () => {
     const [isOpen, setIsOpen] = createSignal(true);
     render(() => <SettingsPanel isOpen={isOpen()} onClose={() => setIsOpen(false)} currentUserEmail="owner@example.test" enterpriseMode />);

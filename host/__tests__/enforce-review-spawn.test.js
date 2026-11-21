@@ -291,13 +291,32 @@ describe('Claude current-round completion enforcement', () => {
       start(missing);
       round(missing, { ciResult, withTriage: false });
       append(missing, triage());
-      assert.equal(stop(missing).status, 2);
+      const missingResult = stop(missing);
+      assert.equal(missingResult.status, 2);
+      assert.match(missingResult.stderr, /publish the canonical triage table/);
+      assert.doesNotMatch(missingResult.stderr, /Review complete for/);
+      assert.notEqual(markerStatus(missing), 'complete');
+
+      const mismatched = setup();
+      start(mismatched);
+      round(mismatched, { ciResult, withTriage: false });
+      const wrongResult = ciResult === 'failure' ? 'timeout' : 'failure';
+      append(mismatched, triage(`\n| Exact-head CI | valid | CI_RESULT ${wrongResult} | proportional | fix |`));
+      const rejected = stop(mismatched);
+      assert.equal(rejected.status, 2);
+      assert.match(rejected.stderr, /publish the canonical triage table/);
+      assert.doesNotMatch(rejected.stderr, /Review complete for/);
+      assert.notEqual(markerStatus(mismatched), 'complete');
 
       for (const formattedCi of [false, true]) {
         const fx = setup();
         start(fx);
         round(fx, { ciResult, formattedCi });
-        assert.equal(stop(fx).status, 2);
+        const accepted = stop(fx);
+        assert.equal(accepted.status, 2);
+        assert.match(accepted.stderr, /Review complete for repo:feature\. FIX:/);
+        assert.doesNotMatch(accepted.stderr, /publish the canonical triage table/);
+        assert.equal(markerStatus(fx), 'complete');
       }
     }
   });

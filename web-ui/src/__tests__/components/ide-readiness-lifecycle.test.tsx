@@ -83,7 +83,8 @@ it('REQ-IDE-049 AC3: retry renders pending editor initialization before the read
   progress({ stage: 'mounting', progress: 90, message: 'Preparing VS Code...' });
   expect(screen.getByTestId(`session-stat-card-${id}-progress`)).toHaveStyle({ width: '90%' });
   expect(sessionStore.isSessionInitializing(id)).toBe(true);
-  expect(current().editorReady).toBe(false);
+  expect(current()).toMatchObject({ editorReady: false, editorReadyError: true });
+  expect(screen.getByRole('status', { name: 'Session initializing' })).toHaveClass('session-stat-card__dot--error');
 
   finish(7);
   await starting;

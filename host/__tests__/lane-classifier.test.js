@@ -12,7 +12,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, mkdirSync, chmodSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, chmodSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -69,6 +69,15 @@ function classify(cwd, lastAck, current) {
 }
 
 describe('compute_required_lanes - initial state', () => {
+  it('REQ-AGENT-101 AC2: an unresolved repository root keeps all review lanes', (t) => {
+    const cwd = mkdtempSync(join(tmpdir(), 'laneclass-no-repository-'));
+    t.after(() => rmSync(cwd, { recursive: true, force: true }));
+    // Distinct acknowledgments avoid the initial/equal-SHA shortcuts. No .git
+    // exists at this cwd or its ancestors, so root/history resolution must fail.
+    assert.equal(classify(cwd, 'a'.repeat(40), 'b'.repeat(40)),
+      'code-reviewer spec-reviewer doc-updater');
+  });
+
   it('empty last_ack returns all three lanes', () => {
     const { cwd, run } = makeRepo();
     const sha = commitFile(cwd, run, 'src/foo.ts', 'export {};\n', 'feat: foo');
@@ -232,8 +241,11 @@ describe('compute_required_lanes - rename safety (--no-renames)', () => {
     // could bypass code-reviewer + spec-reviewer entirely.
     const { cwd, run } = makeRepo();
     const base = commitFile(cwd, run, 'src/foo.ts', 'export {};\n', 'feat: src foo');
-    run('mv', 'src/foo.ts', 'documentation/foo.md');
-    run('commit', '-q', '-m', 'rename: src to docs');
+    mkdirSync(join(cwd, 'documentation'));
+    const renamed = run('mv', 'src/foo.ts', 'documentation/foo.md');
+    assert.equal(renamed.status, 0, renamed.stderr);
+    const committed = run('commit', '-q', '-m', 'rename: src to docs');
+    assert.equal(committed.status, 0, committed.stderr);
     const next = run('rev-parse', 'HEAD').stdout.trim();
     // The point of the guard is that the SOURCE path survives into the diff, so
     // the code lane still fires. --no-renames also surfaces the new doc path,
@@ -340,7 +352,7 @@ describe('compute_required_lanes - inert source deltas', () => {
     run('add', '-A');
     run('commit', '-q', '-m', 'docs: reword + spec');
     const head = run('rev-parse', 'HEAD').stdout.trim();
-    assert.equal(classify(cwd, base, head), ALL);
+    assert.equal(classify(cwd, base, head), 'code-reviewer spec-reviewer doc-updater');
   });
 
   it('an inert source delta alongside a documentation/ file requires the code and doc lanes', () => {

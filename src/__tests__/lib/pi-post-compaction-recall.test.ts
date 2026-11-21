@@ -1,4 +1,5 @@
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -18,10 +19,68 @@ import {
   type PostCompactionRecallPi,
 } from '../../../preseed/agents/pi/extensions/post-compaction-recall';
 
+// This guard delegates to the real filesystem. Violations are also retained
+// outside buildRecall's fail-safe catch so an illegal read cannot pass silently.
+const ioGuard = vi.hoisted(() => ({
+  directory: '',
+  bodyCandidates: new Set<string>(),
+  descriptors: new Map<number, string>(),
+  metadataBytes: new Map<string, number>(),
+  reads: [] as Array<{ path: string; phase: 'metadata' | 'body'; bytes?: number; violation?: boolean }>,
+}));
+vi.mock('node:fs', async (importOriginal) => {
+  const fs = await importOriginal<typeof import('node:fs')>();
+  return {
+    ...fs,
+    openSync: ((...args: Parameters<typeof fs.openSync>) => {
+      const fd = fs.openSync(...args);
+      const path = String(args[0]);
+      if (ioGuard.directory && path.startsWith(`${ioGuard.directory}/`)) ioGuard.descriptors.set(fd, path);
+      return fd;
+    }) as typeof fs.openSync,
+    closeSync: (fd: number) => {
+      ioGuard.descriptors.delete(fd);
+      return fs.closeSync(fd);
+    },
+    readSync: ((fd: number, buffer: NodeJS.ArrayBufferView, offset: number, length: number, position: number | null) => {
+      const path = ioGuard.descriptors.get(fd);
+      if (path) {
+        const used = ioGuard.metadataBytes.get(path) ?? 0;
+        if (used + length > 2048) {
+          ioGuard.reads.push({ path, phase: 'metadata', violation: true });
+          throw new Error('recall metadata read budget exceeded');
+        }
+      }
+      const bytes = fs.readSync(fd, buffer, offset, length, position);
+      if (path) {
+        ioGuard.metadataBytes.set(path, (ioGuard.metadataBytes.get(path) ?? 0) + bytes);
+        ioGuard.reads.push({ path, phase: 'metadata', bytes });
+      }
+      return bytes;
+    }) as typeof fs.readSync,
+    readFileSync: ((...args: Parameters<typeof fs.readFileSync>) => {
+      const path = typeof args[0] === 'number' ? ioGuard.descriptors.get(args[0]) : String(args[0]);
+      const guarded = path && ioGuard.directory && path.startsWith(`${ioGuard.directory}/`);
+      if (guarded && !ioGuard.bodyCandidates.has(path)) {
+        ioGuard.reads.push({ path, phase: 'body', violation: true });
+        throw new Error('noncandidate body read refused');
+      }
+      const body = fs.readFileSync(...args);
+      if (guarded) ioGuard.reads.push({ path, phase: 'body', bytes: Buffer.byteLength(body) });
+      return body;
+    }) as typeof fs.readFileSync,
+  };
+});
+
 const roots: string[] = [];
 
 afterEach(() => {
   vi.restoreAllMocks();
+  ioGuard.directory = '';
+  ioGuard.bodyCandidates.clear();
+  ioGuard.descriptors.clear();
+  ioGuard.metadataBytes.clear();
+  ioGuard.reads.length = 0;
   while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true });
 });
 
@@ -155,6 +214,20 @@ describe('Pi post-compaction recall (REQ-MEM-019)', () => {
     // The marker is part of the bound, not an addition to it: appending it
     // after a full-budget slice would put every capped block over its cap.
     expect(Buffer.byteLength(capped, 'utf-8')).toBeLessThanOrEqual(500);
+  });
+
+  it('REQ-MEM-019 AC5: dropped body has a visible truncation marker and exact multibyte Source within the byte cap', () => {
+    const path = '/Vault/会话-é/2026-07-03T10-00-00+0200-a.md';
+    const block = recallBlock(path, extract('capped session', {
+      decisions: `- ${'界'.repeat(4000)}\nDROPPED-TAIL`,
+    }), 500)!;
+
+    expect(block).toContain('... (truncated - read the file for the rest)');
+    expect(block.split('\n').filter(line => line.startsWith('Source: '))).toEqual([`Source: ${path}`]);
+    expect(block).toContain('界');
+    expect(block).not.toContain('DROPPED-TAIL');
+    expect(block).not.toContain('�');
+    expect(Buffer.byteLength(block, 'utf8')).toBeLessThanOrEqual(500);
   });
 
   it('AC4: holds the bound even when the cap cannot fit the marker', () => {
@@ -351,6 +424,55 @@ describe('Pi post-compaction recall (REQ-MEM-019)', () => {
     expect(content).toContain('global newest');
     expect(content).toContain('global middle');
     expect(content).not.toContain('redirected identity');
+  });
+
+  it.each(['symlink', 'FIFO'])('REQ-MEM-027 AC5: rejected %s occupies the global window and displaces older fallback', (kind) => {
+    const newest = '2026-07-03T10-00-00+0200-newest.md';
+    const dir = extractsDir({
+      [newest]: extract('remaining fallback', { sessionId: 'other' }),
+      '2026-07-02T10-00-00+0200-older.md': extract('displaced fallback', { sessionId: 'other' }),
+      'target.txt': extract('unsafe redirected body', { sessionId: 'active' }),
+    });
+    const rejected = join(dir, '2026-07-04T10-00-00+0200-rejected.md');
+    if (kind === 'symlink') symlinkSync(join(dir, 'target.txt'), rejected);
+    else expect(spawnSync('mkfifo', [rejected]).status).toBe(0);
+
+    const content = buildRecall({ sessionsDir: dir, extractCount: 2, perFileBytes: 2600 }, 'active') ?? '';
+
+    expect(content).toContain('the 1 most recent session extracts');
+    expect(content.split('\n').filter(line => line.startsWith('Source: '))).toEqual([`Source: ${join(dir, newest)}`]);
+    expect(content).not.toContain('displaced fallback');
+    expect(content).not.toContain('unsafe redirected body');
+  });
+
+  it('REQ-MEM-027 AC4/AC7: reads at most 2048 metadata bytes per note and no noncandidate bodies', () => {
+    const global = '2026-07-03T10-00-00+0200-global.md';
+    const excluded = '2026-07-02T10-00-00+0200-excluded.md';
+    const match = '2026-07-01T10-00-00+0200-match.md';
+    const longExtract = (title: string, sessionId: string) => `---\nsession_id: ${sessionId}\n---\n# ${title}\n\n## Observations\n${'x'.repeat(4096)}\n\n## Context\n${title} body beyond metadata\n`;
+    const dir = extractsDir({
+      [global]: longExtract('global candidate', 'other'),
+      [excluded]: longExtract('noncandidate', 'other'),
+      [match]: longExtract('active candidate', 'active'),
+    });
+    ioGuard.directory = dir;
+    ioGuard.bodyCandidates = new Set([join(dir, global), join(dir, match)]);
+
+    const content = buildRecall({ sessionsDir: dir, extractCount: 1, perFileBytes: 2600 }, 'active') ?? '';
+
+    expect(ioGuard.reads.filter(read => read.violation)).toEqual([]);
+    expect([...ioGuard.metadataBytes.keys()].sort()).toEqual([global, excluded, match].map(name => join(dir, name)).sort());
+    for (const bytes of ioGuard.metadataBytes.values()) {
+      expect(bytes).toBeGreaterThan(0);
+      expect(bytes).toBeLessThanOrEqual(2048);
+    }
+    const bodyReads = ioGuard.reads.filter(read => read.phase === 'body');
+    expect([...new Set(bodyReads.map(read => read.path))].sort()).toEqual([join(dir, global), join(dir, match)].sort());
+    for (const name of [global, match]) {
+      expect(bodyReads.filter(read => read.path === join(dir, name)).reduce((bytes, read) => bytes + read.bytes!, 0)).toBeGreaterThan(2048);
+    }
+    expect(content).toContain('active candidate body beyond metadata');
+    expect(content.split('\n').filter(line => line.startsWith('Source: '))).toEqual([`Source: ${join(dir, match)}`]);
   });
 
   it('REQ-MEM-027 AC6: retains the collected global fallback when the identity-search time budget expires', () => {

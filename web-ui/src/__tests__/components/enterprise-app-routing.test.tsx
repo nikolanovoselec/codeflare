@@ -23,6 +23,10 @@ vi.mock('../../api/client', () => ({
   getUser: (...args: unknown[]) => getUserMock(...args),
   getOnboardingConfig: (...args: unknown[]) => getOnboardingConfigMock(...args),
   getAuthStatus: (...args: unknown[]) => getAuthStatusMock(...args),
+  getPreferences: vi.fn().mockResolvedValue({}),
+  updatePreferences: vi.fn().mockResolvedValue({}),
+  getR2Status: vi.fn().mockResolvedValue({ ready: false }),
+  ensureR2Token: vi.fn().mockResolvedValue({ ready: false }),
 }));
 
 vi.mock('../../components/Layout', () => ({
@@ -48,6 +52,7 @@ vi.mock('../../stores/storage', () => ({
 
 vi.mock('../../stores/terminal', () => ({
   terminalStore: { disposeAll: vi.fn() },
+  registerProcessNameCallback: vi.fn(),
 }));
 
 import App, { SubscribeGuard } from '../../App';
@@ -93,9 +98,20 @@ describe('REQ-AGENT-124: legacy profile agent fallback', () => {
       saasMode: false, enterpriseMode, onboardingComplete: true, accessTier: 'advanced',
     });
 
-    render(() => <App />);
-
-    await waitFor(() => expect(setAllowedAgentsSpy).toHaveBeenCalledWith(expected));
+    // Keep App's existing route fixture, but publish its catalog into the real
+    // session store instead of treating a setter invocation as hydration.
+    const { sessionStore } = await vi.importActual<typeof import('../../stores/session')>('../../stores/session');
+    sessionStore.setAllowedAgents(null);
+    setAllowedAgentsSpy.mockImplementation(sessionStore.setAllowedAgents);
+    try {
+      render(() => <App />);
+      await screen.findByTestId('layout');
+      await waitFor(() => expect(sessionStore.allowedAgents).toEqual(expected));
+    } finally {
+      sessionStore.setAllowedAgents(null);
+      sessionStore.stopAllPolling();
+      setAllowedAgentsSpy.mockReset();
+    }
   });
 });
 

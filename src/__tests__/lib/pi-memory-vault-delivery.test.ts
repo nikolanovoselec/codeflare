@@ -2228,6 +2228,28 @@ describe('rendered capture byte budget', () => {
     expect(recallBlock(sourcePath, '## Context\nretained', 100)).toBeNull();
   });
 
+  it('REQ-MEM-037 AC2: rescues bounded citations beyond the newest user slice within the rendered byte budget', () => {
+    const overflowRefs = Array.from({ length: 70 }, (_, i) => `a${i.toString(16).padStart(6, '0')}`);
+    const citations = ['#709', '4899fb6', 'AD58', 'REQ-AGENT-040', ...overflowRefs];
+    const newest = `newest user ${'界'.repeat(MEMORY_CAPTURE_MAX_TURN_CHARS)}\n${citations.join(' ')}\nDROPPED-PROSE`;
+    const rendered = compactMessages([
+      ...Array.from({ length: 20 }, (_, i) => ({ role: 'user', content: `older-${i} ${'界'.repeat(MEMORY_CAPTURE_MAX_TURN_CHARS)}` })),
+      { role: 'user', content: newest },
+      { role: 'assistant', content: `assistant overflow ${'界'.repeat(MEMORY_CAPTURE_MAX_TURN_CHARS)}` },
+    ]);
+
+    // The suffix is outside the code-unit slice, yet these exact searchable
+    // references survive in the actual aggregate payload, not just capTurn.
+    const rescued = citations.slice(0, MEMORY_CAPTURE_MAX_RESCUED_REFS);
+    expect(rendered).toContain(`## user\n${newest.slice(0, MEMORY_CAPTURE_MAX_TURN_CHARS)}\n[refs dropped in truncation: ${rescued.join(', ')}]`);
+    for (const citation of citations.slice(MEMORY_CAPTURE_MAX_RESCUED_REFS)) expect(rendered).not.toContain(citation);
+    expect(rendered).not.toContain('DROPPED-PROSE');
+    expect(rendered).not.toContain('older-0 ');
+    expect(rendered).not.toContain('assistant overflow');
+    expect(rendered).not.toContain('�');
+    expect(Buffer.byteLength(rendered, 'utf8')).toBeLessThanOrEqual(MEMORY_CAPTURE_MAX_TOTAL_CHARS);
+  });
+
   it('charges role headings, separators, and multibyte text to one byte budget', () => {
     const rendered = compactMessages([
       { role: 'user', content: '界'.repeat(MEMORY_CAPTURE_MAX_TOTAL_CHARS) },

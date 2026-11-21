@@ -440,6 +440,28 @@ test('REQ-AGENT-125 AC3: malformed and transient GitHub responses never become s
   assert.ok(time.elapsed() <= AGENT_CAP_MS - POLL_MS, 'timeout output needs reporting margin before the enclosing command cap');
 });
 
+for (const [label, patch] of [
+  ['numeric name', { name: 7 }],
+  ['blank name', { name: '   ' }],
+  ['boolean state', { state: true }],
+  ['blank state', { state: '' }],
+  ['object workflow', { workflow: { name: 'checks' } }],
+  ['missing workflow', { workflow: undefined }],
+  ['unknown bucket', { bucket: 'green' }],
+  ['numeric bucket', { bucket: 0 }],
+  ['non-string link', { link: null }],
+  ['relative link', { link: '/actions/runs/1' }],
+  ['javascript link', { link: 'javascript:alert(1)' }],
+  ['ftp link', { link: 'ftp://github.test/actions/runs/1' }],
+]) {
+  test(`REQ-AGENT-125 AC3: terminal row with ${label} cannot certify CI success`, async () => {
+    const { output } = await runMonitor({ fallbackChecks: [check('invalid-terminal', 'pass', patch)] });
+    assertResult(output, 'timeout');
+    assert.match(output, /deadline_exceeded/);
+    assert.doesNotMatch(output, /^check /m, 'invalid terminal rows must not be published as accepted evidence');
+  });
+}
+
 test('REQ-AGENT-068 constraint: pending checks return timeout before the enclosing command cap', async () => {
   const { output, time } = await runMonitor({
     fallbackChecks: [check('long-running', 'pending')],
