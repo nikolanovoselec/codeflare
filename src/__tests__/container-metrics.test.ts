@@ -25,6 +25,7 @@ const testState = vi.hoisted(() => ({
     syncStatus: 'success',
   } as Record<string, unknown>,
   beforeHealthResponse: undefined as (() => void) | undefined,
+  runtimeObservationBody: undefined as unknown,
   tcpFetchShouldFail: false,
   hostProbeCalls: 0,
   activityFetchShouldFail: false,
@@ -145,7 +146,7 @@ vi.mock('@cloudflare/containers', () => {
               }
               if (runtimeObservation || url.includes('/health')) testState.beforeHealthResponse?.();
               const body = runtimeObservation
-                ? {
+                ? (testState.runtimeObservationBody === undefined ? {
                     lastInputAt: testState.activityResult.lastInputAt ?? null,
                     cpu: testState.healthResult.cpu,
                     memory: testState.healthResult.mem,
@@ -155,7 +156,7 @@ vi.mock('@cloudflare/containers', () => {
                     editorReadyError: testState.healthResult.editorReadyError,
                     workspaceRepos: testState.healthResult.workspaceRepos,
                     observedAt: new Date().toISOString(),
-                  }
+                  } : testState.runtimeObservationBody)
                 : url.includes('/activity') ? testState.activityResult : testState.healthResult;
               return new Response(JSON.stringify(body), {
                 status: runtimeObservation ? Math.max(testState.activityStatus, testState.healthStatus) : url.includes('/activity') ? testState.activityStatus : testState.healthStatus,
@@ -331,6 +332,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     testState.activityStatus = 200;
     testState.healthStatus = 200;
     testState.beforeHealthResponse = undefined;
+    testState.runtimeObservationBody = undefined;
     testState.activityHangs = false;
     testState.activityResult = {
       hasActiveConnections: true,
@@ -1011,6 +1013,85 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(mockKV.put.mock.calls.some(
         ([writtenKey]) => /^(session-editor|session-metrics|session-status-correction):/.test(String(writtenKey)),
       )).toBe(false);
+    });
+
+    describe('REQ-SESSION-020 AC4: runtime snapshot readiness admission', () => {
+      const key = 'session:test-bucket:testsession123456';
+      const previousInputAt = '2024-01-15T09:25:00.000Z';
+      const previousMetrics = {
+        cpu: '25%', mem: '512MB', hdd: '1GB', syncStatus: 'success',
+        updatedAt: '2024-01-15T09:30:00.000Z',
+      };
+
+      beforeEach(() => {
+        mockKV._set(key, {
+          id: 'testsession123456', name: 'Test', userId: 'test-bucket',
+          workspace: 'vscode', status: 'running', lifecycleGeneration: 0,
+          editorReady: false, editorReadyError: false,
+          createdAt: '2024-01-15T09:00:00.000Z', lastAccessedAt: '2024-01-15T09:30:00.000Z',
+          lastInputAt: previousInputAt, metrics: previousMetrics,
+        });
+      });
+
+      const invalidReadiness = [
+        { label: 'string false', value: 'false' },
+        { label: 'zero', value: 0 },
+        { label: 'one', value: 1 },
+        { label: 'null', value: null },
+        { label: 'object', value: {} },
+        { label: 'array', value: [] },
+      ];
+      it.each((['editorReady', 'editorReadyError'] as const).flatMap(field =>
+        invalidReadiness.map(({ label, value }) => ({ field, label, value })),
+      ))('REQ-SESSION-020 AC4: rejects $field=$label without publishing readiness, metrics or activity', async ({ field, value }) => {
+        testState.healthResult = {
+          ...testState.healthResult, editorReady: true, editorReadyError: true, [field]: value,
+        };
+
+        await containerInstance.collectMetrics();
+
+        const stored = await mockKV.get(key, 'json') as Session;
+        expect(stored).toMatchObject({
+          status: 'running', editorReady: false, editorReadyError: false,
+          metrics: previousMetrics, lastInputAt: previousInputAt,
+        });
+      });
+
+      it.each([
+        { label: 'empty', body: [] },
+        { label: 'populated', body: [{ editorReady: true, editorReadyError: false }] },
+      ])('REQ-SESSION-020 AC4: rejects a $label array snapshot without projecting its contents', async ({ body }) => {
+        testState.runtimeObservationBody = body;
+
+        await containerInstance.collectMetrics();
+
+        const stored = await mockKV.get(key, 'json') as Session;
+        expect(stored).toMatchObject({
+          status: 'running', editorReady: false, editorReadyError: false,
+          metrics: previousMetrics, lastInputAt: previousInputAt,
+        });
+      });
+
+      it.each([
+        { label: 'both false', readiness: { editorReady: false, editorReadyError: false }, ready: false, error: false },
+        { label: 'ready only', readiness: { editorReady: true, editorReadyError: false }, ready: true, error: false },
+        { label: 'error only', readiness: { editorReady: false, editorReadyError: true }, ready: false, error: true },
+        { label: 'both true', readiness: { editorReady: true, editorReadyError: true }, ready: true, error: true },
+        { label: 'both omitted', readiness: {}, ready: false, error: false },
+        { label: 'error omitted', readiness: { editorReady: true }, ready: true, error: false },
+        { label: 'ready omitted', readiness: { editorReadyError: true }, ready: false, error: true },
+      ])('REQ-SESSION-020 AC4: projects valid readiness ($label) without coercing booleans', async ({ readiness, ready, error }) => {
+        testState.healthResult = { ...testState.healthResult, ...readiness };
+
+        await containerInstance.collectMetrics();
+
+        const stored = await mockKV.get(key, 'json') as Session;
+        expect(stored).toMatchObject({
+          status: 'running', editorReady: ready, editorReadyError: error,
+          lastInputAt: new Date(testState.activityResult.lastInputAt as number).toISOString(),
+          metrics: { cpu: '45%', mem: '1024MB', hdd: '2.5GB', syncStatus: 'success' },
+        });
+      });
     });
 
     it('authenticates the private runtime observation probe', async () => {
@@ -2280,6 +2361,7 @@ describe('Container final-sync drain / REQ-SESSION-011 (drain R2 sync before sto
     testState.healthFetchShouldFail = false;
     testState.activityStatus = 200;
     testState.healthStatus = 200;
+    testState.runtimeObservationBody = undefined;
     testState.abortReasons = [];
     testState.finalSyncCalls = 0;
     testState.finalSyncStatus = 200;

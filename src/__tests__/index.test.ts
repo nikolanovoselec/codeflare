@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { AppError } from '../lib/error-types';
@@ -724,6 +724,114 @@ describe('REQ-OPS-008 AC6 (SAAS_MODE + STRESS_TEST_MODE conflict guard)', () => 
 
     expect(response.status).not.toBe(503);
   });
+});
+
+describe('REQ-SEC-019 / REQ-OPS-164 AC3: shared Worker mixed-mode ingress refusal', () => {
+  const paths = [
+    { surface: 'ordinary API', path: '/api/health', upgrade: false },
+    { surface: 'static asset', path: '/assets/index-DEADBEEF.css', upgrade: false },
+    { surface: 'WebSocket upgrade', path: '/api/terminal/abc123-1/ws', upgrade: true },
+  ];
+  const saasModes = [
+    { mode: 'literal active', value: 'active' },
+    { mode: 'uppercase active', value: 'ACTIVE' },
+    { mode: 'space-padded active', value: ' active ' },
+    { mode: 'mixed-case whitespace-padded active', value: '\tAcTiVe\n' },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetSetupCacheShared();
+    vi.mocked(validateWebSocketRoute).mockReturnValue({ isWebSocketRoute: false });
+    vi.mocked(handleWebSocketUpgrade).mockReset();
+  });
+
+  afterEach(() => {
+    resetSetupCacheShared();
+    vi.mocked(validateWebSocketRoute).mockReturnValue({ isWebSocketRoute: false });
+    vi.mocked(handleWebSocketUpgrade).mockReset();
+  });
+
+  function createIngressRequest(path: string, upgrade: boolean): Request {
+    if (upgrade) {
+      vi.mocked(validateWebSocketRoute).mockReturnValue({
+        isWebSocketRoute: true,
+        fullSessionId: 'abc123-1',
+        baseSessionId: 'abc123',
+        terminalId: '1',
+      });
+      // Keep this an entry-dispatch test, not a live socket/container workload.
+      // The existing route fixture supplies an ordinary response as in the
+      // setup-redirect suite; a mixed-mode refusal must supersede that response.
+      vi.mocked(handleWebSocketUpgrade).mockResolvedValue(new Response('terminal route response', {
+        status: 200,
+        headers: { 'Content-Type': 'text/plain', 'X-Powered-By': 'terminal-upstream' },
+      }));
+    }
+    return new Request(`https://example.com${path}`, upgrade ? { headers: { Upgrade: 'websocket' } } : undefined);
+  }
+
+  it.each(paths.flatMap(route => saasModes.map(saas => ({ ...route, ...saas }))))(
+    'REQ-SEC-019 / REQ-OPS-164 AC3: returns secured 503 for $surface with $mode SaaS and active stress',
+    async ({ path, upgrade, value }) => {
+      const { env, mockKV, mockAssets } = createMockEnv();
+      env.SAAS_MODE = value;
+      env.STRESS_TEST_MODE = 'active';
+      mockKV._store.set('setup:complete', 'true');
+      mockAssets.fetch.mockResolvedValue(new Response('body{color:teal}', {
+        status: 200, headers: { 'Content-Type': 'text/css' },
+      }));
+
+      const response = await worker.fetch(createIngressRequest(path, upgrade), env, createMockCtx());
+
+      // Existing public refusal contract, identical for all ingress surfaces.
+      expect(response.status).toBe(503);
+      expect(response.headers.get('Content-Type')).toContain('application/json');
+      expect(await response.json()).toEqual({
+        error: 'Misconfiguration: stress test mode cannot be active in SaaS production',
+      });
+      expect(response.headers.get('Strict-Transport-Security')).toBe('max-age=63072000; includeSubDomains; preload');
+      expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
+      expect(response.headers.get('X-Frame-Options')).toBe('DENY');
+      expect(response.headers.get('Referrer-Policy')).toBe('strict-origin-when-cross-origin');
+      expect(response.headers.get('Permissions-Policy')).toBe('camera=(), microphone=(), geolocation=()');
+      expect(response.headers.get('Content-Security-Policy')).toBe("default-src 'none'");
+      expect(response.headers.get('X-Powered-By')).toBeNull();
+    },
+  );
+
+  it.each(paths.flatMap(route => [
+    { ...route, mode: 'stress-only', saas: undefined, stress: 'active' },
+    { ...route, mode: 'SaaS-only', saas: 'active', stress: undefined },
+  ]))(
+    'REQ-SEC-019 / REQ-OPS-164 AC3: preserves $mode $surface dispatch without a mixed-mode refusal',
+    async ({ path, upgrade, saas, stress }) => {
+      const { env, mockKV, mockAssets } = createMockEnv();
+      if (saas !== undefined) env.SAAS_MODE = saas;
+      if (stress !== undefined) env.STRESS_TEST_MODE = stress;
+      mockKV._store.set('setup:complete', 'true');
+      mockAssets.fetch.mockResolvedValue(new Response('body{color:teal}', {
+        status: 200, headers: { 'Content-Type': 'text/css', 'X-Powered-By': 'asset-upstream' },
+      }));
+
+      const response = await worker.fetch(createIngressRequest(path, upgrade), env, createMockCtx());
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
+      expect(response.headers.get('X-Powered-By')).toBeNull();
+      if (upgrade) {
+        expect(response.headers.get('Content-Type')).toContain('text/plain');
+        expect(await response.text()).toBe('terminal route response');
+      } else if (path.startsWith('/api/')) {
+        expect(response.headers.get('Content-Type')).toContain('application/json');
+        expect(await response.json()).toMatchObject({ status: 'ok' });
+      } else {
+        expect(response.headers.get('Content-Type')).toBe('text/css');
+        expect(response.headers.get('Cache-Control')).toBe('public, max-age=31536000, immutable');
+        expect(await response.text()).toBe('body{color:teal}');
+      }
+    },
+  );
 });
 
 // ============================================================================
