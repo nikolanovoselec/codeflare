@@ -519,6 +519,32 @@ describe('Pi marker-or-dialog review ingress', () => {
     await expectAutomaticDeliveryPlan('git push origin feature');
   });
 
+  it('REQ-AGENT-122 AC1: the boundary assigns the newest of two same-PR ancestors', async () => {
+    const input = fixture();
+    const root = join(input.home, '.codeflare/review-state/v1');
+    const newest = input.head;
+    const now = Date.now();
+    expect(writeCompletion({ ...input.identity, head: input.base }, {
+      root, now: () => new Date(now - 60_000),
+    })).toEqual({ written: true });
+    expect(writeCompletion(input.identity, { root, now: () => new Date(now) })).toEqual({ written: true });
+    write(input.repo, 'src/review.ts', 'export const changed = false;\n');
+    git(input.repo, 'add', 'src/review.ts');
+    git(input.repo, 'commit', '-m', 'next change');
+    input.head = git(input.repo, 'rev-parse', 'HEAD');
+    input.pr.headRefOid = input.head;
+    input.identity.head = input.head;
+
+    const app = await harness(input, []);
+    await app.emit('tool_result', boundary('git push origin feature', 'incremental-push'));
+
+    const plans = app.sent.filter(message => message.customType === 'pr-boundary-launch-plan');
+    expect(plans).toHaveLength(1);
+    const assignments = plans[0].content?.split('\n').filter(line => /^review_(range|base)=/.test(line)) ?? [];
+    expect(assignments).not.toHaveLength(0);
+    expect([...new Set(assignments)]).toEqual([`review_range=${newest}..${input.head}`]);
+  });
+
   it('resolves one preceding literal git -C variable assignment for a push boundary', async () => {
     const input = fixture();
     const app = await harness(input);

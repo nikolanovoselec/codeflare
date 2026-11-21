@@ -412,6 +412,23 @@ describe('Container Lifecycle Routes', () => {
       },
     );
 
+    it.each([
+      { preference: undefined, enabled: true },
+      { preference: false, enabled: false },
+    ])('REQ-AGENT-012 AC1: Start forwards the effective Fast Start choice $enabled', async ({ preference, enabled }) => {
+      const fetch = createLifecycleApp();
+      if (preference !== undefined) mockKV._set('user-prefs:test-bucket', { fastStartEnabled: preference });
+      container().fetch.mockImplementation(async () => Response.json({ bucketName: null }));
+
+      const response = await fetch('/container/start?sessionId=abcdef1234567890abcdef12', { method: 'POST' });
+
+      expect(response.status).toBe(200);
+      const configuration = container().fetch.mock.calls.map(call => call[0] as Request)
+        .find(request => new URL(request.url).pathname === '/_internal/setBucketName');
+      expect(configuration).toBeDefined();
+      expect(await configuration!.json()).toMatchObject({ fastStartEnabled: enabled });
+    });
+
     it.each([undefined, 'include', 'exclude'] as const)('REQ-SESSION-008: transports current global sync policy %s on start', async policy => {
       const fetch = createLifecycleApp('my-bucket');
       mockKV._set('session:my-bucket:abcdef1234567890abcdef12', {
