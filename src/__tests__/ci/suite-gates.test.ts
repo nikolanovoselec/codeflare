@@ -1572,7 +1572,7 @@ describe('REQ-OPS-023 AC1: vitest report gate', () => {
 
   it('rejects a file that collected zero assertions (collection crash)', () => {
     const r = passing();
-    r.testResults.push({ name: '/checkout/src/dead.test.ts', assertionResults: [] });
+    r.testResults.push({ name: '/checkout/src/dead.test.ts', status: 'passed', assertionResults: [] });
     const out = runReportGate(0, r, '');
     expect(out.status).toBe(1);
     expect(out.stderr).toContain('src/dead.test.ts');

@@ -10,7 +10,7 @@ import { OperatorRegistry } from '../../operators/registry';
 import { OperatorActivity, createOperatorIntentDigest } from '../../operators/activity';
 import { operatorOwnerKey } from '../../operators/browser-activity';
 import { createOperatorExecutionContext } from '../../operators/execution-context';
-import type { VerifiedHumanAccessClaims } from '../../lib/jwt';
+import { resetJWKSCache, verifyHumanAccessJWT, type VerifiedHumanAccessClaims } from '../../lib/jwt';
 import { verifyOperatorSync } from '../../operators/sync-verification';
 import { OwnedOperatorSessionService } from '../../operators/owned-session';
 import { ContainerOwnedSessionRuntime, type OperatorContainerStub } from '../../operators/owned-session-runtime';
@@ -1010,36 +1010,61 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     const hash = async (text: string) => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',
       new TextEncoder().encode(text)))).map(byte => byte.toString(16).padStart(2, '0')).join('');
     const policyDigest = await hash(policyJson);
-    const human: VerifiedHumanAccessClaims = { subject: 'owner', email: 'owner@example.test',
-      issuer: 'https://access.example.test', audiences: ['audience'], issuedAt: Math.floor(now / 1000) - 10,
-      expiresAt: Math.floor(now / 1000) + 300 };
-    const encryption = { ENCRYPTION_KEY: btoa('a'.repeat(32)) };
-    const context = await createOperatorExecutionContext({ activityId: 'activity', operatorId: 'operator',
-      artifactDigest: 'a'.repeat(64), policyDigest, human, accessJwt: 'private.jwt' }, encryption);
-    const activity = new OperatorActivity(ctx, { ...activityEnv, ...encryption });
-    const intentDigest = await createOperatorIntentDigest('operator', 'activity', 'null');
-    expect(await activity.prepareAuthorized({ operatorId: 'operator', activityId: 'activity', intentDigest,
-      expectedRevision: 4, deadline: human.expiresAt * 1000, startExpiresAt: now + 60_000,
-      startVerifier: await hash(token) }, context)).toMatchObject({ ok: true });
-    expect(await activity.start(token)).toEqual({ ok: true, phase: 'queued' });
-    for (const operationId of ['pending', 'sealed']) {
-      expect(await activity.prepareSync({ operationId, sessionId: 'session-1', requestDigest: 'd'.repeat(64),
-        policyDigest, prefix: `.codeflare/operators/activity/${operationId}/`, keys: ['Operators/result.txt'],
-        deadline: now + 60_000 })).toEqual({ ok: true, phase: 'prepared' });
-    }
-    expect(await activity.authorizeSyncWrite('pending', 'Operators/result.txt')).toEqual({ ok: true });
-    expect(await activity.recordSyncUploaded('sealed', 'e'.repeat(64))).toEqual({ ok: true, phase: 'uploaded' });
-    const identity = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ user_uuid: human.subject, email: human.email }));
+    const domain = 'activity-short-reauth.cloudflareaccess.com', issuer = `https://${domain}`;
+    const pair = await crypto.subtle.generateKey({ name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048,
+      publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, ['sign', 'verify']);
+    if (!('privateKey' in pair) || !('publicKey' in pair)) throw new Error('Expected RSA key pair');
+    const jwk = { ...await crypto.subtle.exportKey('jwk', pair.publicKey), kid: 'short-reauth', alg: 'RS256', use: 'sig' };
+    const encode = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const json = (value: unknown) => encode(new TextEncoder().encode(JSON.stringify(value)));
+    const credentials = new Set<string>();
+    // Only external Access transports are fixtures; claims come from the real verifier.
+    const identity = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const request = new Request(input, init);
+      if (request.url === `${issuer}/cdn-cgi/access/certs`) return Response.json({ keys: [jwk] });
+      if (request.url === `${issuer}/cdn-cgi/access/get-identity` && request.redirect === 'manual'
+        && credentials.has(request.headers.get('cookie') ?? '')) {
+        return Response.json({ user_uuid: 'owner', email: 'owner@example.test' });
+      }
+      return new Response(null, { status: 401 });
+    });
+    const credential = async (expiresAt: number) => {
+      const signed = `${json({ alg: 'RS256', kid: jwk.kid })}.${json({ type: 'app', sub: 'owner',
+        email: 'owner@example.test', iss: issuer, aud: ['audience'], iat: Math.floor(now / 1000) - 10, exp: expiresAt })}`;
+      const signature = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', pair.privateKey, new TextEncoder().encode(signed));
+      const accessJwt = `${signed}.${encode(new Uint8Array(signature))}`;
+      const human = await verifyHumanAccessJWT(accessJwt, domain, 'audience');
+      if (!human) throw new Error('Expected verified fixture Access credential');
+      credentials.add(`CF_Authorization=${accessJwt}`);
+      return { human, accessJwt };
+    };
     const clock = vi.spyOn(Date, 'now');
     try {
-      const shorter = { ...human, expiresAt: Math.floor(now / 1000) + 15 };
-      expect(await activity.reauthenticate(shorter, 'shorter.jwt')).toMatchObject({ expiresAt: shorter.expiresAt });
+      const { human, accessJwt } = await credential(Math.floor(now / 1000) + 300);
+      const encryption = { ENCRYPTION_KEY: btoa('a'.repeat(32)) };
+      const context = await createOperatorExecutionContext({ activityId: 'activity', operatorId: 'operator',
+        artifactDigest: 'a'.repeat(64), policyDigest, human, accessJwt }, encryption);
+      const activity = new OperatorActivity(ctx, { ...activityEnv, ...encryption });
+      const intentDigest = await createOperatorIntentDigest('operator', 'activity', 'null');
+      expect(await activity.prepareAuthorized({ operatorId: 'operator', activityId: 'activity', intentDigest,
+        expectedRevision: 4, deadline: human.expiresAt * 1000, startExpiresAt: now + 60_000,
+        startVerifier: await hash(token) }, context)).toMatchObject({ ok: true });
+      expect(await activity.start(token)).toEqual({ ok: true, phase: 'queued' });
+      for (const operationId of ['pending', 'sealed']) {
+        expect(await activity.prepareSync({ operationId, sessionId: 'session-1', requestDigest: 'd'.repeat(64),
+          policyDigest, prefix: `.codeflare/operators/activity/${operationId}/`, keys: ['Operators/result.txt'],
+          deadline: now + 60_000 })).toEqual({ ok: true, phase: 'prepared' });
+      }
+      expect(await activity.authorizeSyncWrite('pending', 'Operators/result.txt')).toEqual({ ok: true });
+      expect(await activity.recordSyncUploaded('sealed', 'e'.repeat(64))).toEqual({ ok: true, phase: 'uploaded' });
+      const { human: shorter, accessJwt: shorterJwt } = await credential(Math.floor(now / 1000) + 15);
+      expect(await activity.reauthenticate(shorter, shorterJwt)).toMatchObject({ expiresAt: shorter.expiresAt });
       clock.mockReturnValue(shorter.expiresAt * 1000);
       expect(await activity.authorizeSyncWrite('pending', 'Operators/result.txt')).toEqual({ ok: false, reason: 'authority-expired' });
       expect(await activity.recordSyncUploaded('pending', 'e'.repeat(64))).toEqual({ ok: false, reason: 'authority-expired' });
       expect(await activity.getSync('pending')).toMatchObject({ phase: 'prepared' });
       expect(await activity.recordSyncUploaded('sealed', 'e'.repeat(64))).toEqual({ ok: true, phase: 'uploaded' });
-    } finally { clock.mockRestore(); identity.mockRestore(); }
+    } finally { clock.mockRestore(); identity.mockRestore(); resetJWKSCache(); }
   }, false));
 
   it('queues authorized intent only when registry artifact and policy identities match', () => withActivity(async ({ registry, ctx, activityEnv, token }) => {
