@@ -6,7 +6,7 @@
  */
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 import {
   buildVaultManifest,
   isVaultExcludedPath,
@@ -33,7 +33,7 @@ export function collectVaultFileHashes(vaultRoot: string): Record<string, string
       if (isVaultExcludedPath(vaultRoot, path)) continue;
       if (entry.isDirectory()) stack.push(path);
       else if (entry.isFile()) {
-        out[relative(vaultRoot, path).replaceAll("\\", "/")] = sha256(readFileSync(path));
+        out[relative(vaultRoot, path).split(sep).join("/")] = sha256(readFileSync(path));
       }
     }
   }

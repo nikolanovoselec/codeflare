@@ -4,6 +4,12 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-21: Keep terminal trust, dependency sync, and Vault extraction scoped
+
+- [REQ-ENTERPRISE-005](models-and-routing.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) gives early Enterprise terminal launches the mounted interception CA settings before shell setup.
+- [REQ-STOR-011](storage.md#req-stor-011-sync-mode-controls-workspace-scope) excludes directories ending in `node_modules` in both Include and Exclude sync modes, without excluding regular files by that suffix.
+- [REQ-VAULT-003](vault.md#req-vault-003-user-curated-edits-use-bounded-prompt-cadenced-ingestion) excludes the root `Memory/` tree from Pi and Claude extraction without changing Hermes recall, sync, or the existing graph.
+
 ## 2026-11-21: Align OAuth and Browser Run acceptance
 
 - Removed browser-mode-specific OAuth acceptance from [REQ-AUTH-002](authentication.md#req-auth-002-saas-mode-uses-direct-github-oauth) and historical token qualification from [REQ-BROWSER-002](browser-run.md#req-browser-002-browser-rendering-scope-in-the-cloudflare-token-template). Cookie-free signed OAuth state, verified-primary-email enforcement, and permission additivity remain required.

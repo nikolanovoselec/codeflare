@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { isAbsolute, relative } from "node:path";
+import { isAbsolute, relative, sep } from "node:path";
 
 export const MEMORY_EVERY_N_PROMPTS = 20;
 export const VAULT_EVERY_N_PROMPTS = 20;
@@ -446,7 +446,7 @@ export function isChildSessionFirstLine(firstLine: string | undefined): boolean 
 }
 
 export function isVaultExcludedPath(vaultRoot: string, path: string): boolean {
-  const rel = relative(vaultRoot, path).replaceAll("\\", "/");
+  const rel = relative(vaultRoot, path).split(sep).join("/");
   if (!rel || rel.startsWith("..")) return true;
   if (VAULT_PRESEED_ROOT_FILES.has(rel)) return true;
   return VAULT_GENERATED_PREFIXES.some((prefix) => rel === prefix || rel.startsWith(`${prefix}/`));

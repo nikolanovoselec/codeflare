@@ -37,7 +37,9 @@ function validateSnapshot(snapshot) {
     && typeof snapshot.requestId === 'string'
     && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(snapshot.requestId)
     && Array.isArray(snapshot.changedFiles)
-    && snapshot.changedFiles.every(path => typeof path === 'string' && path.startsWith('/')
+    && snapshot.changedFiles.every(path => typeof path === 'string'
+      && path.startsWith('/home/user/Vault/')
+      && path.slice('/home/user/Vault/'.length).split('/').every(part => part && part !== '.' && part !== '..')
       && path !== '/home/user/Vault/Raw/Sessions'
       && !path.startsWith('/home/user/Vault/Raw/Sessions/')
       && path !== '/home/user/Vault/Memory'

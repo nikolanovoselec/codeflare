@@ -149,7 +149,8 @@ describe('vault-manifest content-hash detection', () => {
     const recovery = write('Memory/.failures.md.recovery-1', 'Hermes recovery copy');
     const sibling = write('Memory-notes/idea.md', 'ordinary note');
     const nested = write('Notes/Memory/idea.md', 'ordinary nested note');
-    const expected = [nested, sibling].sort();
+    const literalBackslash = write('Memory\\adjacent.md', 'ordinary Linux filename');
+    const expected = [literalBackslash, nested, sibling].sort();
     const claudeChanges = execFileSync('python3', [
       resolve('preseed/agents/claude/plugins/codeflare-vault/scripts/vault-manifest.py'),
       'changed', vault, manifest,
