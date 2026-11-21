@@ -26,11 +26,16 @@ export function extractPiCleanup(entrypoint) {
 }
 
 export function extractEnterpriseBlock(entrypoint) {
+  const caSetup = entrypoint.indexOf('\nCF_CA_SRC=');
+  const terminalLaunch = entrypoint.indexOf('\necho "[entrypoint] Starting terminal server', caSetup);
   const section = entrypoint.indexOf('# Gated strictly on ENTERPRISE_MODE=active');
   const start = entrypoint.indexOf('if [ "${ENTERPRISE_MODE:-}" = "active" ]; then', section);
   const end = entrypoint.indexOf('\nfi\n\n# --- TLS: trust the Cloudflare containers CA for NON-ENTERPRISE OAuth sessions ---', start);
-  if (section < 0 || start < 0 || end < 0) throw new Error('Enterprise startup markers not found');
-  return entrypoint.slice(start, end + '\nfi\n'.length);
+  if (caSetup < 0 || terminalLaunch < 0 || section < 0 || start < 0 || end < 0) throw new Error('Enterprise startup markers not found');
+  // Load the real CA setup but isolate routing fixtures from the host's mount.
+  // The mounted-CA path has its own terminal inheritance tests.
+  return [entrypoint.slice(caSetup, terminalLaunch), 'CF_CA_SRC="$USER_HOME/.fixture-unmounted-ca"',
+    entrypoint.slice(start, end + '\nfi\n'.length)].join('\n');
 }
 
 // Run the real outer startup boundary, including environment initialization, against
