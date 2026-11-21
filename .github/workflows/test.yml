@@ -1378,12 +1378,14 @@ jobs:
           fi
         timeout-minutes: 5
 
-      - name: Compare incomplete persistence report in isolation
+      - name: Compare incomplete persistence report without forced exit
+        # The same file already produced an incomplete report in isolation with
+        # forced exit. Remove only that flag in this bounded diagnostic.
         if: failure() && steps.host-tests.outputs.persistence_gate_failed == 'true'
         run: |
           set -euo pipefail
           sudo sh -c 'printf "%s\n" "$1" > "$2/cgroup.procs"' sh "$$" "/sys/fs/cgroup/codeflare-trim-workers/ci-owner"
-          node --experimental-test-module-mocks --test --test-force-exit --test-timeout=60000 \
+          node --experimental-test-module-mocks --test --test-timeout=60000 \
             --test-reporter=spec --test-reporter-destination=stdout \
             --test-reporter=junit --test-reporter-destination="$RUNNER_TEMP/host-persistence-isolated.xml" \
             host/__tests__/entrypoint-rclone-filters.test.js

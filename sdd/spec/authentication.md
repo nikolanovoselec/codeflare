@@ -67,7 +67,7 @@ None. Authentication is foundational; other domains depend on it.
 5. State-validation failure redirects to the login page with an error indicator. <!-- @impl: src/lib/oauth-state.ts::verifyOauthState --> <!-- @test: src/__tests__/routes/github-auth.test.ts (GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)) -->
 6. Only verified primary GitHub emails are accepted. <!-- @test: src/__tests__/routes/github-auth.test.ts (redirects to /?error=no-verified-email when no verified email) --> <!-- @manual -->
 
-**Notes:** Anonymous and signed-in root dispatch are owned by [REQ-LANDING-017](landing.md#req-landing-017-mode-aware-landing-dispatch), not by the OAuth callback or the provider chooser. State replay tracking uses a non-atomic read/write pair; concurrent callbacks with different valid provider codes can pass the same state check. Complete application-owned auth/authz consolidation into D1 is deferred to [issue #1386](https://github.com/nikolanovoselec/codeflare/issues/1386), not a cleanup-authorized nonce-only migration; [Identity & Access](../../documentation/lanes/authentication.md) owns the current boundary.
+**Notes:** Callback routing and state replay limits are documented in [Direct GitHub OAuth Flow](../../documentation/lanes/authentication.md#direct-github-oauth-flow).
 
 **Constraints:**
 
@@ -538,7 +538,7 @@ None.
 2. An admin can change tiers. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @manual: Change a tier from the admin page and confirm the displayed state updates. -->
 3. In onboarding mode the bulk action approves the displayed pending users to the same full-access tier as the per-user Approve control; the current email search limits that set. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @manual: Compare SaaS and onboarding deployments and confirm their user controls and bulk-approval outcomes match the criterion. -->
 
-**Notes:** SaaS/onboarding grouping, search and capacity are covered by [REQ-AUTH-023](#req-auth-023-admin-user-browsing-and-mode-specific-controls); offboarding is covered by [REQ-AUTH-026](#req-auth-026-admin-user-offboarding).
+**Notes:** Admin tier and approval verification is documented in [Admin user panel acceptance](../../documentation/lanes/authentication.md#admin-user-panel-acceptance).
 
 **Constraints:**
 

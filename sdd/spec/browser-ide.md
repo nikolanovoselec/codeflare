@@ -1650,7 +1650,7 @@ A full code-server browser editor for an advanced running session. The editor op
 2. Status-read failure retains the last accepted ordered lifecycle and readiness state. <!-- @test: web-ui/src/__tests__/components/ide-readiness-lifecycle.test.tsx (REQ-IDE-055 AC2: failed status reads preserve) --> <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatusesOnce --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-010/012/029: failed status reads retain workspace authority and expose unavailable until recovery) -->
 3. On status-read failure, the Dashboard presents a distinct accessible status-unavailable notice. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-SESSION-010/029: %s announces unavailable status without replacing cards and clears on recovery) -->
 
-**Notes:** Card/store tests verify Codeflare's ordered state, not editor document internals. [REQ-IDE-063](#req-ide-063-retained-browser-editor-window-ownership) owns retained editor windows.
+**Notes:** The presentation and evidence boundary is documented in [Backend authority and connectivity](../../documentation/lanes/container.md#backend-authority-and-connectivity).
 
 **Constraints:** Editor readiness is separate evidence from process lifecycle and transport reachability.
 

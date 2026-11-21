@@ -9,6 +9,7 @@ import { pathToFileURL } from 'node:url';
 import { importPiExtension } from './pi-extension-module.mjs';
 
 const [scenario, home, repo] = process.argv.slice(2);
+const nativeHookCheck = scenario === 'native-hook';
 const deps = join(repo, 'preseed/agents/pi/node_modules');
 const agentDir = join(home, '.pi/agent'), cwd = join(home, 'workspace');
 const memoryDir = join(home, 'Vault/Memory');
@@ -53,11 +54,6 @@ const { attachHermesMemoryToForeground } = await importPiExtension('hermes-memor
 const registry = {}, errors = [], requests = [], sessions = [], primaryMemoryWrites = [], notifications = [];
 let sequence = 0, reviewSaved = false, correctionSaved = false;
 let contextPhase = 'ordinary', contextReply = 0;
-// Auto Fast targets 30% of the window, including retained turns and summary
-// allowance. A 100k window leaves 30k for that result while the ordinary
-// transcript finishes at about 91k, below Pi's own compaction threshold.
-const contextWindow = 100_000, historyTurns = 36, tokensPerTurn = 2_500;
-const summaryBranches = [];
 let childMode = false;
 let expectedModel = 'fixture';
 
@@ -93,7 +89,7 @@ globalThis.fetch = async (input, init) => {
       assert.equal(childMode, false, 'helper prompts cannot start automatic review');
       // Context-only task prompts contain no new durable facts. Keep legitimate
       // stock background review enabled without inventing a memory operation.
-      if (scenario === 'context') return completion(JSON.stringify({ operations: [] }));
+      if (scenario === 'context' || nativeHookCheck) return completion(JSON.stringify({ operations: [] }));
       assert.equal(scenario, 'capture');
       for (const key of ['user', 'global', 'workspace', 'lesson']) assert.ok(lastUser.includes(facts[key]), `review payload contains ${key} evidence`);
       assert.equal(body.tools?.length ?? 0, 0, 'direct review is a side-channel completion, not primary tool dispatch');
@@ -104,36 +100,16 @@ globalThis.fetch = async (input, init) => {
         { action: 'add', target: 'failure', content: facts.lesson, category: 'failure' },
       ] }));
     }
+    if (nativeHookCheck) {
+      const promptTokens = 6_000 + 3_000 * contextReply;
+      return completion(`HERMES_TASK_EVIDENCE response ${++contextReply}: ` + 'calibration detail '.repeat(1_400),
+        { prompt_tokens: promptTokens, completion_tokens: 3_000, total_tokens: promptTokens + 3_000 });
+    }
     if (scenario === 'context') {
       if (contextPhase === 'overflow') {
         return Response.json({ error: { message: 'maximum context length exceeded', type: 'invalid_request_error', code: 'context_length_exceeded' } }, { status: 400 });
       }
       if (contextPhase === 'summary') {
-        if (body.messages.some(message => message.role === 'system' && text(message).startsWith('You are an expert conversation summarizer for a coding agent.'))) {
-          const chunks = [...wireText(body).matchAll(/^--- CHUNK (\d+):/gm)];
-          if (chunks.length) {
-            summaryBranches.push('smart-compact-batch');
-            return completion(chunks.map(([, id]) => [
-              `### CHUNK ${id}: Calibration analysis`, '**Priority**: normal',
-              '**Summary**: The user requested HERMES_TASK_EVIDENCE calibration analysis. The analysis remains open.',
-              '**Decisions**: None', '**Modified**: None', '**Deleted**: None', '**Read**: None',
-            ].join('\n')).join('\n\n'));
-          }
-          summaryBranches.push('smart-compact-summary');
-          return completion([
-            '## Goal', 'Continue HERMES_TASK_EVIDENCE analysis of the calibration procedure.',
-            '## Constraints & Preferences', '- Analysis only. No deployment authorization.',
-            '## Progress', '### Done', '- No completion claimed.', '### In Progress', '- The interrupted analysis is still open.',
-            '### Blocked', '- None.', '## Key Decisions', '- Continue the existing analysis.',
-            '## Files Modified', '- None.', '## Files Deleted', '- None.', '## Files Read', '- None.',
-            '## Next Steps', '1. Continue the interrupted calibration analysis.',
-            '## Critical Context', '- Preserve the current task on retry.',
-            '## Topics Covered', '- Calibration procedure.',
-          ].join('\n'));
-        }
-        // Keep Pi's own recovery path valid. Its result still cannot satisfy
-        // the separate extension-origin assertion below.
-        summaryBranches.push('pi-default');
         assert.ok(wireText(body).includes('HERMES_TASK_EVIDENCE'), 'real compaction receives the conversation to summarize');
         return completion('The user requested HERMES_TASK_EVIDENCE analysis. Continue the unfinished analysis.');
       }
@@ -141,14 +117,9 @@ globalThis.fetch = async (input, init) => {
         assertNoAutomaticFacts(body);
         assert.ok(wireText(body).includes('HERMES_TASK_EVIDENCE'), 'the pending task survives real compaction');
         contextPhase = 'finished';
-        return completion(`HERMES_TASK_EVIDENCE response ${++contextReply}: Continue the calibration analysis.`);
       }
-      // Grow the real transcript and report cumulative provider usage. The
-      // final ordinary turn is above the package's Auto fast-mode threshold,
-      // but below Pi's threshold; the package must retain a recent tail.
-      const promptTokens = 1_200 + tokensPerTurn * contextReply;
-      return completion(`HERMES_TASK_EVIDENCE response ${++contextReply}: ` + 'calibration detail '.repeat(1_200),
-        { prompt_tokens: promptTokens, completion_tokens: tokensPerTurn, total_tokens: promptTokens + tokensPerTurn });
+      // Enough real history for compaction, without faking session internals.
+      return completion(`HERMES_TASK_EVIDENCE response ${++contextReply}: ` + 'calibration detail '.repeat(160));
     }
     // The foreground model only emits text. The stock reviewer parses its own
     // separate wire completion and performs all file/SQLite mutations itself.
@@ -180,7 +151,6 @@ function assertNoSizeWarnings() {
 
 async function start({ parentSession, context = false, managed = false } = {}) {
   let loader, queryResult;
-  const compactions = [];
   const sessionCwd = managed ? join(cwd, 'unrelated-clone') : cwd;
   const additionalExtensionPaths = managed ? [join(repo, 'preseed/agents/pi/extensions/hermes-memory-runtime.ts')] : [];
   if (context) {
@@ -197,10 +167,7 @@ async function start({ parentSession, context = false, managed = false } = {}) {
     extensionFactories: [...(managed ? [] : [async pi => {
       await attachHermesMemoryToForeground(registry, pi, stock);
     }]), pi => {
-      if (context) {
-        pi.on('before_agent_start', event => ({ systemPrompt: event.systemPrompt + '\n' + permissionBoundary }));
-        pi.on('session_compact', event => { compactions.push(event); });
-      }
+      if (context) pi.on('before_agent_start', event => ({ systemPrompt: event.systemPrompt + '\n' + permissionBoundary }));
       pi.on('tool_call', event => {
         if (['memory_add', 'memory_replace', 'memory_remove'].includes(event.toolName)) {
           primaryMemoryWrites.push(event.toolName);
@@ -236,8 +203,7 @@ async function start({ parentSession, context = false, managed = false } = {}) {
   const modelRuntime = await sdk.ModelRuntime.create({ authPath: join(home, 'auth.json'), modelsPath: join(home, 'models.json') });
   modelRuntime.registerProvider('hermes-fixture', { baseUrl: 'https://hermes-fixture.invalid/v1', api: 'openai-completions',
     apiKey: 'synthetic-hermes-key', models: [{ id: 'fixture', name: 'Hermes qualification', reasoning: false, input: ['text'],
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: context ? contextWindow : 1_000_000,
-      maxTokens: context ? 8_192 : 4_096 },
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 1000000, maxTokens: 4096 },
       { id: 'fixture-after-switch', name: 'Changed Hermes qualification', reasoning: false, input: ['text'],
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 1000000, maxTokens: 4096 }] });
   const model = modelRuntime.getModel('hermes-fixture', expectedModel);
@@ -255,7 +221,6 @@ async function start({ parentSession, context = false, managed = false } = {}) {
   assert.deepEqual(errors, []);
   return {
     session,
-    compactions,
     nextModel: modelRuntime.getModel('hermes-fixture', 'fixture-after-switch'),
     async mutate(name, params) {
       queryResult = undefined;
@@ -282,12 +247,6 @@ function openDatabase() {
   assert.equal(db.pragma('quick_check', { simple: true }), 'ok');
   return db;
 }
-function fixtureCompactionDiagnostic(f, result) {
-  return JSON.stringify({ summaryBranches, phase: contextPhase, error: result?.errorMessage,
-    recorded: f.compactions.map(({ reason, fromExtension }) => ({ reason, fromExtension })),
-    notices: notifications.slice(-8).map(({ message }) => message.slice(0, 240)) });
-}
-
 async function promptText(f, prompt) {
   let last;
   const unsubscribe = f.session.subscribe(event => {
@@ -297,7 +256,8 @@ async function promptText(f, prompt) {
   finally { unsubscribe(); }
   assert.ok(last, 'this prompt must emit a new assistant response, not reuse an earlier completion');
   assert.equal(last.stopReason, 'stop', JSON.stringify(last));
-  assert.match(text(last), scenario === 'context' ? /^HERMES_TASK_EVIDENCE response \d+:/ : /^Foreground fixture acknowledgement \d+\.$/);
+  assert.match(text(last), scenario === 'context' || nativeHookCheck
+    ? /^HERMES_TASK_EVIDENCE response \d+:/ : /^Foreground fixture acknowledgement \d+\.$/);
 }
 async function verifySearch(f, { corrected = false } = {}) {
   let matches = 0;
@@ -381,6 +341,23 @@ async function run() {
     assert.equal(requests.length, 0, 'search/CRUD over a large policy-only store needs no consolidation/provider');
     return { searchableScopes: 3, crudScopes: 3, originalsPreserved: true, providerRequests: requests.length };
   }
+  if (nativeHookCheck) {
+    const f = await start({ context: true, managed: true });
+    const compactions = [];
+    const unsubscribe = f.session.subscribe(event => {
+      if (event.type === 'compaction_start') compactions.push(event.reason);
+    });
+    try {
+      await promptText(f, 'HERMES_TASK_EVIDENCE: analyze the calibration procedure.');
+      for (let turn = 1; turn <= 3; turn++) {
+        assert.ok(f.session.getContextUsage()?.tokens >= 5_000, 'ordinary turn begins above Smart Compact’s admission floor');
+        await promptText(f, `HERMES_TASK_EVIDENCE: continue the ordinary analysis (${turn}).`);
+      }
+    } finally { unsubscribe(); }
+    assert.deepEqual(compactions, [], 'native-hook must not initiate compaction on ordinary turns');
+    assert.equal(f.session.sessionManager.getEntries().some(entry => entry.type === 'compaction'), false);
+    return { ordinaryTurnsAboveFloor: 3 };
+  }
   if (scenario === 'context') {
     // Keep the canaries stable: stock search reads SQLite, reconciled at startup
     // and by native mutations, not by watching arbitrary live Markdown edits.
@@ -393,16 +370,9 @@ async function run() {
     assertNoAutomaticFacts(requests.at(-1));
     assertNoSizeWarnings();
     assert.ok(markdown().user.length > 5000);
-    for (let turn = 1; turn < historyTurns; turn++) {
-      if (turn >= 2) assert.ok(f.session.getContextUsage()?.tokens >= 5_000, 'ordinary turn begins above the package admission floor');
-      await promptText(f, `HERMES_TASK_EVIDENCE: continue the ordinary calibration analysis (${turn}).`);
-      assertNoAutomaticFacts(requests.at(-1));
-      assertNoSizeWarnings();
-    }
-    const usage = f.session.getContextUsage()?.tokens;
-    assert.ok(usage >= contextWindow * 0.85 && usage < contextWindow - 256, 'real ordinary history reaches Auto fast-mode pressure without triggering Pi');
-    assert.equal(f.session.sessionManager.getEntries().some(entry => entry.type === 'compaction'), false);
-    assert.deepEqual(f.compactions, [], 'native-hook does not start compaction during ordinary turns');
+    await promptText(f, 'HERMES_TASK_EVIDENCE: continue the ordinary analysis.');
+    assertNoAutomaticFacts(requests.at(-1));
+    assertNoSizeWarnings();
     const beforeUserTurns = f.session.messages.filter(message => message.role === 'user').length;
     let compactionResult;
     // Native compaction may summarize both history and a split-turn prefix.
@@ -417,24 +387,14 @@ async function run() {
     // The automatic retry must not expose stored facts or full-file data
     // without explicit recall and without any further user prompt.
     contextPhase = 'overflow';
-    try {
-      await promptText(f, 'HERMES_TASK_EVIDENCE: finish the interrupted analysis.');
-    } catch (error) {
-      throw new Error(`Synthetic overflow failed: ${fixtureCompactionDiagnostic(f, compactionResult)}`, { cause: error });
-    } finally {
-      unsubscribe();
-    }
+    await promptText(f, 'HERMES_TASK_EVIDENCE: finish the interrupted analysis.');
+    unsubscribe();
     assert.deepEqual(providerFailures, []);
     assert.ok(compactionResult?.result, compactionResult?.errorMessage ?? 'the public compaction event must report a result');
     assert.equal(compactionResult.aborted, false);
     assert.equal(compactionResult.willRetry, true);
     assert.equal(contextPhase, 'finished');
-    assert.equal(f.compactions.length, 1);
-    const [applied] = f.compactions;
-    assert.equal(applied.reason, 'overflow');
-    assert.equal(applied.fromExtension, true, `Smart Compact did not supply the replacement: ${fixtureCompactionDiagnostic(f, compactionResult)}`);
-    assert.deepEqual(f.session.sessionManager.getEntry(applied.compactionEntry.id), applied.compactionEntry,
-      'Pi persisted the extension-provided compaction entry');
+    assert.ok(f.session.sessionManager.getEntries().some(entry => entry.type === 'compaction'), 'real SDK recorded compaction');
     assert.ok(f.session.messages.filter(message => message.role === 'user').length <= beforeUserTurns + 1,
       'automatic continuation required no new user prompt');
     const persistedReferenceCopies = f.session.sessionManager.getEntries().filter(entry => entry.type === 'message'

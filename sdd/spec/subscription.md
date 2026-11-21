@@ -357,7 +357,7 @@ Tiers, billing, usage tracking, and quotas.
 4. After the local tier-configuration cache is reset, the next lookup refreshes from durable storage instead of returning the previously cached configuration. <!-- @impl: src/lib/subscription.ts::getTierConfig --> <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-010 AC4: next lookup returns updated tier values after local cache reset) -->
 5. Each Worker isolate refreshes its tier configuration on the first lookup after its own 60-second cache TTL expires. Visibility of admin changes also depends on KV propagation; the local TTL is not a global cross-isolate propagation deadline. <!-- @impl: src/lib/subscription.ts::getTierConfig --> <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-010 AC3: call after TTL expiry reads from KV again) -->
 
-**Notes:** `resetTierConfigCache()` clears the local cache for deterministic tests or known configuration changes; it is a supporting mechanism, not a user-facing feature. Local cache tests do not certify hosted KV propagation or change independent authentication and revocation guarantees.
+**Notes:** The tier-cache mechanism and its evidence boundary is documented in [Module-Level Caches](../../documentation/lanes/configuration.md#module-level-caches).
 
 **Constraints:**
 

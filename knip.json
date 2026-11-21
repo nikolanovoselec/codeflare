@@ -11,7 +11,8 @@
     "src/lib/contact-topics.ts"
   ],
   "ignoreBinaries": [
-    "mkfifo"
+    "mkfifo",
+    "rclone"
   ],
   "ignoreDependencies": [
     "cloudflare",

@@ -1390,7 +1390,7 @@ Runtime readiness remains governed by [REQ-SESSION-015](#req-session-015-contain
 4. Browser IDE data and extension roots remain in protected runtime storage. <!-- @impl: entrypoint.sh::_openvscode_launch_once --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-039 AC1 / REQ-OPS-048 AC4: code-server uses protected data and extension roots) -->
 5. Extension state capture remains operational through its protected session paths. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::activateExtensionPersistence --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC4 + REQ-IDE-036 AC4+AC5+AC6 + REQ-IDE-038 AC5 + REQ-OPS-048 AC5: capture preserves state) -->
 
-**Notes:** The trigger fixture exercises creation at an injected path; the protected default is owned by the host runtime-path configuration. The capture fixture verifies approved state is persisted before the sync signal, not a live capture after temporary-file cleanup. See [Browser IDE continuity](../../documentation/lanes/container.md#code-server-browser-ide-binary). <!-- @impl: host/src/runtime-paths.ts::OPENVSCODE_REQUEST_TRIGGER -->
+**Notes:** Browser IDE runtime-path and capture evidence is documented in [Browser IDE runtime paths](../../documentation/lanes/container.md#code-server-browser-ide).
 
 **Constraints:** Raw service and Browser IDE runtime roots are container-scoped and not synced to R2. Only the approved captured state can persist through the Browser IDE storage contract.
 

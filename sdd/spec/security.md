@@ -410,7 +410,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 4. The terminal server validates bearer credentials before non-exempt WebSocket upgrades. Legacy health/activity paths remain exempt before their unsupported upgrades are rejected. <!-- @impl: host/src/upgrade-dispatcher.ts::createUpgradeDispatcher --> <!-- @test: host/__tests__/browser-ide-upgrade.test.js (REQ-SEC-022 AC4: rejects a missing container bearer before opening a code-server socket) -->
 5. Raw-port notification drains set the stored lifecycle token as an explicit Bearer header; a missing or wrong header is rejected before the body is parsed, and the drain path never joins the auth-exempt set. <!-- @impl: src/container/container-metrics.ts::drainAgentEvents --> <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: src/__tests__/container/container-metrics-drain.test.ts (POSTs the exact request with the stored lifecycle Bearer and bounded signal) --> <!-- @test: host/__tests__/request-router.test.js (returns 401 before parsing a headerless drain body) --> <!-- @manual: On a deployed live container, submit a headerless drain and confirm 401 occurs before body parsing, then confirm the DO-issued Bearer reaches the same route. -->
 
-**Notes:** Deployment verification remains pending a live-container record of headerless and wrong-Bearer `401` responses before body parsing and successful access with that lifecycle's DO-issued Bearer.
+**Notes:** The remaining live-container qualification is documented in [Boundary and storage policy acceptance](../../documentation/lanes/security.md#boundary-and-storage-policy-acceptance).
 
 **Constraints:**
 

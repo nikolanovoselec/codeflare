@@ -191,7 +191,7 @@ For [SEC-009/018/022](../../sdd/spec/security.md), inspect existing operator-aut
 | SEC-018 representation | Inspect existing nonsecret preference/user/setup/stats records and retained legacy-session records against configured-key policy. Expected JSON/text lacks the encrypted envelope; a synthetic protected-secret record has one. Do not decrypt/export secrets, remove keys or create KV sessions after D1 migration. |
 | SEC-022 raw ports | On one existing live lifecycle, correlate raw drain-port headerless and wrong-Bearer requests with 401 before server parsing, then normal DO-authenticated success with route processing. Public user-auth endpoints, another lifecycle or a mocked bearer are not substitutes. |
 
-Raw-port credential use remains private-operator-owned; never copy it into browser requests or reports. A 401 alone does not establish parsing order. Missing reachability, safe access or parser observation leaves SEC-022 unqualified. Preserve its existing Partial status and limitations; bounded host/DO tests do not establish deployed acceptance. Export-list assertions and absent records likewise do not prove SEC-018 storage representation.
+Raw-port credential use remains private-operator-owned; never copy it into browser requests or reports. A 401 alone does not establish parsing order. Missing reachability, safe access or parser observation leaves SEC-022 unqualified in the deployment. Its Implemented status and bounded host/DO tests do not establish deployed acceptance. Export-list assertions and absent records likewise do not prove SEC-018 storage representation.
 
 ### Push notification capabilities
 

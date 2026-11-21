@@ -67,7 +67,7 @@ For onboarding sign-in assets, `ONBOARDING_LANDING_PAGE=active` together with `S
 
 The Worker creates a signed OAuth state carrying a nonce and bounded return target, redirects to GitHub, validates the callback state, exchanges the code, and accepts only a verified primary email. Callback-local provider credentials are used only for that flow and are not returned to the browser. Successful authentication issues `codeflare_session` with `HttpOnly`, `Secure`, and `SameSite=Lax`; the session has a one-hour lifetime and is refreshed when less than fifteen minutes remain. <!-- @impl: src/routes/github-auth.ts::app -->
 
-Per-source-IP callback rate limiting bounds attempts to replay intercepted state. State signature, expiry, account binding and spent-nonce checks reject invalid states and sequential replay. The current KV read/write pair does not atomically exclude concurrent callbacks carrying different valid provider codes. [Issue #1386](https://github.com/nikolanovoselec/codeflare/issues/1386) records this additional limitation and the deferred complete application-owned auth/authz migration to D1; no nonce-only migration is part of cleanup. Provider errors fail the callback; they do not fall back to Cloudflare Access inside the same request.
+Per-source-IP callback rate limiting bounds attempts to replay intercepted state. State signature, expiry, account binding and spent-nonce checks reject invalid states and sequential replay. The current KV read/write pair does not atomically exclude concurrent callbacks carrying different valid provider codes. [Issue #1386](https://github.com/nikolanovoselec/codeflare/issues/1386) records this additional limitation and the deferred complete application-owned auth/authz migration to D1; no nonce-only migration is part of cleanup. Provider errors fail the callback; they do not fall back to Cloudflare Access inside the same request. Anonymous and signed-in root dispatch belong to [REQ-LANDING-017](../../sdd/spec/landing.md#req-landing-017-mode-aware-landing-dispatch), not the OAuth callback or provider chooser.
 <!-- @impl: src/routes/github-auth.ts::app -->
 
 <a id="auth-flow"></a>
@@ -398,7 +398,7 @@ For REQ-AUTH-017 AC2, use an approved existing identity with no Gravatar. Open H
 
 ### Admin user panel acceptance
 
-For REQ-AUTH-023 AC1–AC4 and REQ-AUTH-018 AC1–AC3, use approved SaaS and onboarding admin deployments with existing disposable users across tiers and known capacity. Open `/admin/users`, compare tier headings and current/maximum counts, then search for a known user.
+For [REQ-AUTH-023](../../sdd/spec/authentication.md#req-auth-023-admin-user-browsing-and-mode-specific-controls) AC1–AC4 and [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018-user-management-admin-panel) AC1–AC3, use approved SaaS and onboarding admin deployments with existing disposable users across tiers and known capacity. Open `/admin/users`, compare tier headings and current/maximum counts, then search for a known user.
 
 With separately approved mutations, approve pending users, change SaaS tier/session mode, and use onboarding Approve/Block and bulk approval. The bulk action applies to pending users in the current filtered display, not users excluded by the email search. Pass each operation only when its successful response updates visible state; onboarding approval must grant unlimited/advanced full access. Preserve admin-only/mode gates.
 

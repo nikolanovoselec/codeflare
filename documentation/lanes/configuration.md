@@ -689,6 +689,8 @@ The historical Setup Wizard Resilience fragment resolves here; exact endpoint ou
 
 Worker isolates share no memory. Caches are read optimizations; their durable/external owners remain authoritative. Different isolates may enforce old/new settings within these accepted windows; reset cannot create global strong consistency.
 
+The tier-cache reset supports deterministic tests and known configuration changes; it is not a user-facing feature. Local tier-cache tests do not establish hosted KV propagation and do not change independent authentication or revocation guarantees.
+
 | Module | Cache | Lifetime / TTL | Reset / owner |
 |---|---|---|---|
 | `src/lib/access.ts` | Auth domain/audience | Five minutes configured; 30 seconds null/pre-setup | `resetAuthConfigCache()`; Authentication |

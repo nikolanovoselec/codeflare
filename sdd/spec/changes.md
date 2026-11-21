@@ -4,16 +4,13 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
-## 2026-11-21: Align acceptance and status with current scope
+## 2026-11-21: Align OAuth and Browser Run acceptance
 
 - Removed browser-mode-specific OAuth acceptance from [REQ-AUTH-002](authentication.md#req-auth-002-saas-mode-uses-direct-github-oauth) and historical token qualification from [REQ-BROWSER-002](browser-run.md#req-browser-002-browser-rendering-scope-in-the-cloudflare-token-template). Cookie-free signed OAuth state, verified-primary-email enforcement, and permission additivity remain required.
-- Marked the temporary Codex prompt-prefix backport and seven bounded Operator contracts Implemented. The recovery and scheduling visuals retain manual browser verification. These statuses do not qualify hosted Operator delivery, device behavior, deployed image activation, or live cache hits.
-- Reclassified REQ-OPERATOR-048, 061, 062, 091, and 222 as Partial: the implementation exists, but the full contracts are not yet established. No acceptance criteria or runtime behavior changed.
 
 ## 2026-11-20: Use one idle-timeout policy across plans
 
 - [REQ-SESSION-014](session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings) gives Free, paid, and Enterprise the same 1h default and 1h/2h/4h/8h/12h presets, while preserving saved preferences. Guided Setup keeps its selector and matches Settings.
-- [REQ-LANDING-001](landing.md#req-landing-001-public-landing-content-and-interaction) records the existing 900px breakpoint for the header section shortcuts. Landing behavior is unchanged.
 
 ## 2026-11-20: Keep session credentials scoped and legacy preferences readable
 
