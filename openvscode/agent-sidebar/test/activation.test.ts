@@ -216,13 +216,14 @@ function installActiveEditor(
   return { uri, version: document.version, document, selection };
 }
 
-async function runInlineDiagnosticRequest(): Promise<void> {
+async function runInlineDiagnosticRequest(beforeResult?: () => Promise<void>): Promise<void> {
   const target = installActiveEditor();
   nativeChat.runNativePiChat.mockImplementationOnce(async (options: {
     response: {
       textEdit(edits: unknown[], proposal: { requestId: string; outcome: 'edit' | 'noChange'; summary: string }): void;
     };
   }) => {
+    if (beforeResult) await beforeResult();
     options.response.textEdit([{
       startLine: 0,
       startCharacter: 0,
@@ -416,8 +417,11 @@ test('REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inlin
     assert.match(options.input.activeEditor?.content ?? '', /targetValue/);
     assert.doesNotMatch(options.input.activeEditor?.content ?? '', /decoyValue/);
     const requestDiagnostic = host.diagnosticLines.find((line) => line.includes('request=')) ?? '';
-    assert.match(requestDiagnostic, /target\.ts/);
-    assert.doesNotMatch(requestDiagnostic, /decoy\.ts|home\/user\/workspace/);
+    assert.match(requestDiagnostic, /\blocation=4\b/);
+    assert.match(requestDiagnostic, /\bdocUri=file:\/\/\/target\.ts\b/);
+    assert.match(requestDiagnostic, /\bversion=7\b/);
+    assert.match(requestDiagnostic, /\bselection=0:0-0:22\b/);
+    assert.doesNotMatch(requestDiagnostic, /decoy\.ts|home\/user\/workspace|targetValue|decoyValue/);
     assert.deepEqual(options.input.activeEditor?.selection, {
       startLine: 0,
       startColumn: 0,
@@ -583,6 +587,29 @@ test('REQ-IDE-034 AC3: delayed Inline diagnostics record three-second and eight-
 
     await vi.advanceTimersByTimeAsync(5_000);
     assert.equal(host.diagnosticLines.filter((line) => line.includes('snapshot=8s')).length, 1);
+  } finally {
+    await deactivate();
+    vi.useRealTimers();
+  }
+});
+
+test('REQ-IDE-034 AC3: a result at the 15-second boundary cannot record Inline snapshots', async () => {
+  vi.useFakeTimers();
+  try {
+    await runInlineDiagnosticRequest(async () => {
+      await vi.advanceTimersByTimeAsync(14_999);
+      const event = { opened: [], closed: [], changed: [] };
+      const listener = host.tabChangeListener;
+      assert.ok(listener);
+      listener(event);
+      assert.equal(host.diagnosticLines.filter((line) => line.includes('tabsChanged')).length, 1);
+
+      await vi.advanceTimersByTimeAsync(1);
+      listener(event);
+      assert.equal(host.diagnosticLines.filter((line) => line.includes('tabsChanged')).length, 1);
+    });
+    await vi.advanceTimersByTimeAsync(8_000);
+    assert.deepEqual(host.diagnosticLines.filter((line) => line.includes('snapshot=')), []);
   } finally {
     await deactivate();
     vi.useRealTimers();
