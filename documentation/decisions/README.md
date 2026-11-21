@@ -71,7 +71,7 @@ Current-scope annotations and Context source anchors support only the named curr
 | ~~[AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list)~~ | ~~Remove per-rule ADR overrides~~ | The SDD override mechanism moved to [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features), leaving recurring findings to rule or REQ fixes. | Process | Superseded |
 | [AD46](#ad46-review-reality-filter-as-phase-5) | Add a stateful Reality Filter to review | The current Reality Filter is Phase 6/Q1–Q6 with direct local evidence, a root decision packet and root-owned persistence; original measurements remain history. | Architecture | Active |
 | [AD47](#ad47-pty-keepalive-as-safety-net-only-not-the-idle-policy) | Keep PTY reaping subordinate to idle-stop policy | The PTY reaper uses the retained 2026-11-02 twelve-hour floor as a safety net, matching the 43,200,000ms host clamp rather than owning idle policy. | Architecture | Active |
-| [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token) | Sign OAuth state in a stateless HMAC token | GitHub OAuth carries state as a 30-minute HMAC-SHA256 token, avoiding cookie loss under iOS ITP while retaining an expiry-bound CSRF check. | Security | Active |
+| [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token) | Sign OAuth state in a stateless HMAC token | GitHub OAuth carries state as a 30-minute HMAC-SHA256 token, removing the redirect-state cookie dependency while retaining an expiry-bound CSRF check. | Security | Active |
 | [AD49](#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install) | Preseed context-mode instead of installing it at runtime | The Custom-tier preseed hook path remains active, while MCP registration moved to [AD109](#ad109-context-mode-mcp-registration-is-universal-and-entrypoint-owned). | Architecture | Partially superseded |
 | [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) | Keep one ADR ledger with stable anchors | The unified `decisions/README.md` and stable AD anchors remain, while [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) removed `doc-allow-large`. | Process | Partially superseded |
 | [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) | Remove six overengineered SDD features | The SDD framework removes override, hatch, split-proposal, collision, commit-category, and annotation checks to reduce operator and authoring surface. | Architecture | Active |
@@ -1290,13 +1290,13 @@ The container would also be stuck (because `collectMetrics` is the trigger for b
 
 **Supersedes:** [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) (oauth_state mechanism only; the broader GitHub OIDC-over-CF-Access decision in [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) remains valid)
 
-**Context:** [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) specified that the OAuth CSRF state parameter was carried as an HttpOnly cookie (a random UUID, 5-minute TTL). The cookie was validated server-side by comparing the query-param value returned by GitHub against the stored cookie value. iOS WebKit's Intelligent Tracking Prevention (ITP) and third-party cookie restrictions in private-browsing modes silently drop the state cookie before the GitHub callback completes, breaking the OAuth flow for a meaningful fraction of mobile and privacy-conscious users. Current verification supports cookie-free signed-state checks with sequential nonce guarding, not independent proof of the historical iOS incident or browser-wide CSRF equivalence. <!-- @impl: src/lib/oauth-state.ts::verifyOauthState -->
+**Context:** [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) specified that the OAuth CSRF state parameter was carried as an HttpOnly cookie (a random UUID, 5-minute TTL). The cookie was validated server-side by comparing the query-param value returned by GitHub against the stored cookie value. If the browser does not return that cookie on the GitHub callback, the state comparison fails. Current verification supports cookie-free signed-state checks with sequential nonce guarding. <!-- @impl: src/lib/oauth-state.ts::verifyOauthState -->
 
 **Decision:** Replace the HttpOnly state cookie with a stateless HMAC-signed token. The token is structured as `nonce.iat.sig` where `nonce` is a random value, `iat` is the issued-at Unix timestamp, and `sig` is an HMAC-SHA256 signature over `nonce.iat` using `OAUTH_JWT_SECRET`. The callback handler recomputes the signature and rejects tokens whose `iat` is outside a 30-minute window. No server-side state is stored; no cookie is required for the CSRF check.
 
 **Alternatives considered:**
 
-1. **Keep the cookie, add `SameSite=None; Secure`** to survive cross-site redirects. Rejected: does not help on iOS ITP, which drops third-party cookies regardless of SameSite attribute on the state-checking round-trip.
+1. **Keep the cookie, add `SameSite=None; Secure`** to survive cross-site redirects. Rejected: still depends on the browser returning the cookie during the OAuth round trip.
 2. **Store state in KV with a 5-min TTL.**
 
 Rejected: [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) explicitly chose cookies over KV to avoid eventual consistency lag on the Cloudflare edge. HMAC-signed tokens remove the need for any server-side state and are strictly better on both axes.
@@ -1304,7 +1304,7 @@ Rejected: [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) explicitly c
 
 **Rationale:**
 
-- Stateless HMAC tokens are immune to ITP and private-browsing cookie restrictions because they carry no server-side state -- nothing to look up, nothing to lose on a blocked cookie jar.
+- The signed state travels in the redirect URL, so callback validation does not depend on a redirect-state cookie.
 - The `iat`-window bound (30 min) gives the same CSRF protection as a short-lived cookie: a state token cannot be replayed after it expires.
 - `OAUTH_JWT_SECRET` is already required for `codeflare_session` signing ([AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode)); reusing it for state signing adds no new secret-management surface.
 - Failure path is explicit: state verification failure redirects to `/?error=session-expired` rather than a generic 500.

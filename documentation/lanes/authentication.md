@@ -364,7 +364,7 @@ For REQ-AUTH-009 AC1/AC4, use approved signed-in SaaS/onboarding OIDC and Access
 
 ### Verified primary email acceptance
 
-For REQ-AUTH-002 AC7, use owner-approved existing GitHub identities with a verified primary email and without one. Complete a fresh normal OAuth flow once per identity. Pass only if the first resolves its verified primary email and the second reaches `/?error=no-verified-email` without a session. Secondary-only or unverified primary addresses must not be accepted. Never reuse callback codes/state, capture exchanged tokens, create accounts or alter email settings for this check.
+For REQ-AUTH-002 AC6, use owner-approved existing GitHub identities with a verified primary email and without one. Complete a fresh normal OAuth flow once per identity. Pass only if the first resolves its verified primary email and the second reaches `/?error=no-verified-email` without a session. Secondary-only or unverified primary addresses must not be accepted. Never reuse callback codes/state, capture exchanged tokens, create accounts or alter email settings for this check.
 
 ### Access redirect acceptance
 

@@ -2858,6 +2858,11 @@ describe('normal installed Dispatcher control', () => {
     expect(permit).toEqual({ permitId: expect.any(String), expiresAt: expect.any(Number), deliveryToken: token });
     expect(await (await callback(f, 'model-admission', body)).json()).toEqual(permit);
     expect((await callback(f, 'model-admission', { ...body, context: { messages: [{ role: 'user', content: 'Changed bytes' }] } })).status).toBe(409);
+    const changedOptions = await callback(f, 'model-admission', { ...body, options: { maxTokens: 32 } });
+    expect(changedOptions.status).toBe(409);
+    const originalReplay = await callback(f, 'model-admission', body);
+    expect(originalReplay.status).toBe(200);
+    expect(await originalReplay.json()).toEqual(permit);
     expect((await callback(f, 'model-admission', { ...body, operationId: 'foreign', deliveryToken: 'unadmitted' })).status).toBe(403);
     await settleDelivery(f);
     const nextToken = deliveryToken(f); expect(nextToken).not.toBe(token);
