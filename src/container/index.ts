@@ -27,6 +27,8 @@
  * pre-start).
  */
 import { parseStoredSyncPolicyMode } from '../lib/sync-policy';
+import { McpPortalState, decryptMcpRecord, mcpRecordContext, type McpFence, type McpPendingInput, type McpCallbackBinding } from '../lib/mcp-portal-state';
+import { runOwnedUserCleanup, type CleanupResult } from '../lib/user-cleanup';
 import { Container } from '@cloudflare/containers';
 import { captureRawValue } from '../../host/src/operator-raw-logging';
 import { DispatcherSdkStorageError, handleDispatcherSdkCredentials, type DispatcherSdkCredentialResult, type SdkStorageScope, type SdkCredentialAuthority } from '../operators/dispatcher-sdk-storage';
@@ -781,6 +783,93 @@ export class container extends Container<Env> implements ContainerEnvState {
       await txn.put('bucketOwnerEmail', normalizedEmail);
       return 'owned';
     });
+  }
+
+  private mcpCleanupActive = false;
+
+  private async verifyMcpOwner(owner: string, email?: string): Promise<void> {
+    if (typeof owner !== 'string' || !/^[a-z0-9][a-z0-9.-]{0,62}$/.test(owner)
+      || !this.ctx.id.equals(this.env.CONTAINER.idFromName(`bucket-owner:${owner}`))) {
+      throw new Error('MCP owner identity mismatch');
+    }
+    const claimed = await this.ctx.storage.get<string>('bucketOwnerEmail');
+    if (!claimed || claimed !== claimed.trim().toLowerCase()
+      || (email !== undefined && (typeof email !== 'string' || email.trim().toLowerCase() !== claimed))) {
+      throw new Error('MCP owner identity mismatch');
+    }
+  }
+
+  async mcpPortalRead(owner: string, portalName: string) {
+    await this.verifyMcpOwner(owner);
+    return new McpPortalState(this.ctx.storage).read(portalName);
+  }
+  async mcpPortalImport(owner: string, portalName: string, expected: McpFence, ciphertext: string) {
+    await this.verifyMcpOwner(owner);
+    return new McpPortalState(this.ctx.storage).import(portalName, expected, ciphertext);
+  }
+  async mcpPortalSavePending(owner: string, input: McpPendingInput) {
+    await this.verifyMcpOwner(owner);
+    return new McpPortalState(this.ctx.storage).savePending(input);
+  }
+  async mcpPortalConsumePending(owner: string, state: string, binding?: McpCallbackBinding) {
+    await this.verifyMcpOwner(owner);
+    if (binding && (typeof binding.instance !== 'string' || (binding.issuer !== undefined && typeof binding.issuer !== 'string'))) {
+      throw new Error('Invalid MCP callback binding');
+    }
+    return new McpPortalState(this.ctx.storage).consumePending(state, binding ? async pending => {
+      const payload = await decryptMcpRecord<{ instance: string; discovery: { authorizationServerUrl: string } }>(this.env,
+        mcpRecordContext(owner, pending.fence.epoch, 'pending', state), pending.ciphertext);
+      return !!payload && payload.instance === binding.instance
+        && (!binding.issuer || payload.discovery?.authorizationServerUrl === binding.issuer);
+    } : undefined);
+  }
+  async mcpPortalPublish(owner: string, portalName: string, expected: McpFence, ciphertext: string) {
+    await this.verifyMcpOwner(owner);
+    return new McpPortalState(this.ctx.storage).publish(portalName, expected, ciphertext);
+  }
+  async mcpPortalDisconnect(owner: string, portalName: string) {
+    await this.verifyMcpOwner(owner);
+    return new McpPortalState(this.ctx.storage).disconnect(portalName);
+  }
+  async mcpPortalBeginOffboarding(owner: string, email: string) {
+    await this.verifyMcpOwner(owner, email);
+    if (this.mcpCleanupActive) throw new AppError('user_cleanup_incomplete', 503, 'User cleanup already in progress');
+    return new McpPortalState(this.ctx.storage).beginOffboarding();
+  }
+  async mcpPortalCompleteOffboarding(owner: string, operationId: string) {
+    await this.verifyMcpOwner(owner);
+    if (this.mcpCleanupActive) return false;
+    return new McpPortalState(this.ctx.storage).completeOffboarding(operationId);
+  }
+  async cleanupOwnedUser(owner: string, email: string): Promise<CleanupResult> {
+    // Set before the first await: another live deletion cannot outlast this one
+    // and erase a newly provisioned account after its completion.
+    const admitted = !this.mcpCleanupActive;
+    try {
+      if (!admitted) throw new AppError('user_cleanup_incomplete', 503, 'User cleanup already in progress');
+      this.mcpCleanupActive = true;
+      await this.verifyMcpOwner(owner, email);
+      const state = new McpPortalState(this.ctx.storage);
+      let operationId: string | undefined;
+      const result = await runOwnedUserCleanup(email.trim().toLowerCase(), owner, this.env, async () => {
+        operationId = (await state.beginOffboarding()).operationId;
+      });
+      if (!operationId || !await state.completeOffboarding(operationId)) {
+        throw new AppError('user_cleanup_incomplete', 503, 'User cleanup completion could not be confirmed');
+      }
+      return result;
+    } catch (error) {
+      // RPC preserves Error.message, not custom AppError fields. Carry only the
+      // existing cleanup error contract; the public wrapper restores its type.
+      if (error instanceof AppError) {
+        throw new Error(`MCP_USER_CLEANUP:${JSON.stringify({ code: error.code, statusCode: error.statusCode,
+          message: error.message, userMessage: error.userMessage })}`);
+      }
+      throw error;
+    } finally {
+      // Failure releases only live exclusion. Durable admission stays closed.
+      if (admitted) this.mcpCleanupActive = false;
+    }
   }
 
   /** Owner metadata only: request-owned Root authority; never starts a container. */

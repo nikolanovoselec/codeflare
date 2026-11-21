@@ -615,7 +615,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Constraints:**
 
-- Stress-test mode must not be active in SaaS deployments; the combination returns 503 to all requests.
+- Stress-test mode must not be active in SaaS deployments; the combination returns 503 to all requests. <!-- @impl: src/index.ts::requestRouter --> <!-- @test: src/__tests__/index.test.ts (REQ-SEC-019 / REQ-OPS-164 AC3: returns secured 503 for $surface with $mode SaaS and active stress) -->
 - The session limit is a resource-protection check, not an atomic security boundary; [REQ-SESSION-007](session-lifecycle.md#req-session-007-running-session-count-limited-per-tier) owns its semantics.
 
 **Priority:** P0

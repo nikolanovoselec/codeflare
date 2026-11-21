@@ -284,6 +284,7 @@ Provisioning owns orchestration; specialist owners perform each operation. Expli
 | Handoff | Current result contract |
 |---|---|
 | Historical accounting | D1 tombstone must succeed before live account cleanup; failure returns `503 history_delete_unavailable` before live data removal |
+| MCP credentials | Before destruction, close admission and atomically invalidate owner grants/pending authorization; retain closure on failure and permanently prohibit legacy import after offboarding |
 | Active sessions | Confirm each owned container cleanup before deleting eligible D1 owner rows; unconfirmed cleanup fails with `503 user_cleanup_incomplete` |
 | GitHub provider binding | Strict App/OAuth revocation precedes storage destruction; failure retains outstanding credentials and stops cleanup. Manual PATs clear locally without provider revocation |
 | Cloudflare provider binding | OAuth revocation must succeed before storage destruction; failure retains outstanding retry credentials |
@@ -292,7 +293,7 @@ Provisioning owns orchestration; specialist owners perform each operation. Expli
 | User/bucket KV | Remove scoped-token identity and bucket control keys after confirmed bucket cleanup; delete the user record last |
 | Usage/accounting state | Remove the live KV usage projection; preserve retained historical accounting under Billing |
 
-The deletion route awaits `cleanupUserData` before success and Access-policy synchronization. Provider rejection leaves user data, scoped access, the user record and outstanding provider credentials available for authorized retry; a previously confirmed provider revocation need not be undone. Provider credentials live in the encrypted KV deploy-keys record, not R2, and remain readable independently of bucket cleanup. There is no atomic cross-provider transaction: inspect partial effects before retry. Ordinary GitHub disconnect remains best effort; Cloudflare disconnect and manual PAT behavior keep their provider-specific contracts. A session count alone is not teardown proof. <!-- @impl: src/routes/users.ts::default --> <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData -->
+The deletion route awaits `cleanupUserData` before success and Access-policy synchronization. Provider rejection leaves remaining user data, scoped access, the user record and outstanding provider credentials available for authorized retry; MCP admission stays closed and its invalidated grants are not restored. A previously confirmed provider revocation need not be undone. Provider credentials live in the encrypted KV deploy-keys record, not R2, and remain readable independently of bucket cleanup. There is no atomic cross-provider transaction: inspect partial effects before retry. The existing owner serializes live cleanup and waits for all started parallel deletions before releasing exclusion, including after a rejection. The public deletion contract remains email-based rather than account-incarnation/idempotency-based. A fresh authorized deletion can therefore target a recreated account. Ordinary GitHub disconnect remains best effort; Cloudflare disconnect and manual PAT behavior keep their provider-specific contracts. A session count alone is not teardown proof. <!-- @impl: src/routes/users.ts::default --> <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData -->
 
 ## Compatibility and Migration
 

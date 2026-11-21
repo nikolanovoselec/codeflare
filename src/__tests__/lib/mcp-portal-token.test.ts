@@ -388,6 +388,86 @@ describe('Worker-owned MCP portal OAuth', () => {
     expect(await f.kv.get('deploy-keys:owner')).toBe('unrelated-GitHub-Cloudflare-state');
   });
 
+  it('REQ-AGENT-226 AC7: Disconnect before legacy import revokes the original grant and erases only its exact KV key', async () => {
+    const f = await legacyFixture();
+    const key = legacyConnectionKey();
+    const legacy = await f.kv.get(key) as string;
+    await f.begin('other'); await f.finish('other');
+    const neighborKey = legacyConnectionKey('other');
+    const neighbor = await legacyCiphertext(f.env, (await getMcpPortalGrant(f.env, 'other', portal))!);
+    await f.kv.put(neighborKey, neighbor);
+    expect(await f.owners.owner('owner').mcpPortalRead('owner', portal.name))
+      .toMatchObject({ ciphertext: null, legacyImportEligible: true });
+    // Replica readback stays stale even after the underlying KV deletion succeeds.
+    f.readConnection(legacy);
+    const revocations: Array<{ url: string; method: string; body: Record<string, string>; redirect: RequestRedirect }> = [];
+    const visibleDuringRevocation: Array<string | null> = [];
+    await disconnectMcpPortal(f.env, 'owner', portal, async (input, init) => {
+      const request = new Request(input, init);
+      revocations.push({ url: request.url, method: request.method, redirect: request.redirect,
+        body: Object.fromEntries(new URLSearchParams(await request.text())) });
+      visibleDuringRevocation.push(await getValidMcpPortalToken(f.env, 'owner', portal, f.send));
+      return new Response(null, { status: 200 });
+    });
+    // Intentional OAuth revocation wire contract, not an internal helper call count.
+    expect(revocations).toEqual([{ url: 'https://portal.example/revoke', method: 'POST', redirect: 'manual',
+      body: { token: refresh, client_id: 'synthetic-client', token_type_hint: 'refresh_token' } }]);
+    expect(visibleDuringRevocation).toEqual([null]);
+    expect(f.kv._store.has(key)).toBe(false);
+    expect(await f.kv.get(neighborKey)).toBe(neighbor);
+    f.owners.reconstruct('owner');
+    expect(await getMcpPortalGrant(f.env, 'owner', portal)).toBeNull();
+    expect(await getValidMcpPortalToken(f.env, 'owner', portal, f.send)).toBeNull();
+    expect(await getValidMcpPortalToken(f.env, 'other', portal, f.send)).toBe(access);
+  });
+
+  it.each(['wrong-key', 'invalid-key', 'revocation'] as const)(
+    'REQ-AGENT-226 AC4/7: legacy Disconnect still erases credentials after %s failure', async failure => {
+      const f = await legacyFixture();
+      const key = legacyConnectionKey();
+      const legacy = await f.kv.get(key) as string;
+      const encryptionKey = f.env.ENCRYPTION_KEY;
+      const neighborKey = legacyConnectionKey('other');
+      await f.kv.put(neighborKey, 'unrelated-neighbor-ciphertext');
+      expect(await f.owners.owner('owner').mcpPortalRead('owner', portal.name))
+        .toMatchObject({ ciphertext: null, legacyImportEligible: true });
+      if (failure === 'wrong-key') f.env.ENCRYPTION_KEY = 'AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=';
+      if (failure === 'invalid-key') f.env.ENCRYPTION_KEY = 'invalid-encryption-key';
+      const revokedTokens: Array<string | null> = [];
+      const result = await disconnectMcpPortal(f.env, 'owner', portal, async (input, init) => {
+        const request = new Request(input, init);
+        revokedTokens.push(new URLSearchParams(await request.text()).get('token'));
+        throw new Error('synthetic revocation unavailable');
+      }).then(() => ({ status: 'fulfilled' as const }), error => ({ status: 'rejected' as const, error }));
+      // An unusable encryption key may surface an error, but may never bypass erasure.
+      if (failure !== 'invalid-key') expect(result.status).toBe('fulfilled');
+      expect(revokedTokens).toEqual(failure === 'revocation' ? [refresh] : []);
+      expect(f.kv._store.has(key)).toBe(false);
+      expect(await f.kv.get(neighborKey)).toBe('unrelated-neighbor-ciphertext');
+      f.env.ENCRYPTION_KEY = encryptionKey;
+      f.readConnection(legacy);
+      f.owners.reconstruct('owner');
+      expect(await getValidMcpPortalToken(f.env, 'owner', portal, f.send)).toBeNull();
+    });
+
+  it('REQ-AGENT-226 AC7: failed legacy KV erasure rejects Disconnect without reopening the local grant', async () => {
+    const f = await legacyFixture();
+    const key = legacyConnectionKey();
+    const legacy = await f.kv.get(key) as string;
+    const remove = f.kv.delete.getMockImplementation()!;
+    f.kv.delete.mockImplementation(async name => {
+      if (name === key) throw new Error('synthetic legacy deletion unavailable');
+      return remove(name);
+    });
+    await expect(disconnectMcpPortal(f.env, 'owner', portal, f.send)).rejects.toThrow();
+    expect(f.kv._store.get(key)).toBe(legacy);
+    f.readConnection(legacy);
+    f.owners.reconstruct('owner');
+    expect(await f.owners.owner('owner').mcpPortalRead('owner', portal.name))
+      .toMatchObject({ ciphertext: null, legacyImportEligible: false });
+    expect(await getValidMcpPortalToken(f.env, 'owner', portal, f.send)).toBeNull();
+  });
+
   it('REQ-AGENT-226 AC1: OAuth rejects issuer/resource mismatch, unsafe URLs and redirects before credential exchange', async () => {
     for (const mismatch of ['issuer', 'resource'] as const) {
       const f = await mcpPortalFixture(); f[mismatch]('https://other.example/mcp');
@@ -659,6 +739,90 @@ describe('Atomic owner MCP state and durable offboarding', () => {
     try { expect(await f.owner.mcpPortalConsumePending('owner', 'd'.repeat(64))).toBeNull(); }
     finally { clock.mockRestore(); }
   });
+
+  it('REQ-AGENT-226 AC1/2: each owner admits at most 128 pending authorizations without evicting admitted states', async () => {
+    const f = await wireFixture();
+    const snapshot = await f.owner.mcpPortalRead('owner', portal.name);
+    const pending = { portalName: portal.name, expected: snapshot.fence,
+      expiresAt: Date.now() + 300_000, ciphertext: f.payload };
+    const secondPortal = await f.owner.mcpPortalRead('owner', 'second');
+    const states = Array.from({ length: 128 }, (_, index) => ({
+      state: (index + 1).toString(16).padStart(64, '0'),
+      portalName: index % 2 === 0 ? portal.name : 'second',
+      expected: index % 2 === 0 ? snapshot.fence : secondPortal.fence,
+    }));
+    const admitted: boolean[] = [];
+    for (const state of states) admitted.push(await f.owner.mcpPortalSavePending('owner', { ...pending, ...state }));
+    expect(admitted).toEqual(Array(128).fill(true));
+    const overflow = 'f'.repeat(64);
+    const overflowPayload = await encryptForKV('overflow-pending-payload', (await getOrImportKey(f.env))!, 'fixture-wire');
+    expect(await f.owner.mcpPortalSavePending('owner', { ...pending, state: overflow, ciphertext: overflowPayload })).toBe(false);
+    f.owners.reconstruct('owner');
+    expect(await f.owner.mcpPortalSavePending('owner', { ...pending, state: overflow, ciphertext: overflowPayload })).toBe(false);
+    const retained = JSON.stringify([...(await f.owners.storage('owner', storage => storage.list()))]);
+    expect(retained).not.toContain(overflowPayload);
+    const other = f.owners.owner('other');
+    const otherSnapshot = await other.mcpPortalRead('other', portal.name);
+    expect(await other.mcpPortalSavePending('other', { ...pending, expected: otherSnapshot.fence, state: overflow })).toBe(true);
+    expect(await other.mcpPortalConsumePending('other', overflow))
+      .toEqual({ portalName: portal.name, fence: otherSnapshot.fence, ciphertext: f.payload });
+    for (const state of states) {
+      expect(await f.owner.mcpPortalConsumePending('owner', state.state))
+        .toEqual({ portalName: state.portalName, fence: state.expected, ciphertext: f.payload });
+    }
+    expect(await f.owner.mcpPortalConsumePending('owner', overflow)).toBeNull();
+    expect(await f.owner.mcpPortalSavePending('owner', { ...pending, state: overflow, ciphertext: overflowPayload })).toBe(true);
+    expect(await f.owner.mcpPortalConsumePending('owner', overflow))
+      .toEqual({ portalName: portal.name, fence: snapshot.fence, ciphertext: overflowPayload });
+  });
+
+  it.each(['save', 'consume'] as const)(
+    'REQ-AGENT-226 AC1/2/4: the next pending %s erases all expired ciphertext while preserving live authorizations', async operation => {
+      const f = await wireFixture();
+      const snapshot = await f.owner.mcpPortalRead('owner', portal.name);
+      const initialAlarm = await f.owners.storage('owner', storage => storage.getAlarm());
+      const now = Date.now();
+      const key = (await getOrImportKey(f.env))!;
+      const expired = await Promise.all(['first-expired-pending', 'second-expired-pending']
+        .map(value => encryptForKV(value, key, 'fixture-wire')));
+      const live = await encryptForKV('live-pending-payload', key, 'fixture-wire');
+      const input = { portalName: portal.name, expected: snapshot.fence, expiresAt: now + 60_000 };
+      for (const [index, ciphertext] of expired.entries()) {
+        expect(await f.owner.mcpPortalSavePending('owner', { ...input,
+          state: String(index + 1).repeat(64), ciphertext })).toBe(true);
+      }
+      const liveState = '3'.repeat(64);
+      expect(await f.owner.mcpPortalSavePending('owner', { ...input, state: liveState,
+        expiresAt: now + 300_000, ciphertext: live })).toBe(true);
+      const before = JSON.stringify([...(await f.owners.storage('owner', storage => storage.list()))]);
+      for (const ciphertext of expired) expect(before).toContain(ciphertext);
+      expect(before).toContain(live);
+      expect(await f.owners.storage('owner', storage => storage.getAlarm())).toBe(initialAlarm);
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(now + 60_001);
+      try {
+        const freshState = '4'.repeat(64);
+        if (operation === 'save') {
+          expect(await f.owner.mcpPortalSavePending('owner', { ...input, state: freshState,
+            expiresAt: Date.now() + 300_000, ciphertext: f.payload })).toBe(true);
+        } else {
+          // Even an unknown nonce is a pending operation, not an expiry alarm.
+          expect(await f.owner.mcpPortalConsumePending('owner', freshState)).toBeNull();
+        }
+        const after = JSON.stringify([...(await f.owners.storage('owner', storage => storage.list()))]);
+        for (const ciphertext of expired) expect(after).not.toContain(ciphertext);
+        expect(after).toContain(live);
+        expect(await f.owners.storage('owner', storage => storage.getAlarm())).toBe(initialAlarm);
+        for (const state of ['1'.repeat(64), '2'.repeat(64)]) {
+          expect(await f.owner.mcpPortalConsumePending('owner', state)).toBeNull();
+        }
+        expect(await f.owner.mcpPortalConsumePending('owner', liveState))
+          .toEqual({ portalName: portal.name, fence: snapshot.fence, ciphertext: live });
+        if (operation === 'save') {
+          expect(await f.owner.mcpPortalConsumePending('owner', freshState))
+            .toEqual({ portalName: portal.name, fence: snapshot.fence, ciphertext: f.payload });
+        }
+      } finally { clock.mockRestore(); }
+    });
 
   it('REQ-AUTH-026 AC2 / REQ-AGENT-226 AC2: stale completion after reconstruction cannot reopen a newer offboarding operation', async () => {
     const f = await wireFixture();

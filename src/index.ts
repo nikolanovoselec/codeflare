@@ -137,12 +137,6 @@ app.use('*', async (c, next) => {
 // Request Tracing Middleware
 // ============================================================================
 app.use('*', async (c, next) => {
-  // CF-001: Hard enforcement - STRESS_TEST_MODE must never bypass rate limits in SaaS production.
-  if (isSaasModeActive(c.env.SAAS_MODE) && c.env.STRESS_TEST_MODE === 'active') {
-    logger.error('BLOCKED: STRESS_TEST_MODE active in SaaS production', undefined, { path: c.req.path });
-    return withSecurityHeaders(c.json({ error: 'Misconfiguration: stress test mode cannot be active in SaaS production' }, 503));
-  }
-
   // CF-017: Warn on first request if credentials will be stored as plaintext
   warnIfNoEncryptionKey(c.env.ENCRYPTION_KEY);
 
@@ -391,9 +385,17 @@ const requestRouter = {
     if (env.LOG_LEVEL) {
       setLogLevel(env.LOG_LEVEL as LogLevel);
     }
+    const url = new URL(request.url);
+    // REQ-OPS-164 AC3: refuse mixed mode before any early proxy or asset dispatch.
+    if (isSaasModeActive(env.SAAS_MODE) && env.STRESS_TEST_MODE === 'active') {
+      logger.error('BLOCKED: STRESS_TEST_MODE active in SaaS production', undefined, { path: url.pathname });
+      return withSecurityHeaders(Response.json({ error: 'Misconfiguration: stress test mode cannot be active in SaaS production' }, {
+        status: 503,
+        headers: ownerRawReadPath.test(url.pathname) ? { 'Cache-Control': 'no-store' } : undefined,
+      }));
+    }
     if (env.ENCRYPTION_KEY) await getOrImportKey(env);
 
-    const url = new URL(request.url);
     const onboardingLandingActive = isOnboardingLandingPageActive(env.ONBOARDING_LANDING_PAGE);
 
     // AUTH: WebSocket upgrade handled here before Hono middleware.

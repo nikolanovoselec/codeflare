@@ -623,7 +623,9 @@ export function getBucketName(email: string, workerName?: string): string {
 }
 
 type BucketClaimResult = 'owned' | 'conflict' | 'ambiguous';
-interface BucketOwnerStub {
+interface BucketOwnerStub extends Pick<import('../container/index').container,
+  'mcpPortalRead' | 'mcpPortalImport' | 'mcpPortalSavePending' | 'mcpPortalConsumePending' | 'mcpPortalPublish'
+  | 'mcpPortalDisconnect' | 'mcpPortalBeginOffboarding' | 'mcpPortalCompleteOffboarding' | 'cleanupOwnedUser'> {
   claimBucketOwner(email: string, allowInitialClaim: boolean): Promise<BucketClaimResult>;
 }
 
@@ -634,7 +636,7 @@ async function getVersionedBucketName(email: string, workerName?: string): Promi
   return `${trimTrailingHyphens(legacy.substring(0, 63 - suffix.length))}${suffix}`;
 }
 
-function getBucketOwnerStub(env: Env, bucketName: string): BucketOwnerStub {
+export function getBucketOwnerStub(env: Env, bucketName: string): BucketOwnerStub {
   const id = env.CONTAINER.idFromName(`bucket-owner:${bucketName}`);
   return env.CONTAINER.get(id) as unknown as BucketOwnerStub;
 }

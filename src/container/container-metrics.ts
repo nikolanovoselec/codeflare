@@ -1231,7 +1231,11 @@ export async function collectMetrics(
         lastInputAt: number | null; cpu?: string; memory?: string; disk?: string;
         syncStatus?: string; editorReady?: boolean; editorReadyError?: boolean; workspaceRepos?: unknown; observedAt: string;
       };
-      if (!snapshot || typeof snapshot !== 'object' || !execution.isCurrent()) throw new Error('Runtime snapshot unavailable');
+      // REQ-SESSION-020 AC4: reject malformed readiness before state or projection uses it.
+      if (!isRecord(snapshot)
+          || (snapshot.editorReady !== undefined && typeof snapshot.editorReady !== 'boolean')
+          || (snapshot.editorReadyError !== undefined && typeof snapshot.editorReadyError !== 'boolean')
+          || !execution.isCurrent()) throw new Error('Runtime snapshot unavailable');
       // Only a finite positive timestamp is usable activity evidence. An
       // invalid value must not become the idle reference or D1 activity.
       const observedInputAt = typeof snapshot.lastInputAt === 'number'

@@ -2,10 +2,12 @@ import { discoverOAuthServerInfo, extractWWWAuthenticateParams, registerClient, 
   type OAuthServerInfo } from '@modelcontextprotocol/sdk/client/auth.js';
 import type { OAuthClientInformationMixed, OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
 import type { Env } from '../types';
-import { decryptFromKV, encryptAndStore, encryptForKV, getOrImportKey } from './kv-crypto';
+import { decryptFromKV, getOrImportKey } from './kv-crypto';
 import { getConfiguredMcpPortals, publicHttps, type McpPortal } from './mcp-portals';
 export { publicHttps } from './mcp-portals';
-import { claimOauthNonce } from './oauth-state';
+import { getBucketOwnerStub } from './access';
+import { decryptMcpRecord, encryptMcpRecord, isMcpOffboardingError, mcpRecordContext,
+  type McpFence, type McpSnapshot } from './mcp-portal-state';
 import { SETUP_KEYS, isValidCustomDomain } from './kv-keys';
 import { createLogger } from './logger';
 
@@ -41,10 +43,9 @@ interface PortalBinding {
   discovery: OAuthServerInfo; client: OAuthClientInformationMixed; resource: string;
 }
 export interface PortalGrant extends PortalBinding { tokens: OAuthTokens; expiresAt?: number }
-interface Pending extends PortalBinding { state: string; verifier: string; expiresAt: number; previous: string | null }
+interface Pending extends PortalBinding { state: string; verifier: string; expiresAt: number; fence: McpFence }
 interface Connection { id: string; grant: PortalGrant | null }
 const connectionKey = (owner: string, name: string) => `mcp-portal:owner:${encodeURIComponent(owner)}:portal:${name}`;
-const pendingKey = (state: string) => `mcp-portal:pending:${state}`;
 const random = () => Array.from(crypto.getRandomValues(new Uint8Array(32)), b => b.toString(16).padStart(2, '0')).join('');
 
 async function encryption(env: Env): Promise<CryptoKey> {
@@ -62,9 +63,6 @@ async function read<T>(env: Env, key: string): Promise<T | null> {
   } catch {
     return null;
   }
-}
-async function write(env: Env, key: string, value: unknown): Promise<void> {
-  await encryptAndStore(env.KV, key, value, await encryption(env));
 }
 /** OAuth control traffic never follows redirects or accepts disabled TLS validation. */
 export function portalOAuthFetch(send: typeof fetch = fetch): typeof fetch {
@@ -114,10 +112,11 @@ export async function beginMcpPortalConnect(env: Env, owner: string, portal: Mcp
     await encryption(env); publicHttps(instance); publicHttps(portal.url);
     if (!await configured(env, portal)) throw new Error('MCP portal configuration changed');
     // An in-flight Connect may not adopt a later Disconnect as its starting generation.
-    const previous = await read<Connection>(env, connectionKey(owner, portal.name));
+    const previous = await readGrant(env, owner, portal);
+    if (!previous) throw new Error('MCP connection changed');
     if (expectedGrantId !== undefined) {
-      const bound = await getMcpPortalGrant(env, owner, portal);
-      if (!bound || bound.id !== expectedGrantId || previous?.id !== expectedGrantId || bound.instance !== instance) {
+      const bound = previous.grant;
+      if (!bound || bound.id !== expectedGrantId || bound.instance !== instance) {
         throw new Error('MCP connection changed');
       }
     }
@@ -153,8 +152,10 @@ export async function beginMcpPortalConnect(env: Env, owner: string, portal: Mcp
     }
     stage = 'pending-publication';
     const pending: Pending = { owner, portal, instance, id: random(), discovery, client, resource, state, verifier: codeVerifier,
-      expiresAt: Date.now() + 300_000, previous: previous?.id ?? null };
-    await env.KV.put(pendingKey(state), await encryptForKV(JSON.stringify(pending), await encryption(env), pendingKey(state)), { expirationTtl: 300 });
+      expiresAt: Date.now() + 300_000, fence: previous.snapshot.fence };
+    const ciphertext = await encryptMcpRecord(env, mcpRecordContext(owner, pending.fence.epoch, 'pending', state), pending);
+    if (!await getBucketOwnerStub(env, owner).mcpPortalSavePending(owner, { state, portalName: portal.name,
+      expected: pending.fence, expiresAt: pending.expiresAt, ciphertext })) throw new Error('MCP connection changed');
     oauthDiagnostic('connect', stage, 'completed');
     return authorizationUrl.href;
   } catch (error) {
@@ -167,22 +168,21 @@ export async function finishMcpPortalConnect(env: Env, owner: string, instance: 
   let stage: OAuthStage = 'state-lookup';
   try {
     if (!/^[a-f0-9]{64}$/.test(state)) throw new Error('Invalid MCP state');
-    const pending = await read<Pending>(env, pendingKey(state));
     stage = 'state-binding';
-    if (!pending || pending.owner !== owner || pending.instance !== instance || pending.state !== state || pending.expiresAt <= Date.now()
-      || !await configured(env, pending.portal) || (issuer && issuer !== pending.discovery.authorizationServerUrl)) throw new Error('MCP state binding mismatch');
-    // Existing nonce mechanism has KV eventual-consistency limits; the provider also enforces single-use codes.
-    stage = 'nonce-claim';
-    if (!await claimOauthNonce(env.KV, `mcp-${state}`, 600)) throw new Error('MCP state already used');
+    const consumed = await getBucketOwnerStub(env, owner).mcpPortalConsumePending(owner, state, { instance, issuer });
+    const pending = consumed ? await decryptMcpRecord<Pending>(env,
+      mcpRecordContext(owner, consumed.fence.epoch, 'pending', state), consumed.ciphertext) : null;
+    if (!pending || !consumed || !sameFence(pending.fence, consumed.fence) || pending.portal.name !== consumed.portalName
+      || pending.owner !== owner || pending.instance !== instance || pending.state !== state || pending.expiresAt <= Date.now()
+      || !await configured(env, pending.portal) || (issuer && issuer !== pending.discovery.authorizationServerUrl)) throw new Error('MCP state binding mismatch or connection changed');
     stage = 'pending-consume';
-    await env.KV.delete(pendingKey(state));
     stage = 'authorization-response';
     if (!code || code.length > 8192 || /[\s\x00-\x1f\x7f]/.test(code)) throw new Error('MCP authorization cancelled');
     stage = 'discovery-validation';
     validateDiscovery(pending.discovery, pending.portal);
     stage = 'connection-check';
-    const beforeExchange = await read<Connection>(env, connectionKey(owner, pending.portal.name));
-    if ((beforeExchange?.id ?? null) !== pending.previous) throw new Error('MCP connection changed');
+    const beforeExchange = await getBucketOwnerStub(env, owner).mcpPortalRead(owner, pending.portal.name);
+    if (!sameFence(beforeExchange.fence, pending.fence)) throw new Error('MCP connection changed');
     stage = 'code-exchange';
     const tokens = await exchangeAuthorization(pending.discovery.authorizationServerUrl, {
       metadata: pending.discovery.authorizationServerMetadata, clientInformation: pending.client, authorizationCode: code,
@@ -191,20 +191,25 @@ export async function finishMcpPortalConnect(env: Env, owner: string, instance: 
     stage = 'token-validation';
     validTokens(tokens);
     stage = 'publication-check';
-    const current = await read<Connection>(env, connectionKey(owner, pending.portal.name));
-    if ((current?.id ?? null) !== pending.previous || !await configured(env, pending.portal)) throw new Error('MCP connection changed');
+    const current = await getBucketOwnerStub(env, owner).mcpPortalRead(owner, pending.portal.name);
+    if (!sameFence(current.fence, pending.fence) || !await configured(env, pending.portal)) throw new Error('MCP connection changed');
     const grant: PortalGrant = { owner, portal: pending.portal, instance, id: pending.id, discovery: pending.discovery,
       client: pending.client, resource: pending.resource, tokens, ...(tokens.expires_in ? { expiresAt: Date.now() + tokens.expires_in * 1000 } : {}) };
     stage = 'grant-publication';
-    await write(env, connectionKey(owner, pending.portal.name), { id: grant.id, grant });
+    const ciphertext = await encryptMcpRecord(env, mcpRecordContext(owner, pending.fence.epoch, 'grant', pending.portal.name), { id: grant.id, grant });
+    if (!await getBucketOwnerStub(env, owner).mcpPortalPublish(owner, pending.portal.name, pending.fence, ciphertext)) {
+      throw new Error('MCP connection changed');
+    }
     oauthDiagnostic('callback', stage, 'completed');
   } catch (error) {
     oauthDiagnostic('callback', stage, 'rejected', error);
     throw error;
   }
 }
-export async function getMcpPortalGrant(env: Env, owner: string, portal: McpPortal): Promise<PortalGrant | null> {
-  const record = await read<Connection>(env, connectionKey(owner, portal.name));
+function sameFence(left: McpFence, right: McpFence): boolean {
+  return !!left && !!right && left.epoch === right.epoch && left.revision === right.revision;
+}
+async function validateGrant(env: Env, owner: string, portal: McpPortal, record: Connection | null): Promise<PortalGrant | null> {
   const grant = record?.grant;
   if (!grant || record?.id !== grant.id || grant.owner !== owner || grant.portal.name !== portal.name || grant.portal.url !== portal.url
     || !await configured(env, portal)) return null;
@@ -212,6 +217,40 @@ export async function getMcpPortalGrant(env: Env, owner: string, portal: McpPort
   if (domain && (!isValidCustomDomain(domain) || grant.instance !== new URL(`https://${domain}`).origin)) return null;
   validateDiscovery(grant.discovery, portal); validTokens(grant.tokens);
   return grant;
+}
+async function readGrant(env: Env, owner: string, portal: McpPortal): Promise<{ snapshot: McpSnapshot; grant: PortalGrant | null } | null> {
+  await encryption(env);
+  const stub = getBucketOwnerStub(env, owner);
+  try {
+    let snapshot = await stub.mcpPortalRead(owner, portal.name);
+    if (snapshot.legacyImportEligible) {
+      // One encrypted legacy snapshot, never a fallback after authoritative state.
+      const legacy = await read<Connection>(env, connectionKey(owner, portal.name));
+      if (await validateGrant(env, owner, portal, legacy)) {
+        const ciphertext = await encryptMcpRecord(env, mcpRecordContext(owner, snapshot.fence.epoch, 'grant', portal.name), legacy);
+        const imported = await stub.mcpPortalImport(owner, portal.name, snapshot.fence, ciphertext);
+        if (imported) snapshot = imported;
+        else {
+          const current = await stub.mcpPortalRead(owner, portal.name);
+          if (current.fence.epoch !== snapshot.fence.epoch) return null;
+          snapshot = current;
+        }
+      }
+    }
+    const record = snapshot.ciphertext ? await decryptMcpRecord<Connection>(env,
+      mcpRecordContext(owner, snapshot.fence.epoch, 'grant', portal.name), snapshot.ciphertext) : null;
+    const grant = await validateGrant(env, owner, portal, record);
+    // Decryption/configuration reads can yield to offboarding or Disconnect.
+    // Never return credentials from a snapshot that lost its authority meanwhile.
+    const current = await stub.mcpPortalRead(owner, portal.name);
+    return sameFence(current.fence, snapshot.fence) ? { snapshot, grant } : null;
+  } catch (error) {
+    if (isMcpOffboardingError(error)) return null;
+    throw error;
+  }
+}
+export async function getMcpPortalGrant(env: Env, owner: string, portal: McpPortal): Promise<PortalGrant | null> {
+  return (await readGrant(env, owner, portal))?.grant ?? null;
 }
 export interface McpPortalTokenFailure {
   reason: 'lookup-unavailable' | 'lookup-throws' | 'no-refresh-token' | 'refresh-error' | 'concurrent-change' | 'readback-rejected';
@@ -247,10 +286,16 @@ export async function getValidMcpPortalToken(env: Env, owner: string, portal: Mc
     oauthDiagnostic('renewal', diagnosticStage!, outcome);
     return token;
   };
-  let grant: PortalGrant | null;
-  try { grant = await getMcpPortalGrant(env, owner, portal); }
+  let observed: Awaited<ReturnType<typeof readGrant>>;
+  try { observed = await readGrant(env, owner, portal); }
   catch (error) { fail('lookup-throws'); throw error; }
-  if (!grant) return fail('lookup-unavailable');
+  const grant = observed?.grant;
+  if (!grant || !observed) return fail('lookup-unavailable');
+  const originalFence = observed.snapshot.fence;
+  const winner = async () => {
+    const current = await readGrant(env, owner, portal);
+    return current?.snapshot.fence.epoch === originalFence.epoch ? current.grant : null;
+  };
   if (!grant.expiresAt || grant.expiresAt > Date.now() + 60_000) return grant.tokens.access_token;
   if (!grant.tokens.refresh_token) return fail('no-refresh-token');
   let stage: 'refresh' | 'publication' = 'refresh';
@@ -264,28 +309,31 @@ export async function getValidMcpPortalToken(env: Env, owner: string, portal: Mc
     validTokens(tokens);
     stage = 'publication';
     diagnosticStage = 'publication-check';
-    const current = await getMcpPortalGrant(env, owner, portal);
+    const current = await winner();
     if (!current || current.id !== grant.id) return fail('concurrent-change');
     if (changedTokens(current, grant)) {
       return renewedGrant(current, grant) ? renewed(current.tokens.access_token, 'reused-current') : fail('concurrent-change');
     }
-    const updated: PortalGrant = { ...grant, tokens, expiresAt: tokens.expires_in ? Date.now() + tokens.expires_in * 1000 : undefined };
+    const updated: PortalGrant = { ...grant, tokens: { ...tokens, refresh_token: tokens.refresh_token ?? grant.tokens.refresh_token }, expiresAt: tokens.expires_in ? Date.now() + tokens.expires_in * 1000 : undefined };
     diagnosticStage = 'grant-publication';
-    await write(env, connectionKey(owner, portal.name), { id: grant.id, grant: updated });
+    const ciphertext = await encryptMcpRecord(env, mcpRecordContext(owner, originalFence.epoch, 'grant', portal.name), { id: grant.id, grant: updated });
+    const committed = await getBucketOwnerStub(env, owner).mcpPortalPublish(owner, portal.name, originalFence, ciphertext);
+    if (!committed) {
+      const current = await winner();
+      return renewedGrant(current, grant) ? renewed(current.tokens.access_token, 'reused-current') : fail('concurrent-change');
+    }
     diagnosticStage = 'readback';
-    // Reject observed disconnect/config changes; KV is not an atomic CAS store.
-    const after = await getMcpPortalGrant(env, owner, portal);
+    // Return only an observed committed winner in the original epoch and lineage.
+    const after = await winner();
     if (!after || after.id !== grant.id) return fail('readback-rejected');
     if (renewedGrant(after, grant)) return renewed(after.tokens.access_token);
-    // An unchanged same-generation read may lag our completed write. Never send
-    // its old access token instead of the successful refresh result.
-    return !changedTokens(after, grant) ? renewed(updated.tokens.access_token) : fail('readback-rejected');
+    return fail('readback-rejected');
   } catch (error) {
     // A losing rotating refresh before winner publication remains fail-closed.
     // Only an observed renewed same-generation grant is safe; never retry writes.
     renewalError = error;
     try {
-      const current = await getMcpPortalGrant(env, owner, portal);
+      const current = await winner();
       if (renewedGrant(current, grant)) {
         diagnosticStage = 'winner-lookup';
         return renewed(current.tokens.access_token, 'reused-current');
@@ -295,17 +343,30 @@ export async function getValidMcpPortalToken(env: Env, owner: string, portal: Mc
   }
 }
 export async function disconnectMcpPortal(env: Env, owner: string, portal: McpPortal, send: typeof fetch = fetch): Promise<void> {
-  const grant = await getMcpPortalGrant(env, owner, portal);
-  // Tombstone precedes remote revocation; a failed revoke never restores local access.
-  await write(env, connectionKey(owner, portal.name), { id: random(), grant: null });
-  const metadata = grant?.discovery.authorizationServerMetadata;
-  const endpoint = metadata && 'revocation_endpoint' in metadata ? metadata.revocation_endpoint : undefined;
-  if (grant && typeof endpoint === 'string' && endpoint) {
+  // Tombstone and capture the previous grant in one transaction, before revocation.
+  const { previous } = await getBucketOwnerStub(env, owner).mcpPortalDisconnect(owner, portal.name);
+  const legacyKey = connectionKey(owner, portal.name);
+  try {
+    let grant: PortalGrant | null = null;
     try {
-      await portalOAuthFetch(send)(endpoint, { method: 'POST', body: new URLSearchParams({
-        token: grant.tokens.refresh_token ?? grant.tokens.access_token, client_id: grant.client.client_id,
-        token_type_hint: grant.tokens.refresh_token ? 'refresh_token' : 'access_token',
-      }) });
-    } catch { /* Local disconnect is effective even when provider revocation is unavailable. */ }
+      const record = previous.ciphertext ? await decryptMcpRecord<Connection>(env,
+        mcpRecordContext(owner, previous.fence.epoch, 'grant', portal.name), previous.ciphertext)
+        : previous.legacyImportEligible ? await read<Connection>(env, legacyKey) : null;
+      grant = await validateGrant(env, owner, portal, record);
+    } catch { /* Unreadable credentials cannot prevent local erasure. */ }
+    const metadata = grant?.discovery.authorizationServerMetadata;
+    const endpoint = metadata && 'revocation_endpoint' in metadata ? metadata.revocation_endpoint : undefined;
+    if (grant && typeof endpoint === 'string' && endpoint) {
+      try {
+        await portalOAuthFetch(send)(endpoint, { method: 'POST', body: new URLSearchParams({
+          token: grant.tokens.refresh_token ?? grant.tokens.access_token, client_id: grant.client.client_id,
+          token_type_hint: grant.tokens.refresh_token ? 'refresh_token' : 'access_token',
+        }) });
+      } catch { /* Local disconnect is effective even when provider revocation is unavailable. */ }
+    }
+  } finally {
+    // Never import a legacy grant during Disconnect, and never report a failed
+    // legacy deletion as confirmed erasure. The authoritative tombstone stays.
+    await env.KV.delete(legacyKey);
   }
 }

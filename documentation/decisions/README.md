@@ -301,6 +301,8 @@ Session PATCH/stop overlap is rare, rate limit off-by-one is minor, `lastAccesse
 
 **Consequences:** The original compact ADR did not record a separate consequences field.
 
+**MCP credential exception (2026-11-21):** MCP grants and pending authorization use the existing bucket-owner Durable Object, not KV last-writer-wins. Credential publication atomically checks owner epoch and portal revision; offboarding invalidates the epoch and permanently closes legacy import. Legacy KV migration and deletion remain distinct from immediate non-resurrection. This exception leaves unrelated KV allowances and AD155's D1 session authority unchanged.
+
 ---
 
 ### AD7: Merged into AD10

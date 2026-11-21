@@ -568,7 +568,14 @@ None.
 2. Deleting a user removes all owned settings, sessions, notification enrollments, R2 data, and scoped tokens. Confirm container cleanup, then provider revocation while user data and scoped access remain; only afterward revoke scoped tokens and remove storage/local state, with the user record last. <!-- @test: src/__tests__/lib/user-cleanup.test.ts (REQ-AUTH-018 AC3 / REQ-SEC-003 AC6: provider %s preserves storage authority until revocation and retry converges) --> <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData --> <!-- @impl: src/lib/user-cleanup.ts::deleteUserKvEntries --> <!-- @test: src/__tests__/routes/users.test.ts (Users Routes / REQ-AUTH-018 (user management admin panel)) --> <!-- @test: src/__tests__/lib/user-cleanup.test.ts (REQ-AUTH-018 AC3: follows paginated push-subscription cursors until complete) -->
 3. User offboarding uses strict GitHub App/OAuth revocation: failure retains outstanding provider credentials, storage and scoped access for authorized retry. Ordinary disconnect and manual PAT behavior remain unchanged. <!-- @impl: src/lib/github-token.ts::disconnectGithub --> <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData --> <!-- @test: src/__tests__/lib/user-cleanup.test.ts (REQ-AUTH-018 AC3 / REQ-SEC-003 AC6: provider %s preserves storage authority until revocation and retry converges) -->
 
-**Constraints:** [REQ-GITHUB-005](github.md#req-github-005-disconnect-and-offboarding-revocation) owns ordinary disconnect and manual PAT handling.
+4. Before destructive cleanup, the owner invalidates MCP grants and pending authorizations. Old callbacks and refreshes cannot publish across that boundary. Failed cleanup keeps admission closed; success permits new explicit authorization, never legacy reimport. <!-- @impl: src/container/index.ts::cleanupOwnedUser --> <!-- @impl: src/lib/mcp-portal-state.ts::beginOffboarding --> <!-- @test: src/__tests__/lib/user-cleanup.test.ts (REQ-AUTH-026 AC2 / REQ-AGENT-226 AC2/5: offboarding between the final %s observation and commit cannot be overwritten) -->
+
+**Constraints:**
+
+- [REQ-GITHUB-005](github.md#req-github-005-disconnect-and-offboarding-revocation) owns ordinary disconnect and manual PAT handling.
+- Live cleanup is owner-serialized; started deletions settle before exclusion is released. Failure does not reopen MCP admission. Retrying deletion remains explicitly authorized, not automatically replayed from an unfinished fence. <!-- @test: src/__tests__/lib/user-cleanup.test.ts (REQ-AUTH-026 AC2: rejected parallel KV deletion retains live cleanup exclusion until all started deletes settle) -->
+- Deletion remains by email, not by account incarnation or public idempotency key; a new authorized deletion can target a recreated account.
+- Legacy connection-key deletion is not immediate KV replica erasure. Unfenced legacy pending OAuth records are rejected and retain their existing expiry.
 
 **Priority:** P1
 

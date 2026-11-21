@@ -33,14 +33,6 @@ vi.mock('../../lib/r2-config', () => ({
 const containerState = vi.hoisted(() => ({
   destroy: vi.fn(),
 }));
-vi.mock('@cloudflare/containers', () => ({
-  // Only the external SDK/container process is replaced. Owner methods and
-  // transactions still execute on the production container class.
-  Container: class {
-    constructor(public ctx: DurableObjectState, public env: unknown) {}
-  },
-  getContainer: vi.fn(() => containerState),
-}));
 
 import { cleanupUserData } from '../../lib/user-cleanup';
 import type { Env } from '../../types';
@@ -84,6 +76,9 @@ describe('cleanupUserData', () => {
     globalThis.fetch = mockFetch;
     mockFetch.mockResolvedValue(new Response('{}', { status: 200 }));
     mockDeleteScopedR2Token.mockResolvedValue(undefined);
+    // The shared fixture owns the SDK base seam; cleanup supplies only its
+    // external session-destruction transport, never an MCP state implementation.
+    mockGetContainer.mockReturnValue(containerState as unknown as ReturnType<typeof getContainer>);
     mockContainerDestroy.mockResolvedValue(undefined);
     mockEmptyR2Bucket.mockResolvedValue(0);
     mockCreateR2Client.mockReturnValue({});
@@ -743,6 +738,73 @@ describe('cleanupUserData', () => {
     expect(mockKV._store.has(configured)).toBe(false);
     expect(await mockKV.get(neighbor)).toBe('other owner encrypted record');
     expect(await mockKV.get(`user:${email}`)).toBeNull();
+  });
+
+  it('REQ-AUTH-026 AC2: rejected parallel KV deletion retains live cleanup exclusion until all started deletes settle', async () => {
+    const f = await mcpCleanupFixture();
+    const failedKey = `storage-stats:${bucketName}`;
+    const heldKeys = [`presets:${bucketName}`, `user-prefs:${bucketName}`];
+    for (const key of [failedKey, ...heldKeys]) mockKV._set(key, { retained: key });
+    const started = new Set<string>();
+    const allStarted = deferred(); const rejectDelete = deferred(); const rejectionRaised = deferred();
+    const heldDeletes = heldKeys.map(() => deferred());
+    const completedDeletes = heldKeys.map(() => deferred());
+    const remove = mockKV.delete.getMockImplementation()!;
+    mockKV.delete.mockImplementation(async key => {
+      if (key === failedKey || heldKeys.includes(key)) {
+        started.add(key);
+        if (started.size === heldKeys.length + 1) allStarted.resolve();
+      }
+      if (key === failedKey) {
+        await rejectDelete.promise;
+        rejectionRaised.resolve();
+        throw new Error('synthetic parallel KV deletion unavailable');
+      }
+      const index = heldKeys.indexOf(key);
+      if (index !== -1) await heldDeletes[index]!.promise;
+      await remove(key);
+      if (index !== -1) completedDeletes[index]!.resolve();
+    });
+    let firstSettled = false;
+    const first = cleanupUserData(email, f.env).then(
+      value => { firstSettled = true; return { status: 'fulfilled' as const, value }; },
+      reason => { firstSettled = true; return { status: 'rejected' as const, reason }; },
+    );
+    try {
+      await allStarted.promise;
+      rejectDelete.resolve();
+      await rejectionRaised.promise;
+      // Let the rejection propagate through the real owner RPC. No pending
+      // deletion can complete on this turn: only the explicit gates release it.
+      await new Promise<void>(resolve => setTimeout(resolve, 0));
+      expect(firstSettled).toBe(false);
+      await expect(cleanupUserData(email, f.env)).rejects.toMatchObject({
+        code: 'user_cleanup_incomplete', statusCode: 503,
+      });
+      expect(await mockKV.get(`user:${email}`, 'json')).toEqual({ role: 'user' });
+      for (const key of heldKeys) expect(await mockKV.get(key, 'json')).toEqual({ retained: key });
+      expect(await getValidMcpPortalToken(f.env, bucketName, portal, f.send)).toBeNull();
+      await expect(f.begin(bucketName)).rejects.toThrow();
+      // Waiting for just one successful sibling is also insufficient.
+      heldDeletes[0]!.resolve();
+      await completedDeletes[0]!.promise;
+      expect(await mockKV.get(heldKeys[0]!)).toBeNull();
+      expect(firstSettled).toBe(false);
+      await expect(cleanupUserData(email, f.env)).rejects.toMatchObject({
+        code: 'user_cleanup_incomplete', statusCode: 503,
+      });
+      expect(await mockKV.get(`user:${email}`, 'json')).toEqual({ role: 'user' });
+    } finally {
+      rejectDelete.resolve();
+      for (const gate of heldDeletes) gate.resolve();
+      await first;
+    }
+    expect(await first).toMatchObject({ status: 'rejected', reason: expect.any(Error) });
+    for (const key of heldKeys) expect(await mockKV.get(key)).toBeNull();
+    expect(await mockKV.get(failedKey, 'json')).toEqual({ retained: failedKey });
+    expect(await mockKV.get(`user:${email}`, 'json')).toEqual({ role: 'user' });
+    expect(await getValidMcpPortalToken(f.env, bucketName, portal, f.send)).toBeNull();
+    await expect(f.begin(bucketName)).rejects.toThrow();
   });
 
   it('REQ-AUTH-026 AC2: live cleanup exclusion rejects a second deletion rather than erasing a recreated generation', async () => {

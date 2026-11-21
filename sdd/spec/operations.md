@@ -346,7 +346,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. In stress-test deployment mode, all HTTP and WebSocket rate limits are bypassed to allow high virtual-user counts through a single service-token identity. <!-- @impl: src/middleware/rate-limit.ts::createRateLimiter --> <!-- @test: src/__tests__/middleware/rate-limit.test.ts (createRateLimiter / REQ-SEC-007 AC1 (factory keyed by bucketName with CF-Connecting-IP fallback) / REQ-SEC-007 AC2 (KV primary + in-memory fallback with TTL) / REQ-SEC-007 AC3 (429 with RATE_LIMIT_ERROR) / REQ-SEC-007 AC4 (X-RateLimit headers) / REQ-SEC-019 AC5 (STRESS_TEST_MODE bypass)) -->
 2. The HTTP and WebSocket rate-limit bypasses share one warning per Worker instance, emitted when the bypass activates. <!-- @impl: src/middleware/rate-limit.ts::warnStressTestBypass --> <!-- @test: src/__tests__/middleware/rate-limit.test.ts (REQ-OPS-008 AC5: one-time warning per isolate) -->
-3. Stress-test mode must not be active alongside SaaS mode; the combination returns 503 to all requests. <!-- @test: src/__tests__/index.test.ts (REQ-OPS-008 AC6 (SAAS_MODE + STRESS_TEST_MODE conflict guard)) --> <!-- @manual -->
+3. Stress-test mode must not be active alongside SaaS mode; the combination returns 503 to all requests. <!-- @impl: src/index.ts::requestRouter --> <!-- @test: src/__tests__/index.test.ts (REQ-SEC-019 / REQ-OPS-164 AC3: returns secured 503 for $surface with $mode SaaS and active stress) --> <!-- @test: src/__tests__/index.test.ts (REQ-OPS-008 AC6 (SAAS_MODE + STRESS_TEST_MODE conflict guard)) --> <!-- @manual -->
 
 **Constraints:**
 

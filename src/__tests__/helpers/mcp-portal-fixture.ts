@@ -1,3 +1,4 @@
+import { vi } from 'vitest';
 import { createMockKV } from './mock-kv';
 import { SETUP_KEYS } from '../../lib/kv-keys';
 import type { Env } from '../../types';
@@ -5,11 +6,21 @@ import { beginMcpPortalConnect, finishMcpPortalConnect, type PortalGrant } from 
 import { env as workerEnv, runInDurableObject } from 'cloudflare:test';
 import { encryptForKV, getOrImportKey } from '../../lib/kv-crypto';
 
+// Replace only the external SDK/process boundary. The production subclass still
+// initializes its own fields and executes every owner method against native storage.
+vi.mock('@cloudflare/containers', async importOriginal => ({
+  ...await importOriginal<typeof import('@cloudflare/containers')>(),
+  Container: class {
+    constructor(public ctx: DurableObjectState, public env: Env) {}
+  },
+  getContainer: vi.fn(() => { throw new Error('Container allocation is forbidden in the MCP owner fixture'); }),
+}));
+
 // The approved internal wire contract, not a second implementation of the state
 // machine. Calls below always reach the real container class and native storage.
-export interface McpFence { epoch: string; revision: number }
-export interface McpSnapshot { fence: McpFence; ciphertext: string | null; legacyImportEligible: boolean }
-export interface McpOwnerRpc {
+interface McpFence { epoch: string; revision: number }
+interface McpSnapshot { fence: McpFence; ciphertext: string | null; legacyImportEligible: boolean }
+interface McpOwnerRpc {
   claimBucketOwner(email: string, initial: boolean): Promise<'owned' | 'conflict' | 'ambiguous'>;
   mcpPortalRead(owner: string, portalName: string): Promise<McpSnapshot>;
   mcpPortalImport(owner: string, portalName: string, expected: McpFence, ciphertext: string): Promise<McpSnapshot | null>;
@@ -32,7 +43,10 @@ export async function attachMcpOwners(env: Env, transport?: {
   before?: (method: PropertyKey) => void | Promise<void>;
   after?: (method: PropertyKey, result: unknown) => Promise<void>;
 }) {
-  const namespace = (workerEnv as unknown as { CONTAINER: DurableObjectNamespace }).CONTAINER;
+  // Borrow the existing non-container DO solely for its native identity/storage
+  // and execution context. Using CONTAINER would construct the unsupported SDK
+  // process owner before runInDurableObject can enter this callback.
+  const namespace = (workerEnv as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
   const salt = crypto.randomUUID();
   const idFromName = (name: string) => namespace.idFromName(`${salt}:${name}`);
   type Container = import('../../container/index').container;
