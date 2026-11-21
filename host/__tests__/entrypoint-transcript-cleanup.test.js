@@ -557,6 +557,33 @@ bisync_with_r2 ''
     }
   });
 
+  test('REQ-STOR-012 AC1/AC5: a symlinked transcript-root ancestor cannot prune another directory', () => {
+    const scratch = makeScratch();
+    try {
+      for (const agent of ['claude', 'pi']) {
+        const outside = join(scratch.dir, `${agent}-other-data`);
+        const rootName = agent === 'claude' ? 'projects' : 'sessions';
+        const target = join(outside, rootName);
+        const home = join(scratch.dir, `${agent}-home`);
+        mkdirSync(target, { recursive: true });
+        mkdirSync(home, { recursive: true });
+        const linkedParent = join(home, 'agent-config');
+        symlinkSync(outside, linkedParent);
+        const paths = Array.from({ length: 12 }, (_, index) => (agent === 'claude' ? writeClaude : writePi)(target, index, index, 50_000 + index));
+        if (agent === 'pi') {
+          const conflict = join(target, 'retained.conflict.jsonl');
+          writeFileSync(conflict, 'unrelated conflict data');
+          paths.push(conflict);
+        }
+        const contents = paths.map(path => readFileSync(path, 'utf8'));
+        runRetention(agent, join(linkedParent, rootName));
+        assert.deepEqual(paths.map(path => existsSync(path) ? readFileSync(path, 'utf8') : null), contents);
+      }
+    } finally {
+      scratch.cleanup();
+    }
+  });
+
   test('AC6: ten or fewer transcripts are retained without parsing or deletion', () => {
     const scratch = makeScratch();
     try {

@@ -363,6 +363,39 @@ describe('POST /billing/checkout / REQ-SUB-020 (multi-currency pricing from CF-I
   });
 });
 
+describe('REQ-SUB-017: Custom remains contact-only at the billing boundary', () => {
+  it.each(['checkout', 'switch'] as const)('refuses %s even when a Custom price is configured', async action => {
+    mockAuthShouldReject = false;
+    mockAuthResult.user = { email: 'user@example.com', authenticated: true, role: 'user', accessTier: 'standard', subscriptionTier: 'standard' };
+    vi.clearAllMocks();
+    const { app, mockKV } = createApp();
+    mockKV._set('tiers:config', getDefaultTiers().map(tier => tier.id === 'unlimited'
+      ? { ...tier, stripePriceId: 'price_custom' } : tier));
+    const user = { email: 'user@example.com', billingStatus: 'active', stripeCustomerId: 'cus_123', stripeSubscriptionId: 'sub_123' };
+    mockKV._set('user:user@example.com', user);
+    if (action === 'switch') {
+      vi.mocked(fetchSubscription).mockResolvedValueOnce({
+        subscriptionId: 'sub_123', subscriptionItemId: 'si_123', customerId: 'cus_123',
+        status: 'active', tier: 'standard', mode: 'default', priceId: 'price_std_default',
+        billingPeriodEnd: '2026-04-27T00:00:00Z', cancelAtPeriodEnd: false,
+      });
+    }
+    try {
+      const response = await app.request(`/billing/${action}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tier: 'unlimited' }),
+      });
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ code: 'VALIDATION_ERROR', error: 'Contact the team to request the Custom tier.' });
+      expect(await mockKV.get('user:user@example.com', 'json')).toEqual(user);
+      expect(createCheckoutSession).not.toHaveBeenCalled();
+      expect(fetchSubscription).not.toHaveBeenCalled();
+      expect(createSwitchPortalSession).not.toHaveBeenCalled();
+    } finally {
+      vi.mocked(fetchSubscription).mockReset();
+    }
+  });
+});
+
 describe('DEEP-22-004: enterprise billing guards precede action limiters', () => {
   it('keeps checkout, portal, and switch at 403 beyond their SaaS limiter budgets', async () => {
     vi.clearAllMocks();

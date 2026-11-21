@@ -2270,9 +2270,9 @@ export class OperatorActivity extends Agent {
     this.#resumeDispatcherOnEntry();
     const record = await this.ctx.storage.get<AdmissionState>('admission');
     const operation = record?.syncOperations?.[operationId];
-    if (!operation) return { ok: false, reason: 'not-prepared' };
+    if (!record || !operation) return { ok: false, reason: 'not-prepared' };
     if (operation.phase !== 'prepared') return { ok: false, reason: 'sealed' };
-    if (operation.deadline <= Date.now()) return { ok: false, reason: 'authority-expired' };
+    if (Math.min(operation.deadline, record.intent.deadline) <= Date.now()) return { ok: false, reason: 'authority-expired' };
     const privateKey = key.startsWith(operation.prefix) && key !== operation.prefix;
     if ((!privateKey && !operation.keys.includes(key)) || !canonicalSyncPrefix(operation.prefix, operationId)
       || !canonicalSyncKey(key)) return { ok: false, reason: 'invalid-scope' };
@@ -2307,7 +2307,7 @@ export class OperatorActivity extends Agent {
         return operation.manifestDigest === manifestDigest
           ? { ok: true, phase: operation.phase } : { ok: false, reason: 'conflict' };
       }
-      if (operation.deadline <= Date.now()) return { ok: false, reason: 'authority-expired' };
+      if (Math.min(operation.deadline, record.intent.deadline) <= Date.now()) return { ok: false, reason: 'authority-expired' };
       const uploaded: OperatorSyncState = { ...operation, phase: 'uploaded', manifestDigest };
       await tx.put<AdmissionState>('admission', { ...record,
         syncOperations: { ...record.syncOperations, [operationId]: uploaded } });
@@ -5619,10 +5619,11 @@ export class OperatorActivity extends Agent {
         const value = operation.body as { operationId: string; requestDigest?: string;
           sourceResponse?: { generation: number; requestDigest: string; responseDigest: string; url: string };
           readbacks?: Array<{ operationId: string; requestDigest: string; responseDigest: string }> };
-        return await this.ctx.storage.transaction(async tx => {
+        const receiptResult = await this.ctx.storage.transaction(async tx => {
           const record = await tx.get<AdmissionState>('admission');
           const live = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
-          if (!this.#leaseMatches(record, live, generation) || !this.#phaseTokenMatches(live, deliveryToken, true, modelScope)) return denied();
+          if (!record || !live || !this.#leaseMatches(record, live, generation)
+            || !this.#phaseTokenMatches(live, deliveryToken, true, modelScope)) return denied();
           const journal = await loadDispatcherJournal(tx, generation);
           const original = await tx.get<DispatcherOperationRecord>(dispatcherEntryKey(journal, value.operationId));
           if (!original?.request || original.generation !== generation) return denied('receipt-unavailable');
@@ -5640,11 +5641,14 @@ export class OperatorActivity extends Agent {
               try { sourceResponse = parseRetainedDispatcherSource(retained.body, proof.url, sourceBytes); }
               catch { return denied('receipt-unavailable'); }
             }
-            return Response.json({ operationId: value.operationId,
+            const response = Response.json({ operationId: value.operationId,
               generation, requestDigest: original.requestDigest, ...original.request, phase: original.phase,
               operationCount: journal.count, operationLimit,
               ...(original.responseDigest ? { responseDigest: original.responseDigest } : {}),
               ...(sourceResponse === undefined ? {} : { sourceResponse }) });
+            return sourceResponse === undefined ? response : {
+              response, expiresAt: Math.min(live.expiresAt, record.intent.deadline),
+            };
           }
           if (original.requestDigest !== value.requestDigest) return dispatcherRefusal('operation-conflict', 409, 'OPERATOR_OPERATION_CONFLICT');
           const readbacks = value.readbacks!;
@@ -5670,6 +5674,9 @@ export class OperatorActivity extends Agent {
             phase: 'completed', resolution: { readbacks }, responseDigest: await sha256(response.body) });
           return Response.json(resolved);
         });
+        // Retained bytes can outlive the deadline while storage or digest verification awaits.
+        if (receiptResult instanceof Response) return receiptResult;
+        return Date.now() < receiptResult.expiresAt ? receiptResult.response : denied();
       }
       const phaseLease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
       if (!this.#phaseTokenMatches(phaseLease, deliveryToken, true, modelScope)) return denied();

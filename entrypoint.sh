@@ -3638,8 +3638,11 @@ const fs = require('node:fs');
 const path = process.argv[2];
 try {
   let settings = {};
-  if (fs.existsSync(path)) {
-    const stat = fs.lstatSync(path);
+  let stat;
+  try { stat = fs.lstatSync(path); } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+  if (stat) {
     if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('invalid configuration');
     settings = JSON.parse(fs.readFileSync(path, 'utf8'));
     if (!settings || typeof settings !== 'object' || Array.isArray(settings)) throw new Error('invalid configuration');
@@ -4565,11 +4568,37 @@ remove_owned_browser_mcp_servers() {
 
     local tmp_json
     tmp_json=$(mktemp)
-    if jq --argjson names "$owned_names" '
-        reduce $names[] as $name (. ; del(.mcpServers[$name]))
-        | if ((.mcpServers // {}) | length) == 0 then del(.mcpServers) else . end
+    if jq --argjson names "$owned_names" --arg bin "${CHROME_DEVTOOLS_MCP_BIN:-/opt/codeflare/bin/chrome-devtools-mcp}" '
+        # Recognize complete generated constructors, not names or current credentials.
+        # Unknown/custom fields make ownership ambiguous, so preserve the entry.
+        def owned($name):
+            try (
+                if type != "object" then false
+                elif $name == "chrome-devtools" then
+                    keys == ["args", "command", "timeout"]
+                    and .command == $bin and .timeout == 360000
+                    and (.args | type == "array" and length == 2)
+                    and (.args[0] | test("^--wsEndpoint=wss://api\\.cloudflare\\.com/client/v4/accounts/[A-Za-z0-9_-]+/browser-rendering/devtools/browser\\?keep_alive=1200000$"))
+                    and (.args[1] | startswith("--wsHeaders="))
+                    and (.args[1] | ltrimstr("--wsHeaders=") | fromjson
+                        | keys == ["Authorization"]
+                        and (.Authorization | type == "string" and startswith("Bearer ") and length > 7))
+                elif $name == "browser-run" then
+                    keys == ["args", "command", "env", "timeout"]
+                    and .command == "node" and .timeout == 360000
+                    and .args == ["/opt/codeflare/browser-run-mcp/index.mjs"]
+                    and (.env | keys == ["CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN"]
+                        and (.CLOUDFLARE_ACCOUNT_ID | type == "string" and test("^[A-Za-z0-9_-]+$"))
+                        and (.CLOUDFLARE_API_TOKEN | type == "string" and length > 0))
+                else false end
+            ) catch false;
+        . as $original
+        | reduce $names[] as $name (. ;
+            if (.mcpServers[$name] | owned($name)) then del(.mcpServers[$name]) else . end)
+        | if . == $original then empty
+          elif ((.mcpServers // {}) | length) == 0 then del(.mcpServers) else . end
     ' "$config_path" > "$tmp_json" 2>/dev/null; then
-        mv "$tmp_json" "$config_path"
+        if [ -s "$tmp_json" ]; then mv "$tmp_json" "$config_path"; else rm -f "$tmp_json"; fi
     else
         echo "[entrypoint] WARNING: Could not remove disabled Browser Run MCP config from $config_path (malformed JSON?)"
         rm -f "$tmp_json"
@@ -4679,9 +4708,8 @@ else
     # untouched, while stale bearer-bearing Browser Run entries cannot survive a mode
     # or credential change.
     remove_owned_browser_mcp_servers "$USER_CLAUDE_JSON" '["chrome-devtools","browser-run"]'
-    if [ "${PI_MCP_CONFIG_READY:-0}" = "1" ]; then
-        remove_owned_browser_mcp_servers "$USER_HOME/.pi/agent/mcp-adapter.json" '["chrome-devtools"]'
-    fi
+    # Pi preparation already removes positively recognized generated entries.
+    # Its remaining entries are user-owned or ambiguous, including on failure.
     rm -rf "$USER_HOME/.claude/skills/browser-run" "$USER_HOME/.claude/skills/browser-e2e" \
            "$USER_HOME/.pi/agent/skills/browser-run" "$USER_HOME/.pi/agent/skills/browser-e2e" 2>/dev/null || true
     echo "[entrypoint] Browser Run not configured; owned MCP registrations and browser skills removed"

@@ -998,6 +998,50 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     expect(await secured.getRuntimePlan()).toBeNull();
   }, false));
 
+  it('REQ-OPERATOR-003 AC4: shorter reauthentication fences prepared uploads but preserves sealed replies', () => withActivity(async ({ registry, ctx, activityEnv, token }) => {
+    const now = Date.now();
+    const policyJson = JSON.stringify({ schemaVersion: 1, networkHosts: [], github: { repositories: [], methods: [] },
+      storage: { readPrefixes: [], writePrefixes: [] }, inference: { routeIds: [], defaultRouteId: null,
+        reasoningLevels: [], defaultReasoningLevel: null, inheritUserDefaults: false } });
+    await registry.create('operator');
+    await registry.setPolicy('operator', policyJson, 1);
+    await registry.approve('operator', 'a'.repeat(64), 2);
+    await registry.setEnabled('operator', true, 3);
+    const hash = async (text: string) => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',
+      new TextEncoder().encode(text)))).map(byte => byte.toString(16).padStart(2, '0')).join('');
+    const policyDigest = await hash(policyJson);
+    const human: VerifiedHumanAccessClaims = { subject: 'owner', email: 'owner@example.test',
+      issuer: 'https://access.example.test', audiences: ['audience'], issuedAt: Math.floor(now / 1000) - 10,
+      expiresAt: Math.floor(now / 1000) + 300 };
+    const encryption = { ENCRYPTION_KEY: btoa('a'.repeat(32)) };
+    const context = await createOperatorExecutionContext({ activityId: 'activity', operatorId: 'operator',
+      artifactDigest: 'a'.repeat(64), policyDigest, human, accessJwt: 'private.jwt' }, encryption);
+    const activity = new OperatorActivity(ctx, { ...activityEnv, ...encryption });
+    const intentDigest = await createOperatorIntentDigest('operator', 'activity', 'null');
+    expect(await activity.prepareAuthorized({ operatorId: 'operator', activityId: 'activity', intentDigest,
+      expectedRevision: 4, deadline: human.expiresAt * 1000, startExpiresAt: now + 60_000,
+      startVerifier: await hash(token) }, context)).toMatchObject({ ok: true });
+    expect(await activity.start(token)).toEqual({ ok: true, phase: 'queued' });
+    for (const operationId of ['pending', 'sealed']) {
+      expect(await activity.prepareSync({ operationId, sessionId: 'session-1', requestDigest: 'd'.repeat(64),
+        policyDigest, prefix: `.codeflare/operators/activity/${operationId}/`, keys: ['Operators/result.txt'],
+        deadline: now + 60_000 })).toEqual({ ok: true, phase: 'prepared' });
+    }
+    expect(await activity.authorizeSyncWrite('pending', 'Operators/result.txt')).toEqual({ ok: true });
+    expect(await activity.recordSyncUploaded('sealed', 'e'.repeat(64))).toEqual({ ok: true, phase: 'uploaded' });
+    const identity = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ user_uuid: human.subject, email: human.email }));
+    const clock = vi.spyOn(Date, 'now');
+    try {
+      const shorter = { ...human, expiresAt: Math.floor(now / 1000) + 15 };
+      expect(await activity.reauthenticate(shorter, 'shorter.jwt')).toMatchObject({ expiresAt: shorter.expiresAt });
+      clock.mockReturnValue(shorter.expiresAt * 1000);
+      expect(await activity.authorizeSyncWrite('pending', 'Operators/result.txt')).toEqual({ ok: false, reason: 'authority-expired' });
+      expect(await activity.recordSyncUploaded('pending', 'e'.repeat(64))).toEqual({ ok: false, reason: 'authority-expired' });
+      expect(await activity.getSync('pending')).toMatchObject({ phase: 'prepared' });
+      expect(await activity.recordSyncUploaded('sealed', 'e'.repeat(64))).toEqual({ ok: true, phase: 'uploaded' });
+    } finally { clock.mockRestore(); identity.mockRestore(); }
+  }, false));
+
   it('queues authorized intent only when registry artifact and policy identities match', () => withActivity(async ({ registry, ctx, activityEnv, token }) => {
     const policyJson = JSON.stringify({ schemaVersion: 1, networkHosts: [], github: { repositories: [], methods: [] },
       storage: { readPrefixes: [], writePrefixes: [] }, inference: { routeIds: [], defaultRouteId: null,

@@ -79,6 +79,9 @@ app.post('/checkout', requireIdentity, async (c, next) => {
   if (tier === 'free') {
     throw new ValidationError('Free tier does not require payment.');
   }
+  if (tier === 'unlimited') {
+    throw new ValidationError('Contact the team to request the Custom tier.');
+  }
 
   if (!isAlreadySubscribed) {
     const turnstileSecret = c.env.TURNSTILE_SECRET_KEY
@@ -284,6 +287,9 @@ app.post('/switch', requireIdentity, async (c, next) => {
 
   if (tier === 'free') {
     throw new ValidationError('Use the Customer Portal to cancel or downgrade to free.');
+  }
+  if (tier === 'unlimited') {
+    throw new ValidationError('Contact the team to request the Custom tier.');
   }
 
   // Look up user's existing subscription

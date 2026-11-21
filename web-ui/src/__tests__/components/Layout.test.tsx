@@ -357,6 +357,37 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     expect(within(notice).queryByText(title)).toBeNull();
   });
 
+  it('REQ-STOR-018 AC7: visibility return preserves loaded pages while manual Reload replaces them', async () => {
+    const { storageStore, _resetForTests } = await import('../../stores/storage');
+    const storageApi = await import('../../api/storage');
+    const object = (key: string) => ({ key, size: 1, lastModified: '2026-11-21T00:00:00Z' });
+    const browse = vi.spyOn(storageApi, 'browseStorage')
+      .mockResolvedValueOnce({ objects: [object('Notes/first.md')], prefixes: [], isTruncated: true, nextContinuationToken: 'next' })
+      .mockResolvedValueOnce({ objects: [object('Notes/second.md')], prefixes: [], isTruncated: false })
+      .mockResolvedValue({ objects: [object('Notes/reloaded.md')], prefixes: [], isTruncated: false });
+    const hidden = Object.getOwnPropertyDescriptor(document, 'hidden');
+    _resetForTests();
+    try {
+      render(() => <Layout />);
+      await storageStore.browse('Notes/');
+      await storageStore.loadMore();
+      const loaded = ['Notes/first.md', 'Notes/second.md'];
+      expect(storageStore.objects.map(item => item.key)).toEqual(loaded);
+      Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+      document.dispatchEvent(new Event('visibilitychange'));
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(storageStore.objects.map(item => item.key)).toEqual(loaded);
+      expect(storageStore.currentPrefix).toBe('Notes/');
+      await storageStore.refresh();
+      expect(storageStore.objects.map(item => item.key)).toEqual(['Notes/reloaded.md']);
+    } finally {
+      browse.mockRestore();
+      _resetForTests();
+      if (hidden) Object.defineProperty(document, 'hidden', hidden);
+      else Reflect.deleteProperty(document, 'hidden');
+    }
+  });
+
   afterEach(() => {
     cleanup();
     vi.useRealTimers();

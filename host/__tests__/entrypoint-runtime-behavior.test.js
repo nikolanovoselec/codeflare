@@ -238,6 +238,33 @@ describe('entrypoint production helpers', () => {
       }
     } finally { rmSync(home, { recursive: true, force: true }); }
   });
+  it('REQ-AGENT-216 AC2: unsafe filesystem entries are preserved with a sanitized startup warning', () => {
+    for (const kind of ['dangling-link', 'live-link', 'directory']) {
+      const home = mkdtempSync(join(tmpdir(), 'pi-subagent-unsafe-'));
+      try {
+        const path = join(home, '.pi/agent/subagents.json');
+        const target = join(home, 'fixture-private-target');
+        mkdirSync(dirname(path), { recursive: true });
+        if (kind === 'directory') mkdirSync(path);
+        else {
+          if (kind === 'live-link') writeFileSync(target, 'fixture-private-preferences');
+          symlinkSync(target, path);
+        }
+        const result = runStartupInvocation('configure_pi_subagent_defaults', { USER_HOME: home });
+        assert.equal(result.status, 0, result.stderr);
+        assert.match(result.stdout, /Pi subagent update defaults could not be applied; existing preferences preserved/);
+        assert.doesNotMatch(`${result.stdout}${result.stderr}`, /fixture-private/);
+        if (kind === 'directory') assert.equal(lstatSync(path).isDirectory(), true);
+        else {
+          assert.equal(lstatSync(path).isSymbolicLink(), true);
+          assert.equal(readlinkSync(path), target);
+          if (kind === 'live-link') assert.equal(readFileSync(target, 'utf8'), 'fixture-private-preferences');
+          else assert.equal(existsSync(target), false, 'startup must not create a dangling link target');
+        }
+      } finally { rmSync(home, { recursive: true, force: true }); }
+    }
+  });
+
   it('REQ-AGENT-111 AC4 / REQ-AGENT-129 AC1: creates every Codeflare-owned Goal startup default when config is absent', () => {
     const fixture = mkdtempSync(join(tmpdir(), 'pi-goal-settings-'));
     const configPath = join(fixture, '.pi/agent/pi-goal.json');

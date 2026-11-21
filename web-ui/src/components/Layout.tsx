@@ -443,7 +443,7 @@ const Layout: Component<LayoutProps> = (props) => {
   const handleVisibilityChange = () => {
     if (!document.hidden) {
       sessionStore.refreshSessionStatuses?.();
-      storageStore.refresh?.({ silent: true });
+      void storageStore.refreshListingOnReturn?.();
     }
   };
   onMount(() => document.addEventListener('visibilitychange', handleVisibilityChange));
