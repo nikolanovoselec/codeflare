@@ -875,17 +875,23 @@ const Layout: Component<LayoutProps> = (props) => {
           repositoryRestoreNotices={
             <section class="repository-restore-notices" aria-label="Repository restore notifications">
               <For each={Object.keys(sessionStore.repositoryRestoreNotices ?? {})}>{id => {
-                const status = () => sessionStore.repositoryRestoreNotices[id];
+                const notice = () => sessionStore.repositoryRestoreNotices[id];
+                const status = () => notice()?.status;
                 const name = () => sessionStore.sessions.find(session => session.id === id)?.name;
                 return (
                   <Show when={status() && name()}>
                     <div class="repository-restore-notice">
                       <div role="status" aria-atomic="true">
-                        <strong>{status() === 'restoring' ? 'Restoring repositories…'
-                          : status() === 'complete' ? 'Repositories restored' : 'Some repositories weren’t restored'}</strong>
+                        <strong>{notice()?.repo
+                          ? status() === 'restoring' ? 'Cloning repository…'
+                            : notice()?.outcome === 'exists' ? 'Repository folder already exists'
+                            : status() === 'complete' ? 'Repository cloned' : 'Repository clone failed'
+                          : status() === 'restoring' ? 'Restoring repositories…'
+                            : status() === 'complete' ? 'Repositories restored' : 'Some repositories weren’t restored'}</strong>
                         <div class="repository-restore-notice__session">{name()}</div>
+                        <Show when={notice()?.repo}>{repo => <div class="repository-restore-notice__session">{repo()}</div>}</Show>
                       </div>
-                      <button type="button" aria-label="Dismiss repository restore notification"
+                      <button type="button" aria-label={notice()?.repo ? 'Dismiss repository clone notification' : 'Dismiss repository restore notification'}
                         onClick={() => sessionStore.dismissRepositoryRestore(id)}>
                         <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2">
                           <path d="m6 6 12 12M18 6 6 18" />

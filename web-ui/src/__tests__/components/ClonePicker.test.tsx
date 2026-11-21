@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor } from '@solidjs/testing-library';
+import { createSignal, Show } from 'solid-js';
 
 // ── API mock (hoisted so the vi.mock factory can reference it) ──────────────
 const mockCloneIntoSession = vi.hoisted(() => vi.fn());
@@ -9,7 +10,7 @@ vi.mock('../../api/github', () => ({
 }));
 
 // ── Session store mock ──────────────────────────────────────────────────────
-// ClonePicker reads `sessions` + `createSessionWithClone`; ClonePickerNewSession
+// ClonePicker reads `sessions` and delegates both clone paths; ClonePickerNewSession
 // reads `enterpriseMode` + `allowedAgents`. AGENT_OPTIONS is a plain const
 // imported from lib/agent-catalog (no component render), so this mock covers
 // the whole tree.
@@ -35,6 +36,7 @@ vi.mock('../../stores/session', () => ({
       return { lastAgentType: undefined };
     },
     createSessionWithClone: (...args: unknown[]) => mockCreateSessionWithClone(...args),
+    cloneRepositoryIntoSession: (...args: unknown[]) => mockCloneIntoSession(...args),
   },
 }));
 
@@ -58,7 +60,10 @@ const REPO = {
 };
 
 function renderPicker(onClose = () => {}) {
-  return render(() => <ClonePicker repo={REPO} onClose={onClose} />);
+  const [open, setOpen] = createSignal(true);
+  return render(() => <Show when={open()}>
+    <ClonePicker repo={REPO} onClose={() => { setOpen(false); onClose(); }} />
+  </Show>);
 }
 
 // REQ-GITHUB-004: Clone a repository into a session
@@ -167,62 +172,35 @@ describe('ClonePicker', () => {
     await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
 
-  it('renders the collision affordance on a 409 (exists) result', async () => {
+  it.each(['cloned', 'exists', 'failed'] as const)('REQ-GITHUB-320 AC6: closes immediately and stays closed after a %s clone outcome', async outcome => {
     sessionStoreState.sessions = [{ id: 's1', name: 'Pi #1', status: 'running' }];
-    mockCloneIntoSession.mockResolvedValueOnce({ outcome: 'exists' });
-
+    let resolveClone!: (value: unknown) => void;
+    const pending = new Promise(resolve => { resolveClone = resolve; });
+    mockCloneIntoSession.mockReturnValueOnce(pending);
     renderPicker();
 
     fireEvent.click(screen.getByTestId('clone-picker-session-row'));
 
-    await waitFor(() => expect(screen.getByTestId('clone-picker-result-exists')).toBeInTheDocument());
-    // Distinct from the generic failure state.
-    expect(screen.queryByTestId('clone-picker-result-failed')).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Clone repository' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('clone-picker-backdrop')).not.toBeInTheDocument();
+    resolveClone({ outcome, ...(outcome === 'cloned' ? { path: '/workspace/hello' } : {}) });
+    await pending;
+    expect(screen.queryByRole('dialog', { name: 'Clone repository' })).not.toBeInTheDocument();
   });
 
-  it('renders the generic failure state on a non-2xx (failed) result', async () => {
+  it('disables the confirm controls while new-session creation is in flight', async () => {
     sessionStoreState.sessions = [{ id: 's1', name: 'Pi #1', status: 'running' }];
-    mockCloneIntoSession.mockResolvedValueOnce({ outcome: 'failed', code: 'CLONE_TIMEOUT' });
-
+    let resolveCreate!: (value: unknown) => void;
+    mockCreateSessionWithClone.mockReturnValueOnce(new Promise(resolve => { resolveCreate = resolve; }));
     renderPicker();
 
-    fireEvent.click(screen.getByTestId('clone-picker-session-row'));
-
-    await waitFor(() => expect(screen.getByTestId('clone-picker-result-failed')).toBeInTheDocument());
-    expect(screen.queryByTestId('clone-picker-result-exists')).not.toBeInTheDocument();
-  });
-
-  it('disables the confirm controls while a clone request is in flight', async () => {
-    sessionStoreState.sessions = [{ id: 's1', name: 'Pi #1', status: 'running' }];
-    // A clone that never resolves keeps the picker in the busy phase.
-    let resolveClone: (v: unknown) => void = () => {};
-    mockCloneIntoSession.mockReturnValueOnce(new Promise((r) => { resolveClone = r; }));
-
-    renderPicker();
-
-    const sessionRow = screen.getByTestId('clone-picker-session-row') as HTMLButtonElement;
-    fireEvent.click(sessionRow);
-
-    // While in flight, both the session rows and the agent buttons are disabled.
-    await waitFor(() => expect(sessionRow.disabled).toBe(true));
     const agentBtn = screen.getByTestId('clone-picker-agent-pi') as HTMLButtonElement;
+    fireEvent.click(agentBtn);
+
     expect(agentBtn.disabled).toBe(true);
-
-    resolveClone({ outcome: 'cloned', path: '/x' });
-  });
-
-  it('hides the picker chrome and shows a done affordance after a running-session clone succeeds', async () => {
-    sessionStoreState.sessions = [{ id: 's1', name: 'Pi #1', status: 'running' }];
-
-    renderPicker();
-
-    fireEvent.click(screen.getByTestId('clone-picker-session-row'));
-
-    await waitFor(() => expect(screen.getByTestId('clone-picker-result-cloned')).toBeInTheDocument());
-    // The chooser groups are replaced by the success affordance.
-    expect(screen.queryByTestId('clone-picker-running-group')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('clone-picker-new-group')).not.toBeInTheDocument();
-    expect(screen.getByTestId('clone-picker-done-btn')).toBeInTheDocument();
+    expect((screen.getByTestId('clone-picker-session-row') as HTMLButtonElement).disabled).toBe(true);
+    resolveCreate(null);
+    await screen.findByText('Clone failed. Please try again.');
   });
 
   it('withholds new-session agent choices until /api/user hydrates', () => {

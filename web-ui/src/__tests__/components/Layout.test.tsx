@@ -136,7 +136,7 @@ const vaultPrewarmProof = {
 // Session store mock with controllable state.
 // Module-level variables allow tests to set up specific states before rendering.
 let mockSessions: any[] = [];
-let mockRepositoryNotices: Record<string, 'restoring' | 'complete' | 'issues'> = {};
+let mockRepositoryNotices: Record<string, { status: 'restoring' | 'complete' | 'issues'; repo?: string; outcome?: 'cloned' | 'exists' | 'failed' }> = {};
 let mockActiveSessionId: string | null = null;
 let mockPreferences: Record<string, any> = {};
 let mockVisiblePanes: Array<{ sessionId: string; terminalId: string }> = [];
@@ -309,31 +309,52 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
 
   it('REQ-GITHUB-320: shows restore progress on the Dashboard and dismisses a partial outcome', () => {
     mockSessions = [createMockSession({ name: 'Payments workspace' })];
-    mockRepositoryNotices = { sess1: 'restoring' };
+    mockRepositoryNotices = { sess1: { status: 'restoring' } };
     render(() => <Layout />);
     expect(screen.getByText('Restoring repositories…')).toBeInTheDocument();
     expect(within(screen.getByRole('region', { name: 'Repository restore notifications' })).getByText('Payments workspace')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Dismiss repository restore notification' })).toBeInTheDocument();
-    mockRepositoryNotices = { sess1: 'issues' };
+    mockRepositoryNotices = { sess1: { status: 'issues' } };
     bumpSessionStoreVersion();
     expect(screen.getByText('Some repositories weren’t restored')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss repository restore notification' }));
     expect(screen.queryByText('Some repositories weren’t restored')).toBeNull();
   });
 
-  it('REQ-GITHUB-320: places restore notice after the open session tabs and dismisses it while restoring', async () => {
+  it.each([false, true])('REQ-GITHUB-320: places restore notice after the open session tabs and dismisses it while restoring', async manualClone => {
     navigationRendering.realTerminalArea = true;
     const sessionId = 'abcdef0123456789';
     mockSessions = [createMockSession({ id: sessionId })];
-    mockRepositoryNotices = { [sessionId]: 'restoring' };
+    mockRepositoryNotices = { [sessionId]: { status: 'restoring', ...(manualClone ? { repo: 'octocat/hello' } : {}) } };
     window.history.replaceState(null, '', `/app/session/${sessionId}`);
     render(() => <Layout />);
     const tabs = await screen.findByRole('tablist', { name: 'Terminals' });
     const notice = screen.getByRole('region', { name: 'Repository restore notifications' });
     expect(tabs.compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    fireEvent.click(within(notice).getByRole('button', { name: 'Dismiss repository restore notification' }));
-    expect(screen.queryByText('Restoring repositories…')).toBeNull();
+    const title = manualClone ? 'Cloning repository…' : 'Restoring repositories…';
+    expect(within(notice).getByText(title)).toBeInTheDocument();
+    fireEvent.click(within(notice).getByRole('button', {
+      name: manualClone ? 'Dismiss repository clone notification' : 'Dismiss repository restore notification',
+    }));
+    expect(screen.queryByText(title)).toBeNull();
     expect(tabs).toBeInTheDocument();
+  });
+
+  it.each([
+    { status: 'restoring' as const, outcome: undefined, title: 'Cloning repository…' },
+    { status: 'complete' as const, outcome: 'cloned' as const, title: 'Repository cloned' },
+    { status: 'issues' as const, outcome: 'exists' as const, title: 'Repository folder already exists' },
+    { status: 'issues' as const, outcome: 'failed' as const, title: 'Repository clone failed' },
+  ])('REQ-GITHUB-320 AC6: renders live-clone identity and outcomes in the shared notice', ({ status, outcome, title }) => {
+    mockSessions = [createMockSession({ name: 'Payments workspace' })];
+    mockRepositoryNotices = { sess1: { status, outcome, repo: 'octocat/hello' } };
+    render(() => <Layout />);
+    const notice = screen.getByRole('region', { name: 'Repository restore notifications' });
+    expect(within(notice).getByText(title)).toBeInTheDocument();
+    expect(within(notice).getByText('Payments workspace')).toBeInTheDocument();
+    expect(within(notice).getByText('octocat/hello')).toBeInTheDocument();
+    fireEvent.click(within(notice).getByRole('button', { name: 'Dismiss repository clone notification' }));
+    expect(within(notice).queryByText(title)).toBeNull();
   });
 
   afterEach(() => {

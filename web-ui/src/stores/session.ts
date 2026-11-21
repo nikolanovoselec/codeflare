@@ -4,6 +4,7 @@ import type { SessionWithStatus, SessionStatus, InitProgress, RepositoryRestoreS
 import * as api from '../api/client';
 import { ApiError } from '../api/fetch-helper';
 import { upgradeAgentConfigs } from '../api/storage';
+import { cloneIntoSession, type CloneIntoSessionResult } from '../api/github';
 import type { ManagedReleaseProgress } from '../api/client';
 import { terminalStore } from './terminal';
 import { logger } from '../lib/logger';
@@ -638,13 +639,41 @@ async function deleteSession(id: string): Promise<void> {
   }
 }
 
-const [repositoryRestoreNotices, setRepositoryRestoreNotices] = createStore<Record<string, Exclude<RepositoryRestoreStatus, 'pending'>>>({});
+interface RepositoryRestoreNotice {
+  status: Exclude<RepositoryRestoreStatus, 'pending'>;
+  repo?: string;
+  outcome?: CloneIntoSessionResult['outcome'];
+}
+
+const [repositoryRestoreNotices, setRepositoryRestoreNotices] = createStore<Record<string, RepositoryRestoreNotice>>({});
 const repositoryRestoreTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const repositoryCloneRequests = new Map<string, symbol>();
 
 function dismissRepositoryRestore(id: string): void {
   clearTimeout(repositoryRestoreTimers.get(id));
   repositoryRestoreTimers.delete(id);
+  repositoryCloneRequests.delete(id);
   setRepositoryRestoreNotices(produce(notices => { delete notices[id]; }));
+}
+
+async function cloneRepositoryIntoSession(args: { repo: string; sessionId: string }): Promise<CloneIntoSessionResult> {
+  const { sessionId: id, repo } = args;
+  dismissRepositoryRestore(id);
+  const request = Symbol();
+  repositoryCloneRequests.set(id, request);
+  setRepositoryRestoreNotices(id, { status: 'restoring', repo });
+
+  const result = await cloneIntoSession(args);
+  if (repositoryCloneRequests.get(id) === request) {
+    repositoryCloneRequests.delete(id);
+    setRepositoryRestoreNotices(id, {
+      status: result.outcome === 'cloned' ? 'complete' : 'issues', repo, outcome: result.outcome,
+    });
+    if (result.outcome === 'cloned') {
+      repositoryRestoreTimers.set(id, setTimeout(() => dismissRepositoryRestore(id), 5_000));
+    }
+  }
+  return result;
 }
 
 function watchRepositoryRestore(id: string, generation: number, initial: RepositoryRestoreStatus): void {
@@ -656,7 +685,7 @@ function watchRepositoryRestore(id: string, generation: number, initial: Reposit
       && (session.generation === undefined || session.generation <= generation);
   };
   const update = (status: RepositoryRestoreStatus) => {
-    if (status !== 'pending') setRepositoryRestoreNotices(id, status);
+    if (status !== 'pending') setRepositoryRestoreNotices(id, { status });
     if (status === 'complete') {
       repositoryRestoreTimers.set(id, setTimeout(() => dismissRepositoryRestore(id), 5_000));
     } else if (status === 'pending' || status === 'restoring') {
@@ -999,6 +1028,7 @@ function hasRecentContext(session: SessionWithStatus): boolean {
 export const sessionStore = {
   repositoryRestoreNotices,
   dismissRepositoryRestore,
+  cloneRepositoryIntoSession,
   get sessions() { return state.sessions; },
   get activeSessionId() { return state.activeSessionId; },
   get loading() { return state.loading; },

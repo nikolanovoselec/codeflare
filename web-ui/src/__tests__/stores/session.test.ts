@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@solidjs/testing-library';
-import { createComponent, Show } from 'solid-js';
+import { createComponent, createSignal, Show } from 'solid-js';
 import InitProgress from '../../components/InitProgress';
+import ClonePicker from '../../components/github/ClonePicker';
 
 const terminalLifecycle = vi.hoisted(() => ({
   ownedSessionIds: new Set<string>(),
@@ -124,6 +125,98 @@ describe('Session Store', () => {
   afterEach(() => {
     vi.useRealTimers();
     sessionStore.stopAllPolling();
+  });
+
+  describe('running-session repository clone notices', () => {
+    const repo = { full_name: 'octocat/hello', name: 'hello', owner: 'octocat', private: false,
+      visibility: 'public' as const, default_branch: 'main', updated_at: '2026-01-01T00:00:00Z' };
+    let requests: Array<{ path: string; body: unknown; resolve: (response: Response) => void; reject: (error: Error) => void }>;
+
+    beforeEach(async () => {
+      requests = [];
+      vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((resolve, reject) => {
+        requests.push({ path: String(input), body: JSON.parse(String(init?.body)), resolve, reject });
+      }));
+      mockGetSessions.mockResolvedValue(['clone-a', 'clone-b'].map(id => ({ id, name: id,
+        status: 'running' as const, lifecycle: 'running' as const, generation: 1, revision: 1,
+        createdAt: '2026-01-01', lastAccessedAt: '2026-01-01' })));
+      await sessionStore.loadSessions();
+      sessionStore.setActiveSession('clone-b');
+    });
+
+    afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+
+    it('REQ-GITHUB-320 AC6: Dashboard clone notification survives picker dismissal and clears after success', async () => {
+      const [pickerOpen, setPickerOpen] = createSignal(true);
+      render(() => createComponent(Show, {
+        get when() { return pickerOpen(); },
+        get children() { return createComponent(ClonePicker, { repo, onClose: () => setPickerOpen(false) }); },
+      }));
+      fireEvent.click(screen.getAllByTestId('clone-picker-session-row')
+        .find(row => row.getAttribute('data-session-id') === 'clone-a')!);
+      expect(sessionStore.repositoryRestoreNotices['clone-a']).toMatchObject({ status: 'restoring', repo: repo.full_name });
+      expect(requests.map(({ path, body }) => ({ path, body }))).toEqual([
+        { path: '/api/github/clone', body: { repo: repo.full_name, sessionId: 'clone-a' } },
+      ]);
+      expect(screen.queryByRole('dialog', { name: 'Clone repository' })).not.toBeInTheDocument();
+      requests[0].resolve(Response.json({ status: 'cloned', path: '/home/user/workspace/hello' }));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(sessionStore.repositoryRestoreNotices['clone-a']).toMatchObject({ status: 'complete', outcome: 'cloned' });
+      expect(sessionStore.activeSessionId).toBe('clone-b');
+      expect(sessionStore.isSessionInitializing('clone-a')).toBe(false);
+      expect(sessionStore.getInitProgressForSession('clone-a')).toBeNull();
+      expect(sessionStore.sessions.map(({ id, status }) => ({ id, status }))).toEqual([
+        { id: 'clone-a', status: 'running' }, { id: 'clone-b', status: 'running' },
+      ]);
+      await vi.advanceTimersByTimeAsync(4_999);
+      expect(sessionStore.repositoryRestoreNotices['clone-a']).toBeDefined();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(sessionStore.repositoryRestoreNotices['clone-a']).toBeUndefined();
+    });
+
+    it.each(['exists', 'failed', 'network'] as const)('REQ-GITHUB-320 AC6: %s clone outcomes remain dismissible', async outcome => {
+      const pending = sessionStore.cloneRepositoryIntoSession({ repo: repo.full_name, sessionId: 'clone-a' });
+      if (outcome === 'network') requests[0].reject(new Error('private transport diagnostic'));
+      else requests[0].resolve(Response.json({ code: outcome === 'exists' ? 'CLONE_TARGET_EXISTS' : 'CLONE_FAILED' },
+        { status: outcome === 'exists' ? 409 : 500 }));
+      expect((await pending).outcome).toBe(outcome === 'exists' ? 'exists' : 'failed');
+      expect(sessionStore.repositoryRestoreNotices['clone-a']).toEqual({ status: 'issues', repo: repo.full_name,
+        outcome: outcome === 'exists' ? 'exists' : 'failed' });
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(sessionStore.repositoryRestoreNotices['clone-a']).toBeDefined();
+      sessionStore.dismissRepositoryRestore('clone-a');
+      expect(sessionStore.repositoryRestoreNotices['clone-a']).toBeUndefined();
+    });
+
+    it('REQ-GITHUB-320 AC7: dismissed and superseded clone responses cannot replace the current notice', async () => {
+      const dismissed = sessionStore.cloneRepositoryIntoSession({ repo: 'octocat/dismissed', sessionId: 'clone-a' });
+      sessionStore.dismissRepositoryRestore('clone-a');
+      requests[0].resolve(Response.json({ status: 'cloned', path: '/workspace/dismissed' }));
+      await dismissed;
+      expect(sessionStore.repositoryRestoreNotices['clone-a']).toBeUndefined();
+
+      const old = sessionStore.cloneRepositoryIntoSession({ repo: 'octocat/old', sessionId: 'clone-a' });
+      const latest = sessionStore.cloneRepositoryIntoSession({ repo: 'octocat/latest', sessionId: 'clone-a' });
+      requests[2].resolve(Response.json({ code: 'CLONE_FAILED' }, { status: 500 }));
+      await latest;
+      requests[1].resolve(Response.json({ status: 'cloned', path: '/workspace/old' }));
+      await old;
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(sessionStore.repositoryRestoreNotices['clone-a']).toEqual({ status: 'issues', repo: 'octocat/latest', outcome: 'failed' });
+    });
+
+    it('REQ-GITHUB-320 AC7: concurrent sessions keep independent clone notifications', async () => {
+      const first = sessionStore.cloneRepositoryIntoSession({ repo: repo.full_name, sessionId: 'clone-a' });
+      const second = sessionStore.cloneRepositoryIntoSession({ repo: 'octocat/second', sessionId: 'clone-b' });
+      requests[0].resolve(Response.json({ status: 'cloned', path: '/workspace/hello' }));
+      await first;
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(sessionStore.repositoryRestoreNotices['clone-a']).toBeUndefined();
+      expect(sessionStore.repositoryRestoreNotices['clone-b']).toEqual({ status: 'restoring', repo: 'octocat/second' });
+      requests[1].resolve(Response.json({ code: 'CLONE_TARGET_EXISTS' }, { status: 409 }));
+      await second;
+      expect(sessionStore.repositoryRestoreNotices['clone-b']).toMatchObject({ status: 'issues', outcome: 'exists' });
+    });
   });
 
   describe('loadSessions', () => {
@@ -1893,10 +1986,10 @@ describe('Session Store', () => {
           message: 'Container ready', details: { bucketName: 'bucket', container: 'container', path: '/', repositoryRestore: 'issues' } });
         await sessionStore.startSession(id);
         expect(sessionStore.getInitProgressForSession(id)?.stage).toBe('ready');
-        expect(sessionStore.repositoryRestoreNotices[id]).toBe('restoring');
+        expect(sessionStore.repositoryRestoreNotices[id]).toEqual({ status: 'restoring' });
         sessionStore.dismissInitProgressForSession(id);
         await vi.advanceTimersByTimeAsync(5_000);
-        expect(sessionStore.repositoryRestoreNotices[id]).toBe('issues');
+        expect(sessionStore.repositoryRestoreNotices[id]).toEqual({ status: 'issues' });
         sessionStore.dismissRepositoryRestore(id);
         expect(sessionStore.repositoryRestoreNotices[id]).toBeUndefined();
       } finally {
