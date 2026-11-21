@@ -17,6 +17,7 @@ System map, ownership boundaries, authoritative state, cross-component flows, an
 - [Capacity, Caching, and Performance Assumptions](#capacity-caching-and-performance-assumptions)
 - [Security and Privacy Boundaries](#security-and-privacy-boundaries)
 - [Developer Reference Boundaries](#developer-reference-boundaries)
+- [GitHub clone verification](#github-clone-verification)
 - [Decision and Requirement Map](#decision-and-requirement-map)
 - [Related Documentation](#related-documentation)
 

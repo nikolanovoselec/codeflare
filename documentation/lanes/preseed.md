@@ -11,12 +11,14 @@ Manifest-selected instructions, skills, specialist agents, commands, plugins, an
 
 - [Mode and Manifest Model](#mode-and-manifest-model)
 - [Artifact Inventory and Sources](#artifact-inventory-and-sources)
+- [Managed curation ownership](#managed-curation-ownership)
 - [Runtime Delivery Pipeline](#runtime-delivery-pipeline)
 - [Agent-Specific Projection](#agent-specific-projection)
 - [Graphify Toolchain](#graphify-req-agent-023)
 - [SDD Bootstrap Contract](#sdd-bootstrap-contract)
 - [Failure Diagnosis and Recovery](#failure-diagnosis-and-recovery)
 - [Image-Baked Delivery Alias](#image-baked-delivery-alias)
+- [Managed-agent qualification](#managed-agent-qualification)
 - [Requirement and Source Map](#requirement-and-source-map)
 - [Related Documentation](#related-documentation)
 
@@ -72,9 +74,9 @@ Controlled byte-copy, owner-lifecycle and kernel-boundary fixtures define [reten
 
 The scoped child retains only its selected tool and existing parent channels through exposure filtering. No absent tool is activated, and root Goal exposure is unchanged. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::registerInitialToolFilter -->
 
-The Custom-tier column reflects the intended Claude Code delivery policy for `unlimited` users in Advanced mode. An existing bucket can retain the old managed context-mode manifest after a tier change that leaves Advanced mode selected: Start reseeds eligible buckets, but the ineligible path does not retire that subtree, and restored config can still enable hooks. The preferences PATCH and Stripe subscription-state reconciliation paths are gated on a mode change, so a same-mode downgrade does not itself guarantee a reconciliation attempt. The explicit R2 fixture covers removal after reconciliation, not the downgrade-to-restart path under [REQ-AGENT-005](../../sdd/spec/agents.md#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers) AC6.
+The Custom-tier column reflects the intended Claude Code delivery policy for `unlimited` users in Advanced mode. An existing bucket can retain the old managed context-mode manifest after a tier change that leaves Advanced mode selected: Start reseeds eligible buckets, but the ineligible path does not retire that subtree, and restored config can still enable hooks. <!-- @impl: src/lib/r2-seed.ts::reseedContextModePlugin --> The preferences PATCH and Stripe subscription-state reconciliation paths are gated on a mode change, so a same-mode downgrade does not itself guarantee a reconciliation attempt. [Preference path](../../src/routes/preferences.ts#L197-L214); [Stripe path](../../src/routes/stripe-webhook.ts#L463-L486). The explicit R2 fixture covers removal after reconciliation, not the downgrade-to-restart path under [REQ-AGENT-005](../../sdd/spec/agents.md#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers) AC6.
 
-Container startup writes context-mode's disabled Pi package marker, retaining the exact package while suppressing its skills and foreground-owned adapter until explicit `/ctx on`. The dedicated `ctx-command.ts` extension reaches Standard and Advanced without exposing Advanced-only Codeflare commands. A state-changing `/ctx on` or `/ctx off` persists the selected Pi setting and reloads the active process; the next Codeflare container start restores disabled. See [REQ-AGENT-076 AC1-AC2](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults).
+Container startup writes context-mode's disabled Pi package marker, retaining the exact package while suppressing its skills and foreground-owned adapter until explicit `/ctx on`. <!-- @impl: entrypoint.sh::configure_pi_packages_and_review_inventory --> The dedicated `ctx-command.ts` extension reaches Standard and Advanced without exposing Advanced-only Codeflare commands. A state-changing `/ctx on` or `/ctx off` persists the selected Pi setting and reloads the active process; the next Codeflare container start restores disabled. [Foreground command](../../preseed/agents/pi/extensions/ctx-command.ts#L52-L96). See [REQ-AGENT-076 AC1-AC2](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults).
 
 Enabled package settings expose context-mode skills but filter out its extension. The managed `context-mode-runtime.ts` extension claims one process-wide foreground owner and loads the installed context-mode Pi adapter only for that owner; every in-process subagent sees the claim and skips the adapter, so no reviewer/capture/CI child installs context-mode hooks or tools. <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::attachContextModeToForeground --> The owner is released after context-mode handles `session_shutdown`, allowing `/reload` and `/ctx` toggles to reattach cleanly.
 
@@ -150,7 +152,9 @@ Managed Plan startup settings and live workflow are covered by [REQ-AGENT-266](.
 
 On reload, `capability-helpers.ts` keeps registered `goal_complete`, `goal_blocked` and `goal_progress` controls active after any valid Goal state when no Plan is active, while always removing `goal_wait`. A fresh lazy session returns to the five bootstrap tools; an active Plan suppresses non-active Goal history unless `pi-goal.json` configures `always`. The final exposure filter applies this policy after Goal's exact-version transform activates its registered terminal tools ([REQ-AGENT-129](../../sdd/spec/agents.md#req-agent-129-goal-continuation-settings-policy) AC1; [REQ-AGENT-191](../../sdd/spec/agents.md#req-agent-191-goal-tool-visibility-across-workflows) AC1–6; [REQ-AGENT-248](../../sdd/spec/agents.md#req-agent-248-managed-goal_wait-exclusion) AC1). <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::registerInitialToolFilter --> <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalToolPolicySource -->
 
-Goal’s supported layout retains the session-shutdown/stale-context guards in the [reviewed Goal release fixture](../../host/__fixtures__/pi-goal-0.54.8.tgz), adapts its two-space source formatting, and preserves the parsed-command safety patch in Plan's new TypeScript chunk. Continuation/review-control and command-safety contracts remain under [REQ-AGENT-111](../../sdd/spec/agents.md#req-agent-111-native-goal-workflow-in-pi-sessions), [REQ-AGENT-130](../../sdd/spec/agents.md#req-agent-130-goal-continuation-runtime-pacing), and [REQ-AGENT-152](../../sdd/spec/agents.md#req-agent-152-native-plan-mode-workflow-in-pi-sessions). The historical Usage entrypoint update is superseded by managed Usage retirement. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory --> <!-- @impl: scripts/patch-pi-plan-mode-tool-policy.mjs::patchPiPlanModeDirectory -->
+Goal’s supported layout retains the session-shutdown/stale-context guards in the [reviewed Goal release fixture](../../host/__fixtures__/pi-goal-0.54.8.tgz), adapts its two-space source formatting, and preserves the parsed-command safety patch in Plan's new TypeScript chunk. Continuation/review-control and command-safety contracts remain under [REQ-AGENT-111](../../sdd/spec/agents.md#req-agent-111-native-goal-workflow-in-pi-sessions), [REQ-AGENT-130](../../sdd/spec/agents.md#req-agent-130-goal-continuation-runtime-pacing), and [REQ-AGENT-152](../../sdd/spec/agents.md#req-agent-152-native-plan-mode-workflow-in-pi-sessions). <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory --> <!-- @impl: scripts/patch-pi-plan-mode-tool-policy.mjs::patchPiPlanModeDirectory -->
+
+Managed startup now removes the retired Usage package from saved settings. <!-- @impl: entrypoint.sh::configure_pi_packages_and_review_inventory -->
 
 Context-mode and Evaluate [remain pinned](../../preseed/agents/pi/package.json). Existing skill tool names remain unchanged; web-access's optional `web_enable` loader follows its configured `toolActivation` policy, and an old resumed session may need a new session to acquire its recorded web-tool selection. See the [upstream Tool activation guidance](https://github.com/nicobailon/pi-web-access/blob/7bd4509ee4e417a9e0141235bbe276ff77aa81e3/README.md#tool-activation).
 
@@ -575,12 +579,12 @@ All preseed content is deployed via the manifest pipeline:
    (`default`, `advanced`, or both)
 3. The seed compiler reads manifested files, applies every agent transform, and
    writes the generated runtime module.
-4. If Start creates the bucket, reconciliation uses Start’s resolved session mode and the deployment’s coding-agent selection.
-   - Browse-triggered creation instead resolves the stored mode (or Enterprise’s Pro override) and uses the baked inventory’s default agent selection, not the deployment selection or the full Start entitlement clamp.
-   - Both callers enable context-mode seed files only for an effective Unlimited tier in Pro mode. Neither path overwrites existing files or runs cleanup during this first seed. <!-- @impl: src/routes/container/lifecycle-init.ts::ensureBucketAndSeed --> <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @impl: src/routes/storage/browse.ts::app --> <!-- @impl: src/lib/r2-seed.ts::seedAgentConfigs -->
+4. If Start creates the bucket, reconciliation uses Start’s resolved session mode and the deployment’s coding-agent selection. <!-- @impl: src/routes/container/lifecycle.ts::app.post('/start', --> <!-- @impl: src/routes/container/lifecycle-init.ts::ensureBucketAndSeed -->
+   - Browse-triggered creation instead resolves the stored mode (or Enterprise’s Pro override) and uses the baked inventory’s default agent selection, not the deployment selection or the full Start entitlement clamp. <!-- @impl: src/routes/storage/browse.ts::app --> <!-- @impl: src/lib/r2-seed.ts::seedAgentConfigs -->
+   - Both callers enable context-mode seed files only for an effective Unlimited tier in Pro mode. Neither path overwrites existing files or runs cleanup during this first seed. <!-- @impl: src/routes/container/lifecycle-init.ts::ensureBucketAndSeed --> <!-- @impl: src/lib/r2-seed.ts::seedAgentConfigs -->
 5. **Recreate skills & rules** runs a full selected-target reconcile and removes exact generated paths owned by inactive agents.
-6. The Worker's ancillary status route constructs upgrade identity and compares stored state; the frontend consumes that projection. Active managed releases compare digest, sequence, resolved mode, agent projection and resource policy (including required applied digests/pending targets).
-   - Only inactive curation compares baked content hash/projection. An owning session blocks upgrade; discovery errors fail closed without an upgrade offer.
+6. The Worker's ancillary status route constructs upgrade identity and compares stored state; the frontend consumes that projection. Active managed releases compare digest, sequence, resolved mode, agent projection and resource policy (including required applied digests/pending targets). <!-- @impl: src/routes/session/lifecycle.ts::app.get('/ancillary-status', -->
+   - Only inactive curation compares baked content hash/projection. An owning session blocks upgrade; discovery errors fail closed without an upgrade offer. <!-- @impl: src/routes/session/lifecycle.ts::app.get('/ancillary-status', -->
 7. Bisync pulls from R2 to container config directories
    (`~/.claude/`, `~/.codex/`, `~/.gemini/` (Antigravity), `~/.copilot/`,
    `~/.config/opencode/`, `~/.pi/agent/`)
@@ -638,8 +642,9 @@ test scripts, broad integration suites, type checks, Knip and other dependency-g
 analysis, installs, servers, and authoritative verification remain CI-only.
 
 Both Pi and Claude guards allow only the
-exact wrapper path. Outer guards contain analyzer argv using actual tool cwd and canonical Git root before allowing that exception; absolute/parent/symlink/config escapes and unresolved dynamic paths fail closed. Pi applies this before graph-query exemptions. The tuned wrapper remains unchanged, and direct blocked commands point agents to the skill; the
-user-only one-shot bypass remains unchanged. Its exact sentinel is `/tmp/local-build-bypass`: only the user may create it, successful consumption deletes it before allowing one guarded command, failed consumption keeps blocking, and the block message names that same path. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/block-local-builds.sh::PATTERNS --> <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::isManagedSafeLocalCheckCommand -->
+exact wrapper path. Outer guards contain analyzer argv using actual tool cwd and canonical Git root before allowing that exception; absolute/parent/symlink/config escapes and unresolved dynamic paths fail closed. Pi applies this before graph-query exemptions. The tuned wrapper remains unchanged, and direct blocked commands point agents to the skill. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::managedAnalyzerContained --> <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::isManagedSafeLocalCheckCommand --> [Claude containment branch](../../preseed/agents/claude/plugins/codeflare-hooks/scripts/block-local-builds.sh#L129-L149).
+
+The override is user-only. Pi requires successful consumption before admitting the guarded command; Claude attempts consumption but does not block on a removal failure. Do not treat the Claude branch as a guaranteed one-shot fence. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/block-local-builds.sh::BYPASS_FILE --> <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::localBuildBlockReason -->
 
 The `agents/` tree is advanced-only: architect, build-error-resolver,
 code-reviewer, deep-reviewer, doc-updater, memory-capture, refactor-cleaner,
@@ -695,7 +700,7 @@ MCP servers through `pi-mcp-adapter`: it explicitly connects `consult-llm` and
 `chrome-devtools`, then searches/describes or activates discovered deferred tools; config is `~/.pi/agent/mcp-adapter.json` in
 `entrypoint.sh`.
 
-On a default start or when either Cloudflare credential is missing, Claude cleanup removes only complete recognized generated Browser Run constructors. Pi preparation already removes its recognized generated entries; no later name-only deletion runs. Custom commands, endpoints, headers, policy fields and ambiguous shapes remain, including under a managed name. Unchanged files are not rewritten; failed Pi preparation and malformed Claude JSON retain their existing preservation behavior. Recognition uses constructor shape, not current credential equality or cryptographic provenance: an indistinguishable user-created constructor is not separately identifiable. See [REQ-BROWSER-006](../../sdd/spec/browser-run.md#req-browser-006-pi-interactive-browser-via-chrome-devtools-through-pi-mcp-adapter) AC4.
+On a default start or when either Cloudflare credential is missing, Claude cleanup removes only complete recognized generated Browser Run constructors. Pi preparation already removes its recognized generated entries; no later name-only deletion runs. Custom commands, endpoints, headers, policy fields and ambiguous shapes remain, including under a managed name. Unchanged files are not rewritten; failed Pi preparation and malformed Claude JSON retain their existing preservation behavior. <!-- @impl: entrypoint.sh::remove_owned_browser_mcp_servers --> <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::preparePiMcpAdapterConfig --> Recognition uses constructor shape, not current credential equality or cryptographic provenance: an indistinguishable user-created constructor is not separately identifiable. See [REQ-BROWSER-006](../../sdd/spec/browser-run.md#req-browser-006-pi-interactive-browser-via-chrome-devtools-through-pi-mcp-adapter) AC4.
 
 Extension files deploy Pi-specific runtime behavior. `codeflare-commands.ts`
 provides `/debug`, `/deploy`, and `/brainstorm`; `review-enforcement.ts` and
@@ -727,7 +732,7 @@ app by judgment, including from a mobile viewport. Every file under
 `preseed/agents/pi/extensions/` is loaded by the Pi extension scanner and must
 export a default factory function. Pure helper modules such as
 `browser-run-helpers.ts` and `graphify-helpers.ts` therefore export a no-op default
-factory alongside their named exports. Pi reports an invalid factory as a load error; [image warm verification](../../scripts/verify-pi-lockstep.mjs) rejects the error even if the process exits successfully.
+factory alongside their named exports. Pi reports an invalid factory as a load error; [image warm verification](../../scripts/verify-pi-lockstep.mjs) rejects the error even if the process exits successfully. <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints -->
 
 ### Browser observation acceptance
 
@@ -766,7 +771,7 @@ Then perform the first authorized browser-dependent call and correlate its resul
 
 Reuse [Browser observation acceptance](#browser-observation-acceptance), including its privacy, authorization and existing-state prerequisites. For BROWSER-003 AC2 and BROWSER-007 AC5, inspect delivered Pi extension/skill inventories and native tool discovery in existing advanced complete-pair, Standard, missing-token and missing-account sessions. Compare the advanced-only manifest entries and delivered extension bytes with the candidate seed. Discover native `browser_markdown`, `browser_content` and `browser_scrape` independently of MCP; interactive availability cannot substitute. Denied states must expose none of these native tools. Compare Standard/token-less delivered artifacts and unrelated registrations byte-for-byte with their existing baseline; record equality booleans only. Missing comparable sessions/baselines block execution, not method definition.
 
-For BROWSER-003 AC6, native Pi skill materialization is owned by the Pi manifest loop, which reads native skill bytes and emits each entry with its declared modes; generic adapted-skill delivery is a separate branch that skips native Pi duplicates. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> `adaptAgentFrontmatter` transforms agent definitions, not native skill delivery.
+For BROWSER-003 AC6, native Pi skill materialization is owned by the Pi manifest loop, which reads native skill bytes and emits each entry with its declared modes; generic adapted-skill delivery is a separate branch that skips native Pi duplicates. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> `adaptAgentFrontmatter` transforms agent definitions, not native skill delivery.
 
 Compare the delivered advanced skill with the [Pi decision order](../../preseed/agents/pi/skills/browser-run/SKILL.md#decision-order-cheapest-that-does-the-job): search, optional context/static fetch, raw HTTP, cheap rendered read, then interaction. Public read-only JS/bot-blocked tasks must select the cheap native surface before interactive browsing. Discover its live schemas and call the three read tools on the approved public target; use `wait_until: "networkidle0"` when needed and actual bounded selectors for scrape. PASS requires correct seed/gate comparisons, decision guidance and rendered outcomes; contradictory delivery or exposure is FAIL. Absent approved targets, authority or observations remain BLOCKED. These methods do not claim redirect/DNS protection.
 
@@ -1070,7 +1075,7 @@ Handles three cases:
 `entrypoint.sh` holds two `SETTINGS_CONFIG` literals, one per session
 mode. Only the Pro (advanced) literal carries a `hooks` key, so the
 codeflare-owned PreToolUse, PostToolUse, Stop, and UserPromptSubmit
-registrations reach Pro sessions only. The Standard literal has no `hooks` key, but assembly adds the fixed Herdr `Notification` hook in both modes. <!-- @impl: entrypoint.sh::SETTINGS_CONFIG -->
+registrations reach Pro sessions only. The Standard literal has no `hooks` key, but assembly adds the fixed Herdr `Notification` hook in both modes. <!-- @impl: entrypoint.sh::SETTINGS_CONFIG --> <!-- @impl: entrypoint.sh::HERDR_NOTIFICATION_HOOKS -->
 
 Both `SETTINGS_CONFIG` literals also set `"disableAgentView": true`
 (the rationale below is repeated as a comment above the advanced-mode

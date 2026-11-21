@@ -10,13 +10,6 @@ Diagnostic boundaries, common failures, and bounded recovery.
 
 - [Start Here](#start-here)
 - [Troubleshooting Recipes](#troubleshooting-recipes)
-  - [Browser IDE](#browser-ide)
-  - [Container Image and Startup Compatibility](#container-image-and-startup-compatibility)
-  - [Authentication and Setup](#authentication-and-setup)
-  - [Terminal and Mobile](#terminal-and-mobile)
-  - [Session and Container Lifecycle](#session-and-container-lifecycle)
-  - [Storage and Vault](#storage-and-vault)
-  - [Agent Runtime, Review, and CI](#agent-runtime-review-and-ci)
 - [Failure Index](#failure-index)
 - [Detailed Recovery Notes](#detailed-recovery-notes)
 - [GitHub Integration](#github-integration)
@@ -39,6 +32,14 @@ Every recipe inherits this record contract unless it overrides a field: **Sympto
 
 <a id="common-issues"></a>
 ## Troubleshooting Recipes
+
+- [Browser IDE](#browser-ide)
+- [Container Image and Startup Compatibility](#container-image-and-startup-compatibility)
+- [Authentication and Setup](#authentication-and-setup)
+- [Terminal and Mobile](#terminal-and-mobile)
+- [Session and Container Lifecycle](#session-and-container-lifecycle)
+- [Storage and Vault](#storage-and-vault)
+- [Agent Runtime, Review, and CI](#agent-runtime-review-and-ci)
 
 <a id="browser-ide"></a>
 **Browser IDE**
@@ -75,7 +76,7 @@ Every recipe inherits this record contract unless it overrides a field: **Sympto
 
 **Cause:** code-server may not have been reaped before final sync, `~/.codeflare/ide-ui-state.json` may be absent or invalid, or the snapshot/filter allowlist may have drifted.
 
-**Fix:** Confirm capture runs after generation cleanup, the snapshot is a mode-0600 JSON file no larger than 1 MiB, and only `ide-ui-state.json` and `ide-extensions.json` are admitted as Browser IDE continuity files under `~/.codeflare/**`. Theme values and string-valued `keyboard.layout` are the only allowlisted User settings in the UI snapshot. Never sync `/run/codeflare/openvscode/data`, `workspaceStorage`, `globalStorage`, SecretStorage, authentication, chat history, logs, WAL, or SHM. Allowlisted workspace rows must match their key-specific canonical-resource schemas; unknown fields and opaque strings are invalid. Managed inventory settings must be reapplied after restore. <!-- @impl: scripts/browser-ide-ui-state.py::capture --> <!-- @impl: scripts/browser-ide-ui-state.py::restore -->
+**Fix:** Confirm capture runs after generation cleanup, the snapshot is a mode-0600 JSON file no larger than 1 MiB, and only `ide-ui-state.json` and `ide-extensions.json` are admitted as Browser IDE continuity files under `~/.codeflare/**` (see the [shared rclone filter](../../entrypoint.sh#L617-L642)). Theme values and string-valued `keyboard.layout` are the only allowlisted User settings in the UI snapshot. Never sync `/run/codeflare/openvscode/data`, `workspaceStorage`, `globalStorage`, SecretStorage, authentication, chat history, logs, WAL, or SHM. Allowlisted workspace rows must match their key-specific canonical-resource schemas; unknown fields and opaque strings are invalid. Managed inventory settings must be reapplied after restore. <!-- @impl: scripts/browser-ide-ui-state.py::capture --> <!-- @impl: scripts/browser-ide-ui-state.py::restore -->
 
 ### User-installed Browser IDE extensions do not return or uninstall ([REQ-IDE-036](../../sdd/spec/browser-ide.md#req-ide-036-persistent-user-managed-extensions), [REQ-IDE-037](../../sdd/spec/browser-ide.md#req-ide-037-lazy-extension-restoration), [REQ-IDE-038](../../sdd/spec/browser-ide.md#req-ide-038-extension-warning-acknowledgement), [REQ-IDE-040](../../sdd/spec/browser-ide.md#req-ide-040-user-extension-allowance-policy))
 
@@ -746,7 +747,7 @@ A memory result reporting `VARS_FILE` missing while the root can see the file un
 
 Session graph output uses the note H1, `concept_<normalised_label>` IDs, and unique edges. A filename document label, colon-prefixed concepts, duplicate edges, broad worker tools, or review-scale runtime for one file identifies stale seed bytes; remirror and run `/reload` before reprocessing.
 
-**Verification:** Compare the observed call and notification sequence against [REQ-MEM-015 AC5–AC7](../../sdd/spec/memory.md#req-mem-015-pi-extraction-transcript-visibility-and-child-session-guard). Settlements without a public call emit no duplicate or GIVEUP; each failed exact call advances at most one reminder. At six failures, the GIVEUP message names the job, unchanged committed state, and its next automatic opportunity. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages -->
+**Verification:** Compare the observed call and notification sequence against [REQ-MEM-015 AC5–AC7](../../sdd/spec/memory.md#req-mem-015-pi-extraction-transcript-visibility-and-child-session-guard). Settlements without a public call emit no duplicate or GIVEUP; each failed exact call advances at most one reminder. At six failures, the GIVEUP message names the job, unchanged committed state, and its next automatic opportunity. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionDue -->
 
 <a id="onboarding-mode-the-vault-editor-never-loads-silverbullet-service-work"></a>
 #### Onboarding mode: the Vault editor never loads / SilverBullet service worker fails to register (browser console shows `script resource is behind a redirect`, 302 to `*.cloudflareaccess.com`)

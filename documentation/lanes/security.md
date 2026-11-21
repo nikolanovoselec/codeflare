@@ -103,7 +103,11 @@ The denial prevents new substitution through this direct API; it does not enumer
 
 Non-Enterprise GitHub PATs remain direct and user-scoped. Enterprise Git interception selects the bound user’s token for the approved host without exposing it in the container. Ordinary repository access follows that user’s provider grant; restricted Operators also enforce their admitted repository policy. <!-- @impl: src/github-interceptor.ts::GitHubInterceptor -->
 
-Ordinary GitHub App/OAuth disconnect attempts revocation with the currently selected provider and clears the local credential even on failure. The stored connection does not identify the issuing client, so after a provider or client change, clearing the local credential is not proof of provider revocation. Explicit offboarding instead requires confirmed container cleanup and provider revocation while user bytes and scoped access remain, then scoped-token/storage/local cleanup with the user record last; provider failure retains outstanding encrypted KV retry credentials ([REQ-GITHUB-005](../../sdd/spec/github.md#req-github-005-disconnect-and-offboarding-revocation)). Cloudflare OAuth retains its provider-owned failure and retry-state contract. <!-- @impl: src/lib/cloudflare-token.ts::disconnectCloudflare -->
+Ordinary GitHub App/OAuth disconnect attempts revocation with the currently selected provider and clears the local credential even on failure. The stored connection does not identify the issuing client, so after a provider or client change, clearing the local credential is not proof of provider revocation. <!-- @impl: src/lib/github-token.ts::disconnectGithub -->
+
+Explicit offboarding instead requires confirmed container cleanup and provider revocation while user bytes and scoped access remain, then scoped-token/storage/local cleanup with the user record last; provider failure retains outstanding KV retry credentials (encrypted only when a key is configured) ([REQ-AUTH-026](../../sdd/spec/authentication.md#req-auth-026-admin-user-offboarding) AC2–AC4). <!-- @impl: src/lib/user-cleanup.ts::runOwnedUserCleanup --> <!-- @impl: src/lib/kv-crypto.ts::encryptAndStore -->
+
+Cloudflare OAuth retains its provider-owned failure and retry-state contract. <!-- @impl: src/lib/cloudflare-token.ts::disconnectCloudflare -->
 
 <a id="container-auth-token-req-sec-012-req-sec-022"></a>
 ### Worker-to-container bearer
@@ -115,7 +119,7 @@ Anonymous GET `/health` returns fixed `{ "status": "healthy" }` without metrics,
 <a id="dual-r2-credential-architecture"></a>
 ### R2 authority separation
 
-The deployment token creates/manages resources but never enters containers. Direct storage receives a complete user-scoped R2 pair. Strict-egress and restricted Operator storage receive non-secret placeholders; the Worker authorizes and re-signs admitted requests. <!-- @impl: src/container/container-env.ts::buildEnvVars --> Bucket selection is derived from verified user ownership. Public permissions remain in [Configuration](configuration.md#cloudflare-api-token-operator); exact creation and rotation procedures belong to private [Shared settings](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/reference/core-settings.md).
+The deployment token creates/manages resources but never enters containers. Direct storage receives a scoped pair only when both credentials are available. Strict-egress and restricted Operator storage receive non-secret placeholders; <!-- @impl: src/container/container-env.ts::buildEnvVars --> the Worker authorizes and re-signs admitted requests. <!-- @impl: src/egress-controller.ts::EgressController --> Bucket selection is derived from verified user ownership. Public permissions remain in [Configuration](configuration.md#cloudflare-api-token-operator); exact creation and rotation procedures belong to private [Shared settings](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/reference/core-settings.md).
 
 <a id="credential-encryption-at-rest"></a>
 ### Encryption at rest and missing-key posture

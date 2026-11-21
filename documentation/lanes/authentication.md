@@ -23,6 +23,7 @@
 - [Offboarding Handoff](#offboarding-handoff)
 - [Compatibility and Migration](#compatibility-and-migration)
 - [Integration Aliases](#integration-aliases)
+- [Authentication acceptance](#authentication-acceptance)
 - [Requirement and Source Map](#requirement-and-source-map)
 - [Related Documentation](#related-documentation)
 
@@ -264,7 +265,7 @@ A setup administrator remains a durable admin. An Enterprise admin Access group 
 
 Pending users may choose the configured activation path. When Stripe is configured, every non-free paid selection uses checkout; direct `/api/auth/subscribe` does not activate those paid tiers. Free or intentionally provider-free deployment flows follow the route's configured direct behavior.
 
-Direct activation uses the route’s conditional Turnstile check. For new paid Stripe checkout, missing Turnstile configuration or failed verification blocks checkout; an existing active or trialing Stripe subscription is exempt. Rejected verification creates no checkout session or checkout billing writes. Exact payment and entitlement behavior belongs to [Billing](billing.md); request/response envelopes belong to the [API Reference](api-reference.md#auth-saas-mode).
+Direct activation uses the route’s conditional Turnstile check. For new paid Stripe checkout, missing Turnstile configuration or failed verification blocks checkout; the handler exempts a stored `billingStatus` of `active` or `trialing`, without checking live Stripe status. Rejected verification creates no checkout session or checkout billing writes. Exact payment and entitlement behavior belongs to [Billing](billing.md); request/response envelopes belong to the [API Reference](api-reference.md#auth-saas-mode). <!-- @impl: src/routes/billing.ts::app.post('/checkout', -->
 
 ### Approval transitions
 
@@ -295,9 +296,9 @@ Provisioning owns orchestration; specialist owners perform each operation. Expli
 | User/bucket KV | Remove scoped-token identity and bucket control keys after confirmed bucket cleanup; delete the user record last |
 | Usage/accounting state | Remove the live KV usage projection; preserve retained historical accounting under Billing |
 
-The deletion route awaits `cleanupUserData` before success and Access-policy synchronization. Provider rejection leaves remaining user data, scoped access, the user record and outstanding provider credentials available for authorized retry; MCP admission stays closed and its invalidated grants are not restored. A previously confirmed provider revocation need not be undone. Provider credentials live in the KV deploy-keys record, not R2, and remain readable independently of bucket cleanup. [Credential protection](security.md#credential-controls) depends on the configured KV encryption key. There is no atomic cross-provider transaction: inspect partial effects before retry.
+The deletion route awaits `cleanupUserData` before success and Access-policy synchronization. Provider rejection leaves remaining user data, scoped access, the user record and outstanding provider credentials available for authorized retry; MCP admission stays closed and its invalidated grants are not restored. A previously confirmed provider revocation need not be undone. Provider credentials live in the KV deploy-keys record, not R2, and remain readable independently of bucket cleanup. [Credential protection](security.md#credential-controls) depends on the configured KV encryption key. There is no atomic cross-provider transaction: inspect partial effects before retry. <!-- @impl: src/routes/users.ts::default --> <!-- @impl: src/lib/user-cleanup.ts::runOwnedUserCleanup -->
 
-The existing owner serializes live cleanup and waits for all started parallel deletions before releasing exclusion, including after a rejection. The public deletion contract remains email-based rather than account-incarnation/idempotency-based. A fresh authorized deletion can therefore target a recreated account. Ordinary GitHub disconnect remains best effort; Cloudflare disconnect and manual PAT behavior keep their provider-specific contracts. A session count alone is not teardown proof. <!-- @impl: src/routes/users.ts::default --> <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData -->
+The existing owner serializes live cleanup. <!-- @impl: src/container/index.ts::cleanupOwnedUser --> Cleanup waits for all started parallel deletions before releasing exclusion, including after a rejection. <!-- @impl: src/lib/user-cleanup.ts::deleteUserKvEntries --> The public deletion contract remains email-based rather than account-incarnation/idempotency-based. A fresh authorized deletion can therefore target a recreated account. <!-- @impl: src/routes/users.ts::default --> Ordinary GitHub disconnect remains best effort; Cloudflare disconnect and manual PAT behavior keep their provider-specific contracts. A session count alone is not teardown proof. <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData -->
 
 ## Compatibility and Migration
 

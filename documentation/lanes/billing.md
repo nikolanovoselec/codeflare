@@ -21,6 +21,7 @@
 - [D1 Database and Migrations](#d1-database-and-migrations)
 - [Retention and Reports](#retention-and-reports)
 - [Operation Envelope and Logging](#operation-envelope-and-logging)
+- [Account acceptance methods](#account-acceptance-methods)
 - [Failure Posture and Residual Risk](#failure-posture-and-residual-risk)
 - [Requirement and Source Map](#requirement-and-source-map)
 - [Related Documentation](#related-documentation)
@@ -54,9 +55,11 @@ Legacy records without `subscriptionTier` retain their documented fallback. Non-
 
 ### Checkout initiation
 
-When Stripe is configured, paid tiers use Stripe Checkout; the free tier remains direct. The backend derives supported currency from `CF-IPCountry` and returns `{ checkoutUrl }` for the provider session; the browser then navigates to hosted checkout. After `checkout=success`, the page waits three seconds between unsuccessful auth-status checks, with no total deadline while mounted. After five minutes it exposes a report-problem control without ending polling. The redirect checks `hasSubscribed`, which is also true for an existing Free entitlement. The redirect is not confirmation of a particular paid plan or a new payment. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage -->
+When Stripe is configured, a new paid subscription uses Stripe Checkout; Free remains direct. An existing subscriber changing paid plans can use portal confirmation instead. The checkout handler derives currency from `CF-IPCountry` and returns `{ checkoutUrl }`; the browser navigates to it. <!-- @impl: src/routes/billing.ts::app.post -->
 
-New paid checkout requires configured Turnstile secret and site key, a token and successful verification before Stripe checkout creation or checkout billing writes. Missing configuration or unavailable verification does not bypass the challenge. Existing active or trialing Stripe subscribers remain exempt.
+After `checkout=success`, the browser waits three seconds between unsuccessful auth-status checks, with no total deadline while mounted. After five minutes it offers a way to report a problem without stopping polling. `hasSubscribed` can also be true for an existing Free entitlement, so the redirect does not confirm a particular plan or payment. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage --> <!-- @impl: src/routes/auth.ts::app.get -->
+
+New paid checkout requires configured Turnstile secret and site key, a token and successful verification before Stripe checkout creation or checkout billing writes. Missing configuration or unavailable verification does not bypass the challenge. The handler exempts a stored `billingStatus` of `active` or `trialing`; this is not a live Stripe check. <!-- @impl: src/routes/billing.ts::app.post('/checkout', -->
 
 When Stripe is intentionally not configured, selectable non-contact tiers are presented as payment-free direct choices, even with saved positive prices or Stripe price identifiers; stored administration configuration is unchanged and Custom retains its contact CTA. This is a configured mode, not a fail-open response to an unexpected provider outage. Payment-free direct activation retains conditional Turnstile behavior; its exact route contract belongs to [API Reference](api-reference.md#auth-saas-mode).
 
@@ -64,9 +67,11 @@ Custom is contact-only in the UI and Stripe flows under [AD41](../decisions/READ
 
 ### Stripe signal-and-sync
 
-Webhooks are authenticated signals. Checkout completion and subscription updates call `syncSubscriptionState()` to fetch current provider state. It resolves the user, obtains a monotonic per-user synchronization-start token from Timekeeper, and permits only the newest-started in-flight synchronization to apply. It preserves unrelated user fields; `lastSyncedAt` is recorded but is not ordering authority.
+Webhooks are authenticated signals. Checkout completion and subscription updates call `syncSubscriptionState()` to fetch current provider state. It resolves the user, obtains a monotonic per-user synchronization-start token from Timekeeper, and permits only the newest-started in-flight synchronization to apply. It preserves unrelated user fields; `lastSyncedAt` is recorded but is not ordering authority. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState --> <!-- @impl: src/timekeeper/index.ts::handleBillingSyncApply -->
 
-Subscription deletion instead uses the same coordinator to apply billing cleanup and canceled/free/default state directly, without fetching a subscription snapshot. An accepted deletion of the same stored trialing subscription records `trialUsed` in that write, so a later checkout does not offer another trial. Rejected deletions do not change trial history, and accepted deletions without a subscription identity match do not create a trial marker. Ordinary snapshot sync differs: an accepted non-trialing snapshot sets `trialUsed` without requiring the prior record to say `trialing`. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState --> <!-- @impl: src/timekeeper/index.ts::handleBillingSyncApply -->
+Subscription deletion instead uses the same coordinator to apply billing cleanup and canceled/free/default state directly, without fetching a subscription snapshot. An accepted deletion of the same stored trialing subscription records `trialUsed` in that write, so a later checkout does not offer another trial. Rejected deletions do not change trial history, and accepted deletions without a subscription identity match do not create a trial marker. <!-- @impl: src/routes/stripe-webhook.ts::handleSubscriptionDeleted --> <!-- @impl: src/timekeeper/index.ts::handleBillingSyncApply -->
+
+Ordinary snapshot sync differs: an accepted non-trialing snapshot sets `trialUsed` without requiring the prior record to say `trialing`. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState -->
 
 Price metadata supplies mode when present; otherwise configured Standard/Pro price slots can recover mode only. Snapshot tier fields are written only when non-null; a missing snapshot tier preserves the prior tier, not inferred price-slot entitlement. On subscribed-mode changes, non-deletion synchronization reconciles the selected permitted mode: promotion preserves an explicit Standard selection and initializes Pro only when no mode is selected. Tier-only or same-mode entitlement changes do not enter that reconciliation branch. Downgrade/termination still reconcile Standard; deletion separately attempts default-mode reconciliation and preference reset after coordinated cleanup.
 

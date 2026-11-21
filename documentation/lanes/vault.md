@@ -22,6 +22,7 @@ Persistent user notes, advanced-mode conversation memory, cumulative graph publi
 - [Memory Capture System](#memory-capture-system)
 - [Failure Diagnosis and Recovery](#failure-diagnosis-and-recovery)
 - [Requirement and Source Map](#requirement-and-source-map)
+- [Vault manual qualification](#vault-manual-qualification)
 - [Related Documentation](#related-documentation)
 
 ---
@@ -61,6 +62,8 @@ The R2 storage browser surfaces four directories as "special folders" at the buc
 | Vault | `~/Vault` | Always shown |
 | Uploads | `~/Uploads` | Always shown |
 | Temporary | `~/Temporary` | Always shown |
+
+The table shows [Storage panel paths](../../web-ui/src/lib/special-folders.ts), not proof that a local directory exists. The actual workspace is `/home/user/workspace` ([container setup](../../entrypoint.sh#L142)).
 
 “Workspace” is a UI label; the Linux directory is case-sensitive `/home/user/workspace`. Existing special-folder prefix/alias mappings are display mappings, not filesystem aliases. The tooltip shows the folder's purpose and mapped path.
 
@@ -125,7 +128,9 @@ On Pi, the worker writes the session note and the deterministic graph builder de
 
 #### Daily session capture compaction (REQ-MEM-023, REQ-VAULT-032)
 
-After a successful startup baseline or natural bisync cycle, the image-owned compactor is eligible once per UTC day and approximates the latest-month hot set from each capture filename's leading calendar date. A failed attempt remains unstamped and can retry after a later qualifying sync. It leaves files on or after the same UTC calendar date in the prior month and any unrecognized filename as individual hot files, then renders older captures in stable capture-date/name order into `Raw/Sessions/Archive.md`. Repeating the same inputs produces the same archive without duplicate source records. <!-- @impl: entrypoint.sh::run_daily_vault_session_compaction --> <!-- @impl: scripts/compact-session-captures.mjs::selectColdCaptures --> <!-- @impl: scripts/compact-session-captures.mjs::buildSessionArchive -->
+After a successful startup baseline or natural bisync cycle, the image-owned compactor is eligible once per UTC day per container-local completion stamp and approximates the latest-month hot set from each capture filename's leading calendar date. A failed attempt remains unstamped and can retry after a later qualifying sync. <!-- @impl: entrypoint.sh::run_daily_vault_session_compaction -->
+
+It leaves files on or after the corresponding UTC day in the prior month (clamped to that month’s last day) and any unrecognized filename as individual hot files, then renders older captures in stable capture-date/name order into `Raw/Sessions/Archive.md`. Repeating the same inputs produces the same archive without duplicate source records. <!-- @impl: scripts/compact-session-captures.mjs::selectColdCaptures --> <!-- @impl: scripts/compact-session-captures.mjs::buildSessionArchive --> <!-- @impl: scripts/compact-session-captures.mjs::prepareArchive -->
 
 The archive is machine-owned and read-only to agents. Retrieval searches current individual files first and uses `Archive.md` only as fallback; capture workers never target it, and interactive agents never edit it or delete source captures. The compactor changes storage shape, not meaning: semantic summarization, relevance pruning, and graph evidence deletion remain out of scope.
 
