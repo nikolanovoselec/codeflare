@@ -51,6 +51,7 @@ import {
   type VaultExtractRequest,
 } from "./memory-vault-helpers";
 import { activateRegisteredTools, type ToolActivationPi } from "./capability-helpers";
+import { isVaultRepository } from "./graphify-helpers";
 import {
   collectVaultFileHashes,
   commitVaultManifestTo,
@@ -152,7 +153,7 @@ function bestEffortMergeGraphs(paths: MemoryVaultPaths): void {
   try {
     const repo = readFileSync(join(paths.cacheDir, "graphify-active-cwd"), "utf8").trim();
     const repoGraph = join(repo, "graphify-out", "graph.json");
-    if (repo && existsSync(repoGraph)) addGraphToGlobal(repoGraph, basename(repo), repo);
+    if (repo && !isVaultRepository(repo) && existsSync(repoGraph)) addGraphToGlobal(repoGraph, basename(repo), repo);
   } catch { /* no active repo graph */ }
 }
 

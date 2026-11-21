@@ -144,7 +144,7 @@ function activeRepo(ctx: ExtensionContext): string | undefined {
     (path) => readFileSync(path, "utf8"),
     existsSync,
   );
-  if (restored) {
+  if (restored && !isVaultRepository(restored)) {
     // Display/Graphify fallback only; do not write sentinel-restored paths into review-routing memory.
     persistActiveRepo(restored);
     return restored;

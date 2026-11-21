@@ -481,6 +481,44 @@ afterEach(() => {
 });
 
 describe('REQ-VAULT-004 / REQ-OPS-049 AC3: protected global graph publication', () => {
+  it('REQ-VAULT-004 AC3: startup ignores a stale Vault repo sentinel while preserving canonical Vault publication', async () => {
+    const harness = makeHarness({ existingVault: true });
+    const graphDir = join(harness.paths.vaultRoot, 'graphify-out');
+    mkdirSync(graphDir, { recursive: true });
+    const cumulative = join(graphDir, 'vault-graph.json');
+    const derived = join(graphDir, 'graph.json');
+    writeFileSync(cumulative, '{"nodes":[{"id":"retained"}],"links":[]}');
+    writeFileSync(derived, '{"nodes":[],"links":[]}');
+    mkdirSync(harness.paths.cacheDir, { recursive: true });
+    const sentinel = join(harness.paths.cacheDir, 'graphify-active-cwd');
+    writeFileSync(sentinel, `${harness.paths.vaultRoot}\n`);
+    const bin = join(harness.root, 'bin');
+    mkdirSync(bin);
+    const publishedTag = join(harness.root, 'published-tag');
+    writeFileSync(join(bin, 'flock'), '#!/bin/sh\nshift 3\nexec "$@"\n');
+    writeFileSync(join(bin, 'graphify'), `#!/bin/sh\nprintf '%s\\n' "$5" > '${publishedTag}'\n`);
+    chmodSync(join(bin, 'flock'), 0o755);
+    chmodSync(join(bin, 'graphify'), 0o755);
+    const inheritedPath = process.env.PATH;
+    process.env.PATH = `${bin}:${inheritedPath ?? ''}`;
+    try {
+      await harness.emit('session_start');
+      expect(readFileSync(publishedTag, 'utf8')).toBe('user_vault\n');
+      expect(readFileSync(sentinel, 'utf8')).toBe(`${harness.paths.vaultRoot}\n`);
+      expect(readFileSync(cumulative, 'utf8')).toBe('{"nodes":[{"id":"retained"}],"links":[]}');
+      expect(readFileSync(derived, 'utf8')).toBe('{"nodes":[],"links":[]}');
+
+      const ordinary = join(harness.root, 'ordinary');
+      mkdirSync(join(ordinary, 'graphify-out'), { recursive: true });
+      writeFileSync(join(ordinary, 'graphify-out', 'graph.json'), '{"nodes":[]}');
+      writeFileSync(sentinel, `${ordinary}\n`);
+      await harness.emit('session_start');
+      expect(readFileSync(publishedTag, 'utf8')).toBe('ordinary\n');
+    } finally {
+      process.env.PATH = inheritedPath;
+    }
+  });
+
   it('REQ-VAULT-004 / REQ-OPS-049 AC3: memory-vault.ts publishes through the protected global graph lock', () => {
     const root = mkdtempSync(join(tmpdir(), 'memory-vault-graph-lock-'));
     roots.push(root);

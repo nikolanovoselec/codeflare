@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -15,6 +15,8 @@ vi.mock('node:fs', async (original) => {
     writeFileSync: (path: any, ...args: any[]) => Reflect.apply(fs.writeFileSync, fs, [redirect(path), ...args]),
     mkdirSync: (path: any, ...args: any[]) => Reflect.apply(fs.mkdirSync, fs, [redirect(path), ...args]),
     realpathSync: (path: any, ...args: any[]) => Reflect.apply(fs.realpathSync, fs, [redirect(path), ...args]),
+    readdirSync: (path: any, ...args: any[]) => Reflect.apply(fs.readdirSync, fs, [redirect(path), ...args]),
+    statSync: (path: any, ...args: any[]) => Reflect.apply(fs.statSync, fs, [redirect(path), ...args]),
   };
 });
 vi.mock('node:child_process', async (original) => {
@@ -47,18 +49,20 @@ afterEach(() => {
   paths.home = '';
 });
 
-function runtime() {
+function runtime(notifications: string[] = []) {
   const handlers = new Map<string, Array<(event: any, ctx: any) => unknown>>();
   registerRuntime({
     on(name: string, handler: any) { handlers.set(name, [...(handlers.get(name) ?? []), handler]); },
     registerCommand() {},
   } as never);
-  return async (cwd: string) => {
-    for (const handler of handlers.get('tool_result') ?? []) {
-      await handler({ toolName: 'read', input: { path: join(cwd, 'note.md') } }, {
-        sessionManager: { getCwd: () => cwd }, ui: { notify() {} },
+  return async (cwd: string, eventName = 'tool_result') => {
+    let result: any;
+    for (const handler of handlers.get(eventName) ?? []) {
+      result = await handler({ toolName: 'read', input: { path: join(cwd, 'note.md') }, systemPrompt: 'original' }, {
+        sessionManager: { getCwd: () => cwd }, ui: { notify(message: string) { notifications.push(message); } },
       });
     }
+    return result;
   };
 }
 
@@ -101,6 +105,25 @@ describe('REQ-VAULT-004 AC3: a Git-initialized Vault never becomes the active re
     const outside = join(root, 'without-repository');
     mkdirSync(outside);
     expect((await query(outside)).details.graph).toBe('/home/user/.graphify/global-graph.json');
+  });
+
+  it('ignores a stale Vault sentinel during startup without rewriting it or advertising it as a repository', async () => {
+    mkdirSync(join(vault, '.git'));
+    writeFileSync(sentinel, `${vault}\n`);
+    const old = new Date('2000-01-01T00:00:00Z');
+    utimesSync(sentinel, old, old);
+    const before = readFileSync(sentinel);
+    const mtime = statSync(sentinel).mtimeMs;
+    const outside = join(root, 'outside');
+    mkdirSync(outside);
+    const notices: string[] = [];
+    const dispatch = runtime(notices);
+    await dispatch(outside, 'session_start');
+    const prompt = await dispatch(outside, 'before_agent_start');
+    expect(readFileSync(sentinel)).toEqual(before);
+    expect(statSync(sentinel).mtimeMs).toBe(mtime);
+    expect(notices).toEqual([]);
+    expect(prompt.systemPrompt).not.toContain('<codeflare_graphify>');
   });
 
   it('preserves ordinary nearest worktree selection and graph-output-only fallback', async () => {
