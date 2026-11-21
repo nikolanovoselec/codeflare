@@ -7,7 +7,7 @@ import { createReviewEnforcement, resultText, successful, type ReviewEnforcement
 import { createOperatorReviewRemote, githubRepository, type OperatorReviewRemoteController } from './operator-review-remote';
 import { findGitRoot, recallActiveRepo, resolveShellInvocationRepo, shellInvocations, type ShellInvocation } from './active-repo-memory';
 import { cloneTargetHadGit, cloneTargetPath, rememberCloneTargetHadGit } from './graphify-helpers';
-import { classifyReviewBoundaryCommand } from './review-helpers';
+import { classifyReviewBoundaryCommand, isReviewTransitionSuspended } from './review-helpers';
 
 const execFile = promisify(execFileCallback);
 type Mode = 'local' | 'remote' | 'unavailable' | 'none';
@@ -220,6 +220,7 @@ async function localReviewRepository(repo: string, runner: typeof execFile): Pro
 export async function selectOperatorReviewApplicability(event: any, ctx: any,
   runner: typeof execFile = execFile,
   enrollment: (repository: string) => Promise<Enrollment> = readReviewEnrollment): Promise<Mode> {
+  if (process.env.SESSION_MODE === 'default') return 'none';
   if (process.env.ENTERPRISE_MODE !== 'active') return 'local';
   const invocations = shellInvocations(event, ctx.cwd);
   const boundary = invocations.filter(invocation =>
@@ -236,10 +237,13 @@ export async function selectOperatorReviewApplicability(event: any, ctx: any,
   if (!repo) return boundary && classifyReviewBoundaryCommand(boundary.command).clone ? 'unavailable' : 'none';
   if (!existsSync(join(repo, 'sdd', 'README.md'))) return 'none';
   try {
+    if (isReviewTransitionSuspended(repo)) return 'none';
     const repository = await localReviewRepository(repo, runner);
     if (!repository) return 'unavailable';
     const disposition = await enrollment(repository);
-    if (disposition !== 'remote-candidate') return disposition;
+    if (disposition === 'local') return 'local';
+    // Even when enrollment is unknown, a confirmed non-candidate is inert.
+    // Only an enrolled candidate can proceed to protected Action discovery.
     const readCheckout = async () => {
       let branch: string;
       try {
@@ -269,7 +273,7 @@ export async function selectOperatorReviewApplicability(event: any, ctx: any,
     if (!Number.isSafeInteger(pr.number) || pr.number < 1 || !['OPEN', 'CLOSED', 'MERGED'].includes(pr.state)
       || typeof pr.baseRefName !== 'string' || !pr.baseRefName.trim() || !sha.test(pr.headRefOid)) return 'unavailable';
     if (pr.state !== 'OPEN' || !['main', 'master', 'develop'].includes(pr.baseRefName)) return 'none';
-    if (pr.headRefName !== checkout.branch) return 'unavailable';
+    if (disposition !== 'remote-candidate' || pr.headRefName !== checkout.branch) return 'unavailable';
     const target = new URL(pr.url);
     if (target.origin !== 'https://github.com' || target.username || target.password || target.search || target.hash
       || target.pathname.toLowerCase() !== `/${repository}/pull/${pr.number}`) return 'unavailable';

@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { effectiveCwdForCommand } from "./graphify-helpers";
-import { executableShellSegments } from "./review-helpers";
+import { classifyReviewBoundaryCommand, executableShellSegments } from "./review-helpers";
 import { executableShellCommands, shellCommandExecutable } from "./guard-helpers.js";
 
 const ACTIVE_REPO_KEY = Symbol.for("codeflare.activeRepo");
@@ -123,7 +123,21 @@ function commandInvocations(command: string, cwd: string): ShellInvocation[] {
   let errexit = false;
   const bindings: LiteralPathBindings = new Map();
   let scopeUnsafe = hasUnsupportedScope(command);
-  return executableShellSegments(command).map((segment) => {
+  const segments = executableShellSegments(command);
+  const background = new Set<number>();
+  // `a && b &` backgrounds the entire list, not just b. Bash's tool result
+  // confirms that it queued the clone, not that the checkout was produced.
+  for (let index = 0; index < segments.length; index++) {
+    if (segments[index]?.separatorAfter !== "&") continue;
+    for (let member = index; member >= 0; member--) {
+      background.add(member);
+      const before = segments[member]?.separatorBefore;
+      if (before !== "&&" && before !== "||" && before !== "|") break;
+    }
+  }
+  return segments.map((segment, index) => {
+    const runsInBackground = background.has(index);
+    if (runsInBackground && classifyReviewBoundaryCommand(segment.command).clone) return undefined;
     const certain = cwdCertain && segment.separatorBefore !== "||";
     if (!supportedStraightLineSegment(segment.command)) scopeUnsafe = true;
     const invocation = {
@@ -176,7 +190,7 @@ function commandInvocations(command: string, cwd: string): ShellInvocation[] {
       cwdCertain = false;
     }
     return invocation;
-  });
+  }).filter(invocation => invocation !== undefined);
 }
 
 export function shellInvocations(event: any, sessionCwd: string): ShellInvocation[] {

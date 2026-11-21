@@ -4,6 +4,11 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-21: Keep non-review transitions silent
+
+- [REQ-OPERATOR-053](operators.md#req-operator-053-enterprise-pr-boundary-review-handoff) does not treat background clone submission or a confirmed missing, closed, or unprotected PR as a Review boundary. Unknown enrollment still cannot clear an eligible PR.
+- [REQ-AGENT-092](agents.md#req-agent-092-import-transition-review-suppression) applies the existing open Import transition suppression before Pi routing.
+
 ## 2026-11-21: Keep terminal trust, dependency sync, and Vault extraction scoped
 
 - [REQ-ENTERPRISE-005](models-and-routing.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) gives early Enterprise terminal launches the mounted interception CA settings before shell setup.
