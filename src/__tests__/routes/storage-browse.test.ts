@@ -213,7 +213,8 @@ describe('Storage Browse Routes / REQ-STOR-007 (web file browser: browse endpoin
       for (const email of ['ab@example.com', 'a+b@example.com']) {
         const response = await request(email);
         expect(response.status).toBe(403);
-        expect(await response.json()).toMatchObject({ error: 'Ambiguous legacy bucket ownership' });
+        // The internal collision reason is not part of the public error contract.
+        expect(await response.json()).toEqual({ error: 'Access denied', code: 'FORBIDDEN' });
       }
       expect(objectReads).toEqual([]);
       expect([...owners]).toEqual([]);
