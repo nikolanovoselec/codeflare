@@ -72,11 +72,14 @@ CODEFLARE_RUNTIME_ROOT=$(mktemp -d)
 mkdir -p "$CODEFLARE_RUNTIME_ROOT/sync"
 trap 'rm -rf "$CODEFLARE_RUNTIME_ROOT"' EXIT
 USER_HOME="$CODEFLARE_RUNTIME_ROOT"
+# This base-filter fixture has no restored managed policy. Protected policies
+# have their own signed-input fixtures below; do not inherit the caller's mode.
+MANAGED_RESOURCE_POLICY=mutable
 MANAGED_RESOURCE_FILTER_FILE="$CODEFLARE_RUNTIME_ROOT/sync/managed.filter"
 RECOVERY_FILTER_FILE="$CODEFLARE_RUNTIME_ROOT/sync/recovery.filter"
 : > "$RECOVERY_FILTER_FILE"
 ${policyFunctions}
-compose_rclone_filters
+compose_rclone_filters || exit $?
 `;
 
 // Build a fixture tree that contains one representative path per filter
@@ -336,6 +339,43 @@ describe('entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2
       assert.equal(v['.codeflare/managed-paths.json'], 'INCLUDED');
       assert.equal(v['.codeflare/private-runtime.json'], 'EXCLUDED');
       assert.equal(v['.config/opencode/extensions/personal/index.ts'], 'INCLUDED');
+    }
+  });
+
+  it('REQ-IDE-002 AC6: keeps live editor files out of sync while admitting the two bounded manifests', () => {
+    // The live tree is under /run, outside the sync root. Mirror its layout
+    // under home-private .codeflare to exercise the actual filter veto too.
+    const editorFiles = [
+      'extensions/publisher.extension/out/extension.js',
+      'data/User/workspaceStorage/session/state.vscdb',
+      'data/User/workspaceStorage/session/state.vscdb-wal',
+      'data/User/workspaceStorage/session/state.vscdb-shm',
+      'data/User/workspaceStorage/session/workspace.json',
+      'data/User/workspaceStorage/session/publisher.extension/storage.json',
+      'data/User/workspaceStorage/session/chatSessions/chat.json',
+      'data/User/globalStorage/state.vscdb', // Includes SecretStorage and authentication state.
+      'data/User/globalStorage/state.vscdb-wal',
+      'data/User/globalStorage/state.vscdb-shm',
+      'data/User/globalStorage/publisher.extension/storage.json',
+      'data/User/History/file/entries.json',
+      'data/User/settings.json',
+      'data/User/keybindings.json',
+      'data/User/snippets/private.code-snippets',
+      'data/logs/session/exthost/exthost.log',
+    ].map(path => `.codeflare/openvscode/data/${path}`);
+    const extraFixtures = Object.fromEntries(editorFiles.map(path => [path, 'private editor state']));
+    const excluded = [...editorFiles, '.local/share/code-server/coder-logs/code-server-stdout.log'];
+    for (const sessionMode of ['advanced', 'default']) {
+      for (const syncMode of ['none', 'metadata', 'full']) {
+        for (const syncPolicyMode of ['include', 'exclude']) {
+          const v = verdictUnder({ sessionMode, syncMode, syncPolicyMode, extraFixtures });
+          const scope = `${sessionMode}/${syncMode}/${syncPolicyMode}`;
+          for (const path of excluded) assert.equal(v[path], 'EXCLUDED', `${scope}: ${path}`);
+          for (const path of ['.codeflare/ide-ui-state.json', '.codeflare/ide-extensions.json']) {
+            assert.equal(v[path], 'INCLUDED', `${scope}: ${path}`);
+          }
+        }
+      }
     }
   });
 

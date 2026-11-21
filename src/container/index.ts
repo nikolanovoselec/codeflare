@@ -1140,8 +1140,8 @@ export class container extends Container<Env> implements ContainerEnvState {
    * separate Operator path both prepare interception before invoking the SDK.
    *
    * Which transports wire (and their guards) is data-driven: see the registry
-   * in container-interception.ts. Enterprise transports are a no-op unless
-   * enterprise mode + gateway configured; the OAuth api.cloudflare.com
+   * in container-interception.ts. Enterprise mode registers its transports even
+   * without Gateway configuration; affected requests then fail closed. The OAuth api.cloudflare.com
    * transport (REQ-AGENT-078) is a no-op unless this is a non-enterprise
    * "Connect to Cloudflare" session (detected by the injected OAuth placeholder).
    */

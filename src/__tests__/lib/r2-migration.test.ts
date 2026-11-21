@@ -374,6 +374,29 @@ describe('migrateBucketEncryption (lossless REPLACE re-encrypt)', () => {
 
 // ── Read-path dual-regime fallback ──────────────────────────────────────────────
 describe('fetchObjectWithRegimeFallback (D2 reads stay up)', () => {
+  it('REQ-SEC-005 AC7: HEAD and GET of a plain object work without a configured encryption key', async () => {
+    const kv = createMockKV();
+    kv._set('r2-regime:bkt', { status: 'ready', regime: 'plain', generation: 1 });
+    const env = { ...r2Env, ENCRYPTION_KEY: undefined, KV: kv as unknown as KVNamespace };
+    const url = 'https://r2.test/bkt/plain.txt';
+    const bytes = 'ordinary object';
+    const seen: string[] = [];
+    mockFetch.mockImplementation(async (target: string, init: RequestInit) => {
+      expect(target).toBe(url);
+      expect([...new Headers(init.headers).keys()].filter(name => name.startsWith('x-amz-server-side-encryption-customer-'))).toEqual([]);
+      seen.push(init.method!);
+      return new Response(init.method === 'HEAD' ? null : bytes, { headers: { 'Content-Length': String(bytes.length) } });
+    });
+
+    const head = await fetchObjectWithRegimeFallback(env, 'bkt', url, { method: 'HEAD' });
+    expect(head.response.status).toBe(200);
+    expect(head.response.headers.get('Content-Length')).toBe(String(bytes.length));
+    const get = await fetchObjectWithRegimeFallback(env, 'bkt', url, { method: 'GET' });
+    expect(get.response.status).toBe(200);
+    expect(await get.response.text()).toBe(bytes);
+    expect(seen).toEqual(['HEAD', 'GET']);
+  });
+
   it('reads in the committed regime with no fallback when the primary succeeds', async () => {
     makeR2({ 'a.txt': { regime: 'sse-c' } });
     const { kv } = makeKV(); // default ready/sse-c

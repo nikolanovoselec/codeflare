@@ -104,7 +104,7 @@ Auth configuration ([REQ-SEC-016](../../sdd/spec/authentication.md#req-sec-016-r
 <!-- @impl: src/lib/access.ts::loadAuthConfig -->
 <!-- @impl: src/lib/jwt.ts::getPublicKeys -->
 
-During application bootstrap ([REQ-AUTH-024](../../sdd/spec/authentication.md#req-auth-024-bootstrap-service-error-recovery)), network and server failures show a recoverable account-loading error with Retry, rather than claiming the user is unauthenticated. Genuine session expiry still starts sign-in, and forbidden access does not mount the protected application.
+During production bootstrap ([REQ-AUTH-024](../../sdd/spec/authentication.md#req-auth-024-bootstrap-service-error-recovery)), network and server failures show a recoverable account-loading error. Retry reloads the page and starts account bootstrap again. A genuine sign-in redirect takes precedence; pending or blocked entitlement responses go to subscriptions, and an ordinary forbidden response does not mount the protected application. The component fixture simulates document reload by remounting after the error; it is not hosted navigation evidence.
 <!-- @impl: web-ui/src/App.tsx::AppContent -->
 
 ```mermaid
@@ -151,6 +151,8 @@ Authenticated API clients treat explicit 401, manual/opaque redirects, and HTML 
 Service automation uses `X-Service-Auth` only when the optional Worker `SERVICE_AUTH_SECRET` is configured. Environment-specific source-secret mapping and GitHub Environment placement belong to private [Deployment testing](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/verification/deployment-testing.md).
 
 Current source checks this header before user authentication, compares it in constant time to avoid secret-dependent timing, and returns an admin automation identity when it matches. This path supports deployment end-to-end checks. The stress-mode, SaaS-mode, and hostname restrictions accepted in [AD68](../decisions/README.md#ad68-service-token-admin-bypass-must-be-environment-gated-and-hostname-restricted) are **not implemented** and remain tracked by issue #130. This path must therefore be treated as a privileged residual risk, not described as environment-gated hardening. <!-- @impl: src/lib/access.ts::validateServiceAuthHeader -->
+
+For [REQ-AUTH-004 AC2](../../sdd/spec/authentication.md#req-auth-004-service-token-authentication-for-service-automation), unequal UTF-8 byte lengths are rejected before comparison; equal-length buffers use Workers' `crypto.subtle.timingSafeEqual`. Cloudflare documents this primitive as [resistant to timing attacks](https://developers.cloudflare.com/workers/runtime-apis/web-crypto/#timingsafeequal). The existing service-token tests exercise successful, same-length-mismatch and length-mismatch admission outcomes. Timing resistance is a source-backed platform guarantee, not a latency measurement or a claim that those outcome assertions benchmark timing. <!-- @impl: src/lib/access.ts::validateServiceAuthHeader -->
 
 The automation identity carries an explicit active tier for protected app APIs. Ordinary users without a recognized tier remain pending. <!-- @impl: src/lib/access.ts::validateServiceAuthHeader --> <!-- @impl: src/middleware/auth.ts::requireActiveUser -->
 
@@ -372,6 +374,10 @@ For REQ-AUTH-003 AC1, open a protected application page and API endpoint on the 
 
 For REQ-AUTH-007 AC3/AC5 and REQ-AUTH-015 AC3/AC4, use existing approved pending, first-time-active and onboarding-complete SaaS identities. Sign in normally: pending must reach subscriptions; first-time active must reach Guided Setup. With separate write approval, complete onboarding and sign in again; the completed identity must not return to onboarding. Pass only if all transitions occur. Missing states or completion prerequisites remain unverified; this check authorizes no KV edits, payment, provider connection or entitlement changes.
 
+For [REQ-AUTH-021](../../sdd/spec/authentication.md#req-auth-021-onboarding-mode-sign-in-choices-and-access-request-flow) AC3, compare retained SaaS and Enterprise sign-in records with onboarding configured: neither may enter the onboarding access-request branch or stamp a request through it. The route fixture covers the SaaS case. For AC6, the first-request and retry fixtures cover normal mail delivery and suppression after stamping; the separate error handlers establish the failure branches in source, not executed mail-failure evidence. <!-- @impl: src/routes/github-auth.ts::onboardingAccessRequest -->
+
+The GitHub callback checks the stored `subscriptionTier`. For an existing record with that field absent, the legacy compatibility predicate treats the record as active and redirects to `/app/`, without stamping an access request. The API gate separately resolves the effective tier using the legacy `accessTier` supplied by identity resolution. For a legacy pending or blocked record, the callback points to `/app/` even though the API gate denies protected requests. The redirect alone does not establish that the shell loads. The active-user redirect fixture sets an explicit `subscriptionTier` and does not exercise this divergence. <!-- @impl: src/routes/github-auth.ts::onboardingAccessRequest --> <!-- @impl: src/lib/subscription.ts::isActiveTier --> <!-- @impl: src/middleware/auth.ts::requireActiveUser -->
+
 ### Session refresh acceptance
 
 Use approved non-Enterprise SaaS and onboarding sessions. In separate observations, let a session age into the final fifteen minutes and inspect an API response, a network-fetched asset, or authorized Vault/IDE HTTP traffic. A renewal passes if the original response remains usable and the cookie retains its scope and security attributes with a new one-hour lifetime; record attributes and timing, not token values. Repeat with a fresh session to confirm no renewal and unchanged asset caching.
@@ -390,7 +396,7 @@ For REQ-AUTH-017 AC2, use an approved existing identity with no Gravatar. Open H
 
 For REQ-AUTH-023 AC1–AC4 and REQ-AUTH-018 AC1–AC3, use approved SaaS and onboarding admin deployments with existing disposable users across tiers and known capacity. Open `/admin/users`, compare tier headings and current/maximum counts, then search for a known user.
 
-With separately approved mutations, approve pending users, change SaaS tier/session mode, and use onboarding Approve/Block and bulk approval. Pass each operation only when its successful response updates visible state; onboarding approval must grant unlimited/advanced full access. Preserve admin-only/mode gates.
+With separately approved mutations, approve pending users, change SaaS tier/session mode, and use onboarding Approve/Block and bulk approval. The bulk action applies to pending users in the current filtered display, not users excluded by the email search. Pass each operation only when its successful response updates visible state; onboarding approval must grant unlimited/advanced full access. Preserve admin-only/mode gates.
 
 For [REQ-AUTH-026](../../sdd/spec/authentication.md#req-auth-026-admin-user-offboarding) AC1, delete only an explicitly authorized disposable user and verify a successful response updates the displayed state. A disappeared row does not establish AC2–3's independent cleanup and revocation outcomes.
 

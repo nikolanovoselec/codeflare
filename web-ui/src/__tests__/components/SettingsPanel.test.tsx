@@ -921,6 +921,22 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
       expect(sessionStoreState.updatePreferences).toHaveBeenCalledWith({ sleepAfter: '8h' });
     });
 
+    it('REQ-SESSION-004 AC7 / REQ-SESSION-014 AC3: disables auto-sleep for a non-admin without an active plan', async () => {
+      const [isOpen, setIsOpen] = createSignal(true);
+      render(() => <SettingsPanel isOpen={isOpen()} onClose={() => setIsOpen(false)} currentUserRole="user" />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
+      await waitFor(() => expect(screen.getByLabelText('Sleep after inactivity')).toBeEnabled());
+
+      fireEvent.click(screen.getByTestId('settings-close-button'));
+      mockGetUser.mockResolvedValueOnce({
+        email: 'test@example.com', authenticated: true, bucketName: 'test',
+        subscriptionTier: 'pending', hasSubscribed: false,
+      });
+      setIsOpen(true);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
+      await waitFor(() => expect(screen.getByLabelText('Sleep after inactivity')).toBeDisabled());
+    });
+
     it('renders "Administration" group heading for admins', () => {
       render(() => (
         <SettingsPanel

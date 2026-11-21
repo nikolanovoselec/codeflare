@@ -74,6 +74,30 @@ function createMockCtx(): ExecutionContext {
   } as unknown as ExecutionContext;
 }
 
+it.each([
+  '/api/vscode',
+  '/api/vscode/',
+  '/api/vscode//stable/out/main.js',
+  '/api/vscode/abcdef1234567890',
+])('REQ-IDE-001 AC1: %s returns an API 404 without Container I/O', async path => {
+  const { env } = createMockEnv();
+  env.SERVICE_AUTH_SECRET = 'test-editor-service-secret';
+  const containerAccess = vi.fn(() => { throw new Error('Unexpected Container access'); });
+  env.CONTAINER = {
+    idFromName: containerAccess,
+    get: containerAccess,
+    getByName: containerAccess,
+  } as unknown as Env['CONTAINER'];
+
+  const response = await worker.fetch(new Request(`https://example.com${path}`, {
+    headers: { 'X-Service-Auth': env.SERVICE_AUTH_SECRET },
+  }), env, createMockCtx());
+
+  expect(response.status).toBe(404);
+  expect(await response.json()).toEqual({ error: 'Not found' });
+  expect(containerAccess).not.toHaveBeenCalled();
+});
+
 describe('REQ-SESSION-025: final Worker lifecycle error logging', () => {
   it.each([
     ['POST', '/api/container/start', 'start_failed'],

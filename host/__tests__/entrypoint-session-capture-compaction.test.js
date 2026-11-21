@@ -35,7 +35,7 @@ function fixture() {
   return { root, runtime, home, sessions, log: join(root, 'calls.log') };
 }
 
-function harness(fx, body, invocation, { fail = '', mode = 'advanced', noop = false } = {}) {
+function harness(fx, body, invocation, { fail = '', mode = 'advanced', noop = false, utcDay = '2026-03-31' } = {}) {
   const source = join(fx.sessions, '2026-01-01T00-00-00Z-old.md');
   return `
 set +e
@@ -53,7 +53,7 @@ PREPARE_NOOP=${noop ? '1' : '0'}
 BISYNC_CALLS=0
 export SESSION_MODE CODEFLARE_RUNTIME_ROOT SYNC_RUNTIME_DIR CODEFLARE_GRAPH_LOCK USER_HOME R2_BUCKET_NAME RCLONE_CONFIG CALLS FAIL_STAGE PREPARE_NOOP
 
-date() { [ "$1 $2" = "-u +%F" ] && printf '2026-03-31\\n' || command date "$@"; }
+date() { [ "$1 $2" = "-u +%F" ] && printf '%s\\n' ${JSON.stringify(utcDay)} || command date "$@"; }
 timeout() { shift; "$@"; }
 rclone() {
   case "$1" in
@@ -149,6 +149,11 @@ describe('entrypoint session-capture compaction orchestration', () => {
     );
     assert.equal(readFileSync(join(fx.runtime, 'sync/vault-session-compaction.utc-day'), 'utf8'), '2026-03-31\n');
     assert.equal(existsSync(join(fx.runtime, 'sync/vault-session-compaction')), false);
+
+    const nextDay = runDaily(fx, { utcDay: '2026-04-01', noop: true });
+    assert.equal(nextDay.status, 0, nextDay.stderr);
+    assert.deepEqual(calls(fx).slice(actual.length), ['PREPARE']);
+    assert.equal(readFileSync(join(fx.runtime, 'sync/vault-session-compaction.utc-day'), 'utf8'), '2026-04-01\n');
   });
 
   it('stamps a no-op day without publishing, relocating, or deleting', () => {

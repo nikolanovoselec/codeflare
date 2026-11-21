@@ -204,7 +204,7 @@ export function refreshSessionAncillaryStatus(): Promise<void> {
  * Lightweight status refresh - only fetches batch-status and updates
  * existing session statuses in-place. Does NOT replace the sessions
  * array or set loading state, so the dashboard doesn't flicker.
- * Also updates storage stats when storageStats is present in the batch response.
+ * Storage stats are refreshed separately through the ancillary endpoint.
  */
 export function refreshSessionStatuses(forceManagedReleaseCheck = false): Promise<void> {
   if (pollInFlight) {
@@ -298,9 +298,8 @@ async function refreshSessionStatusesOnce(forceManagedReleaseCheck: boolean): Pr
       // can accept a newer D1 stopped projection.
       if (isLocallyStoppingFn(session.id)) continue;
 
-      // Guard 2: Startup - block ALL KV transitions while session is initializing.
-      // isSessionInitializing tracks the full startup flow (SSE stream), not just
-      // the 'initializing' status. The accepted D1 start can still be converging.
+      // Guard 2: The local startup flow owns lifecycle transitions while it
+      // converges, even if the ordered batch projection already has newer fields.
       if (session.status === 'initializing' || isSessionInitializingFn(session.id)) continue;
 
       // Legacy unordered negatives cannot override local transport ownership.

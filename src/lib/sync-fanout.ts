@@ -15,9 +15,9 @@ import { isBucketMigrating } from './r2-regime-state';
 
 /**
  * Maximum concurrent per-session sync triggers in one fan-out call
- * (REQ-STOR-015 AC2). Keeps Worker subrequest / CPU budget bounded
- * if a user has many running sessions. Triggers beyond the cap are
- * processed sequentially in subsequent chunks. Internal-only - no
+ * (REQ-STOR-015 AC2). Bounds simultaneous trigger work, not the total
+ * Worker requests across all selected sessions. Triggers beyond the cap
+ * are processed in subsequent chunks. Internal-only - no
  * external consumer needs to read it.
  */
 const FANOUT_CONCURRENCY_CAP = 8;

@@ -199,6 +199,9 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
       const [url, opts] = mockFetch.mock.calls[0];
       expect(url).toContain('workspace/file.ts');
       expect(opts.method).toBe('PUT');
+      // REQ-SEC-005 AC7: ordinary PUT without an operator key sends the bytes without SSE-C.
+      expect(await new Response(opts.body).text()).toBe('hello world');
+      expect([...new Headers(opts.headers).keys()].filter(name => name.startsWith('x-amz-server-side-encryption-customer-'))).toEqual([]);
     });
 
     it('REQ-ENTERPRISE-030: denies protected upload before the user-object R2 request', async () => {

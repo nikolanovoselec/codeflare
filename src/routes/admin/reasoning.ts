@@ -581,7 +581,7 @@ reasoningRoutes.post('/native/profile-discovery', requireAdmin, discoveryRateLim
       const profile = getBuiltInProfile(BEDROCK_MESSAGES_DEFAULT_PROFILE)!;
       return c.json({ schemaVersion: 1, route: `${provider.provider}/${request.data.target.model}`, outcome: 'existing-profile', classification: 'Compatible, unverified', assignable: true,
         matchedProfiles: [{ profileRef: profileRefFor(profile as unknown as Record<string, unknown>), name: profile.name, supportedLevels: profile.supportedLevels }],
-        limitations: ['Protocol candidate only. Explicit Verify must establish tools/replay and cache reuse before activation. All Pi preferences use provider default.'],
+        limitations: ['Protocol candidate only. Explicit Verify must establish tools/replay before activation; cache reuse evidence is optional. All Pi preferences use provider default.'],
         diagnostics: [], accounting: { logicalProbes: 0, httpAttempts: 0 } });
     }
     const selector = `${nativeProviderSelector(provider.provider, customProviders.has(provider.provider))}/${request.data.target.model}`;

@@ -35,7 +35,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 2. The deploy workflow also supports manual dispatch to production, integration, enterprise, or enterprise integration. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
 3. The deploy pipeline stages target preparation, parallel worker-asset and container-image builds, and deployment. <!-- @impl: .github/workflows/deploy.yml::prepare --> <!-- @impl: .github/workflows/deploy.yml::build-worker --> <!-- @impl: .github/workflows/deploy.yml::container --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (REQ-OPS-001 AC3/4: deployment artifact-handoff contract builds assets once before the dependent consumer) -->
 4. Frontend and landing assets are built once and handed to the deploy job as an artifact. <!-- @impl: .github/workflows/deploy.yml::build-worker --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (REQ-OPS-001 AC3/4: deployment artifact-handoff contract builds assets once before the dependent consumer) -->
-5. The KV namespace is resolved or created and applied to the deployment configuration. <!-- @impl: .github/workflows/deploy.yml::Resolve KV namespace --> <!-- @manual -->
+5. Deployment reuses the matching KV namespace or creates it only when a valid inventory confirms absence, then binds its ID. Failed or unusable inventory stops deployment before creation or rebinding. <!-- @impl: .github/workflows/deploy.yml::Resolve KV namespace --> <!-- @impl: scripts/ci/resolve-kv-namespace.sh::KV_TITLE --> <!-- @test: host/__tests__/resolve-kv-namespace.test.js (REQ-OPS-001 AC5: reuses the namespace from a valid inventory) --> <!-- @test: host/__tests__/resolve-kv-namespace.test.js (REQ-OPS-001 AC5: creates the namespace only when a valid inventory confirms absence) --> <!-- @test: host/__tests__/resolve-kv-namespace.test.js (REQ-OPS-001 AC5: failed or unusable inventory cannot create or rebind KV) --> <!-- @manual -->
 
 **Constraints:**
 
@@ -50,7 +50,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** None.
 
-**Verification:** Automated: [deploy-requires-tests](../../host/__tests__/deploy-requires-tests.test.js), [nightly-pr-checks-routing](../../host/__tests__/nightly-pr-checks-routing.test.js); Manual: [Deploy pipeline record inspection](../../documentation/lanes/deployment.md#deploy-pipeline-record-inspection)
+**Verification:** Automated: [deploy-requires-tests](../../host/__tests__/deploy-requires-tests.test.js), [nightly-pr-checks-routing](../../host/__tests__/nightly-pr-checks-routing.test.js), [resolve-kv-namespace.test.js](../../host/__tests__/resolve-kv-namespace.test.js); Manual: [Deploy pipeline record inspection](../../documentation/lanes/deployment.md#deploy-pipeline-record-inspection)
 
 **Status:** Implemented
 
@@ -456,8 +456,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Acceptance Criteria:**
 
 1. Operators can override the default concurrent-instance cap per deployment. <!-- @impl: .github/workflows/deploy.yml::Apply container resource tier --> <!-- @manual -->
-2. The override is independent of resource tier. <!-- @impl: .github/workflows/deploy.yml::Apply container resource tier --> <!-- @manual -->
-3. The entire override value must be one positive integer. Invalid values fail before the configuration is changed. <!-- @impl: .github/workflows/deploy.yml::Apply container resource tier --> <!-- @test: host/__tests__/workflow-deploy-max-instances.test.js (REQ-OPS-012 AC3: rejects invalid whole values without changing the config) --> <!-- @manual -->
+2. The override is independent of resource tier. <!-- @impl: .github/workflows/deploy.yml::Apply container resource tier --> <!-- @test: host/__tests__/workflow-deploy-max-instances.test.js (keeps the default cap and applies a valid override across resource profiles) --> <!-- @manual -->
+3. An empty override leaves the default. A nonempty override must be one positive integer and invalid values fail before the configuration changes. <!-- @impl: .github/workflows/deploy.yml::Apply container resource tier --> <!-- @test: host/__tests__/workflow-deploy-max-instances.test.js (REQ-OPS-012 AC3: rejects invalid whole values without changing the config) --> <!-- @manual -->
 4. The override is applied at deploy time as part of the deployment configuration. <!-- @impl: .github/workflows/deploy.yml::Apply container resource tier --> <!-- @test: host/__tests__/workflow-deploy-max-instances.test.js (keeps the default cap and applies a valid override across resource profiles) --> <!-- @manual -->
 
 **Constraints:** None.
@@ -565,7 +565,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. The idle-timeout preference is persisted durably so it survives container-orchestration resets. <!-- @impl: src/container/container-router.ts::dispatchInternalRoute --> <!-- @test: src/__tests__/container/lifecycle.test.ts (persists to DO storage on initial setBucketName) --> <!-- @test: src/__tests__/container/lifecycle.test.ts (loads %s from DO storage on construction (storage key: sleepAfter)) -->
 2. The preference is persisted on both initial bucket configuration and any subsequent updates. <!-- @impl: src/container/container-router.ts::dispatchInternalRoute --> <!-- @test: src/__tests__/container/lifecycle.test.ts (persists to DO storage on initial setBucketName) --> <!-- @test: src/__tests__/container/lifecycle.test.ts (persists to DO storage on restart (409 path)) -->
-3. On startup, the stored preference is loaded and validated. <!-- @impl: src/container/index.ts::container --> <!-- @test: src/__tests__/container/lifecycle.test.ts (loads %s from DO storage on construction (storage key: sleepAfter)) --> <!-- @test: src/__tests__/container/lifecycle.test.ts (rejects invalid values from storage and falls back to fail-safe 12h default) -->
+3. Durable Object construction restores a supported idle-timeout preference from storage. An unsupported stored value must not replace the fail-safe default. <!-- @impl: src/container/index.ts::storedIdleTimeout --> <!-- @test: src/__tests__/container/lifecycle.test.ts (loads %s from DO storage on construction (storage key: sleepAfter)) --> <!-- @test: src/__tests__/container/lifecycle.test.ts (rejects invalid values from storage and falls back to fail-safe 12h default) -->
 4. On session destruction, the persisted preference is removed. <!-- @impl: src/container/index.ts::destroy --> <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container/lifecycle.test.ts (REQ-SESSION-032 AC1/AC4-AC5: destroy preserves credentials, drains before sync, and clears storage) -->
 
 **Constraints:**
@@ -594,7 +594,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 2. Every idle-check tick resolves the persisted DO preference afresh; a valid change to that value takes effect within that cycle. Saving the account preference is separate: Start transfers it to the DO under [REQ-SESSION-014](session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings). <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (refreshes idleTimeoutPref from storage on every tick) -->
 3. Previously resolved preferences may inform diagnostics or comparison, but never authorize a later idle decision. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (refreshes idleTimeoutPref from storage on every tick) -->
 4. A missing, unsupported, malformed or failed read selects 12h for the current idle decision, never a shorter stale value. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: src/container/container-metrics.ts::parseSleepAfterMs --> <!-- @test: src/__tests__/lib/sleep-timer-defaults.test.ts (parseSleepAfterMs - fail-safe direction) --> <!-- @test: src/__tests__/container-metrics.test.ts (idle decision diagnostic contract: $provenance / $decision) -->
-5. An idle check logs the first or changed missing/invalid preference fallback for that session generation. A failed storage read logs a warning on each failed check. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (idle decision diagnostic contract: $provenance / $decision) -->
+5. An idle check logs the first or changed missing/invalid preference fallback for that session generation. A failed storage read logs a warning on each failed check. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @manual -->
 
 **Constraints:** None.
 
@@ -602,7 +602,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-006](#req-ops-006-idle-containers-stop-metered-container-resources), [REQ-OPS-016](#req-ops-016-sleepafter-preference-persistence-and-lifecycle)
 
-**Verification:** Automated: [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts), [sleep-timer-defaults.test.ts](../../src/__tests__/lib/sleep-timer-defaults.test.ts)
+**Verification:** Automated: [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts), [sleep-timer-defaults.test.ts](../../src/__tests__/lib/sleep-timer-defaults.test.ts); Manual: [idle policy record acceptance](../../documentation/lanes/container.md#session-policy-and-preference-record-acceptance)
 
 **Status:** Implemented
 
@@ -958,7 +958,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 3. A reported test failure inside the coverage run is fatal regardless of exit status. <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateCoverageResult --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (fails closed on coverage evidence and bounds the backend crash exception) -->
 4. The known teardown-crash fingerprint is tolerated only for backend coverage and only after the table, test-failure, and threshold checks have all passed. <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateCoverageResult --> <!-- @impl: .github/actions/merge-coverage/action.yml::Merge shard coverage and enforce thresholds --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (fails closed on coverage evidence and bounds the backend crash exception) -->
 5. Pull requests run backend and frontend coverage when their package path is affected; push, merge-group, scheduled, and manually dispatched full runs retain both package threshold gates. <!-- @impl: .github/workflows/test.yml::coverage-backend --> <!-- @impl: .github/workflows/test.yml::coverage-frontend --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-022 AC5: merges affected package coverage only after matrix tests) -->
-6. Affected pull-request packages enforce bounded changed-production-line coverage against sub-100% floors and fail closed on missing, malformed, or incomplete evidence, except the closed Administration material-state UI owners assigned to user-owned Integration validation. <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateChangedLineCoverage --> <!-- @impl: .github/actions/merge-coverage/action.yml::Merge shard coverage and enforce thresholds --> <!-- @impl: .github/workflows/test.yml::coverage-frontend --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (REQ-OPS-022 AC6: bounded changed-production-line LCOV gate) -->
+6. Affected pull-request packages enforce bounded changed-line coverage against sub-100% floors and reject missing, malformed or incomplete evidence. Existing Administration material-state UI exceptions and the application bootstrap are excluded from that gate. <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateChangedLineCoverage --> <!-- @impl: .github/actions/merge-coverage/action.yml::Merge shard coverage and enforce thresholds --> <!-- @impl: .github/workflows/test.yml::coverage-frontend --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (REQ-OPS-022 AC6: bounded changed-production-line LCOV gate) -->
 
 **Constraints:**
 
@@ -987,7 +987,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. Every suite is gated on its machine-readable vitest JSON report: zero failures, no zero-test files, and a missing or corrupt report fails closed. <!-- @impl: scripts/ci/check-vitest-report.mjs::failedTests --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-023 AC1: vitest report gate) -->
+1. Every suite is gated on its machine-readable vitest JSON report: zero failures, no zero-test files, and a missing or corrupt report fails closed. <!-- @impl: scripts/ci/check-vitest-report.mjs::failedTests --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-023 AC1: vitest report gate) --> <!-- @test: host/__tests__/ci-suite-deadline.test.js (REQ-OPS-023 AC1: rejects contradictory report evidence before normal or tolerated success) -->
 2. A non-zero exit is accepted only for the suite that opts into Workers-pool teardown-crash tolerance, and only with the exact fingerprint. <!-- @impl: scripts/ci/check-vitest-report.mjs::tolerantOfPoolCrash --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-023 AC2: teardown-crash tolerance) -->
 3. The aggregate job reconciles every suite's reports against that suite's test files in the tree, failing when a file ran nowhere or when a lane succeeded without uploading reports. <!-- @impl: scripts/ci/check-suite-completeness.mjs::SUITES --> <!-- @impl: scripts/ci/suites.mjs::SUITES --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-023 AC3: cross-suite completeness gate) -->
 
@@ -1000,7 +1000,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
 
-**Verification:** Automated: [suite-gates.test.ts](../../src/__tests__/ci/suite-gates.test.ts)
+**Verification:** Automated: [suite-gates.test.ts](../../src/__tests__/ci/suite-gates.test.ts), [ci-suite-deadline.test.js](../../host/__tests__/ci-suite-deadline.test.js)
 
 **Status:** Implemented
 
@@ -1708,12 +1708,12 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. Every deployment environment owns exactly one deployment-named usage database with one binding; account-specific IDs are never committed. <!-- @impl: wrangler.toml::USAGE_DB --> <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (D1 deployment boundary (REQ-OPS-056)) -->
+1. Every deployment environment owns exactly one deployment-named usage database with one binding; account-specific IDs are never committed. <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (REQ-OPS-056 AC1/6: resolves only %s usage binding and emits no resource-reset commands) --> <!-- @impl: wrangler.toml::USAGE_DB --> <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (D1 deployment boundary (REQ-OPS-056)) -->
 2. Deploy preflight requires the established deployment credential, proves D1 list permission, and stops before mutation on missing or insufficient credentials. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (D1 deployment boundary (REQ-OPS-056)) -->
 3. Resolve one exact database or create only when a valid list confirms it is absent. Reject duplicate exact names and blank, malformed, or failed listings; reject an invalid post-create listing before binding or migrating. <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 --> <!-- @impl: scripts/ci/prepare-usage-d1.mjs::parseDatabaseList --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (creates one absent database with supported Wrangler arguments, resolves its ID, then applies migrations) --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (reuses one exact database and rejects duplicate exact names) --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (fails closed when D1 listing permission is unavailable) --> <!-- @test: host/__tests__/usage-d1-listing.test.js (REQ-OPS-056 AC3: invalid D1 inventory cannot authorize database creation) --> <!-- @test: host/__tests__/usage-d1-listing.test.js (REQ-OPS-056 AC3: a valid empty list authorizes creation but a blank readback blocks binding and migration) -->
 4. The temporary Wrangler configuration contains exactly one resolved binding. <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 --> <!-- @impl: migrations/usage/0001_initial.sql::usage_users --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (D1 deployment boundary (REQ-OPS-056)) -->
-5. Migration failure leaves the deployed Worker unchanged. Later Worker deployment failure leaves applied D1 migrations intact: the legacy pre-D1 Worker ignores the database; after [D1 cutover](session-lifecycle.md#req-session-030-clean-slate-d1-admission-is-live-on-deployment), rollback must keep D1 compatibility. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @impl: migrations/usage/0003_complete_session_cutover.sql::session_cutover --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (stops on migration failure after provisioning without invoking later mutation) -->
-6. Existing KV, R2, Durable Object state, users, sessions, and containers are never reset or migrated by D1 provisioning. <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (D1 deployment boundary (REQ-OPS-056)) -->
+5. Migration failure leaves the deployed Worker unchanged. Later Worker deployment failure leaves applied D1 migrations intact: the legacy pre-D1 Worker ignores the database; after [D1 cutover](session-lifecycle.md#req-session-030-clean-slate-d1-admission-is-live-on-deployment), rollback must keep D1 compatibility. <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (REQ-OPS-056 AC5 / REQ-OPS-166 AC2: awaits migration status %i without compensating mutation) --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @impl: migrations/usage/0003_complete_session_cutover.sql::session_cutover --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (stops on migration failure after provisioning without invoking later mutation) -->
+6. Existing KV, R2, Durable Object state, users, sessions, and containers are never reset or migrated by D1 provisioning. <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (REQ-OPS-056 AC1/6: resolves only %s usage binding and emits no resource-reset commands) --> <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (D1 deployment boundary (REQ-OPS-056)) -->
 7. After deployment, the established credential remains available to existing Worker runtime operations. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (REQ-OPS-056 AC7: preserves the established credential through deployment and Worker secret upload) -->
 
 **Notes:** Historical usage and report architecture is documented in [AD150](../../documentation/decisions/README.md#ad150-d1-owns-historical-usage-and-report-delivery-records).
@@ -1741,8 +1741,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. Generated Worker types validate. <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 --> <!-- @impl: migrations/usage/0001_initial.sql::usage_users --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (D1 deployment boundary (REQ-OPS-056)) -->
-2. Committed additive migrations run before Worker deployment. <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 --> <!-- @impl: migrations/usage/0001_initial.sql::usage_users --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (D1 deployment boundary (REQ-OPS-056)) -->
+1. Generated Worker types validate. <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (REQ-OPS-166 AC1/2: waits for binding type generation and refuses migration when generation fails) --> <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 --> <!-- @impl: migrations/usage/0001_initial.sql::usage_users --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (D1 deployment boundary (REQ-OPS-056)) -->
+2. Committed additive migrations run before Worker deployment. <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (REQ-OPS-056 AC5 / REQ-OPS-166 AC2: awaits migration status %i without compensating mutation) --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 --> <!-- @impl: migrations/usage/0001_initial.sql::usage_users --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (D1 deployment boundary (REQ-OPS-056)) -->
 
 **Constraints:**
 
@@ -1770,7 +1770,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 1. Visible session status polls every 60 seconds when stable and every five seconds during transitions; hidden pages stop polling and polls never overlap. <!-- @impl: web-ui/src/stores/session-polling.ts::startSessionListPolling --> <!-- @manual -->
 2. Frequent batch status returns only the core D1 session projection; ancillary scheduling follows [REQ-SESSION-244](session-lifecycle.md#req-session-244-lifecycle-polling-and-ancillary-scheduling) AC2. <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @impl: web-ui/src/api/client.ts::getBatchSessionStatus --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (returns the owner D1 projection without ancillary KV I/O or session writes) -->
 3. Analytics, Reports, and Activity read only on navigation, filters, explicit refresh, or run reconnect; none background-polls. <!-- @impl: web-ui/src/components/admin/AnalyticsPage.tsx::AnalyticsPage --> <!-- @impl: web-ui/src/components/admin/ReportsPage.tsx::ReportsPage --> <!-- @impl: web-ui/src/components/admin/ActivityPage.tsx::ActivityPage --> <!-- @manual -->
-4. CI models 2,000 active users with three sessions each, enforcing one sub-4-KB historical state write and zero additional KV reads per positive ping plus the approved D1 row ceilings. [SaaS live-quota and entitlement reads](subscription.md#req-sub-025-durable-historical-usage-accounting) remain separate. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @impl: src/timekeeper/accounting.ts::applyPositiveDelta --> <!-- @test: src/__tests__/timekeeper/accounting-load.test.ts (historical accounting operation fixture (REQ-OPS-057 AC6)) -->
+4. CI models 2,000 active users with three sessions each, enforcing one sub-4-KB historical state write and zero additional KV reads per positive ping plus the approved D1 row ceilings. [SaaS live-quota and entitlement reads](subscription.md#req-sub-025-durable-historical-usage-accounting) remain separate. <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (REQ-OPS-057 AC4: measures real D1 writes and read-only replay for one three-session history snapshot) --> <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @impl: src/timekeeper/accounting.ts::applyPositiveDelta --> <!-- @test: src/__tests__/timekeeper/accounting-load.test.ts (historical accounting operation fixture (REQ-OPS-057 AC6)) --> <!-- @test: src/__tests__/timekeeper/accounting-integration.test.ts (uses one accounting-state write and zero KV reads for repeated positive pings) -->
 5. Integration exception-visibility evidence gates sampled Production promotion ([REQ-OPS-168](#req-ops-168-deployment-observability-and-d1-metrics)). <!-- @impl: documentation/lanes/deployment.md::Integration acceptance checklist --> <!-- @manual -->
 6. Account operation and spend alerts must precede Production history enablement. <!-- @impl: documentation/lanes/deployment.md::Integration acceptance checklist --> <!-- @manual -->
 
@@ -1783,7 +1783,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-SUB-025](subscription.md#req-sub-025-durable-historical-usage-accounting), [REQ-OPS-056](#req-ops-056-non-destructive-d1-deployment-boundary), [REQ-OPS-167](#req-ops-167-ping-log-omission-and-failure-discoverability), [REQ-OPS-168](#req-ops-168-deployment-observability-and-d1-metrics)
 
-**Verification:** Automated: [Core session projection](../../src/__tests__/routes/session-batch-status.test.ts), [ancillary state](../../src/__tests__/routes/session-ancillary-status.test.ts), [accounting load](../../src/__tests__/timekeeper/accounting-load.test.ts); Manual: [Integration acceptance](../../documentation/lanes/deployment.md#integration-acceptance-checklist)
+**Verification:** Automated: [Core session projection](../../src/__tests__/routes/session-batch-status.test.ts), [ancillary state](../../src/__tests__/routes/session-ancillary-status.test.ts), [accounting load](../../src/__tests__/timekeeper/accounting-load.test.ts), [accounting-integration.test.ts](../../src/__tests__/timekeeper/accounting-integration.test.ts), [D1 history snapshot and replay](../../src/__tests__/lib/usage-report-claims.test.ts); Manual: [Integration acceptance](../../documentation/lanes/deployment.md#integration-acceptance-checklist)
 
 **Status:** Implemented
 
@@ -1832,7 +1832,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-SUB-025](subscription.md#req-sub-025-durable-historical-usage-accounting), [REQ-OPS-056](#req-ops-056-non-destructive-d1-deployment-boundary)
 
-**Verification:** Automated: [Core session projection](../../src/__tests__/routes/session-batch-status.test.ts), [ancillary state](../../src/__tests__/routes/session-ancillary-status.test.ts), [deployment observability](../../src/__tests__/ci/usage-d1-deploy.test.ts), [D1 metrics](../../src/__tests__/lib/admin-usage.test.ts), [accounting load](../../src/__tests__/timekeeper/accounting-load.test.ts); Manual: [Integration acceptance](../../documentation/lanes/deployment.md#integration-acceptance-checklist)
+**Verification:** Manual: [Integration acceptance](../../documentation/lanes/deployment.md#integration-acceptance-checklist)
 
 **Status:** Implemented
 
