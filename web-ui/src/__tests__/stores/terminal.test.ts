@@ -1710,7 +1710,7 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
       const terminal = createMockTerminal();
       terminalStore.connect(sessionId, terminalId, terminal);
       for (const delay of delays) {
-        const socket = sockets.at(-1)!;
+        const socket = sockets[sockets.length - 1]!;
         // Deliver failure before open, so repeated failed attempts cannot reset backoff.
         socket.close(1013, 'warming');
         socket.onopen = null;
@@ -1719,7 +1719,7 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
         expect(sockets).toHaveLength(count);
         await vi.advanceTimersByTimeAsync(1);
         expect(sockets).toHaveLength(count + 1);
-        expect(sockets.at(-1)!.url).toBe(socket.url);
+        expect(sockets[sockets.length - 1]!.url).toBe(socket.url);
         expect(terminalStore.getTerminal(sessionId, terminalId)).toBe(terminal);
         expect(terminalStore.getConnectionState(sessionId, terminalId)).toBe('connecting');
       }

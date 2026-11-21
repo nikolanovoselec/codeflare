@@ -356,7 +356,11 @@ it('REQ-ENTERPRISE-091 AC1: native Operator wire uses derived owner auth only wh
       piProfile: { source: 'pi-native', provider: selection.provider, model: selection.model, api: selection.api,
         thinkingLevel: 'low', systemPrompt: 'Bound native work', tools: ['read', 'write'], authBinding: binding } } } as unknown as InterceptionHost;
   const ref = { bucket: owner.bucket, sessionId: owner.sessionId, email: owner.user };
-  f.env.CONTAINER = { getByName: () => ({ getPersonalPiSession: (reference: typeof ref) => getPersonalPiSession(host, reference) }) } as unknown as Env['CONTAINER'];
+  const { container: Container } = await import('../container/index');
+  // Local public-method comparison only; the receiver reuses this fixture's authority, not RPC.
+  const receiver = { interceptionHost: host } as unknown as InstanceType<typeof Container>;
+  f.env.CONTAINER = { getByName: () => ({ getPersonalPiSession: (reference: typeof ref) =>
+    Container.prototype.getPersonalPiSession.call(receiver, reference) }) } as unknown as Env['CONTAINER'];
   const nativeProps = { user: owner.user, personalPi: { ...owner, generation: 1 },
     operatorInference: { activityId: binding.activityId },
     operatorNative: { provider: selection.provider, model: selection.model, api: selection.api, reasoningLevel: 'low', binding } };
