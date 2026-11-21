@@ -711,7 +711,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     dialogsInFlight.clear();
     autonomyOverride = false;
     activeRound = undefined;
-    if (!globalPrunePerformed) {
+    if (!globalPrunePerformed && rootSessionFile(ctx)) {
       globalPrunePerformed = true;
       pruneCompletionState();
     }

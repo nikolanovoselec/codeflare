@@ -6,7 +6,7 @@ You are the bounded Vault extraction worker. Read only the immutable request inp
 ## Execution budget
 
 - The public request and agent definition enforce `thinking: medium` and at most seven agent turns.
-- Normal work uses two Bash calls: one evidence read, then one write/commit call. If the tool reports truncation and saves full output, use remaining bounded turns to page only that saved output.
+- Normal work uses two Bash calls: one evidence read, then one write/commit call. If the tool reports truncation and saves full output, use remaining bounded turns to page only that saved output. If required text remains incomplete within the budget, fail without writing or publishing a successful chunk.
 - Do not read skills, project documentation, the active pointer, the committed/staged manifests, or any file outside `PROMPT_FILE`, `VARS_FILE`, and the frozen `changedFiles` list.
 - Never walk the Vault, run `find`/`grep` discovery passes, reread a live input, or inventory every inline code span. The request already defines the complete scope.
 - `Raw/Sessions/` is never semantic extraction input. Reject a snapshot that names an individual capture or its image-owned `Archive.md`; those facts entered the graph at capture time.
@@ -63,11 +63,11 @@ Do not modify `VARS_FILE`, pointers, manifests, `vault-extract.last`, or counter
 
 ## First Bash call: read each frozen file once
 
-Validate the snapshot and emit each listed file once. For text files (`.md`, `.txt`, `.json`, `.yaml`, `.yml`), consume that one output directly. Pi has no bounded PDF page reader: for PDF/binary files, inspect only filename/type metadata and emit a bare document node. Do not infer visible PDF content, content-derived concepts, citation parity, or a prompt-only reader. Record an unreadable file and continue; do not search for a replacement copy.
+Validate the snapshot and emit each listed file once. For text files (`.md`, `.txt`, `.json`, `.yaml`, `.yml`), consume that one output completely. Any failed or incomplete required-text read fails the entire request: do not skip the file, substitute a metadata-only node, merge or publish a partial graph, or rename a successful `CHUNK`. Do not search for a replacement copy or reread the live input. Pi has no bounded PDF page reader: for PDF/binary files, inspect only filename/type metadata and emit a bare document node. Do not infer visible PDF content, content-derived concepts, citation parity, or a prompt-only reader.
 
 Extract a compact graph, not a token inventory:
 
-- one document node per file and meaningful heading;
+- one document node per file and meaningful heading, with each file's document node carrying its exact absolute frozen path in `source_file`;
 - concept nodes for explicit `[[wikilinks]]` and load-bearing named concepts;
 - code nodes only for actual declarations in fenced code, not every backtick/path;
 - explicit containment, reference, citation, dependency, replacement, and supported conceptual relationships;
@@ -93,7 +93,9 @@ Write `WORK_CHUNK` with this canonical shape:
 }
 ```
 
-Use `EXTRACTED`/1.0 for explicit structure and `INFERRED`/0.75-0.85 only for supported prose relationships. For nonempty `changedFiles`, the request-specific post-commit chunk must contain at least one sourced node and validate against this schema. An empty chunk is failure, not evidence of successful extraction; do not publish or rename it. Only an empty `changedFiles` list is the explicit no-op described above.
+Use `EXTRACTED`/1.0 for explicit structure and `INFERRED`/0.75-0.85 only for supported prose relationships. Optional hyperedges require nonempty `id`, `label`, and `source_file` strings, a nonempty `nodes` array of nonempty node-ID strings (a singleton is valid), `relation` in `form|implement|participate_in`, `confidence` in `EXTRACTED|INFERRED`, and a finite `confidence_score` in 0..1.
+
+For nonempty `changedFiles`, the request-specific post-commit chunk must validate against this schema and contain a `file_type: "document"` node whose actual `source_file` is the exact absolute path for every frozen input, including metadata-only PDF/binary inputs. Concept nodes, unrelated sources, duplicate coverage of one file, or partial coverage do not prove completion. An empty or incompletely covered chunk is failure; do not publish or rename it. Only an empty `changedFiles` list is the explicit no-op described above.
 
 Then run the required merge and publication while one lock covers both:
 

@@ -160,7 +160,7 @@ describe('memory-capture.sh - first-run baseline + resume detection / REQ-MEM-01
     const vars = join(fx.counterDir, 'sess-resume.vars');
     assert.equal(existsSync(vars), true, 'AC7: resumed session must force-fire capture');
     const v = JSON.parse(readFileSync(vars, 'utf-8'));
-    assert.equal(v.last_line, '1', 'AC7: capture must start at transcript line 1 (no tail lost)');
+    assert.equal(v.last_line, '0', 'AC7: zero lines consumed means capture starts at transcript line 1');
     assert.equal(v.current_count, '8', 'AC7: capture covers all prior prompts');
     // AC7 second contract: graph-query directive re-emitted
     assert.match(
@@ -228,7 +228,7 @@ describe('REQ-MEM-026 AC2: Claude durable retained-prefix recovery', () => {
       const result = runHook(fx, { transcriptPath, sessionId: 'retained-session' });
       assert.equal(result.status, 0, result.stderr);
       const request = JSON.parse(readFileSync(join(fx.counterDir, 'retained-session.vars'), 'utf8'));
-      assert.equal(Number(request.last_line), scenario === 'matching prefix' ? 2 : 1);
+      assert.equal(Number(request.last_line), scenario === 'matching prefix' ? 2 : 0);
       assert.equal(request.transcript_fingerprint,
         createHash('sha256').update(lines.join('\n') + '\n').digest('hex'));
       assert.match(readFileSync(join(notes, 'capture.md'), 'utf8'), /# durable note/);

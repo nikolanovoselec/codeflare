@@ -8,6 +8,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { spawn, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync, rmSync, utimesSync } from 'node:fs';
 import { tempDir } from './helpers/temp-dirs.js';
 import { dirname, join, resolve } from 'node:path';
@@ -84,6 +85,45 @@ const run = (fx, args, env = {}) =>
   });
 
 describe('run-memory-capture.sh — headless capture transport', () => {
+  for (const progress of ['missing', 'legacy', 'mismatched', 'verified']) {
+    it(`REQ-MEM-001 AC3 / MEM-026 AC2: hook-produced ${progress} resume cursor preserves the uncaptured payload`, () => {
+      rmSync(PAYLOAD_DIR, { recursive: true, force: true });
+      const fx = fixture({ transcriptLines: 5 });
+      const counters = join(fx.dir, 'counters');
+      mkdirSync(counters);
+      // Suppress the detached launcher only; feed its real carrier to the real
+      // runner below so this checks their shared consumed-line contract.
+      writeFileSync(join(fx.bin, 'setsid'), '#!/bin/sh\nexit 0\n');
+      chmodSync(join(fx.bin, 'setsid'), 0o755);
+      if (progress !== 'missing') {
+        const notes = join(fx.dir, 'Vault', 'Raw', 'Sessions');
+        mkdirSync(notes, { recursive: true });
+        const first = readFileSync(fx.transcript, 'utf8').split('\n')[0];
+        const fingerprint = createHash('sha256').update(`${first}\n`).digest('hex');
+        writeFileSync(join(notes, 'prior.md'), [
+          '---', `session_id: ${SESSION}`, 'captured_prompt_count: 1',
+          ...(progress === 'legacy' ? [] : [
+            `captured_prompt_fingerprint: ${progress === 'verified' ? fingerprint : '0'.repeat(64)}`,
+          ]), '---', '# Prior capture', '',
+        ].join('\n'));
+      }
+      const hook = resolve(__dirname, '../../preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh');
+      const result = spawnSync('bash', [hook], {
+        input: JSON.stringify({ transcript_path: fx.transcript, session_id: SESSION }),
+        encoding: 'utf8',
+        env: { ...process.env, HOME: fx.dir, MEMCAP_COUNTER_DIR: counters, PATH: `${fx.bin}:${process.env.PATH}` },
+      });
+      assert.equal(result.status, 0, result.stderr);
+      const carrier = join(counters, `${SESSION}.vars`);
+      assert.ok(existsSync(carrier));
+      run(fx, ['--vars', carrier], { HOME: fx.dir });
+      const payload = JSON.parse(readFileSync(join(PAYLOAD_DIR, 'request.json'), 'utf8'));
+      assert.ok(payload.transcript.includes('prompt number 4'), 'uncaptured tail must arrive');
+      assert.equal(payload.transcript.includes('prompt number 0'), progress !== 'verified',
+        'only fingerprint-verified durable progress can remove the first prompt');
+    });
+  }
+
   it('hands the model a prepared payload instead of the raw transcript', () => {
     rmSync(PAYLOAD_DIR, { recursive: true, force: true });
     const fx = fixture();

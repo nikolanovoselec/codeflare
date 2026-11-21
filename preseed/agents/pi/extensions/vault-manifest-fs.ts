@@ -33,9 +33,7 @@ export function collectVaultFileHashes(vaultRoot: string): Record<string, string
       if (isVaultExcludedPath(vaultRoot, path)) continue;
       if (entry.isDirectory()) stack.push(path);
       else if (entry.isFile()) {
-        try {
-          out[relative(vaultRoot, path).replaceAll("\\", "/")] = sha256(readFileSync(path));
-        } catch { /* vanished or unreadable: retry on the next pass */ }
+        out[relative(vaultRoot, path).replaceAll("\\", "/")] = sha256(readFileSync(path));
       }
     }
   }

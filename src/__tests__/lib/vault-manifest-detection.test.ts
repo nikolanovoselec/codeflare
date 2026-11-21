@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -12,6 +12,18 @@ import {
   vaultManifestContentHash,
   writeVaultManifest,
 } from '../../../preseed/agents/pi/extensions/vault-manifest-fs';
+
+// Fail only an eligible file's read; all traversal and durable writes stay real.
+const readFailure = vi.hoisted(() => ({ path: '', code: 'EIO' }));
+vi.mock('node:fs', async (importOriginal) => {
+  const fs = await importOriginal<typeof import('node:fs')>();
+  return { ...fs, readFileSync: (path: Parameters<typeof fs.readFileSync>[0], ...args: unknown[]) => {
+    if (path === readFailure.path) {
+      throw Object.assign(new Error(`fixture read failed: ${readFailure.code}`), { code: readFailure.code });
+    }
+    return Reflect.apply(fs.readFileSync, fs, [path, ...args]);
+  } };
+});
 
 /**
  * REQ-VAULT — vault-extract change detection is content-hash based, so it is
@@ -42,6 +54,7 @@ describe('vault-manifest content-hash detection', () => {
   });
 
   afterEach(() => {
+    readFailure.path = '';
     rmSync(vault, { recursive: true, force: true });
     if (outside) rmSync(outside, { recursive: true, force: true });
     outside = undefined;
@@ -54,6 +67,35 @@ describe('vault-manifest content-hash detection', () => {
       'Notes/a.md',
       'Notes/sub/b.md',
     ]);
+  });
+
+  it.each(['EACCES', 'EIO', 'ENOENT'])('REQ-VAULT-026 AC5: a failed eligible-file read (%s) rejects the complete scan without replacing durable manifests', (code) => {
+    commitVaultManifestTo(vault, manifest);
+    const stage = join(vault, 'graphify-out', 'vault-extract-manifest.request.pending.json');
+    commitVaultManifestTo(vault, stage);
+    const committedBefore = readFileSync(manifest);
+    const stagedBefore = readFileSync(stage);
+    write('Notes/a.md', 'first edited file');
+    const unreadable = write('Notes/sub/b.md', 'second edited file');
+    readFailure.path = unreadable;
+    readFailure.code = code;
+
+    try {
+      expect(() => collectVaultFileHashes(vault)).toThrow(`fixture read failed: ${code}`);
+      expect(() => changedVaultFilesIn(vault, manifest)).toThrow(`fixture read failed: ${code}`);
+      expect(() => commitVaultManifestTo(vault, manifest)).toThrow(`fixture read failed: ${code}`);
+      expect(() => commitVaultManifestTo(vault, stage)).toThrow(`fixture read failed: ${code}`);
+      expect(readFileSync(manifest)).toEqual(committedBefore);
+      expect(readFileSync(stage)).toEqual(stagedBefore);
+    } finally {
+      readFailure.path = '';
+    }
+
+    expect(changedVaultFilesIn(vault, manifest).sort()).toEqual([
+      join(vault, 'Notes/a.md'), unreadable,
+    ].sort());
+    commitVaultManifestTo(vault, manifest);
+    expect(changedVaultFilesIn(vault, manifest)).toEqual([]);
   });
 
   it('reports nothing immediately after committing the baseline', () => {

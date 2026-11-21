@@ -419,11 +419,12 @@ function cleanupVaultRequest(paths: MemoryVaultPaths, active: ActiveVaultRequest
   safeUnlink(requestWorkingChunkPath(paths, active.request.requestId));
 }
 
-function requestChunkQualifies(paths: MemoryVaultPaths, requestId: string): boolean {
+function requestChunkQualifies(paths: MemoryVaultPaths, requestId: string, requiredFiles: string[] = []): boolean {
   const chunk = readJson(requestChunkPath(paths, requestId));
-  return isGraphifyExtractionChunk(chunk)
-    && Array.isArray((chunk as Record<string, unknown>)?.nodes)
-    && ((chunk as Record<string, unknown>).nodes as unknown[]).length > 0;
+  if (!isGraphifyExtractionChunk(chunk)) return false;
+  const nodes = (chunk as { nodes: Array<Record<string, unknown>> }).nodes;
+  const documents = new Set(nodes.filter((node) => node.file_type === "document").map((node) => node.source_file));
+  return nodes.length > 0 && requiredFiles.every((path) => documents.has(path));
 }
 
 function memorySuccessQualifies(paths: MemoryVaultPaths, request: MemoryCaptureRequest): boolean {
@@ -432,7 +433,7 @@ function memorySuccessQualifies(paths: MemoryVaultPaths, request: MemoryCaptureR
 }
 
 function vaultSuccessQualifies(paths: MemoryVaultPaths, request: VaultExtractRequest): boolean {
-  return request.changedFiles.length === 0 || requestChunkQualifies(paths, request.requestId);
+  return request.changedFiles.length === 0 || requestChunkQualifies(paths, request.requestId, request.changedFiles);
 }
 
 function persistCaptureProgress(paths: MemoryVaultPaths, request: Pick<MemoryCaptureRequest,
@@ -504,11 +505,16 @@ function finalizeMemorySuccess(
   return progress !== active.request ? progress : undefined;
 }
 
+function warnIncompleteVaultScan(ctx: any): void {
+  try { ctx.ui?.notify?.("Vault scan incomplete; extraction state retained for retry.", "warning"); } catch { /* diagnostics must not block memory work */ }
+}
+
 function refreshPendingVaultRequest(
   paths: MemoryVaultPaths,
   dependencies: MemoryVaultDependencies,
   entries: any[],
   session: string,
+  ctx: any,
 ): void {
   const active = readActiveVaultRequest(paths);
   if (!active || (active.request.ownerSessionId && active.request.ownerSessionId !== session)) return;
@@ -524,7 +530,11 @@ function refreshPendingVaultRequest(
     return;
   }
   if (facts.attemptCount === 0) {
-    const current = collectVaultFileHashes(paths.vaultRoot);
+    let current: Record<string, string>;
+    try { current = collectVaultFileHashes(paths.vaultRoot); } catch {
+      warnIncompleteVaultScan(ctx);
+      return;
+    }
     stageVaultRequest(
       paths,
       current,
@@ -552,6 +562,7 @@ function finalizeVaultSuccess(
   dependencies: MemoryVaultDependencies,
   entries: any[],
   session: string,
+  ctx: any,
 ): void {
   const active = readActiveVaultRequest(paths);
   if (!active || (active.request.ownerSessionId && active.request.ownerSessionId !== session)) return;
@@ -575,7 +586,11 @@ function finalizeVaultSuccess(
     return;
   }
 
-  const current = collectVaultFileHashes(paths.vaultRoot);
+  let current: Record<string, string>;
+  try { current = collectVaultFileHashes(paths.vaultRoot); } catch {
+    warnIncompleteVaultScan(ctx);
+    return;
+  }
   const changedFiles = absoluteChangedFiles(paths, current);
   if (changedFiles.length > 0) {
     stageVaultRequest(paths, current, changedFiles, dependencies.randomUUID(), true, session, dependencies.now());
@@ -589,20 +604,26 @@ function detectNewVaultRequestWhenNoneExists(
   paths: MemoryVaultPaths,
   dependencies: MemoryVaultDependencies,
   session: string,
-): void {
+  ctx: any,
+): boolean {
   const active = readActiveVaultRequest(paths);
   if (active) {
     const foreign = active.request.ownerSessionId && active.request.ownerSessionId !== session;
     const stale = typeof active.request.createdAt === "number"
       && dependencies.now() - active.request.createdAt >= EXTRACTION_RUNNING_TTL_MS;
-    if (!foreign || !stale) return;
-    cleanupVaultRequest(paths, active, true);
+    if (!foreign || !stale) return true;
   }
-  const current = collectVaultFileHashes(paths.vaultRoot);
+  let current: Record<string, string>;
+  try { current = collectVaultFileHashes(paths.vaultRoot); } catch {
+    warnIncompleteVaultScan(ctx);
+    return false;
+  }
   const changedFiles = absoluteChangedFiles(paths, current);
   if (changedFiles.length > 0) {
     stageVaultRequest(paths, current, changedFiles, dependencies.randomUUID(), true, session, dependencies.now());
   }
+  if (active) cleanupVaultRequest(paths, active, changedFiles.length === 0);
+  return true;
 }
 
 function dueItem(
@@ -821,7 +842,12 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
     // the extension independently usable in tests/development, while the durable
     // marker prevents a later missing or corrupt R2 restore from being rebaselined.
     if (!existsSync(paths.vaultInitializationFile)) {
-      if (!vaultExisted && !existsSync(paths.vaultManifestFile)) commitVaultManifest(paths);
+      if (!vaultExisted && !existsSync(paths.vaultManifestFile)) {
+        try { commitVaultManifest(paths); } catch {
+          warnIncompleteVaultScan(ctx);
+          return;
+        }
+      }
       writeFileSync(paths.vaultInitializationFile, "1\n", "utf8");
     }
   });
@@ -835,7 +861,7 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
     ensureDirs(paths);
     const entries = readSessionEntries(ctx);
     const session = sessionId(ctx);
-    refreshPendingVaultRequest(paths, dependencies, entries, session);
+    refreshPendingVaultRequest(paths, dependencies, entries, session, ctx);
 
     if (prompt !== undefined && isSyntheticPrompt(prompt)) return;
 
@@ -852,10 +878,19 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
     const resumed = isResumedSession(counterExists, currentCount);
     const cadenceDue = rebased || resumed || shouldCapture(currentCount - lastCount);
     const cadenceKey = cadenceWindowKey(session, progress, currentCount, lastCount);
-    if (cadenceDue && !queuedLaunches.has(cadenceKey)) {
+    const cadencePending = cadenceDue && !queuedLaunches.has(cadenceKey);
+    const vaultRetryKey = `vault-scan:${session}`;
+    if (cadencePending) {
       queuedLaunches.add(cadenceKey);
       trimming.markDue(ctx);
-      detectNewVaultRequestWhenNoneExists(paths, dependencies, session);
+    }
+    if (cadencePending || queuedLaunches.has(vaultRetryKey)) {
+      if (detectNewVaultRequestWhenNoneExists(paths, dependencies, session, ctx)) {
+        queuedLaunches.delete(vaultRetryKey);
+      } else {
+        // Retain this opportunity even if memory commits before the next owner boundary.
+        queuedLaunches.add(vaultRetryKey);
+      }
     }
     const active = readActiveMemoryRequest(paths, session);
     if (active) {
@@ -884,7 +919,8 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
         if (replacement) {
           if (activePrefixChanged) {
             trimming.markDue(ctx);
-            detectNewVaultRequestWhenNoneExists(paths, dependencies, session);
+            if (detectNewVaultRequestWhenNoneExists(paths, dependencies, session, ctx)) queuedLaunches.delete(vaultRetryKey);
+            else queuedLaunches.add(vaultRetryKey);
           }
           safeUnlink(active.executionPath);
           safeUnlink(requestChunkPath(paths, active.request.requestId));
@@ -924,7 +960,7 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
       aliasServicedWindow(session, beforeTranslation, count, translatedSuccess, count);
     }
     if (translatedCapture && !readActiveMemoryRequest(paths, session)) translatedCapture = undefined;
-    finalizeVaultSuccess(paths, dependencies, entries, session);
+    finalizeVaultSuccess(paths, dependencies, entries, session, ctx);
     // Queued real prompts may cross a boundary inside the current agent run.
     // Reconcile at the existing completed-turn/settlement owner, without a new wakeup.
     reconcileEligibility(ctx);

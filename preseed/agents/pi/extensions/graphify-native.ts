@@ -21,7 +21,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { Type } from "typebox";
-import { pickGraphSource, type ResolvedGraph } from "./graphify-helpers";
+import { isVaultRepository, pickGraphSource, type ResolvedGraph } from "./graphify-helpers";
 
 // Pi extension SDK surface, declared inline (mirrors browser-run.ts /
 // codeflare-pi.ts) so this file needs no Pi SDK installed in Codeflare's repo.
@@ -54,6 +54,7 @@ function repoGraphCandidate(repo: string): ResolvedGraph | undefined {
 function repoRootFromPath(start: string): string | undefined {
   let current = start;
   while (current) {
+    if (isVaultRepository(current)) return undefined;
     // .git only, matching findGitRoot in codeflare-pi.ts. Accepting a bare
     // graphify-out/ here scoped queries to any directory holding graph output,
     // so a stray one beside the clones answered in place of the real repo.

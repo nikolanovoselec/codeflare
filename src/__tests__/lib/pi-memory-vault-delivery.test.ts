@@ -10,6 +10,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -39,6 +40,16 @@ import {
 import { readVaultManifest } from '../../../preseed/agents/pi/extensions/vault-manifest-fs';
 import { renderInjection } from '../../../preseed/agents/pi/extensions/memory-inject-helpers';
 import { recallBlock } from '../../../preseed/agents/pi/extensions/post-compaction-recall-helpers';
+
+// Model an unreadable eligible file without relying on chmod under root.
+const readFailure = vi.hoisted(() => ({ path: '' }));
+vi.mock('node:fs', async (importOriginal) => {
+  const fs = await importOriginal<typeof import('node:fs')>();
+  return { ...fs, readFileSync: (path: Parameters<typeof fs.readFileSync>[0], ...args: unknown[]) => {
+    if (path === readFailure.path) throw Object.assign(new Error('fixture eligible-file read failed'), { code: 'EIO' });
+    return Reflect.apply(fs.readFileSync, fs, [path, ...args]);
+  } };
+});
 
 const NOW = Date.parse('2026-07-14T10:00:00.000Z');
 const UUIDS = [
@@ -286,19 +297,19 @@ function vaultChunkPath(harness: Harness, requestId: string): string {
   return join(harness.paths.vaultRoot, 'graphify-out', `.graphify_chunk_${requestId}.json`);
 }
 
-function writePostCommitChunk(harness: Harness, requestId: string): void {
+function writePostCommitChunk(harness: Harness, requestId: string, sourceFiles = ['Raw/Sessions/capture.md']): void {
   writeFileSync(vaultChunkPath(harness, requestId), `${JSON.stringify({
-    nodes: [{
-      id: `document_${requestId}`,
+    nodes: sourceFiles.map((sourceFile, index) => ({
+      id: `document_${requestId}_${index}`,
       label: 'captured document',
       file_type: 'document',
-      source_file: 'Raw/Sessions/capture.md',
+      source_file: sourceFile,
       source_location: null,
       source_url: null,
       captured_at: null,
       author: null,
       contributor: null,
-    }],
+    })),
     edges: [],
     hyperedges: [],
     input_tokens: 0,
@@ -456,12 +467,13 @@ function deliveredItems(harness: Harness): Array<Record<string, unknown>> {
 async function completeVaultCapture(harness: Harness): Promise<void> {
   const launch = latestLaunch(harness.pi, 'vault-extract');
   const callId = nextId('successful-vault');
-  writePostCommitChunk(harness, launch.requestId);
+  writePostCommitChunk(harness, launch.requestId, readJson(activeExecutionPath(harness, 'vault-extract')).changedFiles);
   appendEntry(harness.sessionFile, toolCall(callId, 'vault-extract', launch.request), notification(callId));
   await harness.emit('agent_settled');
 }
 
 afterEach(() => {
+  readFailure.path = '';
   delete process.env.CODEFLARE_MEMORY_MODEL;
   delete process.env.USER_TIMEZONE;
   delete (globalThis as Record<symbol, unknown>)[Symbol.for('@gotgenes/pi-subagents:service')];
@@ -1500,6 +1512,114 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery / REQ-VAULT-
     expect(latestLaunch(changed.pi, 'vault-extract').reminder).toBe(0);
   });
 
+  it.each([false, true])('REQ-VAULT-026 AC5: retries a failed scan without blocking memory even when warning fails=%s', async (warningFails) => {
+    const harness = makeHarness();
+    Object.assign(harness.ctx, { ui: { notify() { if (warningFails) throw new Error('warning unavailable'); } } });
+    await harness.emit('session_start');
+    const committedBefore = readFileSync(harness.paths.vaultManifestFile);
+    const first = join(harness.paths.vaultRoot, 'Notes', 'readable.md');
+    const unreadable = join(harness.paths.vaultRoot, 'Notes', 'unreadable.md');
+    writeFileSync(first, 'readable change\n');
+    writeFileSync(unreadable, 'temporarily unreadable change\n');
+    readFailure.path = unreadable;
+    try {
+      await triggerVaultCheck(harness);
+      await harness.emit('agent_settled');
+      expect(readFileSync(harness.paths.vaultManifestFile)).toEqual(committedBefore);
+      expect(existsSync(vaultPointerPath(harness))).toBe(false);
+      expect(deliveredItems(harness).map(item => item.jobType)).toEqual(['memory-capture']);
+      expect(launchedMemoryRequest(harness)).toMatchObject({ promptCount: 20 });
+      expect(launchedMemoryRequest(harness).transcript).toContain('real prompt 20');
+    } finally {
+      readFailure.path = '';
+    }
+
+    // No new user prompt and no new 20-prompt window: the failed scan is retryable.
+    await harness.emit('agent_settled');
+    const execution = readJson(activeExecutionPath(harness, 'vault-extract'));
+    expect(execution.changedFiles).toEqual([first, unreadable]);
+    expect(latestLaunch(harness.pi, 'vault-extract')).toMatchObject({ requestId: execution.requestId, reminder: 0 });
+    expect(deliveredItems(harness).map(item => item.jobType)).toEqual(['memory-capture', 'vault-extract']);
+    expect(readFileSync(harness.paths.vaultManifestFile)).toEqual(committedBefore);
+    await completeMemoryCapture(harness);
+    expect(readFileSync(memoryCounterPath(harness), 'utf8')).toBe('20');
+  });
+
+  it('REQ-VAULT-026 AC5: a failed prelaunch refresh preserves the pending request and stage while memory completes', async () => {
+    const harness = makeHarness();
+    await harness.emit('session_start');
+    const first = join(harness.paths.vaultRoot, 'Notes', 'first.md');
+    const second = join(harness.paths.vaultRoot, 'Notes', 'second.md');
+    writeFileSync(first, 'first version\n');
+    await triggerVaultCheck(harness);
+    await harness.emit('agent_settled');
+    const executionPath = activeExecutionPath(harness, 'vault-extract');
+    const requestId = readJson(executionPath).requestId;
+    const stage = join(harness.paths.vaultRoot, 'graphify-out', `vault-extract-manifest.${requestId}.pending.json`);
+    const pointerBefore = readFileSync(vaultPointerPath(harness));
+    const requestBefore = readFileSync(executionPath);
+    const stagedBefore = readFileSync(stage);
+    const committedBefore = readFileSync(harness.paths.vaultManifestFile);
+    writeFileSync(first, 'edited before launch\n');
+    writeFileSync(second, 'new file before launch\n');
+    readFailure.path = second;
+    try {
+      await appendPrompt(harness, 21);
+      await completeMemoryCapture(harness);
+      expect(readFileSync(memoryCounterPath(harness), 'utf8')).toBe('20');
+      expect(existsSync(memoryPointerPath(harness))).toBe(false);
+      expect(readFileSync(vaultPointerPath(harness))).toEqual(pointerBefore);
+      expect(readFileSync(executionPath)).toEqual(requestBefore);
+      expect(readFileSync(stage)).toEqual(stagedBefore);
+      expect(readFileSync(harness.paths.vaultManifestFile)).toEqual(committedBefore);
+    } finally {
+      readFailure.path = '';
+    }
+
+    await harness.emit('agent_settled');
+    expect(readJson(executionPath)).toMatchObject({ requestId, changedFiles: [first, second] });
+    const refreshed = readJson(stage).files;
+    expect(refreshed['Notes/first.md']).toBe(createHash('sha256').update('edited before launch\n').digest('hex'));
+    expect(refreshed['Notes/second.md']).toBe(createHash('sha256').update('new file before launch\n').digest('hex'));
+    expect(readFileSync(vaultPointerPath(harness))).toEqual(pointerBefore);
+    expect(readFileSync(harness.paths.vaultManifestFile)).toEqual(committedBefore);
+  });
+
+  it('REQ-VAULT-026 AC5: failed replacement scanning retains a stale foreign request until a complete retry', async () => {
+    const harness = makeHarness();
+    await harness.emit('session_start');
+    const changed = join(harness.paths.vaultRoot, 'Notes', 'foreign.md');
+    writeFileSync(changed, 'existing change\n');
+    await triggerVaultCheck(harness);
+    const executionPath = activeExecutionPath(harness, 'vault-extract');
+    const stale = readJson(executionPath);
+    writeFileSync(executionPath, JSON.stringify({ ...stale, ownerSessionId: 'foreign-session', createdAt: 0 }));
+    const stage = join(harness.paths.vaultRoot, 'graphify-out', `vault-extract-manifest.${stale.requestId}.pending.json`);
+    const pointerBefore = readFileSync(vaultPointerPath(harness));
+    const requestBefore = readFileSync(executionPath);
+    const stagedBefore = readFileSync(stage);
+    const committedBefore = readFileSync(harness.paths.vaultManifestFile);
+    readFailure.path = changed;
+    try {
+      await triggerVaultCheck(harness);
+      await harness.emit('agent_settled');
+      expect(readFileSync(vaultPointerPath(harness))).toEqual(pointerBefore);
+      expect(readFileSync(executionPath)).toEqual(requestBefore);
+      expect(readFileSync(stage)).toEqual(stagedBefore);
+      expect(readFileSync(harness.paths.vaultManifestFile)).toEqual(committedBefore);
+      expect(launchedMemoryRequest(harness).promptCount).toBe(20);
+    } finally {
+      readFailure.path = '';
+    }
+
+    await harness.emit('agent_settled');
+    const replacement = readJson(activeExecutionPath(harness, 'vault-extract'));
+    expect(replacement).toMatchObject({ changedFiles: [changed], ownerSessionId: harness.sessionId, createdAt: NOW });
+    expect(replacement.requestId).not.toBe(stale.requestId);
+    expect(latestLaunch(harness.pi, 'vault-extract').requestId).toBe(replacement.requestId);
+    expect(readFileSync(harness.paths.vaultManifestFile)).toEqual(committedBefore);
+  });
+
   it('keeps a staged Vault request owned by the root session that detected it', async () => {
     const harness = makeHarness();
     await harness.emit('session_start');
@@ -1689,6 +1809,176 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery / REQ-VAULT-
     }
   });
 
+  it.each(['partial-text', 'partial-binary', 'unrelated', 'concept-only', 'duplicate-document'])(
+    'REQ-VAULT-027 AC4: %s postcommit provenance cannot promote a multi-file Vault request',
+    async (coverage) => {
+      const harness = makeHarness();
+      await harness.emit('session_start');
+      const text = join(harness.paths.vaultRoot, 'Notes', 'required.md');
+      const binary = join(harness.paths.vaultRoot, 'Notes', 'required.pdf');
+      writeFileSync(text, 'required text\n');
+      writeFileSync(binary, Buffer.from([0x25, 0x50, 0x44, 0x46, 0x00, 0xff]));
+      await triggerVaultCheck(harness);
+      await harness.emit('agent_settled');
+      const launch = latestLaunch(harness.pi, 'vault-extract');
+      const executionPath = activeExecutionPath(harness, 'vault-extract');
+      const stage = join(harness.paths.vaultRoot, 'graphify-out', `vault-extract-manifest.${launch.requestId}.pending.json`);
+      const committedBefore = readFileSync(harness.paths.vaultManifestFile);
+      const pointerBefore = readFileSync(vaultPointerPath(harness));
+      const requestBefore = readFileSync(executionPath);
+      const stagedBefore = readFileSync(stage);
+      const sources = coverage === 'partial-text' ? [text]
+        : coverage === 'partial-binary' ? [binary]
+          : coverage === 'unrelated' ? [join(harness.paths.vaultRoot, 'Notes', 'unrelated.md')]
+            : coverage === 'duplicate-document' ? [text, text] : [text, binary];
+      writePostCommitChunk(harness, launch.requestId, sources);
+      if (coverage === 'concept-only') {
+        const chunk = readJson(vaultChunkPath(harness, launch.requestId));
+        chunk.nodes = chunk.nodes.map((node: Record<string, unknown>) => ({ ...node, file_type: 'concept' }));
+        writeFileSync(vaultChunkPath(harness, launch.requestId), JSON.stringify(chunk));
+      }
+      const chunkBefore = readFileSync(vaultChunkPath(harness, launch.requestId));
+      appendEntry(harness.sessionFile, toolCall('unproven-vault', 'vault-extract', launch.request), notification('unproven-vault'));
+
+      await harness.emit('agent_settled');
+
+      expect(readFileSync(harness.paths.vaultManifestFile)).toEqual(committedBefore);
+      expect(readFileSync(vaultPointerPath(harness))).toEqual(pointerBefore);
+      expect(readFileSync(executionPath)).toEqual(requestBefore);
+      expect(readFileSync(stage)).toEqual(stagedBefore);
+      expect(readFileSync(vaultChunkPath(harness, launch.requestId))).toEqual(chunkBefore);
+      expect(latestLaunch(harness.pi, 'vault-extract')).toMatchObject({ requestId: launch.requestId, reminder: 1 });
+    },
+  );
+
+  it.each<[string, unknown]>([
+    ['null entry', null],
+    ['array entry', []],
+    ['scalar entry', 'invalid'],
+    ['missing id', { id: undefined }],
+    ['blank id', { id: ' ' }],
+    ['missing label', { label: undefined }],
+    ['blank label', { label: ' ' }],
+    ['missing members', { nodes: undefined }],
+    ['non-array members', { nodes: 'document' }],
+    ['empty members', { nodes: [] }],
+    ['blank member', { nodes: [' '] }],
+    ['non-string member', { nodes: [23] }],
+    ['mixed invalid member', { nodes: ['document', null] }],
+    ['missing relation', { relation: undefined }],
+    ['unknown relation', { relation: 'invented_relation' }],
+    ['missing confidence', { confidence: undefined }],
+    ['unknown confidence', { confidence: 'CERTAIN' }],
+    ['missing score', { confidence_score: undefined }],
+    ['string score', { confidence_score: '1' }],
+    ['null score', { confidence_score: null }],
+    ['negative score', { confidence_score: -0.1 }],
+    ['score above one', { confidence_score: 1.1 }],
+    ['nonfinite score', { confidence_score: 'overflow-number' }],
+    ['missing source', { source_file: undefined }],
+    ['blank source', { source_file: ' ' }],
+    ['non-string source', { source_file: 42 }],
+  ])('REQ-VAULT-027 AC4: rejects a canonical chunk with a malformed hyperedge (%s)', async (_name, invalid) => {
+    const harness = makeHarness();
+    await harness.emit('session_start');
+    const text = join(harness.paths.vaultRoot, 'Notes', 'hyperedge.md');
+    writeFileSync(text, 'document with a group\n');
+    await triggerVaultCheck(harness);
+    await harness.emit('agent_settled');
+    const launch = latestLaunch(harness.pi, 'vault-extract');
+    const executionPath = activeExecutionPath(harness, 'vault-extract');
+    const stage = join(harness.paths.vaultRoot, 'graphify-out', `vault-extract-manifest.${launch.requestId}.pending.json`);
+    const committedBefore = readFileSync(harness.paths.vaultManifestFile);
+    const stagedBefore = readFileSync(stage);
+    const pointerBefore = readFileSync(vaultPointerPath(harness));
+    const requestBefore = readFileSync(executionPath);
+    writePostCommitChunk(harness, launch.requestId, [text]);
+    const chunk = readJson(vaultChunkPath(harness, launch.requestId));
+    const valid = {
+      id: 'group', label: 'Document group', nodes: [chunk.nodes[0].id],
+      relation: 'form', confidence: 'EXTRACTED', confidence_score: 1, source_file: text,
+    };
+    chunk.hyperedges = [invalid && typeof invalid === 'object' && !Array.isArray(invalid)
+      ? { ...valid, ...invalid } : invalid];
+    // JSON can encode an exponent that overflows JS Number; the parser must not accept infinity.
+    writeFileSync(vaultChunkPath(harness, launch.requestId), JSON.stringify(chunk).replace('"overflow-number"', '1e400'));
+    appendEntry(harness.sessionFile, toolCall('invalid-hyperedge', 'vault-extract', launch.request), notification('invalid-hyperedge'));
+
+    await harness.emit('agent_settled');
+
+    expect(readFileSync(harness.paths.vaultManifestFile)).toEqual(committedBefore);
+    expect(readFileSync(vaultPointerPath(harness))).toEqual(pointerBefore);
+    expect(readFileSync(executionPath)).toEqual(requestBefore);
+    expect(readFileSync(stage)).toEqual(stagedBefore);
+    expect(latestLaunch(harness.pi, 'vault-extract')).toMatchObject({ requestId: launch.requestId, reminder: 1 });
+  });
+
+  it.each<[string, string, number]>([
+    ['form', 'EXTRACTED', 1],
+    ['implement', 'INFERRED', 0.75],
+    ['participate_in', 'INFERRED', 0],
+  ])(
+    'REQ-VAULT-027 AC4: accepts a canonical singleton hyperedge (%s, %s, score %s)',
+    async (relation, confidence, score) => {
+      const harness = makeHarness();
+      await harness.emit('session_start');
+      const text = join(harness.paths.vaultRoot, 'Notes', 'singleton.md');
+      writeFileSync(text, 'one document is a valid group member\n');
+      await triggerVaultCheck(harness);
+      await harness.emit('agent_settled');
+      const launch = latestLaunch(harness.pi, 'vault-extract');
+      const executionPath = activeExecutionPath(harness, 'vault-extract');
+      const stage = join(harness.paths.vaultRoot, 'graphify-out', `vault-extract-manifest.${launch.requestId}.pending.json`);
+      const stagedBefore = readFileSync(stage);
+      writePostCommitChunk(harness, launch.requestId, [text]);
+      const chunk = readJson(vaultChunkPath(harness, launch.requestId));
+      chunk.hyperedges = [{
+        id: 'singleton', label: 'Singleton group', nodes: [chunk.nodes[0].id],
+        relation, confidence, confidence_score: score, source_file: text,
+      }];
+      writeFileSync(vaultChunkPath(harness, launch.requestId), JSON.stringify(chunk));
+      appendEntry(harness.sessionFile, toolCall('singleton-hyperedge', 'vault-extract', launch.request), notification('singleton-hyperedge'));
+
+      await harness.emit('agent_settled');
+
+      expect(readFileSync(harness.paths.vaultManifestFile)).toEqual(stagedBefore);
+      expect(existsSync(vaultPointerPath(harness))).toBe(false);
+      expect(existsSync(executionPath)).toBe(false);
+      expect(existsSync(stage)).toBe(false);
+      expect(existsSync(vaultChunkPath(harness, launch.requestId))).toBe(false);
+    },
+  );
+
+  it('REQ-VAULT-027 AC4: complete text and metadata-only binary document coverage promotes exactly the frozen manifest', async () => {
+    const harness = makeHarness();
+    await harness.emit('session_start');
+    const text = join(harness.paths.vaultRoot, 'Notes', 'complete.md');
+    const binary = join(harness.paths.vaultRoot, 'Notes', 'complete.pdf');
+    writeFileSync(text, 'complete text\n');
+    writeFileSync(binary, Buffer.from([0x25, 0x50, 0x44, 0x46, 0x00, 0xff]));
+    await triggerVaultCheck(harness);
+    await harness.emit('agent_settled');
+    const launch = latestLaunch(harness.pi, 'vault-extract');
+    const executionPath = activeExecutionPath(harness, 'vault-extract');
+    const stage = join(harness.paths.vaultRoot, 'graphify-out', `vault-extract-manifest.${launch.requestId}.pending.json`);
+    const stagedBefore = readFileSync(stage);
+    writePostCommitChunk(harness, launch.requestId, [text, binary]);
+    appendEntry(harness.sessionFile, toolCall('complete-vault', 'vault-extract', launch.request), notification('complete-vault'));
+
+    await harness.emit('agent_settled');
+
+    expect(readFileSync(harness.paths.vaultManifestFile)).toEqual(stagedBefore);
+    expect(readVaultManifest(harness.paths.vaultManifestFile).files).toMatchObject({
+      'Notes/complete.md': createHash('sha256').update(readFileSync(text)).digest('hex'),
+      'Notes/complete.pdf': createHash('sha256').update(readFileSync(binary)).digest('hex'),
+    });
+    expect(existsSync(vaultPointerPath(harness))).toBe(false);
+    expect(existsSync(executionPath)).toBe(false);
+    expect(existsSync(stage)).toBe(false);
+    expect(existsSync(vaultChunkPath(harness, launch.requestId))).toBe(false);
+    expect(existsSync(harness.paths.vaultMarkerFile)).toBe(true);
+  });
+
   it('keeps an existing marker-less Vault full-delta eligible during Pi fallback initialization (REQ-VAULT-026 AC7)', async () => {
     const harness = makeHarness({ existingVault: true });
     const existing = join(harness.paths.vaultRoot, 'Notes', 'pre-marker.md');
@@ -1733,8 +2023,11 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery / REQ-VAULT-
       const firstPointer = readJson(vaultPointerPath(harness));
       const firstExecutionPath = activeExecutionPath(harness, 'vault-extract');
       const launch = latestLaunch(harness.pi, 'vault-extract');
+      const stage = join(harness.paths.vaultRoot, 'graphify-out', `vault-extract-manifest.${firstPointer.requestId}.pending.json`);
+      const stagedBefore = readFileSync(stage);
       appendEntry(harness.sessionFile, toolCall('successful-vault', 'vault-extract', launch.request));
-      writePostCommitChunk(harness, firstPointer.requestId);
+      writePostCommitChunk(harness, firstPointer.requestId, readJson(firstExecutionPath).changedFiles);
+      writeFileSync(first, 'edited while extraction ran\n', 'utf8');
 
       const duringRun = join(harness.paths.vaultRoot, 'Notes', 'during-run.md');
       writeFileSync(duringRun, 'later\n', 'utf8');
@@ -1742,7 +2035,8 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery / REQ-VAULT-
       await harness.emit('agent_settled');
 
       const committed = readVaultManifest(harness.paths.vaultManifestFile);
-      expect(committed.files['Notes/first.md']).toBeTypeOf('string');
+      expect(readFileSync(harness.paths.vaultManifestFile)).toEqual(stagedBefore);
+      expect(committed.files['Notes/first.md']).toBe(createHash('sha256').update('first\n').digest('hex'));
       expect(committed.files['Notes/during-run.md']).toBeUndefined();
       expect(existsSync(harness.paths.vaultMarkerFile)).toBe(true);
       expect(existsSync(firstExecutionPath)).toBe(false);
@@ -1751,8 +2045,47 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery / REQ-VAULT-
       expect(existsSync(vaultPointerPath(harness))).toBe(false);
 
       await triggerVaultCheck(harness);
-      expect(readJson(activeExecutionPath(harness, 'vault-extract')).changedFiles).toEqual([duringRun]);
+      expect(readJson(activeExecutionPath(harness, 'vault-extract')).changedFiles).toEqual([duringRun, first]);
     }
+  });
+
+  it('REQ-VAULT-026 AC5: a failed recovery scan retains the completed request and corrupt stage without blocking memory', async () => {
+    const harness = makeHarness();
+    await harness.emit('session_start');
+    const changed = join(harness.paths.vaultRoot, 'Notes', 'recovery.md');
+    writeFileSync(changed, 'uncommitted recovery input\n');
+    await triggerVaultCheck(harness);
+    await harness.emit('agent_settled');
+    const launch = latestLaunch(harness.pi, 'vault-extract');
+    const executionPath = activeExecutionPath(harness, 'vault-extract');
+    const stage = join(harness.paths.vaultRoot, 'graphify-out', `vault-extract-manifest.${launch.requestId}.pending.json`);
+    writeFileSync(stage, 'corrupt stage');
+    writePostCommitChunk(harness, launch.requestId, [changed]);
+    const committedBefore = readFileSync(harness.paths.vaultManifestFile);
+    const pointerBefore = readFileSync(vaultPointerPath(harness));
+    const requestBefore = readFileSync(executionPath);
+    const chunkBefore = readFileSync(vaultChunkPath(harness, launch.requestId));
+    appendEntry(harness.sessionFile, toolCall('recover-vault', 'vault-extract', launch.request), notification('recover-vault'));
+    readFailure.path = changed;
+    try {
+      await completeMemoryCapture(harness);
+      expect(readFileSync(memoryCounterPath(harness), 'utf8')).toBe('20');
+      expect(existsSync(memoryPointerPath(harness))).toBe(false);
+      expect(readFileSync(harness.paths.vaultManifestFile)).toEqual(committedBefore);
+      expect(readFileSync(vaultPointerPath(harness))).toEqual(pointerBefore);
+      expect(readFileSync(executionPath)).toEqual(requestBefore);
+      expect(readFileSync(stage, 'utf8')).toBe('corrupt stage');
+      expect(readFileSync(vaultChunkPath(harness, launch.requestId))).toEqual(chunkBefore);
+    } finally {
+      readFailure.path = '';
+    }
+
+    await harness.emit('agent_settled');
+    const replacement = readJson(activeExecutionPath(harness, 'vault-extract'));
+    expect(replacement.requestId).not.toBe(launch.requestId);
+    expect(replacement.changedFiles).toEqual([changed]);
+    expect(latestLaunch(harness.pi, 'vault-extract').requestId).toBe(replacement.requestId);
+    expect(readFileSync(harness.paths.vaultManifestFile)).toEqual(committedBefore);
   });
 
   it('recovers a missing or corrupt successful stage with a new full-delta request', async () => {
@@ -1767,7 +2100,7 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery / REQ-VAULT-
       const launch = latestLaunch(harness.pi, 'vault-extract');
       const staged = join(harness.paths.vaultRoot, 'graphify-out', `vault-extract-manifest.${original.requestId}.pending.json`);
       writeFileSync(staged, 'corrupt', 'utf8');
-      writePostCommitChunk(harness, original.requestId);
+      writePostCommitChunk(harness, original.requestId, readJson(activeExecutionPath(harness, 'vault-extract')).changedFiles);
       appendEntry(harness.sessionFile, toolCall('corrupt-stage', 'vault-extract', launch.request), notification('corrupt-stage', status));
 
       await harness.emit('agent_settled');
@@ -1784,7 +2117,7 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery / REQ-VAULT-
       const recoveredLaunch = latestLaunch(harness.pi, 'vault-extract');
       expect(recoveredLaunch.request).toEqual(delivered.request);
       appendEntry(harness.sessionFile, toolCall('recovered-stage', 'vault-extract', recoveredLaunch.request));
-      writePostCommitChunk(harness, replacement.requestId);
+      writePostCommitChunk(harness, replacement.requestId, readJson(activeExecutionPath(harness, 'vault-extract')).changedFiles);
       appendEntry(harness.sessionFile, notification('recovered-stage', 'Done'));
       await harness.emit('agent_settled');
       expect(readVaultManifest(harness.paths.vaultManifestFile).files['Notes/changed.md']).toBeTypeOf('string');
@@ -1805,7 +2138,19 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery / REQ-VAULT-
     await harness.emit('before_agent_start', { prompt: 'coalesce the revert' });
 
     expect(readJson(vaultPointerPath(harness)).requestId).toBe(pointer.requestId);
-    expect(readJson(activeExecutionPath(harness, 'vault-extract')).changedFiles).toEqual([]);
+    const executionPath = activeExecutionPath(harness, 'vault-extract');
+    expect(readJson(executionPath).changedFiles).toEqual([]);
+    const stage = join(harness.paths.vaultRoot, 'graphify-out', `vault-extract-manifest.${pointer.requestId}.pending.json`);
+    const stagedBefore = readFileSync(stage);
+    const launch = latestLaunch(harness.pi, 'vault-extract');
+    appendEntry(harness.sessionFile, toolCall('empty-vault', 'vault-extract', launch.request), notification('empty-vault'));
+
+    // No graph chunk is needed when coalescing reverted the entire delta.
+    await harness.emit('agent_settled');
+    expect(readFileSync(harness.paths.vaultManifestFile)).toEqual(stagedBefore);
+    expect(existsSync(vaultPointerPath(harness))).toBe(false);
+    expect(existsSync(executionPath)).toBe(false);
+    expect(existsSync(stage)).toBe(false);
   });
 
   it('keeps all handlers inert in child sessions', async () => {

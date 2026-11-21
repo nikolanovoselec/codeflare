@@ -164,6 +164,7 @@ export function parseVaultExtractRequest(value: unknown): VaultExtractRequest | 
 
 const GRAPHIFY_FILE_TYPES = new Set(["code", "document", "concept"]);
 const GRAPHIFY_RELATIONS = new Set(["contains", "references", "conceptually_related_to", "cites"]);
+const GRAPHIFY_HYPEREDGE_RELATIONS = new Set(["form", "implement", "participate_in"]);
 const GRAPHIFY_CONFIDENCE = new Set(["EXTRACTED", "INFERRED"]);
 
 function nullableString(value: unknown): boolean {
@@ -210,6 +211,23 @@ export function isGraphifyExtractionChunk(value: unknown): boolean {
       || !nullableString(edge.source_location)
       || !finiteNumber(edge.weight)
       || Number(edge.weight) <= 0;
+  })) return false;
+  if (chunk.hyperedges.some((value) => {
+    const hyperedge = record(value);
+    return !hyperedge
+      || !nonEmptyString(hyperedge.id)
+      || !nonEmptyString(hyperedge.label)
+      || !Array.isArray(hyperedge.nodes)
+      || hyperedge.nodes.length === 0
+      || hyperedge.nodes.some((node) => !nonEmptyString(node))
+      || typeof hyperedge.relation !== "string"
+      || !GRAPHIFY_HYPEREDGE_RELATIONS.has(hyperedge.relation)
+      || typeof hyperedge.confidence !== "string"
+      || !GRAPHIFY_CONFIDENCE.has(hyperedge.confidence)
+      || !finiteNumber(hyperedge.confidence_score)
+      || Number(hyperedge.confidence_score) < 0
+      || Number(hyperedge.confidence_score) > 1
+      || !nonEmptyString(hyperedge.source_file);
   })) return false;
   return true;
 }

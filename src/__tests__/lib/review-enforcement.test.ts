@@ -361,6 +361,28 @@ describe('Pi marker-or-dialog review ingress', () => {
     expect(existsSync(completionPath(later, stateRoot))).toBe(true);
   });
 
+  it('REQ-STOR-027 AC4: child startup preserves markers and leaves the first root prune available', async () => {
+    vi.resetModules();
+    const input = fixture({ child: true });
+    const stateRoot = join(input.home, '.codeflare/review-state/v1');
+    const old = { ...input.identity, head: 'c'.repeat(40) };
+    writeCompletion(old, { root: stateRoot, now: () => new Date(0) });
+    const app = await harness(input, [undefined]);
+
+    await app.emit('session_start', { reason: 'startup' });
+    expect(existsSync(completionPath(old, stateRoot))).toBe(true);
+    expect(app.prompts).toEqual([]);
+
+    writeFileSync(input.sessionFile, `${JSON.stringify({ type: 'session', version: 3, id: 'root', cwd: input.repo })}\n`);
+    await app.emit('session_start', { reason: 'resume' });
+    expect(existsSync(completionPath(old, stateRoot))).toBe(false);
+
+    const later = { ...old, repository: 'owner/unrelated' };
+    writeCompletion(later, { root: stateRoot, now: () => new Date(0) });
+    await app.emit('session_start', { reason: 'resume' });
+    expect(existsSync(completionPath(later, stateRoot))).toBe(true);
+  });
+
   it('asks on startup with simple copy and exact choices', async () => {
     const input = fixture();
     const app = await harness(input, [undefined]);
