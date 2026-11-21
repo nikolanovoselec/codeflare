@@ -7,7 +7,7 @@ Enterprise-only Operator identity, installation, admission, execution, confineme
 
 **Domain owner:** Backend (Worker), container host and enterprise frontend
 
-Codeflare owns the generic Worker/container platform, compiler, runtime, baked seed, Operator Interface and publication fences. [Conductor requirements](https://github.com/nikolanovoselec/codeflare-operator-conductor/blob/develop/sdd/spec/conductor.md) own Review packet, orchestration, result, history/reassessment and publication policy; its [Review guide](https://github.com/nikolanovoselec/codeflare-operator-conductor/blob/develop/documentation/review.md) owns operating procedure. Dispatcher owns Renovate policy. Generic host-side Pi confinement remains Codeflare-owned. Fixed protected-Action, packet and history adapters still exist here; this documentation split does not move their implementation or security obligations. Managed content belongs to curation; non-default operational values and secrets belong to the private operator library.
+Codeflare owns the generic Worker/container platform, compiler, runtime, baked seed, Operator Interface and publication fences. [Conductor requirements](https://github.com/nikolanovoselec/codeflare-operator-conductor/blob/develop/sdd/spec/conductor.md) own Review packet, orchestration, result, history/reassessment and publication policy. Conductor also owns operating procedure; its separate guide is not available on `develop`. Dispatcher owns Renovate policy. Generic host-side Pi confinement remains Codeflare-owned. Fixed protected-Action, packet and history adapters still exist here; this documentation split does not move their implementation or security obligations. Managed content belongs to curation; non-default operational values and secrets belong to the private operator library.
 
 Historical evidence is not current-head or deployment acceptance. The normative appendix owns the concrete shared registry contract; its schemas and capability wires are subordinate to the corresponding authorization and lifecycle requirements. Legacy record fragments remain explicit aliases in this canonical owner.
 
@@ -3642,7 +3642,7 @@ Relocated to [the Dispatcher application specification](https://github.com/nikol
 
 **Constraints:**
 
-- Reassessment policy remains [Conductor-owned](https://github.com/nikolanovoselec/codeflare-operator-conductor/blob/develop/documentation/review.md#history-and-reassessment); authenticated evidence is not authorization.
+- Reassessment policy remains [Conductor-owned](https://github.com/nikolanovoselec/codeflare-operator-conductor/blob/develop/sdd/spec/conductor.md#req-conductor-007-authenticated-independent-reassessment); authenticated evidence is not authorization.
 - Existing parent authority and original deadlines remain mandatory; no activation or new principal is implied.
 - Detailed preserved wire and fencing clauses remain in [Operator Interface](../../documentation/lanes/operators.md#preserved-contract-details).
 

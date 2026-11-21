@@ -163,7 +163,7 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 ## 2026-11-15: Conductor documentation ownership split
 
-- Move remaining packet/lane/reviewer, history/reassessment, publication-format and operating guidance to the existing Conductor requirements and its [canonical Review guide](https://github.com/nikolanovoselec/codeflare-operator-conductor/blob/develop/documentation/review.md), without duplicating requirements or moving local Pi `/review` policy.
+- Move remaining packet/lane/reviewer, history/reassessment, publication-format and operating guidance to Conductor ownership, without duplicating requirements or moving local Pi `/review` policy. The [Conductor requirements](https://github.com/nikolanovoselec/codeflare-operator-conductor/blob/develop/sdd/spec/conductor.md) are available; the separate operating guide is not on `develop`.
 - Narrow mixed REQ-OPERATOR-053/055/056/064/065/072/074 prose to implemented Root authority, credential isolation, claim, evidence and receipt fences; preserve fragment compatibility and qualification limits. Fixed packet/history helpers and the protected-Action compatibility publisher remain Root implementation, not claimed runtime migrations. Document the existing frozen publication-preparation API, not a new schema.
 - Correct the active delegation/activation reference to `application-schedule.ts::activateApplicationSchedule` and the Registry wrapper; `activateProspectiveRenovate` is refusal-only compatibility. No source/test changes, validation run, status upgrade, deployment or release is implied. Previous Dispatcher ownership edits remain unchanged.
 

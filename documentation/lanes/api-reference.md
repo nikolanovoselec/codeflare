@@ -4,7 +4,7 @@ Public Worker, authenticated proxy, and integration endpoint contracts for Codef
 
 **Audience:** Developers
 
-**Owns:** method, public path, authorization, request, response, error, rate-limit, requirement, and handler contracts. **Does not own:** provisioning implementation, private host mechanics, deployment values, security rationale, or operator policy/procedure. Conductor's [Review guide](https://github.com/nikolanovoselec/codeflare-operator-conductor/blob/develop/documentation/review.md) owns packet/lane/reviewer behavior, history/reassessment and publication format. Existing `review-*` handler names identify actual Root adapters, not ownership of that application policy.
+**Owns:** method, public path, authorization, request, response, error, rate-limit, requirement, and handler contracts. **Does not own:** provisioning implementation, private host mechanics, deployment values, security rationale, or operator policy/procedure. Conductor's [requirements](https://github.com/nikolanovoselec/codeflare-operator-conductor/blob/develop/sdd/spec/conductor.md) own packet/lane/reviewer behavior, history/reassessment and publication format. Existing `review-*` handler names identify actual Root adapters, not ownership of that application policy.
 
 ## Contents
 

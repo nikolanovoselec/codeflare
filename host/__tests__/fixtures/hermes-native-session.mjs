@@ -53,7 +53,10 @@ const { attachHermesMemoryToForeground } = await importPiExtension('hermes-memor
 const registry = {}, errors = [], requests = [], sessions = [], primaryMemoryWrites = [], notifications = [];
 let sequence = 0, reviewSaved = false, correctionSaved = false;
 let contextPhase = 'ordinary', contextReply = 0;
-const contextWindow = 64_000, historyTurns = 22, tokensPerTurn = 2_500;
+// Auto Fast targets 30% of the window, including retained turns and summary
+// allowance. A 100k window leaves 30k for that result while the ordinary
+// transcript finishes at about 91k, below Pi's own compaction threshold.
+const contextWindow = 100_000, historyTurns = 36, tokensPerTurn = 2_500;
 const summaryBranches = [];
 let childMode = false;
 let expectedModel = 'fixture';
