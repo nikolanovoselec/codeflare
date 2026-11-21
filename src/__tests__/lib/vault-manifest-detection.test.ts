@@ -138,6 +138,35 @@ describe('vault-manifest content-hash detection', () => {
     expect(changedVaultFilesIn(vault, manifest)).toEqual([]);
   });
 
+  it('REQ-VAULT-003 AC1: Pi and Claude prune root Memory without hiding nearby notes', () => {
+    // A manifest committed before this exclusion can still mention Memory.
+    writeVaultManifest(manifest, {
+      ...collectVaultFileHashes(vault),
+      'Memory/Projects/workspace/MEMORY.md': createHash('sha256').update('old facts').digest('hex'),
+    });
+    const before = readFileSync(manifest);
+    const memory = write('Memory/Projects/workspace/MEMORY.md', 'Hermes workspace facts');
+    const recovery = write('Memory/.failures.md.recovery-1', 'Hermes recovery copy');
+    const sibling = write('Memory-notes/idea.md', 'ordinary note');
+    const nested = write('Notes/Memory/idea.md', 'ordinary nested note');
+    const expected = [nested, sibling].sort();
+    const claudeChanges = execFileSync('python3', [
+      resolve('preseed/agents/claude/plugins/codeflare-vault/scripts/vault-manifest.py'),
+      'changed', vault, manifest,
+    ], { encoding: 'utf8' }).trim().split('\n').sort();
+
+    expect(claudeChanges).toEqual(expected);
+    readFailure.path = memory;
+    try {
+      expect(changedVaultFilesIn(vault, manifest).sort()).toEqual(expected);
+    } finally {
+      readFailure.path = '';
+    }
+    expect(readFileSync(manifest)).toEqual(before);
+    expect(readFileSync(memory, 'utf8')).toBe('Hermes workspace facts');
+    expect(readFileSync(recovery, 'utf8')).toBe('Hermes recovery copy');
+  });
+
   it('hashes by content: identical bytes at two paths share a hash, different bytes differ', () => {
     write('Notes/same1.md', 'identical');
     write('Notes/same2.md', 'identical');

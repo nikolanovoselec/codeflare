@@ -83,6 +83,7 @@ export type ExtractionDue =
 // the directory itself and anything beneath it.
 export const VAULT_GENERATED_PREFIXES = [
   "Raw/Sessions",
+  "Memory", // Hermes native recall owns these stores and recovery files.
   "Raw/Graphs",
   "graphify-out",
   ".silverbullet",

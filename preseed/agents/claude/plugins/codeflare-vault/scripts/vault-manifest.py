@@ -37,6 +37,7 @@ import sys
 # resolves outside the vault root.
 PRUNE_PREFIXES = (
     "Raw/Sessions",      # memory-capture session notes (agent-owned)
+    "Memory",           # Hermes stores and recovery files (native recall)
     "Raw/Graphs",        # served viz copy (extractor step 6) — the self-trigger
     "graphify-out",      # all graphify artifacts incl. the manifest itself
     "Library/Codeflare", # boot-preseeded SilverBullet plug bundles

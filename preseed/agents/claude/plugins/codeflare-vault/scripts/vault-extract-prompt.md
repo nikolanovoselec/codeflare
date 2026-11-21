@@ -77,6 +77,7 @@ every file's mtime to download-time does not make it re-report the whole
 vault (the old `find -newer` bug). The script owns the exclusion set:
 
 - `Raw/Sessions/` - agent-owned captures plus image-owned `Archive.md`; all were already represented when captured, so neither hot files nor the archive may be semantically re-extracted.
+- Root `Memory/` - native Hermes stores and recovery files, not Vault extraction input.
 - `Raw/Graphs/`, `graphify-out/` - derived output, would create a feedback loop.
 - `Library/Codeflare/`, `.silverbullet/` - vendored plugs + editor config, no semantic content.
 - `Index.md`, `README.md`, `CONFIG.md`, `STYLES.md` - codeflare-authoritative preseed pages (REQ-VAULT-010 AC1); never user-edits.
