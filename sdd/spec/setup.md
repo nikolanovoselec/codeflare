@@ -1013,7 +1013,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Acceptance Criteria:**
 
-1. When `ENTERPRISE_MODE` is configured, the setup-created CF Access application is host-scoped, with no path suffix, so the session cookie covers all paths uniformly; non-enterprise deployments retain the existing application-path scope. <!-- @impl: src/routes/setup/access.ts::handleCreateAccessApp --> <!-- @test: src/__tests__/routes/setup/access.test.ts (enterprise mode creates a host-scoped app (bare host domain + whole-host destination)) -->
+1. When Enterprise Mode is enabled, the setup-created CF Access application is host-scoped, with no path suffix, so the session cookie covers all paths uniformly; non-enterprise deployments retain the existing application-path scope. <!-- @impl: src/routes/setup/access.ts::handleCreateAccessApp --> <!-- @test: src/__tests__/routes/setup/access.test.ts (enterprise mode creates a host-scoped app (bare host domain + whole-host destination)) -->
 2. Enterprise setup provisions a higher-priority public service-worker bypass and stores its app ID after policy success. Provisioning errors receive best-effort handling, but the preceding saved-ID read can abort Setup. New-app rollback is attempted on policy failure; non-enterprise creates none. <!-- @impl: src/routes/setup/access.ts::handleCreateAccessApp --> <!-- @test: src/__tests__/routes/setup/access.test.ts (Setup Access) -->
 
 **Constraints:** The public exception is limited to the Vault service-worker route, not Vault content or authentication.

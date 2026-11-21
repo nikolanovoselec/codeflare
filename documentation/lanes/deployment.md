@@ -54,7 +54,9 @@ For AC2 inspect separate retained native dispatch records for production, integr
 
 For [REQ-ENTERPRISE-006 AC5](../../sdd/spec/setup.md#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var), inspect GitHub's `enterprise` environment branch policy: only `main` and `develop` are admitted. `enterprise integration` is a separate target with its own policy. A ref can select a target without being admitted to deploy. Compare retained records where available; do not dispatch a run to test admission.
 
-For AC5 of REQ-OPS-001 inspect **Deploy worker** / **Resolve KV namespace** at that same revision. Correlate successful namespace listing with the resolved `${WORKER_NAME}-kv` title and reported namespace identity, then inspect the script's substitution of `id = "placeholder"` in `wrangler.toml`. Existing matching namespaces are reused; creation applies only after a valid inventory establishes absence. A failed listing or a successful exit with a blank, malformed, or ambiguous inventory stops before creation or rebinding. The host fixture executes the resolver against a stub Wrangler and disposable config; provider binding still requires retained deployment evidence. <!-- @impl: scripts/ci/resolve-kv-namespace.sh::KV_TITLE --> Correlate subsequent **Deploy to Cloudflare** binding output where retained. No deployed config artifact is promised by this workflow; if application of the resolved identity cannot be established from retained output/source, that part remains BLOCKED, not inferred from a green summary.
+For AC5 of REQ-OPS-001 inspect **Deploy worker** / **Resolve KV namespace** at that same revision. Correlate successful namespace listing with the resolved `${WORKER_NAME}-kv` title and reported namespace identity, then inspect the script's substitution of `id = "placeholder"` in `wrangler.toml`. Existing matching namespaces are reused; creation applies only after a valid inventory establishes absence. A failed listing or a successful exit with a blank, malformed, or ambiguous inventory stops before creation or rebinding. The host fixture executes the resolver against a stub Wrangler and disposable config; provider binding still requires retained deployment evidence. <!-- @impl: scripts/ci/resolve-kv-namespace.sh::KV_TITLE -->
+
+Correlate subsequent **Deploy to Cloudflare** binding output where retained. No deployed config artifact is promised by this workflow; if application of the resolved identity cannot be established from retained output/source, that part remains BLOCKED, not inferred from a green summary.
 
 Accept list/reuse and list/no-match/create branches separately from existing approved records. In retained failure records, failed listing must stop without guessing or creating, and unresolved identity must stop before Worker promotion. Wrong binding or promotion after resolution failure is FAIL. Missing branch or rejection records is BLOCKED for those observations. Setup-route mock-KV tests do not establish this deployment behavior; no namespace may be created or modified to fill the evidence gap here.
 
@@ -69,9 +71,9 @@ For [OPS-007/012/014](../../sdd/spec/operations.md), apply [pipeline prerequisit
 | Scope | Required observation |
 |---|---|
 | OPS-007 AC1/2/5; OPS-014 AC1–3/6 | Compare resolved profile CPU/memory/disk and canonical defaults with effective provider configuration. Match the emitted content-addressed tag, pushed digest and final binding, with no deploy-time rebuild. Wrong allocation/binding fails. |
-| OPS-007 AC3; OPS-012 AC1–4 | Compare retained default and positive-integer override cases across profiles. Effective cap follows the override independently of profile. The allocation step rejects zero, negative, fractional, or multiline overrides before patching the config. The host fixture executes that step against a disposable config. Provider readback is still required to verify the effective cap on a deployed Worker. |
+| OPS-007 AC3; OPS-012 AC1–4 | Compare retained defaults and positive-integer overrides across profiles: override wins. Reject zero, negative, fractional and multiline overrides before patching. The host fixture executes allocation against disposable config; deployed Worker cap requires provider readback. |
 | OPS-007 AC4 | Compare resolved regular/admin limits with observed admission records. This is best-effort admission, not an atomic concurrency reservation or hard isolation guarantee. |
-| OPS-014 AC4/5 | In retained runs, confirm the nonempty cache-bust token bypassed registry reuse. Compare changed-token builds for invalidation of the affected agent layer; unrelated layer reuse is permitted, not required, and the same token need not rebuild. Match the bound image to the selected output. Repository SSH remains disabled/key-free; persistent identity provisioning is private-owned. |
+| OPS-014 AC4/5 | In retained runs, nonempty cache-bust bypasses registry reuse; a changed token invalidates the affected agent layer. Unrelated layers may reuse; same token need not rebuild. Match bound image to selected output. Repository SSH remains disabled/key-free; persistent identity provisioning is private-owned. |
 
 ### Idle metering and identity lifecycle acceptance
 
@@ -108,7 +110,9 @@ For OPS-061 use the private [persistent SSH runbook](https://github.com/nikolano
 - Leave Analytics, Reports and Activity idle through a stable polling interval: their data requests must not recur. Then exercise navigation, filters, explicit refresh and an applicable run reconnect; only those actions should request their data.
 - Verify five-second transition polling, 60-second stable polling, hidden cancellation, immediate visible refresh and no overlapping requests in browser network tools.
 - Verify desktop and mobile hierarchy against the approved Administration and Analytics design catalog.
-- In full-fidelity logs, distinguish routine successful pings, which emit no custom success log, from the billing event emitted after a SaaS ping ends a trial at its compute cap and records the transition. Inspect existing observations only; do not end a trial or trigger a charge for this check. No existing trial-ending record means that exception was not observed. Confirm one caught structured error and one uncaught route exception are discoverable in Integration logs ([REQ-OPS-167 AC1–AC2](../../sdd/spec/operations.md#req-ops-167-ping-log-omission-and-failure-discoverability)).
+- In full-fidelity logs, distinguish routine successful pings, which emit no custom success log, from the billing event emitted after a SaaS ping ends a trial at its compute cap and records the transition.
+  - Inspect existing observations only; do not end a trial or trigger a charge for this check. No existing trial-ending record means that exception was not observed.
+  - Confirm one caught structured error and one uncaught route exception are discoverable in Integration logs ([REQ-OPS-167 AC1–AC2](../../sdd/spec/operations.md#req-ops-167-ping-log-omission-and-failure-discoverability)).
 
 **Verify:** Retain observations bound to the exact commit, Deploy run and tested mode/target. Integration exception-visibility evidence is mandatory before sampled Production promotion; independently verify operation/spend alerts before enabling Production history. Browser and visual acceptance belongs to the operator on Integration. CI does not pretend a component snapshot proved any of this.
 
@@ -121,18 +125,9 @@ This procedure verifies **inactive** trust, not remote activation. Production us
 1. Configure `OPERATOR_REVIEW_EXECUTABLE_SHA` to the exact tested Codeflare runtime commit.
 2. Configure `OPERATOR_REVIEW_ORIGINS` with precisely `dev`, `integration` and `production` HTTPS origins maintained by the installer, never derived from a target PR or request. Missing or unverified configuration denies enrollment.
 3. Use a platform administrator's current Codeflare GitHub connection with repository workflow-write permission, authenticated Access and CSRF protection.
-4. Submit the target to `POST /api/operator-management/boundary-actions/propose`:
-
-```json
-{
-  "repositoryUrl": "https://github.com/OWNER/REPO",
-  "protectedRef": "refs/heads/main",
-  "installationId": "APPROVED_CONDUCTOR_INSTALLATION"
-}
-```
-
+4. Use the [protected workflow proposal contract](api-reference.md#protected-review-workflow-enrollment) with the target repository, protected ref and approved installation.
 5. Inspect and merge the ordinary proposal PR under the target repository's protected-branch policy. This documentation does not authorize that merge.
-6. Submit the same target to `POST /api/operator-management/boundary-actions/verify`. Codeflare rereads protected-base workflow ID, path and bytes before storing an **inactive** binding.
+6. Verify the same target through that contract. Read back the protected-base workflow identity and confirm the resulting binding is **inactive**.
 7. A pending PR, successful test or verification cannot start Review or grant Action claim authority. An inactive binding permits local review only without a competing active Review binding.
 8. Independently verify the maintained runtime pin, target installation and live publication before claiming live acceptance.
 

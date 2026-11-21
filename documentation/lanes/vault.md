@@ -20,8 +20,6 @@ Persistent user notes, advanced-mode conversation memory, cumulative graph publi
 - [Bootstrap and Seed Integration](#bootstrap-and-seed-integration-req-vault-007)
 - [Attachments and Ingestion](#attachments-and-ingestion)
 - [Memory Capture System](#memory-capture-system)
-  - [Durable Pi facts](#durable-pi-facts)
-  - [First-prompt and post-compaction retrieval](#first-prompt-and-post-compaction-retrieval)
 - [Failure Diagnosis and Recovery](#failure-diagnosis-and-recovery)
 - [Requirement and Source Map](#requirement-and-source-map)
 - [Related Documentation](#related-documentation)
@@ -57,12 +55,12 @@ Uploads and Temporary admission (`+ Uploads/**`, `+ Temporary/**`) follows commo
 
 The R2 storage browser surfaces four directories as "special folders" at the bucket root. Vault, Uploads, and Temporary appear unconditionally; Workspace appears only when the workspace-sync preference is enabled. Each entry shows an info icon that reveals a tooltip:
 
-| Folder | Container path | Gated? |
+| Folder | Display path | Gated? |
 |---|---|---|
-| Workspace | `/home/user/workspace` | Only when workspace-sync preference is enabled |
-| Vault | `/home/user/Vault` | Always shown |
-| Uploads | `/home/user/Uploads` | Always shown |
-| Temporary | `/home/user/Temporary` | Always shown |
+| Workspace | `~/Workspace` | Only when workspace-sync preference is enabled |
+| Vault | `~/Vault` | Always shown |
+| Uploads | `~/Uploads` | Always shown |
+| Temporary | `~/Temporary` | Always shown |
 
 “Workspace” is a UI label; the Linux directory is case-sensitive `/home/user/workspace`. Existing special-folder prefix/alias mappings are display mappings, not filesystem aliases. The tooltip shows the folder's purpose and mapped path.
 
@@ -127,7 +125,7 @@ On Pi, the worker writes the session note and the deterministic graph builder de
 
 #### Daily session capture compaction (REQ-MEM-023, REQ-VAULT-032)
 
-After a successful natural bisync cycle, the image-owned compactor is eligible once per UTC day and approximates the latest-month hot set from each capture filename's leading calendar date. A failed attempt remains unstamped and retries after a later successful natural cycle. It leaves files on or after the same UTC calendar date in the prior month and any unrecognized filename as individual hot files, then renders older captures in stable capture-date/name order into `Raw/Sessions/Archive.md`. Repeating the same inputs produces the same archive without duplicate source records. <!-- @impl: entrypoint.sh::run_daily_vault_session_compaction --> <!-- @impl: scripts/compact-session-captures.mjs::selectColdCaptures --> <!-- @impl: scripts/compact-session-captures.mjs::buildSessionArchive -->
+After a successful startup baseline or natural bisync cycle, the image-owned compactor is eligible once per UTC day and approximates the latest-month hot set from each capture filename's leading calendar date. A failed attempt remains unstamped and can retry after a later qualifying sync. It leaves files on or after the same UTC calendar date in the prior month and any unrecognized filename as individual hot files, then renders older captures in stable capture-date/name order into `Raw/Sessions/Archive.md`. Repeating the same inputs produces the same archive without duplicate source records. <!-- @impl: entrypoint.sh::run_daily_vault_session_compaction --> <!-- @impl: scripts/compact-session-captures.mjs::selectColdCaptures --> <!-- @impl: scripts/compact-session-captures.mjs::buildSessionArchive -->
 
 The archive is machine-owned and read-only to agents. Retrieval searches current individual files first and uses `Archive.md` only as fallback; capture workers never target it, and interactive agents never edit it or delete source captures. The compactor changes storage shape, not meaning: semantic summarization, relevance pruning, and graph evidence deletion remain out of scope.
 
@@ -216,7 +214,8 @@ All five serialize on `/run/codeflare/locks/graphify-global.lock`. Claude captur
 1. **Repo resolution ([REQ-VAULT-004](../../sdd/spec/vault.md#req-vault-004-unified-global-graph-merges-vault-and-active-repos) AC3)**: walk up from the candidate directory to the nearest checkout, identified by `.git` as a directory or as the file a worktree uses. Nothing else counts as a repo root.
 2. **Vault skip ([REQ-VAULT-004](../../sdd/spec/vault.md#req-vault-004-unified-global-graph-merges-vault-and-active-repos) AC3)**: when the walk-up resolves to `$HOME/Vault`, the hook exits 0 without writing either sentinel or invoking graphify.
 3. **Fast-path skip ([REQ-VAULT-004](../../sdd/spec/vault.md#req-vault-004-unified-global-graph-merges-vault-and-active-repos) AC4)**: when the repo path, the branch, the graph's presence, and the graph's mtime all match what the sentinels recorded, the hook returns immediately.
-4. **Reconcile ([REQ-VAULT-014](../../sdd/spec/vault.md#req-vault-014-graphify-active-repo-invariant-and-lock-serialisation) AC1/AC5)**: acquire the shared bounded writer lock before reading the manifest and current graph hash/path, deciding stale removals and whether to add, then applying those writes. Remove every repository tag other than the active checkout's, never `user_vault`; add when hash or checkout path differs or the tag is new.
+4. **Reconcile ([REQ-VAULT-014](../../sdd/spec/vault.md#req-vault-014-graphify-active-repo-invariant-and-lock-serialisation) AC1/AC5)**: acquire the shared bounded writer lock before reading the manifest and current graph hash/path, deciding stale removals and whether to add, then applying those writes.
+   - Remove every repository tag other than the active checkout's, never `user_vault`; add when hash or checkout path differs or the tag is new.
 5. **Sentinel advance ([REQ-VAULT-014](../../sdd/spec/vault.md#req-vault-014-graphify-active-repo-invariant-and-lock-serialisation) AC1)**: both sentinels are rewritten and the path sentinel `touch`-bumped only after the whole reconciliation succeeded, so a failure leaves the prior state in place and the next tool call retries.
 
 Step 4's manifest/hash/path reads, decisions, removals and addition run inside one `flock -w 5 /run/codeflare/locks/graphify-global.lock` critical section, so a lock timeout or either graphify failure aborts the whole step. The fast path avoids spawning the graphify CLI, including hundreds of MB of Python imports, on every Bash/Edit/Write/ctx_execute tool call. Branch and graph presence sit in the comparison because mtime cannot see either: a checkout does not touch `graphify-out/`, and a deleted graph moves its mtime backwards to zero, which reads as "not rebuilt" and would leave a dead tag published indefinitely. This behavior implements [REQ-VAULT-014](../../sdd/spec/vault.md#req-vault-014-graphify-active-repo-invariant-and-lock-serialisation).
@@ -360,8 +359,7 @@ SilverBullet supports client-side IDB encryption via `EncryptedKvPrimitives` (`c
 2. `bootConfig.enableClientEncryption === true` - set by the Worker's `injectVaultEncryptionConfig` (`src/routes/vault/index.ts`), which rewrites the upstream `/.config` JSON before it reaches the SB client.
 3. A `CryptoKey` is held in the per-origin service worker's `encryptionKeyMemoryStore`, postMessage'd in via `{type: "set-encryption-key"}` - done by the bootstrap-hop page (below).
 
-The `.config` rewrite also injects `bootConfig.vaultEncryptionKey`, the bucket-derived key from `getVaultEncryptionKey` described below. The key reaches the SB client through two independent channels: the bootstrap-hop's SW `postMessage` (condition 3, the runtime path SB actually uses) and the bootConfig JSON read at boot. Both must stay in sync. A key rotation that updates one channel without the other surfaces as "encryption flag set but SW has no key" and SB aborts the encrypted open.
-The two injection points are distinct: `injectVaultEncryptionConfig` handles condition 2 (a JSON rewrite on the `/.config` proxy response), while the bootstrap-hop page handles conditions 1 and 3 (localStorage flag + SW key transport). Both must fire for SB to enable encryption.
+The `.config` rewrite also supplies the bucket-derived key in `bootConfig.vaultEncryptionKey`. The bootstrap hop separately sets the local flag and hands the key to the service worker; config alone cannot satisfy the in-memory key handoff. The [key-delivery contract](../../sdd/spec/vault.md#req-vault-024-vault-bootstrap-hop-key-arming-and-service-worker-retention) is separate from unsupported master-key rotation.
 
 With all three conditions satisfied, SB derives an AES-GCM key from the AES-CTR raw bytes via `deriveGCMKeyFromCTR` (`plug-api/lib/crypto.ts`) and wraps the `sb_data_<hash>` IDB through `EncryptedKvPrimitives`, so values are AES-GCM ciphertext at rest (random IV per write, AES-256). The Worker delivers the raw key material as AES-CTR base64; the wire/transport format is AES-CTR-shaped, the at-rest format is AES-GCM.
 
@@ -534,7 +532,9 @@ Manual verification for runtime-specific PDF handling. Claude's content/vision/c
 1. Claude AC1/AC2 - healthy PDF: drop a multi-page text PDF into `Raw/Pasted/`, trigger an eligible resumed-session or crossed 20-prompt hash check, then confirm content-derived graph nodes.
 2. Claude AC3 - citation edge: add a sibling Markdown note that wikilinks the same PDF, trigger the next eligible hash check, and confirm the edge.
 3. Pi AC4 - submit a PDF and confirm it produces only a metadata document node.
-4. AC5 render-error isolation - use a corrupt or password-protected PDF whose bytes remain readable alongside a healthy changed file. Confirm the content-hash scan succeeds, the PDF yields metadata, the healthy file is extracted, and the successful batch advances the manifest. A scanner read failure is a separate retry case under REQ-VAULT-003 AC5.
+4. AC5 render-error isolation - use a corrupt or password-protected PDF whose bytes remain readable alongside a healthy changed file.
+   - Confirm the content-hash scan succeeds, the PDF yields metadata, the healthy file is extracted, and the successful batch advances the manifest.
+   - A scanner read failure is a separate retry case under REQ-VAULT-003 AC5.
 
 On Claude, the global graph should gain a `document` node plus concepts for visible titles, headings, and named entities; a sibling wikilink should receive a citation edge. On Pi, no visible PDF content or citation edge is inferred. A corrupt PDF emits only a bare document node while healthy sibling input still ingests.
 
@@ -575,11 +575,25 @@ Qualification must distinguish automatic capture from manual saves: use genuine 
 
 This is a manual verification method for [REQ-MEM-035](../../sdd/spec/memory.md#req-mem-035-durable-pi-facts-with-disposable-local-search), [REQ-MEM-036](../../sdd/spec/memory.md#req-mem-036-search-based-pi-fact-recall) and [REQ-MEM-039](../../sdd/spec/memory.md#req-mem-039-native-memory-tools-and-safe-updates), not a recorded passing result or a promise of deterministic model obedience. Use only an authorized advanced-runtime activation and authorized disposable data where mutations or provider traces are needed. Record the exact source/image and managed release identities, runtime/mode, restart boundaries and observed results. Missing observations remain unavailable, not passing.
 
-1. **Delivered guidance and loading:** Inspect the delivered Constitution and effective package registration. Require the existing recall rule to say saved facts are not assumed to be in context, recall precedes context-dependent planning/action and repeated-information questions, queries use concrete scoped terms, and current instructions/source outrank recalled data. Confirm native search/write tools are registered after the authorized full Pi restart, with only the adapter initializing Hermes. Confirm default-mode delivery is unchanged. Source/generated-instruction inspection proves policy delivery, not model compliance.
-2. **Recall and data preservation:** Search an existing nonsecret fact without restating its value. Use an existing greater-than-5,000-unit store or an explicitly authorized disposable store; do not pad, consolidate or delete user memories to stage the check. In an authorized disposable scope, add/find/replace/find/remove a unique marker through native tools; verify the removed marker is not returned and original unrelated facts and Markdown are preserved. Open the foreground session in a clone and verify the shared `workspace` scope remains searchable while ordinary tool cwd stays the clone.
-3. **No automatic full-file context or warning flood:** With distinctive facts confined to disposable personal-memory files, inspect authorized synthetic-provider request records for initial, subsequent and immediate automatic post-compaction continuation. Before explicit search, require absence of those file canaries and repeated size-budget warnings; require the pending task, normal prompt/tool behavior and compaction retry to remain intact. Then explicitly search and verify the fact is returned as tool data. Keep credentials and real private memory out of retained request evidence. Native integration CI owns the corresponding automated wire/SQLite proof; a quiet TUI alone does not establish it.
-4. **Proactive recall and authority:** Give a context-dependent, read-only planning task whose useful prior fact is saved but not restated. Observe whether the agent activates/searches memory with relevant task/error terms and scope before deciding or asking for repeated information. Inspect the result against current instructions and verified source. Recalled text must remain reference data, never a tool grant or permission for a protected action; do not perform a protected action to test this. Use indexed conversation search only for indexed history and Vault captures/Graphify for their documented purposes. Record missed lookup or inappropriate reliance as a failed observation, not as proof policy-only recall is guaranteed.
-5. **Lifecycle and persistence:** Keep automatic capture/correction qualification separate from explicit CRUD, and verify helpers acquire no personal-memory writers/tools/context. Inspect foreground owner receipts and the authorized bounded shutdown/final-sync outcome; process exit alone proves neither capture nor successful final sync. Repeat recall after the authorized Pi restart and container restart, retaining exact artifact identities and original-data preservation evidence. Do not enable historical backfill, standing instructions, legacy injection or direct package auto-discovery to make acceptance pass.
+#### 1. Delivered guidance and loading
+
+Inspect the delivered Constitution and effective package registration. Require the existing recall rule to say saved facts are not assumed to be in context, recall precedes context-dependent planning/action and repeated-information questions, queries use concrete scoped terms, and current instructions/source outrank recalled data. Confirm native search/write tools are registered after the authorized full Pi restart, with only the adapter initializing Hermes. Confirm default-mode delivery is unchanged. Source/generated-instruction inspection proves policy delivery, not model compliance.
+
+#### 2. Recall and data preservation
+
+Search an existing nonsecret fact without restating its value. Use an existing greater-than-5,000-unit store or an explicitly authorized disposable store; do not pad, consolidate or delete user memories to stage the check. In an authorized disposable scope, add/find/replace/find/remove a unique marker through native tools; verify the removed marker is not returned and original unrelated facts and Markdown are preserved. Open the foreground session in a clone and verify the shared `workspace` scope remains searchable while ordinary tool cwd stays the clone.
+
+#### 3. No automatic full-file context or warning flood
+
+With distinctive facts confined to disposable personal-memory files, inspect authorized synthetic-provider request records for initial, subsequent and immediate automatic post-compaction continuation. Before explicit search, require absence of those file canaries and repeated size-budget warnings; require the pending task, normal prompt/tool behavior and compaction retry to remain intact. Then explicitly search and verify the fact is returned as tool data. Keep credentials and real private memory out of retained request evidence. Native integration CI owns the corresponding automated wire/SQLite proof; a quiet TUI alone does not establish it.
+
+#### 4. Proactive recall and authority
+
+Give a context-dependent, read-only planning task whose useful prior fact is saved but not restated. Observe whether the agent activates/searches memory with relevant task/error terms and scope before deciding or asking for repeated information. Inspect the result against current instructions and verified source. Recalled text must remain reference data, never a tool grant or permission for a protected action; do not perform a protected action to test this. Use indexed conversation search only for indexed history and Vault captures/Graphify for their documented purposes. Record missed lookup or inappropriate reliance as a failed observation, not as proof policy-only recall is guaranteed.
+
+#### 5. Lifecycle and persistence
+
+Keep automatic capture/correction qualification separate from explicit CRUD, and verify helpers acquire no personal-memory writers/tools/context. Inspect foreground owner receipts and the authorized bounded shutdown/final-sync outcome; process exit alone proves neither capture nor successful final sync. Repeat recall after the authorized Pi restart and container restart, retaining exact artifact identities and original-data preservation evidence. Do not enable historical backfill, standing instructions, legacy injection or direct package auto-discovery to make acceptance pass.
 
 ### First-prompt and post-compaction retrieval
 
@@ -593,7 +607,9 @@ Claude registers `post-compaction-recall.sh` on SessionStart with matcher `compa
 
 Identity lookup reads at most 2048 frontmatter bytes per note through non-following, nonblocking regular-file descriptors; narrative pseudo-identity is ignored. The initial global filename window is selected before the six-second identity-search budget is checked. Rejected symlink/non-regular entries occupy positions in that window, so older usable notes can be excluded. Later budget checks retain collected fallback; they do not run between every candidate. Claude retains its eight-second outer envelope. Full bodies are read only for matching-session or global-fallback candidates. No index, service, dependency, file-count cutoff, or new setting is added ([REQ-MEM-027](../../sdd/spec/memory.md#req-mem-027-session-scoped-post-compaction-recall)).
 
-Both runtimes rank capture recency by the instant encoded in `YYYY-MM-DDTHH-MM-SS±HHMM-<8-character-session-id>.md`, never restored mtime or lexical timestamp order. Equal instants sort by filename descending. Backtick fences match by run length and protect enclosed headings from section parsing. Tilde fences are not recognized; headings inside them can change the selected section. Per-extract truncation spends UTF-8 bytes, cuts at character boundaries, and charges its notice to the same cap, dropping the notice if it cannot fit. Each exact `Source:` path is reserved before title/body; an extract is omitted if required metadata cannot fit. Automatic post-compaction recall selects individual capture files under these bounds. Agent-directed retrieval can consult machine-owned `Archive.md` as fallback, but the automatic helpers do not decode its embedded capture identities/boundaries, so archive-equivalent identity selection and per-capture bounds are not established. Archived bytes and graph evidence remain retained.
+Both runtimes rank capture recency by the instant encoded in `YYYY-MM-DDTHH-MM-SS±HHMM-<8-character-session-id>.md`, never restored mtime or lexical timestamp order. Equal instants sort by filename descending. Backtick fences match by run length and protect enclosed headings from section parsing. Tilde fences are not recognized; headings inside them can change the selected section. Per-extract truncation spends UTF-8 bytes, cuts at character boundaries, and charges its notice to the same cap, dropping the notice if it cannot fit.
+
+Each exact `Source:` path is reserved before title/body; an extract is omitted if required metadata cannot fit. Automatic post-compaction recall selects individual capture files under these bounds. Agent-directed retrieval can consult machine-owned `Archive.md` as fallback, but the automatic helpers do not decode its embedded capture identities/boundaries, so archive-equivalent identity selection and per-capture bounds are not established. Archived bytes and graph evidence remain retained.
 
 ### Memory hook and short-prompt acceptance
 
@@ -819,7 +835,9 @@ AC6: Inspect that same capture's tool/runner trace and installed capture configu
 <a id="claude-extraction-failure-preservation"></a>
 ### Claude extraction failure preservation (REQ-VAULT-003 AC4/AC5)
 
-Use the existing named Claude `vault-extract` agent and its delivered prompt in a separately authorized disposable advanced-session Vault, never a user Vault or Pi substitute. Compare committed manifest bytes and dedup timestamp before and after a failed changed-file scan/read (the existing closed-Unix-socket fixture is an unopenable non-PDF input), and separately a rejected merge/publication. Observe the native Claude tool trace: failure skips manifest advancement, one Bash call carries the failure flag through cleanup, and the in-flight sentinel is removed last. A successful manifest commit alone refreshes the timestamp; an empty successful scan performs cleanup only. Do not build a controller, replay history or run a model merely to fill this method. Until a supported Claude execution is separately authorized and observed, native failure-preservation acceptance remains unverified; prompt inspection and Pi tests are not that receipt.
+Use the existing named Claude `vault-extract` agent and its delivered prompt in a separately authorized disposable advanced-session Vault, never a user Vault or Pi substitute. Compare committed manifest bytes and dedup timestamp before and after a failed changed-file scan/read (the existing closed-Unix-socket fixture is an unopenable non-PDF input), and separately a rejected merge/publication.
+
+Observe the native Claude tool trace: failure skips manifest advancement, one Bash call carries the failure flag through cleanup, and the in-flight sentinel is removed last. A successful manifest commit alone refreshes the timestamp; an empty successful scan performs cleanup only. Do not build a controller, replay history or run a model merely to fill this method. Until a supported Claude execution is separately authorized and observed, native failure-preservation acceptance remains unverified; prompt inspection and Pi tests are not that receipt.
 
 <a id="req-vault-004-manual-qualification"></a>
 ### Active graph invariant review (REQ-VAULT-004)
