@@ -1,4 +1,3 @@
-// @vitest-environment happy-dom
 /**
  * Behavioral DOM-integration tests for feature-terminals.ts.
  *
@@ -9,9 +8,13 @@
  */
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import { experimental_AstroContainer as AstroContainer } from 'astro/container';
+import { Window } from 'happy-dom';
 import InferenceMeshHero from '../components/InferenceMeshHero.astro';
 
+// Use the default Node environment for Astro SSR, as in index-page.test.ts.
+// Install the browser globals only for the animation tests, after rendering.
 let meshHtml: string;
+let browser: Window;
 beforeAll(async () => {
   const container = await AstroContainer.create();
   meshHtml = await container.renderToString(InferenceMeshHero);
@@ -52,14 +55,20 @@ function mockMatchMedia(prefersReducedMotion: boolean): void {
 }
 
 beforeEach(() => {
-  document.body.innerHTML = '';
+  browser = new Window();
   vi.useFakeTimers();
+  // The script schedules on window; route those timers through Vitest's clock.
+  Object.defineProperty(browser, 'setTimeout', { value: globalThis.setTimeout });
+  vi.stubGlobal('window', browser);
+  vi.stubGlobal('document', browser.document);
+  vi.stubGlobal('Event', browser.Event);
 });
 
-afterEach(() => {
+afterEach(async () => {
   vi.useRealTimers();
   vi.resetModules();
   vi.unstubAllGlobals();
+  await browser.happyDOM.close();
 });
 
 describe('feature-terminals.ts (REQ-LANDING-001)', () => {
@@ -234,7 +243,7 @@ describe('feature-terminals.ts (REQ-LANDING-001)', () => {
     document.body.appendChild(hero);
     term.setAttribute('data-ft-shuffle', '');
     mockMatchMedia(false);
-    vi.stubGlobal('innerWidth', 900);
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 900 });
     let heightScale = 1;
     const heights = new Map([
       [run[0], 100],
@@ -269,7 +278,7 @@ describe('feature-terminals.ts (REQ-LANDING-001)', () => {
     window.dispatchEvent(new Event('resize'));
     expect(term.style.height).toBe('140px');
 
-    vi.stubGlobal('innerWidth', 768);
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 768 });
     window.dispatchEvent(new Event('resize'));
     expect(term.style.height).toBe('280px');
     expect(typed.textContent).toBe(partialText);

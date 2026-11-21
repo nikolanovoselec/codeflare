@@ -156,7 +156,7 @@ max_instances = 3
       const written: string[] = [];
       const result = await prepareUsageD1({
         workerName, apiToken: 'api-token', wranglerConfig: input, run: fake.run,
-        writeConfig: async (content: string) => { written.push(content); },
+        writeConfig: async (content = '') => { written.push(content); },
       });
 
       // Generated configuration and external command arguments are the contracts;
@@ -183,7 +183,7 @@ max_instances = 3
     const written: string[] = [];
     const preparation = prepareUsageD1({
       workerName: 'codeflare-integration', apiToken: 'api-token', wranglerConfig: config,
-      writeConfig: async (content: string) => { written.push(content); },
+      writeConfig: async (content = '') => { written.push(content); },
       run: async (command: WranglerCommand) => {
         calls.push(command);
         if (command[0] === 'd1') return { status: 0, stdout: JSON.stringify([database]) };
@@ -211,7 +211,7 @@ max_instances = 3
     const written: string[] = [];
     const preparation = prepareUsageD1({
       workerName: 'codeflare-integration', apiToken: 'api-token', wranglerConfig: config,
-      writeConfig: async (content: string) => { written.push(content); },
+      writeConfig: async (content = '') => { written.push(content); },
       run: async (command: WranglerCommand) => {
         calls.push(command);
         if (command[0] === 'types') return { status: 0 };

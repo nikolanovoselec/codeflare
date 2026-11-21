@@ -148,8 +148,9 @@ describe('Storage Store', () => {
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       });
       mockGetUser.mockImplementationOnce(client.getUser);
+      // Use a root object so the listing is visible without workspace sync.
       mockBrowseStorage.mockResolvedValueOnce({
-        objects: [{ key: 'workspace/policy.txt', size: 4, lastModified: '2026-01-01T00:00:00Z' }],
+        objects: [{ key: 'policy.txt', size: 4, lastModified: '2026-01-01T00:00:00Z' }],
         prefixes: [], isTruncated: false,
       });
       try {
@@ -160,7 +161,7 @@ describe('Storage Store', () => {
           expect(storageStore.downloadsDisabled).toBe(true);
         });
         fireEvent.click(screen.getByTitle('Selection mode'));
-        storageStore.setSelection(['workspace/policy.txt'], []);
+        fireEvent.click(screen.getByText('policy.txt'));
         const download = screen.getByTestId('storage-download-selected');
         // Intentional UI contract: blocked-looking, but still operable for notice.
         expect(download).toHaveClass('storage-action-btn--blocked');

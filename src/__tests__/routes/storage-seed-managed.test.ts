@@ -367,11 +367,14 @@ describe('managed storage reconcile', () => {
       expect(objects.get('.codeflare/managed-extensions.json')?.body).toBe(managedExtensionsDocumentContent(state.active!));
       expect(objects.get('personal.txt')?.body).toBe(cause === 'fresh bucket' ? undefined : 'preserve personal bytes');
       // On a fresh bucket the retired-path HEAD is the cleanup boundary; its
-      // 404 must not turn into a delete. Existing buckets must delete the target.
+      // 404 skips object deletion. Mutable policy still clears its policy key.
       const firstCleanup = requests.findIndex(request => request.key === '.claude/rules/retired.md'
         && request.method === (cause === 'fresh bucket' ? 'HEAD' : 'DELETE'));
       expect(firstCleanup).toBeGreaterThan(-1);
-      if (cause === 'fresh bucket') expect(requests.some(({ method }) => method === 'DELETE' || method === 'POST')).toBe(false);
+      if (cause === 'fresh bucket') {
+        const mutations = requests.filter(({ method }) => method === 'DELETE' || method === 'POST');
+        expect(mutations).toEqual([{ method: 'DELETE', key: '.codeflare/managed-paths.json' }]);
+      }
       for (const key of ['.claude/company.md', '.codeflare/managed-extensions.json']) {
         const write = requests.findIndex(request => request.method === 'PUT' && request.key === key);
         expect(write).toBeGreaterThan(-1);

@@ -6,7 +6,7 @@ import { Hono } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { requireActiveUser, type AuthVariables } from '../../middleware/auth';
 import { resetAuthConfigCache } from '../../lib/access';
-import { signSessionJWT } from '../../lib/session-jwt';
+import { signSessionJWT, SESSION_JWT_AUD } from '../../lib/session-jwt';
 import { AppError } from '../../lib/error-types';
 import type { Env } from '../../types';
 
@@ -128,7 +128,10 @@ describe('Storage Browse Routes / REQ-STOR-007 (web file browser: browse endpoin
       app.use('*', requireActiveUser);
       app.route('/browse', browseRoutes);
       const request = async (email: string) => {
-        const token = await signSessionJWT({ email, sub: email, ghLogin: 'fixture-user' }, secret);
+        const token = await signSessionJWT(
+          { email, sub: email, ghLogin: 'fixture-user', aud: SESSION_JWT_AUD },
+          secret,
+        );
         return app.request('/browse', { headers: { Cookie: `codeflare_session=${token}` } });
       };
       return { owners, request };
