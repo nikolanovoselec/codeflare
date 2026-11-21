@@ -366,6 +366,10 @@ For REQ-AUTH-009 AC1/AC4, use approved signed-in SaaS/onboarding OIDC and Access
 
 For REQ-AUTH-002 AC6, use owner-approved existing GitHub identities with a verified primary email and without one. Complete a fresh normal OAuth flow once per identity. Pass only if the first resolves its verified primary email and the second reaches `/?error=no-verified-email` without a session. Secondary-only or unverified primary addresses must not be accepted. Never reuse callback codes/state, capture exchanged tokens, create accounts or alter email settings for this check.
 
+### Account dropdown layout acceptance
+
+For [REQ-AUTH-016 AC3/AC4](../../sdd/spec/authentication.md#req-auth-016-header-user-dropdown), use an approved, already signed-in workspace and open the Header account menu at a narrow mobile viewport. It must appear as a sheet anchored to the bottom of the viewport. Close it, switch to a desktop viewport, and reopen it; it must appear below the avatar rather than at the bottom. Do not select a menu action. The component tests separately cover opening and the mode-specific action set, not the rendered position.
+
 ### Access redirect acceptance
 
 For REQ-AUTH-003 AC1, open a protected application page and API endpoint on the approved Access deployment from a signed-out browser without service-auth headers. Inspect navigation without submitting credentials. Pass only if Access redirects to the configured identity provider without exposing protected content. Finishing authentication requires separate approval; a Worker 401 alone does not establish the Access redirect.

@@ -56,11 +56,12 @@ let contextPhase = 'ordinary', contextReply = 0;
 let childMode = false;
 let expectedModel = 'fixture';
 
-function completion(content) {
+function completion(content, usage) {
   const chunk = (delta, finish_reason) => ({ id: 'hermes-fixture-completion', object: 'chat.completion.chunk',
     created: 0, model: 'fixture', choices: [{ index: 0, delta, finish_reason }] });
-  return new Response([chunk({ role: 'assistant', content }, null), chunk({}, 'stop')]
-    .map(value => `data: ${JSON.stringify(value)}\n\n`).join('') + 'data: [DONE]\n\n',
+  const chunks = [chunk({ role: 'assistant', content }, null), chunk({}, 'stop')];
+  if (usage) chunks.push({ ...chunk({}, 'stop'), choices: [], usage });
+  return new Response(chunks.map(value => `data: ${JSON.stringify(value)}\n\n`).join('') + 'data: [DONE]\n\n',
   { headers: { 'Content-Type': 'text/event-stream' } });
 }
 const providerFailures = [];
@@ -103,16 +104,19 @@ globalThis.fetch = async (input, init) => {
         return Response.json({ error: { message: 'maximum context length exceeded', type: 'invalid_request_error', code: 'context_length_exceeded' } }, { status: 400 });
       }
       if (contextPhase === 'summary') {
-        assert.ok(wireText(body).includes('HERMES_TASK_EVIDENCE'), 'real compaction receives the conversation to summarize');
-        return completion('The user requested HERMES_TASK_EVIDENCE analysis. Continue the unfinished analysis.');
+        // Exercise the installed extension's deterministic EESV fallback. A
+        // provider-generated Pi summary cannot satisfy the origin assertion.
+        return Response.json({ error: { message: 'Synthetic summary refusal', type: 'invalid_request_error' } }, { status: 400 });
       }
       if (contextPhase === 'retry') {
         assertNoAutomaticFacts(body);
         assert.ok(wireText(body).includes('HERMES_TASK_EVIDENCE'), 'the pending task survives real compaction');
         contextPhase = 'finished';
       }
-      // Enough real history for compaction, without faking session internals.
-      return completion(`HERMES_TASK_EVIDENCE response ${++contextReply}: ` + 'calibration detail '.repeat(160));
+      // Normal provider wire usage crosses the 5,000-token package floor but
+      // stays far below Pi's context threshold; no session state is injected.
+      return completion(`HERMES_TASK_EVIDENCE response ${++contextReply}: ` + 'calibration detail '.repeat(1_400),
+        { prompt_tokens: 6_000, completion_tokens: 3_000, total_tokens: 9_000 });
     }
     // The foreground model only emits text. The stock reviewer parses its own
     // separate wire completion and performs all file/SQLite mutations itself.
@@ -144,6 +148,7 @@ function assertNoSizeWarnings() {
 
 async function start({ parentSession, context = false, managed = false } = {}) {
   let loader, queryResult;
+  const compactions = [];
   const sessionCwd = managed ? join(cwd, 'unrelated-clone') : cwd;
   const additionalExtensionPaths = managed ? [join(repo, 'preseed/agents/pi/extensions/hermes-memory-runtime.ts')] : [];
   if (context) {
@@ -160,7 +165,10 @@ async function start({ parentSession, context = false, managed = false } = {}) {
     extensionFactories: [...(managed ? [] : [async pi => {
       await attachHermesMemoryToForeground(registry, pi, stock);
     }]), pi => {
-      if (context) pi.on('before_agent_start', event => ({ systemPrompt: event.systemPrompt + '\n' + permissionBoundary }));
+      if (context) {
+        pi.on('before_agent_start', event => ({ systemPrompt: event.systemPrompt + '\n' + permissionBoundary }));
+        pi.on('session_compact', event => { compactions.push(event); });
+      }
       pi.on('tool_call', event => {
         if (['memory_add', 'memory_replace', 'memory_remove'].includes(event.toolName)) {
           primaryMemoryWrites.push(event.toolName);
@@ -214,6 +222,7 @@ async function start({ parentSession, context = false, managed = false } = {}) {
   assert.deepEqual(errors, []);
   return {
     session,
+    compactions,
     nextModel: modelRuntime.getModel('hermes-fixture', 'fixture-after-switch'),
     async mutate(name, params) {
       queryResult = undefined;
@@ -345,9 +354,12 @@ async function run() {
     assertNoAutomaticFacts(requests.at(-1));
     assertNoSizeWarnings();
     assert.ok(markdown().user.length > 5000);
+    assert.ok(f.session.getContextUsage()?.tokens >= 5_000, 'the next ordinary turn starts above the package admission floor');
     await promptText(f, 'HERMES_TASK_EVIDENCE: continue the ordinary analysis.');
     assertNoAutomaticFacts(requests.at(-1));
     assertNoSizeWarnings();
+    assert.equal(f.session.sessionManager.getEntries().some(entry => entry.type === 'compaction'), false);
+    assert.deepEqual(f.compactions, [], 'native-hook does not start compaction during ordinary turns');
     const beforeUserTurns = f.session.messages.filter(message => message.role === 'user').length;
     let compactionResult;
     // Native compaction may summarize both history and a split-turn prefix.
@@ -369,7 +381,12 @@ async function run() {
     assert.equal(compactionResult.aborted, false);
     assert.equal(compactionResult.willRetry, true);
     assert.equal(contextPhase, 'finished');
-    assert.ok(f.session.sessionManager.getEntries().some(entry => entry.type === 'compaction'), 'real SDK recorded compaction');
+    assert.equal(f.compactions.length, 1);
+    const [applied] = f.compactions;
+    assert.equal(applied.reason, 'overflow');
+    assert.equal(applied.fromExtension, true, 'the loaded Smart Compact extension supplied the replacement');
+    assert.deepEqual(f.session.sessionManager.getEntry(applied.compactionEntry.id), applied.compactionEntry,
+      'Pi persisted the extension-provided compaction entry');
     assert.ok(f.session.messages.filter(message => message.role === 'user').length <= beforeUserTurns + 1,
       'automatic continuation required no new user prompt');
     const persistedReferenceCopies = f.session.sessionManager.getEntries().filter(entry => entry.type === 'message'

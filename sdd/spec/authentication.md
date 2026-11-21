@@ -481,8 +481,8 @@ None.
 
 1. The visible account identity opens an account-action dropdown. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Subscription/Usage gating) -->
 2. The available account actions follow the deployment-mode contract in [REQ-SUB-023](subscription.md#req-sub-023-deployment-mode-account-actions). <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Subscription/Usage gating) --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (opens a Usage-only dropdown in enterprise mode) -->
-3. Mobile renders as bottom sheet. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Header Component / REQ-VAULT-012 (vault button render and readiness gating) / REQ-AUTH-016 (header user dropdown)) -->
-4. Desktop positioned below avatar. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Header Component / REQ-VAULT-012 (vault button render and readiness gating) / REQ-AUTH-016 (header user dropdown)) -->
+3. Mobile renders as bottom sheet. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @manual -->
+4. Desktop positioned below avatar. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @manual -->
 
 **Constraints:**
 
@@ -492,7 +492,7 @@ None.
 
 **Dependencies:** None.
 
-**Verification:** Automated: [Header.test.tsx](../../web-ui/src/__tests__/components/Header.test.tsx)
+**Verification:** Automated: [Header.test.tsx](../../web-ui/src/__tests__/components/Header.test.tsx); Manual: [Account dropdown layout acceptance](../../documentation/lanes/authentication.md#account-dropdown-layout-acceptance)
 
 **Status:** Implemented
 

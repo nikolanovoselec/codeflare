@@ -8,6 +8,7 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 - Removed browser-mode-specific OAuth acceptance from [REQ-AUTH-002](authentication.md#req-auth-002-saas-mode-uses-direct-github-oauth) and historical token qualification from [REQ-BROWSER-002](browser-run.md#req-browser-002-browser-rendering-scope-in-the-cloudflare-token-template). Cookie-free signed OAuth state, verified-primary-email enforcement, and permission additivity remain required.
 - Marked the temporary Codex prompt-prefix backport and seven bounded Operator contracts Implemented. The recovery and scheduling visuals retain manual browser verification. These statuses do not qualify hosted Operator delivery, device behavior, deployed image activation, or live cache hits.
+- Reclassified REQ-OPERATOR-048, 061, 062, 091, and 222 as Partial: the implementation exists, but the full contracts are not yet established. No acceptance criteria or runtime behavior changed.
 
 ## 2026-11-20: Use one idle-timeout policy across plans
 

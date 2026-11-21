@@ -1061,7 +1061,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Verification:** Automated: [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts), [dispatcher-production.test.ts](../../src/__tests__/operators/dispatcher-production.test.ts), [flue-native-cases.ts](../../src/__tests__/operators/fixtures/flue-native-cases.ts), [dispatcher-result.test.ts](../../src/__tests__/operators/dispatcher-result.test.ts)
 
-**Status:** Planned
+**Status:** Partial
 
 ---
 
@@ -1264,9 +1264,11 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 **Acceptance Criteria:**
 
 1. Approved repository-only packages select bounded GET/POST/PUT requests with immutable arguments. <!-- @impl: src/operators/activity.ts::dispatcherOperation --> <!-- @impl: src/operators/operator-runtime-capability.ts::createDispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (exposes the configured API origin only to repository-only Loader code) -->
-2. Unknown mutations retain generation for authorized readbacks; only verified original-request and completed-read receipts may resolve uncertainty without replay. Inference recovery neither repeats nor erases them. Closed uncertainty metadata cannot turn a possibly attempted write into a retryable no-effect failure. <!-- @test: src/__tests__/operators/application-execution.test.ts --> <!-- @impl: src/operators/activity.ts::dispatcherOperation --> <!-- @impl: src/operators/operator-runtime-capability.ts::createDispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: generic Activity mutation receipts and resolution) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-062: uncertain actual mutation keeps its original ID unknown and forbids blind replay) -->
+2. Unknown mutations retain generation for authorized readbacks; only verified original-request and completed-read receipts may resolve uncertainty without replay. Inference recovery neither repeats nor erases them. Closed uncertainty metadata cannot turn a possibly attempted write into a retryable no-effect failure. <!-- @impl: src/operators/activity.ts::dispatcherOperation --> <!-- @impl: src/operators/operator-runtime-capability.ts::createDispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: generic Activity mutation receipts and resolution) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-062: uncertain actual mutation keeps its original ID unknown and forbids blind replay) -->
 3. Normal SDK initial data carries immutable nonsecret configuration/input and admitted runtime limits. Opaque application context binds to the actual current delivery and receipt; no setting widens host policy or discloses credentials. <!-- @impl: src/operators/activity.ts::#planApplication --> <!-- @impl: src/operators/activity.ts::#applicationCallback --> <!-- @test: src/__tests__/operators/dispatcher-application-ownership.test.ts (matching SDK settlements alone advance opaque work and preserve final output with logging=%s) --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-048: application context joins only the original pending ACK and preserves opaque successor context) --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-048: application context joins the original ACK across authorization without replacing the receipt) --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-003/047/048: context retains %s denial after joining the original ACK) -->
 4. Mutations use only the configured authenticated GitHub API transport and declared saved repositories; omission of the saved write selector denies mutation authority. <!-- @impl: src/operators/operator-runtime-capability.ts::createDispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (exposes the configured API origin only to repository-only Loader code) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (requires an explicit saved write-repository selector while retaining authorized research) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-010/035: %s stored artifact cannot authorize a configured GitHub write) -->
+
+**Notes:** The transport and its write guards are covered. The installed SDK handoff of immutable input, configuration, limits, and current delivery context remains unverified.
 
 **Constraints:**
 
@@ -1280,7 +1282,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Verification:** Automated: [dispatcher-production.test.ts](../../src/__tests__/operators/dispatcher-production.test.ts), [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts)
 
-**Status:** Planned
+**Status:** Partial
 
 ---
 
@@ -1296,6 +1298,8 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 2. Replayed model permits retain their original identity, expiry and delivery binding without adopting a later delivery. <!-- @impl: src/operators/activity.ts::#dispatcherSdkCallback --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-048/062: model permits retain original delivery on replay and reject successor reuse) -->
 3. A delivery change prevents physical model send and durable response commitment under an earlier delivery permit. Root validates identity, not the application meaning of the context. <!-- @impl: src/operators/activity.ts::#dispatcherSdkCallback --> <!-- @impl: src/operators/dispatcher-sdk-services.ts::forwardDispatcherSdkHttp --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-048/062: delivery change during post-claim authorization prevents physical model send (native: %s)) --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-048/062: model permits retain original delivery on replay and reject successor reuse) -->
 
+**Notes:** Tests cover options-only replay conflicts and prevent a send after fencing. The settlement test keeps the original delivery when a send is unresolved; it does not observe a late response after successful replacement.
+
 **Constraints:**
 
 - Existing parent authority and original deadlines remain mandatory; no activation or new principal is implied.
@@ -1308,7 +1312,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Verification:** Automated: [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts)
 
-**Status:** Planned
+**Status:** Partial
 
 ---
 
@@ -3691,7 +3695,7 @@ Relocated to [the Dispatcher application specification](https://github.com/nikol
 5. Pre-drive failure may fence only queued work, never a concurrent drive. <!-- @impl: src/operators/activity.ts::retireApplicationExecution --> <!-- @test: src/__tests__/operators/application-execution.test.ts (%s between read and retirement cannot consume a stale internal proof) --> <!-- @test: src/__tests__/operators/application-execution.test.ts (%s cannot certify retirement or alter retained evidence) -->
 6. Missing or interrupted evidence and later generation fences never prove non-admission or safe replacement. <!-- @impl: src/operators/activity.ts::retireApplicationExecution --> <!-- @impl: src/operators/registry.ts::applyApplicationExecution --> <!-- @test: src/__tests__/operators/application-execution.test.ts (%s between read and retirement cannot consume a stale internal proof) --> <!-- @test: src/__tests__/operators/application-execution.test.ts (%s cannot certify retirement or alter retained evidence) -->
 
-**Notes:** Application control and qualification are documented in [generic scheduling](../../documentation/lanes/operators.md#application-control-and-generic-scheduling) and the [application API](../../documentation/lanes/api-reference.md#application-workflow-control).
+**Notes:** The scheduling tests exercise intake and preparation, but do not observe a due alarm reaching the installed workflow with the original input, configuration, and dispatch identity. See [generic scheduling](../../documentation/lanes/operators.md#application-control-and-generic-scheduling) and the [application API](../../documentation/lanes/api-reference.md#application-workflow-control).
 
 **Constraints:**
 
@@ -3714,7 +3718,7 @@ Relocated to [the Dispatcher application specification](https://github.com/nikol
 
 **Verification:** Automated: [application-configuration.test.ts](../../src/__tests__/operators/application-configuration.test.ts), [application-schedule.test.ts](../../src/__tests__/operators/application-schedule.test.ts), [dispatcher-application-ownership.test.ts](../../src/__tests__/operators/dispatcher-application-ownership.test.ts), [application-execution.test.ts](../../src/__tests__/operators/application-execution.test.ts), [dispatcher-production.test.ts](../../src/__tests__/operators/dispatcher-production.test.ts), [registry-application-recovery.test.ts](../../src/__tests__/operators/registry-application-recovery.test.ts)
 
-**Status:** Planned
+**Status:** Partial
 
 ---
 
@@ -3946,7 +3950,7 @@ Relocated to [the Dispatcher application specification](https://github.com/nikol
 
 **Verification:** Automated: [dispatcher-raw-capture.test.ts](../../src/__tests__/operators/dispatcher-raw-capture.test.ts), [raw-capture-storage.test.ts](../../src/__tests__/operators/raw-capture-storage.test.ts), [renovate-prospective-registry.test.ts](../../src/__tests__/operators/renovate-prospective-registry.test.ts), [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts), [loader-runtime.test.ts](../../src/__tests__/operators/loader-runtime.test.ts), [dispatcher-activation.test.ts](../../src/__tests__/operators/dispatcher-activation.test.ts)
 
-**Status:** Planned
+**Status:** Partial
 
 ---
 
