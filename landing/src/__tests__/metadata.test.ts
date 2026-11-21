@@ -120,6 +120,7 @@ describe('REQ-LANDING-003: external metadata (SEO, social, structured data)', ()
     expect(types).toContain('SoftwareApplication');
 
     const organization = graph.find((node) => node['@type'] === 'Organization');
+    expect(organization?.name).toBe('Codeflare');
     expect(organization?.['@id']).toBe('https://codeflare.ch/#organization');
     expect(organization?.logo).toBe('https://codeflare.ch/icon-512.png');
     expect(organization?.sameAs).toEqual(['https://github.com/nikolanovoselec/codeflare']);

@@ -41,7 +41,7 @@ function seedSession(
   kv: ReturnType<typeof createMockKV>,
   bucketName: string,
   sessionId: string,
-  status: 'running' | 'stopped'
+  status: 'starting' | 'running' | 'unreachable' | 'stopping' | 'stopped'
 ): void {
   // Use the metadata fast-path so list() returns SessionListMetadata.
   // SessionListMetadata.s is the status field (compact serialization).
@@ -82,6 +82,112 @@ describe('fanOutBisyncTrigger (REQ-STOR-015 backfill)', () => {
     expect(results).toHaveLength(2);
     expect(results.every((r) => r.status === 'triggered')).toBe(true);
     expect(testState.containerFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('REQ-STOR-015 AC1: fans out to all owner workload states but not stopped or foreign sessions', async () => {
+    const states = ['starting', 'running', 'unreachable', 'stopping', 'stopped'] as const;
+    states.forEach((status, index) => {
+      seedSession(kv, bucket, String(index).padStart(24, '0'), status);
+      seedSession(kv, 'foreign-owner', String(index + 10).padStart(24, '0'), status);
+    });
+    const requests: Array<{ containerId: string; method: string; path: string }> = [];
+    testState.containerFetch.mockImplementation(async (containerId: string, request: Request) => {
+      requests.push({ containerId, method: request.method, path: new URL(request.url).pathname });
+      return new Response(null, { status: 202 });
+    });
+
+    const results = await fanOutBisyncTrigger(buildEnv(kv), bucket);
+    const ids = states.slice(0, 4).map((_, index) => String(index).padStart(24, '0'));
+    expect(results.sort((a, b) => a.sessionId.localeCompare(b.sessionId))).toEqual(
+      ids.map(sessionId => ({ sessionId, status: 'triggered' })),
+    );
+    expect(requests.sort((a, b) => a.containerId.localeCompare(b.containerId))).toEqual(
+      ids.map(id => ({ containerId: `${bucket}-${id}`, method: 'POST', path: '/internal/bisync-trigger' })),
+    );
+  });
+
+  it('REQ-STOR-015 AC2: the next batch waits for the last settlement, including a rejection', async () => {
+    for (let index = 0; index < 17; index++) {
+      seedSession(kv, bucket, String(index).padStart(24, '0'), 'running');
+    }
+    const requests: string[] = [];
+    const pending: Array<{ resolve: (value: Response) => void; reject: (error: Error) => void }> = [];
+    testState.containerFetch.mockImplementation((containerId: string, request: Request) => {
+      expect(request.method).toBe('POST');
+      expect(new URL(request.url).pathname).toBe('/internal/bisync-trigger');
+      requests.push(containerId);
+      return new Promise<Response>((resolve, reject) => pending.push({ resolve, reject }));
+    });
+    const operation = fanOutBisyncTrigger(buildEnv(kv), bucket);
+    await vi.waitFor(() => expect(requests).toHaveLength(8));
+    const firstBatch = [...requests];
+    pending[0].reject(new Error('first peer disconnected'));
+    for (const peer of pending.slice(1, 7)) peer.resolve(new Response(null, { status: 202 }));
+    // Let all released promise continuations drain, keeping the eighth peer blocked.
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(requests).toEqual(firstBatch);
+    pending[7].resolve(new Response(null, { status: 503 }));
+    await vi.waitFor(() => expect(requests).toHaveLength(16));
+    const firstTwoBatches = [...requests];
+    for (const peer of pending.slice(8, 15)) peer.resolve(new Response(null, { status: 202 }));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(requests).toEqual(firstTwoBatches);
+    pending[15].resolve(new Response(null, { status: 202 }));
+    await vi.waitFor(() => expect(requests).toHaveLength(17));
+    pending[16].resolve(new Response(null, { status: 202 }));
+    const results = await operation;
+    expect(new Set(requests).size).toBe(17);
+    expect(results.map(result => result.status)).toEqual([
+      'failed', ...Array(6).fill('triggered'), 'not-running', ...Array(9).fill('triggered'),
+    ]);
+  });
+
+  it('REQ-STOR-015 AC2: accounts for all boundary requests in a 128-session fan-out', async () => {
+    // A D1 result fixture, not the legacy KV-backed D1 adapter: adapter reads
+    // must not masquerade as Worker subrequests in this budget observation.
+    const rows = Array.from({ length: 128 }, (_, index) => ({
+      owner_key: bucket, session_id: String(index).padStart(24, '0'),
+      name: 'Session', lifecycle_state: 'running', created_at: '', last_accessed_at: '',
+      workspace: 'terminal', terminal_mode: 'classic', lifecycle_generation: 0,
+      response_revision: 0, observation_sequence: -1, editor_ready: 0, editor_ready_error: 0,
+    }));
+    const requests: Array<{ service: string; target: string }> = [];
+    const kvBoundary = new Proxy(kv, {
+      get(target, property, receiver) {
+        const value = Reflect.get(target, property, receiver);
+        if (!['get', 'getWithMetadata', 'put', 'delete', 'list'].includes(String(property))) return value;
+        return (...args: unknown[]) => {
+          requests.push({ service: 'KV', target: `${String(property)} ${typeof args[0] === 'string' ? args[0] : JSON.stringify(args[0])}` });
+          return Reflect.apply(value, target, args);
+        };
+      },
+    });
+    const env = buildEnv(kvBoundary);
+    env.USAGE_DB = {
+      prepare: (sql: string) => ({
+        bind: (owner: string) => ({
+          all: async () => {
+            requests.push({ service: 'D1', target: sql });
+            return { results: rows.filter(row => row.owner_key === owner) };
+          },
+        }),
+      }),
+    } as unknown as D1Database;
+    testState.containerFetch.mockImplementation(async (id: string, request: Request) => {
+      requests.push({ service: 'Container', target: `${id} ${request.method} ${new URL(request.url).pathname}` });
+      return new Response(null, { status: 202 });
+    });
+    const results = await fanOutBisyncTrigger(env, bucket);
+    expect(results).toEqual(rows.map(row => ({ sessionId: row.session_id, status: 'triggered' })));
+    expect(requests.filter(request => request.service === 'KV')).toEqual([
+      { service: 'KV', target: `get r2-regime:${bucket}` },
+      { service: 'KV', target: `get user-prefs:${bucket}` },
+    ]);
+    expect(requests.filter(request => request.service === 'D1')).toHaveLength(1);
+    expect(requests.filter(request => request.service === 'Container')).toEqual(rows.map(row => ({
+      service: 'Container', target: `${bucket}-${row.session_id} POST /internal/bisync-trigger`,
+    })));
+    expect(requests).toHaveLength(131); // 128 actual triggers + 2 KV reads + 1 D1 query.
   });
 
   it('marks only explicit Sync now as an authorized disk-space retry', async () => {

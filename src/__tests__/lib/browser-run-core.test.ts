@@ -325,6 +325,35 @@ describe.each(MODULES)('browser-run core: %s', (_name, mod) => {
       expect(out.text).toBe('# Hello');
       expect(out.details).toEqual({ url: 'https://x.test/' });
     });
+    it.each(['browser_markdown', 'browser_content', 'browser_scrape'])(
+      'REQ-BROWSER-003 AC1/AC4 / REQ-BROWSER-005 AC1: %s independently caps oversized output at 120000 characters',
+      async tool => {
+        // The numeric oracle is the published output budget, not either twin's constant.
+        // Exercise both ASCII and astral text so the budget counts code points.
+        for (const character of ['x', '😀']) {
+          const page = character.repeat(170_000);
+          const result = tool === 'browser_scrape' ? [{ selector: 'h1', text: page }] : page;
+          const rendered = tool === 'browser_scrape' ? JSON.stringify(result, null, 2) : page;
+          const characters = Array.from(rendered);
+          const out = await mod.executeBrowserAction({
+            ...base, tool, params: { url: 'https://x.test/', selectors: ['h1'] },
+            fetchImpl: makeFetch(() => ok(result)),
+          });
+          expect(out.isError).toBeFalsy();
+          // Intentional user-copy contract: kept content followed by the truncation notice.
+          const marker = '\n\n[... truncated';
+          const boundary = out.text.indexOf(marker);
+          expect(boundary).toBeGreaterThan(0);
+          const kept = out.text.slice(0, boundary);
+          expect(Array.from(kept)).toHaveLength(120_000);
+          expect(kept).toBe(characters.slice(0, 120_000).join(''));
+          expect(out.text.slice(boundary)).toBe(
+            `\n\n[... truncated ${characters.length - 120_000} chars; narrow the request or use browser_scrape with a CSS selector ...]`,
+          );
+          expect(Array.from(out.text).length).toBeLessThan(120_150);
+        }
+      },
+    );
     it('an empty render becomes the actionable hint', async () => {
       const fetchImpl = makeFetch(() => ok('   '));
       const out = await mod.executeBrowserAction({
@@ -361,6 +390,87 @@ describe.each(MODULES)('browser-run core: %s', (_name, mod) => {
       expect(sentBody.elements).toEqual([{ selector: 'h1' }, { selector: 'a' }]);
       expect(sentBody.gotoOptions).toEqual({ waitUntil: 'networkidle0' });
     });
+  });
+});
+
+describe('Browser Run published adapters', () => {
+  it('REQ-BROWSER-003 AC5 / REQ-BROWSER-005 AC1: missing scrape result rejects through both actual adapters', async () => {
+    const params = { url: 'https://x.test/', selectors: ['h1'] };
+    const elements = [{ selector: 'h1', text: 'Title' }];
+    let response = ok(elements);
+    const fetchImpl = makeFetch((url, init) => {
+      expect(url).toBe('https://api.cloudflare.com/client/v4/accounts/synthetic-account/browser-rendering/scrape');
+      expect(init.method).toBe('POST');
+      expect(init.headers.Authorization).toBe('Bearer synthetic-token');
+      expect(JSON.parse(init.body)).toEqual({ url: params.url, elements: [{ selector: 'h1' }] });
+      return response;
+    });
+    vi.stubEnv('CLOUDFLARE_ACCOUNT_ID', 'synthetic-account');
+    vi.stubEnv('CLOUDFLARE_API_TOKEN', 'synthetic-token');
+    vi.stubGlobal('fetch', fetchImpl);
+    try {
+      // As in the repository's Pi registration tests, collect the real factory's
+      // definitions through the documented registerTool boundary, not a cloned adapter.
+      type RegisteredTool = {
+        name: string;
+        execute(id: string, args: typeof params, signal: AbortSignal): Promise<{
+          content: Array<{ type: string; text: string }>; isError?: boolean;
+        }>;
+      };
+      const tools = new Map<string, RegisteredTool>();
+      const { default: registerBrowserRun } = await import('../../../preseed/agents/pi/extensions/browser-run');
+      registerBrowserRun({ registerTool(tool: unknown) {
+        const definition = tool as RegisteredTool;
+        tools.set(definition.name, definition);
+      } });
+      const scrape = tools.get('browser_scrape');
+      if (!scrape) throw new Error('Browser Run did not publish browser_scrape');
+
+      // The exported server is inert on import; public MCP transport/client APIs
+      // invoke its real call handler without stdio, private lookups or provider I/O.
+      const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+      const { InMemoryTransport } = await import('@modelcontextprotocol/sdk/inMemory.js');
+      const { ErrorCode } = await import('@modelcontextprotocol/sdk/types.js');
+      const { server } = await import('../../../preseed/agents/claude/browser-run-mcp/index.mjs');
+      const client = new Client({ name: 'browser-run-test', version: '1.0.0' });
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+      try {
+        await server.connect(serverTransport);
+        await client.connect(clientTransport);
+        const adapters = [
+          { call: () => scrape.execute('scrape-test', params, new AbortController().signal),
+            rejection: { name: 'TypeError' } },
+          { call: () => client.callTool({ name: 'browser_scrape', arguments: params }),
+            rejection: { code: ErrorCode.InternalError } },
+        ];
+        for (const adapter of adapters) {
+          response = ok(elements);
+          const accepted = await adapter.call();
+          expect(accepted).toMatchObject({ content: [{ type: 'text', text: JSON.stringify(elements, null, 2) }] });
+          expect(accepted.isError).not.toBe(true);
+
+          response = { ok: false, status: 500, body: null };
+          expect(await adapter.call()).toMatchObject({
+            isError: true, content: [{ type: 'text', text: 'Browser Run /scrape failed: HTTP 500' }],
+          });
+
+          // Deliberately omit result, rather than provide null or an HTTP error.
+          response = { ok: true, status: 200, body: { success: true } };
+          // Pi propagates the formatting exception; MCP transports it as a
+          // protocol rejection, not a successful CallToolResult with isError.
+          await expect(adapter.call()).rejects.toMatchObject(adapter.rejection);
+
+          response = ok(elements);
+          expect(await adapter.call()).toMatchObject({ content: [{ type: 'text', text: JSON.stringify(elements, null, 2) }] });
+        }
+      } finally {
+        await client.close();
+        await server.close();
+      }
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
   });
 });
 

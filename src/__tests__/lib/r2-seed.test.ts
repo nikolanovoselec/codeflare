@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Env } from '../../types';
 
 const { mockFetch, mockCreateR2Client, mockGetR2Url, testState } = vi.hoisted(() => {
@@ -81,6 +81,42 @@ describe('seedGettingStartedDocs / REQ-STOR-009 (per-user R2 bucket seeded with 
         content: '# quick start',
       },
     ];
+  });
+
+  afterEach(() => vi.useRealTimers());
+
+  it.each([true, false])('REQ-STOR-009 AC4: default backoff reaches the fourth attempt at 2100ms (last attempt succeeds: %s)', async (succeeds) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    testState.generatedDocs = [testState.generatedDocs[0]];
+    const requests: Array<{ at: number; method: string; body: unknown }> = [];
+    mockFetch.mockImplementation(async (_url: string, init: RequestInit) => {
+      requests.push({ at: Date.now(), method: init.method!, body: init.body });
+      return new Response(null, { status: succeeds && Date.now() === 2100 ? 200 : 503 });
+    });
+    const outcome = seedGettingStartedDocs(env, 'test-bucket', 'https://test.r2.cloudflarestorage.com', {
+      overwrite: true,
+    }).then(result => ({ result, error: undefined }), error => ({ result: undefined, error }));
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(requests.map(request => request.at)).toEqual([0]);
+    for (const [before, after] of [[299, 300], [899, 900], [2099, 2100]]) {
+      await vi.advanceTimersByTimeAsync(before - Date.now());
+      expect(requests.at(-1)!.at).toBeLessThan(before);
+      const prior = requests.length;
+      await vi.advanceTimersByTimeAsync(after - before);
+      expect(requests.slice(prior).map(request => request.at)).toEqual([after]);
+    }
+    const settled = await outcome;
+    if (succeeds) {
+      expect(settled.result).toEqual({ written: ['Readme.TXT'], skipped: [] });
+      expect(settled.error).toBeUndefined();
+    } else {
+      expect(settled.result).toBeUndefined();
+      expect(settled.error).toBeInstanceOf(Error);
+    }
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(requests).toEqual([0, 300, 900, 2100].map(at => ({ at, method: 'PUT', body: 'hello' })));
   });
 
   it('seeds only missing docs when overwrite=false', async () => {

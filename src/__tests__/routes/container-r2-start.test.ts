@@ -28,6 +28,7 @@ const testState = vi.hoisted(() => ({
     startSession: ReturnType<typeof vi.fn>;
   } | null,
   createBucketResult: { success: true, created: false } as { success: boolean; error?: string; created?: boolean },
+  realBucketCreation: false,
   seedResult: { written: [], skipped: [] } as { written: string[]; skipped: string[] },
   activeManagedRelease: null as null | { digest: string; pointer: { sequence: number }; resourcePolicy: 'mutable' | 'immutable' | 'exclusive' },
   managedReleaseError: null as Error | null,
@@ -43,8 +44,14 @@ vi.mock('@cloudflare/containers', () => ({
   getContainer: vi.fn(() => withMockStartClaim(testState.container!, testState.kv!)),
 }));
 
-vi.mock('../../lib/r2-admin', () => ({
-  createBucketIfNotExists: vi.fn(async () => testState.createBucketResult),
+vi.mock('../../lib/r2-admin', async (importOriginal) => ({
+  createBucketIfNotExists: vi.fn(async (...args: Parameters<typeof import('../../lib/r2-admin').createBucketIfNotExists>) => {
+    if (testState.realBucketCreation) {
+      const actual = await importOriginal<typeof import('../../lib/r2-admin')>();
+      return actual.createBucketIfNotExists(...args);
+    }
+    return testState.createBucketResult;
+  }),
   getOrCreateScopedR2Token: vi.fn(async () => ({
     accessKeyId: 'scoped-ak',
     secretAccessKey: 'scoped-sk',
@@ -85,6 +92,7 @@ vi.mock('../../lib/controller-egress', () => ({
 
 const passThroughCB = { execute: (fn: () => Promise<unknown>) => fn(), reset: vi.fn() };
 vi.mock('../../lib/circuit-breakers', () => ({
+  r2AdminCB: { execute: <T>(fn: () => Promise<T>) => fn() },
   getContainerHealthCB: () => passThroughCB,
   getContainerInternalCB: () => passThroughCB,
   getContainerSessionsCB: () => passThroughCB,
@@ -141,6 +149,7 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
     testState.kv = mockKV;
     testState.container = makeContainer();
     testState.createBucketResult = { success: true, created: false };
+    testState.realBucketCreation = false;
     testState.seedResult = { written: [], skipped: [] };
     testState.activeManagedRelease = null;
     testState.managedReleaseError = null;
@@ -700,6 +709,46 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
 
   // AC1: POST /api/container/start creates the user's R2 bucket if it does not exist
   describe('REQ-SESSION-003 AC1: createBucketIfNotExists called on start', () => {
+    it('REQ-STOR-001 AC2: first Start creates the absent bucket and configures the runtime with that bucket', async () => {
+      testState.realBucketCreation = true;
+      const buckets = new Set<string>();
+      const requests: Array<{ method: string; path: string }> = [];
+      const peer = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+        const request = new Request(input, init);
+        const path = new URL(request.url).pathname;
+        requests.push({ method: request.method, path });
+        if (request.method === 'GET' && path === '/client/v4/accounts/test-account/r2/buckets/test-bucket') {
+          return Response.json({ success: buckets.has('test-bucket') }, { status: buckets.has('test-bucket') ? 200 : 404 });
+        }
+        if (request.method === 'POST' && path === '/client/v4/accounts/test-account/r2/buckets') {
+          const body = await request.json() as { name: string };
+          expect(body).toEqual({ name: 'test-bucket' });
+          buckets.add(body.name);
+          return Response.json({ success: true, result: { name: body.name } });
+        }
+        throw new Error(`Unexpected provider request: ${request.method} ${path}`);
+      });
+      testState.container!.fetch.mockImplementation(async request => {
+        if (new URL(request.url).pathname === '/_internal/setBucketName') {
+          const config = await request.clone().json() as { bucketName: string };
+          expect(buckets.has(config.bucketName)).toBe(true);
+        }
+        return Response.json({ bucketName: null });
+      });
+      try {
+        const response = await createApp()('/container/start?sessionId=abcdef1234567890abcdef12', { method: 'POST' });
+        expect(response.status, await response.clone().text()).toBe(200);
+        expect([...buckets]).toEqual(['test-bucket']);
+        expect(requests).toEqual([
+          { method: 'GET', path: '/client/v4/accounts/test-account/r2/buckets/test-bucket' },
+          { method: 'POST', path: '/client/v4/accounts/test-account/r2/buckets' },
+        ]);
+        const configured = testState.container!.fetch.mock.calls.map(([request]) => request)
+          .find(request => new URL(request.url).pathname === '/_internal/setBucketName');
+        expect(await configured?.clone().json()).toMatchObject({ bucketName: 'test-bucket', r2AccessKeyId: 'scoped-ak' });
+      } finally { peer.mockRestore(); }
+    });
+
     it('calls createBucketIfNotExists for the user bucket', async () => {
       const fetch = createApp();
       const res = await fetch('/container/start?sessionId=abcdef1234567890abcdef12', {

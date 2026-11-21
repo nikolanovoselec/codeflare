@@ -18,6 +18,8 @@ const state = vi.hoisted(() => ({
   cached: null as VerifiedManagedReleaseContent | null,
   cachedByDigest: new Map<string, VerifiedManagedReleaseContent>(),
   resourcePolicy: 'mutable' as 'mutable' | 'immutable' | 'exclusive',
+  migrating: false,
+  sseDisabled: false,
   containerStatus: 'running',
   containerError: null as Error | null,
   bakedDocuments: [] as ReturnType<typeof import('../../lib/r2-seed').getConfigsForMode>,
@@ -72,8 +74,8 @@ vi.mock('../../lib/r2-client', async (importOriginal) => ({
 vi.mock('../../lib/tutorial-seed.generated', () => ({ SEEDED_DOCUMENTS: [] }));
 vi.mock('../../lib/r2-config', () => ({ getR2Config: vi.fn(async () => ({ accountId: 'account', endpoint: 'https://r2.example.com' })) }));
 vi.mock('../../lib/r2-migration', () => ({
-  isBucketMigrating: vi.fn(async () => false),
-  resolveBucketSseOnEnsure: vi.fn(async () => false),
+  isBucketMigrating: vi.fn(async () => state.migrating),
+  resolveBucketSseOnEnsure: vi.fn(async () => state.sseDisabled),
 }));
 vi.mock('../../lib/agent-seed.generated', () => ({
   get AGENTS_SEEDED_CONFIGS() { return state.bakedDocuments; },
@@ -110,6 +112,66 @@ function appFor(
   });
 }
 
+// In-file R2 wire peer: retain bytes and headers across the real writer's
+// HEAD/PUT/GET/DELETE operations; no reconciler-option assertions are needed.
+async function storedR2Peer(empty = false) {
+  // Give these route cases a real, signed cleanup target without changing
+  // the file's shared release fixture or relying on a fabricated LIST result.
+  const compressed = await gzipBytes(new TextEncoder().encode(JSON.stringify({
+    ...release, retiredPaths: ['.claude/rules/retired.md'],
+  })));
+  state.active = { ...state.active!, compressed, release: await parseManagedReleaseStream(compressed) };
+  const objects = new Map<string, { body: string; contentType: string; marker?: string }>(empty ? [] : [
+    ['.claude/company.md', { body: 'markerless local edit', contentType: 'text/plain' }],
+    ['.codeflare/managed-extensions.json', { body: 'markerless manifest edit', contentType: 'text/plain' }],
+    ['.claude/rules/retired.md', { body: 'retired bytes', contentType: 'text/plain', marker: '1'.repeat(64) }],
+  ]);
+  if (!empty) objects.set('personal.txt', { body: 'preserve personal bytes', contentType: 'text/plain' });
+  const requests: Array<{ method: string; key: string }> = [];
+  fetchR2.mockImplementation(async (url, init) => {
+    const parsed = new URL(url);
+    const key = decodeURIComponent(parsed.pathname.slice('/user-bucket/'.length));
+    const method = init?.method ?? 'GET';
+    requests.push({ method, key });
+    if (method === 'GET' && parsed.searchParams.get('list-type') === '2') {
+      const prefix = parsed.searchParams.get('prefix') ?? '';
+      const contents = [...objects].filter(([name]) => name.startsWith(prefix))
+        .map(([name, object]) => `<Contents><Key>${name}</Key><Size>${new TextEncoder().encode(object.body).length}</Size><LastModified>2026-01-01T00:00:00.000Z</LastModified></Contents>`).join('');
+      return new Response(`<ListBucketResult>${contents}<IsTruncated>false</IsTruncated></ListBucketResult>`);
+    }
+    const object = objects.get(key);
+    if (method === 'HEAD' || method === 'GET') {
+      return new Response(method === 'HEAD' ? null : object?.body ?? null, {
+        status: object ? 200 : 404,
+        headers: object ? { 'Content-Type': object.contentType, ETag: '"current"',
+          ...(object.marker ? { 'x-amz-meta-codeflare-preseed': object.marker } : {}) } : {},
+      });
+    }
+    if (method === 'PUT') {
+      const headers = new Headers(init?.headers);
+      const marker = headers.get('x-amz-meta-codeflare-preseed');
+      objects.set(key, { body: await new Response(init?.body).text(),
+        contentType: headers.get('Content-Type')!, ...(marker ? { marker } : {}) });
+      return new Response(null, { status: 200 });
+    }
+    if (method === 'POST' && parsed.searchParams.has('delete')) {
+      const xml = await new Response(init?.body).text();
+      const keys = Array.from(xml.matchAll(/<Object><Key>([^<]+)<\/Key><\/Object>/g), match => match[1]);
+      expect(keys).toEqual(['.claude/rules/retired.md']);
+      for (const name of keys) objects.delete(name);
+      return new Response('<DeleteResult />');
+    }
+    if (method === 'DELETE') {
+      const condition = new Headers(init?.headers).get('If-Match');
+      if (condition && condition !== '"current"') return new Response(null, { status: 412 });
+      objects.delete(key);
+      return new Response(null, { status: 204 });
+    }
+    throw new Error(`Unexpected R2 request: ${method} ${url}`);
+  });
+  return { objects, requests };
+}
+
 describe('managed storage reconcile', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
@@ -135,6 +197,8 @@ describe('managed storage reconcile', () => {
     state.cached = null;
     state.cachedByDigest.clear();
     state.resourcePolicy = 'mutable';
+    state.migrating = false;
+    state.sseDisabled = false;
     state.containerStatus = 'running';
     state.containerError = null;
     state.bakedDocuments = [];
@@ -233,13 +297,9 @@ describe('managed storage reconcile', () => {
     ['policy change', PROJECTION_CLAUDE_PI, 'mutable', 'exclusive'],
   ] as const)('REQ-STOR-033 AC3: same-release %s forces a full selected-target pass', async (_case, priorProjection, appliedPolicy, desiredPolicy) => {
     state.resourcePolicy = desiredPolicy;
-    reconcile.mockResolvedValueOnce({
-      written: ['.claude/company.md'],
-      skipped: [],
-      deleted: [],
-      warnings: [],
-      managedPathsDigest: desiredPolicy === 'mutable' ? undefined : '9'.repeat(64),
-    });
+    const { objects, requests } = await storedR2Peer();
+    const actual = await vi.importActual<typeof import('../../lib/r2-seed')>('../../lib/r2-seed');
+    reconcile.mockImplementationOnce(actual.reconcileAgentConfigs);
     const kv = createMockKV();
     kv._set('user-prefs:user-bucket', {
       sessionMode: 'advanced',
@@ -258,13 +318,19 @@ describe('managed storage reconcile', () => {
       .request('/seed/agent-configs/upgrade', { method: 'POST' });
 
     expect(response.status).toBe(200);
-    expect(reconcile).toHaveBeenCalledWith(
-      expect.anything(), 'user-bucket', 'https://r2.example.com', 'advanced',
-      expect.objectContaining({
-        automatic: expect.objectContaining({ fullReconciliation: true }),
-        projectionIdentity: PROJECTION_CLAUDE_PI,
-      }),
-    );
+    expect(objects.get('.claude/company.md')).toEqual({
+      body: '# Company', contentType: 'text/markdown; charset=utf-8', marker: 'd'.repeat(64),
+    });
+    expect(objects.get('.codeflare/managed-extensions.json')?.body).toBe(managedExtensionsDocumentContent(state.active!));
+    expect(objects.get('personal.txt')?.body).toBe('preserve personal bytes');
+    const firstCleanup = requests.findIndex(request => request.method === (desiredPolicy === 'exclusive' ? 'POST' : 'DELETE'));
+    expect(firstCleanup).toBeGreaterThan(-1);
+    expect(objects.has('.claude/rules/retired.md')).toBe(false);
+    for (const key of ['.claude/company.md', '.codeflare/managed-extensions.json']) {
+      const verification = requests.findIndex(request => request.method === 'GET' && request.key === key);
+      expect(verification).toBeGreaterThan(-1);
+      expect(verification).toBeLessThan(firstCleanup);
+    }
     expect(await kv.get('user-prefs:user-bucket', 'json')).toMatchObject({
       managedEnvironmentApplied: {
         digest: 'd'.repeat(64),
@@ -273,6 +339,86 @@ describe('managed storage reconcile', () => {
       },
     });
   });
+
+  it.each(['fresh bucket', 'missing history', 'manual recreation'] as const)(
+    'REQ-STOR-033 AC4: %s materializes all selected bytes before cleanup', async (cause) => {
+      const kv = createMockKV();
+      kv._set('user-prefs:user-bucket', {
+        sessionMode: 'advanced',
+        managedEnvironmentApplied: {
+          digest: cause === 'missing history' ? '1'.repeat(64) : 'd'.repeat(64),
+          managedExtensionsDigest: 'e'.repeat(64), sequence: cause === 'missing history' ? 8 : 9,
+          mode: 'advanced', resourcePolicy: 'mutable', projectionIdentity: PROJECTION_CLAUDE_PI,
+          appliedAt: '2026-01-01T00:00:00.000Z',
+        },
+      });
+      const { objects, requests } = await storedR2Peer(cause === 'fresh bucket');
+      // Existing buckets contain a signed-retired object; a freshly created bucket
+      // starts empty. Both must write the complete selected target.
+      if (cause === 'fresh bucket') createBucket.mockResolvedValueOnce({ success: true, created: true });
+      const actual = await vi.importActual<typeof import('../../lib/r2-seed')>('../../lib/r2-seed');
+      reconcile.mockImplementationOnce(actual.reconcileAgentConfigs);
+      const route = cause === 'manual recreation' ? '/seed/agent-configs' : '/seed/agent-configs/upgrade';
+      const response = await appFor(kv, undefined, { CODING_AGENTS: 'claude-code,pi' }).request(route, { method: 'POST' });
+      expect(response.status).toBe(200);
+      expect(objects.get('.claude/company.md')).toEqual({
+        body: '# Company', contentType: 'text/markdown; charset=utf-8', marker: 'd'.repeat(64),
+      });
+      expect(objects.get('.codeflare/managed-extensions.json')?.body).toBe(managedExtensionsDocumentContent(state.active!));
+      expect(objects.get('personal.txt')?.body).toBe(cause === 'fresh bucket' ? undefined : 'preserve personal bytes');
+      // On a fresh bucket the retired-path HEAD is the cleanup boundary; its
+      // 404 must not turn into a delete. Existing buckets must delete the target.
+      const firstCleanup = requests.findIndex(request => request.key === '.claude/rules/retired.md'
+        && request.method === (cause === 'fresh bucket' ? 'HEAD' : 'DELETE'));
+      expect(firstCleanup).toBeGreaterThan(-1);
+      if (cause === 'fresh bucket') expect(requests.some(({ method }) => method === 'DELETE' || method === 'POST')).toBe(false);
+      for (const key of ['.claude/company.md', '.codeflare/managed-extensions.json']) {
+        const write = requests.findIndex(request => request.method === 'PUT' && request.key === key);
+        expect(write).toBeGreaterThan(-1);
+        expect(write).toBeLessThan(firstCleanup);
+      }
+      expect(objects.has('.claude/rules/retired.md')).toBe(false);
+      expect(await kv.get('user-prefs:user-bucket', 'json')).toMatchObject({
+        managedEnvironmentApplied: { digest: 'd'.repeat(64), projectionIdentity: PROJECTION_CLAUDE_PI },
+      });
+      expect((await kv.get('user-prefs:user-bucket', 'json') as any).managedEnvironmentReconciliation).toBeUndefined();
+    },
+  );
+
+  it.each(['encryption', 'migration', 'session ownership', 'resource policy', 'pending targets'] as const)(
+    'REQ-STOR-035 AC7: %s drift after completed R2 work refuses applied publication', async (cause) => {
+      const kv = createMockKV();
+      kv._set('user-prefs:user-bucket', { sessionMode: 'advanced', workspaceSyncEnabled: true });
+      const { objects } = await storedR2Peer();
+      const actual = await vi.importActual<typeof import('../../lib/r2-seed')>('../../lib/r2-seed');
+      reconcile.mockImplementationOnce(actual.reconcileAgentConfigs);
+      let retainedTargets: unknown;
+      reseedContext.mockImplementationOnce(async () => {
+        const current = await kv.get('user-prefs:user-bucket', 'json') as any;
+        if (cause === 'encryption') state.sseDisabled = true;
+        if (cause === 'migration') state.migrating = true;
+        if (cause === 'session ownership') kv._set('session:user-bucket:new-session', { id: 'new-session', status: 'starting' });
+        if (cause === 'resource policy') state.resourcePolicy = 'immutable';
+        if (cause === 'pending targets') current.managedEnvironmentReconciliation.targets.push({
+          digest: 'd'.repeat(64), sequence: 9, mode: 'advanced', projectionIdentity: 'v1:pi',
+        });
+        current.workspaceSyncEnabled = false; // unrelated concurrent writer must survive refusal
+        kv._set('user-prefs:user-bucket', current);
+        retainedTargets = current.managedEnvironmentReconciliation.targets;
+        return { written: [], skipped: [] };
+      });
+      const response = await appFor(kv).request('/seed/agent-configs/upgrade', { method: 'POST' });
+      expect(response.status).toBe(cause === 'migration' || cause === 'session ownership' ? 409 : 500);
+      expect(await response.json()).toMatchObject({ code: cause === 'migration' ? 'BUCKET_MIGRATING'
+        : cause === 'session ownership' ? 'MANAGED_ENVIRONMENT_UPDATE_PENDING' : 'CONTAINER_ERROR' });
+      expect(objects.get('.claude/company.md')?.body).toBe('# Company');
+      expect(objects.get('.codeflare/managed-extensions.json')?.body).toBe(managedExtensionsDocumentContent(state.active!));
+      const final = await kv.get('user-prefs:user-bucket', 'json') as any;
+      expect(final.managedEnvironmentApplied).toBeUndefined();
+      expect(final.managedEnvironmentReconciliation.targets).toEqual(retainedTargets);
+      expect(final.workspaceSyncEnabled).toBe(false);
+    },
+  );
 
   it('REQ-STOR-035 AC2: a legacy pending target remains journaled and forces a full retry', async () => {
     const legacyTarget = { digest: 'd'.repeat(64), sequence: 9, mode: 'advanced' as const };

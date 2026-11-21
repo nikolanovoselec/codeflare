@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor } from '@solidjs/testing-library';
 import { mdiSync } from '@mdi/js';
+import { createSignal } from 'solid-js';
 
 // Mutable state for mock store -- individual tests can override these
 let mockObjects: any[] = [];
@@ -19,6 +20,7 @@ let mockPreviewFile: any = null;
 let mockWorkspaceSyncEnabled = true;
 let mockActiveSessionId: string | null = 'test-session';
 let mockSessionSyncStatus: string | undefined;
+let mockSessionMetrics: (() => Record<string, string>) | undefined;
 // REQ-STOR-015 AC6: Sync-now button disabled while a fan-out is in flight.
 // Default false; flip per test to assert disabled-state coupling.
 let mockSyncing = false;
@@ -133,11 +135,12 @@ vi.mock('../../stores/session', () => ({
       return mockActiveSessionId;
     },
     get sessions() {
+      if (mockSessionMetrics) return Object.keys(mockSessionMetrics()).map(id => ({ id, status: 'running' }));
       return mockActiveSessionId
         ? [{ id: mockActiveSessionId, status: 'running' }]
         : [];
     },
-    getMetricsForSession: () => ({ syncStatus: mockSessionSyncStatus }),
+    getMetricsForSession: (id: string) => ({ syncStatus: mockSessionMetrics ? mockSessionMetrics()[id] : mockSessionSyncStatus }),
   },
 }));
 
@@ -195,6 +198,7 @@ describe('StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-shee
     mockPreviewFile = null;
     mockWorkspaceSyncEnabled = true;
     mockActiveSessionId = 'test-session';
+    mockSessionMetrics = undefined;
     mockDownloadsDisabled = false;
   });
 
@@ -1049,6 +1053,21 @@ describe('StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-shee
       mockSessionSyncStatus = 'syncing';
       render(() => <StorageBrowser />);
       expect(screen.getByTestId('storage-sync-now-btn')).toBeDisabled();
+    });
+
+    it('REQ-STOR-015 AC6: stays disabled after the first session settles and enables only after the last', () => {
+      const [metrics, setMetrics] = createSignal<Record<string, string>>({ first: 'success', last: 'success' });
+      mockSessionMetrics = metrics;
+      render(() => <StorageBrowser />);
+      const button = screen.getByTestId('storage-sync-now-btn');
+      expect(button).not.toBeDisabled();
+
+      setMetrics({ first: 'syncing', last: 'syncing' });
+      expect(button).toBeDisabled();
+      setMetrics({ first: 'success', last: 'syncing' });
+      expect(button).toBeDisabled();
+      setMetrics({ first: 'success', last: 'failed' });
+      expect(button).not.toBeDisabled();
     });
 
     it('shows a recovery notice and leaves the cloud button usable after sync failure', () => {

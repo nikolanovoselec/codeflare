@@ -116,6 +116,7 @@ function verdictUnder({ sessionMode, syncMode = 'full', syncPolicyMode = 'includ
     'Vault/graphify-out/graph.json': 'per-run derived graph',
     'Vault/graphify-out/graph.html': 'rendered viz',
     'Vault/graphify-out/vault-extract-manifest.json': 'content-hash high-water mark',
+    'Vault/graphify-out/vault-extract-initialized': '1\n',
     'Uploads/a.txt': 'upload tray file',
     'Temporary/b.txt': 'temporary tray file',
     '.graphify/global-graph.json': 'ephemeral unified graph',
@@ -229,7 +230,12 @@ describe('entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2
       'INCLUDED',
       'vault-extract content-hash manifest must persist to R2 (REQ-VAULT-026 allow-rule ordered before the graphify-out exclude)',
     );
-    // Specificity guard: only the cumulative graph and content-hash manifest
+    assert.equal(
+      v['Vault/graphify-out/vault-extract-initialized'],
+      'INCLUDED',
+      'the nonempty first-initialization record must survive the real filter and minimum-size policy',
+    );
+    // Specificity guard: cumulative graph, manifest and initialization record
     // are allow-listed; per-run graph.json and rendered graph.html fall through
     // to the graphify-out exclude. The served visualization persists separately
     // under Vault/Raw/Graphs/.
@@ -723,15 +729,25 @@ describe('REQ-STOR-002/004/011/031/032: production persistence policy matrix', (
     const fx = persistenceFixture(t, { policy: 'mutable' });
     const path = 'Vault/graphify-out/vault-extract-manifest.json';
     const manifest = '{"files":{"Notes/persisted.md":{"sha256":"synthetic-content-hash"}}}\n';
+    const initialized = 'Vault/graphify-out/vault-extract-initialized';
+    // Intentional durable wire contents: nonempty even with --min-size 1B.
+    // The existing boot test covers its first-init/no-rebaseline meaning.
+    fx.put(fx.remote, initialized, '1\n');
     fx.put(fx.remote, path, manifest);
     fx.put(fx.remote, 'Vault/Notes/unchanged.md', 'unchanged user note');
     fx.run('initial_sync_from_r2\nestablish_bisync_baseline');
     assert.equal(readFileSync(join(fx.home, path), 'utf8'), manifest);
+    for (const base of [fx.home, fx.remote]) {
+      assert.equal(readFileSync(join(base, initialized), 'utf8'), '1\n');
+    }
     const updated = '{"files":{"Notes/updated.md":{"sha256":"updated-content-hash"}}}\n';
     fx.put(fx.remote, path, updated);
     fx.run('bisync_with_r2 ""');
     assert.equal(readFileSync(join(fx.home, path), 'utf8'), updated);
     assert.equal(readFileSync(join(fx.remote, path), 'utf8'), updated);
+    for (const base of [fx.home, fx.remote]) {
+      assert.equal(readFileSync(join(base, initialized), 'utf8'), '1\n');
+    }
     assert.equal(readFileSync(join(fx.home, 'Vault/Notes/unchanged.md'), 'utf8'), 'unchanged user note');
     assert.equal(readFileSync(join(fx.remote, 'Vault/Notes/unchanged.md'), 'utf8'), 'unchanged user note');
   });
@@ -743,7 +759,8 @@ describe('REQ-STOR-002/004/011/031/032: production persistence policy matrix', (
           const fx = persistenceFixture(t, { sessionMode, syncMode, syncPolicyMode, policy: protectedMode ? 'immutable' : 'mutable' });
           const all = [...durablePaths, ...fallbackPaths, ...transientPaths, ...vaultPaths, ...workspacePaths,
             ...governedPaths.filter(path => path !== '.codeflare/managed-paths.json'), 'Vault/graphify-out/derived.bin'];
-          for (const path of all) fx.put(fx.home, path, Buffer.from(`synthetic:${path}\0`));
+          for (const path of all) fx.put(fx.home, path,
+            path === 'Vault/graphify-out/vault-extract-initialized' ? '1\n' : Buffer.from(`synthetic:${path}\0`));
           fx.put(fx.home, '.codeflare/managed-paths.json', fx.policyBytes);
           const expected = new Set([
             ...durablePaths,

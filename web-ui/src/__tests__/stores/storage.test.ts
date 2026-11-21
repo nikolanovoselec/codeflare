@@ -3,9 +3,12 @@ import { createComponent } from 'solid-js';
 import { cleanup, fireEvent, render, screen, waitFor } from '@solidjs/testing-library';
 import { ApiError } from '../../api/fetch-helper';
 import UploadQueue from '../../components/storage/UploadQueue';
+import StorageBrowser from '../../components/StorageBrowser';
+import DownloadsDisabledPopup from '../../components/DownloadsDisabledPopup';
 
 // Mock the API modules BEFORE importing the store
-vi.mock('../../api/storage', () => ({
+vi.mock('../../api/storage', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../api/storage')>()),
   browseStorage: vi.fn(),
   uploadFile: vi.fn(),
   initiateMultipartUpload: vi.fn(),
@@ -24,7 +27,8 @@ vi.mock('../../lib/constants', async (importOriginal) => {
 });
 
 // Mock file-upload helpers
-vi.mock('../../lib/file-upload', () => ({
+vi.mock('../../lib/file-upload', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/file-upload')>()),
   shouldUseMultipart: vi.fn((file: File) => file.size > 5 * 1024 * 1024),
   splitIntoParts: vi.fn((file: File) => [file.slice(0, file.size)]),
   fileToBase64: vi.fn(() => Promise.resolve('base64content')),
@@ -127,6 +131,51 @@ describe('Storage Store', () => {
       mockGetUser.mockResolvedValue({ downloadsDisabled: false } as Awaited<ReturnType<typeof getUser>>);
       await storageStore.refreshDownloadsDisabled();
       expect(storageStore.downloadsDisabled).toBe(false);
+    });
+
+    it('REQ-ENTERPRISE-019 AC2: fetched user-profile policy reaches storage controls and opens the blocked-download notice', async () => {
+      // Keep the real HTTP parser, store, controls and notice in this chain.
+      // Only network bytes and the unrelated storage listing are controlled.
+      const client = await vi.importActual<typeof import('../../api/client')>('../../api/client');
+      const requests: string[] = [];
+      const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+        const url = String(input);
+        requests.push(url);
+        if (url !== '/api/user') throw new Error(`Unexpected network request: ${url}`);
+        return new Response(JSON.stringify({
+          email: 'viewer@example.com', authenticated: true, bucketName: 'fixture-bucket',
+          enterpriseMode: true, downloadsDisabled: true,
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      });
+      mockGetUser.mockImplementationOnce(client.getUser);
+      mockBrowseStorage.mockResolvedValueOnce({
+        objects: [{ key: 'workspace/policy.txt', size: 4, lastModified: '2026-01-01T00:00:00Z' }],
+        prefixes: [], isTruncated: false,
+      });
+      try {
+        expect(storageStore.downloadsDisabled).toBe(false);
+        render(() => [createComponent(StorageBrowser, {}), createComponent(DownloadsDisabledPopup, {})]);
+        await waitFor(() => {
+          expect(screen.getByText('policy.txt')).toBeInTheDocument();
+          expect(storageStore.downloadsDisabled).toBe(true);
+        });
+        fireEvent.click(screen.getByTitle('Selection mode'));
+        storageStore.setSelection(['workspace/policy.txt'], []);
+        const download = screen.getByTestId('storage-download-selected');
+        // Intentional UI contract: blocked-looking, but still operable for notice.
+        expect(download).toHaveClass('storage-action-btn--blocked');
+        expect(download).toBeEnabled();
+        expect(download).toHaveAttribute('title', 'Downloads are disabled by your administrator');
+        fireEvent.click(download);
+        expect(screen.getByRole('alertdialog', { name: 'Downloads disabled' })).toHaveTextContent(
+          'Downloading files is disabled by your administrator.',
+        );
+        // Wire boundary: profile delivery happened, no download request escaped.
+        expect(requests).toEqual(['/api/user']);
+      } finally {
+        cleanup();
+        fetch.mockRestore();
+      }
     });
 
     it('refreshDownloadsDisabled() leaves the flag unchanged when /api/user fails', async () => {

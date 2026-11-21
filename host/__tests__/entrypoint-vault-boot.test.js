@@ -168,10 +168,10 @@ relay_managed_pi_extensions() { :; }
   //  - point USER_HOME at a temp dir
   //  - override PRESEED_DIR (it is `local` inside the function, so we
   //    patch the literal assignment to our temp preseed root)
-  //  - stub `graphify` lookups (command -v graphify -> not found) so the
-  //    global-add block is a no-op and needs no real graphify binary
+  //  - default to disabling graphify; the offline merge bridge may supply its
+  //    isolated CLI directory instead (never the real user's graph workspace)
   // Returns the rendered script that runs init_user_vault N times.
-  function buildInitVaultHarness({ userHome, preseedDir, pluginDir = join(preseedDir, 'plugins'), runs = 1 }) {
+  function buildInitVaultHarness({ userHome, preseedDir, pluginDir = join(preseedDir, 'plugins'), runs = 1, graphifyBin }) {
     let body = extractFunctionBody('init_user_vault');
     // Repoint the function's local PRESEED_DIR at our temp preseed root.
     body = body.replace(
@@ -181,12 +181,11 @@ relay_managed_pi_extensions() { :; }
     const calls = Array.from({ length: runs }, () => 'init_user_vault >/dev/null 2>&1').join('\n');
     return `
       set +e
-      # Force the graphify global-add branch to be skipped: shadow the
-      # builtin lookup so 'command -v graphify' reports "not found".
-      command() {
+      ${graphifyBin ? `export HOME=${JSON.stringify(userHome)} PYTHONPATH="" PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1
+      export PATH=${JSON.stringify(graphifyBin)}:/usr/local/bin:/usr/bin:/bin` : `command() {
         if [ "$1" = "-v" ] && [ "$2" = "graphify" ]; then return 1; fi
         builtin command "$@"
-      }
+      }`}
       USER_HOME=${userHome}
       PLUGIN_DIR=${pluginDir}
       export USER_HOME PLUGIN_DIR
@@ -293,6 +292,87 @@ relay_managed_pi_extensions() { :; }
     }
   });
 
+  it('REQ-VAULT-001 AC2: boot reconstructs the merged graph from restored source artifacts, excluding stale merged input', (t) => {
+    const python = process.env.GRAPHIFY_TEST_PYTHON;
+    assert.ok(python, 'Use the existing offline Graphify interpreter supplied by host CI; never install or stub it');
+    const root = mkTmp('vault-boot-offline-merge-');
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const userHome = join(root, 'home');
+    const remote = join(root, 'remote');
+    const preseedDir = join(root, 'preseed');
+    const bin = join(root, 'bin');
+    for (const path of [userHome, remote, preseedDir, bin]) mkdirSync(path);
+    const put = (path, bytes) => {
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, bytes);
+    };
+    const sourcePath = 'Vault/graphify-out/vault-graph.json';
+    const sourceBytes = JSON.stringify({ directed: false, multigraph: false, graph: {},
+      nodes: [
+        { id: 'note', label: 'RestoredNote', source_file: 'Notes/saved.md' },
+        { id: 'capture', label: 'RestoredCapture', source_file: 'Raw/Sessions/saved.md' },
+      ], links: [{ source: 'note', target: 'capture', relation: 'references' }] });
+    const staleBytes = JSON.stringify({ directed: false, multigraph: false, graph: {},
+      nodes: [{ id: 'stale', label: 'StaleMergedInput', source_file: 'obsolete.md' }], links: [] });
+    put(join(remote, sourcePath), sourceBytes);
+    put(join(remote, 'Vault/graphify-out/vault-extract-initialized'), '1\n');
+    put(join(remote, '.graphify/global-graph.json'), staleBytes);
+    put(join(remote, '.graphify/global-manifest.json'), '{"version":1,"repos":{"obsolete":{}}}\n');
+    put(join(remote, 'Vault/graphify-out/graph.json'), staleBytes);
+
+    // Same production filter/composition slices as entrypoint-rclone-filters:
+    // restore local fixture artifacts, not a substitute filtering algorithm.
+    const entrypoint = readFileSync(ENTRYPOINT, 'utf8');
+    const filterStart = entrypoint.indexOf('if [ "${SESSION_MODE:-default}" = "advanced" ]; then');
+    const filterEnd = entrypoint.indexOf('# ============================================================================\n# Recovery filter', filterStart);
+    const policyStart = entrypoint.indexOf('prepare_managed_resource_filter() {');
+    const policyEnd = entrypoint.indexOf('\n# Step 1: One-way sync FROM R2 TO local', policyStart);
+    assert.ok(filterStart >= 0 && filterEnd > filterStart && policyStart >= 0 && policyEnd > policyStart);
+    const restored = runBash(`
+      set -eu
+      USER_HOME=${JSON.stringify(userHome)}
+      SESSION_MODE=advanced
+      SESSION_ID=offline-boot
+      SYNC_MODE=full
+      SYNC_POLICY_MODE=include
+      MANAGED_RESOURCE_POLICY=mutable
+      mkdir -p "$CODEFLARE_RUNTIME_ROOT/sync"
+      MANAGED_RESOURCE_FILTER_FILE="$CODEFLARE_RUNTIME_ROOT/sync/managed.filter"
+      RECOVERY_FILTER_FILE="$CODEFLARE_RUNTIME_ROOT/sync/recovery.filter"
+      : > "$RECOVERY_FILTER_FILE"
+      ${entrypoint.slice(filterStart, filterEnd)}
+      ${entrypoint.slice(policyStart, policyEnd)}
+      compose_rclone_filters
+      rclone copy --config /dev/null "\${RCLONE_EFFECTIVE_FILTERS[@]}" ${JSON.stringify(remote)} "$USER_HOME"
+    `);
+    assert.equal(restored.status, 0, restored.stderr);
+    assert.equal(readFileSync(join(userHome, sourcePath), 'utf8'), sourceBytes);
+    const globalGraph = join(userHome, '.graphify', 'global-graph.json');
+    const manifest = join(userHome, '.graphify', 'global-manifest.json');
+    assert.equal(existsSync(globalGraph), false);
+    assert.equal(existsSync(manifest), false);
+    assert.equal(existsSync(join(userHome, 'Vault/graphify-out/graph.json')), false);
+
+    // Reuse actualFixture's offline CLI protocol. No extraction/model command,
+    // fake merger or fake lock: real global add runs under real fixture flock.
+    const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
+    put(join(bin, 'graphify'), `#!/bin/sh\nexec ${quote(python)} -m graphify "$@"\n`);
+    chmodSync(join(bin, 'graphify'), 0o755);
+    const boot = runBash(buildInitVaultHarness({ userHome, preseedDir, graphifyBin: bin }));
+    assert.equal(boot.status, 0, boot.stderr);
+    const merged = JSON.parse(readFileSync(globalGraph, 'utf8'));
+    assert.deepEqual(merged.nodes.map(node => node.label).sort(), ['RestoredCapture', 'RestoredNote']);
+    const labels = new Map(merged.nodes.map(node => [node.id, node.label]));
+    assert.deepEqual(merged.links.map(link => ({
+      endpoints: [labels.get(link.source), labels.get(link.target)].sort(), relation: link.relation,
+    })), [{ endpoints: ['RestoredCapture', 'RestoredNote'], relation: 'references' }]);
+    const repos = JSON.parse(readFileSync(manifest, 'utf8')).repos;
+    assert.deepEqual(Object.keys(repos), ['user_vault']);
+    assert.equal(repos.user_vault.source_path, join(userHome, sourcePath));
+    assert.equal(readFileSync(join(userHome, sourcePath), 'utf8'), sourceBytes);
+    assert.equal(readFileSync(join(remote, '.graphify/global-graph.json'), 'utf8'), staleBytes);
+  });
+
   it('REQ-VAULT-010 AC2: authoritative page refresh preserves bytes and mtimes in every user-owned content directory', (t) => {
     const root = mkTmp('vault-owned-');
     t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -329,6 +409,46 @@ relay_managed_pi_extensions() { :; }
       }
     }
   });
+
+  for (const restored of [false, true]) {
+    it(`REQ-VAULT-010 AC3: initializer never writes a partial built-in library (${restored ? 'restored user overlay' : 'fresh Vault'})`, (t) => {
+      const root = mkTmp('vault-no-builtin-overlay-');
+      t.after(() => rmSync(root, { recursive: true, force: true }));
+      const userHome = join(root, 'home');
+      const preseedDir = join(root, 'preseed');
+      const vault = join(userHome, 'Vault');
+      const builtin = join(vault, 'Library', 'Std');
+      const userPage = join(builtin, 'Query.md');
+      const userBytes = 'User-retained old overlay\n';
+      const userTime = new Date('2025-04-05T06:07:08Z');
+      // Competing built-in pages must not be copied, even if present in preseed.
+      // A Codeflare plug is a positive control that real initialization ran.
+      mkdirSync(join(preseedDir, 'Library', 'Std'), { recursive: true });
+      mkdirSync(join(preseedDir, 'plugs', 'activity'), { recursive: true });
+      writeFileSync(join(preseedDir, 'Library', 'Std', 'Query.md'), 'partial replacement\n');
+      writeFileSync(join(preseedDir, 'Library', 'Std', 'Widgets.md'), 'partial addition\n');
+      if (restored) {
+        mkdirSync(builtin, { recursive: true });
+        writeFileSync(userPage, userBytes);
+        utimesSync(userPage, userTime, userTime);
+      }
+      const script = buildInitVaultHarness({ userHome, preseedDir });
+      for (const version of ['first', 'second']) {
+        writeFileSync(join(preseedDir, 'plugs', 'activity', 'activity.plug.js'), `${version} managed plug\n`);
+        const result = runBash(script);
+        assert.equal(result.status, 0, result.stderr);
+        assert.equal(readFileSync(join(vault, 'Library', 'Codeflare', 'activity.plug.js'), 'utf8'), `${version} managed plug\n`);
+        assert.deepEqual(readdirSync(join(vault, 'Library')).sort(), restored ? ['Codeflare', 'Std'] : ['Codeflare']);
+        if (restored) {
+          assert.deepEqual(readdirSync(builtin), ['Query.md']);
+          assert.equal(readFileSync(userPage, 'utf8'), userBytes);
+          assert.equal(statSync(userPage).mtimeMs, userTime.getTime());
+        } else {
+          assert.equal(existsSync(builtin), false, 'fresh initialization must not create a partial built-in overlay');
+        }
+      }
+    });
+  }
 
   it('REQ-VAULT-010 AC4: seeds a valid empty graph only when absent and preserves populated graph bytes on rerun', (t) => {
     const root = mkTmp('vault-empty-graph-');

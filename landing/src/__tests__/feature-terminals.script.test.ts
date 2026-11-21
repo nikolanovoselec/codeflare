@@ -7,7 +7,15 @@
  * importing the module.  vi.resetModules() ensures a clean import per case.
  * vi.useFakeTimers() drives the setTimeout-based type/hold/delete loop.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
+import { experimental_AstroContainer as AstroContainer } from 'astro/container';
+import InferenceMeshHero from '../components/InferenceMeshHero.astro';
+
+let meshHtml: string;
+beforeAll(async () => {
+  const container = await AstroContainer.create();
+  meshHtml = await container.renderToString(InferenceMeshHero);
+});
 
 // The loop constants from the script — must match feature-terminals.ts exactly
 // so that if the timing is changed the tests can catch stale values.
@@ -55,6 +63,38 @@ afterEach(() => {
 });
 
 describe('feature-terminals.ts (REQ-LANDING-001)', () => {
+  it('REQ-LANDING-005 AC5: the rendered Mesh reel types every beat and loops back to its first command', async () => {
+    // Use the real owning component, its Terminal/Transcript and serialized loop,
+    // not a hand-built terminal that could pass while Mesh wiring is broken.
+    document.body.innerHTML = meshHtml;
+    const typed = document.querySelector<HTMLElement>('#inference-mesh [data-ft-typed]')!;
+    expect(typed).not.toBeNull();
+    const beats = [
+      'sharding a large model across the mesh',
+      'streaming tokens from idle nodes',
+      'reusing warm KV across sessions',
+      'scaling out as machines join',
+    ];
+    expect(typed.textContent).toBe(beats[0]);
+    mockMatchMedia(false);
+
+    await import('../scripts/feature-terminals');
+
+    let steps = 0;
+    for (const next of [...beats.slice(1), beats[0]]) {
+      const frames: string[] = [];
+      while (typed.textContent !== next && steps < 1000) {
+        vi.advanceTimersToNextTimer();
+        frames.push(typed.textContent ?? '');
+        steps += 1;
+      }
+      expect(typed.textContent).toBe(next);
+      expect(frames).toContain(''); // deletion completed before the next command
+      expect(frames).toContain(next.slice(0, 1));
+      expect(frames).toContain(next.slice(0, -1)); // actual typing, not whole-line swaps
+    }
+  });
+
   it('REQ-LANDING-001: types through the hold->delete->type cycle and mutates textContent at each phase', async () => {
     const loop = ['audit 41 calls', 'list approved models'];
     const { typed } = buildFixture(loop);

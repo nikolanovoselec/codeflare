@@ -2,6 +2,7 @@ import { env } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { queryAdminUsageRows, queryAdminUsageSeries, reactivateUsageUser, tombstoneUsageUser, userKeyForEmail, writeUsageHistory } from '../../lib/admin-usage';
 import { createMockKV } from '../helpers/mock-kv';
+import { setLogLevel } from '../../lib/logger';
 import type { Env } from '../../types';
 import { claimReportDelivery, completeReportDelivery, createDueScheduledDispatch, createReportDispatch, runUsageReportScheduler, runUsageRetention } from '../../lib/usage-report-scheduler';
 import { applyPositiveDelta, createAccountingState, hashSessionId, type HistoryOutboxEntry } from '../../timekeeper/accounting';
@@ -42,6 +43,58 @@ describe('historical usage D1 guards (REQ-SUB-025, REQ-SUB-026)', () => {
     sourceSequence: 7,
     snapshotAt: '2027-08-01T00:00:00.000Z',
   };
+
+  it('REQ-OPS-057 AC4: measures real D1 writes and read-only replay for one three-session history snapshot', async () => {
+    let state = await createAccountingState(now, {
+      pendingSeconds: 0, sessionTotals: {}, lastFlushedMonthlyTotal: 0,
+    });
+    const markers = new Set<string>();
+    for (const session of ['first', 'second', 'third']) {
+      const applied = applyPositiveDelta(state, await hashSessionId(session), 60, now, markers);
+      state = applied.state;
+      for (const marker of applied.markerKeys) markers.add(marker);
+    }
+    const snapshots: HistoryOutboxEntry[] = (['day', 'week', 'month', 'year'] as const).map(kind => ({
+      kind, ...state.periods[kind], sourceSequence: state.historySequence, snapshotAt: now.toISOString(),
+    }));
+    const email = 'row-budget@example.com';
+    const userKey = await userKeyForEmail(email);
+    const output = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    setLogLevel('info');
+    try {
+      // The existing D1 binding executes production SQL. Metrics are the real
+      // batch results logged by the owner, never supplied by a fake D1 response.
+      expect(await writeUsageHistory(db, email, snapshots)).toEqual({ userKey, acknowledged: true });
+      const initial = JSON.parse(String(output.mock.calls.at(-1)?.[0])).data;
+      expect(initial.snapshotCount).toBe(4);
+      expect(Number.isSafeInteger(initial.rowsRead)).toBe(true);
+      expect(initial.rowsRead).toBeGreaterThan(0);
+      expect(Number.isSafeInteger(initial.rowsWritten)).toBe(true);
+      expect(initial.rowsWritten).toBeGreaterThan(0);
+
+      const readPeriods = () => db.prepare(`SELECT period_kind, period_start, runtime_seconds, session_count,
+        source_sequence, updated_at FROM usage_periods WHERE user_key = ?1 ORDER BY period_kind`)
+        .bind(userKey).all();
+      const expected = snapshots.map(snapshot => ({
+        period_kind: snapshot.kind, period_start: snapshot.start, runtime_seconds: 180,
+        session_count: 3, source_sequence: 3, updated_at: now.toISOString(),
+      })).sort((a, b) => a.period_kind.localeCompare(b.period_kind));
+      expect((await readPeriods()).results).toEqual(expected);
+
+      expect(await writeUsageHistory(db, email, snapshots)).toEqual({ userKey, acknowledged: true });
+      const replay = JSON.parse(String(output.mock.calls.at(-1)?.[0])).data;
+      expect(replay.snapshotCount).toBe(4);
+      expect(Number.isSafeInteger(replay.rowsRead)).toBe(true);
+      expect(replay.rowsRead).toBeGreaterThan(0);
+      expect(replay.rowsWritten).toBe(0);
+      expect((await readPeriods()).results).toEqual(expected);
+      expect((await db.prepare('SELECT user_key, email, account_status, data_since FROM usage_users').all()).results)
+        .toEqual([{ user_key: userKey, email, account_status: 'active', data_since: now.toISOString() }]);
+    } finally {
+      setLogLevel('silent');
+      output.mockRestore();
+    }
+  });
 
   it('keeps newer history, blocks deleted owners, and resumes the same owner after reactivation', async () => {
     const email = 'alice@example.com';
