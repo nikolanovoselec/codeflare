@@ -7,7 +7,7 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 ## 2026-11-22: Recover halted storage migrations
 
 - [REQ-ENTERPRISE-020](storage.md#req-enterprise-020-governed-mode-re-encrypt-migration-engine) preserves verified empty objects without SSE-C conversion. The [dashboard offers an icon-only retry beside the halted status](storage.md#req-enterprise-304-dashboard-migration-affordance-and-refresh), including for mixed recovery with a matching recorded key identity; [older halts without that record](storage.md#req-enterprise-322-owner-authorized-migration-retry) require administrator review.
-- The dashboard [reports migration retry progress in the repository-clone overlay](storage.md#req-enterprise-323-migration-retry-feedback). It [shows refusals without waiting for a status refresh and keeps acknowledged retries disabled across views](storage.md#req-enterprise-304-dashboard-migration-affordance-and-refresh). Clearing a halt does not transfer [keyboard focus to seed recreation](agents.md#req-agent-213-dashboard-full-recreation-recovery).
+- The dashboard [reports retry progress in the repository-clone overlay](storage.md#req-enterprise-323-migration-retry-feedback), [shows refusals without waiting for a status refresh, and keeps acknowledged retries disabled across views](storage.md#req-enterprise-304-dashboard-migration-affordance-and-refresh). Clearing a halt does not transfer [keyboard focus to seed recreation](agents.md#req-agent-213-dashboard-full-recreation-recovery).
 
 ## 2026-11-22: Reveal deep storage paths
 
