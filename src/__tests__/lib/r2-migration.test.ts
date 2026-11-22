@@ -469,7 +469,9 @@ describe('fetchObjectWithRegimeFallback (D2 reads stay up)', () => {
 
 // ── Reconcile decision ──────────────────────────────────────────────────────────
 describe('REQ-ENTERPRISE-021 AC6: real storage routes retain readable bytes across a regime mismatch', () => {
-  it.each(['download', 'preview'] as const)('%s reads committed bytes, then falls back once to the opposite regime', async route => {
+  it.each([
+    ['download', 400], ['download', 403], ['preview', 400], ['preview', 403],
+  ] as const)('%s reads committed bytes and starts mixed recovery on eligible %s fallback', async (route, mismatchStatus) => {
     const kv = createMockKV();
     kv._set('r2-regime:bkt', { status: 'ready', regime: 'sse-c', generation: 1 });
     let objectRegime: R2SseRegime = 'sse-c';
@@ -479,7 +481,7 @@ describe('REQ-ENTERPRISE-021 AC6: real storage routes retain readable bytes acro
       const method = init?.method ?? 'GET';
       const regime = regimeFromHeaders((init?.headers ?? {}) as Record<string, string>);
       reads.push({ method, regime });
-      if (regime !== objectRegime) return new Response(null, { status: 400 });
+      if (regime !== objectRegime) return new Response(null, { status: mismatchStatus });
       return new Response(method === 'HEAD' ? null : bytes, { headers: {
         'Content-Type': 'text/plain', 'Content-Length': String(bytes.length),
       } });
@@ -489,12 +491,17 @@ describe('REQ-ENTERPRISE-021 AC6: real storage routes retain readable bytes acro
       mockKV: kv, bucketName: 'bkt', envOverrides: { ...r2Env, R2_ACCOUNT_ID: 'acct' },
     });
     const read = async () => {
-      const response = await app.request(`/${route}?key=report.txt`);
+      const work: Promise<unknown>[] = [];
+      const response = await app.request(`/${route}?key=report.txt`, {}, undefined, {
+        waitUntil: (task: Promise<unknown>) => { work.push(task); }, passThroughOnException: () => {},
+      } as ExecutionContext);
       expect(response.status).toBe(200);
       if (route === 'download') expect(await response.text()).toBe(bytes);
       else expect(await response.json()).toMatchObject({ type: 'text', content: bytes, size: bytes.length });
+      await Promise.all(work);
     };
     await read();
+    expect(await getRegimeState(driverEnv(kv), 'bkt')).toMatchObject({ status: 'ready', regime: 'sse-c', generation: 1 });
     expect(reads).toEqual(route === 'download'
       ? [{ method: 'GET', regime: 'sse-c' }]
       : [{ method: 'HEAD', regime: 'sse-c' }, { method: 'GET', regime: 'sse-c' }]);
@@ -504,6 +511,7 @@ describe('REQ-ENTERPRISE-021 AC6: real storage routes retain readable bytes acro
     expect(reads).toEqual(route === 'download'
       ? [{ method: 'GET', regime: 'sse-c' }, { method: 'GET', regime: 'plain' }]
       : [{ method: 'HEAD', regime: 'sse-c' }, { method: 'HEAD', regime: 'plain' }, { method: 'GET', regime: 'plain' }]);
+    expect(await getRegimeState(driverEnv(kv), 'bkt')).toMatchObject({ status: 'mixed-recovery', regime: 'sse-c', generation: 1 });
   });
 });
 
@@ -542,6 +550,23 @@ describe('planRegimeReconcile (synchronous decision)', () => {
 
 // ── Chunked driver ──────────────────────────────────────────────────────────────
 describe('REQ-ENTERPRISE-020 AC3: ancillary poll drives the real migration engine', () => {
+  it('REQ-ENTERPRISE-021 AC5: ancillary progress never reports 100 before verification completes', async () => {
+    const kv = createMockKV();
+    kv._set('r2-regime:bkt', {
+      status: 'migrating', regime: 'plain', from: 'plain', to: 'sse-c',
+      generation: 4, phase: 'verify', total: 100, processed: 199,
+    });
+    const app = createTestApp({
+      routes: [{ path: '/sessions', handler: lifecycleRoutes }], mockKV: kv, bucketName: 'bkt',
+      envOverrides: { ...r2Env, R2_ACCOUNT_ID: 'acct', SAAS_MODE: 'false' },
+    });
+
+    // No execution context: observe the HTTP projection, not a subsequent chunk.
+    const response = await app.request('/sessions/ancillary-status');
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ bucketMigrating: true, bucketMigrationPercent: 99 });
+  });
+
   it.each(['policy drift', 'mixed recovery'] as const)('REQ-ENTERPRISE-020 AC3/7: ancillary polls checkpoint and finish %s through real reconciliation', async (scenario) => {
     const recovery = scenario === 'mixed recovery';
     const source = recovery ? 'plain' : 'sse-c';

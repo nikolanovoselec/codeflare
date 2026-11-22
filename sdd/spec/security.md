@@ -164,7 +164,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 6. SSE-C object names, sizes and metadata are visible in the R2 dashboard, but their contents are unreadable without the key. <!-- @manual: Follow the R2 provider SSE-C metadata and read-protection procedure. -->
 7. When no operator encryption key is configured, ordinary R2 operations proceed without SSE-C. <!-- @impl: src/lib/r2-sse.ts::getSseHeaders --> <!-- @test: src/__tests__/routes/storage-upload.test.ts (succeeds with valid key and content) --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (REQ-SEC-005 AC7: HEAD and GET of a plain object work without a configured encryption key) -->
 
-**Constraints:** Apply the committed regime. [REQ-ENTERPRISE-018](storage.md#req-enterprise-018-governed-mode-toggle-and-configuration-surface) governs SSE-C suppression and container-key omission without changing Vault or secret-at-rest encryption. Enabling SSE-C on existing buckets follows verified migration and its exceptions under [REQ-ENTERPRISE-020](storage.md#req-enterprise-020-governed-mode-re-encrypt-migration-engine); deployments enabled from the start require no migration.
+**Constraints:** [REQ-ENTERPRISE-018](storage.md#req-enterprise-018-governed-mode-toggle-and-configuration-surface), [REQ-ENTERPRISE-301](storage.md#req-enterprise-301-container-regime-propagation-and-governed-sync-configuration), [CON-STOR-001](constraints.md#con-stor-001-r2-regime-migration-boundaries).
 
 **Priority:** P0
 

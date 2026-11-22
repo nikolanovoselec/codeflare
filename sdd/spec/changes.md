@@ -8,8 +8,6 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 - [REQ-ENTERPRISE-020](storage.md#req-enterprise-020-governed-mode-re-encrypt-migration-engine) preserves independently verified empty objects without SSE-C conversion. [REQ-ENTERPRISE-304](storage.md#req-enterprise-304-dashboard-migration-affordance-and-refresh) shows a retry action beside the halted status.
 
-- [REQ-ENTERPRISE-322](storage.md#req-enterprise-322-owner-authorized-migration-retry) lets owners retry a halted mixed recovery with its recorded key identity. Older halts without that identity still require administrator review.
-
 ## 2026-11-22: Reveal deep storage paths
 
 - [REQ-STOR-261](storage.md#req-stor-261-storage-breadcrumb-navigation) reveals the current folder when its breadcrumb overflows on desktop, tablet, or mobile.

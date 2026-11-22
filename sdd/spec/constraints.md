@@ -121,6 +121,19 @@ Tier configuration cached for 60s in `src/lib/subscription.ts`. Other cache TTLs
 Three states (CLOSED/OPEN/HALF_OPEN) wrapping `container.fetch()` calls to prevent cascading failures. Only operations invoking `withSetupRetry()` get 3 total attempts with 1s/2s backoff; open breakers fail immediately. Zone lookup and secret PUT call `cfApiCB` directly without that retry wrapper.
 **Applies To:** System (Worker, setup wizard)
 
+### CON-STOR-001: R2 regime migration boundaries
+
+**Applies To:** Storage encryption, session admission, and migration recovery.
+
+- Objects are re-encrypted in place without exporting their bytes, preserving metadata and the verification exclusions in [REQ-ENTERPRISE-020](storage.md#req-enterprise-020-governed-mode-re-encrypt-migration-engine).
+- An interrupted migration resumes from its saved checkpoint after lease expiry under [REQ-ENTERPRISE-302](storage.md#req-enterprise-302-migration-chunk-admission-checkpoint-and-failure-isolation).
+- Per-object failures are isolated; exhausting verification retries halts migration for administrator review without precluding a guarded owner retry under [REQ-ENTERPRISE-322](storage.md#req-enterprise-322-owner-authorized-migration-retry).
+- Session creation never drives migration and uses the committed regime; new buckets adopt the current policy without migration.
+- D1 workload ownership defers migration and mixed recovery without force-kill under [REQ-ENTERPRISE-021](storage.md#req-enterprise-021-governed-mode-migration-safety-and-access-boundary).
+- The backend gate and container drain enforce migration safety; the bucket-DO fence covers platform multipart generations, not container-side regime generations ([REQ-ENTERPRISE-086](storage.md#req-enterprise-086-governed-mode-migration-multipart-safety)).
+- Direct R2 writers must stay quiescent; verification and read self-heal are independent safeguards, not a fence on external writers.
+- Key rotation is detect-only, with no old-key fallback.
+
 #### Additional Reliability Mechanisms
 
 | Mechanism | Implementation |

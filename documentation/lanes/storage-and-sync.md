@@ -543,9 +543,9 @@ Check [REQ-STOR-261 AC1/AC3](../../sdd/spec/storage.md#req-stor-261-storage-brea
 
 1. Open the deepest folder through Storage. Without manually scrolling, confirm the current crumb is visible at the right end once scrolling settles.
 2. Use the browser’s horizontal scrolling control or a touch swipe to bring an off-screen ancestor into view. Select it and verify Storage shows that ancestor’s folder listing.
-3. Enable the browser or device’s reduced-motion preference and repeat the navigation. The current crumb should still appear at the end, without an animated scroll.
+3. Enable reduced motion, start with the rail away from the end, and repeat the navigation. The current crumb should come into view immediately, without animated scrolling.
 
-Record the build, browser, widths, and input used. Clipping, an unreachable ancestor, or movement under reduced motion fails the check. If a real browser or overflowing fixture is unavailable, record the check as blocked. Component tests cover scroll intent and ancestor activation, not rendered scrolling.
+Record the build, browser, widths, and input used. Clipping, an unreachable ancestor, or animated scrolling under reduced motion fails the check. If a real browser or overflowing fixture is unavailable, record the check as blocked. Component tests cover scroll intent and ancestor activation, not rendered scrolling.
 
 ### REQ-ENTERPRISE-021 migration progress acceptance
 
@@ -553,12 +553,13 @@ Use an already authorized isolated fixture prepared under the owner runbook. Do 
 
 This procedure observes the wire projection ([REQ-ENTERPRISE-021 AC5](../../sdd/spec/storage.md#req-enterprise-021-governed-mode-migration-safety-and-access-boundary)) and visible Dashboard status and creation gating ([REQ-ENTERPRISE-304 AC1–AC4 and AC6](../../sdd/spec/storage.md#req-enterprise-304-dashboard-migration-affordance-and-refresh)). The [Dashboard fixtures](../../web-ui/src/__tests__/components/Dashboard.test.tsx) check duplicate submission and refusal isolation (AC5 and AC7).
 
-1. Open or reload the dashboard during the prepared migration. Observe the ancillary response and New Session control; known progress is within 0–99, and the disabled control displays `Migrating N%` for that value.
-2. Keep the page visible and record successive migration ancillary updates. Verify the existing five-second scheduling and non-overlap, distinguishing request duration from timer delay. If migration ends before that observation is possible, record BLOCKED for cadence.
-3. On the halted fixture, confirm `bucketMigrationHaltedAt` is present and `bucketMigrationPercent` is absent from ancillary status. The disabled New Session slot says **Migration halted** beside **Retry migration**.
-4. Retry only with separate authorization. The same bucket remains gated until verification. If a refusal is observed, record the reason and confirm the halt remains.
+1. On initial load during migration, confirm ancillary status reports `bucketMigrating: true`. When progress is known, it is 0–99 and the disabled control shows the matching `Migrating N%`.
+2. Keep the page visible. Confirm successive ancillary polls still report `bucketMigrating: true` while migration is active. Check five-second scheduling without overlap, separating request duration from timer delay. If migration finishes too soon, record cadence as blocked.
+3. On the halted fixture, confirm `bucketMigrating: true` and `bucketMigrationHaltedAt` are present, with no `bucketMigrationPercent`. The disabled New Session slot says **Migration halted** beside **Retry migration**.
+4. Retry only with separate authorization. Observe a `202 { success: true }` acknowledgment and confirm New Session stays disabled for the same bucket until verification finishes. If that window is not observable, record acknowledgment-to-completion coverage as blocked.
+5. If a refusal is observed, record the reason and confirm the halt remains. A refusal does not qualify the successful acknowledgment case.
 
-Fail for a percentage on halt, an invented, out-of-range or mismatched progress value, or New Session becoming enabled before verification.
+Fail for an incorrect migration flag, a percentage on halt, an invented, out-of-range or mismatched progress value, or New Session becoming enabled before verification.
 
 Record build, nonsecret fixture identity, response timing and observed labels. These UI checks do not by themselves establish encryption conversion, drain completion or live storage preservation; their automated methods and separate acceptance boundaries remain unchanged.
 
@@ -620,7 +621,7 @@ Migration lists up to 1,000 entries per page and processes objects with concurre
 Migration defers while D1 records a workload-owning session, even if that runtime is unhealthy or earlier chunks drained. Ownership is rechecked after lease admission and bounded drain, before multipart aborts or object mutations; unknown authority keeps work retryable. A benign drain timeout can proceed only after a fresh no-owner result. Background migration does not destroy owning sessions. Platform writers remain gated `409 BUCKET_MIGRATING` (except explicit matching uncertain-completion abort recovery), and reads use a dual-regime fallback (a stray cross-regime object self-heals via a `mixed-recovery` scan). Session start never performs migration; it rejects an in-flight migration before runtime admission. Record creation and starting its runtime are distinct operations.
 
 <a id="retry-a-halted-storage-migration"></a>
-If verification repeatedly fails, the dashboard shows **Migration halted** beside **Retry migration** ([REQ-ENTERPRISE-304 AC4–AC7](../../sdd/spec/storage.md#req-enterprise-304-dashboard-migration-affordance-and-refresh)). A retry restarts the current scan without clearing the write gate or changing the target or generation. Background polling must verify before the bucket becomes ready ([REQ-ENTERPRISE-322](../../sdd/spec/storage.md#req-enterprise-322-owner-authorized-migration-retry)).
+If verification exhausts its retries, the dashboard shows **Migration halted** beside **Retry migration** ([REQ-ENTERPRISE-304 AC4–AC7](../../sdd/spec/storage.md#req-enterprise-304-dashboard-migration-affordance-and-refresh)). If an eligible retry still cannot verify the object, escalate the persistent failure to the deployment administrator ([CON-STOR-001](../../sdd/spec/constraints.md#con-stor-001-r2-regime-migration-boundaries)). A retry restarts the current scan without clearing the write gate or changing the target or generation. Background polling must verify before the bucket becomes ready ([REQ-ENTERPRISE-322](../../sdd/spec/storage.md#req-enterprise-322-owner-authorized-migration-retry)).
 
 Retry refuses a changed policy, invalid or changed key, active or unknown session ownership, or unresolved multipart completion. If the original key identity was never recorded, stop retrying. Collect nonsecret status and error evidence and escalate to the authorized deployment administrator ([REQ-ENTERPRISE-322 AC2](../../sdd/spec/storage.md#req-enterprise-322-owner-authorized-migration-retry)). Do not include raw object keys or credentials, infer the original key from the current key, or edit the checkpoint.
 

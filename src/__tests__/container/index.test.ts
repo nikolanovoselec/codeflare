@@ -281,7 +281,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
             get: (name: string) => ({ claimBucketOwner: async (owner: string) =>
               name === `bucket-owner:${ownerBucket}` && owner === ownerEmail ? 'owned' : 'conflict' }),
             getByName: (name: string) => {
-              if (name !== `storage:${ownerBucket}`) throw new Error('Unexpected bucket storage owner');
+              if (name !== `storage:${ownerBucket}` && name !== `storage:${bucket}`) throw new Error('Unexpected bucket storage owner');
               return f.instance;
             },
           },
@@ -290,9 +290,9 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         const token = await signSessionJWT({ email: ownerEmail, sub: ownerEmail, ghLogin: 'migration-owner', aud: SESSION_JWT_AUD }, secret);
         const headers = { Cookie: `codeflare_session=${token}`, 'X-Requested-With': 'XMLHttpRequest', 'Content-Type': 'application/json' };
         return { ...f, read: async () => await f.kv.get(stateKey, 'json') as RegimeState | null,
-          retry: (timestamp = haltedAt, authenticated = true) => app.request('/api/sessions/migration/retry', {
+          retry: (timestamp = haltedAt, authenticated = true, requestedBucket?: string) => app.request('/api/sessions/migration/retry', {
             method: 'POST', headers: authenticated ? headers : { 'X-Requested-With': 'XMLHttpRequest', 'Content-Type': 'application/json' },
-            body: JSON.stringify({ haltedAt: timestamp }),
+            body: JSON.stringify({ haltedAt: timestamp, bucketName: requestedBucket }),
           }),
           poll: async () => {
             const work: Promise<unknown>[] = [];
@@ -355,7 +355,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         const otherHalt = { ...halted, generation: 8, updatedAt: '2026-11-20T12:10:00.000Z' };
         f.kv._set(otherKey, otherHalt);
 
-        const response = await f.retry(haltedAt);
+        const response = await f.retry(haltedAt, true, bucket);
         expect(response.status).toBe(409);
         expect(await response.json()).toMatchObject({ code: 'MIGRATION_RETRY_BLOCKED' });
         expect(await f.read()).toEqual(halted);
