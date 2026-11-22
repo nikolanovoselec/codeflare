@@ -551,21 +551,21 @@ Record the build, browser, widths, and input used. Clipping, an unreachable ance
 
 Use an already authorized isolated fixture prepared under the owner runbook. Do not toggle shared policy, create faults, or edit state. Missing active or halted fixtures remain blocked.
 
-This procedure observes the wire projection ([REQ-ENTERPRISE-021 AC5](../../sdd/spec/storage.md#req-enterprise-021-governed-mode-migration-safety-and-access-boundary)) and visible Dashboard status and creation gating ([REQ-ENTERPRISE-304 AC1–AC4 and AC6](../../sdd/spec/storage.md#req-enterprise-304-dashboard-migration-affordance-and-refresh)). The [Dashboard fixtures](../../web-ui/src/__tests__/components/Dashboard.test.tsx) check pending feedback, duplicate submission, and refusal isolation (AC5 and AC7).
+This procedure observes the wire projection ([REQ-ENTERPRISE-021 AC5](../../sdd/spec/storage.md#req-enterprise-021-governed-mode-migration-safety-and-access-boundary)) and visible Dashboard status and creation gating ([REQ-ENTERPRISE-304 AC1–AC2, AC4, and AC6](../../sdd/spec/storage.md#req-enterprise-304-dashboard-migration-affordance-and-refresh)). The [Dashboard fixtures](../../web-ui/src/__tests__/components/Dashboard.test.tsx) check pending feedback, duplicate submission, and refusal isolation (AC3, AC5, and AC7).
 
 1. On initial load during migration, confirm ancillary status reports `bucketMigrating: true`. When progress is known, it is 0–99 and the disabled control shows the matching `Migrating N%`.
 2. Keep the page visible. While successive ancillary polls report `bucketMigrating: true`, compare their percentages to the disabled control, including at least one changed value. If no change is observable, record periodic progress as blocked.
 3. Measure the five-second delay from settlement of one Dashboard `batch-status` poll to the start of the next, not between ancillary responses. If migration finishes too soon, record cadence as blocked. <!-- @impl: web-ui/src/stores/session-polling.ts::scheduleNextPoll -->
 4. Check that no second ancillary request starts when an eligible batch poll reaches ancillary refresh while an earlier request is pending. If no eligible poll reaches refresh during a pending request, mark only the overlap check as blocked. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionAncillaryStatus -->
 5. On halt, confirm ancillary status reports `bucketMigrating: true` and `bucketMigrationHaltedAt`, with no `bucketMigrationPercent`.
-6. The disabled slot says **Migration halted**. Compare the adjacent button against a separate, already-authorized failed-seed-activation fixture: match icon, dimensions, placement, and styling. **Retry migration** is the accessible name and tooltip, not button text.
+6. The disabled slot says **Migration halted**. Check that the icon has no visible button text and uses **Retry migration** as its accessible name and tooltip. Compare its icon, dimensions, placement, and styling with a separate, already-authorized failed-seed-activation fixture.
 7. Before retry, use the [read-only KV diagnostic](troubleshooting.md#new-session-button-stuck-on-migrating-governed-mode) to record the same bucket’s halted checkpoint. Confirm its `updatedAt` matches `bucketMigrationHaltedAt`.
 8. Start recording New Session state before triggering the separately authorized retry. Check the response: for a refusal, record its reason, confirm the halt remains, and stop this check. A refusal does not qualify the acknowledgment case.
 9. On `202 { success: true }`, keep recording continuously through the first enablement. Find the same bucket’s `ready` checkpoint with a newer `updatedAt` and the expected regime and generation. Use `updatedAt` for freshness, not publication timing. <!-- @impl: src/lib/r2-regime-state.ts::setRegimeState -->
 10. On the same timeline, observe the fresh `ready` checkpoint before first enablement or use an approved trace to establish publication order. A checkpoint first seen after enablement does not prove either order.
 11. Mark retry gating blocked if freshness, continuous coverage, or publication order cannot be established.
 
-Mark only the visual comparison blocked if the failed-seed-activation fixture is unavailable. Do not create a fault to obtain it. Fail the comparison if the control or label differs.
+If the seed fixture is unavailable, mark only visual parity blocked; do not create a fault. Fail visual parity if the icon, dimensions, placement, or styling differs. Independently fail the halted-fixture label check for visible button text or a wrong accessible name or tooltip.
 
 Fail for an incorrect migration flag, a percentage on halt, an invented, out-of-range or mismatched progress value, or New Session becoming enabled before verification.
 

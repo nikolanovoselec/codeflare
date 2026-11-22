@@ -283,6 +283,10 @@
   overflow-wrap: anywhere;
 }
 
+.dashboard-recovery-message:empty {
+  margin: 0;
+}
+
 .dashboard-status-unavailable {
   color: var(--color-warning);
 }

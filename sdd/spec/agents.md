@@ -6513,11 +6513,9 @@ The former REQ-AGENT-191 Goal visibility and REQ-AGENT-248 `goal_wait` exclusion
 4. Active updates exclude overlapping operations. <!-- @impl: web-ui/src/stores/session.ts::runPreseedUpdate --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-037 AC1: blocks a second managed seed action within one page) -->
 5. The backup remains hidden during active updates and returns after settlement when recovery is still needed. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-213: recovery hides during an update and returns after settlement) -->
 6. Failed recreation displays the error and leaves explicit recovery available. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-213: recovery backup exposes Recreate failure and allows another explicit attempt) -->
+7. Clearing a migration halt does not transfer keyboard focus from Retry migration to Recreate. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-213: clearing a halt does not transfer focus to seed recreation) -->
 
-**Constraints:**
-
-- Successful recreation does not replace authoritative applied-status reconciliation.
-- Existing server admission remains unchanged.
+**Constraints:** Successful recreation does not replace authoritative applied-status reconciliation. Existing server admission remains unchanged.
 
 **Priority:** P1
 

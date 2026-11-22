@@ -540,9 +540,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                 </Show>
             </div>
 
-            <Show when={migrationRetryPending()}>
-              <p class="dashboard-recovery-message" role="status">Retrying migration</p>
-            </Show>
+            <p class="dashboard-recovery-message" role="status">{migrationRetryPending() ? 'Retrying migration' : ''}</p>
             <Show when={currentMigrationRetryError()}>
               {(message) => <p class="dashboard-recovery-message" role="alert">{message()}</p>}
             </Show>

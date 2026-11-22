@@ -1382,7 +1382,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
 
     await waitFor(() => expect(storageApi.recreateAgentConfigs).toHaveBeenCalledTimes(1));
     expect(sessionStore.runPreseedUpdate).toHaveBeenCalledWith(storageApi.recreateAgentConfigs);
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Recreated 1 agent config file(s). Removed 1 file(s) from previous mode.'));
+    expect(await screen.findByText('Recreated 1 agent config file(s). Removed 1 file(s) from previous mode.')).toHaveRole('status');
     expect(upgradeRecovery.retryPreseedUpgrade).not.toHaveBeenCalled();
     expect(defaultProps.onCreateSession).not.toHaveBeenCalled();
   });
@@ -1401,7 +1401,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(screen.queryByRole('button', { name: 'Recreate Agent Skills & Rules' })).not.toBeInTheDocument();
     expect(screen.getByTestId('dashboard-new-session')).toBeDisabled();
     finish();
-    await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
+    expect(await screen.findByText('Recreated 0 agent config file(s).')).toHaveRole('status');
     (sessionStore as any)._setPreseedUpgrading(false);
     expect(screen.getByRole('button', { name: 'Recreate Agent Skills & Rules' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Retry upgrade' })).toBeEnabled();
@@ -1540,7 +1540,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(screen.queryByRole('button', { name: 'Recreate Agent Skills & Rules' })).not.toBeInTheDocument();
   });
 
-  it('REQ-ENTERPRISE-304: clearing a halt does not transfer focus to seed recreation', () => {
+  it('REQ-AGENT-213: clearing a halt does not transfer focus to seed recreation', () => {
     upgradeRecovery.preseedUpgradeFailed = true;
     setBucketMigrationHaltedAt(haltedAt);
     render(() => <Dashboard {...defaultProps} userName={undefined} />);
@@ -1563,11 +1563,14 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     render(() => <Dashboard {...defaultProps} userName={undefined} />);
 
     const retry = screen.getByRole('button', { name: 'Retry migration' });
+    const progress = screen.getByRole('status');
+    expect(progress.textContent).toBe('');
     fireEvent.click(retry);
     expect(retry).toBeDisabled();
     expect(retry).toHaveAccessibleName('Retry migration');
     expect(retry).toHaveAttribute('aria-busy', 'true');
-    expect(screen.getByText('Retrying migration')).toBeVisible();
+    expect(progress).toHaveTextContent('Retrying migration');
+    expect(progress).toBeVisible();
     fireEvent.click(retry);
     expect(retryBucketMigration.mock.calls).toEqual([[haltedAt]]);
     expect(upgradeRecovery.retryPreseedUpgrade).not.toHaveBeenCalled();
@@ -1579,10 +1582,33 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
 
     finish({ success: true });
     await waitFor(() => expect(screen.getByRole('button', { name: 'Retry migration' })).toBeEnabled());
-    expect(screen.queryByText('Retrying migration')).not.toBeInTheDocument();
+    expect(progress.textContent).toBe('');
+    expect(progress).toBeInTheDocument();
     expect(status).toHaveTextContent(/^Migration halted$/);
     expect(status).toBeDisabled();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('REQ-ENTERPRISE-304: pending feedback survives the halt clearing before refresh settles', async () => {
+    setBucketMigrationHaltedAt(haltedAt);
+    retryBucketMigration.mockResolvedValueOnce({ success: true });
+    let settleRefresh!: () => void;
+    vi.mocked(sessionStore.refreshSessionAncillaryStatus).mockImplementationOnce(() => new Promise<void>((resolve) => {
+      settleRefresh = resolve;
+      (sessionStore as any)._setBucketMigrating(true);
+      setBucketMigrationHaltedAt(null);
+    }));
+    render(() => <Dashboard {...defaultProps} userName={undefined} />);
+
+    const progress = screen.getByRole('status');
+    fireEvent.click(screen.getByRole('button', { name: 'Retry migration' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Retry migration' })).not.toBeInTheDocument());
+    expect(progress).toHaveTextContent('Retrying migration');
+    expect(screen.getByRole('button', { name: 'Migrating' })).toBeDisabled();
+
+    settleRefresh();
+    await waitFor(() => expect(progress.textContent).toBe(''));
+    expect(screen.getByRole('button', { name: 'Migrating' })).toBeDisabled();
   });
 
   it('REQ-ENTERPRISE-304: a rejected retry is reported without rendering server markup or lifting the halt', async () => {
