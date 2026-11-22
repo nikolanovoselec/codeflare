@@ -10,7 +10,8 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { once } from 'node:events';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, writeFileSync, closeSync, openSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync, closeSync, openSync, promises as fs } from 'node:fs';
+import { setImmediate } from 'node:timers/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { collectWorkspaceRepos, isWorkspaceInventoryReady } from '../dist/metrics.js';
@@ -138,6 +139,25 @@ describe('REQ-GITHUB-015 AC1: workspace repository inventory', () => {
 
     assert.equal(repos, undefined);
   });
+
+  for (const method of ['readdir', 'lstat']) {
+    it(`REQ-GITHUB-015: withholds inventory when ${method} stalls past the scan deadline`, { timeout: 5000 }, async t => {
+      const workspace = makeWorkspace();
+      mkdirSync(join(workspace, 'checkout'));
+      let markStarted;
+      const started = new Promise(resolve => { markStarted = resolve; });
+      t.mock.method(fs, method, () => {
+        markStarted(true);
+        return new Promise(() => {});
+      });
+      t.mock.timers.enable({ apis: ['setTimeout'] });
+      const scan = collectWorkspaceRepos(workspace, noop, 8000);
+      assert.equal(await Promise.race([started, scan]), true);
+      t.mock.timers.tick(8000);
+      const stillPending = Symbol('scan still waiting for the filesystem');
+      assert.equal(await Promise.race([scan, setImmediate(stillPending)]), undefined);
+    });
+  }
 
   it('omits an inventory when its aggregate deadline is exhausted', async () => {
     const workspace = makeWorkspace();

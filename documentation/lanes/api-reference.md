@@ -129,7 +129,7 @@ These are endpoint observations, not persisted lifecycle states. `details` ident
 
 Session creation may reject the enterprise agent allowlist or SaaS storage quota before writing a record. Start may reject an active bucket migration, an agent absent from the deployed image, the current concurrent-session policy check, or compute quota. The session-count check and later generation-bound D1 lifecycle claim are not atomic. Concurrent-session admission is explicitly best effort, so simultaneous starts may exceed the nominal per-user limit; deployment `max_instances` is a separate hard platform boundary. Enterprise currently follows the non-SaaS role-based resolver, while [issue #880](https://github.com/nikolanovoselec/codeflare/issues/880) tracks one role-independent Enterprise limit.
 
-A successful Start returns the acknowledged `generation`; `starting` means the DO owns the asynchronous launch, not that ports are ready. `/startup-status` returns the observed `generation` on ordinary responses when a row was read; a handler-level `error` response can omit it. A D1-confirmed stop always includes it. Only `ready` for the acknowledged generation completes that Start in the browser. SDK startup failure does not establish stopped. See [Troubleshooting](troubleshooting.md#container-start-is-rejected-or-returns-to-stopped).
+A successful Start returns the acknowledged `generation`; `starting` means the DO owns the asynchronous launch, not that ports are ready. `/startup-status` returns the observed `generation` on ordinary responses when a row was read; a handler-level `error` response can omit it. A D1-confirmed stop always includes it. <!-- @impl: src/routes/container/status.ts::app --> Only `ready` for the acknowledged generation completes that Start in the browser. SDK startup failure does not establish stopped. See [Troubleshooting](troubleshooting.md#container-start-is-rejected-or-returns-to-stopped).
 
 ## Operator Activities
 
@@ -1232,7 +1232,7 @@ Anonymous GET `/health` returns only `{ "status": "healthy" }` before protected 
 
 **Implements:** [REQ-SESSION-020](../../sdd/spec/session-lifecycle.md#req-session-020-runtime-observation-is-bounded-and-projected-once) AC1 and AC6.
 
-Legacy hosts may ignore either selector. The coordinator uses only the first response for metrics. A readiness hint or legacy bundled array triggers the [inventory eligibility check](container.md#runtime-recovery-and-status), not an automatic write. A completed scan can report an empty array. An incomplete scan omits the inventory, leaving tracking unchanged. During mixed-image rollout, legacy hosts may still return partial arrays; the response does not independently certify scan success. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: host/src/metrics.ts::collectWorkspaceRepos -->
+Legacy hosts may ignore either selector. The coordinator uses only the first response for metrics. A readiness hint or legacy bundled array triggers the [inventory eligibility check](container.md#runtime-recovery-and-status), not an automatic write. Current hosts can report an empty array after a completed scan and omit inventory after an incomplete one. Omission leaves tracking unchanged. During mixed-image rollout, an eligible legacy response can still return a partial array that replaces tracking. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: host/src/metrics.ts::collectWorkspaceRepos -->
 
 ---
 

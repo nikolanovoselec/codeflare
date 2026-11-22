@@ -561,6 +561,7 @@ if [ "$1" = clone ]; then
   mkdir -p "\${@: -1}"
   printf 'restore-peer-blocked\\n' >&2
   while [ ! -f '${release}' ]; do sleep 0.02; done
+  mkdir -p "\${@: -1}/.git"
 elif [ "$1" = -C ]; then
   if [ "$3" = remote ]; then printf 'https://github.com/octo/repo.git\\n';
   else printf 'trunk\\n'; fi

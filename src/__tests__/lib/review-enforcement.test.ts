@@ -22,6 +22,7 @@ type TestContext = {
   sessionManager: {
     getSessionFile(): string;
     getEntries(): Record<string, unknown>[];
+    getBranch?(): Record<string, unknown>[];
     getHeader(): { parentSession?: string };
   };
   ui: { select(title: string, options: string[]): Promise<string | undefined>; notify(): void };
@@ -1224,6 +1225,7 @@ describe('Pi marker-or-dialog review ingress', () => {
     const record = (id: string, type: ReviewLane, status = 'completed') => ({
       type: 'custom', customType: 'subagents:record', data: { id, type, status, startedAt: 1, completedAt: 2 },
     });
+    const abandoned = { ...record(agentId, lane), id: 'abandoned-branch-entry' };
     append(input.sessionFile,
       ...others.flatMap(type => [
         toolCall(type, 'subagent', { subagent_type: type, run_in_background: true, inherit_context: false,
@@ -1241,12 +1243,17 @@ describe('Pi marker-or-dialog review ingress', () => {
       toolResult('current-ci', 'subagent'),
       notification('current-ci', `<result>CI_RESULT success\npr=42 head=${input.head} repo=owner/repo</result>`),
       record('earlier-head', lane), record(agentId, lane === 'doc-updater' ? 'code-reviewer' : 'doc-updater'),
-      record(agentId, lane, 'stopped'), triage(),
+      record(agentId, lane, 'stopped'), abandoned, triage(),
     );
     const completion = () => readCompletion(input.identity, { root: join(input.home, '.codeflare/review-state/v1') }).status;
-    await app.emit('agent_settled');
-    expect(completion()).not.toBe('complete');
-    expect(app.sent.some(message => message.customType === 'pr-boundary-fix-follow-up')).toBe(false);
+    const expectNoFix = async () => {
+      await app.emit('agent_settled');
+      expect(completion()).not.toBe('complete');
+      expect(app.sent.some(message => message.customType === 'pr-boundary-fix-follow-up')).toBe(false);
+    };
+    await expectNoFix(); // Full history alone cannot establish branch membership.
+    app.ctx.sessionManager.getBranch = () => app.ctx.sessionManager.getEntries().filter(entry => entry.id !== abandoned.id);
+    await expectNoFix(); // A matching completion on another branch cannot authorize FIX.
 
     append(input.sessionFile, record(agentId, lane));
     await app.emit('agent_settled');

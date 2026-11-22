@@ -72,9 +72,22 @@ export async function collectWorkspaceRepos(
   log: Logger,
   budgetMs = WORKSPACE_REPO_INVENTORY_BUDGET_MS,
 ): Promise<WorkspaceRepo[] | undefined> {
+  const deadline = Date.now() + budgetMs;
+  const readBeforeDeadline = async <T>(read: () => Promise<T>): Promise<T> => {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw new Error('Workspace inventory deadline exceeded');
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([read(), new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Workspace inventory deadline exceeded')), remaining);
+      })]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
+  };
   let entries: fs.Dirent[];
   try {
-    entries = await fs.promises.readdir(workspaceRoot, { withFileTypes: true });
+    entries = await readBeforeDeadline(() => fs.promises.readdir(workspaceRoot, { withFileTypes: true }));
   } catch (e: unknown) {
     log('debug', 'Workspace repo inventory skipped', {
       error: e instanceof Error ? e.message : String(e),
@@ -90,12 +103,10 @@ export async function collectWorkspaceRepos(
     .map((entry) => entry.name)
     .sort();
   if (dirs.length > MAX_WORKSPACE_REPOS) return undefined;
-  const deadline = Date.now() + budgetMs;
   for (const name of dirs) {
     const dir = `${workspaceRoot}/${name}`;
-    if (Date.now() >= deadline) return undefined;
     try {
-      await fs.promises.lstat(`${dir}/.git`);
+      await readBeforeDeadline(() => fs.promises.lstat(`${dir}/.git`));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
       return undefined;

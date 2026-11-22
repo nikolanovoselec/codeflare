@@ -3117,7 +3117,7 @@ Because `--server-base-path` makes OpenVSCode base-path native, the Worker and h
 
 **Category:** Agents
 
-**Status:** Partially superseded by [AD144](#ad144-user-scoped-review-completion-uses-marker-or-dialog-ingress) on 2026-08-27 for persisted boundary/checkpoint recovery, clone-local acknowledgement, and bypass state. Parallel visible reviewers plus triage-before-FIX remain accepted.
+**Status:** Partially superseded by [AD144](#ad144-user-scoped-review-completion-uses-marker-or-dialog-ingress) on 2026-08-27 for persisted boundary/checkpoint recovery, clone-local acknowledgement, and bypass state. Parallel visible reviewers plus triage-before-FIX remain accepted. The historical notification-only rule below is superseded by [REQ-AGENT-053 AC2](../../sdd/spec/agents.md#req-agent-053-pi-native-review-result-correlation).
 
 **Supersedes:** [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes), [AD80](#ad80-pi-pr-boundary-merge-gate-is-report-only-and-defended-in-depth)
 

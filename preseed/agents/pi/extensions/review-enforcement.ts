@@ -510,16 +510,20 @@ type ActiveRound = {
 
 function liveEntries(ctx: ReviewContext): Record<string, any>[] | undefined {
   try {
-    return ctx.sessionManager.getBranch?.() ?? ctx.sessionManager.getEntries?.();
+    return ctx.sessionManager.getEntries?.();
   } catch {
     return undefined;
   }
 }
 
 function roundFacts(ctx: ReviewContext, round: ActiveRound) {
+  let branch: Record<string, any>[] | undefined;
+  try { branch = ctx.sessionManager.getBranch?.(); }
+  catch { /* Only the existing notification and public-result paths can fall back. */ }
   return reviewTranscriptFacts({
     sessionFile: round.file,
-    entries: liveEntries(ctx),
+    entries: branch ?? liveEntries(ctx),
+    activeBranchKnown: branch !== undefined,
     requiredLanes: round.reviewers,
     ci: {
       repository: round.repository,

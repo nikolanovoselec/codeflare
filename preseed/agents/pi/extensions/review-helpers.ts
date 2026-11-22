@@ -655,6 +655,7 @@ function reviewWindow(entry: Record<string, any>): ReviewWindow | undefined {
 export function reviewTranscriptFacts(input: {
   sessionFile: string;
   entries?: Record<string, any>[];
+  activeBranchKnown?: boolean;
   requiredLanes: ReviewLane[];
   ci?: { repository: string; repo: string; prNumber: number; head: string };
   reviewHead?: string;
@@ -838,7 +839,7 @@ export function reviewTranscriptFacts(input: {
         : undefined;
       // The subagent runtime persists completion even when no notification arrives.
       // Credit only the agent ID issued by this exact successful public launch.
-      const recordedIndex = launchedAgent ? later.findIndex((entry, index) => index > entryIndex
+      const recordedIndex = input.activeBranchKnown && input.entries && launchedAgent ? later.findIndex((entry, index) => index > entryIndex
         && entry.type === "custom" && entry.customType === "subagents:record"
         && entry.data?.id === launchedAgent && entry.data.type === lane
         && entry.data.status === "completed" && Number.isFinite(entry.data.completedAt)) : -1;
