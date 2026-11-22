@@ -126,7 +126,7 @@ async function fixture(t) {
     assert.ok(report, stdout);
     return JSON.parse(report.slice('HERMES_NATIVE_RESULT='.length));
   };
-  return { home, memory, project, cache, agent, facts, run };
+  return { home, memory, project, agent, facts, run };
 }
 
 test('REQ-MEM-035: AC1/AC5 real foreground review and correction persist facts without primary memory writes; helper stays read-isolated',

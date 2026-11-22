@@ -239,7 +239,7 @@ const loader = createJiti(__filename, { moduleCache: false, fsCache: ${JSON.stri
 loader.import(${JSON.stringify(extension)}).then(module => {
   assert.equal(module.configureSmartCompact(${JSON.stringify(join(fx.home, '.pi/agent'))}), true);
   const settings = JSON.parse(fs.readFileSync(${JSON.stringify(join(fx.home, '.pi/agent/settings.json'))}, 'utf8'));
-  assert.equal(settings.smartCompact.mode, 'auto');
+  assert.equal(settings.smartCompact.mode, 'thorough');
   console.log('managed extension loaded');
 }).catch(error => { console.error(error); process.exitCode = 1; });
 `);

@@ -134,7 +134,7 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
     await fireEvent.click(screen.getByTestId('header-user-menu'));
     expect(screen.getByRole('button', { name: 'Operator activity' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Usage' })).toHaveAttribute('href', '/app/usage');
-    expect(screen.queryByRole('link', { name: 'Operators', exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Operators' })).not.toBeInTheDocument();
   });
 
   describe('REQ-SESSION-036: Header sleep countdown', () => {
