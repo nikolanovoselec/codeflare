@@ -1019,8 +1019,8 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 **Acceptance Criteria:**
 
 1. Advanced Pi loads the pinned upstream memory package through the normal managed dependency path, with policy-only prompting, configured-provider extraction, bounded review windows and no vendor source patch. <!-- @impl: entrypoint.sh::configure_pi_packages_and_review_inventory --> <!-- @impl: preseed/agents/pi/extensions/hermes-memory-runtime.ts::hermesMemoryRuntime --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-MEM-035 AC1: stock Hermes package delivery) --> <!-- @test: host/__tests__/pi-hermes-native.test.js (REQ-MEM-035: AC1/AC5 real foreground review and correction persist facts without primary memory writes; helper stays read-isolated) -->
-2. Database, sidecars, recovery files and locks stay in the excluded local cache. Shared Markdown and session checkpoints follow [REQ-MEM-041](#req-mem-041-session-isolated-hermes-checkpoints). <!-- @impl: entrypoint.sh::configure_pi_hermes_memory --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: AC2 existing rclone rules transfer canonical Markdown but no cache, sidecars, locks or alias copies) -->
-3. Between restore and foreground loading, idempotent cache/configuration preparation preserves Markdown and valid preferences. Malformed configuration or filesystem ownership conflicts are reported without overwriting data or using synchronized database storage. <!-- @impl: entrypoint.sh::configure_pi_hermes_memory --> <!-- @impl: entrypoint.sh::complete_managed_curation_startup --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (Pi Hermes startup (actual entrypoint helper)) -->
+2. Hermes databases, sidecars, recovery files and locks stay local and never transfer through R2 under either sync policy. Durable Markdown follows [REQ-MEM-041](#req-mem-041-session-isolated-hermes-markdown). <!-- @impl: entrypoint.sh::transfer_pi_hermes_memory --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (round-trips cleared Markdown without transferring Hermes transient files (${syncPolicyMode})) -->
+3. Between restore and foreground loading, idempotent storage and configuration preparation preserves Markdown and valid preferences. Malformed configuration or filesystem ownership conflicts are reported without overwriting data or using synchronized database storage. <!-- @impl: entrypoint.sh::configure_pi_hermes_memory --> <!-- @impl: entrypoint.sh::complete_managed_curation_startup --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (Pi Hermes startup (actual entrypoint helper)) -->
 4. First use, not Advanced Pi startup, initializes search from working Markdown. Initialization needs no model request or repository sweep, reuses warm search state, and skips historical backfill. <!-- @impl: entrypoint.sh::configure_pi_hermes_memory --> <!-- @impl: preseed/agents/pi/extensions/hermes-memory-runtime.ts::hermesMemoryRuntime --> <!-- @impl: preseed/agents/pi/extensions/hermes-memory-runtime.ts::workspaceMemoryApi --> <!-- @test: host/__tests__/pi-hermes-native.test.js (REQ-MEM-035 AC4: cold startup defers indexing until first search and warm search reuses SQLite without a model request) -->
 5. Foreground sessions retain automatic review, corrections and permitted memory tools. Ordinary in-process helper sessions do not run those personal-memory writers; the upstream internal extraction subprocess remains supported. <!-- @impl: preseed/agents/pi/extensions/hermes-memory-runtime.ts::attachHermesMemoryToForeground --> <!-- @test: host/__tests__/pi-hermes-memory.test.js (REQ-MEM-035: AC5 foreground ownership gates stock writers/tools and drains shutdown before release) --> <!-- @test: host/__tests__/pi-hermes-native.test.js (REQ-MEM-035: AC1/AC5 real foreground review and correction persist facts without primary memory writes; helper stays read-isolated) -->
 6. Authorized final sync gives foreground Pi its bounded graceful shutdown before transfer. It reports failed or timed-out drains, not successful capture. <!-- @impl: host/src/pi-memory-shutdown.ts::shutdownPiMemoryOwners --> <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: host/__tests__/pi-memory-shutdown.test.js (REQ-MEM-035 AC6: bounded foreground owner shutdown) --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (REQ-MEM-035 AC6: foreground shutdown before authoritative final sync) -->
@@ -1045,38 +1045,64 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 
 ---
 
-### REQ-MEM-041: Session-isolated Hermes checkpoints
+<a id="req-mem-041-session-isolated-hermes-checkpoints"></a>
+### REQ-MEM-041: Session-isolated Hermes Markdown
 
-**Intent:** Persist Advanced Pi session changes without overwriting the shared masters or borrowing another session’s memory.
+**Intent:** Persist Advanced Pi memory without overwriting the shared masters or borrowing another session’s memory.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The four shared Vault Markdown masters seed a new Codeflare session. With isolation active, Advanced Pi writes only its excluded working copies; sync transfers the masters and completed checkpoints, not working copies. <!-- @impl: entrypoint.sh::configure_pi_hermes_memory --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: AC2 existing rclone rules transfer canonical Markdown but no cache, sidecars, locks or alias copies) --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: independent sessions publish isolated checkpoints and restore without changing masters) -->
-2. If a returning container lacks its own working checkout, it restores Markdown and the original base from its complete checkpoint before using the masters. <!-- @impl: entrypoint.sh::configure_pi_hermes_memory --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: independent sessions publish isolated checkpoints and restore without changing masters) -->
-3. A checkpoint retains both versions for later merge. Invalid scope or incomplete input fails closed, preserving previous evidence and leaving other sessions and the masters untouched. <!-- @impl: entrypoint.sh::configure_pi_hermes_memory --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: incomplete captures and invalid checkpoints cannot replace durable memory) -->
-4. Baseline and bisync prepare the checkpoint before transfer, including after the final drain. <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: the existing bisync path snapshots the working tail before transfer) -->
-5. The exact recognized legacy signed adapter keeps its layout and signed bytes. <!-- @impl: entrypoint.sh::configure_pi_hermes_memory --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: a new image preserves the installed legacy signed adapter and activates isolation after seed upgrade) -->
-6. Checkpoint failure preserves its predecessor. <!-- @impl: entrypoint.sh::configure_pi_hermes_memory --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: incomplete captures and invalid checkpoints cannot replace durable memory) -->
-7. After isolation initializes, the session cannot downgrade to master writes, including after container replacement. <!-- @impl: entrypoint.sh::configure_pi_hermes_memory -->
-
-**Notes:** The AC6 fixture covers only rejection before publication. The transfer fixture covers degraded baseline/bisync and unrelated transfers, not the final-sync response. The [late checkpoint failure](.review-queue.md#hermes-checkpoint-predecessor) and [legacy downgrade](.review-queue.md#hermes-legacy-downgrade) gaps remain open.
+1. After a successful restore confirms an uninitialized store, any shared Vault masters seed only the owning session’s native Markdown. Each absent master seeds an empty file, including for a new user with no masters. Stock Hermes reads and writes that session’s files directly. <!-- @impl: entrypoint.sh::configure_pi_hermes_memory --> <!-- @impl: preseed/agents/pi/extensions/hermes-memory-runtime.ts::preparedLayout --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-041 AC1: a new user without Vault masters gets an empty usable session store) --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-041: uses real per-session Markdown and does not import or rewrite legacy checkpoints) -->
+2. Sync transfers the session’s Markdown unchanged, including a file cleared to empty. A replacement container for the same session opens the restored files directly. <!-- @impl: entrypoint.sh::transfer_pi_hermes_memory --> <!-- @impl: entrypoint.sh::prepare_pi_hermes_persistence --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (round-trips cleared Markdown without transferring Hermes transient files (${syncPolicyMode})) -->
+3. Failed or incomplete restore never creates replacement memory. An initialized store missing expected files is not treated as new. <!-- @impl: entrypoint.sh::prepare_pi_hermes_persistence --> <!-- @impl: entrypoint.sh::run_initial_r2_restore --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-041 AC3: refuses to reseed a partially restored initialized store) --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-041 AC3: a timed-out restore releases the terminal without seeding Hermes) -->
+4. The new layout does not import, create, or rewrite legacy checkpoints. Checkpoint-only additions do not carry forward. <!-- @impl: entrypoint.sh::configure_pi_hermes_memory --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-041: uses real per-session Markdown and does not import or rewrite legacy checkpoints) -->
+5. The exact recognized legacy signed adapter keeps its layout and signed bytes. <!-- @impl: entrypoint.sh::configure_pi_hermes_memory --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: a new image preserves the installed legacy signed adapter and activates isolation after seed upgrade) --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-041 AC5: v197 retains its own checkpoint behavior without changing signed bytes) -->
+6. The direct layout is used only with a compatible adapter; an initialized isolated store never downgrades to shared-master writes. <!-- @impl: src/container/index.ts::admitHermesStore --> <!-- @impl: entrypoint.sh::configure_pi_hermes_memory --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-041 AC6: direct admission or a local direct marker prevents fallback to signed legacy adapters) -->
+7. A confirmed eviction permits reseeding the session from the masters when readmitted. Missing or failed restore is not eviction. <!-- @impl: src/lib/hermes-retention.ts::HermesRetention --> <!-- @impl: entrypoint.sh::configure_pi_hermes_memory --> <!-- @test: src/__tests__/lib/hermes-retention.test.ts (REQ-MEM-041 AC7: a confirmed evicted store can be admitted as new) --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-MEM-041 AC3: refused or incomplete existing restore never reads from masters or reuploads stale local files) -->
 
 **Constraints:**
 
-- The updated adapter activates isolation at startup. <!-- @impl: entrypoint.sh::configure_pi_hermes_memory --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: a new image preserves the installed legacy signed adapter and activates isolation after seed upgrade) -->
-- A failed checkpoint does not block unrelated transfers. <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: the existing bisync path snapshots the working tail before transfer) -->
-- Final sync reports incomplete persistence when the checkpoint fails. <!-- @impl: entrypoint.sh::start_sync_daemon --> <!-- @impl: host/src/request-router.ts::createRequestHandler -->
-- No cross-session merge, recall or automatic removal of unmerged evidence. Existing shutdown deadlines remain intact.
+- No automatic cross-session merge or recall. The existing sync cadence and final drain remain unchanged.
+- Transient Hermes files follow [REQ-MEM-035 AC2](#req-mem-035-durable-pi-facts-with-disposable-local-search); retention follows [REQ-MEM-042](#req-mem-042-retain-ten-recent-session-memory-stores).
+- Separate files do not imply an atomic multi-file remote snapshot.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-MEM-035](#req-mem-035-durable-pi-facts-with-disposable-local-search)
 
-**Verification:** Automated: [pi-hermes-startup.test.js](../../host/__tests__/pi-hermes-startup.test.js)
+**Verification:** Automated: [pi-hermes-startup.test.js](../../host/__tests__/pi-hermes-startup.test.js), [entrypoint-rclone-filters.test.js](../../host/__tests__/entrypoint-rclone-filters.test.js), [hermes-retention.test.ts](../../src/__tests__/lib/hermes-retention.test.ts)
 
-**Status:** Partial
+**Status:** Implemented
+
+---
+
+### REQ-MEM-042: Retain ten recent session memory stores
+
+**Intent:** Bound durable per-user Hermes session memory without deleting live edits or touching unrelated data.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. At most ten new-layout Hermes stores are persisted per user. At capacity, each admitted store replaces a distinct least recently updated store. <!-- @test: src/__tests__/lib/hermes-retention.test.ts (REQ-MEM-042 AC1: overlapping admissions evict distinct least recently updated stores) --> <!-- @impl: src/lib/hermes-retention.ts::HermesRetention -->
+2. First persistence of session Markdown establishes recency. After that, only a change to its contents advances recency. Ties use ascending session ID. <!-- @test: src/__tests__/lib/hermes-retention.test.ts (REQ-MEM-042 AC2: an unchanged later sync does not touch rank, but an actual Markdown edit does) --> <!-- @test: src/__tests__/lib/hermes-retention.test.ts (REQ-MEM-042 AC2: sessions with equal content-update times evict by ascending session ID) --> <!-- @impl: src/lib/hermes-retention.ts::HermesRetention --> <!-- @impl: entrypoint.sh::transfer_pi_hermes_memory --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-MEM-042 AC2: identical Markdown keeps its remote timestamp and equal-size edits still transfer) --> <!-- @impl: src/lib/hermes-retention-r2.ts::hermesRetentionR2 --> <!-- @test: host/__tests__/entrypoint-storage-restart.test.js (REQ-MEM-042 AC2: scoped S3 upload stamps only new or changed Hermes bytes) --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (REQ-MEM-042 AC2: re-encrypting Hermes Markdown preserves its actual write timestamp) --> <!-- @test: src/__tests__/lib/hermes-retention.test.ts (REQ-MEM-042 AC2: a change back to previously observed bytes still counts as an update) -->
+3. If the oldest store has a live or unknown writer, new persistence is deferred and reported without blocking ordinary session startup or evicting a newer store. <!-- @impl: src/container/index.ts::launchSession --> <!-- @impl: src/container/index.ts::hermesWriterSettled --> <!-- @impl: src/lib/hermes-retention.ts::HermesRetention --> <!-- @test: src/__tests__/lib/hermes-retention.test.ts (REQ-MEM-042 AC3/AC4: does not reuse a slot on %s) --> <!-- @test: src/__tests__/container/session-stop.test.ts (REQ-MEM-042 AC3: unavailable memory admission defers persistence without stopping Advanced startup) --> <!-- @test: src/__tests__/container/session-stop.test.ts (REQ-MEM-042 AC3: final-sync status %s governs eviction after the stopped session row is deleted) -->
+4. Incomplete inventory or uncertain write ownership prevents eviction. An eviction removes the whole session memory folder; its slot is freed only after confirming the exact prefix is empty. Concurrent sync cannot recreate it with stale files. <!-- @impl: src/lib/hermes-retention.ts::HermesRetention --> <!-- @impl: src/lib/hermes-retention-r2.ts::hermesRetentionR2 --> <!-- @impl: entrypoint.sh::transfer_pi_hermes_memory --> <!-- @test: src/__tests__/lib/hermes-retention-r2.test.ts (REQ-MEM-042 AC4: whole-prefix R2 deletion leaves sibling stores and shared files intact) --> <!-- @test: src/__tests__/lib/hermes-retention-r2.test.ts (REQ-MEM-042 AC4: incomplete R2 listings cannot authorize even a partial delete) --> <!-- @test: src/__tests__/lib/hermes-retention.test.ts (REQ-MEM-042 AC4: a held deletion cannot free a slot after owner reconstruction (empty prefix=%s)) --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-MEM-042 AC4: sessions sharing a bucket cannot restore or re-upload each other's Hermes Markdown (${syncPolicyMode})) -->
+
+**Constraints:**
+
+- Pruning removes only `Vault/Memory/Sessions/<session-id>/` for the evicted new-layout store, including all files and subfolders inside it. A legacy checkpoint in that folder is removed with it. Checkpoint-only folders, session records, transcripts, shared masters, and other users’ data are outside retention.
+- Creating or resuming a Codeflare session, reading its files, and syncing unchanged Markdown never refresh an existing store’s rank. No container-local listing authorizes pruning.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-MEM-041](#req-mem-041-session-isolated-hermes-markdown)
+
+**Verification:** Automated: [admission](../../src/__tests__/lib/hermes-retention.test.ts), [R2 prefix and metadata](../../src/__tests__/lib/hermes-retention-r2.test.ts), [session lifecycle](../../src/__tests__/container/session-stop.test.ts), [sync scope](../../host/__tests__/entrypoint-rclone-filters.test.js), [S3 write stamps](../../host/__tests__/entrypoint-storage-restart.test.js), [re-encryption](../../src/__tests__/lib/r2-migration.test.ts)
+
+**Status:** Implemented
 
 ---
 

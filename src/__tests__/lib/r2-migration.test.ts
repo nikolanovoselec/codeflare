@@ -96,11 +96,11 @@ function listXml(objects: { key: string; size: number }[], truncated = false, ne
 }
 
 /** Wire mockFetch to a regime-aware in-memory bucket. pageSize forces ListObjectsV2 pagination. */
-function makeR2(objects: Record<string, { regime: R2SseRegime; size?: number; etag?: string }>, opts: { pageSize?: number; copyErrorBody?: boolean } = {}) {
+function makeR2(objects: Record<string, { regime: R2SseRegime; size?: number; etag?: string; meta?: Record<string, string> }>, opts: { pageSize?: number; copyErrorBody?: boolean } = {}) {
   const pageSize = opts.pageSize ?? 1000;
   const store = new Map<string, SimObj>();
   for (const [k, o] of Object.entries(objects)) {
-    store.set(k, { regime: o.regime, size: o.size ?? 10, etag: o.etag ?? '"e1"', contentType: 'text/markdown', meta: { 'x-amz-meta-foo': 'bar' } });
+    store.set(k, { regime: o.regime, size: o.size ?? 10, etag: o.etag ?? '"e1"', contentType: 'text/markdown', meta: { 'x-amz-meta-foo': 'bar', ...o.meta } });
   }
   const puts: Array<{ key: string; headers: Record<string, string>; to: R2SseRegime }> = [];
   const heads: Array<{ key: string; regime: R2SseRegime }> = [];
@@ -139,7 +139,12 @@ function makeR2(objects: Record<string, { regime: R2SseRegime; size?: number; et
       if (opts.copyErrorBody) {
         return new Response('<?xml version="1.0"?><Error><Code>InternalError</Code></Error>', { status: 200 });
       }
-      if (obj) obj.regime = to;
+      if (obj) {
+        obj.regime = to;
+        if (headers['x-amz-metadata-directive'] === 'REPLACE') {
+          obj.meta = Object.fromEntries(Object.entries(headers).filter(([name]) => name.startsWith('x-amz-meta-')));
+        }
+      }
       return new Response('<CopyObjectResult><ETag>"e2"</ETag></CopyObjectResult>', { status: 200 });
     }
     return new Response(null, { status: 500 });
@@ -279,6 +284,14 @@ describe('migrateBucketEncryption (lossless REPLACE re-encrypt)', () => {
     expect(h['x-amz-server-side-encryption-customer-key']).toBeUndefined(); // plaintext dest
     expect(h['content-type']).toBe('text/markdown'); // preserved
     expect(h['x-amz-meta-foo']).toBe('bar'); // preserved
+  });
+
+  it('REQ-MEM-042 AC2: re-encrypting Hermes Markdown preserves its actual write timestamp', async () => {
+    const key = 'Vault/Memory/Sessions/session1234/global/MEMORY.md';
+    const stamp = 'x-amz-meta-codeflare-hermes-written-at';
+    const f = makeR2({ [key]: { regime: 'sse-c', meta: { [stamp]: '1795300000000' } } });
+    await migrateBucketEncryption(r2Env, 'bkt', 'https://r2.test', 'sse-c', 'plain');
+    expect(f.store.get(key)).toMatchObject({ regime: 'plain', meta: { [stamp]: '1795300000000' } });
   });
 
   it('plain → sse-c: REPLACE + dest SSE + no copy-source decrypt', async () => {

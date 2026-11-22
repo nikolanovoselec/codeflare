@@ -47,7 +47,8 @@ function deferred() {
 // Model the platform lifetime boundary: pending I/O is canceled on disconnect
 // unless an unsettled waitUntil task still owns execution. Assert D1/runtime
 // outcomes, not implementation calls or promise-registration counts.
-async function fixture(initial: 'stopped' | 'starting' | 'running' | 'stopping' | 'unreachable' = 'running', generation = ref.generation) {
+async function fixture(initial: 'stopped' | 'starting' | 'running' | 'stopping' | 'unreachable' = 'running', generation = ref.generation,
+  hermesFinalSyncStatus?: number) {
   const kv = createMockKV();
   const key = `session:${ref.bucket}:${ref.sessionId}`;
   kv._set(key, { id: ref.sessionId, userId: ref.bucket, name: 'Retained workspace',
@@ -85,13 +86,15 @@ async function fixture(initial: 'stopped' | 'starting' | 'running' | 'stopping' 
     return statement;
   };
   const env = { USAGE_DB: db, KV: kv, R2_ACCOUNT_ID: 'test-account', R2_ENDPOINT: 'https://r2.test',
-    CONTAINER: { idFromName: (name: string) => ({ toString: () => name }) } } as unknown as Env;
+    CONTAINER: { idFromName: (name: string) => ({ toString: () => name }),
+      ...(hermesFinalSyncStatus !== undefined && { get: () => ({ admitHermesStore: async () => 'new' }) }),
+    } } as unknown as Env;
   const repository = new D1SessionRepository(db);
   let running = initial !== 'starting' && initial !== 'stopped';
   let startGate: ReturnType<typeof deferred> | undefined;
   const startEntered = deferred();
   let launched = false;
-  let launchSyncMode: string | undefined;
+  let launchEnv: Record<string, string> | undefined;
   let draining = false;
   let teardownGate: ReturnType<typeof deferred> | undefined;
   let teardownEntered = deferred();
@@ -113,7 +116,8 @@ async function fixture(initial: 'stopped' | 'starting' | 'running' | 'stopping' 
       container: initial === 'starting' || initial === 'stopped' ? {
         get running() { return running; },
         signal() { running = false; },
-        getTcpPort: () => ({ fetch: async () => new Response('', { status: 503 }) }),
+        getTcpPort: () => ({ fetch: async () => Response.json({ synced: hermesFinalSyncStatus === 200 },
+          { status: hermesFinalSyncStatus ?? 503 }) }),
         monitor: () => new Promise<void>(() => {}),
       } : undefined,
       blockConcurrencyWhile: (fn: () => Promise<unknown>) => { ready = fn(); },
@@ -137,7 +141,7 @@ async function fixture(initial: 'stopped' | 'starting' | 'running' | 'stopping' 
     schedulesByContext.set(ctx, schedules);
     scheduleFailureByContext.set(ctx, () => scheduleUnavailable);
     nativeStartByContext.set(ctx, async env => {
-      launchSyncMode = env?.SYNC_MODE;
+      launchEnv = env ? { ...env } : undefined;
       startEntered.resolve();
       // The SDK can already be committed to a native call when Stop arrives.
       // Model the callback arriving late even after cancellation was requested.
@@ -160,7 +164,7 @@ async function fixture(initial: 'stopped' | 'starting' | 'running' | 'stopping' 
     return instance;
   }
   return { env, kv, key, repository, coordinator, workFailures, configureStart, enteredStart: () => startEntered.promise,
-    launched: () => launched, launchSyncMode: () => launchSyncMode,
+    launched: () => launched, launchSyncMode: () => launchEnv?.SYNC_MODE, launchEnv: () => launchEnv,
     holdStart: () => { startGate = deferred(); return startGate; },
     forbidNative: () => { nativeForbidden = true; },
     failSchedule: (fail: boolean) => { scheduleUnavailable = fail; },
@@ -192,10 +196,10 @@ async function fixture(initial: 'stopped' | 'starting' | 'running' | 'stopping' 
   };
 }
 
-function configureLaunch(instance: SessionContainer, generation: number, workspaceSyncEnabled = false) {
+function configureLaunch(instance: SessionContainer, generation: number, workspaceSyncEnabled = false, sessionMode?: 'advanced') {
   return instance.fetch(new Request('http://container/_internal/setBucketName', {
     method: 'POST', headers: { 'X-Codeflare-Start-Generation': String(generation) },
-    body: JSON.stringify({ bucketName: ref.bucket, sessionId: ref.sessionId, sleepAfter: '1h', workspaceSyncEnabled }),
+    body: JSON.stringify({ bucketName: ref.bucket, sessionId: ref.sessionId, sleepAfter: '1h', workspaceSyncEnabled, sessionMode }),
   }));
 }
 
@@ -275,6 +279,39 @@ describe('REQ-SESSION-018 AC4: pending Start cannot outlive its Stop', () => {
 });
 
 describe('REQ-SESSION-008: startup configuration uses the admitted run and bucket', () => {
+  it('REQ-MEM-042 AC3: unavailable memory admission defers persistence without stopping Advanced startup', async () => {
+    // The ordinary start fixture has no reachable bucket-owner RPC. The native
+    // launch environment is the contract consumed by the entrypoint.
+    const f = await fixture('stopped');
+    f.configureStart();
+    const instance = await f.coordinator();
+    const response = await configureLaunch(instance, ref.generation, true, 'advanced');
+    const generation = ref.generation + 1;
+    expect(response.headers.get('X-Codeflare-Start-Claim')).toBe(String(generation));
+    await instance.startSession({ ...ref, generation });
+    expect(await f.read()).toMatchObject({ lifecycleState: 'running', lifecycleGeneration: generation });
+    expect(f.launchEnv()).toMatchObject({ SESSION_MODE: 'advanced', SYNC_MODE: 'full', CODEFLARE_HERMES_PERSISTENCE: 'deferred' });
+  });
+
+  it.each([200, 504])('REQ-MEM-042 AC3: final-sync status %s governs eviction after the stopped session row is deleted', async status => {
+    const f = await fixture('stopped', ref.generation, status);
+    f.configureStart();
+    const started = await f.coordinator();
+    const generation = ref.generation + 1;
+    expect((await configureLaunch(started, ref.generation, true, 'advanced')).headers.get('X-Codeflare-Start-Claim')).toBe(String(generation));
+    const execution = { ...ref, generation };
+    await started.startSession(execution);
+    expect(f.launchEnv()?.CODEFLARE_HERMES_PERSISTENCE).toBe('new');
+    const writer = { sessionId: ref.sessionId, generation };
+    expect(await started.hermesWriterSettled(ref.bucket, writer)).toBe(false);
+    await started.stopSession(execution);
+    expect(await f.repository.deleteConfirmed(ref.bucket, ref.sessionId, generation)).toBe(true);
+    const reopened = await f.coordinator();
+    expect(await f.read()).toBeNull();
+    expect(await reopened.hermesWriterSettled(ref.bucket, writer)).toBe(status === 200);
+    expect(await reopened.hermesWriterSettled(ref.bucket, { ...writer, generation: generation + 1 })).toBe(false);
+  });
+
   it('only the winning configuration can claim and launch the stopped session', async () => {
     const f = await fixture('stopped');
     f.configureStart();

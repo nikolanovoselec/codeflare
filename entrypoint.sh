@@ -603,6 +603,19 @@ RCLONE_FILTERS_COMMON=(
     # $HOME/.config/.wrangler/ (also outside the admitted OpenCode namespace).
     --filter "- .wrangler/**"
 
+    # Hermes stores have a separate, exact, session-owned transfer. In particular,
+    # ordinary restore/bisync must neither download nor delete legacy checkpoints.
+    --filter "- /Vault/Memory/Sessions/**"
+    --filter "- /Vault/Memory/Sessions"
+    --filter "- /.pi/agent/hermes-project-memory/**"
+    --filter "- /.pi/agent/hermes-project-memory"
+    --filter "- /.pi/agent/pi-hermes-memory/.consolidation-locks/**"
+    --filter "- /Vault/.pi-hermes-locks.sqlite*"
+    --filter "- /Vault/Memory/**/.pi-hermes-locks.sqlite*"
+    --filter "- /Vault/Memory/**/.*.md.recovery-*"
+    --filter "- /Vault/Memory/**/.*.md.retired-*"
+    --filter "- /Vault/Memory/**/.tmp-*/write.tmp"
+
     "${VAULT_FILTER[@]}"
 
     # Global graphify graph is rebuilt at boot from per-project graphs and
@@ -847,6 +860,107 @@ compose_rclone_filters() {
     RCLONE_EFFECTIVE_FILTERS=(--filter-from "$effective")
 }
 
+transfer_pi_hermes_memory() {
+    (
+        local direction="$1" layout="$2" deadline="$3"
+        local prefix="Vault/Memory/Sessions/${SESSION_ID:-}"
+        local source="$USER_HOME/" target="r2:$R2_BUCKET_NAME/"
+        local -a files
+        [[ "${SESSION_ID:-}" =~ ^[a-z0-9]{8,24}$ ]] || return 1
+        if [ "$direction" = restore ]; then
+            source="$target" target="$USER_HOME/"
+        fi
+        case "$layout" in
+            direct) files=("$prefix/global/USER.md" "$prefix/global/MEMORY.md" "$prefix/global/failures.md"
+                           "$prefix/Projects/workspace/MEMORY.md" "$prefix/session-id") ;;
+            v197) files=("$prefix/checkpoint.json") ;;
+            *) return 1 ;;
+        esac
+        local filter expected listed
+        filter=$(mktemp "$CODEFLARE_RUNTIME_ROOT/sync/hermes-filter.XXXXXX") || return 1
+        trap 'rm -f "$filter"' EXIT
+        {
+            cat "$MANAGED_RESOURCE_FILTER_FILE" "$RECOVERY_FILTER_FILE" &&
+            printf '+ /%s\n' "${files[@]}" && printf '%s\n' '- **'
+        } > "$filter" || return 1
+        local -a args=(--config "$RCLONE_CONFIG" --filter-from "$filter" --contimeout 5s --timeout 15s --checkers 4)
+        expected=$(printf '%s\n' "${files[@]}" | LC_ALL=C sort)
+        [ "$deadline" -gt "$SECONDS" ] || return 1
+        if [ "$layout:$direction" = direct:upload ]; then
+            # SSE-C metadata cannot establish byte equality. Download-compare
+            # the exact files, so a byte-identical object keeps its R2 timestamp.
+            local compared changed check_result=0
+            compared=$(timeout "$((deadline - SECONDS))" rclone check "$source" "$target" "${args[@]}" \
+                --download --one-way --combined - 2>> "$CODEFLARE_RUNTIME_ROOT/sync/sync.log") || check_result=$?
+            [ "$check_result" -le 2 ] || return 1
+            [ "$(printf '%s\n' "$compared" | sed -n 's/^[+=*] //p' | LC_ALL=C sort)" = "$expected" ] || return 1
+            changed=$(printf '%s\n' "$compared" | sed -n 's/^[+*] //p')
+            [ -n "$changed" ] || return "$check_result"
+            expected=$(printf '%s\n' "$changed" | LC_ALL=C sort)
+            local written_at
+            written_at=$(date +%s%3N) || return 1
+            [[ "$written_at" =~ ^[0-9]{13}$ ]] || return 1
+            args+=(--metadata --metadata-set "codeflare-hermes-written-at=$written_at")
+            {
+                cat "$MANAGED_RESOURCE_FILTER_FILE" "$RECOVERY_FILTER_FILE" &&
+                printf '%s\n' "$changed" | sed 's|^|+ /|' && printf '%s\n' '- **'
+            } > "$filter" || return 1
+        else
+            listed=$(timeout "$((deadline - SECONDS))" rclone lsf "$source" --recursive --files-only "${args[@]}") || return 1
+            if [ "$layout" = v197 ] && [ -z "$listed" ]; then
+                # An unedited v197 store has no checkpoint. Do not mistake a
+                # vetoed existing checkpoint for a successful upload.
+                [ "$direction" = restore ] || [ ! -e "$USER_HOME/${files[0]}" ]
+                return $?
+            fi
+            [ "$(printf '%s\n' "$listed" | LC_ALL=C sort)" = "$expected" ] || return 1
+        fi
+        [ "$deadline" -gt "$SECONDS" ] || return 1
+        args+=(--no-traverse --transfers 4)
+        if [ "$layout" = v197 ]; then
+            timeout "$((deadline - SECONDS))" rclone copy "$source" "$target" "${args[@]}"
+            return $?
+        fi
+        # The source may change after inventory (e.g. a foreground atomic
+        # rewrite). A successful copy that skipped a missing file is incomplete.
+        local copied
+        copied=$(timeout "$((deadline - SECONDS))" rclone copy "$source" "$target" "${args[@]}" \
+            --ignore-times --retries 1 --combined -) || return 1
+        [ "$(printf '%s\n' "$copied" | sed -n 's/^[+=*] //p' | LC_ALL=C sort)" = "$expected" ]
+    )
+}
+
+prepare_pi_hermes_persistence() {
+    local layout
+    layout=$(configure_pi_hermes_memory "$USER_HOME" layout) || return 1
+    case "${CODEFLARE_HERMES_PERSISTENCE:-}:$layout" in
+        new:direct|legacy:v196) ;;
+        existing:direct|legacy:v197)
+            configure_pi_hermes_memory "$USER_HOME" validate || return 1
+            transfer_pi_hermes_memory restore "$layout" "$HERMES_RESTORE_DEADLINE" || return 1 ;;
+        *) return 1 ;;
+    esac
+    configure_pi_hermes_memory
+}
+
+persist_pi_hermes_memory() {
+    [ "${SESSION_MODE:-default}" = advanced ] || return 0
+    [ "${CODEFLARE_HERMES_PERSISTENCE:-}" != deferred ] || return 0
+    local layout
+    local ready="$CODEFLARE_RUNTIME_ROOT/sync/hermes-ready"
+    [ -f "$ready" ] && read -r layout < "$ready" || return 1
+    case "${CODEFLARE_HERMES_PERSISTENCE:-}:$layout" in
+        "new:direct:$SESSION_ID"|"existing:direct:$SESSION_ID")
+            configure_pi_hermes_memory "$USER_HOME" check-direct || return 1
+            transfer_pi_hermes_memory upload direct "$((SECONDS + 30))" ;;
+        "legacy:v197:$SESSION_ID")
+            configure_pi_hermes_memory "$USER_HOME" checkpoint || return 1
+            transfer_pi_hermes_memory upload v197 "$((SECONDS + 30))" ;;
+        "legacy:v196:$SESSION_ID") return 0 ;;  # Masters follow ordinary sync.
+        *) return 1 ;;
+    esac
+}
+
 # Step 1: One-way sync FROM R2 TO local (restore user data)
 # This ensures existing credentials, plugins, etc. are restored BEFORE anything else runs
 # Workspace sync controlled by SYNC_MODE (none, full, or metadata-only)
@@ -895,7 +1009,7 @@ initial_sync_from_r2() {
     elif [ $SYNC_RESULT -eq 124 ]; then
         SYNC_ERROR="rclone sync timed out after ${SYNC_TIMEOUT}s"
         echo "[entrypoint] WARNING: $SYNC_ERROR (continuing anyway)"
-        return 0  # Don't block startup
+        return 124  # Ordinary startup may proceed, but this does not authorize Hermes.
     else
         SYNC_ERROR="rclone sync R2→local failed with code $SYNC_RESULT"
         echo "[entrypoint] WARNING: $SYNC_ERROR"
@@ -1098,15 +1212,11 @@ establish_bisync_baseline() {
     fi
     local BISYNC_TIMEOUT=600  # 10 minutes max for baseline (large buckets with many files)
     local MAX_RECOVERY=3
-    local checkpoint_result
+    local hermes_result
 
     for recovery_attempt in $(seq 1 $MAX_RECOVERY); do
         echo "[entrypoint] Step 2: Establishing bisync baseline (max ${BISYNC_TIMEOUT}s, attempt $recovery_attempt/$MAX_RECOVERY)..." | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
 
-        checkpoint_result=0
-        if [ -e "$USER_HOME/.cache/pi-hermes-memory/working" ] || [ -L "$USER_HOME/.cache/pi-hermes-memory/working" ]; then
-            configure_pi_hermes_memory "$USER_HOME" checkpoint || checkpoint_result=65
-        fi
         compose_rclone_filters || return 1
         BASELINE_OUTPUT=$(mktemp)
         # --use-server-modtime + --checkers 64: avoid the per-file mtime HEAD storm; see
@@ -1154,11 +1264,13 @@ establish_bisync_baseline() {
             rm -f "$BASELINE_OUTPUT"
             echo "[entrypoint] Step 2 complete: Bisync baseline established" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
             touch $CODEFLARE_RUNTIME_ROOT/sync/bisync-initialized
-            if [ "$checkpoint_result" -ne 0 ]; then
-                SYNC_ERROR="Files synced, but the latest Hermes memory checkpoint could not be saved"
+            hermes_result=0
+            persist_pi_hermes_memory || hermes_result=65
+            if [ "$hermes_result" -ne 0 ]; then
+                SYNC_ERROR="Files synced, but Hermes memory persistence is incomplete"
                 echo "[sync] WARNING: $SYNC_ERROR" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log >&2
                 SYNC_STATUS="failed"
-                return "$checkpoint_result"
+                return "$hermes_result"
             fi
             SYNC_STATUS="success"
             return 0
@@ -1241,12 +1353,6 @@ bisync_with_r2() {
         echo "[sync] Sync blocked by disk space; explicit recovery is required"
         return 1
     fi
-    # Exit 65 means rclone succeeded but the local memory checkpoint failed.
-    # Still transfer unrelated files and keep the previous checkpoint intact.
-    local checkpoint_result=0
-    if [ -e "$USER_HOME/.cache/pi-hermes-memory/working" ] || [ -L "$USER_HOME/.cache/pi-hermes-memory/working" ]; then
-        configure_pi_hermes_memory "$USER_HOME" checkpoint || checkpoint_result=65
-    fi
     compose_rclone_filters || return 1
     local verbose_flag="${1-}"  # Quiet by default; preserve optional explicit caller verbosity.
     local verbose_args=()
@@ -1317,7 +1423,10 @@ bisync_with_r2() {
         # A sync that rewrote a hook from R2 dropped its exec bit; restore it here so
         # the window is seconds rather than the rest of the daemon cycle.
         repair_hook_exec_bits
-        return "$checkpoint_result"
+        # Exit 65 preserves the existing incomplete-sync contract: ordinary
+        # files transferred, but the exact Hermes transfer did not complete.
+        persist_pi_hermes_memory || return 65
+        return 0
     fi
     return $RESULT
 }
@@ -1377,13 +1486,13 @@ run_daily_vault_session_compaction() {
 
     local transfer_result=0
     bisync_with_r2 "" || transfer_result=$?
-    # A failed Hermes checkpoint does not undo a successful archive transfer.
+    # A failed Hermes transfer does not undo a successful archive transfer.
     if [ "$transfer_result" -ne 0 ] && [ "$transfer_result" -ne 65 ]; then
         echo "[session-compaction] WARNING: compaction bisync failed" >&2
         return 1
     fi
     if [ "$transfer_result" -eq 65 ]; then
-        echo "[session-compaction] WARNING: archive synced; Hermes checkpoint incomplete" >&2
+        echo "[session-compaction] WARNING: archive synced; Hermes persistence incomplete" >&2
     fi
     rm -rf -- "$state_dir" || return 1
     printf '%s\n' "$today" > "${stamp}.tmp" && mv -f "${stamp}.tmp" "$stamp" || return 1
@@ -1512,7 +1621,7 @@ start_sync_daemon() {
             run_vault_session_compaction_after_sync "$BISYNC_CYCLE_TRIGGER"
         elif [ "$SYNC_RESULT" -eq 65 ]; then
             CONSECUTIVE_FAILURES=0
-            update_sync_status "failed" "Files synced, but the latest Hermes memory checkpoint could not be saved"
+            update_sync_status "failed" "Files synced, but Hermes memory persistence is incomplete"
         else
             if [ "${BISYNC_DISK_BLOCKED:-0}" = "1" ] || [ -f "$CODEFLARE_RUNTIME_ROOT/sync/disk-space-blocked" ]; then
                 update_sync_status "failed" "Local disk full. Free local disk space, then click the cloud Sync now button to retry." || echo "[sync] Cannot publish disk-space status; sync remains blocked" >&2
@@ -1535,7 +1644,7 @@ start_sync_daemon() {
                     continue
                 elif [ "$?" -eq 65 ]; then
                     CONSECUTIVE_FAILURES=0
-                    update_sync_status "failed" "Files synced, but the latest Hermes memory checkpoint could not be saved"
+                    update_sync_status "failed" "Files synced, but Hermes memory persistence is incomplete"
                     BISYNC_IN_FLIGHT=
                     continue
                 fi
@@ -2925,7 +3034,7 @@ init_sync_log
 # ============================================================================
 export CODEFLARE_INIT_FLAG_FILE=$CODEFLARE_RUNTIME_ROOT/services/init-complete
 export CODEFLARE_POLICY_STATUS_FILE=$CODEFLARE_RUNTIME_ROOT/services/managed-policy-status
-rm -f "$CODEFLARE_INIT_FLAG_FILE" "$CODEFLARE_POLICY_STATUS_FILE"
+rm -f "$CODEFLARE_INIT_FLAG_FILE" "$CODEFLARE_POLICY_STATUS_FILE" "$SYNC_RUNTIME_DIR/hermes-ready"
 
 # REQ-GITHUB-015 AC1: gates the /health workspace repository inventory so a
 # repository the restore below has not yet recreated is never reported as
@@ -3026,6 +3135,7 @@ run_initial_r2_restore() {
 
         # Step 1: One-way sync FROM R2 to restore user data (credentials, plugins, etc.)
         update_sync_status "syncing" "null"
+        HERMES_RESTORE_DEADLINE=$((SECONDS + 120))
         initial_sync_from_r2 &
         SYNC_PID=$!
         echo "[entrypoint] R2 sync started in background (PID $SYNC_PID)"
@@ -3034,12 +3144,13 @@ run_initial_r2_restore() {
         # Use && / || to prevent set -e from killing the script on non-zero exit
         wait $SYNC_PID && STEP1_RESULT=0 || STEP1_RESULT=$?
 
-        if [ $STEP1_RESULT -eq 0 ]; then
-            # Ensure workspace directory exists after sync
+        if [ "$STEP1_RESULT" -eq 0 ] || [ "$STEP1_RESULT" -eq 124 ]; then
             mkdir -p "$USER_WORKSPACE"
+        fi
+        if [ "$STEP1_RESULT" -eq 0 ]; then
             update_sync_status "success" "null"
         else
-            update_sync_status "failed" "$SYNC_ERROR"
+            update_sync_status "failed" "${SYNC_ERROR:-Restore incomplete}"
             # Continue anyway - servers should still start
         fi
     else
@@ -3104,20 +3215,25 @@ console.log('[entrypoint] Pi Plan Mode policy configured');
 NODE
 }
 
-# REQ-MEM-035: prepare only the canonical Markdown and excluded local cache.
-# This runs after restore, before any foreground Pi is released. Legacy runtime
-# migration is a separate quiesced operation; never move an open database here.
+# REQ-MEM-035/041: prepare the admitted native store after restore and before
+# foreground Pi. Only the exact published legacy adapters retain their old layouts.
 configure_pi_hermes_memory() {
     [ "${SESSION_MODE:-default}" = "advanced" ] || return 0
     local memory_home="${1:-$USER_HOME}"
-    python3 - "$memory_home" "${SESSION_ID:-}" "${2:-prepare}" "${REMOTE_CURATION_ACTIVE:-false}" <<'PY'
+    python3 - "$memory_home" "${SESSION_ID:-}" "${2:-prepare}" "${REMOTE_CURATION_ACTIVE:-false}" \
+        "${CODEFLARE_HERMES_PERSISTENCE:-}" "$CODEFLARE_RUNTIME_ROOT/sync/hermes-ready" \
+        "${PI_WARM_EXTENSIONS_DIR:-/opt/codeflare/pi-agent/extensions}/hermes-memory-runtime.ts" <<'PY'
 import hashlib, json, os, re, stat, sys, tempfile, shutil
 from pathlib import Path
 
 home = Path(os.path.abspath(sys.argv[1]))
-session, phase, remote = sys.argv[2:5]
+session, phase, remote, persistence = sys.argv[2:6]
+ready, image_adapter = map(Path, sys.argv[6:8])
 agent = home / '.pi/agent'
 vault = home / 'Vault/Memory'
+evidence = vault / 'Sessions' / session
+marker = evidence / 'session-id'
+checkpoint = evidence / 'checkpoint.json'
 cache = home / '.cache/pi-hermes-memory'
 work = cache / 'working'
 base_path = work / 'base.json'
@@ -3140,7 +3256,7 @@ def kind(path, predicate, required=False):
 
 def direct_directory(path):
     current = home
-    kind(current, stat.S_ISDIR)
+    kind(current, stat.S_ISDIR, required=True)
     for segment in path.relative_to(home).parts:
         current = current / segment
         kind(current, stat.S_ISDIR)
@@ -3215,21 +3331,78 @@ def write_config(global_dir):
         'flushRecentMessages': 20, 'sessionIndexExclude': ['*']})
     atomic(config_path, config, agent)
 
-def signed_legacy_adapter():
-    directory = agent / 'extensions'
-    direct_directory(directory)
-    adapter = directory / 'hermes-memory-runtime.ts'
-    # seed-v196 is the published adapter reviewed for the image-before-seed rollout.
-    return kind(adapter, stat.S_ISREG) and hashlib.sha256(read(adapter).encode()).hexdigest() == (
-        '022e0ccae29f5235e4931829802e5656432111efe83f4c0c07b2cf22f1ca6a75')
+def adapter_layout():
+    adapter = agent / 'extensions/hermes-memory-runtime.ts'
+    direct_directory(adapter.parent)
+    data = read(adapter).encode()
+    if persistence == 'legacy' and remote == 'true':
+        published = {
+            '022e0ccae29f5235e4931829802e5656432111efe83f4c0c07b2cf22f1ca6a75': 'v196',
+            'd6e0420a7a73120a48a457f38bce4a941a4c658fb7799ed89f8785f875735395': 'v197',
+        }
+        layout = published.get(hashlib.sha256(data).hexdigest())
+        if layout:
+            return layout
+    if persistence in ('new', 'existing') and data == read(image_adapter).encode():
+        return 'direct'
+    raise ValueError('Hermes adapter is not compatible with the admission')
+
+
+def legacy_project_link():
+    return project.is_symlink() and Path(os.path.abspath(project.parent / os.readlink(project))) in (
+        vault / 'Projects', work / 'Projects')
+
+
+def check_direct(required):
+    for path in (evidence / 'global', evidence / 'Projects/workspace'):
+        direct_directory(path)
+    for path in [marker, *(evidence / name for name in paths.values())]:
+        if kind(path, stat.S_ISREG, required) and path.lstat().st_nlink != 1:
+            raise ValueError('Hermes file is not independently owned')
+    if required and read(marker) != session + '\n':
+        raise ValueError('wrong Hermes store marker')
+
+
+def prepare_direct_layout():
+    check_direct(False)
+    for path in (cache / 'owners', cache / 'consolidation-locks'):
+        direct_directory(path)
+    for database in (evidence / 'global/sessions.db', evidence / '.pi-hermes-locks.sqlite',
+                     evidence / 'Projects/.pi-hermes-locks.sqlite'):
+        for suffix in ('', '-wal', '-shm', '-journal'):
+            kind(Path(str(database) + suffix), stat.S_ISREG)
+    target = evidence / 'Projects'
+    if os.path.lexists(project) and not (legacy_project_link() or (
+        project.is_symlink() and Path(os.path.abspath(project.parent / os.readlink(project))) == target)):
+        raise ValueError('conflicting memory alias')
+    if os.path.lexists(marker) or persistence == 'existing':
+        check_direct(True)
+    else:
+        # A partial local store is not a new store, even if the marker is absent.
+        if any(os.path.lexists(evidence / name) for name in paths.values()):
+            raise ValueError('incomplete local Hermes store')
+        direct_directory(vault / 'Projects/workspace')
+        source = {name: read(vault / name) if kind(vault / name, stat.S_ISREG) else '' for name in paths}
+        for name, rel in paths.items():
+            destination = evidence / rel
+            destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            with os.fdopen(os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
+                output.write(source[name].encode())
+        with os.fdopen(os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w') as output:
+            output.write(session + '\n')
+    if legacy_project_link():
+        project.unlink()
+    if not os.path.lexists(project):
+        project.symlink_to(target, target_is_directory=True)
+    for path in (cache / 'owners', cache / 'consolidation-locks'):
+        path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    write_config(evidence / 'global')
 
 
 def prepare_signed_legacy_layout():
     # Keep the verified old adapter operational during image-before-seed rollout.
     # Never roll a container with session-local data back to master writes.
-    prior = vault / 'Sessions' / session / 'checkpoint.json'
-    direct_directory(prior.parent)
-    if os.path.lexists(work) or os.path.lexists(prior):
+    if os.path.lexists(work) or os.path.lexists(checkpoint):
         raise ValueError('cannot downgrade session memory')
     global_dir = cache / 'global'
     directories = (vault / 'Projects/workspace', global_dir, cache / 'consolidation-locks', consolidation.parent)
@@ -3259,34 +3432,7 @@ def prepare_signed_legacy_layout():
     write_config(global_dir)
 
 
-try:
-    if not re.fullmatch('[a-z0-9]{8,24}', session) or phase not in ('prepare', 'checkpoint'):
-        raise ValueError('missing or invalid container session identity')
-    if phase == 'prepare':
-        direct_directory(agent)
-        config = json.loads(read(config_path)) if kind(config_path, stat.S_ISREG) else {}
-        if not isinstance(config, dict):
-            raise ValueError('memory configuration must be an object')
-        if remote == 'true' and signed_legacy_adapter():
-            prepare_signed_legacy_layout()
-            print('[entrypoint] Verified legacy signed Hermes adapter retained until seed upgrade')
-            sys.exit(0)
-    evidence = vault / 'Sessions' / session
-    checkpoint = evidence / 'checkpoint.json'
-    for parent in (work / 'global', work / 'Projects/workspace', evidence):
-        direct_directory(parent)
-    if phase == 'checkpoint':
-        seed = load(base_path)
-        current = snapshot(work, paths)
-        if not kind(checkpoint, stat.S_ISREG) and current == seed['base']:
-            sys.exit(0)
-        if kind(checkpoint, stat.S_ISREG) and load(checkpoint, True)['base'] != seed['base']:
-            raise ValueError('checkpoint belongs to a different baseline')
-        evidence.mkdir(parents=True, exist_ok=True, mode=0o700)
-        digest = hashlib.sha256(encode({'base': seed['base'], 'current': current})).hexdigest()
-        atomic(checkpoint, {**seed, 'current': current, 'sha256': digest}, cache)
-        sys.exit(0)
-
+def prepare_checkpoint_layout():
     for directory in (vault / 'Projects/workspace', agent / 'pi-hermes-memory', cache / 'consolidation-locks'):
         direct_directory(directory)
     for name in paths:
@@ -3343,7 +3489,65 @@ try:
         if not os.path.lexists(link):
             link.symlink_to(target, target_is_directory=True)
     write_config(work / 'global')
-    print('[entrypoint] Session-scoped Hermes Markdown and local search cache prepared')
+
+
+try:
+    if phase == 'disable':
+        ready.unlink(missing_ok=True)
+        direct_directory(agent)
+        # The old signed adapters require this exact alias; remove only a known
+        # managed legacy alias when authorization or restore has failed.
+        if legacy_project_link():
+            project.unlink()
+        sys.exit(0)
+    if not re.fullmatch('[a-z0-9]{8,24}', session):
+        raise ValueError('missing or invalid container session identity')
+    layout = adapter_layout()
+    if layout != 'direct':
+        direct_directory(evidence)
+        if any(os.path.lexists(path) for path in [marker, *(evidence / name for name in paths.values())]):
+            raise ValueError('cannot downgrade session memory')
+    if phase == 'layout':
+        print(layout)
+        sys.exit(0)
+    if phase == 'validate':
+        if layout == 'direct':
+            check_direct(False)
+        elif layout == 'v197':
+            kind(checkpoint, stat.S_ISREG)
+        sys.exit(0)
+    if phase == 'check-direct' and layout == 'direct':
+        check_direct(True)
+        sys.exit(0)
+    if phase == 'checkpoint' and layout == 'v197':
+        for parent in (work / 'global', work / 'Projects/workspace', evidence):
+            direct_directory(parent)
+        seed = load(base_path)
+        current = snapshot(work, paths)
+        if not kind(checkpoint, stat.S_ISREG) and current == seed['base']:
+            sys.exit(0)
+        if kind(checkpoint, stat.S_ISREG) and load(checkpoint, True)['base'] != seed['base']:
+            raise ValueError('checkpoint belongs to a different baseline')
+        evidence.mkdir(parents=True, exist_ok=True, mode=0o700)
+        digest = hashlib.sha256(encode({'base': seed['base'], 'current': current})).hexdigest()
+        atomic(checkpoint, {**seed, 'current': current, 'sha256': digest}, cache)
+        sys.exit(0)
+    if phase != 'prepare':
+        raise ValueError('unsupported Hermes preparation phase')
+    direct_directory(agent)
+    config = json.loads(read(config_path)) if kind(config_path, stat.S_ISREG) else {}
+    if not isinstance(config, dict):
+        raise ValueError('memory configuration must be an object')
+    if layout == 'direct':
+        prepare_direct_layout()
+    elif layout == 'v196':
+        prepare_signed_legacy_layout()
+    else:
+        for parent in (work / 'global', work / 'Projects/workspace', evidence):
+            direct_directory(parent)
+        prepare_checkpoint_layout()
+    ready.write_text(f'{layout}:{session}\n', encoding='utf-8')
+    print('[entrypoint] Hermes memory prepared (' + layout + ')')
 except (OSError, ValueError) as error:
     print('[entrypoint] Hermes ' + phase + ' refused: ' + type(error).__name__, file=sys.stderr)
     sys.exit(1)
@@ -5201,9 +5405,16 @@ complete_managed_curation_startup() {
     configure_pi_packages_and_review_inventory || \
         echo "[entrypoint] WARNING: Pi Review settings unavailable; Review is not ready"
 
-    # Do not open memory before its durable Markdown restore has completed.
-    if [ "${STEP1_RESULT:-1}" -eq 0 ]; then
-        configure_pi_hermes_memory || echo "[entrypoint] WARNING: Hermes memory is not ready"
+    # Verify and open Hermes only after ordinary restore and policy verification.
+    if [ "${SESSION_MODE:-default}" = "advanced" ]; then
+        if [ "${STEP1_RESULT:-1}" -ne 0 ] || ! prepare_pi_hermes_persistence; then
+            configure_pi_hermes_memory "$USER_HOME" disable || true
+            if [ "${CODEFLARE_HERMES_PERSISTENCE:-}" = deferred ]; then
+                echo "[entrypoint] Hermes memory persistence deferred"
+            else
+                echo "[entrypoint] WARNING: Hermes memory is not ready"
+            fi
+        fi
     fi
 
     # The terminal server has been polling this flag before spawning tab 1. Run
@@ -5225,7 +5436,7 @@ complete_managed_curation_startup() {
     # Step 2: Establish bisync baseline IN BACKGROUND (don't block startup)
     # Runs AFTER all file modifications (.claude.json, .claude/settings.json,
     # .codex/version.json, .bashrc tab autostart) to avoid hash mismatches from files changing during --resync.
-    if [ $RCLONE_CONFIG_RESULT -eq 0 ] && [ "${STEP1_RESULT:-1}" -eq 0 ]; then
+    if [ "$RCLONE_CONFIG_RESULT" -eq 0 ] && { [ "${STEP1_RESULT:-1}" -eq 0 ] || [ "${STEP1_RESULT:-1}" -eq 124 ]; }; then
         (
             # REQ-STOR-017: deprioritize ALL background init (bisync --resync baseline, vault
             # seed, sync/vault daemons) so it yields CPU and disk priority to the pi PTY

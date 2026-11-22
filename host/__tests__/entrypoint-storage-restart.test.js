@@ -136,11 +136,15 @@ async function s3Fixture(t, fx) {
   }
   assert.ok(ready, `Existing rclone S3 fixture unavailable: ${spawnError || serverLog}`);
   const reads = [];
+  const writes = [];
   const proxy = createServer((incoming, outgoing) => {
     const url = new URL(incoming.url, 'http://fixture');
     if (incoming.method === 'GET' && !url.searchParams.has('list-type') && !url.searchParams.has('delimiter')) {
       reads.push(decodeURIComponent(url.pathname));
     }
+    if (incoming.method === 'PUT') writes.push({
+      path: decodeURIComponent(url.pathname), time: incoming.headers['x-amz-meta-codeflare-hermes-written-at'],
+    });
     // Same server-time emulation as the existing Python S3 fixture: the
     // filesystem backend otherwise maps client mtime metadata onto LastModified.
     const headers = { ...incoming.headers };
@@ -158,8 +162,35 @@ async function s3Fixture(t, fx) {
   await once(proxy, 'listening');
   t.after(() => new Promise(resolve => proxy.close(resolve)));
   writeFileSync(fx.config, `[r2]\ntype = s3\nprovider = Other\naccess_key_id = fixture\nsecret_access_key = fixture\nendpoint = http://127.0.0.1:${proxy.address().port}\nforce_path_style = true\nno_check_bucket = true\n`);
-  return { reads };
+  return { reads, writes };
 }
+
+it('REQ-MEM-042 AC2: scoped S3 upload stamps only new or changed Hermes bytes', async t => {
+  const fx = fixture(t);
+  const { writes } = await s3Fixture(t, fx);
+  const prefix = 'Vault/Memory/Sessions/session1234';
+  const memory = `${prefix}/global/MEMORY.md`;
+  const files = {
+    [memory]: 'Original', [`${prefix}/global/USER.md`]: '', [`${prefix}/global/failures.md`]: '',
+    [`${prefix}/Projects/workspace/MEMORY.md`]: 'Workspace facts', [`${prefix}/session-id`]: 'session1234\n',
+  };
+  for (const [key, content] of Object.entries(files)) fx.put(fx.home, key, content);
+  const upload = () => fx.run(`SESSION_ID=session1234\n: > "$MANAGED_RESOURCE_FILTER_FILE"\ntransfer_pi_hermes_memory upload direct "$((SECONDS + 30))"`);
+  await upload();
+  assert.deepEqual(writes.map(write => write.path).sort(), Object.keys(files).map(key => `/bucket/${key}`).sort());
+  for (const write of writes) assert.match(write.time ?? '', /^\d{13}$/);
+  const initial = writes.find(write => write.path === `/bucket/${memory}`);
+  writes.length = 0;
+  await upload();
+  assert.deepEqual(writes, [], 'unchanged files must not receive a refreshed stamp');
+  fx.put(fx.home, memory, '');
+  await upload();
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].path, `/bucket/${memory}`);
+  assert.ok(Number(writes[0].time) > Number(initial.time));
+  const readback = await fx.run(`rclone cat r2:bucket/${memory} --config "$RCLONE_CONFIG"`);
+  assert.equal(readback.stdout, '');
+});
 
 it('REQ-STOR-002 AC1/AC2/AC3: S3 restores ordinary, config, dotfile and full-workspace bytes after first local runtime is discarded', async t => {
   const fx = fixture(t);

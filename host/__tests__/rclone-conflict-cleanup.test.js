@@ -7,7 +7,7 @@ import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // Isolate unmanaged lifecycle behavior; real policy composition is covered by the rclone matrix.
-const unmanagedPolicyFixture = "prepare_managed_resource_filter() { :; }\ncompose_rclone_filters() { RCLONE_EFFECTIVE_FILTERS=(\"${RCLONE_FILTERS[@]}\"); }";
+const unmanagedPolicyFixture = "prepare_managed_resource_filter() { :; }\ncompose_rclone_filters() { RCLONE_EFFECTIVE_FILTERS=(\"${RCLONE_FILTERS[@]}\"); }\npersist_pi_hermes_memory() { :; }";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const helper = join(repo, 'scripts/rclone-conflict-cleanup.sh');
@@ -85,7 +85,8 @@ process.exit(result.status ?? 91);
 
 it('REQ-STOR-054 AC1: post-sync cleanup removes local and remote conflict copies', t => {
   const f = fixture(t);
-  const names = ['Index.conflicted-1.md', 'file.conflict1.ext', '.hidden.conflict2', 'nested/spaced name.conflict9', 'directory.conflict/child.conflict1'];
+  const names = ['Index.conflicted-1.md', 'file.conflict1.ext', '.hidden.conflict2', 'nested/spaced name.conflict9',
+    'directory.conflict/child.conflict1', 'Vault/Memory/Sessions/session1234/Projects/workspace/MEMORY.conflict1.md'];
   for (const base of [f.local, f.remote]) for (const name of names) f.put(base, name);
   const result = f.cleanup();
   assert.equal(result.status, 0, result.stderr);
@@ -96,7 +97,9 @@ it('REQ-STOR-054 AC2: cleanup preserves originals and scopes deletion to the syn
   const f = fixture(t);
   const names = ['Index.md', '.hidden', 'upper.CONFLICT1', 'conflict-no-dot', 'directory.conflict/ordinary.txt', 'spaces here/canonical.txt',
     'Operators/protected.conflict1', 'Operators/nested/.hidden.conflict2',
-    '.codeflare/operators/protected.conflict1', '.codeflare/operators/nested/spaced name.conflicted.md'];
+    '.codeflare/operators/protected.conflict1', '.codeflare/operators/nested/spaced name.conflicted.md',
+    'Vault/Memory/Sessions/session1234/Projects/workspace/MEMORY.md',
+    'Vault/Memory/Sessions/session1234/checkpoint.json', 'Vault/Memory/Sessions/session1234/config.json'];
   for (const base of [f.local, f.remote]) {
     for (const name of names) f.put(base, name, `original ${name}`);
     mkdirSync(join(base, 'empty.conflict'), { recursive: true });
@@ -223,7 +226,7 @@ pgrep() { return 1; }
 
 it('REQ-STOR-054 AC6: startup and baseline share their existing transfer deadline with cleanup', t => {
   for (const [name, policy, expectedExit] of [
-    ['initial_sync_from_r2', 'SYNC_TIMEOUT=120', 0],
+    ['initial_sync_from_r2', 'SYNC_TIMEOUT=120', 124],
     ['establish_bisync_baseline', 'BISYNC_TIMEOUT=600', 124],
   ]) {
     const f = fixture(t);
@@ -237,7 +240,7 @@ timeout() {
 ${fn}
 ${name}
 `, { DELETE_STALL: '1' });
-    // Initial restore continues startup; an exhausted baseline must report timeout to its caller.
+    // Both transfers report real timeout; ordinary startup handles the restore error.
     assert.equal(r.status, expectedExit, r.stderr);
     const log = readFileSync(join(f.root, 'runtime/sync/sync.log'), 'utf8');
     assert.match(log, /sync deadline exhausted/);

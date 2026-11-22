@@ -97,7 +97,7 @@ JSON
 bisync_with_r2() {
   BISYNC_CALLS=$((BISYNC_CALLS + 1))
   printf 'BISYNC_%s\\n' "$BISYNC_CALLS" >> "$CALLS"
-  [ "$FAIL_STAGE" != hermes-checkpoint ] || return 65
+  [ "$FAIL_STAGE" != hermes-transfer ] || return 65
   [ "$FAIL_STAGE" != "bisync-$BISYNC_CALLS" ]
 }
 flock() {
@@ -157,11 +157,11 @@ describe('entrypoint session-capture compaction orchestration', () => {
     assert.equal(readFileSync(join(fx.runtime, 'sync/vault-session-compaction.utc-day'), 'utf8'), '2026-04-01\n');
   });
 
-  it('stamps a transferred archive even when Hermes checkpoint preparation failed', () => {
+  it('stamps a transferred archive even when Hermes persistence failed', () => {
     const fx = fixture();
-    const result = runDaily(fx, { fail: 'hermes-checkpoint' });
+    const result = runDaily(fx, { fail: 'hermes-transfer' });
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stderr, /archive synced; Hermes checkpoint incomplete/);
+    assert.match(result.stderr, /archive synced; Hermes persistence incomplete/);
     assert.equal(readFileSync(join(fx.runtime, 'sync/vault-session-compaction.utc-day'), 'utf8'), '2026-03-31\n');
   });
 
@@ -216,7 +216,7 @@ describe('entrypoint session-capture compaction orchestration', () => {
         export RCLONE_CONFIG_RESULT STEP1_RESULT SESSION_MODE CODEFLARE_SESSION_WORKSPACE CODEFLARE_RUNTIME_ROOT CALLS
         prepare_managed_resource_filter() { :; }
         relay_managed_pi_extensions() { :; }
-        configure_pi_hermes_memory() { :; }
+        prepare_pi_hermes_persistence() { :; }
         release_agent_pty_after_fast_start_updates() { :; }
         renice() { :; }
         ionice() { :; }

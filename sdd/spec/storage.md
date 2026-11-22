@@ -392,6 +392,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 - In `none` scope, home persistence still follows the selected Include/Exclude policy and session mode under [REQ-STOR-055](#req-stor-055-home-persistence-admission-and-scope-transitions).
 - [REQ-STOR-258](#req-stor-258-home-cache-exclusion) keeps `~/.cache/` out of R2 restore and sync in every scope.
+- Hermes transient files follow [REQ-MEM-035 AC2](memory.md#req-mem-035-durable-pi-facts-with-disposable-local-search), even when colocated with durable session Markdown.
 - Unknown future files inside admitted durable namespaces remain eligible; detecting every novel cache is not guaranteed.
 - Exclusion authorizes neither deletion nor classifying user content as disposable.
 - Administration’s single Data governance selector applies to new/restarted sessions; workspace toggle remains independent; no per-file enrollment/second settings surface/additional scheduler.

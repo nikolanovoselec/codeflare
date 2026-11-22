@@ -625,7 +625,7 @@ export function getBucketName(email: string, workerName?: string): string {
 type BucketClaimResult = 'owned' | 'conflict' | 'ambiguous';
 interface BucketOwnerStub extends Pick<import('../container/index').container,
   'mcpPortalRead' | 'mcpPortalImport' | 'mcpPortalSavePending' | 'mcpPortalConsumePending' | 'mcpPortalPublish'
-  | 'mcpPortalDisconnect' | 'mcpPortalBeginOffboarding' | 'mcpPortalCompleteOffboarding' | 'cleanupOwnedUser'> {
+  | 'mcpPortalDisconnect' | 'mcpPortalBeginOffboarding' | 'mcpPortalCompleteOffboarding' | 'cleanupOwnedUser' | 'admitHermesStore'> {
   claimBucketOwner(email: string, allowInitialClaim: boolean): Promise<BucketClaimResult>;
 }
 

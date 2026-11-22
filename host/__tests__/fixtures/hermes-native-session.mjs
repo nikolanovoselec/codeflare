@@ -11,7 +11,7 @@ import { importPiExtension } from './pi-extension-module.mjs';
 const [scenario, home, repo] = process.argv.slice(2);
 const deps = join(repo, 'preseed/agents/pi/node_modules');
 const agentDir = join(home, '.pi/agent'), cwd = join(home, 'workspace');
-const work = join(home, '.cache/pi-hermes-memory/working');
+const work = join(home, 'Vault/Memory/Sessions', process.env.SESSION_ID);
 const memoryDir = join(work, 'global');
 const workspaceMemoryDir = join(work, 'Projects/workspace');
 const paths = { user: join(memoryDir, 'USER.md'), global: join(memoryDir, 'MEMORY.md'),

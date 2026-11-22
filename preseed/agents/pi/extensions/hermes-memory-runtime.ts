@@ -48,18 +48,27 @@ function exactLink(path: string, target: string): boolean {
   catch { return false; }
 }
 
-function preparedLayout(home: string, agentDir: string): { owners: string } {
+function preparedLayout(home: string, agentDir: string): { owners: string; consolidationLocks: string } {
   const cache = join(home, ".cache", "pi-hermes-memory");
-  const work = join(cache, "working");
-  const global = join(work, "global");
-  const projects = join(work, "Projects");
-  const workspace = join(projects, "workspace");
   const sessionId = process.env.SESSION_ID;
-  if (!sessionId || !/^[a-z0-9]{8,24}$/.test(sessionId)) throw new Error("missing container session identity");
-  for (const directory of [global, workspace, agentDir, join(cache, "consolidation-locks")]) {
+  const admission = process.env.CODEFLARE_HERMES_PERSISTENCE;
+  if (!sessionId || !/^[a-z0-9]{8,24}$/.test(sessionId) || (admission !== "new" && admission !== "existing")) {
+    throw new Error("session memory is not admitted");
+  }
+  const ready = join(process.env.CODEFLARE_RUNTIME_ROOT || "/run/codeflare", "sync", "hermes-ready");
+  if (!lstatSync(ready).isFile() || readFileSync(ready, "utf8") !== `direct:${sessionId}\n`) {
+    throw new Error("session memory restore is not complete");
+  }
+  const store = join(home, "Vault", "Memory", "Sessions", sessionId);
+  const global = join(store, "global");
+  const projects = join(store, "Projects");
+  const workspace = join(projects, "workspace");
+  const owners = join(cache, "owners");
+  const consolidationLocks = join(cache, "consolidation-locks");
+  for (const directory of [global, workspace, agentDir, owners, consolidationLocks]) {
     if (realpathSync(directory) !== resolve(directory)) throw new Error("managed memory directory ownership is unsafe");
   }
-  const sessionFile = join(work, "session-id");
+  const sessionFile = join(store, "session-id");
   const configFile = join(agentDir, "hermes-memory-config.json");
   if (!lstatSync(sessionFile).isFile() || !lstatSync(configFile).isFile()
     || readFileSync(sessionFile, "utf8") !== `${sessionId}\n`) throw new Error("session memory is not prepared");
@@ -69,13 +78,13 @@ function preparedLayout(home: string, agentDir: string): { owners: string } {
     throw new Error("managed memory configuration is not ready");
   }
   for (const file of [join(global, "USER.md"), join(global, "MEMORY.md"), join(global, "failures.md"), join(workspace, "MEMORY.md")]) {
-    if (!lstatSync(file).isFile()) throw new Error("session memory paths are not ready");
+    const stat = lstatSync(file);
+    if (!stat.isFile() || stat.nlink !== 1) throw new Error("session memory paths are not ready");
   }
-  if (!exactLink(join(agentDir, "hermes-project-memory"), projects)
-    || !exactLink(join(agentDir, "pi-hermes-memory", ".consolidation-locks"), join(cache, "consolidation-locks"))) {
-    throw new Error("managed memory cache links are not ready");
+  if (!exactLink(join(agentDir, "hermes-project-memory"), projects)) {
+    throw new Error("managed project memory is not ready");
   }
-  return { owners: join(cache, "owners") };
+  return { owners, consolidationLocks };
 }
 
 function workspaceMemoryApi(pi: ExtensionAPI, cwd: string): ExtensionAPI {
@@ -127,13 +136,16 @@ export default async function hermesMemoryRuntime(pi: ExtensionAPI): Promise<voi
       probe.close();
       const upstream = await import(pathToFileURL(entry).href);
       if (typeof upstream.default !== "function") throw new Error("stock Hermes entrypoint is unavailable");
+      // The stock option keeps consolidation locks off the durable paths
+      // without a second alias in the agent directory.
+      process.env.PI_HERMES_CONSOLIDATION_LOCK_DIR = layout.consolidationLocks;
       await upstream.default(workspaceMemoryApi(pi, join(home, "workspace")));
       let receipt: string | undefined;
       pi.on("session_start", (_event, ctx) => {
         if (ctx.mode !== "tui" || childSession(ctx)) return;
         mkdirSync(layout.owners, { recursive: true, mode: 0o700 });
-        receipt = join(layout.owners, `${process.pid}.json`);
         if (realpathSync(layout.owners) !== resolve(layout.owners)) throw new Error("memory owner directory is unsafe");
+        receipt = join(layout.owners, `${process.pid}.json`);
         const temporary = `${receipt}.${randomUUID()}.tmp`;
         try {
           writeFileSync(temporary, JSON.stringify({ pid: process.pid, startTime: processStartTime() }), { mode: 0o600, flag: "wx" });

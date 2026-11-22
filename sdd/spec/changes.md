@@ -4,6 +4,11 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-22: Sync native Hermes session Markdown
+
+- [REQ-MEM-041](memory.md#req-mem-041-session-isolated-hermes-markdown) persists the session’s original Markdown files rather than repackaging them as a checkpoint. A new user without shared masters starts with empty files; older checkpoints are not imported.
+- [REQ-MEM-042](memory.md#req-mem-042-retain-ten-recent-session-memory-stores) keeps at most ten stores per user. At capacity, an admitted session replaces the least recently updated store only after its writer settles and the exact folder is confirmed deleted.
+
 ## 2026-11-22: Recover interrupted uploads and deliver local FIX earlier
 
 - [REQ-STOR-008 AC7](storage.md#req-stor-008-multipart-upload-for-large-files) lets the upload queue rediscover and explicitly abort pending completion after reload.

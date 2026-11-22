@@ -36,6 +36,12 @@ import type { Env, ManagedResourcePolicy, SessionWorkspace, TabConfig, TerminalM
 import type { PiDefaultSource } from '../lib/personal-pi-policy';
 import type { OperatorLoggingContext } from '../lib/container-helpers';
 import { getR2Config } from '../lib/r2-config';
+import { createHash } from 'node:crypto';
+import { AGENTS_SEEDED_CONFIGS } from '../lib/agent-seed.generated';
+import { getBucketOwnerStub } from '../lib/access';
+import { SESSION_ID_PATTERN } from '../lib/constants';
+import { HermesRetention, type HermesAdmission, type HermesWriter } from '../lib/hermes-retention';
+import { HERMES_ADAPTER_KEY, hermesRetentionR2 } from '../lib/hermes-retention-r2';
 import { canonicalJson } from '../lib/reasoning-profiles';
 import { runSetupConfiguration, type SetupConfigurationInput } from '../routes/setup/index';
 import { getWorkerNameFromHostname } from '../routes/setup/shared';
@@ -75,7 +81,7 @@ import {
   ensureVaultKey as configEnsureVaultKey,
   type ContainerHost,
 } from './container-config';
-import { captureMetricsExecution, CONTAINER_POLL_BUDGET_MS, raceBudget, type MetricsPin } from './container-metrics';
+import { captureMetricsExecution, CONTAINER_POLL_BUDGET_MS, FINAL_SYNC_AUDIT_KEY, raceBudget, type MetricsPin } from './container-metrics';
 import { dispatchInternalRoute } from './container-router';
 import { bindReviewSessionHuman, openReviewSessionHuman } from './review-session-human';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
@@ -99,6 +105,10 @@ export { validateBucketNameInput };
 
 const SESSION_ID_KEY = '_sessionId';
 const TERMINAL_KEEPALIVE_MS = 15_000;
+const HERMES_DIRECT_LAYOUT_KEY = 'hermes:direct-layout';
+const HERMES_SETTLED_GENERATION_KEY = 'hermes:settled-generation';
+const HERMES_MASTER_ADAPTER = '022e0ccae29f5235e4931829802e5656432111efe83f4c0c07b2cf22f1ca6a75'; // v196
+const HERMES_CHECKPOINT_ADAPTER = 'd6e0420a7a73120a48a457f38bce4a941a4c658fb7799ed89f8785f875735395'; // v197 and v198
 
 /**
  * container - Container Durable Object for user workspaces
@@ -362,6 +372,7 @@ export class container extends Container<Env> implements ContainerEnvState {
       }
     });
     if (superseded || await this.ctx.storage.get<number>('lifecycleGeneration') !== generation) return false;
+    await this.recordHermesSettlement(session, generation);
     this.monitoredGeneration = generation;
     return true;
   }
@@ -786,6 +797,82 @@ export class container extends Container<Env> implements ContainerEnvState {
   }
 
   private mcpCleanupActive = false;
+  private hermesRetention?: HermesRetention;
+
+  private async recordHermesSettlement(sessionId: string, generation: number): Promise<void> {
+    try {
+      await this.ctx.storage.transaction(async txn => {
+        if (!await txn.get<boolean>(HERMES_DIRECT_LAYOUT_KEY)) return;
+        const audit = await txn.get<{ outcome: string; sessionId: string; lifecycleGeneration: number }>(FINAL_SYNC_AUDIT_KEY);
+        if (audit?.outcome === 'completed' && audit.sessionId === sessionId && audit.lifecycleGeneration === generation
+          && generation > (await txn.get<number>(HERMES_SETTLED_GENERATION_KEY) ?? 0)) {
+          await txn.put(HERMES_SETTLED_GENERATION_KEY, generation);
+        }
+      });
+    } catch { /* Lack of a receipt defers retention, never ordinary lifecycle. */ }
+  }
+
+  async hermesWriterSettled(bucket: string, writer: HermesWriter): Promise<boolean> {
+    const { sessionId, generation } = writer;
+    if (!SESSION_ID_PATTERN.test(sessionId)
+      || this.env.CONTAINER.idFromName(`${bucket}-${sessionId}`).toString() !== this.ctx.id.toString()) return false;
+    if (await this.ctx.storage.get<number>(HERMES_SETTLED_GENERATION_KEY) === generation) return true;
+    const audit = await this.ctx.storage.get<{ outcome: string; sessionId: string; lifecycleGeneration: number }>(FINAL_SYNC_AUDIT_KEY);
+    if (audit?.outcome !== 'completed' || audit.sessionId !== sessionId || audit.lifecycleGeneration !== generation) return false;
+    const session = await new D1SessionRepository(this.env.USAGE_DB).getSession(bucket, sessionId);
+    // A later generation can only be claimed from confirmed stopped state.
+    return !!session && (session.lifecycleGeneration > generation
+      || (session.lifecycleGeneration === generation && session.lifecycleState === 'stopped'));
+  }
+
+  async admitHermesStore(bucket: string, writer: HermesWriter, remoteCuration: boolean, deadline: number,
+    hadDirectLayout: boolean): Promise<HermesAdmission | 'legacy'> {
+    if (!SESSION_ID_PATTERN.test(writer.sessionId) || !Number.isSafeInteger(writer.generation)) return 'deferred';
+    await this.verifyMcpOwner(bucket);
+    const remaining = Math.min(CONTAINER_POLL_BUDGET_MS, deadline - Date.now());
+    if (remaining <= 0 || this.mcpCleanupActive) return 'deferred';
+    const signal = AbortSignal.timeout(remaining);
+    const regime = await getRegimeState(this.env, bucket);
+    if (regime.status !== 'ready') return 'deferred';
+    const { endpoint } = await getR2Config(this.env);
+    const r2 = hermesRetentionR2(this.env, endpoint, bucket, regime.regime === 'plain', signal);
+    const retention = this.hermesRetention ??= new HermesRetention(this.ctx.storage);
+    const current = () => new D1SessionRepository(this.env.USAGE_DB).getSession(bucket, writer.sessionId);
+    const canAdmit = async () => {
+      const session = await current();
+      return !signal.aborted && !this.mcpCleanupActive && session?.lifecycleState === 'starting'
+        && session.lifecycleGeneration === writer.generation && !session.terminationIntentId;
+    };
+    if (!await canAdmit()) return 'deferred';
+    if (remoteCuration) {
+      const installed = await r2.adapterDigest();
+      if (installed === HERMES_MASTER_ADAPTER || installed === HERMES_CHECKPOINT_ADAPTER) {
+        if (hadDirectLayout || await retention.hasStore(writer.sessionId)
+          || (installed === HERMES_MASTER_ADAPTER && await r2.hasCheckpoint(writer.sessionId))) return 'deferred';
+        return await canAdmit() ? 'legacy' : 'deferred';
+      }
+      const baked = AGENTS_SEEDED_CONFIGS.find(file => file.key === HERMES_ADAPTER_KEY && file.modes.includes('advanced'));
+      if (!baked || createHash('sha256').update(baked.content).digest('hex') !== installed) return 'deferred';
+    }
+    return retention.admit(writer, {
+      canAdmit,
+      inventory: r2.inventory,
+      observe: r2.observe,
+      prefixEmpty: r2.prefixEmpty,
+      writerSettled: async victim => {
+        const id = this.env.CONTAINER.idFromName(`${bucket}-${victim.sessionId}`);
+        const owner = this.env.CONTAINER.get(id) as unknown as Pick<container, 'hermesWriterSettled'>;
+        return (await raceBudget(owner.hermesWriterSettled(bucket, victim), Math.max(1, deadline - Date.now()))) === true;
+      },
+      evict: async prefix => {
+        const [before, admitted] = await Promise.all([getRegimeState(this.env, bucket), canAdmit()]);
+        if (!admitted || signal.aborted || before.status !== 'ready' || before.generation !== regime.generation) {
+          return 'not-started';
+        }
+        return r2.evict(prefix);
+      },
+    }, signal);
+  }
 
   private async verifyMcpOwner(owner: string, email?: string): Promise<void> {
     if (typeof owner !== 'string' || !/^[a-z0-9][a-z0-9.-]{0,62}$/.test(owner)
@@ -1240,6 +1327,19 @@ export class container extends Container<Env> implements ContainerEnvState {
       await configure;
       await stillAdmitted();
       await this.prepareNativeStart();
+      if (this._sessionMode === 'advanced') {
+        const budget = CONTAINER_POLL_BUDGET_MS;
+        const deadline = Date.now() + budget;
+        const disposition = await raceBudget((async () => {
+          const hadDirectLayout = (await this.ctx.storage.get<boolean>(HERMES_DIRECT_LAYOUT_KEY)) === true;
+          return getBucketOwnerStub(this.env, bucket).admitHermesStore(bucket, { sessionId, generation },
+            this._remoteCurationActive, deadline, hadDirectLayout);
+        })(), budget).catch(() => null);
+        if (disposition === 'new' || disposition === 'existing') {
+          await this.ctx.storage.put(HERMES_DIRECT_LAYOUT_KEY, true);
+        }
+        this.envVars = { ...this.envVars, CODEFLARE_HERMES_PERSISTENCE: disposition ?? 'deferred' };
+      }
       await stillAdmitted();
       if (this.ctx.container?.running) throw new Error('Unexpected existing session process');
       await super.startAndWaitForPorts({ cancellationOptions: { abort: cancellation.signal } });
@@ -1331,13 +1431,14 @@ export class container extends Container<Env> implements ContainerEnvState {
     const epoch = this._teardownEpoch;
     // Register the entire operation before any I/O, including its claim.
     const completion: Promise<void> = Promise.resolve().then(() =>
-      lifecycleStopSession(this.env, input, owned => {
+      lifecycleStopSession(this.env, input, async owned => {
         if (this._teardownEpoch !== epoch) throw new Error('Session stop superseded');
-        return this.destroyWithContext({ sessionId: owned.sessionId, lifecycleGeneration: owned.lifecycleGeneration,
+        await this.destroyWithContext({ sessionId: owned.sessionId, lifecycleGeneration: owned.lifecycleGeneration,
           incidentId: owned.unreachableIncidentId ?? null, terminationIntentId: owned.terminationIntentId ?? undefined, reason: 'user' }, () => this.recordNativeStopExit({
             owner: input.bucket, session: input.sessionId, generation: input.generation,
             terminationIntentId: owned.terminationIntentId!,
           }));
+        await this.recordHermesSettlement(input.sessionId, input.generation);
       })
     ).finally(() => {
       if (this.sessionStopInFlight?.completion === completion) this.sessionStopInFlight = undefined;

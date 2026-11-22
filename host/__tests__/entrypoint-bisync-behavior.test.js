@@ -601,6 +601,7 @@ SYNC_RUNTIME_DIR="$CODEFLARE_RUNTIME_ROOT/sync"
 USER_HOME='${dir}/home'
 R2_BUCKET_NAME=test-bucket
 RCLONE_CONFIG='${dir}/rclone.conf'
+SESSION_MODE=default
 RECOVERY_FILTER_FILE='${dir}/filter'
 RCLONE_FILTERS=()
 mkdir -p "$SYNC_RUNTIME_DIR/rclone" "$USER_HOME"

@@ -110,9 +110,15 @@ async function fixture(t) {
   const end = entrypoint.indexOf('\nconfigure_pi_packages_and_review_inventory() {', start);
   assert.ok(start >= 0 && end > start);
   const prepare = entrypoint.slice(start, end);
+  const warmExtensions = join(repo, 'preseed/agents/pi/extensions');
+  const adapter = 'hermes-memory-runtime.ts';
+  put(join(agent, 'extensions', adapter), readFileSync(join(warmExtensions, adapter)));
+  const runtimeRoot = join(home, 'runtime');
+  mkdirSync(join(runtimeRoot, 'sync'), { recursive: true });
   const run = async scenario => {
     await child('bash', ['-c', `${prepare}\nconfigure_pi_hermes_memory`], { env: {
       PATH: process.env.PATH, USER_HOME: home, SESSION_MODE: 'advanced', SESSION_ID: sessionId,
+      CODEFLARE_RUNTIME_ROOT: runtimeRoot, CODEFLARE_HERMES_PERSISTENCE: 'new', PI_WARM_EXTENSIONS_DIR: warmExtensions,
     } });
     // An allowlisted child environment cannot inherit real provider credentials,
     // preload hooks, live Pi settings, or a production HOME.
@@ -120,7 +126,7 @@ async function fixture(t) {
       // Direct-review qualification must not fall back to a live pi/npm binary.
       PATH: join(home, 'no-executables'), HOME: home, PI_CODING_AGENT_DIR: agent,
       XDG_CACHE_HOME: join(home, '.cache'), TMPDIR: tmpdir(), LANG: 'C.UTF-8',
-      SESSION_ID: sessionId,
+      SESSION_ID: sessionId, CODEFLARE_RUNTIME_ROOT: runtimeRoot, CODEFLARE_HERMES_PERSISTENCE: 'new',
     } });
     const report = stdout.split('\n').find(line => line.startsWith('HERMES_NATIVE_RESULT='));
     assert.ok(report, stdout);
