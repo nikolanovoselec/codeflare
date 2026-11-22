@@ -560,8 +560,9 @@ This procedure observes the wire projection ([REQ-ENTERPRISE-021 AC5](../../sdd/
 5. On the halted fixture, confirm `bucketMigrating: true` and `bucketMigrationHaltedAt` are present, with no `bucketMigrationPercent`. The disabled New Session slot says **Migration halted** beside **Retry migration**.
 6. Before retry, use the [read-only KV diagnostic](troubleshooting.md#new-session-button-stuck-on-migrating-governed-mode) to record the same bucket’s halted checkpoint, including its `updatedAt`. Confirm that timestamp matches `bucketMigrationHaltedAt`. Retry only with separate authorization and observe `202 { success: true }`.
 7. Find the same bucket’s `ready` checkpoint with a newer `updatedAt` and the expected regime and generation. Use `updatedAt` for freshness, not as proof of when the write completed. <!-- @impl: src/lib/r2-regime-state.ts::setRegimeState -->
-8. Observe that fresh checkpoint while New Session is still disabled, then observe enablement on the same timeline. If first observed after enablement, mark ordering blocked unless an approved trace establishes which happened first.
-9. Mark retry gating blocked if freshness, the acknowledgment-to-completion window, or publication order cannot be established. For a refusal, record its reason and confirm the halt remains; it does not qualify the acknowledgment case.
+8. Record New Session state continuously from no later than retry acknowledgment through its first enablement. On the same timeline, use the independent `ready` observation or an approved trace to establish that publication preceded that first enablement.
+9. Mark retry gating blocked if freshness, continuous coverage, or publication order cannot be established. A `ready` checkpoint first seen after enablement does not prove either order.
+10. For a refusal, record its reason and confirm the halt remains. A refusal does not qualify the acknowledgment case.
 
 Fail for an incorrect migration flag, a percentage on halt, an invented, out-of-range or mismatched progress value, or New Session becoming enabled before verification.
 
