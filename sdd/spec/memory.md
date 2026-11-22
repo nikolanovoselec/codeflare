@@ -1053,23 +1053,26 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 
 **Acceptance Criteria:**
 
-1. The four shared Vault Markdown masters seed a new Codeflare session. The updated adapter activates isolation at startup. With isolation active, Advanced Pi writes only its excluded working copies; sync transfers the masters and completed checkpoints, not working copies. <!-- @impl: entrypoint.sh::configure_pi_hermes_memory --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: AC2 existing rclone rules transfer canonical Markdown but no cache, sidecars, locks or alias copies) --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: independent sessions publish isolated checkpoints and restore without changing masters) --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: a new image preserves the installed legacy signed adapter and activates isolation after seed upgrade) -->
+1. The four shared Vault Markdown masters seed a new Codeflare session. With isolation active, Advanced Pi writes only its excluded working copies; sync transfers the masters and completed checkpoints, not working copies. <!-- @impl: entrypoint.sh::configure_pi_hermes_memory --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: AC2 existing rclone rules transfer canonical Markdown but no cache, sidecars, locks or alias copies) --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: independent sessions publish isolated checkpoints and restore without changing masters) -->
 2. If a returning container lacks its own working checkout, it restores Markdown and the original base from its complete checkpoint before using the masters. <!-- @impl: entrypoint.sh::configure_pi_hermes_memory --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: independent sessions publish isolated checkpoints and restore without changing masters) -->
 3. A checkpoint retains both versions for later merge. Invalid scope or incomplete input fails closed, preserving previous evidence and leaving other sessions and the masters untouched. <!-- @impl: entrypoint.sh::configure_pi_hermes_memory --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: incomplete captures and invalid checkpoints cannot replace durable memory) -->
 4. Baseline and bisync prepare the checkpoint before transfer, including after the final drain. <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: the existing bisync path snapshots the working tail before transfer) -->
-5. The exact recognized legacy signed adapter keeps its layout without rewriting signed content. <!-- @impl: entrypoint.sh::configure_pi_hermes_memory --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: a new image preserves the installed legacy signed adapter and activates isolation after seed upgrade) -->
-6. Checkpoint failure preserves its predecessor and allows unrelated transfers, but final sync reports incomplete persistence. <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: the existing bisync path snapshots the working tail before transfer) -->
+5. The exact recognized legacy signed adapter keeps its layout and signed bytes. Its updated replacement activates isolation at startup. <!-- @impl: entrypoint.sh::configure_pi_hermes_memory --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: a new image preserves the installed legacy signed adapter and activates isolation after seed upgrade) -->
+6. Checkpoint failure preserves its predecessor. <!-- @impl: entrypoint.sh::configure_pi_hermes_memory --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: incomplete captures and invalid checkpoints cannot replace durable memory) -->
 7. After isolation initializes, the session cannot downgrade to master writes, including after container replacement. <!-- @impl: entrypoint.sh::configure_pi_hermes_memory -->
 
 **Notes:** The [predecessor preservation](.review-queue.md#hermes-checkpoint-predecessor) and [legacy downgrade](.review-queue.md#hermes-legacy-downgrade) gaps remain open.
 
-**Constraints:** No cross-session merge, recall or automatic removal of unmerged evidence. Existing shutdown deadlines remain intact.
+**Constraints:**
+
+- A failed checkpoint allows unrelated transfers but final sync reports incomplete persistence. <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: the existing bisync path snapshots the working tail before transfer) -->
+- No cross-session merge, recall or automatic removal of unmerged evidence. Existing shutdown deadlines remain intact.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-MEM-035](#req-mem-035-durable-pi-facts-with-disposable-local-search)
 
-**Verification:** Automated: [pi-hermes-startup.test.js](../../host/__tests__/pi-hermes-startup.test.js), [final-sync-endpoint.test.js](../../host/__tests__/final-sync-endpoint.test.js)
+**Verification:** Automated: [pi-hermes-startup.test.js](../../host/__tests__/pi-hermes-startup.test.js)
 
 **Status:** Partial
 

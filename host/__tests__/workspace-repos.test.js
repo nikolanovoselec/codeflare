@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { once } from 'node:events';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, writeFileSync, closeSync, openSync, promises as fs } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, closeSync, openSync, promises as fs } from 'node:fs';
 import { setImmediate } from 'node:timers/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -143,18 +143,27 @@ describe('REQ-GITHUB-015 AC1: workspace repository inventory', () => {
   for (const method of ['readdir', 'lstat']) {
     it(`REQ-GITHUB-015: withholds inventory when ${method} stalls past the scan deadline`, { timeout: 5000 }, async t => {
       const workspace = makeWorkspace();
+      t.after(() => rmSync(workspace, { recursive: true, force: true }));
       mkdirSync(join(workspace, 'checkout'));
+      const entries = await fs.readdir(workspace, { withFileTypes: true });
+      const discoveryMs = method === 'lstat' ? 3000 : 0;
+      if (discoveryMs) {
+        t.mock.method(fs, 'readdir', () => new Promise(resolve => setTimeout(() => resolve(entries), discoveryMs)));
+      }
       let markStarted;
       const started = new Promise(resolve => { markStarted = resolve; });
       t.mock.method(fs, method, () => {
         markStarted(true);
         return new Promise(() => {});
       });
-      t.mock.timers.enable({ apis: ['setTimeout'] });
+      t.mock.timers.enable({ apis: ['Date', 'setTimeout'] });
       const scan = collectWorkspaceRepos(workspace, noop, 8000);
+      if (discoveryMs) t.mock.timers.tick(discoveryMs);
       assert.equal(await Promise.race([started, scan]), true);
-      t.mock.timers.tick(8000);
       const stillPending = Symbol('scan still waiting for the filesystem');
+      t.mock.timers.tick(8000 - discoveryMs - 1);
+      assert.equal(await Promise.race([scan, setImmediate(stillPending)]), stillPending);
+      t.mock.timers.tick(1);
       assert.equal(await Promise.race([scan, setImmediate(stillPending)]), undefined);
     });
   }
