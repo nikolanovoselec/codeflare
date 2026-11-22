@@ -3284,14 +3284,12 @@ None.
 
 **Acceptance Criteria:**
 
-1. The main session can retrieve each completed reviewer’s full findings intact through the native result for that exact launch, even when the completion notification shows only a preview. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-098: first public reviewer result keeps triage complete after later terminal evidence) --> <!-- @test: host/__tests__/pi-subagents-notifications.test.js (REQ-AGENT-059 AC1: native retrieval delivers findings beyond the completion preview) -->
-
-**Notes:** The pinned [native subagent tool](../../documentation/lanes/preseed.md#pi-review-findings-retrieval) owns full-text retrieval. [Native retention qualification](.review-queue.md#native-reviewer-result-retention) remains open.
+1. The main session can retrieve each completed reviewer’s full findings intact through the [native result](../../documentation/lanes/preseed.md#pi-review-findings-retrieval) for that exact launch, even when the notification shows only a preview. <!-- @test: host/__tests__/pi-subagents-notifications.test.js (REQ-AGENT-059 AC1: native retrieval delivers findings beyond the completion preview) -->
 
 **Constraints:**
 
-- Completion proof follows [REQ-AGENT-053 AC2](#req-agent-053-pi-native-review-result-correlation).
-- The Review plan instructs the main session to retrieve missing full findings from the exact finished launch before triage. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (automatically emits the exact review plan after successful push) -->
+- Review correlates returned results to the exact launch for completion proof under [REQ-AGENT-053 AC2](#req-agent-053-pi-native-review-result-correlation). <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-098: first public reviewer result keeps triage complete after later terminal evidence) -->
+- The main session must retrieve any missing full findings from the exact finished launch before triage. The Review plan explains how to activate the retrieval tool if needed and collect that result. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (automatically emits the exact review plan after successful push) -->
 - Main-session rules require waiting for every required reviewer before fixing, committing, or pushing.
 - The main session verifies and fixes legitimate findings unless the latest user instruction says to wait or not autofix.
 - Report-only reviewer types never own a `/review` mutation phase; triage/history/ADR/issue writes route to a non-review mutation agent.

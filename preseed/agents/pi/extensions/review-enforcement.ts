@@ -372,7 +372,7 @@ function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
       input.ciEvent
         ? "Wait for every required reviewer and terminal exact-head CI evidence."
         : "Wait for every required reviewer.", "",
-      "If a finished reviewer’s full findings are missing, use `get_subagent_result` for that exact launch before triage.", "",
+      "If a finished reviewer’s full findings are missing, activate `get_subagent_result` with `capability` if needed. Before triage, call it with the agent ID from that exact finished launch.", "",
       "Then publish one joint table:", "",
       REVIEW_TRIAGE_HEADER, REVIEW_TRIAGE_DIVIDER, "",
       ...(input.ciEvent
