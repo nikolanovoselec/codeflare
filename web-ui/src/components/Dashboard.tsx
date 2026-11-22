@@ -98,7 +98,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
     && !sessionStore.preseedUpgrading
     && !migrationStatus()
     && sessionStore.managedReleaseStatus !== 'update_pending';
-  const recoveryLabel = () => sessionStore.bucketMigrationHaltedAt ? 'Retry migration' : 'Recreate Agent Skills & Rules';
+  const recoveryAction = () => sessionStore.bucketMigrationHaltedAt ? 'migration' : showUpgradeRecovery() ? 'recreate' : undefined;
   const handleRecreate = async () => {
     if (recreateLoading() || sessionStore.preseedUpgrading || !showUpgradeRecovery()) return;
     setRecreateLoading(true);
@@ -507,18 +507,24 @@ const Dashboard: Component<DashboardProps> = (props) => {
                         ? 'Retry upgrade'
                         : managedUpgradeLabel() ?? (sessionStore.preseedUpgrading ? 'Updating' : '+ New Session'))}
                 </button>
-                <Show when={sessionStore.bucketMigrationHaltedAt || showUpgradeRecovery()}>
-                  <button
-                    type="button"
-                    class="dashboard-new-session-btn dashboard-recovery-btn"
-                    aria-label={recoveryLabel()}
-                    title={recoveryLabel()}
-                    disabled={sessionStore.bucketMigrationHaltedAt ? migrationRetryPending() : recreateLoading() || sessionStore.preseedUpgrading}
-                    aria-busy={sessionStore.bucketMigrationHaltedAt ? migrationRetryPending() : undefined}
-                    onClick={() => void (sessionStore.bucketMigrationHaltedAt ? handleMigrationRetry() : handleRecreate())}
-                  >
-                    <Icon path={mdiReflectHorizontal} size={22} />
-                  </button>
+                <Show when={recoveryAction()} keyed>
+                  {(action) => {
+                    const migration = action === 'migration';
+                    const label = migration ? 'Retry migration' : 'Recreate Agent Skills & Rules';
+                    return (
+                      <button
+                        type="button"
+                        class="dashboard-new-session-btn dashboard-recovery-btn"
+                        aria-label={label}
+                        title={label}
+                        disabled={migration ? migrationRetryPending() : recreateLoading() || sessionStore.preseedUpgrading}
+                        aria-busy={migration ? migrationRetryPending() : undefined}
+                        onClick={() => void (migration ? handleMigrationRetry() : handleRecreate())}
+                      >
+                        <Icon path={mdiReflectHorizontal} size={22} />
+                      </button>
+                    );
+                  }}
                 </Show>
                 <Show when={multiViewWorkspace()}>
                   <button
@@ -534,6 +540,9 @@ const Dashboard: Component<DashboardProps> = (props) => {
                 </Show>
             </div>
 
+            <Show when={migrationRetryPending()}>
+              <p class="dashboard-recovery-message" role="status">Retrying migration</p>
+            </Show>
             <Show when={currentMigrationRetryError()}>
               {(message) => <p class="dashboard-recovery-message" role="alert">{message()}</p>}
             </Show>

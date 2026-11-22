@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor } from '@solidjs/testing-library';
-import { mdiViewCompactOutline, mdiXml } from '@mdi/js';
+import { mdiReflectHorizontal, mdiViewCompactOutline, mdiXml } from '@mdi/js';
 import Dashboard from '../../components/Dashboard';
 import { sessionStore } from '../../stores/session';
 import { storageStore } from '../../stores/storage';
@@ -1536,7 +1536,24 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(retry).toHaveAccessibleName('Retry migration');
     expect(retry).toHaveAttribute('title', 'Retry migration');
     expect(retry.textContent?.trim()).toBe('');
+    expect(retry.querySelector('svg path')).toHaveAttribute('d', mdiReflectHorizontal);
     expect(screen.queryByRole('button', { name: 'Recreate Agent Skills & Rules' })).not.toBeInTheDocument();
+  });
+
+  it('REQ-ENTERPRISE-304: clearing a halt does not transfer focus to seed recreation', () => {
+    upgradeRecovery.preseedUpgradeFailed = true;
+    setBucketMigrationHaltedAt(haltedAt);
+    render(() => <Dashboard {...defaultProps} userName={undefined} />);
+
+    const retry = screen.getByRole('button', { name: 'Retry migration' });
+    retry.focus();
+    expect(retry).toHaveFocus();
+    setBucketMigrationHaltedAt(null);
+
+    const recreate = screen.getByRole('button', { name: 'Recreate Agent Skills & Rules' });
+    expect(retry).not.toBeInTheDocument();
+    expect(recreate).toBeEnabled();
+    expect(recreate).not.toHaveFocus();
   });
 
   it('REQ-ENTERPRISE-304: Retry migration submits the halt timestamp once while pending and does not unlock New Session on success', async () => {
@@ -1550,6 +1567,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(retry).toBeDisabled();
     expect(retry).toHaveAccessibleName('Retry migration');
     expect(retry).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getByText('Retrying migration')).toBeVisible();
     fireEvent.click(retry);
     expect(retryBucketMigration.mock.calls).toEqual([[haltedAt]]);
     expect(upgradeRecovery.retryPreseedUpgrade).not.toHaveBeenCalled();
@@ -1561,6 +1579,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
 
     finish({ success: true });
     await waitFor(() => expect(screen.getByRole('button', { name: 'Retry migration' })).toBeEnabled());
+    expect(screen.queryByText('Retrying migration')).not.toBeInTheDocument();
     expect(status).toHaveTextContent(/^Migration halted$/);
     expect(status).toBeDisabled();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
