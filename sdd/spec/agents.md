@@ -3284,11 +3284,11 @@ None.
 
 **Acceptance Criteria:**
 
-1. Tool-use-ID correlation leaves each native reviewer result intact for the main session. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-053/REQ-AGENT-059: correlates successful native notifications by XML tool-use-id) --> <!-- @impl: scripts/patch-pi-subagents-notifications.mjs::patchPiSubagentsNotifications --> <!-- @test: host/__tests__/pi-subagents-notifications.test.js (REQ-AGENT-053: queued parent follow-ups cannot starve completion past the next safe turn) -->
+1. The main session can retrieve each completed reviewer’s full findings intact through the native result for that exact launch, even when the completion notification shows only a preview. <!-- @impl: preseed/agents/pi/package.json::@gotgenes/pi-subagents --> <!-- @test: host/__tests__/pi-subagents-notifications.test.js (REQ-AGENT-059 AC1: native retrieval delivers findings beyond the completion preview) -->
 
 **Constraints:**
 
-- Completion proof follows [REQ-AGENT-053 AC2](#req-agent-053-pi-native-review-result-correlation). A completion receipt alone is not evidence that findings reached the main session.
+- Completion proof follows [REQ-AGENT-053 AC2](#req-agent-053-pi-native-review-result-correlation). Before triage, the main session retrieves any finished reviewer’s full findings it has not already received. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage -->
 - Main-session rules require waiting for every required reviewer before fixing, committing, or pushing.
 - The main session verifies and fixes legitimate findings unless the latest user instruction says to wait or not autofix.
 - Report-only reviewer types never own a `/review` mutation phase; triage/history/ADR/issue writes route to a non-review mutation agent.
@@ -3297,7 +3297,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-053](#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch)
 
-**Verification:** Automated: [review-helpers.test.ts](../../src/__tests__/lib/review-helpers.test.ts), [pi-subagents-notifications.test.js](../../host/__tests__/pi-subagents-notifications.test.js)
+**Verification:** Automated: [pi-subagents-notifications.test.js](../../host/__tests__/pi-subagents-notifications.test.js)
 
 **Status:** Implemented
 

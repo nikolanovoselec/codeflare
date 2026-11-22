@@ -1057,15 +1057,17 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 2. If a returning container lacks its own working checkout, it restores Markdown and the original base from its complete checkpoint before using the masters. <!-- @impl: entrypoint.sh::configure_pi_hermes_memory --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: independent sessions publish isolated checkpoints and restore without changing masters) -->
 3. A checkpoint retains both versions for later merge. Invalid scope or incomplete input fails closed, preserving previous evidence and leaving other sessions and the masters untouched. <!-- @impl: entrypoint.sh::configure_pi_hermes_memory --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: incomplete captures and invalid checkpoints cannot replace durable memory) -->
 4. Baseline and bisync prepare the checkpoint before transfer, including after the final drain. <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: the existing bisync path snapshots the working tail before transfer) -->
-5. The exact recognized legacy signed adapter keeps its layout and signed bytes. Its updated replacement activates isolation at startup. <!-- @impl: entrypoint.sh::configure_pi_hermes_memory --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: a new image preserves the installed legacy signed adapter and activates isolation after seed upgrade) -->
+5. The exact recognized legacy signed adapter keeps its layout and signed bytes. <!-- @impl: entrypoint.sh::configure_pi_hermes_memory --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: a new image preserves the installed legacy signed adapter and activates isolation after seed upgrade) -->
 6. Checkpoint failure preserves its predecessor. <!-- @impl: entrypoint.sh::configure_pi_hermes_memory --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: incomplete captures and invalid checkpoints cannot replace durable memory) -->
 7. After isolation initializes, the session cannot downgrade to master writes, including after container replacement. <!-- @impl: entrypoint.sh::configure_pi_hermes_memory -->
 
-**Notes:** The [predecessor preservation](.review-queue.md#hermes-checkpoint-predecessor) and [legacy downgrade](.review-queue.md#hermes-legacy-downgrade) gaps remain open.
+**Notes:** The AC6 fixture covers only rejection before publication. The transfer fixture covers degraded baseline/bisync and unrelated transfers, not the final-sync response. The [late checkpoint failure](.review-queue.md#hermes-checkpoint-predecessor) and [legacy downgrade](.review-queue.md#hermes-legacy-downgrade) gaps remain open.
 
 **Constraints:**
 
-- A failed checkpoint allows unrelated transfers but final sync reports incomplete persistence. <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: the existing bisync path snapshots the working tail before transfer) -->
+- The updated adapter activates isolation at startup. <!-- @impl: entrypoint.sh::configure_pi_hermes_memory --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: a new image preserves the installed legacy signed adapter and activates isolation after seed upgrade) -->
+- A failed checkpoint does not block unrelated transfers. <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: the existing bisync path snapshots the working tail before transfer) -->
+- Final sync reports incomplete persistence when the checkpoint fails. <!-- @impl: entrypoint.sh::start_sync_daemon --> <!-- @impl: host/src/request-router.ts::createRequestHandler -->
 - No cross-session merge, recall or automatic removal of unmerged evidence. Existing shutdown deadlines remain intact.
 
 **Priority:** P1
