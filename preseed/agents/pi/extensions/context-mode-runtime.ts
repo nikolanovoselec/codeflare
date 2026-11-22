@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-export const CONTEXT_MODE_PACKAGE = "npm:context-mode@2.1.9";
+export const CONTEXT_MODE_PACKAGE = "npm:context-mode@2.2.0";
 export const CONTEXT_MODE_PACKAGE_ID = "npm:context-mode";
 export const CONTEXT_MODE_ENABLED_PACKAGE = { source: CONTEXT_MODE_PACKAGE, extensions: [] } as const;
 export const CONTEXT_MODE_DISABLED_PACKAGE = { source: CONTEXT_MODE_PACKAGE, extensions: [], skills: [] } as const;
