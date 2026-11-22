@@ -1186,6 +1186,7 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
         expect(current?.lifecycleState).toBe('running');
         expect(current?.unreachableIncidentId).toBeUndefined();
         expect(current?.terminationIntentId).toBeUndefined();
+        expect(f.alarms).toEqual([{ delay: 60, payload: pin }]);
         expect(f.effects).toEqual([]);
         return;
       }
@@ -1196,6 +1197,7 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
         expect(f.effects).toEqual(['signal:15']);
       } else {
         expect(current?.lifecycleState).toBe('unreachable');
+        expect(current?.unreachableDeadlineMs).toBe(expiresAt);
         expect(current?.terminationIntentId).toBeUndefined();
         expect(f.alarms).toEqual([{ delay: 5, payload: pin }]);
         expect(f.effects).toEqual([]);
