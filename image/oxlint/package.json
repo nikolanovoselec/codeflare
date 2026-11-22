@@ -2,7 +2,7 @@
   "name": "codeflare-image-oxlint",
   "private": true,
   "dependencies": {
-    "@biomejs/biome": "2.6.7",
+    "@biomejs/biome": "2.6.8",
     "oxlint": "1.93.0",
     "prettier": "3.10.1",
     "yaml": "2.9.1"
