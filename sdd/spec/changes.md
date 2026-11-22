@@ -4,6 +4,10 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-22: Keep RED local by default
+
+- [REQ-AGENT-264 AC1/AC3](agents.md#req-agent-264-engineering-behavioral-evidence-and-sdd-traceability) distinguishes observed RED from a check that could not run. Local-only work stays local, and authorized pushes deliver tests and fixes together unless separate RED delivery is explicitly authorized.
+
 ## 2026-11-22: Clarify customer-key encryption in Administration
 
 - [REQ-ENTERPRISE-018 AC5](storage.md#req-enterprise-018-governed-mode-toggle-and-configuration-surface) clarifies that authorized tools can scan converted R2 files without the customer key, while files still using SSE-C, including any that migration skips, still require it. Default R2 encryption and bucket visibility are unchanged.

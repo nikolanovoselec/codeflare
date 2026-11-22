@@ -3547,8 +3547,9 @@ None.
 
 **Acceptance Criteria:**
 
-1. Functional behavior specified by actual SDD requirements starts with failing behavioral proof; every behavior change passes observable-outcome verification before completion. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
+1. For specified SDD behavior, prepare the full behavioral test batch before implementation. Record the observed RED failure or, if permitted checks are unavailable, record that RED was not observed. Every behavior change passes observable-outcome verification before completion. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
 2. Repositories with a specification directory keep changed behavior traced to truthful requirements, anchors, and documentation, with no touched REQ left `Partial`. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
+3. Keep local-only work local. When authorized to push, deliver tests and fixes together by default and run required CI on that head. RED-only commits, pushes, PRs, or CI runs, including temporary refs, require explicit authorization for the task. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @impl: preseed/agents/pi/skills/planning/SKILL.md::SDD, tests and delivery --> <!-- @manual -->
 
 **Constraints:** The evidence policy is part of the canonical delivered Constitution, not a separate execution workflow.
 
