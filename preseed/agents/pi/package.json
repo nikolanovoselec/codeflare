@@ -15,7 +15,7 @@
     "pi-mcp-adapter": "7.0.1",
     "pi-open-tui": "0.4.6",
     "pi-smart-compact": "10.8.1",
-    "pi-web-access": "0.47.0"
+    "pi-web-access": "0.48.0"
   },
   "devDependencies": {
     "@earendil-works/pi-agent-core": "1.5.2",
