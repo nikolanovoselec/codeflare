@@ -1522,15 +1522,21 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
 
   const haltedAt = '2026-11-21T14:23:45.678Z';
 
-  it.each([false, true])('REQ-ENTERPRISE-304: a halt gates the New Session slot and offers a separate Retry migration action (bucketMigrating=%s)', (bucketMigrating) => {
+  it.each([false, true])('REQ-ENTERPRISE-304: a halt keeps creation disabled and offers an icon-only retry (bucketMigrating=%s)', (bucketMigrating) => {
     (sessionStore as any)._setBucketMigrating(bucketMigrating);
+    upgradeRecovery.preseedUpgradeFailed = true;
     setBucketMigrationHaltedAt(haltedAt);
     render(() => <Dashboard {...defaultProps} userName={undefined} />);
 
     const status = screen.getByTestId('dashboard-new-session');
     expect(status).toHaveTextContent(/^Migration halted$/);
     expect(status).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Retry migration' })).toBeEnabled();
+    const retry = screen.getByRole('button', { name: 'Retry migration' });
+    expect(retry).toBeEnabled();
+    expect(retry).toHaveAccessibleName('Retry migration');
+    expect(retry).toHaveAttribute('title', 'Retry migration');
+    expect(retry.textContent?.trim()).toBe('');
+    expect(screen.queryByRole('button', { name: 'Recreate Agent Skills & Rules' })).not.toBeInTheDocument();
   });
 
   it('REQ-ENTERPRISE-304: Retry migration submits the halt timestamp once while pending and does not unlock New Session on success', async () => {
@@ -1539,9 +1545,15 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     retryBucketMigration.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
     render(() => <Dashboard {...defaultProps} userName={undefined} />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Retry migration' }));
-    fireEvent.click(screen.getByRole('button', { name: /retry(?:ing)? migration/i }));
+    const retry = screen.getByRole('button', { name: 'Retry migration' });
+    fireEvent.click(retry);
+    expect(retry).toBeDisabled();
+    expect(retry).toHaveAccessibleName('Retry migration');
+    expect(retry).toHaveAttribute('aria-busy', 'true');
+    fireEvent.click(retry);
     expect(retryBucketMigration.mock.calls).toEqual([[haltedAt]]);
+    expect(upgradeRecovery.retryPreseedUpgrade).not.toHaveBeenCalled();
+    expect(storageApi.recreateAgentConfigs).not.toHaveBeenCalled();
     const status = screen.getByTestId('dashboard-new-session');
     expect(status).toHaveTextContent(/^Migration halted$/);
     expect(status).toBeDisabled();
@@ -1591,7 +1603,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Retry migration' }));
     setBucketMigrationHaltedAt('2026-11-21T14:25:00.000Z');
-    expect(screen.getByRole('button', { name: 'Retrying migration' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Retry migration' })).toBeDisabled();
     refuse(new ApiError('Retry refused for the previous halt', 409, 'Conflict'));
 
     await waitFor(() => expect(screen.getByRole('button', { name: 'Retry migration' })).toBeEnabled());

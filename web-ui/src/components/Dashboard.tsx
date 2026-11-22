@@ -98,6 +98,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
     && !sessionStore.preseedUpgrading
     && !migrationStatus()
     && sessionStore.managedReleaseStatus !== 'update_pending';
+  const recoveryLabel = () => sessionStore.bucketMigrationHaltedAt ? 'Retry migration' : 'Recreate Agent Skills & Rules';
   const handleRecreate = async () => {
     if (recreateLoading() || sessionStore.preseedUpgrading || !showUpgradeRecovery()) return;
     setRecreateLoading(true);
@@ -506,24 +507,15 @@ const Dashboard: Component<DashboardProps> = (props) => {
                         ? 'Retry upgrade'
                         : managedUpgradeLabel() ?? (sessionStore.preseedUpgrading ? 'Updating' : '+ New Session'))}
                 </button>
-                <Show when={sessionStore.bucketMigrationHaltedAt}>
+                <Show when={sessionStore.bucketMigrationHaltedAt || showUpgradeRecovery()}>
                   <button
                     type="button"
-                    class="dashboard-new-session-btn dashboard-migration-retry-btn"
-                    disabled={migrationRetryPending()}
-                    onClick={() => void handleMigrationRetry()}
-                  >
-                    {migrationRetryPending() ? 'Retrying migration' : 'Retry migration'}
-                  </button>
-                </Show>
-                <Show when={showUpgradeRecovery()}>
-                  <button
-                    type="button"
-                    class="dashboard-new-session-btn dashboard-recreate-btn"
-                    aria-label="Recreate Agent Skills & Rules"
-                    title="Recreate Agent Skills & Rules"
-                    disabled={recreateLoading() || sessionStore.preseedUpgrading}
-                    onClick={() => void handleRecreate()}
+                    class="dashboard-new-session-btn dashboard-recovery-btn"
+                    aria-label={recoveryLabel()}
+                    title={recoveryLabel()}
+                    disabled={sessionStore.bucketMigrationHaltedAt ? migrationRetryPending() : recreateLoading() || sessionStore.preseedUpgrading}
+                    aria-busy={sessionStore.bucketMigrationHaltedAt ? migrationRetryPending() : undefined}
+                    onClick={() => void (sessionStore.bucketMigrationHaltedAt ? handleMigrationRetry() : handleRecreate())}
                   >
                     <Icon path={mdiReflectHorizontal} size={22} />
                   </button>
