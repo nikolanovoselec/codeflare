@@ -467,7 +467,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-152](#req-agent-152-native-plan-mode-workflow-in-pi-sessions)
 
-**Verification:** Automated: [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js); Manual: [Native Pi terminal acceptance](../../documentation/references/pi-packages.md#native-pi-terminal-acceptance)
+**Verification:** Automated: [pi-plan-mode-policy-patch.test.js](../../host/__tests__/pi-plan-mode-policy-patch.test.js), [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js); Manual: [Native Pi terminal acceptance](../../documentation/references/pi-packages.md#native-pi-terminal-acceptance)
 
 **Status:** Implemented
 
@@ -490,7 +490,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 **Constraints:**
 
 - Codeflare carries no Plan Mode fork, companion extension, or automatic plan-file writer.
-- One exact-version image transform adapts upstream helper and policy discovery to the five-tool provider boundary and fails closed on version or source-layout drift.
+- One exact-version image transform adapts upstream helper and policy discovery to the five-tool provider boundary and fails closed on version or source-layout drift. <!-- @test: host/__tests__/pi-plan-mode-policy-patch.test.js (REQ-AGENT-152: Plan ${version} is repeatable and fails closed before writes on manifest or source drift) -->
 - [REQ-AGENT-266](#req-agent-266-managed-pi-plan-mode-policy) owns startup settings and live Plan Mode behavior.
 - Lock-backed upgrades use the Pi-extension shadow-pin workflow.
 
@@ -2208,7 +2208,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability), [REQ-AGENT-063](#req-agent-063-pr-boundary-candidate-detection), [REQ-AGENT-168](#req-agent-168-review-boundary-classification)
 
-**Verification:** Automated: [git-push-review-reminder.test.js](../../host/__tests__/git-push-review-reminder.test.js), [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts), [review-helpers.test.ts](../../src/__tests__/lib/review-helpers.test.ts)
+**Verification:** Automated: [operator-review-selection.test.mjs](../../preseed/agents/pi/test/operator-review-selection.test.mjs), [git-push-review-reminder.test.js](../../host/__tests__/git-push-review-reminder.test.js), [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts), [review-helpers.test.ts](../../src/__tests__/lib/review-helpers.test.ts)
 
 **Status:** Implemented
 
@@ -3894,7 +3894,7 @@ None.
 ---
 ### REQ-AGENT-074: Pi Settled Review Handoff
 
-**Intent:** Pi must coordinate current review work and reliably acknowledge transcript-proven joint reviewer-and-CI triage when the root agent run ends. It owns no review monitor, durable claim, or restart path.
+**Intent:** Pi must coordinate current review work and reliably acknowledge transcript-proven joint reviewer-and-CI triage through [next-turn FIX delivery and settlement fallbacks](#req-agent-244-exact-round-review-completion). It owns no review monitor, durable claim, or restart path.
 
 **Applies To:** Agent
 
@@ -5105,8 +5105,8 @@ The former REQ-AGENT-191 Goal visibility and REQ-AGENT-248 `goal_wait` exclusion
 **Acceptance Criteria:**
 
 1. A reviewer-bearing boundary plan renders `REVIEWERS → CI → JOINT TRIAGE → FIX`. Joint triage is mutation-free, and the reviewed-head acknowledgement/completion barrier must succeed before FIX; the barrier is not an extra rendered plan label. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (automatically emits the exact review plan after successful push) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (stamps completion only after terminal evidence and canonical triage, then emits FIX) -->
-2. Agent-end enforcement acknowledges and emits one boundary-cycle-correlated FIX follow-up only after every required reviewer result, a terminal exact-head CI result when required, and a structural joint triage table published after both. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (stamps completion only after terminal evidence and canonical triage, then emits FIX) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (treats every exact-head CI result as terminal and writes completion before FIX) -->
-3. Settled enforcement provides the acknowledgement fallback when agent-end enforcement did not complete it. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (keeps a fully terminal round until canonical triage arrives) -->
+2. Pi acknowledges and emits one boundary-cycle-correlated FIX follow-up only after every required reviewer result, a terminal exact-head CI result when required, and a structural joint triage table published after both. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (stamps completion only after terminal evidence and canonical triage, then emits FIX) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (treats every exact-head CI result as terminal and writes completion before FIX) -->
+3. Agent-end and settled enforcement provide fallback after eligible next-turn delivery under [REQ-AGENT-244 AC5](#req-agent-244-exact-round-review-completion). <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (keeps a fully terminal round until canonical triage arrives) -->
 
 **Constraints:** CI success, failure, and timeout are terminal triage inputs; fixes begin only in the post-acknowledgement follow-up turn after joint reviewer-and-CI triage.
 

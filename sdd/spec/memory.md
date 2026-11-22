@@ -1012,7 +1012,7 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 
 ### REQ-MEM-035: Durable Pi facts with disposable local search
 
-**Intent:** Advanced Pi sessions learn durable user and shared-workspace facts through the unmodified upstream memory package, while SQLite remains local and reconstructible.
+**Intent:** Advanced Pi learns durable user and workspace facts through the unmodified upstream memory package, while SQLite remains local and reconstructible.
 
 **Applies To:** User
 
@@ -1053,8 +1053,8 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 
 **Acceptance Criteria:**
 
-1. The four shared Vault Markdown masters seed a new Codeflare session. Advanced Pi writes only its excluded working copies; sync transfers the masters and completed checkpoints, not working copies. <!-- @impl: entrypoint.sh::configure_pi_hermes_memory --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: AC2 existing rclone rules transfer canonical Markdown but no cache, sidecars, locks or alias copies) --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: independent sessions publish isolated checkpoints and restore without changing masters) -->
-2. A returning container restores the working Markdown and original base from its own Codeflare session’s complete checkpoint, even if the masters have changed. <!-- @impl: entrypoint.sh::configure_pi_hermes_memory --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: independent sessions publish isolated checkpoints and restore without changing masters) -->
+1. The four shared Vault Markdown masters seed a new Codeflare session. With isolation active, Advanced Pi writes only its excluded working copies; sync transfers the masters and completed checkpoints, not working copies. <!-- @impl: entrypoint.sh::configure_pi_hermes_memory --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: AC2 existing rclone rules transfer canonical Markdown but no cache, sidecars, locks or alias copies) --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: independent sessions publish isolated checkpoints and restore without changing masters) -->
+2. If a returning container lacks its own working checkout, it restores Markdown and the original base from its complete checkpoint before using the masters. <!-- @impl: entrypoint.sh::configure_pi_hermes_memory --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: independent sessions publish isolated checkpoints and restore without changing masters) -->
 3. A checkpoint retains both versions for later merge. Invalid scope or incomplete input fails closed, preserving previous evidence and leaving other sessions and the masters untouched. <!-- @impl: entrypoint.sh::configure_pi_hermes_memory --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: incomplete captures and invalid checkpoints cannot replace durable memory) -->
 4. Baseline and bisync prepare the checkpoint before transfer, including after the final drain. Checkpoint failure preserves its predecessor and allows unrelated transfers, but final sync reports incomplete persistence. <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: the existing bisync path snapshots the working tail before transfer) -->
 5. The exact recognized legacy signed adapter keeps its layout without rewriting signed content. The updated adapter activates isolation at startup; initialized isolation cannot downgrade to master writes. <!-- @impl: entrypoint.sh::configure_pi_hermes_memory --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: a new image preserves the installed legacy signed adapter and activates isolation after seed upgrade) -->
@@ -1066,6 +1066,8 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 **Dependencies:** [REQ-MEM-035](#req-mem-035-durable-pi-facts-with-disposable-local-search)
 
 **Verification:** Automated: [pi-hermes-startup.test.js](../../host/__tests__/pi-hermes-startup.test.js), [final-sync-endpoint.test.js](../../host/__tests__/final-sync-endpoint.test.js)
+
+**Notes:** Two failure cases are not established: parent-directory fsync can fail after checkpoint replacement; an unchanged isolated session may have no synced checkpoint to fence a legacy adapter after container replacement. The predecessor-preservation and no-downgrade requirements still apply. The final-sync endpoint fixture is not end-to-end checkpoint evidence. <!-- @impl: entrypoint.sh::configure_pi_hermes_memory -->
 
 **Status:** Implemented
 
@@ -1105,7 +1107,7 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 
 1. Startup defaults manual consolidation to chunked operation without enabling automatic consolidation, preserving explicit valid preferences. <!-- @impl: entrypoint.sh::configure_pi_hermes_memory --> <!-- @test: host/__tests__/pi-hermes-startup.test.js (Pi Hermes startup (actual entrypoint helper)) -->
 
-**Constraints:** Preparation never overwrites malformed settings or resolves filesystem ownership conflicts by overwriting data. Manual consolidation is scoped to the current session’s working store. Codeflare does not schedule automatic consolidation in interactive Pi.
+**Constraints:** Preparation never overwrites malformed settings or resolves filesystem ownership conflicts by overwriting data. In the isolated layout, manual consolidation is scoped to the current session’s working store. See the [legacy adapter exception](#req-mem-041-session-isolated-hermes-checkpoints). Codeflare does not schedule automatic consolidation in interactive Pi.
 
 **Priority:** P0
 
@@ -1127,7 +1129,7 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 **Acceptance Criteria:**
 
 1. Initial, subsequent and immediate post-compaction model requests do not automatically include complete personal-memory files through a Codeflare context injector. <!-- @impl: preseed/agents/pi/extensions/hermes-memory-runtime.ts::hermesMemoryRuntime --> <!-- @test: host/__tests__/pi-hermes-native.test.js (REQ-MEM-036: managed native requests omit unsolicited stored facts and size warnings initially, subsequently and after automatic compaction; explicit search recalls them) -->
-2. Explicit memory search recalls saved user, global and shared-workspace facts, including corrections and files larger than 5,000 UTF-16 units. Fresh processes reconstruct recall under the existing local search-cache contract. <!-- @impl: preseed/agents/pi/extensions/hermes-memory-runtime.ts::workspaceMemoryApi --> <!-- @test: host/__tests__/pi-hermes-native.test.js (REQ-MEM-036: policy-only stores above 5000 units remain searchable and support explicit add/replace/remove without losing original facts) -->
+2. Explicit memory search recalls saved user, global and workspace facts from the active Hermes store, including corrections and files larger than 5,000 UTF-16 units. Fresh processes reconstruct recall under the existing local search-cache contract. <!-- @impl: preseed/agents/pi/extensions/hermes-memory-runtime.ts::workspaceMemoryApi --> <!-- @test: host/__tests__/pi-hermes-native.test.js (REQ-MEM-036: policy-only stores above 5000 units remain searchable and support explicit add/replace/remove without losing original facts) -->
 3. Retrieved facts remain untrusted reference data, never new instructions, permission or authorization. Current user instructions and verified source outrank recalled facts; normal prompt/tool/image and conversation handling remains Pi-owned. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
 4. Stored memory is not truncated, evicted or rewritten to satisfy the retired 5,000/15,000 context budgets. <!-- @impl: preseed/agents/pi/extensions/hermes-memory-runtime.ts::hermesMemoryRuntime --> <!-- @test: host/__tests__/pi-hermes-native.test.js (REQ-MEM-036: policy-only stores above 5000 units remain searchable and support explicit add/replace/remove without losing original facts) -->
 5. Foreground ownership, ordinary helper-session isolation, stable workspace scope, graceful shutdown and historical capture/Graphify/Smart Compact ownership remain unchanged. No replacement full-file or automatic-query subsystem is introduced. <!-- @impl: preseed/agents/pi/extensions/hermes-memory-runtime.ts::attachHermesMemoryToForeground --> <!-- @test: host/__tests__/pi-hermes-memory.test.js (REQ-MEM-035: AC5 foreground ownership gates stock writers/tools and drains shutdown before release) -->

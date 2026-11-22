@@ -234,7 +234,7 @@ Dynamic input-prefix serialization still requires preserved system-prefix semant
 
 Historical native adapter v1/v2/v3/v4 documents/receipts remain readable but do not authorize v5. Reconfirm eligible retained evidence-specific profiles through Advanced or Discover an exact target for reusable current handling. Historical transport revisions recorded changed operation contracts, not automatic capability inheritance. A stale historical profile can stay byte-identical and disabled while another target upgrades; editing/enabling it requires a current canonical profile. No automatic receipt rewrite, evidence upgrade, fabricated authority or recurring per-release profile authoring is allowed.
 
-Review/Save affects the client model list at normal startup. [Startup publication](../../entrypoint.sh#L4131-L4319). The Worker checks saved routing eligibility and reasoning on subsequent inference requests, subject to KV visibility. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> Neither implies immediate propagation or deployed Worker/session/Pi acceptance.
+Review/Save affects the client model list at normal startup. <!-- @impl: entrypoint.sh::PI_MODELS_STAGE --> <!-- @impl: entrypoint.sh::PI_SETTINGS_STAGE --> The Worker checks saved routing eligibility and reasoning on subsequent inference requests, subject to KV visibility. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> Neither implies immediate propagation or deployed Worker/session/Pi acceptance.
 
 <a id="verification-and-references"></a>
 <a id="reproducible-local-checks"></a>

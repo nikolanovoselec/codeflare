@@ -118,7 +118,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-001](#req-stor-001-dedicated-per-user-r2-bucket), [REQ-STOR-004](#req-stor-004-initial-sync-restores-files-on-container-start)
 
-**Verification:** Automated: [entrypoint-bisync-behavior.test.js](../../host/__tests__/entrypoint-bisync-behavior.test.js), [entrypoint-shutdown.test.js](../../host/__tests__/entrypoint-shutdown.test.js), [rclone-bisync-s3.py](../../scripts/ci/rclone-bisync-s3.py)
+**Verification:** Automated: [entrypoint-bisync-behavior.test.js](../../host/__tests__/entrypoint-bisync-behavior.test.js), [entrypoint-shutdown.test.js](../../host/__tests__/entrypoint-shutdown.test.js), [rclone-bisync-s3.py](../../scripts/ci/rclone-bisync-s3.py); standalone scope and CI exclusions: [Storage verification](../../documentation/lanes/storage-and-sync.md#storage-verification).
 
 **Status:** Implemented
 
@@ -144,7 +144,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-003](#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers), [REQ-STOR-004](#req-stor-004-initial-sync-restores-files-on-container-start), [REQ-STOR-041](#req-stor-041-disk-space-recovery)
 
-**Verification:** Automated: [entrypoint-bisync-behavior.test.js](../../host/__tests__/entrypoint-bisync-behavior.test.js), [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js), [entrypoint-shutdown.test.js](../../host/__tests__/entrypoint-shutdown.test.js), [entrypoint-rclone-filters.test.js](../../host/__tests__/entrypoint-rclone-filters.test.js)
+**Verification:** Automated: [entrypoint-bisync-behavior.test.js](../../host/__tests__/entrypoint-bisync-behavior.test.js), [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js), [entrypoint-shutdown.test.js](../../host/__tests__/entrypoint-shutdown.test.js), [entrypoint-rclone-filters.test.js](../../host/__tests__/entrypoint-rclone-filters.test.js); standalone scope and CI exclusions: [Storage verification](../../documentation/lanes/storage-and-sync.md#storage-verification).
 
 **Status:** Implemented
 
@@ -288,7 +288,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 4. The authenticated, bucket-scoped multipart abort endpoint reports success only when R2 accepts the abort; ordinary non-2xx responses fail. Only explicit recovery of the exact durable pending completion accepts definitive 404 as confirmed absence. <!-- @impl: src/routes/storage/upload.ts::performBucketMultipart --> <!-- @test: src/__tests__/routes/storage-upload.test.ts (succeeds and returns { success: true }) --> <!-- @test: src/__tests__/routes/storage-upload.test.ts (does not report success when R2 rejects the bucket-scoped abort) --> <!-- @test: src/__tests__/container/index.test.ts (REQ-ENTERPRISE-086: lost completion response gates migration until explicit abort confirms recovery) -->
 5. All multipart endpoints share a single rate-limit bucket so an attacker cannot bypass the upload limit by interleaving phases. <!-- @test: src/__tests__/routes/storage-upload.test.ts (REQ-STOR-008 AC5: shared rate limit across multipart endpoints) --> <!-- @manual -->
 6. The browser automatically aborts ordinary multipart failures before sending Complete. A `MULTIPART_RESTART_REQUIRED` refusal never triggers automatic deletion of parts. <!-- @impl: web-ui/src/stores/storage.ts::uploadFiles --> <!-- @test: web-ui/src/__tests__/api/storage.test.ts (REQ-STOR-008 AC6: preserves the multipart restart refusal code) --> <!-- @test: web-ui/src/__tests__/stores/storage.test.ts (REQ-STOR-008 AC6: pre-completion failure preserves refused parts=%s) -->
-7. The upload queue offers explicit abort for unconfirmed Complete. After reload it rediscovers the bucket’s pending identity; recovery refuses a changed key or ID. Dismissing confirmation leaves the upload untouched; an unconfirmed abort remains retryable. <!-- @impl: web-ui/src/stores/storage.ts::abortUnconfirmedUpload --> <!-- @impl: web-ui/src/components/storage/UploadQueue.tsx::UploadQueue --> <!-- @impl: web-ui/src/stores/storage.ts::refreshMultipartRecovery --> <!-- @impl: src/routes/storage/upload.ts::performBucketMultipart --> <!-- @test: src/__tests__/routes/storage-upload.test.ts (REQ-STOR-008 AC7: a fresh bucket-scoped request recovers only the exact pending upload) --> <!-- @test: web-ui/src/__tests__/stores/storage.test.ts (REQ-STOR-008 AC7: a fresh upload queue rediscovers the server-recorded recovery action) --> <!-- @test: web-ui/src/__tests__/stores/storage.test.ts (REQ-STOR-008 AC7: only confirmed recovery aborts the unconfirmed upload, and failed recovery stays available) -->
+7. The upload queue offers explicit abort for unconfirmed Complete. After reload it rediscovers the bucket’s pending identity; that recovery request refuses a changed key or ID. Dismissing confirmation leaves the upload untouched; an unconfirmed abort remains retryable. <!-- @impl: web-ui/src/stores/storage.ts::abortUnconfirmedUpload --> <!-- @impl: web-ui/src/components/storage/UploadQueue.tsx::UploadQueue --> <!-- @impl: web-ui/src/stores/storage.ts::refreshMultipartRecovery --> <!-- @impl: src/routes/storage/upload.ts::performBucketMultipart --> <!-- @test: src/__tests__/routes/storage-upload.test.ts (REQ-STOR-008 AC7: a fresh bucket-scoped request recovers only the exact pending upload) --> <!-- @test: web-ui/src/__tests__/stores/storage.test.ts (REQ-STOR-008 AC7: a fresh upload queue rediscovers the server-recorded recovery action) --> <!-- @test: web-ui/src/__tests__/stores/storage.test.ts (REQ-STOR-008 AC7: only confirmed recovery aborts the unconfirmed upload, and failed recovery stays available) -->
 
 **Constraints:**
 
@@ -423,7 +423,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-011](#req-stor-011-sync-mode-controls-workspace-scope)
 
-**Verification:** Automated: [rclone-bisync-s3.py](../../scripts/ci/rclone-bisync-s3.py)
+**Verification:** Automated: [rclone-bisync-s3.py](../../scripts/ci/rclone-bisync-s3.py); standalone scope and CI exclusions: [Storage verification](../../documentation/lanes/storage-and-sync.md#storage-verification).
 
 **Status:** Implemented
 

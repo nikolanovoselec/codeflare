@@ -1505,6 +1505,8 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Verification:** Automated: [container-env-llm.test.ts](../../src/__tests__/container/container-env-llm.test.ts), [entrypoint-enterprise-pi-models.test.js](../../host/__tests__/entrypoint-enterprise-pi-models.test.js), [entrypoint-enterprise-ca-copilot.test.js](../../host/__tests__/entrypoint-enterprise-ca-copilot.test.js)
 
+**Notes:** The startup fixture proves the early Node/Python environment exports, not an actual PTY connection or TLS handshake. Packaged intercepted TLS requires separate acceptance. <!-- @impl: host/src/session.ts::buildPtyEnv -->
+
 **Status:** Implemented
 
 ---

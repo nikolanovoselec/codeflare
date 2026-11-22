@@ -140,7 +140,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Constraints:**
 
 - Builds and tests outside `safe-local-checks` are CI-only at every scale.
-- All workflows retain configurable runner labels.
+- Workflows that accept configurable runner labels retain that configuration.
 - Hosted Ubuntu sandbox packages must come from official sources; missing prerequisites fail the Host lane. <!-- @impl: scripts/ci/install-approved-packet-packages.sh::apt_options --> <!-- @impl: .github/workflows/test.yml::host-tests --> <!-- @test: host/__tests__/ci-sandbox-packages.test.js (approved-packet sandbox package prerequisites) -->
 - Preserve custom-runner policy and the real bubblewrap/AppArmor probe.
 - Filtered lanes run in parallel; manual dispatch runs all.
@@ -987,9 +987,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. Every suite is gated on its machine-readable vitest JSON report: zero failures, no zero-test files, and a missing or corrupt report fails closed. <!-- @impl: scripts/ci/check-vitest-report.mjs::failedTests --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-023 AC1: vitest report gate) --> <!-- @test: host/__tests__/ci-suite-deadline.test.js (REQ-OPS-023 AC1: rejects contradictory report evidence before normal or tolerated success) -->
+1. Each suite covered by the Vitest gate requires its machine-readable JSON report: zero failures, no zero-test files, and a missing or corrupt report fails closed. <!-- @impl: scripts/ci/check-vitest-report.mjs::failedTests --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-023 AC1: vitest report gate) --> <!-- @test: host/__tests__/ci-suite-deadline.test.js (REQ-OPS-023 AC1: rejects contradictory report evidence before normal or tolerated success) -->
 2. A non-zero exit is accepted only for the suite that opts into Workers-pool teardown-crash tolerance, and only with the exact fingerprint. <!-- @impl: scripts/ci/check-vitest-report.mjs::tolerantOfPoolCrash --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-023 AC2: teardown-crash tolerance) -->
-3. The aggregate job reconciles every suite's reports against that suite's test files in the tree, failing when a file ran nowhere or when a lane succeeded without uploading reports. <!-- @impl: scripts/ci/check-suite-completeness.mjs::SUITES --> <!-- @impl: scripts/ci/suites.mjs::SUITES --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-023 AC3: cross-suite completeness gate) -->
+3. The aggregate job reconciles each covered Vitest suite’s reports against that suite's test files in the tree, failing when a file ran nowhere or when a lane succeeded without uploading reports. <!-- @impl: scripts/ci/check-suite-completeness.mjs::SUITES --> <!-- @impl: scripts/ci/suites.mjs::SUITES --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-023 AC3: cross-suite completeness gate) -->
 4. The Host shard that selects the storage persistence matrix requires a completed JUnit suite with 60 distinct passing cases from that file; a nonzero shard total alone is insufficient. <!-- @impl: scripts/ci/check-host-persistence-report.py::check_report --> <!-- @test: host/__tests__/host-test-inventory.test.js (requires a completed Host persistence matrix with all 60 passing cases) -->
 
 **Constraints:**

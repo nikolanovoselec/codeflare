@@ -4,6 +4,11 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-22: Recover interrupted uploads and deliver local FIX earlier
+
+- [REQ-STOR-008 AC7](storage.md#req-stor-008-multipart-upload-for-large-files) lets the upload queue rediscover and explicitly abort pending completion after reload.
+- [REQ-AGENT-244 AC5](agents.md#req-agent-244-exact-round-review-completion) lets eligible local Pi triage deliver FIX on the next turn without waiting for the run to settle.
+
 ## 2026-11-22: Defer Hermes indexing in Advanced Pi
 
 - [REQ-MEM-035 AC4](memory.md#req-mem-035-durable-pi-facts-with-disposable-local-search) defers Markdown-to-SQLite initialization until the first Hermes operation that needs the store. [REQ-MEM-041](memory.md#req-mem-041-session-isolated-hermes-checkpoints) uses a session-local copy of the four masters and syncs verified session checkpoints without writing the masters. Cross-session merging is deferred.

@@ -107,14 +107,15 @@ A successful stop ends Container vCPU, provisioned-memory, and local-disk meteri
 |--------|----------|------|------------|-------------|
 | POST | `/api/container/start` | Session cookie | [REQ-SESSION-007](../../sdd/spec/session-lifecycle.md#req-session-007-running-session-count-limited-per-tier), [REQ-SUB-007](../../sdd/spec/subscription.md#req-sub-007-quota-enforcement-at-session-start-402) | Start container (5 requests/user/minute; checks other workload-owning sessions and applicable SaaS compute quota; non-blocking) |
 | POST | `/api/container/destroy` | Session cookie | [REQ-SESSION-009](../../sdd/spec/session-lifecycle.md#req-session-009-container-destroy-wipes-session-state) AC1–AC5; [REQ-SESSION-006](../../sdd/spec/session-lifecycle.md#req-session-006-user-can-stop-restart-and-delete-sessions) AC3/AC6 | Stop the captured D1 run and confirm stopped only after exit evidence; an already stopped run is a no-op. Retains the session row and R2 files. |
-| GET | `/api/container/startup-status` | Session cookie | [REQ-SESSION-017](../../sdd/spec/session-lifecycle.md#req-session-017-container-health-and-startup-status-api) AC2, AC3 | Poll startup progress |
+| GET | `/api/container/startup-status` | Mode-aware active-user auth | [REQ-SESSION-017](../../sdd/spec/session-lifecycle.md#req-session-017-container-health-and-startup-status-api) AC2, AC3 | Poll startup progress |
 | GET | `/api/container/health` | Session cookie | [REQ-SESSION-017](../../sdd/spec/session-lifecycle.md#req-session-017-container-health-and-startup-status-api) AC1 | Health check |
 
 `GET /api/container/startup-status` returns a derived `stage`, numeric `progress`, human-readable `message`, and `details`. Its observable progress contract is:
 
 | Stage | Progress | Condition |
 |---|---:|---|
-| `stopped` | 0 | Container state is unavailable |
+| `stopped` | 0 | D1 confirms the session is stopped; returns `confirmedStopped: true` and its `generation` before probing the SDK. |
+| `stopped` | 0 | SDK state read failed. No `confirmedStopped`; this is not proof of exit. |
 | `starting` | 10 | Platform state is not `running` or `healthy` |
 | `starting` | 20 | Platform state is up but host health is unavailable |
 | `syncing` | 30 | Initial sync is pending |
@@ -128,7 +129,7 @@ These are endpoint observations, not persisted lifecycle states. `details` ident
 
 Session creation may reject the enterprise agent allowlist or SaaS storage quota before writing a record. Start may reject an active bucket migration, an agent absent from the deployed image, the current concurrent-session policy check, or compute quota. The session-count check and later generation-bound D1 lifecycle claim are not atomic. Concurrent-session admission is explicitly best effort, so simultaneous starts may exceed the nominal per-user limit; deployment `max_instances` is a separate hard platform boundary. Enterprise currently follows the non-SaaS role-based resolver, while [issue #880](https://github.com/nikolanovoselec/codeflare/issues/880) tracks one role-independent Enterprise limit.
 
-A successful Start returns the acknowledged `generation`; `starting` means the DO owns the asynchronous launch, not that ports are ready. `/startup-status` includes the observed generation. Only `ready` for the acknowledged generation completes that Start in the browser. SDK startup failure does not establish stopped. See [Troubleshooting](troubleshooting.md#container-start-is-rejected-or-returns-to-stopped).
+A successful Start returns the acknowledged `generation`; `starting` means the DO owns the asynchronous launch, not that ports are ready. `/startup-status` includes `generation` when a D1 session row was read. Only `ready` for the acknowledged generation completes that Start in the browser. SDK startup failure does not establish stopped. See [Troubleshooting](troubleshooting.md#container-start-is-rejected-or-returns-to-stopped).
 
 ## Operator Activities
 
@@ -666,9 +667,11 @@ For OAuth Apps, Recommended and Advanced request `read:org`; Minimal does not. G
 | GET | `/api/github/repos` | Session cookie | [REQ-GITHUB-002](../../sdd/spec/github.md#req-github-002-github-panel-and-repository-listing) | The user's accessible repos (owner + collaborator + org member), server-side proxy; `?page=<n>` paginates, 50/page (rate-limited 60/min); `401 NOT_CONNECTED` when no token |
 | GET | `/api/github/connect` | Session cookie | [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage) | Start the provider authorize flow (302 to GitHub); `?tier=minimal\|recommended\|advanced` maps to the OAuth-App scope; `503 GITHUB_NOT_CONFIGURED` when the provider or state-signing secret is unavailable (rate-limited 20/min) |
 | POST | `/api/github/disconnect` | Session cookie | [REQ-GITHUB-005](../../sdd/spec/github.md#req-github-005-disconnect-and-offboarding-revocation) | Attempt GitHub revocation (App/OAuth), then clear the stored token even if revocation fails (rate-limited 20/min) |
-| POST | `/api/github/clone` | Session cookie | [REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session), [REQ-GITHUB-319](../../sdd/spec/github.md#req-github-319-repository-panel-clone-handoff) | Clone `{repo, ref?, sessionId}` into a running session (20/min). `200` persists a validated, ordered inventory (20 entries maximum; cloning is uncapped). Other outcomes: `404 SESSION_NOT_FOUND`, `409 CLONE_TARGET_EXISTS`, `409 CLONE_TRACKING_UNCONFIRMED`, `502 CLONE_FAILED`, `503 NOT_RUNNING`, `504`. |
+| POST | `/api/github/clone` | Mode-aware active-user auth, CSRF | [REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session), [REQ-GITHUB-319](../../sdd/spec/github.md#req-github-319-repository-panel-clone-handoff) | Clone `{repo, ref?, sessionId}` into a running session (20/min). `200` persists a validated, ordered inventory (20 entries maximum; cloning is uncapped). Other outcomes include `404 SESSION_NOT_FOUND`, `409 CLONE_TARGET_EXISTS`, `409 CLONE_TRACKING_UNCONFIRMED`, `502 CLONE_FAILED`, `502 UPSTREAM_ERROR`, `503 NOT_RUNNING`, `504`. |
 
-`CLONE_TRACKING_UNCONFIRMED` means the checkout exists, but inventory conflicts exhausted the tracking retries. It is distinct from an existing-folder refusal.
+`CLONE_TRACKING_UNCONFIRMED` means the checkout succeeded, but inventory conflicts exhausted the tracking retries. `CLONE_FAILED` is a host clone failure; `UPSTREAM_ERROR` means the Worker could not reach the container. <!-- @impl: src/routes/github.ts::app.post('/clone', -->
+
+The clone and multipart recovery POSTs use the shared CSRF gate: `X-Requested-With` is required unless the double-submit check succeeds. Recovery GET does not use this write gate. <!-- @impl: src/lib/access.ts::authenticateRequest -->
 
 The OAuth callback is mounted separately under `/auth/github` (`src/routes/github-auth.ts`, registered via `app.route('/auth/github', githubAuthRoutes)` in `src/index.ts`) — it is **not** an `/api/github` route:
 
@@ -1087,10 +1090,10 @@ Note: `/api/setup/detect-token` and `/api/setup/prefill` are also subject to the
 | POST | `/api/storage/upload/part` | Session cookie | [REQ-STOR-008](../../sdd/spec/storage.md#req-stor-008-multipart-upload-for-large-files) | Upload a single part (`content` is base64 in a JSON body). The 100 MiB limit applies to the encoded request, not the decoded part. |
 | POST | `/api/storage/upload/complete` | Session cookie | [REQ-STOR-008](../../sdd/spec/storage.md#req-stor-008-multipart-upload-for-large-files) | Complete the admitted upload. An unknown or stale ID returns `409 MULTIPART_RESTART_REQUIRED` without deleting parts. A lost or unverifiable provider result retains a pending-completion fence. |
 | POST | `/api/storage/upload/abort` | Session cookie | [REQ-STOR-008](../../sdd/spec/storage.md#req-stor-008-multipart-upload-for-large-files) | Request abort by object key and upload ID. Only recovery matching the stored pending completion treats R2's definitive `404` as confirmed absence. |
-| GET | `/api/storage/upload/recovery` | Session cookie | [REQ-STOR-008](../../sdd/spec/storage.md#req-stor-008-multipart-upload-for-large-files) | Read the bucket’s pending completion key and upload ID, or `null`. No transfer or mutation. |
-| POST | `/api/storage/upload/recovery` | Session cookie | [REQ-STOR-008](../../sdd/spec/storage.md#req-stor-008-multipart-upload-for-large-files) | Explicit abort for the exact discovered identity. A changed pending operation returns `409` before writing. |
+| GET | `/api/storage/upload/recovery` | Mode-aware active-user auth | [REQ-STOR-008](../../sdd/spec/storage.md#req-stor-008-multipart-upload-for-large-files) | `200`: the bucket’s pending `{key, uploadId}` or `null`, with `Cache-Control: no-store`. No transfer or mutation. |
+| POST | `/api/storage/upload/recovery` | Mode-aware active-user auth, CSRF | [REQ-STOR-008](../../sdd/spec/storage.md#req-stor-008-multipart-upload-for-large-files) | Send the exact `{key, uploadId}` from GET; do not decode the key again. `200 {success: true}` confirms abort or provider absence. A mismatch returns `409 MULTIPART_RECOVERY_CHANGED` before provider I/O. |
 
-Multipart schemas and part-size envelope are unchanged. Initiation records a bucket-owner/key/regime/generation-bound ID; platform phases serialize with migration at the existing bucket DO. Unknown, legacy or stale part/completion IDs return `409 MULTIPART_RESTART_REQUIRED` without deleting parts. Lost, malformed or unverifiable completion retains a durable pending fence and blocks migration. Explicit matching abort can recover that fence during migration; provider acceptance or definitive 404 absence confirms recovery. Ordinary abort still rejects non-2xx. Provider migration cleanup is capped at 100 uploads without continuation, fails closed on discovery/abort failure, and is not universal external-upload tracking. Direct R2 writers require maintenance quiescence; dual-regime reads remain independent safeguards.
+Multipart schemas and part-size envelope are unchanged. Initiation records a bucket-owner/key/regime/generation-bound ID; platform phases serialize with migration at the existing bucket DO. Unknown, legacy or stale part/completion IDs return `409 MULTIPART_RESTART_REQUIRED` without deleting parts. Lost, malformed or unverifiable completion retains a durable pending fence and blocks migration. Explicit matching abort can recover that fence during migration but still passes the managed-mutation guard. Provider acceptance or definitive 404 absence confirms recovery. <!-- @impl: src/routes/storage/upload.ts::performBucketMultipart --> Ordinary abort still rejects non-2xx. Provider migration cleanup is capped at 100 uploads without continuation, fails closed on discovery/abort failure, and is not universal external-upload tracking. Direct R2 writers require maintenance quiescence; dual-regime reads remain independent safeguards.
 
 ## Preferences
 
@@ -1228,7 +1231,7 @@ Anonymous GET `/health` returns only `{ "status": "healthy" }` before protected 
 
 **Implements:** [REQ-SESSION-020](../../sdd/spec/session-lifecycle.md#req-session-020-runtime-observation-is-bounded-and-projected-once) AC1 and AC6.
 
-Legacy hosts may ignore either selector. The coordinator uses only the first response for metrics. If it requests an eligible inventory, it uses only the fresh inventory from that response for tracking. <!-- @impl: src/container/container-metrics.ts::collectMetrics -->
+Legacy hosts may ignore either selector. The coordinator uses only the first response for metrics. A readiness hint or legacy bundled array triggers the [inventory eligibility check](container.md#runtime-recovery-and-status), not an automatic write. An array reports bounded results, not proof that every repository was found. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: host/src/metrics.ts::collectWorkspaceRepos -->
 
 ---
 
