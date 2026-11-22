@@ -448,6 +448,21 @@ describe('Pi Hermes startup (actual entrypoint helper)', () => {
     assert.equal(readFileSync(join(fx.home, canonicalFiles[1]), 'utf8'), 'Current master');
   });
 
+  it('REQ-MEM-041 AC7: retirement revokes sync readiness before moving the old store', t => {
+    const fx = fixture(t);
+    restoredMarkdown(fx);
+    succeeds(run(fx));
+    const store = join(fx.home, sessionRoot);
+    const ready = join(fx.runtime, 'sync/hermes-ready');
+    assert.equal(readFileSync(ready, 'utf8'), `direct:${sessionId}\n`);
+    const before = tree(store);
+    const hooks = join(fx.root, 'pending-retirement-fault');
+    put(join(hooks, 'sitecustomize.py'), `import os\nmkdir = os.mkdir\ndef interrupt(path, *args, **kwargs):\n    mkdir(path, *args, **kwargs)\n    if os.path.basename(os.fsdecode(path)) == 'retiring-store-${sessionId}':\n        os._exit(93)\nos.mkdir = interrupt\n`);
+    assert.equal(run(fx, { generation: '2', faultHooks: hooks }).status, 93);
+    assert.equal(existsSync(ready), false, 'the old readiness receipt must be revoked before retirement starts');
+    assert.deepEqual(tree(store), before, 'retirement has not moved any old store files yet');
+  });
+
   it('REQ-MEM-041 AC7: interrupted warm retirement resumes without publishing old bytes', t => {
     const fx = fixture(t);
     restoredMarkdown(fx);
