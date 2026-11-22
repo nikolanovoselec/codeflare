@@ -1693,19 +1693,33 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(sessionStore.refreshSessionAncillaryStatus).not.toHaveBeenCalled();
   });
 
-  it('REQ-ENTERPRISE-323: a stalled refresh does not hide a refusal for the current halt', async () => {
+  it('REQ-ENTERPRISE-304 AC7: shows refusals before refresh and keeps dismissed notices hidden on resumption', async () => {
     setBucketMigrationHaltedAt(haltedAt);
     retryBucketMigration.mockRejectedValueOnce(new ApiError('Stop your running sessions.', 409, 'Conflict'));
     let settleRefresh!: () => void;
-    vi.mocked(sessionStore.refreshSessionAncillaryStatus).mockImplementationOnce(() => new Promise<void>(resolve => { settleRefresh = resolve; }));
+    vi.mocked(sessionStore.refreshSessionAncillaryStatus).mockImplementationOnce(async () => {
+      await new Promise<void>(resolve => { settleRefresh = resolve; });
+      (sessionStore as any)._setBucketMigrationPercent(42);
+      (sessionStore as any)._setBucketMigrating(true);
+      setBucketMigrationHaltedAt(null);
+    });
     renderMigrationDashboard();
 
     const retry = screen.getByRole('button', { name: 'Retry migration' });
+    const overlay = within(noticeOverlay);
     fireEvent.click(retry);
-    expect(await within(noticeOverlay).findByRole('alert')).toHaveTextContent('Stop your running sessions.');
+    expect(await overlay.findByRole('alert')).toHaveTextContent('Stop your running sessions.');
     expect(retry).toBeEnabled();
-    expect(within(noticeOverlay).queryByText('Retrying migration')).not.toBeInTheDocument();
+    expect(overlay.queryByText('Retrying migration')).not.toBeInTheDocument();
+
+    fireEvent.click(overlay.getByRole('button', { name: 'Dismiss migration notification' }));
+    expect(overlay.queryByRole('alert')).not.toBeInTheDocument();
     settleRefresh();
+
+    expect(await screen.findByRole('button', { name: 'Migrating 42%' })).toBeDisabled();
+    expect(overlay.queryByRole('alert')).not.toBeInTheDocument();
+    expect(overlay.getByRole('status').textContent).toBe('');
+    (sessionStore as any)._setBucketMigrationPercent(null);
   });
 
   it('REQ-ENTERPRISE-304: a retry refusal belongs only to the halt that was retried', async () => {
