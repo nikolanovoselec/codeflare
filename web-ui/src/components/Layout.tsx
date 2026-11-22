@@ -74,6 +74,7 @@ const Layout: Component<LayoutProps> = (props) => {
   const openBrowserIdeWindow = createBrowserIdeWindowOpener();
   const usageWarning = () => getUsageWarningLevel();
   const [terminalError, setTerminalError] = createSignal<string | null>(null);
+  const [dashboardNoticeOverlay, setDashboardNoticeOverlay] = createSignal<HTMLElement>();
   const [isSettingsOpen, setIsSettingsOpen] = createSignal(false);
   const [cloudflareReturn, setCloudflareReturn] = createSignal<CloudflareReturnOutcome>();
   const [isStoragePanelOpen, setIsStoragePanelOpen] = createSignal(false);
@@ -870,8 +871,9 @@ const Layout: Component<LayoutProps> = (props) => {
       <div class="layout-middle">
         {/* Main content */}
         <TerminalArea
+          noticeOverlay={dashboardNoticeOverlay()}
           repositoryRestoreNotices={
-            <section class="repository-restore-notices" aria-label="Repository restore notifications">
+            <section ref={setDashboardNoticeOverlay} class="repository-restore-notices" aria-label="Activity notifications">
               <For each={Object.keys(sessionStore.repositoryRestoreNotices ?? {})}>{id => {
                 const notice = () => sessionStore.repositoryRestoreNotices[id];
                 const status = () => notice()?.status;

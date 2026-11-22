@@ -14,6 +14,7 @@ import { resolveTerminalMode, type TileLayout, type AgentType, type TabConfig, t
 import { generateSessionName } from '../lib/session-utils';
 
 interface TerminalAreaProps {
+  noticeOverlay?: HTMLElement;
   repositoryRestoreNotices?: JSX.Element;
   showTerminal: boolean;
   showTilingOverlay: boolean;
@@ -273,6 +274,7 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
       {/* Dashboard: shown when no active terminal */}
       <Show when={!props.showTerminal}>
         <Dashboard
+          noticeOverlay={props.noticeOverlay}
           sessions={sessionStore.sessions}
           onCreateSession={(agentType, tabConfig) => props.onCreateSession(generateSessionName(agentType, sessionStore.sessions), agentType, tabConfig)}
           onStartSession={props.onStartSession}

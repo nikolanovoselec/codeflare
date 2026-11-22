@@ -1898,7 +1898,10 @@ The migration integrity, safe retry, termination and session-creation constraint
 1. Dashboard announces `Retrying migration` when retry starts. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @manual: documentation/lanes/storage-and-sync.md#req-enterprise-021-migration-progress-acceptance -->
 2. Dashboard exposes the retry control as busy while a retry is pending and the control remains visible. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-ENTERPRISE-304: Retry migration submits the halt timestamp once while pending and does not unlock New Session on success) -->
 3. Dashboard keeps `Retrying migration` visible until the retry settles, even if the halt clears first. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-ENTERPRISE-304: Retry migration submits the halt timestamp once while pending and does not unlock New Session on success) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-ENTERPRISE-304: pending feedback survives the halt clearing before refresh settles) -->
-4. The empty retry status adds no extra gap above Recent Sessions. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-migration-retry-status:empty --> <!-- @manual: documentation/lanes/storage-and-sync.md#req-enterprise-021-migration-progress-acceptance -->
+4. The empty retry status adds no extra gap above Recent Sessions. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @manual: documentation/lanes/storage-and-sync.md#req-enterprise-021-migration-progress-acceptance -->
+5. Retry feedback uses the same dismissible activity overlay as repository cloning. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-ENTERPRISE-304: pending feedback survives the halt clearing before refresh settles) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-ENTERPRISE-304: a rejected retry is reported without rendering server markup or lifting the halt) -->
+6. After a retry response or failure, Dashboard refreshes status and reports observed progress instead of a retry error if the halt has cleared and migration is running. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionAncillaryStatus --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-ENTERPRISE-323: reports running instead of retry failure after an updated status (%s)) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-ENTERPRISE-323: checks status after a poll already in flight when retry settles) -->
+7. After acknowledgment, Dashboard explains that it is waiting for updated status and prevents a second retry for the same halt. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-ENTERPRISE-304: Retry migration submits the halt timestamp once while pending and does not unlock New Session on success) -->
 
 **Constraints:** None.
 
@@ -1906,7 +1909,7 @@ The migration integrity, safe retry, termination and session-creation constraint
 
 **Dependencies:** [REQ-ENTERPRISE-304](#req-enterprise-304-dashboard-migration-affordance-and-refresh)
 
-**Verification:** Automated: [Dashboard retry fixtures](../../web-ui/src/__tests__/components/Dashboard.test.tsx); Manual: [migration progress acceptance](../../documentation/lanes/storage-and-sync.md#req-enterprise-021-migration-progress-acceptance)
+**Verification:** Automated: [Dashboard retry fixtures](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [status refresh](../../web-ui/src/__tests__/stores/session.test.ts); Manual: [migration progress acceptance](../../documentation/lanes/storage-and-sync.md#req-enterprise-021-migration-progress-acceptance)
 
 **Status:** Implemented
 

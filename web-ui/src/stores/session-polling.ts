@@ -180,8 +180,12 @@ export function resetManagedCheckState(): void {
   ancillaryCheckInFlight = null;
 }
 
-export function refreshSessionAncillaryStatus(): Promise<void> {
-  if (ancillaryCheckInFlight) return ancillaryCheckInFlight;
+export function refreshSessionAncillaryStatus({ afterCurrent = false } = {}): Promise<void> {
+  if (ancillaryCheckInFlight) {
+    if (!afterCurrent) return ancillaryCheckInFlight;
+    // A read started before retry settled cannot confirm its outcome.
+    return ancillaryCheckInFlight.catch(() => undefined).then(() => refreshSessionAncillaryStatus());
+  }
   ancillaryCheckInFlight = api.getSessionAncillaryStatus().then((response) => {
     lastAncillaryCheckAt = Date.now();
     setStateRaw('maxSessions', response.maxSessions);

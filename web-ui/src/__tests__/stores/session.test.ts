@@ -457,6 +457,23 @@ describe('Session Store', () => {
       await sessionStore.refreshSessionAncillaryStatus();
     });
 
+    it('REQ-ENTERPRISE-323: checks status after a poll already in flight when retry settles', async () => {
+      const halted = deferred<api.SessionAncillaryStatus>();
+      const running = deferred<api.SessionAncillaryStatus>();
+      mockGetSessionAncillaryStatus.mockReturnValueOnce(halted.promise).mockReturnValueOnce(running.promise);
+      const poll = sessionStore.refreshSessionAncillaryStatus();
+      const retryRefresh = sessionStore.refreshSessionAncillaryStatus({ afterCurrent: true });
+      const timestamp = '2026-11-21T14:23:45.678Z';
+      halted.resolve({ maxSessions: 3, bucketMigrating: true, bucketMigrationHaltedAt: timestamp });
+      await poll;
+      expect(sessionStore.bucketMigrationHaltedAt).toBe(timestamp);
+
+      running.resolve({ maxSessions: 3, bucketMigrating: true });
+      await retryRefresh;
+      expect(sessionStore.bucketMigrationHaltedAt).toBeNull();
+      expect(sessionStore.bucketMigrating).toBe(true);
+    });
+
     it.each(['starting', 'unreachable', 'stopping', 'running', 'stopped'] as const)(
       'REQ-SESSION-010 AC6: %s uses its transition or stable polling cadence', async status => {
         const baseline = { ...dashboardSession, status, lifecycle: status, generation: 2, revision: 8 };

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, fireEvent, cleanup, waitFor } from '@solidjs/testing-library';
+import { render, screen, fireEvent, cleanup, waitFor, within } from '@solidjs/testing-library';
 import { mdiReflectHorizontal, mdiViewCompactOutline, mdiXml } from '@mdi/js';
 import Dashboard from '../../components/Dashboard';
 import { sessionStore } from '../../stores/session';
@@ -115,7 +115,7 @@ vi.mock('../../stores/session', async () => {
   let _isAtLimit = false;
   let _maxSessions = 3;
   const [_preseedUpgrading, setPreseedUpgrading] = createSignal(false);
-  let _bucketMigrating = false;
+  const [bucketMigrating, setBucketMigrating] = createSignal(false);
   let _bucketMigrationPercent: number | null = null;
   const [bucketMigrationHaltedAt, setBucketMigrationHaltedAt] = createSignal<string | null>(null);
   const [_managedReleaseStatus, setManagedReleaseStatus] = createSignal<'current' | 'upgrading' | 'update_pending' | null>(null);
@@ -134,7 +134,7 @@ vi.mock('../../stores/session', async () => {
       retryPreseedUpgrade: vi.fn().mockResolvedValue(undefined),
       refreshSessionAncillaryStatus: vi.fn().mockResolvedValue(undefined),
       runPreseedUpdate: vi.fn(async (operation: () => Promise<unknown>) => operation()),
-      get bucketMigrating() { return _bucketMigrating; },
+      get bucketMigrating() { return bucketMigrating(); },
       get bucketMigrationPercent() { return _bucketMigrationPercent; },
       get bucketMigrationHaltedAt() { return bucketMigrationHaltedAt(); },
       get managedReleaseStatus() { return _managedReleaseStatus(); },
@@ -152,7 +152,7 @@ vi.mock('../../stores/session', async () => {
       },
       _setR2Ready: setR2Ready,
       _setPreseedUpgrading: (upgrading: boolean) => { setPreseedUpgrading(upgrading); },
-      _setBucketMigrating: (v: boolean) => { _bucketMigrating = v; },
+      _setBucketMigrating: setBucketMigrating,
       _setBucketMigrationPercent: (v: number | null) => { _bucketMigrationPercent = v; },
       _setBucketMigrationHaltedAt: setBucketMigrationHaltedAt,
       _setManagedReleaseStatus: setManagedReleaseStatus,
@@ -257,7 +257,9 @@ const { _setBucketMigrationHaltedAt: setBucketMigrationHaltedAt } = sessionStore
 // REQ-VAULT-034: Legacy session vault marker cleanup
 
 describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
+  let noticeOverlay: HTMLElement;
   const defaultProps = {
+    get noticeOverlay() { return noticeOverlay; },
     sessions: mockSessions,
     onCreateSession: vi.fn(),
     onStartSession: vi.fn(),
@@ -271,6 +273,8 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
   };
 
   beforeEach(() => {
+    noticeOverlay = document.createElement('section');
+    document.body.append(noticeOverlay);
     vi.clearAllMocks();
     // clearAllMocks clears call history but NOT a queued mockImplementationOnce, so
     // reset loadStatus fully — otherwise an unconsumed once-impl from one test could
@@ -298,6 +302,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
 
   afterEach(() => {
     cleanup();
+    noticeOverlay.remove();
     vi.useRealTimers();
     (githubStore as any)._setEnabled(false);
     (sessionStore as any)._setEnterpriseMode(false);
@@ -1563,7 +1568,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     render(() => <Dashboard {...defaultProps} userName={undefined} />);
 
     const retry = screen.getByRole('button', { name: 'Retry migration' });
-    const progress = screen.getByRole('status');
+    const progress = within(noticeOverlay).getByRole('status');
     expect(progress.textContent).toBe('');
     fireEvent.click(retry);
     expect(retry).toBeDisabled();
@@ -1581,12 +1586,18 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(screen.getByTestId('create-session-dialog')).toHaveAttribute('data-open', 'false');
 
     finish({ success: true });
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Retry migration' })).toBeEnabled());
-    expect(progress.textContent).toBe('');
+    await waitFor(() => expect(progress).toHaveTextContent('Retry accepted. Waiting for updated migration status.'));
+    expect(retry).toBeDisabled();
+    fireEvent.click(retry);
+    expect(retryBucketMigration.mock.calls).toEqual([[haltedAt]]);
     expect(progress).toBeInTheDocument();
     expect(status).toHaveTextContent(/^Migration halted$/);
     expect(status).toBeDisabled();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+    setBucketMigrationHaltedAt('2026-11-21T14:25:00.000Z');
+    expect(retry).toBeEnabled();
+    expect(progress).not.toHaveTextContent('Retry accepted.');
   });
 
   it('REQ-ENTERPRISE-304: pending feedback survives the halt clearing before refresh settles', async () => {
@@ -1600,15 +1611,20 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     }));
     render(() => <Dashboard {...defaultProps} userName={undefined} />);
 
-    const progress = screen.getByRole('status');
+    const progress = within(noticeOverlay).getByRole('status');
     fireEvent.click(screen.getByRole('button', { name: 'Retry migration' }));
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Retry migration' })).not.toBeInTheDocument());
     expect(progress).toHaveTextContent('Retrying migration');
     expect(screen.getByRole('button', { name: 'Migrating' })).toBeDisabled();
 
     settleRefresh();
-    await waitFor(() => expect(progress.textContent).toBe(''));
+    await waitFor(() => expect(progress).toHaveTextContent('Storage migration is running.'));
     expect(screen.getByRole('button', { name: 'Migrating' })).toBeDisabled();
+
+    (sessionStore as any)._setBucketMigrating(false);
+    expect(progress).toHaveTextContent('Storage is ready.');
+    fireEvent.click(within(noticeOverlay).getByRole('button', { name: 'Dismiss migration notification' }));
+    expect(progress.textContent).toBe('');
   });
 
   it('REQ-ENTERPRISE-304: a rejected retry is reported without rendering server markup or lifting the halt', async () => {
@@ -1620,12 +1636,33 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Retry migration' }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Migration retry was rejected.');
+    expect(await within(noticeOverlay).findByRole('alert')).toHaveTextContent('Migration retry was rejected.');
     expect(document.querySelector('[data-retry-error-probe]')).not.toBeInTheDocument();
     const status = screen.getByTestId('dashboard-new-session');
     expect(status).toHaveTextContent(/^Migration halted$/);
     expect(status).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Retry migration' })).toBeEnabled();
+  });
+
+  it.each([
+    new TypeError('Failed to fetch'),
+    new ApiError('The migration status changed. Refresh the dashboard before retrying.', 409, 'Conflict'),
+  ])('REQ-ENTERPRISE-323: reports running instead of retry failure after an updated status (%s)', async (error) => {
+    setBucketMigrationHaltedAt(haltedAt);
+    retryBucketMigration.mockRejectedValueOnce(error);
+    vi.mocked(sessionStore.refreshSessionAncillaryStatus).mockImplementationOnce(async () => {
+      (sessionStore as any)._setBucketMigrating(true);
+      setBucketMigrationHaltedAt(null);
+    });
+    render(() => <Dashboard {...defaultProps} userName={undefined} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry migration' }));
+
+    expect(await within(noticeOverlay).findByText('Storage migration is running.')).toBeVisible();
+    expect(within(noticeOverlay).queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry migration' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Migrating' })).toBeDisabled();
+    expect(retryBucketMigration.mock.calls).toEqual([[haltedAt]]);
   });
 
   it('REQ-ENTERPRISE-304: a retry refusal belongs only to the halt that was retried', async () => {

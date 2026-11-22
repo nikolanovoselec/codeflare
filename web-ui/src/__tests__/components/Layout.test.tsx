@@ -312,7 +312,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     mockRepositoryNotices = { sess1: { status: 'restoring' } };
     render(() => <Layout />);
     expect(screen.getByText('Restoring repositories…')).toBeInTheDocument();
-    expect(within(screen.getByRole('region', { name: 'Repository restore notifications' })).getByText('Payments workspace')).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Activity notifications' })).getByText('Payments workspace')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Dismiss repository restore notification' })).toBeInTheDocument();
     mockRepositoryNotices = { sess1: { status: 'issues' } };
     bumpSessionStoreVersion();
@@ -329,7 +329,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     window.history.replaceState(null, '', `/app/session/${sessionId}`);
     render(() => <Layout />);
     const tabs = await screen.findByRole('tablist', { name: 'Terminals' });
-    const notice = screen.getByRole('region', { name: 'Repository restore notifications' });
+    const notice = screen.getByRole('region', { name: 'Activity notifications' });
     expect(tabs.compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const title = manualClone ? 'Cloning repository…' : 'Restoring repositories…';
     expect(within(notice).getByText(title)).toBeInTheDocument();
@@ -350,7 +350,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     mockSessions = [createMockSession({ name: 'Payments workspace' })];
     mockRepositoryNotices = { sess1: { status, outcome, repo: 'octocat/hello' } };
     render(() => <Layout />);
-    const notice = screen.getByRole('region', { name: 'Repository restore notifications' });
+    const notice = screen.getByRole('region', { name: 'Activity notifications' });
     expect(within(notice).getByText(title)).toBeInTheDocument();
     expect(within(notice).getByText('Payments workspace')).toBeInTheDocument();
     expect(within(notice).getByText('octocat/hello')).toBeInTheDocument();

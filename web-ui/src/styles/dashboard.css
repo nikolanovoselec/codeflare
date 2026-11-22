@@ -283,9 +283,8 @@
   overflow-wrap: anywhere;
 }
 
-.dashboard-migration-retry-status:empty {
+.dashboard-migration-retry-notice:not(.repository-restore-notice) {
   position: absolute;
-  margin: 0;
 }
 
 .dashboard-status-unavailable {
