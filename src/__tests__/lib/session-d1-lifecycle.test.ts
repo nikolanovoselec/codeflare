@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:test';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { D1SessionRepository } from '../../lib/session-repository';
+import { buildCloneTargets } from '../../lib/clone-targets';
 import { confirmMonitoredExit } from '../../container/container-lifecycle';
 // @ts-expect-error Vite raw-loader module used only by the Workers test runtime.
 import migration from '../../../migrations/usage/0002_runtime_sessions.sql?raw';
@@ -520,7 +521,7 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
       ['observationSequence', 0], ['containerAuthToken', 'test-token'], ['sleepAfter', '12h']]);
     const effects: string[] = [];
     const hostRequests: Array<{ url: string; final: boolean }> = [];
-    let response: () => Promise<Response> = async () => { throw new Error('Connection refused'); };
+    let response: (url: string) => Promise<Response> = async () => { throw new Error('Connection refused'); };
     let provider: () => Promise<void> = async () => { effects.push('destroy-complete'); };
     const storage = { get: async (key: string) => stored.get(key), put: async (key: string, value: unknown) => { stored.set(key, value); },
       delete: async (keys: string | string[]) => { for (const key of Array.isArray(keys) ? keys : [keys]) stored.delete(key); }, sync: async () => {} };
@@ -530,7 +531,7 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
         const body = typeof init?.body === 'string' ? JSON.parse(init.body) as { final?: boolean } : {};
         hostRequests.push({ url: _url, final: body.final === true });
         expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer test-token');
-        return await response();
+        return await response(_url);
       } }), signal: (signal: number) => { effects.push(`signal:${signal}`); }, destroy: () => { effects.push('destroy'); return provider(); } },
       abort: () => { effects.push('reset'); throw Error('fixture reset'); } };
     const host = { ctx, env: { USAGE_DB: db }, _bucketName: owner, _sessionId: id, _containerAuthToken: 'test-token',
@@ -550,7 +551,7 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
       if (!(error instanceof Error && error.message === 'fixture reset')) throw error;
     } };
     return { host, ctx, stored, effects, hostRequests, schedules, alarms, logs, tick, time: (value: number) => { now = value; },
-      respond: (value: () => Promise<Response>) => { response = value; }, provider: (value: () => Promise<void>) => { provider = value; } };
+      respond: (value: (url: string) => Promise<Response>) => { response = value; }, provider: (value: () => Promise<void>) => { provider = value; } };
   }
 
   it('D1 remains authoritative across both bounded reconstructions and exhaustion, without restarting the incident', async () => {
@@ -654,6 +655,37 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
     } finally { vi.restoreAllMocks(); }
   });
 
+  it.each(['deferred', 'legacy'] as const)('REQ-GITHUB-015 AC6: %s host inventory cannot erase a clone committed while the scan is in flight', async mode => {
+    const f = await runtimeFixture();
+    let releaseInventory!: () => void;
+    let inventoryRequested!: () => void;
+    const requested = new Promise<void>(resolve => { inventoryRequested = resolve; });
+    const held = new Promise<void>(resolve => { releaseInventory = resolve; });
+    try {
+      f.ctx.container.running = true;
+      const snapshot = { lastInputAt: at, cpu: '17%', observedAt: new Date(at).toISOString() };
+      f.respond(async url => {
+        const inventory = new URL(url).searchParams.get('inventory');
+        if (inventory !== 'only') return Response.json({ ...snapshot,
+          ...(mode === 'deferred' ? { workspaceInventoryReady: true } : { workspaceRepos: [] }) });
+        inventoryRequested();
+        await held;
+        return Response.json({ ...snapshot, workspaceRepos: [] });
+      });
+      const pending = f.tick();
+      await Promise.race([requested, pending.then(() => { throw Error('Metrics tick skipped the fresh inventory scan'); })]);
+      try {
+        const before = (await repository().getSession(owner, id))!;
+        expect(await repository().appendTrackedClone(owner, id, { repo: 'octo/added' })).toBe('tracked');
+        expect((await repository().getSession(owner, id))?.observationSequence).toBe(before.observationSequence);
+      } finally { releaseInventory(); }
+      await pending;
+      const after = await repository().getSession(owner, id);
+      expect(buildCloneTargets(after?.clones, after?.clone)).toBe('octo/added');
+      expect(after).toMatchObject({ lifecycleState: 'running', lifecycleGeneration: 1, cpu: '17%' });
+    } finally { releaseInventory(); vi.restoreAllMocks(); }
+  });
+
   it.each([
     ['projection', 'sequence'], ['projection', 'generation'], ['clones', 'sequence'], ['clones', 'generation'],
   ] as const)('a hung %s is bounded and nonbillable; late SQL cannot overwrite a newer %s', async (operation, supersession) => {
@@ -685,7 +717,8 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
       expect(f.alarms).toEqual([{ delay: 60, payload: pin }]);
       expect(f.effects).toEqual([]);
       expect(f.host._usageSeconds).toBe(0);
-      expect(await repository().getSession(owner, id)).toMatchObject({ lifecycleState: 'running', workspace: 'terminal' });
+      expect(await repository().getSession(owner, id)).toMatchObject({ lifecycleState: 'running', workspace: 'terminal',
+        ...(operation === 'clones' ? { cpu: 'old' } : {}) });
       f.host.env.USAGE_DB = real;
       let generation = 1;
       if (supersession === 'generation') {
@@ -832,7 +865,7 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
       f.stored.set('sleepAfter', '1h');
       f.ctx.container.getTcpPort = () => ({ fetch: async (url: string, init?: RequestInit) => {
         expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer test-token');
-        if (url.endsWith('/internal/runtime-observation')) {
+        if (new URL(url).pathname === '/internal/runtime-observation') {
           return Response.json({ lastInputAt: at - 3_600_001, observedAt: new Date(at).toISOString() });
         }
         if (url.endsWith('/internal/final-sync')) {

@@ -1149,6 +1149,7 @@ export async function collectMetrics(
   else await ctx.storage.delete(NOT_RUNNING_SINCE_KEY);
   let projectionAccepted = false;
   let projectionFailed = false;
+  let inventoryWriteUnresolved = false;
   let requiredStopInProgress = false;
   // Notification delivery owns its exceptional D1 read only when the host
   // actually offers events. The normal metrics path remains one host snapshot
@@ -1201,14 +1202,6 @@ export async function collectMetrics(
     callbacks.setIdleTimeoutPref(idleTimeoutPref);
   }
   const sleepMs = parseSleepAfterMs(idleTimeoutPref);
-  // Bind full-inventory replacement to a revision read before the host snapshot.
-  // A failed or stale inventory fence must not invalidate health or lifecycle.
-  let inventoryRevision: number | undefined;
-  try {
-    const current = await readCurrent();
-    if (sameGeneration(current)) inventoryRevision = current.responseRevision;
-  } catch { /* Inventory stays unchanged for this tick. */ }
-  if (!execution.isCurrent()) return;
   const observationStartedAt = Date.now();
   let activityProbe: ProbeObservation = { responded: false, durationMs: 0 };
   let healthProbe: ProbeObservation = { responded: false, durationMs: 0 };
@@ -1216,7 +1209,7 @@ export async function collectMetrics(
     const port = runtime.getTcpPort(TERMINAL_SERVER_PORT);
     const response = await pollContainer(
       port,
-      'http://localhost/internal/runtime-observation',
+      'http://localhost/internal/runtime-observation?inventory=defer',
       CONTAINER_POLL_BUDGET_MS,
       execution.authToken,
     );
@@ -1237,7 +1230,7 @@ export async function collectMetrics(
     } else {
       const snapshot = await raceBudget(response.json(), CONTAINER_POLL_BUDGET_MS) as {
         lastInputAt: number | null; cpu?: string; memory?: string; disk?: string;
-        syncStatus?: string; editorReady?: boolean; editorReadyError?: boolean; workspaceRepos?: unknown; observedAt: string;
+        syncStatus?: string; editorReady?: boolean; editorReadyError?: boolean; workspaceRepos?: unknown; workspaceInventoryReady?: boolean; observedAt: string;
       };
       // REQ-SESSION-020 AC4: reject malformed readiness before state or projection uses it.
       if (!isRecord(snapshot)
@@ -1320,11 +1313,24 @@ export async function collectMetrics(
       if (typeof await ctx.storage.get(SHUTDOWN_REQUESTED_KEY) === 'number') return;
       if (!execution.isCurrent()) return;
       try {
-        if (Array.isArray(snapshot.workspaceRepos) && inventoryRevision !== undefined) {
-          try {
-            await raceBudget(repository.updateTrackedClones(ownerKey, sessionId,
-              normalizeTrackedClones(snapshot.workspaceRepos), { generation, sequence, responseRevision: inventoryRevision }), CONTAINER_POLL_BUDGET_MS);
-          } catch { /* A later fresh inventory can reconcile. */ }
+        if (snapshot.workspaceInventoryReady === true || Array.isArray(snapshot.workspaceRepos)) {
+          // An older host's bundled inventory is only a readiness hint. Read
+          // authority before requesting fresh inventory, never after the scan.
+          const current = await readCurrent().catch(() => null);
+          if (sameGeneration(current)) {
+            const inventory = await raceBudget((async () => {
+              const result = await pollContainer(port, 'http://localhost/internal/runtime-observation?inventory=only',
+                CONTAINER_POLL_BUDGET_MS, execution.authToken);
+              return result.ok ? await result.json() : null;
+            })(), CONTAINER_POLL_BUDGET_MS).catch(() => null);
+            if (!execution.isCurrent()) return;
+            if (isRecord(inventory) && Array.isArray(inventory.workspaceRepos)) {
+              const tracked = await raceBudget(repository.updateTrackedClones(ownerKey, sessionId,
+                normalizeTrackedClones(inventory.workspaceRepos), { generation, sequence, responseRevision: current.responseRevision }),
+              CONTAINER_POLL_BUDGET_MS).catch(() => null);
+              inventoryWriteUnresolved = tracked === null;
+            }
+          }
           if (!execution.isCurrent()) return;
         }
         const accepted = await raceBudget(repository.project(ownerKey, sessionId, generation, sequence, {
@@ -1412,7 +1418,7 @@ export async function collectMetrics(
     activity: activityProbe, health: healthProbe,
   }, execution, authorizeReset, finalSyncLogContext());
   if (transportReconciliation === null || !execution.isCurrent()) return;
-  if (!responded || incident || projectionFailed || recoveryTick) transportReconciliation.recordUsage = false;
+  if (!responded || incident || projectionFailed || inventoryWriteUnresolved || recoveryTick) transportReconciliation.recordUsage = false;
   // Timekeeper records per-user compute consumption in every deployment mode.
   // A tick scheduled after a complete transport failure is a 5-second
   // confirmation, not another usage minute.

@@ -210,6 +210,18 @@ test('REQ-IDE-037: reap preserves an unverified conflict and captures a subseque
   assert.equal(read().version, '3.0.0');
 });
 
+test('REQ-IDE-037 AC6: reap captures a verified upgrade without an obsolete marker', () => {
+  const { extensionsDir, manifest: manifestPath } = fixture();
+  const id = 'publisher.extension';
+  writeFileSync(manifestPath, JSON.stringify({ ...manifest({ [id]: { version: '1.0.0' } }), securityWarningShown: true }));
+  const registry = join(extensionsDir, 'extensions.json');
+  writeFileSync(registry, JSON.stringify([registryEntry(id, '1.0.0')]));
+  capture(extensionsDir, manifestPath);
+  writeFileSync(registry, JSON.stringify([registryEntry(id, '2.0.0')]));
+  capture(extensionsDir, manifestPath);
+  assert.equal(JSON.parse(readFileSync(manifestPath, 'utf8')).extensions[id].version, '2.0.0');
+});
+
 test('REQ-IDE-037 AC4: reap preserves a pending pin until the conflicting registry row changes', () => {
   const { extensionsDir, manifest: manifestPath } = fixture();
   const id = 'publisher.extension';

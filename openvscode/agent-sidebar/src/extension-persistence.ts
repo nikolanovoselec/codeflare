@@ -644,6 +644,7 @@ export async function captureExtensionManifest(
         }
       }
       extensions[id] = saved?.sha256 === undefined ? observed : { ...observed, sha256: saved.sha256 };
+      nextHandoff.pins[id] = { version: observed.version, observed };
     }
     if (Object.keys(extensions).length > policy.extensionMaxCount) return false;
 
@@ -929,7 +930,11 @@ export async function restoreExtensionManifest(
       if (installed[id]) pins[id] = { version: record.version, observed: installed[id] };
     }
     // Reap may run even if this activation never reaches its first capture.
-    await writeCaptureHandoff(options.extensionsDir, handoff, { ...handoff, pins });
+    const retainedPins = Object.fromEntries(Object.entries(handoff.pins)
+      .filter(([id, pin]) => !managedIds.has(id) && manifest.extensions[id]?.version === pin.version));
+    const prepared = { ...handoff, pins: { ...retainedPins, ...pins } };
+    await writeCaptureHandoff(options.extensionsDir, handoff, prepared);
+    handoff = prepared;
   } catch {
     handoff = undefined;
     missing = missing.filter(([id]) => {
@@ -977,13 +982,24 @@ export async function restoreExtensionManifest(
       },
     );
   }
-  const failed = new Set(failures);
-  const remainingPins = { ...pins };
-  for (const [id, pin] of Object.entries(pins)) {
-    if (acceptedFallbacks.has(id)) remainingPins[id] = { ...pin, fallbackInstalled: true };
-    else if (!failed.has(id)) delete remainingPins[id];
+  if (handoff) {
+    const failed = new Set(failures);
+    const remainingPins = { ...handoff.pins };
+    for (const [id] of missing) if (!failed.has(id)) delete remainingPins[id];
+    try {
+      if (acceptedFallbacks.size > 0) {
+        const restored = await loadRegistry(options.extensionsDir);
+        for (const id of acceptedFallbacks) {
+          const observed = restored[id];
+          if (!observed) throw new Error('fallback is missing from the extension registry');
+          remainingPins[id] = { version: manifest.extensions[id].version, observed, fallbackInstalled: true };
+        }
+      }
+      await writeCaptureHandoff(options.extensionsDir, handoff, { ...handoff, pins: remainingPins });
+    } catch {
+      handoff = undefined;
+    }
   }
-  if (handoff) await writeCaptureHandoff(options.extensionsDir, { ...handoff, pins }, { ...handoff, pins: remainingPins }).catch(() => undefined);
   await restoreSettings(manifest.settings);
   failures.sort();
   if (!handoff || failures.length > 0) {

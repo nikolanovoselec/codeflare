@@ -446,6 +446,7 @@ def capture(extensions_dir: Path, manifest_path: Path, policy_path: Path) -> boo
                     next_handoff["pins"][extension] = {"version": saved["version"], "observed": observed}
                     continue
             next_extensions[extension] = {**observed, "sha256": saved["sha256"]} if saved and "sha256" in saved else observed
+            next_handoff["pins"][extension] = {"version": observed["version"], "observed": observed}
         if len(next_extensions) > policy["extensionMaxCount"]:
             raise UnsafeInput("capture exceeds extension bound")
 

@@ -27,6 +27,19 @@ declare module "@earendil-works/pi-coding-agent" {
 
   export type ExtensionCommandContext = ExtensionContext;
 
+  // Pi 1.5.2 actionable turn boundary. Only the fields read by Review are modelled.
+  export interface TurnEndEvent {
+    type: "turn_end";
+    outcome: "completed" | "aborted" | "error";
+    toolResults: unknown[];
+    entries: unknown[];
+  }
+
+  export interface TurnEndEventResult {
+    entries?: unknown[];
+    continue?: boolean;
+  }
+
   export interface AgentToolResult<T> {
     content: Array<{ type: "text"; text: string } | { type: "image"; [key: string]: any }>;
     details: T;

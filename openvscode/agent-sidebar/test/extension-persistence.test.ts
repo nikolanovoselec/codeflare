@@ -833,7 +833,7 @@ test('REQ-IDE-016 AC3 + REQ-IDE-037 AC1+AC3+AC4: restores exact versions, falls 
   ]);
 });
 
-test('REQ-IDE-037 AC4: bad capture handoff preserves ambiguous pins and restores independent intent', async () => {
+test('REQ-IDE-037 AC6/AC7: bad capture handoff preserves ambiguous pins and restores independent intent', async () => {
   const { extensionsDir, manifestPath } = fixture();
   const pinned = 'publisher.pinned';
   const missing = 'publisher.missing';
@@ -863,9 +863,10 @@ test('REQ-IDE-037: capture preserves a conflicting pin after a readable handoff 
   writeRegistry(extensionsDir, [{ id, version: '2.0.0' }]);
   const handoff = join(extensionsDir, '.codeflare-extension-capture.json');
   // Valid at the current limit, but adding another pin would exceed it.
-  const existing = { version: '1.0.0', observed: { version: '2.0.0' } };
-  const utf8 = (name: string) => JSON.stringify({ pins: { [name]: existing }, removals: {} });
-  const bounded = utf8(`other.x${'x'.repeat(65536 - Buffer.byteLength(utf8('other.x')) - 8)}`);
+  const utf8 = (name: string) => JSON.stringify({ pins: {}, removals: {
+    [name]: { marker: `${name}-2.0.0-universal`, observed: { version: '2.0.0' } },
+  } });
+  const bounded = utf8(`other.x${'x'.repeat(Math.floor((65536 - Buffer.byteLength(utf8('other.x')) - 8) / 2))}`);
   writeFileSync(handoff, bounded);
   const options = { extensionsDir, manifestPath, syncPidFile };
   const result = await restoreExtensionManifest(options);
@@ -882,6 +883,58 @@ test('REQ-IDE-037: capture preserves a conflicting pin after a readable handoff 
   writeRegistry(extensionsDir, [{ id, version: '3.0.0' }]);
   await captureExtensionManifest(options);
   assert.equal(read().version, '3.0.0');
+});
+
+test.each(['live', 'reap'] as const)('REQ-IDE-037 AC3: %s capture saves the successful fallback for an initially absent extension', async capturePath => {
+  const { extensionsDir, manifestPath, syncPidFile } = fixture();
+  const id = 'publisher.extension';
+  writeRegistry(extensionsDir);
+  writeFileSync(manifestPath, JSON.stringify({ ...validManifest({ [id]: { version: '1.0.0' } }), securityWarningShown: true }));
+  host.execute = async (_command, selector) => {
+    if (selector === `${id}@1.0.0`) throw Object.assign(new Error('version unavailable'), { code: 'ExtensionNotFound' });
+    writeRegistry(extensionsDir, [{ id, version: '2.0.0' }]);
+  };
+  const options = { extensionsDir, manifestPath, syncPidFile };
+  assert.deepEqual((await restoreExtensionManifest(options)).failures, []);
+  if (capturePath === 'live') await captureExtensionManifest(options);
+  else reapExtensionIntent(extensionsDir, manifestPath);
+  assert.equal(JSON.parse(readFileSync(manifestPath, 'utf8')).extensions[id].version, '2.0.0');
+});
+
+test.each(['live', 'reap'] as const)('REQ-IDE-037 AC6: %s capture saves an upgrade from a verified row without an obsolete marker', async capturePath => {
+  const { extensionsDir, manifestPath, syncPidFile } = fixture();
+  const id = 'publisher.extension';
+  writeFileSync(manifestPath, JSON.stringify({ ...validManifest({ [id]: { version: '1.0.0' } }), securityWarningShown: true }));
+  const capture = async () => {
+    if (capturePath === 'live') await captureExtensionManifest({ extensionsDir, manifestPath, syncPidFile });
+    else reapExtensionIntent(extensionsDir, manifestPath);
+  };
+  writeRegistry(extensionsDir, [{ id, version: '1.0.0', omitMetadata: true }]);
+  await capture();
+  writeRegistry(extensionsDir, [{ id, version: '2.0.0' }]);
+  await capture();
+  assert.equal(JSON.parse(readFileSync(manifestPath, 'utf8')).extensions[id].version, '2.0.0');
+});
+
+test('REQ-IDE-037 AC7: reports a failed final capture handoff write and still restores independent settings', async () => {
+  const { extensionsDir, manifestPath } = fixture();
+  const id = 'publisher.extension';
+  const handoff = join(extensionsDir, '.codeflare-extension-capture.json');
+  const original = JSON.stringify({ ...validManifest({ [id]: { version: '1.0.0' } }, { 'yaml.validate': true }), securityWarningShown: true });
+  writeFileSync(manifestPath, original);
+  writeRegistry(extensionsDir);
+  host.extensions = [{ id: 'redhat.vscode-yaml', packageJSON: { contributes: {
+    configuration: { properties: { 'yaml.validate': { type: 'boolean' } } },
+  } } }];
+  host.execute = async (_command, selector) => {
+    if (selector === `${id}@1.0.0`) throw Object.assign(new Error('version unavailable'), { code: 'ExtensionNotFound' });
+    writeRegistry(extensionsDir, [{ id, version: '2.0.0' }]);
+    mkdirSync(handoff); // The atomic replacement fails at final publication, not preparation.
+  };
+  await restoreExtensionManifest({ extensionsDir, manifestPath });
+  assert.match(host.warnings.join(' '), /capture handoff/i);
+  assert.deepEqual(host.settingsUpdates, [{ key: 'yaml.validate', value: true, target: 1 }]);
+  assert.equal(readFileSync(manifestPath, 'utf8'), original);
 });
 
 test('REQ-IDE-038 AC2+AC3: restore warns before execution and never repeats an accepted warning', async () => {

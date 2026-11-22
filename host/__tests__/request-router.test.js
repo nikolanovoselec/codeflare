@@ -187,6 +187,21 @@ describe('request router seam (server.ts decomposition)', () => {
     assert.equal(typeof observed.body.observedAt, 'string');
   });
 
+  it('REQ-SESSION-020: deferred inventory negotiation keeps health and inventory separately authenticated', async () => {
+    const route = '/internal/runtime-observation';
+    const auth = { authorization: 'Bearer seam-test-token' };
+    assert.equal((await getJson(port, `${route}?inventory=only`)).status, 401);
+    const { status, body } = await getJson(port, `${route}?inventory=defer`, auth);
+    assert.equal(status, 200);
+    assert.equal(body.workspaceInventoryReady, true);
+    assert.equal(body.workspaceRepos, undefined);
+    assert.equal(typeof body.observedAt, 'string');
+    const inventory = await getJson(port, `${route}?inventory=only`, auth);
+    assert.equal(inventory.status, 200);
+    assert.ok(Array.isArray(inventory.body.workspaceRepos));
+    assert.equal(inventory.body.observedAt, undefined);
+  });
+
   it('falls through to 404 for unknown paths (with a valid bearer token)', async () => {
     const { status, body } = await getJson(port, '/no-such-route', { authorization: 'Bearer seam-test-token' });
     assert.equal(status, 404);
