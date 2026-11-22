@@ -298,9 +298,15 @@ async function refreshSessionStatusesOnce(forceManagedReleaseCheck: boolean): Pr
       // can accept a newer D1 stopped projection.
       if (isLocallyStoppingFn(session.id)) continue;
 
-      // Guard 2: The local startup flow owns lifecycle transitions while it
-      // converges, even if the ordered batch projection already has newer fields.
-      if (session.status === 'initializing' || isSessionInitializingFn(session.id)) continue;
+      // Keep startup's local presentation, but record accepted D1 authority so
+      // a delayed Ready cannot override a stop or a replacement already seen.
+      if (session.status === 'initializing' || isSessionInitializingFn(session.id)) {
+        if (remote.generation !== undefined && remote.revision !== undefined) {
+          setStateRaw('sessions', idx, { lifecycle: remote.lifecycle ?? remote.status,
+            generation: remote.generation, revision: remote.revision });
+        }
+        continue;
+      }
 
       // Legacy unordered negatives cannot override local transport ownership.
       // After the startup guard, an accepted generation/revision-fenced D1

@@ -501,6 +501,14 @@ describe('handleVaultRequest auth chain (CF-002)', () => {
       expect(hlRes.status).toBe(302);
     });
 
+    it('REQ-VAULT-024 AC3: shell navigation with the completion cookie bypasses the bootstrap hop', async () => {
+      const request = tokenRequest('/', { Cookie: 'codeflare_vault_bootstrap=1', 'Sec-Fetch-Mode': 'navigate' });
+      const response = await handleVaultRequest(request, mockEnv, mockCtx, route(request));
+      expect(response.status).toBe(200);
+      expect(response.headers.get('Location')).toBeNull();
+      expect(mockContainerFetch).toHaveBeenCalledOnce();
+    });
+
     it('T8: /.config injection still wires client encryption (regression)', async () => {
       // Swapping the served worker must not disturb the BootConfig key
       // injection - SB reads vaultEncryptionKey + enableClientEncryption from

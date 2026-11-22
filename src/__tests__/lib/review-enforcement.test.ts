@@ -223,7 +223,7 @@ async function harness(
   input: ReturnType<typeof fixture>,
   decisions: Array<string | undefined> = ['Launch review'],
   dependencyOverrides: Record<string, any> = {},
-  route?: () => Promise<'local' | 'remote' | 'unavailable'>,
+  route?: (event: any) => Promise<'local' | 'remote' | 'unavailable' | 'none'>,
 ) {
   process.env.HOME = input.home;
   process.env.CODEFLARE_SYNC_DAEMON_PIDFILE = join(input.home, 'missing.pid');
@@ -233,11 +233,13 @@ async function harness(
   const prompts: Array<{ title: string; options: string[] }> = [];
   const entries = () => readFileSync(input.sessionFile, 'utf8').split('\n').filter(Boolean)
     .map((line) => JSON.parse(line) as Record<string, unknown>).filter((entry) => entry.type !== 'session');
+  const markerAtFix: string[] = [];
   let activeTools = ['read', 'bash'];
   const pi = {
     on: (event: string, handler: Handler) => handlers.set(event, [...(handlers.get(event) ?? []), handler]),
     appendEntry: (customType: string, data: unknown) => append(input.sessionFile, { type: 'custom', customType, data }),
     sendMessage: (message: { customType: string; content?: string; details?: Record<string, unknown> }) => {
+      if (message.customType === 'pr-boundary-fix-follow-up') markerAtFix.push(readCompletion(input.identity).status);
       sent.push(message);
       append(input.sessionFile, { type: 'custom_message', ...message });
     },
@@ -278,6 +280,7 @@ async function harness(
     ctx,
     sent,
     prompts,
+    markerAtFix,
     activeTools: () => activeTools,
     emit: async (event: string, payload: any = {}) => {
       for (const handler of handlers.get(event) ?? []) await handler(payload, ctx);
@@ -1113,6 +1116,36 @@ describe('Pi marker-or-dialog review ingress', () => {
       expect(marker.status).toBe('complete');
       expect(fix).toBeDefined();
     }
+  });
+
+  it('REQ-AGENT-244: unrelated PR creation cannot suppress the active exact-head FIX', async () => {
+    const input = fixture();
+    const unrelated = join(input.home, 'curation');
+    mkdirSync(join(unrelated, '.git'), { recursive: true });
+    const { selectOperatorReviewApplicability } = await import('../../../preseed/agents/pi/extensions/operator-review-selector');
+    const app = await harness(input, [], {}, async event => {
+      if (event.toolCallId !== 'other-pr') return 'local';
+      const previous = process.env.ENTERPRISE_MODE;
+      process.env.ENTERPRISE_MODE = 'active';
+      try { return await selectOperatorReviewApplicability(event, { cwd: input.repo }); }
+      finally {
+        if (previous === undefined) delete process.env.ENTERPRISE_MODE;
+        else process.env.ENTERPRISE_MODE = previous;
+      }
+    });
+    await app.emit('tool_result', boundary('gh pr create --base main', 'owner-pr', 'https://github.com/owner/repo/pull/42'));
+    await app.emit('agent_end');
+    const lanes = app.sent[0]!.details?.requiredLanes as ReviewLane[];
+    const otherPr = boundary(`cd ${JSON.stringify(unrelated)} && gh pr create --base main`, 'other-pr', 'https://github.com/owner/curation/pull/95');
+    await app.emit('tool_call', otherPr);
+    await app.emit('tool_result', otherPr);
+    await app.emit('agent_end');
+    appendSuccessfulRound(input, lanes, 'owned');
+    await app.emit('agent_settled');
+    expect(readCompletion(input.identity, { root: join(input.home, '.codeflare/review-state/v1') }).status).toBe('complete');
+    await app.emit('agent_end');
+    expect(app.sent.map(message => message.customType)).toEqual(['pr-boundary-launch-plan', 'pr-boundary-fix-follow-up']);
+    expect(app.markerAtFix).toEqual(['complete']);
   });
 
   it('keeps a fully terminal round until canonical triage arrives', async () => {

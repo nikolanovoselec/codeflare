@@ -446,10 +446,12 @@ export function startSession(
   }
   let cancelled = false;
   let pollInterval: ReturnType<typeof setInterval> | null = null;
+  let unconfirmedTimer: ReturnType<typeof setTimeout> | undefined;
   const startedAt = Date.now();
   const cancel = () => {
     cancelled = true;
     if (pollInterval) clearInterval(pollInterval);
+    clearTimeout(unconfirmedTimer);
   };
 
   const startPolling = async () => {
@@ -471,7 +473,7 @@ export function startSession(
       if (cancelled) return;
       // Differentiate definitive failures from transient errors.
       // The backend uses ctx.waitUntil() - container may have started despite client error.
-      // For transient errors, proceed to polling; polling will timeout naturally if container didn't start.
+      // A transient failure cannot tell us whether the Worker accepted Start.
       const isDefinitiveFailure = err instanceof ApiError
         && err.status >= 400 && err.status < 500;
 
@@ -482,6 +484,14 @@ export function startSession(
       }
       // Transient error (network failure, timeout, 5xx) - proceed to polling
       logger.debug('Container start request (transient, proceeding to poll):', err);
+    }
+
+    // Only an unacknowledged claim gets this bound; it cannot own Ready.
+    if (generation === undefined) {
+      unconfirmedTimer = setTimeout(() => {
+        cancel();
+        onError('This Start could not be confirmed.', 'SESSION_START_UNCONFIRMED');
+      }, MAX_STARTUP_POLL_ERRORS * STARTUP_POLL_INTERVAL_MS);
     }
 
     // A running VS Code host exposes the prior timeout until its automatic
@@ -540,7 +550,8 @@ export function startSession(
         logger.error('Polling error:', err);
         if (consecutiveErrors >= MAX_STARTUP_POLL_ERRORS) {
           cancel();
-          onError('Polling failed after too many consecutive errors');
+          if (generation === undefined) onError('This Start could not be confirmed.', 'SESSION_START_UNCONFIRMED');
+          else onError('Polling failed after too many consecutive errors');
           return;
         }
       }

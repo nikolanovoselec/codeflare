@@ -1071,7 +1071,6 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 
 ---
 
-<a id="req-mem-036-fresh-bounded-pi-fact-context-on-every-request"></a>
 ### REQ-MEM-039: Native memory tools and safe updates
 
 **Intent:** Foreground Pi can search and update saved facts explicitly without changing unrelated memory or leaking secrets.
@@ -1118,6 +1117,7 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 
 ---
 
+<a id="req-mem-036-fresh-bounded-pi-fact-context-on-every-request"></a>
 ### REQ-MEM-036: Search-based Pi fact recall
 
 **Intent:** Native policy-only memory remains searchable as it grows, without a second full-file injector or misleading size-limit warnings.

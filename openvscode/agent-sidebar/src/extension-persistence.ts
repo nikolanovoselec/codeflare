@@ -912,11 +912,11 @@ export async function restoreExtensionManifest(
   } catch {
     return { failures: [] };
   }
-  const missing = Object.entries(manifest.extensions)
+  let missing = Object.entries(manifest.extensions)
     .filter(([id, record]) => !managedIds.has(id) && installed[id]?.version !== record.version)
     .sort(([left], [right]) => left.localeCompare(right));
   const failures: string[] = [];
-  let handoff: CaptureHandoff;
+  let handoff: CaptureHandoff | undefined;
   const pins: CaptureHandoff['pins'] = {};
   try {
     handoff = await readCaptureHandoff(options.extensionsDir);
@@ -926,7 +926,12 @@ export async function restoreExtensionManifest(
     // Reap may run even if this activation never reaches its first capture.
     await writeCaptureHandoff(options.extensionsDir, handoff, { ...handoff, pins });
   } catch {
-    return { failures: [] };
+    handoff = undefined;
+    missing = missing.filter(([id]) => {
+      if (!installed[id]) return true;
+      failures.push(id);
+      return false;
+    });
   }
 
   const restoreOne = async ([id, record]: [string, ExtensionRecord]) => {
@@ -967,14 +972,18 @@ export async function restoreExtensionManifest(
   }
   const failed = new Set(failures);
   const failedPins = Object.fromEntries(Object.entries(pins).filter(([id]) => failed.has(id)));
-  await writeCaptureHandoff(options.extensionsDir, { ...handoff, pins }, { ...handoff, pins: failedPins }).catch(() => undefined);
+  if (handoff) await writeCaptureHandoff(options.extensionsDir, { ...handoff, pins }, { ...handoff, pins: failedPins }).catch(() => undefined);
   await restoreSettings(manifest.settings);
   failures.sort();
-  if (failures.length > 0) {
+  if (!handoff || failures.length > 0) {
+    const handoffWarning = handoff ? '' : 'The extension capture handoff could not be verified. ';
     const visible = failures.slice(0, 10).join(', ');
     const omitted = failures.length > 10 ? ` and ${failures.length - 10} more` : '';
     try {
-      await vscode.window.showWarningMessage(`Could not restore user extensions: ${visible}${omitted}. Their manifest entries were preserved.`);
+      const extensionWarning = failures.length > 0
+        ? `Could not restore user extensions: ${visible}${omitted}. Their manifest entries were preserved.`
+        : 'Existing extension intent was preserved.';
+      await vscode.window.showWarningMessage(handoffWarning + extensionWarning);
     } catch {
       // Restore completion does not depend on notification delivery.
     }

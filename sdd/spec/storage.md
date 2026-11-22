@@ -118,7 +118,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-001](#req-stor-001-dedicated-per-user-r2-bucket), [REQ-STOR-004](#req-stor-004-initial-sync-restores-files-on-container-start)
 
-**Verification:** Automated: [entrypoint-bisync-behavior.test.js](../../host/__tests__/entrypoint-bisync-behavior.test.js) (standalone; excluded from host CI), [entrypoint-shutdown.test.js](../../host/__tests__/entrypoint-shutdown.test.js), [rclone-bisync-s3.py](../../scripts/ci/rclone-bisync-s3.py)
+**Verification:** Automated: [entrypoint-bisync-behavior.test.js](../../host/__tests__/entrypoint-bisync-behavior.test.js), [entrypoint-shutdown.test.js](../../host/__tests__/entrypoint-shutdown.test.js), [rclone-bisync-s3.py](../../scripts/ci/rclone-bisync-s3.py)
 
 **Status:** Implemented
 
@@ -144,7 +144,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-003](#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers), [REQ-STOR-004](#req-stor-004-initial-sync-restores-files-on-container-start), [REQ-STOR-041](#req-stor-041-disk-space-recovery)
 
-**Verification:** Automated: [entrypoint-bisync-behavior.test.js](../../host/__tests__/entrypoint-bisync-behavior.test.js) (standalone; excluded from host CI), [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js), [entrypoint-shutdown.test.js](../../host/__tests__/entrypoint-shutdown.test.js), [entrypoint-rclone-filters.test.js](../../host/__tests__/entrypoint-rclone-filters.test.js)
+**Verification:** Automated: [entrypoint-bisync-behavior.test.js](../../host/__tests__/entrypoint-bisync-behavior.test.js), [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js), [entrypoint-shutdown.test.js](../../host/__tests__/entrypoint-shutdown.test.js), [entrypoint-rclone-filters.test.js](../../host/__tests__/entrypoint-rclone-filters.test.js)
 
 **Status:** Implemented
 
@@ -423,7 +423,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-011](#req-stor-011-sync-mode-controls-workspace-scope)
 
-**Verification:** Automated: [rclone-bisync-s3.py](../../scripts/ci/rclone-bisync-s3.py) (standalone S3 fixture; not invoked by current CI)
+**Verification:** Automated: [rclone-bisync-s3.py](../../scripts/ci/rclone-bisync-s3.py)
 
 **Status:** Implemented
 

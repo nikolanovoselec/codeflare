@@ -97,7 +97,13 @@ export function registerOperatorReviewSelector(pi: SelectorPi, dependencies: Dep
       else if (next !== 'remote') selectedRepo = undefined;
       if (next !== 'unavailable') unavailableReported = false;
     }
-    // Confirmed absence is inert, not local fallback or Review completion.
+    if (name === 'agent_end' || name === 'agent_settled') {
+      // The local handler settles its own active round after exact-PR validation.
+      // An unrelated boundary can change selection, not ownership of that round.
+      for (const handler of handlers.local.get(name) ?? []) await handler(event, ctx);
+      if (selected !== 'remote') return;
+    }
+    // Confirmed absence grants no authority to the unrelated boundary.
     if (selected === 'none') return;
     if (selected === 'unavailable') {
       if (!unavailableReported && ((isBoundary && name === 'tool_result')

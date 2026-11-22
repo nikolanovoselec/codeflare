@@ -900,6 +900,24 @@ describe('API Client', () => {
       cleanup();
     });
 
+    it('REQ-SESSION-017 AC3: an unacknowledged Start releases despite repeated successful stopped reads', async () => {
+      const onComplete = vi.fn();
+      const onError = vi.fn();
+      mockFetch.mockRejectedValueOnce(new Error('POST response lost')).mockImplementation(async () => Response.json({
+        stage: 'stopped', generation: 6, confirmedStopped: true, progress: 0, message: 'Stopped',
+        details: { bucketName: 'test', container: 'test', path: '/workspace' },
+      }));
+      const cleanup = startSession('session00123', vi.fn(), onComplete, onError);
+      try {
+        await vi.advanceTimersByTimeAsync(0);
+        expect(onError).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(30_000);
+        expect(onError).toHaveBeenCalledExactlyOnceWith(expect.any(String), 'SESSION_START_UNCONFIRMED');
+        expect(onComplete).not.toHaveBeenCalled();
+        expect(mockFetch.mock.calls.length).toBeGreaterThan(2);
+      } finally { cleanup(); }
+    });
+
     it('REQ-SESSION-017 AC3: releases Start polling after a same-generation confirmed stop', async () => {
       const onComplete = vi.fn();
       const onError = vi.fn();

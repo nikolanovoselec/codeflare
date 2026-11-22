@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:test';
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { D1SessionRepository } from '../../lib/session-repository';
+import { buildCloneTargets } from '../../lib/clone-targets';
 import { validateSessionAndCheckLimits } from '../../routes/container/lifecycle-validation';
 import type { Env } from '../../types';
 import { getMaxSessions } from '../../lib/constants';
@@ -51,6 +52,31 @@ describe('D1 production authority outcomes', () => {
     await repository().create(input('another-owner'));
     await expect(repository().create(input())).rejects.toThrow();
     expect(await repository().listSessions('authority-owner')).toEqual([restored]);
+  });
+
+  it('REQ-GITHUB-319 AC1/AC2: overlapping appends both reach the next restore directive', async () => {
+    const session = await repository().create(input());
+    const { ownerKey, sessionId } = session;
+    let arrived = 0;
+    let release!: () => void;
+    const bothRead = new Promise<void>(resolve => { release = resolve; });
+    class TwoReaders extends D1SessionRepository {
+      override async getSession(owner: string, id: string) {
+        const snapshot = await super.getSession(owner, id);
+        if (++arrived <= 2) {
+          if (arrived === 2) release();
+          await bothRead;
+        }
+        return snapshot;
+      }
+    }
+    const writer = new TwoReaders(db);
+    expect(await Promise.all([
+      writer.appendTrackedClone(ownerKey, sessionId, { repo: 'example/a', ref: 'dev' }),
+      writer.appendTrackedClone(ownerKey, sessionId, { repo: 'example/b' }),
+    ])).toEqual(['tracked', 'tracked']);
+    const next = await repository().getSession(ownerKey, sessionId);
+    expect(buildCloneTargets(next?.clones, next?.clone)).toBe('example/primary#main example/a#dev example/b example/secondary');
   });
 
   it('REQ-SESSION-001 AC3 / REQ-SESSION-031 AC1: valid agent and six configured tabs retain complete nonsecret creation data', async () => {

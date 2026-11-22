@@ -414,6 +414,10 @@ return an error response (4xx) rather than any listing.
 
 ---
 
+## Storage verification
+
+The [bisync shell-behavior suite](../../host/__tests__/entrypoint-bisync-behavior.test.js) is standalone, excluded from Host CI, and cited by REQ-STOR-003 and REQ-STOR-045. The [S3 bisync fixture](../../scripts/ci/rclone-bisync-s3.py) cited by REQ-STOR-258 is standalone and not run by current CI. A suite link does not establish execution.
+
 ## Storage manual acceptance procedures
 
 These are methods, not executed receipts or permission to run them. Obtain explicit authorization for isolated disposable identities, buckets, sessions, faults and exact cleanup; never use production or ordinary user data. Use existing authenticated interfaces and preserve admission, encryption and managed-resource guards. Operational preparation remains with the linked private runbooks.

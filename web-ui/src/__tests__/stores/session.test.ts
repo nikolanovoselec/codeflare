@@ -1983,12 +1983,17 @@ describe('Session Store', () => {
           });
           return () => {};
         });
-        vi.mocked(api.getStartupStatus).mockResolvedValue({ stage: 'ready', generation: 7, progress: 100,
-          message: 'Container ready', details: { bucketName: 'bucket', container: 'container', path: '/', repositoryRestore: 'issues' } });
+        const details = { bucketName: 'bucket', container: 'container', path: '/' };
+        vi.mocked(api.getStartupStatus).mockResolvedValueOnce({ stage: 'starting', generation: 7, progress: 20,
+          message: 'Health not available', details }).mockResolvedValue({ stage: 'ready', generation: 7, progress: 100,
+          message: 'Container ready', details: { ...details, repositoryRestore: 'issues' } });
         await sessionStore.startSession(id);
         expect(sessionStore.getInitProgressForSession(id)?.stage).toBe('ready');
         expect(sessionStore.repositoryRestoreNotices[id]).toEqual({ status: 'restoring' });
         sessionStore.dismissInitProgressForSession(id);
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(api.getStartupStatus).toHaveBeenCalledWith(id);
+        expect(sessionStore.repositoryRestoreNotices[id]).toEqual({ status: 'restoring' });
         await vi.advanceTimersByTimeAsync(5_000);
         expect(sessionStore.repositoryRestoreNotices[id]).toEqual({ status: 'issues' });
         sessionStore.dismissRepositoryRestore(id);
@@ -2029,9 +2034,11 @@ describe('Session Store', () => {
     });
 
     it.each([
-      { generation: 8, lifecycle: 'starting' as const },
-      { generation: 7, lifecycle: 'stopping' as const },
-    ])('REQ-SESSION-018 AC4: a late Ready cannot override accepted $lifecycle authority', async ({ generation, lifecycle }) => {
+      ...(['catalog', 'batch'] as const).flatMap(source => [
+        { source, generation: 8, lifecycle: 'starting' as const },
+        { source, generation: 7, lifecycle: 'stopping' as const },
+      ]),
+    ])('REQ-SESSION-018 AC4: a late Ready cannot override accepted $lifecycle authority', async ({ generation, lifecycle, source }) => {
       const editor = { id: `late-ready-${lifecycle}`, name: 'Editor', workspace: 'vscode' as const, editorReady: false,
         createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString() };
       mockGetSessions.mockResolvedValue([{ ...editor, status: 'stopped', lifecycle: 'stopped', generation: 6, revision: 1 }]);
@@ -2050,8 +2057,14 @@ describe('Session Store', () => {
       const replacement = { ...editor, generation, lifecycle, status: lifecycle, revision: 4 };
       mockGetSessions.mockResolvedValue([replacement]);
       const readEditor = () => sessionStore.sessions.find(session => session.id === editor.id);
-      await sessionStore.loadSessions();
-      expect(readEditor()).toMatchObject({ generation, lifecycle });
+      if (source === 'batch') {
+        mockGetBatchSessionStatus.mockResolvedValue({ statuses: { [editor.id]: { ...replacement, ptyActive: false } } });
+        await sessionStore.refreshSessionStatuses();
+        expect(readEditor()?.status).toBe('initializing');
+      } else {
+        await sessionStore.loadSessions();
+      }
+      expect(readEditor()).toMatchObject({ generation, lifecycle, revision: 4 });
       const staleReady = expect(start).rejects.toThrow('superseded');
       complete(7);
       await staleReady;

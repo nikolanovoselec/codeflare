@@ -699,10 +699,13 @@ function watchRepositoryRestore(id: string, generation: number, initial: Reposit
         try {
           const observation = await api.getStartupStatus(id);
           if (!current()) return;
-          if (!ownsObservation() || observation.generation !== generation || !observation.details.repositoryRestore
-            || observation.stage === 'error') {
+          if (!ownsObservation() || (observation.generation !== undefined && observation.generation > generation)
+            || (observation.generation === generation && (observation.confirmedStopped || observation.stage === 'error'))) {
             dismissRepositoryRestore(id);
             return;
+          }
+          if (observation.generation !== generation || !observation.details.repositoryRestore) {
+            throw new Error('Repository restore status unavailable');
           }
           failures = 0;
           update(observation.details.repositoryRestore);

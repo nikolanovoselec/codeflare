@@ -833,6 +833,28 @@ test('REQ-IDE-016 AC3 + REQ-IDE-037 AC1+AC3+AC4: restores exact versions, falls 
   ]);
 });
 
+test('REQ-IDE-037 AC4: bad capture handoff preserves ambiguous pins and restores independent intent', async () => {
+  const { extensionsDir, manifestPath } = fixture();
+  const pinned = 'publisher.pinned';
+  const missing = 'publisher.missing';
+  const original = JSON.stringify({ ...validManifest({ [pinned]: { version: '1.0.0' },
+    [missing]: { version: '1.0.0' } }, { 'yaml.validate': true }), securityWarningShown: true });
+  writeFileSync(manifestPath, original);
+  writeRegistry(extensionsDir, [{ id: pinned, version: '2.0.0' }]);
+  const handoff = join(extensionsDir, '.codeflare-extension-capture.json');
+  writeFileSync(handoff, '{invalid');
+  host.extensions = [{ id: 'redhat.vscode-yaml', packageJSON: { contributes: {
+    configuration: { properties: { 'yaml.validate': { type: 'boolean' } } },
+  } } }];
+  const result = await restoreExtensionManifest({ extensionsDir, manifestPath });
+  assert.deepEqual(result.failures, [pinned]);
+  assert.deepEqual(host.commands.map(({ arguments: args }) => args[0]), [`${missing}@1.0.0`]);
+  assert.deepEqual(host.settingsUpdates, [{ key: 'yaml.validate', value: true, target: 1 }]);
+  assert.match(host.warnings.join(' '), /capture handoff/i);
+  assert.equal(readFileSync(handoff, 'utf8'), '{invalid');
+  assert.equal(readFileSync(manifestPath, 'utf8'), original);
+});
+
 test('REQ-IDE-038 AC2+AC3: restore warns before execution and never repeats an accepted warning', async () => {
   const { extensionsDir, manifestPath, syncPidFile } = fixture();
   const original = JSON.stringify(validManifest({

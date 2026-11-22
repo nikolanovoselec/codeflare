@@ -18,7 +18,6 @@ import { authMiddleware, AuthVariables } from '../middleware/auth';
 import { createRateLimiter } from '../middleware/rate-limit';
 import { getBaseUrl } from '../lib/kv-keys';
 import { D1SessionRepository } from '../lib/session-repository';
-import { normalizeTrackedClones } from '../lib/clone-targets';
 import { signOauthState } from '../lib/oauth-state';
 import { githubScopeForTier } from '../lib/oauth-scopes';
 import { createLogger } from '../lib/logger';
@@ -228,11 +227,10 @@ app.post('/clone', cloneRateLimiter, async (c) => {
   // success. The cap applies to tracking only: an overflow clone can succeed
   // without appearing in the automatic restore directive.
   if (upstream.status === 200) {
-    const latestSession = await repository.getSession(c.get('bucketName'), sessionId);
-    if (!latestSession) return c.json({ error: 'Session not found', code: 'SESSION_NOT_FOUND' }, 404);
-    const clones = normalizeTrackedClones([...(latestSession.clones ?? []), { repo, ...(ref ? { ref } : {}) }]);
-    if (!await repository.updateTrackedClones(c.get('bucketName'), sessionId, clones)) {
-      return c.json({ error: 'Session not found', code: 'SESSION_NOT_FOUND' }, 404);
+    const tracking = await repository.appendTrackedClone(c.get('bucketName'), sessionId, { repo, ...(ref ? { ref } : {}) });
+    if (tracking === 'missing') return c.json({ error: 'Session not found', code: 'SESSION_NOT_FOUND' }, 404);
+    if (tracking === 'conflict') {
+      return c.json({ error: 'Repository cloned, but restore tracking could not be confirmed.', code: 'CLONE_TRACKING_UNCONFIRMED' }, 409);
     }
   }
 

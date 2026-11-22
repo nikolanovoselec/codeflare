@@ -1,5 +1,5 @@
 import type { AgentType, SessionWorkspace, TabConfig, TerminalMode } from '../types';
-import type { TrackedClone } from './clone-targets';
+import { normalizeTrackedClones, type TrackedClone } from './clone-targets';
 import type { SessionAuthority, AuthoritySession } from './session-authority';
 
 type SessionLifecycleState = 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping';
@@ -310,6 +310,21 @@ export class D1SessionRepository implements SessionAuthority {
         AND (?6=0 OR lifecycle_state='running') AND termination_intent_id IS NULL`)
       .bind(ownerKey, sessionId, generation, editorReady ? 1 : 0, editorReadyError ? 1 : 0, runningOnly ? 1 : 0).run();
     return result.meta.changes === 1;
+  }
+
+  async appendTrackedClone(ownerKey: string, sessionId: string, clone: TrackedClone): Promise<'tracked' | 'missing' | 'conflict'> {
+    // Network cloning has already finished. Retry only the inventory write,
+    // without allowing a stale snapshot to replace a concurrent update.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const session = await this.getSession(ownerKey, sessionId);
+      if (!session) return 'missing';
+      const clones = normalizeTrackedClones([...(session.clones ?? []), clone]);
+      const result = await this.db.prepare(`UPDATE runtime_sessions SET clones_json=?3, response_revision=response_revision+1
+        WHERE owner_key=?1 AND session_id=?2 AND response_revision=?4`)
+        .bind(ownerKey, sessionId, JSON.stringify(clones), session.responseRevision).run();
+      if (result.meta.changes === 1) return 'tracked';
+    }
+    return 'conflict';
   }
 
   async updateTrackedClones(ownerKey: string, sessionId: string, clones: TrackedClone[],

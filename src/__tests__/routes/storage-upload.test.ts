@@ -7,11 +7,9 @@ import { createTestApp } from '../helpers/test-app';
 const mockFetch = vi.fn();
 const managedState = vi.hoisted(() => ({ snapshot: { configured: false, enabled: false } as any }));
 
-vi.mock('../../lib/r2-client', () => ({
+vi.mock('../../lib/r2-client', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../lib/r2-client')>()),
   createR2Client: vi.fn(() => ({ fetch: mockFetch })),
-  getR2Url: vi.fn((endpoint: string, bucket: string, key?: string) =>
-    key ? `${endpoint}/${bucket}/${key}` : `${endpoint}/${bucket}`
-  ),
   parseInitiateMultipartUploadXml: vi.fn(() => 'upload-id-123'),
 }));
 
