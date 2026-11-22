@@ -283,7 +283,8 @@
   overflow-wrap: anywhere;
 }
 
-.dashboard-recovery-message:empty {
+.dashboard-migration-retry-status:empty {
+  position: absolute;
   margin: 0;
 }
 

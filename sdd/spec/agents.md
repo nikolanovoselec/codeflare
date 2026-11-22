@@ -6515,7 +6515,10 @@ The former REQ-AGENT-191 Goal visibility and REQ-AGENT-248 `goal_wait` exclusion
 6. Failed recreation displays the error and leaves explicit recovery available. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-213: recovery backup exposes Recreate failure and allows another explicit attempt) -->
 7. Clearing a migration halt does not transfer keyboard focus from Retry migration to Recreate. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-213: clearing a halt does not transfer focus to seed recreation) -->
 
-**Constraints:** Successful recreation does not replace authoritative applied-status reconciliation. Existing server admission remains unchanged.
+**Constraints:**
+
+- Successful recreation does not replace authoritative applied-status reconciliation.
+- Existing server admission remains unchanged.
 
 **Priority:** P1
 

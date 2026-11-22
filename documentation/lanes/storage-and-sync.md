@@ -551,7 +551,9 @@ Record the build, browser, widths, and input used. Clipping, an unreachable ance
 
 Use an already authorized isolated fixture prepared under the owner runbook. Do not toggle shared policy, create faults, or edit state. Missing active or halted fixtures remain blocked.
 
-This procedure observes the wire projection ([REQ-ENTERPRISE-021 AC5](../../sdd/spec/storage.md#req-enterprise-021-governed-mode-migration-safety-and-access-boundary)) and visible Dashboard status and creation gating ([REQ-ENTERPRISE-304 AC1–AC2, AC4, and AC6](../../sdd/spec/storage.md#req-enterprise-304-dashboard-migration-affordance-and-refresh)). The [Dashboard fixtures](../../web-ui/src/__tests__/components/Dashboard.test.tsx) check pending feedback, duplicate submission, and refusal isolation (AC3, AC5, and AC7).
+This procedure observes the wire projection ([REQ-ENTERPRISE-021 AC5](../../sdd/spec/storage.md#req-enterprise-021-governed-mode-migration-safety-and-access-boundary)), Dashboard status and creation gating ([REQ-ENTERPRISE-304 AC1–AC4 and AC6](../../sdd/spec/storage.md#req-enterprise-304-dashboard-migration-affordance-and-refresh)), and the retry announcement ([REQ-ENTERPRISE-323 AC1](../../sdd/spec/storage.md#req-enterprise-323-migration-retry-feedback)).
+
+The [Dashboard fixtures](../../web-ui/src/__tests__/components/Dashboard.test.tsx) verify the pending message and busy control (REQ-ENTERPRISE-323 AC1–AC2), plus duplicate submission and refusal isolation (REQ-ENTERPRISE-304 AC5 and AC7). They do not verify speech output.
 
 1. On initial load during migration, confirm ancillary status reports `bucketMigrating: true`. When progress is known, it is 0–99 and the disabled control shows the matching `Migrating N%`.
 2. Keep the page visible. While successive ancillary polls report `bucketMigrating: true`, compare their percentages to the disabled control, including at least one changed value. If no change is observable, record periodic progress as blocked.
@@ -566,6 +568,10 @@ This procedure observes the wire projection ([REQ-ENTERPRISE-021 AC5](../../sdd/
 11. Mark retry gating blocked if freshness, continuous coverage, or publication order cannot be established.
 
 If the seed fixture is unavailable, mark only visual parity blocked; do not create a fault. Fail visual parity if the icon, dimensions, placement, or styling differs. Independently fail the halted-fixture label check for visible button text or a wrong accessible name or tooltip.
+
+For the announcement check, start listening with a screen reader before the authorized retry in step 8. While the pending message is visible, confirm the reader says **Retrying migration** without moving focus to the message. Fail if the visible update is not announced with a working setup. Mark this check blocked if the screen reader or an observable pending interval is unavailable. Record the browser and screen-reader versions.
+
+With Recent Sessions present and no retry or recovery message visible, verify the empty status region adds no gap above the list. Compare in the same viewport with no intervening notices; mark the spacing check blocked if that state is unavailable.
 
 Fail for an incorrect migration flag, a percentage on halt, an invented, out-of-range or mismatched progress value, or New Session becoming enabled before verification.
 

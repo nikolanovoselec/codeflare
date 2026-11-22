@@ -1867,9 +1867,9 @@ The migration integrity, safe retry, termination and session-creation constraint
 
 **Acceptance Criteria:**
 
-1. During bucket migration, Dashboard disables New Session in the existing upgrade slot and displays `Migrating N%` when progress is known. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @manual: documentation/lanes/storage-and-sync.md#req-enterprise-021-migration-progress-acceptance -->
+1. During bucket migration, Dashboard disables New Session in the existing upgrade slot. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @manual: documentation/lanes/storage-and-sync.md#req-enterprise-021-migration-progress-acceptance -->
 2. Initial load and five-second migration polling mirror `bucketMigrating` and `bucketMigrationPercent` flags. <!-- @test: web-ui/src/__tests__/stores/session.test.ts (Session Store) --> <!-- @impl: web-ui/src/stores/session-polling.ts::scheduleNextPoll --> <!-- @impl: web-ui/src/lib/constants.ts::SESSION_POLL_TRANSITION_MS = 5_000 -->
-3. While retry is pending, Dashboard shows and announces `Retrying migration` until settlement and marks the retry control busy while it remains visible. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-ENTERPRISE-304: Retry migration submits the halt timestamp once while pending and does not unlock New Session on success) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-ENTERPRISE-304: pending feedback survives the halt clearing before refresh settles) -->
+3. During bucket migration, Dashboard displays `Migrating N%` in the New Session slot when progress is known. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @manual: documentation/lanes/storage-and-sync.md#req-enterprise-021-migration-progress-acceptance -->
 4. On halt, the disabled New Session slot displays `Migration halted` beside the same square icon control used for failed seed activation, labeled `Retry migration` for assistive technology and the tooltip. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-ENTERPRISE-304: a halt keeps creation disabled and offers an icon-only retry (bucketMigrating=%s)) --> <!-- @manual: documentation/lanes/storage-and-sync.md#req-enterprise-021-migration-progress-acceptance -->
 5. While a retry is pending, the dashboard prevents another retry submission. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-ENTERPRISE-304: Retry migration submits the halt timestamp once while pending and does not unlock New Session on success) -->
 6. A retry acknowledgment does not enable New Session before the migration completes. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-ENTERPRISE-304: Retry migration submits the halt timestamp once while pending and does not unlock New Session on success) -->
@@ -1882,6 +1882,29 @@ The migration integrity, safe retry, termination and session-creation constraint
 **Dependencies:** [REQ-ENTERPRISE-020](#req-enterprise-020-governed-mode-re-encrypt-migration-engine), [REQ-ENTERPRISE-018](#req-enterprise-018-governed-mode-toggle-and-configuration-surface), [REQ-ENTERPRISE-016](security.md#req-enterprise-016-strict-gateway-egress), [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-SEC-005](security.md#req-sec-005-r2-files-encrypted-at-rest-with-sse-c-when-operator-configures-an-encryption-key), [REQ-BROWSER-008](browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container), [REQ-ENTERPRISE-021](#req-enterprise-021-governed-mode-migration-safety-and-access-boundary)
 
 **Verification:** Automated: [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [session store](../../web-ui/src/__tests__/stores/session.test.ts); Manual: [migration progress acceptance](../../documentation/lanes/storage-and-sync.md#req-enterprise-021-migration-progress-acceptance)
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-323: Migration retry feedback
+
+**Intent:** Confirm that a retry is in progress without changing the creation gate.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Dashboard announces `Retrying migration` when retry starts and keeps the message visible until settlement, even if the halt clears first. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-ENTERPRISE-304: Retry migration submits the halt timestamp once while pending and does not unlock New Session on success) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-ENTERPRISE-304: pending feedback survives the halt clearing before refresh settles) --> <!-- @manual: documentation/lanes/storage-and-sync.md#req-enterprise-021-migration-progress-acceptance -->
+2. Dashboard exposes the retry control as busy while a retry is pending and the control remains visible. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-ENTERPRISE-304: Retry migration submits the halt timestamp once while pending and does not unlock New Session on success) -->
+
+**Constraints:** None.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-ENTERPRISE-304](#req-enterprise-304-dashboard-migration-affordance-and-refresh)
+
+**Verification:** Automated: [Dashboard retry fixtures](../../web-ui/src/__tests__/components/Dashboard.test.tsx); Manual: [migration progress acceptance](../../documentation/lanes/storage-and-sync.md#req-enterprise-021-migration-progress-acceptance)
 
 **Status:** Implemented
 
