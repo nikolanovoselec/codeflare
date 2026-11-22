@@ -370,8 +370,10 @@ function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
     sections.push([
       `### ${sections.length + 1}. Triage before fixing`, "",
       input.ciEvent
-        ? "Wait for every required reviewer and terminal exact-head CI evidence, then publish one joint table:"
-        : "Wait for every required reviewer result, then publish one joint table:", "",
+        ? "Wait for every required reviewer and terminal exact-head CI evidence."
+        : "Wait for every required reviewer.", "",
+      "If a finished reviewer’s full findings are missing, use `get_subagent_result` for that exact launch before triage.", "",
+      "Then publish one joint table:", "",
       REVIEW_TRIAGE_HEADER, REVIEW_TRIAGE_DIVIDER, "",
       ...(input.ciEvent
         ? ["CI failure or timeout requires FINDING `Exact-head CI` and PROPOSED FIX `CI_RESULT failure` or `CI_RESULT timeout`.", ""]

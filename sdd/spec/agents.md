@@ -3284,11 +3284,14 @@ None.
 
 **Acceptance Criteria:**
 
-1. The main session can retrieve each completed reviewer’s full findings intact through the native result for that exact launch, even when the completion notification shows only a preview. <!-- @impl: preseed/agents/pi/package.json::@gotgenes/pi-subagents --> <!-- @test: host/__tests__/pi-subagents-notifications.test.js (REQ-AGENT-059 AC1: native retrieval delivers findings beyond the completion preview) -->
+1. The main session can retrieve each completed reviewer’s full findings intact through the native result for that exact launch, even when the completion notification shows only a preview. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-098: first public reviewer result keeps triage complete after later terminal evidence) --> <!-- @test: host/__tests__/pi-subagents-notifications.test.js (REQ-AGENT-059 AC1: native retrieval delivers findings beyond the completion preview) -->
+
+**Notes:** The pinned [native subagent tool](../../documentation/lanes/preseed.md#pi-review-findings-retrieval) owns full-text retrieval. [Native retention qualification](.review-queue.md#native-reviewer-result-retention) remains open.
 
 **Constraints:**
 
-- Completion proof follows [REQ-AGENT-053 AC2](#req-agent-053-pi-native-review-result-correlation). Before triage, the main session retrieves any finished reviewer’s full findings it has not already received. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage -->
+- Completion proof follows [REQ-AGENT-053 AC2](#req-agent-053-pi-native-review-result-correlation).
+- The Review plan instructs the main session to retrieve missing full findings from the exact finished launch before triage. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (automatically emits the exact review plan after successful push) -->
 - Main-session rules require waiting for every required reviewer before fixing, committing, or pushing.
 - The main session verifies and fixes legitimate findings unless the latest user instruction says to wait or not autofix.
 - Report-only reviewer types never own a `/review` mutation phase; triage/history/ADR/issue writes route to a non-review mutation agent.
@@ -3297,7 +3300,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-053](#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch)
 
-**Verification:** Automated: [pi-subagents-notifications.test.js](../../host/__tests__/pi-subagents-notifications.test.js)
+**Verification:** Automated: [review-helpers.test.ts](../../src/__tests__/lib/review-helpers.test.ts), [pi-subagents-notifications.test.js](../../host/__tests__/pi-subagents-notifications.test.js), [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts)
 
 **Status:** Implemented
 

@@ -493,6 +493,8 @@ describe('Pi marker-or-dialog review ingress', () => {
       head: input.head,
       requiredLanes: ['code-reviewer', 'spec-reviewer', 'doc-updater'],
     });
+    expect(app.sent[0]?.content).toContain('Do not poll or retrieve in-flight results.');
+    expect(app.sent[0]?.content).toContain('If a finished reviewer’s full findings are missing, use `get_subagent_result` for that exact launch before triage.');
     expect(app.sent[0]?.content).toContain('verify that it is evidence-backed and in scope');
     expect(app.sent[0]?.content).toContain('judge the finding separately from its proposed fix');
     expect(app.sent[0]?.content).toContain('reject unsupported or overengineered proposals');
