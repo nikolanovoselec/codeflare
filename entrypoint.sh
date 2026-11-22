@@ -3294,6 +3294,7 @@ def atomic(path, value, staging, preserve_predecessor=False):
     if existed and read(path).encode() == data:
         return
     fd, tmp = tempfile.mkstemp(dir=staging)
+    committed = False
     try:
         with os.fdopen(fd, 'wb') as handle:
             handle.write(data)
@@ -3313,17 +3314,34 @@ def atomic(path, value, staging, preserve_predecessor=False):
                 os.fsync(fd)
             except OSError:
                 if preserve_predecessor:
-                    if existed:
-                        os.replace(backup, path)
-                    else:
-                        path.unlink()
-                    os.fsync(fd)
+                    try:
+                        if existed:
+                            os.replace(backup, path)
+                        else:
+                            path.unlink()
+                        os.fsync(fd)
+                    except OSError:
+                        recovery = backup.name if backup.exists() else 'canonical checkpoint; durability unconfirmed'
+                        print(f'[entrypoint] Hermes checkpoint rollback incomplete ({recovery})', file=sys.stderr)
+                        raise
                 raise
-            backup.unlink(missing_ok=True)
+            committed = True
+            if preserve_predecessor:
+                # Staging cleanup is not part of publication once it commits.
+                try:
+                    backup.unlink(missing_ok=True)
+                except OSError:
+                    print('[entrypoint] Hermes checkpoint staging cleanup incomplete', file=sys.stderr)
         finally:
-            os.close(fd)
+            try:
+                os.close(fd)
+            except OSError:
+                if not (preserve_predecessor and committed):
+                    raise
+                print('[entrypoint] Hermes checkpoint staging cleanup incomplete', file=sys.stderr)
     finally:
-        Path(tmp).unlink(missing_ok=True)
+        if not committed:
+            Path(tmp).unlink(missing_ok=True)
 
 def valid_stores(value):
     return isinstance(value, dict) and value.keys() == paths.keys() and all(isinstance(text, str) for text in value.values())
@@ -3384,6 +3402,16 @@ def check_direct(required):
         raise ValueError('wrong Hermes store marker')
 
 
+def replace_text(destination, content, staging):
+    fd, temporary = tempfile.mkstemp(dir=staging)
+    try:
+        with os.fdopen(fd, 'wb') as output:
+            output.write(content.encode())
+        os.replace(temporary, destination)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
 def prepare_direct_layout():
     check_direct(False)
     for path in (cache / 'owners', cache / 'consolidation-locks'):
@@ -3396,37 +3424,50 @@ def prepare_direct_layout():
     if os.path.lexists(project) and not (legacy_project_link() or (
         project.is_symlink() and Path(os.path.abspath(project.parent / os.readlink(project))) == target)):
         raise ValueError('conflicting memory alias')
-    if persistence == 'new' and generation and os.path.lexists(marker):
-        check_direct(True)
+    retirement = None
+    if persistence == 'new' and generation:
+        if not re.fullmatch('[1-9][0-9]{0,15}', generation):
+            raise ValueError('invalid Hermes admission generation')
+        pending = cache / f'retiring-store-{session}'
         current = read(local_generation) if kind(local_generation, stat.S_ISREG) else None
-        if current != f'{session}:{generation}\n':
-            # Old local bytes cannot stand in for a newly admitted store. Keep
-            # them outside all sync paths; the historical checkpoint stays put.
+        if not kind(pending, stat.S_ISDIR) and os.path.lexists(marker) and current != f'{session}:{generation}\n':
+            check_direct(True)
+            pending.mkdir(parents=True, mode=0o700)
+        if kind(pending, stat.S_ISDIR):
+            retirement = pending
             ready.unlink(missing_ok=True)
-            cache.mkdir(parents=True, exist_ok=True, mode=0o700)
-            stale = Path(tempfile.mkdtemp(prefix='retired-store-', dir=cache))
-            for path in (marker, evidence / 'global', evidence / 'Projects', evidence / '.pi-hermes-locks.sqlite'):
-                if os.path.lexists(path):
-                    path.rename(stale / path.name)
-            for suffix in ('-wal', '-shm', '-journal'):
-                lock = evidence / ('.pi-hermes-locks.sqlite' + suffix)
-                if os.path.lexists(lock):
-                    lock.rename(stale / lock.name)
+            complete = pending / 'retirement-complete'
+            if not kind(complete, stat.S_ISREG):
+                # Record the destination before the first move. Move the old
+                # marker last; a retry finishes only the remaining moves.
+                locks = [evidence / ('.pi-hermes-locks.sqlite' + suffix) for suffix in ('', '-wal', '-shm', '-journal')]
+                for path in [evidence / 'global', evidence / 'Projects', *locks, marker]:
+                    if os.path.lexists(path):
+                        path.rename(pending / path.name)
+                complete.touch(exist_ok=False)
     if os.path.lexists(marker) or persistence == 'existing':
         check_direct(True)
     else:
-        # A partial local store is not a new store, even if the marker is absent.
-        if any(os.path.lexists(evidence / name) for name in paths.values()):
+        # Only a recorded retirement can resume interrupted local seeding.
+        if not retirement and any(os.path.lexists(evidence / name) for name in paths.values()):
             raise ValueError('incomplete local Hermes store')
         direct_directory(vault / 'Projects/workspace')
         source = {name: read(vault / name) if kind(vault / name, stat.S_ISREG) else '' for name in paths}
         for name, rel in paths.items():
             destination = evidence / rel
             destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-            with os.fdopen(os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
-                output.write(source[name].encode())
-        with os.fdopen(os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w') as output:
-            output.write(session + '\n')
+            if retirement:
+                # Until the marker is written, a retry reseeds the whole set
+                # from masters; no partial seed is opened by Hermes.
+                replace_text(destination, source[name], retirement)
+            else:
+                with os.fdopen(os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
+                    output.write(source[name].encode())
+        if retirement:
+            replace_text(marker, session + '\n', retirement)
+        else:
+            with os.fdopen(os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w') as output:
+                output.write(session + '\n')
     if legacy_project_link():
         project.unlink()
     if not os.path.lexists(project):
@@ -3434,6 +3475,7 @@ def prepare_direct_layout():
     for path in (cache / 'owners', cache / 'consolidation-locks'):
         path.mkdir(parents=True, exist_ok=True, mode=0o700)
     write_config(evidence / 'global')
+    return retirement
 
 
 def prepare_signed_legacy_layout():
@@ -3576,15 +3618,17 @@ try:
     if not isinstance(config, dict):
         raise ValueError('memory configuration must be an object')
     if layout == 'direct':
-        prepare_direct_layout()
+        retirement = prepare_direct_layout()
+        if generation:
+            replace_text(local_generation, f'{session}:{generation}\n', ready.parent)
+        if retirement:
+            retirement.rename(cache / f'retired-store-{session}-{generation}')
     elif layout == 'v196':
         prepare_signed_legacy_layout()
     else:
         for parent in (work / 'global', work / 'Projects/workspace', evidence):
             direct_directory(parent)
         prepare_checkpoint_layout()
-    if layout == 'direct' and generation:
-        local_generation.write_text(f'{session}:{generation}\n', encoding='utf-8')
     ready.write_text(f'{layout}:{session}\n', encoding='utf-8')
     print('[entrypoint] Hermes memory prepared (' + layout + ')')
 except (OSError, ValueError) as error:

@@ -887,6 +887,19 @@ describe('REQ-MEM-035 AC2 / REQ-MEM-041 AC2: session Markdown sync', () => {
     assert.equal(readFileSync(remote, 'utf8'), 'efgh', 'same size and mtime must not hide changed Markdown');
   });
 
+  it('REQ-MEM-041 AC6: replacement preparation opens saved session Markdown without reseeding', t => {
+    const fx = persistenceFixture(t, { policy: 'mutable', hermes: 'existing' });
+    const store = 'Vault/Memory/Sessions/abc12345';
+    initializeRemote(fx, 'abc12345', 'Last saved session fact');
+    fx.put(fx.remote, 'Vault/Memory/MEMORY.md', 'A different shared master');
+    fx.run('restore_hermes');
+    const config = JSON.parse(readFileSync(join(fx.home, '.pi/agent/hermes-memory-config.json'), 'utf8'));
+    assert.equal(config.memoryDir, join(fx.home, store, 'global'));
+    assert.equal(readFileSync(join(config.memoryDir, 'MEMORY.md'), 'utf8'), 'Last saved session fact');
+    assert.equal(readFileSync(join(fx.home, 'Vault/Memory/MEMORY.md'), 'utf8'), 'A different shared master');
+    assert.equal(existsSync(join(config.memoryDir, 'sessions.db')), false);
+  });
+
   it('REQ-MEM-041 AC3: refused or incomplete existing restore never reads from masters or reuploads stale local files', t => {
     const fx = persistenceFixture(t, { policy: 'mutable', hermes: 'existing' });
     const prefix = 'Vault/Memory/Sessions/abc12345';

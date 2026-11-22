@@ -448,6 +448,65 @@ describe('Pi Hermes startup (actual entrypoint helper)', () => {
     assert.equal(readFileSync(join(fx.home, canonicalFiles[1]), 'utf8'), 'Current master');
   });
 
+  it('REQ-MEM-041 AC7: interrupted warm retirement resumes without publishing old bytes', t => {
+    const fx = fixture(t);
+    restoredMarkdown(fx);
+    succeeds(run(fx));
+    const global = join(fx.home, sessionRoot, 'global');
+    put(join(global, 'MEMORY.md'), 'Evicted fact');
+    put(join(fx.home, canonicalFiles[1]), 'Current master');
+    const checkpoint = join(fx.home, checkpointFile(sessionId));
+    put(checkpoint, 'Untouched checkpoint');
+    const hooks = join(fx.root, 'retirement-fault');
+    put(join(hooks, 'sitecustomize.py'), `import os\nrename = os.rename\ndef interrupt(src, dst, *args, **kwargs):\n    rename(src, dst, *args, **kwargs)\n    if os.fsdecode(src).endswith('/${sessionRoot}/global'):\n        os._exit(91)\nos.rename = interrupt\n`);
+    assert.equal(run(fx, { generation: '2', faultHooks: hooks }).status, 91);
+    assert.equal(existsSync(global), false);
+    assert.equal(readFileSync(join(fx.home, sessionRoot, 'session-id'), 'utf8'), `${sessionId}\n`);
+    succeeds(run(fx, { generation: '2' }));
+    assert.equal(readFileSync(join(global, 'MEMORY.md'), 'utf8'), 'Current master');
+    assert.equal(readFileSync(checkpoint, 'utf8'), 'Untouched checkpoint');
+  });
+
+  it('REQ-MEM-043 AC4: committed checkpoint survives staging cleanup failure', t => {
+    const fx = fixture(t);
+    installV197(fx);
+    const legacy = { remote: true, persistence: 'legacy' };
+    succeeds(run(fx, legacy));
+    const memory = join(fx.home, oldWorkingRoot, 'global/USER.md');
+    const checkpoint = join(fx.home, checkpointFile(sessionId));
+    put(memory, 'Predecessor');
+    succeeds(run(fx, { ...legacy, checkpoint: true }));
+    const hooks = join(fx.root, 'cleanup-fault');
+    put(join(hooks, 'sitecustomize.py'), `import os\nunlink = os.unlink\ndef refuse_backup_cleanup(path, *args, **kwargs):\n    if os.fsdecode(path).endswith('.prior'):\n        raise OSError('fixture cleanup failure')\n    return unlink(path, *args, **kwargs)\nos.unlink = refuse_backup_cleanup\n`);
+    put(memory, 'Committed successor');
+    const result = run(fx, { ...legacy, checkpoint: true, faultHooks: hooks });
+    succeeds(result);
+    assert.match(result.stderr, /checkpoint staging cleanup incomplete/);
+    assert.equal(JSON.parse(readFileSync(checkpoint, 'utf8')).current['USER.md'], 'Committed successor');
+  });
+
+  it('REQ-MEM-043 AC4: failed checkpoint rollback retains the predecessor and is reported separately', t => {
+    const fx = fixture(t);
+    installV197(fx);
+    const legacy = { remote: true, persistence: 'legacy' };
+    succeeds(run(fx, legacy));
+    const memory = join(fx.home, oldWorkingRoot, 'global/USER.md');
+    const checkpoint = join(fx.home, checkpointFile(sessionId));
+    put(memory, 'Predecessor');
+    succeeds(run(fx, { ...legacy, checkpoint: true }));
+    const predecessor = readFileSync(checkpoint);
+    const hooks = join(fx.root, 'rollback-fault');
+    put(join(hooks, 'sitecustomize.py'), `import os\nfsync, replace = os.fsync, os.replace\ndef fail_flush(fd):\n    if os.readlink('/proc/self/fd/' + str(fd)).endswith('/${sessionRoot}'):\n        raise OSError('fixture directory flush failure')\n    fsync(fd)\ndef fail_rollback(src, dst):\n    if os.fsdecode(src).endswith('.prior'):\n        raise OSError('fixture rollback failure')\n    replace(src, dst)\nos.fsync, os.replace = fail_flush, fail_rollback\n`);
+    put(memory, 'Unconfirmed successor');
+    const result = run(fx, { ...legacy, checkpoint: true, faultHooks: hooks });
+    fails(result);
+    assert.match(result.stderr, /checkpoint rollback incomplete/);
+    const cache = join(fx.home, '.cache/pi-hermes-memory');
+    const retained = readdirSync(cache).filter(name => name.endsWith('.prior'));
+    assert.equal(retained.length, 1);
+    assert.deepEqual(readFileSync(join(cache, retained[0])), predecessor);
+  });
+
   it('REQ-MEM-035: AC3 restored facts and cache links exist before the foreground PTY is released', t => {
     const fx = fixture(t);
     const script = [

@@ -260,7 +260,8 @@ export interface FinalSyncLogContext {
  * teardown hard-cap is the backstop). Mirrors the /health probe's port (8080).
  */
 export async function drainFinalSync(ctx: DurableObjectState, budgetMs: number,
-  context: FinalSyncLogContext = { sessionId: null, lifecycleGeneration: null, incidentId: null }): Promise<void> {
+  context: FinalSyncLogContext = { sessionId: null, lifecycleGeneration: null, incidentId: null },
+  isCurrent: () => boolean = () => true): Promise<void> {
   if (!ctx.container) return;
   if (!ctx.container.running) {
     // Same rationale as the delete path (#516): running can read transiently
@@ -274,6 +275,13 @@ export async function drainFinalSync(ctx: DurableObjectState, budgetMs: number,
   const remaining = () => Math.max(0, deadline - Date.now());
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), budgetMs);
+  const recordAudit = (event: Record<string, unknown>) => raceBudget(ctx.storage.transaction(async txn => {
+    if (typeof await txn.get(SHUTDOWN_REQUESTED_KEY) === 'number') return;
+    if ((context.sessionId !== null && await txn.get(SESSION_ID_KEY) !== context.sessionId)
+      || (context.lifecycleGeneration !== null && await txn.get('lifecycleGeneration') !== context.lifecycleGeneration)) return;
+    if (!isCurrent() || controller.signal.aborted || remaining() === 0) return;
+    await txn.put(FINAL_SYNC_AUDIT_KEY, { ...context, ...event });
+  }), remaining());
   try {
     // Raw port.fetch bypasses the DO's public fetch override (the only place
     // the auth header is injected) and the in-container host 401s /internal/*
@@ -293,7 +301,7 @@ export async function drainFinalSync(ctx: DurableObjectState, budgetMs: number,
           ? 'teardown-deadline-exhausted' : 'missing-auth-token' };
       logger.warn('drainFinalSync: authentication unavailable, suppressing final-sync request', { ...context, ...event, errorClass: 'authentication_unavailable' });
       try {
-        const audit = await raceBudget(ctx.storage.put(FINAL_SYNC_AUDIT_KEY, event), remaining());
+        const audit = await recordAudit(event);
         if (audit === null) logger.warn('drainFinalSync: credential-refusal audit unavailable', { ...context, errorClass: 'audit_unavailable' });
       } catch { logger.warn('drainFinalSync: credential-refusal audit unavailable', { ...context, errorClass: 'audit_unavailable' }); }
       return;
@@ -306,10 +314,8 @@ export async function drainFinalSync(ctx: DurableObjectState, budgetMs: number,
     });
     if (context.sessionId !== null && context.lifecycleGeneration !== null && !controller.signal.aborted) {
       try {
-        await raceBudget(ctx.storage.put(FINAL_SYNC_AUDIT_KEY, {
-          ...context, outcome: res.ok ? 'completed' : 'incomplete', httpStatus: res.status,
-          at: Date.now(), running: ctx.container.running,
-        }), remaining());
+        await recordAudit({ outcome: res.ok ? 'completed' : 'incomplete', httpStatus: res.status,
+          at: Date.now(), running: ctx.container.running });
       } catch { /* Missing audit evidence must not block automatic stop. */ }
     }
     if (res.ok) {
@@ -1339,7 +1345,7 @@ export async function collectMetrics(
         logger.info('collectMetrics: idle exceeded threshold, stopping', { ...finalSyncLogContext(), reason: 'idle', idleMs, sleepMs, idleTimeoutPref, referenceTime });
         await drainAgentEventsBeforeStop(state, ctx, env, CONTAINER_POLL_BUDGET_MS);
         if (!execution.isCurrent()) return;
-        await drainFinalSync(ctx, FINAL_SYNC_BUDGET_MS, finalSyncLogContext());
+        await drainFinalSync(ctx, FINAL_SYNC_BUDGET_MS, finalSyncLogContext(), execution.isCurrent);
         if (!execution.isCurrent()) return;
         requiredStopInProgress = true;
         await callbacks.stop('SIGTERM');
@@ -1505,7 +1511,7 @@ export async function collectMetrics(
             CONTAINER_POLL_BUDGET_MS,
           );
           if (!execution.isCurrent()) return;
-          await drainFinalSync(ctx, FINAL_SYNC_BUDGET_MS, finalSyncLogContext());
+          await drainFinalSync(ctx, FINAL_SYNC_BUDGET_MS, finalSyncLogContext(), execution.isCurrent);
           if (!execution.isCurrent()) return;
           requiredStopInProgress = true;
           await callbacks.stop('SIGTERM');
