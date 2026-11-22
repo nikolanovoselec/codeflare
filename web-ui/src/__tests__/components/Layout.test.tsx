@@ -3,15 +3,17 @@ import { render, screen, fireEvent, cleanup, waitFor, within } from '@solidjs/te
 import { createSignal, For } from 'solid-js';
 import type { SessionWithStatus } from '../../types';
 
+const retryMigration = vi.hoisted(() => vi.fn());
 const appAuth = vi.hoisted(() => ({ getUser: vi.fn() }));
 vi.mock('../../api/client', async importOriginal => ({
   ...await importOriginal<typeof import('../../api/client')>(),
+  retryBucketMigration: retryMigration,
   getSetupStatus: async () => ({ configured: true }),
   getUser: (...args: unknown[]) => appAuth.getUser(...args),
 }));
 vi.mock('../../api/mcp-portals', () => ({ getMcpPortalStatuses: async () => [] }));
 
-const navigationRendering = vi.hoisted(() => ({ realTerminalArea: false, realSettingsPanel: false }));
+const navigationRendering = vi.hoisted(() => ({ realTerminalArea: false, realSettingsPanel: false, realDashboard: false }));
 const cloudflare = vi.hoisted(() => ({ getStatus: vi.fn(), selectAccount: vi.fn() }));
 vi.mock('../../api/cloudflare', () => ({
   getCloudflareStatus: cloudflare.getStatus,
@@ -20,14 +22,15 @@ vi.mock('../../api/cloudflare', () => ({
   cloudflareConnectUrl: () => '/api/cloudflare/connect',
 }));
 
-vi.mock('../../components/Dashboard', () => ({
-  default: (props: any) => <section aria-label="Session dashboard">
+vi.mock('../../components/Dashboard', async importOriginal => {
+  const ActualDashboard = (await importOriginal<typeof import('../../components/Dashboard')>()).default;
+  return { default: (props: any) => navigationRendering.realDashboard ? <ActualDashboard {...props} /> : <section aria-label="Session dashboard">
     <span>{props.userName}</span>
     <For each={props.sessions}>{session => <span>{session.name}</span>}</For>
     <button onClick={() => props.onStartSession('abcdef0123456789')}>Start session</button>
     <button onClick={() => props.onOpenSessionById('abcdef0123456789')}>Return to session</button>
-  </section>,
-}));
+  </section> };
+});
 vi.mock('../../components/Terminal', async () => {
   const { sessionStore } = await import('../../stores/session');
   const { Show } = await import('solid-js');
@@ -137,6 +140,7 @@ const vaultPrewarmProof = {
 // Module-level variables allow tests to set up specific states before rendering.
 let mockSessions: any[] = [];
 let mockRepositoryNotices: Record<string, { status: 'restoring' | 'complete' | 'issues'; repo?: string; outcome?: 'cloned' | 'exists' | 'failed' | 'tracking-unconfirmed' }> = {};
+let mockMigrationHalt: string | null = null;
 let mockActiveSessionId: string | null = null;
 let mockPreferences: Record<string, any> = {};
 let mockVisiblePanes: Array<{ sessionId: string; terminalId: string }> = [];
@@ -151,6 +155,10 @@ let bumpSessionStoreVersion = () => {};
 vi.mock('../../stores/session', () => ({
   sessionStore: {
     get sessions() { readSessionStoreVersion(); return mockSessions; },
+    get bucketMigrationHaltedAt() { readSessionStoreVersion(); return mockMigrationHalt; },
+    refreshSessionAncillaryStatus: vi.fn().mockResolvedValue(undefined),
+    startR2Polling: vi.fn(),
+    isAtSessionLimit: vi.fn(() => false),
     get repositoryRestoreNotices() { readSessionStoreVersion(); return mockRepositoryNotices; },
     dismissRepositoryRestore: (id: string) => {
       delete mockRepositoryNotices[id];
@@ -204,7 +212,7 @@ vi.mock('../../stores/session', () => ({
 }));
 
 vi.mock('../../stores/terminal', () => ({
-  terminalStore: { reconnect: vi.fn(), triggerLayoutResize: vi.fn(), disposeAll: vi.fn() },
+  terminalStore: { reconnect: vi.fn(), triggerLayoutResize: vi.fn(), disposeAll: vi.fn(), getConnectionState: vi.fn(() => 'disconnected') },
   reconnectDisconnectedTerminals: vi.fn(),
   reconnectOnVisibilityReturn: vi.fn(),
   scheduleDisconnect: vi.fn(),
@@ -213,6 +221,7 @@ vi.mock('../../stores/terminal', () => ({
 
 vi.mock('../../stores/terminal-workspace', () => ({
   terminalWorkspaceStore: {
+    reconcileMultiView: vi.fn(() => null),
     getActiveWorkspace: vi.fn(() => mockActiveWorkspace),
     getVisiblePanes: vi.fn(() => {
       readSessionStoreVersion();
@@ -279,6 +288,9 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     vi.clearAllMocks();
     navigationRendering.realTerminalArea = false;
     navigationRendering.realSettingsPanel = false;
+    navigationRendering.realDashboard = false;
+    mockMigrationHalt = null;
+    retryMigration.mockReset();
     mockSessions = [];
     mockRepositoryNotices = {};
     mockActiveSessionId = null;
@@ -338,6 +350,34 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     }));
     expect(screen.queryByText(title)).toBeNull();
     expect(tabs).toBeInTheDocument();
+  });
+
+  it('REQ-ENTERPRISE-323: shares clone notices and preserves retry acknowledgment when returning to Dashboard', async () => {
+    navigationRendering.realDashboard = true;
+    navigationRendering.realTerminalArea = true;
+    const sessionId = 'abcdef0123456789';
+    mockSessions = [createMockSession({ id: sessionId })];
+    mockRepositoryNotices = { [sessionId]: { status: 'restoring', repo: 'octocat/hello' } };
+    mockMigrationHalt = '2026-11-21T14:23:45.678Z';
+    retryMigration.mockResolvedValueOnce({ success: true });
+    render(() => <Layout />);
+
+    const overlay = within(screen.getByRole('region', { name: 'Activity notifications' }));
+    expect(overlay.getByText('Cloning repository…')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry migration' }));
+    expect(await overlay.findByText('Retry accepted. Waiting for updated migration status.')).toBeInTheDocument();
+    expect(overlay.getByText('Cloning repository…')).toBeInTheDocument();
+
+    window.history.pushState(null, '', `/app/session/${sessionId}`);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Retry migration' })).not.toBeInTheDocument());
+    expect(overlay.getByText('Retry accepted. Waiting for updated migration status.')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
+    const retry = await screen.findByRole('button', { name: 'Retry migration' });
+    expect(retry).toBeDisabled();
+    fireEvent.click(retry);
+    expect(retryMigration.mock.calls).toEqual([[mockMigrationHalt]]);
   });
 
   it.each([

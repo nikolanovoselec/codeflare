@@ -162,6 +162,10 @@ html, body {
   overflow-wrap: anywhere;
 }
 
+.dashboard-migration-retry-notice:not(.repository-restore-notice) {
+  position: absolute;
+}
+
 .repository-restore-notice__session {
   color: var(--color-text-secondary);
 }

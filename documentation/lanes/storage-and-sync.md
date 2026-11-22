@@ -553,7 +553,7 @@ Use an already authorized isolated fixture prepared under the owner runbook. Do 
 
 This procedure observes the wire projection ([REQ-ENTERPRISE-021 AC5](../../sdd/spec/storage.md#req-enterprise-021-governed-mode-migration-safety-and-access-boundary)), Dashboard status and creation gating ([REQ-ENTERPRISE-304 AC1–AC4 and AC6](../../sdd/spec/storage.md#req-enterprise-304-dashboard-migration-affordance-and-refresh)), and retry announcement and idle spacing ([REQ-ENTERPRISE-323 AC1 and AC4](../../sdd/spec/storage.md#req-enterprise-323-migration-retry-feedback)).
 
-The [Dashboard fixtures](../../web-ui/src/__tests__/components/Dashboard.test.tsx) verify retry progress and refusals in the activity overlay, including status reconciliation after an error (REQ-ENTERPRISE-323 AC2–AC3 and AC5–AC7; REQ-ENTERPRISE-304 AC5 and AC7). They do not verify speech output or browser spacing.
+The [Layout fixture](../../web-ui/src/__tests__/components/Layout.test.tsx) checks that retry and clone notices share the overlay and that returning to Dashboard preserves the retry guard (REQ-ENTERPRISE-323 AC5 and AC7). The [Dashboard fixtures](../../web-ui/src/__tests__/components/Dashboard.test.tsx) cover pending feedback, refusals, and status changes. Neither fixture verifies speech output or browser spacing.
 
 1. On initial load during migration, confirm ancillary status reports `bucketMigrating: true`. When progress is known, it is 0–99 and the disabled control shows the matching `Migrating N%`.
 2. Keep the page visible. While successive ancillary polls report `bucketMigrating: true`, compare their percentages to the disabled control, including at least one changed value. If no change is observable, record periodic progress as blocked.
@@ -643,7 +643,9 @@ Migration defers while D1 records a workload-owning session, even if that runtim
 <a id="retry-a-halted-storage-migration"></a>
 If verification exhausts its retries, the dashboard shows **Migration halted** beside the seed recovery icon, labeled **Retry migration** ([REQ-ENTERPRISE-304 AC4–AC7](../../sdd/spec/storage.md#req-enterprise-304-dashboard-migration-affordance-and-refresh)).
 
-After you click the icon, look for **Retrying migration** in the same activity overlay used for repository cloning. Dashboard refreshes migration status even if the request errors. An accepted retry waits for updated status; if migration is already running, the overlay reports that instead of asking you to retry. [REQ-ENTERPRISE-323](../../sdd/spec/storage.md#req-enterprise-323-migration-retry-feedback)
+Clicking the icon shows **Retrying migration** in the repository-clone activity overlay. The dashboard asks for fresh status after the request settles unless sign-in is required. If the request was accepted but the halt is still displayed, the overlay says **Retry accepted. Waiting for updated migration status.**
+
+A refusal stays visible while it applies. When updated status shows migration running, the overlay says **Storage migration is running.** The disabled New Session slot shows **Migrating N%** when known, otherwise **Migrating**. See [REQ-ENTERPRISE-323](../../sdd/spec/storage.md#req-enterprise-323-migration-retry-feedback).
 
 If an eligible retry still cannot verify the object, escalate the persistent failure to the deployment administrator ([CON-STOR-001](../../sdd/spec/constraints.md#con-stor-001-r2-regime-migration-boundaries)). A retry restarts the current scan without clearing the write gate or changing the target or generation. Background polling must verify before the bucket becomes ready ([REQ-ENTERPRISE-322](../../sdd/spec/storage.md#req-enterprise-322-owner-authorized-migration-retry)).
 

@@ -103,12 +103,14 @@ vi.mock('../../stores/session', () => ({
 }));
 
 import TerminalArea from '../../components/TerminalArea';
+import { createMigrationRetry } from '../../components/MigrationRetryNotice';
 import { terminalWorkspaceStore } from '../../stores/terminal-workspace';
 import { sessionStore } from '../../stores/session';
 
 // REQ-TERM-017: MultiView Pane Focus and Input Routing
 describe('TerminalArea', () => {
   const defaultProps = {
+    migrationRetry: createMigrationRetry(),
     showTerminal: false,
     showTilingOverlay: false,
     onTilingButtonClick: vi.fn(),

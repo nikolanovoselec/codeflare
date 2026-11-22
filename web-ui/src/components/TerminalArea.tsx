@@ -8,13 +8,14 @@ import TerminalGrid, { type TerminalGridPane } from './TerminalGrid';
 import FloatingTerminalButtons from './FloatingTerminalButtons';
 import InitProgress from './InitProgress';
 import Dashboard from './Dashboard';
+import type { MigrationRetry } from './MigrationRetryNotice';
 import { sessionStore } from '../stores/session';
 import { terminalWorkspaceStore } from '../stores/terminal-workspace';
 import { resolveTerminalMode, type TileLayout, type AgentType, type TabConfig, type VisibleTerminalPane } from '../types';
 import { generateSessionName } from '../lib/session-utils';
 
 interface TerminalAreaProps {
-  noticeOverlay?: HTMLElement;
+  migrationRetry: MigrationRetry;
   repositoryRestoreNotices?: JSX.Element;
   showTerminal: boolean;
   showTilingOverlay: boolean;
@@ -274,7 +275,7 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
       {/* Dashboard: shown when no active terminal */}
       <Show when={!props.showTerminal}>
         <Dashboard
-          noticeOverlay={props.noticeOverlay}
+          migrationRetry={props.migrationRetry}
           sessions={sessionStore.sessions}
           onCreateSession={(agentType, tabConfig) => props.onCreateSession(generateSessionName(agentType, sessionStore.sessions), agentType, tabConfig)}
           onStartSession={props.onStartSession}

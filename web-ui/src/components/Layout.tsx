@@ -1,6 +1,7 @@
 import { Component, createSignal, createMemo, createEffect, onMount, onCleanup, For, Show, untrack } from 'solid-js';
 import Header from './Header';
 import TerminalArea from './TerminalArea';
+import { createMigrationRetry, MigrationRetryNotice } from './MigrationRetryNotice';
 import SettingsPanel from './SettingsPanel';
 import StoragePanel from './StoragePanel';
 import SplashCursor from './SplashCursor';
@@ -74,7 +75,7 @@ const Layout: Component<LayoutProps> = (props) => {
   const openBrowserIdeWindow = createBrowserIdeWindowOpener();
   const usageWarning = () => getUsageWarningLevel();
   const [terminalError, setTerminalError] = createSignal<string | null>(null);
-  const [dashboardNoticeOverlay, setDashboardNoticeOverlay] = createSignal<HTMLElement>();
+  const migrationRetry = createMigrationRetry();
   const [isSettingsOpen, setIsSettingsOpen] = createSignal(false);
   const [cloudflareReturn, setCloudflareReturn] = createSignal<CloudflareReturnOutcome>();
   const [isStoragePanelOpen, setIsStoragePanelOpen] = createSignal(false);
@@ -871,9 +872,10 @@ const Layout: Component<LayoutProps> = (props) => {
       <div class="layout-middle">
         {/* Main content */}
         <TerminalArea
-          noticeOverlay={dashboardNoticeOverlay()}
+          migrationRetry={migrationRetry}
           repositoryRestoreNotices={
-            <section ref={setDashboardNoticeOverlay} class="repository-restore-notices" aria-label="Activity notifications">
+            <section class="repository-restore-notices" aria-label="Activity notifications">
+              <MigrationRetryNotice retry={migrationRetry} />
               <For each={Object.keys(sessionStore.repositoryRestoreNotices ?? {})}>{id => {
                 const notice = () => sessionStore.repositoryRestoreNotices[id];
                 const status = () => notice()?.status;

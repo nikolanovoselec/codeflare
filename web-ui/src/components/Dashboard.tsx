@@ -1,13 +1,12 @@
 import { Component, Show, For, onMount, onCleanup, createSignal, createMemo, createEffect } from 'solid-js';
 import { Portal } from 'solid-js/web';
-import { mdiXml, mdiCogOutline, mdiShieldAccount, mdiAccountOutline, mdiRocketLaunchOutline, mdiChartBar, mdiLogout, mdiFlipVertical, mdiReflectHorizontal, mdiClose } from '@mdi/js';
+import { mdiXml, mdiCogOutline, mdiShieldAccount, mdiAccountOutline, mdiRocketLaunchOutline, mdiChartBar, mdiLogout, mdiFlipVertical, mdiReflectHorizontal } from '@mdi/js';
 import Icon from './Icon';
 import IconButton from './ui/IconButton';
 import type { SessionWithStatus, AgentType, TabConfig } from '../types';
 import { storageStore } from '../stores/storage';
 import { recreateAgentConfigs } from '../api/storage';
-import { retryBucketMigration } from '../api/client';
-import { ApiError } from '../api/fetch-helper';
+import type { MigrationRetry } from './MigrationRetryNotice';
 import { downloadFile } from '../lib/download';
 import { getGravatarUrl, gravatarExists } from '../lib/gravatar';
 import SessionStatCard from './SessionStatCard';
@@ -34,7 +33,7 @@ import OperatorActivityButton from './OperatorActivityButton';
 import '../styles/dashboard.css';
 
 interface DashboardProps {
-  noticeOverlay?: HTMLElement;
+  migrationRetry: MigrationRetry;
   sessions: SessionWithStatus[];
   onCreateSession: (agentType?: AgentType, tabConfig?: TabConfig[]) => void;
   onStartSession: (id: string) => void;
@@ -67,55 +66,10 @@ const Dashboard: Component<DashboardProps> = (props) => {
   const [recreateLoading, setRecreateLoading] = createSignal(false);
   const [recreateError, setRecreateError] = createSignal<string | null>(null);
   const [recreateMessage, setRecreateMessage] = createSignal<string | null>(null);
-  const [migrationRetryPending, setMigrationRetryPending] = createSignal(false);
-  const [migrationRetry, setMigrationRetry] = createSignal<{ haltedAt: string; error?: string }>();
-  const [migrationNoticeDismissed, setMigrationNoticeDismissed] = createSignal(false);
-  const currentMigrationRetry = () => {
-    const retry = migrationRetry();
-    return retry?.haltedAt === sessionStore.bucketMigrationHaltedAt ? retry : undefined;
-  };
-  const migrationRetryDisabled = () => {
-    const retry = currentMigrationRetry();
-    return migrationRetryPending() || Boolean(retry && !retry.error);
-  };
-  const currentMigrationRetryError = () => migrationNoticeDismissed() ? undefined : currentMigrationRetry()?.error;
-  const migrationRetryStatus = () => {
-    if (migrationNoticeDismissed()) return '';
-    if (migrationRetryPending()) return 'Retrying migration';
-    if (!migrationRetry()) return '';
-    if (!sessionStore.bucketMigrationHaltedAt) {
-      if (sessionStore.bucketMigrating) return 'Storage migration is running.';
-      if (sessionStore.bucketMigrationPending) return 'Storage update pending. Close your running sessions to apply it.';
-      return 'Storage is ready.';
-    }
-    const retry = currentMigrationRetry();
-    return retry && !retry.error ? 'Retry accepted. Waiting for updated migration status.' : '';
-  };
   const migrationStatus = () => sessionStore.bucketMigrationHaltedAt ? 'Migration halted'
     : sessionStore.bucketMigrating
       ? (sessionStore.bucketMigrationPercent != null ? `Migrating ${sessionStore.bucketMigrationPercent}%` : 'Migrating')
       : null;
-  const handleMigrationRetry = async () => {
-    const haltedAt = sessionStore.bucketMigrationHaltedAt;
-    if (!haltedAt || migrationRetryDisabled()) return;
-    setMigrationRetryPending(true);
-    setMigrationNoticeDismissed(false);
-    setMigrationRetry(undefined);
-    let errorMessage: string | undefined;
-    try {
-      try {
-        await retryBucketMigration(haltedAt);
-      } catch (error) {
-        if (error instanceof ApiError && error.authRedirect) return;
-        errorMessage = error instanceof ApiError && error.status === 409
-          ? error.message : 'Could not confirm the retry. Check the migration status before trying again.';
-      }
-      await sessionStore.refreshSessionAncillaryStatus({ afterCurrent: true }).catch(() => undefined);
-      setMigrationRetry({ haltedAt, error: errorMessage });
-    } finally {
-      setMigrationRetryPending(false);
-    }
-  };
   const showUpgradeRecovery = () => sessionStore.preseedUpgradeFailed
     && !sessionStore.preseedUpgrading
     && !migrationStatus()
@@ -539,9 +493,9 @@ const Dashboard: Component<DashboardProps> = (props) => {
                         class="dashboard-new-session-btn dashboard-recovery-btn"
                         aria-label={label}
                         title={label}
-                        disabled={migration ? migrationRetryDisabled() : recreateLoading() || sessionStore.preseedUpgrading}
-                        aria-busy={migration ? migrationRetryPending() : undefined}
-                        onClick={() => void (migration ? handleMigrationRetry() : handleRecreate())}
+                        disabled={migration ? props.migrationRetry.disabled() : recreateLoading() || sessionStore.preseedUpgrading}
+                        aria-busy={migration ? props.migrationRetry.pending() : undefined}
+                        onClick={() => void (migration ? props.migrationRetry.submit() : handleRecreate())}
                       >
                         <Icon path={mdiReflectHorizontal} size={22} />
                       </button>
@@ -562,25 +516,6 @@ const Dashboard: Component<DashboardProps> = (props) => {
                 </Show>
             </div>
 
-            <Show when={props.noticeOverlay} keyed>
-              {(mount) => (
-                <Portal mount={mount} ref={(el) => { (el as HTMLElement).style.display = 'contents'; }}>
-                  <div class="dashboard-migration-retry-notice" classList={{ 'repository-restore-notice': Boolean(migrationRetryStatus() || currentMigrationRetryError()) }}>
-                    <div>
-                      <div role="status">{migrationRetryStatus()}</div>
-                      <Show when={currentMigrationRetryError()}>
-                        {(message) => <div role="alert">{message()}</div>}
-                      </Show>
-                    </div>
-                    <Show when={migrationRetryStatus() || currentMigrationRetryError()}>
-                      <button type="button" aria-label="Dismiss migration notification" onClick={() => setMigrationNoticeDismissed(true)}>
-                        <Icon path={mdiClose} size={18} aria-hidden="true" />
-                      </button>
-                    </Show>
-                  </div>
-                </Portal>
-              )}
-            </Show>
             <Show when={recreateError()}>
               <p class="dashboard-recovery-message" role="alert">{recreateError()}</p>
             </Show>
