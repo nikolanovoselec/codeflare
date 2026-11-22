@@ -2,7 +2,7 @@
 // ~/.pi/agent/settings.json `packages` array, against fixture settings files.
 // This is the "run the real thing" coverage (per tdd-discipline.md) for:
 //   - context-mode being disabled at container boot while /ctx on remains a session opt-in,
-//   - the managed extension packages, including Goal, Open TUI, and Evaluate, being present in
+//   - the managed extension packages, including Todo Loop, Open TUI, and Evaluate, being present in
 //     `required` so they are
 //     available WITH AND WITHOUT context-mode — toggling /ctx never removes them,
 //   - advisor guidance being user-invoked only while preserving user model config.
@@ -113,6 +113,19 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
     assert.ok(!sources.includes('npm:pi-caveman@1.0.8'), 'retired response package must be removed');
     // The user's unrelated package is preserved (assembly merges, never wipes).
     assert.ok(sources.includes('npm:some-user-package@1.0.0'), 'unrelated existing packages must be preserved');
+  });
+
+  it('loads stock Todo Loop once and drops restored managed Goal registrations', () => {
+    for (const mode of ['default', 'advanced']) {
+      const settings = runAssembly(JSON.stringify({ packages: [
+        { source: 'npm:@narumitw/pi-goal@0.55.1', extensions: [] },
+        './local-packages/pi-todo-loop', 'npm:user-addon@1.0.0',
+      ] }), 2, false, mode);
+      const sources = settings.packages.map(sourceOf);
+      assert.deepEqual(sources.filter(source => source.includes('pi-todo-loop')), ['npm:@dumbmice/pi-todo-loop@0.4.0']);
+      assert.equal(sources.some(source => /^npm:@narumitw\/pi-goal(?:@|$)/.test(source)), false);
+      assert.ok(sources.includes('npm:user-addon@1.0.0'));
+    }
   });
 
   it('is idempotent: re-running over its own output yields the same package set (no duplicates)', () => {

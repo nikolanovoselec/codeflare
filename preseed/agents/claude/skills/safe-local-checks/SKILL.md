@@ -61,7 +61,7 @@ node ~/.claude/skills/safe-local-checks/scripts/safe-local-check.mjs node-test h
 node ~/.claude/skills/safe-local-checks/scripts/safe-local-check.mjs json package.json preseed/agents/pi/package.json
 node ~/.claude/skills/safe-local-checks/scripts/safe-local-check.mjs lock-consistency package-lock.json preseed/agents/pi/package-lock.json
 node ~/.claude/skills/safe-local-checks/scripts/safe-local-check.mjs pi-preseed
-node ~/.claude/skills/safe-local-checks/scripts/safe-local-check.mjs ts-syntax scripts/patch-pi-goal-review-control.mjs host/__tests__/safe-local-check.test.js
+node ~/.claude/skills/safe-local-checks/scripts/safe-local-check.mjs ts-syntax scripts/patch-pi-plan-mode-tool-policy.mjs host/__tests__/safe-local-check.test.js
 ```
 
 ## Safety envelope

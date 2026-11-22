@@ -1,5 +1,5 @@
 // REQ-MEM-035 AC1–4 (startup subset). Execute the real entrypoint helper;
-// package loading, eager SQLite reconciliation and request context belong to
+// package loading, deferred SQLite reconciliation and request context belong to
 // their integration suites. In particular, this does not claim REQ-MEM-036.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -9,7 +9,7 @@ import {
   readlinkSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const entrypoint = resolve(dirname(fileURLToPath(import.meta.url)), '../../entrypoint.sh');
@@ -19,6 +19,9 @@ const canonicalFiles = [
   'Vault/Memory/failures.md',
   'Vault/Memory/Projects/workspace/MEMORY.md',
 ];
+const sessionId = 'hermesfixture';
+const sessionRoot = '.cache/pi-hermes-memory/working';
+const checkpointFile = id => `Vault/Memory/Sessions/${id}/checkpoint.json`;
 const configFile = '.pi/agent/hermes-memory-config.json';
 
 // Same top-level-function/heredoc extraction as entrypoint-managed-curation.
@@ -56,11 +59,11 @@ function fixture(t) {
   return { root, home, runtime };
 }
 
-function run(fx, { mode = 'advanced', explicitHome = true } = {}) {
+function run(fx, { mode = 'advanced', explicitHome = true, id = sessionId, checkpoint = false, remote = false } = {}) {
   return spawnSync('bash', ['-c', [
     'set -euo pipefail',
     functionSource('configure_pi_hermes_memory'),
-    explicitHome ? 'configure_pi_hermes_memory "$USER_HOME"' : 'configure_pi_hermes_memory',
+    checkpoint ? 'configure_pi_hermes_memory "$USER_HOME" checkpoint' : explicitHome ? 'configure_pi_hermes_memory "$USER_HOME"' : 'configure_pi_hermes_memory',
   ].join('\n')], {
     cwd: join(fx.home, 'workspace'),
     encoding: 'utf8',
@@ -72,7 +75,7 @@ function run(fx, { mode = 'advanced', explicitHome = true } = {}) {
       PI_CODING_AGENT_DIR: join(fx.home, '.pi/agent'),
       XDG_CACHE_HOME: join(fx.home, '.cache'),
       CODEFLARE_RUNTIME_ROOT: fx.runtime,
-      SESSION_MODE: mode,
+      SESSION_MODE: mode, SESSION_ID: id, REMOTE_CURATION_ACTIVE: String(remote),
     },
   });
 }
@@ -95,12 +98,6 @@ function config(fx) {
 function normalizedMemoryDir(fx, value) {
   assert.equal(typeof value, 'string', 'memoryDir must be explicit');
   return resolve(join(fx.home, '.pi/agent'), value.replace(/^~(?=\/)/, fx.home));
-}
-
-function assertInside(parent, path) {
-  const rel = relative(realpathSync(parent), path);
-  assert.ok(rel && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel),
-    `${path} must be inside ${parent}`);
 }
 
 // Do not follow links when inventorying durable files. Aliases are intentional;
@@ -153,58 +150,31 @@ function assertSaved(saved) {
 }
 
 function assertLayout(fx) {
-  const cache = join(fx.home, '.cache/pi-hermes-memory');
-  assert.equal(normalizedMemoryDir(fx, config(fx).memoryDir), join(cache, 'global'));
-  for (const file of canonicalFiles) {
-    const path = join(fx.home, file);
-    assert.ok(lstatSync(path).isFile(), `${file} must be a real canonical file`);
-    assert.equal(realpathSync(path), path);
+  const local = join(fx.home, sessionRoot);
+  assert.equal(normalizedMemoryDir(fx, config(fx).memoryDir), join(local, 'global'));
+  for (const path of canonicalFiles) {
+    const master = join(fx.home, path);
+    if (lstatExists(master)) assert.ok(lstatSync(master).isFile());
   }
   for (const name of ['USER.md', 'MEMORY.md', 'failures.md']) {
-    const link = join(cache, 'global', name);
-    assert.ok(lstatSync(link).isSymbolicLink(), `${name}: cache must point to Vault, not vice versa`);
-    assert.equal(realpathSync(link), join(fx.home, 'Vault/Memory', name));
+    assert.ok(lstatSync(join(local, 'global', name)).isFile());
+    const master = join(fx.home, 'Vault/Memory', name);
+    if (lstatExists(master)) assert.notEqual(statSync(join(local, 'global', name)).ino, statSync(master).ino);
   }
-  const projectLink = join(fx.home, '.pi/agent/hermes-project-memory');
-  assert.ok(lstatSync(projectLink).isSymbolicLink());
-  assert.equal(realpathSync(projectLink), join(fx.home, 'Vault/Memory/Projects'));
-  assert.equal(realpathSync(join(projectLink, 'workspace/MEMORY.md')), join(fx.home, canonicalFiles[3]));
-  const consolidation = join(fx.home, '.pi/agent/pi-hermes-memory/.consolidation-locks');
-  assert.ok(lstatSync(consolidation).isSymbolicLink());
-  assert.ok(statSync(consolidation).isDirectory());
-  assertInside(cache, realpathSync(consolidation));
+  const projects = join(fx.home, '.pi/agent/hermes-project-memory');
+  assert.equal(realpathSync(projects), join(local, 'Projects'));
+  assert.ok(lstatSync(join(local, 'Projects/workspace/MEMORY.md')).isFile());
   assertNoDurableDatabase(fx);
 }
 
 function exerciseLocalState(fx) {
-  const cache = join(fx.home, '.cache/pi-hermes-memory');
-  const aliases = [
-    join(fx.home, 'Vault/.pi-hermes-locks.sqlite'),
-    join(fx.home, 'Vault/Memory/Projects/.pi-hermes-locks.sqlite'),
-  ];
-  const targets = [];
-  for (const [i, alias] of aliases.entries()) {
-    assert.ok(lstatSync(alias).isSymbolicLink(), 'mutation coordinator must be a link');
-    // SQLite may not exist until upstream opens it. A real write through each
-    // prepared alias must land in cache, including a previously dangling link.
-    writeFileSync(alias, `coordinator-${i}`);
-    const target = realpathSync(alias);
-    assertInside(cache, target);
-    targets.push(target);
-    put(`${target}-wal`, `coordinator-${i}-wal`);
-    put(`${target}-shm`, `coordinator-${i}-shm`);
+  const local = join(fx.home, sessionRoot);
+  for (const file of ['.pi-hermes-locks.sqlite', 'Projects/.pi-hermes-locks.sqlite',
+    'global/sessions.db', 'global/sessions.db-wal', 'global/sessions.db-shm', 'global/sessions.db-journal']) {
+    put(join(local, file), 'local sentinel');
   }
-  assert.notEqual(targets[0], targets[1], 'global and project coordinators must be distinct');
-  // Opaque sentinel bytes test storage placement/reuse, not SQLite semantics.
-  // The separate upstream reconciliation suite owns actual database recovery.
-  const db = join(cache, 'global/sessions.db');
-  put(db, 'existing local search index');
-  put(`${db}-wal`, 'uncheckpointed local facts');
-  put(`${db}-shm`, 'local shared memory');
-  put(`${db}-journal`, 'local recovery journal');
-  put(join(fx.home, '.pi/agent/pi-hermes-memory/.consolidation-locks', 'active.lock'), 'active consolidation');
   assertNoDurableDatabase(fx);
-  return tree(cache);
+  return tree(join(fx.home, '.cache/pi-hermes-memory'));
 }
 
 function assertDefaults(fx) {
@@ -212,7 +182,7 @@ function assertDefaults(fx) {
   const defaults = {
     projectsMemoryDir: 'hermes-project-memory',
     memoryMode: 'policy-only',
-    lazyInitialization: false,
+    lazyInitialization: true,
     skillsEnabled: false,
     standingInstructionsEnabled: false,
     reviewEnabled: true,
@@ -267,6 +237,113 @@ function transfer(fx, from, to) {
 // Each named case is an observable portion of AC1, AC2, AC3 or AC4, not a
 // claim that this startup-only suite verifies the entire multi-part criterion.
 describe('Pi Hermes startup (actual entrypoint helper)', () => {
+  it('REQ-MEM-035: a new image preserves the installed legacy signed adapter and activates isolation after seed upgrade', t => {
+    const fx = fixture(t);
+    const saved = restoredMarkdown(fx);
+    const adapter = join(fx.home, '.pi/agent/extensions/hermes-memory-runtime.ts');
+    const legacy = readFileSync(new URL('../__fixtures__/pi-hermes-curation-legacy.ts.txt', import.meta.url));
+    put(adapter, legacy);
+    succeeds(run(fx, { remote: true }));
+    const global = join(fx.home, '.cache/pi-hermes-memory/global');
+    assert.equal(config(fx).memoryDir, global);
+    assert.equal(realpathSync(join(global, 'USER.md')), join(fx.home, canonicalFiles[0]));
+    assert.equal(realpathSync(join(fx.home, '.pi/agent/hermes-project-memory')), join(fx.home, 'Vault/Memory/Projects'));
+    assert.deepEqual(readFileSync(adapter), legacy, 'the image must not rewrite the signed adapter');
+    assert.equal(lstatExists(join(fx.home, sessionRoot)), false);
+    put(adapter, readFileSync(new URL('../../preseed/agents/pi/extensions/hermes-memory-runtime.ts', import.meta.url)));
+    succeeds(run(fx, { remote: true }));
+    assertLayout(fx);
+    assertSaved(saved);
+  });
+
+  it('REQ-MEM-035: independent sessions publish isolated checkpoints and restore without changing masters', t => {
+    const a = fixture(t), b = fixture(t), resumed = fixture(t);
+    const saved = restoredMarkdown(a);
+    restoredMarkdown(b);
+    const other = 'hermesother';
+    succeeds(run(a));
+    succeeds(run(b, { id: other }));
+    const worker = fx => join(fx.home, sessionRoot, 'global/USER.md');
+    const original = readFileSync(worker(a), 'utf8');
+    writeFileSync(worker(a), 'Corrected A');
+    writeFileSync(worker(b), 'Distinct B');
+    succeeds(run(a, { checkpoint: true }));
+    succeeds(run(b, { id: other, checkpoint: true }));
+    const evidence = JSON.parse(readFileSync(join(a.home, checkpointFile(sessionId)), 'utf8'));
+    assert.equal(evidence.base['USER.md'], original);
+    assert.equal(evidence.current['USER.md'], 'Corrected A');
+    const remote = join(a.root, 'remote');
+    succeeds(transfer(a, a.home, remote));
+    succeeds(transfer(b, b.home, remote));
+    assert.ok(existsSync(join(remote, checkpointFile(sessionId))));
+    assert.ok(existsSync(join(remote, checkpointFile(other))));
+    succeeds(transfer(resumed, remote, resumed.home));
+    put(join(resumed.home, canonicalFiles[0]), 'Newer master version');
+    succeeds(run(resumed));
+    assert.equal(readFileSync(worker(resumed), 'utf8'), 'Corrected A');
+    assert.equal(readFileSync(join(resumed.home, canonicalFiles[0]), 'utf8'), 'Newer master version');
+    assertSaved(saved);
+  });
+
+  it('REQ-MEM-035: incomplete captures and invalid checkpoints cannot replace durable memory', t => {
+    const fx = fixture(t), restored = fixture(t);
+    restoredMarkdown(fx);
+    succeeds(run(fx));
+    put(join(fx.home, sessionRoot, 'global/USER.md'), 'First durable checkpoint');
+    succeeds(run(fx, { checkpoint: true }));
+    const file = checkpointFile(sessionId);
+    const first = readFileSync(join(fx.home, file), 'utf8');
+    rmSync(join(fx.home, sessionRoot, 'global/failures.md'));
+    fails(run(fx, { checkpoint: true }));
+    assert.equal(readFileSync(join(fx.home, file), 'utf8'), first);
+    put(join(restored.home, file), first.slice(0,-10));
+    fails(run(restored));
+    assert.equal(readFileSync(join(restored.home, file), 'utf8'), first.slice(0,-10));
+    assert.equal(lstatExists(join(restored.home, sessionRoot)), false);
+  });
+
+  it('REQ-MEM-035: the existing bisync path snapshots the working tail before transfer', t => {
+    const fx = fixture(t);
+    const saved = restoredMarkdown(fx);
+    succeeds(run(fx));
+    put(join(fx.home, sessionRoot, 'global/USER.md'), 'Latest local correction');
+    const steps = [
+      'set -euo pipefail',
+      functionSource('configure_pi_hermes_memory'),
+      functionSource('bisync_with_r2'),
+      functionSource('establish_bisync_baseline'),
+      'compose_rclone_filters() { RCLONE_EFFECTIVE_FILTERS=(); }',
+      'cleanup_main_transcripts() { :; }',
+      'cleanup_remote_pi_transcript_conflicts() { :; }',
+      'cleanup_rclone_conflicts() { return "$3"; }',
+      'record_sync_disk_failure() { :; }',
+      'repair_hook_exec_bits() { :; }',
+      `rclone() {
+        test "$1" = bisync || return 2
+        jq -e '.current["USER.md"] == "Latest local correction"' "$USER_HOME/Vault/Memory/Sessions/$SESSION_ID/checkpoint.json" >/dev/null || return 2
+        cp "$USER_HOME/unrelated.txt" "$CODEFLARE_RUNTIME_ROOT/transferred.txt"
+      }`,
+      'timeout() { shift; "$@"; }',
+    ];
+    const sync = command => spawnSync('bash', ['-c', [...steps, command].join('\n')], { encoding: 'utf8', timeout: 20000,
+      env: { ...process.env, USER_HOME: fx.home, SESSION_MODE: 'advanced', SESSION_ID: sessionId,
+        CODEFLARE_RUNTIME_ROOT: fx.runtime, SYNC_RUNTIME_DIR: fx.runtime, R2_BUCKET_NAME: 'test', RCLONE_CONFIG: '/dev/null' } });
+    put(join(fx.home, 'unrelated.txt'), 'Initial backup');
+    succeeds(sync('bisync_with_r2'));
+    assert.equal(readFileSync(join(fx.runtime, 'transferred.txt'), 'utf8'), 'Initial backup');
+    const checkpoint = join(fx.home, checkpointFile(sessionId));
+    const previous = readFileSync(checkpoint);
+    rmSync(join(fx.home, sessionRoot, 'global/failures.md'));
+    for (const command of ['bisync_with_r2', 'establish_bisync_baseline']) {
+      put(join(fx.home, 'unrelated.txt'), command);
+      const degraded = sync(command);
+      assert.equal(degraded.status, 65, degraded.stdout + degraded.stderr);
+      assert.equal(readFileSync(join(fx.runtime, 'transferred.txt'), 'utf8'), command);
+      assert.deepEqual(readFileSync(checkpoint), previous);
+    }
+    assertSaved(saved);
+  });
+
   it('REQ-MEM-035: AC3 restored facts and cache links exist before the foreground PTY is released', t => {
     const fx = fixture(t);
     const script = [
@@ -281,13 +358,13 @@ describe('Pi Hermes startup (actual entrypoint helper)', () => {
       'prepare_managed_resource_filter() { :; }',
       'relay_managed_pi_extensions() { :; }',
       'configure_pi_packages_and_review_inventory() { :; }',
-      'release_agent_pty_after_fast_start_updates() { test -L "$USER_HOME/.cache/pi-hermes-memory/global/USER.md"; test "$(cat "$USER_HOME/.cache/pi-hermes-memory/global/USER.md")" = "Restored user preference"; printf "released-after-memory-ready" > "$USER_HOME/release-result"; }',
+      'release_agent_pty_after_fast_start_updates() { test -f "$USER_HOME/.cache/pi-hermes-memory/working/global/USER.md"; test "$(cat "$USER_HOME/.cache/pi-hermes-memory/working/global/USER.md")" = "Restored user preference"; printf "released-after-memory-ready" > "$USER_HOME/release-result"; }',
       'RCLONE_CONFIG_RESULT=1',
       'CODEFLARE_SESSION_WORKSPACE=terminal',
       'run_managed_curation_startup',
     ].join('\n');
     const result = spawnSync('bash', ['-c', script], { encoding: 'utf8', timeout: 20000,
-      env: { ...process.env, USER_HOME: fx.home, HOME: fx.home, SESSION_MODE: 'advanced',
+      env: { ...process.env, USER_HOME: fx.home, HOME: fx.home, SESSION_MODE: 'advanced', SESSION_ID: sessionId,
         CODEFLARE_OPERATOR_SESSION: '', CODEFLARE_RUNTIME_ROOT: fx.runtime } });
     succeeds(result);
     assert.equal(readFileSync(join(fx.home, 'release-result'), 'utf8'), 'released-after-memory-ready');
@@ -332,7 +409,7 @@ describe('Pi Hermes startup (actual entrypoint helper)', () => {
       memoryDir: join(fx.home, 'Vault/Memory'),
       projectsMemoryDir: 'projects-memory',
       memoryMode: 'legacy-inject',
-      lazyInitialization: true,
+      lazyInitialization: false,
       skillsEnabled: true,
       standingInstructionsEnabled: true,
       reviewRecentMessages: 0,
@@ -408,9 +485,7 @@ describe('Pi Hermes startup (actual entrypoint helper)', () => {
 
   const conflicts = [
     ['.pi/agent/hermes-project-memory', 'directory'],
-    ['.cache/pi-hermes-memory/global/USER.md', 'file'],
-    ['Vault/.pi-hermes-locks.sqlite', 'file'],
-    ['Vault/Memory/Projects/.pi-hermes-locks.sqlite', 'file'],
+    [`${sessionRoot}/global/USER.md`, 'directory'],
     ['.pi/agent/pi-hermes-memory/.consolidation-locks', 'directory'],
     ['Vault/Memory/USER.md', 'directory'],
   ];
@@ -427,7 +502,7 @@ describe('Pi Hermes startup (actual entrypoint helper)', () => {
 
   for (const path of [
     'Vault', 'Vault/Memory', 'Vault/Memory/Projects', 'Vault/Memory/Projects/workspace',
-    '.cache', '.cache/pi-hermes-memory', '.cache/pi-hermes-memory/global',
+    '.cache', '.cache/pi-hermes-memory', `${sessionRoot}/global`,
     '.pi', '.pi/agent', '.pi/agent/pi-hermes-memory',
   ]) {
     it(`REQ-MEM-035: AC3 rejects escaping ancestor ${path} before writing outside home`, t => {
@@ -446,10 +521,9 @@ describe('Pi Hermes startup (actual entrypoint helper)', () => {
   }
 
   for (const path of [
-    'Vault/Memory/USER.md', '.cache/pi-hermes-memory/global/MEMORY.md',
-    '.cache/pi-hermes-memory/global/sessions.db-wal', '.cache/pi-hermes-memory/global-locks.sqlite-shm',
-    '.pi/agent/hermes-project-memory', 'Vault/.pi-hermes-locks.sqlite',
-    'Vault/Memory/Projects/.pi-hermes-locks.sqlite',
+    'Vault/Memory/USER.md', `${sessionRoot}/global/MEMORY.md`,
+    `${sessionRoot}/global/sessions.db-wal`, `${sessionRoot}/.pi-hermes-locks.sqlite-shm`,
+    '.pi/agent/hermes-project-memory',
     '.pi/agent/pi-hermes-memory/.consolidation-locks', configFile,
   ]) {
     it(`REQ-MEM-035: AC3 refuses unexpected symlink ${path} and preserves its target`, t => {
@@ -487,7 +561,7 @@ describe('Pi Hermes startup (actual entrypoint helper)', () => {
     assert.deepEqual(names.filter(name => /(?:^|\/)\.cache(?:\/|$)|(?:\.db|\.sqlite)(?:-|$)|\.consolidation-locks|hermes-project-memory/.test(name)), [],
       'remote inventory must not contain databases, recovery/coordination state or copied links');
     assert.deepEqual(names.filter(name => canonicalFiles.some(file => name.endsWith(file.split('/').at(-1)))).sort(),
-      [...canonicalFiles].sort(), 'only the canonical Markdown copies may be uploaded');
+      [...canonicalFiles].sort(), 'only master Markdown and an optional checkpoint, not working Markdown, may be uploaded');
     succeeds(transfer(fx, remote, restored));
     for (const file of canonicalFiles) assert.deepEqual(readFileSync(join(restored, file)), readFileSync(join(fx.home, file)));
     assert.equal(lstatExists(join(restored, '.cache/pi-hermes-memory')), false);

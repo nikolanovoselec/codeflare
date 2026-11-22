@@ -6,38 +6,37 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import smartCompactConfig, { configureSmartCompact } from '../../../preseed/agents/pi/extensions/00-smart-compact-config';
 import { handleContextModeCommand, type PiSettings } from '../../../preseed/agents/pi/extensions/ctx-command';
 
-// Intentional initial-preset contract: retain the managed values, changing only
-// mode to auto. Seed only an absent section; never fill or rewrite a user object.
+// Intentional managed settings contract. Explicit user settings are not merged.
 const MANAGED_DEFAULTS = {
-  mode: 'auto',
-  compactionEngines: ['eesv'],
-  summaryModel: null,
-  segmentationModel: null,
-  verificationModel: null,
-  summaryThinkingLevel: 'low',
-  autoTrigger: true,
-  autoTriggerStrategy: 'native-hook',
-  minContextPercent: 0,
-  maxContextTokens: 272000,
-  maxLlmCalls: 4,
-  maxLatencyMs: 120000,
-  autoTriggerTimeoutMs: 120000,
-  requireApproval: true,
-  backupEnabled: true,
-  zeroCallEnabled: false,
-  contextGraphEnabled: false,
-  contextHygieneEnabled: false,
-  contextNavigationEnabled: false,
-  contextRecallEnabled: false,
-  contextPivotEnabled: false,
-  contextAnchorCacheEnabled: false,
-  contextAnchorStatusEnabled: false,
-  contextGuidanceEnabled: false,
-  promptCacheRoutingEnabled: false,
-  onlineDamageMonitor: true,
-  agentToolAccess: 'disabled',
-  toolLoading: 'off',
-  showStatus: false,
+  "mode": "thorough",
+  "summaryThinkingLevel": "low",
+  "autoTrigger": true,
+  "autoTriggerStrategy": "background",
+  "minContextPercent": 80,
+  "maxContextTokens": 0,
+  "maxLlmCalls": 4,
+  "maxLatencyMs": 240000,
+  "autoTriggerTimeoutMs": 240000,
+  "requireApproval": true,
+  "backupEnabled": false,
+  "zeroCallEnabled": false,
+  "contextHygieneEnabled": true,
+  "contextGraphEnabled": false,
+  "contextNavigationEnabled": false,
+  "contextRecallEnabled": false,
+  "contextPivotEnabled": false,
+  "contextAnchorCacheEnabled": false,
+  "contextAnchorStatusEnabled": false,
+  "contextGuidanceEnabled": false,
+  "promptCacheRoutingEnabled": false,
+  "onlineDamageMonitor": true,
+  "artifactOffloadEnabled": true,
+  "scrubSecrets": true,
+  "scrubPii": false,
+  "adaptiveDamageFeedback": true,
+  "showStatus": false,
+  "agentToolAccess": "disabled",
+  "toolLoading": "off"
 };
 
 let agentDir: string;
@@ -62,7 +61,7 @@ function readSettings(): PiSettings {
 }
 
 describe('REQ-AGENT-223: provider-neutral Smart Compact settings preparation', () => {
-  it('REQ-AGENT-223: initializes an absent settings file with the full managed preset in auto mode', async () => {
+  it('REQ-AGENT-223: initializes an absent settings file with the full managed Thorough preset', async () => {
     await configureSmartCompact(agentDir);
 
     expect(readSettings()).toEqual({ smartCompact: MANAGED_DEFAULTS });

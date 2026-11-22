@@ -56,7 +56,6 @@ interface LayoutProps {
   userSubscriptionTier?: import('../types').SubscriptionTier;
   onboardingActive?: boolean;
   enterpriseMode?: boolean;
-  operatorManagementEligible?: boolean;
   mcpReturnOutcome?: import('../lib/mcp-portal-recovery').McpReturnOutcome;
 }
 
@@ -843,7 +842,6 @@ const Layout: Component<LayoutProps> = (props) => {
       <Show when={!showDashboard()}>
         <Header
           userName={props.userName}
-          operatorManagementEligible={props.operatorManagementEligible}
           onSettingsClick={handleSettingsClick}
           onStoragePanelToggle={handleStoragePanelToggle}
           onVaultOpen={sessionStore.activeSessionId && sessionStore.preferences.sessionMode === 'advanced'

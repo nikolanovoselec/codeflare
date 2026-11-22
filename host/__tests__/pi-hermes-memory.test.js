@@ -191,17 +191,19 @@ test('REQ-MEM-035: unsafe or unreadable managed layout fails closed without expo
       const vault = join(f.root, 'Vault');
       fs.mkdirSync(vault);
       fs.renameSync(f.memoryDir, join(vault, 'Memory'));
-      const memoryDir = join(vault, 'Memory');
-      fs.mkdirSync(join(cache, 'global'), { recursive: true });
+      const work = join(cache, 'working');
+      const memoryDir = join(work, 'global');
+      const masters = join(vault, 'Memory');
+      fs.mkdirSync(memoryDir, { recursive: true });
       fs.mkdirSync(join(agentDir, 'pi-hermes-memory'), { recursive: true });
       fs.mkdirSync(join(cache, 'consolidation-locks'));
-      for (const name of ['USER.md', 'MEMORY.md', 'failures.md']) fs.symlinkSync(join(memoryDir, name), join(cache, 'global', name));
-      fs.symlinkSync(join(memoryDir, 'Projects'), join(agentDir, 'hermes-project-memory'));
-      fs.symlinkSync(join(cache, 'global-locks.sqlite'), join(vault, '.pi-hermes-locks.sqlite'));
-      fs.symlinkSync(join(cache, 'project-locks.sqlite'), join(memoryDir, 'Projects/.pi-hermes-locks.sqlite'));
+      for (const name of ['USER.md', 'MEMORY.md', 'failures.md']) fs.copyFileSync(join(masters, name), join(memoryDir, name));
+      fs.cpSync(join(masters, 'Projects'), join(work, 'Projects'), { recursive: true });
+      fs.symlinkSync(join(work, 'Projects'), join(agentDir, 'hermes-project-memory'));
       fs.symlinkSync(join(cache, 'consolidation-locks'), join(agentDir, 'pi-hermes-memory/.consolidation-locks'));
+      fs.writeFileSync(join(work, 'session-id'), 'hermesfixture\n');
       const configPath = join(agentDir, 'hermes-memory-config.json');
-      fs.writeFileSync(configPath, JSON.stringify({ memoryDir: join(cache, 'global'), projectsMemoryDir: 'hermes-project-memory', memoryMode: 'policy-only' }));
+      fs.writeFileSync(configPath, JSON.stringify({ memoryDir, projectsMemoryDir: 'hermes-project-memory', memoryMode: 'policy-only', lazyInitialization: true }));
       const outside = join(f.root, 'private-target.md');
       fs.writeFileSync(outside, 'DO_NOT_FOLLOW_PRIVATE_TARGET');
       const userPath = join(memoryDir, 'USER.md');
@@ -211,14 +213,14 @@ test('REQ-MEM-035: unsafe or unreadable managed layout fails closed without expo
         else fs.symlinkSync(kind === 'symlink' ? outside : join(f.root, 'missing-target'), userPath);
       } else if (kind === 'directory alias') {
         const alias = join(f.root, 'aliased-cache');
-        fs.renameSync(join(cache, 'global'), alias);
-        fs.symlinkSync(alias, join(cache, 'global'));
+        fs.renameSync(memoryDir, alias);
+        fs.symlinkSync(alias, memoryDir);
       } else if (kind === 'malformed configuration') {
         fs.writeFileSync(configPath, '{"PRIVATE_CONFIGURATION_CANARY":');
       } else {
         // The image can run tests as root. Drop privilege only after loading the
         // adapter so this is real EACCES, not a mocked permission error.
-        for (const path of [f.root, join(f.root, '.pi'), agentDir, vault, memoryDir, join(f.root, '.cache'), cache, join(cache, 'global')]) fs.chmodSync(path, 0o755);
+        for (const path of [f.root, join(f.root, '.pi'), agentDir, vault, memoryDir, join(f.root, '.cache'), cache, work, join(work, 'Projects'), join(work, 'Projects/workspace')]) fs.chmodSync(path, 0o755);
         fs.chmodSync(configPath, 0o000);
       }
       const childScript = `
@@ -232,7 +234,7 @@ test('REQ-MEM-035: unsafe or unreadable managed layout fails closed without expo
         console.log(JSON.stringify({ tools, messages }));
       `;
       const child = spawn(process.execPath, ['--input-type=module', '-e', childScript], {
-        env: { HOME: f.root, PI_CODING_AGENT_DIR: agentDir, PATH: join(f.root, 'no-executables') },
+        env: { HOME: f.root, PI_CODING_AGENT_DIR: agentDir, SESSION_ID: 'hermesfixture', PATH: join(f.root, 'no-executables') },
         stdio: ['ignore', 'pipe', 'pipe'], timeout: 10_000,
       });
       let stdout = '', stderr = '';

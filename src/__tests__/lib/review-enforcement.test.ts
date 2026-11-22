@@ -229,25 +229,13 @@ async function harness(
   process.env.CODEFLARE_SYNC_DAEMON_PIDFILE = join(input.home, 'missing.pid');
   const { registerReviewEnforcement } = await import('../../../preseed/agents/pi/extensions/review-enforcement');
   const handlers = new Map<string, Handler[]>();
-  const { goalControlAvailable = true, ...reviewDependencyOverrides } = dependencyOverrides;
   const sent: Array<{ customType: string; content?: string; details?: Record<string, unknown> }> = [];
   const prompts: Array<{ title: string; options: string[] }> = [];
   const entries = () => readFileSync(input.sessionFile, 'utf8').split('\n').filter(Boolean)
     .map((line) => JSON.parse(line) as Record<string, unknown>).filter((entry) => entry.type !== 'session');
   let activeTools = ['read', 'bash'];
-  const goalActions: string[] = [];
   const pi = {
     on: (event: string, handler: Handler) => handlers.set(event, [...(handlers.get(event) ?? []), handler]),
-    events: {
-      emit: vi.fn((_channel: string, request: any) => {
-        if (!goalControlAvailable) return;
-        request.accepted();
-        goalActions.push(request.action);
-        const status = request.action === 'pause' ? 'paused' : 'active';
-        append(input.sessionFile, { type: 'custom', customType: 'goal-state', data: { goal: { id: request.goalId, status } } });
-        request.respond({ ok: true, goalId: request.goalId, status });
-      }),
-    },
     appendEntry: (customType: string, data: unknown) => append(input.sessionFile, { type: 'custom', customType, data }),
     sendMessage: (message: { customType: string; content?: string; details?: Record<string, unknown> }) => {
       sent.push(message);
@@ -279,7 +267,7 @@ async function harness(
     queryBranch: async () => input.pr.headRefName,
     queryRepository: async () => ({ gitHost: 'github.com', repository: 'owner/repo' }),
     headRetryDelaysMs: [0],
-    ...reviewDependencyOverrides,
+    ...dependencyOverrides,
   });
   if (route) {
     const { registerOperatorReviewSelector } = await import('../../../preseed/agents/pi/extensions/operator-review-selector');
@@ -290,7 +278,6 @@ async function harness(
     ctx,
     sent,
     prompts,
-    goalActions,
     activeTools: () => activeTools,
     emit: async (event: string, payload: any = {}) => {
       for (const handler of handlers.get(event) ?? []) await handler(payload, ctx);
@@ -1339,54 +1326,12 @@ describe('Pi marker-or-dialog review ingress', () => {
     ]);
   });
 
-  it.each(['active', 'paused', 'blocked', 'complete'] as const)(
-    'REQ-AGENT-112/113: preserves %s Goal state through review and FIX', async (status) => {
-      const input = fixture();
-      const goal = { id: 'goal-1', status };
-      append(input.sessionFile, { type: 'custom', customType: 'goal-state', data: { goal } });
-      const currentGoal = () => readFileSync(input.sessionFile, 'utf8').split('\n').filter(Boolean)
-        .map((line) => JSON.parse(line)).filter((entry) => entry.customType === 'goal-state').at(-1)?.data.goal;
-      const app = await harness(input, []);
-      await app.emit('tool_result', boundary('git push origin feature', 'push-goal'));
-      await app.emit('agent_end');
-      expect(currentGoal()).toEqual(goal);
-
-      appendSuccessfulRound(input, app.sent[0]!.details?.requiredLanes as ReviewLane[], 'goal');
-      await app.emit('agent_end');
-
-      expect(currentGoal()).toEqual(goal);
-      expect(app.sent.map((message) => message.customType)).toEqual([
-        'pr-boundary-launch-plan',
-        'pr-boundary-fix-follow-up',
-      ]);
-      expect(readCompletion(input.identity, { root: join(input.home, '.codeflare/review-state/v1') }).status).toBe('complete');
-    },
-  );
-
-  it.each(['active', 'paused'] as const)(
-    'REQ-AGENT-117: leaves %s Goal untouched when restoring legacy review pause data', async (status) => {
-      const input = fixture();
-      const goal = { id: 'goal-legacy', status };
-      append(input.sessionFile,
-        { type: 'custom', customType: 'goal-state', data: { goal } },
-        { type: 'custom', customType: 'pr-boundary-goal-pause', data: { head: input.head, goalId: goal.id } },
-      );
-      const app = await harness(input, []);
-      await app.emit('session_start');
-      await app.emit('agent_end');
-      const restoredGoal = readFileSync(input.sessionFile, 'utf8').split('\n').filter(Boolean)
-        .map((line) => JSON.parse(line)).filter((entry) => entry.customType === 'goal-state').at(-1)?.data.goal;
-      expect(restoredGoal).toEqual(goal);
-      expect(app.sent).toEqual([]);
-    },
-  );
-
-  it('REQ-AGENT-112/113: delivers review and FIX without Goal installed', async () => {
+  it('delivers review and FIX through native completion', async () => {
     const input = fixture();
-    const app = await harness(input, [], { goalControlAvailable: false });
-    await app.emit('tool_result', boundary('git push origin feature', 'push-no-goal'));
+    const app = await harness(input, []);
+    await app.emit('tool_result', boundary('git push origin feature', 'push-completion'));
     await app.emit('agent_end');
-    appendSuccessfulRound(input, app.sent[0]!.details?.requiredLanes as ReviewLane[], 'no-goal');
+    appendSuccessfulRound(input, app.sent[0]!.details?.requiredLanes as ReviewLane[], 'completion');
     await app.emit('agent_end');
     expect(app.sent.map((message) => message.customType)).toEqual([
       'pr-boundary-launch-plan',
@@ -1394,29 +1339,6 @@ describe('Pi marker-or-dialog review ingress', () => {
     ]);
     expect(readCompletion(input.identity, { root: join(input.home, '.codeflare/review-state/v1') }).status).toBe('complete');
   });
-
-  it.each(['fix', 'abandon', 'close'] as const)(
-    'REQ-AGENT-113: preserves a user-paused Goal during review %s cleanup', async (ending) => {
-      const input = fixture();
-      const goal = { id: 'goal-user', status: 'active' };
-      append(input.sessionFile, { type: 'custom', customType: 'goal-state', data: { goal } });
-      const app = await harness(input, []);
-      await app.emit('tool_result', boundary('git push origin feature', 'push-user-goal'));
-      await app.emit('agent_end');
-      const paused = { ...goal, status: 'paused' };
-      append(input.sessionFile, { type: 'custom', customType: 'goal-state', data: { goal: paused } });
-      if (ending === 'fix') {
-        appendSuccessfulRound(input, app.sent[0]!.details?.requiredLanes as ReviewLane[], 'user-paused');
-      } else if (ending === 'close') {
-        input.pr.state = 'CLOSED';
-      }
-      await app.emit('agent_end');
-      const actualGoal = readFileSync(input.sessionFile, 'utf8').split('\n').filter(Boolean)
-        .map((line) => JSON.parse(line)).filter((entry) => entry.customType === 'goal-state').at(-1)?.data.goal;
-      expect(actualGoal).toEqual(paused);
-      if (ending === 'fix') expect(app.sent.at(-1)?.customType).toBe('pr-boundary-fix-follow-up');
-    },
-  );
 
   it('clears stopped work without a recovery message or marker', async () => {
     const input = fixture();

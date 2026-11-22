@@ -52,7 +52,6 @@ const AppContent: Component = () => {
   const [userSubscriptionTier, setUserSubscriptionTier] = createSignal<SubscriptionTier | undefined>();
   const [onboardingActive, setOnboardingActive] = createSignal<boolean | undefined>();
   const [enterpriseMode, setEnterpriseMode] = createSignal<boolean | undefined>();
-  const [operatorManagementEligible, setOperatorManagementEligible] = createSignal(false);
   const [loading, setLoading] = createSignal(true);
   const [authError, setAuthError] = createSignal<{ kind: 'access' | 'service'; message: string } | null>(null);
   const [redirecting, setRedirecting] = createSignal(false);
@@ -139,7 +138,6 @@ const AppContent: Component = () => {
       setUserSubscriptionTier(user.subscriptionTier);
       setOnboardingActive(user.onboardingActive);
       setEnterpriseMode(user.enterpriseMode);
-      setOperatorManagementEligible(user.operatorManagementEligible === true || user.role === 'admin');
       sessionStore.setEnterpriseMode(user.enterpriseMode === true);
       sessionStore.setSaasMode(user.saasMode === true);
       sessionStore.setAllowedAgents(user.allowedAgents
@@ -238,7 +236,7 @@ const AppContent: Component = () => {
             </div>
           }
         >
-          <Layout userName={userName()} userRole={userRole()} userSubscriptionTier={userSubscriptionTier()} onboardingActive={onboardingActive()} enterpriseMode={enterpriseMode()} operatorManagementEligible={operatorManagementEligible()} mcpReturnOutcome={mcpReturnOutcome()} />
+          <Layout userName={userName()} userRole={userRole()} userSubscriptionTier={userSubscriptionTier()} onboardingActive={onboardingActive()} enterpriseMode={enterpriseMode()} mcpReturnOutcome={mcpReturnOutcome()} />
         </Show>
       </Show>
     </Show>

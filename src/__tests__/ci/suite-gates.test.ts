@@ -211,7 +211,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     const filterSource = testWorkflow.jobs.changes.steps?.find((step) => step.id === 'filter')?.with?.filters;
     const filters = parseYaml(filterSource as string) as Record<string, unknown[]>;
     const patterns = flattenPatterns(filters.host);
-    for (const path of ['image/impeccable-engine.json', 'image/impeccable-engine-legacy.json', 'image/impeccable-engine-4.4.0.json', 'image/impeccable-engine-4.5.0.json', 'scripts/patch-impeccable-engine.py', 'scripts/impeccable-launcher.mjs', 'scripts/update-impeccable-skill.mjs', 'scripts/patch-pi-goal-review-control.mjs', 'scripts/patch-pi-plan-mode-tool-policy.mjs']) {
+    for (const path of ['image/impeccable-engine.json', 'image/impeccable-engine-legacy.json', 'image/impeccable-engine-4.4.0.json', 'image/impeccable-engine-4.5.0.json', 'scripts/patch-impeccable-engine.py', 'scripts/impeccable-launcher.mjs', 'scripts/update-impeccable-skill.mjs', 'scripts/patch-pi-plan-mode-tool-policy.mjs']) {
       expect(matchesAny(path, patterns), path).toBe(true);
     }
     for (const path of ['preseed/agents/claude/skills/impeccable/scripts/live-browser.js', 'preseed/agents/pi/skills/impeccable/scripts/live-browser.js', 'scripts/update-impeccable-skill.mjs']) {
@@ -1163,17 +1163,6 @@ esac
     expect(JSON.parse(readFileSync(join(piDirectory, 'package.json'), 'utf8')).dependencies['@juicesharp/rpiv-todo']).toBe('2.7.1');
     expect(readFileSync(join(fixture, 'entrypoint.sh'), 'utf8')).toContain('npm:@juicesharp/rpiv-todo@2.7.1');
     expect(readFileSync(join(hostTests, 'pi-settings-packages.test.js'), 'utf8')).toContain("pkg.dependencies['@juicesharp/rpiv-todo'], '2.7.1'");
-  });
-
-  it('REQ-AGENT-111: pi-goal shadow bumps preflight the locked review-control patch', () => {
-    const workflow = parseYaml(readFileSync(SHADOW_PINS_WORKFLOW, 'utf8')) as {
-      jobs: Record<string, { steps?: Array<{ name?: string; run?: string }> }>;
-    };
-    const apply = workflow.jobs['pi-extensions'].steps?.find((step) => step.name === 'Apply bump')?.run ?? '';
-    expect(apply).toContain("if [ \"$PKG\" = '@narumitw/pi-goal' ]; then");
-    expect(apply).toContain('(cd preseed/agents/pi && npm ci --ignore-scripts --no-audit --no-fund)');
-    expect(apply).toContain('node scripts/patch-pi-goal-review-control.mjs');
-    expect(apply).toContain('"$LAT" preseed/agents/pi/node_modules/@narumitw/pi-goal');
   });
 
   it('REQ-AGENT-152: Plan Mode shadow bumps execute the locked tool-policy preflight', () => {

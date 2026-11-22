@@ -97,6 +97,7 @@ JSON
 bisync_with_r2() {
   BISYNC_CALLS=$((BISYNC_CALLS + 1))
   printf 'BISYNC_%s\\n' "$BISYNC_CALLS" >> "$CALLS"
+  [ "$FAIL_STAGE" != hermes-checkpoint ] || return 65
   [ "$FAIL_STAGE" != "bisync-$BISYNC_CALLS" ]
 }
 flock() {
@@ -154,6 +155,14 @@ describe('entrypoint session-capture compaction orchestration', () => {
     assert.equal(nextDay.status, 0, nextDay.stderr);
     assert.deepEqual(calls(fx).slice(actual.length), ['PREPARE']);
     assert.equal(readFileSync(join(fx.runtime, 'sync/vault-session-compaction.utc-day'), 'utf8'), '2026-04-01\n');
+  });
+
+  it('stamps a transferred archive even when Hermes checkpoint preparation failed', () => {
+    const fx = fixture();
+    const result = runDaily(fx, { fail: 'hermes-checkpoint' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stderr, /archive synced; Hermes checkpoint incomplete/);
+    assert.equal(readFileSync(join(fx.runtime, 'sync/vault-session-compaction.utc-day'), 'utf8'), '2026-03-31\n');
   });
 
   it('stamps a no-op day without publishing, relocating, or deleting', () => {

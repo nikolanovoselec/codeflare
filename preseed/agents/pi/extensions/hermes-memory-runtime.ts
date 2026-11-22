@@ -49,22 +49,29 @@ function exactLink(path: string, target: string): boolean {
 }
 
 function preparedLayout(home: string, agentDir: string): { owners: string } {
-  const vault = join(home, "Vault", "Memory");
   const cache = join(home, ".cache", "pi-hermes-memory");
-  for (const directory of [cache, join(cache, "global"), vault, join(vault, "Projects"), agentDir]) {
+  const work = join(cache, "working");
+  const global = join(work, "global");
+  const projects = join(work, "Projects");
+  const workspace = join(projects, "workspace");
+  const sessionId = process.env.SESSION_ID;
+  if (!sessionId || !/^[a-z0-9]{8,24}$/.test(sessionId)) throw new Error("missing container session identity");
+  for (const directory of [global, workspace, agentDir, join(cache, "consolidation-locks")]) {
     if (realpathSync(directory) !== resolve(directory)) throw new Error("managed memory directory ownership is unsafe");
   }
-  const config = JSON.parse(readFileSync(join(agentDir, "hermes-memory-config.json"), "utf8"));
-  if (!config || Array.isArray(config) || config.memoryMode !== "policy-only" || config.memoryDir !== join(cache, "global")
-    || config.projectsMemoryDir !== "hermes-project-memory") throw new Error("managed memory configuration is not ready");
-  for (const name of ["USER.md", "MEMORY.md", "failures.md"]) {
-    if (!exactLink(join(cache, "global", name), join(vault, name)) || !lstatSync(join(vault, name)).isFile()) {
-      throw new Error("managed memory paths are not ready");
-    }
+  const sessionFile = join(work, "session-id");
+  const configFile = join(agentDir, "hermes-memory-config.json");
+  if (!lstatSync(sessionFile).isFile() || !lstatSync(configFile).isFile()
+    || readFileSync(sessionFile, "utf8") !== `${sessionId}\n`) throw new Error("session memory is not prepared");
+  const config = JSON.parse(readFileSync(configFile, "utf8"));
+  if (!config || Array.isArray(config) || config.memoryMode !== "policy-only" || config.lazyInitialization !== true
+    || config.memoryDir !== global || config.projectsMemoryDir !== "hermes-project-memory") {
+    throw new Error("managed memory configuration is not ready");
   }
-  if (!exactLink(join(agentDir, "hermes-project-memory"), join(vault, "Projects"))
-    || !exactLink(join(home, "Vault", ".pi-hermes-locks.sqlite"), join(cache, "global-locks.sqlite"))
-    || !exactLink(join(vault, "Projects", ".pi-hermes-locks.sqlite"), join(cache, "project-locks.sqlite"))
+  for (const file of [join(global, "USER.md"), join(global, "MEMORY.md"), join(global, "failures.md"), join(workspace, "MEMORY.md")]) {
+    if (!lstatSync(file).isFile()) throw new Error("session memory paths are not ready");
+  }
+  if (!exactLink(join(agentDir, "hermes-project-memory"), projects)
     || !exactLink(join(agentDir, "pi-hermes-memory", ".consolidation-locks"), join(cache, "consolidation-locks"))) {
     throw new Error("managed memory cache links are not ready");
   }

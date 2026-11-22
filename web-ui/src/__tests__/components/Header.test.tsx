@@ -127,16 +127,14 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
     cleanup();
   });
 
-  it('shows separate Operator Management navigation only for an eligible enterprise user', async () => {
+  it('REQ-OPERATOR-040: keeps Operators in the header but not in the Enterprise account menu', async () => {
     sessionStoreState.enterpriseMode = true;
-    const view = render(() => <Header {...defaultSessionProps} operatorManagementEligible />);
+    const props = { ...defaultSessionProps, operatorManagementEligible: true };
+    render(() => <Header {...props} />);
     await fireEvent.click(screen.getByTestId('header-user-menu'));
-    expect(screen.getByTestId('header-user-dropdown-operators')).toHaveAttribute('href', '/operators');
-    view.unmount();
-
-    render(() => <Header {...defaultSessionProps} />);
-    await fireEvent.click(screen.getByTestId('header-user-menu'));
-    expect(screen.queryByTestId('header-user-dropdown-operators')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Operator activity' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Usage' })).toHaveAttribute('href', '/app/usage');
+    expect(screen.queryByRole('link', { name: 'Operators', exact: true })).not.toBeInTheDocument();
   });
 
   describe('REQ-SESSION-036: Header sleep countdown', () => {

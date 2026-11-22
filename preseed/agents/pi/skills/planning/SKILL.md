@@ -86,17 +86,11 @@ Once the plan is accepted, or the user asks for implementation tasks, use the ex
 
 If the user requested plan-only, do not start execution, create unrelated tasks or manufacture an execution method. Reuse the approved workflow rather than asking the same preferences again.
 
-## 5. Respect Plan mode and hand off to Goal mode honestly
+## 5. Respect Plan mode
 
-A skill supplies guidance; it does not activate an extension. `/skill:planning` works in normal mode. `/plan` is a separate installed extension with a restrictive tool policy, and `/goal` controls automatic continuation. Do not silently start, stop, resume or configure either extension; they may be mutually exclusive.
+A skill supplies guidance; it does not activate an extension. `/skill:planning` works in normal mode. `/plan` is a separate installed extension with a restrictive tool policy. Do not silently activate it.
 
 **While `/plan` is explicitly active:** obey its current contract. Do not use Bash to evade blocked writes/TODO tools or modify extension state files. Submit the complete Markdown through `plan_mode_complete({ plan })` **alone as the final action**, only when the plan is decision-ready. The user can export through `/plan export <absolute Vault plan path>` and choose the extension's save/implementation route. Do not claim a Vault file or live TODOs exist until actually saved/created through an allowed route; stage missing TODOs after returning to an authorized mode.
-
-**Goal handoff:** ask for the user's approval using their exact requested gate, such as `GO$`; do not invent a new gate if they supplied one. Do not start implementation while approval is pending. A user's explicit implementation approval can authorize ordinary execution without automatically enabling Goal mode.
-
-When the user wants Goal-driven execution, provide a concise `/goal` objective referencing the **absolute approved plan path**, its existing TODO IDs, exact scope/non-goals, verification requirements, delivery order and prohibited actions. Reference the plan instead of copying its full contents; Goal objectives are limited to 4,000 characters. Let the user start/resume Goal mode through its supported command/UI. Do not create a fake goal-start tool or edit Goal settings/state, budgets, model or reasoning choices.
-
-If Goal mode is already active, retain the latest actual contract and matching `goal_id`; tool visibility or a plan's word “Goal” is not activation. Planning completion is not implementation completion. Call `goal_complete` only when evidence verifies **every requirement of the actual current objective**; use block helpers only when exposed and justified by that contract and applicable retry policy. Managed Codeflare prohibits `goal_wait`; do not call or reactivate it. Use current `goal_progress` reporting when the active contract requires it. Arrange permitted asynchronous continuation for external work; do not busy-wait or terminally block for normal clarification. Approval, PR-boundary and security gates remain binding during automatic continuation.
 
 Finish by reporting the saved plan path, pending TODO readiness, unresolved material facts and the next user action. Do not claim runtime behavior, model-quality improvement or extension activation from static validation alone. After editing this skill, ask the user to `/reload`; explicit invocation is `/skill:planning`.
 

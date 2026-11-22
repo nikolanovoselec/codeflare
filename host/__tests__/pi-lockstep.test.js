@@ -95,9 +95,9 @@ describe('REQ-AGENT-206: updated runtime dependencies and cache ownership', () =
   });
 });
 
-describe('REQ-AGENT-111 AC3: Goal jiti cache path and fail-closed artifact verification', () => {
-  it('rejects a missing @narumitw/pi-goal entrypoint artifact and accepts the expected artifact', () => {
-    const directory = mkdtempSync(join(tmpdir(), 'codeflare-goal-cache-'));
+describe('REQ-AGENT-111 AC3: Todo Loop jiti cache path and fail-closed artifact verification', () => {
+  it('rejects a missing @dumbmice/pi-todo-loop entrypoint artifact and accepts the expected artifact', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'codeflare-todo-loop-cache-'));
     try {
       const installedRoot = join(directory, 'installed');
       const runtimeRoot = join(directory, 'runtime');
@@ -106,7 +106,7 @@ describe('REQ-AGENT-111 AC3: Goal jiti cache path and fail-closed artifact verif
       mkdirSync(runtimeRoot);
       const installedSource = join(sourceDirectory, 'index.ts');
       const runtimeSource = join(runtimeRoot, 'index.ts');
-      writeFileSync(installedSource, 'export { default } from "./goal.js";\n');
+      writeFileSync(installedSource, 'export { default } from "./loop.js";\n');
       symlinkSync(installedSource, runtimeSource);
 
       const cacheDirectory = join(directory, 'cache');
@@ -154,20 +154,20 @@ describe('REQ-AGENT-210: managed extension JITI warm-cache contract', () => {
     const directory = mkdtempSync(join(tmpdir(), 'codeflare-managed-extension-cache-'));
     try {
       const cacheDirectory = join(directory, 'cache');
-      const goalSource = join(directory, 'goal/src/index.ts');
+      const firstSource = join(directory, 'first/src/index.ts');
       const openTuiSource = join(directory, 'open-tui/extensions/open-tui/index.ts');
-      mkdirSync(join(directory, 'goal/src'), { recursive: true });
+      mkdirSync(join(directory, 'first/src'), { recursive: true });
       mkdirSync(join(directory, 'open-tui/extensions/open-tui'), { recursive: true });
-      writeFileSync(goalSource, 'export default function goal() {}\n');
+      writeFileSync(firstSource, 'export default function first() {}\n');
       writeFileSync(openTuiSource, 'export default function openTui() {}\n');
 
       const runWarm = (piBinary, env = {}) => spawnSync(
         process.execPath,
-        [script, '--warm-jiti-entrypoints', piBinary, cacheDirectory, goalSource, openTuiSource],
+        [script, '--warm-jiti-entrypoints', piBinary, cacheDirectory, firstSource, openTuiSource],
         { encoding: 'utf8', env: { ...process.env, ...env } },
       );
       const argsLog = join(directory, 'args.log');
-      const goalArtifact = resolveCachePath(goalSource, cacheDirectory);
+      const firstArtifact = resolveCachePath(firstSource, cacheDirectory);
       const openTuiArtifact = resolveCachePath(openTuiSource, cacheDirectory);
       const fakePi = join(directory, 'pi');
       writeFileSync(fakePi, `#!/bin/sh
@@ -191,12 +191,12 @@ done
         CACHE_DIR: cacheDirectory,
       });
       assert.equal(success.status, 0, success.stderr);
-      assert.deepEqual(success.stdout.trim().split('\n'), [goalArtifact, openTuiArtifact]);
+      assert.deepEqual(success.stdout.trim().split('\n'), [firstArtifact, openTuiArtifact]);
       assert.deepEqual(
         readArgs(argsLog),
         [
           '--no-extensions',
-          '--extension', goalSource,
+          '--extension', firstSource,
           '--extension', openTuiSource,
           '--list-models',
         ],
@@ -210,19 +210,19 @@ done
       assert.equal(failedWarm.stderr, 'Pi JITI warm exited 7\n');
 
       mkdirSync(cacheDirectory, { recursive: true });
-      writeFileSync(goalArtifact, 'stale\n');
+      writeFileSync(firstArtifact, 'stale\n');
       writeFileSync(openTuiArtifact, 'stale\n');
       const noArtifactPi = join(directory, 'pi-no-artifact');
       writeFileSync(noArtifactPi, '#!/bin/sh\nexit 0\n');
       chmodSync(noArtifactPi, 0o755);
       const stale = runWarm(noArtifactPi);
       assert.notEqual(stale.status, 0);
-      assert.equal(stale.stderr, `jiti cache artifact is missing at ${goalArtifact}\n`);
+      assert.equal(stale.stderr, `jiti cache artifact is missing at ${firstArtifact}\n`);
 
-      const goalOnlyPi = join(directory, 'pi-goal-only');
-      writeFileSync(goalOnlyPi, '#!/bin/sh\nprintf "compiled\\n" > "$GOAL_ARTIFACT"\n');
-      chmodSync(goalOnlyPi, 0o755);
-      const missingOpenTui = runWarm(goalOnlyPi, { GOAL_ARTIFACT: goalArtifact });
+      const firstOnlyPi = join(directory, 'pi-first-only');
+      writeFileSync(firstOnlyPi, '#!/bin/sh\nprintf "compiled\\n" > "$FIRST_ARTIFACT"\n');
+      chmodSync(firstOnlyPi, 0o755);
+      const missingOpenTui = runWarm(firstOnlyPi, { FIRST_ARTIFACT: firstArtifact });
       assert.notEqual(missingOpenTui.status, 0);
       assert.equal(missingOpenTui.stderr, `jiti cache artifact is missing at ${openTuiArtifact}\n`);
 
@@ -249,7 +249,7 @@ const piPackage = JSON.parse(
 );
 const NPM_ROOT = '/opt/codeflare/pi-agent/npm/node_modules';
 const WARMED_NPM_ENTRYPOINTS = [
-  { variable: 'goal', package: '@narumitw/pi-goal', entrypoint: 'src/index.ts' },
+  { variable: 'todo_loop', package: '@dumbmice/pi-todo-loop', entrypoint: 'src/index.ts' },
   { variable: 'open_tui', package: 'pi-open-tui', entrypoint: 'extensions/open-tui/index.ts' },
   { variable: 'evaluate', package: 'pi-evaluate', entrypoint: 'extensions/evaluate.ts' },
   { variable: 'codex_fast', package: '@calesennett/pi-codex-fast', entrypoint: 'extensions/codex-fast.ts' },

@@ -1098,10 +1098,15 @@ establish_bisync_baseline() {
     fi
     local BISYNC_TIMEOUT=600  # 10 minutes max for baseline (large buckets with many files)
     local MAX_RECOVERY=3
+    local checkpoint_result
 
     for recovery_attempt in $(seq 1 $MAX_RECOVERY); do
         echo "[entrypoint] Step 2: Establishing bisync baseline (max ${BISYNC_TIMEOUT}s, attempt $recovery_attempt/$MAX_RECOVERY)..." | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
 
+        checkpoint_result=0
+        if [ -e "$USER_HOME/.cache/pi-hermes-memory/working" ] || [ -L "$USER_HOME/.cache/pi-hermes-memory/working" ]; then
+            configure_pi_hermes_memory "$USER_HOME" checkpoint || checkpoint_result=65
+        fi
         compose_rclone_filters || return 1
         BASELINE_OUTPUT=$(mktemp)
         # --use-server-modtime + --checkers 64: avoid the per-file mtime HEAD storm; see
@@ -1149,6 +1154,12 @@ establish_bisync_baseline() {
             rm -f "$BASELINE_OUTPUT"
             echo "[entrypoint] Step 2 complete: Bisync baseline established" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
             touch $CODEFLARE_RUNTIME_ROOT/sync/bisync-initialized
+            if [ "$checkpoint_result" -ne 0 ]; then
+                SYNC_ERROR="Files synced, but the latest Hermes memory checkpoint could not be saved"
+                echo "[sync] WARNING: $SYNC_ERROR" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log >&2
+                SYNC_STATUS="failed"
+                return "$checkpoint_result"
+            fi
             SYNC_STATUS="success"
             return 0
         elif [ $SYNC_RESULT -eq 124 ]; then
@@ -1230,6 +1241,12 @@ bisync_with_r2() {
         echo "[sync] Sync blocked by disk space; explicit recovery is required"
         return 1
     fi
+    # Exit 65 means rclone succeeded but the local memory checkpoint failed.
+    # Still transfer unrelated files and keep the previous checkpoint intact.
+    local checkpoint_result=0
+    if [ -e "$USER_HOME/.cache/pi-hermes-memory/working" ] || [ -L "$USER_HOME/.cache/pi-hermes-memory/working" ]; then
+        configure_pi_hermes_memory "$USER_HOME" checkpoint || checkpoint_result=65
+    fi
     compose_rclone_filters || return 1
     local verbose_flag="${1-}"  # Quiet by default; preserve optional explicit caller verbosity.
     local verbose_args=()
@@ -1300,6 +1317,7 @@ bisync_with_r2() {
         # A sync that rewrote a hook from R2 dropped its exec bit; restore it here so
         # the window is seconds rather than the rest of the daemon cycle.
         repair_hook_exec_bits
+        return "$checkpoint_result"
     fi
     return $RESULT
 }
@@ -1357,9 +1375,15 @@ run_daily_vault_session_compaction() {
         return 1
     fi
 
-    if ! bisync_with_r2 ""; then
+    local transfer_result=0
+    bisync_with_r2 "" || transfer_result=$?
+    # A failed Hermes checkpoint does not undo a successful archive transfer.
+    if [ "$transfer_result" -ne 0 ] && [ "$transfer_result" -ne 65 ]; then
         echo "[session-compaction] WARNING: compaction bisync failed" >&2
         return 1
+    fi
+    if [ "$transfer_result" -eq 65 ]; then
+        echo "[session-compaction] WARNING: archive synced; Hermes checkpoint incomplete" >&2
     fi
     rm -rf -- "$state_dir" || return 1
     printf '%s\n' "$today" > "${stamp}.tmp" && mv -f "${stamp}.tmp" "$stamp" || return 1
@@ -1486,6 +1510,9 @@ start_sync_daemon() {
             echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Bisync completed successfully" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
             update_sync_status "success" "null"
             run_vault_session_compaction_after_sync "$BISYNC_CYCLE_TRIGGER"
+        elif [ "$SYNC_RESULT" -eq 65 ]; then
+            CONSECUTIVE_FAILURES=0
+            update_sync_status "failed" "Files synced, but the latest Hermes memory checkpoint could not be saved"
         else
             if [ "${BISYNC_DISK_BLOCKED:-0}" = "1" ] || [ -f "$CODEFLARE_RUNTIME_ROOT/sync/disk-space-blocked" ]; then
                 update_sync_status "failed" "Local disk full. Free local disk space, then click the cloud Sync now button to retry." || echo "[sync] Cannot publish disk-space status; sync remains blocked" >&2
@@ -1504,6 +1531,11 @@ start_sync_daemon() {
                     # Clear in-flight before continue so the next
                     # iteration's trap classifies signals correctly
                     # (idle -> REQUESTED, not mid-flight -> RERUN).
+                    BISYNC_IN_FLIGHT=
+                    continue
+                elif [ "$?" -eq 65 ]; then
+                    CONSECUTIVE_FAILURES=0
+                    update_sync_status "failed" "Files synced, but the latest Hermes memory checkpoint could not be saved"
                     BISYNC_IN_FLIGHT=
                     continue
                 fi
@@ -1540,6 +1572,12 @@ start_sync_daemon() {
                     case $? in
                         124)
                             update_sync_status "timeout" "$SYNC_ERROR"
+                            ;;
+                        65)
+                            update_sync_status "failed" "$SYNC_ERROR"
+                            CONSECUTIVE_FAILURES=0
+                            BISYNC_IN_FLIGHT=
+                            continue
                             ;;
                         *)
                             local LAST_ERRORS
@@ -3010,100 +3048,16 @@ run_initial_r2_restore() {
 }
 
 run_post_restore_startup() {
-configure_pi_goal_defaults() {
-    local goal_config="$USER_HOME/.pi/agent/pi-goal.json"
-    PI_GOAL_STARTUP_CONFIG="$goal_config" node --input-type=commonjs <<'NODE'
-const { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } = require('node:fs');
-const { dirname } = require('node:path');
-
-const settingsPath = process.env.PI_GOAL_STARTUP_CONFIG;
-const hasOwn = (value, key) => Object.hasOwn(value, key);
-const ownRecord = (value) =>
-  value !== null && typeof value === 'object' && !Array.isArray(value) ? value : undefined;
-const validContinuationLimit = (value) =>
-  value === null || (typeof value === 'number' && Number.isSafeInteger(value) && value > 0);
-
-function validSettings(value) {
-  if (!ownRecord(value)) return false;
-  if (
-    hasOwn(value, 'toolVisibility') &&
-    value.toolVisibility !== 'always' &&
-    value.toolVisibility !== 'after-first-goal'
-  ) return false;
-
-  if (hasOwn(value, 'experimental')) {
-    const experimental = ownRecord(value.experimental);
-    if (!experimental || (hasOwn(experimental, 'goals') && typeof experimental.goals !== 'boolean')) {
-      return false;
-    }
-  }
-  if (hasOwn(value, 'rpc')) {
-    const rpc = ownRecord(value.rpc);
-    if (!rpc || (hasOwn(rpc, 'enabled') && typeof rpc.enabled !== 'boolean')) return false;
-  }
-  if (hasOwn(value, 'continuationLimits')) {
-    const limits = ownRecord(value.continuationLimits);
-    if (!limits) return false;
-    if (hasOwn(limits, 'automaticTurns') && !validContinuationLimit(limits.automaticTurns)) {
-      return false;
-    }
-    if (hasOwn(limits, 'noProgressTurns') && !validContinuationLimit(limits.noProgressTurns)) {
-      return false;
-    }
-    if (
-      hasOwn(limits, 'minIntervalMs') &&
-      !(typeof limits.minIntervalMs === 'number' &&
-        Number.isSafeInteger(limits.minIntervalMs) &&
-        limits.minIntervalMs >= 0)
-    ) return false;
-  }
-  return true;
-} // validSettings
-
-function configure() {
-  let settings = {};
-  try {
-    settings = JSON.parse(readFileSync(settingsPath, 'utf8'));
-  } catch (error) {
-    if (error && error.code === 'ENOENT') {
-      settings = {};
-    } else {
-      return;
-    }
-  }
-  if (!validSettings(settings)) return;
-
-  const limits = ownRecord(settings.continuationLimits) ?? {};
-  const missingVisibility = !hasOwn(settings, 'toolVisibility');
-  const missingAutomaticTurns = !hasOwn(limits, 'automaticTurns');
-  const needsMinInterval = limits.minIntervalMs !== 300_000;
-  const needsStallLimit = limits.noProgressTurns !== 5;
-  if (!missingVisibility && !missingAutomaticTurns && !needsMinInterval && !needsStallLimit) return;
-
-  const nextLimits = {
-    ...limits,
-    ...(missingAutomaticTurns ? { automaticTurns: null } : {}),
-    noProgressTurns: 5,
-    minIntervalMs: 300_000,
-  };
-  const nextSettings = {
-    ...settings,
-    ...(missingVisibility ? { toolVisibility: 'after-first-goal' } : {}),
-    continuationLimits: nextLimits,
-  };
-
-  mkdirSync(dirname(settingsPath), { recursive: true });
-  const temporaryPath = `${settingsPath}.${process.pid}.tmp`;
-  try {
-    writeFileSync(temporaryPath, `${JSON.stringify(nextSettings, null, 2)}\n`, { flag: 'wx' });
-    renameSync(temporaryPath, settingsPath);
-  } finally {
-    rmSync(temporaryPath, { force: true });
-  }
-  console.log('[entrypoint] Pi Goal startup defaults configured');
-} // configure
-
-configure();
+configure_pi_smart_compact_defaults() {
+    local source="${PI_WARM_EXTENSIONS_DIR:-/opt/codeflare/pi-agent/extensions}/00-smart-compact-config.ts"
+    node --input-type=module - "$source" "$USER_HOME/.pi/agent" <<'NODE'
+import { pathToFileURL } from 'node:url';
+try {
+  const { configureSmartCompact } = await import(pathToFileURL(process.argv[2]).href);
+  if (!configureSmartCompact(process.argv[3])) process.exitCode = 1;
+} catch {
+  process.exitCode = 1;
+}
 NODE
 }
 
@@ -3156,63 +3110,98 @@ NODE
 configure_pi_hermes_memory() {
     [ "${SESSION_MODE:-default}" = "advanced" ] || return 0
     local memory_home="${1:-$USER_HOME}"
-    python3 - "$memory_home" <<'PY'
-import json, os, stat, sys
+    python3 - "$memory_home" "${SESSION_ID:-}" "${2:-prepare}" "${REMOTE_CURATION_ACTIVE:-false}" <<'PY'
+import hashlib, json, os, re, stat, sys, tempfile, shutil
 from pathlib import Path
 
 home = Path(os.path.abspath(sys.argv[1]))
+session, phase, remote = sys.argv[2:5]
 agent = home / '.pi/agent'
 vault = home / 'Vault/Memory'
 cache = home / '.cache/pi-hermes-memory'
+work = cache / 'working'
+base_path = work / 'base.json'
+session_path = work / 'session-id'
 config_path = agent / 'hermes-memory-config.json'
-directories = [home, agent, vault, vault / 'Projects/workspace', cache / 'global', cache / 'consolidation-locks', agent / 'pi-hermes-memory']
-canonical = [vault / name for name in ['USER.md', 'MEMORY.md', 'failures.md']] + [vault / 'Projects/workspace/MEMORY.md']
-links = {cache / 'global' / p.name: p for p in canonical[:3]}
-links.update({
-    agent / 'hermes-project-memory': vault / 'Projects',
-    home / 'Vault/.pi-hermes-locks.sqlite': cache / 'global-locks.sqlite',
-    vault / 'Projects/.pi-hermes-locks.sqlite': cache / 'project-locks.sqlite',
-    agent / 'pi-hermes-memory/.consolidation-locks': cache / 'consolidation-locks',
-})
+project = agent / 'hermes-project-memory'
+consolidation = agent / 'pi-hermes-memory/.consolidation-locks'
+paths = {'USER.md': 'global/USER.md', 'MEMORY.md': 'global/MEMORY.md', 'failures.md': 'global/failures.md',
+         'Projects/workspace/MEMORY.md': 'Projects/workspace/MEMORY.md'}
 
-def regular_or_missing(path):
+def kind(path, predicate, required=False):
     try:
-        if not stat.S_ISREG(path.lstat().st_mode):
-            raise ValueError('conflicting memory file: ' + str(path))
+        if not predicate(path.lstat().st_mode):
+            raise ValueError('unexpected memory path type')
+        return True
     except FileNotFoundError:
-        pass
+        if required:
+            raise
+        return False
 
-def directory_chain(path):
-    if path != home and home not in path.parents:
-        raise ValueError('memory path escaped its home')
+def direct_directory(path):
     current = home
-    parts = path.relative_to(home).parts
-    for part in [None, *parts]:
-        if part is not None:
-            current = current / part
-        try:
-            if not stat.S_ISDIR(current.lstat().st_mode):
-                raise ValueError('conflicting memory directory: ' + str(current))
-        except FileNotFoundError:
-            pass
+    kind(current, stat.S_ISDIR)
+    for segment in path.relative_to(home).parts:
+        current = current / segment
+        kind(current, stat.S_ISDIR)
 
-try:
-    # Complete validation precedes creation or configuration mutation.
-    for path in directories:
-        directory_chain(path)
-    for alias in links:
-        directory_chain(alias.parent)
-        if os.path.lexists(alias):
-            if not alias.is_symlink() or Path(os.path.abspath(alias.parent / os.readlink(alias))) != links[alias]:
-                raise ValueError('conflicting memory link: ' + str(alias))
-    for path in [*canonical, config_path]:
-        regular_or_missing(path)
-    for database in [cache / 'global/sessions.db', cache / 'global-locks.sqlite', cache / 'project-locks.sqlite']:
-        for suffix in ['', '-wal', '-shm', '-journal']:
-            regular_or_missing(Path(str(database) + suffix))
-    config = json.loads(config_path.read_text()) if config_path.exists() else {}
-    if not isinstance(config, dict):
-        raise ValueError('memory configuration must be an object')
+def read(path):
+    with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), 'rb') as handle:
+        opened = os.fstat(handle.fileno())
+        if not stat.S_ISREG(opened.st_mode):
+            raise ValueError('not a regular file')
+        content = handle.read()
+        if signature(opened) != signature(path.lstat()):
+            raise ValueError('memory file changed during read')
+        return content.decode('utf-8')
+
+def signature(info):
+    return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+def snapshot(root, mapping):
+    files = {name: root / rel for name, rel in mapping.items()}
+    signatures = {name: signature(path.lstat()) for name, path in files.items()}
+    data = {name: read(path) for name, path in files.items()}
+    if any(signature(path.lstat()) != signatures[name] for name, path in files.items()):
+        raise ValueError('memory changed during checkpoint')
+    return data
+
+def encode(value):
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode() + b'\n'
+
+def atomic(path, value, staging):
+    data = encode(value)
+    if kind(path, stat.S_ISREG) and read(path).encode() == data:
+        return
+    fd, tmp = tempfile.mkstemp(dir=staging)
+    try:
+        with os.fdopen(fd, 'wb') as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, path)
+        fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    finally:
+        Path(tmp).unlink(missing_ok=True)
+
+def valid_stores(value):
+    return isinstance(value, dict) and value.keys() == paths.keys() and all(isinstance(text, str) for text in value.values())
+
+def load(path, checkpoint=False):
+    value = json.loads(read(path))
+    if (not isinstance(value, dict) or value.get('sessionId') != session or value.get('version') != 1
+        or not valid_stores(value.get('base'))):
+        raise ValueError('invalid session memory descriptor')
+    if checkpoint and (not valid_stores(value.get('current'))
+        or value.get('sha256') != hashlib.sha256(encode({'base': value['base'], 'current': value['current']})).hexdigest()):
+        raise ValueError('invalid checkpoint content')
+    return value
+
+def write_config(global_dir):
     defaults = {'memoryCharLimit': 5000, 'userCharLimit': 5000, 'projectCharLimit': 5000,
         'nudgeInterval': 10, 'nudgeToolCalls': 15, 'flushMinTurns': 1,
         'reviewEnabled': True, 'correctionDetection': True, 'flushOnCompact': True, 'flushOnShutdown': True,
@@ -3220,35 +3209,143 @@ try:
         'consolidationChunking': True, 'sessionRetentionDays': 1}
     for key, value in defaults.items():
         config.setdefault(key, value)
-    config.update({'memoryDir': str(cache / 'global'), 'projectsMemoryDir': 'hermes-project-memory',
-        'memoryMode': 'policy-only', 'lazyInitialization': False, 'skillsEnabled': False,
+    config.update({'memoryDir': str(global_dir), 'projectsMemoryDir': 'hermes-project-memory',
+        'memoryMode': 'policy-only', 'lazyInitialization': True, 'skillsEnabled': False,
         'standingInstructionsEnabled': False, 'reviewRecentMessages': 20,
         'flushRecentMessages': 20, 'sessionIndexExclude': ['*']})
-    for path in directories:
-        path.mkdir(parents=True, exist_ok=True, mode=0o700)
-    for path in canonical:
-        if not path.exists():
-            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            os.close(fd)
+    atomic(config_path, config, agent)
+
+def signed_legacy_adapter():
+    directory = agent / 'extensions'
+    direct_directory(directory)
+    adapter = directory / 'hermes-memory-runtime.ts'
+    # seed-v196 is the published adapter reviewed for the image-before-seed rollout.
+    return kind(adapter, stat.S_ISREG) and hashlib.sha256(read(adapter).encode()).hexdigest() == (
+        '022e0ccae29f5235e4931829802e5656432111efe83f4c0c07b2cf22f1ca6a75')
+
+
+def prepare_signed_legacy_layout():
+    # Keep the verified old adapter operational during image-before-seed rollout.
+    # Never roll a container with session-local data back to master writes.
+    prior = vault / 'Sessions' / session / 'checkpoint.json'
+    direct_directory(prior.parent)
+    if os.path.lexists(work) or os.path.lexists(prior):
+        raise ValueError('cannot downgrade session memory')
+    global_dir = cache / 'global'
+    directories = (vault / 'Projects/workspace', global_dir, cache / 'consolidation-locks', consolidation.parent)
+    for directory in directories:
+        direct_directory(directory)
+    masters = [vault / name for name in paths]
+    for path in masters:
+        kind(path, stat.S_ISREG)
+    links = {global_dir / target.name: target for target in masters[:3]}
+    links.update({project: vault / 'Projects', consolidation: cache / 'consolidation-locks',
+                  home / 'Vault/.pi-hermes-locks.sqlite': cache / 'global-locks.sqlite',
+                  vault / 'Projects/.pi-hermes-locks.sqlite': cache / 'project-locks.sqlite'})
+    for alias, target in links.items():
+        if os.path.lexists(alias) and (not alias.is_symlink() or Path(os.path.abspath(alias.parent / os.readlink(alias))) != target):
+            raise ValueError('conflicting legacy memory link')
+    for database in (global_dir/'sessions.db', cache/'global-locks.sqlite', cache/'project-locks.sqlite'):
+        for suffix in ('', '-wal', '-shm', '-journal'):
+            kind(Path(str(database) + suffix), stat.S_ISREG)
+    for directory in directories:
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    for path in masters:
+        if not kind(path, stat.S_ISREG):
+            os.close(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))
     for alias, target in links.items():
         if not os.path.lexists(alias):
-            alias.symlink_to(target, target_is_directory=target.is_dir())
-    encoded = json.dumps(config, indent=2) + '\n'
-    if not config_path.exists() or config_path.read_text() != encoded:
-        temporary = config_path.with_name(config_path.name + '.tmp-' + str(os.getpid()))
+            alias.symlink_to(target)
+    write_config(global_dir)
+
+
+try:
+    if not re.fullmatch('[a-z0-9]{8,24}', session) or phase not in ('prepare', 'checkpoint'):
+        raise ValueError('missing or invalid container session identity')
+    if phase == 'prepare':
+        direct_directory(agent)
+        config = json.loads(read(config_path)) if kind(config_path, stat.S_ISREG) else {}
+        if not isinstance(config, dict):
+            raise ValueError('memory configuration must be an object')
+        if remote == 'true' and signed_legacy_adapter():
+            prepare_signed_legacy_layout()
+            print('[entrypoint] Verified legacy signed Hermes adapter retained until seed upgrade')
+            sys.exit(0)
+    evidence = vault / 'Sessions' / session
+    checkpoint = evidence / 'checkpoint.json'
+    for parent in (work / 'global', work / 'Projects/workspace', evidence):
+        direct_directory(parent)
+    if phase == 'checkpoint':
+        seed = load(base_path)
+        current = snapshot(work, paths)
+        if not kind(checkpoint, stat.S_ISREG) and current == seed['base']:
+            sys.exit(0)
+        if kind(checkpoint, stat.S_ISREG) and load(checkpoint, True)['base'] != seed['base']:
+            raise ValueError('checkpoint belongs to a different baseline')
+        evidence.mkdir(parents=True, exist_ok=True, mode=0o700)
+        digest = hashlib.sha256(encode({'base': seed['base'], 'current': current})).hexdigest()
+        atomic(checkpoint, {**seed, 'current': current, 'sha256': digest}, cache)
+        sys.exit(0)
+
+    for directory in (vault / 'Projects/workspace', agent / 'pi-hermes-memory', cache / 'consolidation-locks'):
+        direct_directory(directory)
+    for name in paths:
+        kind(vault / name, stat.S_ISREG)
+    links = {project: work / 'Projects', consolidation: cache / 'consolidation-locks'}
+    replace_project = False
+    for link, target in links.items():
+        if os.path.lexists(link):
+            if not link.is_symlink():
+                raise ValueError('conflicting memory alias')
+            actual = Path(os.path.abspath(link.parent / os.readlink(link)))
+            if link == project and actual == vault / 'Projects':
+                replace_project = True
+            elif actual != target:
+                raise ValueError('conflicting memory link')
+    for database in (work/'global/sessions.db', work/'.pi-hermes-locks.sqlite', work/'Projects/.pi-hermes-locks.sqlite'):
+        for suffix in ('', '-wal', '-shm', '-journal'):
+            kind(Path(str(database) + suffix), stat.S_ISREG)
+    if kind(work, stat.S_ISDIR):
+        if read(session_path).strip() != session or not kind(base_path, stat.S_ISREG, required=True):
+            raise ValueError('wrong session working directory')
+        for name in paths.values():
+            kind(work / name, stat.S_ISREG, required=True)
+    else:
+        restored = load(checkpoint, True) if kind(checkpoint, stat.S_ISREG) else None
+        if restored is None:
+            # Missing masters are empty inputs, not a reason to create or change them.
+            source = {name: read(vault / name) if kind(vault / name, stat.S_ISREG) else '' for name in paths}
+        else:
+            source = restored['current']
+        cache.mkdir(parents=True, exist_ok=True, mode=0o700)
+        stage = Path(tempfile.mkdtemp(dir=cache))
         try:
-            fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            with os.fdopen(fd, 'w') as output:
-                output.write(encoded)
-                output.flush()
-                os.fsync(output.fileno())
-            os.replace(temporary, config_path)
+            for name, rel in paths.items():
+                target = stage / rel
+                target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                with os.fdopen(os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
+                    output.write(source[name].encode())
+                    output.flush()
+                    os.fsync(output.fileno())
+            atomic(stage / 'base.json', {'sessionId': session, 'version': 1, 'base': restored['base'] if restored else source}, stage)
+            with os.fdopen(os.open(stage / 'session-id', os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w') as output:
+                output.write(session + '\n')
+            os.rename(stage, work)
         finally:
-            if temporary.exists():
-                temporary.unlink()
-    print('[entrypoint] Hermes Markdown and local search cache prepared')
-except (OSError, ValueError, json.JSONDecodeError) as error:
-    print('[entrypoint] Hermes preparation refused: ' + str(error), file=sys.stderr)
+            if stage.exists():
+                shutil.rmtree(stage)
+
+    consolidation.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    links[consolidation].mkdir(exist_ok=True, mode=0o700)
+    if replace_project:
+        project.unlink()
+    for link, target in links.items():
+        if not os.path.lexists(link):
+            link.symlink_to(target, target_is_directory=True)
+    write_config(work / 'global')
+    print('[entrypoint] Session-scoped Hermes Markdown and local search cache prepared')
+except (OSError, ValueError) as error:
+    print('[entrypoint] Hermes ' + phase + ' refused: ' + type(error).__name__, file=sys.stderr)
     sys.exit(1)
 PY
 }
@@ -3260,6 +3357,7 @@ configure_pi_packages_and_review_inventory() {
 const fs = require('fs');
 const path = process.argv[2];
 const required = [
+  'npm:@dumbmice/pi-todo-loop@0.4.0',
   'npm:@calesennett/pi-codex-fast@0.1.14',
   'npm:@gotgenes/pi-subagents@25.0.5',
   // Pi tool extensions, always enabled (in `required`) so they are available
@@ -3273,7 +3371,6 @@ const required = [
   'npm:pi-smart-compact@10.8.1',
   // The Advanced-only Codeflare adapter owns foreground initialization.
   { source: 'npm:pi-hermes-memory@0.11.0', extensions: [] },
-  'npm:@narumitw/pi-goal@0.55.1',
   'npm:@narumitw/pi-plan-mode@0.60.1',
   // The managed terminal adapter initializes the native UI once.
   { source: 'npm:pi-open-tui@0.4.5', extensions: [] },
@@ -3285,10 +3382,9 @@ const defaultPackages = [
   { source: 'npm:context-mode@2.1.9', extensions: [], skills: [] },
 ];
 // Migration: hard-remove retired managed packages from existing settings.
-// The graphify wrapper conflicts with first-party graphify-native tools. The glla package is
-// replaced by @narumitw/pi-goal and would otherwise keep loading from persisted user settings.
+// Retire managed registrations without deleting user files.
 // Unlike disabled packages these are dropped and never re-added, so upgrades load cleanly.
-const removedPackageIds = new Set(['npm:@gaodes/pi-graphify', 'npm:pi-goal-list-loop-audit', 'npm:pi-caveman', 'npm:@narumitw/pi-usage', 'npm:pi-mcp-extension']);
+const removedPackageIds = new Set(['npm:@gaodes/pi-graphify', 'npm:pi-goal-list-loop-audit', 'npm:@narumitw/pi-goal', 'npm:pi-caveman', 'npm:@narumitw/pi-usage', 'npm:pi-mcp-extension']);
 function sourceOf(entry) {
   if (typeof entry === 'string') return entry;
   return entry && typeof entry.source === 'string' ? entry.source : undefined;
@@ -3312,6 +3408,7 @@ function identity(source) {
   // Treat only its known managed location as the same identity before Pi starts;
   // the required npm entry replaces the registration without deleting any files.
   for (const [legacy, id] of [
+    ['local-packages/pi-todo-loop', 'npm:@dumbmice/pi-todo-loop'],
     ['packages/pi-smart-compact-10.6.2', 'npm:pi-smart-compact'],
     ['packages/pi-codex-fast-0.1.13', 'npm:@calesennett/pi-codex-fast'],
   ]) {
@@ -3632,8 +3729,7 @@ NODE
 # package.json but no installed packages. Copying the image cache prevents Pi
 # from running a slow npm install on first launch.
 # Dependency warm-up remains non-fatal: aborting before the init-complete flag
-# leaves the terminal server gated in "warming up" forever. Goal and Plan Mode
-# keep that established degradation policy.
+# leaves the terminal server gated in "warming up" forever.
 # Pi Subagents: disable the upstream notify_parent / <subagent-update> channel.
 # Completion results and ask_parent remain available; only mid-run chatter is off.
 # Apply after home restore and before Pi loads its extensions, on EVERY startup:
@@ -3717,9 +3813,9 @@ NODE
 }
 configure_pi_open_tui || echo "[entrypoint] WARNING: Open TUI configuration could not be applied; existing preferences preserved"
 configure_pi_subagent_defaults || echo "[entrypoint] WARNING: Pi subagent update defaults could not be applied; existing preferences preserved"
-configure_pi_goal_defaults || echo "[entrypoint] WARNING: Pi Goal default configuration failed; continuing startup"
 configure_pi_plan_mode || echo "[entrypoint] WARNING: Pi Plan Mode configuration failed; continuing startup"
 warm_pi_npm_dependencies || echo "[entrypoint] WARNING: Pi dependency warm-up failed; continuing startup"
+configure_pi_smart_compact_defaults || echo "[entrypoint] WARNING: Smart Compact defaults unavailable; continuing startup"
 
 # Pre-accept Claude Code's bypass permissions consent
 # Claude Code stores this in ~/.claude.json (bypassPermissionsModeAccepted field)

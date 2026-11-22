@@ -4,6 +4,16 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-22: Defer Hermes indexing in Advanced Pi
+
+- [REQ-MEM-035 AC4](memory.md#req-mem-035-durable-pi-facts-with-disposable-local-search) defers Markdown-to-SQLite initialization until the first Hermes operation that needs the store. Advanced Pi uses a session-local copy of the four masters and syncs verified session checkpoints without writing the masters. Cross-session merging is deferred.
+
+## 2026-11-22: Stock Todo Loop, simpler Operators navigation, and Smart Compact defaults
+
+- [REQ-AGENT-111](agents.md#req-agent-111-native-todo-loop-workflow-in-pi-sessions) replaces managed Goal with stock Todo Loop in both Pi modes, without changing existing user task or preference data.
+- [REQ-OPERATOR-040](operators.md#req-operator-040-owned-activity-control-presentation) keeps the Enterprise Operators header control and removes the account-menu link. Management authorization is unchanged.
+- [REQ-AGENT-222](agents.md#req-agent-222-pi-smart-compact-defaults) and [REQ-AGENT-223](agents.md#req-agent-223-pi-smart-compact-settings-preservation) seed the Thorough/background Smart Compact preset before Pi loads, keeping secret scrubbing and honoring existing settings.
+
 ## 2026-11-21: Keep non-review transitions silent
 
 - [REQ-OPERATOR-053](operators.md#req-operator-053-enterprise-pr-boundary-review-handoff) does not treat background clone submission or a confirmed missing, closed, or unprotected PR as a Review boundary. Unknown enrollment still cannot clear an eligible PR.
