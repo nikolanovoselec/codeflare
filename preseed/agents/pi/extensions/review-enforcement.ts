@@ -510,7 +510,7 @@ type ActiveRound = {
 
 function liveEntries(ctx: ReviewContext): Record<string, any>[] | undefined {
   try {
-    return ctx.sessionManager.getEntries?.();
+    return ctx.sessionManager.getBranch?.() ?? ctx.sessionManager.getEntries?.();
   } catch {
     return undefined;
   }

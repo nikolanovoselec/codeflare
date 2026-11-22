@@ -106,6 +106,8 @@ R2 persistence, rclone bisync, quotas, and file browser.
 6. Baseline and subsequent bisync invocations permit admitted deletions up to 100% of prior files, without an absolute file-count cap or forced bypass of other safety checks. <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 AC4 / REQ-STOR-003 AC6: final, periodic, and baseline bisync preserve the 100-percent deletion policy) -->
 7. Vanished workspace files remain eligible on retry; applicable recovery exclusions take precedence over positive persistence rules. <!-- @impl: entrypoint.sh::recover_vanished_files --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (REQ-STOR-003 AC5: real vanished-file parsing excludes once, preserves workspace retry, and clears stale locks) -->
 
+**Notes:** Standalone test scope and CI exclusions are documented under [Storage verification](../../documentation/lanes/storage-and-sync.md#storage-verification).
+
 **Constraints:**
 
 - Disk-exhausted sync recovery follows [REQ-STOR-045](#req-stor-045-bisync-baseline-recovery).
@@ -118,7 +120,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-001](#req-stor-001-dedicated-per-user-r2-bucket), [REQ-STOR-004](#req-stor-004-initial-sync-restores-files-on-container-start)
 
-**Verification:** Automated: [entrypoint-bisync-behavior.test.js](../../host/__tests__/entrypoint-bisync-behavior.test.js), [entrypoint-shutdown.test.js](../../host/__tests__/entrypoint-shutdown.test.js), [rclone-bisync-s3.py](../../scripts/ci/rclone-bisync-s3.py); standalone scope and CI exclusions: [Storage verification](../../documentation/lanes/storage-and-sync.md#storage-verification).
+**Verification:** Automated: [entrypoint-bisync-behavior.test.js](../../host/__tests__/entrypoint-bisync-behavior.test.js), [entrypoint-shutdown.test.js](../../host/__tests__/entrypoint-shutdown.test.js), [rclone-bisync-s3.py](../../scripts/ci/rclone-bisync-s3.py)
 
 **Status:** Implemented
 
@@ -136,6 +138,8 @@ R2 persistence, rclone bisync, quotas, and file browser.
 2. When synchronization reports that prior state is unavailable, recovery immediately establishes a newest-side-wins baseline. <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-STOR-002/004/011/031/032: production persistence policy matrix) --> <!-- @impl: entrypoint.sh::start_sync_daemon --> <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-STOR-045 AC2: recovery baseline uses the real workdir and newest-side convergence) --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (REQ-STOR-045 AC2: forces immediate resync when protected workdir listings are absent) -->
 3. Baseline recovery publishes success only after completing. A timed-out rebuild publishes timeout rather than success, and one more failed cycle retries the rebuild. <!-- @impl: entrypoint.sh::start_sync_daemon --> <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (REQ-STOR-045 AC1+AC3 / REQ-STOR-002 AC1: three consecutive failures trigger resync fallback) --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-STOR-045 AC3: timed-out resync reports timeout and retries after one more failed cycle) -->
 
+**Notes:** Standalone test scope and CI exclusions are documented under [Storage verification](../../documentation/lanes/storage-and-sync.md#storage-verification).
+
 **Constraints:**
 
 - Disk-exhausted sync waits for [explicit recovery](#req-stor-041-disk-space-recovery).
@@ -144,7 +148,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-003](#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers), [REQ-STOR-004](#req-stor-004-initial-sync-restores-files-on-container-start), [REQ-STOR-041](#req-stor-041-disk-space-recovery)
 
-**Verification:** Automated: [entrypoint-bisync-behavior.test.js](../../host/__tests__/entrypoint-bisync-behavior.test.js), [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js), [entrypoint-shutdown.test.js](../../host/__tests__/entrypoint-shutdown.test.js), [entrypoint-rclone-filters.test.js](../../host/__tests__/entrypoint-rclone-filters.test.js); standalone scope and CI exclusions: [Storage verification](../../documentation/lanes/storage-and-sync.md#storage-verification).
+**Verification:** Automated: [entrypoint-bisync-behavior.test.js](../../host/__tests__/entrypoint-bisync-behavior.test.js), [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js), [entrypoint-shutdown.test.js](../../host/__tests__/entrypoint-shutdown.test.js), [entrypoint-rclone-filters.test.js](../../host/__tests__/entrypoint-rclone-filters.test.js)
 
 **Status:** Implemented
 
@@ -417,13 +421,15 @@ R2 persistence, rclone bisync, quotas, and file browser.
 2. The R2 transfer filters do not remove existing excluded home-cache files on either side. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: scripts/ci/rclone-bisync-s3.py (test_recovery_archive_filters) -->
 3. Excluding the home cache does not change which files outside it are restored or synchronized under the selected session and workspace modes. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: scripts/ci/rclone-bisync-s3.py (test_recovery_archive_filters) -->
 
+**Notes:** Standalone test scope and CI exclusions are documented under [Storage verification](../../documentation/lanes/storage-and-sync.md#storage-verification).
+
 **Constraints:** Cache exclusion takes precedence over base scope rules and authorizes no deletion. The home cache has no supported backup or recovery workflow.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-STOR-011](#req-stor-011-sync-mode-controls-workspace-scope)
 
-**Verification:** Automated: [rclone-bisync-s3.py](../../scripts/ci/rclone-bisync-s3.py); standalone scope and CI exclusions: [Storage verification](../../documentation/lanes/storage-and-sync.md#storage-verification).
+**Verification:** Automated: [rclone-bisync-s3.py](../../scripts/ci/rclone-bisync-s3.py)
 
 **Status:** Implemented
 

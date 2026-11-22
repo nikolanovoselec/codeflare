@@ -656,6 +656,24 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
     } finally { vi.restoreAllMocks(); }
   });
 
+  it('REQ-GITHUB-015: retains the restore list when inventory is unavailable but reconciles a complete empty scan', async () => {
+    const f = await runtimeFixture();
+    try {
+      f.ctx.container.running = true;
+      await repository().appendTrackedClone(owner, id, { repo: 'octo/kept' });
+      let inventory: { workspaceRepos?: unknown[] } = {};
+      f.respond(async url => Response.json(new URL(url).searchParams.get('inventory') === 'only' ? inventory : {
+        lastInputAt: at, cpu: '17%', workspaceInventoryReady: true, observedAt: new Date(at).toISOString(),
+      }));
+      await f.tick();
+      expect(await repository().getSession(owner, id)).toMatchObject({ lifecycleState: 'running', cpu: '17%', clones: [{ repo: 'octo/kept' }] });
+      inventory = { workspaceRepos: [] };
+      await f.tick();
+      const current = await repository().getSession(owner, id);
+      expect(buildCloneTargets(current?.clones, current?.clone)).toBe('');
+    } finally { vi.restoreAllMocks(); }
+  });
+
   it.each(['deferred', 'legacy'] as const)('REQ-GITHUB-015 AC6: %s host inventory cannot erase a clone committed while the scan is in flight', async mode => {
     const f = await runtimeFixture();
     let releaseInventory!: () => void;

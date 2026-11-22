@@ -64,8 +64,8 @@ export function getRepositoryRestoreStatus(): 'pending' | 'restoring' | 'complet
  * Only direct children are inspected (a nested repository is restored by its
  * parent, not on its own), one entry per repository, ordered by repository name
  * so the reported inventory is stable, and at most MAX_WORKSPACE_REPOS entries
- * are inspected. Every `git` call is bounded. Any failure yields no entry rather
- * than an error: this feeds a best-effort restore.
+ * are inspected. An incomplete scan has no authority to replace tracking;
+ * an empty array means a successful scan found nothing eligible.
  */
 export async function collectWorkspaceRepos(
   workspaceRoot: string,
@@ -79,9 +79,11 @@ export async function collectWorkspaceRepos(
     log('debug', 'Workspace repo inventory skipped', {
       error: e instanceof Error ? e.message : String(e),
     });
-    return [];
+    return undefined;
   }
   const githubHost = process.env.GITHUB_HOST || 'github.com';
+  // Do not let Git discover a parent checkout when this child's metadata is broken.
+  const gitEnv = { ...process.env, LC_ALL: 'C', GIT_CEILING_DIRECTORIES: workspaceRoot };
   const byRepo = new Map<string, WorkspaceRepo>();
   const dirs = entries
     .filter((entry) => entry.isDirectory())
@@ -91,27 +93,39 @@ export async function collectWorkspaceRepos(
   const deadline = Date.now() + budgetMs;
   for (const name of dirs) {
     const dir = `${workspaceRoot}/${name}`;
+    if (Date.now() >= deadline) return undefined;
+    try {
+      await fs.promises.lstat(`${dir}/.git`);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+      return undefined;
+    }
+    const git = ['-C', dir];
     let origin: string;
     const originBudget = Math.min(WORKSPACE_REPO_GIT_TIMEOUT_MS, deadline - Date.now());
     if (originBudget <= 0) return undefined;
     try {
-      const { stdout } = await execFileAsync('git', ['-C', dir, 'remote', 'get-url', 'origin'], {
-        timeout: originBudget,
+      const { stdout } = await execFileAsync('git', [...git, 'remote', 'get-url', 'origin'], {
+        timeout: originBudget, env: gitEnv,
       });
       origin = stdout.trim();
-    } catch {
-      continue;
+    } catch (error) {
+      const failure = error as { code?: number; stderr?: string };
+      if (failure.code === 2 && failure.stderr?.trim() === "error: No such remote 'origin'") continue;
+      return undefined;
     }
     let branch: string | undefined;
     const branchBudget = Math.min(WORKSPACE_REPO_GIT_TIMEOUT_MS, deadline - Date.now());
     if (branchBudget <= 0) return undefined;
     try {
-      const { stdout } = await execFileAsync('git', ['-C', dir, 'symbolic-ref', '--short', 'HEAD'], {
-        timeout: branchBudget,
+      const { stdout } = await execFileAsync('git', [...git, 'symbolic-ref', '--quiet', '--short', 'HEAD'], {
+        timeout: branchBudget, env: gitEnv,
       });
       branch = stdout.trim();
-    } catch {
-      branch = undefined;
+    } catch (error) {
+      // A detached checkout has no branch, but is still eligible for tracking.
+      const failure = error as { code?: number; stderr?: string };
+      if (failure.code !== 1 || failure.stderr !== '') return undefined;
     }
     const repo = parseWorkspaceRepo(origin, branch, githubHost);
     if (repo && !byRepo.has(repo.repo)) byRepo.set(repo.repo, repo);

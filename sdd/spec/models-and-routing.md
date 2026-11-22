@@ -1492,6 +1492,8 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 6. No mode receives AWS credentials. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env-llm.test.ts (never emits AWS_* in enterprise; R2_* still emitted (rclone reads creds from rclone.conf)) --> <!-- @test: src/__tests__/container/container-env-llm.test.ts (never emits AWS_* in non-enterprise either (dropped everywhere — no consumer); R2_* still emitted) -->
 7. Pi authentication survives only for permitted human sessions under [REQ-ENTERPRISE-089](#req-enterprise-089-human-native-pi-startup); Operator isolation remains under [REQ-ENTERPRISE-091](#req-enterprise-091-operator-personal-provider-isolation). <!-- @impl: entrypoint.sh::ENTERPRISE_PI_PERSONAL_PROVIDERS --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-088 AC4: permitted startup preserves owner authentication and sanctioned models) -->
 
+**Notes:** The early-launch fixture checks exported trust settings. [Packaged TLS qualification](.review-queue.md#enterprise-early-pty-tls) remains open.
+
 **Constraints:**
 
 - The placeholder credential is a fixed non-secret constant; the interceptor strips it before forwarding ([REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) AC5); the placeholder never reaches the gateway.
@@ -1504,8 +1506,6 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 **Dependencies:** [REQ-ENTERPRISE-001](subscription.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-007](#req-enterprise-007-gateway-route-pinning), [REQ-AGENT-031](agents.md#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity)
 
 **Verification:** Automated: [container-env-llm.test.ts](../../src/__tests__/container/container-env-llm.test.ts), [entrypoint-enterprise-pi-models.test.js](../../host/__tests__/entrypoint-enterprise-pi-models.test.js), [entrypoint-enterprise-ca-copilot.test.js](../../host/__tests__/entrypoint-enterprise-ca-copilot.test.js)
-
-**Notes:** The startup fixture proves the early Node/Python environment exports, not an actual PTY connection or TLS handshake. Packaged intercepted TLS requires separate acceptance. <!-- @impl: host/src/session.ts::buildPtyEnv -->
 
 **Status:** Implemented
 

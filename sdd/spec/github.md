@@ -195,19 +195,20 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 5. The tracked inventory has a stable order independent of report order. <!-- @impl: src/lib/clone-targets.ts::normalizeTrackedClones --> <!-- @test: src/__tests__/lib/clone-targets.test.ts (REQ-GITHUB-015 AC2: orders entries stably regardless of report order) -->
 6. A stale host inventory cannot erase a clone tracked after the authority read that precedes the fresh inventory scan; a fresh observation can still reconcile removals. <!-- @impl: src/lib/session-repository.ts::updateTrackedClones --> <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (REQ-GITHUB-015 AC6: %s host inventory cannot erase a clone committed while the scan is in flight) --> <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (REQ-GITHUB-319: stale host inventory cannot erase a clone but fresh inventory can reconcile removals) -->
 
+**Notes:** [Inventory admission](../../documentation/lanes/container.md#runtime-recovery-and-status) distinguishes a missing inventory from an authoritative empty list.
+
 **Constraints:**
 
 - The inventory limit does not restrict which repositories the user may clone or how many they may clone. Repository-panel tracking follows [REQ-GITHUB-319](#req-github-319-repository-panel-clone-handoff).
 - Repository identities reported from a container are untrusted input and are revalidated before reaching a clone.
-- Inventory collection inspects at most 20 workspace directories within an eight-second aggregate deadline; an incomplete scan is withheld so it cannot prune prior tracking.
+- Inventory collection inspects at most 20 workspace directories within an eight-second aggregate deadline; an incomplete scan is withheld so it cannot prune prior tracking. <!-- @impl: host/src/metrics.ts::collectWorkspaceRepos --> <!-- @test: host/__tests__/workspace-repos.test.js (REQ-GITHUB-015: distinguishes an unavailable workspace from an empty workspace) --> <!-- @test: host/__tests__/workspace-repos.test.js (REQ-GITHUB-015: withholds the whole inventory when a checkout cannot be inspected) --> <!-- @test: host/__tests__/workspace-repos.test.js (REQ-GITHUB-015: a failed scan omits inventory from the authenticated observation) --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (REQ-GITHUB-015: retains the restore list when inventory is unavailable but reconciles a complete empty scan) -->
+- The coordinator reads lifecycle authority before requesting fresh inventory, then fences its write on the observed revision. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (REQ-GITHUB-015 AC6: %s host inventory cannot erase a clone committed while the scan is in flight) -->
 
 **Priority:** P1
 
 **Dependencies:** [REQ-GITHUB-004](#req-github-004-clone-a-repository-into-a-session)
 
 **Verification:** Automated: [session-authority-outcomes.test.ts](../../src/__tests__/lib/session-authority-outcomes.test.ts), [session-d1-lifecycle.test.ts](../../src/__tests__/lib/session-d1-lifecycle.test.ts), [workspace-repos.test.js](../../host/__tests__/workspace-repos.test.js), [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts), [clone-targets.test.ts](../../src/__tests__/lib/clone-targets.test.ts)
-
-**Notes:** Count and deadline exhaustion withhold inventory. A failed workspace read can still report an empty array, and failed origin lookups can omit individual repositories. The no-prune guarantee for those failures is not established. <!-- @impl: host/src/metrics.ts::collectWorkspaceRepos -->
 
 **Status:** Implemented
 
@@ -282,7 +283,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 **Acceptance Criteria:**
 
 1. Terminal Open becomes available after normal terminal readiness, even while repository restore runs. <!-- @impl: entrypoint.sh::complete_managed_curation_startup --> <!-- @impl: src/routes/container/status.ts::app --> <!-- @test: src/__tests__/routes/container-status.test.ts (REQ-GITHUB-320: Ready carries a nonblocking repository restore state) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-GITHUB-320: enables Open while restoration runs and shows its later partial outcome) -->
-2. The startup restore reports an aggregate success or issues result. Failed or aborted work reports issues; already-present targets stay untouched, and an all-no-op restore produces no notice. The workspace inventory remains withheld until the restore loop ends. <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-320 AC2: health withholds workspace inventory during the actual restore loop and publishes it after completion) --> <!-- @impl: entrypoint.sh::restore_startup_repositories --> <!-- @impl: host/src/metrics.ts::isWorkspaceInventoryReady --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-320: publishes successful and partial restore outcomes) -->
+2. The startup restore reports an aggregate success or issues result. Failed or aborted work reports issues. <!-- @impl: entrypoint.sh::restore_startup_repositories --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-320: publishes successful and partial restore outcomes) -->
 3. A floating notice follows the current restore without shifting the Dashboard metrics or requiring an open view. Success clears automatically; no notice appears when no clone is needed. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-GITHUB-320: shows restore progress on the Dashboard and dismisses a partial outcome) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-GITHUB-320: places restore notice after the open session tabs and dismisses it while restoring) --> <!-- @manual --> <!-- @impl: web-ui/src/stores/session.ts::watchRepositoryRestore -->
 4. On touch layouts, the notice sits below the open session’s tab bar without intercepting tab controls. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-GITHUB-320: places restore notice after the open session tabs and dismisses it while restoring) --> <!-- @manual -->
 5. Every notice has an accent-colored dismiss button with a tap target of at least 44 × 44 CSS pixels. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-GITHUB-320: places restore notice after the open session tabs and dismisses it while restoring) --> <!-- @manual -->
@@ -291,6 +292,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Constraints:**
 
+- Already-present targets remain untouched. Inventory is withheld until the startup restore loop ends. <!-- @impl: entrypoint.sh::restore_startup_repositories --> <!-- @impl: host/src/metrics.ts::isWorkspaceInventoryReady --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-320 AC2: health withholds workspace inventory during the actual restore loop and publishes it after completion) -->
 - Missing detail or a missing/older generation consumes the retry budget. A matching confirmed stop or error, a replacement generation, lost local ownership, or exhaustion ends tracking without proving success. <!-- @impl: web-ui/src/stores/session.ts::watchRepositoryRestore --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-GITHUB-320: enables Open while restoration runs and shows its later partial outcome) -->
 - Clone outcome and dismissal rules are defined in [REQ-GITHUB-319 AC5–7](#req-github-319-repository-panel-clone-handoff).
 

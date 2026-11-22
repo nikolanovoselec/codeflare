@@ -104,11 +104,11 @@ function toolCall(id: string, name: string, arguments_: Record<string, unknown>)
   };
 }
 
-function toolResult(id: string, name: string): Record<string, unknown> {
+function toolResult(id: string, name: string, details?: Record<string, unknown>): Record<string, unknown> {
   return {
     type: 'message',
     id: `result-${sequence += 1}`,
-    message: { role: 'toolResult', toolCallId: id, toolName: name, content: [{ type: 'text', text: 'ok' }], isError: false },
+    message: { role: 'toolResult', toolCallId: id, toolName: name, content: [{ type: 'text', text: 'ok' }], isError: false, details },
   };
 }
 
@@ -1210,6 +1210,53 @@ describe('Pi marker-or-dialog review ingress', () => {
     append(input.sessionFile, triage());
     await app.emit('agent_settled');
     expect(app.sent.some((message) => message.customType === 'pr-boundary-fix-follow-up')).toBe(true);
+  });
+
+  it('REQ-AGENT-053 AC2: recovers an exact reviewer completion without its notification', async () => {
+    const input = fixture();
+    const app = await harness(input, []);
+    await app.emit('tool_result', boundary('git push origin feature', 'push-lost-notification'));
+    await app.emit('agent_end');
+    const lanes = app.sent[0]!.details?.requiredLanes as ReviewLane[];
+    const lane = lanes[0]!;
+    const others = lanes.slice(1);
+    const agentId = 'reviewer-without-notification';
+    const record = (id: string, type: ReviewLane, status = 'completed') => ({
+      type: 'custom', customType: 'subagents:record', data: { id, type, status, startedAt: 1, completedAt: 2 },
+    });
+    append(input.sessionFile,
+      ...others.flatMap(type => [
+        toolCall(type, 'subagent', { subagent_type: type, run_in_background: true, inherit_context: false,
+          prompt: reviewerPrompt(input.head, type) }),
+        toolResult(type, 'subagent'), notification(type),
+      ]),
+      toolCall('older-review', 'subagent', { subagent_type: lane, run_in_background: true, inherit_context: false,
+        prompt: reviewerPrompt(input.base, lane) }),
+      toolResult('older-review', 'subagent', { agentId: 'earlier-head', subagentType: lane }),
+      toolCall('current-review', 'subagent', { subagent_type: lane, run_in_background: true, inherit_context: false,
+        prompt: reviewerPrompt(input.head, lane) }),
+      toolResult('current-review', 'subagent', { agentId, subagentType: lane }),
+      toolCall('current-ci', 'subagent', { subagent_type: 'ci-monitor', run_in_background: true, inherit_context: false,
+        prompt: JSON.stringify({ repo: 'owner/repo', pr: 42, head: input.head, cwd: input.repo }) }),
+      toolResult('current-ci', 'subagent'),
+      notification('current-ci', `<result>CI_RESULT success\npr=42 head=${input.head} repo=owner/repo</result>`),
+      record('earlier-head', lane), record(agentId, lane === 'doc-updater' ? 'code-reviewer' : 'doc-updater'),
+      record(agentId, lane, 'stopped'), triage(),
+    );
+    const completion = () => readCompletion(input.identity, { root: join(input.home, '.codeflare/review-state/v1') }).status;
+    await app.emit('agent_settled');
+    expect(completion()).not.toBe('complete');
+    expect(app.sent.some(message => message.customType === 'pr-boundary-fix-follow-up')).toBe(false);
+
+    append(input.sessionFile, record(agentId, lane));
+    await app.emit('agent_settled');
+    expect(completion()).not.toBe('complete');
+    expect(app.sent.at(-1)?.customType).toBe('pr-boundary-triage-correction');
+
+    append(input.sessionFile, triage());
+    await app.emit('agent_settled');
+    expect(completion()).toBe('complete');
+    expect(app.sent.at(-1)?.customType).toBe('pr-boundary-fix-follow-up');
   });
 
   it('reports malformed reviewer and CI launches once, then accepts corrected launches', async () => {

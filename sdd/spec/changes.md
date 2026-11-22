@@ -7,7 +7,8 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 ## 2026-11-22: Recover interrupted uploads and deliver local FIX earlier
 
 - [REQ-STOR-008 AC7](storage.md#req-stor-008-multipart-upload-for-large-files) lets the upload queue rediscover and explicitly abort pending completion after reload.
-- [REQ-AGENT-244 AC5](agents.md#req-agent-244-exact-round-review-completion) lets eligible local Pi triage deliver FIX on the next turn without waiting for the run to settle.
+- Local Pi FIX moved to the next turn in the [original handoff change](https://github.com/nikolanovoselec/codeflare/commit/ed15f2aa24007541f8f6f36bf99a3d62d0e89d00) ([REQ-AGENT-244 AC5](agents.md#req-agent-244-exact-round-review-completion)). A missing reviewer notification no longer blocks FIX when Pi retained a matching successful completion ([REQ-AGENT-053 AC2](agents.md#req-agent-053-pi-native-review-result-correlation)).
+- [REQ-GITHUB-015](github.md#req-github-015-workspace-repository-tracking) keeps the previous automatic restore list when a workspace scan cannot finish.
 
 ## 2026-11-22: Defer Hermes indexing in Advanced Pi
 

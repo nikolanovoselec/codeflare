@@ -19,9 +19,9 @@ import { createRequestHandler } from '../dist/request-router.js';
 const noop = () => {};
 const lifecycleToken = 'workspace-repos-lifecycle-token';
 
-function getHealth(port, authorization) {
+function getHealth(port, authorization, path = '/health') {
   return new Promise((resolve, reject) => {
-    const req = http.request({ host: '127.0.0.1', port, path: '/health',
+    const req = http.request({ host: '127.0.0.1', port, path,
       headers: authorization === undefined ? {} : { authorization } }, (res) => {
       let data = '';
       res.on('data', (chunk) => { data += chunk; });
@@ -105,9 +105,26 @@ describe('REQ-GITHUB-015 AC1: workspace repository inventory', () => {
     assert.deepEqual(repos, [{ repo: 'octo/api', ref: 'main' }]);
   });
 
-  it('returns nothing when the workspace is missing', async () => {
-    const repos = await collectWorkspaceRepos(join(makeWorkspace(), 'absent'), noop);
-    assert.deepEqual(repos, []);
+  it('REQ-GITHUB-015: distinguishes an unavailable workspace from an empty workspace', async () => {
+    const workspace = makeWorkspace();
+    assert.equal(await collectWorkspaceRepos(join(workspace, 'absent'), noop), undefined);
+    assert.deepEqual(await collectWorkspaceRepos(workspace, noop), []);
+  });
+
+  it('REQ-GITHUB-015: withholds the whole inventory when a checkout cannot be inspected', async () => {
+    const workspace = makeWorkspace();
+    makeRepo(workspace, 'api', { origin: 'https://github.com/octo/api.git' });
+    const broken = join(workspace, 'broken');
+    mkdirSync(broken);
+    writeFileSync(join(broken, '.git'), 'gitdir: /nonexistent/codeflare-workspace-repo');
+    assert.equal(await collectWorkspaceRepos(workspace, noop), undefined);
+  });
+
+  it('retains inventory support for a linked worktree', async () => {
+    const workspace = makeWorkspace();
+    const primary = makeRepo(makeWorkspace(), 'primary', { origin: 'https://github.com/octo/api.git', commit: true });
+    git(primary, ['worktree', 'add', '-qb', 'linked', join(workspace, 'linked')]);
+    assert.deepEqual(await collectWorkspaceRepos(workspace, noop), [{ repo: 'octo/api', ref: 'linked' }]);
   });
 
   it('omits an inventory that cannot inspect every workspace directory', async () => {
@@ -213,6 +230,17 @@ describe('REQ-GITHUB-015 AC1: /health carries the inventory', () => {
     const { status, body } = await getHealth(port, `Bearer ${lifecycleToken}`);
     assert.equal(status, 200);
     assert.deepEqual(body.workspaceRepos, [{ repo: 'octo/api', ref: 'develop' }]);
+  });
+
+  it('REQ-GITHUB-015: a failed scan omits inventory from the authenticated observation', async () => {
+    process.env.USER_WORKSPACE = join(workspace, 'unavailable');
+    try {
+      const { status, body } = await getHealth(port, `Bearer ${lifecycleToken}`, '/internal/runtime-observation?inventory=only');
+      assert.equal(status, 200);
+      assert.deepEqual(body, {});
+    } finally {
+      process.env.USER_WORKSPACE = workspace;
+    }
   });
 });
 
