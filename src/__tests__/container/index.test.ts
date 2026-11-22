@@ -4,6 +4,8 @@ import { createMockSessionD1 } from '../helpers/mock-session-d1';
 import { createTestApp } from '../helpers/test-app';
 import { createLogger, type Logger } from '../../lib/logger';
 import { computeKeyMd5 } from '../../lib/r2-sse';
+import { getBucketName } from '../../lib/access';
+import { markMixedRecovery } from '../../lib/r2-migration';
 import type { RegimeState } from '../../lib/r2-regime-state';
 import { signSessionJWT, SESSION_JWT_AUD } from '../../lib/session-jwt';
 import sessionRoutes from '../../routes/session/index';
@@ -345,8 +347,49 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         } finally { wire.mockRestore(); }
       });
 
+      it('REQ-ENTERPRISE-322: a mixed recovery can retry its own halt without advancing the generation', async () => {
+        const f = await retryFixture();
+        f.kv._set(stateKey, { status: 'ready', regime: 'sse-c', generation: 4 });
+        let copyAllowed = false;
+        let encrypted = false;
+        const wire = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+          const req = new Request(input, init);
+          const url = new URL(req.url);
+          if (url.hostname !== 'r2.test') throw new Error('Unexpected R2 URL');
+          if (url.searchParams.has('uploads')) return new Response('<ListMultipartUploadsResult/>');
+          if (url.searchParams.has('list-type')) return new Response('<ListBucketResult><IsTruncated>false</IsTruncated>'
+            + '<Contents><Key>poison.md</Key><Size>1</Size><LastModified>2026-11-20T12:00:00Z</LastModified></Contents></ListBucketResult>');
+          if (req.method === 'HEAD') {
+            const keyed = req.headers.has('x-amz-server-side-encryption-customer-key');
+            return new Response(null, { status: keyed === encrypted ? 200 : 400, headers: { etag: '"fixture"', 'content-length': '1' } });
+          }
+          if (req.method === 'PUT' && copyAllowed) {
+            encrypted = true;
+            return new Response('<CopyObjectResult><ETag>"fixture"</ETag></CopyObjectResult>');
+          }
+          return new Response(null, { status: 400 });
+        });
+        try {
+          await markMixedRecovery(mockEnv, bucket, async () => false);
+          for (let pass = 0; pass < 6 && !(await f.read())?.halted; pass++) {
+            expect((await f.poll()).status).toBe(200);
+          }
+          const stopped = await f.read();
+          expect(stopped).toMatchObject({ status: 'mixed-recovery', halted: true, generation: 4 });
+          expect(encrypted).toBe(false);
+          expect(stopped?.updatedAt).toBeTruthy();
+          copyAllowed = true;
+          expect((await f.retry(stopped!.updatedAt)).status).toBe(202);
+          expect(await f.read()).toMatchObject({ status: 'mixed-recovery', halted: false, generation: 4 });
+          for (let pass = 0; pass < 4 && (await f.read())?.status !== 'ready'; pass++) await f.poll();
+          expect(encrypted).toBe(true);
+          expect(await f.read()).toMatchObject({ status: 'ready', regime: 'sse-c', generation: 4 });
+        } finally { wire.mockRestore(); }
+      });
+
       it.each([
         ['stale timestamp', /halt|changed|refresh|stale/i],
+        ['missing original fingerprint', /administrator.*recover/i],
         ['active D1 owner', /session|workload|ownership/i],
         ['D1 failure', /session|workload|D1|ownership|database/i],
         ['D1 missing', /session|workload|D1|ownership|database/i],
@@ -369,6 +412,9 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
             if (scenario === 'D1 missing') mockEnv.USAGE_DB = undefined;
             if (scenario === 'key mismatch') mockEnv.ENCRYPTION_KEY = btoa('b'.repeat(32));
             if (scenario === 'key missing') delete mockEnv.ENCRYPTION_KEY;
+            const { keyMd5: _missing, ...legacyHalt } = halted;
+            const expected = scenario === 'missing original fingerprint' ? legacyHalt : halted;
+            if (scenario === 'missing original fingerprint') f.kv._set(stateKey, expected);
             if (scenario === 'pending completion') {
               f.kv._set(stateKey, { status: 'ready', regime: 'plain', generation: 4 });
               const draft = { bucketName: bucket, key: 'draft.md' };
@@ -379,7 +425,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
             const refused = await f.retry(scenario === 'stale timestamp' ? halted.startedAt : haltedAt);
             expect(refused.status).toBe(409);
             expect(await refused.json()).toMatchObject({ error: expect.stringMatching(reason) });
-            expect(await f.read()).toEqual(halted);
+            expect(await f.read()).toEqual(expected);
           } finally { wire.mockRestore(); }
         },
       );

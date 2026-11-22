@@ -1571,4 +1571,16 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(screen.getByRole('button', { name: 'Retry migration' })).toBeEnabled();
   });
 
+  it('REQ-ENTERPRISE-304: a retry refusal belongs only to the halt that was retried', async () => {
+    setBucketMigrationHaltedAt(haltedAt);
+    retryBucketMigration.mockRejectedValueOnce(new ApiError('Retry refused for the first halt', 409, 'Conflict'));
+    render(() => <Dashboard {...defaultProps} userName={undefined} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry migration' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Retry refused for the first halt');
+    setBucketMigrationHaltedAt('2026-11-21T14:25:00.000Z');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry migration' })).toBeEnabled();
+  });
+
 });

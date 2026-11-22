@@ -791,5 +791,6 @@ export async function markMixedRecovery(
   if (await hasHealthyContainer()) return; // D1: do not gate/drain a running session for an opportunistic self-heal
   await setRegimeState(env, bucketName, release({
     ...state, status: 'mixed-recovery', phase: 'migrate', cursor: null, drained: false, startedAt: new Date().toISOString(),
+    keyMd5: env.ENCRYPTION_KEY ? computeKeyMd5(env.ENCRYPTION_KEY) : undefined,
   }));
 }

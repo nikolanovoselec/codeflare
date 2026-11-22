@@ -401,7 +401,7 @@ filesystem) and renders as a side drawer on desktop, a bottom-sheet on mobile.
 
 Within a row the path is pinned to the right edge for every folder so all paths align identically; the special-folder container icon (a tooltip toggle) sits immediately after the folder name rather than trailing the row (`web-ui/src/components/storage/FileList.tsx`, `web-ui/src/styles/storage-browser.css`).
 
-On desktop, opening a folder scrolls an overflowing breadcrumb to the current folder once. Reduce Motion reveals it without animation. Hover the current crumb for its full path; its accessible description exposes the same path. Ancestors remain clickable and mobile keeps manual scrolling.
+Opening a folder scrolls an overflowing breadcrumb to its end once on desktop, tablet, and mobile. Reduced motion reveals it without animation. The current crumb exposes its full path in the hover title and accessible description. Scroll back to select a parent folder. [Breadcrumb navigation](../../sdd/spec/storage.md#req-stor-261-storage-breadcrumb-navigation)
 
 Clicking a file opens it inline in a new browser tab (served with an XSS-safe
 Content-Type + `nosniff`) rather than downloading it.
@@ -454,6 +454,10 @@ For [REQ-SEC-005 AC5](../../sdd/spec/security.md#req-sec-005-r2-files-encrypted-
 Make a second distinct edit after that cycle, confirm its digest is not yet in R2, then use normal Stop and independently verify the shutdown transfer's exact digest before replacement-session restore. Require existing authorized transfer/encryption observations for each phase, not just a configuration anchor or readable local file.
 
 PASS requires encrypted initial, periodic and shutdown transfers plus matching restored identity without a user encryption prompt; failed transfers, prompts or byte mismatches FAIL. Missing authorization, encryption-specific observations or independent readback BLOCK this case. This authored method remains unexecuted; protected lifecycle evidence requires later authorization.
+
+### R2 provider SSE-C protection
+
+For [REQ-SEC-005 AC6](../../sdd/spec/security.md#req-sec-005-r2-files-encrypted-at-rest-with-sse-c-when-operator-configures-an-encryption-key), use a separately authorized disposable bucket and a known nonempty SSE-C-protected fixture. Compare its R2 dashboard name, size, and metadata with the fixture. Using approved R2 access, confirm the read with the customer key matches the fixture digest and the same read without it is specifically refused for SSE-C. Do not record key material. Missing fixture, authorization, or provider observations means blocked; header construction alone does not qualify.
 
 ### REQ-STOR-006 quota admission acceptance
 
@@ -535,11 +539,14 @@ The ancillary-consumer method is the linked route test, not hot batch polling. T
 
 ### REQ-ENTERPRISE-021 migration progress acceptance
 
-Manual AC5 observes an already authorized, isolated migration fixture prepared under the existing owner runbook. Do not toggle a shared environment, create faults or modify regime state for this procedure. Missing progressing/halted fixtures are BLOCKED, not permission to build them.
+For [REQ-ENTERPRISE-021 AC5](../../sdd/spec/storage.md#req-enterprise-021-governed-mode-migration-safety-and-access-boundary) and [REQ-ENTERPRISE-304 AC4–AC7](../../sdd/spec/storage.md#req-enterprise-304-dashboard-migration-affordance-and-refresh), observe an already authorized isolated fixture prepared under the owner runbook. Do not toggle shared policy, create faults or edit state. Missing active or halted fixtures remain blocked.
 
 1. Open or reload the dashboard during the prepared migration. Observe the ancillary response and New Session control; known progress is within 0–99, and the disabled control displays `Migrating N%` for that value.
 2. Keep the page visible and record successive migration ancillary updates. Verify the existing five-second scheduling and non-overlap, distinguishing request duration from timer delay. If migration ends before that observation is possible, record BLOCKED for cadence.
-3. On the prepared halted fixture, the disabled New Session slot says **Migration halted** without a percentage and a separate **Retry migration** button is visible. An authorized retry stays on the same bucket and leaves creation disabled until verification completes. If retry is refused, the dashboard explains what to do; it does not clear the halt.
+3. On the halted fixture, confirm `bucketMigrationHaltedAt` is present and `bucketMigrationPercent` is absent from ancillary status. The disabled New Session slot says **Migration halted** beside **Retry migration**.
+4. Retry only with separate authorization. The same bucket remains gated until verification. If a refusal is observed, record the reason and confirm the halt remains.
+
+Fail for a percentage on halt, an invented, out-of-range or mismatched progress value, or New Session becoming enabled before verification.
 
 Record build, nonsecret fixture identity, response timing and observed labels. These UI checks do not by themselves establish encryption conversion, drain completion or live storage preservation; their automated methods and separate acceptance boundaries remain unchanged.
 
@@ -594,13 +601,16 @@ Six startup costs and stale-state risks are controlled by [REQ-STOR-017](../../s
 
 When an enterprise admin enables [Governed Mode](configuration.md#governed-mode-r2-sse-c-disable), the deployment selects plaintext as the R2 target for corporate scanning. The committed regime remains per bucket; an owning workload can defer conversion, and skipped oversized objects can retain the prior regime. Each bucket's actual encryption regime + any in-flight migration is tracked by a per-bucket **state object** (`r2-regime:<bucket>` — `{status: ready|migrating|mixed-recovery, regime, from?, to?, generation, cursor?, phase?, drained?, leaseExpiresAt?, keyMd5?, stuckCount?, lastFailedKey?}`; it replaced the old boolean `UserPreferences.r2SseRegime` marker, a boolean being unable to describe a partially in-place-migrated bucket).
 
-Eligible objects change regime in place — a same-key server-side `CopyObject` with `MetadataDirective=REPLACE` (never a nuke) — driven in resumable chunks by the separate slower/event-driven dashboard `ancillary-status` owner, not the hot D1-only `batch-status` poll, with the regime committed only after HEAD verification of the full eligible set. Objects over the single-copy limit are recorded and skipped. When enabling SSE-C, a default-encrypted empty object can remain unchanged only when a fresh authenticated HEAD without SSE-C confirms exactly zero bytes independently of listing metadata. The exception does not trigger read self-heal. Verification starts in the migration invocation if its budget permits; otherwise the next poll resumes from the checkpoint.
+Eligible objects change regime in place — a same-key server-side `CopyObject` with `MetadataDirective=REPLACE` (never a nuke) — driven in resumable chunks by the separate slower/event-driven dashboard `ancillary-status` owner, not the hot D1-only `batch-status` poll, with the regime committed only after HEAD verification of the full eligible set. Objects over the single-copy limit are recorded and skipped. When enabling SSE-C, a default-encrypted empty object can remain unchanged only when a fresh authenticated HEAD without SSE-C confirms exactly zero bytes independently of listing metadata. The exception does not trigger read self-heal under [REQ-ENTERPRISE-021 AC7](../../sdd/spec/storage.md#req-enterprise-021-governed-mode-migration-safety-and-access-boundary). Verification starts in the same invocation if budget permits; otherwise the next poll resumes from the checkpoint. [REQ-ENTERPRISE-020 AC5–AC6](../../sdd/spec/storage.md#req-enterprise-020-governed-mode-re-encrypt-migration-engine)
 
 Migration lists up to 1,000 entries per page and processes objects with concurrency six. The R2 fetch timeout aborts a request that has not returned response headers. Listing and copy response bodies are read afterward and are not covered by that timer. A failed chunk tries to save its error and release its own lease; if that state write fails, the lease remains recorded until its expiry. The timed-out copy and successor-lease fixtures do not cover stalled bodies or failed release writes ([REQ-ENTERPRISE-302](../../sdd/spec/storage.md#req-enterprise-302-migration-chunk-admission-checkpoint-and-failure-isolation) AC3/AC6). <!-- @impl: src/lib/r2-migration.ts::fetchWithTimeout --> <!-- @impl: src/lib/r2-migration.ts::advanceMigrationChunk -->
 
 Migration defers while D1 records a workload-owning session, even if that runtime is unhealthy or earlier chunks drained. Ownership is rechecked after lease admission and bounded drain, before multipart aborts or object mutations; unknown authority keeps work retryable. A benign drain timeout can proceed only after a fresh no-owner result. Background migration does not destroy owning sessions. Platform writers remain gated `409 BUCKET_MIGRATING` (except explicit matching uncertain-completion abort recovery), and reads use a dual-regime fallback (a stray cross-regime object self-heals via a `mixed-recovery` scan). Session start never performs migration; it rejects an in-flight migration before runtime admission. Record creation and starting its runtime are distinct operations.
 
-If repeated verification fails, the dashboard shows **Migration halted** beside **Retry migration**. Retry restarts the current bucket’s idempotent scan without clearing its write gate, changing the target or advancing the generation. It refuses a changed policy, invalid or changed key, active or unknown session ownership, and unresolved multipart completion. Background polling verifies the retry before the bucket can become ready.
+<a id="retry-a-halted-storage-migration"></a>
+If verification repeatedly fails, the dashboard shows **Migration halted** beside **Retry migration** ([REQ-ENTERPRISE-304 AC4–AC7](../../sdd/spec/storage.md#req-enterprise-304-dashboard-migration-affordance-and-refresh)). A retry restarts the current scan without clearing the write gate or changing the target or generation. Background polling must verify before the bucket becomes ready ([REQ-ENTERPRISE-322](../../sdd/spec/storage.md#req-enterprise-322-owner-authorized-migration-retry)).
+
+Retry refuses a changed policy, invalid or changed key, active or unknown session ownership, or unresolved multipart completion. If the original key identity was never recorded, use the authorized administrator recovery process; do not infer it from the current key. See the [migration troubleshooting guide](troubleshooting.md#new-session-button-stuck-on-migrating-governed-mode).
 
 The Storage upload queue can rediscover an uncertain multipart completion after reload. It shows the exact pending object; check whether the file already exists before confirming abort. A stale confirmation cannot abort a replacement pending upload. See [REQ-STOR-008](../../sdd/spec/storage.md#req-stor-008-multipart-upload-for-large-files).
 

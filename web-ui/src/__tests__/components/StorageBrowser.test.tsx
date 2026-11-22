@@ -295,8 +295,8 @@ describe('StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-shee
       return { rail, scrollTo, end: scrollWidth - clientWidth };
     };
 
-    it('REQ-STOR-007: opening an overflowing directory scrolls to the horizontal end once, smoothly on desktop', async () => {
-      const { rail, scrollTo, end } = await openOverflowingDirectory(1280);
+    it.each([375, 768, 1280])('REQ-STOR-261: opening an overflowing directory scrolls to the end once at width %s', async width => {
+      const { rail, scrollTo, end } = await openOverflowingDirectory(width);
       expect(rail.scrollLeft).toBe(end);
       expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ behavior: 'smooth' }));
 
@@ -306,19 +306,13 @@ describe('StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-shee
       expect(rail.scrollLeft).toBe(20);
     });
 
-    it('REQ-STOR-007: reduced motion reveals the desktop breadcrumb end without smooth scrolling', async () => {
-      const { rail, scrollTo, end } = await openOverflowingDirectory(1280, true);
+    it.each([375, 768, 1280])('REQ-STOR-261: reduced motion reveals the breadcrumb end without animation at width %s', async width => {
+      const { rail, scrollTo, end } = await openOverflowingDirectory(width, true);
       expect(rail.scrollLeft).toBe(end);
       expect(scrollTo).not.toHaveBeenCalledWith(expect.objectContaining({ behavior: 'smooth' }));
     });
 
-    it('REQ-STOR-007: opening an overflowing directory does not automatically scroll the mobile breadcrumb', async () => {
-      const { rail, scrollTo } = await openOverflowingDirectory(375);
-      expect(rail.scrollLeft).toBe(0);
-      expect(scrollTo).not.toHaveBeenCalled();
-    });
-
-    it('REQ-STOR-007: the current folder exposes its full path on a focusable crumb and ancestors still navigate', () => {
+    it('REQ-STOR-261: the current folder exposes its full path on a focusable crumb and ancestors still navigate', () => {
       showLocation(directory, [...ancestorPaths, directory]);
       mockNavigateTo.mockImplementationOnce((prefix: string) => showLocation(prefix, [prefix]));
       render(() => <StorageBrowser />);

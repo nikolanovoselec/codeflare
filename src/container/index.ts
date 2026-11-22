@@ -572,6 +572,9 @@ export class container extends Container<Env> implements ContainerEnvState {
       if (!target || target !== regimeForPolicy(await getR2SsePolicyDisabled(this.env))) {
         return refuse('The storage policy changed. Ask your administrator to restore the migration target before retrying.');
       }
+      if (!state.keyMd5) {
+        return refuse('This migration did not record the original encryption key identity. Ask your administrator to recover the halted migration.');
+      }
       try {
         const key = this.env.ENCRYPTION_KEY;
         const fingerprint = key && computeKeyMd5(key);

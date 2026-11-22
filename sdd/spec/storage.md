@@ -543,17 +543,40 @@ R2 persistence, rclone bisync, quotas, and file browser.
 4. Clicking a file in the browser opens it inline in a new browser tab (view) rather than downloading it. <!-- @impl: web-ui/src/components/storage/FileList.tsx::FileList --> <!-- @test: web-ui/src/__tests__/components/FileList.test.tsx (FileList — clicking a file opens it in a new tab (not download)) -->
 5. Every folder row surfaces its in-container path in `~/<prefix>` form so the user can see where it maps, at any depth and including dotfolders. <!-- @impl: web-ui/src/components/storage/FileList.tsx::folderShortPath --> <!-- @test: web-ui/src/__tests__/components/FileList.test.tsx (FileList — every folder surfaces its ~/ container path (REQ-STOR-016)) -->
 6. A special folder surfaces its canonical container-path mapping instead of the derived form, since its prefix casing can differ (`workspace/` maps to `~/Workspace`). <!-- @impl: web-ui/src/components/storage/FileList.tsx::shortContainerPath --> <!-- @test: web-ui/src/__tests__/components/FileList.test.tsx (FileList — special folder surfaces its container path on the row) --> <!-- @test: web-ui/src/__tests__/components/FileList.test.tsx (REQ-STOR-016 AC6: lowercase workspace prefix uses the canonical ~/Workspace mapping) -->
-7. Desktop folder navigation scrolls an overflowing breadcrumb once to the current end without animation under reduced motion. The current crumb exposes its full path and ancestors remain navigable; mobile keeps manual scrolling. <!-- @impl: web-ui/src/components/storage/StorageBreadcrumbs.tsx::StorageBreadcrumbs --> <!-- @test: web-ui/src/__tests__/components/StorageBrowser.test.tsx (REQ-STOR-007: opening an overflowing directory scrolls to the horizontal end once, smoothly on desktop) --> <!-- @test: web-ui/src/__tests__/components/StorageBrowser.test.tsx (REQ-STOR-007: reduced motion reveals the desktop breadcrumb end without smooth scrolling) --> <!-- @test: web-ui/src/__tests__/components/StorageBrowser.test.tsx (REQ-STOR-007: opening an overflowing directory does not automatically scroll the mobile breadcrumb) --> <!-- @test: web-ui/src/__tests__/components/StorageBrowser.test.tsx (REQ-STOR-007: the current folder exposes its full path on a focusable crumb and ancestors still navigate) -->
 
 **Constraints:**
 
-- The file browser and settings panel are mutually exclusive in the UI.
+- The file browser and settings panel are mutually exclusive in the UI. Breadcrumb navigation follows [REQ-STOR-261](#req-stor-261-storage-breadcrumb-navigation).
 
 **Priority:** P1
 
 **Dependencies:** [REQ-STOR-007](#req-stor-007-web-file-browser)
 
 **Verification:** Automated: [storage-browse.test.ts](../../src/__tests__/routes/storage-browse.test.ts), [FileList.test.tsx](../../web-ui/src/__tests__/components/FileList.test.tsx), [StorageBrowser.test.tsx](../../web-ui/src/__tests__/components/StorageBrowser.test.tsx)
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-261: Storage breadcrumb navigation
+
+**Intent:** Make the current storage path discoverable at any viewport width.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. On folder navigation, an overflowing breadcrumb scrolls once to its current end on desktop, tablet, and mobile, without animation under reduced motion. <!-- @impl: web-ui/src/components/storage/StorageBreadcrumbs.tsx::StorageBreadcrumbs --> <!-- @impl: web-ui/src/styles/storage-browser.css::.storage-breadcrumbs --> <!-- @test: web-ui/src/__tests__/components/StorageBrowser.test.tsx (REQ-STOR-261: opening an overflowing directory scrolls to the end once at width %s) --> <!-- @test: web-ui/src/__tests__/components/StorageBrowser.test.tsx (REQ-STOR-261: reduced motion reveals the breadcrumb end without animation at width %s) -->
+2. The focusable current crumb exposes its full path. <!-- @impl: web-ui/src/components/storage/StorageBreadcrumbs.tsx::StorageBreadcrumbs --> <!-- @test: web-ui/src/__tests__/components/StorageBrowser.test.tsx (REQ-STOR-261: the current folder exposes its full path on a focusable crumb and ancestors still navigate) -->
+3. Users can scroll back to earlier path segments and navigate to an ancestor. <!-- @impl: web-ui/src/components/storage/StorageBreadcrumbs.tsx::StorageBreadcrumbs --> <!-- @impl: web-ui/src/styles/storage-browser.css::.storage-breadcrumbs --> <!-- @test: web-ui/src/__tests__/components/StorageBrowser.test.tsx (REQ-STOR-261: opening an overflowing directory scrolls to the end once at width %s) --> <!-- @test: web-ui/src/__tests__/components/StorageBrowser.test.tsx (REQ-STOR-261: the current folder exposes its full path on a focusable crumb and ancestors still navigate) -->
+
+**Constraints:** None.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-STOR-016](#req-stor-016-file-browser-presentation-and-traversal-safety)
+
+**Verification:** Automated: [StorageBrowser.test.tsx](../../web-ui/src/__tests__/components/StorageBrowser.test.tsx)
 
 **Status:** Implemented
 
@@ -1728,7 +1751,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ### REQ-ENTERPRISE-020: Governed Mode Re-Encrypt Migration Engine
 
-**Intent:** Flipping [REQ-ENTERPRISE-018](#req-enterprise-018-governed-mode-toggle-and-configuration-surface)'s Governed Mode toggle must reconcile every existing bucket to the new SSE-C regime **losslessly** (in-place server-side re-encryption, never a nuke) rather than forcing an admin to accept data loss or a manual migration. The reconcile is a per-bucket **state machine** (`r2-regime:<bucket>`) driven in the background by the dashboard’s `ancillary-status` poll, in resumable chunks verified before the regime commits. The safety boundary around this engine — write gate, container drain, dual-regime reads, and the zero-secret container footprint — is [REQ-ENTERPRISE-021](#req-enterprise-021-governed-mode-migration-safety-and-access-boundary).
+**Intent:** Reconcile each bucket losslessly to the selected encryption regime. Background dashboard refresh drives eligible migration without manual file transfers, and the new regime is published only after verification.
 
 **Applies To:** Admin
 
@@ -1738,8 +1761,9 @@ R2 persistence, rclone bisync, quotas, and file browser.
 2. That same source-regime HEAD is the idempotency check: a `400`/`403` SSE-mismatch means the object already reads in the target regime and is skipped ([AD91](../../documentation/decisions/README.md#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile)). <!-- @impl: src/lib/r2-migration.ts::migrateBucketEncryption --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (migrateBucketEncryption (lossless REPLACE re-encrypt)) -->
 3. An object over the 5 GB single-copy limit is recorded `oversized` and skipped. <!-- @impl: src/lib/r2-migration.ts::migrateBucketEncryption --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (migrateBucketEncryption (lossless REPLACE re-encrypt)) -->
 4. Each poll advances ready, migrating, and mixed-recovery bucket state: policy drift starts migration only when D1 confirms no workload-owning session, otherwise remaining pending. <!-- @impl: src/lib/r2-regime-state.ts::getRegimeState --> <!-- @impl: src/lib/r2-migration.ts::planRegimeReconcile --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (REQ-ENTERPRISE-020 AC3/7: ancillary polls checkpoint and finish %s through real reconciliation) -->
-5. After migration, verify starts in the same invocation if budget permits; otherwise resume from its checkpoint. The regime and generation advance only after successful target-regime HEAD checks for all eligible objects, excluding recorded oversized skips and the independently verified empty-object exception below. <!-- @impl: src/lib/r2-migration.ts::advanceMigration --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (advanceMigration (chunked, verified, self-healing)) --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (REQ-ENTERPRISE-020 AC4/AC5: a timed-out copy is aborted, leaves source intact, releases the lease, and resumes) --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (an oversized object does not wedge the migration — verify skips it and the bucket reaches ready) -->
+5. Advance the regime and generation only after target-regime verification of all eligible objects, excluding recorded oversized skips and independently verified empty objects. <!-- @impl: src/lib/r2-migration.ts::advanceMigration --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (advanceMigration (chunked, verified, self-healing)) --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (REQ-ENTERPRISE-020 AC4/AC5: a timed-out copy is aborted, leaves source intact, releases the lease, and resumes) --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (an oversized object does not wedge the migration — verify skips it and the bucket reaches ready) -->
 6. SSE-C migration preserves a default-encrypted empty object only if a fresh authenticated read without SSE-C independently verifies zero length. A listing alone or a failed probe does not qualify. <!-- @impl: src/lib/r2-migration.ts::verifyChunk --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (REQ-ENTERPRISE-020 AC5: independently proves a plain empty object alongside SSE-C objects (%s)) --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (REQ-ENTERPRISE-020 AC5: verifies the empty exception from fresh R2 evidence (%s)) -->
+7. Start verification after the copy pass in the same work interval if budget permits; otherwise resume from the saved checkpoint. <!-- @impl: src/lib/r2-migration.ts::advanceMigrationChunk --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (advanceMigration (chunked, verified, self-healing)) -->
 
 **Constraints:**
 
@@ -1826,9 +1850,9 @@ The migration integrity, safe retry, termination and session-creation constraint
 2. While a bucket migrates, platform write attempts are blocked before user R2 I/O, except explicit matching uncertain-completion abort recovery under REQ-ENTERPRISE-086. <!-- @impl: src/routes/storage/upload.ts::app --> <!-- @test: src/__tests__/routes/storage-upload.test.ts (Governed Mode write gate (REQ-ENTERPRISE-021)) -->
 3. While a bucket migrates, sync fan-out performs no container work. <!-- @impl: src/lib/r2-regime-state.ts::isBucketMigrating --> <!-- @impl: src/lib/sync-fanout.ts::fanOutBisyncTrigger --> <!-- @test: src/__tests__/routes/sessions-sync.test.ts (skips the entire fan-out while the bucket is migrating (no container is contacted)) -->
 4. Migration preflight defers while D1 records a workload owner, without destroying that workload. <!-- @impl: src/lib/r2-migration.ts::advanceMigration --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (advanceMigration (chunked, verified, self-healing)) -->
-5. Ancillary status returns `bucketMigrating`, a 0–99 `bucketMigrationPercent` when known and not halted, and the halt timestamp instead of percentage when halted. <!-- @test: web-ui/src/__tests__/stores/session.test.ts (Session Store) --> <!-- @impl: src/routes/session/lifecycle.ts::bucketMigrationPercent -->
-6. Read paths (download, preview) try the committed regime first and fall back once to the opposite regime on a `400`/`403` SSE-mismatch, so a partially-migrated bucket stays readable. A confirmed empty default-encrypted object does not trigger self-heal. <!-- @impl: src/lib/r2-migration.ts::fetchObjectWithRegimeFallback --> <!-- @impl: src/lib/r2-regime-state.ts::resolveReadRegime --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (fetchObjectWithRegimeFallback (D2 reads stay up)) --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (%s reads committed bytes, then falls back once to the opposite regime) --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (REQ-ENTERPRISE-021: a ready SSE-C bucket downloads an empty plain object without starting self-heal) -->
-7. A fallback on a `ready` bucket starts one `mixed-recovery` scan only without a healthy container, otherwise keeps the bucket ready, and changes neither regime nor generation. <!-- @impl: src/lib/r2-migration.ts::markMixedRecovery --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (flips a ready bucket into a mixed-recovery scan) --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (is a no-op when a migration is already in flight) --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (D1: defers (does not flip/gate) when a session container is still healthy) -->
+5. Ancillary status returns `bucketMigrating`, a 0–99 `bucketMigrationPercent` when known and not halted, and the halt timestamp instead of percentage when halted. <!-- @test: web-ui/src/__tests__/stores/session.test.ts (Session Store) --> <!-- @impl: src/routes/session/lifecycle.ts::app.get --> <!-- @test: src/__tests__/container/index.test.ts (REQ-ENTERPRISE-021: one authenticated retry resets the halt and keeps writes gated until the next poll verifies) -->
+6. Read paths (download, preview) try the committed regime first and fall back once to the opposite regime on a `400`/`403` SSE-mismatch, so a partially-migrated bucket stays readable. <!-- @impl: src/lib/r2-migration.ts::fetchObjectWithRegimeFallback --> <!-- @impl: src/lib/r2-regime-state.ts::resolveReadRegime -->
+7. An eligible fallback hit on a `ready` bucket starts one `mixed-recovery` scan only without a healthy container, otherwise keeps the bucket ready, and changes neither regime nor generation. Verified empty default-encrypted objects are not eligible. <!-- @impl: src/lib/r2-migration.ts::fetchObjectWithRegimeFallback --> <!-- @impl: src/lib/r2-migration.ts::markMixedRecovery --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (flips a ready bucket into a mixed-recovery scan) --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (is a no-op when a migration is already in flight) --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (D1: defers (does not flip/gate) when a session container is still healthy) --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (fetchObjectWithRegimeFallback (D2 reads stay up)) --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (%s reads committed bytes, then falls back once to the opposite regime) --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (REQ-ENTERPRISE-021: a ready SSE-C bucket downloads an empty plain object without starting self-heal) -->
 
 **Constraints:**
 
@@ -1841,7 +1865,7 @@ The migration integrity, safe retry, termination and session-creation constraint
 
 **Dependencies:** [REQ-ENTERPRISE-020](#req-enterprise-020-governed-mode-re-encrypt-migration-engine), [REQ-ENTERPRISE-018](#req-enterprise-018-governed-mode-toggle-and-configuration-surface), [REQ-ENTERPRISE-016](security.md#req-enterprise-016-strict-gateway-egress), [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-SEC-005](security.md#req-sec-005-r2-files-encrypted-at-rest-with-sse-c-when-operator-configures-an-encryption-key), [REQ-BROWSER-008](browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container)
 
-**Verification:** Automated: [container-env-llm.test.ts](../../src/__tests__/container/container-env-llm.test.ts), [storage-upload.test.ts](../../src/__tests__/routes/storage-upload.test.ts), [sessions-sync.test.ts](../../src/__tests__/routes/sessions-sync.test.ts), [r2-migration.test.ts](../../src/__tests__/lib/r2-migration.test.ts); Manual: [migration progress acceptance](../../documentation/lanes/storage-and-sync.md#req-enterprise-021-migration-progress-acceptance)
+**Verification:** Automated: [container-env-llm.test.ts](../../src/__tests__/container/container-env-llm.test.ts), [storage-upload.test.ts](../../src/__tests__/routes/storage-upload.test.ts), [sessions-sync.test.ts](../../src/__tests__/routes/sessions-sync.test.ts), [r2-migration.test.ts](../../src/__tests__/lib/r2-migration.test.ts), [halt status HTTP fixture](../../src/__tests__/container/index.test.ts), [session store](../../web-ui/src/__tests__/stores/session.test.ts); Manual: [migration progress acceptance](../../documentation/lanes/storage-and-sync.md#req-enterprise-021-migration-progress-acceptance)
 
 **Status:** Implemented
 
@@ -1859,9 +1883,9 @@ The migration integrity, safe retry, termination and session-creation constraint
 2. Initial load and five-second migration polling mirror `bucketMigrating` and `bucketMigrationPercent` flags. <!-- @test: web-ui/src/__tests__/stores/session.test.ts (Session Store) --> <!-- @impl: web-ui/src/stores/session-polling.ts::scheduleNextPoll --> <!-- @impl: web-ui/src/lib/constants.ts::SESSION_POLL_TRANSITION_MS = 5_000 -->
 3. During bucket migration New Session displays `Migrating N%` when progress is known. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @manual -->
 4. On halt, the disabled New Session slot displays `Migration halted` alongside a separate `Retry migration` action. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-ENTERPRISE-304: a halt gates the New Session slot and offers a separate Retry migration action (bucketMigrating=%s)) -->
-5. The retry control prevents a second submission while pending, displays refused recovery with its reason, and leaves creation disabled until ancillary status clears the migration. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-ENTERPRISE-304: Retry migration submits the halt timestamp once while pending and does not unlock New Session on success) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-ENTERPRISE-304: a rejected retry is reported without rendering server markup or lifting the halt) -->
-6. An authenticated retry can restart only the owner's matching current halt. The write gate and committed generation remain until verification. <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @impl: src/container/index.ts::retryBucketMigration --> <!-- @test: src/__tests__/container/index.test.ts (REQ-ENTERPRISE-021: one authenticated retry resets the halt and keeps writes gated until the next poll verifies) -->
-7. An unsafe or stale retry returns an actionable refusal without clearing the halt. <!-- @impl: src/container/index.ts::retryBucketMigration --> <!-- @test: src/__tests__/container/index.test.ts (REQ-ENTERPRISE-021: refuses %s without changing the halted migration) -->
+5. While a retry is pending, the dashboard prevents another retry submission. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-ENTERPRISE-304: Retry migration submits the halt timestamp once while pending and does not unlock New Session on success) -->
+6. A retry acknowledgment does not enable New Session before the migration completes. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-ENTERPRISE-304: Retry migration submits the halt timestamp once while pending and does not unlock New Session on success) -->
+7. The dashboard explains a refused retry only while the matching halt is current. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-ENTERPRISE-304: a rejected retry is reported without rendering server markup or lifting the halt) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-ENTERPRISE-304: a retry refusal belongs only to the halt that was retried) -->
 
 **Constraints:**
 
@@ -1872,7 +1896,32 @@ The migration integrity, safe retry, termination and session-creation constraint
 
 **Dependencies:** [REQ-ENTERPRISE-020](#req-enterprise-020-governed-mode-re-encrypt-migration-engine), [REQ-ENTERPRISE-018](#req-enterprise-018-governed-mode-toggle-and-configuration-surface), [REQ-ENTERPRISE-016](security.md#req-enterprise-016-strict-gateway-egress), [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-SEC-005](security.md#req-sec-005-r2-files-encrypted-at-rest-with-sse-c-when-operator-configures-an-encryption-key), [REQ-BROWSER-008](browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container), [REQ-ENTERPRISE-021](#req-enterprise-021-governed-mode-migration-safety-and-access-boundary)
 
-**Verification:** Automated: [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [bucket owner retry](../../src/__tests__/container/index.test.ts); Manual: [migration progress acceptance](../../documentation/lanes/storage-and-sync.md#req-enterprise-021-migration-progress-acceptance)
+**Verification:** Automated: [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [session store](../../web-ui/src/__tests__/stores/session.test.ts); Manual: [migration progress acceptance](../../documentation/lanes/storage-and-sync.md#req-enterprise-021-migration-progress-acceptance)
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-322: Owner-authorized migration retry
+
+**Intent:** Let the bucket owner retry a halted scan without bypassing migration safeguards.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A retry can restart only the authenticated owner's matching current halt. Duplicate or stale attempts do not start new work. <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @impl: src/container/index.ts::retryBucketMigration --> <!-- @test: src/__tests__/container/index.test.ts (REQ-ENTERPRISE-021: one authenticated retry resets the halt and keeps writes gated until the next poll verifies) -->
+2. Unsafe retries return an actionable refusal without clearing the halt. If the original key identity was never recorded, the refusal directs the owner to administrator recovery. <!-- @impl: src/container/index.ts::retryBucketMigration --> <!-- @test: src/__tests__/container/index.test.ts (REQ-ENTERPRISE-021: refuses %s without changing the halted migration) -->
+3. An accepted retry retains the committed regime, generation, and write gate until verification. <!-- @impl: src/container/index.ts::retryBucketMigration --> <!-- @test: src/__tests__/container/index.test.ts (REQ-ENTERPRISE-021: one authenticated retry resets the halt and keeps writes gated until the next poll verifies) -->
+4. Newly started mixed recovery records the configured key identity so a matching halt can be retried without changing the committed regime or generation. <!-- @impl: src/lib/r2-migration.ts::markMixedRecovery --> <!-- @test: src/__tests__/container/index.test.ts (REQ-ENTERPRISE-322: a mixed recovery can retry its own halt without advancing the generation) -->
+
+**Constraints:** Retry does not override workload ownership, held leases, pending multipart recovery, policy, or the original key check.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-ENTERPRISE-021](#req-enterprise-021-governed-mode-migration-safety-and-access-boundary)
+
+**Verification:** Automated: [bucket-owner HTTP retry fixtures](../../src/__tests__/container/index.test.ts)
 
 **Status:** Implemented
 

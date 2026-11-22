@@ -67,7 +67,11 @@ const Dashboard: Component<DashboardProps> = (props) => {
   const [recreateError, setRecreateError] = createSignal<string | null>(null);
   const [recreateMessage, setRecreateMessage] = createSignal<string | null>(null);
   const [migrationRetryPending, setMigrationRetryPending] = createSignal(false);
-  const [migrationRetryError, setMigrationRetryError] = createSignal<string | null>(null);
+  const [migrationRetryError, setMigrationRetryError] = createSignal<{ haltedAt: string; message: string } | null>(null);
+  const currentMigrationRetryError = () => {
+    const error = migrationRetryError();
+    return error?.haltedAt === sessionStore.bucketMigrationHaltedAt ? error?.message : undefined;
+  };
   const migrationStatus = () => sessionStore.bucketMigrationHaltedAt ? 'Migration halted'
     : sessionStore.bucketMigrating
       ? (sessionStore.bucketMigrationPercent != null ? `Migrating ${sessionStore.bucketMigrationPercent}%` : 'Migrating')
@@ -81,8 +85,11 @@ const Dashboard: Component<DashboardProps> = (props) => {
       await retryBucketMigration(haltedAt);
       await sessionStore.refreshSessionAncillaryStatus().catch(() => undefined);
     } catch (error) {
-      setMigrationRetryError(error instanceof ApiError && error.status === 409
-        ? error.message : 'Could not retry storage migration. Refresh the dashboard and try again.');
+      setMigrationRetryError({
+        haltedAt,
+        message: error instanceof ApiError && error.status === 409
+          ? error.message : 'Could not retry storage migration. Refresh the dashboard and try again.',
+      });
     } finally {
       setMigrationRetryPending(false);
     }
@@ -535,8 +542,8 @@ const Dashboard: Component<DashboardProps> = (props) => {
                 </Show>
             </div>
 
-            <Show when={sessionStore.bucketMigrationHaltedAt && migrationRetryError()}>
-              <p class="dashboard-recovery-message" role="alert">{migrationRetryError()}</p>
+            <Show when={currentMigrationRetryError()}>
+              {(message) => <p class="dashboard-recovery-message" role="alert">{message()}</p>}
             </Show>
             <Show when={recreateError()}>
               <p class="dashboard-recovery-message" role="alert">{recreateError()}</p>

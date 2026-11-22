@@ -8,9 +8,9 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 - [REQ-ENTERPRISE-020](storage.md#req-enterprise-020-governed-mode-re-encrypt-migration-engine) preserves independently verified empty objects without SSE-C conversion. [REQ-ENTERPRISE-304](storage.md#req-enterprise-304-dashboard-migration-affordance-and-refresh) shows a retry action beside the halted status.
 
-## 2026-11-22: Reveal deep desktop storage paths
+## 2026-11-22: Reveal deep storage paths
 
-- [REQ-STOR-016](storage.md#req-stor-016-file-browser-presentation-and-traversal-safety) keeps the current folder visible when its desktop breadcrumb overflows.
+- [REQ-STOR-261](storage.md#req-stor-261-storage-breadcrumb-navigation) reveals the current folder when its breadcrumb overflows on desktop, tablet, or mobile.
 
 ## 2026-11-22: Keep RED local by default
 

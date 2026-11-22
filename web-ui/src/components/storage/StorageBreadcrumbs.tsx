@@ -16,10 +16,10 @@ interface StorageBreadcrumbsProps {
 const StorageBreadcrumbs: Component<StorageBreadcrumbsProps> = (props) => {
   let rail!: HTMLElement;
   createEffect(() => {
-    if (!props.currentPrefix || !window.matchMedia?.('(min-width: 1024px)').matches) return;
+    if (!props.currentPrefix) return;
     const frame = requestAnimationFrame(() => {
       const end = rail.scrollWidth - rail.clientWidth;
-      if (end > 0) rail.scrollTo({ left: end, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+      if (end > 0) rail.scrollTo({ left: end, behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
     });
     onCleanup(() => cancelAnimationFrame(frame));
   });
