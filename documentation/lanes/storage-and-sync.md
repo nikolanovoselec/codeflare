@@ -558,11 +558,11 @@ This procedure observes the wire projection ([REQ-ENTERPRISE-021 AC5](../../sdd/
 3. Measure the five-second delay from settlement of one Dashboard `batch-status` poll to the start of the next, not between ancillary responses. If migration finishes too soon, record cadence as blocked. <!-- @impl: web-ui/src/stores/session-polling.ts::scheduleNextPoll -->
 4. Check that no second ancillary request starts when an eligible batch poll reaches ancillary refresh while an earlier request is pending. If no eligible poll reaches refresh during a pending request, mark only the overlap check as blocked. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionAncillaryStatus -->
 5. On the halted fixture, confirm `bucketMigrating: true` and `bucketMigrationHaltedAt` are present, with no `bucketMigrationPercent`. The disabled New Session slot says **Migration halted** beside **Retry migration**.
-6. Before retry, use the [read-only KV diagnostic](troubleshooting.md#new-session-button-stuck-on-migrating-governed-mode) to record the same bucket’s halted checkpoint, including its `updatedAt`. Confirm that timestamp matches `bucketMigrationHaltedAt`. Retry only with separate authorization and observe `202 { success: true }`.
-7. Find the same bucket’s `ready` checkpoint with a newer `updatedAt` and the expected regime and generation. Use `updatedAt` for freshness, not as proof of when the write completed. <!-- @impl: src/lib/r2-regime-state.ts::setRegimeState -->
-8. Record New Session state continuously from no later than retry acknowledgment through its first enablement. On the same timeline, use the independent `ready` observation or an approved trace to establish that publication preceded that first enablement.
-9. Mark retry gating blocked if freshness, continuous coverage, or publication order cannot be established. A `ready` checkpoint first seen after enablement does not prove either order.
-10. For a refusal, record its reason and confirm the halt remains. A refusal does not qualify the acknowledgment case.
+6. Before retry, use the [read-only KV diagnostic](troubleshooting.md#new-session-button-stuck-on-migrating-governed-mode) to record the same bucket’s halted checkpoint. Confirm its `updatedAt` matches `bucketMigrationHaltedAt`.
+7. Start recording New Session state before triggering the separately authorized retry. Check the response: for a refusal, record its reason, confirm the halt remains, and stop this check. A refusal does not qualify the acknowledgment case.
+8. On `202 { success: true }`, keep recording continuously through the first enablement. Find the same bucket’s `ready` checkpoint with a newer `updatedAt` and the expected regime and generation. Use `updatedAt` for freshness, not publication timing. <!-- @impl: src/lib/r2-regime-state.ts::setRegimeState -->
+9. On the same timeline, observe the fresh `ready` checkpoint before first enablement or use an approved trace to establish publication order. A checkpoint first seen after enablement does not prove either order.
+10. Mark retry gating blocked if freshness, continuous coverage, or publication order cannot be established.
 
 Fail for an incorrect migration flag, a percentage on halt, an invented, out-of-range or mismatched progress value, or New Session becoming enabled before verification.
 
