@@ -61,7 +61,9 @@ function mkTmp(prefix) {
 function isolatedRuntimeEnv(env = {}) {
   const runtimeRoot = env.CODEFLARE_RUNTIME_ROOT ?? mkTmp('openvscode-runtime-');
   mkdirSync(join(runtimeRoot, 'openvscode'), { recursive: true });
-  return { ...process.env, CODEFLARE_RUNTIME_ROOT: runtimeRoot, ...env };
+  const runtimeEnv = { ...process.env, CODEFLARE_RUNTIME_ROOT: runtimeRoot, ...env };
+  if (env.TAB_CONFIG === undefined) delete runtimeEnv.TAB_CONFIG;
+  return runtimeEnv;
 }
 
 // Write an executable stub that records each invocation's args, then exits.
@@ -163,7 +165,7 @@ complete_managed_curation_startup
 `;
     const result = spawnSync('bash', ['-c', script], { encoding: 'utf8', env: isolatedRuntimeEnv() });
     assert.equal(result.status, 0, result.stderr);
-    assert.equal(result.stdout, 'init\neditor\n');
+    assert.equal(result.stdout, '[entrypoint] WARNING: Hermes memory is not ready\ninit\neditor\n');
   });
 
   it('keeps an existing VS Code session usable after its future default is downgraded', () => {
@@ -201,7 +203,7 @@ complete_managed_curation_startup
 `;
     const result = spawnSync('bash', ['-c', script], { encoding: 'utf8', env: isolatedRuntimeEnv() });
     assert.equal(result.status, 0, result.stderr);
-    assert.equal(result.stdout, 'init\n');
+    assert.equal(result.stdout, '[entrypoint] WARNING: Hermes memory is not ready\ninit\n');
   });
 });
 

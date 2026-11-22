@@ -304,6 +304,14 @@ export async function drainFinalSync(ctx: DurableObjectState, budgetMs: number,
       headers: { Authorization: `Bearer ${authToken}` },
       signal: controller.signal,
     });
+    if (context.sessionId !== null && context.lifecycleGeneration !== null && !controller.signal.aborted) {
+      try {
+        await raceBudget(ctx.storage.put(FINAL_SYNC_AUDIT_KEY, {
+          ...context, outcome: res.ok ? 'completed' : 'incomplete', httpStatus: res.status,
+          at: Date.now(), running: ctx.container.running,
+        }), remaining());
+      } catch { /* Missing audit evidence must not block automatic stop. */ }
+    }
     if (res.ok) {
       logger.info('drainFinalSync: final sync completed before stop', { ...context });
     } else {

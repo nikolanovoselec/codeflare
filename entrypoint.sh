@@ -3222,13 +3222,16 @@ configure_pi_hermes_memory() {
     local memory_home="${1:-$USER_HOME}"
     python3 - "$memory_home" "${SESSION_ID:-}" "${2:-prepare}" "${REMOTE_CURATION_ACTIVE:-false}" \
         "${CODEFLARE_HERMES_PERSISTENCE:-}" "$CODEFLARE_RUNTIME_ROOT/sync/hermes-ready" \
-        "${PI_WARM_EXTENSIONS_DIR:-/opt/codeflare/pi-agent/extensions}/hermes-memory-runtime.ts" <<'PY'
+        "${PI_WARM_EXTENSIONS_DIR:-/opt/codeflare/pi-agent/extensions}/hermes-memory-runtime.ts" \
+        "${CODEFLARE_HERMES_GENERATION:-}" <<'PY'
 import hashlib, json, os, re, stat, sys, tempfile, shutil
 from pathlib import Path
 
 home = Path(os.path.abspath(sys.argv[1]))
 session, phase, remote, persistence = sys.argv[2:6]
 ready, image_adapter = map(Path, sys.argv[6:8])
+generation = sys.argv[8]
+local_generation = ready.with_name('hermes-generation')
 agent = home / '.pi/agent'
 vault = home / 'Vault/Memory'
 evidence = vault / 'Sessions' / session
@@ -3285,9 +3288,10 @@ def snapshot(root, mapping):
 def encode(value):
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode() + b'\n'
 
-def atomic(path, value, staging):
+def atomic(path, value, staging, preserve_predecessor=False):
     data = encode(value)
-    if kind(path, stat.S_ISREG) and read(path).encode() == data:
+    existed = kind(path, stat.S_ISREG)
+    if existed and read(path).encode() == data:
         return
     fd, tmp = tempfile.mkstemp(dir=staging)
     try:
@@ -3295,10 +3299,27 @@ def atomic(path, value, staging):
             handle.write(data)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(tmp, path)
         fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        backup = Path(tmp + '.prior')
         try:
-            os.fsync(fd)
+            if preserve_predecessor and existed:
+                os.link(path, backup, follow_symlinks=False)
+            try:
+                os.replace(tmp, path)
+            except OSError:
+                backup.unlink(missing_ok=True)
+                raise
+            try:
+                os.fsync(fd)
+            except OSError:
+                if preserve_predecessor:
+                    if existed:
+                        os.replace(backup, path)
+                    else:
+                        path.unlink()
+                    os.fsync(fd)
+                raise
+            backup.unlink(missing_ok=True)
         finally:
             os.close(fd)
     finally:
@@ -3375,6 +3396,22 @@ def prepare_direct_layout():
     if os.path.lexists(project) and not (legacy_project_link() or (
         project.is_symlink() and Path(os.path.abspath(project.parent / os.readlink(project))) == target)):
         raise ValueError('conflicting memory alias')
+    if persistence == 'new' and generation and os.path.lexists(marker):
+        check_direct(True)
+        current = read(local_generation) if kind(local_generation, stat.S_ISREG) else None
+        if current != f'{session}:{generation}\n':
+            # Old local bytes cannot stand in for a newly admitted store. Keep
+            # them outside all sync paths; the historical checkpoint stays put.
+            ready.unlink(missing_ok=True)
+            cache.mkdir(parents=True, exist_ok=True, mode=0o700)
+            stale = Path(tempfile.mkdtemp(prefix='retired-store-', dir=cache))
+            for path in (marker, evidence / 'global', evidence / 'Projects', evidence / '.pi-hermes-locks.sqlite'):
+                if os.path.lexists(path):
+                    path.rename(stale / path.name)
+            for suffix in ('-wal', '-shm', '-journal'):
+                lock = evidence / ('.pi-hermes-locks.sqlite' + suffix)
+                if os.path.lexists(lock):
+                    lock.rename(stale / lock.name)
     if os.path.lexists(marker) or persistence == 'existing':
         check_direct(True)
     else:
@@ -3402,7 +3439,7 @@ def prepare_direct_layout():
 def prepare_signed_legacy_layout():
     # Keep the verified old adapter operational during image-before-seed rollout.
     # Never roll a container with session-local data back to master writes.
-    if os.path.lexists(work) or os.path.lexists(checkpoint):
+    if generation != '1' or os.path.lexists(work) or os.path.lexists(checkpoint):
         raise ValueError('cannot downgrade session memory')
     global_dir = cache / 'global'
     directories = (vault / 'Projects/workspace', global_dir, cache / 'consolidation-locks', consolidation.parent)
@@ -3530,7 +3567,7 @@ try:
             raise ValueError('checkpoint belongs to a different baseline')
         evidence.mkdir(parents=True, exist_ok=True, mode=0o700)
         digest = hashlib.sha256(encode({'base': seed['base'], 'current': current})).hexdigest()
-        atomic(checkpoint, {**seed, 'current': current, 'sha256': digest}, cache)
+        atomic(checkpoint, {**seed, 'current': current, 'sha256': digest}, cache, preserve_predecessor=True)
         sys.exit(0)
     if phase != 'prepare':
         raise ValueError('unsupported Hermes preparation phase')
@@ -3546,6 +3583,8 @@ try:
         for parent in (work / 'global', work / 'Projects/workspace', evidence):
             direct_directory(parent)
         prepare_checkpoint_layout()
+    if layout == 'direct' and generation:
+        local_generation.write_text(f'{session}:{generation}\n', encoding='utf-8')
     ready.write_text(f'{layout}:{session}\n', encoding='utf-8')
     print('[entrypoint] Hermes memory prepared (' + layout + ')')
 except (OSError, ValueError) as error:

@@ -303,8 +303,11 @@ describe('REQ-SESSION-008: startup configuration uses the admitted run and bucke
     await started.startSession(execution);
     expect(f.launchEnv()?.CODEFLARE_HERMES_PERSISTENCE).toBe('new');
     const writer = { sessionId: ref.sessionId, generation };
+    expect(await started.hermesWriterExited(ref.bucket, writer)).toBe(false);
     expect(await started.hermesWriterSettled(ref.bucket, writer)).toBe(false);
     await started.stopSession(execution);
+    expect(await started.hermesWriterExited(ref.bucket, writer)).toBe(true);
+    expect(await started.hermesWriterSettled(ref.bucket, writer)).toBe(status === 200);
     expect(await f.repository.deleteConfirmed(ref.bucket, ref.sessionId, generation)).toBe(true);
     const reopened = await f.coordinator();
     expect(await f.read()).toBeNull();

@@ -812,6 +812,16 @@ export class container extends Container<Env> implements ContainerEnvState {
     } catch { /* Lack of a receipt defers retention, never ordinary lifecycle. */ }
   }
 
+  async hermesWriterExited(bucket: string, writer: HermesWriter): Promise<boolean> {
+    const { sessionId, generation } = writer;
+    if (!SESSION_ID_PATTERN.test(sessionId) || !Number.isSafeInteger(generation) || generation < 1
+      || this.env.CONTAINER.idFromName(`${bucket}-${sessionId}`).toString() !== this.ctx.id.toString()) return false;
+    const session = await new D1SessionRepository(this.env.USAGE_DB).getSession(bucket, sessionId);
+    // A later generation can only be claimed from confirmed stopped state.
+    return !!session && (session.lifecycleGeneration > generation
+      || (session.lifecycleGeneration === generation && session.lifecycleState === 'stopped'));
+  }
+
   async hermesWriterSettled(bucket: string, writer: HermesWriter): Promise<boolean> {
     const { sessionId, generation } = writer;
     if (!SESSION_ID_PATTERN.test(sessionId)
@@ -819,10 +829,7 @@ export class container extends Container<Env> implements ContainerEnvState {
     if (await this.ctx.storage.get<number>(HERMES_SETTLED_GENERATION_KEY) === generation) return true;
     const audit = await this.ctx.storage.get<{ outcome: string; sessionId: string; lifecycleGeneration: number }>(FINAL_SYNC_AUDIT_KEY);
     if (audit?.outcome !== 'completed' || audit.sessionId !== sessionId || audit.lifecycleGeneration !== generation) return false;
-    const session = await new D1SessionRepository(this.env.USAGE_DB).getSession(bucket, sessionId);
-    // A later generation can only be claimed from confirmed stopped state.
-    return !!session && (session.lifecycleGeneration > generation
-      || (session.lifecycleGeneration === generation && session.lifecycleState === 'stopped'));
+    return this.hermesWriterExited(bucket, writer);
   }
 
   async admitHermesStore(bucket: string, writer: HermesWriter, remoteCuration: boolean, deadline: number,
@@ -848,22 +855,25 @@ export class container extends Container<Env> implements ContainerEnvState {
       const installed = await r2.adapterDigest();
       if (installed === HERMES_MASTER_ADAPTER || installed === HERMES_CHECKPOINT_ADAPTER) {
         if (hadDirectLayout || await retention.hasStore(writer.sessionId)
-          || (installed === HERMES_MASTER_ADAPTER && await r2.hasCheckpoint(writer.sessionId))) return 'deferred';
+          || (installed === HERMES_MASTER_ADAPTER
+            && (writer.generation !== 1 || await r2.hasCheckpoint(writer.sessionId)))) return 'deferred';
         return await canAdmit() ? 'legacy' : 'deferred';
       }
       const baked = AGENTS_SEEDED_CONFIGS.find(file => file.key === HERMES_ADAPTER_KEY && file.modes.includes('advanced'));
       if (!baked || createHash('sha256').update(baked.content).digest('hex') !== installed) return 'deferred';
     }
+    const writerEvidence = async (prior: HermesWriter, method: 'hermesWriterExited' | 'hermesWriterSettled') => {
+      const id = this.env.CONTAINER.idFromName(`${bucket}-${prior.sessionId}`);
+      const owner = this.env.CONTAINER.get(id) as unknown as Pick<container, typeof method>;
+      return (await raceBudget(owner[method](bucket, prior), Math.max(1, deadline - Date.now()))) === true;
+    };
     return retention.admit(writer, {
       canAdmit,
       inventory: r2.inventory,
       observe: r2.observe,
       prefixEmpty: r2.prefixEmpty,
-      writerSettled: async victim => {
-        const id = this.env.CONTAINER.idFromName(`${bucket}-${victim.sessionId}`);
-        const owner = this.env.CONTAINER.get(id) as unknown as Pick<container, 'hermesWriterSettled'>;
-        return (await raceBudget(owner.hermesWriterSettled(bucket, victim), Math.max(1, deadline - Date.now()))) === true;
-      },
+      writerExited: prior => writerEvidence(prior, 'hermesWriterExited'),
+      writerSettled: prior => writerEvidence(prior, 'hermesWriterSettled'),
       evict: async prefix => {
         const [before, admitted] = await Promise.all([getRegimeState(this.env, bucket), canAdmit()]);
         if (!admitted || signal.aborted || before.status !== 'ready' || before.generation !== regime.generation) {
@@ -1338,7 +1348,8 @@ export class container extends Container<Env> implements ContainerEnvState {
         if (disposition === 'new' || disposition === 'existing') {
           await this.ctx.storage.put(HERMES_DIRECT_LAYOUT_KEY, true);
         }
-        this.envVars = { ...this.envVars, CODEFLARE_HERMES_PERSISTENCE: disposition ?? 'deferred' };
+        this.envVars = { ...this.envVars, CODEFLARE_HERMES_PERSISTENCE: disposition ?? 'deferred',
+          CODEFLARE_HERMES_GENERATION: String(generation) };
       }
       await stillAdmitted();
       if (this.ctx.container?.running) throw new Error('Unexpected existing session process');

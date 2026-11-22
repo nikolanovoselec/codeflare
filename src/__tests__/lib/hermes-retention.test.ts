@@ -21,17 +21,21 @@ async function withBucket(run: (bucket: Awaited<ReturnType<typeof fixture>>) => 
 
 async function fixture(storage: DurableObjectStorage) {
   const stores = new Map<string, HermesFileObservation[]>();
+  const incomplete = new Set<string>();
+  const exited = new Map<string, number>();
   const objects = new Map<string, string>();
   const settled = new Map<string, number>();
   let inventoryComplete = true;
-  let deletion: 'confirmed' | 'failed' | 'partial' | 'lost-reply' = 'confirmed';
+  let deletion: 'confirmed' | 'failed' | 'partial' | 'lost-reply' | 'rejected' = 'confirmed';
   let beforeDelete: (() => Promise<void>) | undefined;
   let now = 10_000;
   const ports = {
     canAdmit: async () => true,
-    inventory: async () => inventoryComplete ? new Map(stores) : null,
+    inventory: async () => inventoryComplete ? new Map([...stores]
+      .map(([id, files]) => [id, incomplete.has(id) ? null : files] as const)) : null,
     observe: async (sessionId: string) => stores.get(sessionId)
       ?? ([...objects.keys()].some(key => key.startsWith(prefix(sessionId))) ? null : 'absent' as const),
+    writerExited: async (identity: ReturnType<typeof writer>) => (exited.get(identity.sessionId) ?? settled.get(identity.sessionId)) === identity.generation,
     writerSettled: async (identity: ReturnType<typeof writer>) => settled.get(identity.sessionId) === identity.generation,
     evict: async (objectPrefix: string) => {
       const pause = beforeDelete;
@@ -43,6 +47,7 @@ async function fixture(storage: DurableObjectStorage) {
       for (const sessionId of stores.keys()) {
         if (!objects.has(`${prefix(sessionId)}global/MEMORY.md`)) stores.delete(sessionId);
       }
+      if (deletion === 'rejected') throw new Error('Lost delete response');
       return deletion === 'confirmed';
     },
     prefixEmpty: async (objectPrefix: string) => ![...objects.keys()].some(key => key.startsWith(objectPrefix)),
@@ -56,10 +61,10 @@ async function fixture(storage: DurableObjectStorage) {
     stores.set(sessionId, [{ digest: await digest(content), updatedAt: now }]);
   };
   return {
-    stores, objects, admit, sync, settled,
+    stores, objects, admit, sync, settled, exited, incomplete,
     advance: () => { now++; },
     loseInventory: () => { inventoryComplete = false; },
-    loseDeleteConfirmation: (effect: 'failed' | 'partial' | 'lost-reply' = 'failed') => { deletion = effect; },
+    loseDeleteConfirmation: (effect: 'failed' | 'partial' | 'lost-reply' | 'rejected' = 'failed') => { deletion = effect; },
     holdNextDeletion(afterEffect = false) {
       let started!: () => void;
       let release!: () => void;
@@ -93,6 +98,17 @@ it('REQ-MEM-042 AC1: overlapping admissions evict distinct least recently update
   await withBucket(async f => {
     await f.fill();
     f.reopenOwner();
+    // Both starts reserve before the entrypoints can publish Markdown.
+    const decisions = await Promise.all(newIds.map(id => f.admit(id)));
+    expect(decisions).toEqual(newIds.map(() => 'new'));
+    for (const id of newIds) await f.sync(id, 'Shared seeds');
+    expect([...f.stores.keys()].sort()).toEqual([...oldIds.slice(2), ...newIds].sort());
+  });
+});
+
+it('REQ-MEM-042 AC1: an upload racing the next admission does not reuse a slot', async () => {
+  await withBucket(async f => {
+    await f.fill();
     const decisions = await Promise.all(newIds.map(async id => {
       const decision = await f.admit(id);
       if (decision === 'new') await f.sync(id, 'Shared seeds');
@@ -189,7 +205,7 @@ it.each([false, true])('REQ-MEM-042 AC4: a held deletion cannot free a slot afte
   });
 });
 
-it.each(['partial', 'lost-reply'] as const)('REQ-MEM-042 AC4: an unconfirmed %s deletion requires empty-prefix readback', async mode => {
+it.each(['partial', 'lost-reply', 'rejected'] as const)('REQ-MEM-042 AC4: an unconfirmed %s deletion requires empty-prefix readback', async mode => {
   await withBucket(async f => {
     await f.fill();
     f.objects.set(`${prefix(oldIds[0])}Projects/workspace/MEMORY.md`, 'Project fact');
@@ -242,3 +258,26 @@ it.each(['unsettled-oldest', 'incomplete-inventory', 'unconfirmed-deletion'] as 
     });
   },
 );
+
+it('REQ-MEM-042 AC4: an incomplete non-victim observation blocks eviction', async () => {
+  await withBucket(async f => {
+    await f.fill();
+    f.incomplete.add(oldIds[9]);
+    expect(await f.admit(newIds[0])).toBe('deferred');
+    expect([...f.stores.keys()].sort()).toEqual(oldIds);
+  });
+});
+
+it('REQ-MEM-041 AC2: confirmed exit after failed final sync allows reopening but not eviction', async () => {
+  await withBucket(async f => {
+    await f.fill();
+    const oldest = oldIds[0];
+    const previous = f.objects.get(`${prefix(oldest)}global/MEMORY.md`);
+    f.settled.delete(oldest);
+    expect(await f.admit(oldest, 2)).toBe('deferred');
+    f.exited.set(oldest, 1);
+    expect(await f.admit(newIds[0])).toBe('deferred');
+    expect(await f.admit(oldest, 2)).toBe('existing');
+    expect(f.objects.get(`${prefix(oldest)}global/MEMORY.md`)).toBe(previous);
+  });
+});

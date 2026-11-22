@@ -39,6 +39,13 @@ describe('drainFinalSync (idle/quota-stop path) container auth', () => {
     ]);
   });
 
+  it('REQ-MEM-042 AC3: automatic final sync retains a completed receipt for the exact writer', async () => {
+    const f = makeCtx('tok-idle-789');
+    const context = { sessionId: 'session1234', lifecycleGeneration: 7, incidentId: null };
+    await drainFinalSync(f.ctx, 1_000, context);
+    expect(await f.storage.get('finalSyncAudit')).toMatchObject({ ...context, outcome: 'completed', httpStatus: 200 });
+  });
+
   it.each(['absent', 'empty', 'unreadable'] as const)('REQ-SESSION-019 AC1: %s credentials suppress the request and retain a bounded audit', async kind => {
     const f = makeCtx(kind === 'empty' ? '' : undefined);
     if (kind === 'unreadable') {

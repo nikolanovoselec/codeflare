@@ -6,6 +6,8 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 ## 2026-11-22: Sync native Hermes session Markdown
 
+- [REQ-MEM-043](memory.md#req-mem-043-hermes-signed-adapter-compatibility) separates the signed rollout contracts previously documented in REQ-MEM-041 AC5/AC6 from the direct layout. It keeps the legacy predecessor guarantee and refuses master-backed fallback on replacement starts.
+
 - [REQ-MEM-041](memory.md#req-mem-041-session-isolated-hermes-markdown) persists the session’s original Markdown files rather than repackaging them as a checkpoint. A new user without shared masters starts with empty files; older checkpoints are not imported.
 - [REQ-MEM-042](memory.md#req-mem-042-retain-ten-recent-session-memory-stores) keeps at most ten stores per user. At capacity, an admitted session replaces the least recently updated store only after its writer settles and the exact folder is confirmed deleted.
 

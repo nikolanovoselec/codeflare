@@ -17,6 +17,7 @@ interface State { stores: Record<string, Store>; eviction?: { victim: string; se
 interface Ports {
   canAdmit(): Promise<boolean>;
   inventory(): Promise<Map<string, HermesFileObservation[] | null> | null>;
+  writerExited(writer: HermesWriter): Promise<boolean>;
   writerSettled(writer: HermesWriter): Promise<boolean>;
   observe(sessionId: string): Promise<HermesFileObservation[] | 'absent' | null>;
   evict(prefix: string): Promise<boolean | 'not-started'>;
@@ -71,17 +72,28 @@ export class HermesRetention {
     if (previous) {
       if (generation < previous.generation || (inventory.has(sessionId) && !inventory.get(sessionId))
         || (previous.updatedAt !== undefined && !inventory.has(sessionId))) return 'deferred';
-      if (generation > previous.generation
-        && !await ports.writerSettled({ sessionId, generation: previous.generation })) return 'deferred';
+      if (generation > previous.generation) {
+        const previousWriter = { sessionId, generation: previous.generation };
+        const safeToReopen = previous.updatedAt === undefined
+          ? await ports.writerSettled(previousWriter)
+          : await ports.writerExited(previousWriter);
+        if (!safeToReopen) return 'deferred';
+      }
       if (signal?.aborted) return 'deferred';
       previous.generation = generation;
       await this.storage.put(STATE_KEY, state);
       return previous.updatedAt === undefined ? 'new' : 'existing';
     }
     if (Object.keys(state.stores).length >= LIMIT) {
-      const [oldestId, oldest] = Object.entries(state.stores).sort(([a, left], [b, right]) =>
-        (left.updatedAt ?? 0) - (right.updatedAt ?? 0) || (a < b ? -1 : 1))[0];
-      if (!SESSION_ID_PATTERN.test(oldestId) || (inventory.has(oldestId) && !inventory.get(oldestId))
+      const stores = Object.entries(state.stores);
+      if (stores.some(([id, item]) => inventory.get(id) === null
+        || (item.updatedAt !== undefined && !inventory.has(id)))) return 'deferred';
+      // Reservations count toward capacity but cannot be ranked as a saved store.
+      const oldestSaved = stores.filter(([, item]) => item.updatedAt !== undefined).sort(([a, left], [b, right]) =>
+        left.updatedAt! - right.updatedAt! || (a < b ? -1 : 1))[0];
+      if (!oldestSaved) return 'deferred';
+      const [oldestId, oldest] = oldestSaved;
+      if (!SESSION_ID_PATTERN.test(oldestId)
         || !await ports.writerSettled({ sessionId: oldestId, generation: oldest.generation }) || signal?.aborted) return 'deferred';
       // The last upload may have finished between inventory and exit proof.
       // Don't evict a store whose contents or presence changed in that gap.
@@ -91,7 +103,14 @@ export class HermesRetention {
       const prefix = `${HERMES_SESSION_ROOT}${oldestId}/`;
       state.eviction = { victim: oldestId, settled: false };
       await this.storage.put(STATE_KEY, state);
-      const deleted = await ports.evict(prefix);
+      let deleted: Awaited<ReturnType<Ports['evict']>>;
+      try {
+        deleted = await ports.evict(prefix);
+      } catch {
+        // The request has returned, not necessarily with a trustworthy result.
+        // Reuse still requires an independent complete empty-prefix readback.
+        deleted = false;
+      }
       if (deleted === 'not-started') {
         delete state.eviction;
         await this.storage.put(STATE_KEY, state);

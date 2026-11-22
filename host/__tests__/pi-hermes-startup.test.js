@@ -64,7 +64,8 @@ function fixture(t) {
   return { root, home, runtime };
 }
 
-function run(fx, { mode = 'advanced', explicitHome = true, id = sessionId, checkpoint = false, remote = false, persistence = 'new' } = {}) {
+function run(fx, { mode = 'advanced', explicitHome = true, id = sessionId, checkpoint = false, remote = false,
+  persistence = 'new', generation = '1', faultHooks } = {}) {
   return spawnSync('bash', ['-c', [
     'set -euo pipefail',
     functionSource('configure_pi_hermes_memory'),
@@ -82,6 +83,7 @@ function run(fx, { mode = 'advanced', explicitHome = true, id = sessionId, check
       CODEFLARE_RUNTIME_ROOT: fx.runtime,
       SESSION_MODE: mode, SESSION_ID: id, REMOTE_CURATION_ACTIVE: String(remote),
       PI_WARM_EXTENSIONS_DIR: imageAdapterDir, CODEFLARE_HERMES_PERSISTENCE: persistence,
+      CODEFLARE_HERMES_GENERATION: generation, ...(faultHooks ? { PYTHONPATH: faultHooks } : {}),
     },
   });
 }
@@ -384,6 +386,11 @@ describe('Pi Hermes startup (actual entrypoint helper)', () => {
     put(join(restored.home, file), checkpoint);
     succeeds(run(restored, legacy));
     assert.equal(readFileSync(worker(restored), 'utf8'), 'Updated v197 memory');
+    put(worker(fx), 'A change whose directory flush fails');
+    const faultHooks = join(fx.root, 'fault-hooks');
+    put(join(faultHooks, 'sitecustomize.py'), `import os\noriginal = os.fsync\ndef fail_once(fd):\n    if os.readlink('/proc/self/fd/' + str(fd)).endswith('/Vault/Memory/Sessions/${sessionId}'):\n        os.fsync = original\n        raise OSError('fixture directory flush failure')\n    original(fd)\nos.fsync = fail_once\n`);
+    fails(run(fx, { ...legacy, checkpoint: true, faultHooks }));
+    assert.deepEqual(readFileSync(join(fx.home, file)), checkpoint, 'the predecessor survives a late flush failure');
     rmSync(join(fx.home, oldWorkingRoot, 'global/failures.md'));
     fails(run(fx, { ...legacy, checkpoint: true }));
     assert.deepEqual(readFileSync(join(fx.home, file)), checkpoint);
@@ -413,6 +420,32 @@ describe('Pi Hermes startup (actual entrypoint helper)', () => {
       assert.deepEqual(readFileSync(adapter), signed);
       assertSaved(saved);
     }
+  });
+
+  it('REQ-MEM-041 AC6: a replacement without a checkpoint never falls back to master writes', t => {
+    const fx = fixture(t);
+    const masters = restoredMarkdown(fx);
+    const signed = readFileSync(new URL('../__fixtures__/pi-hermes-curation-legacy.ts.txt', import.meta.url));
+    put(join(fx.home, adapterPath), signed);
+    fails(run(fx, { remote: true, persistence: 'legacy', generation: '2' }));
+    assert.equal(existsSync(join(fx.home, configFile)), false);
+    assertSaved(masters);
+  });
+
+  it('REQ-MEM-041 AC7: new admission on a warm home seeds current masters, not evicted memory', t => {
+    const fx = fixture(t);
+    restoredMarkdown(fx);
+    succeeds(run(fx));
+    const global = join(fx.home, sessionRoot, 'global');
+    put(join(global, 'MEMORY.md'), 'Evicted memory');
+    put(join(global, 'sessions.db'), 'Evicted index');
+    put(join(fx.home, canonicalFiles[1]), 'Current master');
+    put(join(fx.home, checkpointFile(sessionId)), 'Untouched legacy checkpoint');
+    succeeds(run(fx, { generation: '2' }));
+    assert.equal(readFileSync(join(global, 'MEMORY.md'), 'utf8'), 'Current master');
+    assert.equal(existsSync(join(global, 'sessions.db')), false);
+    assert.equal(readFileSync(join(fx.home, checkpointFile(sessionId)), 'utf8'), 'Untouched legacy checkpoint');
+    assert.equal(readFileSync(join(fx.home, canonicalFiles[1]), 'utf8'), 'Current master');
   });
 
   it('REQ-MEM-035: AC3 restored facts and cache links exist before the foreground PTY is released', t => {
