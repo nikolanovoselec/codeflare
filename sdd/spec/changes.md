@@ -4,6 +4,10 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-22: Clarify customer-key encryption in Administration
+
+- [REQ-ENTERPRISE-018 AC5](storage.md#req-enterprise-018-governed-mode-toggle-and-configuration-surface) clarifies that authorized tools can scan converted R2 files without the customer key. Files still using SSE-C, including any that migration skips, still require the key. Default R2 encryption and bucket visibility are unchanged.
+
 ## 2026-11-22: Preserve legacy Hermes checkpoints on failure
 
 - With the recognized checkpoint-era adapter, [REQ-MEM-043 AC4–5](memory.md#req-mem-043-hermes-signed-adapter-compatibility) keeps the previous checkpoint recoverable if rollback cannot restore it, and treats a committed checkpoint as saved even if staging cleanup fails.
