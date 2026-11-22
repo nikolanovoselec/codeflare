@@ -537,9 +537,21 @@ The ancillary-consumer method is the linked route test, not hot batch polling. T
 4. Verify applied/current state and bytes/metadata independently of POST success. Bad-marker skips, replayed completed writes, overwritten unchanged edits or premature publication fails. Do not substitute Recreate, changed identity or manufactured provenance.
 5. Existing automated fallback/admission/Recreate checks remain separate. Record concurrency against the six-operation ceiling only when approved traces expose it. If real interruption, scope or observation is unavailable, mark BLOCKED; add no product failpoint or infrastructure.
 
+### Storage breadcrumb browser acceptance
+
+Check [REQ-STOR-261 AC1/AC3](../../sdd/spec/storage.md#req-stor-261-storage-breadcrumb-navigation) in a real browser using an authorized, existing deep folder path. Use phone, tablet, and desktop viewport widths (for example, 375, 768, and 1280 CSS pixels). At each width, choose a path long enough to overflow the breadcrumb; a path that fits cannot qualify the check.
+
+1. Open the deepest folder through Storage. Without manually scrolling, confirm the current crumb is visible at the right end once scrolling settles.
+2. Use the browser’s horizontal scrolling control or a touch swipe to bring an off-screen ancestor into view. Select it and verify Storage shows that ancestor’s folder listing.
+3. Enable the browser or device’s reduced-motion preference and repeat the navigation. The current crumb should still appear at the end, without an animated scroll.
+
+Record the build, browser, widths, and input used. Clipping, an unreachable ancestor, or movement under reduced motion fails the check. If a real browser or overflowing fixture is unavailable, record the check as blocked. Component tests cover scroll intent and ancestor activation, not rendered scrolling.
+
 ### REQ-ENTERPRISE-021 migration progress acceptance
 
-For [REQ-ENTERPRISE-021 AC5](../../sdd/spec/storage.md#req-enterprise-021-governed-mode-migration-safety-and-access-boundary) and [REQ-ENTERPRISE-304 AC4–AC7](../../sdd/spec/storage.md#req-enterprise-304-dashboard-migration-affordance-and-refresh), observe an already authorized isolated fixture prepared under the owner runbook. Do not toggle shared policy, create faults or edit state. Missing active or halted fixtures remain blocked.
+Use an already authorized isolated fixture prepared under the owner runbook. Do not toggle shared policy, create faults, or edit state. Missing active or halted fixtures remain blocked.
+
+This procedure observes the wire projection ([REQ-ENTERPRISE-021 AC5](../../sdd/spec/storage.md#req-enterprise-021-governed-mode-migration-safety-and-access-boundary)) and visible Dashboard status and creation gating ([REQ-ENTERPRISE-304 AC1–AC4 and AC6](../../sdd/spec/storage.md#req-enterprise-304-dashboard-migration-affordance-and-refresh)). The [Dashboard fixtures](../../web-ui/src/__tests__/components/Dashboard.test.tsx) check duplicate submission and refusal isolation (AC5 and AC7).
 
 1. Open or reload the dashboard during the prepared migration. Observe the ancillary response and New Session control; known progress is within 0–99, and the disabled control displays `Migrating N%` for that value.
 2. Keep the page visible and record successive migration ancillary updates. Verify the existing five-second scheduling and non-overlap, distinguishing request duration from timer delay. If migration ends before that observation is possible, record BLOCKED for cadence.
@@ -610,7 +622,7 @@ Migration defers while D1 records a workload-owning session, even if that runtim
 <a id="retry-a-halted-storage-migration"></a>
 If verification repeatedly fails, the dashboard shows **Migration halted** beside **Retry migration** ([REQ-ENTERPRISE-304 AC4–AC7](../../sdd/spec/storage.md#req-enterprise-304-dashboard-migration-affordance-and-refresh)). A retry restarts the current scan without clearing the write gate or changing the target or generation. Background polling must verify before the bucket becomes ready ([REQ-ENTERPRISE-322](../../sdd/spec/storage.md#req-enterprise-322-owner-authorized-migration-retry)).
 
-Retry refuses a changed policy, invalid or changed key, active or unknown session ownership, or unresolved multipart completion. If the original key identity was never recorded, use the authorized administrator recovery process; do not infer it from the current key. See the [migration troubleshooting guide](troubleshooting.md#new-session-button-stuck-on-migrating-governed-mode).
+Retry refuses a changed policy, invalid or changed key, active or unknown session ownership, or unresolved multipart completion. If the original key identity was never recorded, stop retrying. Collect nonsecret status and error evidence and escalate to the authorized deployment administrator ([REQ-ENTERPRISE-322 AC2](../../sdd/spec/storage.md#req-enterprise-322-owner-authorized-migration-retry)). Do not include raw object keys or credentials, infer the original key from the current key, or edit the checkpoint.
 
 The Storage upload queue can rediscover an uncertain multipart completion after reload. It shows the exact pending object; check whether the file already exists before confirming abort. A stale confirmation cannot abort a replacement pending upload. See [REQ-STOR-008](../../sdd/spec/storage.md#req-stor-008-multipart-upload-for-large-files).
 

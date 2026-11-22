@@ -1583,4 +1583,19 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(screen.getByRole('button', { name: 'Retry migration' })).toBeEnabled();
   });
 
+  it('REQ-ENTERPRISE-304: a late refusal stays hidden after a different halt becomes current', async () => {
+    setBucketMigrationHaltedAt(haltedAt);
+    let refuse!: (error: ApiError) => void;
+    retryBucketMigration.mockReturnValueOnce(new Promise((_resolve, reject) => { refuse = reject; }));
+    render(() => <Dashboard {...defaultProps} userName={undefined} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry migration' }));
+    setBucketMigrationHaltedAt('2026-11-21T14:25:00.000Z');
+    expect(screen.getByRole('button', { name: 'Retrying migration' })).toBeDisabled();
+    refuse(new ApiError('Retry refused for the previous halt', 409, 'Conflict'));
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Retry migration' })).toBeEnabled());
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
 });

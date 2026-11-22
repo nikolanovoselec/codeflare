@@ -268,25 +268,26 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         startedAt: '2026-11-20T12:00:00.000Z', updatedAt: haltedAt, keyMd5: computeKeyMd5(key),
       };
 
-      async function retryFixture() {
+      async function retryFixture(ownerEmail = email) {
         const f = ownerFixture();
+        const ownerBucket = getBucketName(ownerEmail);
         const secret = 'fixture-session-signing-secret-for-migration';
-        f.kv._set(`user:${email}`, { role: 'user', subscriptionTier: 'standard' });
+        f.kv._set(`user:${ownerEmail}`, { role: 'user', subscriptionTier: 'standard' });
         f.kv._set(stateKey, halted);
         Object.assign(mockEnv, {
           ENCRYPTION_KEY: key, ONBOARDING_LANDING_PAGE: 'active', OAUTH_CLIENT_ID: 'fixture-client', OAUTH_JWT_SECRET: secret,
           CONTAINER: {
             idFromName: (name: string) => name,
             get: (name: string) => ({ claimBucketOwner: async (owner: string) =>
-              name === `bucket-owner:${bucket}` && owner === email ? 'owned' : 'conflict' }),
+              name === `bucket-owner:${ownerBucket}` && owner === ownerEmail ? 'owned' : 'conflict' }),
             getByName: (name: string) => {
-              if (name !== `storage:${bucket}`) throw new Error('Unexpected bucket storage owner');
+              if (name !== `storage:${ownerBucket}`) throw new Error('Unexpected bucket storage owner');
               return f.instance;
             },
           },
         });
         const app = createTestApp({ routes: [{ path: '/api/sessions', handler: sessionRoutes }], mockKV: f.kv, envOverrides: mockEnv });
-        const token = await signSessionJWT({ email, sub: email, ghLogin: 'migration-owner', aud: SESSION_JWT_AUD }, secret);
+        const token = await signSessionJWT({ email: ownerEmail, sub: ownerEmail, ghLogin: 'migration-owner', aud: SESSION_JWT_AUD }, secret);
         const headers = { Cookie: `codeflare_session=${token}`, 'X-Requested-With': 'XMLHttpRequest', 'Content-Type': 'application/json' };
         return { ...f, read: async () => await f.kv.get(stateKey, 'json') as RegimeState | null,
           retry: (timestamp = haltedAt, authenticated = true) => app.request('/api/sessions/migration/retry', {
@@ -345,6 +346,22 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
           expect((await f.poll()).status).toBe(200);
           expect(await f.read()).toMatchObject({ status: 'ready', regime: 'sse-c', generation: 5 });
         } finally { wire.mockRestore(); }
+      });
+
+      it('REQ-ENTERPRISE-322: an authenticated owner cannot retry another bucket’s halt', async () => {
+        const otherOwner = 'other-migration-owner@example.test';
+        const f = await retryFixture(otherOwner);
+        const otherKey = `r2-regime:${getBucketName(otherOwner)}`;
+        const otherHalt = { ...halted, generation: 8, updatedAt: '2026-11-20T12:10:00.000Z' };
+        f.kv._set(otherKey, otherHalt);
+
+        const response = await f.retry(haltedAt);
+        expect(response.status).toBe(409);
+        expect(await response.json()).toMatchObject({ code: 'MIGRATION_RETRY_BLOCKED' });
+        expect(await f.read()).toEqual(halted);
+        expect(await f.kv.get(otherKey, 'json')).toEqual(otherHalt);
+        expect((await f.retry(otherHalt.updatedAt)).status).toBe(202);
+        expect(await f.read()).toEqual(halted);
       });
 
       it('REQ-ENTERPRISE-322: a mixed recovery can retry its own halt without advancing the generation', async () => {

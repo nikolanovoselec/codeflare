@@ -531,7 +531,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ### REQ-STOR-016: File browser presentation and traversal safety
 
-**Intent:** The web file browser must present consistently across form factors, treat R2 as the single source of truth (not the container filesystem), and reject directory-traversal probes at the prefix-listing endpoint.
+**Intent:** The web file browser must present consistently across form factors, treat R2 as the single source of truth (not the container filesystem), and reject directory-traversal probes at the prefix-listing endpoint. Breadcrumb navigation follows [REQ-STOR-261](#req-stor-261-storage-breadcrumb-navigation).
 
 **Applies To:** User
 
@@ -544,9 +544,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 5. Every folder row surfaces its in-container path in `~/<prefix>` form so the user can see where it maps, at any depth and including dotfolders. <!-- @impl: web-ui/src/components/storage/FileList.tsx::folderShortPath --> <!-- @test: web-ui/src/__tests__/components/FileList.test.tsx (FileList — every folder surfaces its ~/ container path (REQ-STOR-016)) -->
 6. A special folder surfaces its canonical container-path mapping instead of the derived form, since its prefix casing can differ (`workspace/` maps to `~/Workspace`). <!-- @impl: web-ui/src/components/storage/FileList.tsx::shortContainerPath --> <!-- @test: web-ui/src/__tests__/components/FileList.test.tsx (FileList — special folder surfaces its container path on the row) --> <!-- @test: web-ui/src/__tests__/components/FileList.test.tsx (REQ-STOR-016 AC6: lowercase workspace prefix uses the canonical ~/Workspace mapping) -->
 
-**Constraints:**
-
-- The file browser and settings panel are mutually exclusive in the UI. Breadcrumb navigation follows [REQ-STOR-261](#req-stor-261-storage-breadcrumb-navigation).
+**Constraints:** The file browser and settings panel are mutually exclusive in the UI.
 
 **Priority:** P1
 
@@ -566,9 +564,9 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. On folder navigation, an overflowing breadcrumb scrolls once to its current end on desktop, tablet, and mobile, without animation under reduced motion. <!-- @impl: web-ui/src/components/storage/StorageBreadcrumbs.tsx::StorageBreadcrumbs --> <!-- @impl: web-ui/src/styles/storage-browser.css::.storage-breadcrumbs --> <!-- @test: web-ui/src/__tests__/components/StorageBrowser.test.tsx (REQ-STOR-261: opening an overflowing directory scrolls to the end once at width %s) --> <!-- @test: web-ui/src/__tests__/components/StorageBrowser.test.tsx (REQ-STOR-261: reduced motion reveals the breadcrumb end without animation at width %s) -->
+1. On folder navigation, an overflowing breadcrumb scrolls once to its current end on desktop, tablet, and mobile, without animation under reduced motion. <!-- @impl: web-ui/src/components/storage/StorageBreadcrumbs.tsx::StorageBreadcrumbs --> <!-- @impl: web-ui/src/styles/storage-browser.css::.storage-breadcrumbs --> <!-- @test: web-ui/src/__tests__/components/StorageBrowser.test.tsx (REQ-STOR-261: opening an overflowing directory scrolls to the end once at width %s) --> <!-- @test: web-ui/src/__tests__/components/StorageBrowser.test.tsx (REQ-STOR-261: reduced motion reveals the breadcrumb end without animation at width %s) --> <!-- @manual: Use the Storage breadcrumb browser acceptance procedure to observe the rendered rail. -->
 2. The focusable current crumb exposes its full path. <!-- @impl: web-ui/src/components/storage/StorageBreadcrumbs.tsx::StorageBreadcrumbs --> <!-- @test: web-ui/src/__tests__/components/StorageBrowser.test.tsx (REQ-STOR-261: the current folder exposes its full path on a focusable crumb and ancestors still navigate) -->
-3. Users can scroll back to earlier path segments and navigate to an ancestor. <!-- @impl: web-ui/src/components/storage/StorageBreadcrumbs.tsx::StorageBreadcrumbs --> <!-- @impl: web-ui/src/styles/storage-browser.css::.storage-breadcrumbs --> <!-- @test: web-ui/src/__tests__/components/StorageBrowser.test.tsx (REQ-STOR-261: opening an overflowing directory scrolls to the end once at width %s) --> <!-- @test: web-ui/src/__tests__/components/StorageBrowser.test.tsx (REQ-STOR-261: the current folder exposes its full path on a focusable crumb and ancestors still navigate) -->
+3. Users can scroll back to earlier path segments and navigate to an ancestor. <!-- @impl: web-ui/src/components/storage/StorageBreadcrumbs.tsx::StorageBreadcrumbs --> <!-- @impl: web-ui/src/styles/storage-browser.css::.storage-breadcrumbs --> <!-- @test: web-ui/src/__tests__/components/StorageBrowser.test.tsx (REQ-STOR-261: opening an overflowing directory scrolls to the end once at width %s) --> <!-- @test: web-ui/src/__tests__/components/StorageBrowser.test.tsx (REQ-STOR-261: the current folder exposes its full path on a focusable crumb and ancestors still navigate) --> <!-- @manual: Use the Storage breadcrumb browser acceptance procedure to observe the rendered rail. -->
 
 **Constraints:** None.
 
@@ -576,7 +574,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-016](#req-stor-016-file-browser-presentation-and-traversal-safety)
 
-**Verification:** Automated: [StorageBrowser.test.tsx](../../web-ui/src/__tests__/components/StorageBrowser.test.tsx)
+**Verification:** Automated: [StorageBrowser.test.tsx](../../web-ui/src/__tests__/components/StorageBrowser.test.tsx); Manual: [Storage breadcrumb browser acceptance](../../documentation/lanes/storage-and-sync.md#storage-breadcrumb-browser-acceptance)
 
 **Status:** Implemented
 
@@ -1765,12 +1763,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 6. SSE-C migration preserves a default-encrypted empty object only if a fresh authenticated read without SSE-C independently verifies zero length. A listing alone or a failed probe does not qualify. <!-- @impl: src/lib/r2-migration.ts::verifyChunk --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (REQ-ENTERPRISE-020 AC5: independently proves a plain empty object alongside SSE-C objects (%s)) --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (REQ-ENTERPRISE-020 AC5: verifies the empty exception from fresh R2 evidence (%s)) -->
 7. Start verification after the copy pass in the same work interval if budget permits; otherwise resume from the saved checkpoint. <!-- @impl: src/lib/r2-migration.ts::advanceMigrationChunk --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (advanceMigration (chunked, verified, self-healing)) -->
 
-**Constraints:**
-
-- The migration is lossless — bytes never leave R2, and metadata is re-supplied via `MetadataDirective=REPLACE`; a >5 GB object exceeds the single-`CopyObject` limit and is recorded + skipped.
-- The migration is slice-chunked and `start-after`-resumable across `ancillary-status` polls, and the regime commits only after full verification of the eligible set; a crashed lease expires and the next poll resumes safely ([AD91](../../documentation/decisions/README.md#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile)).
-- Termination is guaranteed: verify skips the same oversized objects migrate skips, per-object failures are isolated, and the bounded migrate↔verify retry (`MAX_VERIFY_RETRIES`) halts an unfixable object for admin review.
-- Session creation never migrates a bucket — it only resolves the committed regime, and a new bucket adopts the current policy immediately.
+**Constraints:** Object bytes never leave R2. Copies re-supply metadata; verification observes the same oversized exclusions. A crashed chunk resumes from its checkpoint after lease expiry. Object failures are isolated; migration halts when one object exhausts the verification retry limit. Session creation uses the committed regime without migrating; a new bucket adopts the current policy. See [AD91](../../documentation/decisions/README.md#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile) for copy and checkpoint mechanics.
 
 **Priority:** P2
 
@@ -1840,7 +1833,7 @@ The migration integrity, safe retry, termination and session-creation constraint
 
 ### REQ-ENTERPRISE-021: Governed Mode Migration Safety and Access Boundary
 
-**Intent:** While a bucket's regime migrates ([REQ-ENTERPRISE-020](#req-enterprise-020-governed-mode-re-encrypt-migration-engine)), the system must stay correct and safe for concurrent access: platform writers are backend-gated and direct R2 writers require maintenance quiescence, D1-owned workloads defer conversion, reads stay up via a dual-regime fallback with self-heal for any stray object, and the dashboard reflects migration progress. Under strict Gateway egress ([REQ-ENTERPRISE-016](security.md#req-enterprise-016-strict-gateway-egress)) together with Governed Mode, this boundary also keeps the container's real-secret footprint down to just the DO-issued container-authentication credential.
+**Intent:** While a bucket's regime migrates ([REQ-ENTERPRISE-020](#req-enterprise-020-governed-mode-re-encrypt-migration-engine)), the system must stay correct and safe for concurrent access: platform writers are backend-gated and direct R2 writers require maintenance quiescence, D1-owned workloads defer conversion, reads stay up via a dual-regime fallback with self-heal for eligible strays, and the dashboard reflects migration progress. Under strict Gateway egress ([REQ-ENTERPRISE-016](security.md#req-enterprise-016-strict-gateway-egress)) together with Governed Mode, this boundary also keeps the container's real-secret footprint down to just the DO-issued container-authentication credential.
 
 **Applies To:** Admin
 
@@ -1850,22 +1843,17 @@ The migration integrity, safe retry, termination and session-creation constraint
 2. While a bucket migrates, platform write attempts are blocked before user R2 I/O, except explicit matching uncertain-completion abort recovery under REQ-ENTERPRISE-086. <!-- @impl: src/routes/storage/upload.ts::app --> <!-- @test: src/__tests__/routes/storage-upload.test.ts (Governed Mode write gate (REQ-ENTERPRISE-021)) -->
 3. While a bucket migrates, sync fan-out performs no container work. <!-- @impl: src/lib/r2-regime-state.ts::isBucketMigrating --> <!-- @impl: src/lib/sync-fanout.ts::fanOutBisyncTrigger --> <!-- @test: src/__tests__/routes/sessions-sync.test.ts (skips the entire fan-out while the bucket is migrating (no container is contacted)) -->
 4. Migration preflight defers while D1 records a workload owner, without destroying that workload. <!-- @impl: src/lib/r2-migration.ts::advanceMigration --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (advanceMigration (chunked, verified, self-healing)) -->
-5. Ancillary status returns `bucketMigrating`, a 0–99 `bucketMigrationPercent` when known and not halted, and the halt timestamp instead of percentage when halted. <!-- @test: web-ui/src/__tests__/stores/session.test.ts (Session Store) --> <!-- @impl: src/routes/session/lifecycle.ts::app.get --> <!-- @test: src/__tests__/container/index.test.ts (REQ-ENTERPRISE-021: one authenticated retry resets the halt and keeps writes gated until the next poll verifies) -->
-6. Read paths (download, preview) try the committed regime first and fall back once to the opposite regime on a `400`/`403` SSE-mismatch, so a partially-migrated bucket stays readable. <!-- @impl: src/lib/r2-migration.ts::fetchObjectWithRegimeFallback --> <!-- @impl: src/lib/r2-regime-state.ts::resolveReadRegime -->
-7. An eligible fallback hit on a `ready` bucket starts one `mixed-recovery` scan only without a healthy container, otherwise keeps the bucket ready, and changes neither regime nor generation. Verified empty default-encrypted objects are not eligible. <!-- @impl: src/lib/r2-migration.ts::fetchObjectWithRegimeFallback --> <!-- @impl: src/lib/r2-migration.ts::markMixedRecovery --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (flips a ready bucket into a mixed-recovery scan) --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (is a no-op when a migration is already in flight) --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (D1: defers (does not flip/gate) when a session container is still healthy) --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (fetchObjectWithRegimeFallback (D2 reads stay up)) --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (%s reads committed bytes, then falls back once to the opposite regime) --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (REQ-ENTERPRISE-021: a ready SSE-C bucket downloads an empty plain object without starting self-heal) -->
+5. Ancillary status returns `bucketMigrating`, a 0–99 `bucketMigrationPercent` when known and not halted, and the halt timestamp instead of percentage when halted. <!-- @impl: src/routes/session/lifecycle.ts::app.get --> <!-- @test: src/__tests__/container/index.test.ts (REQ-ENTERPRISE-021: one authenticated retry resets the halt and keeps writes gated until the next poll verifies) --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (REQ-ENTERPRISE-020 AC3/7: ancillary polls checkpoint and finish %s through real reconciliation) -->
+6. Read paths (download, preview) try the committed regime first and fall back once to the opposite regime on a `400`/`403` SSE-mismatch, so a partially-migrated bucket stays readable. <!-- @impl: src/lib/r2-migration.ts::fetchObjectWithRegimeFallback --> <!-- @impl: src/lib/r2-regime-state.ts::resolveReadRegime --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (fetchObjectWithRegimeFallback (D2 reads stay up)) --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (%s reads committed bytes, then falls back once to the opposite regime) -->
+7. An eligible fallback hit on a `ready` bucket starts one `mixed-recovery` scan only without a healthy container, otherwise keeps the bucket ready, and changes neither regime nor generation. Verified empty default-encrypted objects are not eligible. <!-- @impl: src/lib/r2-migration.ts::fetchObjectWithRegimeFallback --> <!-- @impl: src/lib/r2-migration.ts::markMixedRecovery --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (flips a ready bucket into a mixed-recovery scan) --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (is a no-op when a migration is already in flight) --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (D1: defers (does not flip/gate) when a session container is still healthy) --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (REQ-ENTERPRISE-021: a ready SSE-C bucket downloads an empty plain object without starting self-heal) --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (falls back to the opposite regime on a 400 and flags a stray on a READY bucket) -->
 
-**Constraints:**
-
-- D1 workload-owner exclusion and bucket-DO multipart/generation admission govern platform migration.
-- Direct R2 writers must remain quiescent during maintenance.
-- Verification and read self-heal are independent safeguards, not universal external-writer fencing.
-- `mixed-recovery` respects D1 (no force-kill); key rotation is detect-only, with no old-key fallback.
+**Constraints:** D1 workload ownership defers migration and mixed recovery without force-kill, and bucket-DO multipart admission fences generations. Direct R2 writers must stay quiescent; verification and read self-heal are independent safeguards, not external-writer fencing. Key rotation is detect-only, with no old-key fallback.
 
 **Priority:** P2
 
 **Dependencies:** [REQ-ENTERPRISE-020](#req-enterprise-020-governed-mode-re-encrypt-migration-engine), [REQ-ENTERPRISE-018](#req-enterprise-018-governed-mode-toggle-and-configuration-surface), [REQ-ENTERPRISE-016](security.md#req-enterprise-016-strict-gateway-egress), [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-SEC-005](security.md#req-sec-005-r2-files-encrypted-at-rest-with-sse-c-when-operator-configures-an-encryption-key), [REQ-BROWSER-008](browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container)
 
-**Verification:** Automated: [container-env-llm.test.ts](../../src/__tests__/container/container-env-llm.test.ts), [storage-upload.test.ts](../../src/__tests__/routes/storage-upload.test.ts), [sessions-sync.test.ts](../../src/__tests__/routes/sessions-sync.test.ts), [r2-migration.test.ts](../../src/__tests__/lib/r2-migration.test.ts), [halt status HTTP fixture](../../src/__tests__/container/index.test.ts), [session store](../../web-ui/src/__tests__/stores/session.test.ts); Manual: [migration progress acceptance](../../documentation/lanes/storage-and-sync.md#req-enterprise-021-migration-progress-acceptance)
+**Verification:** Automated: [container-env-llm.test.ts](../../src/__tests__/container/container-env-llm.test.ts), [storage-upload.test.ts](../../src/__tests__/routes/storage-upload.test.ts), [sessions-sync.test.ts](../../src/__tests__/routes/sessions-sync.test.ts), [r2-migration.test.ts](../../src/__tests__/lib/r2-migration.test.ts), [halt status HTTP fixture](../../src/__tests__/container/index.test.ts)
 
 **Status:** Implemented
 
@@ -1885,12 +1873,9 @@ The migration integrity, safe retry, termination and session-creation constraint
 4. On halt, the disabled New Session slot displays `Migration halted` alongside a separate `Retry migration` action. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-ENTERPRISE-304: a halt gates the New Session slot and offers a separate Retry migration action (bucketMigrating=%s)) -->
 5. While a retry is pending, the dashboard prevents another retry submission. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-ENTERPRISE-304: Retry migration submits the halt timestamp once while pending and does not unlock New Session on success) -->
 6. A retry acknowledgment does not enable New Session before the migration completes. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-ENTERPRISE-304: Retry migration submits the halt timestamp once while pending and does not unlock New Session on success) -->
-7. The dashboard explains a refused retry only while the matching halt is current. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-ENTERPRISE-304: a rejected retry is reported without rendering server markup or lifting the halt) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-ENTERPRISE-304: a retry refusal belongs only to the halt that was retried) -->
+7. The dashboard explains a refused retry only while the matching halt is current. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-ENTERPRISE-304: a rejected retry is reported without rendering server markup or lifting the halt) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-ENTERPRISE-304: a retry refusal belongs only to the halt that was retried) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-ENTERPRISE-304: a late refusal stays hidden after a different halt becomes current) -->
 
-**Constraints:**
-
-- The backend gate + container drain are the safety boundary; a container regime generation guard was deliberately not built ([AD91](../../documentation/decisions/README.md#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile)) — the verify-rescan + read self-heal catch any stray write.
-- `mixed-recovery` respects D1 (no force-kill); key rotation is detect-only, with no old-key fallback.
+**Constraints:** The backend gate and container drain enforce [REQ-ENTERPRISE-021](#req-enterprise-021-governed-mode-migration-safety-and-access-boundary); no container-side regime generation guard. Verification and read self-heal cover strays within [AD91](../../documentation/decisions/README.md#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile) boundaries.
 
 **Priority:** P2
 
@@ -1910,7 +1895,7 @@ The migration integrity, safe retry, termination and session-creation constraint
 
 **Acceptance Criteria:**
 
-1. A retry can restart only the authenticated owner's matching current halt. Duplicate or stale attempts do not start new work. <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @impl: src/container/index.ts::retryBucketMigration --> <!-- @test: src/__tests__/container/index.test.ts (REQ-ENTERPRISE-021: one authenticated retry resets the halt and keeps writes gated until the next poll verifies) -->
+1. A retry can restart only the authenticated owner's matching current halt. Duplicate or stale attempts do not start new work. <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @impl: src/container/index.ts::retryBucketMigration --> <!-- @test: src/__tests__/container/index.test.ts (REQ-ENTERPRISE-021: one authenticated retry resets the halt and keeps writes gated until the next poll verifies) --> <!-- @test: src/__tests__/container/index.test.ts (REQ-ENTERPRISE-322: an authenticated owner cannot retry another bucket’s halt) -->
 2. Unsafe retries return an actionable refusal without clearing the halt. If the original key identity was never recorded, the refusal directs the owner to administrator recovery. <!-- @impl: src/container/index.ts::retryBucketMigration --> <!-- @test: src/__tests__/container/index.test.ts (REQ-ENTERPRISE-021: refuses %s without changing the halted migration) -->
 3. An accepted retry retains the committed regime, generation, and write gate until verification. <!-- @impl: src/container/index.ts::retryBucketMigration --> <!-- @test: src/__tests__/container/index.test.ts (REQ-ENTERPRISE-021: one authenticated retry resets the halt and keeps writes gated until the next poll verifies) -->
 4. Newly started mixed recovery records the configured key identity so a matching halt can be retried without changing the committed regime or generation. <!-- @impl: src/lib/r2-migration.ts::markMixedRecovery --> <!-- @test: src/__tests__/container/index.test.ts (REQ-ENTERPRISE-322: a mixed recovery can retry its own halt without advancing the generation) -->
