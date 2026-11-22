@@ -222,6 +222,23 @@ test('REQ-IDE-037 AC6: reap captures a verified upgrade without an obsolete mark
   assert.equal(JSON.parse(readFileSync(manifestPath, 'utf8')).extensions[id].version, '2.0.0');
 });
 
+test('REQ-IDE-062 AC1: reap saves a valid inventory whose handoff exceeds the manifest limit', () => {
+  const { extensionsDir, manifest: manifestPath } = fixture();
+  const entries = Array.from({ length: 50 }, (_, i) => registryEntry(`publisher.x${String(i).padStart(2, '0')}${'x'.repeat(1140)}`, `1.0.0-${'a'.repeat(58)}`));
+  writeFileSync(manifestPath, JSON.stringify({ ...manifest({}), securityWarningShown: true }));
+  const registry = join(extensionsDir, 'extensions.json');
+  const read = () => JSON.parse(readFileSync(manifestPath, 'utf8')).extensions;
+  writeFileSync(registry, JSON.stringify(entries));
+  capture(extensionsDir, manifestPath);
+  assert.equal(Object.keys(read()).length, 50);
+  assert.ok(readFileSync(manifestPath).length <= 65536);
+  assert.ok(readFileSync(join(extensionsDir, '.codeflare-extension-capture.json')).length > 65536);
+  entries[0].version = '2.0.0';
+  writeFileSync(registry, JSON.stringify(entries));
+  capture(extensionsDir, manifestPath);
+  assert.equal(read()[entries[0].identifier.id].version, '2.0.0');
+});
+
 test('REQ-IDE-037 AC4: reap preserves a pending pin until the conflicting registry row changes', () => {
   const { extensionsDir, manifest: manifestPath } = fixture();
   const id = 'publisher.extension';

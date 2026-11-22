@@ -1317,7 +1317,10 @@ export async function collectMetrics(
           // An older host's bundled inventory is only a readiness hint. Read
           // authority before requesting fresh inventory, never after the scan.
           const current = await readCurrent().catch(() => null);
-          if (sameGeneration(current)) {
+          // Only scan when the row can accept this inventory. In particular,
+          // optional work must not spend the remaining unreachable recovery window.
+          if (sameGeneration(current) && (current.lifecycleState === 'starting' || current.lifecycleState === 'running')
+            && !current.unreachableIncidentId && !current.terminationIntentId && sequence > current.observationSequence) {
             const inventory = await raceBudget((async () => {
               const result = await pollContainer(port, 'http://localhost/internal/runtime-observation?inventory=only',
                 CONTAINER_POLL_BUDGET_MS, execution.authToken);

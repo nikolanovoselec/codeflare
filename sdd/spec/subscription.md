@@ -233,7 +233,7 @@ Tiers, billing, usage tracking, and quotas.
 **Acceptance Criteria:**
 
 1. Each user has exactly one authoritative in-flight usage accumulator. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)) -->
-2. Healthy session metrics report cumulative usage to the owner's accumulator on the normal 60-second cadence in every deployment mode. Recovery probes, uncertain projections, and stopping ticks do not report usage. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SUB-006 AC2 + REQ-SUB-007 AC5: records usage outside SaaS without enforcing a quota response) -->
+2. Healthy session metrics report cumulative usage to the owner's accumulator on the normal 60-second cadence in every deployment mode. Recovery probes, uncertain projections, stopping ticks and unresolved clone-inventory writes do not report usage. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SUB-006 AC2 + REQ-SUB-007 AC5: records usage outside SaaS without enforcing a quota response) --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (a hung %s is bounded and nonbillable; late SQL cannot overwrite a newer %s) -->
 3. Timekeeper computes per-session deltas, accumulates pending usage in memory, and periodically flushes it to durable storage. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)) -->
 4. Timekeeper returns current flushed daily and monthly KV usage plus pending usage. If the KV read fails, the response reports pending usage alone. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)) -->
 5. The live KV serving record tracks daily, weekly, monthly, yearly, and all-time totals. Each flush credits its batch to the UTC periods current at flush time; the historical D1 projection is separate. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)) -->
@@ -244,12 +244,13 @@ Tiers, billing, usage tracking, and quotas.
 
 - Deployment and stress mode do not gate normal usage reports. SaaS quota enforcement is separate.
 - Multiple concurrent sessions from the same user all ping the same Timekeeper instance.
+- A confirmed stale inventory refusal is not an unresolved write. See [REQ-SESSION-020](session-lifecycle.md#req-session-020-runtime-observation-is-bounded-and-projected-once).
 
 **Priority:** P0
 
 **Dependencies:** None.
 
-**Verification:** Automated: [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts), [index.test.ts](../../src/__tests__/timekeeper/index.test.ts)
+**Verification:** Automated: [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts), [session-d1-lifecycle.test.ts](../../src/__tests__/lib/session-d1-lifecycle.test.ts), [index.test.ts](../../src/__tests__/timekeeper/index.test.ts)
 
 **Status:** Implemented
 

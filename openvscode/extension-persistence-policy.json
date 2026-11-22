@@ -1,6 +1,7 @@
 {
   "version": 1,
   "manifestMaxBytes": 65536,
+  "captureHandoffMaxBytes": 262144,
   "extensionMaxCount": 50,
   "settingsMaxBytes": 32768,
   "settingValueMaxBytes": 2048,

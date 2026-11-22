@@ -670,7 +670,8 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
           ...(mode === 'deferred' ? { workspaceInventoryReady: true } : { workspaceRepos: [] }) });
         inventoryRequested();
         await held;
-        return Response.json({ ...snapshot, workspaceRepos: [] });
+        return Response.json(mode === 'deferred' ? { workspaceRepos: [] }
+          : { ...snapshot, cpu: '98%', workspaceRepos: [] });
       });
       const pending = f.tick();
       await Promise.race([requested, pending.then(() => { throw Error('Metrics tick skipped the fresh inventory scan'); })]);
@@ -1069,6 +1070,34 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
       expect(await repository().getSession(owner, id)).toMatchObject({ lifecycleState: 'running', lifecycleGeneration: 2 });
       expect(f.effects).toEqual(['signal:15', 'destroy']);
     } finally { vi.useRealTimers(); vi.restoreAllMocks(); }
+  });
+
+  it('REQ-SESSION-020: skips inventory and recovers a responsive session just before expiry', async () => {
+    const f = await runtimeFixture();
+    try {
+      await f.tick();
+      const incident = (await repository().getSession(owner, id))!;
+      expect(incident.lifecycleState).toBe('unreachable');
+      const expiresAt = incident.unreachableDeadlineMs!;
+      f.time(expiresAt - 1);
+      const startingRequest = f.hostRequests.length;
+      f.respond(async url => {
+        if (new URL(url).searchParams.get('inventory') === 'only') {
+          // Even a successful scan taking another 2 ms would consume the recovery window.
+          f.time(expiresAt + 1);
+          return Response.json({ workspaceRepos: [] });
+        }
+        return Response.json({ lastInputAt: expiresAt - 1, workspaceInventoryReady: true,
+          observedAt: new Date(expiresAt - 1).toISOString() });
+      });
+      await f.tick();
+      const recovered = await repository().getSession(owner, id);
+      expect(recovered).toMatchObject({ lifecycleState: 'running', lifecycleGeneration: 1 });
+      expect(recovered?.unreachableIncidentId).toBeUndefined();
+      expect(recovered?.terminationIntentId).toBeUndefined();
+      expect(f.hostRequests.slice(startingRequest).some(({ url }) => new URL(url).searchParams.get('inventory') === 'only')).toBe(false);
+      expect(f.effects).toEqual([]);
+    } finally { vi.restoreAllMocks(); }
   });
 
   it('recovers on any same-incident host response before deadline without an ordinary projection bypass', async () => {

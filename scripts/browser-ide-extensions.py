@@ -318,7 +318,7 @@ def _read_capture_handoff(path: Path, policy: dict[str, Any]) -> dict[str, Any]:
     if not _parent_chain_is_safe(path):
         raise UnsafeInput("capture handoff parent redirects through a symlink")
     try:
-        handoff = _read_json_file(path, policy["manifestMaxBytes"])
+        handoff = _read_json_file(path, policy["captureHandoffMaxBytes"])
     except FileNotFoundError:
         return {"pins": {}, "removals": {}}
     if not isinstance(handoff, dict) or set(handoff) != {"pins", "removals"}:
@@ -463,7 +463,7 @@ def capture(extensions_dir: Path, manifest_path: Path, policy_path: Path) -> boo
             raise UnsafeInput("captured manifest exceeds bound")
         if next_handoff != handoff:
             handoff_payload = (json.dumps(next_handoff, separators=(",", ":")) + "\n").encode()
-            if len(handoff_payload) > policy["manifestMaxBytes"]:
+            if len(handoff_payload) > policy["captureHandoffMaxBytes"]:
                 raise UnsafeInput("capture handoff exceeds bound")
             _atomic_write(handoff_path, handoff_payload)
         if manifest_exists and next_manifest == current:

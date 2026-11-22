@@ -1207,6 +1207,18 @@ Anonymous GET `/health` returns only `{ "status": "healthy" }` before protected 
 
 `prewarmReady: false` together with `initFlagObserved: false` means the init-complete flag was never observed. See [Container Startup](container.md#startup-sequence) and [Troubleshooting](troubleshooting.md#container-stuck-at-waiting-for-services) for diagnosis.
 
+### Private runtime observation
+
+All `GET /internal/runtime-observation` modes require the lifecycle bearer. These are host-internal responses, not public Worker endpoints. <!-- @impl: host/src/request-router.ts::createRequestHandler -->
+
+| Query | Response |
+|---|---|
+| None | Runtime metrics and readiness, with `workspaceRepos` when a complete inventory is available. |
+| `inventory=defer` | Runtime metrics and readiness plus `workspaceInventoryReady`; omits `workspaceRepos`. |
+| `inventory=only` | `workspaceRepos` when available, otherwise `{}`. No metrics or `observedAt`. |
+
+Legacy hosts may ignore either selector and return the default response. The coordinator uses only the first response for metrics and only the fresh inventory from the second response for repository tracking.
+
 ---
 
 <a id="specification-coverage"></a>

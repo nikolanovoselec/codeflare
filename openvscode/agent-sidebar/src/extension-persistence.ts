@@ -82,6 +82,7 @@ export type ManifestLoadResult =
 const policy = policyJson as {
   version: number;
   manifestMaxBytes: number;
+  captureHandoffMaxBytes: number;
   extensionMaxCount: number;
   settingsMaxBytes: number;
   settingValueMaxBytes: number;
@@ -403,7 +404,7 @@ function sameRegistryRow(left: ExtensionRecord, right: ExtensionRecord): boolean
 
 async function readCaptureHandoff(extensionsDir: string): Promise<CaptureHandoff> {
   try {
-    const bytes = await readBoundedRegularFile(join(extensionsDir, CAPTURE_HANDOFF), policy.manifestMaxBytes);
+    const bytes = await readBoundedRegularFile(join(extensionsDir, CAPTURE_HANDOFF), policy.captureHandoffMaxBytes);
     const value: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes));
     if (!isRecord(value) || Object.keys(value).length !== 2 || !isRecord(value.pins) || !isRecord(value.removals)) {
       throw new Error('invalid extension capture handoff');
@@ -434,7 +435,7 @@ async function readCaptureHandoff(extensionsDir: string): Promise<CaptureHandoff
 async function writeCaptureHandoff(extensionsDir: string, current: CaptureHandoff, next: CaptureHandoff): Promise<void> {
   const payload = `${JSON.stringify(next)}\n`;
   if (JSON.stringify(current) === JSON.stringify(next)) return;
-  if (Buffer.byteLength(payload) > policy.manifestMaxBytes) throw new Error('capture handoff exceeds bound');
+  if (Buffer.byteLength(payload) > policy.captureHandoffMaxBytes) throw new Error('capture handoff exceeds bound');
   await atomicWrite(join(extensionsDir, CAPTURE_HANDOFF), payload);
 }
 

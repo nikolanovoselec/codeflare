@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
+import policy from '../../extension-persistence-policy.json' with { type: 'json' };
 
 const host = vi.hoisted(() => ({
   commands: [] as Array<{ command: string; arguments: unknown[] }>,
@@ -866,7 +867,7 @@ test('REQ-IDE-037: capture preserves a conflicting pin after a readable handoff 
   const utf8 = (name: string) => JSON.stringify({ pins: {}, removals: {
     [name]: { marker: `${name}-2.0.0-universal`, observed: { version: '2.0.0' } },
   } });
-  const bounded = utf8(`other.x${'x'.repeat(Math.floor((65536 - Buffer.byteLength(utf8('other.x')) - 8) / 2))}`);
+  const bounded = utf8(`other.x${'x'.repeat(Math.floor((policy.captureHandoffMaxBytes - Buffer.byteLength(utf8('other.x')) - 8) / 2))}`);
   writeFileSync(handoff, bounded);
   const options = { extensionsDir, manifestPath, syncPidFile };
   const result = await restoreExtensionManifest(options);
@@ -914,6 +915,25 @@ test.each(['live', 'reap'] as const)('REQ-IDE-037 AC6: %s capture saves an upgra
   writeRegistry(extensionsDir, [{ id, version: '2.0.0' }]);
   await capture();
   assert.equal(JSON.parse(readFileSync(manifestPath, 'utf8')).extensions[id].version, '2.0.0');
+});
+
+test('REQ-IDE-062 AC1: live capture saves a valid inventory whose handoff exceeds the manifest limit', async () => {
+  const { extensionsDir, manifestPath, syncPidFile } = fixture();
+  const entries = Array.from({ length: 50 }, (_, i) => ({
+    id: `publisher.x${String(i).padStart(2, '0')}${'x'.repeat(1140)}`, version: `1.0.0-${'a'.repeat(58)}`,
+  }));
+  writeFileSync(manifestPath, JSON.stringify({ ...validManifest({}), securityWarningShown: true }));
+  const options = { extensionsDir, manifestPath, syncPidFile };
+  const read = () => JSON.parse(readFileSync(manifestPath, 'utf8')).extensions;
+  writeRegistry(extensionsDir, entries);
+  assert.equal(await captureExtensionManifest(options), true);
+  assert.equal(Object.keys(read()).length, 50);
+  assert.ok(readFileSync(manifestPath).length <= 65536);
+  assert.ok(readFileSync(join(extensionsDir, '.codeflare-extension-capture.json')).length > 65536);
+  entries[0]!.version = '2.0.0';
+  writeRegistry(extensionsDir, entries);
+  assert.equal(await captureExtensionManifest(options), true);
+  assert.equal(read()[entries[0]!.id].version, '2.0.0');
 });
 
 test('REQ-IDE-037 AC7: reports a failed final capture handoff write and still restores independent settings', async () => {

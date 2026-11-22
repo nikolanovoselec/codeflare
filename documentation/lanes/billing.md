@@ -104,6 +104,8 @@ Positive historical accounting stages state and marker-cache changes until persi
 
 Pending usage is decremented only after a successful KV write. A flush credits the batch to the live KV periods current at flush time. Live usage reads add pending usage to matching daily and monthly KV totals; a failed KV read reports pending usage alone. A failed flush requests a retry after 30 seconds, but the shared alarm may wake sooner. Timekeeper identity mismatch fails closed with 403. Healthy session metrics report in every deployment mode; recovery and stopping ticks do not. Timekeeper makes quota and trial decisions for SaaS. It is an accounting and quota signal, not an atomic session-admission reservation. D1 history is separate and never overrides quota truth. <!-- @impl: src/timekeeper/index.ts::alarm --> <!-- @impl: src/timekeeper/index.ts::handleGetUsage -->
 
+An unresolved clone-inventory write also suppresses that tick’s usage increment and Timekeeper ping. A confirmed stale-write refusal does not. See [runtime recovery and status](container.md#runtime-recovery-and-status).
+
 <a id="paygate-enforcement"></a>
 ## Enforcement
 
