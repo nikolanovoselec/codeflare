@@ -1143,7 +1143,9 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
     } finally { vi.restoreAllMocks(); }
   });
 
-  it.each(['refused', 'unresolved'] as const)('REQ-SESSION-024 AC2: expiry distinguishes %s recovery writes', async outcome => {
+  it.each([
+    'refused', 'timed out', 'threw without readback proof', 'committed without acknowledgement',
+  ] as const)('REQ-SESSION-024 AC2: expiry distinguishes %s recovery writes', async outcome => {
     const f = await runtimeFixture();
     let finish!: () => void;
     try {
@@ -1155,19 +1157,39 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
       const available = new Promise<void>(resolve => { finish = resolve; });
       let recoveryStarted!: () => void;
       const started = new Promise<void>(resolve => { recoveryStarted = resolve; });
-      vi.spyOn(D1SessionRepository.prototype, 'recoverUnreachable').mockImplementation(async () => {
-        f.time(expiresAt + 1);
-        recoveryStarted();
-        if (outcome === 'unresolved') await available;
-        return false;
-      });
+      const real = f.host.env.USAGE_DB;
+      f.host.env.USAGE_DB = { prepare(sql: string) {
+        const statement = real.prepare(sql);
+        if (!sql.includes("SET lifecycle_state='running', unreachable_incident_id=NULL")) return statement;
+        return { bind: (...args: unknown[]) => {
+          const bound = statement.bind(...args);
+          return { run: async () => {
+            f.time(expiresAt + 1);
+            recoveryStarted();
+            if (outcome === 'timed out') await available;
+            if (outcome === 'committed without acknowledgement') await bound.run();
+            if (outcome === 'threw without readback proof' || outcome === 'committed without acknowledgement') {
+              throw Error('D1 recovery acknowledgement unavailable');
+            }
+            return { success: true, meta: { changes: 0 } };
+          } };
+        } };
+      } } as D1Database;
       vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
       const pending = f.tick();
       await Promise.race([started, pending.then(() => { throw Error('Tick skipped the recovery write'); })]);
-      if (outcome === 'unresolved') await vi.advanceTimersByTimeAsync(10_000);
+      if (outcome === 'timed out') await vi.advanceTimersByTimeAsync(10_000);
       await pending;
       const current = await repository().getSession(owner, id);
-      expect(current).toMatchObject({ lifecycleGeneration: 1, unreachableIncidentId: incident.unreachableIncidentId });
+      expect(current?.lifecycleGeneration).toBe(1);
+      if (outcome === 'committed without acknowledgement') {
+        expect(current?.lifecycleState).toBe('running');
+        expect(current?.unreachableIncidentId).toBeUndefined();
+        expect(current?.terminationIntentId).toBeUndefined();
+        expect(f.effects).toEqual([]);
+        return;
+      }
+      expect(current?.unreachableIncidentId).toBe(incident.unreachableIncidentId);
       if (outcome === 'refused') {
         expect(current?.lifecycleState).toBe('stopping');
         expect(current?.terminationIntentId).toBeDefined();

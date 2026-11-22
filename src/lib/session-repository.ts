@@ -151,8 +151,10 @@ export class D1SessionRepository implements SessionAuthority {
         || current.lifecycleState === 'stopping') ? current : null;
   }
 
+  /** False means an acknowledged refusal; null means readback could not resolve the write. */
   async recoverUnreachable(ownerKey: string, sessionId: string, generation: number, sequence: number,
-    incidentId: string, observedAt: string): Promise<boolean> {
+    incidentId: string, observedAt: string): Promise<boolean | null> {
+    let refused = false;
     try {
       const result = await this.db.prepare(`UPDATE runtime_sessions SET lifecycle_state='running', unreachable_incident_id=NULL,
         unreachable_first_observed_at=NULL, unreachable_deadline_ms=NULL, lifecycle_reason=NULL,
@@ -160,11 +162,13 @@ export class D1SessionRepository implements SessionAuthority {
         WHERE owner_key=?1 AND session_id=?2 AND lifecycle_generation=?3 AND ?4>observation_sequence
           AND lifecycle_state='unreachable' AND unreachable_incident_id=?5 AND termination_intent_id IS NULL`)
         .bind(ownerKey, sessionId, generation, sequence, incidentId, observedAt).run();
-      if (result.meta.changes === 1) return true;
+      if (result.success && result.meta.changes === 1) return true;
+      refused = result.success && result.meta.changes === 0;
     } catch { /* Reconcile an accepted write whose acknowledgement was lost. */ }
     const current = await this.reconcileRuntime(ownerKey, sessionId);
-    return current?.lifecycleGeneration === generation && current.observationSequence === sequence
-      && current.lifecycleState === 'running' && current.unreachableIncidentId === undefined;
+    if (current?.lifecycleGeneration === generation && current.observationSequence === sequence
+      && current.lifecycleState === 'running' && current.unreachableIncidentId === undefined) return true;
+    return refused ? false : null;
   }
 
   async claimUnreachableTermination(ownerKey: string, sessionId: string, generation: number, incidentId: string,
