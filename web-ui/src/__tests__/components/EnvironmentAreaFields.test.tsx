@@ -42,7 +42,7 @@ describe('Environment report fields', () => {
       if (mode === 'enterprise') {
         const encryption = getByRole('checkbox', { name: 'Disable customer-key encryption (SSE-C)' });
         expect(encryption).toBeChecked();
-        expect(encryption).toHaveAccessibleDescription('Allows corporate security tools with authorized R2 access to scan files without the customer key. Cloudflare’s default encryption at rest stays enabled, and the bucket does not become public.');
+        expect(encryption).toHaveAccessibleDescription('Corporate security tools with authorized R2 access can scan converted files without the customer key. Existing SSE-C files still require the key until converted, and some files may be skipped. Cloudflare’s default encryption at rest stays enabled, and the bucket does not become public.');
         expect(getByRole('checkbox', { name: 'Disable storage downloads' })).not.toBeChecked();
       } else {
         expect(queryByRole('checkbox', { name: 'Disable customer-key encryption (SSE-C)' })).toBeNull();
