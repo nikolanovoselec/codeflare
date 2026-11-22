@@ -271,6 +271,16 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       async function retryFixture(ownerEmail = email) {
         const f = ownerFixture();
         const ownerBucket = getBucketName(ownerEmail);
+        const foreignValues = new Map<string, unknown>([['storage:owner', bucket]]);
+        const foreignInstance = ownerBucket === bucket ? undefined : new ContainerClass({
+          ...mockCtx,
+          id: { toString: () => `storage:${bucket}` },
+          storage: {
+            get: vi.fn(async (name: string) => foreignValues.get(name)),
+            put: vi.fn(async (name: string, value: unknown) => { foreignValues.set(name, structuredClone(value)); }),
+            delete: vi.fn(async (name: string) => { foreignValues.delete(name); }),
+          },
+        } as any, mockEnv);
         const secret = 'fixture-session-signing-secret-for-migration';
         f.kv._set(`user:${ownerEmail}`, { role: 'user', subscriptionTier: 'standard' });
         f.kv._set(stateKey, halted);
@@ -281,8 +291,9 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
             get: (name: string) => ({ claimBucketOwner: async (owner: string) =>
               name === `bucket-owner:${ownerBucket}` && owner === ownerEmail ? 'owned' : 'conflict' }),
             getByName: (name: string) => {
-              if (name !== `storage:${ownerBucket}` && name !== `storage:${bucket}`) throw new Error('Unexpected bucket storage owner');
-              return f.instance;
+              if (name === `storage:${ownerBucket}`) return f.instance;
+              if (name === `storage:${bucket}` && foreignInstance) return foreignInstance;
+              throw new Error('Unexpected bucket storage owner');
             },
           },
         });
@@ -290,6 +301,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         const token = await signSessionJWT({ email: ownerEmail, sub: ownerEmail, ghLogin: 'migration-owner', aud: SESSION_JWT_AUD }, secret);
         const headers = { Cookie: `codeflare_session=${token}`, 'X-Requested-With': 'XMLHttpRequest', 'Content-Type': 'application/json' };
         return { ...f, read: async () => await f.kv.get(stateKey, 'json') as RegimeState | null,
+          foreignOwner: () => foreignValues.get('storage:owner'),
           retry: (timestamp = haltedAt, authenticated = true, requestedBucket?: string) => app.request('/api/sessions/migration/retry', {
             method: 'POST', headers: authenticated ? headers : { 'X-Requested-With': 'XMLHttpRequest', 'Content-Type': 'application/json' },
             body: JSON.stringify({ haltedAt: timestamp, bucketName: requestedBucket }),
@@ -361,6 +373,8 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         expect(await f.read()).toEqual(halted);
         expect(await f.kv.get(otherKey, 'json')).toEqual(otherHalt);
         expect((await f.retry(otherHalt.updatedAt)).status).toBe(202);
+        expect(await f.kv.get(otherKey, 'json')).toMatchObject({ halted: false, generation: otherHalt.generation });
+        expect(f.foreignOwner()).toBe(bucket);
         expect(await f.read()).toEqual(halted);
       });
 

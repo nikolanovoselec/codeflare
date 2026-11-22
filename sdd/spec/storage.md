@@ -1875,7 +1875,7 @@ The migration integrity, safe retry, termination and session-creation constraint
 6. A retry acknowledgment does not enable New Session before the migration completes. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-ENTERPRISE-304: Retry migration submits the halt timestamp once while pending and does not unlock New Session on success) -->
 7. The dashboard explains a refused retry only while the matching halt is current. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-ENTERPRISE-304: a rejected retry is reported without rendering server markup or lifting the halt) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-ENTERPRISE-304: a retry refusal belongs only to the halt that was retried) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-ENTERPRISE-304: a late refusal stays hidden after a different halt becomes current) -->
 
-**Constraints:** The backend, not the dashboard, enforces [CON-STOR-001](constraints.md#con-stor-001-r2-regime-migration-boundaries).
+**Constraints:** Under [CON-STOR-001](constraints.md#con-stor-001-r2-regime-migration-boundaries), the backend gates platform writes and coordinates container drain, while operators separately pause direct R2 writers.
 
 **Priority:** P2
 
