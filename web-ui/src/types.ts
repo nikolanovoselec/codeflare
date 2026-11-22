@@ -359,6 +359,7 @@ export interface InitProgress {
 // Startup status response from polling endpoint
 export interface StartupStatusResponse {
   stage: InitStage;
+  confirmedStopped?: true;
   generation?: number;
   progress: number;
   message: string;

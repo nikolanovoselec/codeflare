@@ -505,6 +505,11 @@ export function startSession(
           return;
         }
         if (generation !== undefined && status.generation !== undefined && status.generation !== generation) return;
+        if (status.stage === 'stopped' && status.confirmedStopped && generation !== undefined && status.generation === generation) {
+          cancel();
+          onError('The session stopped before startup completed.', 'SESSION_START_UNCONFIRMED');
+          return;
+        }
         if (status.stage === 'ready' && (generation === undefined || status.generation !== generation)) {
           cancel();
           onError('This Start could not be confirmed.', 'SESSION_START_UNCONFIRMED');

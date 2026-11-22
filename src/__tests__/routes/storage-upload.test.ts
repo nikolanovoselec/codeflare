@@ -597,6 +597,32 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
         expect(await successor.json()).toMatchObject({ code: 'MULTIPART_RESTART_REQUIRED' });
       });
 
+    it('REQ-STOR-008 AC7: a fresh bucket-scoped request recovers only the exact pending upload', async () => {
+      const operation = { key: 'held%2520file.bin', uploadId: 'held-id' };
+      seedManagedUpload('held%20file.bin', operation.uploadId);
+      mockFetch.mockResolvedValueOnce(new Response('<Error><Code>InternalError</Code></Error>'));
+      const post = (path: string, body: object) => createApp().request(path, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+      expect((await post('/upload/complete', { ...operation, parts: [{ partNumber: 1, etag: 'abc' }] })).ok).toBe(false);
+      const pending = { key: 'held%20file.bin', uploadId: operation.uploadId };
+      const discovery = await createApp().request('/upload/recovery');
+      expect(discovery.headers.get('cache-control')).toBe('no-store');
+      expect(await discovery.json()).toEqual(pending);
+      expect(await (await createApp('other-bucket').request('/upload/recovery')).json()).toBeNull();
+      expect((await post('/upload/recovery', operation)).status).toBe(409);
+      let abortedPath: string | undefined;
+      mockFetch.mockImplementationOnce(async (url: string, init: RequestInit) => {
+        expect(init.method).toBe('DELETE');
+        abortedPath = new URL(url).pathname;
+        return new Response('', { status: 404 });
+      });
+      expect((await post('/upload/recovery', pending)).ok).toBe(true);
+      expect(abortedPath).toMatch(/held%2520file\.bin$/);
+      expect(await (await createApp().request('/upload/recovery')).json()).toBeNull();
+      expect((await post('/upload/recovery', pending)).status).toBe(409);
+    });
+
     it('succeeds with valid parts', async () => {
       seedManagedUpload('workspace/large.zip', 'upload-id-123');
       const app = createApp();

@@ -900,6 +900,27 @@ describe('API Client', () => {
       cleanup();
     });
 
+    it('REQ-SESSION-017 AC3: releases Start polling after a same-generation confirmed stop', async () => {
+      const onComplete = vi.fn();
+      const onError = vi.fn();
+      const stopped = { stage: 'stopped', generation: 7, progress: 0, message: 'Container not running',
+        details: { bucketName: 'test', container: 'test', path: '/workspace' } };
+      const reply = (body: object) => ({ ok: true, status: 200, text: async () => JSON.stringify(body) });
+      mockFetch.mockResolvedValueOnce(reply({ generation: 7 }))
+        .mockResolvedValueOnce(reply(stopped))
+        .mockResolvedValueOnce(reply({ ...stopped, confirmedStopped: true }));
+      const cleanup = startSession('session00123', vi.fn(), onComplete, onError);
+      try {
+        await vi.advanceTimersByTimeAsync(0);
+        expect(onError).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(1500);
+        expect(onError).toHaveBeenCalledWith(expect.any(String), 'SESSION_START_UNCONFIRMED');
+        expect(onComplete).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(3000);
+        expect(mockFetch).toHaveBeenCalledTimes(3);
+      } finally { cleanup(); }
+    });
+
     it('should stop polling when cleanup is called', async () => {
       const onProgress = vi.fn();
       const onComplete = vi.fn();

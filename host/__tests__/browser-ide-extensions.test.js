@@ -210,6 +210,22 @@ test('REQ-IDE-037 AC4: reap preserves a pending pin until the conflicting regist
   assert.equal(JSON.parse(readFileSync(manifestPath, 'utf8')).extensions[id].version, '3.0.0');
 });
 
+test('REQ-IDE-062 AC3: reap preserves a different platform until a version-wide uninstall', () => {
+  const { extensionsDir, manifest: manifestPath } = fixture();
+  const id = 'publisher.extension';
+  const saved = { version: '1.0.0', targetPlatform: 'universal' };
+  writeFileSync(manifestPath, JSON.stringify({ ...manifest({ [id]: saved }), securityWarningShown: true }));
+  writeFileSync(join(extensionsDir, 'extensions.json'), JSON.stringify([registryEntry(id, '1.0.0', 'linux-x64')]));
+  const marker = join(extensionsDir, '.obsolete');
+  const read = () => JSON.parse(readFileSync(manifestPath, 'utf8')).extensions;
+  writeFileSync(marker, JSON.stringify({ [`${id}-1.0.0-linux-x64`]: true }));
+  capture(extensionsDir, manifestPath);
+  assert.deepEqual(read(), { [id]: saved });
+  writeFileSync(marker, JSON.stringify({ [`${id}-1.0.0`]: true }));
+  capture(extensionsDir, manifestPath);
+  assert.deepEqual(read(), {});
+});
+
 test('REQ-IDE-062 AC3: repeated reap cannot resurrect platform-less obsolete intent, but reinstall can', () => {
   const { extensionsDir, manifest: manifestPath } = fixture();
   const id = 'publisher.extension';

@@ -990,6 +990,22 @@ test('REQ-IDE-016 AC4 + REQ-IDE-036 AC4+AC5+AC6 + REQ-IDE-038 AC5 + REQ-OPS-048 
   assert.equal(kill.mock.calls.length, 2);
 });
 
+test('REQ-IDE-062 AC3: live capture preserves a different platform until a version-wide uninstall', async () => {
+  const { extensionsDir, manifestPath, syncPidFile } = fixture();
+  const id = 'publisher.extension';
+  const saved = { version: '1.0.0', targetPlatform: 'universal' };
+  writeRegistry(extensionsDir, [{ id, version: '1.0.0', targetPlatform: 'linux-x64' }]);
+  writeFileSync(manifestPath, JSON.stringify({ ...validManifest({ [id]: saved }), securityWarningShown: true }));
+  const marker = join(extensionsDir, '.obsolete');
+  const read = () => JSON.parse(readFileSync(manifestPath, 'utf8')).extensions;
+  writeFileSync(marker, JSON.stringify({ [`${id}-1.0.0-linux-x64`]: true }));
+  await captureExtensionManifest({ extensionsDir, manifestPath, syncPidFile });
+  assert.deepEqual(read(), { [id]: saved });
+  writeFileSync(marker, JSON.stringify({ [`${id}-1.0.0`]: true }));
+  await captureExtensionManifest({ extensionsDir, manifestPath, syncPidFile });
+  assert.deepEqual(read(), {});
+});
+
 test('REQ-IDE-036 AC6: obsolete evidence removes a stale registry entry without platform metadata', async () => {
   const { extensionsDir, manifestPath, syncPidFile } = fixture();
   writeRegistry(extensionsDir, [{ id: 'publisher.extension', version: '1.0.0', omitMetadata: true }]);

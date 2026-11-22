@@ -870,7 +870,7 @@ None.
 **Acceptance Criteria:**
 
 1. The image warms managed Pi extension entrypoints and local TypeScript files at their runtime paths. Package settings come from the preseed dependency manifest; native JavaScript entries are verified as native imports, not transpile artifacts. <!-- @impl: Dockerfile::PI_WARM_PACKAGES --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @manual -->
-2. The image build fails if the transpile cache is empty, a required extension fails to load, or fresh-process replay fails to verify cache reuse. <!-- @impl: Dockerfile::goal_hit --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @manual -->
+2. The image build fails if the transpile cache is empty, a required extension fails to load, or fresh-process replay fails to verify cache reuse. <!-- @impl: Dockerfile::todo_loop_hit --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @manual -->
 
 **Constraints:**
 
@@ -933,7 +933,8 @@ Runtime readiness remains governed by [REQ-SESSION-015](#req-session-015-contain
 
 **Constraints:**
 
-- A failed SDK state read retains the default `stopped` response; `starting` covers known non-running SDK state and unavailable startup services.
+- A D1-confirmed stop returns `stopped` with its generation and `confirmedStopped: true`. Startup polling hands a matching stop back to the session list. <!-- @impl: src/routes/container/status.ts::app --> <!-- @impl: web-ui/src/api/client.ts::startSession --> <!-- @test: src/__tests__/routes/container-status.test.ts (REQ-SESSION-017 AC3: reports a D1-confirmed stop even if the SDK still reports running) --> <!-- @test: web-ui/src/__tests__/api/client.test.ts (REQ-SESSION-017 AC3: releases Start polling after a same-generation confirmed stop) -->
+- A failed SDK state read still returns unconfirmed `stopped`; known non-running SDK state and unavailable startup services remain retryable.
 - `syncing` represents initial sync progress, `verifying` waits for the terminal service after sync, and `mounting` waits for Classic/Herdr prewarm or editor readiness.
 
 **Priority:** P1

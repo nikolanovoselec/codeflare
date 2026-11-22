@@ -15,6 +15,8 @@ vi.mock('../../api/storage', async (importOriginal) => ({
   uploadPart: vi.fn(),
   completeMultipartUpload: vi.fn(),
   abortMultipartUpload: vi.fn(),
+  getMultipartRecovery: vi.fn().mockResolvedValue(null),
+  recoverMultipartUpload: vi.fn(),
   deleteFiles: vi.fn(),
   getStats: vi.fn(),
   getPreview: vi.fn(),
@@ -690,6 +692,22 @@ describe('Storage Store', () => {
       expect(storageStore.uploads[0]).toMatchObject({ status: 'error', error: 'Part failed' });
       if (refused) expect(abort).not.toHaveBeenCalled();
       else expect(abort).toHaveBeenCalledWith('workspace/large.bin', 'upload-held');
+    });
+
+    it('REQ-STOR-008 AC7: a fresh upload queue rediscovers the server-recorded recovery action', async () => {
+      const identity = { key: 'Uploads/held%20file.bin', uploadId: 'held-id' };
+      vi.mocked(storageApi.getMultipartRecovery).mockResolvedValueOnce(identity);
+      const recover = vi.mocked(storageApi.recoverMultipartUpload).mockResolvedValueOnce(undefined);
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValue(true);
+      try {
+        render(() => createComponent(UploadQueue, {}));
+        const button = await screen.findByRole('button', { name: 'Abort upload' });
+        fireEvent.click(button);
+        expect(recover).not.toHaveBeenCalled();
+        fireEvent.click(button);
+        await waitFor(() => expect(screen.getByText('aborted')).toBeInTheDocument());
+        expect(recover).toHaveBeenCalledWith(identity.key, identity.uploadId);
+      } finally { cleanup(); confirm.mockRestore(); }
     });
 
     it('REQ-STOR-008 AC7: only confirmed recovery aborts the unconfirmed upload, and failed recovery stays available', async () => {

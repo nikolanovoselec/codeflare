@@ -139,18 +139,17 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Constraints:**
 
-- Builds and test execution outside the tuned managed safe-local-check wrapper are CI-only, regardless of deployment CPU, memory or storage.
-- Runner labels remain configurable across workflows.
-- Hosted Ubuntu sandbox packages use official Ubuntu sources only; unavailable required sources/packages fail the host lane. <!-- @impl: scripts/ci/install-approved-packet-packages.sh::apt_options --> <!-- @impl: .github/workflows/test.yml::host-tests --> <!-- @test: host/__tests__/ci-sandbox-packages.test.js (approved-packet sandbox package prerequisites) -->
-- Custom-runner policy and real bubblewrap/AppArmor probe stay unchanged.
-- Path-filtered lanes run in parallel; manual dispatch runs all.
+- Builds and tests outside `safe-local-checks` are CI-only at every scale.
+- All workflows retain configurable runner labels.
+- Hosted Ubuntu sandbox packages must come from official sources; missing prerequisites fail the Host lane. <!-- @impl: scripts/ci/install-approved-packet-packages.sh::apt_options --> <!-- @impl: .github/workflows/test.yml::host-tests --> <!-- @test: host/__tests__/ci-sandbox-packages.test.js (approved-packet sandbox package prerequisites) -->
+- Preserve custom-runner policy and the real bubblewrap/AppArmor probe.
+- Filtered lanes run in parallel; manual dispatch runs all.
 - Diff fallback verifies exact local base/head commits and selects all lanes. <!-- @impl: scripts/ci/path-filter-fallback.sh::changed_files --> <!-- @test: host/__tests__/nightly-pr-checks-routing.test.js (REQ-OPS-003: executes the fallback against exact commits and emits every lane) -->
-- Flue native cases use three isolated processes with complete non-overlapping ownership, fresh workerd/case and original assertions/deadlines. <!-- @test: src/__tests__/ci/flue-case-shard.test.ts (REQ-OPS-003: parallel Flue case ownership) --> <!-- @impl: src/__tests__/operators/fixtures/flue-case-shard.ts::createFlueCaseShard -->
-- PR Dependency Review covers the reviewed tree/main squash; registry audits run only on explicit full dispatch.
-- `summary` publishes required `test`: failed or cancelled lanes fail. Diff-filtered runs permit skipped unaffected lanes; full runs reject unexpected skips, with the PR-only Dependency Review lane exempt.
-- The Host shard that selects the storage persistence matrix requires a completed JUnit suite with 60 distinct passing cases from that file; a nonzero shard total alone is insufficient. <!-- @impl: scripts/ci/check-host-persistence-report.py::check_report --> <!-- @test: host/__tests__/host-test-inventory.test.js (requires a completed Host persistence matrix with all 60 passing cases) -->
-- Workers-pool concurrency stays; [REQ-OPS-023](#req-ops-023-suite-results-are-gated-on-machine-readable-reports) report/reconciliation gates govern teardown-bug trustworthiness, not serialization.
-- [REQ-OPS-022](#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence) separately gates coverage evidence; backend/frontend coverage runs only for affected paths or full runs.
+- Three isolated processes cover Flue native cases without overlap, with fresh workerd per case and unchanged assertions/deadlines. <!-- @test: src/__tests__/ci/flue-case-shard.test.ts (REQ-OPS-003: parallel Flue case ownership) --> <!-- @impl: src/__tests__/operators/fixtures/flue-case-shard.ts::createFlueCaseShard -->
+- Dependency Review covers the PR tree/main squash; registry audits require explicit full dispatch.
+- `summary` publishes required `test`: failures or cancellations fail. Only unaffected lanes may skip on filtered runs; full runs exempt only PR-only Dependency Review.
+- [REQ-OPS-023](#req-ops-023-suite-results-are-gated-on-machine-readable-reports) owns Host receipts and teardown evidence; Workers-pool concurrency is unchanged.
+- [REQ-OPS-022](#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence) gates backend/frontend coverage on affected paths or full runs.
 
 **Priority:** P0
 
@@ -991,6 +990,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 1. Every suite is gated on its machine-readable vitest JSON report: zero failures, no zero-test files, and a missing or corrupt report fails closed. <!-- @impl: scripts/ci/check-vitest-report.mjs::failedTests --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-023 AC1: vitest report gate) --> <!-- @test: host/__tests__/ci-suite-deadline.test.js (REQ-OPS-023 AC1: rejects contradictory report evidence before normal or tolerated success) -->
 2. A non-zero exit is accepted only for the suite that opts into Workers-pool teardown-crash tolerance, and only with the exact fingerprint. <!-- @impl: scripts/ci/check-vitest-report.mjs::tolerantOfPoolCrash --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-023 AC2: teardown-crash tolerance) -->
 3. The aggregate job reconciles every suite's reports against that suite's test files in the tree, failing when a file ran nowhere or when a lane succeeded without uploading reports. <!-- @impl: scripts/ci/check-suite-completeness.mjs::SUITES --> <!-- @impl: scripts/ci/suites.mjs::SUITES --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-023 AC3: cross-suite completeness gate) -->
+4. The Host shard that selects the storage persistence matrix requires a completed JUnit suite with 60 distinct passing cases from that file; a nonzero shard total alone is insufficient. <!-- @impl: scripts/ci/check-host-persistence-report.py::check_report --> <!-- @test: host/__tests__/host-test-inventory.test.js (requires a completed Host persistence matrix with all 60 passing cases) -->
 
 **Constraints:**
 
@@ -1001,7 +1001,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
 
-**Verification:** Automated: [suite-gates.test.ts](../../src/__tests__/ci/suite-gates.test.ts), [ci-suite-deadline.test.js](../../host/__tests__/ci-suite-deadline.test.js)
+**Verification:** Automated: [suite-gates.test.ts](../../src/__tests__/ci/suite-gates.test.ts), [ci-suite-deadline.test.js](../../host/__tests__/ci-suite-deadline.test.js), [host-test-inventory.test.js](../../host/__tests__/host-test-inventory.test.js)
 
 **Status:** Implemented
 

@@ -212,6 +212,10 @@ app.get('/startup-status', async (c) => {
     response.details.container = `container-${containerId.substring(0, 24)}`;
     response.details.email = user.email;
 
+    if (session?.lifecycleState === 'stopped') {
+      return c.json({ ...response, confirmedStopped: true });
+    }
+
     // Step 1: Check container state
     let containerState;
     try {

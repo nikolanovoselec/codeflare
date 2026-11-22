@@ -429,7 +429,7 @@ def capture(extensions_dir: Path, manifest_path: Path, policy_path: Path) -> boo
             if direct or removal:
                 if removal:
                     next_handoff["removals"][extension] = {"marker": removal, "observed": observed}
-                if saved and saved["version"] == observed["version"]:
+                if saved and _obsolete_proves_uninstall(extension, saved, obsolete):
                     next_extensions.pop(extension, None)
                 continue
             if not warning_acknowledged:

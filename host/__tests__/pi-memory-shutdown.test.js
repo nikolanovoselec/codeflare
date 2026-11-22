@@ -126,7 +126,7 @@ function assertNotSignalled(owner) {
   assert.equal(fs.existsSync(owner.marker), false);
 }
 
-describe('REQ-MEM-035 AC7: bounded foreground owner shutdown', { timeout: 10_000 }, () => {
+describe('REQ-MEM-035 AC6: bounded foreground owner shutdown', { timeout: 10_000 }, () => {
   it('REQ-MEM-035: AC7 waits for every registered Pi owner final write, not children or unlisted Pi', async t => {
     const f = fixture(t);
     const first = await f.owner('first', { delayMs: 120, related: true });

@@ -84,6 +84,16 @@ export async function completeMultipartUpload(key: string, uploadId: string, par
   }, MultipartCompleteResponseSchema);
 }
 
+export async function getMultipartRecovery(): Promise<{ key: string; uploadId: string } | null> {
+  return storageFetch('/storage/upload/recovery', {}, MultipartInitResponseSchema.nullable());
+}
+
+export async function recoverMultipartUpload(key: string, uploadId: string): Promise<void> {
+  await storageFetch('/storage/upload/recovery', {
+    method: 'POST', body: JSON.stringify({ key, uploadId }),
+  }, z.object({ success: z.literal(true) }));
+}
+
 export async function abortMultipartUpload(key: string, uploadId: string): Promise<void> {
   try {
     await baseFetch(`${BASE_URL}/storage/upload/abort`, {

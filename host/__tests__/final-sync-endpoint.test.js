@@ -471,7 +471,7 @@ function memorySyncRequest(port, path = '/internal/final-sync', token = 'final-s
   });
 }
 
-describe('REQ-MEM-035 AC7: foreground shutdown before authoritative final sync', () => {
+describe('REQ-MEM-035 AC6: foreground shutdown before authoritative final sync', () => {
   it('REQ-MEM-035: AC7 awaits final Markdown and takes the sync trigger timestamp after preparation', async t => {
     const f = memoryFinalSyncFixture(t);
     const finalMarkdown = '# Last foreground capture\n\nUse metric units.\n';

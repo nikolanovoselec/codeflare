@@ -6,7 +6,7 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 ## 2026-11-22: Defer Hermes indexing in Advanced Pi
 
-- [REQ-MEM-035 AC4](memory.md#req-mem-035-durable-pi-facts-with-disposable-local-search) defers Markdown-to-SQLite initialization until the first Hermes operation that needs the store. Advanced Pi uses a session-local copy of the four masters and syncs verified session checkpoints without writing the masters. Cross-session merging is deferred.
+- [REQ-MEM-035 AC4](memory.md#req-mem-035-durable-pi-facts-with-disposable-local-search) defers Markdown-to-SQLite initialization until the first Hermes operation that needs the store. [REQ-MEM-041](memory.md#req-mem-041-session-isolated-hermes-checkpoints) uses a session-local copy of the four masters and syncs verified session checkpoints without writing the masters. Cross-session merging is deferred.
 
 ## 2026-11-22: Stock Todo Loop, simpler Operators navigation, and Smart Compact defaults
 
@@ -181,7 +181,6 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 ## 2026-11-15: Conductor documentation ownership split
 
-- Move remaining packet/lane/reviewer, history/reassessment, publication-format and operating guidance to Conductor ownership, without duplicating requirements or moving local Pi `/review` policy. The [Conductor requirements](https://github.com/nikolanovoselec/codeflare-operator-conductor/blob/develop/sdd/spec/conductor.md) are available; the separate operating guide is not on `develop`.
 - Narrow mixed REQ-OPERATOR-053/055/056/064/065/072/074 prose to implemented Root authority, credential isolation, claim, evidence and receipt fences; preserve fragment compatibility and qualification limits. Fixed packet/history helpers and the protected-Action compatibility publisher remain Root implementation, not claimed runtime migrations. Document the existing frozen publication-preparation API, not a new schema.
 - Correct the active delegation/activation reference to `application-schedule.ts::activateApplicationSchedule` and the Registry wrapper; `activateProspectiveRenovate` is refusal-only compatibility. No source/test changes, validation run, status upgrade, deployment or release is implied. Previous Dispatcher ownership edits remain unchanged.
 

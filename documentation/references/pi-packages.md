@@ -130,7 +130,7 @@ Use `/todoloop` to see open tasks, the effective continuation limit, and why the
 
 Plan's exact-version transform resolves helper availability and configured policy from registered tools rather than the small active bootstrap set. It preserves Plan's native custom-turn boundary without adding a duplicate guard, validates the `dist/index.ts` declaration, and rejects source-layout or partial-patch drift before writing. <!-- @impl: scripts/patch-pi-plan-mode-tool-policy.mjs::patchPiPlanModeDirectory --> The image warm verifier loads the entrypoint and checks the JITI output. Shadow-pin candidates still run the Plan transform before publication. <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions -->
 
-Startup attempts to replace `pi-plan-mode.json` atomically; [startup warns and continues on failure](../../entrypoint.sh#L3708). On successful application, the managed frozen policy excludes generic questions, arbitrary context execution, MCP, delegation, task mutation, and advisor. <!-- @impl: entrypoint.sh::configure_pi_plan_mode -->
+Startup attempts to replace `pi-plan-mode.json` atomically; [startup warns and continues on failure](../../sdd/spec/agents.md#req-agent-266-managed-pi-plan-mode-policy). On successful application, the managed frozen policy excludes generic questions, arbitrary context execution, MCP, delegation, task mutation, and advisor. <!-- @impl: entrypoint.sh::configure_pi_plan_mode -->
 
 In the pinned Plan package, `/plan save` remains session-local; pathless export keeps upstream `PLAN.md`. No automatic plan-file writer is added. See the [pinned Plan source archive](../../host/__fixtures__/narumitw-pi-plan-mode-0.60.1.tgz).
 

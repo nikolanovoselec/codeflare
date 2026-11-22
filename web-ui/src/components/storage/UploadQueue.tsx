@@ -1,8 +1,9 @@
-import { Component, For, Show } from 'solid-js';
+import { Component, For, Show, onMount } from 'solid-js';
 import { storageStore } from '../../stores/storage';
 import Button from '../ui/Button';
 
 const UploadQueue: Component = () => {
+  onMount(() => { void storageStore.refreshMultipartRecovery(); });
   return (
     <Show when={storageStore.uploads.length > 0}>
       <div class="storage-upload-queue" data-testid="storage-upload-queue">

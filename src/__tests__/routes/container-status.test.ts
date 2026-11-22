@@ -157,6 +157,14 @@ describe('Container Status Routes', () => {
       expect(await response.json()).toMatchObject({ stage: 'ready', details: { repositoryRestore: 'restoring' } });
     });
 
+    it('REQ-SESSION-017 AC3: reports a D1-confirmed stop even if the SDK still reports running', async () => {
+      mockKV._set('session:test-bucket:abcdef1234567890abcdef12', {
+        id: 'abcdef1234567890abcdef12', name: 'Session', status: 'stopped', lifecycleGeneration: 7,
+      });
+      const response = await createStatusApp().request(`/container/startup-status${sessionQuery}`);
+      expect(await response.json()).toMatchObject({ stage: 'stopped', generation: 7, confirmedStopped: true });
+    });
+
     it('returns stopped stage when getState throws', async () => {
       const app = createStatusApp();
       testState.container!.getState.mockRejectedValue(new Error('Not found'));

@@ -630,7 +630,7 @@ export async function captureExtensionManifest(
       const removal = direct ? undefined : observedRemoval(id, observed, saved, obsolete, handoff);
       if (direct || removal) {
         if (removal) nextHandoff.removals[id] = { marker: removal, observed };
-        if (saved?.version === observed.version) delete extensions[id];
+        if (saved && obsoleteMarker(id, saved, obsolete)) delete extensions[id];
         continue;
       }
       const pin = handoff.pins[id];

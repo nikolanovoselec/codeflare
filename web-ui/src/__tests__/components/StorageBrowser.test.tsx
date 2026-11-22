@@ -83,6 +83,7 @@ vi.mock('../../stores/storage', () => ({
     get syncing() { return mockSyncing; },
     get downloadsDisabled() { return mockDownloadsDisabled; },
     showDownloadsNotice: (...args: any[]) => mockShowDownloadsNotice(...args),
+    refreshMultipartRecovery: vi.fn(),
     refreshDownloadsDisabled: (...args: any[]) => mockRefreshDownloadsDisabled(...args),
     browse: (...args: any[]) => mockBrowse(...args),
     refreshListingOnReturn: () => mockRefreshListingOnReturn(),

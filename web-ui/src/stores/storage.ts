@@ -20,7 +20,7 @@ interface UploadItem {
   progress: number;
   status: 'pending' | 'uploading' | 'complete' | 'error' | 'aborted';
   error?: string;
-  recovery?: { key: string; uploadId: string; aborting?: boolean };
+  recovery?: { key: string; uploadId: string; discovered?: boolean; aborting?: boolean };
 }
 
 interface StorageStats {
@@ -448,6 +448,7 @@ export const storageStore = {
         }, UPLOAD_DISMISS_DELAY_MS);
       } catch (err) {
         const restartRequired = err instanceof ApiError && err.code === 'MULTIPART_RESTART_REQUIRED';
+        if (restartRequired) void storageStore.refreshMultipartRecovery();
         // Do not delete refused parts or automatically recover an uncertain Complete.
         if (multipart && !completing && !restartRequired) {
           void storageApi.abortMultipartUpload(multipart.key, multipart.uploadId).catch(() => {});
@@ -466,20 +467,39 @@ export const storageStore = {
     await storageStore.browse();
   },
 
+  async refreshMultipartRecovery() {
+    try {
+      const current = await storageApi.getMultipartRecovery();
+      setState(produce((s) => {
+        s.uploads = s.uploads.filter(({ recovery }) => !recovery?.discovered || recovery.aborting
+          || (current && recovery.key === current.key && recovery.uploadId === current.uploadId));
+        if (!current || s.uploads.some(({ recovery }) => recovery?.uploadId === current.uploadId)) return;
+        s.uploads.push({ id: `upload-${++nextUploadId}`, fileName: current.key, relativePath: current.key, progress: 100, status: 'error',
+          recovery: { ...current, discovered: true } });
+      }));
+    } catch {
+      // Discovery failure does not discard an existing recovery action.
+    }
+  },
+
   async abortUnconfirmedUpload(id: string) {
     const recovery = state.uploads.find(upload => upload.id === id)?.recovery;
     if (!recovery || recovery.aborting) return;
-    const { key, uploadId } = recovery;
+    const { key, uploadId, discovered } = recovery;
     const isUpload = (upload: UploadItem) => upload.id === id;
-    setState('uploads', isUpload, 'recovery', { key, uploadId, aborting: true });
+    setState('uploads', isUpload, 'recovery', { key, uploadId, discovered, aborting: true });
     try {
-      await storageApi.abortMultipartUpload(key, uploadId);
+      if (discovered) await storageApi.recoverMultipartUpload(key, uploadId);
+      else await storageApi.abortMultipartUpload(key, uploadId);
       setState('uploads', isUpload, { status: 'aborted', recovery: undefined, error: undefined });
     } catch (error) {
       setState('uploads', isUpload, {
-        recovery: { key, uploadId, aborting: false },
+        recovery: { key, uploadId, discovered, aborting: false },
         error: error instanceof Error ? error.message : 'Unable to confirm abort.',
       });
+      if (discovered && error instanceof ApiError && error.code === 'MULTIPART_RECOVERY_CHANGED') {
+        void storageStore.refreshMultipartRecovery();
+      }
     }
   },
 
