@@ -297,6 +297,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     vi.mocked(storageApi.recreateAgentConfigs).mockReset();
     retryBucketMigration.mockReset();
     (sessionStore as any)._setBucketMigrating(false);
+    (sessionStore as any)._setBucketMigrationPercent(null);
     setBucketMigrationHaltedAt(null);
     (sessionStore as any)._setManagedReleaseStatus(null);
     (sessionStore as any)._setPreseedUpgrading(false);
@@ -1719,7 +1720,6 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(await screen.findByRole('button', { name: 'Migrating 42%' })).toBeDisabled();
     expect(overlay.queryByRole('alert')).not.toBeInTheDocument();
     expect(overlay.getByRole('status').textContent).toBe('');
-    (sessionStore as any)._setBucketMigrationPercent(null);
   });
 
   it('REQ-ENTERPRISE-304: a retry refusal belongs only to the halt that was retried', async () => {
