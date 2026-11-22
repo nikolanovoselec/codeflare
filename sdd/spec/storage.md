@@ -114,7 +114,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 - Bisync invocations must tolerate files changing mid-transfer (no false hash-mismatch aborts).
 - Bulk workspace deletions admitted by the persistence policy must propagate.
 - Post-sync listing validation must not abort the cycle when R2 changes during the sync window.
-- Empty files are excluded from sync.
+- Whole-home bisync excludes empty files; the separate Hermes transfer preserves zero-byte session Markdown under [REQ-MEM-041 AC2](memory.md#req-mem-041-session-isolated-hermes-markdown).
 
 **Priority:** P0
 
