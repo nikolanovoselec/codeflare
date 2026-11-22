@@ -1895,8 +1895,10 @@ The migration integrity, safe retry, termination and session-creation constraint
 
 **Acceptance Criteria:**
 
-1. Dashboard announces `Retrying migration` when retry starts and keeps the message visible until settlement, even if the halt clears first. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-ENTERPRISE-304: Retry migration submits the halt timestamp once while pending and does not unlock New Session on success) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-ENTERPRISE-304: pending feedback survives the halt clearing before refresh settles) --> <!-- @manual: documentation/lanes/storage-and-sync.md#req-enterprise-021-migration-progress-acceptance -->
+1. Dashboard announces `Retrying migration` when retry starts. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @manual: documentation/lanes/storage-and-sync.md#req-enterprise-021-migration-progress-acceptance -->
 2. Dashboard exposes the retry control as busy while a retry is pending and the control remains visible. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-ENTERPRISE-304: Retry migration submits the halt timestamp once while pending and does not unlock New Session on success) -->
+3. Dashboard keeps `Retrying migration` visible until the retry settles, even if the halt clears first. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-ENTERPRISE-304: Retry migration submits the halt timestamp once while pending and does not unlock New Session on success) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-ENTERPRISE-304: pending feedback survives the halt clearing before refresh settles) -->
+4. The empty retry status adds no extra gap above Recent Sessions. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-migration-retry-status:empty --> <!-- @manual: documentation/lanes/storage-and-sync.md#req-enterprise-021-migration-progress-acceptance -->
 
 **Constraints:** None.
 
