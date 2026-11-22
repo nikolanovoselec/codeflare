@@ -9,12 +9,17 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/rclone/rclone/fs"
 	"github.com/rclone/rclone/fs/config/configmap"
 )
 
 // An S3 peer rejects SSE-C on a plain object. Only an actual zero-length
 // response may cross the scoped fallback, even after a zero-length HEAD.
 func TestCodeflareHermesEmptyRead(t *testing.T) {
+	backend, err := fs.Find("s3")
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, tc := range []struct {
 		name, optIn, head, body string
 		headOK, getOK           bool
@@ -49,11 +54,13 @@ func TestCodeflareHermesEmptyRead(t *testing.T) {
 			}))
 			defer peer.Close()
 			ctx := context.Background()
-			remote, err := NewFs(ctx, "fixture", "bucket", configmap.Simple{
+			// Use the same registered backend defaults as a normal remote.
+			config := fs.ConfigMap(backend.Prefix, backend.Options, "fixture", configmap.Simple{
 				"provider": "Cloudflare", "endpoint": peer.URL, "force_path_style": "true", "no_check_bucket": "true",
 				"access_key_id": "fixture", "secret_access_key": "fixture", "sse_customer_algorithm": "AES256",
 				"sse_customer_key_base64": base64.StdEncoding.EncodeToString(make([]byte, 32)),
 			})
+			remote, err := backend.NewFs(ctx, "fixture", "bucket", config)
 			if err != nil {
 				t.Fatal(err)
 			}
