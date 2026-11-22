@@ -6,6 +6,8 @@ import IconButton from './ui/IconButton';
 import type { SessionWithStatus, AgentType, TabConfig } from '../types';
 import { storageStore } from '../stores/storage';
 import { recreateAgentConfigs } from '../api/storage';
+import { retryBucketMigration } from '../api/client';
+import { ApiError } from '../api/fetch-helper';
 import { downloadFile } from '../lib/download';
 import { getGravatarUrl, gravatarExists } from '../lib/gravatar';
 import SessionStatCard from './SessionStatCard';
@@ -64,9 +66,30 @@ const Dashboard: Component<DashboardProps> = (props) => {
   const [recreateLoading, setRecreateLoading] = createSignal(false);
   const [recreateError, setRecreateError] = createSignal<string | null>(null);
   const [recreateMessage, setRecreateMessage] = createSignal<string | null>(null);
+  const [migrationRetryPending, setMigrationRetryPending] = createSignal(false);
+  const [migrationRetryError, setMigrationRetryError] = createSignal<string | null>(null);
+  const migrationStatus = () => sessionStore.bucketMigrationHaltedAt ? 'Migration halted'
+    : sessionStore.bucketMigrating
+      ? (sessionStore.bucketMigrationPercent != null ? `Migrating ${sessionStore.bucketMigrationPercent}%` : 'Migrating')
+      : null;
+  const handleMigrationRetry = async () => {
+    const haltedAt = sessionStore.bucketMigrationHaltedAt;
+    if (!haltedAt || migrationRetryPending()) return;
+    setMigrationRetryPending(true);
+    setMigrationRetryError(null);
+    try {
+      await retryBucketMigration(haltedAt);
+      await sessionStore.refreshSessionAncillaryStatus().catch(() => undefined);
+    } catch (error) {
+      setMigrationRetryError(error instanceof ApiError && error.status === 409
+        ? error.message : 'Could not retry storage migration. Refresh the dashboard and try again.');
+    } finally {
+      setMigrationRetryPending(false);
+    }
+  };
   const showUpgradeRecovery = () => sessionStore.preseedUpgradeFailed
     && !sessionStore.preseedUpgrading
-    && !sessionStore.bucketMigrating
+    && !migrationStatus()
     && sessionStore.managedReleaseStatus !== 'update_pending';
   const handleRecreate = async () => {
     if (recreateLoading() || sessionStore.preseedUpgrading || !showUpgradeRecovery()) return;
@@ -456,8 +479,8 @@ const Dashboard: Component<DashboardProps> = (props) => {
                   class={`dashboard-new-session-btn ${sessionStore.isAtSessionLimit() ? 'dashboard-new-session-btn--limited' : ''}`}
                   data-testid="dashboard-new-session"
                   style={managedUpgradeStyle()}
-                  disabled={!sessionStore.r2Ready || isAtUsageQuota() || sessionStore.preseedUpgrading || (sessionStore.managedReleaseStatus === 'upgrading' && !sessionStore.preseedUpgradeFailed) || sessionStore.managedReleaseStatus === 'update_pending' || sessionStore.bucketMigrating}
-                  aria-label={sessionStore.bucketMigrating ? 'Storage is migrating' : sessionStore.managedReleaseStatus === 'update_pending' ? 'Session environment update pending until session stops' : sessionStore.preseedUpgradeFailed && !sessionStore.preseedUpgrading ? 'Retry upgrade' : managedUpgradeAriaLabel() ?? (sessionStore.preseedUpgrading ? 'Updating session environment' : !sessionStore.r2Ready ? 'Waiting for storage setup' : isAtUsageQuota() ? 'Monthly compute quota exceeded' : sessionStore.isAtSessionLimit() ? 'Session limit reached' : 'Create new session')}
+                  disabled={!sessionStore.r2Ready || isAtUsageQuota() || sessionStore.preseedUpgrading || (sessionStore.managedReleaseStatus === 'upgrading' && !sessionStore.preseedUpgradeFailed) || sessionStore.managedReleaseStatus === 'update_pending' || Boolean(migrationStatus())}
+                  aria-label={migrationStatus() ?? (sessionStore.managedReleaseStatus === 'update_pending' ? 'Session environment update pending until session stops' : sessionStore.preseedUpgradeFailed && !sessionStore.preseedUpgrading ? 'Retry upgrade' : managedUpgradeAriaLabel() ?? (sessionStore.preseedUpgrading ? 'Updating session environment' : !sessionStore.r2Ready ? 'Waiting for storage setup' : isAtUsageQuota() ? 'Monthly compute quota exceeded' : sessionStore.isAtSessionLimit() ? 'Session limit reached' : 'Create new session'))}
                   onClick={() => {
                     if (sessionStore.preseedUpgradeFailed) {
                       void sessionStore.retryPreseedUpgrade();
@@ -470,14 +493,22 @@ const Dashboard: Component<DashboardProps> = (props) => {
                     }
                   }}
                 >
-                  {sessionStore.bucketMigrating
-                    ? (sessionStore.bucketMigrationPercent != null ? `Migrating ${sessionStore.bucketMigrationPercent}%` : 'Migrating')
-                    : sessionStore.managedReleaseStatus === 'update_pending'
+                  {migrationStatus() ?? (sessionStore.managedReleaseStatus === 'update_pending'
                       ? 'Update pending'
                       : sessionStore.preseedUpgradeFailed && !sessionStore.preseedUpgrading
                         ? 'Retry upgrade'
-                        : managedUpgradeLabel() ?? (sessionStore.preseedUpgrading ? 'Updating' : '+ New Session')}
+                        : managedUpgradeLabel() ?? (sessionStore.preseedUpgrading ? 'Updating' : '+ New Session'))}
                 </button>
+                <Show when={sessionStore.bucketMigrationHaltedAt}>
+                  <button
+                    type="button"
+                    class="dashboard-new-session-btn dashboard-migration-retry-btn"
+                    disabled={migrationRetryPending()}
+                    onClick={() => void handleMigrationRetry()}
+                  >
+                    {migrationRetryPending() ? 'Retrying migration' : 'Retry migration'}
+                  </button>
+                </Show>
                 <Show when={showUpgradeRecovery()}>
                   <button
                     type="button"
@@ -504,6 +535,9 @@ const Dashboard: Component<DashboardProps> = (props) => {
                 </Show>
             </div>
 
+            <Show when={sessionStore.bucketMigrationHaltedAt && migrationRetryError()}>
+              <p class="dashboard-recovery-message" role="alert">{migrationRetryError()}</p>
+            </Show>
             <Show when={recreateError()}>
               <p class="dashboard-recovery-message" role="alert">{recreateError()}</p>
             </Show>

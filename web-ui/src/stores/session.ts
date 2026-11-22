@@ -140,6 +140,7 @@ export interface SessionState {
   bucketMigrating: boolean;
   /** REQ-ENTERPRISE-020: a Governed Mode flip is wanted but deferred until the user's running sessions stop (D1: no force-kill). */
   bucketMigrationPending: boolean;
+  bucketMigrationHaltedAt: string | null;
   /** REQ-ENTERPRISE-020: 0–99 re-encrypt progress % for the Migrating button; null until the backend knows it. */
   bucketMigrationPercent: number | null;
   enterpriseMode: boolean;
@@ -167,6 +168,7 @@ const [state, setState] = createStore<SessionState>({
   managedReleaseBlockedReason: null,
   bucketMigrating: false,
   bucketMigrationPending: false,
+  bucketMigrationHaltedAt: null,
   bucketMigrationPercent: null,
   enterpriseMode: false,
   saasMode: false,
@@ -1089,6 +1091,7 @@ export const sessionStore = {
   get managedReleaseBlockedReason() { return state.managedReleaseBlockedReason; },
   get bucketMigrating() { return state.bucketMigrating; },
   get bucketMigrationPending() { return state.bucketMigrationPending; },
+  get bucketMigrationHaltedAt() { return state.bucketMigrationHaltedAt; },
   get bucketMigrationPercent() { return state.bucketMigrationPercent; },
   get enterpriseMode() { return state.enterpriseMode; },
   setEnterpriseMode: (value: boolean) => setState('enterpriseMode', value),

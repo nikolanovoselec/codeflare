@@ -28,6 +28,7 @@ vi.mock('../../lib/r2-client', async (importActual) => {
   return { ...actual, createR2Client: mockCreateR2Client, getR2Url: mockGetR2Url };
 });
 
+import { createR2Client } from '../../lib/r2-client';
 import { createMockKV } from '../helpers/mock-kv';
 import { createTestApp } from '../helpers/test-app';
 import lifecycleRoutes from '../../routes/session/lifecycle';
@@ -96,7 +97,7 @@ function listXml(objects: { key: string; size: number }[], truncated = false, ne
 }
 
 /** Wire mockFetch to a regime-aware in-memory bucket. pageSize forces ListObjectsV2 pagination. */
-function makeR2(objects: Record<string, { regime: R2SseRegime; size?: number; etag?: string; meta?: Record<string, string> }>, opts: { pageSize?: number; copyErrorBody?: boolean } = {}) {
+function makeR2(objects: Record<string, { regime: R2SseRegime; size?: number; etag?: string; meta?: Record<string, string> }>, opts: { pageSize?: number; copyErrorBody?: boolean; rejectEmptySseCopy?: boolean } = {}) {
   const pageSize = opts.pageSize ?? 1000;
   const store = new Map<string, SimObj>();
   for (const [k, o] of Object.entries(objects)) {
@@ -125,9 +126,9 @@ function makeR2(objects: Record<string, { regime: R2SseRegime; size?: number; et
     const key = keyFromUrl(url);
     const obj = store.get(key);
 
-    if (method === 'HEAD') {
+    if (method === 'HEAD' || (method === 'GET' && obj?.size === 0)) {
       const reqRegime = regimeFromHeaders(headers);
-      heads.push({ key, regime: reqRegime });
+      if (method === 'HEAD') heads.push({ key, regime: reqRegime });
       if (obj && obj.regime === reqRegime) {
         return new Response(null, { status: 200, headers: { etag: obj.etag, 'content-type': obj.contentType, 'content-length': String(obj.size), ...obj.meta } });
       }
@@ -136,6 +137,9 @@ function makeR2(objects: Record<string, { regime: R2SseRegime; size?: number; et
     if (method === 'PUT') {
       const to = regimeFromHeaders(headers);
       puts.push({ key, headers, to });
+      if (opts.rejectEmptySseCopy && obj?.size === 0 && to === 'sse-c') {
+        return new Response('<Error><Code>InvalidRequest</Code></Error>', { status: 400 });
+      }
       if (opts.copyErrorBody) {
         return new Response('<?xml version="1.0"?><Error><Code>InternalError</Code></Error>', { status: 200 });
       }
@@ -427,6 +431,23 @@ describe('fetchObjectWithRegimeFallback (D2 reads stay up)', () => {
     expect(sseDisabled).toBe(true); // succeeded reading it as plain
   });
 
+  it('REQ-ENTERPRISE-021: a ready SSE-C bucket downloads an empty plain object without starting self-heal', async () => {
+    makeR2({ 'empty.txt': { regime: 'plain', size: 0 } });
+    const kv = createMockKV();
+    const app = createTestApp({
+      routes: [{ path: '/download', handler: downloadRoutes }], mockKV: kv, bucketName: 'bkt',
+      envOverrides: { ...r2Env, R2_ACCOUNT_ID: 'acct' },
+    });
+    const work: Promise<unknown>[] = [];
+    const response = await app.request('/download?key=empty.txt', {}, undefined, {
+      waitUntil: (task: Promise<unknown>) => { work.push(task); }, passThroughOnException: () => {},
+    } as ExecutionContext);
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('');
+    await Promise.all(work);
+    expect(await getRegimeState(driverEnv(kv), 'bkt')).toMatchObject({ status: 'ready', regime: 'sse-c', generation: 0 });
+  });
+
   it('does NOT self-heal an oversized cross-regime stray (no mixed-recovery loop on every read)', async () => {
     makeR2({ 'huge.bin': { regime: 'plain', size: 6 * 1024 * 1024 * 1024 } }); // committed sse-c; object plain AND >5GB
     const { kv } = makeKV(); // default ready/sse-c
@@ -632,6 +653,77 @@ describe('advanceMigration (chunked, verified, self-healing)', () => {
     }
     return getRegimeState({ KV: kv } as unknown as Env, 'bkt');
   }
+
+  const toSse: RegimeState = {
+    status: 'migrating', regime: 'plain', from: 'plain', to: 'sse-c', generation: 4, drained: true,
+  };
+
+  it.each([
+    ['stays empty', false], ['changes before verification', true],
+  ] as const)('REQ-ENTERPRISE-020 AC5: independently proves a plain empty object alongside SSE-C objects (%s)', async (_case, changes) => {
+    const r2 = makeR2({
+      'empty.txt': { regime: 'plain', size: 0 },
+      'encrypted-empty.txt': { regime: 'sse-c', size: 0 },
+      'report.txt': { regime: 'plain', size: 11 },
+    }, { rejectEmptySseCopy: true });
+    const emptyBefore = structuredClone(r2.store.get('empty.txt'));
+    const { kv } = makeKV({ 'r2-regime:bkt': JSON.stringify({ ...toSse, phase: 'migrate' }) });
+
+    // Keep the real S3 signer; the simulated transport never forwards requests.
+    const actual = await vi.importActual<typeof import('../../lib/r2-client')>('../../lib/r2-client');
+    const wire = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const request = new Request(input, init);
+      if (!request.headers.get('authorization')?.startsWith('AWS4-HMAC-SHA256 Credential=ak/')) {
+        return new Response(null, { status: 401 });
+      }
+      const headers = Object.fromEntries(request.headers);
+      if (request.method === 'HEAD' && regimeFromHeaders(headers) === 'plain'
+          && Object.keys(headers).some(name => name.startsWith('x-amz-server-side-encryption-customer-'))) {
+        return new Response(null, { status: 400 });
+      }
+      const response = await r2.fetch(request.url, { method: request.method, headers });
+      if (changes && new URL(request.url).searchParams.has('list-type') && r2.store.get('report.txt')?.regime === 'sse-c') {
+        // The verify listing still reports zero, but the object changes before its HEAD.
+        r2.store.get('empty.txt')!.size = 7;
+      }
+      return response;
+    });
+    try {
+      await vi.mocked(createR2Client).withImplementation(actual.createR2Client, async () => {
+        await advanceMigration(driverEnv(kv), 'bkt', drainNoop);
+      });
+    } finally { wire.mockRestore(); }
+    expect(await getRegimeState(driverEnv(kv), 'bkt')).toMatchObject(changes
+      ? { status: 'migrating', regime: 'plain', generation: 4 }
+      : { status: 'ready', regime: 'sse-c', generation: 5 });
+    expect(r2.store.get('empty.txt')).toEqual({ ...emptyBefore, size: changes ? 7 : 0 });
+    expect(r2.store.get('encrypted-empty.txt')).toMatchObject({ regime: 'sse-c', size: 0 });
+    expect(r2.store.get('report.txt')).toMatchObject({ regime: 'sse-c', size: 11 });
+  });
+
+  it.each([
+    ['independently proven zero', 0, 200, '0', true],
+    ['stale zero listing', 0, 200, '11', false],
+    ['missing length', 0, 200, null, false],
+    ['noncanonical zero length', 0, 200, '00', false],
+    ['non-200 success', 0, 204, '0', false],
+    ['failed HEAD', 0, 503, '0', false],
+    ['nonempty listing', 11, 200, '0', false],
+  ] as const)('REQ-ENTERPRISE-020 AC5: verifies the empty exception from fresh R2 evidence (%s)', async (_case, listedSize, status, length, verified) => {
+    const r2 = makeR2({ 'candidate.txt': { regime: 'plain', size: listedSize } });
+    mockFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'HEAD' && !new Headers(init.headers).has('x-amz-server-side-encryption-customer-key')) {
+        return new Response(null, { status, headers: length === null ? {} : { 'content-length': length } });
+      }
+      return r2.fetch(url, init);
+    });
+    // Resume verification without a source HEAD or an in-memory migrate pass to rely on.
+    const { kv } = makeKV({ 'r2-regime:bkt': JSON.stringify({ ...toSse, phase: 'verify' }) });
+    await advanceMigration(driverEnv(kv), 'bkt', drainNoop);
+    expect(await getRegimeState(driverEnv(kv), 'bkt')).toMatchObject(verified
+      ? { status: 'ready', regime: 'sse-c', generation: 5 }
+      : { status: 'migrating', regime: 'plain', generation: 4 });
+  });
 
   it('migrates then verifies then flips to ready + bumps generation, draining once', async () => {
     const { store } = makeR2({ 'a.md': { regime: 'sse-c' }, 'b.md': { regime: 'sse-c' } });

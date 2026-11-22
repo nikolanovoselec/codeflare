@@ -156,18 +156,18 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. All R2 object operations (read, write, head, multipart) use SSE-C headers when an operator encryption key is configured. <!-- @impl: src/lib/r2-sse.ts::getSseHeaders --> <!-- @test: src/__tests__/lib/r2-sse.test.ts (r2-sse / REQ-SEC-005 (R2 credentials never logged or exposed)) --> <!-- @test: src/__tests__/routes/storage-upload.test.ts (REQ-SEC-005: %s emits SSE-C only for the committed encrypted regime) -->
+1. R2 object operations use SSE-C headers when required by the bucket regime, subject to the verified empty-object exception in [REQ-ENTERPRISE-020](storage.md#req-enterprise-020-governed-mode-re-encrypt-migration-engine). <!-- @impl: src/lib/r2-sse.ts::getSseHeaders --> <!-- @test: src/__tests__/lib/r2-sse.test.ts (r2-sse / REQ-SEC-005 (R2 credentials never logged or exposed)) --> <!-- @test: src/__tests__/routes/storage-upload.test.ts (REQ-SEC-005: %s emits SSE-C only for the committed encrypted regime) -->
 2. The SSE-C scheme uses AES-256; the request carries the customer-provided key and a key-hash so the storage layer can verify integrity. <!-- @impl: src/lib/r2-sse.ts::getSseHeaders --> <!-- @test: src/__tests__/lib/r2-sse.test.ts (returns 3 SSE-C headers when ENCRYPTION_KEY is set) -->
 3. The encryption key is propagated from Worker to Durable Object to container as part of the session environment. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE feeds capture pipeline) / REQ-AGENT-031 (LLM API keys + agent-specific keys propagated to container env)) -->
 4. In containers, R2 traffic subject to SSE-C carries the customer-provided key. <!-- @impl: entrypoint.sh::create_rclone_config --> <!-- @test: host/__tests__/entrypoint-governed-sync.test.js (REQ-ENTERPRISE-018: rclone.conf under Governed Mode (entrypoint.sh create_rclone_config)) -->
 5. All bidirectional sync operations (initial restore, periodic sync, shutdown sync) transparently encrypt and decrypt without user action. <!-- @impl: entrypoint.sh::create_rclone_config --> <!-- @manual: Use the SSE-C case in session replacement storage acceptance to observe encrypted initial restore, periodic and shutdown transfers, and same-bucket restored digests without a prompt. -->
-6. Files are visible in the R2 dashboard (names, sizes, metadata) but contents are unreadable without the key. <!-- @impl: src/lib/r2-sse.ts::getSseHeaders --> <!-- @test: src/__tests__/lib/r2-sse.test.ts (returns 3 SSE-C headers when ENCRYPTION_KEY is set) -->
+6. SSE-C object names, sizes and metadata are visible in the R2 dashboard, but their contents are unreadable without the key. <!-- @impl: src/lib/r2-sse.ts::getSseHeaders --> <!-- @test: src/__tests__/lib/r2-sse.test.ts (returns 3 SSE-C headers when ENCRYPTION_KEY is set) -->
 7. When no operator encryption key is configured, ordinary R2 operations proceed without SSE-C. <!-- @impl: src/lib/r2-sse.ts::getSseHeaders --> <!-- @test: src/__tests__/routes/storage-upload.test.ts (succeeds with valid key and content) --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (REQ-SEC-005 AC7: HEAD and GET of a plain object work without a configured encryption key) -->
 
 **Constraints:**
 
 - Apply the committed bucket regime: [REQ-ENTERPRISE-018](storage.md#req-enterprise-018-governed-mode-toggle-and-configuration-surface) owns Governed Mode's SSE-C suppression and container-key omission; vault and secret-at-rest encryption remain active.
-- Enabling SSE-C on an existing deployment requires re-uploading all existing unencrypted R2 objects with SSE-C.
+- Enabling SSE-C on existing buckets requires verified migration of eligible objects, with the explicit exceptions in REQ-ENTERPRISE-020.
 - New deployments that enable encryption from the start require no migration.
 
 **Priority:** P0

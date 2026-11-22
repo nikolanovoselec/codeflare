@@ -871,8 +871,10 @@ transfer_pi_hermes_memory() {
             source="$target" target="$USER_HOME/"
         fi
         case "$layout" in
-            direct) files=("$prefix/global/USER.md" "$prefix/global/MEMORY.md" "$prefix/global/failures.md"
-                           "$prefix/Projects/workspace/MEMORY.md" "$prefix/session-id") ;;
+            direct)
+                export CODEFLARE_RCLONE_HERMES_EMPTY_READ=1
+                files=("$prefix/global/USER.md" "$prefix/global/MEMORY.md" "$prefix/global/failures.md"
+                       "$prefix/Projects/workspace/MEMORY.md" "$prefix/session-id") ;;
             v197) files=("$prefix/checkpoint.json") ;;
             *) return 1 ;;
         esac

@@ -359,6 +359,7 @@ export const SessionAncillaryStatusResponseSchema = z.object({
   // REQ-ENTERPRISE-020: Governed Mode regime migration flags.
   bucketMigrating: z.boolean().optional(),
   bucketMigrationPending: z.boolean().optional(),
+  bucketMigrationHaltedAt: z.string().optional(),
   // REQ-ENTERPRISE-020: 0–99 re-encrypt progress % for the Migrating button (absent until known).
   bucketMigrationPercent: z.number().optional(),
 });

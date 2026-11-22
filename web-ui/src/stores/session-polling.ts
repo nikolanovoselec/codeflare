@@ -37,6 +37,7 @@ interface PollingStateView {
   managedReleaseStatus: 'current' | 'upgrading' | 'update_pending' | null;
   bucketMigrating: boolean;
   bucketMigrationPending: boolean;
+  bucketMigrationHaltedAt: string | null;
 }
 
 type StateGetter = () => PollingStateView;
@@ -195,6 +196,7 @@ export function refreshSessionAncillaryStatus(): Promise<void> {
     applyManagedReleaseBatchFn(response.managedReleaseStatus, response.preseedNeedsUpgrade, response.managedReleaseProgress, response.preseedUpgradeTarget);
     setStateRaw('bucketMigrating', response.bucketMigrating === true);
     setStateRaw('bucketMigrationPending', response.bucketMigrationPending === true);
+    setStateRaw('bucketMigrationHaltedAt', response.bucketMigrationHaltedAt ?? null);
     setStateRaw('bucketMigrationPercent', response.bucketMigrationPercent ?? null);
   }).finally(() => { ancillaryCheckInFlight = null; });
   return ancillaryCheckInFlight;

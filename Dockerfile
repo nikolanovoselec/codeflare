@@ -37,6 +37,7 @@ RUN curl -fsSL https://codeload.github.com/rclone/rclone/tar.gz/refs/tags/v1.76.
 COPY scripts/patch-rclone-bisync.py /tmp/patch-rclone-bisync.py
 COPY scripts/prepare-rclone-s3-fixture.py /tmp/prepare-rclone-s3-fixture.py
 COPY scripts/ci/rclone-bookkeeping_test.go /tmp/rclone-bookkeeping_test.go
+COPY scripts/ci/rclone-hermes-empty_test.go /tmp/rclone-hermes-empty_test.go
 # Only the CI server binary receives S3-compatible lexical pagination.
 # Restore upstream server code before building the shipped client.
 RUN mkdir -p /out \
@@ -45,8 +46,9 @@ RUN mkdir -p /out \
     && python3 /tmp/prepare-rclone-s3-fixture.py restore /src/rclone 1.76.0 /tmp/rclone-pager.go \
     && python3 /tmp/patch-rclone-bisync.py /src/rclone 1.76.0 \
     && cp /tmp/rclone-bookkeeping_test.go cmd/bisync/codeflare_bookkeeping_test.go \
-    && gofmt -w cmd/bisync/codeflare_bookkeeping_test.go \
-    && go test ./cmd/bisync -run '^TestCodeflare' -count=1 \
+    && cp /tmp/rclone-hermes-empty_test.go backend/s3/codeflare_hermes_empty_test.go \
+    && gofmt -w cmd/bisync/codeflare_bookkeeping_test.go backend/s3/codeflare_hermes_empty_test.go \
+    && go test ./cmd/bisync ./backend/s3 -run '^TestCodeflare' -count=1 \
     && go build -trimpath -ldflags '-s -w -X github.com/rclone/rclone/fs.Version=v1.76.0-codeflare-bisync1' -o /out/rclone . \
     && for binary in /out/rclone-unpatched /out/rclone; do \
          go version -m "$binary" | grep -E 'dep[[:space:]]+golang.org/x/net[[:space:]]+v0\.62\.0([[:space:]]|$)' || exit 1; \

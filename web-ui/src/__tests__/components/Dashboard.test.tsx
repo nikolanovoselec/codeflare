@@ -6,6 +6,7 @@ import { sessionStore } from '../../stores/session';
 import { storageStore } from '../../stores/storage';
 import { githubStore } from '../../stores/github';
 import * as storageApi from '../../api/storage';
+import { ApiError } from '../../api/fetch-helper';
 import * as vaultCache from '../../lib/vault-cache';
 import * as gravatar from '../../lib/gravatar';
 import type { SessionWithStatus } from '../../types';
@@ -116,6 +117,7 @@ vi.mock('../../stores/session', async () => {
   const [_preseedUpgrading, setPreseedUpgrading] = createSignal(false);
   let _bucketMigrating = false;
   let _bucketMigrationPercent: number | null = null;
+  const [bucketMigrationHaltedAt, setBucketMigrationHaltedAt] = createSignal<string | null>(null);
   const [_managedReleaseStatus, setManagedReleaseStatus] = createSignal<'current' | 'upgrading' | 'update_pending' | null>(null);
   let _managedReleaseProgress: { phase: 'planning' | 'writing' | 'finalizing'; completed: number; total: number } | null = null;
   let _enterpriseMode = false;
@@ -134,6 +136,7 @@ vi.mock('../../stores/session', async () => {
       runPreseedUpdate: vi.fn(async (operation: () => Promise<unknown>) => operation()),
       get bucketMigrating() { return _bucketMigrating; },
       get bucketMigrationPercent() { return _bucketMigrationPercent; },
+      get bucketMigrationHaltedAt() { return bucketMigrationHaltedAt(); },
       get managedReleaseStatus() { return _managedReleaseStatus(); },
       get managedReleaseProgress() { return _managedReleaseProgress; },
       get enterpriseMode() { return _enterpriseMode; },
@@ -151,6 +154,7 @@ vi.mock('../../stores/session', async () => {
       _setPreseedUpgrading: (upgrading: boolean) => { setPreseedUpgrading(upgrading); },
       _setBucketMigrating: (v: boolean) => { _bucketMigrating = v; },
       _setBucketMigrationPercent: (v: number | null) => { _bucketMigrationPercent = v; },
+      _setBucketMigrationHaltedAt: setBucketMigrationHaltedAt,
       _setManagedReleaseStatus: setManagedReleaseStatus,
       _setManagedReleaseProgress: (v: typeof _managedReleaseProgress) => { _managedReleaseProgress = v; },
       _setEnterpriseMode: (v: boolean) => { _enterpriseMode = v; },
@@ -204,6 +208,14 @@ vi.mock('../../api/storage', () => ({
   recreateAgentConfigs: vi.fn(),
 }));
 
+const { retryBucketMigration } = vi.hoisted(() => ({
+  retryBucketMigration: vi.fn<(haltedAt: string) => Promise<{ success: true }>>(),
+}));
+vi.mock('../../api/client', async original => ({
+  ...await original<typeof import('../../api/client')>(),
+  retryBucketMigration,
+}));
+
 vi.mock('../../lib/vault-cache', () => ({
   sweepOrphanVaultCaches: vi.fn().mockResolvedValue(undefined),
 }));
@@ -236,6 +248,9 @@ const mockSessions: SessionWithStatus[] = [
 const upgradeRecovery = sessionStore as typeof sessionStore & {
   preseedUpgradeFailed: boolean;
   retryPreseedUpgrade: () => Promise<void>;
+};
+const { _setBucketMigrationHaltedAt: setBucketMigrationHaltedAt } = sessionStore as typeof sessionStore & {
+  _setBucketMigrationHaltedAt: (haltedAt: string | null) => void;
 };
 
 // REQ-ENTERPRISE-015: Enterprise-mode admin and dropdown suppressions
@@ -270,7 +285,9 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     (sessionStore as { managedReleaseBlockedReason: 'runtime_incompatible' | null }).managedReleaseBlockedReason = null;
     vi.mocked(sessionStore.refreshSessionAncillaryStatus).mockReset().mockResolvedValue(undefined);
     vi.mocked(storageApi.recreateAgentConfigs).mockReset();
+    retryBucketMigration.mockReset();
     (sessionStore as any)._setBucketMigrating(false);
+    setBucketMigrationHaltedAt(null);
     (sessionStore as any)._setManagedReleaseStatus(null);
     (sessionStore as any)._setPreseedUpgrading(false);
     (storageStore as any)._setStats(null);
@@ -1115,13 +1132,14 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     }
   });
 
-  it('opens CreateSessionDialog when New Session button clicked', () => {
-    render(() => <Dashboard {...defaultProps} />);
+  it('REQ-ENTERPRISE-304: New Session opens the creation dialog when storage is ready and not migrating', () => {
+    render(() => <Dashboard {...defaultProps} userName={undefined} />);
 
-    fireEvent.click(screen.getByTestId('dashboard-new-session'));
+    expect(screen.queryByRole('button', { name: 'Retry migration' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Create new session' }));
 
     const dialog = screen.getByTestId('create-session-dialog');
-    expect(dialog.getAttribute('data-open')).toBe('true');
+    expect(dialog).toHaveAttribute('data-open', 'true');
   });
 
   it('calls onCreateSession when agent is selected from dialog', () => {
@@ -1481,24 +1499,76 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
 
     const btn = screen.getByTestId('dashboard-new-session');
     expect(btn).toBeDisabled();
-    expect(btn.textContent).not.toMatch(/\d/); // migrating, but no percent rendered yet
+    expect(btn).toHaveTextContent(/^Migrating$/);
 
     cleanup();
     (sessionStore as any)._setBucketMigrating(false);
   });
 
-  it('shows "Migrating N%" when a re-encrypt progress percent is available', () => {
+  it('REQ-ENTERPRISE-304: active migration shows its percent and does not offer Retry migration', () => {
     (sessionStore as any)._setBucketMigrating(true);
     (sessionStore as any)._setBucketMigrationPercent(42);
-    render(() => <Dashboard {...defaultProps} />);
+    render(() => <Dashboard {...defaultProps} userName={undefined} />);
 
     const btn = screen.getByTestId('dashboard-new-session');
     expect(btn).toBeDisabled();
-    expect(btn.textContent).toContain('42%'); // the derived progress value is the contract, not the wording
+    expect(btn).toHaveTextContent('Migrating 42%');
+    expect(screen.queryByRole('button', { name: 'Retry migration' })).not.toBeInTheDocument();
 
     cleanup();
     (sessionStore as any)._setBucketMigrating(false);
     (sessionStore as any)._setBucketMigrationPercent(null);
+  });
+
+  const haltedAt = '2026-11-21T14:23:45.678Z';
+
+  it.each([false, true])('REQ-ENTERPRISE-304: a halt gates the New Session slot and offers a separate Retry migration action (bucketMigrating=%s)', (bucketMigrating) => {
+    (sessionStore as any)._setBucketMigrating(bucketMigrating);
+    setBucketMigrationHaltedAt(haltedAt);
+    render(() => <Dashboard {...defaultProps} userName={undefined} />);
+
+    const status = screen.getByTestId('dashboard-new-session');
+    expect(status).toHaveTextContent(/^Migration halted$/);
+    expect(status).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Retry migration' })).toBeEnabled();
+  });
+
+  it('REQ-ENTERPRISE-304: Retry migration submits the halt timestamp once while pending and does not unlock New Session on success', async () => {
+    setBucketMigrationHaltedAt(haltedAt);
+    let finish!: (result: { success: true }) => void;
+    retryBucketMigration.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    render(() => <Dashboard {...defaultProps} userName={undefined} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry migration' }));
+    fireEvent.click(screen.getByRole('button', { name: /retry(?:ing)? migration/i }));
+    expect(retryBucketMigration.mock.calls).toEqual([[haltedAt]]);
+    const status = screen.getByTestId('dashboard-new-session');
+    expect(status).toHaveTextContent(/^Migration halted$/);
+    expect(status).toBeDisabled();
+    expect(screen.getByTestId('create-session-dialog')).toHaveAttribute('data-open', 'false');
+
+    finish({ success: true });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Retry migration' })).toBeEnabled());
+    expect(status).toHaveTextContent(/^Migration halted$/);
+    expect(status).toBeDisabled();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('REQ-ENTERPRISE-304: a rejected retry is reported without rendering server markup or lifting the halt', async () => {
+    setBucketMigrationHaltedAt(haltedAt);
+    retryBucketMigration.mockRejectedValueOnce(new ApiError(
+      'Migration retry was rejected. <strong data-retry-error-probe>diagnostic</strong>', 409, 'Conflict',
+    ));
+    render(() => <Dashboard {...defaultProps} userName={undefined} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry migration' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Migration retry was rejected.');
+    expect(document.querySelector('[data-retry-error-probe]')).not.toBeInTheDocument();
+    const status = screen.getByTestId('dashboard-new-session');
+    expect(status).toHaveTextContent(/^Migration halted$/);
+    expect(status).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Retry migration' })).toBeEnabled();
   });
 
 });

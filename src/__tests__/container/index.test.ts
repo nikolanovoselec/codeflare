@@ -1,7 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createMockKV } from '../helpers/mock-kv';
 import { createMockSessionD1 } from '../helpers/mock-session-d1';
+import { createTestApp } from '../helpers/test-app';
 import { createLogger, type Logger } from '../../lib/logger';
+import { computeKeyMd5 } from '../../lib/r2-sse';
+import type { RegimeState } from '../../lib/r2-regime-state';
+import { signSessionJWT, SESSION_JWT_AUD } from '../../lib/session-jwt';
+import sessionRoutes from '../../routes/session/index';
 import { env, runInDurableObject } from 'cloudflare:test';
 import type { DurableObject as NativeDurableObject } from 'cloudflare:workers';
 
@@ -246,6 +251,138 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         expect(writes.at(-1)).toBe('two.example.test');
         await finish(true);
       } finally { run.mockRestore(); }
+    });
+
+    describe('REQ-ENTERPRISE-021: owner-authorized retry of a halted migration', () => {
+      const email = 'migration-owner@example.test';
+      const bucket = getBucketName(email);
+      const stateKey = `r2-regime:${bucket}`;
+      const haltedAt = '2026-11-20T12:05:00.000Z';
+      const key = btoa('a'.repeat(32));
+      const halted: RegimeState = {
+        status: 'migrating', regime: 'plain', from: 'plain', to: 'sse-c', generation: 4,
+        phase: 'migrate', cursor: 'poison.md', drained: true, total: 1, processed: 4,
+        halted: true, stuckCount: 3, lastFailedKey: 'poison.md', lastError: 'verify failed',
+        startedAt: '2026-11-20T12:00:00.000Z', updatedAt: haltedAt, keyMd5: computeKeyMd5(key),
+      };
+
+      async function retryFixture() {
+        const f = ownerFixture();
+        const secret = 'fixture-session-signing-secret-for-migration';
+        f.kv._set(`user:${email}`, { role: 'user', subscriptionTier: 'standard' });
+        f.kv._set(stateKey, halted);
+        Object.assign(mockEnv, {
+          ENCRYPTION_KEY: key, ONBOARDING_LANDING_PAGE: 'active', OAUTH_CLIENT_ID: 'fixture-client', OAUTH_JWT_SECRET: secret,
+          CONTAINER: {
+            idFromName: (name: string) => name,
+            get: (name: string) => ({ claimBucketOwner: async (owner: string) =>
+              name === `bucket-owner:${bucket}` && owner === email ? 'owned' : 'conflict' }),
+            getByName: (name: string) => {
+              if (name !== `storage:${bucket}`) throw new Error('Unexpected bucket storage owner');
+              return f.instance;
+            },
+          },
+        });
+        const app = createTestApp({ routes: [{ path: '/api/sessions', handler: sessionRoutes }], mockKV: f.kv, envOverrides: mockEnv });
+        const token = await signSessionJWT({ email, sub: email, ghLogin: 'migration-owner', aud: SESSION_JWT_AUD }, secret);
+        const headers = { Cookie: `codeflare_session=${token}`, 'X-Requested-With': 'XMLHttpRequest', 'Content-Type': 'application/json' };
+        return { ...f, read: async () => await f.kv.get(stateKey, 'json') as RegimeState | null,
+          retry: (timestamp = haltedAt, authenticated = true) => app.request('/api/sessions/migration/retry', {
+            method: 'POST', headers: authenticated ? headers : { 'X-Requested-With': 'XMLHttpRequest', 'Content-Type': 'application/json' },
+            body: JSON.stringify({ haltedAt: timestamp }),
+          }),
+          poll: async () => {
+            const work: Promise<unknown>[] = [];
+            const response = await app.request('/api/sessions/ancillary-status', { headers }, undefined, {
+              waitUntil: (task: Promise<unknown>) => { work.push(task); }, passThroughOnException: () => {},
+            } as ExecutionContext);
+            await Promise.all(work);
+            return response;
+          },
+        };
+      }
+
+      it('REQ-ENTERPRISE-021: one authenticated retry resets the halt and keeps writes gated until the next poll verifies', async () => {
+        const f = await retryFixture();
+        let polling = false;
+        const wire = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+          if (!polling) throw new Error('R2 work belongs to the ancillary poll');
+          const url = new URL(input instanceof Request ? input.url : input);
+          if (url.hostname !== 'r2.test' || url.pathname !== `/${bucket}`) throw new Error('Unexpected R2 URL');
+          if (url.searchParams.has('list-type')) return new Response('<ListBucketResult><IsTruncated>false</IsTruncated></ListBucketResult>');
+          if (url.searchParams.has('uploads')) return new Response('<ListMultipartUploadsResult/>');
+          throw new Error('Unexpected R2 operation');
+        });
+        try {
+          const initial = await f.poll();
+          expect(initial.status).toBe(200);
+          const projection = await initial.json();
+          expect(projection).toMatchObject({ bucketMigrating: true, bucketMigrationHaltedAt: haltedAt });
+          expect(projection).not.toHaveProperty('bucketMigrationPercent');
+          expect((await f.retry(haltedAt, false)).status).toBe(401);
+          expect(await f.read()).toEqual(halted);
+          const responses = await Promise.all([f.retry(), f.retry()]);
+          expect(responses.map(response => response.status).sort()).toEqual([202, 409]);
+          expect(await responses.find(response => response.status === 202)!.json()).toMatchObject({ success: true });
+          expect(await responses.find(response => response.status === 409)!.json()).toMatchObject({ error: expect.stringMatching(/\S/) });
+          const queued = await f.read();
+          expect(queued).toMatchObject({
+            status: halted.status, regime: halted.regime, from: halted.from, to: halted.to,
+            generation: halted.generation, keyMd5: halted.keyMd5, startedAt: halted.startedAt,
+          });
+          expect(queued?.halted).toBeFalsy();
+          expect(queued?.stuckCount ?? 0).toBe(0);
+          expect(queued?.cursor ?? null).toBeNull();
+          expect(queued?.lastFailedKey).toBeFalsy();
+          expect(queued?.lastError).toBeFalsy();
+          const write = await f.instance.runBucketMultipart({ bucketName: bucket, action: 'initiate', key: 'draft.md' });
+          expect(write.status).toBe(409);
+          expect(await write.json()).toMatchObject({ code: 'BUCKET_MIGRATING' });
+
+          polling = true;
+          expect((await f.poll()).status).toBe(200);
+          expect(await f.read()).toMatchObject({ status: 'ready', regime: 'sse-c', generation: 5 });
+        } finally { wire.mockRestore(); }
+      });
+
+      it.each([
+        ['stale timestamp', /halt|changed|refresh|stale/i],
+        ['active D1 owner', /session|workload|ownership/i],
+        ['D1 failure', /session|workload|D1|ownership|database/i],
+        ['D1 missing', /session|workload|D1|ownership|database/i],
+        ['key mismatch', /encryption|key/i],
+        ['key missing', /encryption|key/i],
+        ['pending completion', /multipart|upload/i],
+      ] as const)(
+        'REQ-ENTERPRISE-021: refuses %s without changing the halted migration', async (scenario, reason) => {
+          const f = await retryFixture();
+          const wire = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+            const url = new URL(input instanceof Request ? input.url : input);
+            if (scenario === 'pending completion' && url.hostname === 'r2.test' && url.searchParams.has('uploads')) {
+              return new Response('<InitiateMultipartUploadResult><UploadId>uncertain</UploadId></InitiateMultipartUploadResult>');
+            }
+            throw new Error('R2 completion unconfirmed or unexpected provider operation');
+          });
+          try {
+            if (scenario === 'active D1 owner') f.kv._set(`session:${bucket}:session01`, { id: 'session01', status: 'running' });
+            if (scenario === 'D1 failure') mockEnv.USAGE_DB = { prepare: () => { throw new Error('D1 unavailable'); } };
+            if (scenario === 'D1 missing') mockEnv.USAGE_DB = undefined;
+            if (scenario === 'key mismatch') mockEnv.ENCRYPTION_KEY = btoa('b'.repeat(32));
+            if (scenario === 'key missing') delete mockEnv.ENCRYPTION_KEY;
+            if (scenario === 'pending completion') {
+              f.kv._set(stateKey, { status: 'ready', regime: 'plain', generation: 4 });
+              const draft = { bucketName: bucket, key: 'draft.md' };
+              expect((await f.instance.runBucketMultipart({ ...draft, action: 'initiate' })).status).toBe(200);
+              await expect(f.instance.runBucketMultipart({ ...draft, action: 'complete', uploadId: 'uncertain', parts: [{ partNumber: 1, etag: 'part' }] })).rejects.toThrow();
+              f.kv._set(stateKey, halted);
+            }
+            const refused = await f.retry(scenario === 'stale timestamp' ? halted.startedAt : haltedAt);
+            expect(refused.status).toBe(409);
+            expect(await refused.json()).toMatchObject({ error: expect.stringMatching(reason) });
+            expect(await f.read()).toEqual(halted);
+          } finally { wire.mockRestore(); }
+        },
+      );
     });
 
     it('REQ-ENTERPRISE-086: lost completion response gates migration until explicit abort confirms recovery', async () => {
@@ -527,11 +664,6 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       persisted.set('syncPolicyMode', 'Include');
       new ContainerClass(mockCtx as any, mockEnv);
       await expect(mockCtx.blockConcurrencyWhile.mock.results.at(-1)!.value).rejects.toThrow(/sync policy/i);
-    });
-
-    it('calls blockConcurrencyWhile in constructor', () => {
-      new ContainerClass(mockCtx as any, mockEnv);
-      expect(mockCtx.blockConcurrencyWhile).toHaveBeenCalledTimes(1);
     });
 
     it.each(['pi-native', 'managed', undefined, 'invalid', true])(

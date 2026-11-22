@@ -31,6 +31,11 @@
   text-overflow: ellipsis;
 }
 
+@media (min-width: 1024px) {
+  .storage-breadcrumbs { overflow-x: auto; }
+  .storage-breadcrumbs .breadcrumb-item { flex-shrink: 0; }
+}
+
 .breadcrumb-item {
   background: none;
   border: none;

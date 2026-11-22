@@ -401,6 +401,8 @@ filesystem) and renders as a side drawer on desktop, a bottom-sheet on mobile.
 
 Within a row the path is pinned to the right edge for every folder so all paths align identically; the special-folder container icon (a tooltip toggle) sits immediately after the folder name rather than trailing the row (`web-ui/src/components/storage/FileList.tsx`, `web-ui/src/styles/storage-browser.css`).
 
+On desktop, opening a folder scrolls an overflowing breadcrumb to the current folder once. Reduce Motion reveals it without animation. Hover the current crumb for its full path; its accessible description exposes the same path. Ancestors remain clickable and mobile keeps manual scrolling.
+
 Clicking a file opens it inline in a new browser tab (served with an XSS-safe
 Content-Type + `nosniff`) rather than downloading it.
 
@@ -537,9 +539,9 @@ Manual AC5 observes an already authorized, isolated migration fixture prepared u
 
 1. Open or reload the dashboard during the prepared migration. Observe the ancillary response and New Session control; known progress is within 0–99, and the disabled control displays `Migrating N%` for that value.
 2. Keep the page visible and record successive migration ancillary updates. Verify the existing five-second scheduling and non-overlap, distinguishing request duration from timer delay. If migration ends before that observation is possible, record BLOCKED for cadence.
-3. Observe the prepared halted fixture: percentage is omitted, New Session remains disabled, and the UI does not invent a percentage. Enabled creation, out-of-range/mismatched progress or invented halted progress is FAIL.
+3. On the prepared halted fixture, the disabled New Session slot says **Migration halted** without a percentage and a separate **Retry migration** button is visible. An authorized retry stays on the same bucket and leaves creation disabled until verification completes. If retry is refused, the dashboard explains what to do; it does not clear the halt.
 
-Record build, nonsecret fixture identity, response timing and observed labels. These checks do not establish encryption conversion, drain completion or live storage preservation; their automated methods and separate acceptance boundaries remain unchanged.
+Record build, nonsecret fixture identity, response timing and observed labels. These UI checks do not by themselves establish encryption conversion, drain completion or live storage preservation; their automated methods and separate acceptance boundaries remain unchanged.
 
 <a id="specification-coverage"></a>
 ## Requirement and Source Map
@@ -592,11 +594,13 @@ Six startup costs and stale-state risks are controlled by [REQ-STOR-017](../../s
 
 When an enterprise admin enables [Governed Mode](configuration.md#governed-mode-r2-sse-c-disable), the deployment selects plaintext as the R2 target for corporate scanning. The committed regime remains per bucket; an owning workload can defer conversion, and skipped oversized objects can retain the prior regime. Each bucket's actual encryption regime + any in-flight migration is tracked by a per-bucket **state object** (`r2-regime:<bucket>` — `{status: ready|migrating|mixed-recovery, regime, from?, to?, generation, cursor?, phase?, drained?, leaseExpiresAt?, keyMd5?, stuckCount?, lastFailedKey?}`; it replaced the old boolean `UserPreferences.r2SseRegime` marker, a boolean being unable to describe a partially in-place-migrated bucket).
 
-Eligible objects change regime in place — a same-key server-side `CopyObject` with `MetadataDirective=REPLACE` (never a nuke) — driven in resumable chunks by the separate slower/event-driven dashboard `ancillary-status` owner, not the hot D1-only `batch-status` poll, with the regime committed only after HEAD verification of the full eligible set. Objects over the single-copy limit are recorded and skipped, with dual-regime read fallback retained. Verification starts in the migration invocation if its budget permits; otherwise the next poll resumes from the checkpoint.
+Eligible objects change regime in place — a same-key server-side `CopyObject` with `MetadataDirective=REPLACE` (never a nuke) — driven in resumable chunks by the separate slower/event-driven dashboard `ancillary-status` owner, not the hot D1-only `batch-status` poll, with the regime committed only after HEAD verification of the full eligible set. Objects over the single-copy limit are recorded and skipped. When enabling SSE-C, a default-encrypted empty object can remain unchanged only when a fresh authenticated HEAD without SSE-C confirms exactly zero bytes independently of listing metadata. The exception does not trigger read self-heal. Verification starts in the migration invocation if its budget permits; otherwise the next poll resumes from the checkpoint.
 
 Migration lists up to 1,000 entries per page and processes objects with concurrency six. The R2 fetch timeout aborts a request that has not returned response headers. Listing and copy response bodies are read afterward and are not covered by that timer. A failed chunk tries to save its error and release its own lease; if that state write fails, the lease remains recorded until its expiry. The timed-out copy and successor-lease fixtures do not cover stalled bodies or failed release writes ([REQ-ENTERPRISE-302](../../sdd/spec/storage.md#req-enterprise-302-migration-chunk-admission-checkpoint-and-failure-isolation) AC3/AC6). <!-- @impl: src/lib/r2-migration.ts::fetchWithTimeout --> <!-- @impl: src/lib/r2-migration.ts::advanceMigrationChunk -->
 
 Migration defers while D1 records a workload-owning session, even if that runtime is unhealthy or earlier chunks drained. Ownership is rechecked after lease admission and bounded drain, before multipart aborts or object mutations; unknown authority keeps work retryable. A benign drain timeout can proceed only after a fresh no-owner result. Background migration does not destroy owning sessions. Platform writers remain gated `409 BUCKET_MIGRATING` (except explicit matching uncertain-completion abort recovery), and reads use a dual-regime fallback (a stray cross-regime object self-heals via a `mixed-recovery` scan). Session start never performs migration; it rejects an in-flight migration before runtime admission. Record creation and starting its runtime are distinct operations.
+
+If repeated verification fails, the dashboard shows **Migration halted** beside **Retry migration**. Retry restarts the current bucket’s idempotent scan without clearing its write gate, changing the target or advancing the generation. It refuses a changed policy, invalid or changed key, active or unknown session ownership, and unresolved multipart completion. Background polling verifies the retry before the bucket can become ready.
 
 The Storage upload queue can rediscover an uncertain multipart completion after reload. It shows the exact pending object; check whether the file already exists before confirming abort. A stale confirmation cannot abort a replacement pending upload. See [REQ-STOR-008](../../sdd/spec/storage.md#req-stor-008-multipart-upload-for-large-files).
 

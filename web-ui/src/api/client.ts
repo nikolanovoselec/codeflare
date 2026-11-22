@@ -418,10 +418,15 @@ export type SessionAncillaryStatus = {
   bucketMigrating?: boolean;
   bucketMigrationPending?: boolean;
   bucketMigrationPercent?: number;
+  bucketMigrationHaltedAt?: string;
 };
 
 export async function getSessionAncillaryStatus(): Promise<SessionAncillaryStatus> {
   return fetchApi('/sessions/ancillary-status', {}, SessionAncillaryStatusResponseSchema);
+}
+
+export function retryBucketMigration(haltedAt: string): Promise<{ success: true }> {
+  return fetchApi('/sessions/migration/retry', { method: 'POST', body: JSON.stringify({ haltedAt }) }, z.object({ success: z.literal(true) }));
 }
 
 // Get container startup status (polling endpoint)

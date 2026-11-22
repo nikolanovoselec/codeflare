@@ -38,10 +38,19 @@ export function hermesRetentionR2(env: Env, endpoint: string, bucket: string, pl
     throw new Error('Hermes inventory exceeded its page budget');
   };
 
-  const read = async (key: string, limit: number, etag?: string) => {
-    const response = await client.fetch(getR2Url(endpoint, bucket, key), {
-      headers: { ...headers, ...(etag ? { 'If-Match': etag } : {}) }, signal,
-    });
+  const read = async (key: string, limit: number, etag?: string, listedEmpty = false) => {
+    const url = getR2Url(endpoint, bucket, key);
+    const match = etag ? { 'If-Match': etag } : undefined;
+    const response = await client.fetch(url, { headers: { ...headers, ...match }, signal });
+    if (listedEmpty && match && !plain && env.ENCRYPTION_KEY && (response.status === 400 || response.status === 403)) {
+      await response.body?.cancel();
+      const empty = await client.fetch(url, { headers: match, signal });
+      if (empty.status !== 200 || empty.headers.get('content-length') !== '0' || empty.headers.has('content-range')) {
+        await empty.body?.cancel();
+        throw new Error('Hermes empty object unavailable');
+      }
+      return { bytes: await readBoundedResponse(empty, 0, 'Hermes empty object', signal), headers: empty.headers };
+    }
     if (!response.ok) {
       await response.body?.cancel();
       throw new Error('Hermes object unavailable');
@@ -59,7 +68,7 @@ export function hermesRetentionR2(env: Env, endpoint: string, bucket: string, pl
     return Promise.all(keys.map(async key => {
       const listed = objects.get(key)!;
       const etag = listed.etag!;
-      const { bytes, headers: objectHeaders } = await read(key, 4 * 1024 * 1024, etag.startsWith('"') ? etag : `"${etag}"`);
+      const { bytes, headers: objectHeaders } = await read(key, 4 * 1024 * 1024, etag.startsWith('"') ? etag : `"${etag}"`, listed.size === 0);
       // The scoped uploader stamps actual byte changes only. Server-side
       // copies (including re-encryption) preserve this user metadata.
       const writtenAt = objectHeaders.get('x-amz-meta-codeflare-hermes-written-at');

@@ -15,7 +15,7 @@ import { D1SessionRepository } from '../../lib/session-repository';
 import type { SessionStopRequest } from '../../container/container-lifecycle';
 import { getPreferencesKey, getTimekeeperKey, getUtcDateString, getUtcMonthString } from '../../lib/kv-keys';
 import { PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
-import { planRegimeReconcile, advanceMigration } from '../../lib/r2-migration';
+import { planRegimeReconcile, advanceMigration, getBucketStorageOwner } from '../../lib/r2-migration';
 import { hasOwningSessionContainer } from '../../lib/session-helpers';
 import { isSaasModeActive } from '../../lib/onboarding';
 import { getTierConfig, getEffectiveTierForUser, isEnterpriseMode } from '../../lib/subscription';
@@ -50,6 +50,8 @@ const sessionsSyncRateLimiter = createRateLimiter({
   maxRequests: 6,
   keyPrefix: 'sessions-sync',
 });
+
+const migrationRetryRateLimiter = createRateLimiter({ windowMs: 60_000, maxRequests: 6, keyPrefix: 'migration-retry' });
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 /**
@@ -182,7 +184,8 @@ app.get('/ancillary-status', async (c) => {
   const bucketMigrationPercent = bucketMigrating && !regimeState.halted && migrationTotal > 0 && regimeState.processed != null
     ? Math.min(99, Math.max(0, Math.round((regimeState.processed / (2 * migrationTotal)) * 100)))
     : undefined;
-  if (bucketMigrating) {
+  const bucketMigrationHaltedAt = bucketMigrating && regimeState.halted ? regimeState.updatedAt : undefined;
+  if (bucketMigrating && !regimeState.halted) {
     try {
       c.executionCtx.waitUntil(advanceMigration(c.env, bucketName, {
         drainContainers: async () => {
@@ -198,8 +201,18 @@ app.get('/ancillary-status', async (c) => {
   return c.json({
     maxSessions, storageStats: storageStats ?? undefined, usage,
     preseedNeedsUpgrade, preseedUpgradeTarget, managedReleaseStatus, managedReleaseProgress, managedReleaseBlockedReason,
-    bucketMigrating, bucketMigrationPending, bucketMigrationPercent,
+    bucketMigrating, bucketMigrationPending, bucketMigrationPercent, bucketMigrationHaltedAt,
   });
+});
+
+app.post('/migration/retry', migrationRetryRateLimiter, async (c) => {
+  const data: unknown = await c.req.json().catch(() => null);
+  const haltedAt = data && typeof data === 'object' && 'haltedAt' in data ? data.haltedAt : null;
+  if (typeof haltedAt !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(haltedAt)) {
+    throw new ValidationError('Refresh the dashboard before retrying migration.');
+  }
+  const bucket = c.get('bucketName');
+  return getBucketStorageOwner(c.env, bucket).retryBucketMigration(bucket, haltedAt);
 });
 
 /**

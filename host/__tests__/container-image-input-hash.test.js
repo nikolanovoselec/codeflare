@@ -117,6 +117,7 @@ describe('deployment container image input hash', () => {
       'scripts/patch-rclone-bisync.py',
       'scripts/prepare-rclone-s3-fixture.py',
       'scripts/ci/rclone-bookkeeping_test.go',
+      'scripts/ci/rclone-hermes-empty_test.go',
       'scripts/patch-context-mode-bundles.mjs',
       'scripts/qualify-context-mode.mjs',
       'scripts/patch-chrome-devtools-timeouts.mjs',

@@ -4,6 +4,14 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-22: Recover halted storage migrations
+
+- [REQ-ENTERPRISE-020](storage.md#req-enterprise-020-governed-mode-re-encrypt-migration-engine) preserves independently verified empty objects without SSE-C conversion. [REQ-ENTERPRISE-304](storage.md#req-enterprise-304-dashboard-migration-affordance-and-refresh) shows a retry action beside the halted status.
+
+## 2026-11-22: Reveal deep desktop storage paths
+
+- [REQ-STOR-016](storage.md#req-stor-016-file-browser-presentation-and-traversal-safety) keeps the current folder visible when its desktop breadcrumb overflows.
+
 ## 2026-11-22: Keep RED local by default
 
 - [REQ-AGENT-264 AC3–4, AC6–7](agents.md#req-agent-264-engineering-behavioral-evidence-and-sdd-traceability) distinguishes observed RED from a check that could not run. Local-only work stays local, and authorized pushes deliver tests and fixes together unless separate RED delivery is explicitly authorized.

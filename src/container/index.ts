@@ -46,7 +46,8 @@ import { canonicalJson } from '../lib/reasoning-profiles';
 import { runSetupConfiguration, type SetupConfigurationInput } from '../routes/setup/index';
 import { getWorkerNameFromHostname } from '../routes/setup/shared';
 import { performBucketMultipart, MULTIPART_PENDING_COMPLETION, type BucketMultipartOperation } from '../routes/storage/upload';
-import { advanceMigrationChunk, getRegimeState } from '../lib/r2-migration';
+import { advanceMigrationChunk, getRegimeState, getR2SsePolicyDisabled, regimeForPolicy } from '../lib/r2-migration';
+import { computeKeyMd5 } from '../lib/r2-sse';
 import { setRegimeState } from '../lib/r2-regime-state';
 import type { RegimeState } from '../lib/r2-regime-state';
 import { hasOwningSessionContainer } from '../lib/session-helpers';
@@ -549,6 +550,54 @@ export class container extends Container<Env> implements ContainerEnvState {
         if (cause instanceof AppError) return Response.json(cause.toJSON(), { status: cause.statusCode });
         throw cause;
       }
+    });
+  }
+
+  async retryBucketMigration(bucketName: string, haltedAt: string): Promise<Response> {
+    const error = validateBucketNameInput({ bucketName });
+    if (error) throw new Error(error);
+    return this.serializeBucketStorage(async () => {
+      await this.bindBucketStorageOwner(bucketName);
+      const refuse = (message: string) => Response.json({ code: 'MIGRATION_RETRY_BLOCKED', error: message }, { status: 409 });
+      const state = await getRegimeState(this.env, bucketName);
+      const verified = await this.ctx.storage.get<RegimeState>('multipart:regime');
+      if (state.status === 'ready' || !state.halted || state.updatedAt !== haltedAt
+        || (verified && verified.generation > state.generation)) {
+        return refuse('The migration status changed. Refresh the dashboard before retrying.');
+      }
+      if (state.leaseExpiresAt && state.leaseExpiresAt > Date.now()) {
+        return refuse('Migration work is still finishing. Wait a moment and retry.');
+      }
+      const target = state.status === 'mixed-recovery' ? state.regime : state.to;
+      if (!target || target !== regimeForPolicy(await getR2SsePolicyDisabled(this.env))) {
+        return refuse('The storage policy changed. Ask your administrator to restore the migration target before retrying.');
+      }
+      try {
+        const key = this.env.ENCRYPTION_KEY;
+        const fingerprint = key && computeKeyMd5(key);
+        if (!fingerprint || fingerprint !== state.keyMd5) {
+          return refuse('The original storage encryption key could not be confirmed. Ask your administrator to check the key before retrying.');
+        }
+      } catch {
+        return refuse('The storage encryption key is invalid. Ask your administrator to restore the original key.');
+      }
+      if (await this.ctx.storage.get(MULTIPART_PENDING_COMPLETION)) {
+        return refuse('An upload is awaiting recovery. Resolve it in Storage before retrying migration.');
+      }
+      try {
+        if (await hasOwningSessionContainer(this.env, bucketName)) {
+          return refuse('Stop your running sessions before retrying the storage migration.');
+        }
+      } catch {
+        return refuse('Could not confirm that your sessions have stopped. Refresh and retry.');
+      }
+      // Restart the idempotent scan without clearing the write gate or changing
+      // the original direction, key fingerprint, or committed generation.
+      await setRegimeState(this.env, bucketName, {
+        ...state, halted: false, stuckCount: 0, cursor: null, phase: 'migrate', processed: 0,
+        lastFailedKey: undefined, lastError: undefined, leaseExpiresAt: undefined,
+      });
+      return Response.json({ success: true }, { status: 202 });
     });
   }
 
