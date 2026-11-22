@@ -1117,6 +1117,7 @@ export async function collectMetrics(
   }
   // These existing keys are retry diagnostics only. D1 is re-read before
   // acting on an incident; no deadline or termination authority lives here.
+  let incident: D1Session | null = null;
   let recoveryTick = !runtime.running;
   try {
     const recovery = await ctx.storage.get<unknown>(TRANSPORT_RECOVERY_KEY);
@@ -1131,6 +1132,7 @@ export async function collectMetrics(
     try {
       const current = await readCurrent();
       if (!execution.isCurrent() || (current && !sameGeneration(current))) return;
+      if (current?.lifecycleState === 'unreachable') incident = current;
       if (sameGeneration(current) && (current.lifecycleState === 'stopping'
         || (current.lifecycleState === 'unreachable' && current.unreachableDeadlineMs !== undefined
           && Date.now() >= current.unreachableDeadlineMs))) {
@@ -1205,6 +1207,7 @@ export async function collectMetrics(
   const observationStartedAt = Date.now();
   let activityProbe: ProbeObservation = { responded: false, durationMs: 0 };
   let healthProbe: ProbeObservation = { responded: false, durationMs: 0 };
+  let hostRespondedAt = 0;
   try {
     const port = runtime.getTcpPort(TERMINAL_SERVER_PORT);
     const response = await pollContainer(
@@ -1213,9 +1216,10 @@ export async function collectMetrics(
       CONTAINER_POLL_BUDGET_MS,
       execution.authToken,
     );
+    hostRespondedAt = Date.now();
     const observation: ProbeObservation = {
       responded: true,
-      durationMs: Math.max(0, Date.now() - observationStartedAt),
+      durationMs: Math.max(0, hostRespondedAt - observationStartedAt),
       status: response.status,
     };
     activityProbe = observation;
@@ -1225,7 +1229,10 @@ export async function collectMetrics(
         logger.warn('collectMetrics: existing runtime monitor attachment unavailable', { sessionId, lifecycleGeneration: generation });
       });
     }
-    if (!response.ok) {
+    if (incident) {
+      // A known incident needs reachability, not an ordinary metrics projection.
+      void response.body?.cancel().catch(() => undefined);
+    } else if (!response.ok) {
       logger.warn('collectMetrics: runtime observation returned non-OK', { status: response.status });
     } else {
       const snapshot = await raceBudget(response.json(), CONTAINER_POLL_BUDGET_MS) as {
@@ -1319,6 +1326,7 @@ export async function collectMetrics(
           const current = await readCurrent().catch(() => null);
           // Only scan when the row can accept this inventory. In particular,
           // optional work must not spend the remaining unreachable recovery window.
+          if (sameGeneration(current) && current.lifecycleState === 'unreachable') incident = current;
           if (sameGeneration(current) && (current.lifecycleState === 'starting' || current.lifecycleState === 'running')
             && !current.unreachableIncidentId && !current.terminationIntentId && sequence > current.observationSequence) {
             const inventory = await raceBudget((async () => {
@@ -1336,14 +1344,16 @@ export async function collectMetrics(
           }
           if (!execution.isCurrent()) return;
         }
-        const accepted = await raceBudget(repository.project(ownerKey, sessionId, generation, sequence, {
-          lifecycleState: 'running',
-          lastInputAt: observedInputAt === null ? undefined : new Date(observedInputAt).toISOString(),
-          cpu: snapshot.cpu, memory: snapshot.memory, disk: snapshot.disk, syncStatus: snapshot.syncStatus,
-          editorReady: snapshot.editorReady, editorReadyError: snapshot.editorReadyError, observedAt: snapshot.observedAt,
-        }), CONTAINER_POLL_BUDGET_MS);
-        if (accepted === null) throw new Error('D1 metrics projection deadline exceeded');
-        projectionAccepted = accepted;
+        if (!incident) {
+          const accepted = await raceBudget(repository.project(ownerKey, sessionId, generation, sequence, {
+            lifecycleState: 'running',
+            lastInputAt: observedInputAt === null ? undefined : new Date(observedInputAt).toISOString(),
+            cpu: snapshot.cpu, memory: snapshot.memory, disk: snapshot.disk, syncStatus: snapshot.syncStatus,
+            editorReady: snapshot.editorReady, editorReadyError: snapshot.editorReadyError, observedAt: snapshot.observedAt,
+          }), CONTAINER_POLL_BUDGET_MS);
+          if (accepted === null) throw new Error('D1 metrics projection deadline exceeded');
+          projectionAccepted = accepted;
+        }
       } catch {
         projectionFailed = true;
         // A D1 outage must not be misclassified as a dead container transport.
@@ -1358,22 +1368,24 @@ export async function collectMetrics(
   }
 
   if (!execution.isCurrent()) return;
-  let incident: D1Session | null = null;
   const proposedIncidentId = crypto.randomUUID();
   const failureObservedAt = Date.now();
   const responded = activityProbe.responded || healthProbe.responded;
   let terminationRetry: boolean | undefined;
   let recoveredIncident = false;
+  let timelyRecovery = false;
   try {
     if (!responded) {
       incident = await raceBudget(repository.observeUnreachable(ownerKey, sessionId, generation, sequence,
         proposedIncidentId, failureObservedAt), CONTAINER_POLL_BUDGET_MS);
     } else if (!projectionAccepted && !projectionFailed) {
-      incident = await readCurrent();
+      incident ??= await readCurrent();
       if (sameGeneration(incident) && incident.lifecycleState === 'unreachable' && incident.unreachableIncidentId
-        && Date.now() < (incident.unreachableDeadlineMs ?? 0)) {
+        && hostRespondedAt < (incident.unreachableDeadlineMs ?? 0)) {
+        // A timely response stays timely while D1 completes the conditional update.
+        timelyRecovery = true;
         const recovered = await raceBudget(repository.recoverUnreachable(ownerKey, sessionId, generation, sequence,
-          incident.unreachableIncidentId, new Date().toISOString()), CONTAINER_POLL_BUDGET_MS);
+          incident.unreachableIncidentId, new Date(hostRespondedAt).toISOString()), CONTAINER_POLL_BUDGET_MS);
         recoveredIncident = recovered === true;
         if (recovered) logger.info('recovery_succeeded', { sessionId, lifecycleGeneration: generation,
           incidentId: incident.unreachableIncidentId });
@@ -1382,7 +1394,7 @@ export async function collectMetrics(
     if (!execution.isCurrent()) return;
     if (sameGeneration(incident)) diagnosticIncidentId = incident.unreachableIncidentId ?? null;
     if (sameGeneration(incident) && (incident.lifecycleState === 'stopping'
-        || (incident.unreachableDeadlineMs !== undefined && Date.now() >= incident.unreachableDeadlineMs))) {
+        || (!timelyRecovery && incident.unreachableDeadlineMs !== undefined && Date.now() >= incident.unreachableDeadlineMs))) {
       terminationRetry = await callbacks.terminateUnreachable(incident, execution);
     }
   } catch {

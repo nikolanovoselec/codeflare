@@ -3,6 +3,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { D1SessionRepository } from '../../lib/session-repository';
 import { buildCloneTargets } from '../../lib/clone-targets';
 import { confirmMonitoredExit } from '../../container/container-lifecycle';
+import { TRANSPORT_FAILURE_STREAK_KEY, TRANSPORT_RECOVERY_KEY } from '../../container/container-metrics';
 // @ts-expect-error Vite raw-loader module used only by the Workers test runtime.
 import migration from '../../../migrations/usage/0002_runtime_sessions.sql?raw';
 // @ts-expect-error Vite raw-loader module used only by the Workers test runtime.
@@ -1072,7 +1073,7 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
     } finally { vi.useRealTimers(); vi.restoreAllMocks(); }
   });
 
-  it('REQ-SESSION-020: skips inventory and recovers a responsive session just before expiry', async () => {
+  it.each(['inventory', 'D1'] as const)('REQ-SESSION-022 AC4: a timely host response recovers before optional %s work', async delayed => {
     const f = await runtimeFixture();
     try {
       await f.tick();
@@ -1081,12 +1082,26 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
       const expiresAt = incident.unreachableDeadlineMs!;
       f.time(expiresAt - 1);
       const startingRequest = f.hostRequests.length;
+      let hostResponded = false;
+      if (delayed === 'D1') {
+        // Exercise incident discovery after the host responds, without the local retry hints.
+        f.ctx.container.running = true;
+        f.stored.delete(TRANSPORT_RECOVERY_KEY);
+        f.stored.delete(TRANSPORT_FAILURE_STREAK_KEY);
+        const getSession = D1SessionRepository.prototype.getSession;
+        vi.spyOn(D1SessionRepository.prototype, 'getSession').mockImplementation(async function (this: D1SessionRepository, ...args) {
+          const row = await getSession.apply(this, args);
+          if (hostResponded) f.time(expiresAt + 1);
+          return row;
+        });
+      }
       f.respond(async url => {
         if (new URL(url).searchParams.get('inventory') === 'only') {
           // Even a successful scan taking another 2 ms would consume the recovery window.
           f.time(expiresAt + 1);
           return Response.json({ workspaceRepos: [] });
         }
+        hostResponded = true;
         return Response.json({ lastInputAt: expiresAt - 1, workspaceInventoryReady: true,
           observedAt: new Date(expiresAt - 1).toISOString() });
       });
@@ -1097,6 +1112,22 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
       expect(recovered?.terminationIntentId).toBeUndefined();
       expect(f.hostRequests.slice(startingRequest).some(({ url }) => new URL(url).searchParams.get('inventory') === 'only')).toBe(false);
       expect(f.effects).toEqual([]);
+    } finally { vi.restoreAllMocks(); }
+  });
+
+  it('REQ-SESSION-022 AC4: a host response at expiry cannot recover the incident', async () => {
+    const f = await runtimeFixture();
+    try {
+      await f.tick();
+      const expiresAt = (await repository().getSession(owner, id))!.unreachableDeadlineMs!;
+      f.time(expiresAt - 1);
+      f.respond(async () => {
+        f.time(expiresAt);
+        return Response.json({ lastInputAt: expiresAt, observedAt: new Date(expiresAt).toISOString() });
+      });
+      await f.tick();
+      expect(await repository().getSession(owner, id)).toMatchObject({ lifecycleState: 'stopping', lifecycleGeneration: 1 });
+      expect(f.effects).toEqual(['signal:15']);
     } finally { vi.restoreAllMocks(); }
   });
 

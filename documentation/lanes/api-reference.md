@@ -1207,17 +1207,28 @@ Anonymous GET `/health` returns only `{ "status": "healthy" }` before protected 
 
 `prewarmReady: false` together with `initFlagObserved: false` means the init-complete flag was never observed. See [Container Startup](container.md#startup-sequence) and [Troubleshooting](troubleshooting.md#container-stuck-at-waiting-for-services) for diagnosis.
 
-### Private runtime observation
+<a id="private-runtime-observation"></a>
+### GET `/internal/runtime-observation`
 
-All `GET /internal/runtime-observation` modes require the lifecycle bearer. These are host-internal responses, not public Worker endpoints. <!-- @impl: host/src/request-router.ts::createRequestHandler -->
+**Authentication:** Lifecycle bearer. This is a private host route, not a public Worker endpoint.
+
+**Request:** Optional `inventory` query selector; no request body.
+
+**Response:** `200` with the fields for the selected mode:
 
 | Query | Response |
 |---|---|
-| None | Runtime metrics and readiness, with `workspaceRepos` when a complete inventory is available. |
+| None | Runtime metrics and readiness, with `workspaceRepos` when the bounded inventory is reported. |
 | `inventory=defer` | Runtime metrics and readiness plus `workspaceInventoryReady`; omits `workspaceRepos`. |
 | `inventory=only` | `workspaceRepos` when available, otherwise `{}`. No metrics or `observedAt`. |
 
-Legacy hosts may ignore either selector and return the default response. The coordinator uses only the first response for metrics and only the fresh inventory from the second response for repository tracking.
+**Errors:** `401` for a missing or invalid bearer; `503` if the host auth token is not configured. <!-- @impl: host/src/auth-check.ts::checkContainerAuth -->
+
+**Source:** Host runtime request router. <!-- @impl: host/src/request-router.ts::createRequestHandler -->
+
+**Implements:** [REQ-SESSION-020](../../sdd/spec/session-lifecycle.md#req-session-020-runtime-observation-is-bounded-and-projected-once) AC1 and AC6.
+
+Legacy hosts may ignore either selector. The coordinator uses only the first response for metrics. If it requests an eligible inventory, it uses only the fresh inventory from that response for tracking. <!-- @impl: src/container/container-metrics.ts::collectMetrics -->
 
 ---
 
