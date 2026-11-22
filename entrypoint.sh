@@ -3432,18 +3432,23 @@ def prepare_direct_layout():
         current = read(local_generation) if kind(local_generation, stat.S_ISREG) else None
         if not kind(pending, stat.S_ISDIR) and os.path.lexists(marker) and current != f'{session}:{generation}\n':
             check_direct(True)
+            ready.unlink(missing_ok=True)
             pending.mkdir(parents=True, mode=0o700)
         if kind(pending, stat.S_ISDIR):
             retirement = pending
             ready.unlink(missing_ok=True)
-            complete = pending / 'retirement-complete'
+            # A completed move belongs only to its target generation. A new
+            # generation also retires any seed left by an interrupted admission.
+            attempt = pending / generation
+            if not kind(attempt, stat.S_ISDIR):
+                attempt.mkdir(mode=0o700)
+            complete = attempt / 'retirement-complete'
             if not kind(complete, stat.S_ISREG):
-                # Record the destination before the first move. Move the old
-                # marker last; a retry finishes only the remaining moves.
+                # Move the old marker last; a retry finishes the same moves.
                 locks = [evidence / ('.pi-hermes-locks.sqlite' + suffix) for suffix in ('', '-wal', '-shm', '-journal')]
                 for path in [evidence / 'global', evidence / 'Projects', *locks, marker]:
                     if os.path.lexists(path):
-                        path.rename(pending / path.name)
+                        path.rename(attempt / path.name)
                 complete.touch(exist_ok=False)
     if os.path.lexists(marker) or persistence == 'existing':
         check_direct(True)

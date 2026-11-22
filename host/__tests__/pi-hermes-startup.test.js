@@ -460,10 +460,31 @@ describe('Pi Hermes startup (actual entrypoint helper)', () => {
     const hooks = join(fx.root, 'retirement-fault');
     put(join(hooks, 'sitecustomize.py'), `import os\nrename = os.rename\ndef interrupt(src, dst, *args, **kwargs):\n    rename(src, dst, *args, **kwargs)\n    if os.fsdecode(src).endswith('/${sessionRoot}/global'):\n        os._exit(91)\nos.rename = interrupt\n`);
     assert.equal(run(fx, { generation: '2', faultHooks: hooks }).status, 91);
+    assert.equal(existsSync(join(fx.runtime, 'sync/hermes-ready')), false, 'interrupted retirement must revoke sync readiness');
     assert.equal(existsSync(global), false);
     assert.equal(readFileSync(join(fx.home, sessionRoot, 'session-id'), 'utf8'), `${sessionId}\n`);
     succeeds(run(fx, { generation: '2' }));
     assert.equal(readFileSync(join(global, 'MEMORY.md'), 'utf8'), 'Current master');
+    assert.equal(readFileSync(checkpoint, 'utf8'), 'Untouched checkpoint');
+  });
+
+  it('REQ-MEM-041 AC7: a later admission replaces an interrupted generation’s seed', t => {
+    const fx = fixture(t);
+    restoredMarkdown(fx);
+    succeeds(run(fx));
+    const global = join(fx.home, sessionRoot, 'global');
+    const master = join(fx.home, canonicalFiles[1]);
+    const checkpoint = join(fx.home, checkpointFile(sessionId));
+    put(checkpoint, 'Untouched checkpoint');
+    put(master, 'Generation two master');
+    const hooks = join(fx.root, 'seed-fault');
+    put(join(hooks, 'sitecustomize.py'), `import os\nreplace = os.replace\ndef interrupt(src, dst, *args, **kwargs):\n    replace(src, dst, *args, **kwargs)\n    if os.fsdecode(dst).endswith('/${sessionRoot}/session-id'):\n        os._exit(92)\nos.replace = interrupt\n`);
+    assert.equal(run(fx, { generation: '2', faultHooks: hooks }).status, 92);
+    assert.equal(readFileSync(join(global, 'MEMORY.md'), 'utf8'), 'Generation two master');
+    assert.equal(existsSync(join(fx.runtime, 'sync/hermes-ready')), false);
+    put(master, 'Generation three master');
+    succeeds(run(fx, { generation: '3' }));
+    assert.equal(readFileSync(join(global, 'MEMORY.md'), 'utf8'), 'Generation three master');
     assert.equal(readFileSync(checkpoint, 'utf8'), 'Untouched checkpoint');
   });
 

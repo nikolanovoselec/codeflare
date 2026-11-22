@@ -4,6 +4,10 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-22: Preserve legacy Hermes checkpoints on failure
+
+- With the recognized checkpoint-era adapter, [REQ-MEM-043 AC4–5](memory.md#req-mem-043-hermes-signed-adapter-compatibility) keeps the previous checkpoint recoverable if rollback cannot restore it, and treats a committed checkpoint as saved even if staging cleanup fails.
+
 ## 2026-11-22: Sync native Hermes session Markdown
 
 - [REQ-MEM-043](memory.md#req-mem-043-hermes-signed-adapter-compatibility) separates the signed rollout contracts previously documented in REQ-MEM-041 AC5/AC6 from the direct layout. It keeps the legacy predecessor guarantee and refuses master-backed fallback on replacement starts.
