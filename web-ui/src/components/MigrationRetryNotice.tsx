@@ -1,4 +1,4 @@
-import { createSignal, Show, type Component } from 'solid-js';
+import { createEffect, createSignal, Show, type Component } from 'solid-js';
 import { mdiClose } from '@mdi/js';
 import Icon from './Icon';
 import { retryBucketMigration } from '../api/client';
@@ -9,6 +9,12 @@ export function createMigrationRetry() {
   const [migrationRetryPending, setMigrationRetryPending] = createSignal(false);
   const [migrationRetry, setMigrationRetry] = createSignal<{ haltedAt: string; error?: string }>();
   const [migrationNoticeDismissed, setMigrationNoticeDismissed] = createSignal(false);
+  createEffect(() => {
+    const retry = migrationRetry();
+    const halt = sessionStore.bucketMigrationHaltedAt;
+    // A replacement halt supersedes both settled feedback and an in-flight result.
+    if (retry && halt && halt !== retry.haltedAt) setMigrationRetry(undefined);
+  });
   const currentMigrationRetry = () => {
     const retry = migrationRetry();
     return retry?.haltedAt === sessionStore.bucketMigrationHaltedAt ? retry : undefined;
@@ -35,17 +41,20 @@ export function createMigrationRetry() {
     if (!haltedAt || migrationRetryDisabled()) return;
     setMigrationRetryPending(true);
     setMigrationNoticeDismissed(false);
-    setMigrationRetry(undefined);
+    setMigrationRetry({ haltedAt });
     let errorMessage: string | undefined;
     try {
       try {
         await retryBucketMigration(haltedAt);
       } catch (error) {
-        if (error instanceof ApiError && error.authRedirect) return;
+        if (error instanceof ApiError && error.authRedirect) {
+          setMigrationRetry(undefined);
+          return;
+        }
         errorMessage = error instanceof ApiError && error.status === 409
           ? error.message : 'Could not confirm the retry. Check the migration status before trying again.';
       }
-      setMigrationRetry({ haltedAt, error: errorMessage });
+      setMigrationRetry(retry => retry && { ...retry, error: errorMessage });
       void sessionStore.refreshSessionAncillaryStatus({ afterCurrent: true }).catch(() => undefined);
     } finally {
       setMigrationRetryPending(false);

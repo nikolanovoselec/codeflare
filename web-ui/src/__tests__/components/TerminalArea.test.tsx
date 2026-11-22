@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, cleanup, waitFor } from '@solidjs/testing-library';
-import { createSignal } from 'solid-js';
+import { createRoot, createSignal } from 'solid-js';
 
 const terminalLifecycle = vi.hoisted(() => ({
   unmounted: [] as string[],
@@ -109,8 +109,10 @@ import { sessionStore } from '../../stores/session';
 
 // REQ-TERM-017: MultiView Pane Focus and Input Routing
 describe('TerminalArea', () => {
+  let migrationRetry: ReturnType<typeof createMigrationRetry>;
+  let disposeMigrationRetry: () => void;
   const defaultProps = {
-    migrationRetry: createMigrationRetry(),
+    get migrationRetry() { return migrationRetry; },
     showTerminal: false,
     showTilingOverlay: false,
     onTilingButtonClick: vi.fn(),
@@ -130,6 +132,10 @@ describe('TerminalArea', () => {
   };
 
   beforeEach(() => {
+    migrationRetry = createRoot(dispose => {
+      disposeMigrationRetry = dispose;
+      return createMigrationRetry();
+    });
     vi.clearAllMocks();
     mockSessions = [];
     mockActiveSessionId = null;
@@ -148,6 +154,7 @@ describe('TerminalArea', () => {
 
   afterEach(() => {
     cleanup();
+    disposeMigrationRetry();
   });
 
   it('renders the layout-main container', () => {
