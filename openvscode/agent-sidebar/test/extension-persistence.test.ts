@@ -855,6 +855,35 @@ test('REQ-IDE-037 AC4: bad capture handoff preserves ambiguous pins and restores
   assert.equal(readFileSync(manifestPath, 'utf8'), original);
 });
 
+test('REQ-IDE-037: capture preserves a conflicting pin after a readable handoff rejects the restore write', async () => {
+  const { extensionsDir, manifestPath, syncPidFile } = fixture();
+  const id = 'publisher.extension';
+  const saved = { version: '1.0.0' };
+  writeFileSync(manifestPath, JSON.stringify({ ...validManifest({ [id]: saved }), securityWarningShown: true }));
+  writeRegistry(extensionsDir, [{ id, version: '2.0.0' }]);
+  const handoff = join(extensionsDir, '.codeflare-extension-capture.json');
+  // Valid at the current limit, but adding another pin would exceed it.
+  const existing = { version: '1.0.0', observed: { version: '2.0.0' } };
+  const utf8 = (name: string) => JSON.stringify({ pins: { [name]: existing }, removals: {} });
+  const bounded = utf8(`other.x${'x'.repeat(65536 - Buffer.byteLength(utf8('other.x')) - 8)}`);
+  writeFileSync(handoff, bounded);
+  const options = { extensionsDir, manifestPath, syncPidFile };
+  const result = await restoreExtensionManifest(options);
+  assert.deepEqual(result.failures, [id]);
+  assert.match(host.warnings.join(' '), /capture handoff/i);
+  assert.equal(readFileSync(handoff, 'utf8'), bounded);
+  const read = () => JSON.parse(readFileSync(manifestPath, 'utf8')).extensions[id];
+  await captureExtensionManifest(options);
+  assert.deepEqual(read(), saved);
+  // Reset only the synthetic handoff to show reap protects the same starting state.
+  writeFileSync(handoff, bounded);
+  reapExtensionIntent(extensionsDir, manifestPath);
+  assert.deepEqual(read(), saved);
+  writeRegistry(extensionsDir, [{ id, version: '3.0.0' }]);
+  await captureExtensionManifest(options);
+  assert.equal(read().version, '3.0.0');
+});
+
 test('REQ-IDE-038 AC2+AC3: restore warns before execution and never repeats an accepted warning', async () => {
   const { extensionsDir, manifestPath, syncPidFile } = fixture();
   const original = JSON.stringify(validManifest({

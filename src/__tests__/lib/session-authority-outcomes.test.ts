@@ -54,7 +54,24 @@ describe('D1 production authority outcomes', () => {
     expect(await repository().listSessions('authority-owner')).toEqual([restored]);
   });
 
-  it('REQ-GITHUB-319 AC1/AC2: overlapping appends both reach the next restore directive', async () => {
+  it('REQ-GITHUB-319: stale host inventory cannot erase a clone but fresh inventory can reconcile removals', async () => {
+    const repo = repository();
+    const { ownerKey, sessionId } = await repo.create(input());
+    const started = await repo.start(ownerKey, sessionId, time);
+    expect(started).not.toBeNull();
+    const current = (await repo.getSession(ownerKey, sessionId))!;
+    const observation = { generation: current.lifecycleGeneration, sequence: current.observationSequence + 1,
+      responseRevision: current.responseRevision };
+    expect(await repo.appendTrackedClone(ownerKey, sessionId, { repo: 'example/new' })).toBe('tracked');
+    expect(await repo.updateTrackedClones(ownerKey, sessionId, current.clones!, observation)).toBe(false);
+    const after = (await repo.getSession(ownerKey, sessionId))!;
+    expect(buildCloneTargets(after.clones, after.clone)).toBe('example/primary#main example/new example/secondary');
+    expect(await repo.updateTrackedClones(ownerKey, sessionId, [], { ...observation, responseRevision: after.responseRevision })).toBe(true);
+    const fresh = (await repo.getSession(ownerKey, sessionId))!;
+    expect(buildCloneTargets(fresh.clones, fresh.clone)).toBe('example/primary#main');
+  });
+
+  it('REQ-GITHUB-319 AC3: overlapping appends both reach the next restore directive', async () => {
     const session = await repository().create(input());
     const { ownerKey, sessionId } = session;
     let arrived = 0;

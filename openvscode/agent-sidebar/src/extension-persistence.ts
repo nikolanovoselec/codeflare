@@ -28,7 +28,7 @@ interface ExtensionRecord {
 }
 
 interface CaptureHandoff {
-  pins: Record<string, { version: string; observed: ExtensionRecord }>;
+  pins: Record<string, { version: string; observed: ExtensionRecord; fallbackInstalled?: true }>;
   removals: Record<string, { marker: string; observed: ExtensionRecord }>;
 }
 
@@ -412,9 +412,11 @@ async function readCaptureHandoff(extensionsDir: string): Promise<CaptureHandoff
       if (Object.keys(entries).length > policy.extensionMaxCount) throw new Error('capture handoff exceeds bound');
       for (const [id, entry] of Object.entries(entries)) {
         if (!extensionIdPattern.test(id) || fixedExtensionIds.has(id) || !isRecord(entry)
-          || Object.keys(entry).length !== 2 || !isExtensionRecord(entry.observed)) throw new Error('invalid capture handoff entry');
+          || Object.keys(entry).length !== (kind === 'pins' && entry.fallbackInstalled === true ? 3 : 2)
+          || !isExtensionRecord(entry.observed)) throw new Error('invalid capture handoff entry');
         if (kind === 'pins') {
-          if (!isExtensionRecord({ version: entry.version })) throw new Error('invalid saved pin');
+          if (!isExtensionRecord({ version: entry.version })
+            || ('fallbackInstalled' in entry && entry.fallbackInstalled !== true)) throw new Error('invalid saved pin');
         } else {
           const stem = `${id}-${entry.observed.version}-`;
           if (typeof entry.marker !== 'string' || !entry.marker.startsWith(stem)
@@ -634,9 +636,12 @@ export async function captureExtensionManifest(
         continue;
       }
       const pin = handoff.pins[id];
-      if (saved && pin?.version === saved.version && sameRegistryRow(pin.observed, observed)) {
-        nextHandoff.pins[id] = pin;
-        continue;
+      if (saved && saved.version !== observed.version && extensions[id]) {
+        // A conflicting row without a verified baseline is not a user upgrade.
+        if (pin?.version !== saved.version || (!pin.fallbackInstalled && sameRegistryRow(pin.observed, observed))) {
+          nextHandoff.pins[id] = { version: saved.version, observed };
+          continue;
+        }
       }
       extensions[id] = saved?.sha256 === undefined ? observed : { ...observed, sha256: saved.sha256 };
     }
@@ -934,6 +939,7 @@ export async function restoreExtensionManifest(
     });
   }
 
+  const acceptedFallbacks = new Set<string>();
   const restoreOne = async ([id, record]: [string, ExtensionRecord]) => {
     try {
       await vscode.commands.executeCommand(INSTALL_COMMAND, `${id}@${record.version}`, { donotSync: true });
@@ -944,6 +950,7 @@ export async function restoreExtensionManifest(
       }
       try {
         await vscode.commands.executeCommand(INSTALL_COMMAND, id, { donotSync: true });
+        acceptedFallbacks.add(id);
       } catch {
         failures.push(id);
       }
@@ -971,8 +978,12 @@ export async function restoreExtensionManifest(
     );
   }
   const failed = new Set(failures);
-  const failedPins = Object.fromEntries(Object.entries(pins).filter(([id]) => failed.has(id)));
-  if (handoff) await writeCaptureHandoff(options.extensionsDir, { ...handoff, pins }, { ...handoff, pins: failedPins }).catch(() => undefined);
+  const remainingPins = { ...pins };
+  for (const [id, pin] of Object.entries(pins)) {
+    if (acceptedFallbacks.has(id)) remainingPins[id] = { ...pin, fallbackInstalled: true };
+    else if (!failed.has(id)) delete remainingPins[id];
+  }
+  if (handoff) await writeCaptureHandoff(options.extensionsDir, { ...handoff, pins }, { ...handoff, pins: remainingPins }).catch(() => undefined);
   await restoreSettings(manifest.settings);
   failures.sort();
   if (!handoff || failures.length > 0) {

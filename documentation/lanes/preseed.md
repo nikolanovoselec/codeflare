@@ -1449,7 +1449,7 @@ Symptom-led hook diagnosis, corrections and verification belong to [Troubleshoot
 <a id="resetting-review-spawn-checkpoints"></a>
 ### Review completion prompt or FIX is missing
 
-See [Troubleshooting: review completion prompt or FIX is missing](troubleshooting.md#review-completion-prompt-or-fix-is-missing). Interrupted/reloaded rounds are not recovered by delayed notifications: use a fresh supported exposure of the current exact identity. Completion requires current-round terminal reviewer/CI evidence and canonical mutation-free triage. Do not recreate legacy checkpoint files.
+See [Troubleshooting: review completion prompt or FIX is missing](troubleshooting.md#review-completion-prompt-or-fix-is-missing). Interrupted/reloaded rounds are not recovered by delayed notifications: use a fresh supported exposure of the current exact identity. Completion requires current-round terminal reviewer/CI evidence and canonical mutation-free triage. Local Pi can save the marker and deliver FIX at the next turn without waiting for Todo Loop to stop. This does not change remote Review or Todo Loop. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> Do not recreate legacy checkpoint files.
 
 ## Image-Baked Delivery Alias
 

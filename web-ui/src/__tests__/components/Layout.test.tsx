@@ -136,7 +136,7 @@ const vaultPrewarmProof = {
 // Session store mock with controllable state.
 // Module-level variables allow tests to set up specific states before rendering.
 let mockSessions: any[] = [];
-let mockRepositoryNotices: Record<string, { status: 'restoring' | 'complete' | 'issues'; repo?: string; outcome?: 'cloned' | 'exists' | 'failed' }> = {};
+let mockRepositoryNotices: Record<string, { status: 'restoring' | 'complete' | 'issues'; repo?: string; outcome?: 'cloned' | 'exists' | 'failed' | 'tracking-unconfirmed' }> = {};
 let mockActiveSessionId: string | null = null;
 let mockPreferences: Record<string, any> = {};
 let mockVisiblePanes: Array<{ sessionId: string; terminalId: string }> = [];
@@ -344,6 +344,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     { status: 'restoring' as const, outcome: undefined, title: 'Cloning repository…' },
     { status: 'complete' as const, outcome: 'cloned' as const, title: 'Repository cloned' },
     { status: 'issues' as const, outcome: 'exists' as const, title: 'Repository folder already exists' },
+    { status: 'issues' as const, outcome: 'tracking-unconfirmed' as const, title: 'Repository cloned; automatic restore not confirmed' },
     { status: 'issues' as const, outcome: 'failed' as const, title: 'Repository clone failed' },
   ])('REQ-GITHUB-320 AC6: renders live-clone identity and outcomes in the shared notice', ({ status, outcome, title }) => {
     mockSessions = [createMockSession({ name: 'Payments workspace' })];

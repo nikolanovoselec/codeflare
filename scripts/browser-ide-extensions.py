@@ -328,7 +328,12 @@ def _read_capture_handoff(path: Path, policy: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(entries, dict) or len(entries) > policy["extensionMaxCount"]:
             raise UnsafeInput("capture handoff exceeds bound")
         for extension, entry in entries.items():
-            if not isinstance(entry, dict) or set(entry) != {field, "observed"}:
+            if not isinstance(entry, dict):
+                raise UnsafeInput("invalid capture handoff entry")
+            allowed = {field, "observed"}
+            if kind == "pins" and entry.get("fallbackInstalled") is True:
+                allowed.add("fallbackInstalled")
+            if set(entry) != allowed:
                 raise UnsafeInput("invalid capture handoff entry")
             _validate_manifest({"version": 1, "extensions": {extension: entry["observed"]}, "settings": {}}, policy)
             if kind == "pins":
@@ -435,9 +440,11 @@ def capture(extensions_dir: Path, manifest_path: Path, policy_path: Path) -> boo
             if not warning_acknowledged:
                 continue
             pin = handoff["pins"].get(extension)
-            if saved and pin and saved["version"] == pin["version"] and _same_registry_row(pin["observed"], observed):
-                next_handoff["pins"][extension] = pin
-                continue
+            if saved and saved["version"] != observed["version"] and extension in next_extensions:
+                if (not pin or saved["version"] != pin["version"]
+                    or (not pin.get("fallbackInstalled") and _same_registry_row(pin["observed"], observed))):
+                    next_handoff["pins"][extension] = {"version": saved["version"], "observed": observed}
+                    continue
             next_extensions[extension] = {**observed, "sha256": saved["sha256"]} if saved and "sha256" in saved else observed
         if len(next_extensions) > policy["extensionMaxCount"]:
             raise UnsafeInput("capture exceeds extension bound")

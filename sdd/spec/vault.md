@@ -976,7 +976,7 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 **Dependencies:** [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption), [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor), [REQ-VAULT-021](#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key), [REQ-VAULT-029](#req-vault-029-canonical-browser-state-cutover-and-future-worker-safety)
 
-**Verification:** Automated: [vault-browser-bundle.test.ts](../../src/__tests__/lib/vault-browser-bundle.test.ts), [vault-native-sw-direct.test.ts](../../src/__tests__/routes/vault-native-sw-direct.test.ts), [vault.test.ts](../../src/__tests__/routes/vault.test.ts), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx)
+**Verification:** Automated: [vault-browser-bundle.test.ts](../../src/__tests__/lib/vault-browser-bundle.test.ts), [vault-native-sw-direct.test.ts](../../src/__tests__/routes/vault-native-sw-direct.test.ts), [vault.test.ts](../../src/__tests__/routes/vault.test.ts), [vault-auth-chain.test.ts](../../src/__tests__/routes/vault-auth-chain.test.ts), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx)
 
 **Status:** Implemented
 

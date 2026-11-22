@@ -448,13 +448,20 @@ export function startSession(
   let pollInterval: ReturnType<typeof setInterval> | null = null;
   let unconfirmedTimer: ReturnType<typeof setTimeout> | undefined;
   const startedAt = Date.now();
+  const claimRequest = new AbortController();
   const cancel = () => {
     cancelled = true;
     if (pollInterval) clearInterval(pollInterval);
     clearTimeout(unconfirmedTimer);
+    claimRequest.abort();
   };
 
+  const releaseUnconfirmed = () => {
+    cancel();
+    onError('This Start could not be confirmed.', 'SESSION_START_UNCONFIRMED');
+  };
   const startPolling = async () => {
+    unconfirmedTimer = setTimeout(releaseUnconfirmed, MAX_STARTUP_POLL_ERRORS * STARTUP_POLL_INTERVAL_MS);
     let generation: number | undefined;
     try {
       // Send initial creating stage
@@ -466,9 +473,11 @@ export function startSession(
         startedAt,
       });
 
-      const claim = await fetchApi(`/container/start?sessionId=${id}`, { method: 'POST' },
+      const claim = await fetchApi(`/container/start?sessionId=${id}`, { method: 'POST', signal: claimRequest.signal },
         z.object({ generation: z.number().int().nonnegative() }));
-      generation = claim?.generation;
+      if (cancelled) return;
+      generation = claim.generation;
+      clearTimeout(unconfirmedTimer);
     } catch (err) {
       if (cancelled) return;
       // Differentiate definitive failures from transient errors.
@@ -478,20 +487,13 @@ export function startSession(
         && err.status >= 400 && err.status < 500;
 
       if (isDefinitiveFailure) {
+        cancel();
         logger.error('Container start failed (definitive):', (err as ApiError).status, err.message);
         onError(`Container start failed: ${err.message}`, (err as ApiError).code);
         return;
       }
       // Transient error (network failure, timeout, 5xx) - proceed to polling
       logger.debug('Container start request (transient, proceeding to poll):', err);
-    }
-
-    // Only an unacknowledged claim gets this bound; it cannot own Ready.
-    if (generation === undefined) {
-      unconfirmedTimer = setTimeout(() => {
-        cancel();
-        onError('This Start could not be confirmed.', 'SESSION_START_UNCONFIRMED');
-      }, MAX_STARTUP_POLL_ERRORS * STARTUP_POLL_INTERVAL_MS);
     }
 
     // A running VS Code host exposes the prior timeout until its automatic
@@ -520,9 +522,9 @@ export function startSession(
           onError('The session stopped before startup completed.', 'SESSION_START_UNCONFIRMED');
           return;
         }
-        if (status.stage === 'ready' && (generation === undefined || status.generation !== generation)) {
-          cancel();
-          onError('This Start could not be confirmed.', 'SESSION_START_UNCONFIRMED');
+        if ((generation === undefined && status.stage === 'error')
+          || (status.stage === 'ready' && (generation === undefined || status.generation !== generation))) {
+          releaseUnconfirmed();
           return;
         }
 
@@ -549,9 +551,11 @@ export function startSession(
         consecutiveErrors++;
         logger.error('Polling error:', err);
         if (consecutiveErrors >= MAX_STARTUP_POLL_ERRORS) {
-          cancel();
-          if (generation === undefined) onError('This Start could not be confirmed.', 'SESSION_START_UNCONFIRMED');
-          else onError('Polling failed after too many consecutive errors');
+          if (generation === undefined) releaseUnconfirmed();
+          else {
+            cancel();
+            onError('Polling failed after too many consecutive errors');
+          }
           return;
         }
       }
@@ -563,7 +567,9 @@ export function startSession(
     if (!cancelled) pollInterval = setInterval(poll, STARTUP_POLL_INTERVAL_MS);
   };
 
-  startPolling().catch((err) => { if (!cancelled) onError(err instanceof Error ? err.message : String(err)); });
+  startPolling().catch((err) => {
+    if (!cancelled) { cancel(); onError(err instanceof Error ? err.message : String(err)); }
+  });
   return cancel;
 }
 

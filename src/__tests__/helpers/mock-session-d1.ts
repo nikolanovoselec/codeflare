@@ -181,6 +181,7 @@ export function createMockSessionD1(kv: MockKV): D1Database {
             session.editorReady = args[3] === 1; session.editorReadyError = args[4] === 1;
           }
           if (sql.includes('clones_json=?3')) {
+            if (args[5] != null && (session.responseRevision ?? 0) !== args[5]) return { success: true, meta: { changes: 0 } };
             if (sql.includes('AND response_revision=?4')) {
               if ((session.responseRevision ?? 0) !== args[3]) return { success: true, meta: { changes: 0 } };
             } else if (args[3] != null && ((session.lifecycleGeneration ?? 0) !== args[3]

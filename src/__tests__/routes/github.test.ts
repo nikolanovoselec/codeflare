@@ -340,6 +340,27 @@ describe('POST /api/github/clone', () => {
     expect(containerFetch).not.toHaveBeenCalled();
   });
 
+  it('REQ-GITHUB-319: an existing checkout is reported separately when tracking retries exhaust', async () => {
+    let checkout: string | undefined;
+    containerFetch.mockImplementationOnce(async () => {
+      checkout = '/home/user/workspace/repo';
+      return containerJson(200, { status: 'cloned', path: checkout });
+    });
+    // Model a persistently contended inventory at the D1 boundary, after the host completed.
+    const prepare = mockD1.prepare.bind(mockD1);
+    mockD1.prepare = (sql: string) => sql.includes('SET clones_json=')
+      ? { bind: () => ({ run: async () => ({ success: true, meta: { changes: 0 } }) }) } as unknown as D1PreparedStatement
+      : prepare(sql);
+    const result = await createTestApp(ENT).request('/api/github/clone', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repo: 'octo/repo', sessionId: SID }),
+    });
+    expect(checkout).toBe('/home/user/workspace/repo');
+    expect(result.status).toBe(409);
+    expect(await result.json()).toMatchObject({ code: 'CLONE_TRACKING_UNCONFIRMED' });
+    expect(await mockKV.get(`session:test-bucket:${SID}`, 'json')).not.toHaveProperty('clones');
+  });
+
   it('REQ-GITHUB-015 AC6: does not return clone success when session persistence fails', async () => {
     containerFetch.mockResolvedValueOnce(containerJson(200, { status: 'cloned', path: '/home/user/workspace/repo' }));
     mockKV.put.mockRejectedValue(new Error('KV unavailable'));

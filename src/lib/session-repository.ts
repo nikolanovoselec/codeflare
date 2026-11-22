@@ -328,13 +328,14 @@ export class D1SessionRepository implements SessionAuthority {
   }
 
   async updateTrackedClones(ownerKey: string, sessionId: string, clones: TrackedClone[],
-    observation?: { generation: number; sequence: number }): Promise<boolean> {
+    observation?: { generation: number; sequence: number; responseRevision?: number }): Promise<boolean> {
     const result = await this.db.prepare(`UPDATE runtime_sessions SET clones_json=?3, response_revision=response_revision+1
       WHERE owner_key=?1 AND session_id=?2
         AND (?4 IS NULL OR (lifecycle_generation=?4 AND ?5>observation_sequence
           AND lifecycle_state IN ('starting','running') AND unreachable_incident_id IS NULL
-          AND termination_intent_id IS NULL))`)
-      .bind(ownerKey, sessionId, JSON.stringify(clones), observation?.generation ?? null, observation?.sequence ?? null).run();
+          AND termination_intent_id IS NULL)) AND (?6 IS NULL OR response_revision=?6)`)
+      .bind(ownerKey, sessionId, JSON.stringify(clones), observation?.generation ?? null,
+        observation?.sequence ?? null, observation?.responseRevision ?? null).run();
     return result.meta.changes === 1;
   }
 

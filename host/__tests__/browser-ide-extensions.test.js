@@ -122,6 +122,7 @@ test('REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2+AC3+AC4+AC5+AC6: captures bounded ex
   ]));
   writeFileSync(join(extensionsDir, '.obsolete'), JSON.stringify({
     'dbaeumer.vscode-eslint-3.0.34-universal': true,
+    'redhat.vscode-yaml-1.23.0-universal': true, // The registry explicitly retired the upgraded version's predecessor.
   }));
 
   capture(extensionsDir, manifestPath);
@@ -190,6 +191,23 @@ test('REQ-IDE-036 AC3: malformed or unsafe manifests stay byte-for-byte unchange
 
   assert.equal(lstatSync(manifestPath).isSymbolicLink(), true);
   assert.equal(readFileSync(target, 'utf8'), original);
+});
+
+test('REQ-IDE-037: reap preserves an unverified conflict and captures a subsequent registry change', () => {
+  const { extensionsDir, manifest: manifestPath } = fixture();
+  const id = 'publisher.extension';
+  const saved = { version: '1.0.0' };
+  writeFileSync(manifestPath, JSON.stringify({ ...manifest({ [id]: saved }), securityWarningShown: true }));
+  const write = version => writeFileSync(join(extensionsDir, 'extensions.json'), JSON.stringify([registryEntry(id, version)]));
+  const read = () => JSON.parse(readFileSync(manifestPath, 'utf8')).extensions[id];
+  write('2.0.0');
+  capture(extensionsDir, manifestPath);
+  assert.deepEqual(read(), saved);
+  capture(extensionsDir, manifestPath);
+  assert.deepEqual(read(), saved);
+  write('3.0.0');
+  capture(extensionsDir, manifestPath);
+  assert.equal(read().version, '3.0.0');
 });
 
 test('REQ-IDE-037 AC4: reap preserves a pending pin until the conflicting registry row changes', () => {

@@ -97,6 +97,10 @@ export function registerOperatorReviewSelector(pi: SelectorPi, dependencies: Dep
       else if (next !== 'remote') selectedRepo = undefined;
       if (next !== 'unavailable') unavailableReported = false;
     }
+    if (name === 'turn_end') {
+      // This actionable boundary must return the local owner's continuation draft.
+      return await handlers.local.get(name)?.[0]?.(event, ctx);
+    }
     if (name === 'agent_end' || name === 'agent_settled') {
       // The local handler settles its own active round after exact-PR validation.
       // An unrelated boundary can change selection, not ownership of that round.
@@ -136,7 +140,7 @@ export function registerOperatorReviewSelector(pi: SelectorPi, dependencies: Dep
   };
   for (const name of new Set(['session_start', 'tool_call', 'tool_result', 'agent_end', 'agent_settled',
     ...handlers.local.keys(), ...handlers.remote.keys()])) {
-    (pi.on as (event: string, handler: (event: unknown, ctx: unknown) => Promise<void>) => () => void)(
+    (pi.on as (event: string, handler: (event: unknown, ctx: unknown) => Promise<unknown>) => () => void)(
       name, (event, ctx) => dispatch(name, event, ctx));
   }
 }

@@ -15,6 +15,7 @@ R2 persistence, bidirectional home synchronization, durable managed-resource rec
 - [Conflict Resolution](#conflict-resolution)
 - [Failure Diagnosis and Recovery](#failure-diagnosis-and-recovery)
 - [File Browser](#file-browser-req-stor-016)
+- [Storage verification](#storage-verification)
 - [Storage manual acceptance procedures](#storage-manual-acceptance-procedures)
 - [Requirement and Source Map](#requirement-and-source-map)
 - [Managed-Resource Sync Policy](#managed-resource-sync-policy-req-stor-031)
@@ -416,7 +417,7 @@ return an error response (4xx) rather than any listing.
 
 ## Storage verification
 
-The [bisync shell-behavior suite](../../host/__tests__/entrypoint-bisync-behavior.test.js) is standalone, excluded from Host CI, and cited by REQ-STOR-003 and REQ-STOR-045. The [S3 bisync fixture](../../scripts/ci/rclone-bisync-s3.py) cited by REQ-STOR-258 is standalone and not run by current CI. A suite link does not establish execution.
+The [bisync shell-behavior suite](../../host/__tests__/entrypoint-bisync-behavior.test.js) is standalone, excluded from Host CI, and cited by [REQ-STOR-003](../../sdd/spec/storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers) and [REQ-STOR-045](../../sdd/spec/storage.md#req-stor-045-bisync-baseline-recovery). The [S3 bisync fixture](../../scripts/ci/rclone-bisync-s3.py) cited by [REQ-STOR-258](../../sdd/spec/storage.md#req-stor-258-home-cache-exclusion) is standalone and not run by current CI. A suite link does not establish execution.
 
 ## Storage manual acceptance procedures
 

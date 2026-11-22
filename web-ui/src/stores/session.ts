@@ -503,7 +503,14 @@ async function loadSessions(): Promise<void> {
       }
 
       const currentStatus = state.sessions.find((candidate) => candidate.id === session.id)?.status;
-      if (currentStatus === 'initializing' || isLocallyStopping(session.id)) continue;
+      if (isLocallyStopping(session.id)) continue;
+      if (currentStatus === 'initializing' || isSessionInitializing(session.id)) {
+        if (batchStatus.generation !== undefined && batchStatus.revision !== undefined) {
+          setState('sessions', idx, { lifecycle: batchStatus.lifecycle ?? batchStatus.status,
+            generation: batchStatus.generation, revision: batchStatus.revision });
+        }
+        continue;
+      }
       if (batchStatus.status === 'stopped' && currentStatus !== 'stopping'
         && (batchStatus.generation === undefined || batchStatus.revision === undefined || isWithinStartupGuard(session.id))
         && shouldRetainNegativeKv(session.id)) continue;

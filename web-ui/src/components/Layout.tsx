@@ -883,6 +883,7 @@ const Layout: Component<LayoutProps> = (props) => {
                         <strong>{notice()?.repo
                           ? status() === 'restoring' ? 'Cloning repository…'
                             : notice()?.outcome === 'exists' ? 'Repository folder already exists'
+                            : notice()?.outcome === 'tracking-unconfirmed' ? 'Repository cloned; automatic restore not confirmed'
                             : status() === 'complete' ? 'Repository cloned' : 'Repository clone failed'
                           : status() === 'restoring' ? 'Restoring repositories…'
                             : status() === 'complete' ? 'Repositories restored' : 'Some repositories weren’t restored'}</strong>

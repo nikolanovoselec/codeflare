@@ -900,6 +900,39 @@ describe('API Client', () => {
       cleanup();
     });
 
+    it('REQ-SESSION-017: a stalled Start response body expires and late acknowledgement cannot resume polling', async () => {
+      let finish!: (body: string) => void;
+      const body = new Promise<string>(resolve => { finish = resolve; });
+      mockFetch.mockResolvedValueOnce({ ok: true, status: 200, text: () => body });
+      const onComplete = vi.fn();
+      const onError = vi.fn();
+      const cleanup = startSession('session00123', vi.fn(), onComplete, onError);
+      try {
+        await vi.advanceTimersByTimeAsync(30_000);
+        expect(onError).toHaveBeenCalledExactlyOnceWith(expect.any(String), 'SESSION_START_UNCONFIRMED');
+        finish('{"generation":7}');
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(mockFetch).toHaveBeenCalledOnce();
+        expect(onComplete).not.toHaveBeenCalled();
+        expect(onError).toHaveBeenCalledOnce();
+      } finally { cleanup(); }
+    });
+
+    it('REQ-SESSION-017: Error without an acknowledged Start requests authoritative reconciliation', async () => {
+      mockFetch.mockRejectedValueOnce(new Error('POST response lost')).mockResolvedValueOnce(Response.json({
+        stage: 'error', generation: 6, progress: 0, message: 'Failed',
+        details: { bucketName: 'test', container: 'test', path: '/workspace' },
+      }));
+      const onError = vi.fn();
+      const onComplete = vi.fn();
+      const cleanup = startSession('session00123', vi.fn(), onComplete, onError);
+      try {
+        await vi.advanceTimersByTimeAsync(0);
+        expect(onError).toHaveBeenCalledExactlyOnceWith(expect.any(String), 'SESSION_START_UNCONFIRMED');
+        expect(onComplete).not.toHaveBeenCalled();
+      } finally { cleanup(); }
+    });
+
     it('REQ-SESSION-017 AC3: an unacknowledged Start releases despite repeated successful stopped reads', async () => {
       const onComplete = vi.fn();
       const onError = vi.fn();

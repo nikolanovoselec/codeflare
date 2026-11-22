@@ -166,31 +166,32 @@ function reviewerPrompt(head: string, lane: ReviewLane): string {
   ].join('\n');
 }
 
-function appendSuccessfulRound(input: ReturnType<typeof fixture>, lanes: ReviewLane[], prefix: string): void {
+function appendRoundLaunches(input: ReturnType<typeof fixture>, lanes: ReviewLane[], prefix: string): void {
   append(input.sessionFile,
     ...lanes.flatMap((lane, index) => {
       const id = `${prefix}-review-${index}`;
-      return [
-        toolCall(id, 'subagent', {
-          subagent_type: lane,
-          run_in_background: true,
-          inherit_context: false,
-          prompt: reviewerPrompt(input.head, lane),
-        }),
-        toolResult(id, 'subagent'),
-        notification(id),
-      ];
+      return [toolCall(id, 'subagent', { subagent_type: lane, run_in_background: true,
+        inherit_context: false, prompt: reviewerPrompt(input.head, lane) }), toolResult(id, 'subagent')];
     }),
     toolCall(`${prefix}-ci`, 'subagent', {
-      subagent_type: 'ci-monitor',
-      run_in_background: true,
-      inherit_context: false,
+      subagent_type: 'ci-monitor', run_in_background: true, inherit_context: false,
       prompt: JSON.stringify({ repo: 'owner/repo', pr: 42, head: input.head, cwd: input.repo }),
     }),
     toolResult(`${prefix}-ci`, 'subagent'),
+  );
+}
+
+function appendRoundResults(input: ReturnType<typeof fixture>, lanes: ReviewLane[], prefix: string): void {
+  append(input.sessionFile,
+    ...lanes.map((_, index) => notification(`${prefix}-review-${index}`)),
     notification(`${prefix}-ci`, `<result>CI_RESULT success\npr=42 head=${input.head} repo=owner/repo</result>`),
     triage(),
   );
+}
+
+function appendSuccessfulRound(input: ReturnType<typeof fixture>, lanes: ReviewLane[], prefix: string): void {
+  appendRoundLaunches(input, lanes, prefix);
+  appendRoundResults(input, lanes, prefix);
 }
 
 function boundary(command: string, id = `boundary-${sequence += 1}`, output = 'ok') {
@@ -283,7 +284,9 @@ async function harness(
     markerAtFix,
     activeTools: () => activeTools,
     emit: async (event: string, payload: any = {}) => {
-      for (const handler of handlers.get(event) ?? []) await handler(payload, ctx);
+      let result: unknown;
+      for (const handler of handlers.get(event) ?? []) result = await handler(payload, ctx) ?? result;
+      return result;
     },
   };
 }
@@ -1136,16 +1139,40 @@ describe('Pi marker-or-dialog review ingress', () => {
     await app.emit('tool_result', boundary('gh pr create --base main', 'owner-pr', 'https://github.com/owner/repo/pull/42'));
     await app.emit('agent_end');
     const lanes = app.sent[0]!.details?.requiredLanes as ReviewLane[];
+    appendRoundLaunches(input, lanes, 'owned');
     const otherPr = boundary(`cd ${JSON.stringify(unrelated)} && gh pr create --base main`, 'other-pr', 'https://github.com/owner/curation/pull/95');
     await app.emit('tool_call', otherPr);
     await app.emit('tool_result', otherPr);
     await app.emit('agent_end');
-    appendSuccessfulRound(input, lanes, 'owned');
+    appendRoundResults(input, lanes, 'owned');
     await app.emit('agent_settled');
     expect(readCompletion(input.identity, { root: join(input.home, '.codeflare/review-state/v1') }).status).toBe('complete');
     await app.emit('agent_end');
     expect(app.sent.map(message => message.customType)).toEqual(['pr-boundary-launch-plan', 'pr-boundary-fix-follow-up']);
     expect(app.markerAtFix).toEqual(['complete']);
+  });
+
+  it.each([false, true])('REQ-AGENT-244: offers FIX on the next native turn without waiting for settlement (prior continuation=%s)', async priorContinuation => {
+    const input = fixture();
+    const app = await harness(input, [], {}, async () => 'local');
+    await app.emit('tool_result', boundary('git push origin feature', 'timing-push'));
+    await app.emit('agent_end');
+    const lanes = app.sent[0]!.details?.requiredLanes as ReviewLane[];
+    const entries = priorContinuation ? [{ type: 'custom_message', customType: 'todo-loop-continuation', content: 'Continue open work.', display: false }] : [];
+    const boundaryEvent = { outcome: 'completed', toolResults: [], entries, continue: priorContinuation,
+      context: { canContinue: priorContinuation } };
+    appendRoundLaunches(input, lanes, 'timing');
+    expect(await app.emit('turn_end', boundaryEvent)).toBeUndefined();
+    appendRoundResults(input, lanes, 'timing');
+    const next = await app.emit('turn_end', boundaryEvent);
+    expect(readCompletion(input.identity).status).toBe('complete');
+    expect(next).toEqual({ continue: true, entries: [...entries,
+      expect.objectContaining({ type: 'custom_message', customType: 'pr-boundary-fix-follow-up',
+        details: expect.objectContaining({ head: input.head }) })] });
+    expect(await app.emit('turn_end', boundaryEvent)).toBeUndefined();
+    await app.emit('agent_end');
+    await app.emit('agent_settled');
+    expect(app.sent.map(message => message.customType)).toEqual(['pr-boundary-launch-plan']);
   });
 
   it('keeps a fully terminal round until canonical triage arrives', async () => {

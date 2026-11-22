@@ -1201,6 +1201,14 @@ export async function collectMetrics(
     callbacks.setIdleTimeoutPref(idleTimeoutPref);
   }
   const sleepMs = parseSleepAfterMs(idleTimeoutPref);
+  // Bind full-inventory replacement to a revision read before the host snapshot.
+  // A failed or stale inventory fence must not invalidate health or lifecycle.
+  let inventoryRevision: number | undefined;
+  try {
+    const current = await readCurrent();
+    if (sameGeneration(current)) inventoryRevision = current.responseRevision;
+  } catch { /* Inventory stays unchanged for this tick. */ }
+  if (!execution.isCurrent()) return;
   const observationStartedAt = Date.now();
   let activityProbe: ProbeObservation = { responded: false, durationMs: 0 };
   let healthProbe: ProbeObservation = { responded: false, durationMs: 0 };
@@ -1312,10 +1320,11 @@ export async function collectMetrics(
       if (typeof await ctx.storage.get(SHUTDOWN_REQUESTED_KEY) === 'number') return;
       if (!execution.isCurrent()) return;
       try {
-        if (Array.isArray(snapshot.workspaceRepos)) {
-          const tracked = await raceBudget(repository.updateTrackedClones(ownerKey, sessionId,
-            normalizeTrackedClones(snapshot.workspaceRepos), { generation, sequence }), CONTAINER_POLL_BUDGET_MS);
-          if (tracked === null) throw new Error('D1 clone projection deadline exceeded');
+        if (Array.isArray(snapshot.workspaceRepos) && inventoryRevision !== undefined) {
+          try {
+            await raceBudget(repository.updateTrackedClones(ownerKey, sessionId,
+              normalizeTrackedClones(snapshot.workspaceRepos), { generation, sequence, responseRevision: inventoryRevision }), CONTAINER_POLL_BUDGET_MS);
+          } catch { /* A later fresh inventory can reconcile. */ }
           if (!execution.isCurrent()) return;
         }
         const accepted = await raceBudget(repository.project(ownerKey, sessionId, generation, sequence, {

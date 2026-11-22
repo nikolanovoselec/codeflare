@@ -175,14 +175,15 @@ describe('Session Store', () => {
       expect(sessionStore.repositoryRestoreNotices['clone-a']).toBeUndefined();
     });
 
-    it.each(['exists', 'failed', 'network'] as const)('REQ-GITHUB-320 AC6: %s clone outcomes remain dismissible', async outcome => {
+    it.each(['exists', 'failed', 'network', 'tracking-unconfirmed'] as const)('REQ-GITHUB-320 AC6: %s clone outcomes remain dismissible', async outcome => {
       const pending = sessionStore.cloneRepositoryIntoSession({ repo: repo.full_name, sessionId: 'clone-a' });
       if (outcome === 'network') requests[0].reject(new Error('private transport diagnostic'));
-      else requests[0].resolve(Response.json({ code: outcome === 'exists' ? 'CLONE_TARGET_EXISTS' : 'CLONE_FAILED' },
-        { status: outcome === 'exists' ? 409 : 500 }));
-      expect((await pending).outcome).toBe(outcome === 'exists' ? 'exists' : 'failed');
-      expect(sessionStore.repositoryRestoreNotices['clone-a']).toEqual({ status: 'issues', repo: repo.full_name,
-        outcome: outcome === 'exists' ? 'exists' : 'failed' });
+      else requests[0].resolve(Response.json({ code: outcome === 'exists' ? 'CLONE_TARGET_EXISTS'
+        : outcome === 'tracking-unconfirmed' ? 'CLONE_TRACKING_UNCONFIRMED' : 'CLONE_FAILED' },
+        { status: outcome === 'failed' ? 500 : 409 }));
+      const expected = outcome === 'network' ? 'failed' : outcome;
+      expect((await pending).outcome).toBe(expected);
+      expect(sessionStore.repositoryRestoreNotices['clone-a']).toEqual({ status: 'issues', repo: repo.full_name, outcome: expected });
       await vi.advanceTimersByTimeAsync(10_000);
       expect(sessionStore.repositoryRestoreNotices['clone-a']).toBeDefined();
       sessionStore.dismissRepositoryRestore('clone-a');
@@ -2034,7 +2035,7 @@ describe('Session Store', () => {
     });
 
     it.each([
-      ...(['catalog', 'batch'] as const).flatMap(source => [
+      ...(['catalog', 'batch', 'catalog-with-batch'] as const).flatMap(source => [
         { source, generation: 8, lifecycle: 'starting' as const },
         { source, generation: 7, lifecycle: 'stopping' as const },
       ]),
@@ -2057,9 +2058,13 @@ describe('Session Store', () => {
       const replacement = { ...editor, generation, lifecycle, status: lifecycle, revision: 4 };
       mockGetSessions.mockResolvedValue([replacement]);
       const readEditor = () => sessionStore.sessions.find(session => session.id === editor.id);
-      if (source === 'batch') {
+      if (source !== 'catalog') {
         mockGetBatchSessionStatus.mockResolvedValue({ statuses: { [editor.id]: { ...replacement, ptyActive: false } } });
-        await sessionStore.refreshSessionStatuses();
+        if (source === 'batch') await sessionStore.refreshSessionStatuses();
+        else {
+          mockGetSessions.mockResolvedValueOnce([{ ...editor, status: 'stopped', lifecycle: 'stopped', generation: 6, revision: 1 }]);
+          await sessionStore.loadSessions();
+        }
         expect(readEditor()?.status).toBe('initializing');
       } else {
         await sessionStore.loadSessions();
@@ -2072,6 +2077,28 @@ describe('Session Store', () => {
       expect(readEditor()).toMatchObject({ generation, lifecycle, editorReady: false });
       expect(sessionStore.isSessionInitializing(editor.id)).toBe(false);
       expect(sessionStore.getTerminalsForSession(editor.id)).toBeNull();
+    });
+
+    it('REQ-SESSION-017: Error after a lost Start acknowledgement reloads authoritative session state', async () => {
+      const entry = { id: 'session00123', name: 'Workspace', workspace: 'terminal' as const,
+        createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString() };
+      mockGetSessions.mockResolvedValueOnce([{ ...entry, status: 'stopped', lifecycle: 'stopped', generation: 6, revision: 1 }])
+        .mockResolvedValue([{ ...entry, status: 'running', lifecycle: 'running', generation: 7, revision: 3 }]);
+      await sessionStore.loadSessions();
+      const client = await vi.importActual<typeof api>('../../api/client');
+      vi.mocked(api.startSession).mockImplementationOnce(client.startSession);
+      vi.stubGlobal('fetch', vi.fn<typeof fetch>()
+        .mockRejectedValueOnce(new Error('Start acknowledgement lost'))
+        .mockResolvedValueOnce(Response.json({ stage: 'error', generation: 6, progress: 0, message: 'Previous run failed',
+          details: { bucketName: 'test', container: 'test', path: '/workspace' } })));
+      try {
+        await expect(sessionStore.startSession(entry.id)).rejects.toThrow('This Start could not be confirmed');
+        expect(sessionStore.isSessionInitializing(entry.id)).toBe(false);
+        expect(sessionStore.sessions.find(({ id }) => id === entry.id))
+          .toMatchObject({ status: 'running', generation: 7, revision: 3 });
+      } finally {
+        vi.unstubAllGlobals();
+      }
     });
 
     it('REQ-IDE-049 AC3: marks a failed VS Code start as an editor-timeout retry', async () => {
