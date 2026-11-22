@@ -1115,6 +1115,95 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
     } finally { vi.restoreAllMocks(); }
   });
 
+  it('REQ-SESSION-022 AC4: a failed ordinary projection does not discard a timely recovery response', async () => {
+    const f = await runtimeFixture();
+    try {
+      await f.tick();
+      const expiresAt = (await repository().getSession(owner, id))!.unreachableDeadlineMs!;
+      f.time(expiresAt - 1);
+      f.ctx.container.running = true;
+      f.stored.delete(TRANSPORT_RECOVERY_KEY);
+      f.stored.delete(TRANSPORT_FAILURE_STREAK_KEY);
+      f.respond(async () => Response.json({ lastInputAt: expiresAt - 1,
+        workspaceInventoryReady: false, observedAt: new Date(expiresAt - 1).toISOString() }));
+      vi.spyOn(D1SessionRepository.prototype, 'project').mockImplementation(async () => {
+        f.time(expiresAt + 1);
+        throw Error('D1 projection unavailable');
+      });
+      Object.assign(f.host.env, { TIMEKEEPER: { idFromName: () => 'timekeeper', get: () => ({ fetch: async () => {
+        f.effects.push('timekeeper-ping'); return Response.json({ quotaExceeded: true });
+      } }) } });
+      await f.tick();
+      const recovered = await repository().getSession(owner, id);
+      expect(recovered).toMatchObject({ lifecycleState: 'running', lifecycleGeneration: 1 });
+      expect(recovered?.unreachableIncidentId).toBeUndefined();
+      expect(recovered?.terminationIntentId).toBeUndefined();
+      expect(f.host._usageSeconds).toBe(0);
+      expect(f.effects).toEqual([]);
+    } finally { vi.restoreAllMocks(); }
+  });
+
+  it.each(['refused', 'unresolved'] as const)('REQ-SESSION-024 AC2: expiry distinguishes %s recovery writes', async outcome => {
+    const f = await runtimeFixture();
+    let finish!: () => void;
+    try {
+      await f.tick();
+      const incident = (await repository().getSession(owner, id))!;
+      const expiresAt = incident.unreachableDeadlineMs!;
+      f.time(expiresAt - 1);
+      f.respond(async () => Response.json({ lastInputAt: expiresAt - 1, observedAt: new Date(expiresAt - 1).toISOString() }));
+      const available = new Promise<void>(resolve => { finish = resolve; });
+      let recoveryStarted!: () => void;
+      const started = new Promise<void>(resolve => { recoveryStarted = resolve; });
+      vi.spyOn(D1SessionRepository.prototype, 'recoverUnreachable').mockImplementation(async () => {
+        f.time(expiresAt + 1);
+        recoveryStarted();
+        if (outcome === 'unresolved') await available;
+        return false;
+      });
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const pending = f.tick();
+      await Promise.race([started, pending.then(() => { throw Error('Tick skipped the recovery write'); })]);
+      if (outcome === 'unresolved') await vi.advanceTimersByTimeAsync(10_000);
+      await pending;
+      const current = await repository().getSession(owner, id);
+      expect(current).toMatchObject({ lifecycleGeneration: 1, unreachableIncidentId: incident.unreachableIncidentId });
+      if (outcome === 'refused') {
+        expect(current?.lifecycleState).toBe('stopping');
+        expect(current?.terminationIntentId).toBeDefined();
+        expect(f.effects).toEqual(['signal:15']);
+      } else {
+        expect(current?.lifecycleState).toBe('unreachable');
+        expect(current?.terminationIntentId).toBeUndefined();
+        expect(f.alarms).toEqual([{ delay: 5, payload: pin }]);
+        expect(f.effects).toEqual([]);
+      }
+    } finally { finish?.(); vi.useRealTimers(); vi.restoreAllMocks(); }
+  });
+
+  it('REQ-SESSION-022 AC4: a recovered session still enforces idle policy on the same tick', async () => {
+    const f = await runtimeFixture();
+    try {
+      await f.tick();
+      f.time(at + 50_000);
+      f.stored.set('sleepAfter', '1h');
+      f.ctx.container.running = true;
+      f.respond(async url => {
+        if (new URL(url).pathname === '/internal/runtime-observation') {
+          return Response.json({ lastInputAt: at - 3_600_001, workspaceInventoryReady: true,
+            observedAt: new Date(at + 50_000).toISOString() });
+        }
+        if (url.endsWith('/internal/final-sync')) f.effects.push('final-sync');
+        return Response.json({ hostNow: at, events: [] });
+      });
+      await f.tick();
+      expect((await repository().getSession(owner, id))?.unreachableIncidentId).toBeUndefined();
+      expect(f.effects).toEqual(['final-sync', 'sdk-stop']);
+      expect(f.hostRequests.some(({ url }) => new URL(url).searchParams.get('inventory') === 'only')).toBe(false);
+      expect(f.host._usageSeconds).toBe(0);
+    } finally { vi.restoreAllMocks(); }
+  });
+
   it('REQ-SESSION-022 AC4: a host response at expiry cannot recover the incident', async () => {
     const f = await runtimeFixture();
     try {
