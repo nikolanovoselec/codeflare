@@ -3547,9 +3547,13 @@ None.
 
 **Acceptance Criteria:**
 
-1. For specified SDD behavior, prepare the full behavioral test batch before implementation. Record the observed RED failure or, if permitted checks are unavailable, record that RED was not observed. Every behavior change passes observable-outcome verification before completion. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
+1. For specified SDD behavior, prepare the full behavioral test batch before implementation. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
 2. Repositories with a specification directory keep changed behavior traced to truthful requirements, anchors, and documentation, with no touched REQ left `Partial`. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
-3. Keep local-only work local. When authorized to push, deliver tests and fixes together by default and run required CI on that head. RED-only commits, pushes, PRs, or CI runs, including temporary refs, require explicit authorization for the task. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @impl: preseed/agents/pi/skills/planning/SKILL.md::SDD, tests and delivery --> <!-- @manual -->
+3. Keep local-only work local. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @impl: preseed/agents/pi/skills/planning/SKILL.md::SDD, tests and delivery --> <!-- @manual -->
+4. Record the observed RED failure or, if permitted checks are unavailable, record that RED was not observed. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
+5. Every behavior change passes observable-outcome verification before completion. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
+6. When authorized to push, deliver tests and fixes together by default. Run required CI on the exact delivery head containing both. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @impl: preseed/agents/pi/skills/planning/SKILL.md::SDD, tests and delivery --> <!-- @manual -->
+7. RED-only commits, pushes, PRs, or CI runs, including on temporary refs, require explicit authorization for the task. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
 
 **Constraints:** The evidence policy is part of the canonical delivered Constitution, not a separate execution workflow.
 

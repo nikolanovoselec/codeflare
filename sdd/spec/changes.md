@@ -6,7 +6,7 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 ## 2026-11-22: Keep RED local by default
 
-- [REQ-AGENT-264 AC1/AC3](agents.md#req-agent-264-engineering-behavioral-evidence-and-sdd-traceability) distinguishes observed RED from a check that could not run. Local-only work stays local, and authorized pushes deliver tests and fixes together unless separate RED delivery is explicitly authorized.
+- [REQ-AGENT-264 AC3–4, AC6–7](agents.md#req-agent-264-engineering-behavioral-evidence-and-sdd-traceability) distinguishes observed RED from a check that could not run. Local-only work stays local, and authorized pushes deliver tests and fixes together unless separate RED delivery is explicitly authorized.
 
 ## 2026-11-22: Clarify customer-key encryption in Administration
 
