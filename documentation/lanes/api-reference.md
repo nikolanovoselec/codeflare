@@ -431,10 +431,12 @@ The owning Durable Object forwards these calls with the existing private Host be
 
 | Request | Result |
 |---|---|
-| `POST /internal/final-sync` with `x-codeflare-hermes-merge: 1` | `200 { synced: true, snapshotId? }`. No `snapshotId` means the workspace save was confirmed but no retryable Hermes snapshot was identified. A structured `500 { synced: false, reason: "bisync-failed" }` is definitive; a generic 500 or missing or malformed acknowledgement is not. |
+| `POST /internal/final-sync` with `x-codeflare-hermes-merge: 1` | `200 { synced: true, snapshotId? }` confirms final save within the configured sync scope. An absent `snapshotId` means no retryable Hermes snapshot was identified. A structured `500 { synced: false, reason: "bisync-failed" }` is definitive; a generic 500 or missing or malformed acknowledgement is not. |
 | `POST /internal/hermes-merge` | `409` for invalid or unmatched requests. For `200`, inspect the merge result; HTTP success alone does not prove publication. |
 
-Send `{ intent, snapshotId, deadline, allowPersonalPiProviders, gateway? }`. The snapshot must match the confirmed save. The deadline is a future Unix time in milliseconds within the 20-minute budget. `allowPersonalPiProviders` is a boolean. Optional `gateway` includes `model`, `contextWindow`, and optional `reasoning` and `reasoningLevels`.
+Final save does not confirm workspace upload when workspace sync is off. For merge-save requests, `409 { synced: false, reason: "hermes-disabled-at-startup", generation }` confirms the matching launch never opened Hermes. It permits ordinary teardown, not a saved snapshot or merge. Missing or stale startup evidence does not permit that fallback. <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @impl: src/container/index.ts::saveAndMergeHermes -->
+
+For the merge request, send `{ intent, snapshotId, deadline, allowPersonalPiProviders, gateway? }`. The snapshot must match the confirmed save. The deadline is a future Unix time in milliseconds within the 20-minute budget. `allowPersonalPiProviders` is a boolean. Optional `gateway` includes `model`, `contextWindow`, and optional `reasoning` and `reasoningLevels`.
 
 For `200`, inspect the JSON `status` field: `merged` includes a receipt, `skipped` is a verified no-op, and `pending` or `uncertain` do not prove publication. <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @impl: host/src/hermes-shutdown-service.ts::createHermesShutdownService -->
 

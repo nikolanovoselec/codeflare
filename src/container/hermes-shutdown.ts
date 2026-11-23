@@ -7,6 +7,7 @@ export async function mergeAfterFinalSave<T>(input: {
   finalSyncBudgetMs: number;
   assertCurrent(): Promise<void>;
   forwardExisting(request: Request): Promise<Response>;
+  startupDisabled?(generation: unknown): Promise<T>;
   merge(attempt: { deadline: number; signal: AbortSignal; snapshotId?: string }): Promise<T>;
 }): Promise<T> {
   const { signal } = input;
@@ -17,9 +18,15 @@ export async function mergeAfterFinalSave<T>(input: {
   const response = await input.forwardExisting(new Request('http://localhost/internal/final-sync', {
     method: 'POST', headers: { 'x-codeflare-hermes-merge': '1' }, signal: saveSignal,
   }));
-  const receipt = await response.json().catch(() => null) as { synced?: unknown; snapshotId?: unknown } | null;
-  if (!response.ok || receipt?.synced !== true) throw new Error('Final save not confirmed');
+  const receipt = await response.json().catch(() => null) as {
+    synced?: unknown; snapshotId?: unknown; reason?: unknown; generation?: unknown;
+  } | null;
   saveSignal.throwIfAborted();
+  if (input.startupDisabled && response.status === 409
+      && receipt?.synced === false && receipt.reason === 'hermes-disabled-at-startup') {
+    return input.startupDisabled(receipt.generation);
+  }
+  if (!response.ok || receipt?.synced !== true) throw new Error('Final save not confirmed');
   const deadline = Date.now() + HERMES_MERGE_BUDGET_MS;
   const mergeSignal = AbortSignal.any([signal, AbortSignal.timeout(HERMES_MERGE_BUDGET_MS)]);
   await input.assertCurrent();

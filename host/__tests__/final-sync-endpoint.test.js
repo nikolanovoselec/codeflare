@@ -132,14 +132,14 @@ async function withRouter(overrides, run) {
   }
 }
 
-function postFinalSync(port) {
+function postFinalSync(port, headers = {}) {
   return new Promise((resolve, reject) => {
     const req = http.request({
       host: '127.0.0.1',
       port,
       path: '/internal/final-sync',
       method: 'POST',
-      headers: { authorization: 'Bearer final-sync-test-token' },
+      headers: { authorization: 'Bearer final-sync-test-token', ...headers },
     }, (res) => {
       let body = '';
       res.on('data', (chunk) => { body += chunk; });
@@ -274,6 +274,54 @@ function cleanupSyncFixtures() {
   rmSync(STATUS_FILE, { force: true });
   rmSync(STATUS_TEMP_FILE, { force: true });
 }
+
+describe('REQ-SESSION-043: authenticated final sync observes the launch outcome', () => {
+  for (const { name, marker, ready, status, reason } of [
+    { name: 'disabled after request', marker: 'sessionaaa1:7\n', status: 409, reason: 'hermes-disabled-at-startup' },
+    { name: 'wrong generation', marker: 'sessionaaa1:6\n', status: 504, reason: 'timeout' },
+    { name: 'no startup outcome', status: 504, reason: 'timeout' },
+    { name: 'opened after request', ready: true, status: 200 },
+  ]) it(name, async () => {
+    const settings = { CONTAINER_AUTH_TOKEN: 'final-sync-test-token', SESSION_ID: 'sessionaaa1',
+      CODEFLARE_HERMES_GENERATION: '7', CODEFLARE_HERMES_PERSISTENCE: 'new' };
+    const old = Object.fromEntries(Object.keys(settings).map(key => [key, process.env[key]]));
+    Object.assign(process.env, settings);
+    const disabledPath = `${runtimeFixture}/sync/hermes-disabled-at-startup`;
+    const readyPath = `${runtimeFixture}/sync/hermes-ready`;
+    let now = TRIGGER;
+    let signalAt;
+    try {
+      await withRouter({ hermesShutdown: { saved: async () => 'a'.repeat(64) },
+        sessionManager: { quiesceForHermesMerge() {} },
+        finalSync: {
+          now: () => now,
+          signalDaemon: () => { signalAt = now; },
+          readStatus: () => ({ status: now === signalAt ? 'syncing' : 'success', ts: now + 1 }),
+          poll: async () => {
+            if (now === TRIGGER) {
+              if (marker) writeFileSync(disabledPath, marker);
+              if (ready) writeFileSync(readyPath, 'direct:sessionaaa1\n');
+            }
+            now += 1_000;
+          },
+        },
+      }, async port => {
+        const response = await postFinalSync(port, { 'x-codeflare-hermes-merge': '1' });
+        assert.equal(response.status, status);
+        if (status === 409) assert.deepEqual(response.body, { synced: false, reason, generation: 7 });
+        else if (status === 504) assert.deepEqual(response.body, { synced: false, reason });
+        else assert.deepEqual(response.body, { synced: true, snapshotId: 'a'.repeat(64) });
+        assert.equal(signalAt, ready ? TRIGGER + 1_000 : undefined);
+      });
+    } finally {
+      rmSync(disabledPath, { force: true }); rmSync(readyPath, { force: true });
+      for (const [key, value] of Object.entries(old)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
+});
 
 describe('REQ-SESSION-011 AC2: final-sync HTTP boundary (behavioral)', () => {
   it('REQ-SESSION-011 AC2: returns 503 when no daemon is running', async () => {

@@ -65,12 +65,12 @@ function fixture(t) {
   return { root, home, runtime };
 }
 
-function run(fx, { mode = 'advanced', explicitHome = true, id = sessionId, checkpoint = false, remote = false,
+function run(fx, { mode = 'advanced', explicitHome = true, id = sessionId, phase = 'prepare', checkpoint = false, remote = false,
   persistence = 'new', generation = '1', enterprise = false, mergedSnapshot = '', faultHooks } = {}) {
   return spawnSync('bash', ['-c', [
     'set -euo pipefail',
     functionSource('configure_pi_hermes_memory'),
-    checkpoint ? 'configure_pi_hermes_memory "$USER_HOME" checkpoint' : explicitHome ? 'configure_pi_hermes_memory "$USER_HOME"' : 'configure_pi_hermes_memory',
+    explicitHome ? `configure_pi_hermes_memory "$USER_HOME" ${checkpoint ? 'checkpoint' : phase}` : 'configure_pi_hermes_memory',
   ].join('\n')], {
     cwd: join(fx.home, 'workspace'),
     encoding: 'utf8',
@@ -238,6 +238,21 @@ function transfer(fx, from, to) {
 // Each named case is an observable portion of AC1, AC2, AC3 or AC4, not a
 // claim that this startup-only suite verifies the entire multi-part criterion.
 describe('Pi Hermes startup (actual entrypoint helper)', () => {
+  it('REQ-SESSION-043: disabling an unopened Enterprise store records only this launch', t => {
+    const fx = fixture(t);
+    const disabled = join(fx.runtime, 'sync/hermes-disabled-at-startup');
+    fails(run(fx, { enterprise: true, persistence: 'existing', generation: '7' }));
+    assert.equal(existsSync(disabled), false, 'failed preparation alone is not proof of disable');
+    succeeds(run(fx, { enterprise: true, persistence: 'existing', generation: '7', phase: 'disable' }));
+    assert.equal(readFileSync(disabled, 'utf8'), `${sessionId}:7\n`);
+
+    const opened = fixture(t);
+    succeeds(run(opened, { enterprise: true, generation: '7' }));
+    succeeds(run(opened, { enterprise: true, generation: '7', phase: 'disable' }));
+    assert.equal(existsSync(join(opened.runtime, 'sync/hermes-disabled-at-startup')), false,
+      'an opened store cannot be reported as never opened');
+  });
+
   it('REQ-MEM-035: a new image preserves the installed legacy signed adapter and activates isolation after seed upgrade', t => {
     const fx = fixture(t);
     const saved = restoredMarkdown(fx);

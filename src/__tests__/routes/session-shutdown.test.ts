@@ -97,13 +97,14 @@ function rig(enterprise = true, workspaceSyncEnabled = true) {
   const trace: string[] = [];
   const alarms = new Set<string>();
 
-  function processFixture(label: string, initiallyRunning: boolean, hasSnapshot: boolean) {
+  function processFixture(label: string, initiallyRunning: boolean, hasSnapshot: boolean, directGeneration: boolean) {
     let running = initiallyRunning;
     // Model exit confirmation independently of the running hint. The fixture
     // uses awaited native destroy as its source of positive exit evidence.
     const monitor = new Promise<void>(() => {});
-    const save = gate<'saved' | 'failed' | 'ambiguous'>('saved');
+    const save = gate<'saved' | 'failed' | 'ambiguous' | { disabledGeneration: number }>('saved');
     let firstSave = true;
+    let disabledAtStartup = false;
     const exit = gate<void>(undefined);
     const merge = gate<'skipped' | 'merged' | 'pending' | 'uncertain'>('skipped');
     const retryResult = gate<'merged' | 'pending'>('pending');
@@ -137,12 +138,17 @@ function rig(enterprise = true, workspaceSyncEnabled = true) {
           trace.push(`${label}:save`);
           const result = firstSave ? await save.promise : 'saved';
           firstSave = false;
-          if (result === 'failed' || result === 'ambiguous') {
+          if (typeof result === 'object') {
+            disabledAtStartup = true;
+            return Response.json({ synced: false, reason: 'hermes-disabled-at-startup', generation: result.disabledGeneration }, { status: 409 });
+          }
+          if (disabledAtStartup || result === 'failed' || result === 'ambiguous') {
+            if (disabledAtStartup) expect(request.headers.get('x-codeflare-hermes-merge')).toBeNull();
             trace.push(`${label}:save-failed`);
-            return Response.json({ synced: false, reason: result === 'failed' ? 'bisync-failed' : 'unexpected' }, { status: 500 });
+            return Response.json({ synced: false, reason: disabledAtStartup || result === 'failed' ? 'bisync-failed' : 'unexpected' }, { status: 500 });
           }
           trace.push(`${label}:saved`);
-          if (enterprise) expect(request.headers.get('x-codeflare-hermes-merge')).toBe('1');
+          expect(request.headers.get('x-codeflare-hermes-merge')).toBe(enterprise && directGeneration && !disabledAtStartup ? '1' : null);
           return Response.json({ synced: true, ...(hasSnapshot && { snapshotId }) });
         }
         if (path === '/internal/hermes-merge') {
@@ -157,7 +163,7 @@ function rig(enterprise = true, workspaceSyncEnabled = true) {
         return Response.json({ error: `Unexpected fixture Host path ${path}` }, { status: 404 });
       } }),
     };
-    return { native, get token() { return token; }, save, exit, merge, retryResult, get mergeRequest() { return mergeRequest; } };
+    return { native, directGeneration, get token() { return token; }, save, exit, merge, retryResult, get mergeRequest() { return mergeRequest; } };
   }
 
   const idFromName = (name: string) => ({ toString: () => name });
@@ -168,7 +174,9 @@ function rig(enterprise = true, workspaceSyncEnabled = true) {
       const records = new Map<string, unknown>(process ? [
         ['bucketName', address.slice(0, first)], ['_sessionId', address.slice(first + 1)],
         ['lifecycleGeneration', 1], ['containerAuthToken', process.token], ['workspaceSyncEnabled', workspaceSyncEnabled],
-        ['sessionMode', 'advanced'], ['hermes:direct-generation', 1], ['userEmail', 'test@example.com'], ['userGroups', ['shutdown-fixture']],
+        ['sessionMode', 'advanced'], ['hermes:direct-layout', true],
+        ...(process.directGeneration ? [['hermes:direct-generation', 1] as const] : []),
+        ['userEmail', 'test@example.com'], ['userGroups', ['shutdown-fixture']],
       ] : []);
       const storage = {
         get: async (key: string | string[]) => Array.isArray(key)
@@ -210,8 +218,8 @@ function rig(enterprise = true, workspaceSyncEnabled = true) {
   const app = (bucketName = owner) => createTestApp({ bucketName, mockKV: envOverrides.KV,
     envOverrides, routes: [{ path: '/api/sessions', handler: lifecycle }, { path: '/api/sessions', handler: crud }] });
   const path = (id: string) => `/api/sessions/${id}`;
-  async function create(id: string, { bucket = owner, running = true, holdMerge = false, hasSnapshot = true }: {
-    bucket?: string; running?: boolean; holdMerge?: boolean; hasSnapshot?: boolean;
+  async function create(id: string, { bucket = owner, running = true, holdMerge = false, hasSnapshot = true, directGeneration = true }: {
+    bucket?: string; running?: boolean; holdMerge?: boolean; hasSnapshot?: boolean; directGeneration?: boolean;
   } = {}) {
     await envOverrides.KV!.put(getRegimeStateKey(bucket), JSON.stringify({ status: 'ready', regime: 'plain', generation: 1 }));
     await envOverrides.KV!.put('r2token:test@example.com', JSON.stringify({ bucketName: bucket, accessKeyId: 'fixture-key', secretAccessKey: 'fixture-secret' }));
@@ -225,7 +233,7 @@ function rig(enterprise = true, workspaceSyncEnabled = true) {
       await repository.start(bucket, id, stamp);
       await repository.project(bucket, id, 1, 0, { lifecycleState: 'running', observedAt: stamp });
     }
-    const process = processFixture(bucket === owner ? id : `other:${id}`, running, hasSnapshot);
+    const process = processFixture(bucket === owner ? id : `other:${id}`, running, hasSnapshot, directGeneration);
     if (!holdMerge) process.merge.release('skipped');
     processes.set(`${bucket}-${id}`, process);
     return process;
@@ -299,8 +307,64 @@ it.each([true, false])('REQ-SESSION-043: accepts overlapping Stop/Delete in owne
   ]);
 });
 
+it.each(['Stop', 'Delete'] as const)('REQ-SESSION-043: %s after definitive Hermes startup disable completes ordinary teardown and releases the queue', async action => {
+  const f = rig(true, false);
+  const [A, B] = await Promise.all([f.create(a), f.create(b)]);
+  expect((await bounded(action === 'Delete' ? f.remove(a) : f.stop(a))).status).toBe(202);
+  await vi.waitFor(() => expect(f.trace).toContain(`${a}:save`));
+  expect((await bounded(f.stop(b))).status).toBe(202);
+  expect((await f.batch())[b]?.shutdownPhase).toBe('queued');
+
+  // Startup resolves after the first action has already been accepted.
+  A.save.release({ disabledGeneration: 1 });
+  await vi.waitFor(() => expect(f.trace).toContain(`${a}:sigterm`));
+  expect((await f.app().request(f.path(a))).status).toBe(200);
+  expect((await f.batch())[a]).toMatchObject({ status: 'stopping', shutdownPhase: 'finishing' });
+  expect((await f.batch())[b]?.shutdownPhase).toBe('queued');
+  A.exit.release();
+  B.save.release('saved'); B.exit.release();
+  await vi.waitFor(async () => {
+    const settled = await f.batch();
+    expect(settled[b]?.status).toBe('stopped');
+    if (action === 'Delete') expect(settled[a]).toBeUndefined();
+    else {
+      expect(settled[a]?.status).toBe('stopped');
+      expect(settled[a]?.shutdownPhase).toBeUndefined();
+      expect((await repository.getSession(f.owner, a))?.mergedSnapshotId).toBeUndefined();
+    }
+  });
+  expect(f.trace.filter(event => event.startsWith(`${a}:`))).toEqual([
+    `${a}:final-events`, `${a}:save`, `${a}:save`, `${a}:save-failed`, `${a}:sigterm`, `${a}:exit`,
+  ]);
+});
+
+it('REQ-SESSION-043: a running predecessor without a direct generation keeps ordinary Stop', async () => {
+  const f = rig(true, false);
+  const A = await f.create(a, { directGeneration: false });
+  A.save.release('saved'); A.exit.release();
+  expect((await f.stop(a)).status).toBe(200);
+  expect((await f.batch())[a]).toMatchObject({ status: 'stopped' });
+  expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`, `${a}:saved`, `${a}:sigterm`, `${a}:exit`]);
+});
+
+it('REQ-SESSION-043: an unbound Hermes startup result cannot bypass the save gate', async () => {
+  const f = rig(true, false);
+  const A = await f.create(a);
+  A.exit.release();
+  expect((await bounded(f.remove(a))).status).toBe(202);
+  A.save.release({ disabledGeneration: 0 });
+  await vi.waitFor(async () => {
+    expect((await f.batch())[a]).toMatchObject({ status: 'stopping', pendingDelete: true });
+    expect((await f.batch())[a]?.shutdownPhase).toBeUndefined();
+  });
+  expect(A.native.running).toBe(true);
+  expect(f.trace).not.toContain(`${a}:exit`);
+  expect((await f.app().request(f.path(a))).status).toBe(200);
+  await bounded(f.kill(a));
+});
+
 it('REQ-SESSION-043: unconfirmed final sync preserves the running Delete target and holds its successor until authority is revoked', async () => {
-  const f = rig();
+  const f = rig(true, false);
   const A = await f.create(a);
   const B = await f.create(b);
   A.exit.release();

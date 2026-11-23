@@ -925,6 +925,34 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
         poll: (delayMs: number) => new Promise<void>((resolve) => setTimeout(resolve, delayMs)),
       };
       const deadline = finalSync.now() + FINAL_SYNC_INTERNAL_TIMEOUT_MS;
+      if (mergeSave) {
+        // The Host binds before restore. Only a positive launch outcome can
+        // authorize draining Pi or falling back to ordinary teardown.
+        const { SESSION_ID: sessionId, CODEFLARE_HERMES_GENERATION: generation } = process.env;
+        const scoped = /^[a-z0-9]{8,24}$/.test(sessionId ?? '') && /^[1-9][0-9]{0,15}$/.test(generation ?? '')
+          && Number.isSafeInteger(Number(generation));
+        const readStartup = (file: string) => fs.promises.readFile(`${SYNC_RUNTIME_DIR}/${file}`, 'utf8').catch(() => '');
+        let opened = false;
+        while (!req.aborted && !res.destroyed && finalSync.now() < deadline) {
+          if (reportDiskBlock()) return;
+          if (scoped && await readStartup('hermes-ready') === `direct:${sessionId}\n`) {
+            opened = true;
+            break;
+          }
+          if (scoped && await readStartup('hermes-disabled-at-startup') === `${sessionId}:${generation}\n`) {
+            res.writeHead(409, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+            res.end(JSON.stringify({ synced: false, reason: 'hermes-disabled-at-startup', generation: Number(generation) }));
+            return;
+          }
+          await finalSync.poll(FINAL_SYNC_POLL_MS);
+        }
+        if (req.aborted || res.destroyed) return;
+        if (!opened) {
+          res.writeHead(504, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ synced: false, reason: 'timeout' }));
+          return;
+        }
+      }
       let memoryShutdown: PiMemoryShutdown = { status: 'exited', count: 0 };
       try {
         if (deps.prepareFinalSync) memoryShutdown = await deps.prepareFinalSync(deadline);

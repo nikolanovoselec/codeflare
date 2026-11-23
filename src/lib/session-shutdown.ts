@@ -12,6 +12,8 @@ export interface SessionShutdown {
   deadline?: number;
   revision?: string;
   teardownClaimed?: true;
+  /** Authenticated proof that this generation never opened its Hermes store. */
+  hermesDisabledAtStartup?: true;
   /** A retry opens a new runtime generation, but merges the original saved bytes. */
   sourceGeneration?: number;
   resumed?: true;

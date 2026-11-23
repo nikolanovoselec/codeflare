@@ -3105,7 +3105,7 @@ init_sync_log
 export CODEFLARE_INIT_FLAG_FILE=$CODEFLARE_RUNTIME_ROOT/services/init-complete
 export CODEFLARE_POLICY_STATUS_FILE=$CODEFLARE_RUNTIME_ROOT/services/managed-policy-status
 rm -f "$CODEFLARE_INIT_FLAG_FILE" "$CODEFLARE_POLICY_STATUS_FILE" "$SYNC_RUNTIME_DIR/hermes-ready" \
-    "$SYNC_RUNTIME_DIR/hermes-restore-verified" "$SYNC_RUNTIME_DIR/hermes-restore-synced"
+    "$SYNC_RUNTIME_DIR/hermes-restore-verified" "$SYNC_RUNTIME_DIR/hermes-restore-synced" "$SYNC_RUNTIME_DIR/hermes-disabled-at-startup"
 
 # REQ-GITHUB-015 AC1: gates the /health workspace repository inventory so a
 # repository the restore below has not yet recreated is never reported as
@@ -3745,12 +3745,16 @@ def prepare_checkpoint_layout():
 
 try:
     if phase == 'disable':
+        opened = os.path.lexists(ready)
         ready.unlink(missing_ok=True)
         direct_directory(agent)
         # The old signed adapters require this exact alias; remove only a known
         # managed legacy alias when authorization or restore has failed.
         if legacy_project_link():
             project.unlink()
+        if enterprise and not opened and persistence in ('new', 'existing') \
+                and re.fullmatch('[a-z0-9]{8,24}', session) and re.fullmatch('[1-9][0-9]{0,15}', generation):
+            replace_text(ready.with_name('hermes-disabled-at-startup'), f'{session}:{generation}\n', ready.parent)
         sys.exit(0)
     if not re.fullmatch('[a-z0-9]{8,24}', session):
         raise ValueError('missing or invalid container session identity')

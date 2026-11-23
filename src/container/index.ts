@@ -1664,6 +1664,13 @@ export class container extends Container<Env> implements ContainerEnvState {
           }
           return new Response(receipt, { status: response.status, headers: response.headers });
         },
+        startupDisabled: async disabledGeneration => {
+          if (disabledGeneration !== generation) throw new Error('Hermes startup outcome is stale');
+          await assertCurrent('saving');
+          if (!await transitionShutdown(repository, input, intent, 'saving', job => ({
+            ...job, phase: 'finishing', deadline: undefined, hermesDisabledAtStartup: true,
+          }))) throw new Error('Hermes shutdown superseded');
+        },
         merge: async ({ deadline, signal, snapshotId }) => {
           confirmedSave = true;
           confirmedSnapshot = snapshotId;
@@ -1884,7 +1891,8 @@ export class container extends Container<Env> implements ContainerEnvState {
           incidentId: owned.unreachableIncidentId ?? null, terminationIntentId: owned.terminationIntentId ?? undefined, reason: 'user' }, () => this.recordNativeStopExit({
             owner: input.bucket, session: input.sessionId, generation: input.generation,
             terminationIntentId: owned.terminationIntentId!,
-          }), shutdownIntent !== undefined, shutdownIntent !== undefined && owned.shutdown?.finalEventsAttempted === true);
+          }), shutdownIntent !== undefined && owned.shutdown?.hermesDisabledAtStartup !== true,
+          shutdownIntent !== undefined && owned.shutdown?.finalEventsAttempted === true);
         await this.recordHermesSettlement(input.sessionId, input.generation);
       }, shutdownIntent)
     ).finally(() => {
