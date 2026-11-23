@@ -143,6 +143,18 @@ describe('native AI targets', () => {
     }
   });
 
+  it.each([undefined, 'aig-legacy-compat'] as const)('REQ-ENTERPRISE-074 AC3: refuses a region on compatibility transport %s', (transport) => {
+    const draft = { ...legacyDraft, provider: 'aws-bedrock', ...(transport && { transport }) };
+    expect(nativeTargetDraftSchema.safeParse(draft).success).toBe(true);
+    expect(createNativeTarget({ ...draft, providerConfigId: 'raw-provider' }).transport).toBe('aig-legacy-compat');
+    const withRegion = { ...draft, region: 'eu-central-1' };
+    expect(nativeTargetDraftShapeValid(withRegion)).toBe(false);
+    const parsed = nativeTargetDraftSchema.safeParse(withRegion);
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) expect(parsed.error.issues).toContainEqual(expect.objectContaining({ path: ['region'] }));
+    expect(() => createNativeTarget({ ...withRegion, providerConfigId: 'raw-provider' })).toThrow(/compatibility transports do not accept a Bedrock region/i);
+  });
+
   it('REQ-ENTERPRISE-074: validates automatic routing without widening explicit or compatibility identities', () => {
     const autoRef = getBuiltInProfileRef('bedrock-anthropic-native-opus-auto');
     const draft = { label: 'Opus', provider: 'aws-bedrock', model: 'eu.anthropic.claude-opus-5', contextWindow: 200000,

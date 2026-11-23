@@ -20,9 +20,10 @@ const BASE_URL = '/api';
 
 /** Backward-compatible subclass so existing catch blocks and tests that check error.name still work. */
 class StorageApiError extends ApiError {
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, code?: string) {
     super(message, status, '');
     this.name = 'StorageApiError';
+    this.code = code;
   }
 }
 
@@ -35,7 +36,7 @@ async function storageFetch<T>(endpoint: string, options: RequestInit, schema: z
   } catch (err) {
     // Re-wrap as StorageApiError for backward compatibility
     if (err instanceof ApiError && !(err instanceof StorageApiError)) {
-      throw new StorageApiError(err.status, err.message);
+      throw new StorageApiError(err.status, err.message, err.code);
     }
     throw err;
   }
@@ -81,6 +82,16 @@ export async function completeMultipartUpload(key: string, uploadId: string, par
     method: 'POST',
     body: JSON.stringify({ key, uploadId, parts }),
   }, MultipartCompleteResponseSchema);
+}
+
+export async function getMultipartRecovery(): Promise<{ key: string; uploadId: string } | null> {
+  return storageFetch('/storage/upload/recovery', {}, MultipartInitResponseSchema.nullable());
+}
+
+export async function recoverMultipartUpload(key: string, uploadId: string): Promise<void> {
+  await storageFetch('/storage/upload/recovery', {
+    method: 'POST', body: JSON.stringify({ key, uploadId }),
+  }, z.object({ success: z.literal(true) }));
 }
 
 export async function abortMultipartUpload(key: string, uploadId: string): Promise<void> {

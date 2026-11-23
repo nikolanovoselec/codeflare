@@ -76,6 +76,8 @@ export interface HealthData {
   terminalServiceReady?: boolean;
   editorReady?: boolean;
   editorReadyTimedOut?: boolean;
+  startupPolicyError?: 'failed' | 'timeout';
+  repositoryRestore?: 'pending' | 'restoring' | 'complete' | 'issues';
   cpu?: string;
   mem?: string;
   hdd?: string;

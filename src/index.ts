@@ -42,7 +42,7 @@ import {
 } from './lib/cache-reset';
 import { createLogger, setLogLevel } from './lib/logger';
 import type { LogLevel } from './lib/logger';
-import { authenticateRequest } from './lib/access';
+import { authenticateRequest, getCookieValue } from './lib/access';
 import { SETUP_KEYS } from './lib/kv-keys';
 import { verifySessionJWT, shouldRefreshJWT, signSessionJWT, SESSION_JWT_AUD, cookieDomainAttr } from './lib/session-jwt';
 import { getOrImportKey, warnIfNoEncryptionKey } from './lib/kv-crypto';
@@ -137,12 +137,6 @@ app.use('*', async (c, next) => {
 // Request Tracing Middleware
 // ============================================================================
 app.use('*', async (c, next) => {
-  // CF-001: Hard enforcement - STRESS_TEST_MODE must never bypass rate limits in SaaS production.
-  if (isSaasModeActive(c.env.SAAS_MODE) && c.env.STRESS_TEST_MODE === 'active') {
-    logger.error('BLOCKED: STRESS_TEST_MODE active in SaaS production', undefined, { path: c.req.path });
-    return withSecurityHeaders(c.json({ error: 'Misconfiguration: stress test mode cannot be active in SaaS production' }, 503));
-  }
-
   // CF-017: Warn on first request if credentials will be stored as plaintext
   warnIfNoEncryptionKey(c.env.ENCRYPTION_KEY);
 
@@ -170,28 +164,6 @@ app.use('*', async (c, next) => {
     status: c.res.status,
     durationMs: duration,
   });
-});
-
-// SaaS mode: cookie refresh middleware - extends session when < 15 min remaining
-app.use('*', async (c, next) => {
-  await next();
-  // Only refresh app-owned OIDC sessions (SaaS or onboarding; REQ-AUTH-020)
-  if (!isSessionOidcMode(c.env) || !c.env.OAUTH_CLIENT_ID || !c.env.OAUTH_JWT_SECRET) return;
-  const cookieHeader = c.req.header('Cookie');
-  if (!cookieHeader) return;
-  const match = cookieHeader.match(/codeflare_session=([^;]+)/);
-  if (!match) return;
-  try {
-    const payload = await verifySessionJWT(match[1], c.env.OAUTH_JWT_SECRET, SESSION_JWT_AUD);
-    if (payload && shouldRefreshJWT(payload)) {
-      const refreshed = await signSessionJWT(
-        { email: payload.email, sub: payload.sub, ghLogin: payload.ghLogin, aud: SESSION_JWT_AUD },
-        c.env.OAUTH_JWT_SECRET,
-      );
-      const domainAttr = cookieDomainAttr(await c.env.KV.get(SETUP_KEYS.CUSTOM_DOMAIN));
-      c.header('Set-Cookie', `codeflare_session=${refreshed}; HttpOnly; Secure; SameSite=Lax; Path=/${domainAttr}; Max-Age=3600`);
-    }
-  } catch { /* non-fatal - don't break the response */ }
 });
 
 // CORS middleware - restrict to trusted origins (configurable via ALLOWED_ORIGINS env var)
@@ -371,19 +343,59 @@ app.onError((err, c) => {
   return c.json({ error: 'An unexpected error occurred' }, 500);
 });
 
+/** REQ-AUTH-008: renew on ordinary Worker responses, including those outside Hono. */
+async function renewSessionCookie(request: Request, env: Env, response: Response): Promise<Response> {
+  if (response.status === 101 || isEnterpriseMode(env) || !isSessionOidcMode(env)
+    || !env.OAUTH_CLIENT_ID || !env.OAUTH_JWT_SECRET) return response;
+
+  const token = getCookieValue(request.headers.get('Cookie'), 'codeflare_session');
+  if (!token) return response;
+
+  try {
+    // An explicit session cookie (including logout's empty value) takes precedence.
+    if (response.headers.getAll('Set-Cookie').some((cookie) => cookie.trimStart().startsWith('codeflare_session='))) {
+      return response;
+    }
+    const payload = await verifySessionJWT(token, env.OAUTH_JWT_SECRET, SESSION_JWT_AUD);
+    if (!payload || !shouldRefreshJWT(payload)) return response;
+
+    const refreshed = await signSessionJWT(
+      { email: payload.email, sub: payload.sub, ghLogin: payload.ghLogin, aud: SESSION_JWT_AUD },
+      env.OAUTH_JWT_SECRET,
+    );
+    const domainAttr = cookieDomainAttr(await env.KV.get(SETUP_KEYS.CUSTOM_DOMAIN));
+    const renewed = new Response(response.body, response);
+    renewed.headers.append('Set-Cookie', `codeflare_session=${refreshed}; HttpOnly; Secure; SameSite=Lax; Path=/${domainAttr}; Max-Age=3600`);
+    renewed.headers.set('Cache-Control', 'no-store');
+    renewed.headers.delete('CDN-Cache-Control');
+    renewed.headers.delete('Cloudflare-CDN-Cache-Control');
+    return renewed;
+  } catch {
+    // Renewal failure is non-fatal; preserve the original response.
+    return response;
+  }
+}
+
 /**
- * Custom fetch handler that intercepts WebSocket requests BEFORE Hono
- * This is required because Hono doesn't handle WebSocket upgrade correctly
+ * Dispatches proxy routes before Hono, which cannot handle WebSocket upgrades.
  * See: https://github.com/cloudflare/workerd/issues/2319
  */
-export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+const requestRouter = {
+  async dispatch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     if (env.LOG_LEVEL) {
       setLogLevel(env.LOG_LEVEL as LogLevel);
     }
+    const url = new URL(request.url);
+    // REQ-OPS-164 AC3: refuse mixed mode before any early proxy or asset dispatch.
+    if (isSaasModeActive(env.SAAS_MODE) && env.STRESS_TEST_MODE === 'active') {
+      logger.error('BLOCKED: STRESS_TEST_MODE active in SaaS production', undefined, { path: url.pathname });
+      return withSecurityHeaders(Response.json({ error: 'Misconfiguration: stress test mode cannot be active in SaaS production' }, {
+        status: 503,
+        headers: ownerRawReadPath.test(url.pathname) ? { 'Cache-Control': 'no-store' } : undefined,
+      }));
+    }
     if (env.ENCRYPTION_KEY) await getOrImportKey(env);
 
-    const url = new URL(request.url);
     const onboardingLandingActive = isOnboardingLandingPageActive(env.ONBOARDING_LANDING_PAGE);
 
     // AUTH: WebSocket upgrade handled here before Hono middleware.
@@ -581,6 +593,12 @@ export default {
       secureResponse.headers.set('Permissions-Policy', 'camera=(), microphone=(self), geolocation=()');
     }
     return secureResponse;
+  },
+};
+
+export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    return renewSessionCookie(request, env, await requestRouter.dispatch(request, env, ctx));
   },
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(runUsageReportScheduler(env));

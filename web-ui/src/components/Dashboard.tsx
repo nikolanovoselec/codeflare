@@ -6,6 +6,7 @@ import IconButton from './ui/IconButton';
 import type { SessionWithStatus, AgentType, TabConfig } from '../types';
 import { storageStore } from '../stores/storage';
 import { recreateAgentConfigs } from '../api/storage';
+import type { MigrationRetry } from './MigrationRetryNotice';
 import { downloadFile } from '../lib/download';
 import { getGravatarUrl, gravatarExists } from '../lib/gravatar';
 import SessionStatCard from './SessionStatCard';
@@ -32,6 +33,7 @@ import OperatorActivityButton from './OperatorActivityButton';
 import '../styles/dashboard.css';
 
 interface DashboardProps {
+  migrationRetry: MigrationRetry;
   sessions: SessionWithStatus[];
   onCreateSession: (agentType?: AgentType, tabConfig?: TabConfig[]) => void;
   onStartSession: (id: string) => void;
@@ -64,10 +66,15 @@ const Dashboard: Component<DashboardProps> = (props) => {
   const [recreateLoading, setRecreateLoading] = createSignal(false);
   const [recreateError, setRecreateError] = createSignal<string | null>(null);
   const [recreateMessage, setRecreateMessage] = createSignal<string | null>(null);
+  const migrationStatus = () => sessionStore.bucketMigrationHaltedAt ? 'Migration halted'
+    : sessionStore.bucketMigrating
+      ? (sessionStore.bucketMigrationPercent != null ? `Migrating ${sessionStore.bucketMigrationPercent}%` : 'Migrating')
+      : null;
   const showUpgradeRecovery = () => sessionStore.preseedUpgradeFailed
     && !sessionStore.preseedUpgrading
-    && !sessionStore.bucketMigrating
+    && !migrationStatus()
     && sessionStore.managedReleaseStatus !== 'update_pending';
+  const recoveryAction = () => sessionStore.bucketMigrationHaltedAt ? 'migration' : showUpgradeRecovery() ? 'recreate' : undefined;
   const handleRecreate = async () => {
     if (recreateLoading() || sessionStore.preseedUpgrading || !showUpgradeRecovery()) return;
     setRecreateLoading(true);
@@ -456,8 +463,8 @@ const Dashboard: Component<DashboardProps> = (props) => {
                   class={`dashboard-new-session-btn ${sessionStore.isAtSessionLimit() ? 'dashboard-new-session-btn--limited' : ''}`}
                   data-testid="dashboard-new-session"
                   style={managedUpgradeStyle()}
-                  disabled={!sessionStore.r2Ready || isAtUsageQuota() || sessionStore.preseedUpgrading || (sessionStore.managedReleaseStatus === 'upgrading' && !sessionStore.preseedUpgradeFailed) || sessionStore.managedReleaseStatus === 'update_pending' || sessionStore.bucketMigrating}
-                  aria-label={sessionStore.bucketMigrating ? 'Storage is migrating' : sessionStore.managedReleaseStatus === 'update_pending' ? 'Session environment update pending until session stops' : sessionStore.preseedUpgradeFailed && !sessionStore.preseedUpgrading ? 'Retry upgrade' : managedUpgradeAriaLabel() ?? (sessionStore.preseedUpgrading ? 'Updating session environment' : !sessionStore.r2Ready ? 'Waiting for storage setup' : isAtUsageQuota() ? 'Monthly compute quota exceeded' : sessionStore.isAtSessionLimit() ? 'Session limit reached' : 'Create new session')}
+                  disabled={!sessionStore.r2Ready || isAtUsageQuota() || sessionStore.preseedUpgrading || (sessionStore.managedReleaseStatus === 'upgrading' && !sessionStore.preseedUpgradeFailed) || sessionStore.managedReleaseStatus === 'update_pending' || Boolean(migrationStatus())}
+                  aria-label={migrationStatus() ?? (sessionStore.managedReleaseStatus === 'update_pending' ? 'Session environment update pending until session stops' : sessionStore.preseedUpgradeFailed && !sessionStore.preseedUpgrading ? 'Retry upgrade' : managedUpgradeAriaLabel() ?? (sessionStore.preseedUpgrading ? 'Updating session environment' : !sessionStore.r2Ready ? 'Waiting for storage setup' : isAtUsageQuota() ? 'Monthly compute quota exceeded' : sessionStore.isAtSessionLimit() ? 'Session limit reached' : 'Create new session'))}
                   onClick={() => {
                     if (sessionStore.preseedUpgradeFailed) {
                       void sessionStore.retryPreseedUpgrade();
@@ -470,25 +477,30 @@ const Dashboard: Component<DashboardProps> = (props) => {
                     }
                   }}
                 >
-                  {sessionStore.bucketMigrating
-                    ? (sessionStore.bucketMigrationPercent != null ? `Migrating ${sessionStore.bucketMigrationPercent}%` : 'Migrating')
-                    : sessionStore.managedReleaseStatus === 'update_pending'
+                  {migrationStatus() ?? (sessionStore.managedReleaseStatus === 'update_pending'
                       ? 'Update pending'
                       : sessionStore.preseedUpgradeFailed && !sessionStore.preseedUpgrading
                         ? 'Retry upgrade'
-                        : managedUpgradeLabel() ?? (sessionStore.preseedUpgrading ? 'Updating' : '+ New Session')}
+                        : managedUpgradeLabel() ?? (sessionStore.preseedUpgrading ? 'Updating' : '+ New Session'))}
                 </button>
-                <Show when={showUpgradeRecovery()}>
-                  <button
-                    type="button"
-                    class="dashboard-new-session-btn dashboard-recreate-btn"
-                    aria-label="Recreate Agent Skills & Rules"
-                    title="Recreate Agent Skills & Rules"
-                    disabled={recreateLoading() || sessionStore.preseedUpgrading}
-                    onClick={() => void handleRecreate()}
-                  >
-                    <Icon path={mdiReflectHorizontal} size={22} />
-                  </button>
+                <Show when={recoveryAction()} keyed>
+                  {(action) => {
+                    const migration = action === 'migration';
+                    const label = migration ? 'Retry migration' : 'Recreate Agent Skills & Rules';
+                    return (
+                      <button
+                        type="button"
+                        class="dashboard-new-session-btn dashboard-recovery-btn"
+                        aria-label={label}
+                        title={label}
+                        disabled={migration ? props.migrationRetry.disabled() : recreateLoading() || sessionStore.preseedUpgrading}
+                        aria-busy={migration ? props.migrationRetry.pending() : undefined}
+                        onClick={() => void (migration ? props.migrationRetry.submit() : handleRecreate())}
+                      >
+                        <Icon path={mdiReflectHorizontal} size={22} />
+                      </button>
+                    );
+                  }}
                 </Show>
                 <Show when={multiViewWorkspace()}>
                   <button

@@ -181,10 +181,9 @@ jobs:
        && github.event.workflow_run.head_repository.full_name == github.repository))
     runs-on: ubuntu-24.04
     timeout-minutes: 5
-    # production is locked to main (the guard step below rejects it elsewhere);
-    # enterprise and enterprise integration are separate single-tenant envs that may
-    # be deployed from any branch (e.g. develop) for iteration; everything else off
-    # non-main -> integration.
+    # The guard below locks production to main. Explicit Enterprise targets are
+    # resolved separately from integration; GitHub environment rules govern admission.
+    # The enterprise environment permits main and develop only.
     environment: ${{ (github.ref == 'refs/heads/main' && (inputs.environment || 'production')) || (inputs.environment == 'enterprise' && 'enterprise') || (inputs.environment == 'enterprise integration' && 'enterprise integration') || 'integration' }}
     outputs:
       # The authority for what actually deploys. run-name and the concurrency
@@ -410,42 +409,7 @@ jobs:
           path: web-ui/dist
 
       - name: Resolve KV namespace
-        run: |
-          set -o pipefail
-          KV_TITLE="${WORKER_NAME}-kv"
-
-          # `2>/dev/null` used to hide the ONE error that must not be hidden.
-          # If `kv namespace list` fails transiently — CF 5xx, rate limit, token
-          # still propagating — stderr was discarded and `set -e` does not fire
-          # for a command substitution wrapping a pipeline in an assignment, so
-          # KV_ID came out empty. Empty was then read as "the namespace does not
-          # exist", a SECOND namespace with the same title was created, and
-          # wrangler.toml was pointed at the new empty one: the deploy reports
-          # success while every user record, preference and setup value vanishes
-          # from the worker's view. "I could not ask" and "it is not there" are
-          # different answers and must not share a code path.
-          if ! LIST=$(npx wrangler kv namespace list 2>&1); then
-            echo "::error::Could not list KV namespaces — refusing to guess. Output: ${LIST}"
-            exit 1
-          fi
-          KV_ID=$(printf '%s' "$LIST" \
-            | sed -n '/^\[/,/^\]/p' \
-            | jq -r --arg title "$KV_TITLE" '.[] | select(.title == $title) | .id' \
-            | head -1)
-
-          if [ -z "$KV_ID" ]; then
-            echo "Creating KV namespace: $KV_TITLE"
-            KV_ID=$(npx wrangler kv namespace create "$KV_TITLE" 2>&1 \
-              | grep -oP '"[a-f0-9]{32}"' | tr -d '"' | head -1)
-          fi
-
-          if [ -z "$KV_ID" ]; then
-            echo "::error::Failed to resolve KV namespace ID"
-            exit 1
-          fi
-
-          echo "KV namespace ID: $KV_ID"
-          sed -i "s/id = \"placeholder\"/id = \"$KV_ID\"/" wrangler.toml
+        run: bash scripts/ci/resolve-kv-namespace.sh
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -484,8 +448,8 @@ jobs:
 
           # Override max_instances if MAX_INSTANCES variable is set
           if [ -n "$MAX_INSTANCES_OVERRIDE" ]; then
-            if ! echo "$MAX_INSTANCES_OVERRIDE" | grep -qE '^[1-9][0-9]*$'; then
-              echo "::error::MAX_INSTANCES must be a positive integer, got: $MAX_INSTANCES_OVERRIDE"
+            if [[ ! $MAX_INSTANCES_OVERRIDE =~ ^[1-9][0-9]*$ ]]; then
+              echo '::error::MAX_INSTANCES must be a positive integer'
               exit 1
             fi
             MAX_INSTANCES="$MAX_INSTANCES_OVERRIDE"

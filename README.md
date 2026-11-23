@@ -36,7 +36,7 @@ Most engineering agents stop at code. The awkward work remains with you: prepare
 
 Codeflare runs software delivery and infrastructure operations in isolated environments inside your Cloudflare account. Agents can inspect repositories, implement changes, open pull requests, repair CI, deploy applications, investigate systems, patch fleets, execute migrations, and verify the result. The runtime and isolation model is documented in [Architecture](documentation/lanes/architecture.md).
 
-The agent gets room to work. Your controls stay in charge. GitHub still owns the merge. CI still owns verification. Infrastructure operations keep defined targets, rollout plans, stop conditions, and consequential approval points. Cloudflare Access controls admission, while your account owns compute, storage, model routing, and network policy. See [Security](documentation/lanes/security.md) for the trust boundaries.
+The agent gets room to work. Your controls stay in charge. GitHub still owns the merge. CI still owns verification. Infrastructure operations keep defined targets, rollout plans, stop conditions, and consequential approval points. The configured identity boundary controls admission, while your account owns compute, storage, model routing, and network policy. See [Security](documentation/lanes/security.md) for the trust boundaries.
 
 <p align="center">
   <img src="assets/documentation/execution-software.gif" width="49%" alt="A Codeflare software delivery run">
@@ -80,7 +80,7 @@ Existing repositories do not need a ceremonial rewrite before agents can help. `
 
 ## Enterprise control without a second control plane
 
-Cloudflare Access protects the deployment and can federate to the customer's identity provider and groups. Per-user R2 persistence carries selected data between disposable sessions. Workers KV holds control-plane state without waking idle containers, and session compute stops when unused; a later start restores selected durable files into fresh ephemeral local storage.
+Cloudflare Access protects Enterprise deployments and can federate to the customer's identity provider and groups. Per-user R2 persistence carries selected data between disposable sessions. D1 owns session lifecycle records; Workers KV holds configuration and other control-plane state. After a container stops, a later start restores selected durable files into fresh ephemeral local storage.
 
 When configured, Strict Gateway Egress sends direct-internet HTTP, HTTPS, and WebSocket traffic through the customer's Cloudflare Gateway and denies raw TCP and UDP internet egress. It is off by default and has documented own-account Cloudflare exceptions. Enterprise GitHub and Browser Rendering credentials are injected only at their allowlisted egress boundary; one session cannot select another user's credential. See [Strict Gateway Egress](documentation/lanes/security.md#strict-gateway-egress-enterprise-mode) for the exact boundary.
 
@@ -96,7 +96,9 @@ Engineers can follow parallel agents, current work, review outcomes, CI state, s
 
 Every session arrives with organizational rules, reusable skills, specialist agents, approved tools, and repository context. Context loads when needed instead of occupying every prompt. Persistent notes and knowledge graphs carry decisions across disposable runtimes.
 
-Managed Environment curation makes that content manageable out of band. A deployment points at a private release repository, a scoped read token, and a signing key; the deployment administrator publishes a signed, immutable release on its own schedule and each user's environment converges to it before the next session starts. Skills, rules, agents, and required Browser IDE extensions change without rebuilding Codeflare, and the image-baked preseed remains an independent fallback. The Worker verifies repository identity, asset digests, signature, and release sequence before any content reaches user storage; credentials never enter a session container. See [Managed Environment data flow](documentation/lanes/architecture.md#managed-environment-data-flow).
+Managed Environment curation makes that content manageable out of band. A deployment points at a private release repository, a scoped read token, and a signing key; the deployment administrator publishes a signed, immutable release on its own schedule and the startup gate checks that the environment matches the active verified release. A transient cache failure can admit the prior verified release only for the same resolved mode; fresh or mismatched environments cannot start until reconciliation succeeds.
+
+Skills, rules, agents, and required Browser IDE extensions change without rebuilding Codeflare, and the image-baked preseed remains an independent fallback. The Worker verifies repository identity, asset digests, signature, and release sequence before any content reaches user storage; the release repository’s read token does not enter session containers. See [Managed Environment data flow](documentation/lanes/architecture.md#managed-environment-data-flow).
 
 Codeflare's managed content is maintained privately. Deployment owners configure their own managed release repository; public contributors do not need access to Codeflare's private curation or operator repositories.
 
@@ -143,7 +145,7 @@ The public path creates a private single-tenant instance in four steps:
 3. Run **Actions > Deploy > Run workflow** from `main` with the production target.
 4. Open the Worker URL and complete the setup wizard for the custom domain, allowed users, administrators, R2 credentials, and Cloudflare Access resources.
 
-The workflow provisions the shared Worker, KV control plane, historical-usage D1 database, and session container image in your Cloudflare account. The setup wizard creates the configured Cloudflare Access application and policies; each user's R2 bucket is created when that user's container is first initialized. For a shared or production deployment, configure `ENCRYPTION_KEY` before storing provider or user credentials. Production deployment belongs to GitHub Actions; `npm run deploy` is not a substitute for the reviewed workflow. See [Architecture](documentation/lanes/architecture.md#bucket-creation-and-seeding) for the resource lifecycle.
+The workflow provisions the Worker, KV namespace, D1 database for session records and historical usage, and session container image in your Cloudflare account. The setup wizard creates the configured Cloudflare Access application and policies. A user's R2 bucket can first be created by session startup or by browsing storage. For a shared or production deployment, configure `ENCRYPTION_KEY` before storing provider or user credentials. Production deployment belongs to GitHub Actions; `npm run deploy` is not a substitute for the reviewed workflow. See [Architecture](documentation/lanes/architecture.md#bucket-creation-and-seeding) for the resource lifecycle.
 
 ### Verify the deployment
 

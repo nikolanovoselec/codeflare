@@ -2,7 +2,7 @@
 // ~/.pi/agent/settings.json `packages` array, against fixture settings files.
 // This is the "run the real thing" coverage (per tdd-discipline.md) for:
 //   - context-mode being disabled at container boot while /ctx on remains a session opt-in,
-//   - the managed extension packages, including Goal, Open TUI, and Evaluate, being present in
+//   - the managed extension packages, including Todo Loop, Open TUI, and Evaluate, being present in
 //     `required` so they are
 //     available WITH AND WITHOUT context-mode — toggling /ctx never removes them,
 //   - advisor guidance being user-invoked only while preserving user model config.
@@ -86,7 +86,7 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
       assert.ok(sources.includes(spec), `assembled packages must include ${spec}`);
     }
     assert.deepEqual(settings.packages.filter((entry) => /^npm:context-mode(?:@|$)/.test(sourceOf(entry))),
-      [{ source: 'npm:context-mode@2.1.9', extensions: [], skills: [] }]);
+      [{ source: 'npm:context-mode@2.2.0', extensions: [], skills: [] }]);
   });
 
   it('REQ-AGENT-076 AC1/AC2: next container boot restores the disabled default after /ctx on while preserving managed and unrelated settings', () => {
@@ -94,7 +94,7 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
       theme: 'user-theme', defaultProvider: 'user-provider', defaultModel: 'user-model',
       customPreference: { keep: true },
       packages: [
-        { source: 'npm:context-mode@2.1.9', extensions: [] },
+        { source: 'npm:context-mode@2.2.0', extensions: [] },
         'npm:pi-goal-list-loop-audit@0.34.16',
         'npm:pi-caveman@1.0.8',
         'npm:some-user-package@1.0.0', // an unrelated package the user added
@@ -102,8 +102,8 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
     });
     const settings = runAssembly(initial);
     const sources = settings.packages.map(sourceOf);
-    const cm = settings.packages.find((e) => sourceOf(e) === 'npm:context-mode@2.1.9');
-    assert.deepEqual(cm, { source: 'npm:context-mode@2.1.9', extensions: [], skills: [] });
+    const cm = settings.packages.find((e) => sourceOf(e) === 'npm:context-mode@2.2.0');
+    assert.deepEqual(cm, { source: 'npm:context-mode@2.2.0', extensions: [], skills: [] });
     for (const key of ['theme', 'defaultProvider', 'defaultModel', 'customPreference']) {
       assert.deepEqual(settings[key], JSON.parse(initial)[key]);
     }
@@ -113,6 +113,19 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
     assert.ok(!sources.includes('npm:pi-caveman@1.0.8'), 'retired response package must be removed');
     // The user's unrelated package is preserved (assembly merges, never wipes).
     assert.ok(sources.includes('npm:some-user-package@1.0.0'), 'unrelated existing packages must be preserved');
+  });
+
+  it('loads stock Todo Loop once and drops restored managed Goal registrations', () => {
+    for (const mode of ['default', 'advanced']) {
+      const settings = runAssembly(JSON.stringify({ packages: [
+        { source: 'npm:@narumitw/pi-goal@0.55.1', extensions: [] },
+        './local-packages/pi-todo-loop', 'npm:user-addon@1.0.0',
+      ] }), 2, false, mode);
+      const sources = settings.packages.map(sourceOf);
+      assert.deepEqual(sources.filter(source => source.includes('pi-todo-loop')), ['npm:@dumbmice/pi-todo-loop@0.4.0']);
+      assert.equal(sources.some(source => /^npm:@narumitw\/pi-goal(?:@|$)/.test(source)), false);
+      assert.ok(sources.includes('npm:user-addon@1.0.0'));
+    }
   });
 
   it('is idempotent: re-running over its own output yields the same package set (no duplicates)', () => {
@@ -334,7 +347,7 @@ describe('REQ-AGENT-056 / REQ-AGENT-209: Open TUI adoption and managed Usage ret
   });
 
   for (const stale of ['npm:pi-open-tui', 'npm:pi-open-tui@0.2.0',
-    { source: 'npm:pi-open-tui@0.4.5', extensions: ['extensions/open-tui/index.ts'], skills: [] }]) {
+    { source: 'npm:pi-open-tui@0.4.6', extensions: ['extensions/open-tui/index.ts'], skills: [] }]) {
     it(`REQ-AGENT-209 AC1/AC2 / REQ-AGENT-056: restored ${JSON.stringify(stale)} converges without deleting similarly named user packages`, () => {
       const user = { source: 'npm:user-extension@1.0.0', extensions: ['keep.ts'], userField: true };
       const initial = {
@@ -358,7 +371,7 @@ describe('REQ-AGENT-056 / REQ-AGENT-209: Open TUI adoption and managed Usage ret
       for (const key of ['defaultModel', 'defaultThinkingLevel', 'customPreference']) assert.deepEqual(first[key], initial[key]);
       assert.deepEqual(first.extensions, ['user-extension.ts', '-builtin:mcp']);
       assert.deepEqual(first.packages.find(entry => /^npm:context-mode@/.test(sourceOf(entry))),
-        { source: 'npm:context-mode@2.1.9', extensions: [], skills: [] });
+        { source: 'npm:context-mode@2.2.0', extensions: [], skills: [] });
       for (const required of REQUIRED) assert.ok(first.packages.some(entry => sourceOf(entry) === required), required);
     });
   }

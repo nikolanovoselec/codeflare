@@ -79,9 +79,19 @@ function fixture() {
   return { root, home, bake, warm, runtimeRoot, events: join(root, 'events') };
 }
 
-function runStartup(remoteCurationActive, codingAgents = 'claude-code,codex,copilot,antigravity,opencode,pi') {
+function runStartup(remoteCurationActive, codingAgents = 'claude-code,codex,copilot,antigravity,opencode,pi', policyFails = false, releaseProof) {
   const f = fixture();
-  const result = spawnSync('bash', ['-c', [
+  const snapshot = join(f.home, '.codeflare/herdr/sessions/cf-restore01/session.json');
+  const snapshotSource = join(f.root, 'persisted-session.json');
+  const restoreObserved = join(f.root, 'restore-observed.json');
+  const releaseObserved = join(f.root, 'release-observed.json');
+  if (releaseProof) {
+    releaseProof.t.after(() => rmSync(f.root, { recursive: true, force: true }));
+    mkdirSync(dirname(snapshot), { recursive: true });
+    writeFileSync(snapshotSource, releaseProof.bytes);
+  }
+  const result = spawnSync(releaseProof ? 'timeout' : 'bash', [
+    ...(releaseProof ? ['--signal=KILL', '10s', 'bash'] : []), '-c', [
     'set -euo pipefail',
     `USER_HOME='${f.home}'`,
     `USER_WORKSPACE='${join(f.home, 'workspace')}'`,
@@ -93,6 +103,8 @@ function runStartup(remoteCurationActive, codingAgents = 'claude-code,codex,copi
     `CODEFLARE_CODING_AGENTS='${codingAgents}'`,
     "R2_SSE_DISABLED='true'",
     "RCLONE_CONFIG_RESULT='0'",
+    `CODEFLARE_INIT_FLAG_FILE='${join(f.root, 'init-complete')}'`,
+    'CODEFLARE_POLICY_STATUS_FILE=',
     "ENTERPRISE_MODE=''",
     "SYNC_ERROR='null'",
     "SESSION_MODE='default'",
@@ -105,9 +117,33 @@ function runStartup(remoteCurationActive, codingAgents = 'claude-code,codex,copi
     '  command cp "$@"',
     '}',
     'update_sync_status() { :; }',
-    `initial_sync_from_r2() { echo initial >> "$EVENTS"; printf '%s\\n' '{"theme":"restored-user-theme","packages":["npm:pi-caveman@1.0.0"],"extensions":["./user-extension.ts","builtin:mcp"]}' > "$PI_SETTINGS_FILE"; }`,
-    'prepare_managed_resource_filter() { echo prepare-filter >> "$EVENTS"; }',
-    'release_agent_pty_after_fast_start_updates() { echo cleanup >> "$EVENTS"; }',
+    `initial_sync_from_r2() {
+      echo initial >> "$EVENTS"
+      ${releaseProof ? `
+      test ! -e "$CODEFLARE_INIT_FLAG_FILE" || return 91
+      test ! -e '${snapshot}' || return 92
+      command cp '${snapshotSource}' '${snapshot}.restoring' || return 93
+      test ! -e "$CODEFLARE_INIT_FLAG_FILE" || return 94
+      # Keep the filesystem restore incomplete briefly, not just an event counter.
+      sleep 0.1
+      test ! -e "$CODEFLARE_INIT_FLAG_FILE" || return 95
+      mv '${snapshot}.restoring' '${snapshot}' || return 96
+      test ! -e "$CODEFLARE_INIT_FLAG_FILE" || return 97
+      command cp '${snapshot}' '${restoreObserved}' || return 98
+      ` : ''}
+      printf '%s\\n' '{"theme":"restored-user-theme","packages":["npm:pi-caveman@1.0.0"],"extensions":["./user-extension.ts","builtin:mcp"]}' > "$PI_SETTINGS_FILE"
+    }`,
+    `prepare_managed_resource_filter() { echo prepare-filter >> "$EVENTS"; return ${policyFails ? 1 : 0}; }`,
+    ...(releaseProof ? [
+      'update_pi_and_codex_when_fast_start_disabled() { :; }',
+      `cleanup_main_transcripts() {
+        test ! -e "$CODEFLARE_INIT_FLAG_FILE"
+        cmp '${snapshotSource}' '${snapshot}'
+        echo cleanup >> "$EVENTS"
+      }`,
+      functionSource('release_agent_pty_after_cleanup'),
+      functionSource('release_agent_pty_after_fast_start_updates'),
+    ] : ['release_agent_pty_after_fast_start_updates() { echo cleanup >> "$EVENTS"; touch "$CODEFLARE_INIT_FLAG_FILE"; }']),
     `establish_bisync_baseline() { command cp "$PI_SETTINGS_FILE" '${join(f.root, 'baseline-settings.json')}'; echo baseline >> "$EVENTS"; }`,
     'init_user_vault() { :; }',
     'start_sync_daemon() { :; }',
@@ -115,6 +151,11 @@ function runStartup(remoteCurationActive, codingAgents = 'claude-code,codex,copi
     'start_silverbullet_supervisor() { :; }',
     'start_openvscode_supervisor() { :; }',
     'run_post_restore_startup() { echo post-restore >> "$EVENTS"; }',
+    `restore_startup_repositories() {
+      test -f "$CODEFLARE_INIT_FLAG_FILE"
+      ${releaseProof ? `command cp '${snapshot}' '${releaseObserved}'` : ''}
+      echo clones >> "$EVENTS"
+    }`,
     'renice() { :; }',
     'ionice() { :; }',
     validateSelection,
@@ -131,11 +172,20 @@ function runStartup(remoteCurationActive, codingAgents = 'claude-code,codex,copi
     'wait',
   ].join('\n')], {
     encoding: 'utf8',
-    env: { ...process.env, CODEFLARE_RUNTIME_ROOT: f.runtimeRoot },
+    env: releaseProof ? {
+      PATH: '/usr/local/bin:/usr/bin:/bin',
+      HOME: f.home,
+      TMPDIR: f.root,
+      CODEFLARE_RUNTIME_ROOT: f.runtimeRoot,
+    } : { ...process.env, CODEFLARE_RUNTIME_ROOT: f.runtimeRoot },
+    ...(releaseProof ? { timeout: 12_000, killSignal: 'SIGKILL' } : {}),
   });
   return {
     ...f,
     result,
+    snapshot,
+    restoreObserved,
+    releaseObserved,
     companyFile: join(f.home, '.claude/company.md'),
     piCompanyFile: join(f.home, '.pi/agent/extensions/company.ts'),
     extensionFile: join(f.home, '.pi/agent/extensions/codeflare.ts'),
@@ -147,6 +197,29 @@ function runStartup(remoteCurationActive, codingAgents = 'claude-code,codex,copi
 }
 
 describe('managed curation entrypoint behavior', () => {
+  it('REQ-TERM-033 AC2: production release follows restored snapshot bytes and failed policy never releases', async (t) => {
+    // Serialized nonempty transport fixture, not a claim of Herdr hydration or R2 qualification.
+    const bytes = Buffer.from('{"version":3}\n');
+    for (const policyFails of [false, true]) {
+      await t.test(policyFails ? 'failed policy keeps the flag absent' : 'real release publishes after restore', (t) => {
+        const run = runStartup(true, undefined, policyFails, { t, bytes });
+        assert.equal(run.result.error, undefined);
+        assert.equal(run.result.signal, null);
+        assert.equal(run.result.status, policyFails ? 1 : 0, run.result.stderr);
+        // This receipt is copied only after all before/during/after-restore flag checks pass.
+        assert.deepEqual(readFileSync(run.restoreObserved), bytes);
+        assert.deepEqual(readFileSync(run.snapshot), bytes);
+        assert.equal(existsSync(join(run.root, 'init-complete')), !policyFails);
+        if (policyFails) {
+          assert.equal(existsSync(run.releaseObserved), false);
+        } else {
+          // The existing post-release caller reads bytes with the real flag already present.
+          assert.deepEqual(readFileSync(run.releaseObserved), bytes);
+        }
+      });
+    }
+  });
+
   it('REQ-STOR-004 AC3/AC4 / REQ-STOR-031: baseline observes real post-restore Pi settings and managed content', (t) => {
     const run = runStartup(true);
     t.after(() => rmSync(run.root, { recursive: true, force: true }));
@@ -175,7 +248,7 @@ describe('managed curation entrypoint behavior', () => {
     // companion's bytes are checked above; all relay writes must precede cleanup.
     const events = readFileSync(run.events, 'utf8').trim().split('\n');
     assert.deepEqual(events.filter(event => event !== 'relay'), [
-      'initial', 'post-restore', 'prepare-filter', 'cleanup', 'baseline',
+      'initial', 'prepare-filter', 'post-restore', 'cleanup', 'clones', 'baseline',
     ]);
     assert.ok(events.indexOf('relay') > events.indexOf('prepare-filter'));
     assert.ok(events.lastIndexOf('relay') < events.indexOf('cleanup'));
@@ -191,12 +264,20 @@ describe('managed curation entrypoint behavior', () => {
       'laydown',
       'laydown',
       'initial',
-      'post-restore',
       'prepare-filter',
+      'post-restore',
       'relay',
       'cleanup',
+      'clones',
       'baseline',
     ]);
+  });
+
+  it('REQ-SESSION-015: a failed policy check prevents terminal release and cloning', t => {
+    const run = runStartup(true, undefined, true);
+    t.after(() => rmSync(run.root, { recursive: true, force: true }));
+    assert.equal(run.result.status, 1);
+    assert.deepEqual(readFileSync(run.events, 'utf8').trim().split('\n'), ['initial', 'prepare-filter']);
   });
 
   it('REQ-STOR-024: lays down only selected agent roots and skips the Pi relay when Pi is inactive', () => {

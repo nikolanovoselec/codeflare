@@ -4,6 +4,91 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-22: Recover halted storage migrations
+
+- [REQ-ENTERPRISE-020](storage.md#req-enterprise-020-governed-mode-re-encrypt-migration-engine) preserves verified empty objects without SSE-C conversion. The [dashboard offers an icon-only retry beside the halted status](storage.md#req-enterprise-304-dashboard-migration-affordance-and-refresh), including for mixed recovery with a matching recorded key identity; [older halts without that record](storage.md#req-enterprise-322-owner-authorized-migration-retry) require administrator review.
+- The dashboard [reports retry progress in the repository-clone overlay](storage.md#req-enterprise-323-migration-retry-feedback), [shows refusals without waiting for a status refresh, and keeps acknowledged retries disabled across views](storage.md#req-enterprise-304-dashboard-migration-affordance-and-refresh). Clearing a halt does not transfer [keyboard focus to seed recreation](agents.md#req-agent-213-dashboard-full-recreation-recovery).
+
+## 2026-11-22: Reveal deep storage paths
+
+- [REQ-STOR-261](storage.md#req-stor-261-storage-breadcrumb-navigation) reveals the current folder when its breadcrumb overflows on desktop, tablet, or mobile.
+
+## 2026-11-22: Keep RED local by default
+
+- [REQ-AGENT-264 AC3–4, AC6–7](agents.md#req-agent-264-engineering-behavioral-evidence-and-sdd-traceability) distinguishes observed RED from a check that could not run. Local-only work stays local, and authorized pushes deliver tests and fixes together unless separate RED delivery is explicitly authorized.
+
+## 2026-11-22: Clarify customer-key encryption in Administration
+
+- [REQ-ENTERPRISE-018 AC5](storage.md#req-enterprise-018-governed-mode-toggle-and-configuration-surface) clarifies that authorized tools can scan converted R2 files without the customer key, while files still using SSE-C, including any that migration skips, still require it. Default R2 encryption and bucket visibility are unchanged.
+
+## 2026-11-22: Preserve legacy Hermes checkpoints on failure
+
+- With the recognized checkpoint-era adapter, [REQ-MEM-043 AC4–5](memory.md#req-mem-043-hermes-signed-adapter-compatibility) keeps the previous checkpoint recoverable if rollback cannot restore it, and treats a committed checkpoint as saved even if staging cleanup fails.
+
+## 2026-11-22: Sync native Hermes session Markdown
+
+- [REQ-MEM-043](memory.md#req-mem-043-hermes-signed-adapter-compatibility) separates the signed rollout contracts previously documented in REQ-MEM-041 AC5/AC6 from the direct layout. It keeps the legacy predecessor guarantee and refuses master-backed fallback on replacement starts.
+
+- [REQ-MEM-041](memory.md#req-mem-041-session-isolated-hermes-markdown) persists the session’s original Markdown files rather than repackaging them as a checkpoint. A new user without shared masters starts with empty files; older checkpoints are not imported.
+- [REQ-MEM-042](memory.md#req-mem-042-retain-ten-recent-session-memory-stores) keeps at most ten stores per user. At capacity, an admitted session replaces the least recently updated store only after its writer settles and the exact folder is confirmed deleted.
+
+## 2026-11-22: Recover interrupted uploads and deliver local FIX earlier
+
+- [REQ-STOR-008 AC7](storage.md#req-stor-008-multipart-upload-for-large-files) lets the upload queue rediscover and explicitly abort pending completion after reload.
+- Local Pi can deliver FIX on the next turn ([REQ-AGENT-244 AC5](agents.md#req-agent-244-exact-round-review-completion)). A missing reviewer notification no longer blocks FIX when Pi retained a matching successful completion ([REQ-AGENT-053 AC2](agents.md#req-agent-053-pi-native-review-result-correlation)).
+- [REQ-GITHUB-015](github.md#req-github-015-workspace-repository-tracking) keeps the previous automatic restore list when a workspace scan cannot finish.
+
+## 2026-11-22: Defer Hermes indexing in Advanced Pi
+
+- [REQ-MEM-035 AC4](memory.md#req-mem-035-durable-pi-facts-with-disposable-local-search) defers Markdown-to-SQLite initialization until the first Hermes operation that needs the store. [REQ-MEM-041](memory.md#req-mem-041-session-isolated-hermes-checkpoints) uses a session-local copy of the four masters and syncs verified session checkpoints without writing the masters. Cross-session merging is deferred.
+
+## 2026-11-22: Stock Todo Loop, simpler Operators navigation, and Smart Compact defaults
+
+- [REQ-AGENT-111](agents.md#req-agent-111-native-todo-loop-workflow-in-pi-sessions) replaces managed Goal with stock Todo Loop in both Pi modes, without changing existing user task or preference data.
+- [REQ-OPERATOR-040](operators.md#req-operator-040-owned-activity-control-presentation) keeps the Enterprise Operators header control and removes the account-menu link. Management authorization is unchanged.
+- [REQ-AGENT-222](agents.md#req-agent-222-pi-smart-compact-defaults) and [REQ-AGENT-223](agents.md#req-agent-223-pi-smart-compact-settings-preservation) seed the Thorough/background Smart Compact preset before Pi loads, keeping secret scrubbing and honoring existing settings.
+
+## 2026-11-21: Keep non-review transitions silent
+
+- [REQ-OPERATOR-053](operators.md#req-operator-053-enterprise-pr-boundary-review-handoff) does not treat background clone submission or a confirmed missing, closed, or unprotected PR as a Review boundary. Unknown enrollment still cannot clear an eligible PR.
+- [REQ-AGENT-092](agents.md#req-agent-092-import-transition-review-suppression) applies the existing open Import transition suppression before Pi routing.
+
+## 2026-11-21: Keep terminal trust, dependency sync, and Vault extraction scoped
+
+- [REQ-ENTERPRISE-005](models-and-routing.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) gives early Enterprise terminal launches the mounted interception CA settings before shell setup.
+- [REQ-STOR-011](storage.md#req-stor-011-sync-mode-controls-workspace-scope) excludes directories ending in `node_modules` in both Include and Exclude sync modes, without excluding regular files by that suffix.
+- [REQ-VAULT-003](vault.md#req-vault-003-user-curated-edits-use-bounded-prompt-cadenced-ingestion) excludes the root `Memory/` tree from Pi and Claude extraction without changing Hermes recall, sync, or the existing graph.
+
+## 2026-11-21: Align OAuth and Browser Run acceptance
+
+- Removed browser-mode-specific OAuth acceptance from [REQ-AUTH-002](authentication.md#req-auth-002-saas-mode-uses-direct-github-oauth) and historical token qualification from [REQ-BROWSER-002](browser-run.md#req-browser-002-browser-rendering-scope-in-the-cloudflare-token-template). Cookie-free signed OAuth state, verified-primary-email enforcement, and permission additivity remain required.
+
+## 2026-11-20: Use one idle-timeout policy across plans
+
+- [REQ-SESSION-014](session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings) gives Free, paid, and Enterprise the same 1h default and 1h/2h/4h/8h/12h presets, while preserving saved preferences. Guided Setup keeps its selector and matches Settings.
+
+## 2026-11-20: Keep session credentials scoped and legacy preferences readable
+
+- [REQ-SESSION-003](session-lifecycle.md#req-session-003-r2-bucket-mounted-and-synced-on-start) leaves direct storage unavailable if the bucket-scoped credential pair is incomplete, rather than passing deployment credentials to the container.
+- [REQ-SESSION-014](session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings) accepts the saved `5m` timeout in preference responses without making it a new selectable preset.
+- [REQ-SESSION-006](session-lifecycle.md#req-session-006-user-can-stop-restart-and-delete-sessions) keeps a delayed Start from marking a later run ready. Stop waits for pending startup to settle before confirming exit. Delete uses the existing Stop path when needed and removes only the captured stopped generation.
+
+## 2026-11-20: Retain trial history on subscription deletion
+
+- [REQ-SUB-005](subscription.md#req-sub-005-trial-is-compute-based-not-time-based) records trial use when Stripe deletes the same subscription while its stored state is trialing. Stale deletions cannot alter a replacement subscription or its trial history.
+
+## 2026-11-20: Verify D1 inventory before provisioning
+
+- [REQ-OPS-056](operations.md#req-ops-056-non-destructive-d1-deployment-boundary) distinguishes a valid empty database inventory from blank or malformed output. An invalid initial listing blocks creation; an invalid post-create listing blocks binding and migration.
+
+## 2026-11-20: Preserve sync retry after a baseline timeout
+
+- [REQ-STOR-045](storage.md#req-stor-045-bisync-baseline-recovery) reports a timed-out baseline rebuild as timeout, then retries the rebuild after one more failed cycle. Only a completed rebuild reports success; shutdown still has its best-effort final sync backstop.
+
+## 2026-11-20: Keep active app sessions signed in across HTTP routes
+
+- REQ-AUTH-008 renews eligible SaaS and onboarding sessions on static and proxied HTTP responses as well as API responses. Renewal preserves logout, existing cookies and WebSocket upgrades; responses carrying a renewed credential are never cacheable.
+
 ## 2026-11-20: Re-authorize a Cloudflare integration
 
 - REQ-AGENT-018 and REQ-AGENT-028 label the connected Account ID and add Re-authorize to Settings. Select a permission tier to continue without disconnecting; Cancel leaves the connection unchanged.
@@ -19,7 +104,7 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 ## 2026-11-19: Temporary native Codex prompt-prefix backport
 
-- REQ-AGENT-238 carries upstream Pi PR 12319 in both installed library and bundled CLI paths, keeping the initial system prompt in the input prefix while preserving WebSocket continuation semantics.
+- [REQ-AGENT-261](agents.md#req-agent-261-codex-prompt-prefix-backport-preparation) carries upstream Pi PR 12319 in both installed library and bundled CLI paths, keeping the initial system prompt in the input prefix while preserving WebSocket continuation semantics ([REQ-AGENT-238](agents.md#req-agent-238-native-codex-prompt-prefix-compatibility)).
 - Image and post-update preparation share the guarded backport. Pristine upstream that already includes the fix, or has incompatible bytes, fails tests and Pi shadow-pin admission before publication; receipt-verified local reapplication remains separate. No dependency version, provider credentials or user settings change, and no live cache-hit or deployment acceptance is inferred.
 
 ## 2026-11-19: Compact Operator recovery controls
@@ -73,9 +158,9 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 ## 2026-11-19: Enterprise credential boundary and independent native context
 
-- REQ-ENTERPRISE-009 AC8 disables the complete authenticated deploy-keys router in Enterprise, including administrators, before parsing, credential access or provider work. Non-Enterprise PAT support and both managed GitHub providers remain unchanged; no legacy cleanup is included.
-- REQ-AGENT-029 AC5–8 carries the owner's selected OAuth account as non-secret startup metadata, separately from administrator Browser Run. Explicit clears, partial omission, transport validation and Operator exclusion preserve credential routing and account authority.
-- REQ-MEM-035 AC6 strengthens proactive scoped recall; REQ-MEM-036 replaces full-file context injection and its incompatible size budgets with native policy-only search. Keep lifecycle/path/native-binding qualification, foreground ownership, workspace scope, final writes and the old requirement fragment.
+- REQ-ENTERPRISE-306 disables the complete authenticated deploy-keys router in Enterprise, including administrators, before parsing, credential access or provider work. Non-Enterprise PAT support and both managed GitHub providers remain unchanged; no legacy cleanup is included.
+- REQ-AGENT-240 carries the owner's selected OAuth account as non-secret startup metadata, separately from administrator Browser Run. Explicit clears, partial omission, transport validation and Operator exclusion preserve credential routing and account authority.
+- REQ-MEM-036 AC6 strengthens proactive scoped recall; REQ-MEM-036 replaces full-file context injection and its incompatible size budgets with native policy-only search. Keep lifecycle/path/native-binding qualification, foreground ownership, workspace scope, final writes and the old requirement fragment.
 - Test-only source was preserved before runtime changes. Source/readiness and supplemental checks are not exact-revision CI, signed publication, deployment or runtime acceptance evidence.
 - Shadow-pin preparation qualifies the existing Goal/Plan transforms for 0.55.1/0.60.1 and Impeccable 4.10.0 with additive engine 0.1.27 support, preserving prior engines and evidence/idle/traversal guards. Current shipped pins remain unchanged until their normal bump PRs. Context-mode manifest updates now target only the named dependency, preserving unrelated same-version overrides.
 
@@ -130,7 +215,6 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 ## 2026-11-15: Conductor documentation ownership split
 
-- Move remaining packet/lane/reviewer, history/reassessment, publication-format and operating guidance to the existing Conductor requirements and its [canonical Review guide](https://github.com/nikolanovoselec/codeflare-operator-conductor/blob/develop/documentation/review.md), without duplicating requirements or moving local Pi `/review` policy.
 - Narrow mixed REQ-OPERATOR-053/055/056/064/065/072/074 prose to implemented Root authority, credential isolation, claim, evidence and receipt fences; preserve fragment compatibility and qualification limits. Fixed packet/history helpers and the protected-Action compatibility publisher remain Root implementation, not claimed runtime migrations. Document the existing frozen publication-preparation API, not a new schema.
 - Correct the active delegation/activation reference to `application-schedule.ts::activateApplicationSchedule` and the Registry wrapper; `activateProspectiveRenovate` is refusal-only compatibility. No source/test changes, validation run, status upgrade, deployment or release is implied. Previous Dispatcher ownership edits remain unchanged.
 
@@ -178,7 +262,7 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 ## 2026-11-11
 
-- Separate Installed manual actions from automatic configuration, add profile-backed Dispatcher/Conductor role help and expose the existing explicit current-session activation flow. Saved settings remain distinct from acknowledgement, which does not confirm displayed settings; automatic activation uses verified package support, not display names, while authority, expiry and no-replay boundaries remain unchanged ([REQ-OPERATOR-099](operators.md#req-operator-099-installed-review-invocation-and-presentation), [REQ-OPERATOR-209](operators.md#req-operator-209-installed-schema-and-scheduling-safeguards), [REQ-OPERATOR-061](operators.md#req-operator-061-prospective-admin-session-renovate-scan)).
+- Separate Installed manual actions from automatic configuration, add profile-backed Dispatcher/Conductor role help and expose the existing explicit current-session activation flow. Saved settings remain distinct from acknowledgement, which does not confirm displayed settings; automatic activation uses verified package support, not display names, while authority, expiry and no-replay boundaries remain unchanged ([REQ-OPERATOR-099](operators.md#req-operator-099-installed-review-invocation-and-presentation), [REQ-OPERATOR-209](operators.md#req-operator-209-installed-schema-and-scheduling-safeguards), [REQ-OPERATOR-226](operators.md#req-operator-226-installed-role-and-activation-projection), [REQ-OPERATOR-061](operators.md#req-operator-061-prospective-admin-session-renovate-scan)).
 
 - Add Cloudflare-only Integrations to Settings and Administration in every deployment mode, with GitHub retained on the dashboard. Enterprise management APIs use separate Worker-held owner grants without borrowing administrator Browser credentials or changing LLM routing ([REQ-AGENT-018](agents.md#req-agent-018-integrations-connection-management-ui), [REQ-AGENT-064](agents.md#req-agent-064-connect-to-cloudflare-via-oauth), [REQ-AGENT-078](agents.md#req-agent-078-cloudflare-oauth-token-refreshed-at-the-apicloudflarecom-boundary), [REQ-BROWSER-008](browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container)).
 
@@ -192,7 +276,7 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 - Format Operator run and diagnostic timestamps using browser-preferred regions and the saved timezone while preserving original ISO instants and native hour-cycle choices ([REQ-OPERATOR-086](operators.md#req-operator-086-dropdown-runs-and-installed-workspace), [REQ-OPERATOR-084](operators.md#req-operator-084-activity-causal-diagnosis)).
 
-- Retain owner-bound MCP return feedback, refresh Settings status and offer non-destructive reauthorization with truthful saved-authorization wording. Fixed-stage OAuth diagnostics preserve credential privacy and do not certify hosted completion or renewal ([REQ-AGENT-226](mcp.md#req-agent-226-worker-owned-mcp-portal-authorization), [REQ-AGENT-228](mcp.md#req-agent-228-owner-pi-mcp-configuration-and-discovery), [REQ-AGENT-019](agents.md#req-agent-019-branded-settings-ui)).
+- Retain owner-bound MCP return feedback, refresh Settings status and offer non-destructive reauthorization with truthful saved-authorization wording. Fixed-stage OAuth diagnostics preserve credential privacy and do not certify hosted completion or renewal ([REQ-AGENT-226](mcp.md#req-agent-226-worker-owned-mcp-portal-authorization), [REQ-AGENT-251](mcp.md#req-agent-251-owner-bound-mcp-settings-return-and-status)).
 
 ## 2026-11-09
 
@@ -204,7 +288,7 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 - Use pre-authorized native tools for owned Pi conversations rather than an interactive approval-pause protocol. Preserve owner authorization, tool restrictions, conversation isolation and ordinary PTY behavior ([REQ-OPERATOR-021](operators.md#req-operator-021-structured-owned-pi-conversation)).
 
-- Align existing presentation contracts with model-first configured native rows, label-first policy options, independently retained editor windows and Dashboard-owned status-unavailable notices. Do not require an additional recovery countdown or in-workspace notice; preserve authoritative disposal and the chosen host-snapshot terminal restore. Runtime behavior is unchanged ([REQ-ENTERPRISE-064](setup.md#req-enterprise-064-route-and-compatibility-profile-presentation), [REQ-IDE-055](browser-ide.md#req-ide-055-ide-lifecycle-and-connectivity-are-presented-separately), [REQ-TERM-045](terminal.md#req-term-045-local-terminal-presence-presents-active-or-idle)).
+- Align existing presentation contracts with model-first configured native rows, label-first policy options, independently retained editor windows and Dashboard-owned status-unavailable notices. Do not require an additional recovery countdown or in-workspace notice; preserve authoritative disposal and the chosen host-snapshot terminal restore. Runtime behavior is unchanged ([REQ-ENTERPRISE-064](setup.md#req-enterprise-064-route-and-compatibility-profile-presentation), [REQ-IDE-055](browser-ide.md#req-ide-055-ide-lifecycle-and-connectivity-are-presented-separately), [REQ-IDE-063](browser-ide.md#req-ide-063-retained-browser-editor-window-ownership), [REQ-TERM-045](terminal.md#req-term-045-local-terminal-presence-presents-active-or-idle)).
 
 - Preserve complete newer session metadata against stale catalog rows, use transitional polling for starting/unreachable sessions, and apply the existing native context-window maximum to client readiness and policy eligibility. Keep ancillary failure retention and fail-closed managed discovery distinct ([REQ-SESSION-029](session-lifecycle.md#req-session-029-ordered-client-state-retains-last-good-authority), [REQ-SESSION-010](session-lifecycle.md#req-session-010-session-lifecycle-is-observable-from-one-d1-projection), [REQ-ENTERPRISE-056](setup.md#req-enterprise-056-native-target-disclosure-and-readiness)).
 
@@ -226,11 +310,11 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 - Retire restored obsolete MCP configuration after exact archival instead of rejecting known generated duplicates. Keep valid native definitions authoritative, import missing supported legacy servers and retain genuine custom-conflict, credential, path and concurrency guards. The native adapter pin, portal transport, browser retention and successful-only sync exclusion remain unchanged ([REQ-AGENT-217](mcp.md#req-agent-217-lossless-pi-mcp-adapter-migration)).
 
-- Complete the review refinements with evidenced workload/concurrency scenarios, responsibility-based maintainability findings and clear consequences. Re-evaluate deferred findings when concrete evidence meets their recorded revisit trigger, preserve existing decision history separately from the live queue, and consume evidence-enabled review packets in memory across both runtimes ([REQ-AGENT-015](agents.md#req-agent-015-review-command-for-multi-perspective-codebase-review), [REQ-AGENT-088](agents.md#req-agent-088-user-invoked-review-ownership-and-triage)).
+- Complete the review refinements with evidenced workload/concurrency scenarios, responsibility-based maintainability findings and clear consequences. Re-evaluate deferred findings when concrete evidence meets their recorded revisit trigger, preserve existing decision history separately from the live queue, and consume evidence-enabled review packets in memory across both runtimes ([REQ-AGENT-015](agents.md#req-agent-015-review-command-for-multi-perspective-codebase-review), [REQ-AGENT-268](agents.md#req-agent-268-user-invoked-review-disposition)).
 
 - Sharpen the shared Engineering Constitution with explicit reuse preferences, complete caller/fixture impact tracing and owning-path fixes. Consolidate wording without removing existing testing, security, authorization, continuity or review obligations; retain readability and required safeguards rather than minimizing line count ([REQ-AGENT-065](agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents)).
 
-- Preserve optional accepted operating limits and actionable revisit triggers in existing review debt reports, history and approved issues. Leave irrelevant fields out and applicable unestablished values explicitly unknown; do not invent thresholds, add a ledger, require shortcut comments or change review permissions ([REQ-AGENT-088](agents.md#req-agent-088-user-invoked-review-ownership-and-triage)).
+- Preserve optional accepted operating limits and actionable revisit triggers in existing review debt reports, history and approved issues. Leave irrelevant fields out and applicable unestablished values explicitly unknown; do not invent thresholds, add a ledger, require shortcut comments or change review permissions ([REQ-AGENT-268](agents.md#req-agent-268-user-invoked-review-disposition)).
 
 - Wire bounded, generation-fenced unreachable recovery into production: preserve the 120-second incident deadline, use native SIGTERM, and escalate after the existing 135-second shutdown budget to one same-generation destruction attempt. Failed or unconfirmed destruction retains ownership and manual recovery; source implementation and automated coverage do not establish CI or hosted acceptance ([REQ-SESSION-021](session-lifecycle.md#req-session-021-complete-transport-failure-opens-one-unreachable-incident), [REQ-SESSION-024](session-lifecycle.md#req-session-024-recovery-deadline-and-termination-intent-are-durable), [REQ-SESSION-032](session-lifecycle.md#req-session-032-final-notification-drain-precedes-shutdown-sync)).
 

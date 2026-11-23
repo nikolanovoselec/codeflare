@@ -9,8 +9,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
+import { once } from 'node:events';
+import { setTimeout as delay } from 'node:timers/promises';
 import {
-  mkdirSync, writeFileSync, existsSync, readFileSync, copyFileSync, chmodSync, unlinkSync,
+  mkdirSync, writeFileSync, existsSync, readFileSync, copyFileSync, chmodSync, unlinkSync, rmSync,
 } from 'node:fs';
 import { tempDir } from './helpers/temp-dirs.js';
 import { join, resolve, dirname } from 'node:path';
@@ -160,7 +162,7 @@ describe('memory-capture.sh - first-run baseline + resume detection / REQ-MEM-01
     const vars = join(fx.counterDir, 'sess-resume.vars');
     assert.equal(existsSync(vars), true, 'AC7: resumed session must force-fire capture');
     const v = JSON.parse(readFileSync(vars, 'utf-8'));
-    assert.equal(v.last_line, '1', 'AC7: capture must start at transcript line 1 (no tail lost)');
+    assert.equal(v.last_line, '0', 'AC7: zero lines consumed means capture starts at transcript line 1');
     assert.equal(v.current_count, '8', 'AC7: capture covers all prior prompts');
     // AC7 second contract: graph-query directive re-emitted
     assert.match(
@@ -228,7 +230,7 @@ describe('REQ-MEM-026 AC2: Claude durable retained-prefix recovery', () => {
       const result = runHook(fx, { transcriptPath, sessionId: 'retained-session' });
       assert.equal(result.status, 0, result.stderr);
       const request = JSON.parse(readFileSync(join(fx.counterDir, 'retained-session.vars'), 'utf8'));
-      assert.equal(Number(request.last_line), scenario === 'matching prefix' ? 2 : 1);
+      assert.equal(Number(request.last_line), scenario === 'matching prefix' ? 2 : 0);
       assert.equal(request.transcript_fingerprint,
         createHash('sha256').update(lines.join('\n') + '\n').digest('hex'));
       assert.match(readFileSync(join(notes, 'capture.md'), 'utf8'), /# durable note/);
@@ -277,6 +279,41 @@ describe('memory-capture.sh - user-message counting', () => {
     assert.equal(readFileSync(vaultCounter, 'utf-8'), '20\n');
     assert.equal(existsSync(join(fx.home, '.cache', 'codeflare-hooks', 'vault-extract.vars')), false);
   });
+
+  for (const reason of ['scanner missing', 'Vault missing', 'extraction marker pending']) {
+    it(`REQ-VAULT-031 AC3: advances the Vault cadence when ${reason}`, () => {
+      const fx = makeFixture();
+      installVaultManifest(fx);
+      writeFileSync(join(fx.home, 'Vault', 'Notes', 'changed.md'), 'not yet extracted\n');
+      const marker = join(fx.home, '.cache', 'codeflare-hooks', 'vault-extract.vars');
+      const pending = `VAULT_ROOT=${join(fx.home, 'Vault')}\nTRIGGERED_AT=2026-07-01T00:00:00Z\nCHANGED_FILES<<EOF\npending.md\nEOF\n`;
+      if (reason === 'scanner missing') {
+        unlinkSync(join(fx.home, '.claude', 'plugins', 'codeflare-vault', 'scripts', 'vault-manifest.py'));
+      } else if (reason === 'Vault missing') {
+        rmSync(join(fx.home, 'Vault'), { recursive: true });
+      } else {
+        mkdirSync(dirname(marker), { recursive: true });
+        writeFileSync(marker, pending);
+      }
+      const sessionId = 'sess-vault-skip';
+      writeFileSync(join(fx.counterDir, sessionId), '19\n1\n');
+      const vaultCounter = join(fx.counterDir, `${sessionId}.vault-count`);
+      writeFileSync(vaultCounter, '0\n');
+      const transcriptPath = writeTranscript(fx.home,
+        Array.from({ length: 20 }, (_, index) => realUserLine(`prompt ${index + 1}`)));
+
+      const result = runHook(fx, { transcriptPath, sessionId });
+
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(readFileSync(vaultCounter, 'utf8'), '20\n');
+      assert.equal(existsSync(join(fx.counterDir, `${sessionId}.vars`)), false);
+      if (reason === 'extraction marker pending') {
+        assert.equal(readFileSync(marker, 'utf8'), pending, 'pending extraction must not be replaced');
+      } else {
+        assert.equal(existsSync(marker), false, 'a skipped scan must not arm extraction');
+      }
+    });
+  }
 
   it('retries the Vault hash check on the next prompt after a partial file-read failure', () => {
     const fx = makeFixture();
@@ -424,6 +461,100 @@ describe('memory-capture.sh - output protocol', () => {
     assert.equal(out.decision, undefined,
       'UserPromptSubmit hook must not emit decision field');
   });
+});
+
+it('REQ-MEM-001 AC1: triggered capture survives hook return and destruction of the caller process group', { timeout: 12_000 }, async (t) => {
+  const fx = makeFixture();
+  const scripts = tempDir('memcap-detached-scripts-');
+  // Run the complete unmodified hook, relocated exactly as an installed plugin.
+  // Only its sibling runner is a controlled peer; no real model is launched.
+  const hook = join(scripts, 'memory-capture.sh');
+  copyFileSync(HOOK, hook);
+  copyFileSync(join(dirname(HOOK), 'assert-iso-ts.sh'), join(scripts, 'assert-iso-ts.sh'));
+  const peerScript = join(scripts, 'peer.cjs');
+  const peerPid = join(scripts, 'peer.pid');
+  const ready = join(scripts, 'ready.json');
+  const release = join(scripts, 'release');
+  const hookResult = join(scripts, 'hook-result');
+  writeFileSync(join(scripts, 'run-memory-capture.sh'), `#!/usr/bin/env bash
+printf '%s\\n' "$$" > "$PEER_PID_FILE"
+exec ${JSON.stringify(process.execPath)} "$PEER_SCRIPT" "$@"
+`);
+  writeFileSync(peerScript, `const fs = require('node:fs');
+const path = require('node:path');
+const request = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+const fields = fs.readFileSync('/proc/self/stat', 'utf8').split(') ').at(-1).split(' ');
+fs.writeFileSync(process.env.PEER_READY + '.tmp', JSON.stringify({
+  pid: process.pid, group: Number(fields[2]), session: Number(fields[3]),
+  captureFile: request.capture_file
+}));
+fs.renameSync(process.env.PEER_READY + '.tmp', process.env.PEER_READY);
+const deadline = setTimeout(() => process.exit(17), 8000);
+const poll = setInterval(() => {
+  if (!fs.existsSync(process.env.PEER_RELEASE)) return;
+  fs.mkdirSync(path.dirname(request.capture_file), { recursive: true });
+  fs.writeFileSync(request.capture_file + '.tmp', 'controlled capture continued after caller teardown\\n');
+  fs.renameSync(request.capture_file + '.tmp', request.capture_file);
+  clearInterval(poll);
+  clearTimeout(deadline);
+}, 20);
+`);
+  const sessionId = 'detached-capture';
+  writeFileSync(join(fx.counterDir, sessionId), '0\n1\n');
+  const transcript = writeTranscript(fx.home,
+    Array.from({ length: 21 }, (_, n) => realUserLine(`Eligible prompt ${n + 1}`)));
+  const caller = spawn('bash', ['-c',
+    'bash "$1"; result=$?; printf "%s" "$result" > "$2"; sleep 10',
+    'capture-caller', hook, hookResult], {
+    detached: true,
+    stdio: ['pipe', 'pipe', 'pipe'],
+    env: {
+      PATH: '/usr/local/bin:/usr/bin:/bin', HOME: fx.home, TZ: 'UTC',
+      MEMCAP_COUNTER_DIR: fx.counterDir,
+      PEER_PID_FILE: peerPid, PEER_SCRIPT: peerScript, PEER_READY: ready, PEER_RELEASE: release,
+    },
+  });
+  const closed = once(caller, 'close');
+  let output = '';
+  let errors = '';
+  caller.stdout.setEncoding('utf8').on('data', text => { output += text; });
+  caller.stderr.setEncoding('utf8').on('data', text => { errors += text; });
+  const killGroup = (pid) => {
+    try { process.kill(-pid, 'SIGKILL'); }
+    catch (error) { if (error.code !== 'ESRCH') throw error; }
+  };
+  t.after(async () => {
+    killGroup(caller.pid);
+    await Promise.race([closed, delay(1000)]);
+    // The runner writes its own PID before exec; it is in the setsid group.
+    if (existsSync(peerPid)) {
+      const pid = Number(readFileSync(peerPid, 'utf8').trim());
+      if (Number.isSafeInteger(pid) && pid > 1) killGroup(pid);
+    }
+  });
+  const until = async (predicate, message) => {
+    const end = Date.now() + 3000;
+    while (!predicate() && Date.now() < end) await delay(20, undefined, { signal: t.signal });
+    assert.ok(predicate(), `${message}; hook stderr: ${errors}`);
+  };
+  caller.stdin.end(JSON.stringify({ transcript_path: transcript, session_id: sessionId }));
+  await until(() => existsSync(ready) && existsSync(hookResult), 'hook must return while capture remains pending');
+  assert.equal(readFileSync(hookResult, 'utf8'), '0');
+  const launched = JSON.parse(readFileSync(ready, 'utf8'));
+  assert.equal(launched.group, launched.pid);
+  assert.equal(launched.session, launched.pid);
+  assert.notEqual(launched.group, caller.pid);
+  assert.equal(existsSync(launched.captureFile), false);
+  killGroup(caller.pid);
+  const [, signal] = await closed;
+  assert.equal(signal, 'SIGKILL');
+  const notice = JSON.parse(output);
+  assert.equal(notice.hookSpecificOutput, undefined, 'launch must not instruct the active model');
+  assert.match(notice.systemMessage, /Memory capture started/);
+  process.kill(launched.pid, 0);
+  writeFileSync(release, 'caller group is gone\n');
+  await until(() => existsSync(launched.captureFile), 'detached capture must continue after caller destruction');
+  assert.equal(readFileSync(launched.captureFile, 'utf8'), 'controlled capture continued after caller teardown\n');
 });
 
 // Bounded re-delivery replaced the hard block (AD124). These tests pin the

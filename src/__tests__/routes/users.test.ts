@@ -7,11 +7,12 @@ import type { AuthVariables } from '../../middleware/auth';
 // REAL requireActiveUser/requireAdmin from src/middleware/auth run. We mock
 // only the request-identity input (authenticateRequest) so the middleware's
 // tier gate and role check are exercised end-to-end against controlled
-// fixtures. getBucketName is also mocked here because it lives in the same
-// module (../../lib/access) and the route imports it.
+// fixtures. resolveBucketName is also mocked; all other exports, including
+// getBucketOwnerStub used by the real cleanup runner, remain real.
 let mockAuthUser: AccessUser = { email: 'admin@example.com', authenticated: true, role: 'admin' } as AccessUser;
 
-vi.mock('../../lib/access', () => ({
+vi.mock('../../lib/access', async importOriginal => ({
+  ...await importOriginal<typeof import('../../lib/access')>(),
   authenticateRequest: vi.fn(async () => ({
     user: { ...mockAuthUser },
     bucketName: 'codeflare-test',
@@ -52,6 +53,8 @@ import { AppError } from '../../lib/error-types';
 
 import { createMockKV } from '../helpers/mock-kv';
 import { createMockSessionD1 } from '../helpers/mock-session-d1';
+import { attachMcpOwners } from '../helpers/mcp-portal-fixture';
+import { resolveBucketName } from '../../lib/access';
 
 const mockGetAllUsers = getAllUsers as ReturnType<typeof vi.fn>;
 const mockSyncAccessPolicy = syncAccessPolicy as ReturnType<typeof vi.fn>;
@@ -95,7 +98,7 @@ describe('Users Routes / REQ-AUTH-018 (user management admin panel)', () => {
     globalThis.fetch = originalFetch;
   });
 
-  function createTestApp(userEmail = 'admin@example.com') {
+  function createTestApp(userEmail = 'admin@example.com', targetEmail = 'target@example.com') {
     // Drive the real middleware via the mocked authenticateRequest identity.
     setAuthUser({ email: userEmail, role: 'admin' });
 
@@ -108,6 +111,10 @@ describe('Users Routes / REQ-AUTH-018 (user management admin panel)', () => {
         USAGE_DB: mockUsageDb,
         CLOUDFLARE_API_TOKEN: 'test-api-token',
       } as unknown as Env;
+      if (c.req.method === 'DELETE') {
+        const owners = await attachMcpOwners(c.env);
+        await owners.claim(await resolveBucketName(c.env, targetEmail), targetEmail);
+      }
       return next();
     });
 
@@ -177,7 +184,7 @@ describe('Users Routes / REQ-AUTH-018 (user management admin panel)', () => {
     });
 
     it('returns 400 when trying to remove self', async () => {
-      const app = createTestApp('admin@example.com');
+      const app = createTestApp('admin@example.com', 'admin@example.com');
 
       // Pre-populate own user entry
       mockKV._set('user:admin@example.com', { addedBy: 'admin@example.com', addedAt: '2024-01-01T00:00:00.000Z' });
@@ -192,7 +199,7 @@ describe('Users Routes / REQ-AUTH-018 (user management admin panel)', () => {
     });
 
     it('returns 404 when user does not exist', async () => {
-      const app = createTestApp();
+      const app = createTestApp('admin@example.com', 'nonexistent@example.com');
 
       const res = await app.request('/users/nonexistent%40example.com', {
         method: 'DELETE',
@@ -351,7 +358,7 @@ describe('Users Routes / REQ-AUTH-018 (user management admin panel)', () => {
   // Admin-only gating tests
   // =========================================================================
   describe('Admin-only access control', () => {
-    function createTestAppWithRole(userEmail: string, role: 'admin' | 'user') {
+    function createTestAppWithRole(userEmail: string, role: 'admin' | 'user', targetEmail = 'target@example.com') {
       // Real authMiddleware + requireAdmin run; only identity is mocked.
       setAuthUser({ email: userEmail, role });
 
@@ -362,6 +369,10 @@ describe('Users Routes / REQ-AUTH-018 (user management admin panel)', () => {
           USAGE_DB: mockUsageDb,
           CLOUDFLARE_API_TOKEN: 'test-api-token',
         } as unknown as Env;
+        if (c.req.method === 'DELETE') {
+          const owners = await attachMcpOwners(c.env);
+          await owners.claim(await resolveBucketName(c.env, targetEmail), targetEmail);
+        }
         return next();
       });
       app.route('/users', usersRoutes);
@@ -397,7 +408,7 @@ describe('Users Routes / REQ-AUTH-018 (user management admin panel)', () => {
     });
 
     it('not-found error follows AppError.toJSON() shape', async () => {
-      const app = createTestAppWithRole('admin@example.com', 'admin');
+      const app = createTestAppWithRole('admin@example.com', 'admin', 'ghost@example.com');
 
       const res = await app.request('/users/ghost%40example.com', {
         method: 'DELETE',
@@ -410,7 +421,7 @@ describe('Users Routes / REQ-AUTH-018 (user management admin panel)', () => {
     });
 
     it('DELETE admin user returns 400 - admins cannot be deleted via user management', async () => {
-      const app = createTestAppWithRole('admin@example.com', 'admin');
+      const app = createTestAppWithRole('admin@example.com', 'admin', 'other-admin@example.com');
       mockKV._set('user:other-admin@example.com', {
         addedBy: 'setup',
         addedAt: '2024-01-01T00:00:00.000Z',
@@ -427,7 +438,7 @@ describe('Users Routes / REQ-AUTH-018 (user management admin panel)', () => {
     });
 
     it('DELETE non-admin user succeeds normally', async () => {
-      const app = createTestAppWithRole('admin@example.com', 'admin');
+      const app = createTestAppWithRole('admin@example.com', 'admin', 'regular@example.com');
       mockKV._store.set('setup:account_id', 'test-account-id');
       mockKV._set('user:regular@example.com', {
         addedBy: 'admin@example.com',

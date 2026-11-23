@@ -1,6 +1,7 @@
 import { createStore, produce } from 'solid-js/store';
 import * as githubApi from '../api/github';
 import type { GithubStatus, GithubRepo } from '../api/github';
+import { DASHBOARD_LIST_FRESHNESS_MS } from '../lib/constants';
 
 interface GithubState {
   // null until the first status load resolves. The panel renders nothing
@@ -29,6 +30,17 @@ const initialState: GithubState = {
 };
 
 const [state, setState] = createStore<GithubState>({ ...initialState });
+let lastRepoAttemptAt: number | undefined;
+let repoGeneration = 0;
+let statusGeneration = 0;
+let loadingFirstPage = false;
+
+function resetRepos() {
+  repoGeneration++;
+  lastRepoAttemptAt = undefined;
+  loadingFirstPage = false;
+  setState({ repos: [], page: 0, hasMore: false, loading: false, loadingMore: false, searchQuery: '', error: null });
+}
 
 export const githubStore = {
   get status() { return state.status; },
@@ -58,56 +70,58 @@ export const githubStore = {
   },
 
   async loadStatus() {
-    setState('error', null);
+    const generation = ++statusGeneration;
     try {
       const status = await githubApi.getGithubStatus();
-      setState(produce((s) => {
-        s.status = status;
-        s.statusLoaded = true;
-      }));
-      // Auto-load the first page of repos once we know we're connected.
-      if (status.enabled && status.connected) {
-        await githubStore.loadRepos();
+      if (generation !== statusGeneration) return;
+      const previous = state.status;
+      if (previous?.enabled !== status.enabled || previous?.connected !== status.connected
+        || previous?.login !== status.login || previous?.source !== status.source) resetRepos();
+      setState({ status, statusLoaded: true });
+      if (status.enabled && status.connected && !loadingFirstPage && !state.loadingMore && state.page <= 1
+        && (lastRepoAttemptAt === undefined || Date.now() - lastRepoAttemptAt >= DASHBOARD_LIST_FRESHNESS_MS)) {
+        await githubStore.loadRepos({ silent: state.page === 1 });
       }
     } catch (err) {
-      setState(produce((s) => {
-        s.statusLoaded = true;
-        s.error = err instanceof Error ? err.message : String(err);
-      }));
+      if (generation !== statusGeneration) return;
+      setState('statusLoaded', true);
+      if (state.page === 0) setState('error', err instanceof Error ? err.message : String(err));
     }
   },
 
-  // Load the first page (resets the list). Used on initial connect.
-  async loadRepos() {
-    setState(produce((s) => {
-      s.loading = true;
-      s.error = null;
-    }));
+  // Manual reload starts a new first page immediately, even during a background request.
+  async loadRepos({ silent = false } = {}) {
+    const generation = ++repoGeneration;
+    lastRepoAttemptAt = Date.now();
+    loadingFirstPage = true;
+    setState({ loading: !silent, loadingMore: false, error: null });
     try {
       const result = await githubApi.getGithubRepos(1);
-      setState(produce((s) => {
-        s.repos = result.repos;
-        s.page = result.page;
-        s.hasMore = result.hasMore;
-        s.loading = false;
-      }));
+      if (generation !== repoGeneration) return;
+      setState({ repos: result.repos, page: result.page, hasMore: result.hasMore });
     } catch (err) {
-      setState(produce((s) => {
-        s.error = err instanceof Error ? err.message : String(err);
-        s.loading = false;
-      }));
+      if (generation === repoGeneration && !silent) setState('error', err instanceof Error ? err.message : String(err));
+    } finally {
+      if (generation === repoGeneration) {
+        loadingFirstPage = false;
+        setState('loading', false);
+      }
     }
   },
 
   // Fetch the next page and append (pagination via hasMore).
   async loadMore() {
     if (!state.hasMore || state.loadingMore || state.loading) return;
+    // An explicit continuation wins over a quiet page-one refresh.
+    const generation = ++repoGeneration;
+    loadingFirstPage = false;
     setState(produce((s) => {
       s.loadingMore = true;
       s.error = null;
     }));
     try {
       const result = await githubApi.getGithubRepos(state.page + 1);
+      if (generation !== repoGeneration) return;
       setState(produce((s) => {
         s.repos = [...s.repos, ...result.repos];
         s.page = result.page;
@@ -115,6 +129,7 @@ export const githubStore = {
         s.loadingMore = false;
       }));
     } catch (err) {
+      if (generation !== repoGeneration) return;
       setState(produce((s) => {
         s.error = err instanceof Error ? err.message : String(err);
         s.loadingMore = false;
@@ -125,15 +140,9 @@ export const githubStore = {
   async disconnect() {
     try {
       await githubApi.disconnectGithub();
-      setState(produce((s) => {
-        // Flip to the not-connected state and clear loaded repos.
-        s.status = s.status ? { ...s.status, connected: false, login: undefined, source: undefined } : s.status;
-        s.repos = [];
-        s.page = 0;
-        s.hasMore = false;
-        s.searchQuery = '';
-        s.error = null;
-      }));
+      statusGeneration++;
+      resetRepos();
+      setState('status', state.status ? { ...state.status, connected: false, login: undefined, source: undefined } : null);
     } catch (err) {
       setState('error', err instanceof Error ? err.message : String(err));
     }
@@ -142,6 +151,8 @@ export const githubStore = {
 
 /** @internal test-only */
 export function _resetForTests() {
+  statusGeneration++;
+  resetRepos();
   setState(produce((s) => {
     Object.assign(s, { ...initialState });
   }));

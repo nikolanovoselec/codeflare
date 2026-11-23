@@ -260,7 +260,8 @@ export interface FinalSyncLogContext {
  * teardown hard-cap is the backstop). Mirrors the /health probe's port (8080).
  */
 export async function drainFinalSync(ctx: DurableObjectState, budgetMs: number,
-  context: FinalSyncLogContext = { sessionId: null, lifecycleGeneration: null, incidentId: null }): Promise<void> {
+  context: FinalSyncLogContext = { sessionId: null, lifecycleGeneration: null, incidentId: null },
+  isCurrent: () => boolean = () => true): Promise<void> {
   if (!ctx.container) return;
   if (!ctx.container.running) {
     // Same rationale as the delete path (#516): running can read transiently
@@ -274,6 +275,13 @@ export async function drainFinalSync(ctx: DurableObjectState, budgetMs: number,
   const remaining = () => Math.max(0, deadline - Date.now());
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), budgetMs);
+  const recordAudit = (event: Record<string, unknown>) => raceBudget(ctx.storage.transaction(async txn => {
+    if (typeof await txn.get(SHUTDOWN_REQUESTED_KEY) === 'number') return;
+    if ((context.sessionId !== null && await txn.get(SESSION_ID_KEY) !== context.sessionId)
+      || (context.lifecycleGeneration !== null && await txn.get('lifecycleGeneration') !== context.lifecycleGeneration)) return;
+    if (!isCurrent() || controller.signal.aborted || remaining() === 0) return;
+    await txn.put(FINAL_SYNC_AUDIT_KEY, { ...context, ...event });
+  }), remaining());
   try {
     // Raw port.fetch bypasses the DO's public fetch override (the only place
     // the auth header is injected) and the in-container host 401s /internal/*
@@ -293,7 +301,7 @@ export async function drainFinalSync(ctx: DurableObjectState, budgetMs: number,
           ? 'teardown-deadline-exhausted' : 'missing-auth-token' };
       logger.warn('drainFinalSync: authentication unavailable, suppressing final-sync request', { ...context, ...event, errorClass: 'authentication_unavailable' });
       try {
-        const audit = await raceBudget(ctx.storage.put(FINAL_SYNC_AUDIT_KEY, event), remaining());
+        const audit = await recordAudit(event);
         if (audit === null) logger.warn('drainFinalSync: credential-refusal audit unavailable', { ...context, errorClass: 'audit_unavailable' });
       } catch { logger.warn('drainFinalSync: credential-refusal audit unavailable', { ...context, errorClass: 'audit_unavailable' }); }
       return;
@@ -304,6 +312,12 @@ export async function drainFinalSync(ctx: DurableObjectState, budgetMs: number,
       headers: { Authorization: `Bearer ${authToken}` },
       signal: controller.signal,
     });
+    if (context.sessionId !== null && context.lifecycleGeneration !== null && !controller.signal.aborted) {
+      try {
+        await recordAudit({ outcome: res.ok ? 'completed' : 'incomplete', httpStatus: res.status,
+          at: Date.now(), running: ctx.container.running });
+      } catch { /* Missing audit evidence must not block automatic stop. */ }
+    }
     if (res.ok) {
       logger.info('drainFinalSync: final sync completed before stop', { ...context });
     } else {
@@ -1117,6 +1131,7 @@ export async function collectMetrics(
   }
   // These existing keys are retry diagnostics only. D1 is re-read before
   // acting on an incident; no deadline or termination authority lives here.
+  let incident: D1Session | null = null;
   let recoveryTick = !runtime.running;
   try {
     const recovery = await ctx.storage.get<unknown>(TRANSPORT_RECOVERY_KEY);
@@ -1131,6 +1146,7 @@ export async function collectMetrics(
     try {
       const current = await readCurrent();
       if (!execution.isCurrent() || (current && !sameGeneration(current))) return;
+      if (current?.lifecycleState === 'unreachable') incident = current;
       if (sameGeneration(current) && (current.lifecycleState === 'stopping'
         || (current.lifecycleState === 'unreachable' && current.unreachableDeadlineMs !== undefined
           && Date.now() >= current.unreachableDeadlineMs))) {
@@ -1149,6 +1165,7 @@ export async function collectMetrics(
   else await ctx.storage.delete(NOT_RUNNING_SINCE_KEY);
   let projectionAccepted = false;
   let projectionFailed = false;
+  let inventoryWriteUnresolved = false;
   let requiredStopInProgress = false;
   // Notification delivery owns its exceptional D1 read only when the host
   // actually offers events. The normal metrics path remains one host snapshot
@@ -1204,17 +1221,41 @@ export async function collectMetrics(
   const observationStartedAt = Date.now();
   let activityProbe: ProbeObservation = { responded: false, durationMs: 0 };
   let healthProbe: ProbeObservation = { responded: false, durationMs: 0 };
+  let hostRespondedAt = 0;
+  // Undefined means no eligible attempt; null means the outcome is unresolved.
+  let recoveryResult: boolean | null | undefined;
+  const recoverRespondingIncident = async () => {
+    const current = incident;
+    if (recoveryResult !== undefined || !sameGeneration(current) || current.lifecycleState !== 'unreachable'
+      || !current.unreachableIncidentId || hostRespondedAt >= (current.unreachableDeadlineMs ?? 0)) return;
+
+    recoveryResult = await raceBudget(repository.recoverUnreachable(ownerKey, sessionId, generation, sequence,
+      current.unreachableIncidentId, new Date(hostRespondedAt).toISOString()), CONTAINER_POLL_BUDGET_MS).catch(() => null);
+    if (recoveryResult === true) {
+      logger.info('recovery_succeeded', { sessionId, lifecycleGeneration: generation, incidentId: current.unreachableIncidentId });
+    } else if (recoveryResult === false) {
+      // A confirmed refusal can lead to expiry only if the exact incident still owns the row.
+      recoveryResult = null;
+      const latest = await readCurrent().catch(() => undefined);
+      if (latest === undefined) return;
+      incident = sameGeneration(latest) && latest.lifecycleState === 'unreachable'
+        && latest.unreachableIncidentId === current.unreachableIncidentId
+        && latest.unreachableDeadlineMs === current.unreachableDeadlineMs ? latest : null;
+      recoveryResult = false;
+    }
+  };
   try {
     const port = runtime.getTcpPort(TERMINAL_SERVER_PORT);
     const response = await pollContainer(
       port,
-      'http://localhost/internal/runtime-observation',
+      'http://localhost/internal/runtime-observation?inventory=defer',
       CONTAINER_POLL_BUDGET_MS,
       execution.authToken,
     );
+    hostRespondedAt = Date.now();
     const observation: ProbeObservation = {
       responded: true,
-      durationMs: Math.max(0, Date.now() - observationStartedAt),
+      durationMs: Math.max(0, hostRespondedAt - observationStartedAt),
       status: response.status,
     };
     activityProbe = observation;
@@ -1224,14 +1265,22 @@ export async function collectMetrics(
         logger.warn('collectMetrics: existing runtime monitor attachment unavailable', { sessionId, lifecycleGeneration: generation });
       });
     }
-    if (!response.ok) {
+    const knownIncident = incident !== null;
+    if (knownIncident) await recoverRespondingIncident();
+    if (knownIncident && (recoveryResult !== true || !execution.isCurrent())) {
+      void response.body?.cancel().catch(() => undefined);
+    } else if (!response.ok) {
       logger.warn('collectMetrics: runtime observation returned non-OK', { status: response.status });
     } else {
       const snapshot = await raceBudget(response.json(), CONTAINER_POLL_BUDGET_MS) as {
         lastInputAt: number | null; cpu?: string; memory?: string; disk?: string;
-        syncStatus?: string; editorReady?: boolean; editorReadyError?: boolean; workspaceRepos?: unknown; observedAt: string;
+        syncStatus?: string; editorReady?: boolean; editorReadyError?: boolean; workspaceRepos?: unknown; workspaceInventoryReady?: boolean; observedAt: string;
       };
-      if (!snapshot || typeof snapshot !== 'object' || !execution.isCurrent()) throw new Error('Runtime snapshot unavailable');
+      // REQ-SESSION-020 AC4: reject malformed readiness before state or projection uses it.
+      if (!isRecord(snapshot)
+          || (snapshot.editorReady !== undefined && typeof snapshot.editorReady !== 'boolean')
+          || (snapshot.editorReadyError !== undefined && typeof snapshot.editorReadyError !== 'boolean')
+          || !execution.isCurrent()) throw new Error('Runtime snapshot unavailable');
       // Only a finite positive timestamp is usable activity evidence. An
       // invalid value must not become the idle reference or D1 activity.
       const observedInputAt = typeof snapshot.lastInputAt === 'number'
@@ -1296,7 +1345,7 @@ export async function collectMetrics(
         logger.info('collectMetrics: idle exceeded threshold, stopping', { ...finalSyncLogContext(), reason: 'idle', idleMs, sleepMs, idleTimeoutPref, referenceTime });
         await drainAgentEventsBeforeStop(state, ctx, env, CONTAINER_POLL_BUDGET_MS);
         if (!execution.isCurrent()) return;
-        await drainFinalSync(ctx, FINAL_SYNC_BUDGET_MS, finalSyncLogContext());
+        await drainFinalSync(ctx, FINAL_SYNC_BUDGET_MS, finalSyncLogContext(), execution.isCurrent);
         if (!execution.isCurrent()) return;
         requiredStopInProgress = true;
         await callbacks.stop('SIGTERM');
@@ -1308,20 +1357,40 @@ export async function collectMetrics(
       if (typeof await ctx.storage.get(SHUTDOWN_REQUESTED_KEY) === 'number') return;
       if (!execution.isCurrent()) return;
       try {
-        if (Array.isArray(snapshot.workspaceRepos)) {
-          const tracked = await raceBudget(repository.updateTrackedClones(ownerKey, sessionId,
-            normalizeTrackedClones(snapshot.workspaceRepos), { generation, sequence }), CONTAINER_POLL_BUDGET_MS);
-          if (tracked === null) throw new Error('D1 clone projection deadline exceeded');
+        if (!incident && (snapshot.workspaceInventoryReady === true || Array.isArray(snapshot.workspaceRepos))) {
+          // An older host's bundled inventory is only a readiness hint. Read
+          // authority before requesting fresh inventory, never after the scan.
+          const current = await readCurrent().catch(() => null);
+          // Only scan when the row can accept this inventory. In particular,
+          // optional work must not spend the remaining unreachable recovery window.
+          if (sameGeneration(current) && current.lifecycleState === 'unreachable') incident = current;
+          if (sameGeneration(current) && (current.lifecycleState === 'starting' || current.lifecycleState === 'running')
+            && !current.unreachableIncidentId && !current.terminationIntentId && sequence > current.observationSequence) {
+            const inventory = await raceBudget((async () => {
+              const result = await pollContainer(port, 'http://localhost/internal/runtime-observation?inventory=only',
+                CONTAINER_POLL_BUDGET_MS, execution.authToken);
+              return result.ok ? await result.json() : null;
+            })(), CONTAINER_POLL_BUDGET_MS).catch(() => null);
+            if (!execution.isCurrent()) return;
+            if (isRecord(inventory) && Array.isArray(inventory.workspaceRepos)) {
+              const tracked = await raceBudget(repository.updateTrackedClones(ownerKey, sessionId,
+                normalizeTrackedClones(inventory.workspaceRepos), { generation, sequence, responseRevision: current.responseRevision }),
+              CONTAINER_POLL_BUDGET_MS).catch(() => null);
+              inventoryWriteUnresolved = tracked === null;
+            }
+          }
           if (!execution.isCurrent()) return;
         }
-        const accepted = await raceBudget(repository.project(ownerKey, sessionId, generation, sequence, {
-          lifecycleState: 'running',
-          lastInputAt: observedInputAt === null ? undefined : new Date(observedInputAt).toISOString(),
-          cpu: snapshot.cpu, memory: snapshot.memory, disk: snapshot.disk, syncStatus: snapshot.syncStatus,
-          editorReady: snapshot.editorReady, editorReadyError: snapshot.editorReadyError, observedAt: snapshot.observedAt,
-        }), CONTAINER_POLL_BUDGET_MS);
-        if (accepted === null) throw new Error('D1 metrics projection deadline exceeded');
-        projectionAccepted = accepted;
+        if (!incident) {
+          const accepted = await raceBudget(repository.project(ownerKey, sessionId, generation, sequence, {
+            lifecycleState: 'running',
+            lastInputAt: observedInputAt === null ? undefined : new Date(observedInputAt).toISOString(),
+            cpu: snapshot.cpu, memory: snapshot.memory, disk: snapshot.disk, syncStatus: snapshot.syncStatus,
+            editorReady: snapshot.editorReady, editorReadyError: snapshot.editorReadyError, observedAt: snapshot.observedAt,
+          }), CONTAINER_POLL_BUDGET_MS);
+          if (accepted === null) throw new Error('D1 metrics projection deadline exceeded');
+          projectionAccepted = accepted;
+        }
       } catch {
         projectionFailed = true;
         // A D1 outage must not be misclassified as a dead container transport.
@@ -1336,31 +1405,24 @@ export async function collectMetrics(
   }
 
   if (!execution.isCurrent()) return;
-  let incident: D1Session | null = null;
   const proposedIncidentId = crypto.randomUUID();
   const failureObservedAt = Date.now();
   const responded = activityProbe.responded || healthProbe.responded;
   let terminationRetry: boolean | undefined;
-  let recoveredIncident = false;
   try {
     if (!responded) {
       incident = await raceBudget(repository.observeUnreachable(ownerKey, sessionId, generation, sequence,
         proposedIncidentId, failureObservedAt), CONTAINER_POLL_BUDGET_MS);
-    } else if (!projectionAccepted && !projectionFailed) {
-      incident = await readCurrent();
-      if (sameGeneration(incident) && incident.lifecycleState === 'unreachable' && incident.unreachableIncidentId
-        && Date.now() < (incident.unreachableDeadlineMs ?? 0)) {
-        const recovered = await raceBudget(repository.recoverUnreachable(ownerKey, sessionId, generation, sequence,
-          incident.unreachableIncidentId, new Date().toISOString()), CONTAINER_POLL_BUDGET_MS);
-        recoveredIncident = recovered === true;
-        if (recovered) logger.info('recovery_succeeded', { sessionId, lifecycleGeneration: generation,
-          incidentId: incident.unreachableIncidentId });
-      }
+    } else if (!projectionAccepted && recoveryResult === undefined) {
+      // A failed ordinary projection is not evidence against a timely host response.
+      incident ??= await readCurrent();
+      await recoverRespondingIncident();
     }
     if (!execution.isCurrent()) return;
     if (sameGeneration(incident)) diagnosticIncidentId = incident.unreachableIncidentId ?? null;
     if (sameGeneration(incident) && (incident.lifecycleState === 'stopping'
-        || (incident.unreachableDeadlineMs !== undefined && Date.now() >= incident.unreachableDeadlineMs))) {
+        || (recoveryResult !== true && recoveryResult !== null
+          && incident.unreachableDeadlineMs !== undefined && Date.now() >= incident.unreachableDeadlineMs))) {
       terminationRetry = await callbacks.terminateUnreachable(incident, execution);
     }
   } catch {
@@ -1373,7 +1435,7 @@ export async function collectMetrics(
     return;
   }
   if (incident && !sameGeneration(incident)) return;
-  if (responded && incident?.lifecycleState === 'unreachable' && !recoveredIncident) {
+  if (responded && recoveryResult !== true && (incident?.lifecycleState === 'unreachable' || recoveryResult === false)) {
     await schedule(5);
     return;
   }
@@ -1399,7 +1461,7 @@ export async function collectMetrics(
     activity: activityProbe, health: healthProbe,
   }, execution, authorizeReset, finalSyncLogContext());
   if (transportReconciliation === null || !execution.isCurrent()) return;
-  if (!responded || incident || projectionFailed || recoveryTick) transportReconciliation.recordUsage = false;
+  if (!responded || incident || projectionFailed || inventoryWriteUnresolved || recoveryTick) transportReconciliation.recordUsage = false;
   // Timekeeper records per-user compute consumption in every deployment mode.
   // A tick scheduled after a complete transport failure is a 5-second
   // confirmation, not another usage minute.
@@ -1449,7 +1511,7 @@ export async function collectMetrics(
             CONTAINER_POLL_BUDGET_MS,
           );
           if (!execution.isCurrent()) return;
-          await drainFinalSync(ctx, FINAL_SYNC_BUDGET_MS, finalSyncLogContext());
+          await drainFinalSync(ctx, FINAL_SYNC_BUDGET_MS, finalSyncLogContext(), execution.isCurrent);
           if (!execution.isCurrent()) return;
           requiredStopInProgress = true;
           await callbacks.stop('SIGTERM');

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { drainAgentEvents, drainFinalSync } from '../../container/container-metrics';
+import { drainAgentEvents, drainFinalSync, FINAL_SYNC_AUDIT_KEY, SHUTDOWN_REQUESTED_KEY } from '../../container/container-metrics';
 
 /**
  * The idle/quota-stop final-sync drain talks to the in-container host over a raw
@@ -11,9 +11,11 @@ import { drainAgentEvents, drainFinalSync } from '../../container/container-metr
  */
 // REQ-SESSION-019: Final-sync drain endpoint authentication
 describe('drainFinalSync (idle/quota-stop path) container auth', () => {
-  function makeCtx(token?: string) {
+  function makeCtx(token?: string, reply: () => Promise<Response> = async () => Response.json({ synced: true })) {
     const records = new Map<string, unknown>();
     if (token !== undefined) records.set('containerAuthToken', token);
+    records.set('_sessionId', 'session1234');
+    records.set('lifecycleGeneration', 7);
     const requests: Request[] = [];
     const storage = {
       get: async (key: string): Promise<unknown> => records.get(key),
@@ -22,9 +24,9 @@ describe('drainFinalSync (idle/quota-stop path) container auth', () => {
     const ctx = {
       container: { running: true, getTcpPort: () => ({ fetch: async (url: string, init?: RequestInit) => {
         requests.push(new Request(url, init));
-        return Response.json({ synced: true });
+        return reply();
       } }) },
-      storage,
+      storage: Object.assign(storage, { transaction: <T>(fn: (txn: typeof storage) => Promise<T>) => fn(storage) }),
     } as unknown as Parameters<typeof drainFinalSync>[0];
     return { ctx, storage, requests };
   }
@@ -37,6 +39,32 @@ describe('drainFinalSync (idle/quota-stop path) container auth', () => {
       authorization: request.headers.get('Authorization') }))).toEqual([
       { method: 'POST', url: 'http://localhost/internal/final-sync', authorization: 'Bearer tok-idle-789' },
     ]);
+  });
+
+  it('REQ-MEM-042 AC3: automatic final sync retains a completed receipt for the exact writer', async () => {
+    const f = makeCtx('tok-idle-789');
+    const context = { sessionId: 'session1234', lifecycleGeneration: 7, incidentId: null };
+    await drainFinalSync(f.ctx, 1_000, context);
+    expect(await f.storage.get('finalSyncAudit')).toMatchObject({ ...context, outcome: 'completed', httpStatus: 200 });
+  });
+
+  it.each(['superseded execution', 'durable shutdown'] as const)('REQ-MEM-042 AC3: late automatic failure keeps the manual Stop receipt after %s', async fence => {
+    let respond!: (response: Response) => void;
+    let started!: () => void;
+    const response = new Promise<Response>(resolve => { respond = resolve; });
+    const request = new Promise<void>(resolve => { started = resolve; });
+    const f = makeCtx('tok-idle-789', () => { started(); return response; });
+    const context = { sessionId: 'session1234', lifecycleGeneration: 7, incidentId: null };
+    let current = true;
+    const pending = drainFinalSync(f.ctx, 1_000, context, () => fence !== 'superseded execution' || current);
+    await request;
+    current = false;
+    if (fence === 'durable shutdown') await f.storage.put(SHUTDOWN_REQUESTED_KEY, Date.now());
+    const manualReceipt = { ...context, outcome: 'completed', httpStatus: 200, at: Date.now() };
+    await f.storage.put(FINAL_SYNC_AUDIT_KEY, manualReceipt);
+    respond(Response.json({ synced: false }, { status: 504 }));
+    await pending;
+    expect(await f.storage.get(FINAL_SYNC_AUDIT_KEY)).toEqual(manualReceipt);
   });
 
   it.each(['absent', 'empty', 'unreadable'] as const)('REQ-SESSION-019 AC1: %s credentials suppress the request and retain a bounded audit', async kind => {

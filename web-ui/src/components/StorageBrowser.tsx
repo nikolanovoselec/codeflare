@@ -27,12 +27,12 @@ const StorageBrowser: Component = () => {
   let searchInputRef: HTMLInputElement | undefined;
 
   onMount(() => {
-    storageStore.browse(storageStore.currentPrefix || '');
+    void storageStore.refreshListingOnReturn();
     // Re-pull the view-only flag so the Download button reflects a toggle flipped
     // after the app loaded (the flag is otherwise set once at startup).
     void storageStore.refreshDownloadsDisabled();
 
-    // Auto-refresh file listing every 30s (silent — no loading spinner)
+    // Keep periodic quota/stats updates independent of the file listing.
     const refreshInterval = setInterval(() => {
       const hasActiveUploads = storageStore.uploads.some(
         (u) => u.status === 'uploading' || u.status === 'pending'
@@ -41,9 +41,6 @@ const StorageBrowser: Component = () => {
                            storageStore.selectedPrefixes.length > 0;
 
       if (!hasActiveUploads && !hasSelections && !storageStore.loading) {
-        if (!storageStore.paginationStarted && !storageStore.loadingMore) {
-          void storageStore.refresh({ silent: true });
-        }
         void storageStore.fetchStats();
       }
     }, 30_000);

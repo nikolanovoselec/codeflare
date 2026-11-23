@@ -263,6 +263,36 @@ describe('handleCheckoutCompleted / REQ-SUB-005 (Stripe webhook syncs subscripti
     expect(user.stripeSubscriptionId).toBe('sub_checkout_1');
   });
 
+  it('REQ-SUB-032 AC2: a timestamp-free checkout uses the successful retry time', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+      const body = buildEvent('checkout.session.completed', {
+        id: 'cs_retry_time', customer: 'cus_retry_time', subscription: 'sub_retry_time',
+        metadata: { email: 'retry-time@example.com' },
+      });
+      const userKey = 'user:retry-time@example.com';
+      const app = createApp();
+      vi.mocked(fetchSubscription).mockResolvedValueOnce(null).mockResolvedValueOnce(
+        mockSubscriptionSnapshot({ customerId: 'cus_retry_time', subscriptionId: 'sub_retry_time' }),
+      );
+
+      expect((await postWebhook(app, body)).status).toBe(500);
+      expect(await mockKV.get(userKey, 'json')).toBeNull();
+
+      const retryTime = new Date('2026-01-01T00:02:00Z');
+      vi.setSystemTime(retryTime);
+      expect((await postWebhook(app, body)).status).toBe(200);
+      expect(await mockKV.get(userKey, 'json')).toMatchObject({
+        checkoutSessionId: 'cs_retry_time',
+        stripeSubscriptionId: 'sub_retry_time',
+        subscribedAt: retryTime.toISOString(),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('calls syncSubscriptionState which updates tier from Stripe API', async () => {
     vi.mocked(fetchSubscription).mockResolvedValue(mockSubscriptionSnapshot({
       customerId: 'cus_sync_check', subscriptionId: 'sub_sync_check',
@@ -480,6 +510,26 @@ describe('handleSubscriptionUpdated', () => {
 // customer.subscription.deleted - ordered canceled/free apply (CF-004)
 // ---------------------------------------------------------------------------
 describe('handleSubscriptionDeleted', () => {
+  it.each([
+    { scenario: 'matching trial', status: 'trialing', storedId: 'sub_deleted', deletedId: 'sub_deleted', trialUsed: true, applied: true },
+    { scenario: 'replaced trial', status: 'trialing', storedId: 'sub_replacement', deletedId: 'sub_deleted', trialUsed: undefined, applied: false },
+    { scenario: 'missing subscription identity', status: 'trialing', storedId: undefined, deletedId: undefined, trialUsed: undefined, applied: true },
+    { scenario: 'non-trial subscription', status: 'active', storedId: 'sub_deleted', deletedId: 'sub_deleted', trialUsed: undefined, applied: true },
+  ])('REQ-SUB-005 AC6: deletion trial history follows the guarded subscription ($scenario)', async ({
+    status, storedId, deletedId, trialUsed, applied,
+  }) => {
+    seedCustomer('cus_trial', 'trial-delete@example.com', { billingStatus: status, stripeSubscriptionId: storedId });
+
+    const res = await postWebhook(createApp(), buildEvent('customer.subscription.deleted', { id: deletedId, customer: 'cus_trial' }));
+
+    expect(res.status).toBe(200);
+    const user = await mockKV.get('user:trial-delete@example.com', 'json') as Record<string, unknown>;
+    expect(user.trialUsed).toBe(trialUsed);
+    expect(user.billingStatus).toBe(applied ? 'canceled' : status);
+    expect(user.stripeSubscriptionId).toBe(applied ? undefined : storedId);
+    expect(user.subscriptionTier).toBe(applied ? 'free' : 'standard');
+  });
+
   it('REQ-SUB-015 AC3: a deletion prevents an older in-flight update from restoring entitlements', async () => {
     seedCustomer('cus_del_ordered', 'ordered-delete@example.com', {
       subscriptionTier: 'advanced', accessTier: 'advanced', subscribedMode: 'advanced',

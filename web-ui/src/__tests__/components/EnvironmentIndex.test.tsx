@@ -280,7 +280,7 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
       const toggle = await screen.findByRole('checkbox', { name: 'Save only approved locations' });
       expect(toggle).toHaveProperty('checked', syncPolicyMode !== 'include');
       if (mode !== 'enterprise') {
-        expect(screen.queryByRole('checkbox', { name: 'Enable governed storage encryption' })).toBeNull();
+        expect(screen.queryByRole('checkbox', { name: 'Disable customer-key encryption (SSE-C)' })).toBeNull();
         expect(screen.queryByRole('checkbox', { name: 'Disable storage downloads' })).toBeNull();
         expect(screen.getByText('Operation').parentElement).not.toHaveTextContent(/encryption|download/i);
       }

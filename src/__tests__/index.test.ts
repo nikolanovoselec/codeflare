@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { AppError } from '../lib/error-types';
@@ -50,6 +50,7 @@ import worker from '../index';
 import { resetSetupCache as resetSetupCacheShared } from '../lib/cache-reset';
 import { validateWebSocketRoute, handleWebSocketUpgrade } from '../routes/terminal';
 import { createMockKV } from './helpers/mock-kv';
+import { signSessionJWT, SESSION_JWT_AUD } from '../lib/session-jwt';
 
 function createMockEnv(): { env: Env; mockKV: ReturnType<typeof createMockKV>; mockAssets: { fetch: ReturnType<typeof vi.fn> } } {
   const mockKV = createMockKV();
@@ -72,6 +73,30 @@ function createMockCtx(): ExecutionContext {
     passThroughOnException: vi.fn(),
   } as unknown as ExecutionContext;
 }
+
+it.each([
+  '/api/vscode',
+  '/api/vscode/',
+  '/api/vscode//stable/out/main.js',
+  '/api/vscode/abcdef1234567890',
+])('REQ-IDE-001 AC1: %s returns an API 404 without Container I/O', async path => {
+  const { env } = createMockEnv();
+  env.SERVICE_AUTH_SECRET = 'test-editor-service-secret';
+  const containerAccess = vi.fn(() => { throw new Error('Unexpected Container access'); });
+  env.CONTAINER = {
+    idFromName: containerAccess,
+    get: containerAccess,
+    getByName: containerAccess,
+  } as unknown as Env['CONTAINER'];
+
+  const response = await worker.fetch(new Request(`https://example.com${path}`, {
+    headers: { 'X-Service-Auth': env.SERVICE_AUTH_SECRET },
+  }), env, createMockCtx());
+
+  expect(response.status).toBe(404);
+  expect(await response.json()).toEqual({ error: 'Not found' });
+  expect(containerAccess).not.toHaveBeenCalled();
+});
 
 describe('REQ-SESSION-025: final Worker lifecycle error logging', () => {
   it.each([
@@ -304,6 +329,57 @@ describe('Edge-level setup redirect', () => {
     expect(response.status).toBe(200);
     const fetchedRequest = mockAssets.fetch.mock.calls[0][0] as Request;
     expect(new URL(fetchedRequest.url).pathname).toBe('/landing/');
+  });
+
+  it.each([
+    { state: 'active', tier: 'advanced', destination: '/app/' },
+    { state: 'pending', tier: 'pending', destination: '/app/subscribe' },
+    { state: 'blocked', tier: 'blocked', destination: '/app/subscribe' },
+  ] as const)('REQ-LANDING-017 AC4: signed-in SaaS $state user redirects GET / to $destination without landing assets', async ({ tier, destination }) => {
+    const { env, mockKV, mockAssets } = createMockEnv();
+    const email = 'active@example.com';
+    const secret = 'test-session-signing-secret';
+    env.SAAS_MODE = 'active';
+    env.OAUTH_CLIENT_ID = 'gh-client-id';
+    env.OAUTH_JWT_SECRET = secret;
+    mockKV._store.set('setup:complete', 'true');
+    mockKV._set(`user:${email}`, {
+      addedBy: 'setup', addedAt: '2024-01-01', role: 'user',
+      accessTier: tier, subscriptionTier: tier,
+    });
+    // Reuse the access.test.ts bucket-identity fixture; only the storage
+    // boundary is simulated, not authentication or root dispatch.
+    const bucketOwners = new Map<string, string>();
+    env.CONTAINER = {
+      idFromName: (name: string) => name,
+      get: (id: string) => ({
+        claimBucketOwner: async (owner: string, allowInitialClaim: boolean) => {
+          const existing = bucketOwners.get(id);
+          if (existing === owner) return 'owned' as const;
+          if (existing) return 'conflict' as const;
+          if (!allowInitialClaim) return 'ambiguous' as const;
+          bucketOwners.set(id, owner);
+          return 'owned' as const;
+        },
+      }),
+    } as unknown as Env['CONTAINER'];
+    const landingBody = '<!doctype html><title>Landing asset sentinel</title>';
+    mockAssets.fetch.mockResolvedValue(new Response(landingBody, {
+      headers: { 'Content-Type': 'text/html' },
+    }));
+    // Same real HMAC signer, audience and fresh TTL as session-refresh-transparent.test.ts.
+    const token = await signSessionJWT(
+      { email, sub: 'gh|1', ghLogin: 'octocat', aud: SESSION_JWT_AUD }, secret, 3600,
+    );
+
+    const response = await worker.fetch(new Request('https://example.com/', {
+      method: 'GET', headers: { Cookie: `codeflare_session=${token}` },
+    }), env, createMockCtx());
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get('Location')).toBe(destination);
+    expect(await response.text()).not.toContain(landingBody);
+    expect(mockAssets.fetch).not.toHaveBeenCalled();
   });
 
   it('REQ-LANDING-001: keeps redirecting / to /app in default mode (no landing)', async () => {
@@ -724,6 +800,114 @@ describe('REQ-OPS-008 AC6 (SAAS_MODE + STRESS_TEST_MODE conflict guard)', () => 
 
     expect(response.status).not.toBe(503);
   });
+});
+
+describe('REQ-SEC-019 / REQ-OPS-164 AC3: shared Worker mixed-mode ingress refusal', () => {
+  const paths = [
+    { surface: 'ordinary API', path: '/api/health', upgrade: false },
+    { surface: 'static asset', path: '/assets/index-DEADBEEF.css', upgrade: false },
+    { surface: 'WebSocket upgrade', path: '/api/terminal/abc123-1/ws', upgrade: true },
+  ];
+  const saasModes = [
+    { mode: 'literal active', value: 'active' },
+    { mode: 'uppercase active', value: 'ACTIVE' },
+    { mode: 'space-padded active', value: ' active ' },
+    { mode: 'mixed-case whitespace-padded active', value: '\tAcTiVe\n' },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetSetupCacheShared();
+    vi.mocked(validateWebSocketRoute).mockReturnValue({ isWebSocketRoute: false });
+    vi.mocked(handleWebSocketUpgrade).mockReset();
+  });
+
+  afterEach(() => {
+    resetSetupCacheShared();
+    vi.mocked(validateWebSocketRoute).mockReturnValue({ isWebSocketRoute: false });
+    vi.mocked(handleWebSocketUpgrade).mockReset();
+  });
+
+  function createIngressRequest(path: string, upgrade: boolean): Request {
+    if (upgrade) {
+      vi.mocked(validateWebSocketRoute).mockReturnValue({
+        isWebSocketRoute: true,
+        fullSessionId: 'abc123-1',
+        baseSessionId: 'abc123',
+        terminalId: '1',
+      });
+      // Keep this an entry-dispatch test, not a live socket/container workload.
+      // The existing route fixture supplies an ordinary response as in the
+      // setup-redirect suite; a mixed-mode refusal must supersede that response.
+      vi.mocked(handleWebSocketUpgrade).mockResolvedValue(new Response('terminal route response', {
+        status: 200,
+        headers: { 'Content-Type': 'text/plain', 'X-Powered-By': 'terminal-upstream' },
+      }));
+    }
+    return new Request(`https://example.com${path}`, upgrade ? { headers: { Upgrade: 'websocket' } } : undefined);
+  }
+
+  it.each(paths.flatMap(route => saasModes.map(saas => ({ ...route, ...saas }))))(
+    'REQ-SEC-019 / REQ-OPS-164 AC3: returns secured 503 for $surface with $mode SaaS and active stress',
+    async ({ path, upgrade, value }) => {
+      const { env, mockKV, mockAssets } = createMockEnv();
+      env.SAAS_MODE = value;
+      env.STRESS_TEST_MODE = 'active';
+      mockKV._store.set('setup:complete', 'true');
+      mockAssets.fetch.mockResolvedValue(new Response('body{color:teal}', {
+        status: 200, headers: { 'Content-Type': 'text/css' },
+      }));
+
+      const response = await worker.fetch(createIngressRequest(path, upgrade), env, createMockCtx());
+
+      // Existing public refusal contract, identical for all ingress surfaces.
+      expect(response.status).toBe(503);
+      expect(response.headers.get('Content-Type')).toContain('application/json');
+      expect(await response.json()).toEqual({
+        error: 'Misconfiguration: stress test mode cannot be active in SaaS production',
+      });
+      expect(response.headers.get('Strict-Transport-Security')).toBe('max-age=63072000; includeSubDomains; preload');
+      expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
+      expect(response.headers.get('X-Frame-Options')).toBe('DENY');
+      expect(response.headers.get('Referrer-Policy')).toBe('strict-origin-when-cross-origin');
+      expect(response.headers.get('Permissions-Policy')).toBe('camera=(), microphone=(), geolocation=()');
+      expect(response.headers.get('Content-Security-Policy')).toBe("default-src 'none'");
+      expect(response.headers.get('X-Powered-By')).toBeNull();
+    },
+  );
+
+  it.each(paths.flatMap(route => [
+    { ...route, mode: 'stress-only', saas: undefined, stress: 'active' },
+    { ...route, mode: 'SaaS-only', saas: 'active', stress: undefined },
+  ]))(
+    'REQ-SEC-019 / REQ-OPS-164 AC3: preserves $mode $surface dispatch without a mixed-mode refusal',
+    async ({ path, upgrade, saas, stress }) => {
+      const { env, mockKV, mockAssets } = createMockEnv();
+      if (saas !== undefined) env.SAAS_MODE = saas;
+      if (stress !== undefined) env.STRESS_TEST_MODE = stress;
+      mockKV._store.set('setup:complete', 'true');
+      mockAssets.fetch.mockResolvedValue(new Response('body{color:teal}', {
+        status: 200, headers: { 'Content-Type': 'text/css', 'X-Powered-By': 'asset-upstream' },
+      }));
+
+      const response = await worker.fetch(createIngressRequest(path, upgrade), env, createMockCtx());
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
+      expect(response.headers.get('X-Powered-By')).toBeNull();
+      if (upgrade) {
+        expect(response.headers.get('Content-Type')).toContain('text/plain');
+        expect(await response.text()).toBe('terminal route response');
+      } else if (path.startsWith('/api/')) {
+        expect(response.headers.get('Content-Type')).toContain('application/json');
+        expect(await response.json()).toMatchObject({ status: 'ok' });
+      } else {
+        expect(response.headers.get('Content-Type')).toBe('text/css');
+        expect(response.headers.get('Cache-Control')).toBe('public, max-age=31536000, immutable');
+        expect(await response.text()).toBe('body{color:teal}');
+      }
+    },
+  );
 });
 
 // ============================================================================

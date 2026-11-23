@@ -29,11 +29,14 @@ const listing = '<ListBucketResult><IsTruncated>false</IsTruncated>'
 describe('Storage Delete Route real prefix results / REQ-STOR-007 AC4', () => {
   let app: Hono<{ Bindings: Env; Variables: AuthVariables }>;
   const transport = vi.fn<typeof fetch>();
+  const cacheKey = 'storage-stats:test-bucket';
+  let kv: ReturnType<typeof createMockKV>;
 
   beforeEach(() => {
     transport.mockReset();
     vi.stubGlobal('fetch', transport);
-    const kv = createMockKV();
+    kv = createMockKV();
+    kv._set(cacheKey, { totalFiles: 2, cachedAt: Date.now() });
     app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
     app.use('*', async (c, next) => {
       c.env = {
@@ -62,6 +65,33 @@ describe('Storage Delete Route real prefix results / REQ-STOR-007 AC4', () => {
     expect(body.deletedPrefixes).toEqual([]);
     expect(body.errors).toEqual([{ key: prefix, error: expect.any(String) }]);
     expect(body.errors[0].error.length).toBeGreaterThan(0);
+    expect(await kv.get(cacheKey, 'json')).toBeNull();
+  });
+
+  it('REQ-STOR-014 AC3: invalidates stats when a later page fails after deletion', async () => {
+    transport
+      .mockResolvedValueOnce(new Response(listing.replace('<IsTruncated>false</IsTruncated>',
+        '<IsTruncated>true</IsTruncated><NextContinuationToken>next</NextContinuationToken>')))
+      .mockResolvedValueOnce(new Response('<DeleteResult/>'))
+      .mockResolvedValueOnce(new Response(null, { status: 503 }));
+    const res = await app.request('/delete', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prefixes: [prefix] }),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ deleted: [], deletedPrefixes: [], errors: [{ key: prefix, error: expect.any(String) }] });
+    expect(await kv.get(cacheKey, 'json')).toBeNull();
+  });
+
+  it('retains fresh stats when the listing fails before any deletion', async () => {
+    transport.mockResolvedValueOnce(new Response(null, { status: 503 }));
+    const res = await app.request('/delete', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prefixes: [prefix] }),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ deletedPrefixes: [], errors: [{ key: prefix, error: expect.any(String) }] });
+    expect(await kv.get(cacheKey, 'json')).toMatchObject({ totalFiles: 2 });
   });
 
   it('reports the completed count for a genuine quiet DeleteResult', async () => {

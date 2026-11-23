@@ -37,6 +37,7 @@ interface PollingStateView {
   managedReleaseStatus: 'current' | 'upgrading' | 'update_pending' | null;
   bucketMigrating: boolean;
   bucketMigrationPending: boolean;
+  bucketMigrationHaltedAt: string | null;
 }
 
 type StateGetter = () => PollingStateView;
@@ -179,8 +180,12 @@ export function resetManagedCheckState(): void {
   ancillaryCheckInFlight = null;
 }
 
-export function refreshSessionAncillaryStatus(): Promise<void> {
-  if (ancillaryCheckInFlight) return ancillaryCheckInFlight;
+export function refreshSessionAncillaryStatus({ afterCurrent = false } = {}): Promise<void> {
+  if (ancillaryCheckInFlight) {
+    if (!afterCurrent) return ancillaryCheckInFlight;
+    // A read started before retry settled cannot confirm its outcome.
+    return ancillaryCheckInFlight.catch(() => undefined).then(() => refreshSessionAncillaryStatus());
+  }
   ancillaryCheckInFlight = api.getSessionAncillaryStatus().then((response) => {
     lastAncillaryCheckAt = Date.now();
     setStateRaw('maxSessions', response.maxSessions);
@@ -195,6 +200,7 @@ export function refreshSessionAncillaryStatus(): Promise<void> {
     applyManagedReleaseBatchFn(response.managedReleaseStatus, response.preseedNeedsUpgrade, response.managedReleaseProgress, response.preseedUpgradeTarget);
     setStateRaw('bucketMigrating', response.bucketMigrating === true);
     setStateRaw('bucketMigrationPending', response.bucketMigrationPending === true);
+    setStateRaw('bucketMigrationHaltedAt', response.bucketMigrationHaltedAt ?? null);
     setStateRaw('bucketMigrationPercent', response.bucketMigrationPercent ?? null);
   }).finally(() => { ancillaryCheckInFlight = null; });
   return ancillaryCheckInFlight;
@@ -204,7 +210,7 @@ export function refreshSessionAncillaryStatus(): Promise<void> {
  * Lightweight status refresh - only fetches batch-status and updates
  * existing session statuses in-place. Does NOT replace the sessions
  * array or set loading state, so the dashboard doesn't flicker.
- * Also updates storage stats when storageStats is present in the batch response.
+ * Storage stats are refreshed separately through the ancillary endpoint.
  */
 export function refreshSessionStatuses(forceManagedReleaseCheck = false): Promise<void> {
   if (pollInFlight) {
@@ -298,10 +304,15 @@ async function refreshSessionStatusesOnce(forceManagedReleaseCheck: boolean): Pr
       // can accept a newer D1 stopped projection.
       if (isLocallyStoppingFn(session.id)) continue;
 
-      // Guard 2: Startup - block ALL KV transitions while session is initializing.
-      // isSessionInitializing tracks the full startup flow (SSE stream), not just
-      // the 'initializing' status. The accepted D1 start can still be converging.
-      if (session.status === 'initializing' || isSessionInitializingFn(session.id)) continue;
+      // Keep startup's local presentation, but record accepted D1 authority so
+      // a delayed Ready cannot override a stop or a replacement already seen.
+      if (session.status === 'initializing' || isSessionInitializingFn(session.id)) {
+        if (remote.generation !== undefined && remote.revision !== undefined) {
+          setStateRaw('sessions', idx, { lifecycle: remote.lifecycle ?? remote.status,
+            generation: remote.generation, revision: remote.revision });
+        }
+        continue;
+      }
 
       // Legacy unordered negatives cannot override local transport ownership.
       // After the startup guard, an accepted generation/revision-fenced D1

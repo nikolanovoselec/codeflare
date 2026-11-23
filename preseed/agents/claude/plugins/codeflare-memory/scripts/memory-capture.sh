@@ -171,9 +171,9 @@ launch_capture() {
 if [[ -f "$COUNTER_FILE" ]]; then
     # Mid-session: counter present, normal 20-prompt cadence.
     last_count=$(head -1 "$COUNTER_FILE" 2>/dev/null) || last_count=0
-    last_line=$(tail -1 "$COUNTER_FILE" 2>/dev/null) || last_line=1
+    last_line=$(tail -1 "$COUNTER_FILE" 2>/dev/null) || last_line=0
     [[ "$last_count" =~ ^[0-9]+$ ]] || last_count=0
-    [[ "$last_line" =~ ^[0-9]+$ ]] || last_line=1
+    [[ "$last_line" =~ ^[0-9]+$ ]] || last_line=0
 else
     # No counter file = fresh container instance. In codeflare, every
     # session start or resume is a complete container recycle (Cloudflare
@@ -214,9 +214,9 @@ else
         fi
         if [[ $last_count -gt 0 ]]; then
             last_line=$(grep -n '"role":"user","content":"[^<]' "$TRANSCRIPT" | sed -n "${last_count}p" | cut -d: -f1)
-            [[ "$last_line" =~ ^[0-9]+$ ]] || last_line=1
+            [[ "$last_line" =~ ^[0-9]+$ ]] || last_line=0
         else
-            last_line=1
+            last_line=0
         fi
         FORCE_RESUME=1
         [[ ! -f "$VAULT_COUNTER_FILE" ]] && RESUME_VAULT_CHECK=1

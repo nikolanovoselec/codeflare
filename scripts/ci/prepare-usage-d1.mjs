@@ -5,12 +5,18 @@ import { pathToFileURL } from 'node:url';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-function parseJson(output, operation) {
+function parseDatabaseList(output, operation) {
+  let databases;
   try {
-    return JSON.parse(output);
+    databases = JSON.parse(output);
   } catch {
     throw new Error(`${operation} returned invalid JSON`);
   }
+  if (!Array.isArray(databases) || databases.some((database) =>
+    typeof database?.name !== 'string' || !database.name.trim())) {
+    throw new Error(`${operation} returned an unexpected shape`);
+  }
+  return databases;
 }
 
 function renderBinding(config, databaseName, databaseId) {
@@ -41,8 +47,7 @@ export async function prepareUsageD1({
 
   const listed = await run(['d1', 'list', '--json'], wranglerEnvironment);
   if (listed.status !== 0) throw new Error(`Could not list D1 databases — refusing to mutate: ${listed.stderr || listed.stdout || 'unknown error'}`);
-  const databases = parseJson(listed.stdout || '[]', 'D1 list');
-  if (!Array.isArray(databases)) throw new Error('D1 list returned an unexpected shape');
+  const databases = parseDatabaseList(listed.stdout, 'D1 list');
   const exact = databases.filter((database) => database?.name === databaseName);
   if (exact.length > 1) throw new Error(`D1 list contains duplicate exact database name ${databaseName}`);
 
@@ -53,8 +58,7 @@ export async function prepareUsageD1({
     if (creation.status !== 0) throw new Error(`Could not create D1 database ${databaseName}: ${creation.stderr || creation.stdout || 'unknown error'}`);
     const refreshed = await run(['d1', 'list', '--json'], wranglerEnvironment);
     if (refreshed.status !== 0) throw new Error(`Could not resolve created D1 database ${databaseName}: ${refreshed.stderr || refreshed.stdout || 'unknown error'}`);
-    const refreshedDatabases = parseJson(refreshed.stdout || '[]', 'D1 list after create');
-    if (!Array.isArray(refreshedDatabases)) throw new Error('D1 list after create returned an unexpected shape');
+    const refreshedDatabases = parseDatabaseList(refreshed.stdout, 'D1 list after create');
     const createdMatches = refreshedDatabases.filter((candidate) => candidate?.name === databaseName);
     if (createdMatches.length !== 1) throw new Error(`D1 list after create must contain exactly one database named ${databaseName}`);
     database = createdMatches[0];

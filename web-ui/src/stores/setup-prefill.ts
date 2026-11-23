@@ -64,7 +64,7 @@ function applyEnterpriseConfigPrefill(s: SetupState, prefill: SetupPrefill): voi
 }
 
 /**
- * Enterprise reconfiguration hydration (REQ-ENTERPRISE-009): admins and the
+ * Enterprise reconfiguration hydration (REQ-ENTERPRISE-308): admins and the
  * Access groups come from the setup prefill because GET /api/users returns
  * 403 in enterprise mode.
  */

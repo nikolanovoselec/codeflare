@@ -70,6 +70,22 @@ describe('REQ-ENTERPRISE-031 capability profile catalog', () => {
     expect(opusInvoke.levels.max).toContainEqual({ path: 'output_config.effort', value: 'max' });
   });
 
+  it.each([
+    ['off', 'low'], ['minimal', 'low'], ['low', 'low'], ['medium', 'high'],
+    ['high', 'high'], ['xhigh', 'high'], ['max', 'high'],
+  ])('REQ-ENTERPRISE-078 AC1: sparse native profile maps %s to exact or next executable %s', (requested, expected) => {
+    const base = profiles.getBuiltInProfile('bedrock-anthropic-native-opus-invoke')!;
+    const profile = profiles.normalizeCustomProfile({ ...base, id: 'custom-native-sparse', hash: undefined,
+      supportedLevels: ['low', 'high'], levels: { low: base.levels.low, high: base.levels.high }, aliases: {}, offSemantics: { status: 'unsupported' } });
+    const payload = { reasoning_effort: requested, thinking: { type: 'disabled' }, output_config: { effort: 'untrusted' }, messages: [] };
+    const before = structuredClone(payload);
+    const translated = profiles.translateRuntimeReasoningRequest(payload, profile, 'low');
+    expect(translated.thinking).toEqual({ type: 'adaptive' });
+    expect(translated.output_config).toEqual({ effort: expected });
+    expect(translated).not.toHaveProperty('reasoning_effort');
+    expect(payload).toEqual(before);
+  });
+
   it('REQ-ENTERPRISE-072/078: gives automatic Opus routing its own immutable all-level profile', () => {
     const auto = profiles.getBuiltInProfile('bedrock-anthropic-native-opus-auto')!;
     const invoke = profiles.getBuiltInProfile('bedrock-anthropic-native-opus-invoke')!;

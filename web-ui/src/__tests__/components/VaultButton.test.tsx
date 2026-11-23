@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { createSignal } from 'solid-js';
+import { createSignal, Show } from 'solid-js';
 import { render, screen, fireEvent, cleanup } from '@solidjs/testing-library';
 import VaultButton, { type VaultButtonStatus } from '../../components/VaultButton';
 
@@ -10,6 +10,27 @@ describe('VaultButton', () => {
   afterEach(() => cleanup());
 
   const btn = () => screen.getByTestId('header-vault-button');
+
+  it.each([
+    { status: 'idle' as const, feedback: 'Vault is waiting for the session to be ready.' },
+    { status: 'prewarming' as const, feedback: 'Preparing Vault on this device. First use in a browser can take a few minutes.' },
+  ])('REQ-VAULT-033 AC3: unavailable $status control stays visible and explains the wait without opening', ({ status, feedback }) => {
+    const [opened, setOpened] = createSignal(false);
+    render(() => <>
+      <VaultButton status={status} onOpen={() => setOpened(true)} />
+      <Show when={opened()}><p>Editor opened</p></Show>
+    </>);
+    expect(btn()).toBeVisible();
+    expect(btn()).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.queryByRole('status')).toBeNull();
+    fireEvent.click(btn());
+    expect(screen.getByRole('status')).toHaveTextContent(feedback);
+    expect(btn()).toBeVisible();
+    expect(screen.queryByText('Editor opened')).toBeNull();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('status')).toBeNull();
+    expect(btn()).toBeVisible();
+  });
 
   it('armed status is openable, carries the green-breathing class, and fires onOpen on click', () => {
     const onOpen = vi.fn();

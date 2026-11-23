@@ -98,6 +98,7 @@ describe('deployment container image input hash', () => {
       'scripts/merge-pi-mcp-portals.mjs',
       'scripts/qualify-pi-mcp.mjs',
       'host/__tests__/pi-mcp-stock.test.js',
+      'host/__tests__/graphify-image.test.js',
       'host/__fixtures__/pi-mcp-extension-server.mjs',
       'host/package.json',
       'host/package-lock.json',
@@ -116,10 +117,10 @@ describe('deployment container image input hash', () => {
       'scripts/patch-rclone-bisync.py',
       'scripts/prepare-rclone-s3-fixture.py',
       'scripts/ci/rclone-bookkeeping_test.go',
+      'scripts/ci/rclone-hermes-empty_test.go',
       'scripts/patch-context-mode-bundles.mjs',
       'scripts/qualify-context-mode.mjs',
       'scripts/patch-chrome-devtools-timeouts.mjs',
-      'scripts/patch-pi-goal-review-control.mjs',
       'scripts/patch-pi-plan-mode-tool-policy.mjs',
       'scripts/patch-pi-native-model-display.mjs',
       'scripts/patch-pi-codex-prompt-cache.mjs',
@@ -199,11 +200,11 @@ describe('deployment container image input hash', () => {
     assert.notEqual(portalTag, cleanupTag);
 
     let qualifierTag = portalTag;
-    for (const file of ['scripts/qualify-context-mode.mjs', 'scripts/qualify-pi-mcp.mjs', 'host/__tests__/pi-mcp-stock.test.js', 'host/__fixtures__/pi-mcp-extension-server.mjs']) {
+    for (const file of ['scripts/qualify-context-mode.mjs', 'scripts/qualify-pi-mcp.mjs', 'host/__tests__/pi-mcp-stock.test.js', 'host/__tests__/graphify-image.test.js', 'host/__fixtures__/pi-mcp-extension-server.mjs']) {
       write(file, 'image qualification change\n');
       commit('image qualification change');
       const changed = imageHashResult().tag;
-      assert.notEqual(changed, qualifierTag, `copied qualification input ${file} must invalidate reuse`);
+      assert.notEqual(changed, qualifierTag, `qualification input ${file} must invalidate reuse`);
       qualifierTag = changed;
     }
 
@@ -220,15 +221,10 @@ describe('deployment container image input hash', () => {
     const scriptTag = imageHashResult().tag;
     assert.notEqual(scriptTag, selectionCoreTag);
 
-    write('scripts/patch-pi-goal-review-control.mjs', 'Goal control patch change\n');
-    commit('Goal patch change');
-    const goalPatchTag = imageHashResult().tag;
-    assert.notEqual(goalPatchTag, scriptTag);
-
     write('scripts/patch-pi-plan-mode-tool-policy.mjs', 'Plan Mode policy patch change\n');
     commit('Plan Mode patch change');
     const planPatchTag = imageHashResult().tag;
-    assert.notEqual(planPatchTag, goalPatchTag);
+    assert.notEqual(planPatchTag, scriptTag);
 
     write('scripts/patch-pi-subagents-notifications.mjs', 'Native notification delivery changed\n');
     commit('notification delivery change');

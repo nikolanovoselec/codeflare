@@ -331,7 +331,7 @@ describe('application-owned opaque state through authenticated OPERATOR', () => 
   }));
 });
 
-// REQ-OPERATOR-061 AC4/6: the existing authenticated callback transports
+// REQ-OPERATOR-061 AC3/5: the existing authenticated callback transports
 // explicit coordination, but never caller-selected scope or historical actors.
 describe('shared coordination callback wire', () => {
   const options = { ...normal, applicationConfiguration: { repository: 'acme/updates' },

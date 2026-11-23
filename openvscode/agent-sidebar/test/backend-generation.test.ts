@@ -3,6 +3,7 @@ import { setImmediate as waitForImmediate, setTimeout as waitForTimeout } from '
 import { test } from 'vitest';
 
 import { ApprovalBridge, type ApprovalHost, type ApprovalManifest } from '../src/pi/approval-bridge.ts';
+import { NativePiRuntime } from '../src/pi/native-chat.ts';
 import { PiRpcBackend, parseInlineEditResult } from '../src/pi/node-rpc-backend.ts';
 import type { PiChildProcess, PiProcessSpawner, PiSpawnSpec } from '../src/pi/session.ts';
 
@@ -859,3 +860,145 @@ test('REQ-IDE-030: inline Pi fails closed when settlement has no valid result', 
   await backend.stop();
 });
 
+
+
+test('REQ-IDE-030 AC4: accepts a 500-character summary but refuses surrounding whitespace', () => {
+  const summary = 'x'.repeat(500);
+  assert.deepEqual(parseInlineEditResult({ outcome: 'noChange', summary, edits: [] }, 'owned'), {
+    requestId: 'owned', outcome: 'noChange', summary, edits: [],
+  });
+  for (const summary of [' leading', 'trailing ', '\ttext', 'text\n', ' ']) {
+    assert.throws(() => parseInlineEditResult({ outcome: 'noChange', summary, edits: [] }, 'owned'), /summary is invalid/i);
+  }
+});
+
+for (const validAttempt of [3, 4]) {
+  test(`REQ-IDE-030 AC5: ${validAttempt === 3 ? 'accepts the third' : 'refuses a fourth'} inline result attempt`, async () => {
+    const spawner = new FakePiSpawner();
+    const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
+    const turn = backend.runInlineEditPrompt('bounded retry', { markdown() {}, progress() {} });
+    const outcome = turn.then(result => ({ result }), error => ({ error: error as Error }));
+    try {
+      await waitForImmediate();
+      const child = spawner.children[0]!;
+      const prompt = JSON.parse(child.writes[0]!);
+      child.emit({ id: prompt.id, type: 'response', command: 'prompt', success: true });
+      for (let attempt = 1; attempt < validAttempt; attempt += 1) {
+        child.emit({ type: 'tool_execution_start', toolName: 'codeflare_submit_inline_result',
+          args: { outcome: 'invalid', summary: 'private-result-canary', edits: [] } });
+      }
+      child.emit({ type: 'tool_execution_start', toolName: 'codeflare_submit_inline_result',
+        args: { outcome: 'noChange', summary: 'Already correct.', edits: [] } });
+      child.emit({ type: 'agent_settled' });
+      const settled = await outcome;
+      if (validAttempt === 3) {
+        assert.ok('result' in settled);
+        assert.deepEqual(settled.result, {
+          requestId: JSON.parse(Buffer.from(prompt.message.split(/\s+/, 2)[1], 'base64url').toString()).requestId,
+          outcome: 'noChange', summary: 'Already correct.', edits: [],
+        });
+        assert.equal(backend.isReusable(), true);
+      } else {
+        assert.ok('error' in settled);
+        assert.match(settled.error.message, /outcome is invalid/i);
+        assert.doesNotMatch(settled.error.message, /private-result-canary|Already correct/);
+        assert.equal(backend.isReusable(), false);
+      }
+    } finally { await backend.stop(); }
+  });
+}
+
+for (const [category, args] of [
+  ['outcome', { outcome: 'private-result-canary', summary: 'private-result-canary', edits: [] }],
+  ['summary', { outcome: 'edit', summary: ' private-result-canary', edits: [] }],
+  ['edit count', { outcome: 'edit', summary: 'private-result-canary', edits: [] }],
+  ['geometry', { outcome: 'edit', summary: 'private-result-canary', edits: [{ newText: 'private-result-canary' }] }],
+] as const) {
+  test(`REQ-IDE-030 AC6: invalid-only ${category} settlement withholds result content`, async () => {
+    const spawner = new FakePiSpawner();
+    const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
+    const visible: string[] = [];
+    const turn = backend.runInlineEditPrompt('invalid result', {
+      markdown: value => visible.push(value), progress: value => visible.push(value),
+      thinking: value => visible.push(value),
+    });
+    const rejection = assert.rejects(turn, (error: Error) => {
+      assert.match(error.message, new RegExp(`${category} is invalid`, 'i'));
+      assert.doesNotMatch(error.message, /private-result-canary/);
+      return true;
+    });
+    try {
+      await waitForImmediate();
+      const child = spawner.children[0]!;
+      const prompt = JSON.parse(child.writes[0]!);
+      child.emit({ id: prompt.id, type: 'response', command: 'prompt', success: true });
+      child.emit({ type: 'tool_execution_start', toolName: 'codeflare_submit_inline_result', args });
+      child.emit({ type: 'agent_settled' });
+      await rejection;
+      assert.doesNotMatch(visible.join(''), /private-result-canary/);
+      assert.equal(backend.isReusable(), false);
+    } finally { await backend.stop(); }
+  });
+}
+
+for (const failure of ['command', 'async dispatch'] as const) {
+  for (const nextMode of ['chat', 'inline-edit'] as const) {
+    test(`REQ-IDE-028 AC2+AC4: ${nextMode} succeeds after a real backend ${failure} failure`, async () => {
+      // Generation reaping cannot find fake OS processes; model the child's
+      // asynchronous exit when the real disposal path sends its signal.
+      class TerminatingPiChild extends FakePiChild {
+        override signal(): void { queueMicrotask(() => this.emitExit()); }
+      }
+      const spawner = new class extends FakePiSpawner {
+        override spawn(_spec: PiSpawnSpec): PiChildProcess {
+          const child = new TerminatingPiChild();
+          this.children.push(child);
+          return child;
+        }
+      }();
+      const runtime = new NativePiRuntime(() => new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost())));
+      const input = { prompt: 'request', history: [], openFiles: [], diagnostics: [], references: [] };
+      const cancellation = { isCancellationRequested: false, onCancellationRequested: () => ({ dispose() {} }) };
+      const failedOutput: unknown[] = [];
+      const failed = runtime.handle({ mode: 'inline-edit', input, cancellation,
+        response: { markdown: value => failedOutput.push(value), progress() {}, textEdit: edits => failedOutput.push(edits) } });
+      const rejection = assert.rejects(failed, /native Inline Chat command failed/i);
+      try {
+        await waitForImmediate();
+        const child = spawner.children[0]!;
+        if (failure === 'async dispatch') {
+          child.emit({ id: JSON.parse(child.writes[0]!).id, type: 'response', command: 'prompt', success: true });
+        }
+        child.emit({ type: 'extension_error',
+          extensionPath: failure === 'command' ? 'command:codeflare-inline-edit' : '<runtime>',
+          event: failure === 'command' ? 'command' : 'send_user_message', error: 'dispatch failed' });
+        await rejection;
+        assert.equal(child.exited, true);
+        assert.deepEqual(failedOutput, []);
+        const markdown: string[] = [];
+        const proposals: unknown[] = [];
+        const next = runtime.handle({ mode: nextMode, input, cancellation,
+          response: { markdown: value => markdown.push(value), progress() {}, textEdit: (_edits, proposal) => proposals.push(proposal) } });
+        await waitForImmediate();
+        const replacement = spawner.children[1]!;
+        assert.ok(replacement);
+        const prompt = JSON.parse(replacement.writes[0]!);
+        replacement.emit({ id: prompt.id, type: 'response', command: 'prompt', success: true });
+        if (nextMode === 'chat') {
+          replacement.emit({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'Recovered panel answer.' } });
+        } else {
+          replacement.emit({ type: 'tool_execution_start', toolName: 'codeflare_submit_inline_result',
+            args: { outcome: 'noChange', summary: 'Recovered editor answer.', edits: [] } });
+        }
+        replacement.emit({ type: 'agent_settled' });
+        await next;
+        if (nextMode === 'chat') assert.deepEqual(markdown, ['Recovered panel answer.']);
+        else {
+          const requestId = JSON.parse(Buffer.from(prompt.message.split(/\s+/, 2)[1], 'base64url').toString()).requestId;
+          assert.deepEqual(proposals, [{ requestId, outcome: 'noChange', summary: 'Recovered editor answer.', edits: [] }]);
+          assert.deepEqual(markdown, []);
+        }
+      } finally { await runtime.dispose(); }
+    });
+  }
+}

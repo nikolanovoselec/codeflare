@@ -42,7 +42,7 @@ async function trySyncAccessPolicy(env: Env): Promise<void> {
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authMiddleware);
 
-// REQ-ENTERPRISE-009: in enterprise mode, user administration is delegated to the
+// REQ-ENTERPRISE-308 AC1: in enterprise mode, user administration is delegated to the
 // customer's Cloudflare Access — blocking/deleting/tier-changing a user here is
 // meaningless (Access still admits them). Fail closed on every user-management
 // route. No-op when ENTERPRISE_MODE is unset, so SaaS/non-SaaS are unchanged.

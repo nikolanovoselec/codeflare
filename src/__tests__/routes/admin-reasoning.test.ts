@@ -199,6 +199,50 @@ describe('REQ-ENTERPRISE-033 Administration reasoning API', () => {
     expect((await app.request('/admin/reasoning/discover', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...discoveryBody(), administratorConfirmed: true }) })).status).toBe(403);
   });
 
+  it('REQ-ENTERPRISE-047 AC1: authenticated catalog returns all sanitized provider pages and rejects unauthenticated discovery', async () => {
+    const { app, kv } = await createApp();
+    const before = new Map(kv._store);
+    const requests: Array<{ url: string; method: string }> = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const request = new Request(input, init);
+      requests.push({ url: request.url, method: request.method });
+      const url = new URL(request.url);
+      if (url.pathname.endsWith('/provider_configs')) {
+        const page = Number(url.searchParams.get('page'));
+        const result = page === 1
+          ? [{ id: 'private-bedrock-binding', provider_slug: 'aws-bedrock', gateway_id: 'gateway', default_config: true, api_key: 'private-provider-token' }]
+          : [{ id: 'private-openai-binding', provider_slug: 'openai', gateway_id: 'gateway', default_config: false, alias: 'private-byok-alias' }];
+        return Response.json({ success: true, result, result_info: { page, count: 1, per_page: 100, total_count: 2 } });
+      }
+      if (url.pathname.endsWith('/custom-providers')) return Response.json({ success: true, result: [], result_info: { page: 1, count: 0, per_page: 100, total_count: 0 } });
+      if (url.pathname.endsWith('/routes')) return Response.json({ result: { routes: [{ id: 'route', name: 'codeflare-mesh' }] } });
+      throw Error(`Unexpected management URL: ${url.pathname}`);
+    });
+    authReject = true;
+    const denied = await app.request('/admin/reasoning/catalog');
+    expect(denied.status).toBe(401);
+    expect(requests).toEqual([]);
+    expect(kv._store).toEqual(before);
+    authReject = false;
+    const response = await app.request('/admin/reasoning/catalog');
+    expect(response.status).toBe(200);
+    const text = await response.text();
+    const body = JSON.parse(text);
+    expect(body.providers).toEqual([
+      { provider: 'aws-bedrock', label: 'Amazon Bedrock', configured: true, defaultSelection: true, supported: true, custom: false },
+      { provider: 'openai', label: 'OpenAI', configured: true, defaultSelection: false, supported: true, custom: false },
+    ]);
+    expect(body).toMatchObject({ routes: ['codeflare-mesh'], routeCatalogStatus: 'ready', providerCatalogStatus: 'ready' });
+    expect(body.profiles.map((profile: any) => profile.id)).toEqual(BUILTIN_IDS);
+    expect(requests.filter(request => new URL(request.url).pathname.endsWith('/provider_configs'))
+      .map(request => new URL(request.url).searchParams.get('page'))).toEqual(['1', '2']);
+    for (const secret of ['private-bedrock-binding', 'private-openai-binding', 'private-provider-token', 'private-byok-alias', 'gateway-secret']) {
+      expect(text).not.toContain(secret);
+    }
+    expect(requests.every(request => request.method === 'GET')).toBe(true);
+    expect(kv._store).toEqual(before);
+  });
+
   it('accepts documented data.routes and returns the exact sanitized catalog schema', async () => {
     const { app } = await createApp({ AIG_TOKEN: 'deployment-secret-must-not-leak' });
     mockSuccessfulProvider();

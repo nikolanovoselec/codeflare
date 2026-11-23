@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { closeSync, existsSync, openSync, readSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, TurnEndEvent, TurnEndEventResult } from "@earendil-works/pi-coding-agent";
 import { cloneTargetHadGit, cloneTargetPath, rememberCloneTargetHadGit } from "./graphify-helpers";
 import {
   findGitRoot,
@@ -77,6 +77,7 @@ type ReviewContext = {
 
 type ReviewPi = ToolActivationPi & {
   on(event: "input" | "session_start" | "tool_call" | "tool_execution_start" | "tool_result" | "agent_end" | "agent_settled", handler: (event: any, ctx: ReviewContext) => void | Promise<void>): void;
+  on(event: "turn_end", handler: (event: TurnEndEvent, ctx: ReviewContext) => Promise<TurnEndEventResult | undefined>): void;
   sendMessage(
     message: { customType: string; content?: string; details?: Record<string, unknown>; display?: boolean },
     options?: { triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "nextTurn" },
@@ -369,8 +370,10 @@ function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
     sections.push([
       `### ${sections.length + 1}. Triage before fixing`, "",
       input.ciEvent
-        ? "Wait for every required reviewer and terminal exact-head CI evidence, then publish one joint table:"
-        : "Wait for every required reviewer result, then publish one joint table:", "",
+        ? "Wait for every required reviewer and terminal exact-head CI evidence."
+        : "Wait for every required reviewer.", "",
+      "If a finished reviewer’s full findings are missing, activate `get_subagent_result` with `capability` if needed. Before triage, call it with the agent ID from that exact finished launch.", "",
+      "Then publish one joint table:", "",
       REVIEW_TRIAGE_HEADER, REVIEW_TRIAGE_DIVIDER, "",
       ...(input.ciEvent
         ? ["CI failure or timeout requires FINDING `Exact-head CI` and PROPOSED FIX `CI_RESULT failure` or `CI_RESULT timeout`.", ""]
@@ -474,11 +477,8 @@ function sendLaunchRejectionFollowUp(
   }, { deliverAs: "followUp", triggerTurn: true });
 }
 
-function sendFixFollowUp(
-  pi: ReviewPi,
-  round: ActiveRound,
-): void {
-  pi.sendMessage({
+function fixFollowUp(round: ActiveRound) {
+  return {
     customType: "pr-boundary-fix-follow-up",
     content: [
       "## PR boundary — apply accepted fixes", "", "**Phase:** FIX", "",
@@ -490,7 +490,7 @@ function sendFixFollowUp(
     ].join("\n"),
     display: true,
     details: { head: round.identity.head, reviewRange: round.range, boundaryToolUseId: round.boundaryToolUseId },
-  }, { deliverAs: "followUp", triggerTurn: true });
+  };
 }
 
 type ActiveRound = {
@@ -519,9 +519,13 @@ function liveEntries(ctx: ReviewContext): Record<string, any>[] | undefined {
 }
 
 function roundFacts(ctx: ReviewContext, round: ActiveRound) {
+  let branch: Record<string, any>[] | undefined;
+  try { branch = ctx.sessionManager.getBranch?.(); }
+  catch { /* Only the existing notification and public-result paths can fall back. */ }
   return reviewTranscriptFacts({
     sessionFile: round.file,
-    entries: liveEntries(ctx),
+    entries: branch ?? liveEntries(ctx),
+    activeBranchKnown: branch !== undefined,
     requiredLanes: round.reviewers,
     ci: {
       repository: round.repository,
@@ -711,7 +715,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     dialogsInFlight.clear();
     autonomyOverride = false;
     activeRound = undefined;
-    if (!globalPrunePerformed) {
+    if (!globalPrunePerformed && rootSessionFile(ctx)) {
       globalPrunePerformed = true;
       pruneCompletionState();
     }
@@ -762,7 +766,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
   };
   pi.on("tool_result", handleToolResult);
 
-  const settleRound = async (ctx: ReviewContext, endOfTurn: boolean): Promise<void> => {
+  const settleRound = async (ctx: ReviewContext, endOfTurn: boolean, boundary?: TurnEndEvent): Promise<TurnEndEventResult | undefined> => {
     const round = activeRound;
     if (!round) return;
     if (endOfTurn && round.ignoreAgentEnds > 0) {
@@ -773,6 +777,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     const unresolvedLaunchIssues = facts.launchIssues.filter((issue) => issue.target === "ci-monitor"
       ? !facts.ciLaunched
       : facts.lanes[issue.target].state === "missing");
+    if (boundary && !facts.triageComplete) return;
     for (const issue of unresolvedLaunchIssues) {
       if (round.launchRejectionsDelivered.has(issue.toolUseId)) continue;
       round.launchRejectionsDelivered.add(issue.toolUseId);
@@ -813,8 +818,16 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       return;
     }
     activeRound = undefined;
-    sendFixFollowUp(pi, round);
+    const message = fixFollowUp(round);
+    if (boundary) return { entries: [...boundary.entries, { type: "custom_message", ...message }], continue: true };
+    pi.sendMessage(message, { deliverAs: "followUp", triggerTurn: true });
   };
+
+  pi.on("turn_end", async (event, ctx) => {
+    if (event.outcome !== "completed" || event.toolResults.length > 0) return;
+    // FIX itself provides the non-assistant context Pi needs to continue.
+    return settleRound(ctx, false, event);
+  });
 
   pi.on("agent_end", async (_event, ctx) => {
     await settleRound(ctx, true);

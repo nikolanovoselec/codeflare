@@ -15,9 +15,10 @@
 // sync functions with an argv-recording stub.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
+import { setTimeout as delay } from 'node:timers/promises';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -108,6 +109,7 @@ function runBaselineTimeout() {
     `RECOVERY_FILTER_FILE='${recoveryFilter}'`,
     `CODEFLARE_RUNTIME_ROOT='${runtimeRoot}'`,
     `SYNC_RUNTIME_DIR='${syncRuntimeDir}'`,
+    'MANAGED_RESOURCE_POLICY=mutable',
     'RCLONE_FILTERS=()',
     'timeout() { return 124; }',
     'rclone() { case "$1" in delete) return 0;; *) return 1;; esac; }',
@@ -122,6 +124,51 @@ function runBaselineTimeout() {
   rmSync(fixture, { recursive: true, force: true });
   return { result, sentinelExists };
 }
+
+function runResyncTimeout(t, timeoutOperation) {
+  const fixture = mkdtempSync(join(tmpdir(), 'resync-timeout-'));
+  t.after(() => rmSync(fixture, { recursive: true, force: true }));
+  const syncDir = join(fixture, 'sync');
+  mkdirSync(join(syncDir, 'rclone'), { recursive: true });
+  writeFileSync(join(syncDir, 'rclone/home_user..r2_bucket.path1.lst'), '');
+  const script = [
+    `CODEFLARE_RUNTIME_ROOT=${JSON.stringify(fixture)}`,
+    'SYNC_RUNTIME_DIR="$CODEFLARE_RUNTIME_ROOT/sync"',
+    'USER_HOME="$CODEFLARE_RUNTIME_ROOT" R2_BUCKET_NAME=bucket MANAGED_RESOURCE_POLICY=mutable',
+    `TIMEOUT_OPERATION=${JSON.stringify(timeoutOperation)}`,
+    'RCLONE_FILTERS=() CYCLES=0',
+    'sleep() { :; }',
+    'bisync_with_r2() { CYCLES=$((CYCLES + 1)); if [ "$CYCLES" -gt 4 ]; then exit 99; fi; return 7; }',
+    'recover_vanished_files() { return 1; }',
+    'timeout() { if [ "$3" = "$TIMEOUT_OPERATION" ] && [ "$CYCLES" -eq 3 ]; then return 124; fi; return 0; }',
+    'update_sync_status() { printf "STATUS %s: %s\\n" "$1" "$2"; if [ "$1" = success ]; then exit 0; fi; }',
+    extractFunction('record_sync_disk_failure'),
+    extractFunction('establish_bisync_baseline'),
+    extractFunction('start_sync_daemon'),
+    'start_sync_daemon; wait "$SYNC_DAEMON_PID"',
+  ].join('\n');
+  return spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+}
+
+it('REQ-STOR-045 AC3: timed-out resync reports timeout and retries after one more failed cycle', (t) => {
+  const failedCycle = ['STATUS syncing: null', 'STATUS failed: Bisync exit code 7'];
+  for (const [operation, diagnostic] of [
+    ['bisync', 'Bisync baseline timed out after 600s'],
+    ['delete', 'Bisync baseline conflict cleanup timed out'],
+  ]) {
+    const result = runResyncTimeout(t, operation);
+    assert.equal(result.status, 0, result.stderr);
+    const statuses = result.stdout.split('\n').filter(line => line.startsWith('STATUS '));
+    assert.deepEqual(statuses, [
+      ...failedCycle, ...failedCycle, ...failedCycle,
+      'STATUS failed: Resync fallback triggered',
+      `STATUS timeout: ${diagnostic}`,
+      ...failedCycle,
+      'STATUS failed: Resync fallback triggered',
+      'STATUS success: null',
+    ], operation);
+  }
+});
 
 function shutdownTraps() {
   const start = entrypoint.indexOf('\nSHUTDOWN_RAN=0\n');
@@ -294,7 +341,7 @@ describe('REQ-OPS-010: Graceful container shutdown preserves data', () => {
 
   it('REQ-OPS-010 AC5: bisync-initialized flag is touched on the timeout path to ensure final bisync runs', () => {
     const timeout = runBaselineTimeout();
-    assert.equal(timeout.result.status, 0, timeout.result.stderr);
+    assert.equal(timeout.result.status, 124, timeout.result.stderr);
     assert.equal(timeout.sentinelExists, true, 'a baseline timeout must create the protected bisync sentinel');
 
     // Behavioral: the handler gates the final bisync on the sentinel — absent
@@ -413,6 +460,145 @@ describe('REQ-OPS-010: Graceful container shutdown preserves data', () => {
     assert.notEqual(killIdx, -1, 'shutdown_handler must kill $TERMINAL_PID');
     assert.ok(bisyncIdx < killIdx, 'the terminal server must be killed AFTER the final sync (it serves the session until data is safe)');
     assert.ok(out.includes('Shutdown complete'), 'handler must reach its completion line');
+  });
+
+  it('REQ-STOR-005 AC4 / REQ-MEM-004 AC6: real watchdog signals and kills stuck sync after released 108s and 12s clock waits', { timeout: 15_000 }, async (t) => {
+    if (process.platform !== 'linux') return t.skip('requires Linux /proc and POSIX process groups');
+    const root = mkdtempSync(join(tmpdir(), 'shutdown-watchdog-'));
+    const bin = join(root, 'bin');
+    const runtime = join(root, 'runtime');
+    mkdirSync(bin);
+    mkdirSync(join(runtime, 'sync'), { recursive: true });
+    writeFileSync(join(runtime, 'sync', 'bisync-initialized'), '1\n');
+    const peer = join(root, 'sync-peer.cjs');
+    // Only the clock is synthetic. It records the actual production sleep
+    // argument and cannot elapse until the test releases that particular wait.
+    writeFileSync(join(bin, 'sleep'), `#!${process.execPath}
+const fs = require('node:fs');
+const path = require('node:path');
+const args = process.argv.slice(2);
+const root = process.env.WATCHDOG_FIXTURE;
+const seconds = args[0];
+if (args.length !== 1 || !['108', '12'].includes(seconds)) process.exit(71);
+const receipt = path.join(root, 'clock-' + seconds + '.json');
+fs.writeFileSync(receipt + '.tmp', JSON.stringify({ args, pid: process.pid }));
+fs.renameSync(receipt + '.tmp', receipt);
+setTimeout(() => process.exit(72), 10000);
+setInterval(() => {
+  if (fs.existsSync(path.join(root, 'release-' + seconds))) process.exit(0);
+}, 10);
+`);
+    chmodSync(join(bin, 'sleep'), 0o755);
+    // The final-sync peer ignores TERM and remains stuck. Its actual child
+    // acknowledges TERM and exits, exercising the real descendant walk before
+    // the watchdog escalates to KILL for the still-live sync root.
+    writeFileSync(peer, `const fs = require('node:fs');
+const path = require('node:path');
+const { spawn } = require('node:child_process');
+const root = process.env.WATCHDOG_FIXTURE;
+const save = (name, value) => {
+  const file = path.join(root, name);
+  fs.writeFileSync(file + '.tmp', JSON.stringify(value));
+  fs.renameSync(file + '.tmp', file);
+};
+const group = () => Number(fs.readFileSync('/proc/self/stat', 'utf8').split(') ').at(-1).split(' ')[2]);
+setTimeout(() => process.exit(73), 12000);
+setInterval(() => {}, 1000);
+if (process.argv[2] === 'leaf') {
+  process.on('SIGTERM', () => { save('leaf-term.json', { pid: process.pid }); process.exit(0); });
+  process.send({ pid: process.pid, group: group() });
+} else {
+  process.on('SIGTERM', () => save('sync-term.json', { pid: process.pid }));
+  const child = spawn(process.execPath, [__filename, 'leaf'], { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
+  child.on('message', leaf => save('ready.json', { pid: process.pid, group: group(), leaf }));
+  child.on('exit', (code, signal) => save('leaf-exit.json', { code, signal }));
+}
+`);
+    const script = [
+      'TERMINAL_PID= BISYNC_INIT_PID= CODEFLARE_TERMINAL_MODE=classic CODEFLARE_OPERATOR_SESSION=',
+      'CODEFLARE_RUNTIME_ROOT="$WATCHDOG_FIXTURE/runtime"',
+      extractFunction('walk_kill'),
+      extractFunction('kill_pidfile_subtree'),
+      // No daemon belongs to this fixture. Do not query unrelated host-wide
+      // rclone processes; real pgrep -P still discovers the sync descendants.
+      'pgrep() { if [ "$1" = "-f" ]; then return 1; fi; command pgrep "$@"; }',
+      'bisync_with_r2() { exec "$NODE_PEER_RUNTIME" "$SYNC_PEER"; }',
+      extractFunction('shutdown_handler'),
+      shutdownTraps(),
+      'exit 0',
+    ].join('\n');
+    const host = spawn('bash', ['-c', script], {
+      detached: true,
+      env: {
+        PATH: `${bin}:/usr/bin:/bin`, HOME: root,
+        WATCHDOG_FIXTURE: root, NODE_PEER_RUNTIME: process.execPath, SYNC_PEER: peer,
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const closed = once(host, 'close');
+    let output = '';
+    host.stdout.setEncoding('utf8').on('data', text => { output += text; });
+    host.stderr.setEncoding('utf8').on('data', text => { output += text; });
+    const killFixture = () => {
+      // detached:true makes this child's PID the new group ID; never signal
+      // group 0, the test runner, or a PID obtained from a fixture receipt.
+      if (!Number.isSafeInteger(host.pid) || host.pid <= 1) return;
+      try { process.kill(-host.pid, 'SIGKILL'); }
+      catch (error) { if (error.code !== 'ESRCH') throw error; }
+    };
+    const failsafe = setTimeout(killFixture, 12000);
+    t.after(async () => {
+      clearTimeout(failsafe);
+      killFixture();
+      await Promise.race([closed, delay(1000)]);
+      rmSync(root, { recursive: true, force: true });
+    });
+    const until = async (predicate, message) => {
+      const deadline = Date.now() + 3000;
+      while (!predicate() && Date.now() < deadline) await delay(10, undefined, { signal: t.signal });
+      assert.ok(predicate(), `${message}\n${output}`);
+    };
+    const receipt = name => JSON.parse(readFileSync(join(root, name), 'utf8'));
+    const alive = pid => {
+      try {
+        const state = readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ').at(-1).split(' ')[0];
+        return state !== 'Z' && state !== 'X';
+      } catch (error) {
+        if (error.code === 'ENOENT') return false;
+        throw error;
+      }
+    };
+    await until(() => existsSync(join(root, 'ready.json')) && existsSync(join(root, 'clock-108.json')),
+      'sync and first watchdog wait must be ready');
+    const sync = receipt('ready.json');
+    assert.equal(sync.group, host.pid);
+    assert.equal(sync.leaf.group, host.pid);
+    assert.notEqual(sync.pid, host.pid);
+    assert.notEqual(sync.leaf.pid, sync.pid);
+    assert.deepEqual(receipt('clock-108.json').args, ['108']);
+    assert.equal(alive(sync.pid), true);
+    assert.equal(alive(sync.leaf.pid), true);
+    assert.equal(existsSync(join(root, 'sync-term.json')), false);
+    assert.equal(existsSync(join(root, 'leaf-term.json')), false);
+
+    writeFileSync(join(root, 'release-108'), 'elapse first watchdog wait\n');
+    await until(() => existsSync(join(root, 'sync-term.json')) && existsSync(join(root, 'leaf-exit.json'))
+      && existsSync(join(root, 'clock-12.json')), 'real TERM must reach sync and its child');
+    assert.equal(receipt('sync-term.json').pid, sync.pid);
+    assert.equal(receipt('leaf-term.json').pid, sync.leaf.pid);
+    assert.deepEqual(receipt('leaf-exit.json'), { code: 0, signal: null });
+    assert.equal(alive(sync.leaf.pid), false);
+    assert.equal(alive(sync.pid), true, 'TERM-ignoring sync must remain live during the grace period');
+    assert.deepEqual(receipt('clock-12.json').args, ['12']);
+    assert.equal(host.exitCode, null);
+
+    const releasedAt = Date.now();
+    writeFileSync(join(root, 'release-12'), 'expire final watchdog grace\n');
+    await until(() => !alive(sync.pid) && host.exitCode !== null, 'watchdog must kill stuck sync and permit host exit');
+    assert.ok(Date.now() - releasedAt < 3000, 'actual death must promptly follow clock release');
+    assert.deepEqual(await closed, [0, null]);
+    assert.match(output, /Final bisync TIMED OUT after 120s/);
+    assert.doesNotMatch(output, /Final bisync completed successfully/);
   });
 
   it('classifies a watchdog-killed final bisync (143/137) as a timeout, and other non-zero codes as failures', () => {

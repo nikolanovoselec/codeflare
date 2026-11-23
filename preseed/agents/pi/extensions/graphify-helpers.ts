@@ -1,4 +1,15 @@
+import { realpathSync } from "node:fs";
+import { basename } from "node:path";
 import { executableShellCommands, shellCommandArguments, shellCommandExecutable } from "./guard-helpers";
+
+/** Match the Vault exclusion before accepting a Git repository, including aliases. */
+export function isVaultRepository(path: string): boolean {
+  if (basename(path) === "Vault") return true;
+  let canonical: string;
+  try { canonical = realpathSync(path); } catch { return false; }
+  if (basename(canonical) === "Vault") return true;
+  try { return canonical === realpathSync("/home/user/Vault"); } catch { return false; }
+}
 
 type CloneTargetState = typeof globalThis & { __codeflareCloneTargetHadGit?: Map<string, boolean> };
 const cloneTargetState = globalThis as CloneTargetState;

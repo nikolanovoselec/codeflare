@@ -1,4 +1,4 @@
-import { Component, Accessor, Show } from 'solid-js';
+import { Component, Accessor, For, Show } from 'solid-js';
 import {
   mdiFastForward,
   mdiBellOutline,
@@ -16,6 +16,7 @@ import type { AgentNotificationEnablement } from '../../lib/agent-notifications'
 import type { SessionWorkspace } from '../../types';
 import { isTouchDevice, needsHomeScreenInstallForNotifications } from '../../lib/mobile';
 import AdminActionButton from './AdminActionButton';
+import { IDLE_TIMEOUT_PRESETS } from '../../lib/sleep-timer';
 
 interface SessionSectionProps {
   enterpriseMode?: Accessor<boolean>;
@@ -34,7 +35,6 @@ interface SessionSectionProps {
   notificationError?: Accessor<string | null>;
   sleepAfter: Accessor<string>;
   canChangeSleepAfter: Accessor<boolean>;
-  isFreeUser: Accessor<boolean>;
   recreateDocsLoading: Accessor<boolean>;
   recreateDocsMessage: Accessor<string | null>;
   recreateDocsError: Accessor<string | null>;
@@ -361,20 +361,16 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
             <Show when={['5m', '15m', '30m'].includes(props.sleepAfter())}>
               <option value={props.sleepAfter()} disabled>Current {props.sleepAfter().replace('m', ' minutes')}</option>
             </Show>
-            <option value="1h">1 hour</option>
-            <option value="2h">2 hours</option>
-            <option value="4h">4 hours</option>
-            <option value="8h">8 hours</option>
-            <option value="12h">12 hours</option>
+            <For each={IDLE_TIMEOUT_PRESETS}>{value => (
+              <option value={value}>{value === '1h' ? '1 hour' : `${value.slice(0, -1)} hours`}</option>
+            )}</For>
           </select>
         </div>
         <div class="setting-row setting-row--column-gap">
           <span class="settings-hint type-hint" data-testid="settings-sleep-after-hint">
             {props.canChangeSleepAfter()
               ? 'Container stops after this idle duration. Takes effect for new sessions, started several minutes after changing the duration.'
-              : props.isFreeUser()
-                ? 'Fixed at 15 minutes on the Free plan. Upgrade for longer idle timeouts.'
-                : 'Auto-sleep is managed by your administrator.'}
+              : 'Auto-sleep is managed by your administrator.'}
           </span>
         </div>
       </section>

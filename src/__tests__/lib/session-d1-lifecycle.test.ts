@@ -1,7 +1,9 @@
 import { env } from 'cloudflare:test';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { D1SessionRepository } from '../../lib/session-repository';
+import { buildCloneTargets } from '../../lib/clone-targets';
 import { confirmMonitoredExit } from '../../container/container-lifecycle';
+import { TRANSPORT_FAILURE_STREAK_KEY, TRANSPORT_RECOVERY_KEY } from '../../container/container-metrics';
 // @ts-expect-error Vite raw-loader module used only by the Workers test runtime.
 import migration from '../../../migrations/usage/0002_runtime_sessions.sql?raw';
 // @ts-expect-error Vite raw-loader module used only by the Workers test runtime.
@@ -259,7 +261,7 @@ describe('REQ-SESSION-031: complete D1 session authority', () => {
       .toMatchObject({ lifecycleState: 'stopping', boundaryActivityId: 'review-one' });
     expect(await repository.confirmStopped('owner-a', 'session01', 1, 'stop-one', new Date().toISOString())).toBe(false);
     expect(await repository.start('owner-a', 'session01', new Date().toISOString())).toBeNull();
-    expect(await repository.deleteConfirmed('owner-a', 'session01')).toBe(false);
+    expect(await repository.deleteConfirmed('owner-a', 'session01', 1)).toBe(false);
     expect(await repository.acknowledgeBoundaryCancellation('owner-a', 'session01', 1, 'review-one')).toBe(true);
     expect(await repository.getSession('owner-a', 'session01')).toMatchObject({ lifecycleState: 'stopping', terminationIntentId: 'stop-one' });
   });
@@ -462,6 +464,56 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
     await expect(new D1SessionRepository(ambiguousDatabase(true)).observeUnreachable(owner, id, 1, 2, 'incident-a', at)).rejects.toThrow('D1 unavailable');
   });
 
+  it.each(['readable', 'unavailable', 'stalled'] as const)(
+    'REQ-SESSION-018 AC6: ambiguous write with %s reconciliation performs one bounded read', async outcome => {
+      await running();
+      const reads: Array<{ sql: string; args: unknown[] }> = [];
+      let readStartedAt = 0;
+      const ambiguous = ambiguousDatabase(outcome === 'unavailable');
+      const observed = { prepare(sql: string) {
+        const wrap = (statement: D1PreparedStatement, args: unknown[] = []): D1PreparedStatement => new Proxy(statement, {
+          get(target, property) {
+            if (property === 'bind') return (...values: unknown[]) => wrap(target.bind(...values), values);
+            if (property === 'first') return () => {
+              readStartedAt = Date.now();
+              reads.push({ sql, args });
+              return outcome === 'stalled' ? new Promise(() => {}) : target.first();
+            };
+            const value = Reflect.get(target, property);
+            return typeof value === 'function' ? value.bind(target) : value;
+          },
+        });
+        return wrap(ambiguous.prepare(sql));
+      } } as D1Database;
+      vi.useFakeTimers();
+      try {
+        let settled = false;
+        const pending = new D1SessionRepository(observed).observeUnreachable(owner, id, 1, 1, 'incident-a', at)
+          .then(value => { settled = true; return { value, error: undefined }; },
+            error => { settled = true; return { value: undefined, error: error as Error }; });
+        // Let the real D1 write finish before advancing only the reconciliation clock.
+        await vi.waitFor(() => expect(reads.length).toBe(1));
+        if (outcome === 'stalled') {
+          await vi.advanceTimersByTimeAsync(10_000 - (Date.now() - readStartedAt) - 1);
+          expect(settled).toBe(false);
+          await vi.advanceTimersByTimeAsync(1);
+        }
+        const result = await pending;
+        if (outcome === 'readable') expect(result.value).toMatchObject({ unreachableIncidentId: 'incident-a', unreachableDeadlineMs: at + 120_000 });
+        else {
+          expect(result.value).toBeUndefined();
+          expect(result.error?.message).toBe(outcome === 'stalled' ? 'D1 lifecycle reconciliation deadline exceeded' : 'D1 unavailable');
+        }
+        expect(reads).toHaveLength(1);
+        expect(reads[0]!.args).toEqual([owner, id]);
+      } finally { vi.useRealTimers(); }
+      // The composite-key search must bound reconciliation to this owner's one session.
+      const queryPlan = await db.prepare(`EXPLAIN QUERY PLAN ${reads[0]!.sql}`).bind(...reads[0]!.args).all<{ detail: string }>();
+      expect(queryPlan.results.some(step => /SEARCH runtime_sessions USING (?:COVERING )?INDEX \S+ \(owner_key=\? AND session_id=\?\)/.test(step.detail))).toBe(true);
+      expect(await repository().getSession(owner, id)).toMatchObject({ lifecycleState: 'unreachable', unreachableIncidentId: 'incident-a' });
+    },
+  );
+
   async function runtimeFixture() {
     await running();
     let now = at;
@@ -470,7 +522,7 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
       ['observationSequence', 0], ['containerAuthToken', 'test-token'], ['sleepAfter', '12h']]);
     const effects: string[] = [];
     const hostRequests: Array<{ url: string; final: boolean }> = [];
-    let response: () => Promise<Response> = async () => { throw new Error('Connection refused'); };
+    let response: (url: string) => Promise<Response> = async () => { throw new Error('Connection refused'); };
     let provider: () => Promise<void> = async () => { effects.push('destroy-complete'); };
     const storage = { get: async (key: string) => stored.get(key), put: async (key: string, value: unknown) => { stored.set(key, value); },
       delete: async (keys: string | string[]) => { for (const key of Array.isArray(keys) ? keys : [keys]) stored.delete(key); }, sync: async () => {} };
@@ -480,7 +532,7 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
         const body = typeof init?.body === 'string' ? JSON.parse(init.body) as { final?: boolean } : {};
         hostRequests.push({ url: _url, final: body.final === true });
         expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer test-token');
-        return await response();
+        return await response(_url);
       } }), signal: (signal: number) => { effects.push(`signal:${signal}`); }, destroy: () => { effects.push('destroy'); return provider(); } },
       abort: () => { effects.push('reset'); throw Error('fixture reset'); } };
     const host = { ctx, env: { USAGE_DB: db }, _bucketName: owner, _sessionId: id, _containerAuthToken: 'test-token',
@@ -500,7 +552,7 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
       if (!(error instanceof Error && error.message === 'fixture reset')) throw error;
     } };
     return { host, ctx, stored, effects, hostRequests, schedules, alarms, logs, tick, time: (value: number) => { now = value; },
-      respond: (value: () => Promise<Response>) => { response = value; }, provider: (value: () => Promise<void>) => { provider = value; } };
+      respond: (value: (url: string) => Promise<Response>) => { response = value; }, provider: (value: () => Promise<void>) => { provider = value; } };
   }
 
   it('D1 remains authoritative across both bounded reconstructions and exhaustion, without restarting the incident', async () => {
@@ -604,6 +656,56 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
     } finally { vi.restoreAllMocks(); }
   });
 
+  it('REQ-GITHUB-015: retains the restore list when inventory is unavailable but reconciles a complete empty scan', async () => {
+    const f = await runtimeFixture();
+    try {
+      f.ctx.container.running = true;
+      await repository().appendTrackedClone(owner, id, { repo: 'octo/kept' });
+      let inventory: { workspaceRepos?: unknown[] } = {};
+      f.respond(async url => Response.json(new URL(url).searchParams.get('inventory') === 'only' ? inventory : {
+        lastInputAt: at, cpu: '17%', workspaceInventoryReady: true, observedAt: new Date(at).toISOString(),
+      }));
+      await f.tick();
+      expect(await repository().getSession(owner, id)).toMatchObject({ lifecycleState: 'running', cpu: '17%', clones: [{ repo: 'octo/kept' }] });
+      inventory = { workspaceRepos: [] };
+      await f.tick();
+      const current = await repository().getSession(owner, id);
+      expect(buildCloneTargets(current?.clones, current?.clone)).toBe('');
+    } finally { vi.restoreAllMocks(); }
+  });
+
+  it.each(['deferred', 'legacy'] as const)('REQ-GITHUB-015 AC6: %s host inventory cannot erase a clone committed while the scan is in flight', async mode => {
+    const f = await runtimeFixture();
+    let releaseInventory!: () => void;
+    let inventoryRequested!: () => void;
+    const requested = new Promise<void>(resolve => { inventoryRequested = resolve; });
+    const held = new Promise<void>(resolve => { releaseInventory = resolve; });
+    try {
+      f.ctx.container.running = true;
+      const snapshot = { lastInputAt: at, cpu: '17%', observedAt: new Date(at).toISOString() };
+      f.respond(async url => {
+        const inventory = new URL(url).searchParams.get('inventory');
+        if (inventory !== 'only') return Response.json({ ...snapshot,
+          ...(mode === 'deferred' ? { workspaceInventoryReady: true } : { workspaceRepos: [] }) });
+        inventoryRequested();
+        await held;
+        return Response.json(mode === 'deferred' ? { workspaceRepos: [] }
+          : { ...snapshot, cpu: '98%', workspaceRepos: [] });
+      });
+      const pending = f.tick();
+      await Promise.race([requested, pending.then(() => { throw Error('Metrics tick skipped the fresh inventory scan'); })]);
+      try {
+        const before = (await repository().getSession(owner, id))!;
+        expect(await repository().appendTrackedClone(owner, id, { repo: 'octo/added' })).toBe('tracked');
+        expect((await repository().getSession(owner, id))?.observationSequence).toBe(before.observationSequence);
+      } finally { releaseInventory(); }
+      await pending;
+      const after = await repository().getSession(owner, id);
+      expect(buildCloneTargets(after?.clones, after?.clone)).toBe('octo/added');
+      expect(after).toMatchObject({ lifecycleState: 'running', lifecycleGeneration: 1, cpu: '17%' });
+    } finally { releaseInventory(); vi.restoreAllMocks(); }
+  });
+
   it.each([
     ['projection', 'sequence'], ['projection', 'generation'], ['clones', 'sequence'], ['clones', 'generation'],
   ] as const)('a hung %s is bounded and nonbillable; late SQL cannot overwrite a newer %s', async (operation, supersession) => {
@@ -635,7 +737,8 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
       expect(f.alarms).toEqual([{ delay: 60, payload: pin }]);
       expect(f.effects).toEqual([]);
       expect(f.host._usageSeconds).toBe(0);
-      expect(await repository().getSession(owner, id)).toMatchObject({ lifecycleState: 'running', workspace: 'terminal' });
+      expect(await repository().getSession(owner, id)).toMatchObject({ lifecycleState: 'running', workspace: 'terminal',
+        ...(operation === 'clones' ? { cpu: 'old' } : {}) });
       f.host.env.USAGE_DB = real;
       let generation = 1;
       if (supersession === 'generation') {
@@ -782,7 +885,7 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
       f.stored.set('sleepAfter', '1h');
       f.ctx.container.getTcpPort = () => ({ fetch: async (url: string, init?: RequestInit) => {
         expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer test-token');
-        if (url.endsWith('/internal/runtime-observation')) {
+        if (new URL(url).pathname === '/internal/runtime-observation') {
           return Response.json({ lastInputAt: at - 3_600_001, observedAt: new Date(at).toISOString() });
         }
         if (url.endsWith('/internal/final-sync')) {
@@ -986,6 +1089,177 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
       expect(await repository().getSession(owner, id)).toMatchObject({ lifecycleState: 'running', lifecycleGeneration: 2 });
       expect(f.effects).toEqual(['signal:15', 'destroy']);
     } finally { vi.useRealTimers(); vi.restoreAllMocks(); }
+  });
+
+  it.each(['inventory', 'D1'] as const)('REQ-SESSION-022 AC4: a timely host response recovers before optional %s work', async delayed => {
+    const f = await runtimeFixture();
+    try {
+      await f.tick();
+      const incident = (await repository().getSession(owner, id))!;
+      expect(incident.lifecycleState).toBe('unreachable');
+      const expiresAt = incident.unreachableDeadlineMs!;
+      f.time(expiresAt - 1);
+      const startingRequest = f.hostRequests.length;
+      let hostResponded = false;
+      if (delayed === 'D1') {
+        // Exercise incident discovery after the host responds, without the local retry hints.
+        f.ctx.container.running = true;
+        f.stored.delete(TRANSPORT_RECOVERY_KEY);
+        f.stored.delete(TRANSPORT_FAILURE_STREAK_KEY);
+        const getSession = D1SessionRepository.prototype.getSession;
+        vi.spyOn(D1SessionRepository.prototype, 'getSession').mockImplementation(async function (this: D1SessionRepository, ...args) {
+          const row = await getSession.apply(this, args);
+          if (hostResponded) f.time(expiresAt + 1);
+          return row;
+        });
+      }
+      f.respond(async url => {
+        if (new URL(url).searchParams.get('inventory') === 'only') {
+          // Even a successful scan taking another 2 ms would consume the recovery window.
+          f.time(expiresAt + 1);
+          return Response.json({ workspaceRepos: [] });
+        }
+        hostResponded = true;
+        return Response.json({ lastInputAt: expiresAt - 1, workspaceInventoryReady: true,
+          observedAt: new Date(expiresAt - 1).toISOString() });
+      });
+      await f.tick();
+      const recovered = await repository().getSession(owner, id);
+      expect(recovered).toMatchObject({ lifecycleState: 'running', lifecycleGeneration: 1 });
+      expect(recovered?.unreachableIncidentId).toBeUndefined();
+      expect(recovered?.terminationIntentId).toBeUndefined();
+      expect(f.hostRequests.slice(startingRequest).some(({ url }) => new URL(url).searchParams.get('inventory') === 'only')).toBe(false);
+      expect(f.effects).toEqual([]);
+    } finally { vi.restoreAllMocks(); }
+  });
+
+  it('REQ-SESSION-022 AC4: a failed ordinary projection does not discard a timely recovery response', async () => {
+    const f = await runtimeFixture();
+    try {
+      await f.tick();
+      const expiresAt = (await repository().getSession(owner, id))!.unreachableDeadlineMs!;
+      f.time(expiresAt - 1);
+      f.ctx.container.running = true;
+      f.stored.delete(TRANSPORT_RECOVERY_KEY);
+      f.stored.delete(TRANSPORT_FAILURE_STREAK_KEY);
+      f.respond(async () => Response.json({ lastInputAt: expiresAt - 1,
+        workspaceInventoryReady: false, observedAt: new Date(expiresAt - 1).toISOString() }));
+      vi.spyOn(D1SessionRepository.prototype, 'project').mockImplementation(async () => {
+        f.time(expiresAt + 1);
+        throw Error('D1 projection unavailable');
+      });
+      Object.assign(f.host.env, { TIMEKEEPER: { idFromName: () => 'timekeeper', get: () => ({ fetch: async () => {
+        f.effects.push('timekeeper-ping'); return Response.json({ quotaExceeded: true });
+      } }) } });
+      await f.tick();
+      const recovered = await repository().getSession(owner, id);
+      expect(recovered).toMatchObject({ lifecycleState: 'running', lifecycleGeneration: 1 });
+      expect(recovered?.unreachableIncidentId).toBeUndefined();
+      expect(recovered?.terminationIntentId).toBeUndefined();
+      expect(f.host._usageSeconds).toBe(0);
+      expect(f.effects).toEqual([]);
+    } finally { vi.restoreAllMocks(); }
+  });
+
+  it.each([
+    'refused', 'timed out', 'threw without readback proof', 'committed without acknowledgement',
+  ] as const)('REQ-SESSION-024 AC2: expiry distinguishes %s recovery writes', async outcome => {
+    const f = await runtimeFixture();
+    let finish!: () => void;
+    try {
+      await f.tick();
+      const incident = (await repository().getSession(owner, id))!;
+      const expiresAt = incident.unreachableDeadlineMs!;
+      f.time(expiresAt - 1);
+      f.respond(async () => Response.json({ lastInputAt: expiresAt - 1, observedAt: new Date(expiresAt - 1).toISOString() }));
+      const available = new Promise<void>(resolve => { finish = resolve; });
+      let recoveryStarted!: () => void;
+      const started = new Promise<void>(resolve => { recoveryStarted = resolve; });
+      const real = f.host.env.USAGE_DB;
+      f.host.env.USAGE_DB = { prepare(sql: string) {
+        const statement = real.prepare(sql);
+        if (!sql.includes("SET lifecycle_state='running', unreachable_incident_id=NULL")) return statement;
+        return { bind: (...args: unknown[]) => {
+          const bound = statement.bind(...args);
+          return { run: async () => {
+            f.time(expiresAt + 1);
+            recoveryStarted();
+            if (outcome === 'timed out') await available;
+            if (outcome === 'committed without acknowledgement') await bound.run();
+            if (outcome === 'threw without readback proof' || outcome === 'committed without acknowledgement') {
+              throw Error('D1 recovery acknowledgement unavailable');
+            }
+            return { success: true, meta: { changes: 0 } };
+          } };
+        } };
+      } } as D1Database;
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const pending = f.tick();
+      await Promise.race([started, pending.then(() => { throw Error('Tick skipped the recovery write'); })]);
+      if (outcome === 'timed out') await vi.advanceTimersByTimeAsync(10_000);
+      await pending;
+      const current = await repository().getSession(owner, id);
+      expect(current?.lifecycleGeneration).toBe(1);
+      if (outcome === 'committed without acknowledgement') {
+        expect(current?.lifecycleState).toBe('running');
+        expect(current?.unreachableIncidentId).toBeUndefined();
+        expect(current?.terminationIntentId).toBeUndefined();
+        expect(f.alarms).toEqual([{ delay: 60, payload: pin }]);
+        expect(f.effects).toEqual([]);
+        return;
+      }
+      expect(current?.unreachableIncidentId).toBe(incident.unreachableIncidentId);
+      if (outcome === 'refused') {
+        expect(current?.lifecycleState).toBe('stopping');
+        expect(current?.terminationIntentId).toBeDefined();
+        expect(f.effects).toEqual(['signal:15']);
+      } else {
+        expect(current?.lifecycleState).toBe('unreachable');
+        expect(current?.unreachableDeadlineMs).toBe(expiresAt);
+        expect(current?.terminationIntentId).toBeUndefined();
+        expect(f.alarms).toEqual([{ delay: 5, payload: pin }]);
+        expect(f.effects).toEqual([]);
+      }
+    } finally { finish?.(); vi.useRealTimers(); vi.restoreAllMocks(); }
+  });
+
+  it('REQ-SESSION-022 AC4: a recovered session still enforces idle policy on the same tick', async () => {
+    const f = await runtimeFixture();
+    try {
+      await f.tick();
+      f.time(at + 50_000);
+      f.stored.set('sleepAfter', '1h');
+      f.ctx.container.running = true;
+      f.respond(async url => {
+        if (new URL(url).pathname === '/internal/runtime-observation') {
+          return Response.json({ lastInputAt: at - 3_600_001, workspaceInventoryReady: true,
+            observedAt: new Date(at + 50_000).toISOString() });
+        }
+        if (url.endsWith('/internal/final-sync')) f.effects.push('final-sync');
+        return Response.json({ hostNow: at, events: [] });
+      });
+      await f.tick();
+      expect((await repository().getSession(owner, id))?.unreachableIncidentId).toBeUndefined();
+      expect(f.effects).toEqual(['final-sync', 'sdk-stop']);
+      expect(f.hostRequests.some(({ url }) => new URL(url).searchParams.get('inventory') === 'only')).toBe(false);
+      expect(f.host._usageSeconds).toBe(0);
+    } finally { vi.restoreAllMocks(); }
+  });
+
+  it('REQ-SESSION-022 AC4: a host response at expiry cannot recover the incident', async () => {
+    const f = await runtimeFixture();
+    try {
+      await f.tick();
+      const expiresAt = (await repository().getSession(owner, id))!.unreachableDeadlineMs!;
+      f.time(expiresAt - 1);
+      f.respond(async () => {
+        f.time(expiresAt);
+        return Response.json({ lastInputAt: expiresAt, observedAt: new Date(expiresAt).toISOString() });
+      });
+      await f.tick();
+      expect(await repository().getSession(owner, id)).toMatchObject({ lifecycleState: 'stopping', lifecycleGeneration: 1 });
+      expect(f.effects).toEqual(['signal:15']);
+    } finally { vi.restoreAllMocks(); }
   });
 
   it('recovers on any same-incident host response before deadline without an ordinary projection bypass', async () => {

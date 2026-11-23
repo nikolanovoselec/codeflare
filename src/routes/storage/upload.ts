@@ -168,12 +168,29 @@ app.post('/abort', async (c) => {
   return forwardMultipart(c.env, { ...body, bucketName, key: sanitizedKey, action: 'abort', user: c.get('user') });
 });
 
-export type BucketMultipartOperation = { bucketName: string; key: string; user?: AccessUser } & (
+// Recovery uses the canonical key returned by the bucket owner. Never decode it again.
+app.get('/recovery', async (c) => {
+  const result = await forwardMultipart(c.env, { bucketName: c.get('bucketName'), action: 'pending' });
+  const headers = new Headers(result.headers);
+  headers.set('Cache-Control', 'no-store');
+  return new Response(result.body, { status: result.status, headers });
+});
+
+app.post('/recovery', async (c) => {
+  const identity = await parseJsonBody(c, AbortUploadSchema);
+  return forwardMultipart(c.env, { ...identity, bucketName: c.get('bucketName'), action: 'recover', user: c.get('user') });
+});
+
+type MultipartTransfer = { key: string; user?: AccessUser } & (
   | { action: 'initiate' }
   | { action: 'part'; uploadId: string; partNumber: number; content: string }
   | { action: 'complete'; uploadId: string; parts: Array<{ partNumber: number; etag: string }> }
   | { action: 'abort'; uploadId: string }
+  | { action: 'recover'; uploadId: string }
 );
+export type BucketMultipartOperation = { bucketName: string } & (MultipartTransfer | { action: 'pending' });
+
+type PendingMultipart = { key: string; uploadId: string };
 
 type MultipartReceipt = { key: string; generation: number; regime: 'plain' | 'sse-c' };
 export const MULTIPART_PENDING_COMPLETION = 'multipart:pending-completion';
@@ -184,16 +201,22 @@ export async function performBucketMultipart(
   storage: Pick<DurableObjectStorage, 'get' | 'put' | 'delete'>,
   input: BucketMultipartOperation,
 ): Promise<Response> {
+  const pending = await storage.get<PendingMultipart>(MULTIPART_PENDING_COMPLETION);
+  if (input.action === 'pending') return Response.json(pending ?? null);
+  const aborting = input.action === 'abort' || input.action === 'recover';
+  const recoveringPending = aborting && pending?.key === input.key && pending.uploadId === input.uploadId;
+  if (input.action === 'recover' && !recoveringPending) {
+    return Response.json({ code: 'MULTIPART_RECOVERY_CHANGED', error: 'The pending upload changed. Review the current recovery action.' }, { status: 409 });
+  }
   const observed = await getRegimeState(env, input.bucketName);
   const verified = await storage.get<Pick<MultipartReceipt, 'generation' | 'regime'>>('multipart:regime');
   const state = observed.status === 'ready' && verified && verified.generation >= observed.generation
     ? { ...observed, generation: verified.generation, regime: verified.regime } : observed;
-  const pending = await storage.get<{ key: string; uploadId: string }>(MULTIPART_PENDING_COMPLETION);
-  if (state.status !== 'ready' && !(input.action === 'abort' && pending?.key === input.key && pending.uploadId === input.uploadId)) {
+  if (state.status !== 'ready' && !recoveringPending) {
     return Response.json({ code: 'BUCKET_MIGRATING', error: 'Storage migration is active. Retry after it completes.' }, { status: 409 });
   }
   const restart = () => Response.json({ code: 'MULTIPART_RESTART_REQUIRED', error: 'Upload is unknown, stale, or its completion is uncertain. Restart the upload; existing parts were not deleted. An uncertain completion requires explicit abort confirmation before migration.' }, { status: 409 });
-  if (input.action !== 'abort' && pending) return restart();
+  if (!aborting && pending) return restart();
   const receiptKey = input.action === 'initiate' ? null : `multipart:upload:${input.uploadId}`;
   if (input.action === 'part' || input.action === 'complete') {
     const receipt = await storage.get<MultipartReceipt>(receiptKey!);
@@ -223,10 +246,9 @@ export async function performBucketMultipart(
     if (!response.ok) throw new ContainerError('upload', `R2 UploadPart failed: ${response.status}`);
     return Response.json({ etag: (response.headers.get('etag') ?? '').replace(/"/g, '') });
   }
-  if (input.action === 'abort') {
+  if (aborting) {
     // Explicit user abort is the recovery path for an uncertain completion, not an automatic stale-ID cleanup.
     const response = await client.fetch(uploadUrl, { method: 'DELETE', signal: AbortSignal.timeout(10_000) });
-    const recoveringPending = pending?.key === input.key && pending.uploadId === input.uploadId;
     if (!response.ok && !(recoveringPending && response.status === 404)) throw new ContainerError('upload', `R2 AbortMultipartUpload failed: ${response.status}`);
     await storage.delete(receiptKey!);
     if (recoveringPending) await storage.delete(MULTIPART_PENDING_COMPLETION);

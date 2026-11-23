@@ -12,6 +12,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { AccessUser, DeployKeys, Env } from '../../types';
+import { withMockStartClaim } from '../helpers/mock-session-stop';
 import { createMockKV } from '../helpers/mock-kv';
 import { createTestApp } from '../helpers/test-app';
 
@@ -19,13 +20,15 @@ const PROJECTION_ALL = 'v1:claude-code,codex,copilot,antigravity,opencode,pi';
 
 // Hoisted shared test state
 const testState = vi.hoisted(() => ({
+  kv: null as ReturnType<typeof createMockKV> | null,
   container: null as {
-    fetch: ReturnType<typeof vi.fn>;
+    fetch: ReturnType<typeof vi.fn<(request: Request) => Promise<Response>>>;
     destroy: ReturnType<typeof vi.fn>;
-    getState: ReturnType<typeof vi.fn>;
-    startAndWaitForPorts: ReturnType<typeof vi.fn>;
+    getState: ReturnType<typeof vi.fn<() => Promise<{ status: string }>>>;
+    startSession: ReturnType<typeof vi.fn>;
   } | null,
   createBucketResult: { success: true, created: false } as { success: boolean; error?: string; created?: boolean },
+  realBucketCreation: false,
   seedResult: { written: [], skipped: [] } as { written: string[]; skipped: string[] },
   activeManagedRelease: null as null | { digest: string; pointer: { sequence: number }; resourcePolicy: 'mutable' | 'immutable' | 'exclusive' },
   managedReleaseError: null as Error | null,
@@ -38,11 +41,17 @@ const testState = vi.hoisted(() => ({
 }));
 
 vi.mock('@cloudflare/containers', () => ({
-  getContainer: vi.fn(() => testState.container),
+  getContainer: vi.fn(() => withMockStartClaim(testState.container!, testState.kv!)),
 }));
 
-vi.mock('../../lib/r2-admin', () => ({
-  createBucketIfNotExists: vi.fn(async () => testState.createBucketResult),
+vi.mock('../../lib/r2-admin', async (importOriginal) => ({
+  createBucketIfNotExists: vi.fn(async (...args: Parameters<typeof import('../../lib/r2-admin').createBucketIfNotExists>) => {
+    if (testState.realBucketCreation) {
+      const actual = await importOriginal<typeof import('../../lib/r2-admin')>();
+      return actual.createBucketIfNotExists(...args);
+    }
+    return testState.createBucketResult;
+  }),
   getOrCreateScopedR2Token: vi.fn(async () => ({
     accessKeyId: 'scoped-ak',
     secretAccessKey: 'scoped-sk',
@@ -83,6 +92,7 @@ vi.mock('../../lib/controller-egress', () => ({
 
 const passThroughCB = { execute: (fn: () => Promise<unknown>) => fn(), reset: vi.fn() };
 vi.mock('../../lib/circuit-breakers', () => ({
+  r2AdminCB: { execute: <T>(fn: () => Promise<T>) => fn() },
   getContainerHealthCB: () => passThroughCB,
   getContainerInternalCB: () => passThroughCB,
   getContainerSessionsCB: () => passThroughCB,
@@ -124,20 +134,22 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
 
   function makeContainer() {
     return {
-      fetch: vi.fn().mockResolvedValue(
+      fetch: vi.fn<(request: Request) => Promise<Response>>().mockResolvedValue(
         new Response(JSON.stringify({ bucketName: null }), { status: 200 })
       ),
       destroy: vi.fn().mockResolvedValue(undefined),
-      getState: vi.fn().mockResolvedValue({ status: 'stopped' }),
-      startAndWaitForPorts: vi.fn().mockResolvedValue(undefined),
+      getState: vi.fn<() => Promise<{ status: string }>>().mockResolvedValue({ status: 'stopped' }),
+      startSession: vi.fn().mockResolvedValue(undefined),
     };
   }
 
   beforeEach(() => {
     vi.clearAllMocks();
     mockKV = createMockKV();
+    testState.kv = mockKV;
     testState.container = makeContainer();
     testState.createBucketResult = { success: true, created: false };
+    testState.realBucketCreation = false;
     testState.seedResult = { written: [], skipped: [] };
     testState.activeManagedRelease = null;
     testState.managedReleaseError = null;
@@ -169,6 +181,27 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
       return app.fetch(req, {} as Env, mockExecutionCtx as unknown as ExecutionContext);
     };
   }
+
+  it.each([
+    ['free', false, undefined, '1h'],
+    ['free', false, '12h', '12h'],
+    ['free', false, '15m', '15m'],
+    ['standard', false, undefined, '1h'],
+    ['standard', false, '30m', '30m'],
+    ['free', true, undefined, '1h'],
+    ['free', true, '2h', '2h'],
+  ] as const)('REQ-SESSION-014 AC2: %s Start (Enterprise=%s, saved=%s) forwards %s', async (tier, enterprise, saved, expected) => {
+    if (saved) mockKV._set('user-prefs:test-bucket', { sleepAfter: saved });
+    testState.saasMode = !enterprise;
+    const fetch = createApp(enterprise ? { ENTERPRISE_MODE: 'active' } : { SAAS_MODE: 'active' }, {
+      email: 'test@example.com', authenticated: true, role: 'user', accessTier: 'standard', subscriptionTier: tier,
+    });
+    const response = await fetch('/container/start?sessionId=abcdef1234567890abcdef12', { method: 'POST' });
+    expect(response.status, await response.clone().text()).toBe(200);
+    const config = testState.container!.fetch.mock.calls.map(([request]) => request)
+      .find(request => new URL(request.url).pathname === '/_internal/setBucketName');
+    expect(await config?.clone().json()).toMatchObject({ sleepAfter: expected });
+  });
 
   describe('REQ-AGENT-029: selected OAuth account startup snapshot', () => {
     const browserAccountA = 'a'.repeat(32);
@@ -676,6 +709,46 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
 
   // AC1: POST /api/container/start creates the user's R2 bucket if it does not exist
   describe('REQ-SESSION-003 AC1: createBucketIfNotExists called on start', () => {
+    it('REQ-STOR-001 AC2: first Start creates the absent bucket and configures the runtime with that bucket', async () => {
+      testState.realBucketCreation = true;
+      const buckets = new Set<string>();
+      const requests: Array<{ method: string; path: string }> = [];
+      const peer = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+        const request = new Request(input, init);
+        const path = new URL(request.url).pathname;
+        requests.push({ method: request.method, path });
+        if (request.method === 'GET' && path === '/client/v4/accounts/test-account/r2/buckets/test-bucket') {
+          return Response.json({ success: buckets.has('test-bucket') }, { status: buckets.has('test-bucket') ? 200 : 404 });
+        }
+        if (request.method === 'POST' && path === '/client/v4/accounts/test-account/r2/buckets') {
+          const body = await request.json() as { name: string };
+          expect(body).toEqual({ name: 'test-bucket' });
+          buckets.add(body.name);
+          return Response.json({ success: true, result: { name: body.name } });
+        }
+        throw new Error(`Unexpected provider request: ${request.method} ${path}`);
+      });
+      testState.container!.fetch.mockImplementation(async request => {
+        if (new URL(request.url).pathname === '/_internal/setBucketName') {
+          const config = await request.clone().json() as { bucketName: string };
+          expect(buckets.has(config.bucketName)).toBe(true);
+        }
+        return Response.json({ bucketName: null });
+      });
+      try {
+        const response = await createApp()('/container/start?sessionId=abcdef1234567890abcdef12', { method: 'POST' });
+        expect(response.status, await response.clone().text()).toBe(200);
+        expect([...buckets]).toEqual(['test-bucket']);
+        expect(requests).toEqual([
+          { method: 'GET', path: '/client/v4/accounts/test-account/r2/buckets/test-bucket' },
+          { method: 'POST', path: '/client/v4/accounts/test-account/r2/buckets' },
+        ]);
+        const configured = testState.container!.fetch.mock.calls.map(([request]) => request)
+          .find(request => new URL(request.url).pathname === '/_internal/setBucketName');
+        expect(await configured?.clone().json()).toMatchObject({ bucketName: 'test-bucket', r2AccessKeyId: 'scoped-ak' });
+      } finally { peer.mockRestore(); }
+    });
+
     it('calls createBucketIfNotExists for the user bucket', async () => {
       const fetch = createApp();
       const res = await fetch('/container/start?sessionId=abcdef1234567890abcdef12', {

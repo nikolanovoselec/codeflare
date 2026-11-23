@@ -211,7 +211,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     const filterSource = testWorkflow.jobs.changes.steps?.find((step) => step.id === 'filter')?.with?.filters;
     const filters = parseYaml(filterSource as string) as Record<string, unknown[]>;
     const patterns = flattenPatterns(filters.host);
-    for (const path of ['image/impeccable-engine.json', 'image/impeccable-engine-legacy.json', 'image/impeccable-engine-4.4.0.json', 'image/impeccable-engine-4.5.0.json', 'scripts/patch-impeccable-engine.py', 'scripts/impeccable-launcher.mjs', 'scripts/update-impeccable-skill.mjs', 'scripts/patch-pi-goal-review-control.mjs', 'scripts/patch-pi-plan-mode-tool-policy.mjs']) {
+    for (const path of ['image/impeccable-engine.json', 'image/impeccable-engine-legacy.json', 'image/impeccable-engine-4.4.0.json', 'image/impeccable-engine-4.5.0.json', 'scripts/patch-impeccable-engine.py', 'scripts/impeccable-launcher.mjs', 'scripts/update-impeccable-skill.mjs', 'scripts/patch-pi-plan-mode-tool-policy.mjs']) {
       expect(matchesAny(path, patterns), path).toBe(true);
     }
     for (const path of ['preseed/agents/claude/skills/impeccable/scripts/live-browser.js', 'preseed/agents/pi/skills/impeccable/scripts/live-browser.js', 'scripts/update-impeccable-skill.mjs']) {
@@ -1165,17 +1165,6 @@ esac
     expect(readFileSync(join(hostTests, 'pi-settings-packages.test.js'), 'utf8')).toContain("pkg.dependencies['@juicesharp/rpiv-todo'], '2.7.1'");
   });
 
-  it('REQ-AGENT-111: pi-goal shadow bumps preflight the locked review-control patch', () => {
-    const workflow = parseYaml(readFileSync(SHADOW_PINS_WORKFLOW, 'utf8')) as {
-      jobs: Record<string, { steps?: Array<{ name?: string; run?: string }> }>;
-    };
-    const apply = workflow.jobs['pi-extensions'].steps?.find((step) => step.name === 'Apply bump')?.run ?? '';
-    expect(apply).toContain("if [ \"$PKG\" = '@narumitw/pi-goal' ]; then");
-    expect(apply).toContain('(cd preseed/agents/pi && npm ci --ignore-scripts --no-audit --no-fund)');
-    expect(apply).toContain('node scripts/patch-pi-goal-review-control.mjs');
-    expect(apply).toContain('"$LAT" preseed/agents/pi/node_modules/@narumitw/pi-goal');
-  });
-
   it('REQ-AGENT-152: Plan Mode shadow bumps execute the locked tool-policy preflight', () => {
     const workflow = parseYaml(readFileSync(SHADOW_PINS_WORKFLOW, 'utf8')) as {
       jobs: Record<string, { steps?: Array<{ name?: string; run?: string }> }>;
@@ -1516,6 +1505,7 @@ const passing = (files = 2) => ({
   numTodoTests: 0,
   testResults: Array.from({ length: files }, (_, i) => ({
     name: `/checkout/src/${i}.test.ts`,
+    status: 'passed',
     assertionResults: [{ status: 'passed' }],
   })),
 });
@@ -1531,6 +1521,37 @@ describe('REQ-OPS-023 AC1: vitest report gate', () => {
     expect(runReportGate(0, r, '').status).toBe(1);
   });
 
+  it.each([0, 1])('rejects non-passing assertion outcomes despite zero summary failures (exit %i)', (exit) => {
+    for (const status of ['failed', 'pending', 'skipped', 'todo', 'disabled', 'unknown', undefined]) {
+      const report = {
+        ...passing(1),
+        testResults: [{
+          name: '/checkout/src/contradictory.test.ts',
+          status: 'passed',
+          assertionResults: [status === undefined ? {} : { status }],
+        }],
+      };
+      expect(runReportGate(exit, report, TEARDOWN_CRASH).status).toBe(1);
+    }
+  });
+
+  it.each([0, 1])('rejects a failed file despite passing assertions and zero summary failures (exit %i)', (exit) => {
+    const report = passing();
+    report.testResults[0].status = 'failed';
+    expect(runReportGate(exit, report, TEARDOWN_CRASH).status).toBe(1);
+  });
+
+  it.each([0, 1])('rejects a missing file outcome despite passing assertions (exit %i)', (exit) => {
+    const { status: _omitted, ...file } = passing(1).testResults[0];
+    expect(runReportGate(exit, { ...passing(1), testResults: [file] }, TEARDOWN_CRASH).status).toBe(1);
+  });
+
+  it.each([0, 1])('rejects negative failure and pending counters (exit %i)', (exit) => {
+    for (const counter of ['numFailedTests', 'numFailedTestSuites', 'numPendingTests', 'numTodoTests']) {
+      expect(runReportGate(exit, { ...passing(), [counter]: -1 }, TEARDOWN_CRASH).status).toBe(1);
+    }
+  });
+
   it('rejects a run that collected zero tests', () => {
     expect(
       runReportGate(0, { ...passing(0), numTotalTests: 0 }, '')
@@ -1540,7 +1561,7 @@ describe('REQ-OPS-023 AC1: vitest report gate', () => {
 
   it('rejects a file that collected zero assertions (collection crash)', () => {
     const r = passing();
-    r.testResults.push({ name: '/checkout/src/dead.test.ts', assertionResults: [] });
+    r.testResults.push({ name: '/checkout/src/dead.test.ts', status: 'passed', assertionResults: [] });
     const out = runReportGate(0, r, '');
     expect(out.status).toBe(1);
     expect(out.stderr).toContain('src/dead.test.ts');

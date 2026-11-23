@@ -28,6 +28,7 @@ export const NODE_SUITE_FILES = [
   // Imports codeflare-pi.ts, whose execFileSync reconcile has no workerd
   // equivalent; under the Workers pool the file crashed collection outright.
   'src/__tests__/lib/pi-global-graph-reconcile.test.ts',
+  'src/__tests__/lib/pi-vault-repository.test.ts',
   'src/__tests__/lib/pi-memory-inject.test.ts',
   'src/__tests__/lib/pi-memory-vault-delivery.test.ts',
   'src/__tests__/lib/pi-native-notifications.test.ts',

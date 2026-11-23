@@ -1,5 +1,5 @@
 import { Component, onMount, onCleanup, createSignal, Show, ErrorBoundary, lazy, type JSX } from 'solid-js';
-import type { AccessTier, SubscriptionTier } from './types';
+import type { SubscriptionTier } from './types';
 import { Router, Route, Navigate, useNavigate } from '@solidjs/router';
 import Layout from './components/Layout';
 import SetupWizard from './components/setup/SetupWizard';
@@ -49,11 +49,9 @@ async function checkSetupStatus(): Promise<boolean | null> {
 const AppContent: Component = () => {
   const [userName, setUserName] = createSignal<string | undefined>();
   const [userRole, setUserRole] = createSignal<'admin' | 'user' | undefined>();
-  const [userAccessTier, setUserAccessTier] = createSignal<AccessTier | undefined>();
   const [userSubscriptionTier, setUserSubscriptionTier] = createSignal<SubscriptionTier | undefined>();
   const [onboardingActive, setOnboardingActive] = createSignal<boolean | undefined>();
   const [enterpriseMode, setEnterpriseMode] = createSignal<boolean | undefined>();
-  const [operatorManagementEligible, setOperatorManagementEligible] = createSignal(false);
   const [loading, setLoading] = createSignal(true);
   const [authError, setAuthError] = createSignal<{ kind: 'access' | 'service'; message: string } | null>(null);
   const [redirecting, setRedirecting] = createSignal(false);
@@ -137,11 +135,9 @@ const AppContent: Component = () => {
       if (disposed) return;
       setUserName(user.email);
       setUserRole(user.role);
-      setUserAccessTier(user.accessTier);
       setUserSubscriptionTier(user.subscriptionTier);
       setOnboardingActive(user.onboardingActive);
       setEnterpriseMode(user.enterpriseMode);
-      setOperatorManagementEligible(user.operatorManagementEligible === true || user.role === 'admin');
       sessionStore.setEnterpriseMode(user.enterpriseMode === true);
       sessionStore.setSaasMode(user.saasMode === true);
       sessionStore.setAllowedAgents(user.allowedAgents
@@ -240,7 +236,7 @@ const AppContent: Component = () => {
             </div>
           }
         >
-          <Layout userName={userName()} userRole={userRole()} userAccessTier={userAccessTier()} userSubscriptionTier={userSubscriptionTier()} onboardingActive={onboardingActive()} enterpriseMode={enterpriseMode()} operatorManagementEligible={operatorManagementEligible()} mcpReturnOutcome={mcpReturnOutcome()} />
+          <Layout userName={userName()} userRole={userRole()} userSubscriptionTier={userSubscriptionTier()} onboardingActive={onboardingActive()} enterpriseMode={enterpriseMode()} mcpReturnOutcome={mcpReturnOutcome()} />
         </Show>
       </Show>
     </Show>

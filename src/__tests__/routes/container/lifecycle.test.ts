@@ -3,6 +3,8 @@ import { Hono } from 'hono';
 import type { Env, Session } from '../../../types';
 import type { AuthVariables } from '../../../middleware/auth';
 import { createMockKV } from '../../helpers/mock-kv';
+import { withMockStartClaim } from '../../helpers/mock-session-stop';
+import { D1SessionRepository } from '../../../lib/session-repository';
 import { createMockSessionD1 } from '../../helpers/mock-session-d1';
 
 // ---- Hoisted mocks ----
@@ -143,7 +145,7 @@ describe('Container Lifecycle - Scoped R2 Tokens', () => {
   const mockContainerStub = {
     fetch: vi.fn(),
     getState: vi.fn(),
-    startAndWaitForPorts: vi.fn(),
+    startSession: vi.fn(),
     destroy: vi.fn(),
   };
 
@@ -158,11 +160,11 @@ describe('Container Lifecycle - Scoped R2 Tokens', () => {
     });
     mockCreateBucketIfNotExists.mockResolvedValue({ success: true, created: false });
     mockSeedGettingStartedDocs.mockResolvedValue({ written: [], skipped: [] });
-    mockGetContainer.mockReturnValue(mockContainerStub);
+    mockGetContainer.mockImplementation(() => withMockStartClaim(mockContainerStub, mockKV));
     mockGetStoredBucketName.mockResolvedValue(null);
     mockContainerStub.fetch.mockResolvedValue(new Response('{}', { status: 200 }));
     mockContainerStub.getState.mockResolvedValue({ status: 'stopped' });
-    mockContainerStub.startAndWaitForPorts.mockResolvedValue(undefined);
+    mockContainerStub.startSession.mockResolvedValue(undefined);
   });
 
   const mockExecutionCtx = {
@@ -242,7 +244,7 @@ describe('Container Lifecycle - Scoped R2 Tokens', () => {
     expect(res.status).toBe(400);
     expect(await res.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
     expect(mockGetOrCreateScopedR2Token).not.toHaveBeenCalled();
-    expect(mockContainerStub.startAndWaitForPorts).not.toHaveBeenCalled();
+    expect(mockContainerStub.startSession).not.toHaveBeenCalled();
   });
 
   it('setupR2Credentials returns scoped credentials for bucket (L15)', async () => {
@@ -478,12 +480,7 @@ describe('Container Lifecycle - Scoped R2 Tokens', () => {
   });
 });
 
-// REQ-SESSION-020 AC3: destroy() records the session stopped and persists the
-// deliberate-stop marker. A restart path that destroys the container must
-// therefore always go on to start it -- reporting already_running instead would
-// leave nothing to clear the marker or restore 'running', so self-heal declines
-// by design and the authoritative 4503 gate refuses every terminal upgrade.
-describe('Container Lifecycle - restart after a bucket change', () => {
+describe('Container Lifecycle - Start dispatch and exit authority', () => {
   it('REQ-SESSION-018 AC7: stale SDK stopped cannot advance an owning D1 execution to a replacement generation', async () => {
     const kv = createMockKV();
     kv._set('session:codeflare-test-example-com:sess123', {
@@ -492,10 +489,10 @@ describe('Container Lifecycle - restart after a bucket change', () => {
     });
     const container = {
       fetch: vi.fn(), destroy: vi.fn(), getState: vi.fn().mockResolvedValue({ status: 'stopped' }),
-      startAndWaitForPorts: vi.fn(),
+      startSession: vi.fn(),
     };
     await expect(startOrRestartContainer({
-      container, needsBucketUpdate: false, setBucketBody: '{}', containerId: 'container-abc',
+      container, needsBucketUpdate: false, expectedLifecycleGeneration: 2,
       sessionData: { id: 'sess123', userId: 'codeflare-test-example-com', status: 'running' } as Session,
       env: { KV: kv, USAGE_DB: createMockSessionD1(kv) } as unknown as Env,
       shortContainerId: 'cont-abc',
@@ -507,87 +504,27 @@ describe('Container Lifecycle - restart after a bucket change', () => {
     expect(stored.lifecycleGeneration).toBe(2);
   });
 
-  it.each(['start', 'replacement-destroy', 'replacement-bucket'] as const)(
-    'REQ-SESSION-025 AC4: %s logs no private failure and preserves lifecycle effects', async phase => {
-      const kv = createMockKV();
-      const key = 'session:codeflare-test-example-com:sess123';
-      kv._set(key, { id: 'sess123', userId: 'codeflare-test-example-com',
-        status: phase === 'start' ? 'stopped' : 'running', lifecycleGeneration: 2 });
-      const failure = new Error(privateLifecyclePayload);
-      const effects: string[] = [];
-      const container = {
-        getState: vi.fn(async () => ({ status: phase === 'start' ? 'stopped' : 'running' })),
-        destroy: vi.fn(async () => { effects.push('destroy'); if (phase === 'replacement-destroy') throw failure; }),
-        fetch: vi.fn(async () => { effects.push('bucket'); if (phase === 'replacement-bucket') throw failure; return new Response('{}'); }),
-        startAndWaitForPorts: vi.fn(async () => { effects.push('start'); if (phase === 'start') throw failure; }),
-      };
-      await withLifecycleLogs(async (logger, entries) => {
-        const background: Promise<void>[] = [];
-        const operation = startOrRestartContainer({ container, needsBucketUpdate: phase !== 'start',
-          setBucketBody: '{}', containerId: 'container-abc', shortContainerId: 'cont-abc',
-          sessionData: { id: 'sess123', userId: 'codeflare-test-example-com' } as Session,
-          env: { KV: kv, USAGE_DB: createMockSessionD1(kv) } as unknown as Env,
-          logger, waitUntil: task => { background.push(task); },
-        });
-        if (phase === 'replacement-destroy') await expect(operation).rejects.toBe(failure);
-        else {
-          await expect(operation).resolves.toEqual({ status: 'starting' });
-          await expect(Promise.all(background)).resolves.toEqual([undefined]);
-        }
-        const message = phase === 'start' ? 'Failed to start container'
-          : phase === 'replacement-destroy' ? 'Failed to destroy container' : 'Failed to set replacement bucket';
-        expect(entries).toContainEqual(expect.objectContaining({ message, data: expect.objectContaining({
-          errorClass: phase === 'start' ? 'start_failed'
-            : phase === 'replacement-destroy' ? 'native_destroy_failed' : 'configuration_failed',
-          containerId: 'cont-abc',
-        }) }));
-        expectLifecyclePrivacy(entries);
-        expect(await kv.get(key, 'json')).toMatchObject(phase === 'replacement-destroy'
-          ? { status: 'stopping', lifecycleGeneration: 2, terminationGeneration: 2, terminationIntentId: expect.any(String) }
-          : { status: 'starting', lifecycleGeneration: 3 });
-        expect(effects).toEqual(phase === 'start' ? ['start']
-          : phase === 'replacement-destroy' ? ['destroy'] : ['destroy', 'bucket', 'start']);
-      });
-    },
-  );
-
-  it('REQ-SESSION-020 AC5-AC6: starts the container and re-asserts running when the bucket forward fails after destroy', async () => {
-    const waitUntil = vi.fn();
+  it('REQ-SESSION-025 AC4: failed native startup logs no private failure and retains the claim', async () => {
     const kv = createMockKV();
-    // The running D1 generation is terminated and confirmed before replacement.
-    kv._set('session:codeflare-test-example-com:sess123', {
-      id: 'sess123', userId: 'codeflare-test-example-com', status: 'running', lastActiveAt: 'REFRESHED-BY-DESTROY',
+    const key = 'session:codeflare-test-example-com:sess123';
+    kv._set(key, { id: 'sess123', status: 'stopped', lifecycleGeneration: 2 });
+    const failure = new Error(privateLifecyclePayload);
+    await new D1SessionRepository(createMockSessionD1(kv)).start('codeflare-test-example-com', 'sess123', new Date().toISOString(), 2);
+    await withLifecycleLogs(async (logger, entries) => {
+      const background: Promise<void>[] = [];
+      await expect(startOrRestartContainer({
+        container: { getState: async () => ({ status: 'stopped' }), startSession: async () => { throw failure; } },
+        needsBucketUpdate: false, expectedLifecycleGeneration: 2, claimedGeneration: 3, shortContainerId: 'cont-abc',
+        sessionData: { id: 'sess123', userId: 'codeflare-test-example-com' } as Session,
+        env: { KV: kv, USAGE_DB: createMockSessionD1(kv) } as unknown as Env,
+        logger, waitUntil: task => { background.push(task); },
+      })).resolves.toEqual({ status: 'starting', generation: 3 });
+      await Promise.all(background);
+      expect(entries).toContainEqual(expect.objectContaining({ message: 'Failed to start container',
+        data: expect.objectContaining({ errorClass: 'start_failed', containerId: 'cont-abc' }),
+      }));
+      expectLifecyclePrivacy(entries);
+      expect(await kv.get(key, 'json')).toMatchObject({ status: 'starting', lifecycleGeneration: 3 });
     });
-    const container = {
-      fetch: vi.fn().mockRejectedValue(new Error('Network connection lost.')),
-      destroy: vi.fn().mockResolvedValue(undefined),
-      getState: vi.fn().mockResolvedValue({ status: 'running' }),
-      startAndWaitForPorts: vi.fn().mockResolvedValue(undefined),
-    };
-
-    const result = await startOrRestartContainer({
-      container,
-      needsBucketUpdate: true,
-      setBucketBody: JSON.stringify({ bucketName: 'codeflare-test-example-com' }),
-      containerId: 'container-abc',
-      sessionData: { id: 'sess123', userId: 'codeflare-test-example-com', status: 'running', lastActiveAt: 'STALE' } as unknown as Session,
-      env: { KV: kv, USAGE_DB: createMockSessionD1(kv) } as unknown as Env,
-      shortContainerId: 'cont-abc',
-      logger: { info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() } as any,
-      waitUntil,
-    });
-
-    expect(container.destroy).toHaveBeenCalled();
-    expect(result.status).toBe('starting');
-    expect(waitUntil).toHaveBeenCalled();
-
-    // The D1 claim advances the replacement lifecycle to starting without
-    // reverting fields refreshed by the preceding destroy.
-    const written = JSON.parse(kv.put.mock.calls.at(-1)?.[1] as string);
-    expect(written.status).toBe('starting');
-    // Confirmed replacement exit refreshes activity rather than spreading the
-    // stale caller snapshot back over authoritative D1 state.
-    expect(written.lastActiveAt).not.toBe('STALE');
-    expect(Date.parse(written.lastActiveAt)).not.toBeNaN();
   });
 });

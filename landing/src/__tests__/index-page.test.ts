@@ -343,12 +343,13 @@ describe('REQ-LANDING-004: dark first paint (anti-flash contract)', () => {
   it('AC1: paints the document root dark inline, before any external stylesheet', () => {
     const rootPaint = [...doc.querySelectorAll('style')]
       .map((s) => (s.textContent ?? '').replace(/\s+/g, ''))
-      .find((css) => /^html\{[^}]*background-color:#[0-9a-f]{3,8}/i.test(css));
-    expect(rootPaint, 'an inline html{} rule sets the dark root background').toBeTruthy();
-    expect(rootPaint).toContain('color-scheme:dark');
+      .find((css) => /^html\{[^}]*background-color:#0a0a0c(?:;|\})/i.test(css));
+    // Intentional emitted first-paint contract, not just any (possibly white) hex.
+    expect(rootPaint, 'inline html{} paints the approved #0a0a0c canvas').toBeTruthy();
     const elements = [...doc.querySelectorAll('*')];
     const paint = [...doc.querySelectorAll('style')].find(style =>
       (style.textContent ?? '').replace(/\s+/g, '') === rootPaint);
+    expect(paint?.textContent).toMatch(/color-scheme:\s*dark\s+only\s*(?:;|\})/);
     const scheme = doc.querySelector('meta[name="color-scheme"]');
     const body = doc.querySelector('body');
     expect(body).not.toBeNull();
@@ -361,8 +362,8 @@ describe('REQ-LANDING-004: dark first paint (anti-flash contract)', () => {
   it('AC1: also paints body dark inline so the page body never flashes white', () => {
     const bodyPaint = [...doc.querySelectorAll('style')]
       .map((s) => (s.textContent ?? '').replace(/\s+/g, ''))
-      .find((css) => /body\{[^}]*background-color:#[0-9a-f]{3,8}/i.test(css));
-    expect(bodyPaint, 'an inline body{} rule sets the dark body background').toBeTruthy();
+      .find((css) => /(?:^|\})body\{[^}]*background-color:#0a0a0c(?:;|\})/i.test(css));
+    expect(bodyPaint, 'inline body{} paints the approved #0a0a0c canvas').toBeTruthy();
   });
 
   it('AC4: hides rendered content before the design-ready gate can run', () => {
@@ -398,14 +399,17 @@ describe('inference mesh family hero (REQ-LANDING-005)', () => {
     // The chiplet is the shared .kicker (CSS prepends the coral ~/), wired from the model.
     const chiplet = band.querySelector('.mesh-hero-copy > .kicker')!;
     expect(chiplet).not.toBeNull();
-    expect(chiplet.textContent?.trim()).toBe(INFERENCE_MESH.tag);
+    expect(chiplet.textContent?.trim()).toBe('inference');
     // The headline is the plain product name in white section-h2 style: no flare, no scramble.
     const headline = band.querySelector('.mesh-hero-headline')!;
     expect(headline.tagName).toBe('H2');
-    expect(headline.textContent?.trim()).toBe(INFERENCE_MESH.name);
+    expect(headline.textContent?.trim()).toBe('Inference Mesh');
     expect(headline.querySelector('.flare')).toBeNull();
     expect(band.querySelectorAll('[data-scramble]')).toHaveLength(0);
     expect(band.querySelector('h1')).toBeNull();
+    const pageHeadings = body.querySelectorAll('h1');
+    expect(pageHeadings).toHaveLength(1);
+    expect(pageHeadings[0].closest('.hero')).not.toBeNull();
   });
 
   it('renders the description verbatim from the typed content model', () => {
@@ -413,12 +417,26 @@ describe('inference mesh family hero (REQ-LANDING-005)', () => {
     expect(band.querySelector('.mesh-hero-def')?.textContent).toBe(INFERENCE_MESH.description);
   });
 
+  it('REQ-LANDING-005 AC3: renders the approved optional-capacity and provider-choice claims', () => {
+    const description = body.querySelector('#inference-mesh .mesh-hero-def')?.textContent;
+    // Independent approved copy contract: never derive this oracle from INFERENCE_MESH.
+    expect(description).toBe(
+      'Codeflare works with any inference provider. Inference Mesh is one more it can pull from. ' +
+      'It turns the idle machines you already own into private, low-cost capacity for your agents. ' +
+      'Long-running sessions stay warm, sensitive work never leaves your boundary, and every hosted ' +
+      'provider stays first-class, as your default or your fallback.',
+    );
+  });
+
   it('renders the GitHub CTA as the shared micro-cta text link (matching the dogfood CTA), external', () => {
     const band = body.querySelector(`#${INFERENCE_MESH.id}`)!;
     const link = band.querySelector<HTMLAnchorElement>('.mesh-hero-copy .micro-cta a')!;
     expect(link).not.toBeNull();
-    expect(link.textContent?.trim()).toBe(INFERENCE_MESH.primaryCta.label);
-    expect(link.getAttribute('href')).toBe(INFERENCE_MESH.primaryCta.href);
+    // Intentional label/destination contract, independent of the content model.
+    expect(link.textContent?.trim()).toBe('See it on GitHub');
+    expect(link.getAttribute('href')).toBe('https://github.com/nikolanovoselec/codeflare-inference-mesh');
+    expect(Array.from(band.querySelectorAll('a[href]'))).toEqual([link]);
+    expect(band.querySelector('button, [role="button"]')).toBeNull();
     expect(link.getAttribute('target')).toBe('_blank');
     expect(link.getAttribute('rel')).toContain('noopener');
     // No filled button any more.

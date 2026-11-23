@@ -48,7 +48,7 @@ export interface ContainerEnvState {
   _githubToken: string | null;
   _cloudflareApiToken: string | null;
   _cloudflareAccountId: string | null;
-  /** REQ-AGENT-029 AC5–6: non-secret owner selection, held only for startup. */
+  /** REQ-AGENT-240 AC1/4: non-secret owner selection, held only for startup. */
   _cloudflareOauthAccountId: string | null;
   _encryptionKey: string | null;
   _sessionMode: string;
@@ -342,13 +342,13 @@ export function buildEnvVars(
   // Strict Gateway egress (REQ-ENTERPRISE-016): the real R2 key must NEVER enter the
   // container — emit a non-secret placeholder so rclone runs in signed mode while the
   // EgressController strips it and re-signs with the Worker-held user-scoped key at the R2 boundary
-  // (egress-controller.ts). Only when strict is active; non-enterprise / strict-off keep
-  // the real key (rclone connects to R2 directly, byte-identical to today).
-  const realAccessKeyId = state._r2AccessKeyId || env.R2_ACCESS_KEY_ID || '';
-  const realSecretAccessKey = state._r2SecretAccessKey || env.R2_SECRET_ACCESS_KEY || '';
+  // (egress-controller.ts). Direct storage uses only a complete session-scoped
+  // pair. Missing credentials leave sync unavailable, never deployment-scoped.
+  const { _r2AccessKeyId: scopedAccessKeyId, _r2SecretAccessKey: scopedSecretAccessKey } = state;
   const mediatedR2 = state._strictEgress || restrictedOperator;
-  const accessKeyId = mediatedR2 ? ENTERPRISE_R2_KEY_PLACEHOLDER : realAccessKeyId;
-  const secretAccessKey = mediatedR2 ? ENTERPRISE_R2_KEY_PLACEHOLDER : realSecretAccessKey;
+  const [accessKeyId, secretAccessKey] = mediatedR2
+    ? [ENTERPRISE_R2_KEY_PLACEHOLDER, ENTERPRISE_R2_KEY_PLACEHOLDER]
+    : scopedAccessKeyId && scopedSecretAccessKey ? [scopedAccessKeyId, scopedSecretAccessKey] : ['', ''];
   const accountId = state._r2AccountId || env.R2_ACCOUNT_ID || '';
   const endpoint = state._r2Endpoint || env.R2_ENDPOINT || '';
 
@@ -474,7 +474,7 @@ export function buildEnvVars(
     // the wizard-configured Browser Rendering account (browser-run builds its API URL from it,
     // and the interceptor matches that account). Emitted in both modes when present.
     ...(state._cloudflareAccountId && { CLOUDFLARE_ACCOUNT_ID: state._cloudflareAccountId }),
-    // REQ-AGENT-029 AC5/7: independent owner metadata, even without Browser Run.
+    // REQ-AGENT-240 AC1/5: independent owner metadata, even without Browser Run.
     ...(!restrictedOperator && state._cloudflareOauthAccountId && {
       CLOUDFLARE_OAUTH_ACCOUNT_ID: state._cloudflareOauthAccountId,
     }),
@@ -615,7 +615,7 @@ export async function applyBucketName(
   if (r2Creds?.githubToken) state._githubToken = r2Creds.githubToken;
   if (r2Creds?.cloudflareApiToken) state._cloudflareApiToken = r2Creds.cloudflareApiToken;
   if (r2Creds?.cloudflareAccountId) state._cloudflareAccountId = r2Creds.cloudflareAccountId;
-  // REQ-AGENT-029 AC6: partial omission preserves; explicit null clears. Never persist.
+  // REQ-AGENT-240 AC4: partial omission preserves; explicit null clears. Never persist.
   if (r2Creds?.cloudflareOauthAccountId !== undefined) {
     state._cloudflareOauthAccountId = r2Creds.cloudflareOauthAccountId;
   }

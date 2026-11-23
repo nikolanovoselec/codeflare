@@ -262,6 +262,27 @@ describe('Claude marker-or-dialog ingress', () => {
     }
   });
 
+  it('REQ-AGENT-122 AC1: the Claude boundary assigns the newest of two same-PR ancestors', () => {
+    const fx = setup();
+    const root = join(fx.home, '.codeflare/review-state/v1');
+    const identity = { gitHost: 'github.com', repository: 'owner/repo', pr: 42, branch: 'feature', base: 'main', head: fx.head };
+    const older = git(fx.repo, 'rev-parse', 'HEAD~1');
+    const now = Date.now();
+    assert.deepEqual(writeCompletion({ ...identity, head: older }, { root, now: () => new Date(now - 60_000) }), { written: true });
+    assert.deepEqual(writeCompletion(identity, { root, now: () => new Date(now) }), { written: true });
+    writeFileSync(join(fx.repo, 'src.ts'), 'export const changed = false;\n');
+    git(fx.repo, 'add', 'src.ts');
+    git(fx.repo, 'commit', '-m', 'next change');
+    const head = git(fx.repo, 'rev-parse', 'HEAD');
+    fx.env = { ...fx.env, PR_HEAD: head };
+
+    const result = postTool(fx, 'git push origin feature');
+    assert.equal(result.status, 0);
+    const assignments = context(result).split('\n').filter(line => line.includes(' --boundary-pr 42 '));
+    assert.ok(assignments.length > 0);
+    for (const assignment of assignments) assert.ok(assignment.includes(` --range ${identity.head}..${head} `));
+  });
+
   it('recreates missing session state before publishing a push review plan', () => {
     const fx = setup();
     sessionStart(fx);

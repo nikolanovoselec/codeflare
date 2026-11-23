@@ -35,7 +35,7 @@ function fixture() {
   return { root, runtime, home, sessions, log: join(root, 'calls.log') };
 }
 
-function harness(fx, body, invocation, { fail = '', mode = 'advanced', noop = false } = {}) {
+function harness(fx, body, invocation, { fail = '', mode = 'advanced', noop = false, utcDay = '2026-03-31' } = {}) {
   const source = join(fx.sessions, '2026-01-01T00-00-00Z-old.md');
   return `
 set +e
@@ -53,7 +53,7 @@ PREPARE_NOOP=${noop ? '1' : '0'}
 BISYNC_CALLS=0
 export SESSION_MODE CODEFLARE_RUNTIME_ROOT SYNC_RUNTIME_DIR CODEFLARE_GRAPH_LOCK USER_HOME R2_BUCKET_NAME RCLONE_CONFIG CALLS FAIL_STAGE PREPARE_NOOP
 
-date() { [ "$1 $2" = "-u +%F" ] && printf '2026-03-31\\n' || command date "$@"; }
+date() { [ "$1 $2" = "-u +%F" ] && printf '%s\\n' ${JSON.stringify(utcDay)} || command date "$@"; }
 timeout() { shift; "$@"; }
 rclone() {
   case "$1" in
@@ -97,6 +97,7 @@ JSON
 bisync_with_r2() {
   BISYNC_CALLS=$((BISYNC_CALLS + 1))
   printf 'BISYNC_%s\\n' "$BISYNC_CALLS" >> "$CALLS"
+  [ "$FAIL_STAGE" != hermes-transfer ] || return 65
   [ "$FAIL_STAGE" != "bisync-$BISYNC_CALLS" ]
 }
 flock() {
@@ -149,6 +150,19 @@ describe('entrypoint session-capture compaction orchestration', () => {
     );
     assert.equal(readFileSync(join(fx.runtime, 'sync/vault-session-compaction.utc-day'), 'utf8'), '2026-03-31\n');
     assert.equal(existsSync(join(fx.runtime, 'sync/vault-session-compaction')), false);
+
+    const nextDay = runDaily(fx, { utcDay: '2026-04-01', noop: true });
+    assert.equal(nextDay.status, 0, nextDay.stderr);
+    assert.deepEqual(calls(fx).slice(actual.length), ['PREPARE']);
+    assert.equal(readFileSync(join(fx.runtime, 'sync/vault-session-compaction.utc-day'), 'utf8'), '2026-04-01\n');
+  });
+
+  it('stamps a transferred archive even when Hermes persistence failed', () => {
+    const fx = fixture();
+    const result = runDaily(fx, { fail: 'hermes-transfer' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stderr, /archive synced; Hermes persistence incomplete/);
+    assert.equal(readFileSync(join(fx.runtime, 'sync/vault-session-compaction.utc-day'), 'utf8'), '2026-03-31\n');
   });
 
   it('stamps a no-op day without publishing, relocating, or deleting', () => {
@@ -188,7 +202,7 @@ describe('entrypoint session-capture compaction orchestration', () => {
   });
 
   it('runs at startup only after a genuinely successful baseline and before the daemon starts', () => {
-    for (const baselineStatus of ['success', 'timeout', 'failed']) {
+    for (const baselineResult of [0, 124, 1]) {
       const fx = fixture();
       const startup = extractFunction('complete_managed_curation_startup');
       const script = `
@@ -198,19 +212,17 @@ describe('entrypoint session-capture compaction orchestration', () => {
         SESSION_MODE=advanced
         CODEFLARE_SESSION_WORKSPACE=terminal
         CODEFLARE_RUNTIME_ROOT=${JSON.stringify(fx.runtime)}
-        SYNC_STATUS=pending
         CALLS=${JSON.stringify(fx.log)}
-        export RCLONE_CONFIG_RESULT STEP1_RESULT SESSION_MODE CODEFLARE_SESSION_WORKSPACE CODEFLARE_RUNTIME_ROOT SYNC_STATUS CALLS
+        export RCLONE_CONFIG_RESULT STEP1_RESULT SESSION_MODE CODEFLARE_SESSION_WORKSPACE CODEFLARE_RUNTIME_ROOT CALLS
         prepare_managed_resource_filter() { :; }
         relay_managed_pi_extensions() { :; }
-        configure_pi_hermes_memory() { :; }
+        prepare_pi_hermes_persistence() { :; }
         release_agent_pty_after_fast_start_updates() { :; }
         renice() { :; }
         ionice() { :; }
         establish_bisync_baseline() {
           printf 'BASELINE\\n' >> "$CALLS"
-          SYNC_STATUS=${JSON.stringify(baselineStatus)}
-          [ "$SYNC_STATUS" != failed ]
+          return ${baselineResult}
         }
         init_user_vault() { printf 'VAULT_INIT\\n' >> "$CALLS"; }
         run_daily_vault_session_compaction() { printf 'COMPACT\\n' >> "$CALLS"; }
@@ -225,10 +237,10 @@ describe('entrypoint session-capture compaction orchestration', () => {
       assert.equal(result.status, 0, result.stderr);
       assert.deepEqual(
         calls(fx),
-        baselineStatus === 'success'
+        baselineResult === 0
           ? ['BASELINE', 'VAULT_INIT', 'COMPACT', 'DAEMON']
           : ['BASELINE', 'VAULT_INIT', 'DAEMON'],
-        baselineStatus,
+        `baseline exit ${baselineResult}`,
       );
     }
   });

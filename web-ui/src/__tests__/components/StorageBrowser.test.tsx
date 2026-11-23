@@ -1,25 +1,26 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, fireEvent, cleanup, waitFor } from '@solidjs/testing-library';
+import { render, screen, fireEvent, cleanup, waitFor, within } from '@solidjs/testing-library';
 import { mdiSync } from '@mdi/js';
+import { batch, createSignal } from 'solid-js';
 
 // Mutable state for mock store -- individual tests can override these
 let mockObjects: any[] = [];
 let mockPrefixes: string[] = [];
-let mockCurrentPrefix = '';
+const [mockCurrentPrefix, setMockCurrentPrefix] = createSignal('');
 let mockLoading = false;
 let mockLoadingMore = false;
 let mockLoadMoreError: string | null = null;
-let mockPaginationStarted = false;
 let mockError: string | null = null;
 let mockUploads: any[] = [];
 let mockSelectedKeys: string[] = [];
 let mockSelectedPrefixes: string[] = [];
-let mockBreadcrumbs: string[] = [];
+const [mockBreadcrumbs, setMockBreadcrumbs] = createSignal<string[]>([]);
 let mockStats: any = null;
 let mockPreviewFile: any = null;
 let mockWorkspaceSyncEnabled = true;
 let mockActiveSessionId: string | null = 'test-session';
 let mockSessionSyncStatus: string | undefined;
+let mockSessionMetrics: (() => Record<string, string>) | undefined;
 // REQ-STOR-015 AC6: Sync-now button disabled while a fan-out is in flight.
 // Default false; flip per test to assert disabled-state coupling.
 let mockSyncing = false;
@@ -28,6 +29,7 @@ let mockSyncing = false;
 let mockDownloadsDisabled = false;
 
 const mockBrowse = vi.fn();
+const mockRefreshListingOnReturn = vi.fn();
 const mockNavigateTo = vi.fn();
 const mockNavigateUp = vi.fn();
 const mockRefresh = vi.fn();
@@ -67,23 +69,24 @@ vi.mock('../../stores/storage', () => ({
   storageStore: {
     get objects() { return mockObjects; },
     get prefixes() { return mockPrefixes; },
-    get currentPrefix() { return mockCurrentPrefix; },
+    get currentPrefix() { return mockCurrentPrefix(); },
     get loading() { return mockLoading; },
     get loadingMore() { return mockLoadingMore; },
     get loadMoreError() { return mockLoadMoreError; },
-    get paginationStarted() { return mockPaginationStarted; },
     get error() { return mockError; },
     get uploads() { return mockUploads; },
     get selectedKeys() { return mockSelectedKeys; },
     get selectedPrefixes() { return mockSelectedPrefixes; },
-    get breadcrumbs() { return mockBreadcrumbs; },
+    get breadcrumbs() { return mockBreadcrumbs(); },
     get stats() { return mockStats; },
     get previewFile() { return mockPreviewFile; },
     get syncing() { return mockSyncing; },
     get downloadsDisabled() { return mockDownloadsDisabled; },
     showDownloadsNotice: (...args: any[]) => mockShowDownloadsNotice(...args),
+    refreshMultipartRecovery: vi.fn(),
     refreshDownloadsDisabled: (...args: any[]) => mockRefreshDownloadsDisabled(...args),
     browse: (...args: any[]) => mockBrowse(...args),
+    refreshListingOnReturn: () => mockRefreshListingOnReturn(),
     syncNow: (...args: any[]) => mockSyncNow(...args),
     navigateTo: (...args: any[]) => mockNavigateTo(...args),
     navigateUp: (...args: any[]) => mockNavigateUp(...args),
@@ -133,11 +136,12 @@ vi.mock('../../stores/session', () => ({
       return mockActiveSessionId;
     },
     get sessions() {
+      if (mockSessionMetrics) return Object.keys(mockSessionMetrics()).map(id => ({ id, status: 'running' }));
       return mockActiveSessionId
         ? [{ id: mockActiveSessionId, status: 'running' }]
         : [];
     },
-    getMetricsForSession: () => ({ syncStatus: mockSessionSyncStatus }),
+    getMetricsForSession: (id: string) => ({ syncStatus: mockSessionMetrics ? mockSessionMetrics()[id] : mockSessionSyncStatus }),
   },
 }));
 
@@ -145,6 +149,19 @@ vi.mock('../../api/storage', () => ({
   getDownloadUrl: (key: string) => `https://mock.test/storage/download?key=${encodeURIComponent(key)}`,
   getViewUrl: (key: string) => `https://mock.test/storage/download?key=${encodeURIComponent(key)}&disposition=inline`,
 }));
+
+vi.mock('../../lib/mobile', async original => {
+  // The real helper captures the viewport at module load; allow each jsdom
+  // case to set its viewport before mounting the browser.
+  const isMobile = () => window.innerWidth <= 640;
+  const viewport = () => isMobile() ? 'mobile' : 'desktop';
+  return {
+    ...await original<typeof import('../../lib/mobile')>(),
+    isMobile,
+    getTerminalViewportClass: viewport,
+    createTerminalViewportClass: () => viewport,
+  };
+});
 
 vi.mock('../../lib/file-icons', () => ({
   getFileIcon: (filename: string, isFolder?: boolean) => {
@@ -171,6 +188,7 @@ describe('StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-shee
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockNavigateTo.mockReset();
     // Mock fetch + URL.createObjectURL/revokeObjectURL for triggerDownload
     vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
@@ -182,20 +200,20 @@ describe('StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-shee
     // Reset mock state to defaults
     mockObjects = [];
     mockPrefixes = [];
-    mockCurrentPrefix = '';
+    setMockCurrentPrefix('');
     mockLoading = false;
     mockLoadingMore = false;
     mockLoadMoreError = null;
-    mockPaginationStarted = false;
     mockError = null;
     mockUploads = [];
     mockSelectedKeys = [];
     mockSelectedPrefixes = [];
-    mockBreadcrumbs = [];
+    setMockBreadcrumbs([]);
     mockStats = null;
     mockPreviewFile = null;
     mockWorkspaceSyncEnabled = true;
     mockActiveSessionId = 'test-session';
+    mockSessionMetrics = undefined;
     mockDownloadsDisabled = false;
   });
 
@@ -203,6 +221,7 @@ describe('StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-shee
     cleanup();
     vi.useRealTimers();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   describe('Rendering', () => {
@@ -211,9 +230,9 @@ describe('StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-shee
       expect(screen.getByTestId('storage-browser')).toBeInTheDocument();
     });
 
-    it('calls storageStore.browse on mount with empty prefix (bucket root)', () => {
+    it('checks file list freshness when the panel returns', () => {
       render(() => <StorageBrowser />);
-      expect(mockBrowse).toHaveBeenCalledWith('');
+      expect(mockRefreshListingOnReturn).toHaveBeenCalled();
     });
 
     it('does not render a close button', () => {
@@ -223,29 +242,92 @@ describe('StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-shee
   });
 
   describe('Breadcrumb Navigation', () => {
-    it('renders breadcrumbs from storageStore.breadcrumbs', () => {
-      mockBreadcrumbs = ['workspace/', 'workspace/src/'];
-      render(() => <StorageBrowser />);
+    const parent = 'workspace/project-snapshots/';
+    const directory = `${parent}quarterly-results/`;
+    const ancestorPaths = ['workspace/', parent];
 
-      expect(screen.getByTestId('storage-breadcrumbs')).toBeInTheDocument();
-      expect(screen.getByTestId('breadcrumb-0')).toBeInTheDocument();
-      expect(screen.getByTestId('breadcrumb-1')).toBeInTheDocument();
+    const showLocation = (prefix: string, breadcrumbs: string[]) => batch(() => {
+      setMockCurrentPrefix(prefix);
+      setMockBreadcrumbs(breadcrumbs);
     });
 
-    it('renders breadcrumb segment names correctly (Workspace capitalized)', () => {
-      mockBreadcrumbs = ['workspace/', 'workspace/src/'];
+    const openOverflowingDirectory = async (width: number, reducedMotion = false) => {
+      vi.useFakeTimers();
+      vi.stubGlobal('innerWidth', width);
+      vi.stubGlobal('matchMedia', (query: string) => {
+        const maxWidth = query.match(/max-width:\s*(\d+)px/);
+        const minWidth = query.match(/min-width:\s*(\d+)px/);
+        return {
+          matches: query === '(prefers-reduced-motion: reduce)' ? reducedMotion
+            : (maxWidth !== null && width <= Number(maxWidth[1]))
+              || (minWidth !== null && width >= Number(minWidth[1])),
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+        };
+      });
+      showLocation(parent, ancestorPaths);
+      mockPrefixes = [directory];
+      mockNavigateTo.mockImplementationOnce((prefix: string) => showLocation(prefix, [...ancestorPaths, prefix]));
       render(() => <StorageBrowser />);
 
-      expect(screen.getByTestId('breadcrumb-0')).toHaveTextContent('Workspace');
-      expect(screen.getByTestId('breadcrumb-1')).toHaveTextContent('src');
+      const rail = screen.getByTestId('storage-breadcrumbs');
+      const scrollTo = vi.fn((options: ScrollToOptions | number) => {
+        const left = typeof options === 'number' ? options : options.left ?? rail.scrollLeft;
+        // Model the browser clamping horizontal offsets to the available overflow.
+        rail.scrollLeft = Math.max(0, Math.min(left, rail.scrollWidth - rail.clientWidth));
+      });
+      const clientWidth = 240;
+      const scrollWidth = 560;
+      let contentWidth = clientWidth;
+      Object.defineProperties(rail, {
+        clientWidth: { value: clientWidth },
+        scrollWidth: { get: () => contentWidth },
+        scrollTo: { value: scrollTo },
+      });
+      await vi.advanceTimersByTimeAsync(64);
+      expect(rail.scrollLeft).toBe(0);
+      expect(scrollTo).not.toHaveBeenCalled();
+
+      contentWidth = scrollWidth;
+      fireEvent.click(screen.getByTestId('folder-quarterly-results'));
+      await vi.advanceTimersByTimeAsync(64);
+      expect(within(rail).getByText('quarterly-results')).toBeInTheDocument();
+      return { rail, scrollTo, end: scrollWidth - clientWidth };
+    };
+
+    it.each([375, 768, 1280])('REQ-STOR-261: opening an overflowing directory scrolls to the end once at width %s', async width => {
+      const { rail, scrollTo, end } = await openOverflowingDirectory(width);
+      expect(rail.scrollLeft).toBe(end);
+      expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ behavior: 'smooth' }));
+
+      rail.scrollLeft = 20;
+      fireEvent.click(screen.getByTitle('Show Hidden Items'));
+      await vi.advanceTimersByTimeAsync(64);
+      expect(rail.scrollLeft).toBe(20);
     });
 
-    it('clicking a breadcrumb calls storageStore.navigateTo', () => {
-      mockBreadcrumbs = ['workspace/', 'workspace/src/'];
+    it.each([375, 768, 1280])('REQ-STOR-261: reduced motion reveals the breadcrumb end without animation at width %s', async width => {
+      const { rail, scrollTo, end } = await openOverflowingDirectory(width, true);
+      expect(rail.scrollLeft).toBe(end);
+      expect(scrollTo).not.toHaveBeenCalledWith(expect.objectContaining({ behavior: 'smooth' }));
+    });
+
+    it('REQ-STOR-261: the current folder exposes its full path on a focusable crumb and ancestors still navigate', () => {
+      showLocation(directory, [...ancestorPaths, directory]);
+      mockNavigateTo.mockImplementationOnce((prefix: string) => showLocation(prefix, [prefix]));
       render(() => <StorageBrowser />);
 
-      fireEvent.click(screen.getByTestId('breadcrumb-0'));
+      const breadcrumbs = within(screen.getByTestId('storage-breadcrumbs'));
+      const current = breadcrumbs.getByText('quarterly-results').closest<HTMLElement>('[aria-current="location"]');
+      expect(current).toHaveAttribute('title', directory);
+      expect(current).toHaveAccessibleDescription(expect.stringContaining(directory));
+      expect(current!.tabIndex).toBeGreaterThanOrEqual(0);
+      current!.focus();
+      expect(current).toHaveFocus();
+
+      fireEvent.click(breadcrumbs.getByText('Workspace'));
       expect(mockNavigateTo).toHaveBeenCalledWith('workspace/');
+      expect(breadcrumbs.queryByText('quarterly-results')).not.toBeInTheDocument();
     });
   });
 
@@ -433,7 +515,7 @@ describe('StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-shee
 
     it('navigates back to root when current prefix is workspace and sync is disabled', () => {
       mockWorkspaceSyncEnabled = false;
-      mockCurrentPrefix = 'workspace/';
+      setMockCurrentPrefix('workspace/');
 
       render(() => <StorageBrowser />);
 
@@ -523,6 +605,35 @@ describe('StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-shee
       expect(pathLine?.textContent).toContain('/home/user/Vault');
     });
 
+    it.each([
+      {
+        folder: 'Uploads',
+        id: 'uploads',
+        path: '/home/user/Uploads',
+        purpose: 'Drag-zone for files you want to keep across sessions. Anything dropped here is available inside the container and on every device.',
+      },
+      {
+        folder: 'Temporary',
+        id: 'temporary',
+        path: '/home/user/Temporary',
+        purpose: 'Scratch space. Files here persist across sessions via R2 sync, but treat the folder as transient: prune freely.',
+      },
+    ])('REQ-VAULT-001 AC6: $folder tooltip renders its container path and purpose', ({ folder, id, path, purpose }) => {
+      render(() => <StorageBrowser />);
+      const row = screen.getByTestId(`folder-${folder}`);
+      expect(screen.queryByTestId(`special-folder-tooltip-${id}`)).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByTestId(`special-folder-icon-${id}`));
+
+      const tooltip = screen.getByTestId(`special-folder-tooltip-${id}`);
+      expect(row).toContainElement(tooltip);
+      expect(tooltip).toBeVisible();
+      // Intentional user-copy contract: both the path and the purpose must be
+      // rendered, rather than merely present in the special-folder registry.
+      expect(tooltip).toHaveTextContent(path);
+      expect(tooltip).toHaveTextContent(purpose);
+    });
+
     it('opening a second tooltip closes the first (single-open behaviour)', () => {
       mockPrefixes = ['workspace/'];
       render(() => <StorageBrowser />);
@@ -599,7 +710,7 @@ describe('StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-shee
 
   describe('Action Buttons', () => {
     it('clicking Up button calls storageStore.navigateUp', () => {
-      mockCurrentPrefix = 'workspace/src/';
+      setMockCurrentPrefix('workspace/src/');
       render(() => <StorageBrowser />);
 
       const upBtn = screen.getByTitle('Go up');
@@ -660,35 +771,13 @@ describe('StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-shee
       expect(mockRetryLoadMore).toHaveBeenCalledTimes(1);
     });
 
-    it('REQ-STOR-018 AC7: suppresses listing refresh after pagination starts while stats continue', async () => {
+    it('REQ-STOR-018 AC7: keeps periodic stats without periodically reloading the file list', async () => {
       vi.useFakeTimers();
       render(() => <StorageBrowser />);
-      mockRefresh.mockClear();
-      mockFetchStats.mockClear();
-
-      await vi.advanceTimersByTimeAsync(30_000);
-      expect(mockRefresh).toHaveBeenCalledWith({ silent: true });
-      expect(mockFetchStats).toHaveBeenCalledTimes(1);
-
-      mockPaginationStarted = true;
-      mockRefresh.mockClear();
-      mockFetchStats.mockClear();
-      await vi.advanceTimersByTimeAsync(30_000);
+      await vi.advanceTimersByTimeAsync(300_000);
+      expect(mockFetchStats).toHaveBeenCalled();
+      expect(mockBrowse).not.toHaveBeenCalled();
       expect(mockRefresh).not.toHaveBeenCalled();
-      expect(mockFetchStats).toHaveBeenCalledTimes(1);
-    });
-
-    it('keeps listing replacement suppressed after a continuation error', async () => {
-      vi.useFakeTimers();
-      mockPaginationStarted = true;
-      mockLoadMoreError = 'page unavailable';
-      render(() => <StorageBrowser />);
-      mockRefresh.mockClear();
-      mockFetchStats.mockClear();
-
-      await vi.advanceTimersByTimeAsync(30_000);
-      expect(mockRefresh).not.toHaveBeenCalled();
-      expect(mockFetchStats).toHaveBeenCalledTimes(1);
     });
 
     it('preserves the existing idle suppression while initial browse is loading', async () => {
@@ -753,7 +842,7 @@ describe('StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-shee
       mockPrefixes = [];
       mockObjects = [];
       mockWorkspaceSyncEnabled = false;
-      mockCurrentPrefix = 'some-folder/';
+      setMockCurrentPrefix('some-folder/');
       render(() => <StorageBrowser />);
 
       expect(screen.getByTestId('storage-empty')).toBeInTheDocument();
@@ -766,7 +855,7 @@ describe('StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-shee
       mockPrefixes = [];
       mockObjects = [];
       mockWorkspaceSyncEnabled = false;
-      mockCurrentPrefix = '';
+      setMockCurrentPrefix('');
       render(() => <StorageBrowser />);
 
       expect(screen.queryByTestId('storage-empty')).not.toBeInTheDocument();
@@ -837,8 +926,7 @@ describe('StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-shee
       render(() => <StorageBrowser />);
       const syncBtn = screen.getByTestId('storage-sync-btn');
       fireEvent.click(syncBtn);
-      // 1 on mount + 1 on click
-      expect(mockBrowse).toHaveBeenCalledTimes(2);
+      expect(mockBrowse).toHaveBeenCalledTimes(1);
     });
 
     it('refresh button works the same with or without active session', () => {
@@ -846,19 +934,19 @@ describe('StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-shee
       render(() => <StorageBrowser />);
       const syncBtn = screen.getByTestId('storage-sync-btn');
       fireEvent.click(syncBtn);
-      expect(mockBrowse).toHaveBeenCalledTimes(2);
+      expect(mockBrowse).toHaveBeenCalledTimes(1);
     });
   });
 
   describe('Up button visibility', () => {
     it('shows up button when in a subfolder', () => {
-      mockCurrentPrefix = 'workspace/src/';
+      setMockCurrentPrefix('workspace/src/');
       render(() => <StorageBrowser />);
       expect(screen.getByTestId('storage-up-btn')).toBeInTheDocument();
     });
 
     it('hides up button at root', () => {
-      mockCurrentPrefix = '';
+      setMockCurrentPrefix('');
       render(() => <StorageBrowser />);
       expect(screen.queryByTestId('storage-up-btn')).not.toBeInTheDocument();
     });
@@ -969,7 +1057,7 @@ describe('StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-shee
       expect(globalThis.fetch).not.toHaveBeenCalled();
     });
 
-    // REQ-ENTERPRISE-019 AC4 baseline: with downloads enabled the control is not
+    // REQ-ENTERPRISE-019 AC2 baseline: with downloads enabled the control is not
     // blocked and behaves exactly as before — clicking it performs the download.
     it('with downloads enabled, the download control is not blocked and clicking it triggers the download', async () => {
       mockDownloadsDisabled = false;
@@ -1044,6 +1132,21 @@ describe('StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-shee
       mockSessionSyncStatus = 'syncing';
       render(() => <StorageBrowser />);
       expect(screen.getByTestId('storage-sync-now-btn')).toBeDisabled();
+    });
+
+    it('REQ-STOR-015 AC6: stays disabled after the first session settles and enables only after the last', () => {
+      const [metrics, setMetrics] = createSignal<Record<string, string>>({ first: 'success', last: 'success' });
+      mockSessionMetrics = metrics;
+      render(() => <StorageBrowser />);
+      const button = screen.getByTestId('storage-sync-now-btn');
+      expect(button).not.toBeDisabled();
+
+      setMetrics({ first: 'syncing', last: 'syncing' });
+      expect(button).toBeDisabled();
+      setMetrics({ first: 'success', last: 'syncing' });
+      expect(button).toBeDisabled();
+      setMetrics({ first: 'success', last: 'failed' });
+      expect(button).not.toBeDisabled();
     });
 
     it('shows a recovery notice and leaves the cloud button usable after sync failure', () => {

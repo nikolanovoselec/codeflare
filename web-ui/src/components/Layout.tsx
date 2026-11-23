@@ -1,6 +1,7 @@
-import { Component, createSignal, createMemo, createEffect, onMount, onCleanup, Show, untrack } from 'solid-js';
+import { Component, createSignal, createMemo, createEffect, onMount, onCleanup, For, Show, untrack } from 'solid-js';
 import Header from './Header';
 import TerminalArea from './TerminalArea';
+import { createMigrationRetry, MigrationRetryNotice } from './MigrationRetryNotice';
 import SettingsPanel from './SettingsPanel';
 import StoragePanel from './StoragePanel';
 import SplashCursor from './SplashCursor';
@@ -53,11 +54,9 @@ function pruneNonRunningSessionState<T>(
 interface LayoutProps {
   userName?: string;
   userRole?: 'admin' | 'user';
-  userAccessTier?: import('../types').AccessTier;
   userSubscriptionTier?: import('../types').SubscriptionTier;
   onboardingActive?: boolean;
   enterpriseMode?: boolean;
-  operatorManagementEligible?: boolean;
   mcpReturnOutcome?: import('../lib/mcp-portal-recovery').McpReturnOutcome;
 }
 
@@ -76,6 +75,7 @@ const Layout: Component<LayoutProps> = (props) => {
   const openBrowserIdeWindow = createBrowserIdeWindowOpener();
   const usageWarning = () => getUsageWarningLevel();
   const [terminalError, setTerminalError] = createSignal<string | null>(null);
+  const migrationRetry = createMigrationRetry();
   const [isSettingsOpen, setIsSettingsOpen] = createSignal(false);
   const [cloudflareReturn, setCloudflareReturn] = createSignal<CloudflareReturnOutcome>();
   const [isStoragePanelOpen, setIsStoragePanelOpen] = createSignal(false);
@@ -444,7 +444,7 @@ const Layout: Component<LayoutProps> = (props) => {
   const handleVisibilityChange = () => {
     if (!document.hidden) {
       sessionStore.refreshSessionStatuses?.();
-      storageStore.refresh?.({ silent: true });
+      void storageStore.refreshListingOnReturn?.();
     }
   };
   onMount(() => document.addEventListener('visibilitychange', handleVisibilityChange));
@@ -844,7 +844,6 @@ const Layout: Component<LayoutProps> = (props) => {
       <Show when={!showDashboard()}>
         <Header
           userName={props.userName}
-          operatorManagementEligible={props.operatorManagementEligible}
           onSettingsClick={handleSettingsClick}
           onStoragePanelToggle={handleStoragePanelToggle}
           onVaultOpen={sessionStore.activeSessionId && sessionStore.preferences.sessionMode === 'advanced'
@@ -873,6 +872,40 @@ const Layout: Component<LayoutProps> = (props) => {
       <div class="layout-middle">
         {/* Main content */}
         <TerminalArea
+          migrationRetry={migrationRetry}
+          repositoryRestoreNotices={
+            <section class="repository-restore-notices" aria-label="Activity notifications">
+              <MigrationRetryNotice retry={migrationRetry} />
+              <For each={Object.keys(sessionStore.repositoryRestoreNotices ?? {})}>{id => {
+                const notice = () => sessionStore.repositoryRestoreNotices[id];
+                const status = () => notice()?.status;
+                const name = () => sessionStore.sessions.find(session => session.id === id)?.name;
+                return (
+                  <Show when={status() && name()}>
+                    <div class="repository-restore-notice">
+                      <div role="status" aria-atomic="true">
+                        <strong>{notice()?.repo
+                          ? status() === 'restoring' ? 'Cloning repository…'
+                            : notice()?.outcome === 'exists' ? 'Repository folder already exists'
+                            : notice()?.outcome === 'tracking-unconfirmed' ? 'Repository cloned; automatic restore not confirmed'
+                            : status() === 'complete' ? 'Repository cloned' : 'Repository clone failed'
+                          : status() === 'restoring' ? 'Restoring repositories…'
+                            : status() === 'complete' ? 'Repositories restored' : 'Some repositories weren’t restored'}</strong>
+                        <div class="repository-restore-notice__session">{name()}</div>
+                        <Show when={notice()?.repo}>{repo => <div class="repository-restore-notice__session">{repo()}</div>}</Show>
+                      </div>
+                      <button type="button" aria-label={notice()?.repo ? 'Dismiss repository clone notification' : 'Dismiss repository restore notification'}
+                        onClick={() => sessionStore.dismissRepositoryRestore(id)}>
+                        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2">
+                          <path d="m6 6 12 12M18 6 6 18" />
+                        </svg>
+                      </button>
+                    </div>
+                  </Show>
+                );
+              }}</For>
+            </section>
+          }
           showTerminal={showTerminal() ?? false}
           showTilingOverlay={showTilingOverlay()}
           onTilingButtonClick={handleTilingButtonClick}
@@ -898,7 +931,7 @@ const Layout: Component<LayoutProps> = (props) => {
       </div>
 
       {/* Settings Panel - slides in from right */}
-      <SettingsPanel isOpen={isSettingsOpen()} onClose={handleSettingsClose} currentUserEmail={props.userName} currentUserRole={props.userRole} currentUserAccessTier={props.userAccessTier} enterpriseMode={props.enterpriseMode} mcpReturnOutcome={props.mcpReturnOutcome} cloudflareReturn={cloudflareReturn()} />
+      <SettingsPanel isOpen={isSettingsOpen()} onClose={handleSettingsClose} currentUserEmail={props.userName} currentUserRole={props.userRole} enterpriseMode={props.enterpriseMode} mcpReturnOutcome={props.mcpReturnOutcome} cloudflareReturn={cloudflareReturn()} />
 
       {/* Storage Panel - slides in from right */}
       <StoragePanel isOpen={isStoragePanelOpen()} onClose={handleStoragePanelClose} />

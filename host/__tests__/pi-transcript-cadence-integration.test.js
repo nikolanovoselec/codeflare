@@ -142,9 +142,9 @@ for (const order of ['capture-before-trim', 'trim-before-capture', 'capture-fail
     emit('session_start');
     const previous = { promptCount: 127, transcriptFingerprint: realUserPromptFingerprint(entries, 127) };
     fs.writeFileSync(countFile, '127'); fs.writeFileSync(progressFile, JSON.stringify(previous));
-    const chunk = requestId => fs.writeFileSync(join(paths.vaultRoot, 'graphify-out', `.graphify_chunk_${requestId}.json`),
-      JSON.stringify({ nodes: [{ id: 'synthetic-concept', label: 'Synthetic concept', file_type: 'concept',
-        source_file: null, source_location: null, source_url: null, captured_at: null, author: null, contributor: null }],
+    const chunk = (requestId, sourceFile = null) => fs.writeFileSync(join(paths.vaultRoot, 'graphify-out', `.graphify_chunk_${requestId}.json`),
+      JSON.stringify({ nodes: [{ id: 'synthetic-concept', label: 'Synthetic concept', file_type: sourceFile ? 'document' : 'concept',
+        source_file: sourceFile, source_location: null, source_url: null, captured_at: null, author: null, contributor: null }],
       edges: [], hyperedges: [], input_tokens: 0, output_tokens: 0 }));
     const companionNote = join(paths.vaultRoot, 'Notes/companion.md');
     if (order === 'serviced-companion-window') fs.writeFileSync(companionNote, '# Initial companion note');
@@ -159,7 +159,7 @@ for (const order of ['capture-before-trim', 'trim-before-capture', 'capture-fail
       assert.ok(vault);
       append({ type: 'custom_message', customType: 'background-extraction-launch', details: { items: [vault] } });
       append({ type: 'message', message: { role: 'assistant', content: [{ type: 'toolCall', id: 'vault-call', name: 'subagent', arguments: vault.request }] } });
-      chunk(vault.requestId);
+      chunk(vault.requestId, companionNote);
       append({ type: 'custom_message', customType: 'subagent-notification', content: '<tool-use-id>vault-call</tool-use-id><status>Done</status>' });
       emit('agent_settled');
       assert.ok(!fs.existsSync(join(paths.cacheDir, 'vault-extract.pi.vars')), 'initial companion completed before the edit');

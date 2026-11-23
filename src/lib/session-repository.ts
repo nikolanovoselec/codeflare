@@ -1,5 +1,5 @@
 import type { AgentType, SessionWorkspace, TabConfig, TerminalMode } from '../types';
-import type { TrackedClone } from './clone-targets';
+import { normalizeTrackedClones, type TrackedClone } from './clone-targets';
 import type { SessionAuthority, AuthoritySession } from './session-authority';
 
 type SessionLifecycleState = 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping';
@@ -108,16 +108,17 @@ export class D1SessionRepository implements SessionAuthority {
     return result.results.map(fromRow);
   }
 
-  async start(ownerKey: string, sessionId: string, transitionedAt: string): Promise<D1Session | null> {
-    const result = await this.db.prepare(`UPDATE runtime_sessions SET lifecycle_state='starting',
+  async start(ownerKey: string, sessionId: string, transitionedAt: string, expectedGeneration?: number): Promise<D1Session | null> {
+    const row = await this.db.prepare(`UPDATE runtime_sessions SET lifecycle_state='starting',
       lifecycle_generation=lifecycle_generation+1, response_revision=response_revision+1,
       observation_sequence=-1, editor_ready=0, editor_ready_error=0,
       transitioned_at=?3, lifecycle_reason=NULL
       WHERE owner_key=?1 AND session_id=?2 AND lifecycle_state='stopped'
+        AND (?4 IS NULL OR lifecycle_generation=?4)
         AND termination_intent_id IS NULL AND boundary_activity_id IS NULL
-        AND EXISTS (SELECT 1 FROM session_cutover WHERE id=1 AND state='complete')`)
-      .bind(ownerKey, sessionId, transitionedAt).run();
-    return result.meta.changes === 1 ? this.getSession(ownerKey, sessionId) : null;
+        AND EXISTS (SELECT 1 FROM session_cutover WHERE id=1 AND state='complete')
+      RETURNING *`).bind(ownerKey, sessionId, transitionedAt, expectedGeneration ?? null).first<SessionRow>();
+    return row ? fromRow(row) : null;
   }
 
   /** Exceptional-path read only: a missing acknowledgement is not permission to signal. */
@@ -150,8 +151,10 @@ export class D1SessionRepository implements SessionAuthority {
         || current.lifecycleState === 'stopping') ? current : null;
   }
 
+  /** False means an acknowledged refusal; null means readback could not resolve the write. */
   async recoverUnreachable(ownerKey: string, sessionId: string, generation: number, sequence: number,
-    incidentId: string, observedAt: string): Promise<boolean> {
+    incidentId: string, observedAt: string): Promise<boolean | null> {
+    let refused = false;
     try {
       const result = await this.db.prepare(`UPDATE runtime_sessions SET lifecycle_state='running', unreachable_incident_id=NULL,
         unreachable_first_observed_at=NULL, unreachable_deadline_ms=NULL, lifecycle_reason=NULL,
@@ -159,11 +162,13 @@ export class D1SessionRepository implements SessionAuthority {
         WHERE owner_key=?1 AND session_id=?2 AND lifecycle_generation=?3 AND ?4>observation_sequence
           AND lifecycle_state='unreachable' AND unreachable_incident_id=?5 AND termination_intent_id IS NULL`)
         .bind(ownerKey, sessionId, generation, sequence, incidentId, observedAt).run();
-      if (result.meta.changes === 1) return true;
+      if (result.success && result.meta.changes === 1) return true;
+      refused = result.success && result.meta.changes === 0;
     } catch { /* Reconcile an accepted write whose acknowledgement was lost. */ }
     const current = await this.reconcileRuntime(ownerKey, sessionId);
-    return current?.lifecycleGeneration === generation && current.observationSequence === sequence
-      && current.lifecycleState === 'running' && current.unreachableIncidentId === undefined;
+    if (current?.lifecycleGeneration === generation && current.observationSequence === sequence
+      && current.lifecycleState === 'running' && current.unreachableIncidentId === undefined) return true;
+    return refused ? false : null;
   }
 
   async claimUnreachableTermination(ownerKey: string, sessionId: string, generation: number, incidentId: string,
@@ -300,24 +305,41 @@ export class D1SessionRepository implements SessionAuthority {
     return result.meta.changes === 1;
   }
 
-  async updateReadiness(ownerKey: string, sessionId: string, generation: number, editorReady: boolean, editorReadyError: boolean): Promise<boolean> {
+  async updateReadiness(ownerKey: string, sessionId: string, generation: number, editorReady: boolean, editorReadyError: boolean,
+    runningOnly = false): Promise<boolean> {
     const result = await this.db.prepare(`UPDATE runtime_sessions SET
       editor_ready=?4, editor_ready_error=?5, response_revision=response_revision+1
       WHERE owner_key=?1 AND session_id=?2 AND lifecycle_generation=?3
         AND lifecycle_state IN ('starting','running','unreachable')
-        AND termination_intent_id IS NULL`)
-      .bind(ownerKey, sessionId, generation, editorReady ? 1 : 0, editorReadyError ? 1 : 0).run();
+        AND (?6=0 OR lifecycle_state='running') AND termination_intent_id IS NULL`)
+      .bind(ownerKey, sessionId, generation, editorReady ? 1 : 0, editorReadyError ? 1 : 0, runningOnly ? 1 : 0).run();
     return result.meta.changes === 1;
   }
 
+  async appendTrackedClone(ownerKey: string, sessionId: string, clone: TrackedClone): Promise<'tracked' | 'missing' | 'conflict'> {
+    // Network cloning has already finished. Retry only the inventory write,
+    // without allowing a stale snapshot to replace a concurrent update.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const session = await this.getSession(ownerKey, sessionId);
+      if (!session) return 'missing';
+      const clones = normalizeTrackedClones([...(session.clones ?? []), clone]);
+      const result = await this.db.prepare(`UPDATE runtime_sessions SET clones_json=?3, response_revision=response_revision+1
+        WHERE owner_key=?1 AND session_id=?2 AND response_revision=?4`)
+        .bind(ownerKey, sessionId, JSON.stringify(clones), session.responseRevision).run();
+      if (result.meta.changes === 1) return 'tracked';
+    }
+    return 'conflict';
+  }
+
   async updateTrackedClones(ownerKey: string, sessionId: string, clones: TrackedClone[],
-    observation?: { generation: number; sequence: number }): Promise<boolean> {
+    observation?: { generation: number; sequence: number; responseRevision?: number }): Promise<boolean> {
     const result = await this.db.prepare(`UPDATE runtime_sessions SET clones_json=?3, response_revision=response_revision+1
       WHERE owner_key=?1 AND session_id=?2
         AND (?4 IS NULL OR (lifecycle_generation=?4 AND ?5>observation_sequence
           AND lifecycle_state IN ('starting','running') AND unreachable_incident_id IS NULL
-          AND termination_intent_id IS NULL))`)
-      .bind(ownerKey, sessionId, JSON.stringify(clones), observation?.generation ?? null, observation?.sequence ?? null).run();
+          AND termination_intent_id IS NULL)) AND (?6 IS NULL OR response_revision=?6)`)
+      .bind(ownerKey, sessionId, JSON.stringify(clones), observation?.generation ?? null,
+        observation?.sequence ?? null, observation?.responseRevision ?? null).run();
     return result.meta.changes === 1;
   }
 
@@ -335,8 +357,10 @@ export class D1SessionRepository implements SessionAuthority {
     return result.meta.changes;
   }
 
-  async deleteConfirmed(ownerKey: string, sessionId: string): Promise<boolean> {
-    const result = await this.db.prepare("DELETE FROM runtime_sessions WHERE owner_key=?1 AND session_id=?2 AND lifecycle_state='stopped' AND boundary_activity_id IS NULL").bind(ownerKey, sessionId).run();
+  async deleteConfirmed(ownerKey: string, sessionId: string, generation: number): Promise<boolean> {
+    const result = await this.db.prepare(`DELETE FROM runtime_sessions WHERE owner_key=?1 AND session_id=?2
+      AND lifecycle_generation=?3 AND lifecycle_state='stopped' AND boundary_activity_id IS NULL`)
+      .bind(ownerKey, sessionId, generation).run();
     return result.meta.changes === 1;
   }
 }

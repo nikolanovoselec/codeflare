@@ -1225,6 +1225,23 @@ describe('Structured AI routing', () => {
     expect(api.discover).toHaveBeenCalledExactlyOnceWith({ route: 'development', profileRef: kimiRef, maxCompletionTokens: 4096 });
   });
 
+  it.each(['top-level', 'candidate'] as const)('REQ-ENTERPRISE-038/043: an assignable receipt with an informational %s diagnostic is not attached', async (location) => {
+    const diagnostic = { levels: [] as PiReasoningLevel[], stage: 'cache', code: 'cache_not_observed' };
+    const result = verifiedReport();
+    if (location === 'top-level') result.diagnostics = [diagnostic];
+    else result.candidateResults = [{ profileId: kimiRef.id, classification: 'Verified', assignable: true, diagnostics: [diagnostic] }];
+    api.discover.mockResolvedValueOnce(result);
+    const view = mount(); await ready(view);
+    const before = draftConfiguration(view.container);
+    await verifyProfile(view);
+    await waitFor(() => expect(within(view.getByRole('article', { name: 'development route' }))
+      .getByRole('button', { name: 'Verify Profile for development' })).toBeEnabled());
+    expect(draftConfiguration(view.container)).toEqual(before);
+    expect(formValues(view.container).routeChecks.development).toBeNull();
+    expect(formValues(view.container).dynamicRoutes).not.toContain('development');
+    expect(draftConfiguration(view.container).routeAssignments.development).not.toHaveProperty('verification');
+  });
+
   it('REQ-ENTERPRISE-038: observed-path receipts enable access with a backup warning without fabricating per-leg evidence', async () => {
     api.inventory.mockImplementation(async (route: string) => ({ ...routeInventory(route), legs: routeInventory(route).legs.map((leg) => ({ ...leg, provider: 'workers-ai' })) }));
     api.discover.mockResolvedValueOnce(verifiedReport('development', kimiRef, 'observed-path'));

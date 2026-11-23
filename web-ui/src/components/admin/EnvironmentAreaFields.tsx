@@ -60,7 +60,13 @@ const EnvironmentAreaFields: Component<Props> = (props) => {
     </Match>
     <Match when={props.section === 'dataGovernance'}>
       <Show when={props.mode === 'enterprise'}>
-        {toggle('governedMode', 'Enable governed storage encryption')}
+        <div class="admin-form-wide">
+          <label class="admin-toggle-field">
+            <input name="governedMode" type="checkbox" checked={current().governedMode === true} aria-describedby="governed-mode-help" />
+            <span>Disable customer-key encryption (SSE-C)</span>
+          </label>
+          <p id="governed-mode-help" class="admin-help-text">Corporate security tools with authorized R2 access can scan converted files without the customer key. Existing SSE-C files still require the key until converted, and some files may be skipped. Cloudflare’s default encryption at rest stays enabled, and the bucket does not become public.</p>
+        </div>
         {toggle('viewOnlyStorage', 'Disable storage downloads')}
       </Show>
       <div class="admin-form-wide">

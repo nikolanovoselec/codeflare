@@ -14,12 +14,12 @@
 // configured catalog shape. Revert the fix (def back) and this test fails.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, writeFileSync, mkdtempSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { enterpriseStartup, authorizedRoutes, nativeHandle, nativeLevels, siblingProvider, extractPiCleanup } from '../__fixtures__/enterprise-pi-startup.mjs';
+import { enterpriseStartup, authorizedRoutes, nativeHandle, nativeLevels, siblingProvider, extractEnterpriseBlock, extractPiCleanup, systemTrustIsolation } from '../__fixtures__/enterprise-pi-startup.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const entrypoint = readFileSync(resolve(__dirname, '../../entrypoint.sh'), 'utf8');
@@ -32,18 +32,6 @@ function extractModelsBlock() {
   const end = entrypoint.indexOf('# --- Pi configuration end ---', start);
   if (end === -1) throw new Error('models.json block end marker not found in entrypoint.sh');
   return entrypoint.slice(start, end);
-}
-
-// Extract the real outer Enterprise-mode gate through its closing `fi`.
-function extractEnterpriseBlock() {
-  const section = entrypoint.indexOf('# Gated strictly on ENTERPRISE_MODE=active');
-  if (section === -1) throw new Error('Enterprise block section marker not found in entrypoint.sh');
-  const start = entrypoint.indexOf('if [ "${ENTERPRISE_MODE:-}" = "active" ]; then', section);
-  if (start === -1) throw new Error('Enterprise block gate not found in entrypoint.sh');
-  const endMarker = '\nfi\n\n# --- TLS: trust the Cloudflare containers CA for NON-ENTERPRISE OAuth sessions ---';
-  const end = entrypoint.indexOf(endMarker, start);
-  if (end === -1) throw new Error('Enterprise block closing marker not found in entrypoint.sh');
-  return entrypoint.slice(start, end + '\nfi\n'.length);
 }
 
 function extractEmptyCatalogBody() {
@@ -266,7 +254,7 @@ describe('entrypoint enterprise Pi models.json build (REQ-ENTERPRISE-005 / REQ-E
   it('REQ-ENTERPRISE-005 AC5: outer Enterprise gate skips Pi provider config when mode is unset', () => {
     const dir = mkdtempSync(join(tmpdir(), 'non-ent-pi-models-'));
     const modelsPath = join(dir, '.pi/agent/models.json');
-    const script = ['set -euo pipefail', `USER_HOME='${dir}'`, extractEnterpriseBlock()].join('\n');
+    const script = ['set -euo pipefail', `USER_HOME='${dir}'`, extractEnterpriseBlock(entrypoint)].join('\n');
     const res = spawnSync('bash', ['-c', script], {
       encoding: 'utf8',
       env: { PATH: process.env.PATH ?? '/usr/bin:/bin' },
@@ -317,6 +305,26 @@ describe('entrypoint enterprise Pi models.json build (REQ-ENTERPRISE-005 / REQ-E
     assert.ok(models.providers.other);
     assert.deepEqual(settings, { packages: ['keep'] });
     assert.equal(readFileSync(join(dir, '.bashrc'), 'utf8'), 'keep-me\n');
+  });
+
+  it('REQ-ENTERPRISE-058 AC3: malformed raw catalog without a default fails before cleanup and leaves restored state untouched', (t) => {
+    const home = mkdtempSync(join(tmpdir(), 'ent-pi-malformed-'));
+    t.after(() => rmSync(home, { recursive: true, force: true }));
+    const agentDir = join(home, '.pi/agent');
+    mkdirSync(agentDir, { recursive: true });
+    const files = {
+      [join(agentDir, 'models.json')]: JSON.stringify({ providers: { 'codeflare-gateway': { models: [{ id: 'stale' }] }, other: siblingProvider } }),
+      [join(agentDir, 'settings.json')]: JSON.stringify({ defaultProvider: 'codeflare-gateway', defaultModel: 'stale', theme: 'dark' }),
+      [join(home, '.bashrc')]: '# enterprise-copilot-byok\nexport COPILOT_MODEL="stale"\n# end-enterprise-copilot-byok\nkeep-me\n',
+    };
+    for (const [path, text] of Object.entries(files)) writeFileSync(path, text);
+    const result = spawnSync('bash', ['-c', `set -euo pipefail\n${systemTrustIsolation}\n${extractEnterpriseBlock(entrypoint)}`], {
+      encoding: 'utf8', env: { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: home, USER_HOME: home,
+        ENTERPRISE_MODE: 'active', ENTERPRISE_ROUTE_CATALOG: '{malformed' },
+    });
+    assert.notEqual(result.status, 0);
+    assert.doesNotMatch(result.stdout, /Pi pinned to|authoritative empty model catalog applied/);
+    for (const [path, text] of Object.entries(files)) assert.equal(readFileSync(path, 'utf8'), text);
   });
 
   it('keeps the inner model builder nonempty when invoked independently', () => {

@@ -72,6 +72,20 @@ describe('LlmKeysSection / REQ-AGENT-020', () => {
     expect(document.body.textContent).not.toContain('sk-full-secret');
   });
 
+  it.each([
+    { provider: 'OpenAI', row: 'llm-openai-row' },
+    { provider: 'Gemini', row: 'llm-gemini-row' },
+  ])('REQ-AGENT-020 AC1: $provider key entry uses a password input', async ({ provider, row }) => {
+    render(() => <LlmKeysSection />);
+    await screen.findByTestId(row);
+    fireEvent.click(screen.getByRole('button', { name: `Connect to ${provider}` }));
+    const input = screen.getByTestId(`${row}-input`);
+    expect(input).toHaveAttribute('type', 'password');
+    fireEvent.input(input, { target: { value: 'synthetic-private-key' } });
+    expect(input).toHaveValue('synthetic-private-key');
+    expect(screen.queryByText('synthetic-private-key')).not.toBeInTheDocument();
+  });
+
   it('replaces a submitted full key with the mask returned by the server', async () => {
     mockUpdateLlmKeys.mockResolvedValue({ openaiApiKey: '****wxyz' });
     render(() => <LlmKeysSection />);

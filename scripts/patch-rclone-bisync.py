@@ -222,6 +222,52 @@ func (o *Object) completedObject('''),
         ("cmd/bisync/listing.go", "\t\t\t\tlist.put(queueFile, new.size, new.time, new.hash, new.id, new.flags)\n", "\t\t\t\tlist.put(queueFile, new.size, new.time, new.hash, new.id, new.flags)\n\t\t\t\tif verified { list.get(queueFile).time = new.time }\n"),
         ("cmd/bisync/listing.go", "\t\t\t\tdstList.put(srcNewName, completed.size, completed.time, completed.hash, completed.id, completed.flags)", "\t\t\t\tdstList.put(srcNewName, completed.size, completed.time, completed.hash, completed.id, completed.flags)\n\t\t\t\tif completedDst.has(srcNewName) { dstList.get(srcNewName).time = completed.time }"),
     ])
+    if version == "1.76.0":
+        changes.extend([
+            ("backend/s3/s3.go", '\t"net/url"\n', '\t"net/url"\n\t"os"\n'),
+            ("backend/s3/s3.go", 'func (f *Fs) headObject(ctx context.Context, req *s3.HeadObjectInput)', '''// Only the exact-path Hermes transfer opts in to reading plain empty objects.
+func (f *Fs) hermesEmptyReadAllowed(err error, key *string) bool {
+	if err == nil || key == nil || f.opt.Provider != "Cloudflare" || os.Getenv("CODEFLARE_RCLONE_HERMES_EMPTY_READ") != "1" {
+		return false
+	}
+	status := getHTTPStatusCode(err)
+	return status == http.StatusBadRequest || status == http.StatusForbidden
+}
+
+func (f *Fs) headObject(ctx context.Context, req *s3.HeadObjectInput)'''),
+            ("backend/s3/s3.go", '''		resp, err = f.c.HeadObject(ctx, req)
+		return f.shouldRetry(ctx, err)
+	})
+	if err != nil {''', '''		resp, err = f.c.HeadObject(ctx, req)
+		return f.shouldRetry(ctx, err)
+	})
+	if f.hermesEmptyReadAllowed(err, req.SSECustomerKey) {
+		plain := *req
+		plain.SSECustomerAlgorithm, plain.SSECustomerKey, plain.SSECustomerKeyMD5 = nil, nil, nil
+		if empty, probeErr := f.c.HeadObject(ctx, &plain); probeErr == nil && empty.ContentLength != nil && *empty.ContentLength == 0 {
+			resp, err = empty, nil
+		}
+	}
+	if err != nil {'''),
+            ("backend/s3/s3.go", '''		resp, err = o.fs.c.GetObject(ctx, &req, s3.WithAPIOptions(APIOptions...))
+		return o.fs.shouldRetry(ctx, err)
+	})
+	if awsError''', '''		resp, err = o.fs.c.GetObject(ctx, &req, s3.WithAPIOptions(APIOptions...))
+		return o.fs.shouldRetry(ctx, err)
+	})
+	if o.bytes == 0 && req.Range == nil && o.fs.hermesEmptyReadAllowed(err, req.SSECustomerKey) {
+		plain := req
+		plain.SSECustomerAlgorithm, plain.SSECustomerKey, plain.SSECustomerKeyMD5 = nil, nil, nil
+		if empty, probeErr := o.fs.c.GetObject(ctx, &plain, s3.WithAPIOptions(APIOptions...)); probeErr == nil {
+			if empty.ContentLength != nil && *empty.ContentLength == 0 && empty.ContentRange == nil {
+				resp, err = empty, nil
+			} else {
+				_ = empty.Body.Close()
+			}
+		}
+	}
+	if awsError'''),
+        ])
     originals = {}
     planned = {}
     for name, old, new in changes:

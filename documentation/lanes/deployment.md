@@ -29,7 +29,7 @@ Default deployment execution, verification, rollback, and development references
 
 **Prerequisites:** Confirm the intended commit is `origin/main`, every required exact-head check is green, and the established `CLOUDFLARE_API_TOKEN` has D1 Edit plus its existing deployment permissions. Migration runs before Worker promotion. Historical database identity, restore boundaries, and retention belong to [Billing](billing.md#d1-database-and-migrations); routine Administration belongs to [Configuration](configuration.md). [REQ-OPS-056](../../sdd/spec/operations.md#req-ops-056-non-destructive-d1-deployment-boundary) owns migration safety. Integration acceptance and account operation/spend alerts remain prerequisites for sampled Production history rollout under [REQ-OPS-057](../../sdd/spec/operations.md#req-ops-057-bounded-administration-operation-envelope).
 
-Web Push is optional. To enable it, define `VAPID_SUBJECT`, `VAPID_PUBLIC_KEY`, and `VAPID_PRIVATE_KEY` as one complete repository-level Actions secret group shared by every deployment environment; no GitHub Environment may override those names. The subject and public key use secret context to mask Actions step metadata, while only the private key is confidential at runtime. The [deployment workflow](../../.github/workflows/deploy.yml) accepts the wholly absent group but fails before Worker deployment when configuration is partial, whitespace-padded, malformed, or when the unpadded-base64url P-256 pair does not match ([REQ-OPS-013](../../sdd/spec/operations.md#req-ops-013-deploy-command-and-post-deploy-hooks), [REQ-SEC-023](../../sdd/spec/security.md#req-sec-023-agent-notification-capability-boundaries)).
+Web Push is optional. To enable it, define `VAPID_SUBJECT`, `VAPID_PUBLIC_KEY`, and `VAPID_PRIVATE_KEY` as one complete repository-level Actions secret group shared by every deployment environment; no GitHub Environment may override those names. The subject and public key use secret context to mask Actions step metadata, while only the private key is confidential at runtime. The [deployment workflow](../../.github/workflows/deploy.yml) accepts the wholly absent group but fails before Worker deployment when configuration is partial, whitespace-padded, malformed, or when the unpadded-base64url P-256 pair does not match ([REQ-OPS-173](../../sdd/spec/operations.md#req-ops-173-deployment-notification-sender-validation), [REQ-SEC-023](../../sdd/spec/security.md#req-sec-023-agent-notification-capability-boundaries)).
 
 Without the group, Push delivery and the Settings enrollment control are unavailable. When configured, keep the private key out of Wrangler configuration and logs. Rotating the pair invalidates existing Push subscriptions across every environment and requires re-enrollment; follow [Shared settings and Web Push identity](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/reference/core-settings.md). For a manual retry, confirm the failed automatic run did not already promote the same tree.
 
@@ -52,7 +52,11 @@ Read-only method for [REQ-OPS-001](../../sdd/spec/operations.md#req-ops-001-depl
 
 For AC2 inspect separate retained native dispatch records for production, integration, enterprise and enterprise integration. Compare each actual environment input with **Resolve deploy target** / **Log resolved parameters**, job environment and **Deploy summary**. Production must resolve from `main`; inspect **Block production deploys from non-main branches**. Confirm the exact-tree verification path and completed deployment, not only the dispatch menu. Missing an environment's completed record is BLOCKED for that observation; wrong target/tree or a passing non-main production promotion is FAIL. Reuse the [pipeline contract](ci-cd.md#deploy-workflow-detail), including explicit-run fail-closed behavior, inline fallback, serialization and outcome safeguards.
 
-For AC5 inspect **Deploy worker** / **Resolve KV namespace** at that same revision. Correlate successful namespace listing with the resolved `${WORKER_NAME}-kv` title and reported namespace identity, then inspect the script's substitution of `id = "placeholder"` in `wrangler.toml`. Existing matching namespaces must be reused; creation applies only after a successful list returns no match. Correlate subsequent **Deploy to Cloudflare** binding output where retained. No deployed config artifact is promised by this workflow; if application of the resolved identity cannot be established from retained output/source, that part remains BLOCKED, not inferred from a green summary.
+For [REQ-ENTERPRISE-006 AC5](../../sdd/spec/setup.md#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var), inspect GitHub's `enterprise` environment branch policy: only `main` and `develop` are admitted. `enterprise integration` is a separate target with its own policy. A ref can select a target without being admitted to deploy. Compare retained records where available; do not dispatch a run to test admission.
+
+For AC5 of REQ-OPS-001 inspect **Deploy worker** / **Resolve KV namespace** at that same revision. Correlate successful namespace listing with the resolved `${WORKER_NAME}-kv` title and reported namespace identity, then inspect the script's substitution of `id = "placeholder"` in `wrangler.toml`. Existing matching namespaces are reused; creation applies only after a valid inventory establishes absence. A failed listing or a successful exit with a blank, malformed, or ambiguous inventory stops before creation or rebinding. The host fixture executes the resolver against a stub Wrangler and disposable config; provider binding still requires retained deployment evidence. <!-- @impl: scripts/ci/resolve-kv-namespace.sh::KV_TITLE -->
+
+Correlate subsequent **Deploy to Cloudflare** binding output where retained. No deployed config artifact is promised by this workflow; if application of the resolved identity cannot be established from retained output/source, that part remains BLOCKED, not inferred from a green summary.
 
 Accept list/reuse and list/no-match/create branches separately from existing approved records. In retained failure records, failed listing must stop without guessing or creating, and unresolved identity must stop before Worker promotion. Wrong binding or promotion after resolution failure is FAIL. Missing branch or rejection records is BLOCKED for those observations. Setup-route mock-KV tests do not establish this deployment behavior; no namespace may be created or modified to fill the evidence gap here.
 
@@ -66,10 +70,10 @@ For [OPS-007/012/014](../../sdd/spec/operations.md), apply [pipeline prerequisit
 
 | Scope | Required observation |
 |---|---|
-| OPS-007 AC1/2/5; OPS-014 AC1–3 | Compare resolved profile CPU/memory/disk and canonical defaults with effective provider configuration. Match the pushed image digest and binding, with no deploy-time rebuild. Wrong allocation/binding fails. |
-| OPS-007 AC3; OPS-012 AC1–4 | Compare retained default and positive-integer override cases across profiles. Effective cap follows the override independently of profile. Existing zero/negative/noninteger cases reject before promotion; missing cases are unavailable. |
+| OPS-007 AC1/2/5; OPS-014 AC1–3/6 | Compare resolved profile CPU/memory/disk and canonical defaults with effective provider configuration. Match the emitted content-addressed tag, pushed digest and final binding, with no deploy-time rebuild. Wrong allocation/binding fails. |
+| OPS-007 AC3; OPS-012 AC1–4 | Compare retained defaults and positive-integer overrides across profiles: override wins. Reject zero, negative, fractional and multiline overrides before patching. The host fixture executes allocation against disposable config; deployed Worker cap requires provider readback. |
 | OPS-007 AC4 | Compare resolved regular/admin limits with observed admission records. This is best-effort admission, not an atomic concurrency reservation or hard isolation guarantee. |
-| OPS-014 AC4/5 | Compare same-input cache-bust and baseline records: affected agent layer rebuilds while unrelated layers remain cached, then rollout binds that image. Repository SSH remains disabled/key-free; persistent identity provisioning is private-owned. |
+| OPS-014 AC4/5 | In retained runs, nonempty cache-bust bypasses registry reuse; a changed token invalidates the affected agent layer. Unrelated layers may reuse; same token need not rebuild. Match bound image to selected output. Repository SSH remains disabled/key-free; persistent identity provisioning is private-owned. |
 
 ### Idle metering and identity lifecycle acceptance
 
@@ -97,7 +101,7 @@ For OPS-061 use the private [persistent SSH runbook](https://github.com/nikolano
 - In fresh Pi, Claude and unsupported sessions, observe rendered account-free chrome ([REQ-IDE-021](../../sdd/spec/browser-ide.md#req-ide-021-account-free-browser-ide-chrome)).
 - During long panel turns, verify GPT-5.6 Sol summaries and the unchanged Qwen thinking path ([REQ-IDE-027](../../sdd/spec/browser-ide.md#req-ide-027-native-pi-panel-reasoning-and-bounded-progress)).
 - Verify an editor request renders host-owned edits or rejects without indefinite waiting ([REQ-IDE-028](../../sdd/spec/browser-ide.md#req-ide-028-native-inline-chat-dispatch-error-isolation)).
-- Verify no-change feedback and the controller-owned review journey, then immediate Panel Chat recovery after an Inline result ([REQ-IDE-029](../../sdd/spec/browser-ide.md#req-ide-029-native-inline-chat-feedback), [REQ-IDE-033](../../sdd/spec/browser-ide.md#req-ide-033-controller-owned-inline-review-lifecycle), [REQ-IDE-043](../../sdd/spec/browser-ide.md#req-ide-043-native-pi-provider-history-isolation)).
+- Verify no-change feedback and the controller-owned review journey, then immediate Panel Chat recovery after an Inline result ([REQ-IDE-029](../../sdd/spec/browser-ide.md#req-ide-029-native-inline-chat-feedback), [REQ-IDE-033](../../sdd/spec/browser-ide.md#req-ide-033-controller-owned-inline-review-lifecycle), [REQ-IDE-043](../../sdd/spec/browser-ide.md#req-ide-043-native-pi-provider-history-isolation), [REQ-IDE-058](../../sdd/spec/browser-ide.md#req-ide-058-native-pi-inline-history-isolation)).
 - Before another Inline lifecycle change, classify the deployed failure using Output-channel diagnostics ([REQ-IDE-034](../../sdd/spec/browser-ide.md#req-ide-034-bounded-inline-lifecycle-diagnostics)).
 - After separately authorized disposable temporary-file cleanup, complete Plan Mode in the running Pi session without restarting its container ([REQ-AGENT-160](../../sdd/spec/agents.md#req-agent-160-durable-late-pi-extension-loading)).
 - Verify Analytics empty-history and data-start states, actual period-history chart, Timekeeper-lag disclosure, user detail, deleted-user history and CSV download.
@@ -106,7 +110,9 @@ For OPS-061 use the private [persistent SSH runbook](https://github.com/nikolano
 - Leave Analytics, Reports and Activity idle through a stable polling interval: their data requests must not recur. Then exercise navigation, filters, explicit refresh and an applicable run reconnect; only those actions should request their data.
 - Verify five-second transition polling, 60-second stable polling, hidden cancellation, immediate visible refresh and no overlapping requests in browser network tools.
 - Verify desktop and mobile hierarchy against the approved Administration and Analytics design catalog.
-- Confirm one caught structured error and one uncaught route exception are discoverable in Integration logs ([REQ-OPS-167 AC2](../../sdd/spec/operations.md#req-ops-167-ping-log-omission-and-failure-discoverability)).
+- In full-fidelity logs, distinguish routine successful pings, which emit no custom success log, from the billing event emitted after a SaaS ping ends a trial at its compute cap and records the transition.
+  - Inspect existing observations only; do not end a trial or trigger a charge for this check. No existing trial-ending record means that exception was not observed.
+  - Confirm one caught structured error and one uncaught route exception are discoverable in Integration logs ([REQ-OPS-167 AC1–AC2](../../sdd/spec/operations.md#req-ops-167-ping-log-omission-and-failure-discoverability)).
 
 **Verify:** Retain observations bound to the exact commit, Deploy run and tested mode/target. Integration exception-visibility evidence is mandatory before sampled Production promotion; independently verify operation/spend alerts before enabling Production history. Browser and visual acceptance belongs to the operator on Integration. CI does not pretend a component snapshot proved any of this.
 
@@ -119,18 +125,9 @@ This procedure verifies **inactive** trust, not remote activation. Production us
 1. Configure `OPERATOR_REVIEW_EXECUTABLE_SHA` to the exact tested Codeflare runtime commit.
 2. Configure `OPERATOR_REVIEW_ORIGINS` with precisely `dev`, `integration` and `production` HTTPS origins maintained by the installer, never derived from a target PR or request. Missing or unverified configuration denies enrollment.
 3. Use a platform administrator's current Codeflare GitHub connection with repository workflow-write permission, authenticated Access and CSRF protection.
-4. Submit the target to `POST /api/operator-management/boundary-actions/propose`:
-
-```json
-{
-  "repositoryUrl": "https://github.com/OWNER/REPO",
-  "protectedRef": "refs/heads/main",
-  "installationId": "APPROVED_CONDUCTOR_INSTALLATION"
-}
-```
-
+4. Use the [protected workflow proposal contract](api-reference.md#protected-review-workflow-enrollment) with the target repository, protected ref and approved installation.
 5. Inspect and merge the ordinary proposal PR under the target repository's protected-branch policy. This documentation does not authorize that merge.
-6. Submit the same target to `POST /api/operator-management/boundary-actions/verify`. Codeflare rereads protected-base workflow ID, path and bytes before storing an **inactive** binding.
+6. Verify the same target through that contract. Read back the protected-base workflow identity and confirm the resulting binding is **inactive**.
 7. A pending PR, successful test or verification cannot start Review or grant Action claim authority. An inactive binding permits local review only without a competing active Review binding.
 8. Independently verify the maintained runtime pin, target installation and live publication before claiming live acceptance.
 
@@ -253,7 +250,7 @@ The operator procedure, migration bounds, pause/resume behavior, verification, r
 
 ### REQ-OPS-011 preserved clauses
 
-The authoritative Node source, immutable indices and Linux amd64 manifest boundary are [REQ-OPS-011 AC5](../../sdd/spec/agents.md#req-ops-011-container-base-image-is-debian-bookworm-slim); deployment evidence must cover that boundary plus the existing image build, packaged smoke, CVE scan, provenance and push gates.
+The authoritative Node source, immutable indices and Linux amd64 manifest boundary are [REQ-OPS-011 AC4](../../sdd/spec/agents.md#req-ops-011-container-base-image-is-debian-bookworm-slim); deployment evidence must cover that boundary plus the existing image build, packaged smoke, CVE scan, provenance and push gates.
 
 ### REQ-OPS-054 preserved clauses
 

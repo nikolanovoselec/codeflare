@@ -2,7 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createMockKV } from '../helpers/mock-kv';
 import { createMockSessionD1 } from '../helpers/mock-session-d1';
 import { D1SessionRepository } from '../../lib/session-repository';
+import { onStart, type LifecycleHost } from '../../container/container-lifecycle';
 import { FINAL_SYNC_AUDIT_KEY } from '../../container/container-metrics';
+import { buildEnvVars } from '../../container/container-env';
 
 // Shared, hoisted call-order log so the mocked base Container can record when
 // super.startAndWaitForPorts() runs relative to interceptOutboundHttps() — used
@@ -84,6 +86,13 @@ vi.mock('@cloudflare/containers', () => ({
 
 // Now import the container class after mocks are set up
 import { container as ContainerClass, validateBucketNameInput } from '../../container/index';
+import { dispatchInternalRoute } from '../../container/container-router';
+import type { ContainerHost } from '../../container/container-config';
+
+// Test configuration-handler behavior after independent Start admission.
+function invokeConfigurationHandler(instance: ContainerClass, request: Request): Promise<Response> {
+  return dispatchInternalRoute(instance as unknown as ContainerHost, request)!;
+}
 
 // REQ-SESSION-019: Final-sync drain endpoint authentication
 // REQ-ENTERPRISE-017: AI Gateway Configured in the Setup Wizard
@@ -174,7 +183,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       const instance = new ContainerClass(mockCtx as any, mockEnv);
       (instance as any)._bucketName = 'test-bucket';
       (instance as any)._sessionId = 'sess123';
-      await instance.onStart();
+      await onStart(instance as unknown as LifecycleHost, { ownerKey: 'test-bucket', sessionId: 'sess123', generation: 0 });
       expect(mockKvPut).not.toHaveBeenCalled();
     });
 
@@ -183,7 +192,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       const instance = new ContainerClass(mockCtx as any, mockEnv);
       (instance as any)._bucketName = 'test-bucket';
       (instance as any)._sessionId = 'sess123';
-      await instance.onStart();
+      await onStart(instance as unknown as LifecycleHost, { ownerKey: 'test-bucket', sessionId: 'sess123', generation: 0 });
       expect(mockCtx.storage.put).toHaveBeenCalledWith('lifecycleGeneration', 0);
     });
 
@@ -204,7 +213,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
 
       (instance as any)._bucketName = 'test-bucket';
       (instance as any)._sessionId = 'sess123';
-      await instance.onStart();
+      await onStart(instance as unknown as LifecycleHost, { ownerKey: 'test-bucket', sessionId: 'sess123', generation: 0 });
 
       expect(mockStorage.delete).toHaveBeenCalledWith('shutdownRequested');
     });
@@ -483,7 +492,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         headers: { 'Content-Type': 'application/json' },
       });
 
-      const response = await instance.fetch(request);
+      const response = await invokeConfigurationHandler(instance, request);
       expect(response.status).toBe(200);
       expect(mockStorage.put).toHaveBeenCalledWith('sleepAfter', '1h');
       expect(instance.idleTimeoutPref).toBe('1h');
@@ -503,7 +512,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         headers: { 'Content-Type': 'application/json' },
       });
 
-      const response = await instance.fetch(request);
+      const response = await invokeConfigurationHandler(instance, request);
       expect(response.status).toBe(409);
       expect(mockStorage.put).toHaveBeenCalledWith('sleepAfter', '2h');
       expect(instance.idleTimeoutPref).toBe('2h');
@@ -519,7 +528,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect(instance.envVars?.FAST_CLI_START).toBe('true');
       expect(instance.envVars?.SESSION_MODE).toBe('default');
 
-      const response = await instance.fetch(new Request('http://container/_internal/setBucketName', {
+      const response = await invokeConfigurationHandler(instance, new Request('http://container/_internal/setBucketName', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bucketName: 'existing-bucket', sleepAfter: '2h', fastStartEnabled: false, sessionMode: 'advanced' }),
       }));
@@ -538,7 +547,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       (mockCtx as any).waitUntil = vi.fn();
       const instance = new ContainerClass(mockCtx as any, mockEnv);
       await vi.waitFor(() => expect(instance.envVars?.CONTAINER_AUTH_TOKEN).toEqual(expect.any(String)));
-      const post = (keys: Record<string, unknown>) => instance.fetch(new Request('http://container/_internal/setBucketName', {
+      const post = (keys: Record<string, unknown>) => invokeConfigurationHandler(instance, new Request('http://container/_internal/setBucketName', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ bucketName: 'existing-bucket', ...keys }),
       }));
       expect((await post({ openaiApiKey: 'old-openai', geminiApiKey: 'old-gemini', encryptionKey: 'immutable' })).status).toBe(409);
@@ -585,7 +594,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         });
         const instance = new ContainerClass(mockCtx as any, mockEnv);
         await vi.waitFor(() => expect(instance.envVars?.CONTAINER_AUTH_TOKEN).toEqual(expect.any(String)));
-        const configure = (body: Record<string, unknown>) => instance.fetch(new Request('http://container/_internal/setBucketName', {
+        const configure = (body: Record<string, unknown>) => invokeConfigurationHandler(instance, new Request('http://container/_internal/setBucketName', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ bucketName: 'test-bucket', ...body }),
         }));
@@ -610,6 +619,11 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       (mockCtx as any).waitUntil = vi.fn();
       const instance = new ContainerClass(mockCtx as any, mockEnv);
       await vi.waitFor(() => expect(instance.envVars?.CONTAINER_AUTH_TOKEN).toEqual(expect.any(String)));
+      expect((await invokeConfigurationHandler(instance, new Request('http://container/_internal/setBucketName', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bucketName: 'test-bucket', sessionMode: 'advanced' }),
+      }))).status).toBe(409);
+      expect(buildEnvVars(instance as any, mockEnv).SESSION_MODE).toBe('advanced');
       const warm = instance as any;
       warm._openaiApiKey = 'old-secret'; warm._containerAuthToken = 'old-auth';
       warm.envVars = { CODEFLARE_OPENAI_API_KEY: 'old-secret' };
@@ -617,6 +631,8 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       mockStorage.get.mockImplementation(async key => key === 'lifecycleGeneration' ? 0 : null);
       await expect(instance.killSession({ bucket: 'test-bucket', sessionId: 'sess123', generation: 0 })).rejects.toThrow('persistent deletion unavailable');
       expect(warm._openaiApiKey).toBeNull(); expect(warm._containerAuthToken).toBeNull();
+      // REQ-SESSION-009 AC2: even rejected persistent cleanup must not emit advanced mode on reuse.
+      expect(buildEnvVars(instance as any, mockEnv).SESSION_MODE).toBe('default');
       expect(warm.envVars).toEqual({});
       const retained = await sessionKV.get('session:test-bucket:sess123', 'json') as any;
       expect(retained.status).toBe('stopping');
@@ -637,10 +653,16 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       (mockCtx as any).waitUntil = vi.fn();
       const instance = new ContainerClass(mockCtx as any, mockEnv);
       await vi.waitFor(() => expect(instance.envVars?.CONTAINER_AUTH_TOKEN).toEqual(expect.any(String)));
+      expect((await invokeConfigurationHandler(instance, new Request('http://container/_internal/setBucketName', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bucketName: 'test-bucket', sessionMode: 'advanced' }),
+      }))).status).toBe(409);
+      expect(buildEnvVars(instance as any, mockEnv).SESSION_MODE).toBe('advanced');
       const warm = instance as any;
       for (const key of ['_openaiApiKey', '_geminiApiKey', '_githubToken', '_cloudflareApiToken', '_encryptionKey', '_r2SecretAccessKey']) warm[key] = 'old-secret';
       warm.envVars = { CODEFLARE_OPENAI_API_KEY: 'old-secret', ENCRYPTION_KEY: 'old-secret' };
       await expect(instance.destroy()).rejects.toThrow('Operational storage cleanup incomplete');
+      expect(buildEnvVars(instance as any, mockEnv).SESSION_MODE).toBe('default');
       expect(warm.envVars).toEqual({});
       for (const key of ['_openaiApiKey', '_geminiApiKey', '_githubToken', '_cloudflareApiToken', '_encryptionKey', '_r2SecretAccessKey', '_containerAuthToken', '_bucketName', '_sessionId']) expect(warm[key]).toBeNull();
       expect(durable.get('lifecycleGeneration')).toBe(7);
@@ -752,7 +774,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         headers: { 'Content-Type': 'application/json' },
       });
 
-      await instance.fetch(request);
+      await invokeConfigurationHandler(instance, request);
 
       const sleepAfterPuts = mockStorage.put.mock.calls.filter(
         (c: unknown[]) => c[0] === 'sleepAfter'
@@ -772,7 +794,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         headers: { 'Content-Type': 'application/json' },
       });
 
-      await instance.fetch(request);
+      await invokeConfigurationHandler(instance, request);
       expect(instance.sleepAfter).toBe('24h');
       expect(instance.idleTimeoutPref).toBe('2h');
     });
@@ -790,7 +812,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         headers: { 'Content-Type': 'application/json' },
       });
 
-      const response = await instance.fetch(request);
+      const response = await invokeConfigurationHandler(instance, request);
       expect(response.status).toBe(500);
       // console.error should NOT be called directly - logger.error is used instead
       expect(consoleSpy).not.toHaveBeenCalled();
@@ -929,7 +951,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       (instance as any)._bucketName = 'test-bucket';
       (instance as any)._sessionId = 'sess123';
       vi.spyOn(instance, 'deleteSchedules' as any).mockImplementation(() => {});
-      await instance.onStart();
+      await onStart(instance as unknown as LifecycleHost, { ownerKey: 'test-bucket', sessionId: 'sess123', generation: 0 });
 
       return instance;
     }

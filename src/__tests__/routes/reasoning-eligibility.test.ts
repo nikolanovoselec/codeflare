@@ -428,12 +428,18 @@ describe('REQ-ENTERPRISE-047/-048 native target authority', () => {
     const f = setup();
     await activate(f);
     providerConfigAlias = 'bedrock-live';
+    const clientId = '11111111-1111-4111-8111-111111111111';
     const checked = await (await f.post('native/discover', {
-      target: { label: 'Claude exact', provider: 'aws-bedrock', model: 'eu.anthropic.claude-future-profile', contextWindow: 200000, profileRef: bedrockProfileRef, enabled: true },
+      target: { id: clientId, label: 'Claude exact', provider: 'aws-bedrock', model: 'eu.anthropic.claude-future-profile', contextWindow: 200000, profileRef: bedrockProfileRef, enabled: true },
       administratorConfirmed: true, maxCompletionTokens: 32,
     })).json() as any;
     expect(checked).toMatchObject({ classification: 'Administrator-confirmed', assignable: true });
+    expect(checked.targetId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    expect(checked.targetId).not.toBe(clientId);
+    const receipt = await readNativeTargetCheck(f.kv as unknown as KVNamespace, checked.checkId);
+    expect(receipt?.verification.targetId).toBe(checked.targetId);
     const handle = nativeTargetHandle(checked.targetId);
+    expect(handle).toBe(`cf-native-${checked.targetId}`);
     const proposed = values({
       nativeTargets: [{ id: checked.targetId, label: 'Claude exact', provider: 'aws-bedrock', model: 'eu.anthropic.claude-future-profile', contextWindow: 200000, profileRef: bedrockProfileRef, enabled: true }],
       nativeChecks: { [checked.targetId]: checked.checkId },
@@ -841,6 +847,9 @@ describe('REQ-ENTERPRISE-043 server-issued verification', () => {
   it('rejects forged verification at the legacy Setup boundary before external work', async () => {
     const f = setup(); const checked = await (await f.check()).json() as any;
     vi.mocked(fetch).mockClear();
+    const before = new Map(f.kv._store);
+    const attempted: string[] = [];
+    vi.mocked(fetch).mockImplementation(async input => { attempted.push(String(input)); return new Response(null, { status: 503 }); });
     const response = await f.app.request('/api/setup/configure', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
       customDomain: 'codeflare.example.com', adminUsers: ['admin@example.com'], allowedUsers: ['admin@example.com'],
       dynamicRoutes: ['working'], defaultRoute: { route: 'working', reasoning: 'off' }, routeContextWindows: { working: 10000 },
@@ -848,6 +857,13 @@ describe('REQ-ENTERPRISE-043 server-issued verification', () => {
     }) });
     expect(response.status).toBe(400); expect(fetch).not.toHaveBeenCalled();
     expect(f.kv._store.has(SETUP_KEYS.REASONING_CONFIGURATION)).toBe(false);
+    // Rejected Setup requests still consume their rate-limit allowance; only
+    // that bookkeeping key may change, never configuration or check receipts.
+    const rateLimitKey = 'setup-configure:anonymous';
+    const protectedState = (store: Map<string, string>) => new Map([...store].filter(([key]) => key !== rateLimitKey));
+    expect(protectedState(f.kv._store)).toEqual(protectedState(before));
+    expect(JSON.parse(f.kv._store.get(rateLimitKey)!)).toEqual({ count: 1, windowStart: expect.any(Number) });
+    expect(attempted).toEqual([]);
   });
   it('fails closed on delayed receipt visibility with retry advice and no automatic paid checks', async () => {
     const f = setup(); const checked = await (await f.check()).json() as any;

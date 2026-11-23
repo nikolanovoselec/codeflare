@@ -199,7 +199,6 @@ describe('REQ-ENTERPRISE-008 AC2: SessionSection mode selector', () => {
     notificationAvailable: () => true,
     sleepAfter: () => '30m',
     canChangeSleepAfter: () => true,
-    isFreeUser: () => false,
     recreateDocsLoading: () => false,
     recreateDocsMessage: () => null,
     recreateDocsError: () => null,

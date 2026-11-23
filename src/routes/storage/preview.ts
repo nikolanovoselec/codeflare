@@ -10,6 +10,7 @@ import { validateKey } from './validation';
 import { getSseHeaders } from '../../lib/r2-sse';
 import { fetchObjectWithRegimeFallback, markMixedRecovery } from '../../lib/r2-migration';
 import { hasHealthyContainer } from '../../lib/migration-containers';
+import { readBoundedResponse, StreamLimitExceededError } from '../../lib/bounded-stream';
 
 const logger = createLogger('storage-preview');
 
@@ -19,7 +20,14 @@ const storagePreviewRateLimiter = createRateLimiter({
   keyPrefix: 'storage-preview',
 });
 
-const MAX_TEXT_SIZE = 1_048_576; // 1MB
+const MAX_TEXT_SIZE = 1_048_576; // 1 MiB
+
+function contentLength(response: Response): number | undefined {
+  const value = response.headers.get('Content-Length');
+  if (value === null || !/^\d+$/.test(value)) return undefined;
+  const size = Number(value);
+  return Number.isSafeInteger(size) ? size : undefined;
+}
 
 function isTextContentType(contentType: string): boolean {
   if (contentType.startsWith('text/')) return true;
@@ -63,29 +71,34 @@ app.get('/', async (c) => {
     throw new ContainerError('preview', `R2 HEAD failed: ${headResponse.status}`);
   }
 
-  const size = parseInt(headResponse.headers.get('Content-Length') || '0', 10);
+  const size = contentLength(headResponse);
   const contentType = headResponse.headers.get('Content-Type') || 'application/octet-stream';
   const lastModified = headResponse.headers.get('Last-Modified') || '';
 
-  // Text files under 1MB: return content inline
-  if (isTextContentType(contentType) && size <= MAX_TEXT_SIZE) {
-    const getResponse = await r2Client.fetch(objectUrl, { method: 'GET', headers: getSseHeaders(c.env, sseDisabled) });
-    const content = await getResponse.text();
-
-    return c.json({
-      type: 'text',
-      content,
-      size,
-      lastModified,
-    });
+  // HEAD avoids unnecessary downloads, but the object can change before GET.
+  if (isTextContentType(contentType) && (size === undefined || size <= MAX_TEXT_SIZE)) {
+    const response = await r2Client.fetch(objectUrl, { method: 'GET', headers: getSseHeaders(c.env, sseDisabled) });
+    if (!response.ok) {
+      void response.body?.cancel().catch(() => undefined);
+      throw new ContainerError('preview', `R2 GET failed: ${response.status}`);
+    }
+    const fetchedSize = contentLength(response) ?? size ?? 0;
+    const fetchedModified = response.headers.get('Last-Modified') ?? lastModified;
+    if (!isTextContentType(response.headers.get('Content-Type') ?? contentType)) {
+      void response.body?.cancel().catch(() => undefined);
+      return c.json({ type: 'binary', size: fetchedSize, lastModified: fetchedModified });
+    }
+    try {
+      const bytes = await readBoundedResponse(response, MAX_TEXT_SIZE, 'Text preview');
+      return c.json({ type: 'text', content: new TextDecoder().decode(bytes), size: bytes.byteLength, lastModified: fetchedModified });
+    } catch (error) {
+      if (!(error instanceof StreamLimitExceededError)) throw error;
+      // If a growing object has no reliable length, report at least the bytes observed.
+      return c.json({ type: 'binary', size: Math.max(fetchedSize, error.observedBytes), lastModified: fetchedModified });
+    }
   }
 
-  // Non-text files: return metadata only
-  return c.json({
-    type: 'binary',
-    size,
-    lastModified,
-  });
+  return c.json({ type: 'binary', size: size ?? 0, lastModified });
 });
 
 export default app;

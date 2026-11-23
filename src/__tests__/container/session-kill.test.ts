@@ -3,6 +3,7 @@ import type { Env } from '../../types';
 import { D1SessionRepository } from '../../lib/session-repository';
 import { createMockKV } from '../helpers/mock-kv';
 import { createMockSessionD1 } from '../helpers/mock-session-d1';
+import { onStart, type LifecycleHost } from '../../container/container-lifecycle';
 import { BROWSER_REFERENCE_KEY } from '../../container/container-browser';
 
 // Only the platform/SDK boundary is doubled. In SDK 0.3.7 public destroy()
@@ -566,6 +567,7 @@ describe('REQ-SESSION-039 / REQ-SESSION-040: DO-owned native force termination',
       f.storage.set(BROWSER_REFERENCE_KEY, { bucket: ref.bucket, sessionId: ref.sessionId, generation: 7,
         email: 'owner@example.test', configuration: 'browser-config', providerId: 'old-provider' });
       await instance.setBucketName(ref.bucket, { sessionId: ref.sessionId, workspaceSyncEnabled: true });
+      await onStart(instance as unknown as LifecycleHost, { ownerKey: ref.bucket, sessionId: ref.sessionId, generation: 8 });
       await instance.onStart();
       expect(f.storage.get(BROWSER_REFERENCE_KEY)).toBeUndefined();
       const replacementKeys = new Map(['bucketName', '_sessionId', 'containerAuthToken',
@@ -609,6 +611,7 @@ describe('REQ-SESSION-039 / REQ-SESSION-040: DO-owned native force termination',
         .toMatchObject({ lifecycleState: 'starting', lifecycleGeneration: 8 });
       f.replacement();
       await instance.setBucketName(ref.bucket, { sessionId: ref.sessionId, workspaceSyncEnabled: true });
+      await onStart(instance as unknown as LifecycleHost, { ownerKey: ref.bucket, sessionId: ref.sessionId, generation: 8 });
       await instance.onStart();
       const replacementKeys = new Map(['bucketName', '_sessionId', 'containerAuthToken',
         'workspaceSyncEnabled', 'lifecycleGeneration', 'containerStartedAt'].map(key => [key, f.storage.get(key)]));

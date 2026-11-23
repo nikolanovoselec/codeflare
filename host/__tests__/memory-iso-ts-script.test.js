@@ -7,7 +7,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { resolve, dirname } from 'node:path';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { resolve, dirname, join, delimiter } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -20,7 +22,7 @@ function run(env) {
   return spawnSync('bash', [SCRIPT], {
     encoding: 'utf8',
     timeout: 5_000,
-    env: { ...process.env, ...env },
+    env: { ...process.env, USER_TIMEZONE: '', ...env },
   });
 }
 
@@ -63,6 +65,29 @@ describe('assert-iso-ts.sh / REQ-MEM-010 AC5+AC6+AC7', () => {
     });
     assert.equal(r.status, 1);
     assert.match(r.stderr, /offset \+0000 does not match TZ=Europe\/Zurich expected [+-]\d{4}/);
+  });
+
+  it('REQ-MEM-010 AC7: admits exactly 30 seconds of drift and rejects 31 in both directions', (t) => {
+    const bin = mkdtempSync(join(tmpdir(), 'capture-clock-'));
+    t.after(() => rmSync(bin, { recursive: true, force: true }));
+    // Fix only the wall clock. Timezone lookup and parsing still use GNU date.
+    const now = Date.UTC(2026, 0, 1, 12) / 1000;
+    writeFileSync(join(bin, 'date'), `#!/bin/sh\nif [ "$#" -eq 1 ] && [ "$1" = +%s ]; then echo ${now}; else command -p date "$@"; fi\n`, { mode: 0o755 });
+    for (const [time, drift] of [
+      ['11-59-30', 30], ['12-00-30', -30], ['11-59-29', 31], ['12-00-31', -31],
+    ]) {
+      const timestamp = `2026-01-01T${time}+0000`;
+      const result = run({ PATH: `${bin}${delimiter}${process.env.PATH}`, TZ: 'UTC', USER_TIMEZONE: '', ASSERT_ISO_TS_OVERRIDE: timestamp });
+      assert.equal(result.signal, null);
+      if (Math.abs(drift) === 30) {
+        assert.equal(result.status, 0, result.stderr);
+        assert.equal(result.stdout, `ISO_TS=${timestamp}\nRESOLVED_TZ=UTC\n`);
+      } else {
+        assert.equal(result.status, 1);
+        assert.equal(result.stdout, '');
+        assert.match(result.stderr, new RegExp(`drifts ${drift}s from current clock`));
+      }
+    }
   });
 
   it('AC7 freshness drift: a year-old fabricated timestamp rejected', () => {

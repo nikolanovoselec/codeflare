@@ -1,24 +1,11 @@
 /**
- * Sync fan-out helper (REQ-STOR-015 AC1 + AC4).
+ * Sync now fan-out (REQ-STOR-015 AC1–AC3, AC7). The manual route reads
+ * the owner's workload-owning sessions from D1 and forwards a trigger to
+ * each Container DO. R2 uploads do not trigger fan-out.
  *
- * Enumerates a user's running sessions and forwards POST
- * /internal/bisync-trigger to each Container DO. Used by:
- *
- * - POST /api/sessions/sync (foreground, user-driven Sync-now button)
- * - Upload-side auto-trigger after R2 PUT (background via
- *   executionCtx.waitUntil)
- *
- * Hibernation safety: stateless. No Worker-side cache, no DO-side
- * cache. Each call freshly enumerates KV (which is authoritative for
- * session status per REQ-STOR-014) and freshly forwards to each
- * Container DO. Hibernated DOs / sleeping containers return 503,
- * which is translated to 'not-running' so the caller can mark the
- * session as "skipped" rather than "failed".
- *
- * Fan-out correctness: under the existing `--conflict-resolve newer`
- * semantics in entrypoint.sh, the merge is commutative and associative
- * on absolute mtime. Parallel and serial fan-out produce the same
- * final R2 state per file. See AD56.
+ * A 503 becomes `not-running`; one failed request cannot prevent the
+ * other sessions from attempting sync. Bisync's newest-file-wins rule
+ * does not guarantee convergence for equal or racing mtimes (AD56).
  */
 import { getContainer } from '@cloudflare/containers';
 import type { Env } from '../types';
@@ -28,9 +15,9 @@ import { isBucketMigrating } from './r2-regime-state';
 
 /**
  * Maximum concurrent per-session sync triggers in one fan-out call
- * (REQ-STOR-015 AC2). Keeps Worker subrequest / CPU budget bounded
- * if a user has many running sessions. Triggers beyond the cap are
- * processed sequentially in subsequent chunks. Internal-only - no
+ * (REQ-STOR-015 AC2). Bounds simultaneous trigger work, not the total
+ * Worker requests across all selected sessions. Triggers beyond the cap
+ * are processed in subsequent chunks. Internal-only - no
  * external consumer needs to read it.
  */
 const FANOUT_CONCURRENCY_CAP = 8;
@@ -42,8 +29,8 @@ export interface SyncSessionResult {
 }
 
 /**
- * Enumerate the authenticated user's running sessions and fan-out the
- * bisync trigger. Per-session failures are isolated (REQ-STOR-015 AC3).
+ * Fan out the bisync trigger to the authenticated owner's workload-owning
+ * sessions. Per-session failures are isolated (REQ-STOR-015 AC3).
  */
 export async function fanOutBisyncTrigger(
   env: Pick<Env, 'KV' | 'USAGE_DB' | 'CONTAINER'>,
@@ -66,11 +53,9 @@ export async function fanOutBisyncTrigger(
         try {
           const containerId = getContainerId(bucketName, sessionId);
           const container = getContainer(env.CONTAINER, containerId);
-          // Path intentionally NOT in the DO's typed INTERNAL_ROUTES table (no
-          // leading underscore) so the DO's fetch() override forwards
-          // through super.fetch() with auth injection. The host's
-          // /internal/bisync-trigger handler sends SIGUSR1 to the
-          // bisync daemon.
+          // This host route falls through the DO's internal dispatcher and
+          // forwards to the existing private port with the lifecycle bearer.
+          // The host signals the daemon; 202 acknowledges admission only.
           const res = await container.fetch(
             new Request('http://container/internal/bisync-trigger', {
               method: 'POST',

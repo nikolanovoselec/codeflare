@@ -30,8 +30,7 @@ describe('githubScopeForTier', () => {
 });
 
 // REQ-AGENT-079: Advanced Cloudflare OAuth tier scope catalog. The recommended-⊆-advanced
-// superset assertion here, together with the exact-set assertion in the REQ-BROWSER-002 AC3
-// test below, are the catalog's regression guard.
+// superset assertion here and the exact-set assertion below guard the current catalog.
 describe('REQ-AGENT-079: cloudflareScopeForTier advanced-tier scope catalog', () => {
   it('always requests offline_access and escalates capability with tier', () => {
     const minimal = cloudflareScopeForTier('minimal');
@@ -63,22 +62,13 @@ describe('REQ-AGENT-079: cloudflareScopeForTier advanced-tier scope catalog', ()
   });
 });
 
-// REQ-BROWSER-002: Browser Rendering Scope in the Cloudflare Token Template.
-//
-// The SDD anchor for AC1/AC2 names `web-ui/src/lib/token-scopes.ts::CLOUDFLARE_TIERS`,
-// but that catalog carries only {label, description} per tier — no machine-readable
-// scope IDs. The actual Cloudflare token-template scope set (the contract the user's
-// pasted token must satisfy to drive Browser Run) is the server-side scope catalog
-// `cloudflareScopeForTier` / CLOUDFLARE_OAUTH_SCOPES here, where `browser-rendering.write`
-// is the `Browser Rendering - Edit` capability. These assert that real contract value;
-// asserting the web-ui description copy would be banned text-matching theater.
+// REQ-BROWSER-002: Browser Rendering is additive in the server-side token scope catalog.
 describe('REQ-BROWSER-002: Browser Rendering scope in the Cloudflare token template', () => {
   // The Cloudflare OAuth catalog scope ID for the "Browser Rendering - Edit" capability.
   const BROWSER_RENDERING_EDIT = 'browser-rendering.write';
 
-  // The full non-Browser-Rendering advanced scope set (the operator-finalized capability
-  // list, verified against Cloudflare's live consent screen). AC3 pins this exactly so a
-  // future edit that drops or renames a finalized scope fails the build. Advanced is a superset
+  // The finalized non-Browser-Rendering advanced scope set. The exact-set
+  // assertion detects removed, added, or renamed scopes. Advanced is a superset
   // of recommended: it carries BOTH the combined Access scopes (zone-access.write/access-acct.write,
   // inherited from recommended) AND the granular ids (access-app/access-policy/access-org/
   // access-idp/access-group).
@@ -181,12 +171,8 @@ describe('REQ-BROWSER-002: Browser Rendering scope in the Cloudflare token templ
   // the non-Browser-Rendering advanced set must equal the finalized catalog exactly (pins
   // logs.write, both the combined and granular Access ids, and the absence of the
   // no-OAuth-scope permissions).
-  it('AC3: backward-compat — non-Browser-Rendering scope set is exactly the known core set', () => {
-    // Tokens created before the Browser Rendering scope was added still work for all
-    // existing functionality: the set of non-Browser-Rendering scopes the template grants
-    // must be EXACTLY the known core set — nothing core removed, nothing extra/unexpected
-    // crept in beyond the one Browser Rendering addition (plus offline_access, which is the
-    // refresh-token grant appended by cloudflareScopeForTier, not a Cloudflare capability).
+  it('REQ-AGENT-079 AC1/AC3: non-Browser-Rendering advanced scopes match the finalized catalog', () => {
+    // offline_access requests refresh tokens and is not a Cloudflare capability.
     const advancedScopes = cloudflareScopeForTier('advanced').split(' ');
     const nonBrowserCore = advancedScopes
       .filter((s) => s !== BROWSER_RENDERING_EDIT)

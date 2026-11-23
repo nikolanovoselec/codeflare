@@ -36,6 +36,7 @@ _MANAGED_EXTENSION_MAX_COUNT = 20
 _MANAGED_EXTENSION_MAX_BYTES = 128 * 1024 * 1024
 _MANAGED_EXTENSIONS_AGGREGATE_BYTES = 256 * 1024 * 1024
 _COMPANY_MARKER = ".codeflare-company-extensions.json"
+_CAPTURE_HANDOFF = ".codeflare-extension-capture.json"
 
 
 class UnsafeInput(ValueError):
@@ -82,7 +83,8 @@ def _validate_manifest(value: Any, policy: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise UnsafeInput("manifest must be an object")
     allowed_top = {"version", "securityWarningShown", "extensions", "settings"}
-    if set(value) - allowed_top or value.get("version") != 1:
+    version = value.get("version")
+    if set(value) - allowed_top or isinstance(version, bool) or version != 1:
         raise UnsafeInput("unsupported manifest shape")
     if set(value) < {"version", "extensions", "settings"}:
         raise UnsafeInput("manifest fields missing")
@@ -113,13 +115,13 @@ def _validate_manifest(value: Any, policy: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(version, str) or len(version) > policy["extensionVersionMaxLength"] or not extension_version.fullmatch(version):
             raise UnsafeInput("invalid extension version")
         platform = record.get("targetPlatform")
-        if platform is not None and (not isinstance(platform, str) or not target_platform.fullmatch(platform)):
+        if "targetPlatform" in record and (not isinstance(platform, str) or not target_platform.fullmatch(platform)):
             raise UnsafeInput("invalid target platform")
         timestamp = record.get("installedAt")
-        if timestamp is not None and (not isinstance(timestamp, str) or not installed_at.fullmatch(timestamp)):
+        if "installedAt" in record and (not isinstance(timestamp, str) or not installed_at.fullmatch(timestamp)):
             raise UnsafeInput("invalid installed timestamp")
         digest = record.get("sha256")
-        if digest is not None and (not isinstance(digest, str) or not sha256.fullmatch(digest)):
+        if "sha256" in record and (not isinstance(digest, str) or not sha256.fullmatch(digest)):
             raise UnsafeInput("invalid extension digest")
 
     for key, setting in settings.items():
@@ -141,18 +143,15 @@ def _read_managed_extension_ids(manifest_path: Path, extensions_dir: Path, polic
     sha256 = re.compile(policy["sha256Pattern"])
     managed_path = manifest_path.with_name("managed-extensions.json")
     active: set[str] = set()
-    if managed_path.exists() or managed_path.is_symlink():
-        expected_release_digest = os.environ.get("REMOTE_CURATION_RELEASE_DIGEST", "")
-        expected_manifest_digest = os.environ.get("REMOTE_CURATION_MANIFEST_DIGEST", "")
-        trusted_manifest_digest = None
-        if sha256.fullmatch(expected_release_digest):
-            if not sha256.fullmatch(expected_manifest_digest):
-                raise UnsafeInput("missing managed extension manifest digest")
-            trusted_manifest_digest = expected_manifest_digest
+    expected_release_digest = os.environ.get("REMOTE_CURATION_RELEASE_DIGEST", "")
+    expected_manifest_digest = os.environ.get("REMOTE_CURATION_MANIFEST_DIGEST", "")
+    if os.environ.get("REMOTE_CURATION_ACTIVE") == "true" or expected_release_digest or expected_manifest_digest:
+        if not sha256.fullmatch(expected_release_digest) or not sha256.fullmatch(expected_manifest_digest):
+            raise UnsafeInput("missing or invalid managed extension manifest identity")
         managed = _read_json_file(
             managed_path,
             _MANAGED_EXTENSIONS_MAX_BYTES,
-            expected_sha256=trusted_manifest_digest,
+            expected_sha256=expected_manifest_digest,
         )
         release = managed.get("release") if isinstance(managed, dict) else None
         records = managed.get("extensions") if isinstance(managed, dict) else None
@@ -171,8 +170,8 @@ def _read_managed_extension_ids(manifest_path: Path, extensions_dir: Path, polic
             or len(records) > _MANAGED_EXTENSION_MAX_COUNT
         ):
             raise UnsafeInput("invalid managed extension manifest")
-        if not sha256.fullmatch(expected_release_digest) or release["digest"] != expected_release_digest:
-            records = []
+        if release["digest"] != expected_release_digest:
+            raise UnsafeInput("managed extension release mismatch")
         aggregate_size = 0
         for record in records:
             if not isinstance(record, dict) or set(record) != _MANAGED_EXTENSION_KEYS:
@@ -315,6 +314,56 @@ def _obsolete_proves_uninstall(extension: str, record: dict[str, Any], obsolete:
     return bool(candidates & obsolete)
 
 
+def _read_capture_handoff(path: Path, policy: dict[str, Any]) -> dict[str, Any]:
+    if not _parent_chain_is_safe(path):
+        raise UnsafeInput("capture handoff parent redirects through a symlink")
+    try:
+        handoff = _read_json_file(path, policy["captureHandoffMaxBytes"])
+    except FileNotFoundError:
+        return {"pins": {}, "removals": {}}
+    if not isinstance(handoff, dict) or set(handoff) != {"pins", "removals"}:
+        raise UnsafeInput("invalid capture handoff")
+    for kind, field in (("pins", "version"), ("removals", "marker")):
+        entries = handoff[kind]
+        if not isinstance(entries, dict) or len(entries) > policy["extensionMaxCount"]:
+            raise UnsafeInput("capture handoff exceeds bound")
+        for extension, entry in entries.items():
+            if not isinstance(entry, dict):
+                raise UnsafeInput("invalid capture handoff entry")
+            allowed = {field, "observed"}
+            if kind == "pins" and entry.get("fallbackInstalled") is True:
+                allowed.add("fallbackInstalled")
+            if set(entry) != allowed:
+                raise UnsafeInput("invalid capture handoff entry")
+            _validate_manifest({"version": 1, "extensions": {extension: entry["observed"]}, "settings": {}}, policy)
+            if kind == "pins":
+                _validate_manifest({"version": 1, "extensions": {extension: {"version": entry[field]}}, "settings": {}}, policy)
+            else:
+                stem = f"{extension}-{entry['observed']['version']}-"
+                marker = entry[field]
+                if not isinstance(marker, str) or not marker.startswith(stem) or not re.fullmatch(policy["targetPlatformPattern"], marker[len(stem):]):
+                    raise UnsafeInput("invalid capture removal marker")
+    return handoff
+
+
+def _same_registry_row(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    return all(left.get(field) == right.get(field) for field in ("version", "targetPlatform", "installedAt"))
+
+
+def _observed_removal(extension: str, observed: dict[str, Any], saved: dict[str, Any] | None,
+                      obsolete: set[str], handoff: dict[str, Any]) -> str | None:
+    if "targetPlatform" in observed:
+        return None
+    prior = handoff["removals"].get(extension)
+    if prior and _same_registry_row(prior["observed"], observed) and prior["marker"] in obsolete:
+        return prior["marker"]
+    if saved and saved["version"] == observed["version"] and "targetPlatform" in saved:
+        key = f"{extension}-{saved['version']}-{saved['targetPlatform']}"
+        if key in obsolete:
+            return key
+    return None
+
+
 def _parent_chain_is_safe(path: Path) -> bool:
     current = path.parent
     while True:
@@ -355,6 +404,8 @@ def capture(extensions_dir: Path, manifest_path: Path, policy_path: Path) -> boo
         policy = _read_json_file(policy_path, 64 * 1024)
         if not isinstance(policy, dict) or policy.get("version") != 1:
             raise UnsafeInput("unsupported policy")
+        if not _parent_chain_is_safe(manifest_path):
+            raise UnsafeInput("manifest parent redirects through a symlink")
         manifest_exists = manifest_path.exists() or manifest_path.is_symlink()
         if manifest_exists:
             current = _validate_manifest(
@@ -362,35 +413,40 @@ def capture(extensions_dir: Path, manifest_path: Path, policy_path: Path) -> boo
                 policy,
             )
         else:
-            if not _parent_chain_is_safe(manifest_path):
-                raise UnsafeInput("manifest parent redirects through a symlink")
             current = {"version": 1, "extensions": {}, "settings": {}}
         company_ids = _read_managed_extension_ids(manifest_path, extensions_dir, policy)
         obsolete = _read_obsolete(extensions_dir, policy)
-        present = {
-            extension: record
-            for extension, record in _read_registry(extensions_dir, policy).items()
-            if not _obsolete_proves_uninstall(extension, record, obsolete)
+        present = _read_registry(extensions_dir, policy)
+        handoff_path = extensions_dir / _CAPTURE_HANDOFF
+        handoff = _read_capture_handoff(handoff_path, policy)
+        next_handoff: dict[str, Any] = {"pins": {}, "removals": {}}
+        next_extensions = {
+            extension: record for extension, record in current["extensions"].items()
+            if extension in company_ids or not _obsolete_proves_uninstall(extension, record, obsolete)
         }
-
-        next_extensions: dict[str, dict[str, Any]] = {}
         warning_acknowledged = current.get("securityWarningShown") is True
-        for extension, record in current["extensions"].items():
+        for extension, observed in present.items():
             if extension in company_ids:
-                next_extensions[extension] = record
                 continue
-            if extension in present and warning_acknowledged:
+            saved = current["extensions"].get(extension)
+            direct = _obsolete_proves_uninstall(extension, observed, obsolete)
+            removal = None if direct else _observed_removal(extension, observed, saved, obsolete, handoff)
+            if direct or removal:
+                if removal:
+                    next_handoff["removals"][extension] = {"marker": removal, "observed": observed}
+                if saved and _obsolete_proves_uninstall(extension, saved, obsolete):
+                    next_extensions.pop(extension, None)
                 continue
-            if not _obsolete_proves_uninstall(extension, record, obsolete):
-                next_extensions[extension] = record
-        if warning_acknowledged:
-            for extension, record in present.items():
-                if extension in company_ids:
+            if not warning_acknowledged:
+                continue
+            pin = handoff["pins"].get(extension)
+            if saved and saved["version"] != observed["version"] and extension in next_extensions:
+                if (not pin or saved["version"] != pin["version"]
+                    or (not pin.get("fallbackInstalled") and _same_registry_row(pin["observed"], observed))):
+                    next_handoff["pins"][extension] = {"version": saved["version"], "observed": observed}
                     continue
-                previous = current["extensions"].get(extension)
-                if isinstance(previous, dict) and isinstance(previous.get("sha256"), str):
-                    record = {**record, "sha256": previous["sha256"]}
-                next_extensions[extension] = record
+            next_extensions[extension] = {**observed, "sha256": saved["sha256"]} if saved and "sha256" in saved else observed
+            next_handoff["pins"][extension] = {"version": observed["version"], "observed": observed}
         if len(next_extensions) > policy["extensionMaxCount"]:
             raise UnsafeInput("capture exceeds extension bound")
 
@@ -405,6 +461,11 @@ def capture(extensions_dir: Path, manifest_path: Path, policy_path: Path) -> boo
         payload = (json.dumps(next_manifest, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n").encode()
         if len(payload) > policy["manifestMaxBytes"]:
             raise UnsafeInput("captured manifest exceeds bound")
+        if next_handoff != handoff:
+            handoff_payload = (json.dumps(next_handoff, separators=(",", ":")) + "\n").encode()
+            if len(handoff_payload) > policy["captureHandoffMaxBytes"]:
+                raise UnsafeInput("capture handoff exceeds bound")
+            _atomic_write(handoff_path, handoff_payload)
         if manifest_exists and next_manifest == current:
             return False
         _atomic_write(manifest_path, payload)

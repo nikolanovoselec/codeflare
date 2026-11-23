@@ -117,6 +117,63 @@ describe('Storage Preview Routes', () => {
       expect(mockFetch).not.toHaveBeenCalled(); // too large to inline → no GET
     });
 
+    it('REQ-STOR-007 AC5: accepts exactly 1 MiB of UTF-8 text', async () => {
+      const content = 'é'.repeat(524_288);
+      setHead(createHeadResponse(1_048_576, 'text/plain', ''));
+      mockFetch.mockResolvedValueOnce(new Response(content));
+      const res = await createApp().request('/preview?key=boundary.txt');
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ type: 'text', content, size: 1_048_576 });
+    });
+
+    it.each([null, '8', 'invalid'])('REQ-STOR-007 AC5: cancels oversized text despite HEAD length %s', async length => {
+      const headers = new Headers({ 'Content-Type': 'text/plain' });
+      if (length !== null) headers.set('Content-Length', length);
+      setHead(new Response(null, { headers }));
+      let cancelled = false;
+      let sent = 0;
+      const body = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (sent === 4) controller.close();
+          else { sent++; controller.enqueue(new Uint8Array(400_000).fill(65)); }
+        },
+        cancel() { cancelled = true; },
+      });
+      mockFetch.mockResolvedValueOnce(new Response(body));
+      const res = await createApp().request('/preview?key=growing.txt');
+      expect(res.status).toBe(200);
+      const preview = await res.json() as { type: string; size: number };
+      expect(preview.type).toBe('binary');
+      expect(preview.size).toBeGreaterThan(1_048_576);
+      expect(preview).not.toHaveProperty('content');
+      expect(cancelled).toBe(true);
+    });
+
+    it('REQ-STOR-007 AC5: returns only metadata if GET is no longer text', async () => {
+      setHead(createHeadResponse(4, 'text/plain', ''));
+      mockFetch.mockResolvedValueOnce(new Response('data', { headers: { 'Content-Type': 'application/octet-stream', 'Content-Length': '4' } }));
+      const res = await createApp().request('/preview?key=changed.txt');
+      expect(res.status).toBe(200);
+      const preview = await res.json();
+      expect(preview).toMatchObject({ type: 'binary', size: 4 });
+      expect(preview).not.toHaveProperty('content');
+    });
+
+    it('returns numeric metadata when the binary object HEAD length is invalid', async () => {
+      setHead(new Response(null, { headers: { 'Content-Type': 'image/png', 'Content-Length': 'invalid' } }));
+      const res = await createApp().request('/preview?key=photo.png');
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ type: 'binary', size: 0 });
+    });
+
+    it('REQ-STOR-007 AC5: does not return a failed GET body as a preview', async () => {
+      setHead(createHeadResponse(4, 'text/plain', ''));
+      mockFetch.mockResolvedValueOnce(new Response('upstream error', { status: 503 }));
+      const res = await createApp().request('/preview?key=failed.txt');
+      expect(res.status).toBe(500);
+      expect(await res.json()).not.toHaveProperty('content');
+    });
+
     it('rejects missing key with 400', async () => {
       const res = await createApp().request('/preview');
       expect(res.status).toBe(400);

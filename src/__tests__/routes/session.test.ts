@@ -584,6 +584,7 @@ describe('Session CRUD Routes / REQ-SESSION-001 (session creation with name + ag
       const failure = new Error(payload);
       const container = createMockContainer();
       container.destroy.mockRejectedValueOnce(failure);
+      container.stopSession.mockImplementation(createMockSessionStop(mockKV, container.destroy));
       testState.container = container;
       const logger = await import('../../lib/logger');
       const entries: Array<{ message: string; data?: Record<string, unknown> }> = [];

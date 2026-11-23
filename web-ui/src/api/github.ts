@@ -16,13 +16,11 @@ export type GithubStatus = z.infer<typeof GithubStatusResponseSchema>;
 export type GithubReposResponse = z.infer<typeof GithubReposResponseSchema>;
 export type GithubRepo = GithubReposResponse['repos'][number];
 
-// Discriminated result of cloning into a running session. The UI branches on
-// `outcome`: 'cloned' is success (200), 'exists' is the CLONE_TARGET_EXISTS
-// collision (409, distinct affordance), and 'failed' covers every other
-// non-2xx (timeout/disabled/not-running/bad-body/clone-failed).
+// A completed checkout with unconfirmed restore tracking is not a failed clone.
 export type CloneIntoSessionResult =
   | { outcome: 'cloned'; path: string }
   | { outcome: 'exists' }
+  | { outcome: 'tracking-unconfirmed' }
   | { outcome: 'failed'; code?: string };
 
 export interface CloneIntoSessionArgs {
@@ -68,9 +66,7 @@ export function githubConnectUrl(): string {
 }
 
 // POST /api/github/clone — clone a repo into a RUNNING session's workspace.
-// Returns a discriminated result so the caller never has to inspect raw HTTP
-// status: 200 → 'cloned', 409 CLONE_TARGET_EXISTS → 'exists', any other
-// non-2xx → 'failed' (carrying the backend .code when present).
+// Map the two distinct 409 outcomes before treating the response as a failure.
 export async function cloneIntoSession(args: CloneIntoSessionArgs): Promise<CloneIntoSessionResult> {
   const body: Record<string, unknown> = { repo: args.repo, sessionId: args.sessionId };
   if (args.ref) body.ref = args.ref;
@@ -85,6 +81,7 @@ export async function cloneIntoSession(args: CloneIntoSessionArgs): Promise<Clon
     if (err instanceof ApiError && err.code === 'CLONE_TARGET_EXISTS') {
       return { outcome: 'exists' };
     }
+    if (err instanceof ApiError && err.code === 'CLONE_TRACKING_UNCONFIRMED') return { outcome: 'tracking-unconfirmed' };
     return { outcome: 'failed', code: err instanceof ApiError ? err.code : undefined };
   }
 }

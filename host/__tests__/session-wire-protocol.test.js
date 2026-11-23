@@ -272,6 +272,32 @@ describe('REQ-SESSION-005 AC2-AC4: Session.write PTY bytes and input activity', 
 // ── REQ-TERM-002 AC4: raw PTY data flows unwrapped ──────────────────────────
 
 describe('REQ-TERM-002 AC5: raw PTY output reaches clients without JSON wrapping', () => {
+  it('REQ-SESSION-004 AC3: output and reconnect preserve the last genuine input timestamp', t => {
+    t.mock.timers.enable({ apis: ['Date'], now: 1000 });
+    const activity = createActivityTracker();
+    const session = new Session('idle-observation', 'Terminal', false, { activityTracker: activity });
+    t.after(() => session.kill());
+    const first = createWs();
+    session.attach(first);
+    assert.equal(activity.getActivityInfo(null).lastInputAt, null);
+    session.write('x');
+    assert.equal(activity.getActivityInfo(null).lastInputAt, 1000);
+
+    t.mock.timers.tick(250);
+    lastSpawn.pty.emitData('output while attached');
+    assert.equal(first.sent.at(-1), 'output while attached');
+    session.detach(first);
+    const replacement = createWs();
+    session.attach(replacement);
+    lastSpawn.pty.emitData('output after reconnect');
+    assert.equal(replacement.sent.at(-1), 'output after reconnect');
+    assert.equal(activity.getActivityInfo(null).lastInputAt, 1000);
+
+    t.mock.timers.tick(250);
+    session.write('next input');
+    assert.equal(activity.getActivityInfo(null).lastInputAt, 1500);
+  });
+
   it('forwards a PTY data frame byte-for-byte to an attached OPEN client', () => {
     const session = new Session('sess-5', 'Terminal');
     const ws = createWs();

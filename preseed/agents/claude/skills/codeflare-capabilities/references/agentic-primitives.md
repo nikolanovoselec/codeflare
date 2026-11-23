@@ -1,4 +1,4 @@
-# Vault, SilverBullet, memory, Graphify, Goal, Plan, Todo, and subagents
+# Vault, SilverBullet, memory, Graphify, Plan, Todo Loop, and subagents
 
 You can return to an investigation with more than a transcript. I recover the decision that ruled out an approach, follow its connection to a requirement, locate the implementing code, and use that evidence to plan the next step. Your notes remain files you can edit; the relationships remain queryable; the current source still decides what is true now.
 
@@ -26,15 +26,11 @@ I use the Knowledge Graph for relevant architecture and dependency work. Buildin
 
 In Pi, the planning skill turns your request into a scoped implementation plan before coding. I inspect the project and relevant history, ask only questions that change the approach, and save the plan under `Vault/Notes/Plans`. The plan names the files, interfaces, acceptance criteria, behavioral tests, and delivery gates needed for the change—without adding optional features or weakening security.
 
-You can ask: “Plan this change before coding. Keep the scope minimal, save it in my Vault, and prepare dependent TODOs for my approval.” I keep implementation tasks pending until you authorize execution. An approved plan can also provide the objective for Goal; writing it does not start autonomous work.
+You can ask: “Plan this change before coding. Keep the scope minimal, save it in my Vault, and prepare dependent TODOs for my approval.” I keep implementation tasks pending until you authorize execution. Saving a plan or staging TODOs does not authorize execution.
 
 Plan Mode is separate: it provides a read-only investigation workflow with its own structured questions and explicit handoff. I respect that mode's tool restrictions and export route rather than bypassing them to save files or change tasks.
 
-Goal owns a session-scoped objective and its continuation. With an authorized goal active, I keep moving toward its acceptance evidence without requiring you to prompt every routine next step. Cancellation, pacing, and stale-continuation guards keep that progression tied to the current objective.
-
-Goal and native Plan Mode cannot own the same session simultaneously. I plan first, leave Plan Mode, and then execute under Goal. An execution plan maintained during work is not itself native Plan Mode.
-
-Todo tracks executable steps and dependencies. I update and close tasks as evidence lands; a list entry does not execute the work or prove it complete.
+Todo tracks executable steps and dependencies. In Pi, stock Todo Loop can request another turn when a completed, tool-free reply leaves open tasks. It does not edit the list or grant execution authority. Use `/todoloop` to inspect or pause the loop; the agent can block with a reason while waiting for input or work it already started. Plan Mode remains a separate workflow with its own tool restrictions.
 
 ## Bring in another judgment deliberately
 

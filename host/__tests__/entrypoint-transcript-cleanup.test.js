@@ -22,7 +22,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 // Isolate unmanaged lifecycle behavior; real policy composition is covered by the rclone matrix.
-const unmanagedPolicyFixture = "prepare_managed_resource_filter() { :; }\ncompose_rclone_filters() { RCLONE_EFFECTIVE_FILTERS=(\"${RCLONE_FILTERS[@]}\"); }";
+const unmanagedPolicyFixture = "prepare_managed_resource_filter() { :; }\npersist_pi_hermes_memory() { :; }\ncompose_rclone_filters() { RCLONE_EFFECTIVE_FILTERS=(\"${RCLONE_FILTERS[@]}\"); }";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, '..', '..');
@@ -552,6 +552,33 @@ bisync_with_r2 ''
       assert.equal(readFileSync(codexState, 'utf8'), 'codex-state');
       assert.equal(readFileSync(outside, 'utf8'), 'outside-root');
       assert.ok(existsSync(linkedCandidate), 'candidate symlink must be ignored, not followed or deleted');
+    } finally {
+      scratch.cleanup();
+    }
+  });
+
+  test('REQ-STOR-012 AC1/AC5: a symlinked transcript-root ancestor cannot prune another directory', () => {
+    const scratch = makeScratch();
+    try {
+      for (const agent of ['claude', 'pi']) {
+        const outside = join(scratch.dir, `${agent}-other-data`);
+        const rootName = agent === 'claude' ? 'projects' : 'sessions';
+        const target = join(outside, rootName);
+        const home = join(scratch.dir, `${agent}-home`);
+        mkdirSync(target, { recursive: true });
+        mkdirSync(home, { recursive: true });
+        const linkedParent = join(home, 'agent-config');
+        symlinkSync(outside, linkedParent);
+        const paths = Array.from({ length: 12 }, (_, index) => (agent === 'claude' ? writeClaude : writePi)(target, index, index, 50_000 + index));
+        if (agent === 'pi') {
+          const conflict = join(target, 'retained.conflict.jsonl');
+          writeFileSync(conflict, 'unrelated conflict data');
+          paths.push(conflict);
+        }
+        const contents = paths.map(path => readFileSync(path, 'utf8'));
+        runRetention(agent, join(linkedParent, rootName));
+        assert.deepEqual(paths.map(path => existsSync(path) ? readFileSync(path, 'utf8') : null), contents);
+      }
     } finally {
       scratch.cleanup();
     }

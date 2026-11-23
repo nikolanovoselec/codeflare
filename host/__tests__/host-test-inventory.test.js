@@ -15,7 +15,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
-import { basename, dirname, join, relative } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { selectHostGroup } from '../../scripts/ci/select-host-tests.mjs';
 
@@ -104,6 +104,38 @@ describe('host test inventory', () => {
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(result.stdout.trim().split('\n'),
       selectHostGroup('3/5').map(name => `host/__tests__/${name}`));
+  });
+
+  it('requires a completed Host persistence matrix with all 60 passing cases', t => {
+    const directory = mkdtempSync(join(tmpdir(), 'host-persistence-receipt-'));
+    t.after(() => rmSync(directory, { recursive: true, force: true }));
+    const report = join(directory, 'junit.xml');
+    const gate = resolve(HERE, '../../scripts/ci/check-host-persistence-report.py');
+    const name = 'REQ-STOR-002/004/011/031/032: production persistence policy matrix';
+    const example = (index, evidence = '') =>
+      `<testcase name="matrix ${index}" file="/checkout/host/__tests__/entrypoint-rclone-filters.test.js" time="0.1">${evidence}</testcase>`;
+    const leaves = Array.from({ length: 60 }, (_, index) => example(index));
+    const suite = (cases, tag = 'testsuite') =>
+      `<${tag} name="${name}" tests="${cases.length}" skipped="0" failures="0" errors="0">${cases.join('')}</${tag}>`;
+    const run = matrix => {
+      writeFileSync(report, `<testsuites><testcase name="unrelated"/>${matrix}</testsuites>`);
+      return spawnSync('python3', [gate, report], { encoding: 'utf8' });
+    };
+
+    const complete = run(suite(leaves));
+    assert.equal(complete.status, 0, complete.stderr);
+    assert.match(complete.stdout, /all 60 cases passed/);
+
+    for (const [label, matrix] of [
+      ['observed missing tail', suite(leaves.slice(0, 23), 'undefined')],
+      ['finished but incomplete', suite(leaves.slice(0, 23))],
+      ['duplicate case', suite([...leaves.slice(0, 59), leaves[0]])],
+      ['skipped case', suite([...leaves.slice(0, 59), example(59, '<skipped type="skipped"/>')])],
+    ]) {
+      const result = run(matrix);
+      assert.equal(result.status, 1, label);
+      assert.match(result.stderr, /Host persistence JUnit report incomplete/, label);
+    }
   });
 
   it('rejects invalid groups, empty partitions, stale exclusions and unsafe filenames before execution', t => {

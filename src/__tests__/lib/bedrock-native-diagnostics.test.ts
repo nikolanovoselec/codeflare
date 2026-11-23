@@ -57,6 +57,25 @@ describe('REQ-OPERATOR-063: complete native inference diagnostic wire', () => {
     expect(JSON.stringify(raw)).toContain('PUBLIC_TOOL_VALUE');
   }));
 
+  it.each(['invoke', 'eventstream'] as const)('REQ-ENTERPRISE-079 AC2: logging OFF emits no raw or bounded observations during %s signed replay', async transport => capture(async events => {
+    const blocks = [
+      { type: 'thinking', thinking: 'PRIVATE_OFF_THINKING', signature: 'PRIVATE_OFF_SIGNATURE' },
+      { type: 'redacted_thinking', data: 'PRIVATE_OFF_REDACTED' },
+      { type: 'tool_use', id: 'off_call', name: 'lookup', input: { value: 'public' } },
+    ];
+    const storage = replay();
+    storage.diagnosticContext = { activityId: 'logging-off', generation: 1, loggingEnabled: false };
+    const first = await readOpenAiToolTurn(await adaptBedrockAnthropicResponse(bedrockToolResponse(blocks, transport), transport, storage, true));
+    expect(first.finishes).toEqual(['tool_calls']);
+    expect(first.message.tool_calls).toEqual([{ id: 'off_call', type: 'function', function: { name: 'lookup', arguments: '{"value":"public"}' } }]);
+    const next = await buildBedrockAnthropicRequest({ messages: [{ role: 'user', content: 'Lookup' }, first.message,
+      { role: 'tool', tool_call_id: 'off_call', content: 'result' }] }, storage);
+    expect(next.messages[1].content).toEqual(blocks);
+    expect(first.wire).not.toMatch(/PRIVATE_OFF_/);
+    expect(observations(events)).toEqual([]);
+    expect(events.filter(event => event.module === 'operator-execution')).toEqual([]);
+  }));
+
   it.each([true, false])('REQ-OPERATOR-079: disabled native logging preserves successful=%s provider completion', async success => capture(async events => {
     const storage = replay();
     storage.diagnosticContext = { activityId: 'activity', generation: 1, loggingEnabled: false };

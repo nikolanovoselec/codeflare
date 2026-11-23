@@ -27,6 +27,8 @@
  * pre-start).
  */
 import { parseStoredSyncPolicyMode } from '../lib/sync-policy';
+import { McpPortalState, decryptMcpRecord, mcpRecordContext, type McpFence, type McpPendingInput, type McpCallbackBinding } from '../lib/mcp-portal-state';
+import { runOwnedUserCleanup, type CleanupResult } from '../lib/user-cleanup';
 import { Container } from '@cloudflare/containers';
 import { captureRawValue } from '../../host/src/operator-raw-logging';
 import { DispatcherSdkStorageError, handleDispatcherSdkCredentials, type DispatcherSdkCredentialResult, type SdkStorageScope, type SdkCredentialAuthority } from '../operators/dispatcher-sdk-storage';
@@ -34,11 +36,18 @@ import type { Env, ManagedResourcePolicy, SessionWorkspace, TabConfig, TerminalM
 import type { PiDefaultSource } from '../lib/personal-pi-policy';
 import type { OperatorLoggingContext } from '../lib/container-helpers';
 import { getR2Config } from '../lib/r2-config';
+import { createHash } from 'node:crypto';
+import { AGENTS_SEEDED_CONFIGS } from '../lib/agent-seed.generated';
+import { getBucketOwnerStub } from '../lib/access';
+import { SESSION_ID_PATTERN } from '../lib/constants';
+import { HermesRetention, type HermesAdmission, type HermesWriter } from '../lib/hermes-retention';
+import { HERMES_ADAPTER_KEY, hermesRetentionR2 } from '../lib/hermes-retention-r2';
 import { canonicalJson } from '../lib/reasoning-profiles';
 import { runSetupConfiguration, type SetupConfigurationInput } from '../routes/setup/index';
 import { getWorkerNameFromHostname } from '../routes/setup/shared';
 import { performBucketMultipart, MULTIPART_PENDING_COMPLETION, type BucketMultipartOperation } from '../routes/storage/upload';
-import { advanceMigrationChunk, getRegimeState } from '../lib/r2-migration';
+import { advanceMigrationChunk, getRegimeState, getR2SsePolicyDisabled, regimeForPolicy } from '../lib/r2-migration';
+import { computeKeyMd5 } from '../lib/r2-sse';
 import { setRegimeState } from '../lib/r2-regime-state';
 import type { RegimeState } from '../lib/r2-regime-state';
 import { hasOwningSessionContainer } from '../lib/session-helpers';
@@ -73,7 +82,7 @@ import {
   ensureVaultKey as configEnsureVaultKey,
   type ContainerHost,
 } from './container-config';
-import { captureMetricsExecution, type MetricsPin } from './container-metrics';
+import { captureMetricsExecution, CONTAINER_POLL_BUDGET_MS, FINAL_SYNC_AUDIT_KEY, raceBudget, type MetricsPin } from './container-metrics';
 import { dispatchInternalRoute } from './container-router';
 import { bindReviewSessionHuman, openReviewSessionHuman } from './review-session-human';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
@@ -86,6 +95,7 @@ import {
   stopSession as lifecycleStopSession,
   killSession as lifecycleKillSession,
   type SessionStopRequest,
+  SESSION_LAUNCH_GENERATION_KEY,
   onStop as lifecycleOnStop,
   onError as lifecycleOnError,
   type LifecycleHost,
@@ -96,6 +106,10 @@ export { validateBucketNameInput };
 
 const SESSION_ID_KEY = '_sessionId';
 const TERMINAL_KEEPALIVE_MS = 15_000;
+const HERMES_DIRECT_LAYOUT_KEY = 'hermes:direct-layout';
+const HERMES_SETTLED_GENERATION_KEY = 'hermes:settled-generation';
+const HERMES_MASTER_ADAPTER = '022e0ccae29f5235e4931829802e5656432111efe83f4c0c07b2cf22f1ca6a75'; // v196
+const HERMES_CHECKPOINT_ADAPTER = 'd6e0420a7a73120a48a457f38bce4a941a4c658fb7799ed89f8785f875735395'; // v197 and v198
 
 /**
  * container - Container Durable Object for user workspaces
@@ -119,6 +133,10 @@ type ExitEvidence = { owner: string; session: string; generation: number; termin
 export class container extends Container<Env> implements ContainerEnvState {
   #sdkCredentialQueues = new Map<string, Promise<void>>();
   logger = createLogger('container');
+  private sessionStartInFlight?: SessionStopRequest & {
+    cancellation: AbortController; startup: { ready: boolean }; completion: Promise<void>;
+  };
+  private sessionConfigurationInFlight?: Promise<Response>;
   private sessionStopInFlight?: SessionStopRequest & { completion: Promise<void> };
   private sessionKillInFlight?: SessionStopRequest & { completion: Promise<void> };
 
@@ -355,6 +373,7 @@ export class container extends Container<Env> implements ContainerEnvState {
       }
     });
     if (superseded || await this.ctx.storage.get<number>('lifecycleGeneration') !== generation) return false;
+    await this.recordHermesSettlement(session, generation);
     this.monitoredGeneration = generation;
     return true;
   }
@@ -534,6 +553,57 @@ export class container extends Container<Env> implements ContainerEnvState {
     });
   }
 
+  async retryBucketMigration(bucketName: string, haltedAt: string): Promise<Response> {
+    const error = validateBucketNameInput({ bucketName });
+    if (error) throw new Error(error);
+    return this.serializeBucketStorage(async () => {
+      await this.bindBucketStorageOwner(bucketName);
+      const refuse = (message: string) => Response.json({ code: 'MIGRATION_RETRY_BLOCKED', error: message }, { status: 409 });
+      const state = await getRegimeState(this.env, bucketName);
+      const verified = await this.ctx.storage.get<RegimeState>('multipart:regime');
+      if (state.status === 'ready' || !state.halted || state.updatedAt !== haltedAt
+        || (verified && verified.generation > state.generation)) {
+        return refuse('The migration status changed. Refresh the dashboard before retrying.');
+      }
+      if (state.leaseExpiresAt && state.leaseExpiresAt > Date.now()) {
+        return refuse('Migration work is still finishing. Wait a moment and retry.');
+      }
+      const target = state.status === 'mixed-recovery' ? state.regime : state.to;
+      if (!target || target !== regimeForPolicy(await getR2SsePolicyDisabled(this.env))) {
+        return refuse('The storage policy changed. Ask your administrator to restore the migration target before retrying.');
+      }
+      if (!state.keyMd5) {
+        return refuse('This migration did not record the original encryption key identity. Ask your administrator to recover the halted migration.');
+      }
+      try {
+        const key = this.env.ENCRYPTION_KEY;
+        const fingerprint = key && computeKeyMd5(key);
+        if (!fingerprint || fingerprint !== state.keyMd5) {
+          return refuse('The original storage encryption key could not be confirmed. Ask your administrator to check the key before retrying.');
+        }
+      } catch {
+        return refuse('The storage encryption key is invalid. Ask your administrator to restore the original key.');
+      }
+      if (await this.ctx.storage.get(MULTIPART_PENDING_COMPLETION)) {
+        return refuse('An upload is awaiting recovery. Resolve it in Storage before retrying migration.');
+      }
+      try {
+        if (await hasOwningSessionContainer(this.env, bucketName)) {
+          return refuse('Stop your running sessions before retrying the storage migration.');
+        }
+      } catch {
+        return refuse('Could not confirm that your sessions have stopped. Refresh and retry.');
+      }
+      // Restart the idempotent scan without clearing the write gate or changing
+      // the original direction, key fingerprint, or committed generation.
+      await setRegimeState(this.env, bucketName, {
+        ...state, halted: false, stuckCount: 0, cursor: null, phase: 'migrate', processed: 0,
+        lastFailedKey: undefined, lastError: undefined, leaseExpiresAt: undefined,
+      });
+      return Response.json({ success: true }, { status: 202 });
+    });
+  }
+
   async advanceBucketMigration(bucketName: string): Promise<void> {
     const error = validateBucketNameInput({ bucketName });
     if (error) throw new Error(error);
@@ -646,7 +716,7 @@ export class container extends Container<Env> implements ContainerEnvState {
         });
       }
 
-      // Resolve strict Gateway egress once (REQ-ENTERPRISE-016 AC4) so buildEnvVars emits
+      // Resolve strict Gateway egress once (REQ-ENTERPRISE-016 AC1) so buildEnvVars emits
       // placeholder R2 creds and the interception registry wires the catch-all without
       // a per-request KV read. Enterprise unreadable/invalid policy resolves true, keeping
       // strict transport and raw-network denial even if Browser owner-reference lookup fails.
@@ -776,6 +846,179 @@ export class container extends Container<Env> implements ContainerEnvState {
       await txn.put('bucketOwnerEmail', normalizedEmail);
       return 'owned';
     });
+  }
+
+  private mcpCleanupActive = false;
+  private hermesRetention?: HermesRetention;
+
+  private async recordHermesSettlement(sessionId: string, generation: number): Promise<void> {
+    try {
+      await this.ctx.storage.transaction(async txn => {
+        if (!await txn.get<boolean>(HERMES_DIRECT_LAYOUT_KEY)) return;
+        const audit = await txn.get<{ outcome: string; sessionId: string; lifecycleGeneration: number }>(FINAL_SYNC_AUDIT_KEY);
+        if (audit?.outcome === 'completed' && audit.sessionId === sessionId && audit.lifecycleGeneration === generation
+          && generation > (await txn.get<number>(HERMES_SETTLED_GENERATION_KEY) ?? 0)) {
+          await txn.put(HERMES_SETTLED_GENERATION_KEY, generation);
+        }
+      });
+    } catch { /* Lack of a receipt defers retention, never ordinary lifecycle. */ }
+  }
+
+  async hermesWriterExited(bucket: string, writer: HermesWriter): Promise<boolean> {
+    const { sessionId, generation } = writer;
+    if (!SESSION_ID_PATTERN.test(sessionId) || !Number.isSafeInteger(generation) || generation < 1
+      || this.env.CONTAINER.idFromName(`${bucket}-${sessionId}`).toString() !== this.ctx.id.toString()) return false;
+    const session = await new D1SessionRepository(this.env.USAGE_DB).getSession(bucket, sessionId);
+    // A later generation can only be claimed from confirmed stopped state.
+    return !!session && (session.lifecycleGeneration > generation
+      || (session.lifecycleGeneration === generation && session.lifecycleState === 'stopped'));
+  }
+
+  async hermesWriterSettled(bucket: string, writer: HermesWriter): Promise<boolean> {
+    const { sessionId, generation } = writer;
+    if (!SESSION_ID_PATTERN.test(sessionId)
+      || this.env.CONTAINER.idFromName(`${bucket}-${sessionId}`).toString() !== this.ctx.id.toString()) return false;
+    if (await this.ctx.storage.get<number>(HERMES_SETTLED_GENERATION_KEY) === generation) return true;
+    const audit = await this.ctx.storage.get<{ outcome: string; sessionId: string; lifecycleGeneration: number }>(FINAL_SYNC_AUDIT_KEY);
+    if (audit?.outcome !== 'completed' || audit.sessionId !== sessionId || audit.lifecycleGeneration !== generation) return false;
+    return this.hermesWriterExited(bucket, writer);
+  }
+
+  async admitHermesStore(bucket: string, writer: HermesWriter, remoteCuration: boolean, deadline: number,
+    hadDirectLayout: boolean): Promise<HermesAdmission | 'legacy'> {
+    if (!SESSION_ID_PATTERN.test(writer.sessionId) || !Number.isSafeInteger(writer.generation)) return 'deferred';
+    await this.verifyMcpOwner(bucket);
+    const remaining = Math.min(CONTAINER_POLL_BUDGET_MS, deadline - Date.now());
+    if (remaining <= 0 || this.mcpCleanupActive) return 'deferred';
+    const signal = AbortSignal.timeout(remaining);
+    const regime = await getRegimeState(this.env, bucket);
+    if (regime.status !== 'ready') return 'deferred';
+    const { endpoint } = await getR2Config(this.env);
+    const r2 = hermesRetentionR2(this.env, endpoint, bucket, regime.regime === 'plain', signal);
+    const retention = this.hermesRetention ??= new HermesRetention(this.ctx.storage);
+    const current = () => new D1SessionRepository(this.env.USAGE_DB).getSession(bucket, writer.sessionId);
+    const canAdmit = async () => {
+      const session = await current();
+      return !signal.aborted && !this.mcpCleanupActive && session?.lifecycleState === 'starting'
+        && session.lifecycleGeneration === writer.generation && !session.terminationIntentId;
+    };
+    if (!await canAdmit()) return 'deferred';
+    if (remoteCuration) {
+      const installed = await r2.adapterDigest();
+      if (installed === HERMES_MASTER_ADAPTER || installed === HERMES_CHECKPOINT_ADAPTER) {
+        if (hadDirectLayout || await retention.hasStore(writer.sessionId)
+          || (installed === HERMES_MASTER_ADAPTER
+            && (writer.generation !== 1 || await r2.hasCheckpoint(writer.sessionId)))) return 'deferred';
+        return await canAdmit() ? 'legacy' : 'deferred';
+      }
+      const baked = AGENTS_SEEDED_CONFIGS.find(file => file.key === HERMES_ADAPTER_KEY && file.modes.includes('advanced'));
+      if (!baked || createHash('sha256').update(baked.content).digest('hex') !== installed) return 'deferred';
+    }
+    const writerEvidence = async (prior: HermesWriter, method: 'hermesWriterExited' | 'hermesWriterSettled') => {
+      const id = this.env.CONTAINER.idFromName(`${bucket}-${prior.sessionId}`);
+      const owner = this.env.CONTAINER.get(id) as unknown as Pick<container, typeof method>;
+      return (await raceBudget(owner[method](bucket, prior), Math.max(1, deadline - Date.now()))) === true;
+    };
+    return retention.admit(writer, {
+      canAdmit,
+      inventory: r2.inventory,
+      observe: r2.observe,
+      prefixEmpty: r2.prefixEmpty,
+      writerExited: prior => writerEvidence(prior, 'hermesWriterExited'),
+      writerSettled: prior => writerEvidence(prior, 'hermesWriterSettled'),
+      evict: async prefix => {
+        const [before, admitted] = await Promise.all([getRegimeState(this.env, bucket), canAdmit()]);
+        if (!admitted || signal.aborted || before.status !== 'ready' || before.generation !== regime.generation) {
+          return 'not-started';
+        }
+        return r2.evict(prefix);
+      },
+    }, signal);
+  }
+
+  private async verifyMcpOwner(owner: string, email?: string): Promise<void> {
+    if (typeof owner !== 'string' || !/^[a-z0-9][a-z0-9.-]{0,62}$/.test(owner)
+      || !this.ctx.id.equals(this.env.CONTAINER.idFromName(`bucket-owner:${owner}`))) {
+      throw new Error('MCP owner identity mismatch');
+    }
+    const claimed = await this.ctx.storage.get<string>('bucketOwnerEmail');
+    if (!claimed || claimed !== claimed.trim().toLowerCase()
+      || (email !== undefined && (typeof email !== 'string' || email.trim().toLowerCase() !== claimed))) {
+      throw new Error('MCP owner identity mismatch');
+    }
+  }
+
+  async mcpPortalRead(owner: string, portalName: string) {
+    await this.verifyMcpOwner(owner);
+    return new McpPortalState(this.ctx.storage).read(portalName);
+  }
+  async mcpPortalImport(owner: string, portalName: string, expected: McpFence, ciphertext: string) {
+    await this.verifyMcpOwner(owner);
+    return new McpPortalState(this.ctx.storage).import(portalName, expected, ciphertext);
+  }
+  async mcpPortalSavePending(owner: string, input: McpPendingInput) {
+    await this.verifyMcpOwner(owner);
+    return new McpPortalState(this.ctx.storage).savePending(input);
+  }
+  async mcpPortalConsumePending(owner: string, state: string, binding?: McpCallbackBinding) {
+    await this.verifyMcpOwner(owner);
+    if (binding && (typeof binding.instance !== 'string' || (binding.issuer !== undefined && typeof binding.issuer !== 'string'))) {
+      throw new Error('Invalid MCP callback binding');
+    }
+    return new McpPortalState(this.ctx.storage).consumePending(state, binding ? async pending => {
+      const payload = await decryptMcpRecord<{ instance: string; discovery: { authorizationServerUrl: string } }>(this.env,
+        mcpRecordContext(owner, pending.fence.epoch, 'pending', state), pending.ciphertext);
+      return !!payload && payload.instance === binding.instance
+        && (!binding.issuer || payload.discovery?.authorizationServerUrl === binding.issuer);
+    } : undefined);
+  }
+  async mcpPortalPublish(owner: string, portalName: string, expected: McpFence, ciphertext: string) {
+    await this.verifyMcpOwner(owner);
+    return new McpPortalState(this.ctx.storage).publish(portalName, expected, ciphertext);
+  }
+  async mcpPortalDisconnect(owner: string, portalName: string) {
+    await this.verifyMcpOwner(owner);
+    return new McpPortalState(this.ctx.storage).disconnect(portalName);
+  }
+  async mcpPortalBeginOffboarding(owner: string, email: string) {
+    await this.verifyMcpOwner(owner, email);
+    if (this.mcpCleanupActive) throw new AppError('user_cleanup_incomplete', 503, 'User cleanup already in progress');
+    return new McpPortalState(this.ctx.storage).beginOffboarding();
+  }
+  async mcpPortalCompleteOffboarding(owner: string, operationId: string) {
+    await this.verifyMcpOwner(owner);
+    if (this.mcpCleanupActive) return false;
+    return new McpPortalState(this.ctx.storage).completeOffboarding(operationId);
+  }
+  async cleanupOwnedUser(owner: string, email: string): Promise<CleanupResult> {
+    // Set before the first await: another live deletion cannot outlast this one
+    // and erase a newly provisioned account after its completion.
+    const admitted = !this.mcpCleanupActive;
+    try {
+      if (!admitted) throw new AppError('user_cleanup_incomplete', 503, 'User cleanup already in progress');
+      this.mcpCleanupActive = true;
+      await this.verifyMcpOwner(owner, email);
+      const state = new McpPortalState(this.ctx.storage);
+      let operationId: string | undefined;
+      const result = await runOwnedUserCleanup(email.trim().toLowerCase(), owner, this.env, async () => {
+        operationId = (await state.beginOffboarding()).operationId;
+      });
+      if (!operationId || !await state.completeOffboarding(operationId)) {
+        throw new AppError('user_cleanup_incomplete', 503, 'User cleanup completion could not be confirmed');
+      }
+      return result;
+    } catch (error) {
+      // RPC preserves Error.message, not custom AppError fields. Carry only the
+      // existing cleanup error contract; the public wrapper restores its type.
+      if (error instanceof AppError) {
+        throw new Error(`MCP_USER_CLEANUP:${JSON.stringify({ code: error.code, statusCode: error.statusCode,
+          message: error.message, userMessage: error.userMessage })}`);
+      }
+      throw error;
+    } finally {
+      // Failure releases only live exclusion. Durable admission stays closed.
+      if (admitted) this.mcpCleanupActive = false;
+    }
   }
 
   /** Owner metadata only: request-owned Root authority; never starts a container. */
@@ -971,25 +1214,15 @@ export class container extends Container<Env> implements ContainerEnvState {
       const forwarded = await this.forwardExisting(request);
       return forwarded.webSocket ? this.relayWebSocket(forwarded, { terminalKeepalive: pathname === '/terminal' }) : forwarded;
     }
+    if (pathname === '/_internal/setBucketName' && request.method === 'POST') {
+      return this.configureSessionStart(request);
+    }
     const internal = dispatchInternalRoute(this.host, request);
     if (internal) return internal;
 
-    // Note on POST /internal/bisync-trigger (REQ-STOR-015): the Worker
-    // fan-out at /api/sessions/sync calls this DO with that path. It is
-    // intentionally NOT in the internal route table (no leading underscore)
-    // so it falls through to the standard forward path below: the DO
-    // injects the container auth token and super.fetch() routes it to
-    // the host server's matching handler. The 503 short-circuit on a
-    // hibernated container is the hibernation-safety guarantee for the
-    // Sync-now feature - no DO-side state, no daemon-PID cache, all
-    // decisions made at call time against ctx.container?.running.
-
-    // Reject non-internal requests when the container is not running.
-    // This prevents WebSocket reconnect attempts from waking a hibernated
-    // container via super.fetch() (which triggers the SDK's startIfNotRunning).
-    // The in-memory running flag can transiently read false for a live workload,
-    // so only the Worker's persisted-state admission gate may emit authoritative
-    // 4503. Keep this inner gate retryable without forwarding to super.fetch().
+    // Sync now and ordinary HTTP requests may reach the existing private port
+    // but cannot enter the SDK's implicit start path. A false running hint at
+    // this inner gate is retryable, not authoritative 4503.
     if (!this.ctx.container?.running) {
       if (request.headers.get('Upgrade')?.toLowerCase() === 'websocket') {
         const pair = new WebSocketPair();
@@ -1003,21 +1236,13 @@ export class container extends Container<Env> implements ContainerEnvState {
       });
     }
 
-    // Use super.fetch() for reliable container proxying (handles startup
-    // readiness, WebSocket upgrades, and container networking). The SDK's
-    // sleepAfter timer is pinned to 24h (see class field comment) and plays
-    // no role in idle detection - collectMetrics() owns that decision.
     if (!this._containerAuthToken) {
       return new Response(JSON.stringify({ error: 'Container authorization unavailable' }), {
         status: 503,
         headers: { 'Content-Type': 'application/json' },
       });
     }
-    const authedRequest = new Request(request, {
-      headers: new Headers(request.headers),
-    });
-    authedRequest.headers.set('Authorization', `Bearer ${this._containerAuthToken}`);
-    return super.fetch(authedRequest);
+    return this.forwardExisting(request);
   }
 
   /**
@@ -1031,8 +1256,22 @@ export class container extends Container<Env> implements ContainerEnvState {
    */
   /** Called when the container starts successfully. */
   override async onStart(): Promise<void> {
-    await lifecycleOnStart(this.lifecycleHost);
-    await this.monitorExistingRuntime();
+    const launch = this.sessionStartInFlight;
+    if (!launch) {
+      await lifecycleOnStart(this.lifecycleHost, undefined, this._operatorContainerProfile !== undefined);
+      await this.monitorExistingRuntime();
+      return;
+    }
+    if (launch.cancellation.signal.aborted) return;
+    const pin = { ownerKey: launch.bucket, sessionId: launch.sessionId, generation: launch.generation };
+    try {
+      await lifecycleOnStart(this.lifecycleHost, pin);
+      await this.monitorExistingRuntime(false, pin);
+      launch.startup.ready = true;
+    } catch {
+      // The SDK runs this hook inside blockConcurrencyWhile. Reject the RPC
+      // after the hook returns, without resetting the DO and its pending Stop.
+    }
   }
 
   /**
@@ -1046,22 +1285,143 @@ export class container extends Container<Env> implements ContainerEnvState {
    * run its CA-trust block — was too late: the entrypoint found no cert, skipped
    * trust, and every agent's intercepted-TLS handshake to api.openai.com then
    * failed with "Connection error" (the interceptor was never even reached).
-   * The SDK applies its own pre-start interception at this same point; all start
-   * paths (explicit start + containerFetch auto-start) funnel through here.
+   * The SDK also applies its own pre-start interception. Ordinary Start and the
+   * separate Operator path both prepare interception before invoking the SDK.
    *
    * Which transports wire (and their guards) is data-driven: see the registry
-   * in container-interception.ts. Enterprise transports are a no-op unless
-   * enterprise mode + gateway configured; the OAuth api.cloudflare.com
+   * in container-interception.ts. Enterprise mode registers its transports even
+   * without Gateway configuration; affected requests then fail closed. The OAuth api.cloudflare.com
    * transport (REQ-AGENT-078) is a no-op unless this is a non-enterprise
    * "Connect to Cloudflare" session (detected by the injected OAuth placeholder).
    */
   override async startAndWaitForPorts(
     ...args: Parameters<Container<Env>['startAndWaitForPorts']>
   ): Promise<void> {
+    if (this.sessionStartInFlight) throw new Error('Another session start is in progress');
+    await this.prepareNativeStart();
+    await super.startAndWaitForPorts(...args);
+  }
+
+  private async prepareNativeStart(): Promise<void> {
     await refreshMcpPortalConfiguration(this.host);
     this.updateEnvVars();
     await wireContainerInterception(this.interceptionHost);
-    await super.startAndWaitForPorts(...args);
+  }
+
+  private async configureSessionStart(request: Request): Promise<Response> {
+    const conflict = () => Response.json({ error: 'Session configuration no longer authorized' }, { status: 412 });
+    const value = request.headers.get('X-Codeflare-Start-Generation');
+    if (value === null || !/^\d+$/.test(value) || !Number.isSafeInteger(Number(value))) return conflict();
+    const body = await request.clone().json().catch(() => null) as { bucketName?: unknown; sessionId?: unknown } | null;
+    const { bucketName, sessionId } = body ?? {};
+    if (typeof bucketName !== 'string' || typeof sessionId !== 'string'
+      || this.env.CONTAINER.idFromName(`${bucketName}-${sessionId}`).toString() !== this.ctx.id.toString()) return conflict();
+    if (this.sessionConfigurationInFlight || this.sessionStartInFlight || this.sessionStopInFlight || this.sessionKillInFlight) return conflict();
+    const completion = Promise.resolve().then(async () => {
+      const repository = new D1SessionRepository(this.env.USAGE_DB);
+      const current = await repository.getSession(bucketName, sessionId);
+      if (!current || current.lifecycleGeneration !== Number(value) || current.terminationIntentId
+        || current.lifecycleState === 'starting' || current.lifecycleState === 'stopping'
+        || this.sessionStopInFlight || this.sessionKillInFlight || this._operatorContainerProfile
+        || (this._bucketName && this._bucketName !== bucketName) || (this._sessionId && this._sessionId !== sessionId)) return conflict();
+      if (current.lifecycleState === 'stopped') {
+        if (this.ctx.container?.running) return conflict();
+      } else if (!this._bucketName || await this.ctx.storage.get<number>('lifecycleGeneration') !== current.lifecycleGeneration) {
+        return conflict();
+      }
+      if (this.sessionStopInFlight || this.sessionKillInFlight) return conflict();
+      const response = await dispatchInternalRoute(this.host, request)!;
+      if (current.lifecycleState !== 'stopped' || (response.status !== 200 && response.status !== 409)) return response;
+      if (this._bucketName !== bucketName || this._sessionId !== sessionId) return conflict();
+      // Keep configuration and the claim under the same reservation. A second
+      // request for the previous generation cannot overwrite the winner's config.
+      await this.ctx.storage.put(SESSION_LAUNCH_GENERATION_KEY, current.lifecycleGeneration + 1);
+      if (this.sessionStopInFlight || this.sessionKillInFlight) return conflict();
+      const claimed = await repository.start(bucketName, sessionId, new Date().toISOString(), current.lifecycleGeneration);
+      if (!claimed) return conflict();
+      // Own the launch before acknowledgement. It waits for this configuration
+      // reservation to settle, but does not depend on its RPC caller returning.
+      void this.launchSession({ bucket: bucketName, sessionId, generation: claimed.lifecycleGeneration }).catch(() => {
+        this.logger.warn('Session start not confirmed', { sessionId, lifecycleGeneration: claimed.lifecycleGeneration });
+      });
+      const headers = new Headers(response.headers);
+      headers.set('X-Codeflare-Start-Claim', String(claimed.lifecycleGeneration));
+      return new Response(response.body, { status: response.status, headers });
+    }).finally(() => { this.sessionConfigurationInFlight = undefined; });
+    this.sessionConfigurationInFlight = completion;
+    this.ctx.waitUntil(completion);
+    return completion;
+  }
+
+  /** Join the DO-owned Start; an RPC arriving after completion cannot re-dispatch it. */
+  async startSession(input: SessionStopRequest): Promise<void> {
+    const { bucket, sessionId, generation } = input;
+    const launch = this.sessionStartInFlight;
+    if (launch?.bucket === bucket && launch.sessionId === sessionId && launch.generation === generation) {
+      return launch.completion;
+    }
+    const current = await new D1SessionRepository(this.env.USAGE_DB).getSession(bucket, sessionId);
+    if (this._bucketName !== bucket || this._sessionId !== sessionId
+      || current?.lifecycleGeneration !== generation || current.lifecycleState !== 'running' || current.terminationIntentId) {
+      throw new Error('Session start not confirmed');
+    }
+  }
+
+  private async launchSession(input: SessionStopRequest): Promise<void> {
+    const { bucket, sessionId, generation } = input;
+    if (this.env.CONTAINER.idFromName(`${bucket}-${sessionId}`).toString() !== this.ctx.id.toString()) {
+      throw new Error('Session start address mismatch');
+    }
+    if (this.sessionStartInFlight) throw new Error('Session lifecycle operation is in progress');
+    const cancellation = new AbortController();
+    const startup = { ready: false };
+    const epoch = this._teardownEpoch;
+    const repository = new D1SessionRepository(this.env.USAGE_DB);
+    const stillAdmitted = async () => {
+      const session = await repository.getSession(bucket, sessionId);
+      if (cancellation.signal.aborted || this._teardownEpoch !== epoch
+          || this._bucketName !== bucket || this._sessionId !== sessionId
+          || session?.lifecycleGeneration !== generation || session.lifecycleState !== 'starting'
+          || session.terminationIntentId) throw new Error('Session start superseded');
+    };
+    const configure = this.sessionConfigurationInFlight;
+    const completion = Promise.resolve().then(async () => {
+      await configure;
+      await stillAdmitted();
+      await this.prepareNativeStart();
+      if (this._sessionMode === 'advanced') {
+        const budget = CONTAINER_POLL_BUDGET_MS;
+        const deadline = Date.now() + budget;
+        const disposition = await raceBudget((async () => {
+          const hadDirectLayout = (await this.ctx.storage.get<boolean>(HERMES_DIRECT_LAYOUT_KEY)) === true;
+          return getBucketOwnerStub(this.env, bucket).admitHermesStore(bucket, { sessionId, generation },
+            this._remoteCurationActive, deadline, hadDirectLayout);
+        })(), budget).catch(() => null);
+        if (disposition === 'new' || disposition === 'existing') {
+          await this.ctx.storage.put(HERMES_DIRECT_LAYOUT_KEY, true);
+        }
+        this.envVars = { ...this.envVars, CODEFLARE_HERMES_PERSISTENCE: disposition ?? 'deferred',
+          CODEFLARE_HERMES_GENERATION: String(generation) };
+      }
+      await stillAdmitted();
+      if (this.ctx.container?.running) throw new Error('Unexpected existing session process');
+      await super.startAndWaitForPorts({ cancellationOptions: { abort: cancellation.signal } });
+      if (cancellation.signal.aborted || !startup.ready) throw new Error('Session start not confirmed');
+    }).finally(() => { this.sessionStartInFlight = undefined; });
+    this.sessionStartInFlight = { ...input, cancellation, startup, completion };
+    this.ctx.waitUntil(completion);
+    await completion;
+  }
+
+  private async quiesceSessionStart(): Promise<void> {
+    const launch = this.sessionStartInFlight;
+    const configure = this.sessionConfigurationInFlight;
+    if (!launch && !configure) return;
+    launch?.cancellation.abort();
+    // SDK 0.3.7 can already be past a cancellation check before native launch.
+    // Wait for any outstanding launch or configuration before destroying.
+    const settled = await raceBudget(Promise.allSettled([launch?.completion, configure]), CONTAINER_POLL_BUDGET_MS);
+    if (!settled) throw new Error('Session start has not settled; retry termination');
   }
 
   async collectMetrics(delivered?: MetricsPin): Promise<void> {
@@ -1112,7 +1472,8 @@ export class container extends Container<Env> implements ContainerEnvState {
       await this.sessionKillInFlight.completion;
       return;
     }
-    await lifecycleDestroy(this.lifecycleHost, context, onNativeExit);
+    await lifecycleDestroy(this.lifecycleHost, context, onNativeExit,
+      (this.sessionStartInFlight || this.sessionConfigurationInFlight) ? () => this.quiesceSessionStart() : undefined);
   }
 
   /** Own claim through confirmation even if the invoking Worker disconnects. */
@@ -1133,13 +1494,14 @@ export class container extends Container<Env> implements ContainerEnvState {
     const epoch = this._teardownEpoch;
     // Register the entire operation before any I/O, including its claim.
     const completion: Promise<void> = Promise.resolve().then(() =>
-      lifecycleStopSession(this.env, input, owned => {
+      lifecycleStopSession(this.env, input, async owned => {
         if (this._teardownEpoch !== epoch) throw new Error('Session stop superseded');
-        return this.destroyWithContext({ sessionId: owned.sessionId, lifecycleGeneration: owned.lifecycleGeneration,
+        await this.destroyWithContext({ sessionId: owned.sessionId, lifecycleGeneration: owned.lifecycleGeneration,
           incidentId: owned.unreachableIncidentId ?? null, terminationIntentId: owned.terminationIntentId ?? undefined, reason: 'user' }, () => this.recordNativeStopExit({
             owner: input.bucket, session: input.sessionId, generation: input.generation,
             terminationIntentId: owned.terminationIntentId!,
           }));
+        await this.recordHermesSettlement(input.sessionId, input.generation);
       })
     ).finally(() => {
       if (this.sessionStopInFlight?.completion === completion) this.sessionStopInFlight = undefined;
@@ -1162,7 +1524,8 @@ export class container extends Container<Env> implements ContainerEnvState {
       await pending.completion;
       return;
     }
-    const completion: Promise<void> = Promise.resolve().then(() => lifecycleKillSession(this.lifecycleHost, input))
+    const completion: Promise<void> = Promise.resolve().then(() =>
+      lifecycleKillSession(this.lifecycleHost, input, () => this.quiesceSessionStart()))
       .then(() => {
         const stop = this.sessionStopInFlight;
         if (stop?.bucket === input.bucket && stop.sessionId === input.sessionId && stop.generation === input.generation) {

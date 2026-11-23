@@ -1,13 +1,13 @@
 {
   "dependencies": {
-    "@anthropic-ai/claude-code": "2.1.322",
+    "@anthropic-ai/claude-code": "2.1.325",
     "@earendil-works/pi-coding-agent": "1.5.2",
-    "@github/copilot": "1.0.109",
-    "@openai/codex": "0.167.2",
+    "@github/copilot": "1.0.112",
+    "@openai/codex": "0.169.0",
     "bun": "1.4.4",
     "chrome-devtools-mcp": "1.13.0",
     "consult-llm-mcp": "2.13.4",
-    "context-mode": "2.1.9",
+    "context-mode": "2.2.0",
     "esbuild": "0.28.2",
     "opencode-ai": "1.19.5"
   },

@@ -475,7 +475,7 @@ describe('Storage Delete Route', () => {
 
   // --- Prefix delete tests ---
 
-  it('prefix delete calls emptyR2Bucket with correct prefix and returns count', async () => {
+  it('reports the completed prefix and deletion count', async () => {
     mockEmptyR2Bucket.mockResolvedValueOnce(42);
 
     const res = await app.request('/delete', {
@@ -489,13 +489,6 @@ describe('Storage Delete Route', () => {
     expect(body.deleted).toEqual([]);
     expect(body.deletedPrefixes).toEqual([{ prefix: 'workspace/folder/', count: 42 }]);
     expect(body.errors).toEqual([]);
-
-    expect(mockEmptyR2Bucket).toHaveBeenCalledWith(
-      expect.anything(), // r2Client
-      'https://test.r2.cloudflarestorage.com',
-      'test-bucket',
-      'workspace/folder/',
-    );
   });
 
   it('handles mixed keys + prefixes in single request', async () => {

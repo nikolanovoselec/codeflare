@@ -228,6 +228,15 @@ describe('Storage API Client', () => {
     });
   });
 
+  it('REQ-STOR-008 AC6: preserves the multipart restart refusal code', async () => {
+    mockFetch.mockResolvedValueOnce(new Response(JSON.stringify({
+      code: 'MULTIPART_RESTART_REQUIRED', error: 'Restart the upload without deleting existing parts.',
+    }), { status: 409, headers: { 'Content-Type': 'application/json' } }));
+    await expect(uploadPart('large.bin', 'upload-held', 1, 'cGFydA==')).rejects.toMatchObject({
+      status: 409, code: 'MULTIPART_RESTART_REQUIRED',
+    });
+  });
+
   describe('abortMultipartUpload', () => {
     it('succeeds with no return value', async () => {
       mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));

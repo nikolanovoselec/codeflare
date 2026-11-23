@@ -195,6 +195,43 @@ describe('CI suite deadline and report-gate behavior', () => {
     }
   });
 
+  it('REQ-OPS-023 AC1: rejects contradictory report evidence before normal or tolerated success', () => {
+    const work = mkdtempSync(join(tmpdir(), 'ci-suite-report-evidence-'));
+    try {
+      const report = join(work, 'report.json');
+      const log = join(work, 'run.log');
+      const passing = {
+        numTotalTests: 1, numFailedTests: 0, numFailedTestSuites: 0,
+        numPendingTests: 0, numTodoTests: 0,
+        testResults: [{ name: 'example.test.ts', status: 'passed', assertionResults: [{ status: 'passed' }] }],
+      };
+      const cases = [
+        ['clean', () => {}, 0],
+        ['negative failure count', (value) => { value.numFailedTests = -1; }, 1],
+        ['failed assertion', (value) => { value.testResults[0].assertionResults[0].status = 'failed'; }, 1],
+        ['pending assertion', (value) => { value.testResults[0].assertionResults[0].status = 'pending'; }, 1],
+        ['missing assertion outcome', (value) => { delete value.testResults[0].assertionResults[0].status; }, 1],
+        ['failed file', (value) => { value.testResults[0].status = 'failed'; }, 1],
+        ['missing file outcome', (value) => { delete value.testResults[0].status; }, 1],
+      ];
+      writeFileSync(log, TEARDOWN_CRASH);
+      for (const status of [0, 1]) {
+        for (const [name, mutate, expected] of cases) {
+          const value = structuredClone(passing);
+          mutate(value);
+          writeFileSync(report, JSON.stringify(value));
+          const result = spawnSync(process.execPath, [REPORT_GATE, String(status), report, log, 'true'], {
+            encoding: 'utf8', timeout: 5_000, killSignal: 'SIGKILL',
+          });
+          assert.equal(result.error, undefined);
+          assert.equal(result.status, expected, `${name}, exit ${status}: ${result.stdout}${result.stderr}`);
+        }
+      }
+    } finally {
+      rmSync(work, { recursive: true, force: true });
+    }
+  });
+
   it('rejects watchdog exits 124 and 137 despite passing JSON and tolerated teardown evidence', () => {
     const work = mkdtempSync(join(tmpdir(), 'ci-suite-watchdog-gate-'));
     try {
@@ -208,6 +245,7 @@ describe('CI suite deadline and report-gate behavior', () => {
         numTodoTests: 0,
         testResults: [{
           name: join(work, 'example.test.ts'),
+          status: 'passed',
           assertionResults: [{ status: 'passed' }],
         }],
       }));

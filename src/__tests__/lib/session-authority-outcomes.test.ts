@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:test';
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { D1SessionRepository } from '../../lib/session-repository';
+import { buildCloneTargets } from '../../lib/clone-targets';
 import { validateSessionAndCheckLimits } from '../../routes/container/lifecycle-validation';
 import type { Env } from '../../types';
 import { getMaxSessions } from '../../lib/constants';
@@ -53,6 +54,48 @@ describe('D1 production authority outcomes', () => {
     expect(await repository().listSessions('authority-owner')).toEqual([restored]);
   });
 
+  it('REQ-GITHUB-319: stale host inventory cannot erase a clone but fresh inventory can reconcile removals', async () => {
+    const repo = repository();
+    const { ownerKey, sessionId } = await repo.create(input());
+    const started = await repo.start(ownerKey, sessionId, time);
+    expect(started).not.toBeNull();
+    const current = (await repo.getSession(ownerKey, sessionId))!;
+    const observation = { generation: current.lifecycleGeneration, sequence: current.observationSequence + 1,
+      responseRevision: current.responseRevision };
+    expect(await repo.appendTrackedClone(ownerKey, sessionId, { repo: 'example/new' })).toBe('tracked');
+    expect(await repo.updateTrackedClones(ownerKey, sessionId, current.clones!, observation)).toBe(false);
+    const after = (await repo.getSession(ownerKey, sessionId))!;
+    expect(buildCloneTargets(after.clones, after.clone)).toBe('example/primary#main example/new example/secondary');
+    expect(await repo.updateTrackedClones(ownerKey, sessionId, [], { ...observation, responseRevision: after.responseRevision })).toBe(true);
+    const fresh = (await repo.getSession(ownerKey, sessionId))!;
+    expect(buildCloneTargets(fresh.clones, fresh.clone)).toBe('example/primary#main');
+  });
+
+  it('REQ-GITHUB-319 AC3: overlapping appends both reach the next restore directive', async () => {
+    const session = await repository().create(input());
+    const { ownerKey, sessionId } = session;
+    let arrived = 0;
+    let release!: () => void;
+    const bothRead = new Promise<void>(resolve => { release = resolve; });
+    class TwoReaders extends D1SessionRepository {
+      override async getSession(owner: string, id: string) {
+        const snapshot = await super.getSession(owner, id);
+        if (++arrived <= 2) {
+          if (arrived === 2) release();
+          await bothRead;
+        }
+        return snapshot;
+      }
+    }
+    const writer = new TwoReaders(db);
+    expect(await Promise.all([
+      writer.appendTrackedClone(ownerKey, sessionId, { repo: 'example/a', ref: 'dev' }),
+      writer.appendTrackedClone(ownerKey, sessionId, { repo: 'example/b' }),
+    ])).toEqual(['tracked', 'tracked']);
+    const next = await repository().getSession(ownerKey, sessionId);
+    expect(buildCloneTargets(next?.clones, next?.clone)).toBe('example/primary#main example/a#dev example/b example/secondary');
+  });
+
   it('REQ-SESSION-001 AC3 / REQ-SESSION-031 AC1: valid agent and six configured tabs retain complete nonsecret creation data', async () => {
     const complete = { ...input(), agentType: 'pi' as const,
       tabConfig: Array.from({ length: 6 }, (_, index) => ({ id: String(index + 1), command: index ? '' : 'pi', label: `Workspace ${index + 1}` })) };
@@ -94,6 +137,31 @@ describe('D1 production authority outcomes', () => {
     expect(await repository().getSession('authority-owner', 'session01')).toMatchObject({ responseRevision: 3, observationSequence: 4, cpu: '4%' });
   });
 
+  it('REQ-SESSION-018 AC2: a delayed Start cannot claim a later stopped generation', async () => {
+    const repo = repository();
+    await repo.create(input());
+    expect(await repo.start('authority-owner', 'session01', time, 0)).toMatchObject({ lifecycleGeneration: 1 });
+    await repo.claimStop('authority-owner', 'session01', 'stop-one', time, 1);
+    expect(await repo.confirmStopped('authority-owner', 'session01', 1, 'stop-one', time)).toBe(true);
+    expect(await repo.start('authority-owner', 'session01', time, 0)).toBeNull();
+    expect(await repo.getSession('authority-owner', 'session01')).toMatchObject({ lifecycleState: 'stopped', lifecycleGeneration: 1 });
+    expect(await repo.start('authority-owner', 'session01', time, 1)).toMatchObject({ lifecycleState: 'starting', lifecycleGeneration: 2 });
+  });
+
+  it('REQ-SESSION-018 AC4: startup readiness cannot write after termination has claimed the run', async () => {
+    const repo = repository();
+    await repo.create(input());
+    await repo.start('authority-owner', 'session01', time, 0);
+    expect(await repo.updateReadiness('authority-owner', 'session01', 1, true, false, true)).toBe(false);
+    expect(await repo.project('authority-owner', 'session01', 1, 0, { lifecycleState: 'running', observedAt: time })).toBe(true);
+    expect(await repo.updateReadiness('authority-owner', 'session01', 1, true, false, true)).toBe(true);
+    await repo.claimStop('authority-owner', 'session01', 'stop-one', time, 1);
+    const stopping = await repo.getSession('authority-owner', 'session01');
+    expect(stopping).toMatchObject({ lifecycleState: 'stopping' });
+    expect(await repo.updateReadiness('authority-owner', 'session01', 1, false, true, true)).toBe(false);
+    expect(await repo.getSession('authority-owner', 'session01')).toEqual(stopping);
+  });
+
   it('REQ-SESSION-018 AC5: accepted boundary, Stop and exit transitions advance durable response revisions', async () => {
     const repo = repository();
     await repo.create(input());
@@ -128,7 +196,7 @@ describe('D1 production authority outcomes', () => {
     await repo.create(input());
     await repo.start('authority-owner', 'session01', time);
     await repo.project('authority-owner', 'session01', 1, 0, { lifecycleState: 'running', observedAt: time });
-    expect(await repo.deleteConfirmed('authority-owner', 'session01')).toBe(false);
+    expect(await repo.deleteConfirmed('authority-owner', 'session01', 1)).toBe(false);
     expect(await repo.claimStop('authority-owner', 'session01', 'stop-one', time, 1)).toMatchObject({ lifecycleState: 'stopping', lifecycleGeneration: 1 });
     expect(await repo.start('authority-owner', 'session01', time)).toBeNull();
     expect(await repository().getSession('authority-owner', 'session01')).toMatchObject({
@@ -145,7 +213,11 @@ describe('D1 production authority outcomes', () => {
     expect(await repository().getSession('authority-owner', 'session01')).toEqual(restarted);
     await repo.claimStop('authority-owner', 'session01', 'stop-two', time, 2);
     expect(await repo.confirmStopped('authority-owner', 'session01', 2, 'stop-two', time)).toBe(true);
-    expect(await repo.deleteConfirmed('authority-owner', 'session01')).toBe(true);
+    expect(await repo.deleteConfirmed('authority-owner', 'session01', 1)).toBe(false);
+    expect(await repository().getSession('authority-owner', 'session01')).toMatchObject({
+      lifecycleState: 'stopped', lifecycleGeneration: 2,
+    });
+    expect(await repo.deleteConfirmed('authority-owner', 'session01', 2)).toBe(true);
     expect(await repo.project('authority-owner', 'session01', 2, 100, { observedAt: time })).toBe(false);
     expect(await repo.updateReadiness('authority-owner', 'session01', 2, true, false)).toBe(false);
     expect(await repo.updateTrackedClones('authority-owner', 'session01', [{ repo: 'example/late' }], { generation: 2, sequence: 101 })).toBe(false);

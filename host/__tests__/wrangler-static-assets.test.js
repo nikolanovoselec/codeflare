@@ -1,4 +1,4 @@
-// REQ-AUTH-020 AC1 / REQ-AUTH-022 AC7 / REQ-OPERATOR-029 AC1:
+// REQ-AUTH-020 AC1 / REQ-OPS-175 AC1 / REQ-OPERATOR-029 AC1:
 // Wrangler must interpret the asset boundary as Worker-first for every route.
 // Deployed edge behavior remains a Gate 1 observation.
 import { describe, it } from 'node:test';

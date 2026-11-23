@@ -2,6 +2,7 @@ import { env } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { queryAdminUsageRows, queryAdminUsageSeries, reactivateUsageUser, tombstoneUsageUser, userKeyForEmail, writeUsageHistory } from '../../lib/admin-usage';
 import { createMockKV } from '../helpers/mock-kv';
+import { setLogLevel } from '../../lib/logger';
 import type { Env } from '../../types';
 import { claimReportDelivery, completeReportDelivery, createDueScheduledDispatch, createReportDispatch, runUsageReportScheduler, runUsageRetention } from '../../lib/usage-report-scheduler';
 import { applyPositiveDelta, createAccountingState, hashSessionId, type HistoryOutboxEntry } from '../../timekeeper/accounting';
@@ -42,6 +43,58 @@ describe('historical usage D1 guards (REQ-SUB-025, REQ-SUB-026)', () => {
     sourceSequence: 7,
     snapshotAt: '2027-08-01T00:00:00.000Z',
   };
+
+  it('REQ-OPS-057 AC4: measures real D1 writes and read-only replay for one three-session history snapshot', async () => {
+    let state = await createAccountingState(now, {
+      pendingSeconds: 0, sessionTotals: {}, lastFlushedMonthlyTotal: 0,
+    });
+    const markers = new Set<string>();
+    for (const session of ['first', 'second', 'third']) {
+      const applied = applyPositiveDelta(state, await hashSessionId(session), 60, now, markers);
+      state = applied.state;
+      for (const marker of applied.markerKeys) markers.add(marker);
+    }
+    const snapshots: HistoryOutboxEntry[] = (['day', 'week', 'month', 'year'] as const).map(kind => ({
+      kind, ...state.periods[kind], sourceSequence: state.historySequence, snapshotAt: now.toISOString(),
+    }));
+    const email = 'row-budget@example.com';
+    const userKey = await userKeyForEmail(email);
+    const output = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    setLogLevel('info');
+    try {
+      // The existing D1 binding executes production SQL. Metrics are the real
+      // batch results logged by the owner, never supplied by a fake D1 response.
+      expect(await writeUsageHistory(db, email, snapshots)).toEqual({ userKey, acknowledged: true });
+      const initial = JSON.parse(String(output.mock.calls.at(-1)?.[0])).data;
+      expect(initial.snapshotCount).toBe(4);
+      expect(Number.isSafeInteger(initial.rowsRead)).toBe(true);
+      expect(initial.rowsRead).toBeGreaterThan(0);
+      expect(Number.isSafeInteger(initial.rowsWritten)).toBe(true);
+      expect(initial.rowsWritten).toBeGreaterThan(0);
+
+      const readPeriods = () => db.prepare(`SELECT period_kind, period_start, runtime_seconds, session_count,
+        source_sequence, updated_at FROM usage_periods WHERE user_key = ?1 ORDER BY period_kind`)
+        .bind(userKey).all();
+      const expected = snapshots.map(snapshot => ({
+        period_kind: snapshot.kind, period_start: snapshot.start, runtime_seconds: 180,
+        session_count: 3, source_sequence: 3, updated_at: now.toISOString(),
+      })).sort((a, b) => a.period_kind.localeCompare(b.period_kind));
+      expect((await readPeriods()).results).toEqual(expected);
+
+      expect(await writeUsageHistory(db, email, snapshots)).toEqual({ userKey, acknowledged: true });
+      const replay = JSON.parse(String(output.mock.calls.at(-1)?.[0])).data;
+      expect(replay.snapshotCount).toBe(4);
+      expect(Number.isSafeInteger(replay.rowsRead)).toBe(true);
+      expect(replay.rowsRead).toBeGreaterThan(0);
+      expect(replay.rowsWritten).toBe(0);
+      expect((await readPeriods()).results).toEqual(expected);
+      expect((await db.prepare('SELECT user_key, email, account_status, data_since FROM usage_users').all()).results)
+        .toEqual([{ user_key: userKey, email, account_status: 'active', data_since: now.toISOString() }]);
+    } finally {
+      setLogLevel('silent');
+      output.mockRestore();
+    }
+  });
 
   it('keeps newer history, blocks deleted owners, and resumes the same owner after reactivation', async () => {
     const email = 'alice@example.com';
@@ -207,6 +260,55 @@ describe('REQ-SUB-028 AC1: daily retention claim', () => {
       VALUES ('old-b', 'scheduled', 'old-b', 1, '2020-01', 'b@example.com', 'accepted', 1, '2020-01-01T00:00:00.000Z', '2020-01-01T00:00:00.000Z')`).run();
     await runUsageRetention(db, now, 'loser');
     expect(await db.prepare("SELECT id FROM report_deliveries WHERE id = 'old-b'").first()).not.toBeNull();
+  });
+});
+
+describe('REQ-SUB-028 AC3/4: persisted retention boundaries', () => {
+  it('prunes only periods before each cutoff and retains named deleted-user history through sixty months', async () => {
+    await db.prepare(`INSERT INTO usage_users (user_key, email, account_status, data_since)
+      VALUES ('active-boundary', 'active@example.com', 'active', '2020-01-01T00:00:00.000Z')`).run();
+    const periods = [
+      { kind: 'day', before: '2026-07-11', at: '2026-07-12', after: '2026-07-13' },
+      { kind: 'month', before: '2022-08', at: '2022-09', after: '2022-10' },
+      { kind: 'week', before: '2026-06-15', at: '2026-06-22', after: '2026-06-29' },
+      { kind: 'year', before: '2022', at: '2023', after: '2024' },
+    ];
+    for (const { kind, before, at, after } of periods) {
+      for (const start of [before, at, after]) {
+        await db.prepare(`INSERT INTO usage_periods
+          (user_key, period_kind, period_start, runtime_seconds, session_count, source_sequence, updated_at)
+          VALUES ('active-boundary', ?1, ?2, 120, 2, 1, '2027-08-15T12:00:00.000Z')`).bind(kind, start).run();
+      }
+    }
+    for (const [key, deletedAt] of [
+      ['deleted-before', '2022-07-31T23:59:59.999Z'],
+      ['deleted-at', '2022-08-01T00:00:00.000Z'],
+      ['deleted-after', '2022-08-01T00:00:00.001Z'],
+    ]) {
+      await db.prepare(`INSERT INTO usage_users (user_key, email, account_status, data_since, deleted_at)
+        VALUES (?1, ?2, 'deleted', '2020-01-01T00:00:00.000Z', ?3)`)
+        .bind(key, `${key}@example.com`, deletedAt).run();
+      await db.prepare(`INSERT INTO usage_periods
+        (user_key, period_kind, period_start, runtime_seconds, session_count, source_sequence, updated_at)
+        VALUES (?1, 'year', '2020', 3600, 3, 1, '2022-07-01T00:00:00.000Z')`).bind(key).run();
+    }
+
+    await runUsageRetention(db, new Date('2027-08-15T12:00:00.000Z'), 'retention-boundaries');
+
+    const active = await db.prepare(`SELECT period_kind, period_start, runtime_seconds, session_count
+      FROM usage_periods WHERE user_key = 'active-boundary' ORDER BY period_kind, period_start`).all();
+    expect(active.results).toEqual(periods.flatMap(({ kind, at, after }) => [at, after].map(start => ({
+      period_kind: kind, period_start: start, runtime_seconds: 120, session_count: 2,
+    }))));
+    const deleted = await db.prepare(`SELECT u.email, p.runtime_seconds, p.session_count
+      FROM usage_users u JOIN usage_periods p ON p.user_key = u.user_key
+      WHERE u.account_status = 'deleted' ORDER BY u.email`).all();
+    expect(deleted.results).toEqual([
+      { email: 'deleted-after@example.com', runtime_seconds: 3600, session_count: 3 },
+      { email: 'deleted-at@example.com', runtime_seconds: 3600, session_count: 3 },
+    ]);
+    expect(await db.prepare("SELECT user_key FROM usage_users WHERE user_key = 'deleted-before'").first()).toBeNull();
+    expect(await db.prepare("SELECT user_key FROM usage_periods WHERE user_key = 'deleted-before'").first()).toBeNull();
   });
 });
 

@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor, within } from '@solidjs/testing-library';
 import OnboardingPage from '../../components/OnboardingPage';
+import { getPreferences, updatePreferences } from '../../api/client';
 
 // api/client: only the non-connect endpoints OnboardingPage still uses.
 vi.mock('../../api/client', () => ({
   markOnboardingComplete: vi.fn().mockResolvedValue(undefined),
-  getAuthStatus: vi.fn().mockResolvedValue(null),
   getPreferences: vi.fn().mockResolvedValue(null),
   updatePreferences: vi.fn().mockResolvedValue(undefined),
 }));
@@ -36,6 +36,7 @@ describe('OnboardingPage / REQ-AUTH-015 (onboarding-mode public landing page)', 
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(getPreferences).mockResolvedValue({});
     mockGetGithubStatus.mockResolvedValue({ enabled: true, connected: false });
     mockGetCloudflareStatus.mockResolvedValue({ configured: true, connected: false });
 
@@ -247,10 +248,22 @@ describe('OnboardingPage / REQ-AUTH-015 (onboarding-mode public landing page)', 
     });
   });
 
-  it('REQ-AUTH-015 AC2: the idle-timeout selector offers the paying 15m-4h options', async () => {
+  it('REQ-AUTH-015 AC2: offers the shared idle presets and saves a new selection', async () => {
     render(() => <OnboardingPage />);
-    const select = (await waitFor(() => screen.getByTestId('onboarding-timeout-select'))) as HTMLSelectElement;
-    const values = Array.from(select.querySelectorAll('option')).map((o) => (o as HTMLOptionElement).value);
-    expect(values).toEqual(['15m', '30m', '1h', '2h', '4h']);
+    const select = await screen.findByRole('combobox', { name: 'Pause after' }) as HTMLSelectElement;
+    expect(select).toBeEnabled();
+    expect(select).toHaveValue('1h');
+    expect(Array.from(select.options).map(option => option.value)).toEqual(['1h', '2h', '4h', '8h', '12h']);
+    fireEvent.change(select, { target: { value: '12h' } });
+    expect(select).toHaveValue('12h');
+    expect(updatePreferences).toHaveBeenCalledWith({ sleepAfter: '12h' });
+  });
+
+  it('REQ-AUTH-015 AC2: Guided Setup shows a saved legacy timeout without offering it for selection', async () => {
+    vi.mocked(getPreferences).mockResolvedValue({ sleepAfter: '30m' });
+    render(() => <OnboardingPage />);
+    const select = await screen.findByTestId('onboarding-timeout-select');
+    expect(select).toHaveValue('30m');
+    expect(within(select).getByRole('option', { name: 'Current 30 minutes' })).toBeDisabled();
   });
 });

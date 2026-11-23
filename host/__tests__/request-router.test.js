@@ -9,6 +9,9 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { once } from 'node:events';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createRequestHandler } from '../dist/request-router.js';
 import { VSCODE_WARMING_GIVE_UP_MS } from '../dist/vscode-proxy.js';
 
@@ -100,9 +103,13 @@ describe('request router seam (server.ts decomposition)', () => {
   let server;
   let port;
   let readinessState;
+  let workspace;
   const savedToken = process.env.CONTAINER_AUTH_TOKEN;
+  const savedWorkspace = process.env.USER_WORKSPACE;
 
   before(async () => {
+    workspace = mkdtempSync(join(tmpdir(), 'router-workspace-'));
+    process.env.USER_WORKSPACE = workspace;
     process.env.CONTAINER_AUTH_TOKEN = 'seam-test-token';
     const made = makeDeps();
     readinessState = made.readinessState;
@@ -115,8 +122,11 @@ describe('request router seam (server.ts decomposition)', () => {
   after(async () => {
     if (savedToken === undefined) delete process.env.CONTAINER_AUTH_TOKEN;
     else process.env.CONTAINER_AUTH_TOKEN = savedToken;
+    if (savedWorkspace === undefined) delete process.env.USER_WORKSPACE;
+    else process.env.USER_WORKSPACE = savedWorkspace;
     server.close();
     await once(server, 'close');
+    rmSync(workspace, { recursive: true, force: true });
   });
 
   it('routes protected paths through the REQ-SEC-022 auth gate (401 without the bearer token)', async () => {
@@ -185,6 +195,21 @@ describe('request router seam (server.ts decomposition)', () => {
     assert.equal(observed.body.editorReadyError, readinessState.editorReadyTimedOut);
     assert.equal(observed.body.terminalReady, readinessState.terminalServiceReady);
     assert.equal(typeof observed.body.observedAt, 'string');
+  });
+
+  it('REQ-SESSION-020: deferred inventory negotiation keeps health and inventory separately authenticated', async () => {
+    const route = '/internal/runtime-observation';
+    const auth = { authorization: 'Bearer seam-test-token' };
+    assert.equal((await getJson(port, `${route}?inventory=only`)).status, 401);
+    const { status, body } = await getJson(port, `${route}?inventory=defer`, auth);
+    assert.equal(status, 200);
+    assert.equal(body.workspaceInventoryReady, true);
+    assert.equal(body.workspaceRepos, undefined);
+    assert.equal(typeof body.observedAt, 'string');
+    const inventory = await getJson(port, `${route}?inventory=only`, auth);
+    assert.equal(inventory.status, 200);
+    assert.ok(Array.isArray(inventory.body.workspaceRepos));
+    assert.equal(inventory.body.observedAt, undefined);
   });
 
   it('falls through to 404 for unknown paths (with a valid bearer token)', async () => {

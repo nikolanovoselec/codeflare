@@ -61,7 +61,9 @@ function mkTmp(prefix) {
 function isolatedRuntimeEnv(env = {}) {
   const runtimeRoot = env.CODEFLARE_RUNTIME_ROOT ?? mkTmp('openvscode-runtime-');
   mkdirSync(join(runtimeRoot, 'openvscode'), { recursive: true });
-  return { ...process.env, CODEFLARE_RUNTIME_ROOT: runtimeRoot, ...env };
+  const runtimeEnv = { ...process.env, CODEFLARE_RUNTIME_ROOT: runtimeRoot, ...env };
+  if (env.TAB_CONFIG === undefined) delete runtimeEnv.TAB_CONFIG;
+  return runtimeEnv;
 }
 
 // Write an executable stub that records each invocation's args, then exits.
@@ -163,7 +165,7 @@ complete_managed_curation_startup
 `;
     const result = spawnSync('bash', ['-c', script], { encoding: 'utf8', env: isolatedRuntimeEnv() });
     assert.equal(result.status, 0, result.stderr);
-    assert.equal(result.stdout, 'init\neditor\n');
+    assert.equal(result.stdout, '[entrypoint] WARNING: Hermes memory is not ready\ninit\neditor\n');
   });
 
   it('keeps an existing VS Code session usable after its future default is downgraded', () => {
@@ -201,7 +203,7 @@ complete_managed_curation_startup
 `;
     const result = spawnSync('bash', ['-c', script], { encoding: 'utf8', env: isolatedRuntimeEnv() });
     assert.equal(result.status, 0, result.stderr);
-    assert.equal(result.stdout, 'init\n');
+    assert.equal(result.stdout, '[entrypoint] WARNING: Hermes memory is not ready\ninit\n');
   });
 });
 
@@ -638,6 +640,87 @@ timeout 1 bash -c '_openvscode_supervise_loop' || true`;
       'ui-capture',
     ]);
     assert.equal(firstGeneration.filter((event) => event.startsWith('extension-capture:')).length, 1);
+  });
+
+  it('REQ-IDE-057 AC2: reap persists an install and uninstall before any in-session capture', () => {
+    const dataDir = join(dir, 'data');
+    const extensionsDir = join(dataDir, 'extensions');
+    const manifestPath = join(dir, 'ide-extensions.json');
+    const [removed, installed] = ['publisher.removed', 'publisher.installed'].map((id) => {
+      const relativeLocation = `${id}-1.0.0`;
+      return {
+        identifier: { id }, version: '1.0.0', relativeLocation,
+        location: { scheme: 'file', path: join(extensionsDir, relativeLocation) },
+        metadata: { targetPlatform: 'universal' },
+      };
+    });
+    const record = { version: '1.0.0', targetPlatform: 'universal' };
+    const baseline = {
+      version: 1, securityWarningShown: true, settings: { 'fixture.enabled': true },
+      extensions: { [removed.identifier.id]: record },
+    };
+    const baselineBytes = `${JSON.stringify(baseline)}\n`;
+    mkdirSync(extensionsDir, { recursive: true });
+    writeFileSync(join(extensionsDir, 'extensions.json'), JSON.stringify([removed]));
+    writeFileSync(manifestPath, baselineBytes);
+
+    // Exit with the editor's registry changes on disk and no debounce flush.
+    const stub = writeExecutable(dir, 'openvscode-server', `#!/usr/bin/env bash
+set -e
+printf '%s\\n' "$$" > "$EDITOR_PID"
+printf '%s\\n' "$UPDATED_REGISTRY" > "$CODEFLARE_OPENVSCODE_EXTENSIONS_DIR/extensions.json"
+printf '%s\\n' "$OBSOLETE_EXTENSIONS" > "$CODEFLARE_OPENVSCODE_EXTENSIONS_DIR/.obsolete"
+exit 17
+`);
+    // Route the image paths to checkout files; keep the real capture function and CLI.
+    const script = `${openvscodeSupervisorScript()}
+${extractFn('_openvscode_capture_extensions')}
+python3() {
+  local pid i
+  if ! read -r pid < "$EDITOR_PID" || kill -0 "$pid" 2>/dev/null; then
+    printf 'capture before editor reap\\n'
+  fi
+  cat "$CODEFLARE_IDE_EXTENSIONS_MANIFEST"
+  local -a args=("$@")
+  for i in "\${!args[@]}"; do
+    case "\${args[i]}" in
+      /opt/codeflare/openvscode/browser-ide-extensions.py) args[i]="$CAPTURE_SCRIPT" ;;
+      /opt/codeflare/openvscode/extension-persistence-policy.json) args[i]="$CAPTURE_POLICY" ;;
+    esac
+  done
+  command python3 "\${args[@]}"
+}
+sleep() {
+  if [ "$1" = 5 ]; then exit 0; fi  # Stop at restart backoff after this generation.
+  command sleep "$@"
+}
+export -f python3 sleep _openvscode_capture_extensions
+timeout 5 bash -c '_openvscode_supervise_loop'`;
+    const result = runBash(script, {
+      OPENVSCODE_BIN: stub,
+      OPENVSCODE_WORKSPACE: dir,
+      OPENVSCODE_DATA_DIR: dataDir,
+      OPENVSCODE_REQUEST_TRIGGER: trigger,
+      CODEFLARE_INIT_FLAG_FILE: flag,
+      SESSION_ID: 'abcd1234',
+      CODEFLARE_RUNTIME_ROOT: join(dir, 'runtime'),
+      OPENVSCODE_GENERATION_PIDFILE: join(dir, 'generation.pid'),
+      CODEFLARE_IDE_EXTENSIONS_MANIFEST: manifestPath,
+      CODEFLARE_SYNC_DAEMON_PIDFILE: join(dir, 'absent-sync-daemon.pid'),
+      REMOTE_CURATION_ACTIVE: '', REMOTE_CURATION_RELEASE_DIGEST: '', REMOTE_CURATION_MANIFEST_DIGEST: '',
+      EDITOR_PID: join(dir, 'editor.pid'),
+      UPDATED_REGISTRY: JSON.stringify([installed]),
+      OBSOLETE_EXTENSIONS: JSON.stringify({ [`${removed.relativeLocation}-universal`]: true }),
+      CAPTURE_SCRIPT: resolve(__dirname, '../../scripts/browser-ide-extensions.py'),
+      CAPTURE_POLICY: resolve(__dirname, '../../openvscode/extension-persistence-policy.json'),
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, baselineBytes, 'the only capture starts after reap with the old manifest still on disk');
+    assert.deepEqual(JSON.parse(readFileSync(manifestPath, 'utf8')), {
+      ...baseline,
+      extensions: { [installed.identifier.id]: record },
+    });
   });
 
   it('REQ-IDE-003 AC4 + REQ-IDE-008 AC4: each restart creates one separately identifiable launch generation', () => {

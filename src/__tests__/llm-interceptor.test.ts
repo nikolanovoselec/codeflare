@@ -29,6 +29,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Env } from '../types';
+import { listNativeProviderConfigs } from '../lib/ai-gateway-management';
 import { setLogLevel } from '../lib/logger';
 import { LlmInterceptor, nativeReplayStateKey } from '../llm-interceptor';
 import { getBuiltInProfileRef, type ReasoningProfileId } from '../lib/reasoning-profiles';
@@ -705,6 +706,14 @@ describe('Feature C: catalog-driven dynamic-route mapping (replaces AIG_LANGUAGE
     expect(JSON.parse(lastFetch?.body as string).model).toBe('dynamic/production');
   });
 
+  it.each(['GET', 'HEAD'])('REQ-ENTERPRISE-007 AC1: %s on an inference path retains method and query without a model body', async (method) => {
+    const response = await makeInterceptor(withCatalog(['development'], 'development')).fetch(
+      new Request('https://api.openai.com/v1/chat/completions?model=unknown&keep=1', { method }),
+    );
+    expect(response.status).toBe(200);
+    expect(lastFetch).toMatchObject({ method, body: '', url: `${REST_BASE}/v1/chat/completions?model=unknown&keep=1` });
+  });
+
   it('fails safe to the default route on an unknown handle', async () => {
     await makeInterceptor(withCatalog(['development', 'production'], 'development')).fetch(
       new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: 'bogus' }) }),
@@ -1176,6 +1185,42 @@ describe('native provider authorization and compat dispatch', () => {
     expect(lastFetch?.headers.get('cf-aig-byok-alias')).toBe('default');
   });
 
+  it('REQ-ENTERPRISE-050 AC2/AC3: a stored custom BYOK alias changes only Worker wire authority, not opaque public identity', async () => {
+    const fixture = nativeFixture(true, { provider: 'openai', model: 'gpt-5.6-sol', profileId: 'native-openai-compat',
+      providerConfigId: 'openai-default', providerConfigAlias: 'private-custom-key', adapterVersion: 'native-openai-compat-v1' });
+    const before = structuredClone(fixture.kv);
+    const env = { ENTERPRISE_MODE: 'active', AIG_GATEWAY_URL: GATEWAY, AIG_TOKEN: 'custom-alias-fixture',
+      KV: { get: async (key: string) => fixture.kv[key as keyof typeof fixture.kv] ?? null } } as unknown as Env;
+    const document = JSON.parse(fixture.kv['setup:native_ai_targets']);
+    document.targets[0].verification.connectionFingerprint = connectionFingerprint({ gatewayUrl: GATEWAY, token: env.AIG_TOKEN });
+    fixture.kv['setup:native_ai_targets'] = JSON.stringify(document);
+    const stored = structuredClone(fixture.kv);
+    vi.mocked(listNativeProviderConfigs).mockResolvedValueOnce([{ id: 'openai-default', provider: 'openai', gatewayId: 'gw',
+      alias: 'private-custom-key', defaultSelection: true }]);
+    const publicBefore = await access.loadEnterpriseRouteConfig(env, ['engineering']);
+    const response = await makeInterceptor({ __kv: fixture.kv, AIG_TOKEN: env.AIG_TOKEN } as Partial<Env>, { user: SESSION_USER, groups: ['engineering'] }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: fixture.handle, messages: [] }) }),
+    );
+    expect(response.status).toBe(200);
+    expect(lastFetch?.url).toBe(`${GATEWAY}/compat/chat/completions`);
+    expect(lastFetch?.headers.get('cf-aig-byok-alias')).toBe('private-custom-key');
+    expect(JSON.parse(lastFetch!.body)).toMatchObject({ model: 'openai/gpt-5.6-sol' });
+    const metadata = JSON.parse(lastFetch!.headers.get('cf-aig-metadata')!);
+    expect(metadata.user).toBe(SESSION_USER);
+    expect(Object.entries(metadata).filter(([key]) => key !== 'user')).toEqual([[expect.stringMatching(/^group_engineering_[a-z0-9]+$/), 1]]);
+    expect(Object.keys(metadata).length).toBeLessThanOrEqual(5);
+    const publicAfter = await access.loadEnterpriseRouteConfig(env, ['engineering']);
+    expect(publicAfter).toEqual(publicBefore);
+    expect(publicAfter.routeCatalog).toEqual([fixture.handle]);
+    expect(publicAfter.defaultRoute).toBe(fixture.handle);
+    for (const secret of ['private-custom-key', 'openai-default', 'gpt-5.6-sol', 'custom-alias-fixture']) {
+      expect(JSON.stringify(publicAfter)).not.toContain(secret);
+      expect(await response.clone().text()).not.toContain(secret);
+    }
+    expect(fixture.kv).toEqual(stored);
+    expect(JSON.parse(before['setup:native_ai_targets']).targets[0].id).toBe(document.targets[0].id);
+  });
+
   it('REQ-ENTERPRISE-073: isolates native replay keys by authenticated user and session', () => {
     const base = nativeReplayStateKey('one@example.com', 'session-1', 'target-1', 'call_1');
     expect(nativeReplayStateKey('two@example.com', 'session-1', 'target-1', 'call_1')).not.toBe(base);
@@ -1555,7 +1600,9 @@ describe('native provider authorization and compat dispatch', () => {
     const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-opus-5', profileId: 'bedrock-anthropic-native-opus-invoke',
       transport: 'aig-bedrock-anthropic-invoke', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v5' });
     const replayWrites: Array<{ key: string; value: string }> = [];
-    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async (input: RequestInfo | URL) => {
+    const operations: Array<{ url: string; method: string }> = [];
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementation(async (input: RequestInfo | URL) => {
+      operations.push({ url: (input as Request).url, method: (input as Request).method });
       const request = input as Request; lastFetch = { url: request.url, method: request.method, headers: request.headers, body: await request.text() };
       return Response.json({ id: 'msg', model: 'claude', content: [{ type: 'thinking', thinking: '', signature: 'private-signature' },
         { type: 'tool_use', id: 'call_1', name: 'lookup', input: { q: 'x' } }], stop_reason: 'tool_use', usage: { input_tokens: 4, output_tokens: 8 } });
@@ -1571,6 +1618,7 @@ describe('native provider authorization and compat dispatch', () => {
     expect(replayWrites).toHaveLength(1);
     expect(replayWrites[0].key).toMatch(/^native-ai-replay:/);
     expect(replayWrites[0].value).not.toContain('private-signature');
+    expect(operations).toEqual([{ method: 'POST', url: `${GATEWAY}/aws-bedrock/bedrock-runtime/eu-central-1/model/eu.anthropic.claude-opus-5/invoke` }]);
   });
 
   describe.each(['sonnet', 'opus'] as const)('automatic native %s routing', (family) => {

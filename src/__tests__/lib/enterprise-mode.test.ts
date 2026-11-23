@@ -2,7 +2,7 @@
  * REQ-ENTERPRISE-001: ENTERPRISE_MODE flag + tier/mode override.
  *
  * When ENTERPRISE_MODE === 'active', every user resolves to the unlimited tier
- * and advanced session mode, and the free-tier idle-timeout lock is lifted.
+ * and advanced session mode.
  * When the flag is unset (or any other value) every helper behaves byte-identically
  * to today — the non-disruption gate.
  *
@@ -11,13 +11,10 @@
  *      billing/downgrade logic; unchanged otherwise.
  * AC3. clampSessionModeToTier() returns 'advanced' under enterprise; unchanged
  *      otherwise.
- * AC4. resolveEffectiveSleepAfter() honors the stored preference under enterprise
- *      (no 15m free lock); stays free-locked otherwise.
  */
 import { describe, it, expect } from 'vitest';
 import { isEnterpriseMode, getEffectiveTier } from '../../lib/subscription';
 import { clampSessionModeToTier } from '../../lib/session-mode';
-import { resolveEffectiveSleepAfter } from '../../routes/container/lifecycle-validation';
 import type { Env, SubscriptionTierConfig } from '../../types';
 
 const enterpriseEnv = { ENTERPRISE_MODE: 'active' } as Pick<Env, 'ENTERPRISE_MODE'>;
@@ -116,27 +113,5 @@ describe('REQ-ENTERPRISE-001 AC3: clampSessionModeToTier enterprise override', (
     expect(clampSessionModeToTier('advanced', 'free', tiers)).toBe('default');
     expect(clampSessionModeToTier('advanced', 'advanced', tiers)).toBe('advanced');
     expect(clampSessionModeToTier('default', 'unlimited', tiers)).toBe('default');
-  });
-});
-
-describe('REQ-ENTERPRISE-001 AC4: resolveEffectiveSleepAfter enterprise override', () => {
-  it('honors the stored preference for a free-tier user when enterprise', () => {
-    expect(resolveEffectiveSleepAfter('free', '2h', enterpriseEnv)).toBe('2h');
-  });
-
-  it("defaults to '1h' when no preference and enterprise (no 15m lock)", () => {
-    expect(resolveEffectiveSleepAfter('free', undefined, enterpriseEnv)).toBe('1h');
-  });
-
-  // ── flag-off regression: free tier stays locked to 15m ──
-  it('flag-off: free tier is locked to 15m regardless of stored preference', () => {
-    expect(resolveEffectiveSleepAfter('free', '2h', plainEnv)).toBe('15m');
-  });
-
-  it('flag-off (no env arg): existing 2-arg call is unchanged', () => {
-    expect(resolveEffectiveSleepAfter('free', '2h')).toBe('15m');
-    expect(resolveEffectiveSleepAfter('free', undefined)).toBe('15m');
-    expect(resolveEffectiveSleepAfter('standard', '1h')).toBe('1h');
-    expect(resolveEffectiveSleepAfter('standard', undefined)).toBe('1h');
   });
 });

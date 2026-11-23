@@ -128,10 +128,13 @@ app.post('/', async (c) => {
     }
   }
 
-  // Handle prefix-based deletes (server-side list+delete)
+  // A later page or a per-object failure can conceal deletions already dispatched.
+  let prefixDeleteDispatched = false;
   for (const prefix of validatedPrefixes) {
     try {
-      const count = await emptyR2Bucket(r2Client, endpoint, bucketName, prefix);
+      const count = await emptyR2Bucket(r2Client, endpoint, bucketName, prefix, undefined, () => {
+        prefixDeleteDispatched = true;
+      });
       deletedPrefixes.push({ prefix, count });
     } catch (err) {
       errors.push({ key: prefix, error: err instanceof Error ? err.message : 'Unknown error' });
@@ -146,7 +149,7 @@ app.post('/', async (c) => {
 
   // Invalidate storage-stats cache so next poll/fetch gets fresh data
   const totalDeleted = deleted.length + deletedPrefixes.reduce((sum, p) => sum + p.count, 0);
-  if (totalDeleted > 0) {
+  if (totalDeleted > 0 || prefixDeleteDispatched) {
     await c.env.KV.delete(`storage-stats:${bucketName}`);
   }
 

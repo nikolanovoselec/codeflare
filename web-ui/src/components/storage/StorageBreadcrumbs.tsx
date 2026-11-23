@@ -1,4 +1,4 @@
-import { Component, For, Show } from 'solid-js';
+import { Component, For, Show, createEffect, onCleanup } from 'solid-js';
 import { storageStore } from '../../stores/storage';
 import Icon from '../Icon';
 import { mdiChevronRight, mdiArrowUp } from '@mdi/js';
@@ -14,6 +14,15 @@ interface StorageBreadcrumbsProps {
 }
 
 const StorageBreadcrumbs: Component<StorageBreadcrumbsProps> = (props) => {
+  let rail!: HTMLElement;
+  createEffect(() => {
+    if (!props.currentPrefix) return;
+    const frame = requestAnimationFrame(() => {
+      const end = rail.scrollWidth - rail.clientWidth;
+      if (end > 0) rail.scrollTo({ left: end, behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    });
+    onCleanup(() => cancelAnimationFrame(frame));
+  });
   return (
     <>
       <Show when={props.currentPrefix !== ''}>
@@ -27,7 +36,7 @@ const StorageBreadcrumbs: Component<StorageBreadcrumbsProps> = (props) => {
           <Icon path={mdiArrowUp} size={16} />
         </button>
       </Show>
-      <div class="storage-breadcrumbs" data-testid="storage-breadcrumbs">
+      <nav ref={rail} class="storage-breadcrumbs" aria-label="Storage path" data-testid="storage-breadcrumbs">
         <For each={storageStore.breadcrumbs}>
           {(crumb, index) => (
             <>
@@ -38,6 +47,8 @@ const StorageBreadcrumbs: Component<StorageBreadcrumbsProps> = (props) => {
                 type="button"
                 class="breadcrumb-item"
                 data-testid={`breadcrumb-${index()}`}
+                aria-current={crumb === props.currentPrefix ? 'location' : undefined}
+                title={crumb === props.currentPrefix ? props.currentPrefix : undefined}
                 onClick={() => storageStore.navigateTo(crumb)}
               >
                 {getBreadcrumbName(crumb)}
@@ -45,7 +56,7 @@ const StorageBreadcrumbs: Component<StorageBreadcrumbsProps> = (props) => {
             </>
           )}
         </For>
-      </div>
+      </nav>
     </>
   );
 };

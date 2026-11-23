@@ -554,11 +554,13 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
 
       it('REQ-GITHUB-008: persists the provider type + client id (plain) and the secret (encrypted)', async () => {
         const app = createTestApp({ ENTERPRISE_MODE: 'active', ENCRYPTION_KEY: ENC_KEY });
+        mockKV._store.set('setup:complete', 'true');
+        mockKV._set('user:user@example.com', { addedBy: 'setup', addedAt: '2024-01-01', role: 'admin' });
         mockFullSuccessFlow();
 
         const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'cf-access-authenticated-user-email': 'user@example.com' },
           body: JSON.stringify(enterpriseBody({
             githubProviderType: 'app',
             githubAppClientId: 'Iv1.appcid',
@@ -570,8 +572,41 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         await readNdjson(res);
         expect(mockKV.put).toHaveBeenCalledWith('setup:github_provider_type', 'app');
         expect(mockKV.put).toHaveBeenCalledWith('setup:github_app_client_id', 'Iv1.appcid');
-        // The secret rides encryptAndStore (kv.put at its key); never plaintext-asserted.
-        expect(mockKV.put).toHaveBeenCalledWith('setup:github_app_client_secret', expect.any(String));
+        const stored = await mockKV.get('setup:github_app_client_secret') as string;
+        expect(stored).toMatch(/^v1:/);
+        expect(stored).not.toContain('app-secret');
+        const key = await crypto.subtle.importKey(
+          'raw', Uint8Array.from(atob(ENC_KEY), char => char.charCodeAt(0)),
+          { name: 'AES-GCM' }, false, ['decrypt'],
+        );
+        const payload = Uint8Array.from(atob(stored.slice(3)), char => char.charCodeAt(0));
+        const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: payload.subarray(0, 12),
+          additionalData: new TextEncoder().encode('setup:github_app_client_secret') }, key, payload.subarray(12));
+        expect(JSON.parse(new TextDecoder().decode(plaintext))).toEqual({ secret: 'app-secret' });
+        expect(await mockKV.get('setup:github_provider_type')).toBe('app');
+        expect(await mockKV.get('setup:github_app_client_id')).toBe('Iv1.appcid');
+      });
+
+      it.each([
+        ['default', {}], ['saas', { SAAS_MODE: 'active' }], ['enterprise', { ENTERPRISE_MODE: 'active' }],
+      ] as const)('REQ-GITHUB-008 AC6: %s nonadmin GitHub provider save preserves all configuration', async (_mode, mode) => {
+        const app = createTestApp({ ...mode, ENCRYPTION_KEY: ENC_KEY });
+        mockKV._store.set('setup:complete', 'true');
+        mockKV._set('user:regular@example.com', { addedBy: 'setup', addedAt: '2024-01-01', role: 'user' });
+        mockKV._store.set('setup:github_provider_type', 'oauth');
+        mockKV._store.set('setup:github_oauth_client_id', 'saved-cid');
+        const ciphertext = await encryptForKV(JSON.stringify({ secret: 'saved-secret' }), await importEncryptionKey(ENC_KEY), 'setup:github_oauth_client_secret');
+        mockKV._store.set('setup:github_oauth_client_secret', ciphertext);
+        const before = Array.from(mockKV._store.entries());
+        const response = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'cf-access-authenticated-user-email': 'regular@example.com' },
+          body: JSON.stringify({ ...(_mode === 'enterprise' ? enterpriseBody({}) : standardBody),
+            githubProviderType: 'app', githubAppClientId: 'replacement-cid', githubAppClientSecret: 'replacement-secret' }),
+        });
+        await expectConfigureStatus(response, 403);
+        expect(await response.json()).toMatchObject({ code: 'FORBIDDEN' });
+        expect(Array.from(mockKV._store.entries())).toEqual(before);
       });
 
       it('REQ-GITHUB-008: a blank client secret leaves the stored secret untouched (no clobber)', async () => {

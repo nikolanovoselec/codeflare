@@ -1,4 +1,3 @@
-// @vitest-environment happy-dom
 /**
  * Behavioral DOM-integration tests for feature-terminals.ts.
  *
@@ -7,7 +6,19 @@
  * importing the module.  vi.resetModules() ensures a clean import per case.
  * vi.useFakeTimers() drives the setTimeout-based type/hold/delete loop.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
+import { experimental_AstroContainer as AstroContainer } from 'astro/container';
+import { Window } from 'happy-dom';
+import InferenceMeshHero from '../components/InferenceMeshHero.astro';
+
+// Use the default Node environment for Astro SSR, as in index-page.test.ts.
+// Install the browser globals only for the animation tests, after rendering.
+let meshHtml: string;
+let browser: Window;
+beforeAll(async () => {
+  const container = await AstroContainer.create();
+  meshHtml = await container.renderToString(InferenceMeshHero);
+});
 
 // The loop constants from the script — must match feature-terminals.ts exactly
 // so that if the timing is changed the tests can catch stale values.
@@ -44,17 +55,55 @@ function mockMatchMedia(prefersReducedMotion: boolean): void {
 }
 
 beforeEach(() => {
-  document.body.innerHTML = '';
+  browser = new Window();
   vi.useFakeTimers();
+  // The script schedules on window; route those timers through Vitest's clock.
+  Object.defineProperty(browser, 'setTimeout', { value: globalThis.setTimeout });
+  vi.stubGlobal('window', browser);
+  vi.stubGlobal('document', browser.document);
+  vi.stubGlobal('Event', browser.Event);
 });
 
-afterEach(() => {
+afterEach(async () => {
   vi.useRealTimers();
   vi.resetModules();
   vi.unstubAllGlobals();
+  await browser.happyDOM.close();
 });
 
 describe('feature-terminals.ts (REQ-LANDING-001)', () => {
+  it('REQ-LANDING-005 AC5: the rendered Mesh reel types every beat and loops back to its first command', async () => {
+    // Use the real owning component, its Terminal/Transcript and serialized loop,
+    // not a hand-built terminal that could pass while Mesh wiring is broken.
+    document.body.innerHTML = meshHtml;
+    const typed = document.querySelector<HTMLElement>('#inference-mesh [data-ft-typed]')!;
+    expect(typed).not.toBeNull();
+    const beats = [
+      'sharding a large model across the mesh',
+      'streaming tokens from idle nodes',
+      'reusing warm KV across sessions',
+      'scaling out as machines join',
+    ];
+    expect(typed.textContent).toBe(beats[0]);
+    mockMatchMedia(false);
+
+    await import('../scripts/feature-terminals');
+
+    let steps = 0;
+    for (const next of [...beats.slice(1), beats[0]]) {
+      const frames: string[] = [];
+      while (typed.textContent !== next && steps < 1000) {
+        vi.advanceTimersToNextTimer();
+        frames.push(typed.textContent ?? '');
+        steps += 1;
+      }
+      expect(typed.textContent).toBe(next);
+      expect(frames).toContain(''); // deletion completed before the next command
+      expect(frames).toContain(next.slice(0, 1));
+      expect(frames).toContain(next.slice(0, -1)); // actual typing, not whole-line swaps
+    }
+  });
+
   it('REQ-LANDING-001: types through the hold->delete->type cycle and mutates textContent at each phase', async () => {
     const loop = ['audit 41 calls', 'list approved models'];
     const { typed } = buildFixture(loop);
@@ -194,7 +243,7 @@ describe('feature-terminals.ts (REQ-LANDING-001)', () => {
     document.body.appendChild(hero);
     term.setAttribute('data-ft-shuffle', '');
     mockMatchMedia(false);
-    vi.stubGlobal('innerWidth', 900);
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 900 });
     let heightScale = 1;
     const heights = new Map([
       [run[0], 100],
@@ -229,7 +278,7 @@ describe('feature-terminals.ts (REQ-LANDING-001)', () => {
     window.dispatchEvent(new Event('resize'));
     expect(term.style.height).toBe('140px');
 
-    vi.stubGlobal('innerWidth', 768);
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 768 });
     window.dispatchEvent(new Event('resize'));
     expect(term.style.height).toBe('280px');
     expect(typed.textContent).toBe(partialText);

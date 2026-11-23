@@ -26,26 +26,42 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ENTRYPOINT = resolve(__dirname, '../../entrypoint.sh');
 
-function syncCompositionFixture() {
+function syncCompositionFixture(managedResourcePolicy = 'mutable') {
   const source = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../entrypoint.sh'), 'utf8');
   const functions = source.slice(source.indexOf('prepare_managed_resource_filter() {'), source.indexOf('# Step 1: One-way sync FROM R2 TO local'));
   return `${functions}
+MANAGED_RESOURCE_POLICY=${JSON.stringify(managedResourcePolicy)}
 MANAGED_RESOURCE_FILTER_FILE="$CODEFLARE_RUNTIME_ROOT/sync/managed.filter"
 RECOVERY_FILTER_FILE="$CODEFLARE_RUNTIME_ROOT/sync/recovery-filters.txt"
 : > "$RECOVERY_FILTER_FILE"
 `;
 }
 
-function extractTopLevelFunction(name) {
+function extractTopLevelFunction(name, managedResourcePolicy = 'mutable') {
   const src = readFileSync(ENTRYPOINT, 'utf8');
   const lines = src.split('\n');
   const start = lines.findIndex((line) => line === `${name}() {`);
   if (start === -1) throw new Error(`Could not locate ${name}() in entrypoint.sh`);
-  const end = lines.findIndex((line, index) => index > start && line === '}');
+  let end = -1;
+  let heredocDelimiter = null;
+  for (let index = start + 1; index < lines.length; index++) {
+    const line = lines[index];
+    // Embedded source can contain column-zero braces; skip its complete heredoc.
+    if (heredocDelimiter !== null) {
+      if (line === heredocDelimiter) heredocDelimiter = null;
+      continue;
+    }
+    const heredoc = line.match(/<<\s*(['"]?)(\w+)\1/);
+    if (heredoc) heredocDelimiter = heredoc[2];
+    if (line === '}') {
+      end = index;
+      break;
+    }
+  }
   if (end === -1) throw new Error(`Could not locate end of ${name}() in entrypoint.sh`);
   const body = lines.slice(start, end + 1).join('\n');
   if (['initial_sync_from_r2', 'establish_bisync_baseline', 'bisync_with_r2'].includes(name)) {
-    return `${syncCompositionFixture()}\nsource ${JSON.stringify(resolve(__dirname, '../../scripts/rclone-conflict-cleanup.sh'))}\n${body}`;
+    return `${syncCompositionFixture(managedResourcePolicy)}\nsource ${JSON.stringify(resolve(__dirname, '../../scripts/rclone-conflict-cleanup.sh'))}\n${body}`;
   }
   return body;
 }
@@ -585,6 +601,7 @@ SYNC_RUNTIME_DIR="$CODEFLARE_RUNTIME_ROOT/sync"
 USER_HOME='${dir}/home'
 R2_BUCKET_NAME=test-bucket
 RCLONE_CONFIG='${dir}/rclone.conf'
+SESSION_MODE=default
 RECOVERY_FILTER_FILE='${dir}/filter'
 RCLONE_FILTERS=()
 mkdir -p "$SYNC_RUNTIME_DIR/rclone" "$USER_HOME"

@@ -23,15 +23,11 @@
   gap: var(--space-1);
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-}
-
-.storage-breadcrumbs .breadcrumb-item:last-child {
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-x: auto;
 }
 
 .breadcrumb-item {
+  flex-shrink: 0;
   background: none;
   border: none;
   color: var(--color-text-secondary);
@@ -504,7 +500,6 @@
   }
 
   .storage-breadcrumbs {
-    overflow-x: auto;
     -webkit-overflow-scrolling: touch;
   }
 }

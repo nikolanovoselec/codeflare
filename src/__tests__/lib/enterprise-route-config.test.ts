@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { buildEnvVars, type ContainerEnvState } from '../../container/container-env';
 import { loadEnterpriseRouteConfig } from '../../lib/access';
 import { listNativeProviderConfigs, loadActiveRouteVersion } from '../../lib/ai-gateway-management';
 import { connectionFingerprint } from '../../lib/reasoning-verification';
@@ -172,6 +173,38 @@ describe('loadEnterpriseRouteConfig (REQ-ENTERPRISE-043/-044)', () => {
     expect(await kv.get(SETUP_KEYS.REASONING_CONFIGURATION)).toBe(savedConfiguration);
   });
 
+  it('REQ-ENTERPRISE-058 AC5: published native state omits independent provider credential alias and connection authority canaries', async () => {
+    const { kv, env } = saved();
+    env.AIG_TOKEN = 'credential-publication-canary';
+    const id = '66666666-6666-4666-8666-666666666666';
+    const handle = nativeTargetHandle(id);
+    const profileRef = getBuiltInProfileRef('bedrock-anthropic-compat');
+    const target = createNativeTarget({ id, label: 'Allowed display label', model: 'private-model-canary', contextWindow: 200000,
+      providerConfigId: 'private-binding-canary', providerConfigAlias: 'private-alias-canary', profileRef, enabled: true });
+    const fingerprint = connectionFingerprint({ gatewayUrl: routingGatewayUrl, token: env.AIG_TOKEN });
+    kv._set(SETUP_KEYS.NATIVE_AI_TARGETS, { schemaVersion: 1, targets: [{ ...target, verification: {
+      schemaVersion: 1, method: 'administrator', targetId: id, model: target.model, providerConfigId: target.providerConfigId,
+      providerConfigAlias: target.providerConfigAlias, connectionFingerprint: fingerprint, profileRef, transport: target.transport,
+      adapterVersion: 'bedrock-anthropic-compat-v1', checkedAt: new Date().toISOString(),
+    } }] });
+    kv._set(SETUP_KEYS.GROUP_ROUTING, { engineering: { routes: [], targets: [{ kind: 'native-target', targetId: id }],
+      defaultTarget: { kind: 'native-target', targetId: id }, reasoning: 'off' } });
+    vi.mocked(listNativeProviderConfigs).mockResolvedValueOnce([{ id: target.providerConfigId, provider: target.provider,
+      alias: target.providerConfigAlias, gatewayId: 'gateway', defaultSelection: true }]);
+    const published = await loadEnterpriseRouteConfig(env, ['engineering']);
+    expect(published.routeCatalog).toEqual([handle]);
+    expect(published.modelDisplayNames).toEqual({ [handle]: 'Allowed display label' });
+    const vars = buildEnvVars({ _bucketName: 'public-bucket', _userGroups: [], _routeCatalog: published.routeCatalog,
+      _defaultRoute: published.defaultRoute, _defaultReasoning: published.defaultReasoning,
+      _routeContextWindows: published.routeContextWindows, _routeReasoningLevels: published.routeReasoningLevels,
+      _modelDisplayNames: published.modelDisplayNames } as unknown as ContainerEnvState, env);
+    expect(JSON.parse(vars.ENTERPRISE_ROUTE_CATALOG)).toEqual([handle]);
+    const output = JSON.stringify({ published, vars });
+    for (const canary of ['aws-bedrock', target.model, target.providerConfigId, target.providerConfigAlias!, env.AIG_TOKEN!, routingGatewayUrl, fingerprint!]) {
+      expect(output).not.toContain(canary);
+    }
+  });
+
   it('REQ-ENTERPRISE-058: maps a Dynamic Route default Off to the next supported level', async () => {
     const { kv, env, configuration } = saved();
     kv._set(SETUP_KEYS.REASONING_CONFIGURATION, { ...configuration,
@@ -201,6 +234,59 @@ describe('loadEnterpriseRouteConfig (REQ-ENTERPRISE-043/-044)', () => {
     expect(cfg.routeCatalog).toEqual([nativeTargetHandle(id)]);
     expect(cfg.defaultReasoning).toBe('high');
     expect(cfg.routeReasoningLevels[nativeTargetHandle(id)]).not.toContain('max');
+  });
+
+  it('REQ-ENTERPRISE-049 AC2: isolates account gateway and credential tuples and expires native authority exactly at 60 seconds', async () => {
+    const started = new Date('2031-01-01T00:00:00Z').getTime();
+    vi.useFakeTimers({ now: started });
+    const id = '55555555-5555-4555-8555-555555555555';
+    const handle = nativeTargetHandle(id);
+    const profileRef = getBuiltInProfileRef('bedrock-anthropic-compat');
+    let available = true;
+    let failed = false;
+    vi.mocked(listNativeProviderConfigs).mockImplementation(async () => {
+      if (failed) throw new Error('Unavailable');
+      return available ? [{ id: 'bedrock-default', provider: 'aws-bedrock', gatewayId: 'cache-gateway', defaultSelection: true }] : [];
+    });
+    try {
+      const configs = [
+        { gatewayUrl: `https://gateway.ai.cloudflare.com/v1/${'a'.repeat(32)}/cache-gateway`, token: 'cache-base' },
+        { gatewayUrl: `https://gateway.ai.cloudflare.com/v1/${'b'.repeat(32)}/cache-gateway`, token: 'cache-base' },
+        { gatewayUrl: `https://gateway.ai.cloudflare.com/v1/${'a'.repeat(32)}/cache-other`, token: 'cache-base' },
+        { gatewayUrl: `https://gateway.ai.cloudflare.com/v1/${'a'.repeat(32)}/cache-gateway`, token: 'cache-other-token' },
+      ];
+      const environments = configs.map(connection => {
+        const { kv, env, configuration } = saved();
+        env.AIG_GATEWAY_URL = connection.gatewayUrl; env.AIG_TOKEN = connection.token;
+        kv._set(SETUP_KEYS.REASONING_CONFIGURATION, verifiedRoutingConfiguration(configuration, connection));
+        const target = createNativeTarget({ id, label: 'Cache boundary', model: 'cache-model', contextWindow: 200000,
+          providerConfigId: 'bedrock-default', profileRef, enabled: true });
+        kv._set(SETUP_KEYS.NATIVE_AI_TARGETS, { schemaVersion: 1, targets: [{ ...target, verification: {
+          schemaVersion: 1, method: 'administrator', targetId: id, model: target.model, providerConfigId: target.providerConfigId,
+          connectionFingerprint: connectionFingerprint(connection), profileRef, transport: target.transport,
+          adapterVersion: 'bedrock-anthropic-compat-v1', checkedAt: new Date().toISOString(),
+        } }] });
+        kv._set(SETUP_KEYS.GROUP_ROUTING, { engineering: { routes: ['general_usage'], defaultRoute: 'general_usage', reasoning: 'medium',
+          targets: [{ kind: 'dynamic-route', route: 'general_usage' }, { kind: 'native-target', targetId: id }] } });
+        return env;
+      });
+      expect((await loadEnterpriseRouteConfig(environments[0], ['engineering'])).routeCatalog).toEqual(['general_usage', handle]);
+      available = false;
+      for (const env of environments.slice(1)) {
+        expect((await loadEnterpriseRouteConfig(env, ['engineering'])).routeCatalog).toEqual(['general_usage']);
+      }
+      vi.setSystemTime(started + 59_999);
+      expect((await loadEnterpriseRouteConfig(environments[0], ['engineering'])).routeCatalog).toEqual(['general_usage', handle]);
+      failed = true;
+      vi.setSystemTime(started + 60_000);
+      expect((await loadEnterpriseRouteConfig(environments[0], ['engineering'])).routeCatalog).toEqual(['general_usage']);
+      failed = false; available = true;
+      vi.setSystemTime(started + 60_001);
+      expect((await loadEnterpriseRouteConfig(environments[0], ['engineering'])).routeCatalog).toEqual(['general_usage', handle]);
+    } finally {
+      vi.useRealTimers();
+      vi.mocked(listNativeProviderConfigs).mockImplementation(async () => [{ id: 'bedrock-default', provider: 'aws-bedrock', gatewayId: 'gateway', defaultSelection: true }]);
+    }
   });
 
   it('REQ-ENTERPRISE-049: expired native provider refresh fails closed without denying Dynamic Routes', async () => {

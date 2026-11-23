@@ -71,6 +71,36 @@ describe('Setup Custom Domain', () => {
       expect(steps[0].status).toBe('success');
     });
 
+    it('REQ-SETUP-007 AC1: selects the most-specific matching zone for DNS and Worker route writes', async () => {
+      const writes: { path: string; body: Record<string, unknown> }[] = [];
+      mockFetch.mockImplementation(async (input: string, init?: RequestInit) => {
+        const url = new URL(input);
+        if (url.pathname === '/client/v4/zones') {
+          const name = url.searchParams.get('name');
+          return cfSuccess(name === 'app.team.example.com' ? [] : [
+            { id: name === 'team.example.com' ? 'zone-team' : 'zone-parent' },
+          ]);
+        }
+        if (url.pathname.endsWith('/workers/subdomain')) return cfSuccess({ subdomain: 'account' });
+        if (!init?.method || init.method === 'GET') return cfSuccess([]);
+        writes.push({ path: url.pathname, body: JSON.parse(String(init.body)) });
+        return cfSuccess({ id: 'created' });
+      });
+      const zone = await handleConfigureCustomDomain(
+        'test-token', 'account-123', 'app.team.example.com',
+        'https://codeflare.account.workers.dev', [],
+      );
+      expect(zone).toBe('zone-team');
+      expect(writes).toEqual([
+        { path: '/client/v4/zones/zone-team/dns_records', body: {
+          type: 'CNAME', name: 'app', content: 'codeflare.account.workers.dev', proxied: true,
+        } },
+        { path: '/client/v4/zones/zone-team/workers/routes', body: {
+          pattern: 'app.team.example.com/*', script: 'codeflare',
+        } },
+      ]);
+    });
+
     it('throws ValidationError when successful lookups confirm zone absence', async () => {
       const steps: SetupStep[] = [];
 

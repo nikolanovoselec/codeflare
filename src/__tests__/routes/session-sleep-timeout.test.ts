@@ -1,8 +1,8 @@
 /**
  * REQ-SESSION-014: User-configurable auto-sleep timeout in Settings
  * AC coverage: AC1 (5 valid sleep options: 1h, 2h, 4h, 8h, 12h),
- *              AC2 (free tier locked to 15m - structural/route),
- *              AC3 (admins and paying users can change sleepAfter),
+ *              AC2 (1h default and saved preferences across tiers),
+ *              AC3 (active users can change sleepAfter),
  *              AC4 (value saved to KV preferences and applied on next session start)
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -138,35 +138,8 @@ describe('REQ-SESSION-014: User-configurable auto-sleep timeout in Settings', ()
     });
   });
 
-  // AC2: Free tier locked to 15m regardless of stored preference
-  describe('REQ-SESSION-014 AC2: free tier locked to 15m idle timeout', () => {
-    it('returns 15m for free tier regardless of stored preference', async () => {
-      const { resolveEffectiveSleepAfter } = await import('../../routes/container/lifecycle');
-      expect(resolveEffectiveSleepAfter('free', '2h')).toBe('15m');
-      expect(resolveEffectiveSleepAfter('free', '1h')).toBe('15m');
-      expect(resolveEffectiveSleepAfter('free', '30m')).toBe('15m');
-      expect(resolveEffectiveSleepAfter('free', '5m')).toBe('15m');
-      expect(resolveEffectiveSleepAfter('free', undefined)).toBe('15m');
-    });
-
-    it('returns stored preference for non-free tiers', async () => {
-      const { resolveEffectiveSleepAfter } = await import('../../routes/container/lifecycle');
-      expect(resolveEffectiveSleepAfter('paid', '2h')).toBe('2h');
-      expect(resolveEffectiveSleepAfter('admin', '1h')).toBe('1h');
-      expect(resolveEffectiveSleepAfter('unlimited', '4h')).toBe('4h');
-    });
-
-    it('defaults to 1h for non-free tiers without stored preference', async () => {
-      const { resolveEffectiveSleepAfter } = await import('../../routes/container/lifecycle');
-      expect(resolveEffectiveSleepAfter('paid', undefined)).toBe('1h');
-      expect(resolveEffectiveSleepAfter('unlimited', undefined)).toBe('1h');
-      expect(resolveEffectiveSleepAfter('paid', '30m')).toBe('30m');
-      expect(resolveEffectiveSleepAfter('paid', '12h')).toBe('12h');
-    });
-  });
-
-  // AC3: Admins and paying users can change sleepAfter
-  describe('REQ-SESSION-014 AC3: admins and paying users can change sleepAfter', () => {
+  // AC3: Active users can change sleepAfter
+  describe('REQ-SESSION-014 AC3: active users can change sleepAfter', () => {
     it('stores sleepAfter preference for a regular user (non-free)', async () => {
       mockKV._set('user-prefs:test-bucket', { sleepAfter: '30m' });
       const app = createApp();

@@ -74,6 +74,49 @@ describe('User Profile Routes', () => {
       expect(await mockKV.get('user:test@example.com', 'json')).toEqual({ subscribedMode });
     });
 
+    it.each(['absent', 'cached'] as const)(
+      'REQ-AUTH-019 AC1: GET /user leaves %s credentials and bucket state unchanged', async credentialState => {
+        const email = 'test@example.com';
+        const bucketName = 'codeflare-abc123';
+        mockAuthenticateRequest.mockResolvedValue({
+          user: { email, authenticated: true, role: 'user', accessTier: 'advanced', subscriptionTier: 'advanced' },
+          bucketName,
+        });
+        mockKV._set(`user:${email}`, { role: 'user', onboardingComplete: true, subscribedMode: 'advanced' });
+        mockKV._store.set('setup:account_id', 'fixture-account');
+        if (credentialState === 'cached') {
+          mockKV._set(`r2token:${email}`, { tokenId: 'existing-token', secretAccessKey: 'existing-secret', bucketName });
+        }
+        const before = [...mockKV._store];
+        // Model the provisioning seam's durable effect, rather than counting calls.
+        mockGetOrCreateScopedR2Token.mockImplementation(async () => {
+          mockKV._set(`r2token:${email}`, { tokenId: 'unexpected-new-token', bucketName });
+          return { tokenId: 'unexpected-new-token' };
+        });
+        const providerRequests: Array<{ url: string; method: string }> = [];
+        const network = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+          const request = new Request(input, init);
+          providerRequests.push({ url: request.url, method: request.method });
+          return new Response('{}', { status: 200 });
+        });
+        try {
+          const response = await createApp({
+            SAAS_MODE: 'active', CLOUDFLARE_API_TOKEN: 'fixture-api-token',
+          }).request('/user');
+          expect(response.status).toBe(200);
+          expect(await response.json()).toMatchObject({
+            email, bucketName, authenticated: true, onboardingComplete: true,
+            subscribedMode: 'advanced', allowedModes: ['default', 'advanced'],
+          });
+          expect([...mockKV._store]).toEqual(before);
+          expect(providerRequests).toEqual([]);
+        } finally {
+          network.mockRestore();
+          mockGetOrCreateScopedR2Token.mockReset();
+        }
+      },
+    );
+
     it('returns authenticated user info', async () => {
       mockAuthenticateRequest.mockResolvedValue({
         user: { email: 'test@example.com', authenticated: true, role: 'user' },

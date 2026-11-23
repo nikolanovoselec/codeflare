@@ -46,8 +46,8 @@ Persisted Herdr state and runtime lifetime are documented in [Sessions & Runtime
 
 **Acceptance Criteria:**
 
-1. Classic single-session view supports terminal IDs `1` through `6`, tabs, labels, saved layouts, and tiling. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (renders classic tabs and tiling controls) -->
-2. Herdr view mounts one outer xterm.js surface at terminal ID `1` without classic topology controls. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (renders one Herdr surface without classic tabs or tiling controls) -->
+1. Classic single-session view supports terminal IDs `1` through `6`, tabs, labels, saved layouts, and tiling. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (renders classic tabs and tiling controls) --> <!-- @test: web-ui/src/__tests__/stores/session-tabs.test.ts (returns null when max terminals reached) --> <!-- @test: web-ui/src/__tests__/components/TerminalTabs.test.tsx (should display correct tab names from config) --> <!-- @test: web-ui/src/__tests__/stores/tiling.test.ts (should persist layout to localStorage) -->
+2. Herdr shows one outer terminal at ID `1` without Classic topology controls. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (renders one Herdr surface without classic tabs or tiling controls) -->
 3. Dashboard view mounts no terminal surface. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (REQ-TERM-011: renders no terminal panes on Dashboard even when sessions are running) -->
 4. A VS Code workspace mounts no standalone terminal surface. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (does not give a VS Code active session terminal workspace or WebSocket ownership) -->
 5. MultiView resolves each member from its ownership mode. <!-- @impl: web-ui/src/stores/terminal-workspace.ts::openMultiView --> <!-- @test: web-ui/src/__tests__/stores/terminal-workspace.test.ts (resolves mixed MultiView members by immutable terminal mode) -->
@@ -61,7 +61,7 @@ Persisted Herdr state and runtime lifetime are documented in [Sessions & Runtime
 
 **Dependencies:** [REQ-SESSION-002](session-lifecycle.md#req-session-002-one-container-per-session-isolation), [REQ-TERM-034](#req-term-034-terminal-mode-assignment-is-immutable)
 
-**Verification:** Automated: [TerminalArea.test.tsx](../../web-ui/src/__tests__/components/TerminalArea.test.tsx), [terminal-workspace.test.ts](../../web-ui/src/__tests__/stores/terminal-workspace.test.ts)
+**Verification:** Automated: [TerminalArea.test.tsx](../../web-ui/src/__tests__/components/TerminalArea.test.tsx), [terminal-workspace.test.ts](../../web-ui/src/__tests__/stores/terminal-workspace.test.ts), [session-tabs.test.ts](../../web-ui/src/__tests__/stores/session-tabs.test.ts), [TerminalTabs.test.tsx](../../web-ui/src/__tests__/components/TerminalTabs.test.tsx), [tiling.test.ts](../../web-ui/src/__tests__/stores/tiling.test.ts)
 
 **Status:** Implemented
 
@@ -105,8 +105,8 @@ Persisted Herdr state and runtime lifetime are documented in [Sessions & Runtime
 
 1. The stable WebSocket route accepts a backend session identity and terminal IDs `1` through `6`. <!-- @impl: src/routes/terminal.ts::validateWebSocketRoute --> <!-- @test: src/__tests__/routes/terminal-route-validate.test.ts (REQ-TERM-002 AC1: WS URL pattern /api/terminal/{sessionId}-{terminalId}/ws) -->
 2. Authenticated session lookup rejects IDs above `1` for Herdr while permitting valid classic IDs. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @test: src/__tests__/routes/terminal-route-validate.test.ts (mode-aware terminal authorization) --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (REQ-TERM-002: authenticated classic terminal 6 forwards its identity while Herdr denies it before container access) -->
-3. The Worker upgrades the HTTP request to a WebSocket and forwards it through the Container DO to the in-container terminal server. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @test: src/__tests__/routes/terminal.test.ts (validateWebSocketRoute / REQ-TERM-002 (terminal WebSocket connection to container PTY)) -->
-4. Each mode starts its owned terminal experience in a full-color PTY. <!-- @impl: host/src/server.ts::TERMINAL_MODE --> <!-- @impl: host/src/session.ts::Session --> <!-- @test: host/__tests__/terminal-mode.test.js (defaults missing and invalid values to classic login Bash) --> <!-- @test: host/__tests__/terminal-mode.test.js (selects the fixed Herdr launcher without shell arguments) -->
+3. The terminal endpoint upgrades the HTTP request to a WebSocket connected to the requested in-container terminal. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @test: src/__tests__/routes/terminal.test.ts (validateWebSocketRoute / REQ-TERM-002 (terminal WebSocket connection to container PTY)) -->
+4. Each mode starts its owned terminal experience in a full-color PTY. <!-- @impl: host/src/server.ts::TERMINAL_MODE --> <!-- @impl: host/src/session.ts::Session --> <!-- @test: host/__tests__/terminal-mode.test.js (defaults missing and invalid values to classic login Bash) --> <!-- @test: host/__tests__/terminal-mode.test.js (selects the fixed Herdr launcher without shell arguments) --> <!-- @test: host/__tests__/session-wire-protocol.test.js (REQ-TERM-002 AC3: PTY spawned as a full-color login shell) -->
 5. Raw terminal data flows over the WebSocket without JSON wrapping so binary-clean PTY output is preserved. <!-- @impl: host/src/session.ts::Session --> <!-- @test: host/__tests__/session-wire-protocol.test.js (REQ-TERM-002 AC5: raw PTY output reaches clients without JSON wrapping) -->
 
 6. Enterprise reconnect rebinds only the credential to verified same-owner authority, treating invalid context as same-generation revocation; the immutable principal and running compute remain unchanged. <!-- @test: src/__tests__/routes/terminal-native-pi-authority.test.ts (REQ-ENTERPRISE-090: failed renewal revokes old authority while ordinary terminal remains usable) --> <!-- @test: src/__tests__/routes/terminal-native-pi-authority.test.ts (REQ-ENTERPRISE-090: a changed human subject cannot replace the immutable same-email session principal) --> <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @impl: src/container/review-session-human.ts::bindReviewSessionHuman --> <!-- @test: src/__tests__/routes/terminal-native-pi-authority.test.ts (REQ-TERM-002: same-owner warm reconnect refreshes %s authority without restarting compute) --> <!-- @test: src/__tests__/routes/terminal-native-pi-authority.test.ts (REQ-ENTERPRISE-090: %s human reconnect cannot retain a previously valid sealed credential) -->
@@ -137,9 +137,9 @@ Persisted Herdr state and runtime lifetime are documented in [Sessions & Runtime
 **Acceptance Criteria:**
 
 1. Out-of-band control messages (resize, process-name, restore, and client-requested PTY termination) are encoded as JSON objects identifiable by a leading type-discriminator field. <!-- @impl: host/src/session.ts::Session --> <!-- @impl: host/src/terminal-ws.ts::attachTerminalConnectionHandler --> <!-- @impl: web-ui/src/stores/terminal.ts::dispose --> <!-- @test: host/__tests__/session-wire-protocol.test.js (REQ-TERM-019 AC1: host-originated control frames are typed JSON) -->
-2. Unknown control-message types are silently ignored so the wire protocol can grow without breaking older clients or servers. <!-- @impl: host/src/terminal-ws.ts::attachTerminalConnectionHandler --> <!-- @test: host/__tests__/ws-input-classification.test.js (WS input classification) --> <!-- @test: host/__tests__/terminal-agent-events.test.js (REQ-TERM-019 AC2: unknown typed JSON is dropped while terminal input reaches the bound Session) -->
+2. The host ignores unknown typed JSON within its bounded control-message parsing window; input outside that window remains raw terminal input. The browser treats unknown typed messages as raw output. <!-- @impl: web-ui/src/stores/terminal-protocol.ts::parseControlMessage --> <!-- @impl: host/src/terminal-ws.ts::attachTerminalConnectionHandler --> <!-- @test: host/__tests__/ws-input-classification.test.js (WS input classification) --> <!-- @test: host/__tests__/terminal-agent-events.test.js (REQ-TERM-019 AC2: unknown typed JSON is dropped while terminal input reaches the bound Session) -->
 3. No application-level ping/pong is implemented; the transport layer handles WebSocket keepalive on its own. <!-- @impl: host/src/session.ts::Session --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (useTerminal hook) --> <!-- @test: host/__tests__/terminal-agent-events.test.js (REQ-TERM-019 AC3: keepalive emits protocol pings without application JSON heartbeat) -->
-4. The terminal emulator's optional VT extensions that inject emulator-generated reports into the PTY input stream (xterm ≥6.1 color-scheme reporting, `CSI ?997;x n`) are disabled at construction, so agent TUIs never receive asynchronous reports they do not consume. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (should disable xterm color-scheme reporting so no CSI ?997 report can reach the PTY) -->
+4. Optional emulator-generated VT reports, including color-scheme responses and pushes, do not enter the PTY input stream. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (should disable xterm color-scheme reporting so no CSI ?997 report can reach the PTY) -->
 
 **Constraints:**
 
@@ -166,13 +166,14 @@ Persisted Herdr state and runtime lifetime are documented in [Sessions & Runtime
 
 1. The retryable close-code set covers the standard WebSocket "transient" codes: going-away, abnormal-closure, unexpected-condition, service-restart, and try-again-later. <!-- @impl: web-ui/src/lib/constants.ts::WS_RETRYABLE_CLOSE_CODES --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (reconnectBackoffMs)) / REQ-TERM-004 (WebSocket lifecycle: connect, attach, detach, close-codes 4503/1013) / REQ-TERM-008 (flushWriteBuffer batches xterm writes for performance)) -->
 2. Reconnection uses a backoff delay between attempts (see [REQ-TERM-020](#req-term-020-terminal-reconnect-teardown-timeout-and-backoff-timing) AC3) and retries indefinitely while close codes remain in the retryable set. <!-- @impl: web-ui/src/lib/constants.ts::WS_RECONNECT_BASE_MS --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (reconnectBackoffMs)) / REQ-TERM-004 (WebSocket lifecycle: connect, attach, detach, close-codes 4503/1013) / REQ-TERM-008 (flushWriteBuffer batches xterm writes for performance)) -->
-3. On reconnection, the terminal buffer state is restored by serializing the in-memory xterm buffer and replaying it into the new connection. <!-- @impl: web-ui/src/stores/terminal.ts::terminalStore --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (reconnectBackoffMs)) / REQ-TERM-004 (WebSocket lifecycle: connect, attach, detach, close-codes 4503/1013) / REQ-TERM-008 (flushWriteBuffer batches xterm writes for performance)) -->
-4. The input handler subscription is disposed before a replacement handler is attached so reconnect cannot duplicate keystrokes. Subscription ownership must follow the [placement contract](../../documentation/lanes/terminal-and-ide.md#transport-recovery). <!-- @impl: web-ui/src/stores/terminal.ts::terminalStore --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (reconnectBackoffMs)) / REQ-TERM-004 (WebSocket lifecycle: connect, attach, detach, close-codes 4503/1013) / REQ-TERM-008 (flushWriteBuffer batches xterm writes for performance)) -->
+3. Reconnection restores the terminal from the authoritative host snapshot under [REQ-SESSION-245](session-lifecycle.md#req-session-245-transport-recovery-terminal-snapshot-and-editor-state), not by replaying the old client buffer. <!-- @impl: web-ui/src/stores/terminal.ts::connect --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-SESSION-012 AC7 / REQ-TERM-003: delivered 1011 backs off, restores the same terminal and accepts fresh input/output) -->
+4. During reconnection, old input delivery ends before its replacement begins, so a keystroke is not sent twice. <!-- @impl: web-ui/src/stores/terminal.ts::terminalStore --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (reconnectBackoffMs)) / REQ-TERM-004 (WebSocket lifecycle: connect, attach, detach, close-codes 4503/1013) / REQ-TERM-008 (flushWriteBuffer batches xterm writes for performance)) -->
 5. Reconnection attempts are cancellable so parallel retry loops cannot accumulate across rapid disconnect-reconnect cycles. <!-- @impl: web-ui/src/stores/terminal.ts::terminalStore --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (reconnectBackoffMs)) / REQ-TERM-004 (WebSocket lifecycle: connect, attach, detach, close-codes 4503/1013) / REQ-TERM-008 (flushWriteBuffer batches xterm writes for performance)) -->
 6. Dead-container state is never inferred from a retry-failure counter; only the server-authoritative container-stopped close code stops retries. <!-- @impl: web-ui/src/stores/terminal.ts::terminalStore --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (reconnectBackoffMs)) / REQ-TERM-004 (WebSocket lifecycle: connect, attach, detach, close-codes 4503/1013) / REQ-TERM-008 (flushWriteBuffer batches xterm writes for performance)) -->
 
 **Constraints:**
 
+- Input subscription placement follows [Transport Recovery](../../documentation/lanes/terminal-and-ide.md#transport-recovery).
 - Retry loops are cancelled when a session is disposed (for example, when the session is stopped or the user navigates away).
 - Dashboard navigation schedules a short WebSocket disconnect grace period; returning to the terminal within the grace window cancels the timer and reconnects without tearing down the connection.
 
@@ -194,17 +195,18 @@ Persisted Herdr state and runtime lifetime are documented in [Sessions & Runtime
 
 **Acceptance Criteria:**
 
-1. Tearing down a connection whose WebSocket is still mid-handshake (CONNECTING) neither force-closes the socket nor surfaces an error: the already-aborted connect handlers close it cleanly once it resolves, so rapid disconnect-reconnect cycles produce no "closed before the connection is established. <!-- @impl: web-ui/src/stores/terminal.ts::disconnect --> <!-- @impl: web-ui/src/stores/terminal.ts::connect --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-020 AC1: quiet teardown of in-flight connections) -->
-2. A socket that stays in CONNECTING past the existing connection timeout without a close/error event after mobile app-switch is force-closed and a backoff reconnect scheduled, so it is no longer stranded mid-handshake. Retiring that attempt precedes closing it; its delayed open, close, message and error events cannot mutate a successor attempt or clear the successor watchdog. <!-- @impl: web-ui/src/stores/terminal.ts::connect --> <!-- @test: web-ui/src/__tests__/stores/terminal-connect-timeout.test.ts (Terminal Store / REQ-TERM-020 AC2: connect-timeout force-close & AC3 pause-while-hidden) --> <!-- @test: web-ui/src/__tests__/stores/terminal-connect-timeout.test.ts (REQ-TERM-020 AC2: delayed timed-out close %s cannot retire a successor attempt) -->
+1. Normal teardown during a pending WebSocket handshake waits to close that socket until the handshake settles, without a premature-close error during rapid disconnect and reconnect. <!-- @impl: web-ui/src/stores/terminal.ts::disconnect --> <!-- @impl: web-ui/src/stores/terminal.ts::connect --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-020 AC1: quiet teardown of in-flight connections) -->
+2. After mobile app-switch, retire a CONNECTING attempt when its existing timeout expires without close/error, then force-close and schedule backoff. <!-- @impl: web-ui/src/stores/terminal.ts::connect --> <!-- @test: web-ui/src/__tests__/stores/terminal-connect-timeout.test.ts (Terminal Store / REQ-TERM-020 AC2: connect-timeout force-close & AC3 pause-while-hidden) -->
 3. Reconnection delay is an equal-jitter exponential backoff. <!-- @impl: web-ui/src/stores/terminal-protocol.ts::reconnectBackoffMs --> <!-- @test: web-ui/src/__tests__/stores/terminal-reconnect-backoff.test.ts (reconnectBackoffMs (REQ-TERM-020 AC3): equal-jitter exponential backoff) -->
 4. The backoff resets to attempt 1 on a successful open. <!-- @impl: web-ui/src/stores/terminal.ts::connect --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-020 AC3: a successful open resets the backoff so a later drop retries from attempt 1) -->
 5. The backoff resets to attempt 1 on visibility return. <!-- @impl: web-ui/src/stores/terminal.ts::reconnectOnVisibilityReturn --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-020 AC3: visibility return restarts visible disconnected and connecting panes without replacing connected panes) -->
 6. The backoff is paused while the page is hidden. <!-- @impl: web-ui/src/stores/terminal.ts::connect --> <!-- @test: web-ui/src/__tests__/stores/terminal-connect-timeout.test.ts (pauses reconnect while hidden and resumes on visibility return) -->
+7. Delayed open, close, message and error events from the attempt retired in AC2 cannot mutate a successor or clear its watchdog. <!-- @impl: web-ui/src/stores/terminal.ts::connect --> <!-- @test: web-ui/src/__tests__/stores/terminal-connect-timeout.test.ts (REQ-TERM-020 AC2: delayed timed-out close %s cannot retire a successor attempt) -->
 
 **Constraints:**
 
 - Retry timing resets on successful open and visibility return, and pauses while the document is hidden.
-- CONNECTING-socket teardown avoids force-closing until the already-aborted handlers can close cleanly.
+- Normal pending-handshake teardown remains distinct from the stalled-attempt timeout in AC2.
 
 **Priority:** P1
 
@@ -232,8 +234,8 @@ Persisted Herdr state and runtime lifetime are documented in [Sessions & Runtime
 
 **Constraints:**
 
-- The 4503 code falls inside the WebSocket private-use range so it cannot collide with standardized codes.
-- During the startup grace window for newly started sessions, only the container-stopped close code is allowed to transition a session into the stopped state, preventing flapping while the new container is still warming up.
+- 4503 is a private-use WebSocket close code.
+- During a newly started session's startup grace window, only the container-stopped close code may transition it to stopped.
 
 **Priority:** P0
 
@@ -287,12 +289,12 @@ Persisted Herdr state and runtime lifetime are documented in [Sessions & Runtime
 **Acceptance Criteria:**
 
 1. Terminal prewarm preserves the existing outer Session and adoption flow. <!-- @impl: host/src/server.ts::beginSettlementWhenReady --> <!-- @manual: In integration, confirm both stamped modes adopt the prewarmed outer Session. -->
-2. Herdr does not report readiness until configured-command bootstrap completes. <!-- @impl: host/src/server.ts::beginSettlementWhenReady --> <!-- @impl: host/src/terminal-mode.ts::isPrewarmTimeoutReady --> <!-- @test: host/__tests__/terminal-mode.test.js (REQ-AGENT-003 AC6 / REQ-TERM-035 AC2: Herdr timeout readiness requires bootstrap) -->
-3. Classic retains first-output readiness and its bounded timeout fallback. <!-- @impl: host/src/server.ts::beginSettlementWhenReady --> <!-- @manual: In integration, confirm classic settles from first PTY output and remains reachable after the timeout fallback. -->
+2. Herdr requires configured-command bootstrap before readiness, including at the 20-second timeout when first output or settlement is incomplete. <!-- @impl: host/src/server.ts::beginSettlementWhenReady --> <!-- @impl: host/src/server.ts::PREWARM_TIMEOUT_MS --> <!-- @impl: host/src/terminal-mode.ts::isPrewarmTimeoutReady --> <!-- @test: host/__tests__/terminal-mode.test.js (REQ-AGENT-003 AC6 / REQ-TERM-035 AC2: Herdr timeout readiness requires bootstrap) -->
+3. Classic normally settles after first output; its 20-second fallback becomes ready even without first output or settlement. <!-- @impl: host/src/server.ts::beginSettlementWhenReady --> <!-- @impl: host/src/server.ts::PREWARM_TIMEOUT_MS --> <!-- @test: host/__tests__/terminal-mode.test.js (REQ-AGENT-003 AC7: classic timeout readiness is unconditional) --> <!-- @manual: In integration, confirm classic settles from first PTY output and remains reachable after the timeout fallback. -->
 4. VS Code workspaces start no Herdr runtime and retain existing Browser IDE terminal profiles. <!-- @impl: host/src/server.ts::SESSION_WORKSPACE --> <!-- @test: host/__tests__/workspace-readiness.test.js (never constructs, inserts, or starts a host Session for VS Code) -->
 5. An expired Herdr prewarm without completed bootstrap terminates the terminal host for container recovery instead of remaining indefinitely in preparation. <!-- @impl: host/src/server.ts::server.listen --> <!-- @impl: host/src/prewarm-readiness.ts::handlePrewarmOrphanExpiry --> <!-- @test: host/__tests__/prewarm-orphan-expiry.test.js (REQ-TERM-035 AC5: orphan expiry terminates unbootstrapped Herdr after cleanup) -->
-6. Fresh Herdr Pi startup waits up to ten seconds for supported live initialization evidence before readiness; unavailable or timed-out evidence falls back to normal process detection. <!-- @impl: image/herdr/codeflare-herdr-terminal::run_agent --> <!-- @impl: image/herdr/codeflare-herdr-terminal::wait_for_live_pi --> <!-- @test: host/__tests__/herdr-launcher.test.js (waits for live Pi integration on a fresh start) --> <!-- @test: host/__tests__/herdr-launcher.test.js (uses regular fresh Pi startup when pinned live readiness fails) -->
-7. Unsupported or unavailable readiness evidence does not block access after normal fresh Pi startup. <!-- @impl: image/herdr/codeflare-herdr-terminal::supports_pi_live_readiness --> <!-- @impl: image/herdr/codeflare-herdr-terminal::run_agent --> <!-- @test: host/__tests__/herdr-launcher.test.js (uses regular fresh Pi startup when native readiness version changes) --> <!-- @test: host/__tests__/herdr-launcher.test.js (uses regular fresh Pi startup when the native readiness probe hangs) --> <!-- @test: host/__tests__/herdr-launcher.test.js (uses regular fresh Pi startup when pinned live readiness fails) -->
+6. Fresh Herdr Pi startup uses a ten-second deadline for starting live-readiness polling iterations; bounded checks already in progress may finish later. If live evidence is unsupported or unavailable, normal process detection remains sufficient. <!-- @impl: image/herdr/codeflare-herdr-terminal::run_agent --> <!-- @impl: image/herdr/codeflare-herdr-terminal::wait_for_live_pi --> <!-- @impl: image/herdr/codeflare-herdr-terminal::supports_pi_live_readiness --> <!-- @test: host/__tests__/herdr-launcher.test.js (waits for live Pi integration on a fresh start) --> <!-- @test: host/__tests__/herdr-launcher.test.js (uses regular fresh Pi startup when pinned live readiness fails) --> <!-- @test: host/__tests__/herdr-launcher.test.js (uses regular fresh Pi startup when native readiness version changes) --> <!-- @test: host/__tests__/herdr-launcher.test.js (uses regular fresh Pi startup when the native readiness probe hangs) -->
+7. Outside timeout fallback, readiness follows a fixed 1.5-second settlement after mode-specific readiness conditions are met. <!-- @impl: host/src/server.ts::PREWARM_SETTLE_MS --> <!-- @impl: host/src/server.ts::server.listen --> <!-- @manual: In integration, confirm normal-path readiness waits for fixed settlement in both modes. -->
 
 **Constraints:**
 
@@ -302,7 +304,7 @@ Persisted Herdr state and runtime lifetime are documented in [Sessions & Runtime
 
 **Dependencies:** [REQ-TERM-005](#req-term-005-herdr-runtime-and-configured-agent-startup), [REQ-SESSION-015](session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition)
 
-**Verification:** Automated: [herdr-launcher.test.js](../../host/__tests__/herdr-launcher.test.js), [prewarm-orphan-expiry.test.js](../../host/__tests__/prewarm-orphan-expiry.test.js), [terminal-mode.test.js](../../host/__tests__/terminal-mode.test.js), [workspace-readiness.test.js](../../host/__tests__/workspace-readiness.test.js); Manual: [REQ-TERM-035 procedure](../../documentation/lanes/terminal-and-ide.md#req-term-035-manual-qualification)
+**Verification:** Automated: [herdr-launcher.test.js](../../host/__tests__/herdr-launcher.test.js), [prewarm-orphan-expiry.test.js](../../host/__tests__/prewarm-orphan-expiry.test.js), [terminal-mode.test.js](../../host/__tests__/terminal-mode.test.js), [workspace-readiness.test.js](../../host/__tests__/workspace-readiness.test.js); Manual: [REQ-TERM-035 procedure](../../documentation/lanes/terminal-and-ide.md#req-term-035-manual-qualification), [Both mode fixed settlement acceptance](../../documentation/lanes/terminal-and-ide.md#both-mode-fixed-settlement-acceptance)
 
 **Status:** Implemented
 
@@ -319,8 +321,9 @@ Persisted Herdr state and runtime lifetime are documented in [Sessions & Runtime
 1. Codeflare renders no per-session terminal tab bar or within-session tiling controls for a Herdr session. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (renders one Herdr surface without classic tabs or tiling controls) -->
 2. The official Herdr client receives keyboard, mouse, focus, and resize input through the existing terminal surface. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-011 / REQ-TERM-030 AC3: changes focus without reconnecting the terminal) --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (resize handling) -->
 3. Herdr-created tabs and panes start plain Bash unless the user explicitly launches another command. <!-- @impl: image/herdr/codeflare-herdr-terminal::prepare_runtime --> <!-- @test: host/__tests__/herdr-launcher.test.js (leaves Bash untouched and maps ordinary TUI commands without shell interpolation) -->
-4. Browser disconnect preserves the outer PTY and named Herdr runtime while the container remains alive, and repeated client exits reattach while the server remains healthy. <!-- @impl: host/src/session.ts::Session --> <!-- @impl: image/herdr/codeflare-herdr-terminal::supervise_client --> <!-- @test: host/__tests__/herdr-launcher.test.js (reattaches after repeated client exits while the Herdr server remains healthy) --> <!-- @manual: In integration, disconnect and reconnect the browser while the container remains alive and confirm the same Herdr tabs, panes, and running processes remain. -->
+4. Browser disconnect preserves the outer PTY and named Herdr runtime while the container remains alive. <!-- @impl: host/src/session.ts::Session --> <!-- @manual: In integration, disconnect and reconnect the browser while the container remains alive and confirm the same Herdr tabs, panes, and running processes remain. -->
 5. Terminal and container lifecycle shutdowns stop the named Herdr runtime without orphan descendants; unsuccessful or timed-out cleanup remains an observable failure, not physical-cleanup proof, while other local cleanup is still attempted. <!-- @impl: host/src/session.ts::kill --> <!-- @impl: host/src/server.ts::stopTerminalRuntime --> <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/session-wire-protocol.test.js (kill() invokes the injected terminal-runtime cleanup exactly once) --> <!-- @test: host/__tests__/herdr-launcher.test.js (stops only the deterministic named runtime) --> <!-- @manual: In integration, stop and delete a Terminal session and confirm no named Herdr runtime or descendants remain. --> <!-- @test: host/__tests__/session-wire-protocol.test.js (REQ-TERM-006 AC5: failed runtime stop remains observable after local PTY and client cleanup) --> <!-- @test: host/__tests__/session-manager.test.js (REQ-TERM-006 AC5: shutdown attempts other terminal cleanups but retains and reports a failed runtime) --> <!-- @test: host/__tests__/herdr-launcher.test.js (REQ-TERM-006 AC5: exposes unsuccessful named-runtime stop status) -->
+6. Repeated Herdr client exits reattach while the named server remains healthy. <!-- @impl: image/herdr/codeflare-herdr-terminal::supervise_client --> <!-- @test: host/__tests__/herdr-launcher.test.js (reattaches after repeated client exits while the Herdr server remains healthy) -->
 
 **Constraints:**
 
@@ -347,24 +350,24 @@ Persisted Herdr state and runtime lifetime are documented in [Sessions & Runtime
 **Acceptance Criteria:**
 
 1. Herdr writes its official structural session snapshot beneath R2-synced private home metadata, while sockets, locks, logs and other runtime state remain under the ephemeral runtime root. <!-- @impl: image/herdr/codeflare-herdr-terminal::prepare_runtime --> <!-- @test: host/__tests__/herdr-launcher.test.js (keeps the maximum-length session client socket within the Linux path limit) -->
-2. Normal home restore makes the snapshot available before Herdr prewarm, and normal periodic, manual, and final sync carry later snapshots to R2 without a separate upload channel. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @impl: host/src/server.ts::waitForInitFlag --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (persists only Herdr structural session snapshots under .codeflare) -->
+2. Normal home restore makes the snapshot available before Herdr prewarm. <!-- @test: host/__tests__/entrypoint-managed-curation.test.js (REQ-TERM-033 AC2: production release follows restored snapshot bytes and failed policy never releases) --> <!-- @impl: host/src/server.ts::waitForInitFlag --> <!-- @test: host/__tests__/repository-restore-order.test.js (REQ-TERM-033 AC2: real host prewarm waits for restored snapshot bytes and the init flag) -->
 3. Restoring persisted session structure may recover workspaces, tabs, panes, layout, cwd, focus, and supported native agent session references; it does not claim to preserve running shells, arbitrary processes, or terminal output. <!-- @impl: image/herdr/codeflare-herdr-terminal::wait_for_restored_agent --> <!-- @test: host/__tests__/herdr-launcher.test.js (falls back to persisted agent metadata when Pi lifecycle readiness is unavailable) --> <!-- @manual: Replace a stopped Herdr container after a successful sync and confirm structural topology restores without prior pane output. -->
 4. Pane history, client and API sockets, updater state, logs, and user-edited Herdr configuration remain excluded from R2. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (persists only Herdr structural session snapshots under .codeflare) -->
 5. With the pinned Pi integration, restored Pi panes delay readiness until every resumed Pi session has loaded its transcript and established live lifecycle authority. <!-- @impl: image/herdr/codeflare-herdr-terminal::wait_for_live_pi --> <!-- @test: host/__tests__/herdr-launcher.test.js (waits for live Pi integration before completing restored bootstrap) -->
-6. If the versioned Pi readiness signal is unavailable, restored metadata retains the compatibility path to readiness. <!-- @impl: image/herdr/codeflare-herdr-terminal::wait_for_restored_agent --> <!-- @test: host/__tests__/herdr-launcher.test.js (falls back to persisted agent metadata when Pi lifecycle readiness is unavailable) -->
-7. If live Pi readiness fails within its bounded wait, restored metadata retains the same compatibility path to readiness. <!-- @impl: image/herdr/codeflare-herdr-terminal::wait_for_restored_agent --> <!-- @test: host/__tests__/herdr-launcher.test.js (falls back to persisted metadata when pinned Pi live readiness fails) -->
+6. Restored metadata retains the compatibility path to readiness when the versioned Pi signal is unavailable or live Pi readiness fails within the bounded wait. <!-- @impl: image/herdr/codeflare-herdr-terminal::wait_for_restored_agent --> <!-- @test: host/__tests__/herdr-launcher.test.js (falls back to persisted agent metadata when Pi lifecycle readiness is unavailable) --> <!-- @test: host/__tests__/herdr-launcher.test.js (falls back to persisted metadata when pinned Pi live readiness fails) -->
+7. Normal periodic, manual and final sync carry later snapshots to R2 without a separate upload channel. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (persists only Herdr structural session snapshots under .codeflare) -->
 
 **Constraints:**
 
 - Snapshot durability follows existing 15-minute bisync, explicit Sync and final-sync boundaries; abrupt loss may discard changes since the last successful sync.
 - `session-history.json` stays excluded: terminal output may contain prompts/credentials/tokens/command output.
-- Recovery uses Herdr v0.8.2’s official snapshot format; Codeflare defines no parallel schema.
+- Recovery uses the pinned Herdr runtime’s official snapshot format; Codeflare defines no parallel schema.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-TERM-005](#req-term-005-herdr-runtime-and-configured-agent-startup), [REQ-STOR-002](storage.md#req-stor-002-file-persistence-across-sessions), [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start)
 
-**Verification:** Automated: [entrypoint-rclone-filters.test.js](../../host/__tests__/entrypoint-rclone-filters.test.js), [herdr-launcher.test.js](../../host/__tests__/herdr-launcher.test.js); Manual: [REQ-TERM-033 procedure](../../documentation/lanes/terminal-and-ide.md#req-term-033-manual-qualification)
+**Verification:** Automated: [entrypoint-rclone-filters.test.js](../../host/__tests__/entrypoint-rclone-filters.test.js), [herdr-launcher.test.js](../../host/__tests__/herdr-launcher.test.js), [repository-restore-order.test.js](../../host/__tests__/repository-restore-order.test.js), [entrypoint-managed-curation.test.js](../../host/__tests__/entrypoint-managed-curation.test.js); Manual: [REQ-TERM-033 procedure](../../documentation/lanes/terminal-and-ide.md#req-term-033-manual-qualification)
 
 **Status:** Implemented
 
@@ -437,17 +440,17 @@ None.
 
 **Acceptance Criteria:**
 
-1. Incoming WebSocket messages are appended to a per-terminal write buffer keyed by the compound terminal identity. <!-- @impl: web-ui/src/stores/terminal.ts::terminalStore --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (reconnectBackoffMs)) / REQ-TERM-004 (WebSocket lifecycle: connect, attach, detach, close-codes 4503/1013) / REQ-TERM-008 (flushWriteBuffer batches xterm writes for performance)) -->
+1. Incoming output remains ordered and separate for each session and terminal. <!-- @impl: web-ui/src/stores/terminal.ts::terminalStore --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (reconnectBackoffMs)) / REQ-TERM-004 (WebSocket lifecycle: connect, attach, detach, close-codes 4503/1013) / REQ-TERM-008 (flushWriteBuffer batches xterm writes for performance)) -->
 2. A flush is scheduled on a fixed cadence corresponding to roughly 30 frames per second so render passes are bounded even under burst output. <!-- @impl: web-ui/src/stores/terminal.ts::terminalStore --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (reconnectBackoffMs)) / REQ-TERM-004 (WebSocket lifecycle: connect, attach, detach, close-codes 4503/1013) / REQ-TERM-008 (flushWriteBuffer batches xterm writes for performance)) -->
 3. When the viewport permits writing, each flush concatenates complete queued units into one write up to the 65,536-character slice budget, allowing the final whole unit to exceed it; remaining units wait for later ticks. <!-- @impl: web-ui/src/stores/terminal.ts::terminalStore --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (reconnectBackoffMs)) / REQ-TERM-004 (WebSocket lifecycle: connect, attach, detach, close-codes 4503/1013) / REQ-TERM-008 (flushWriteBuffer batches xterm writes for performance)) --> <!-- @impl: web-ui/src/stores/terminal-output.ts::flushWriteBuffer --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-014 AC3: releases the hold in bounded slices and re-defers when the reader scrolls up mid-release) -->
-4. The output pipeline schedules a per-terminal flush after 33ms when queued output or an incomplete synchronized frame needs a tick, and does not arm another timer while one is pending. <!-- @impl: web-ui/src/stores/terminal-output.ts::flushWriteBuffer --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (reconnectBackoffMs)) / REQ-TERM-004 (WebSocket lifecycle: connect, attach, detach, close-codes 4503/1013) / REQ-TERM-008 (flushWriteBuffer batches xterm writes for performance)) -->
+4. Queued output or an incomplete synchronized frame schedules one pending 33 ms flush per terminal; further arrivals do not schedule another. <!-- @impl: web-ui/src/stores/terminal-output.ts::flushWriteBuffer --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (reconnectBackoffMs)) / REQ-TERM-004 (WebSocket lifecycle: connect, attach, detach, close-codes 4503/1013) / REQ-TERM-008 (flushWriteBuffer batches xterm writes for performance)) -->
 5. Each flush rechecks scrollback ownership before writing, defers while the user is reading, and schedules remaining output or pending frame assembly for another 33ms tick. This batching cadence aims to keep interactive feedback responsive without asserting a human-perception threshold or observed end-to-end latency. <!-- @impl: web-ui/src/stores/terminal-output.ts::flushWriteBuffer --> <!-- @manual -->
-6. Pending flushes are tracked per terminal and cancelled on terminal disposal. <!-- @impl: web-ui/src/stores/terminal.ts::terminalStore --> <!-- @manual -->
+6. Disposing a terminal cancels its pending flush without cancelling other terminals' output. <!-- @impl: web-ui/src/stores/terminal.ts::terminalStore --> <!-- @manual -->
 
 **Constraints:**
 
-- Write buffers use the compound terminal identity so each tab's stream is coalesced independently.
-- Programmatic scroll-position adjustments after a write are tracked separately so they cannot be misinterpreted as a user-initiated scroll reset.
+- Batching and disposal use independent terminal identities as described in [Batching feedback and disposal](../../documentation/lanes/terminal-and-ide.md#req-term-008-manual-qualification).
+- Track programmatic post-write scroll adjustments separately; never classify them as user-initiated scroll resets.
 
 **Priority:** P1
 
@@ -521,27 +524,51 @@ None.
 
 ### REQ-TERM-043: Visible terminal readiness gating
 
-**Intent:** Visible terminal panes adopt the prepared PTY as soon as the terminal service is available, while focus and display remain behind explicit readiness acknowledgement.
+**Intent:** Explicit readiness acknowledgement controls when the selected terminal pane is displayed and focused.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. A visible initializing session opens no terminal connection before startup reaches `mounting`. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-043 AC1: does not connect before the terminal service reaches mounting) -->
-2. At `mounting`, the visible pane creates exactly one startup terminal connection that remains unchanged through `ready`. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-043 AC2-AC3: keeps one unfocused startup attachment through ready) -->
-3. The pane does not focus while readiness remains unacknowledged. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-043 AC2-AC3: keeps one unfocused startup attachment through ready) -->
-4. OPEN displays a renderable selected terminal pane without requiring a page reload. <!-- @impl: web-ui/src/components/Terminal.tsx::Terminal --> <!-- @test: web-ui/src/__tests__/components/Terminal.test.tsx (REQ-TERM-043 AC4, AC7; REQ-TERM-044 AC2: OPEN creates and focuses a fresh renderable terminal) -->
-5. An already-running visible session connects immediately. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-043 AC5: connects immediately when the session is already ready) -->
-6. OPEN leaves terminal panes belonging to other sessions unchanged. <!-- @impl: web-ui/src/components/Layout.tsx::handleOpenSessionById --> <!-- @impl: web-ui/src/components/Terminal.tsx::Terminal --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-TERM-043 AC6: OPEN dismisses readiness without directly manipulating transport) --> <!-- @test: web-ui/src/__tests__/components/Terminal.test.tsx (REQ-TERM-043 AC6: OPEN leaves foreign-session terminal instances unchanged) -->
-7. After OPEN, the selected terminal pane receives focus. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/components/Terminal.test.tsx (REQ-TERM-043 AC4, AC7; REQ-TERM-044 AC2: OPEN creates and focuses a fresh renderable terminal) -->
+1. The pane does not focus while readiness remains unacknowledged. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-043 AC2-AC3: keeps one unfocused startup attachment through ready) -->
+2. Ready for the current Start makes OPEN available. OPEN displays a renderable selected terminal pane without requiring a page reload. <!-- @impl: web-ui/src/stores/session.ts::startSession --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-TERM-043: matching Ready shows Open and releases startup on click) --> <!-- @impl: web-ui/src/components/Terminal.tsx::Terminal --> <!-- @test: web-ui/src/__tests__/components/Terminal.test.tsx (REQ-TERM-043 AC4, AC7; REQ-TERM-044 AC2: OPEN creates and focuses a fresh renderable terminal) -->
+3. OPEN leaves terminal panes belonging to other sessions unchanged. <!-- @impl: web-ui/src/components/Layout.tsx::handleOpenSessionById --> <!-- @impl: web-ui/src/components/Terminal.tsx::Terminal --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-TERM-043 AC6: OPEN dismisses readiness without directly manipulating transport) --> <!-- @test: web-ui/src/__tests__/components/Terminal.test.tsx (REQ-TERM-043 AC6: OPEN leaves foreign-session terminal instances unchanged) -->
+4. After OPEN, the selected terminal pane receives focus. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/components/Terminal.test.tsx (REQ-TERM-043 AC4, AC7; REQ-TERM-044 AC2: OPEN creates and focuses a fresh renderable terminal) -->
 
-**Constraints:** The three-minute startup guard, bounded prewarm orphan window, and MultiView visible-pane ownership remain unchanged.
+**Constraints:** OPEN does not transfer transport ownership from [REQ-TERM-046](#req-term-046-visible-terminal-startup-connection).
+
+**Priority:** P0
+
+**Dependencies:** [REQ-TERM-046](#req-term-046-visible-terminal-startup-connection)
+
+**Verification:** Automated: [useTerminal.test.ts](../../web-ui/src/__tests__/hooks/useTerminal.test.ts), [Terminal.test.tsx](../../web-ui/src/__tests__/components/Terminal.test.tsx), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-TERM-046: Visible terminal startup connection
+
+**Intent:** Visible terminal panes initiate one early startup attachment lifecycle without selecting or replacing the prepared PTY.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A visible initializing pane does not initiate terminal attachment before startup reaches `mounting`. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-043 AC1: does not connect before the terminal service reaches mounting) -->
+2. At `mounting`, the visible pane starts one attachment lifecycle and does not start a second one merely because the UI stage changes to `ready`. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-043 AC2-AC3: keeps one unfocused startup attachment through ready) -->
+3. An already-running visible session connects immediately. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-043 AC5: connects immediately when the session is already ready) -->
+
+**Constraints:**
+
+- The ordinary public endpoint refuses pre-readiness upgrades with retryable 1013, including attempts at `mounting`, without assigning a PTY. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @impl: host/src/terminal-ws.ts::attachTerminalConnectionHandler -->
+- The three-minute startup guard, bounded prewarm orphan window and MultiView visible-pane ownership remain unchanged.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-SESSION-015](session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition), [REQ-TERM-011](#req-term-011-visible-terminal-panes-own-websocket-connections)
 
-**Verification:** Automated: [useTerminal.test.ts](../../web-ui/src/__tests__/hooks/useTerminal.test.ts), [Terminal.test.tsx](../../web-ui/src/__tests__/components/Terminal.test.tsx), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx)
+**Verification:** Automated: [useTerminal.test.ts](../../web-ui/src/__tests__/hooks/useTerminal.test.ts)
 
 **Status:** Implemented
 
@@ -558,11 +585,11 @@ None.
 1. Reattaching an existing PTY restores its current serialized screen before normal output continues. <!-- @impl: host/src/session.ts::attach --> <!-- @test: host/__tests__/session-wire-protocol.test.js (attach() sends a restore frame as JSON carrying type="restore" once buffer has state) --> <!-- @test: host/__tests__/session-wire-protocol.test.js (REQ-TERM-044 AC1 / REQ-MOB-017 AC3: fullscreen mouse input survives attach) -->
 2. OPEN completes and the terminal remains renderable when terminal layout dimensions are not yet available. <!-- @impl: web-ui/src/components/Terminal.tsx::Terminal --> <!-- @impl: web-ui/src/lib/xterm-internals.ts::resyncViewportScrollState --> <!-- @test: web-ui/src/__tests__/components/Terminal.test.tsx (REQ-TERM-043 AC4, AC7; REQ-TERM-044 AC2: OPEN creates and focuses a fresh renderable terminal) --> <!-- @test: web-ui/src/__tests__/lib/xterm-internals.test.ts (REQ-TERM-044 AC2: does not abort OPEN when viewport dimensions are not initialized yet) -->
 
-**Constraints:** Rendering recovery must preserve the transport ownership defined by [REQ-TERM-043](#req-term-043-visible-terminal-readiness-gating).
+**Constraints:** Rendering recovery must preserve the transport ownership defined by [REQ-TERM-046](#req-term-046-visible-terminal-startup-connection).
 
 **Priority:** P0
 
-**Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty), [REQ-TERM-043](#req-term-043-visible-terminal-readiness-gating)
+**Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty), [REQ-TERM-043](#req-term-043-visible-terminal-readiness-gating), [REQ-TERM-046](#req-term-046-visible-terminal-startup-connection)
 
 **Verification:** Automated: [session-wire-protocol.test.js](../../host/__tests__/session-wire-protocol.test.js), [Terminal.test.tsx](../../web-ui/src/__tests__/components/Terminal.test.tsx), [xterm-internals.test.ts](../../web-ui/src/__tests__/lib/xterm-internals.test.ts)
 
@@ -578,16 +605,18 @@ None.
 
 **Acceptance Criteria:**
 
-1. Exactly one virtual MultiView workspace can exist, and it is composed only from existing running or initializing sessions. <!-- @impl: web-ui/src/stores/terminal-workspace.ts::MULTIVIEW_ID --> <!-- @test: web-ui/src/__tests__/stores/terminal-workspace.test.ts (terminalWorkspaceStore visible pane ownership) -->
+1. Exactly one virtual MultiView workspace can exist. Its members are existing terminal sessions that are initializing or have a mounted lifecycle; stopped, errored and VS Code sessions are excluded. <!-- @impl: web-ui/src/stores/terminal-workspace.ts::MULTIVIEW_ID --> <!-- @test: web-ui/src/__tests__/stores/terminal-workspace.test.ts (terminalWorkspaceStore visible pane ownership) -->
 2. Desktop MultiView accepts two to four member sessions; tablet MultiView accepts exactly two; mobile cannot launch MultiView. <!-- @impl: web-ui/src/stores/terminal-workspace.ts::getMultiViewCapacity --> <!-- @test: web-ui/src/__tests__/stores/terminal-workspace.test.ts (terminalWorkspaceStore visible pane ownership) -->
-3. MultiView never appears as a normal Dashboard session card; when saved panes exist, Dashboard exposes an icon-only MultiView action beside the new-session button. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 (session limit popup in frontend)) -->
+3. MultiView never appears as a normal Dashboard session card. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-TERM-012: keeps MultiView virtual and opens it from the dashboard icon action) -->
 4. Opening MultiView renders one connected terminal surface for each selected backend session: internal terminal `1` for a Herdr member, or the selected classic terminal for a classic member, following each session's immutable terminal mode. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (REQ-TERM-012: renders one connected terminal pane for each visible MultiView member) -->
-5. Workspace switches preserve MultiView membership while reconciling connections to visible panes. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/stores/terminal-workspace.test.ts (terminalWorkspaceStore visible pane ownership) -->
+5. Workspace switches preserve MultiView membership. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/stores/terminal-workspace.test.ts (terminalWorkspaceStore visible pane ownership) -->
+6. When saved panes exist, Dashboard exposes an icon-only MultiView action beside the new-session button. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-TERM-012: keeps MultiView virtual and opens it from the dashboard icon action) -->
 
 **Constraints:**
 
 - MultiView is frontend workspace state and must not be sent to backend session lifecycle, terminal route validation, storage, quota, or metrics APIs as a real session ID.
 - MultiView membership is local browser state unless a future requirement adds cross-browser workspace sync.
+- Workspace switches reconcile connections to visible panes under [REQ-TERM-011](#req-term-011-visible-terminal-panes-own-websocket-connections) AC3–AC4.
 
 **Priority:** P1
 
@@ -640,9 +669,9 @@ None.
 
 1. A terminal following the bottom remains at the bottom while output exceeds the scrollback cap. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-TERM-014: re-anchors a bottom-following terminal when scrollback trimming displaces it) -->
 2. Any registered user-scroll intent establishes manual viewport ownership until the viewport returns to the live bottom, regardless of continuing output. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (useScrollCorrection / REQ-TERM-014 terminal scroll anchoring) -->
-3. Manual normal-buffer ownership defers streamed output; returning to bottom releases it progressively, and renewed upward scrolling defers the remainder. <!-- @impl: web-ui/src/stores/terminal-output.ts::flushWriteBuffer --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-014 AC3: defers streamed output while the user owns the viewport and flushes on bottom return) --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-014 AC3: releases the hold in bounded slices and re-defers when the reader scrolls up mid-release) -->
+3. Manual normal-buffer ownership defers streamed output; returning to bottom releases it progressively, and renewed upward scrolling defers the remainder. <!-- @impl: web-ui/src/stores/terminal-output.ts::flushWriteBuffer --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-014 AC3: defers streamed output while the user owns the viewport and flushes on bottom return) --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-014 AC3: releases the hold in bounded slices and re-defers when the reader scrolls up mid-release) --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-014 AC5: a cap-exceeding hold drops oldest chunks and never writes through a reader) -->
 4. Returning a manually owned viewport to the live bottom releases that ownership and restores bottom following for later output. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-TERM-014 AC1/AC2: returning to bottom releases manual ownership and restores bottom following) -->
-5. Output held past the cap discards oldest whole atomic units, including an individually over-cap unit rather than retaining it; held output is never written while manual ownership is active. <!-- @impl: web-ui/src/stores/terminal-output.ts::flushWriteBuffer --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-014 AC5: a cap-exceeding hold drops oldest chunks and never writes through a reader) -->
+5. Output held past the cap discards oldest whole atomic units, including any individually over-cap unit. <!-- @impl: web-ui/src/stores/terminal-output.ts::flushWriteBuffer --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-014 AC5: a cap-exceeding hold drops oldest chunks and never writes through a reader) -->
 6. User input of any route while reading normal-buffer scrollback re-anchors the viewport to the live bottom; alternate-buffer applications are unaffected. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-014 AC6: user input while reading scrollback re-anchors the viewport to the live bottom) -->
 7. Mouse-wheel scrollback navigation in the normal buffer moves the viewport by exactly the wheel delta; alternate-buffer and zoom-modified wheel events pass through to the application untouched. <!-- @impl: web-ui/src/lib/terminal-wheel.ts::attachWheelScrolling --> <!-- @test: web-ui/src/__tests__/lib/terminal-wheel.test.ts (terminal-wheel / REQ-TERM-014 AC7 buffer-authoritative wheel scrolling) -->
 
@@ -651,7 +680,7 @@ None.
 - The write buffer defers, drops oldest held data, or writes; it never scrolls the viewport.
 - Output-driven trimming stays delegated to xterm.
 - Navigation and anchoring scroll the buffer service with paired repaint; `scrollOnUserInput` stays disabled; refits retaining reader position re-command DOM scroll state ([AD105](../../documentation/decisions/README.md#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input), [AD110](../../documentation/decisions/README.md#ad110-terminal-scrolling-is-buffer-authoritative-on-every-route-held-output-ring-drops)).
-- Held output caps at 2,000,000 characters (oldest whole chunks dropped past it); bottom-return release is bounded to 65,536 characters per tick, re-checking ownership between ticks.
+- Held output caps at 2,000,000 characters (oldest whole chunks dropped past it); bottom-return release targets 65,536 characters per tick. The last whole atomic unit may exceed that target; ownership is rechecked between ticks.
 - Alternate-buffer output never defers — fullscreen applications own their history and have no scrollback to read.
 - A zero display offset during full-buffer trimming is valid xterm behavior, not evidence of a browser reset.
 - The short intent window correlates input (touch, pointer drags, floating-button navigation) with its first scroll event and never expires persistent manual ownership.
@@ -680,7 +709,8 @@ None.
 3. An unterminated or oversize frame fails open within the configured stall timeout and size ceiling instead of deferring output indefinitely. <!-- @impl: web-ui/src/lib/terminal-frames.ts::createFrameAssembler --> <!-- @impl: web-ui/src/stores/terminal-output.ts::flushWriteBuffer --> <!-- @test: web-ui/src/__tests__/lib/terminal-frames.test.ts (REQ-TERM-021 AC3: a stalled frame fails open after the stall timeout, not before) --> <!-- @test: web-ui/src/__tests__/lib/terminal-frames.test.ts (REQ-TERM-021 AC3: a frame exceeding the size ceiling fails open immediately) --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-021 AC3: a stalled partial frame fails open through the flush tick after the stall timeout) -->
 4. The read-hold, held-output cap, and bounded release operate on whole atomic units: a synchronized frame held for a reading user releases in one write and is never split by the release budget. <!-- @impl: web-ui/src/stores/terminal-output.ts::flushWriteBuffer --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-021 AC4: a held synchronized frame releases whole through the read-hold, never split) -->
 5. Re-anchoring to the live bottom when the buffer already reports bottom restores output-follow and re-commands the viewport scroll state without repainting. <!-- @impl: web-ui/src/lib/xterm-internals.ts::scrollBufferToBottom --> <!-- @test: web-ui/src/__tests__/lib/xterm-internals.test.ts (REQ-TERM-021 AC5: repairs stale scroll state at the nominal bottom instead of no-opping) -->
-6. A partially assembled frame never survives a WebSocket stream boundary; queued complete units are superseded by the host's authoritative restore on reconnectable closes and painted once on final closes. <!-- @impl: web-ui/src/stores/terminal.ts::handleWebSocketClose --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-021 AC6: a partially assembled frame does not survive a WebSocket stream boundary) --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-021 AC6: a final close paints already-complete units once and drops the partial frame) -->
+6. A partially assembled frame never survives a WebSocket stream boundary. <!-- @impl: web-ui/src/stores/terminal.ts::handleWebSocketClose --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-021 AC6: a partially assembled frame does not survive a WebSocket stream boundary) --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-021 AC6: a final close paints already-complete units once and drops the partial frame) -->
+7. Queued complete units are superseded by the host's authoritative restore on reconnectable closes and painted once on final closes. <!-- @impl: web-ui/src/stores/terminal.ts::handleWebSocketClose --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-SESSION-012 AC7 / REQ-TERM-003: delivered 1011 backs off, restores the same terminal and accepts fresh input/output) --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-021 AC6: a final close paints already-complete units once and drops the partial frame) -->
 
 **Constraints:**
 
@@ -709,7 +739,7 @@ None.
 
 1. A forward the container rejects ends the upgrade with a retryable close rather than propagating the error, so the client's reconnect backoff governs the retry rate. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (resolves with a WebSocket close instead of propagating the container reject) -->
 
-**Constraints:** A rejected forward is treated as reachable-again-later, matching the unanswered forward: only the recorded session status may declare a session authoritatively over, so a transient failure cannot strand a user whose container is healthy.
+**Constraints:** Rejected and unanswered forwards remain retryable; only recorded session status can declare the session over.
 
 **Priority:** P0
 
@@ -723,14 +753,14 @@ None.
 
 ### REQ-TERM-015: Focused Pane Owns URL Detection
 
-**Intent:** Browser URL detection must belong to the focused connected terminal pane so stale panes cannot clear the active pane's detected URL.
+**Intent:** Browser URL detection belongs to the eligible focused terminal pane so stale panes cannot clear the active pane's detected URL.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Starting URL detection records the owning session and terminal id for the focused connected pane. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal-url-detection.ts::startUrlDetection --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (URL detection lifecycle / REQ-TERM-015) -->
-2. Cleanup stops URL detection only for the same owning session and terminal id. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal-url-detection.ts::stopUrlDetection --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-015: stops URL detection for only the unmounted pane on cleanup) -->
+1. Starting URL detection records the owning session and terminal id for the focused, initialized, connection-eligible pane. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal-url-detection.ts::startUrlDetection --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (URL detection lifecycle / REQ-TERM-015) -->
+2. Cleanup stops URL detection only for the same owning session and terminal id. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal-url-detection.ts::stopUrlDetection --> <!-- @test: web-ui/src/__tests__/stores/terminal-url-detection.test.ts (REQ-TERM-015: keeps the focused pane scanner when an older pane cleans up) -->
 
 **Constraints:**
 
@@ -817,7 +847,8 @@ None.
 **Acceptance Criteria:**
 
 1. Reopening an existing MultiView opens the same virtual workspace rather than creating another MultiView. <!-- @impl: web-ui/src/components/SessionSwitcher.tsx::SessionSwitcher --> <!-- @test: web-ui/src/__tests__/components/SessionSwitcher.test.tsx (SessionSwitcher) -->
-2. Closing an existing MultiView from the session switcher deactivates the virtual workspace and closes the dropdown. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @impl: web-ui/src/components/Layout.tsx::handleCloseMultiView --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-TERM-013: deactivates existing MultiView and closes the dropdown from the row close button) -->
+2. Closing an existing MultiView from the session switcher deactivates its virtual workspace. <!-- @impl: web-ui/src/components/Layout.tsx::handleCloseMultiView --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-TERM-012: deactivates MultiView through the Layout-owned header callback) -->
+3. The MultiView row close control dismisses the session-switcher dropdown. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-TERM-013: deactivates existing MultiView and closes the dropdown from the row close button) -->
 
 **Constraints:**
 
@@ -828,7 +859,7 @@ None.
 
 **Dependencies:** [REQ-TERM-013](#req-term-013-multiview-selection-flow)
 
-**Verification:** Automated: [SessionDropdown.test.tsx](../../web-ui/src/__tests__/components/SessionDropdown.test.tsx), [SessionSwitcher.test.tsx](../../web-ui/src/__tests__/components/SessionSwitcher.test.tsx)
+**Verification:** Automated: [SessionDropdown.test.tsx](../../web-ui/src/__tests__/components/SessionDropdown.test.tsx), [SessionSwitcher.test.tsx](../../web-ui/src/__tests__/components/SessionSwitcher.test.tsx), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx)
 
 **Status:** Implemented
 
@@ -851,7 +882,8 @@ None.
 **Constraints:**
 
 - Herdr mode is selected only by `HERDR_ENV=1`; managed producers invoke `/usr/local/bin/codeflare-agent-event` rather than inner OSC 777.
-- The helper and Bearer-protected loopback ingress accept only `input-required`, in an enum-only request for terminal ID `1`. Completion/failure state belongs to the Herdr status monitor, not this helper ingress.
+- The helper and Bearer-protected loopback ingress accept only `input-required`, in an enum-only request for terminal ID `1`.
+- Completion and failure state belong to the Herdr status monitor, not this helper ingress.
 - Prompts, output, paths, credentials, arbitrary display text, user activity, and terminal content never cross or are logged by ingress.
 
 **Priority:** P1
@@ -876,8 +908,8 @@ None.
 2. The parser rejects reads, malformed data, unsupported selectors, and invalid UTF-8. <!-- @impl: web-ui/src/lib/osc52.ts::parseOsc52ClipboardWrite --> <!-- @test: web-ui/src/__tests__/lib/osc52.test.ts (rejects query, selector, malformed, or invalid UTF-8 payload %s) -->
 3. The parser rejects decoded content above the fixed byte limit. <!-- @impl: web-ui/src/lib/osc52.ts::parseOsc52ClipboardWrite --> <!-- @test: web-ui/src/__tests__/lib/osc52.test.ts (rejects decoded content above the fixed byte limit) -->
 4. Herdr sessions forward accepted OSC 52 writes to the browser clipboard even when the separate desktop right-click paste setting is disabled, because Herdr copy is an explicit user action. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-032: writes Herdr OSC 52 copy output even when desktop paste access is disabled) -->
-5. Classic sessions do not install the Herdr clipboard-write handler. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @manual: In integration, send the same clipboard control sequence to classic and confirm no browser clipboard write occurs. -->
-6. `Ctrl+V` or `Cmd+V` reads clipboard text during the browser key gesture and pastes it into the active terminal. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (pastes browser clipboard text through xterm on Ctrl+V) -->
+5. Herdr clipboard-write handling does not apply to Classic sessions. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @manual: In integration, send the same clipboard control sequence to classic and confirm no browser clipboard write occurs. -->
+6. `Ctrl+V` or `Cmd+V` pastes retained rejected clipboard text when available; otherwise it reads the browser clipboard during the key gesture and pastes the result into the active terminal. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (pastes browser clipboard text through xterm on Ctrl+V) -->
 
 **Constraints:**
 
@@ -910,7 +942,7 @@ None.
 4. Held-button mouse movement operates the addressed Herdr control. <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @test: web-ui/src/__tests__/lib/herdr-mouse.test.ts (encodes held-button movement and ignores movement without an active press) -->
 5. Mouse wheels navigate the addressed Herdr control. <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @test: web-ui/src/__tests__/lib/herdr-mouse.test.ts (encodes wheel navigation and modifier-aware right clicks) -->
 6. With the keyboard closed or open, a stationary touch activates the addressed Herdr control exactly once. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @impl: web-ui/src/lib/herdr-mouse.ts::sendHerdrTap --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-020 AC1: forwards one deterministic tap and suppresses compatibility mouse events) --> <!-- @test: web-ui/src/__tests__/lib/herdr-mouse.test.ts (sends a touch tap as one press/release pair at one computed cell) --> <!-- @manual: On Samsung Internet with the keyboard closed and open, tap Pi input and Herdr controls and confirm each activates once. -->
-7. Vertical touch swipes send proportional wheel steps to Herdr and stop at release. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC1-AC2: routes proportional Herdr wheel steps without inertia) -->
+7. With the keyboard closed, vertical touch swipes send proportional wheel steps to Herdr and stop at release. With the keyboard open, a vertical swipe sends one arrow-key sequence. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC1-AC2: routes proportional Herdr wheel steps without inertia) -->
 
 **Constraints:**
 
@@ -935,9 +967,10 @@ None.
 
 **Acceptance Criteria:**
 
-1. In a Herdr session, `Ctrl+B` sends Herdr's canonical control prefix and suppresses the browser's conflicting bookmark action. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-037 AC1-AC2: sends the canonical Herdr prefix and leaves its action key to xterm) -->
+1. In a Herdr session, `Ctrl+B` sends Herdr's canonical control prefix. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-037 AC1-AC2: sends the canonical Herdr prefix and leaves its action key to xterm) -->
 2. Herdr continues to own action interpretation after the prefix, including managed Help at `prefix+?` and Settings at `prefix+s`. <!-- @impl: image/herdr/config.toml::keys --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-037 AC1-AC2: sends the canonical Herdr prefix and leaves its action key to xterm) --> <!-- @manual: Container-image CI validates the managed bindings with the pinned Herdr binary. -->
 3. Classic sessions and unrelated modified keys retain existing xterm keyboard handling. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-037 AC3: preserves classic and unrelated modified key handling) -->
+4. In a Herdr session, `Ctrl+B` suppresses the browser's conflicting bookmark action. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-037 AC1-AC2: sends the canonical Herdr prefix and leaves its action key to xterm) --> <!-- @manual: REQ-TERM-037 procedure -->
 
 **Constraints:**
 
@@ -991,7 +1024,7 @@ None.
 **Acceptance Criteria:**
 
 1. The next trusted floating Paste control pastes the latest retained rejected text exactly once into the active terminal. <!-- @impl: web-ui/src/lib/osc52.ts::retainFailedClipboardWrite --> <!-- @impl: web-ui/src/components/FloatingTerminalButtons.tsx::pasteFromClipboard --> <!-- @test: web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx (REQ-TERM-041: retries a rejected OSC 52 copy during trusted paste and pastes retained text) -->
-2. The same trusted Paste control retries writing the latest retained text to the browser clipboard. <!-- @impl: web-ui/src/lib/osc52.ts::beginClipboardWrite --> <!-- @impl: web-ui/src/components/FloatingTerminalButtons.tsx::pasteFromClipboard --> <!-- @test: web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx (REQ-TERM-041: retries a rejected OSC 52 copy during trusted paste and pastes retained text) -->
+2. The same trusted Paste control retries writing the latest retained text to the browser clipboard. <!-- @impl: web-ui/src/components/FloatingTerminalButtons.tsx::pasteFromClipboard --> <!-- @test: web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx (REQ-TERM-041: retries a rejected OSC 52 copy during trusted paste and pastes retained text) -->
 3. An older rejected write cannot replace newer retained clipboard state. <!-- @impl: web-ui/src/lib/osc52.ts::retainFailedClipboardWrite --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (does not retain an older failed write after a newer write succeeds) -->
 
 **Constraints:**
@@ -1055,7 +1088,7 @@ None.
 **Acceptance Criteria:**
 
 1. Exact reviewed Pi or Claude OSC 777 frames from terminal one create fixed four-field events; malformed, oversized, unknown, near-match, and non-primary-terminal frames create no event and never alter PTY bytes. <!-- @impl: host/src/agent-events.ts::OscAgentEventParser --> <!-- @impl: host/src/session.ts::Session --> <!-- @test: host/__tests__/agent-events.test.js (REQ-TERM-023 AC1 / H1: bounded stream-safe OSC 777 parser) --> <!-- @test: host/__tests__/session-wire-protocol.test.js (REQ-TERM-023 AC1 / REQ-TERM-028 AC1-AC4: Session owns primary-terminal event coordination) -->
-2. Every attached client submits one event-specific disposition; any initial or granted-client late `suppress` cancels local display and undelivered fallback for that event. <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @impl: host/src/terminal-ws.ts::attachTerminalConnectionHandler --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: host/__tests__/agent-events.test.js (lets one active client suppress every device before any display grant) --> <!-- @test: host/__tests__/agent-events.test.js (accepts a late suppress from the granted client and never makes the event drain-eligible) --> <!-- @test: host/__tests__/terminal-agent-events.test.js (cannot use a socket attached to another Session to affect the originating queue) --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-023 AC2: submits late suppression when presence changes during display) --> <!-- @manual -->
+2. Attached clients submit event-specific dispositions. Initial or granted-client late suppression cancels undelivered fallback and confirmation; cancellation during notification-worker lookup does not prevent the later local display call. <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @impl: host/src/terminal-ws.ts::attachTerminalConnectionHandler --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: host/__tests__/agent-events.test.js (lets one active client suppress every device before any display grant) --> <!-- @test: host/__tests__/agent-events.test.js (accepts a late suppress from the granted client and never makes the event drain-eligible) --> <!-- @test: host/__tests__/terminal-agent-events.test.js (cannot use a socket attached to another Session to affect the originating queue) --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-023 AC2: submits late suppression when presence changes during display) --> <!-- @manual -->
 3. When every snapshotted client reports away, the host grants one local display; only the grantee displays and confirms, and absent confirmation enables fallback. <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @impl: web-ui/src/lib/agent-notifications.ts::showGrantedAgentEvent --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: host/__tests__/agent-events.test.js (grants exactly one display only after every snapshotted client reports away) --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (REQ-TERM-023 AC3/AC5: granted local display) --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (native agent notifications / REQ-TERM-023 AC2/AC3) --> <!-- @manual -->
 4. Zero-client and timed-out events enter the authenticated DO drain and remain re-offered while retained, until processed, acknowledged, or expired after 15 minutes. <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: host/__tests__/agent-events.test.js (REQ-TERM-023 AC2-AC4 / H2-H3: global client coordination) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-TERM-023 AC4 / D2-D4: drains, validates, enriches, sends, then ACK-clears on every running tick) --> <!-- @manual -->
 5. Every notification contains fixed reason text plus trusted Session identity; terminal or agent prose, names, paths, output, tool data, and arbitrary links never reach display. <!-- @impl: web-ui/src/lib/agent-notifications.ts::showGrantedAgentEvent --> <!-- @impl: src/lib/push-sender.ts::sendAgentEventPushes --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (REQ-TERM-023 AC3/AC5: granted local display) --> <!-- @test: src/__tests__/lib/push-sender.test.ts (sends only the fixed seven-field payload enriched from the DO-owned Session) --> <!-- @manual -->
@@ -1121,13 +1154,14 @@ None.
 4. Disabling deletes the server registration before unsubscribing locally. <!-- @impl: web-ui/src/lib/agent-notifications.ts::setAgentNotificationsEnabled --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (disables by deleting server capability then unsubscribing locally) --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (REQ-TERM-025 AC4: pending or failed server deletion retains the local subscription) --> <!-- @manual -->
 5. Denied permission reads denied, while granted permission without a valid subscription reads off. <!-- @impl: web-ui/src/lib/agent-notifications.ts::agentNotificationsEnabled --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (reads on only when permission is granted and a valid subscription exists) --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (does not subscribe or save after permission denial) --> <!-- @manual -->
 6. Settings omits the notification control when the authenticated sender-config route reports that notification delivery is not configured. <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel --> <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (Agent notifications / REQ-TERM-025 AC1-AC6) --> <!-- @manual -->
-7. Pending enable/disable is visibly and accessibly indicated and ignores repeated gestures. Only successful enrollment or removal changes the switch. Failures permit retry without exposing raw errors or misidentifying activation/server failures as unsupported browsers; denied-permission and iOS installation guidance remain intact. <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel --> <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (reports pending enable, ignores duplicates, and waits for success before switching on) --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (allows retry after %s without blaming browser support or leaking errors) --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (retains enrollment after %s disable, then allows retry) --> <!-- @manual -->
+7. Only successful enrollment or removal changes the Settings switch value. <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (reports pending enable, ignores duplicates, and waits for success before switching on) --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (retains enrollment after %s disable, then allows retry) --> <!-- @manual -->
 
 **Constraints:**
 
 - Browser permission is per origin and browser profile.
 - Codeflare stores only the vendor Push subscription.
 - The ten-second activation deadline never races native subscription creation or authenticated writes.
+- [REQ-TERM-047](#req-term-047-notification-settings-feedback-and-retry) owns pending feedback, duplicate admission and retry guidance.
 
 **Priority:** P1
 
@@ -1147,9 +1181,9 @@ None.
 
 **Acceptance Criteria:**
 
-1. Invalid, unknown, or unsafe notification payloads produce no display. <!-- @impl: web-ui/public/agent-notifications-sw.js::push --> <!-- @test: web-ui/src/__tests__/lib/agent-notification-worker.test.ts (REQ-TERM-027 AC1-AC2 / REQ-SEC-024 AC4: agent notification service worker push) -->
+1. Invalid, unknown, or unsafe notification payloads produce no display, including unknown versions and absolute or noncanonical session paths. <!-- @impl: web-ui/public/agent-notifications-sw.js::parsePushPayload --> <!-- @test: web-ui/src/__tests__/lib/agent-notification-worker.test.ts (REQ-TERM-027 AC1-AC2 / REQ-SEC-024 AC4: agent notification service worker push) --> <!-- @manual -->
 2. Receiving the same identifiable event again visibly presents the notification again. <!-- @impl: web-ui/public/agent-notifications-sw.js::push --> <!-- @test: web-ui/src/__tests__/lib/agent-notification-worker.test.ts (REQ-TERM-027 AC1-AC2 / REQ-SEC-024 AC4: agent notification service worker push) --> <!-- @manual -->
-3. Notification clicks select only a loaded user-owned session at the canonical same-origin session path. <!-- @impl: web-ui/src/lib/session-path.ts::parseSessionPath --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/public/agent-notifications-sw.js::notificationclick --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-TERM-027 AC3: canonical session deep links) --> <!-- @test: web-ui/src/__tests__/lib/agent-notification-worker.test.ts (REQ-TERM-027 AC3: canonical notification click navigation) --> <!-- @manual -->
+3. Notification clicks select only a loaded user-owned session at its canonical same-origin path; noncanonical or cross-origin click targets never navigate. <!-- @impl: web-ui/src/lib/session-path.ts::parseSessionPath --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/public/agent-notifications-sw.js::notificationclick --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-TERM-027 AC3: canonical session deep links) --> <!-- @test: web-ui/src/__tests__/lib/agent-notification-worker.test.ts (REQ-TERM-027 AC3: canonical notification click navigation) --> <!-- @manual -->
 
 **Constraints:**
 
@@ -1234,7 +1268,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Herdr mode snapshots every recognized Pi or Claude pane across tabs and splits. <!-- @impl: host/src/herdr-agent-status.ts::HerdrAgentStatusMonitor --> <!-- @test: host/__tests__/herdr-agent-status.test.js (subscribes to every Herdr agent and waits until all panes are ready) -->
+1. Herdr mode snapshots valid recognized Pi or Claude pane rows across tabs and splits; malformed recognized-agent rows can be omitted. <!-- @impl: host/src/herdr-agent-status.ts::HerdrAgentStatusMonitor --> <!-- @test: host/__tests__/herdr-agent-status.test.js (subscribes to every Herdr agent and waits until all panes are ready) -->
 2. The host subscribes to each pane's public `pane.agent_status_changed` event. <!-- @impl: host/src/herdr-agent-status.ts::HerdrAgentStatusMonitor --> <!-- @test: host/__tests__/herdr-agent-status.test.js (subscribes to every Herdr agent and waits until all panes are ready) -->
 3. The initial aggregate status establishes a baseline and never produces completion by itself. <!-- @impl: host/src/herdr-agent-status.ts::HerdrCompletionDelay --> <!-- @impl: host/src/herdr-agent-status.ts::HerdrAgentStatusMonitor --> <!-- @test: host/__tests__/herdr-agent-status.test.js (does not notify from an initial idle snapshot or while blocked/unknown) -->
 4. Any `working` pane cancels queued completion events without cancelling input-required events. <!-- @impl: host/src/herdr-agent-status.ts::HerdrCompletionDelay --> <!-- @impl: host/src/herdr-agent-status.ts::HerdrAgentStatusMonitor --> <!-- @impl: host/src/session.ts::Session --> <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @test: host/__tests__/herdr-agent-status.test.js (subscribes to every Herdr agent and waits until all panes are ready) --> <!-- @test: host/__tests__/agent-events.test.js (working status cancels queued completion without cancelling needs-input) -->
@@ -1243,7 +1277,7 @@ None.
 **Constraints:**
 
 - Herdr remains an unmodified pinned binary; only its packaged public socket schema is consumed.
-- Malformed, oversized, unavailable, or interrupted API streams fail closed and reconnect.
+- Malformed outer frames, oversized, unavailable or interrupted API streams fail closed and reconnect. A valid snapshot envelope may omit malformed recognized-agent rows and initialize aggregation from its remaining rows.
 - Browser messages never expose the Herdr socket path or pane identifier.
 
 **Priority:** P1
@@ -1279,6 +1313,31 @@ None.
 **Dependencies:** [REQ-TERM-023](#req-term-023-away-only-agent-notification-delivery), [REQ-TERM-031](#req-term-031-herdr-notification-compatibility-boundary), [REQ-TERM-038](#req-term-038-herdr-semantic-status-owns-completion-readiness)
 
 **Verification:** Automated: [herdr-agent-status.test.js](../../host/__tests__/herdr-agent-status.test.js), [agent-notifications.test.ts](../../web-ui/src/__tests__/lib/agent-notifications.test.ts), [agent-notification-worker.test.ts](../../web-ui/src/__tests__/lib/agent-notification-worker.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-TERM-047: Notification Settings feedback and retry
+
+**Intent:** Users can distinguish pending enrollment, recoverable failure and unsupported or blocked device states without submitting duplicate changes.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Pending notification enable or disable is visibly and accessibly indicated. <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (reports pending enable, ignores duplicates, and waits for success before switching on) --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (retains enrollment after %s disable, then allows retry) -->
+2. Pending enrollment or removal ignores repeated gestures. <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (reports pending enable, ignores duplicates, and waits for success before switching on) -->
+3. Enrollment and removal failures allow retry without exposing raw errors or presenting activation or server failures as unsupported browsers. <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (allows retry after %s without blaming browser support or leaking errors) --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (retains enrollment after %s disable, then allows retry) -->
+4. Settings retains denied-permission guidance and iOS Home Screen installation guidance where applicable. <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (marks unavailable iOS browser tabs with Home Screen install guidance) --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (keeps the switch off after denial and does not report successful enrollment) --> <!-- @manual -->
+
+**Constraints:** Feedback grants no enrollment authority; the switch value follows [REQ-TERM-025](#req-term-025-per-device-notification-enrollment) AC7.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-TERM-025](#req-term-025-per-device-notification-enrollment)
+
+**Verification:** Automated: [SettingsPanel.test.tsx](../../web-ui/src/__tests__/components/SettingsPanel.test.tsx); Manual: [Notification device and deployment acceptance](../../documentation/lanes/security.md#notification-device-and-deployment-acceptance)
 
 **Status:** Implemented
 
@@ -1326,12 +1385,16 @@ None.
 3. ACTIVE and IDLE are never persisted or inferred for another device; devices may differ while agreeing on backend lifecycle. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @impl: web-ui/src/stores/terminal.ts::terminalStore --> <!-- @test: web-ui/src/__tests__/components/workspace-lifecycle.test.tsx (REQ-TERM-045 AC3: local ACTIVE/IDLE never changes persisted workspace or shared lifecycle) -->
 4. Backend `starting`, `unreachable` and `stopping` render yellow STARTING, UNREACHABLE and STOPPING presentation respectively; `stopped` renders gray. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @impl: web-ui/src/lib/session-presentation.ts::terminalPresentation --> <!-- @test: web-ui/src/__tests__/components/workspace-lifecycle.test.tsx (retains rendered UNREACHABLE through a failed read and rejects old stop evidence before recovery) -->
 5. During `unreachable`, terminal objects, tabs and tiling remain mounted with bounded-jitter retries. Reattachment resets local buffer/scrollback, restores the authoritative host snapshot and returns to the live bottom; prior selection and viewport position are not retained. <!-- @impl: web-ui/src/stores/terminal.ts::connect --> <!-- @impl: web-ui/src/stores/terminal-workspace.ts::terminalWorkspaceStore --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (REQ-SESSION-012 AC3 / TERM-045 AC5: retains the same rendered panes through unreachable and recovery) --> <!-- @manual: Terminal snapshot restoration acceptance -->
-6. Client countdown expiry cannot declare stopped or dispose terminal/workspace state. Disposal requires newer authoritative `stopping`/`stopped` or successful deletion evidence. No recovery-countdown display is required. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @impl: web-ui/src/stores/session.ts::sessionStore --> <!-- @test: web-ui/src/__tests__/components/workspace-lifecycle.test.tsx (expires the rendered idle timer without inventing stopped lifecycle) -->
-7. Status-read failure retains the last accepted ordered view and mounted workspace. The Dashboard presents a distinct accessible status-unavailable notice; no additional active-terminal notice is required. <!-- @impl: web-ui/src/stores/session.ts::sessionStore --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-SESSION-010/029: %s announces unavailable status without replacing cards and clears on recovery) -->
+6. Client countdown expiry cannot declare stopped or dispose terminal/workspace state. Disposal requires newer authoritative `stopping`/`stopped` or successful deletion evidence. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @impl: web-ui/src/stores/session.ts::sessionStore --> <!-- @test: web-ui/src/__tests__/components/workspace-lifecycle.test.tsx (expires the rendered idle timer without inventing stopped lifecycle) -->
+7. Status-read failure retains the last accepted ordered view and mounted terminal workspace. <!-- @impl: web-ui/src/stores/session.ts::sessionStore --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-010/012/029: failed status reads retain workspace authority and expose unavailable until recovery) -->
 
 **Notes:** Component/store tests qualify local persistence and ordered workspace ownership; [snapshot acceptance](../../documentation/lanes/terminal-and-ide.md#terminal-snapshot-restoration-acceptance) separately observes the actual host/browser restoration boundary.
 
-**Constraints:** Classified input and idle timeout do not use ACTIVE/IDLE or socket presence as activity evidence.
+**Constraints:**
+
+- Classified input and idle timeout do not use ACTIVE/IDLE or socket presence as activity evidence.
+- No separate recovery-countdown display is required.
+- The Dashboard notice follows [REQ-SESSION-029](session-lifecycle.md#req-session-029-ordered-client-state-retains-last-good-authority) AC4; no additional active-terminal notice is required.
 
 **Priority:** P0
 
@@ -1359,13 +1422,13 @@ None.
 3. On the deployed worker, a user can open a terminal, enter and execute a command, observe its output, and navigate scrollback at supported phone and tablet viewport widths. <!-- @manual: On the deployed worker at supported phone and tablet viewport widths, open a terminal, execute a command that emits multiple screens of output, confirm the output renders, and navigate its scrollback. -->
 4. Terminal dimensions are recalculated on every viewport change (virtual keyboard open/close, orientation change, resize), keeping the layout free of visual corruption. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-MOB-021 AC2: fits the visible container after keyboard geometry changes) --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-MOB-010 AC1/AC2: fits after viewport resizing once keyboard refit finishes) -->
 5. The terminal layout recalculation is skipped when the terminal container has no visible height, preventing row calculation corruption on inactive terminals. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-MOB-001 AC5: skips the keyboard refit (no fit, no PTY resize) when the container has zero visible height) --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-MOB-001 AC5: skips the deferred font-ready refit when the container has zero visible height) -->
-6. Floating page controls navigate normal terminal scrollback through xterm's buffer scroll pipeline with buffer-derived deltas. <!-- @impl: web-ui/src/components/FloatingTerminalButtons.tsx::FloatingTerminalButtons --> <!-- @test: web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx (REQ-MOB-001 AC6: navigates normal-buffer pages through the buffer scroll pipeline) -->
+6. Floating page controls move normal scrollback relative to the active terminal buffer, not the browser scroll position. <!-- @impl: web-ui/src/components/FloatingTerminalButtons.tsx::FloatingTerminalButtons --> <!-- @test: web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx (REQ-MOB-001 AC6: navigates normal-buffer pages through the buffer scroll pipeline) -->
 7. Floating page controls send PageUp/PageDown input to navigate alternate-screen application history. <!-- @impl: web-ui/src/components/FloatingTerminalButtons.tsx::FloatingTerminalButtons --> <!-- @test: web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx (REQ-MOB-001 AC7: sends PageUp and PageDown to an alternate-screen application) -->
 
 **Constraints:**
 
 - Mobile-specific code paths activate only on touch devices.
-- Mobile keyboard and layout state is driven by browser events, not polling or timers.
+- Browser events drive keyboard geometry. Initial layout may use bounded frame retries and geometry changes may schedule debounced refits; continuous keyboard-state polling is excluded.
 
 **Priority:** P0
 
@@ -1387,16 +1450,17 @@ None.
 
 1. The virtual keyboard overlay is activated before terminal focus to prevent keyboard/layout race conditions. <!-- @impl: web-ui/src/lib/mobile.ts::enableVirtualKeyboardOverlay --> <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (mobile.ts / REQ-MOB-002 (virtual keyboard opens reliably on tap) / REQ-MOB-001 (mobile detection + visualViewport handling) / REQ-MOB-010 (visualViewport resize triggers terminal refit cadence)) -->
 2. The overlay mode is disabled on terminal exit so other inputs receive normal browser resizing. <!-- @impl: web-ui/src/lib/mobile.ts::disableVirtualKeyboardOverlay --> <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (mobile.ts / REQ-MOB-002 (virtual keyboard opens reliably on tap) / REQ-MOB-001 (mobile detection + visualViewport handling) / REQ-MOB-010 (visualViewport resize triggers terminal refit cadence)) -->
-3. Keyboard height changes are detected via the browser's VirtualKeyboard geometry change event. <!-- @impl: web-ui/src/lib/mobile.ts::getKeyboardHeight --> <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (mobile.ts / REQ-MOB-002 (virtual keyboard opens reliably on tap) / REQ-MOB-001 (mobile detection + visualViewport handling) / REQ-MOB-010 (visualViewport resize triggers terminal refit cadence)) -->
+3. Keyboard height follows browser geometry changes without polling. <!-- @impl: web-ui/src/lib/mobile.ts::getKeyboardHeight --> <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (mobile.ts / REQ-MOB-002 (virtual keyboard opens reliably on tap) / REQ-MOB-001 (mobile detection + visualViewport handling) / REQ-MOB-010 (visualViewport resize triggers terminal refit cadence)) -->
 4. Terminal height is reduced by the keyboard height so content is not obscured. <!-- @impl: web-ui/src/lib/mobile.ts::getKeyboardHeight --> <!-- @impl: web-ui/src/components/Terminal.tsx::TerminalInstance --> <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (mobile.ts / REQ-MOB-002 (virtual keyboard opens reliably on tap) / REQ-MOB-001 (mobile detection + visualViewport handling) / REQ-MOB-010 (visualViewport resize triggers terminal refit cadence)) -->
-5. Focus state detection uses a live browser query rather than a cached value. <!-- @impl: web-ui/src/lib/mobile.ts::isFocusOnTerminalInput --> <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (mobile.ts / REQ-MOB-002 (virtual keyboard opens reliably on tap) / REQ-MOB-001 (mobile detection + visualViewport handling) / REQ-MOB-010 (visualViewport resize triggers terminal refit cadence)) -->
+5. Keyboard ownership decisions use current browser focus, not a cached value. <!-- @impl: web-ui/src/lib/mobile.ts::isFocusOnTerminalInput --> <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (mobile.ts / REQ-MOB-002 (virtual keyboard opens reliably on tap) / REQ-MOB-001 (mobile detection + visualViewport handling) / REQ-MOB-010 (visualViewport resize triggers terminal refit cadence)) -->
 6. Terminal touch events cannot reach document listeners; outside touches remain unchanged, and cleanup removes the propagation shield. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)) -->
 
 **Constraints:**
 
 - The overlay mode is only re-stamped on genuine state changes; redundant no-op toggles must not restart the stale-event ignore window.
 - The stale-event ignore window applies only to genuine toggles.
-- The touch-propagation shield must run in bubble phase so the capture-phase swipe/scroll handlers ([REQ-MOB-005](#req-mob-005-swipe-gestures-send-arrow-keys-or-scroll)) always execute first; `stopPropagation` (never `preventDefault`) is required so the browser's tap→click synthesis keeps working.
+- Run the touch-propagation shield in bubble phase after [REQ-MOB-005](#req-mob-005-swipe-gestures-send-arrow-keys-or-scroll)'s capture-phase swipe/scroll handlers.
+- Use `stopPropagation`, never `preventDefault`, and preserve browser tap-to-click synthesis.
 
 **Priority:** P0
 
@@ -1416,7 +1480,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. An isolated compositor context prevents the Android IME native caret from appearing outside the terminal bounds. <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::setupMobileInput --> <!-- @manual -->
+1. The Android IME native caret stays inside the terminal bounds. <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::setupMobileInput --> <!-- @manual -->
 2. Autocorrect is suppressed at the OS level on mobile. <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::setupMobileInput --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-MOB-016 AC2: swaps a textarea created during terminal.open() for a password input and restores createElement afterward) -->
 
 **Constraints:**
@@ -1435,21 +1499,19 @@ None.
 
 ### REQ-MOB-003: Samsung Internet keyboard viewport state
 
-**Intent:** Samsung Internet's `geometrychange` event is unreliable (stale-event cache, viewport inflation from bottom nav bar). Viewport state must be filtered and compensated so the terminal lays out correctly under Samsung devices.
+**Intent:** Compensate for Samsung Internet's bottom navigation viewport inflation without losing the pre-keyboard height reference. [REQ-MOB-024](#req-mob-024-samsung-stale-keyboard-geometry-filter) owns stale-event filtering.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Stale keyboard-geometry events (cached from previous toggles) are ignored within a 50ms window after the overlay state actually changes. <!-- @impl: web-ui/src/lib/mobile.ts::enableVirtualKeyboardOverlay --> <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (mobile.ts / REQ-MOB-002 (virtual keyboard opens reliably on tap) / REQ-MOB-001 (mobile detection + visualViewport handling) / REQ-MOB-010 (visualViewport resize triggers terminal refit cadence)) -->
-2. The stale-event ignore window is only restamped on genuine overlay state changes; no-op calls do not restart it. <!-- @impl: web-ui/src/lib/mobile.ts::enableVirtualKeyboardOverlay --> <!-- @impl: web-ui/src/lib/mobile.ts::disableVirtualKeyboardOverlay --> <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (mobile.ts / REQ-MOB-002 (virtual keyboard opens reliably on tap) / REQ-MOB-001 (mobile detection + visualViewport handling) / REQ-MOB-010 (visualViewport resize triggers terminal refit cadence)) -->
-3. Samsung's bottom-navigation-bar viewport inflation is compensated so keyboard height is calculated correctly. <!-- @impl: web-ui/src/lib/mobile.ts::getKeyboardHeight --> <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (getKeyboardHeight - Samsung compensation / REQ-MOB-003 (Samsung keyboard viewport state)) -->
-4. The pre-keyboard viewport height reference is immutable after initialization, except on Galaxy Fold screen-switch events (large delta with keyboard closed). <!-- @impl: web-ui/src/lib/mobile.ts::baselineInnerHeight --> <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (mobile.ts / REQ-MOB-002 (virtual keyboard opens reliably on tap) / REQ-MOB-001 (mobile detection + visualViewport handling) / REQ-MOB-010 (visualViewport resize triggers terminal refit cadence)) -->
-5. The pre-keyboard viewport height reference is never updated during keyboard close or any keyboard-state-reset path. <!-- @impl: web-ui/src/lib/mobile.ts::baselineInnerHeight --> <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (mobile.ts / REQ-MOB-002 (virtual keyboard opens reliably on tap) / REQ-MOB-001 (mobile detection + visualViewport handling) / REQ-MOB-010 (visualViewport resize triggers terminal refit cadence)) -->
+1. Samsung's bottom-navigation-bar viewport inflation is compensated so keyboard height is calculated correctly. <!-- @impl: web-ui/src/lib/mobile.ts::getKeyboardHeight --> <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (getKeyboardHeight - Samsung compensation / REQ-MOB-003 (Samsung keyboard viewport state)) -->
+2. The pre-keyboard viewport height reference is immutable after initialization, except on Galaxy Fold screen-switch events (large delta with keyboard closed). <!-- @impl: web-ui/src/lib/mobile.ts::baselineInnerHeight --> <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (mobile.ts / REQ-MOB-002 (virtual keyboard opens reliably on tap) / REQ-MOB-001 (mobile detection + visualViewport handling) / REQ-MOB-010 (visualViewport resize triggers terminal refit cadence)) -->
+3. The pre-keyboard viewport height reference is never updated during keyboard close or any keyboard-state-reset path. <!-- @impl: web-ui/src/lib/mobile.ts::baselineInnerHeight --> <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (mobile.ts / REQ-MOB-002 (virtual keyboard opens reliably on tap) / REQ-MOB-001 (mobile detection + visualViewport handling) / REQ-MOB-010 (visualViewport resize triggers terminal refit cadence)) -->
 
 **Constraints:**
 
-- Samsung Internet Browser requires a separate detection path.
+- Samsung Internet Browser requires a separate detection path; apply [REQ-MOB-024](#req-mob-024-samsung-stale-keyboard-geometry-filter) to overlay geometry events.
 - State recovery + UI configuration concerns live in [REQ-MOB-011](#req-mob-011-samsung-internet-keyboard-state-recovery).
 
 **Priority:** P1
@@ -1457,6 +1519,29 @@ None.
 **Dependencies:** [REQ-MOB-002](#req-mob-002-virtual-keyboard-opens-reliably-on-tap)
 
 **Verification:** Automated: [SettingsPanel.test.tsx](../../web-ui/src/__tests__/components/SettingsPanel.test.tsx), [mobile.test.ts](../../web-ui/src/__tests__/lib/mobile.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-MOB-024: Samsung stale keyboard geometry filter
+
+**Intent:** Ignore cached geometry events following a real Samsung Internet overlay transition without swallowing fresh events after repeated no-op calls.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Stale keyboard-geometry events (cached from previous toggles) are ignored within a 50ms window after the overlay state actually changes. <!-- @impl: web-ui/src/lib/mobile.ts::enableVirtualKeyboardOverlay --> <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (mobile.ts / REQ-MOB-002 (virtual keyboard opens reliably on tap) / REQ-MOB-001 (mobile detection + visualViewport handling) / REQ-MOB-010 (visualViewport resize triggers terminal refit cadence)) -->
+2. The stale-event ignore window is only restamped on genuine overlay state changes; no-op calls do not restart it. <!-- @impl: web-ui/src/lib/mobile.ts::enableVirtualKeyboardOverlay --> <!-- @impl: web-ui/src/lib/mobile.ts::disableVirtualKeyboardOverlay --> <!-- @test: web-ui/src/__tests__/lib/mobile-ac-coverage.test.ts (REQ-MOB-002 AC1: enableVirtualKeyboardOverlay does NOT restamp ignore window on repeated calls (constraint)) -->
+
+**Constraints:** Samsung Internet uses its separate detection path.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-MOB-002](#req-mob-002-virtual-keyboard-opens-reliably-on-tap)
+
+**Verification:** Automated: [mobile.test.ts](../../web-ui/src/__tests__/lib/mobile.test.ts), [mobile-ac-coverage.test.ts](../../web-ui/src/__tests__/lib/mobile-ac-coverage.test.ts)
 
 **Status:** Implemented
 
@@ -1481,7 +1566,7 @@ None.
 **Constraints:**
 
 - Post-write handling cannot override xterm's native anchor, including when it reaches zero.
-- Frontend xterm scrollback is limited to 5000 lines, and agent-side virtual scrolling is disabled. <!-- @impl: web-ui/src/hooks/useTerminal.ts::initializeTerminal = 5000 -->
+- Frontend xterm scrollback is limited to 5000 lines, and agent-side virtual scrolling is disabled. <!-- @impl: web-ui/src/hooks/useTerminal.ts::scrollback = 5000 -->
 - The host headless renderer retains 1000 lines. <!-- @impl: host/src/session.ts::Session -->
 - Output deferral and its held-output cap are specified in [REQ-TERM-014](#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming) AC3.
 - The keyboard-transition correction + user-anchoring behavior live in [REQ-MOB-012](#req-mob-012-scroll-anchoring-during-keyboard-transitions).
@@ -1506,10 +1591,10 @@ None.
 
 1. Horizontal swipe gestures (left/right) send arrow-key escape sequences to the terminal. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)) -->
 2. While the finger is held, arrow-key sends auto-repeat at roughly twelve times per second. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)) -->
-3. Touch event handlers are registered in capture phase to ensure cleanup runs before xterm's internal gesture handling. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)) -->
+3. Touch cleanup runs before terminal gesture handling and is not skipped if that handling stops event propagation. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)) -->
 4. The repeat is always cleared when the finger lifts or the touch is cancelled. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)) -->
 5. When the keyboard is closed and terminal scrollback is active, vertical swipes scroll that buffer directly. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (scrolls the buffer on vertical swipe when keyboard is closed) -->
-6. Scroll sensitivity scales with the terminal's font metrics so a swipe travels the same number of lines on different font sizes. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (should scroll proportionally to finger movement including threshold distance) -->
+6. Classic converts accumulated swipe distance into whole-line steps according to the terminal's font metrics. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (should scroll proportionally to finger movement including threshold distance) -->
 7. When the keyboard is open, vertical swipes send arrow keys while horizontal swipes remain available, regardless of any fullscreen application wheel capture. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-005 AC7: keyboard-open vertical swipes send arrow keys even under fullscreen wheel tracking) -->
 
 **Constraints:**
@@ -1641,7 +1726,7 @@ None.
 **Acceptance Criteria:**
 
 1. A floating Ctrl button is visible on mobile when the terminal keyboard is open. <!-- @impl: web-ui/src/components/FloatingTerminalButtons.tsx::FloatingTerminalButtons --> <!-- @test: web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx (FloatingTerminalButtons / REQ-MOB-006 (sticky Ctrl button)) -->
-2. Tapping the Ctrl button enters a "sticky" state where the next key press is sent as a Ctrl-modified sequence. <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::activateStickyCtrl --> <!-- @test: web-ui/src/__tests__/lib/terminal-mobile-input.test.ts (sticky Ctrl / REQ-MOB-006 (sticky Ctrl button state machine)) -->
+2. Tapping the Ctrl button enters a sticky state for up to five seconds; the next key press while active is sent as a Ctrl-modified sequence. <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::activateStickyCtrl --> <!-- @impl: web-ui/src/components/FloatingTerminalButtons.tsx::FloatingTerminalButtons --> <!-- @test: web-ui/src/__tests__/lib/terminal-mobile-input.test.ts (sticky Ctrl / REQ-MOB-006 (sticky Ctrl button state machine)) -->
 3. Common sequences (Ctrl+C for interrupt, Ctrl+D for EOF) work correctly via the sticky Ctrl mechanism. <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::resolveKeyAction --> <!-- @test: web-ui/src/__tests__/lib/terminal-mobile-input.test.ts (returns SIGINT sequence (Ctrl+C = 0x03) when no selection) -->
 4. The Ctrl button state resets after one modified key press (single-use sticky behavior). <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::deactivateStickyCtrl --> <!-- @test: web-ui/src/__tests__/lib/terminal-mobile-input.test.ts (sticky Ctrl / REQ-MOB-006 (sticky Ctrl button state machine)) -->
 5. The Ctrl button does not interfere with normal text input when not activated. <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::resolveKeyAction --> <!-- @test: web-ui/src/__tests__/lib/terminal-mobile-input.test.ts (sticky Ctrl / REQ-MOB-006 (sticky Ctrl button state machine)) -->
@@ -1670,7 +1755,7 @@ None.
 **Acceptance Criteria:**
 
 1. Voice input uses the browser's Web Speech API where available. <!-- @impl: web-ui/src/lib/speech-input.ts::isSpeechSupported --> <!-- @test: web-ui/src/__tests__/lib/speech-input.test.ts (speech-input / REQ-MOB-007 (voice input via Web Speech API)) -->
-2. Voice input is completely decoupled from the keyboard/iframe input system. <!-- @impl: web-ui/src/lib/speech-input.ts::startListening --> <!-- @test: web-ui/src/__tests__/lib/speech-input.test.ts (speech-input / REQ-MOB-007 (voice input via Web Speech API)) -->
+2. Voice capture and delivery work without keyboard input or terminal-input focus. <!-- @impl: web-ui/src/lib/speech-input.ts::startListening --> <!-- @test: web-ui/src/__tests__/lib/speech-input.test.ts (speech-input / REQ-MOB-007 (voice input via Web Speech API)) -->
 3. On mobile, a floating microphone button starts recognition. <!-- @impl: web-ui/src/components/FloatingTerminalButtons.tsx::FloatingTerminalButtons --> <!-- @test: web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx (REQ-MOB-013 AC1: dismisses the mobile keyboard before speech may issue a first prompt when permission state is unknown) -->
 4. Each activation captures one utterance; recognition auto-deactivates after the user pauses. <!-- @impl: web-ui/src/lib/speech-input.ts::startListening --> <!-- @test: web-ui/src/__tests__/lib/speech-input.test.ts (configures recognition with correct defaults) --> <!-- @test: web-ui/src/__tests__/lib/speech-input.test.ts (onend resets listening state and calls onEnd callback) -->
 5. Final transcribed text is sent to the terminal as keyboard input. <!-- @impl: web-ui/src/lib/speech-input.ts::startListening --> <!-- @test: web-ui/src/__tests__/lib/speech-input.test.ts (speech-input / REQ-MOB-007 (voice input via Web Speech API)) -->
@@ -1702,10 +1787,10 @@ None.
 
 1. The terminal cursor is enabled and displays as a blinking bar. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (initializeTerminal creates Terminal with correct options) -->
 2. Cursor colors match the Codeflare theme palette. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @manual -->
-3. No CSS rules hide the terminal cursor elements. <!-- @manual -->
+3. Application styling does not hide the native terminal cursor. <!-- @manual -->
 4. The cursor is not hidden in alternate buffer mode; only explicit DECTCEM hide sequences from the connected agent suppress it. <!-- @impl: web-ui/src/hooks/useTerminal.ts::DECTCEM_CURSOR_PARAM --> <!-- @manual: In each supported agent, enter and exit the alternate buffer and confirm the cursor remains visible until an explicit DECTCEM hide sequence. -->
 5. No double-cursor duplication occurs between the terminal's native cursor and the agent's ANSI cursor on supported agent versions. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @manual -->
-6. The isolated compositor context for the Android IME caret remains in place as a precaution, separate from the terminal cursor layer. <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::setupMobileInput --> <!-- @manual -->
+6. Android IME caret isolation under [REQ-MOB-016](#req-mob-016-mobile-terminal-input-compositor-and-autocorrect-controls) does not change native terminal cursor visibility. <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::setupMobileInput --> <!-- @manual -->
 
 **Constraints:**
 
@@ -1732,7 +1817,7 @@ None.
 **Acceptance Criteria:**
 
 1. On visibility return, focus restoration first resets all keyboard-state signals and re-enables the virtual-keyboard overlay before refocusing the input. <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::setupMobileInput --> <!-- @manual -->
-2. A document-visibility handler in the layout shell triggers the same keyboard-state reset as a fallback when focus-restore does not fire. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Visibility Return Keyboard Reset / REQ-MOB-009 (visibility-return keyboard recovery)) -->
+2. Returning to the visible document resets the same keyboard state even if focus restoration never fires. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Visibility Return Keyboard Reset / REQ-MOB-009 (visibility-return keyboard recovery)) -->
 3. The keyboard-state reset is unconditional because cached browser geometry is stale on resume. <!-- @impl: web-ui/src/lib/mobile.ts::forceResetKeyboardState --> <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (REQ-MOB-001 AC4: should reset signals and re-sync baseline when keyboard is closed (boundingRect.height=0)) -->
 4. On Samsung, the dashboard bounce ([REQ-MOB-011](#req-mob-011-samsung-internet-keyboard-state-recovery)) replaces focus-based recovery. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Samsung: bounces through dashboard on visibility return to reset keyboard state) -->
 5. On Samsung, the virtual-keyboard overlay re-enable is delayed enough on visibility return that stale browser keyboard-geometry events arrive inside the ignore window. <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::setupMobileInput --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Visibility Return Keyboard Reset / REQ-MOB-009 (visibility-return keyboard recovery)) -->
@@ -1763,7 +1848,8 @@ None.
 **Acceptance Criteria:**
 
 1. Backgrounding on a coarse-pointer device permanently retires the decorative WebGL canvas. <!-- @impl: web-ui/src/components/SplashCursor.tsx::SplashCursor --> <!-- @test: web-ui/src/__tests__/components/SplashCursor.test.tsx (REQ-MOB-018 AC1: retires a coarse-pointer canvas when the page is backgrounded) -->
-2. WebGL context loss retires the canvas on any device and leaves the app root's dark CSS surface visible. <!-- @impl: web-ui/src/components/SplashCursor.tsx::SplashCursor --> <!-- @impl: web-ui/src/index.css::#root --> <!-- @test: web-ui/src/__tests__/components/SplashCursor.test.tsx (REQ-MOB-018 AC2: context loss permanently retires the canvas without requesting restoration) --> <!-- @manual -->
+2. WebGL context loss permanently retires the canvas on any device. <!-- @impl: web-ui/src/components/SplashCursor.tsx::SplashCursor --> <!-- @test: web-ui/src/__tests__/components/SplashCursor.test.tsx (REQ-MOB-018 AC2: context loss permanently retires the canvas without requesting restoration) -->
+3. After WebGL context loss, the app root's dark CSS surface remains visible. <!-- @impl: web-ui/src/index.css::#root --> <!-- @manual -->
 
 **Constraints:**
 
@@ -1788,17 +1874,17 @@ None.
 **Acceptance Criteria:**
 
 1. After a completed keyboard refit, viewport resizing fits the terminal to its visible container. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-MOB-010 AC1/AC2: fits after viewport resizing once keyboard refit finishes) -->
-2. While a keyboard refit is in flight, the viewport resize observer is suppressed so the two paths do not contend. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-MOB-010 AC2: suppresses competing fits while a keyboard refit is pending) -->
-3. With the keyboard open on mobile, the buffer scrolls to the bottom after every refit so new output remains visible. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (keyboard height refit) -->
+2. A viewport resize cannot trigger a competing fit while keyboard refit is in progress. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-MOB-010 AC2: suppresses competing fits while a keyboard refit is pending) -->
+3. While the mobile keyboard is open, a keyboard-height refit scrolls the buffer to the bottom. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-MOB-021 AC2: fits the visible container after keyboard geometry changes) -->
 4. Without the keyboard open (desktop or mobile), scroll-to-bottom only runs when the user was already at the bottom; scrollback position is preserved otherwise. <!-- @impl: web-ui/src/stores/terminal-layout.ts::refitAllTerminalsExported --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (useTerminal hook) --> <!-- @test: web-ui/src/__tests__/stores/terminal-layout.test.ts (REQ-MOB-010 AC4: refitting a scrolled terminal preserves its visible history) -->
-5. While the keyboard is open, the resize observer does not force scroll-to-bottom; the keyboard-height-change handler owns that. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (useTerminal hook) -->
-6. A refit that produces unchanged dimensions does not send a resize message to the container. <!-- @impl: web-ui/src/stores/terminal-layout.ts::refitAllTerminalsExported --> <!-- @test: web-ui/src/__tests__/stores/terminal-layout.test.ts (REQ-MOB-010 AC6: unchanged-dimensions skip resize message) -->
+5. With the keyboard open, viewport resize alone does not snap to the bottom. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (useTerminal hook) -->
+6. The shared layout refit does not send a resize message when dimensions are unchanged. The terminal ResizeObserver and the Herdr visibility repaint use separate resize paths. <!-- @impl: web-ui/src/stores/terminal-layout.ts::refitAllTerminalsExported --> <!-- @test: web-ui/src/__tests__/stores/terminal-layout.test.ts (does NOT send a resize message when fit() leaves cols/rows unchanged) -->
 7. A visible Herdr terminal restores a current fitted surface when the document returns from hidden state. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (forces a repaint and same-size PTY resize when a hidden page becomes visible) -->
 
 **Constraints:**
 
-- The keyboard-refit gate is implemented so cleanup cannot leave it stuck on after a cancelled refit.
-- The write callback owns bottom-anchoring during keyboard-open output; no other path competes for that decision.
+- Cleanup after a cancelled keyboard refit clears the refit gate.
+- Keyboard refits and activation own explicit mobile bottom anchoring. Output writes do not reposition the viewport; generic correction is suppressed while a touch keyboard is open ([REQ-TERM-008](#req-term-008-write-batching-at-30fps), [REQ-MOB-012](#req-mob-012-scroll-anchoring-during-keyboard-transitions)).
 
 **Priority:** P1
 
@@ -1843,14 +1929,14 @@ None.
 
 1. Samsung's back-button keyboard dismiss is intercepted; all keyboard-state signals are reset on that event. <!-- @impl: web-ui/src/lib/mobile.ts::forceResetKeyboardState --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (Samsung focusout keyboard dismiss (Fix 1) / REQ-MOB-011 (Samsung keyboard state recovery)) -->
 2. Samsung browser resume uses an automatic dashboard bounce (deactivate then reactivate the session after a brief delay) to reset the unreliable keyboard compositor state. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Visibility Return Keyboard Reset / REQ-MOB-009 (visibility-return keyboard recovery)) -->
-3. Samsung's address-bar position is configured via a user-settings toggle because no browser API exposes it. <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel --> <!-- @impl: web-ui/src/components/settings/AppearanceSection.tsx::AppearanceSection --> <!-- @impl: web-ui/src/lib/mobile.ts::getKeyboardHeight --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (should show Samsung section when Samsung browser) -->
+3. Samsung's address-bar position is configured via a user-settings toggle because no browser API exposes it. <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel --> <!-- @impl: web-ui/src/components/settings/AppearanceSection.tsx::AppearanceSection --> <!-- @impl: web-ui/src/lib/mobile.ts::getKeyboardHeight --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (should show Samsung section when Samsung browser) --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (should toggle Samsung address bar setting off when clicked) --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (should load Samsung address bar setting from localStorage) -->
 
 **Notes:** Samsung Internet manual verification checklist lives in [documentation/lanes/terminal-and-ide.md](../../documentation/lanes/terminal-and-ide.md#samsung-internet-quirks).
 
 **Constraints:**
 
-- Samsung session re-initialisation requires a brief delay between deactivation and reactivation for cleanup effects to settle.
-- Samsung input resume does not auto-focus the terminal; the keyboard stays closed until the user taps, to avoid stale keyboard-geometry events.
+- Samsung session re-initialisation briefly waits between deactivation and reactivation for cleanup to settle.
+- Samsung input resume does not auto-focus the terminal; the keyboard stays closed until the user taps.
 
 **Priority:** P1
 
@@ -1870,7 +1956,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Batched output delegates every output-driven scrollback shift to xterm and performs no write-side correction. <!-- @impl: web-ui/src/stores/terminal-output.ts::flushWriteBuffer --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-014 AC3: writes batched output without viewport correction when $name) -->
+1. Batched output leaves native terminal scrollback shifts intact without a separate write-side position correction. <!-- @impl: web-ui/src/stores/terminal-output.ts::flushWriteBuffer --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-014 AC3: writes batched output without viewport correction when $name) -->
 2. Opening the touch keyboard performs the established fit-and-bottom transition. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-MOB-021 AC2: fits the visible container after keyboard geometry changes) -->
 3. Generic viewport correction remains inactive while the touch keyboard is open. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-MOB-012 AC3: freezes correction-owned viewport movement while the touch keyboard is open) -->
 4. Closing the touch keyboard hands viewport correction back to bottom-following mode. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-MOB-012 AC4: keyboard close hands viewport ownership back to bottom following) -->
@@ -1947,19 +2033,19 @@ None.
 
 ### REQ-MOB-014: Mobile background-surface focus isolation
 
-**Intent:** Hidden same-origin surfaces must not steal focus from an active mobile terminal.
+**Intent:** User-started Vault prewarm must preserve focus in an active mobile terminal.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Background same-origin surfaces that run while the keyboard is open do not blur the terminal input or dismiss the keyboard. <!-- @impl: web-ui/src/lib/vault-prewarm.ts::startVaultPrewarm --> <!-- @test: web-ui/src/__tests__/lib/vault-prewarm.test.ts (REQ-MOB-014 / REQ-VAULT-020: vault browser prewarm protocol) -->
-2. Vault browser prewarm remains eager but uses a focus-inert hidden document. <!-- @impl: src/lib/vault-view.ts::injectVaultPrewarmFocusGuard --> <!-- @test: src/__tests__/routes/vault-html-direct.test.ts (CF-045: vault-html direct unit tests) -->
-3. If a hidden iframe captures focus, the terminal/input focus is restored. <!-- @impl: web-ui/src/lib/vault-prewarm.ts::startVaultPrewarm --> <!-- @test: web-ui/src/__tests__/lib/vault-prewarm.test.ts (restores prior focus if the hidden prewarm iframe captures parent focus) -->
+1. User-started Vault prewarm while the keyboard is open does not blur terminal input or dismiss the keyboard; no general non-Vault background-surface guarantee is supplied. <!-- @impl: web-ui/src/lib/vault-prewarm.ts::startVaultPrewarm --> <!-- @test: web-ui/src/__tests__/lib/vault-prewarm.test.ts (REQ-MOB-014 / REQ-VAULT-020: vault browser prewarm protocol) -->
+2. On-demand Vault prewarm uses a focus-inert hidden document. <!-- @impl: src/lib/vault-view.ts::injectVaultPrewarmFocusGuard --> <!-- @test: src/__tests__/routes/vault-html-direct.test.ts (CF-045: vault-html direct unit tests) -->
+3. If the hidden Vault prewarm iframe captures focus, the terminal/input focus is restored. <!-- @impl: web-ui/src/lib/vault-prewarm.ts::startVaultPrewarm --> <!-- @test: web-ui/src/__tests__/lib/vault-prewarm.test.ts (restores prior focus if the hidden prewarm iframe captures parent focus) -->
 
 **Constraints:**
 
-- Background prewarm remains eager while the keyboard is open.
+- An open keyboard does not defer preparation explicitly started by the user under [REQ-VAULT-018](vault.md#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger). [AD84's clean cutover](../../documentation/decisions/README.md#ad84-retain-the-vault-sw-encryption-key-in-memory-neuter-the-proactive-flush-and-open-a-green-vault-button-directly) excludes automatic initial prewarm.
 
 **Priority:** P0
 
@@ -1979,7 +2065,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. A live focus query reports whether browser focus currently rests on a terminal input surface. Keyboard teardown must follow the [keyboard-ownership contract](../../documentation/lanes/terminal-and-ide.md#multi-pane-focus-handoff). <!-- @impl: web-ui/src/lib/mobile.ts::isFocusOnTerminalInput --> <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (reports focus resting on a terminal input iframe) -->
+1. Keyboard teardown uses current browser focus to determine whether a terminal input surface still owns it, following the [keyboard-ownership contract](../../documentation/lanes/terminal-and-ide.md#multi-pane-focus-handoff). <!-- @impl: web-ui/src/lib/mobile.ts::isFocusOnTerminalInput --> <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (reports focus resting on a terminal input iframe) -->
 2. When a terminal pane loses focus to a sibling terminal pane, the per-pane focus-loss cleanup does not disable the keyboard overlay or zero the keyboard signals, so the newly focused pane stays in keyboard mode. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::releaseKeyboardOnBlur --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (useTerminal hook) -->
 3. A Samsung back-button keyboard dismiss still zeroes keyboard state, but a pane-to-pane focus handoff does not. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (Samsung focusout keyboard dismiss (Fix 1) / REQ-MOB-011 (Samsung keyboard state recovery)) -->
 4. When focus leaves all terminal surfaces, the shared keyboard overlay and signals are released. Unmount releases them only when the retiring pane owns focus or no terminal input owns focus; a sibling-pane focus handoff preserves them. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::setupMobileInput --> <!-- @test: web-ui/src/__tests__/lib/terminal-mobile-input.test.ts (REQ-MOB-015 AC4: preserves shared keyboard state when a sibling pane owns focus) --> <!-- @test: web-ui/src/__tests__/lib/terminal-mobile-input.test.ts (REQ-MOB-015 AC4: retires shared keyboard state when no terminal input owns focus) -->

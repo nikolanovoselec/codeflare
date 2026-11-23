@@ -30,7 +30,11 @@ vi.mock('@cloudflare/containers', () => ({
 }));
 
 import githubRoutes from '../../routes/github';
+import githubAuthRoutes from '../../routes/github-auth';
+import { getValidGithubToken } from '../../lib/github-token';
 import { buildCloneTargets } from '../../lib/clone-targets';
+import { configureContainerDO } from '../../routes/container/lifecycle-init';
+import type { Logger } from '../../lib/logger';
 import { getContainer } from '@cloudflare/containers';
 
 const KEY = 'deploy-keys:test-bucket';
@@ -55,6 +59,7 @@ function createTestApp(env: Partial<Env>) {
     return next();
   });
   app.route('/api/github', githubRoutes);
+  app.route('/auth/github', githubAuthRoutes);
   return app;
 }
 function ok(json: unknown) {
@@ -112,12 +117,18 @@ describe('REQ-GITHUB-002 / REQ-GITHUB-007: GET /api/github/status', () => {
   });
 
   it('REQ-GITHUB-002: reports connected with login + source when a token exists', async () => {
-    mockKV._set(KEY, { githubToken: 'gho_x', githubTokenSource: 'app', githubLogin: 'octo' } satisfies DeployKeys);
+    mockKV._set(KEY, { githubToken: 'gho_status_private_canary', githubRefreshToken: 'ghr_status_private_canary', githubTokenSource: 'app', githubLogin: 'octo' } satisfies DeployKeys);
     const res = await createTestApp(ENT).request('/api/github/status');
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.connected).toBe(true);
     expect(body.login).toBe('octo');
     expect(body.source).toBe('app');
+    // Public status is a deliberately closed, non-secret wire schema.
+    expect(body).toEqual({ enabled: true, configured: true, connected: true, login: 'octo', source: 'app' });
+    for (const secret of ['gho_status_private_canary', 'ghr_status_private_canary']) {
+      expect(JSON.stringify([...res.headers])).not.toContain(secret);
+      expect(JSON.stringify(body)).not.toContain(secret);
+    }
   });
 });
 
@@ -329,6 +340,27 @@ describe('POST /api/github/clone', () => {
     expect(containerFetch).not.toHaveBeenCalled();
   });
 
+  it('REQ-GITHUB-319: an existing checkout is reported separately when tracking retries exhaust', async () => {
+    let checkout: string | undefined;
+    containerFetch.mockImplementationOnce(async () => {
+      checkout = '/home/user/workspace/repo';
+      return containerJson(200, { status: 'cloned', path: checkout });
+    });
+    // Model a persistently contended inventory at the D1 boundary, after the host completed.
+    const prepare = mockD1.prepare.bind(mockD1);
+    mockD1.prepare = (sql: string) => sql.includes('SET clones_json=')
+      ? { bind: () => ({ run: async () => ({ success: true, meta: { changes: 0 } }) }) } as unknown as D1PreparedStatement
+      : prepare(sql);
+    const result = await createTestApp(ENT).request('/api/github/clone', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repo: 'octo/repo', sessionId: SID }),
+    });
+    expect(checkout).toBe('/home/user/workspace/repo');
+    expect(result.status).toBe(409);
+    expect(await result.json()).toMatchObject({ code: 'CLONE_TRACKING_UNCONFIRMED' });
+    expect(await mockKV.get(`session:test-bucket:${SID}`, 'json')).not.toHaveProperty('clones');
+  });
+
   it('REQ-GITHUB-015 AC6: does not return clone success when session persistence fails', async () => {
     containerFetch.mockResolvedValueOnce(containerJson(200, { status: 'cloned', path: '/home/user/workspace/repo' }));
     mockKV.put.mockRejectedValue(new Error('KV unavailable'));
@@ -427,3 +459,103 @@ describe('POST /api/github/clone', () => {
     expect((await res.json() as Record<string, unknown>).code).toBe('NOT_RUNNING');
   });
 });
+
+it('REQ-GITHUB-002 AC2: lists accessible organization repositories across provider pages', async () => {
+  mockKV._set(KEY, { githubToken: 'gho_org_canary', githubTokenSource: 'oauth' } satisfies DeployKeys);
+  const first = Array.from({ length: 50 }, (_, i) => ({ full_name: `team/repo${i}`, name: `repo${i}`,
+    owner: { login: 'team' }, private: true, default_branch: 'trunk', updated_at: '2026-01-01T00:00:00Z' }));
+  const last = { ...first[0], full_name: 'another-team/final', name: 'final', owner: { login: 'another-team' } };
+  mockFetch.mockResolvedValueOnce(ok(first)).mockResolvedValueOnce(ok([last]));
+  const app = createTestApp(ENT);
+  for (const [page, upstream, hasMore] of [[1, first, true], [2, [last], false]] as const) {
+    const response = await app.request(`/api/github/repos?page=${page}`);
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toEqual({ page, hasMore, repos: upstream.map(repo => ({ ...repo, owner: repo.owner.login, visibility: 'private' })) });
+    expect(JSON.stringify(body)).not.toContain('gho_org_canary');
+    const [url, init] = mockFetch.mock.calls[page - 1];
+    const target = new URL(url);
+    expect(target.origin + target.pathname).toBe('https://api.github.com/user/repos');
+    expect(Object.fromEntries(target.searchParams)).toEqual({ sort: 'updated', per_page: '50', page: String(page),
+      affiliation: 'owner,collaborator,organization_member' });
+    expect(new Headers(init.headers).get('authorization')).toBe('Bearer gho_org_canary');
+  }
+});
+
+it('REQ-GITHUB-319 AC1+AC2: successful overflow clones persist only twenty candidates for the next restore', async () => {
+  const key = 'session:test-bucket:sid12345678';
+  const initial = await mockKV.get(key, 'json') as Record<string, unknown>;
+  const retained = Array.from({ length: 20 }, (_, i) => ({ repo: `team/r${String(i).padStart(2, '0')}` }));
+  mockKV._set(key, { ...initial, clones: retained });
+  const app = createTestApp(ENT);
+  // One sorts beyond the cap; the other displaces the previous last entry.
+  for (const repo of ['team/z-omitted', 'team/a-retained']) {
+    containerFetch.mockResolvedValueOnce(containerJson(200, { status: 'cloned', path: `/workspace/${repo.split('/')[1]}` }));
+    const response = await app.request('/api/github/clone', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repo, sessionId: 'sid12345678' }) });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: 'cloned', path: `/workspace/${repo.split('/')[1]}` });
+  }
+  const saved = await mockKV.get(key, 'json') as { clones: Array<{ repo: string }> };
+  const expected = [{ repo: 'team/a-retained' }, ...retained.slice(0, 19)];
+  expect(saved.clones).toEqual(expected);
+  expect(buildCloneTargets(saved.clones, undefined).split(' ')).toEqual(expected.map(item => item.repo));
+  expect(buildCloneTargets(saved.clones, undefined)).not.toContain('team/z-omitted');
+  expect(buildCloneTargets(saved.clones, undefined)).not.toContain('team/r19');
+  let resume: Request | undefined;
+  const container = { fetch: async (request: Request) => {
+    if (new URL(request.url).pathname === '/_internal/getBucketName') return Response.json({ bucketName: 'test-bucket' });
+    resume = request;
+    return new Response(null, { status: 409 });
+  } };
+  await configureContainerDO({ generation: 0, container, bucketName: 'test-bucket', sessionId: 'sid12345678',
+    userEmail: 'u@example.com', containerId: 'test-bucket-sid12345678', scopedCreds: { accessKeyId: 'ak', secretAccessKey: 'sk' },
+    r2Config: { accountId: 'account', endpoint: 'https://r2.example.test' },
+    tabConfig: [], terminalMode: 'classic', workspaceSyncEnabled: false, fastStartEnabled: false,
+    sessionMode: 'default', sessionWorkspace: 'terminal', sleepAfter: '30m', managedResourcePolicy: 'mutable',
+    gitCloneTargets: buildCloneTargets(saved.clones, undefined),
+    logger: { info() {}, warn() {}, error() {}, debug() {} } as unknown as Logger });
+  expect(resume?.method).toBe('POST');
+  expect(new URL(resume!.url).pathname).toBe('/_internal/setBucketName');
+  expect((await resume!.json() as { gitCloneTargets: string }).gitCloneTargets.split(' ')).toEqual(expected.map(item => item.repo));
+});
+
+it.each([['default', {}], ['saas', { SAAS_MODE: 'active' }], ['enterprise', ENT]] as const)(
+  'REQ-GITHUB-317 AC1+AC3: %s nonadvanced connection is additive and authentication guards every connection action', async (_mode, mode) => {
+    // A missing tier is pending in SaaS; exercise an active, nonadvanced user.
+    vi.mocked(authenticateRequest).mockResolvedValue({
+      user: { email: 'u@example.com', authenticated: true, role: 'user', subscriptionTier: 'free' },
+      bucketName: 'test-bucket',
+    });
+    const env = { ...mode, OAUTH_CLIENT_ID: 'oauth-cid', OAUTH_CLIENT_SECRET: 'oauth-sec', OAUTH_JWT_SECRET: 'state-secret' };
+    const app = createTestApp(env);
+    mockKV._set(KEY, { cloudflareApiToken: 'prior-cloudflare-grant', cloudflareAccountId: 'account' } satisfies DeployKeys);
+    const before = await mockKV.get(KEY);
+    const connect = await app.request('/api/github/connect');
+    expect(connect.status).toBe(302);
+    expect(await mockKV.get(KEY)).toBe(before);
+    const authorize = new URL(connect.headers.get('location')!);
+    const state = authorize.searchParams.get('state')!;
+    const callback = `/auth/github/connect/callback?code=code&state=${encodeURIComponent(state)}`;
+    for (const [path, method] of [['/api/github/connect', 'GET'], [callback, 'GET'], ['/api/github/disconnect', 'POST']]) {
+      vi.mocked(authenticateRequest).mockRejectedValueOnce(new AuthError('Authentication required'));
+      const denied = await app.request(path, { method });
+      expect(denied.status).toBe(path === callback ? 302 : 401);
+      if (path === callback) expect(denied.headers.get('location')).toContain('error=session-expired');
+      expect(await mockKV.get(KEY)).toBe(before);
+      expect(mockFetch).not.toHaveBeenCalled();
+    }
+    mockFetch.mockResolvedValueOnce(ok({ access_token: 'gho_added_grant' })).mockResolvedValueOnce(ok({ login: 'octo' }));
+    const connected = await app.request(callback);
+    expect(connected.status).toBe(302);
+    expect(connected.headers.get('location')).toContain('github=connected');
+    expect(connected.headers.get('set-cookie')).toBeNull();
+    expect(await getValidGithubToken({ KV: mockKV, ...env } as Env, 'test-bucket')).toBe('gho_added_grant');
+    expect(await mockKV.get(KEY, 'json')).toMatchObject({ cloudflareApiToken: 'prior-cloudflare-grant', cloudflareAccountId: 'account',
+      githubToken: 'gho_added_grant', githubLogin: 'octo' });
+    mockFetch.mockResolvedValueOnce(ok({}));
+    const disconnected = await app.request('/api/github/disconnect', { method: 'POST' });
+    expect(disconnected.status).toBe(200);
+    expect(await disconnected.json()).toEqual({ success: true });
+    expect(await mockKV.get(KEY, 'json')).toEqual({ cloudflareApiToken: 'prior-cloudflare-grant', cloudflareAccountId: 'account' });
+  });

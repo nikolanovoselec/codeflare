@@ -460,6 +460,35 @@ describe('REQ-AUTH-010: Auth bypass prevention sentinel', () => {
     expect(user.email).toBe('setup-admin@company.com');
   });
 
+  it('REQ-AUTH-010 AC1: successful empty reads stay permissive until populated config latches across later loss', async () => {
+    const env = makeEnv();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    const request = () => new Request('https://example.test/protected', {
+      headers: { 'cf-access-authenticated-user-email': 'setup@example.com' },
+    });
+    try {
+      expect(await getUserFromRequest(request(), env)).toEqual({ email: 'setup@example.com', authenticated: true });
+      clock.mockReturnValue(1_030_001);
+      expect(await getUserFromRequest(request(), env)).toEqual({ email: 'setup@example.com', authenticated: true });
+
+      mockKV._store.set('setup:auth_domain', 'team.cloudflareaccess.com');
+      mockKV._store.set('setup:access_aud', 'fixture-audience');
+      clock.mockReturnValue(1_060_002);
+      expect(await getUserFromRequest(request(), env)).toEqual({ email: '', authenticated: false });
+
+      mockKV._store.delete('setup:auth_domain');
+      mockKV._store.delete('setup:access_aud');
+      clock.mockReturnValue(1_360_003);
+      mockKV.get.mockRejectedValueOnce(new Error('synthetic config outage'));
+      await expect(getUserFromRequest(request(), env)).rejects.toThrow('synthetic config outage');
+      expect(await getUserFromRequest(request(), env)).toEqual({ email: '', authenticated: false });
+      clock.mockReturnValue(1_390_004);
+      expect(await getUserFromRequest(request(), env)).toEqual({ email: '', authenticated: false });
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   // REQ-AUTH-010 AC2/AC3: TTL expiry must not clear the lifetime latch.
   it.each(['missing', 'storage failure'] as const)('REQ-AUTH-010 AC2/AC3: rejects header trust after populated-cache expiry and %s refetch', async loss => {
     // First request: populate KV with real auth config so sentinel is set

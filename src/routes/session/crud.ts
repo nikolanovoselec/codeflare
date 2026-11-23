@@ -8,6 +8,7 @@ import { getContainer } from '@cloudflare/containers';
 import { AgentTypeSchema, resolveSessionWorkspace, resolveTerminalMode, type Env, type Session, type TerminalMode, type UserPreferences } from '../../types';
 import { getPreferencesKey, generateSessionId, sanitizeSessionName } from '../../lib/kv-keys';
 import { D1SessionRepository, type D1Session } from '../../lib/session-repository';
+import type { SessionStopRequest } from '../../container/container-lifecycle';
 import { fencePendingBoundaryStart } from './boundary-stop';
 import { AuthVariables } from '../../middleware/auth';
 import { createRateLimiter } from '../../middleware/rate-limit';
@@ -248,37 +249,30 @@ app.delete('/:id', sessionDeleteRateLimiter, async (c) => {
   const session = await repository.getSession(bucketName, sessionId);
   if (!session) throw new NotFoundError('Session not found');
 
-  const intentId = session.lifecycleState === 'stopping'
-    ? session.terminationIntentId
-    : crypto.randomUUID();
-  if (!intentId) throw new Error('Session delete ownership unavailable');
-  const claimed = session.lifecycleState === 'stopped' || session.lifecycleState === 'stopping'
-    ? session
-    : await repository.claimStop(bucketName, sessionId, intentId, new Date().toISOString());
-  if (!claimed) throw new Error('Session delete ownership unavailable');
-  await fencePendingBoundaryStart(c.env, repository, claimed);
-  const containerId = getContainerId(bucketName, sessionId);
-  const container = getContainer(c.env.CONTAINER, containerId);
-
-  // The DO's destroy() override drains a final R2 bisync while the container is
-  // still alive, BEFORE signalling stop (REQ-SESSION-011); the entrypoint trap
-  // is only a best-effort backstop. Destroy FIRST so a failure leaves the D1
-  // termination intent intact for retry/reconciliation.
-  try {
-    await container.destroy();
-    reqLogger.info('Destroyed container', { containerId });
-  } catch (err) {
-    reqLogger.warn('Could not confirm container destruction; preserving session for retry', {
-      containerId,
-      errorClass: 'native_destroy_failed',
-    });
-    throw err;
+  const generation = session.lifecycleGeneration;
+  if (session.lifecycleState === 'stopped') {
+    await fencePendingBoundaryStart(c.env, repository, session);
+  } else {
+    const containerId = getContainerId(bucketName, sessionId);
+    const container = getContainer(c.env.CONTAINER, containerId) as unknown as {
+      stopSession(input: SessionStopRequest): Promise<void>;
+    };
+    // The DO owns generation-fenced graceful teardown, including final sync.
+    try {
+      await container.stopSession({ bucket: bucketName, sessionId, generation });
+      reqLogger.info('Destroyed container', { containerId });
+    } catch (err) {
+      reqLogger.warn('Could not confirm container destruction; preserving session for retry', {
+        containerId,
+        errorClass: 'native_destroy_failed',
+      });
+      throw err;
+    }
   }
 
-  if (claimed.lifecycleState !== 'stopped' && !await repository.confirmStoppedOrObserved(
-    bucketName, sessionId, claimed.lifecycleGeneration, intentId, new Date().toISOString(),
-  )) throw new Error('Confirmed exit could not be persisted');
-  if (!await repository.deleteConfirmed(bucketName, sessionId)) throw new Error('Session exit is not confirmed');
+  if (!await repository.deleteConfirmed(bucketName, sessionId, generation)) {
+    throw new Error('Session exit is not confirmed');
+  }
 
   return c.json({ success: true, deleted: true, id: sessionId });
 });

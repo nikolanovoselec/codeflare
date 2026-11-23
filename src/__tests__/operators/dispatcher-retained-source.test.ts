@@ -1,5 +1,5 @@
 /// <reference types="@cloudflare/vitest-plugin/types" />
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { digest, fixture, genericWire, start, applicationWire, writableApplication } from './fixtures/dispatcher-production';
 
 const url = 'https://api.github.com/repos/another/service';
@@ -100,6 +100,40 @@ describe('REQ-OPERATOR-097: cached-only source receipt wire', () => {
     expect(await denied.json()).toMatchObject({ code: 'OPERATOR_CAPABILITY_DENIED', reason: 'receipt-unavailable' });
     expect(f.sent).toEqual(effects);
     expect(await (await f.capability.fetch(genericWire('receipt', { operationId }))).json()).toEqual(receipt);
+  }, { repositoryOnly: true }));
+
+  it('refuses retained bytes when the admitted deadline expires during digest verification', () => fixture(async f => {
+    await start(f);
+    expect((await f.capability.fetch(source())).status).toBe(200);
+    const receipt = await (await f.capability.fetch(genericWire('receipt', { operationId }))).json() as Receipt;
+    const beforeExpiry = await f.capability.fetch(request(receipt));
+    expect(beforeExpiry.status).toBe(200);
+    expect(await beforeExpiry.json()).toHaveProperty('sourceResponse.url', url);
+    const effects = [...f.sent];
+    let retainedBody: string | undefined;
+    await f.mutateEvidence(async storage => {
+      retainedBody = (await storage.get<{ body: string }>(`dispatcher:response:${operationId}`))?.body;
+    });
+    expect(retainedBody).toBeDefined();
+    const digestOriginal = crypto.subtle.digest.bind(crypto.subtle);
+    let expiredDuringDigest = false;
+    const hash = vi.spyOn(crypto.subtle, 'digest').mockImplementation(async (algorithm, data) => {
+      const result = await digestOriginal(algorithm, data);
+      if (data instanceof Uint8Array && new TextDecoder().decode(data) === retainedBody) {
+        f.expire();
+        expiredDuringDigest = true;
+      }
+      return result;
+    });
+    try {
+      const refusal = await f.capability.fetch(request(receipt));
+      expect(expiredDuringDigest).toBe(true);
+      expect(refusal.status).toBe(403);
+      expect(await refusal.json()).toMatchObject({ code: 'OPERATOR_CAPABILITY_DENIED' });
+      expect(f.sent).toEqual(effects);
+    } finally {
+      hash.mockRestore();
+    }
   }, { repositoryOnly: true }));
 
   it.each(['stale', 'cancelled', 'expired', 'session'] as const)(

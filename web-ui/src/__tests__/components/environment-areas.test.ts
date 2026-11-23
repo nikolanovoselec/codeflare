@@ -110,6 +110,12 @@ describe('Environment area summaries', () => {
     });
   });
 
+  it('REQ-SETUP-021 AC1: retained release tag takes summary precedence when managed environment is disabled', () => {
+    expect(managedEnvironmentArea({ configured: true, enabled: false, activeReleaseTag: 'seed-retained' })).toMatchObject({
+      summary: 'seed-retained', status: 'Configured',
+    });
+  });
+
   it('uses singular labels for one administrator and one user group', () => {
     const configuration: AdminConfigurationResponse = {
       mode: 'enterprise', revision: 1, applicableSections: ['access'], activeRunId: null, latest: {},

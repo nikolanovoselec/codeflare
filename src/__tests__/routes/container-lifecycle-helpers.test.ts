@@ -1,3 +1,4 @@
+import { D1SessionRepository } from '../../lib/session-repository';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Env, Session } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
@@ -371,6 +372,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       fetch: vi.fn(),
     };
     const baseParams = {
+      generation: 0,
       container: mockContainer,
       bucketName: 'test-bucket',
       sessionId: 'session1234',
@@ -525,14 +527,13 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
           cloudflareOauthAccountId: 'b'.repeat(32),
           deployKeys: { cloudflareAccountId: 'a'.repeat(32), cloudflareApiToken: 'codeflare-enterprise' },
         };
-        const result = await configureContainerDO(params);
-        expect(JSON.parse(result.setBucketBody)).toMatchObject({
+        await configureContainerDO(params);
+        const request = mockContainer.fetch.mock.calls.at(-1)![0] as Request;
+        expect(await request.json()).toMatchObject({
           cloudflareAccountId: 'a'.repeat(32),
           cloudflareApiToken: 'codeflare-enterprise',
           cloudflareOauthAccountId: 'b'.repeat(32),
         });
-        const request = mockContainer.fetch.mock.calls.at(-1)![0] as Request;
-        expect(await request.clone().json()).toMatchObject({ cloudflareOauthAccountId: 'b'.repeat(32) });
       },
     );
 
@@ -544,19 +545,16 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
           cloudflareOauthAccountId,
           deployKeys: { cloudflareAccountId: 'a'.repeat(32), cloudflareApiToken: 'codeflare-enterprise' },
         };
-        const result = await configureContainerDO(params);
-        const body = JSON.parse(result.setBucketBody);
-        expect(body).toMatchObject({ cloudflareOauthAccountId, cloudflareAccountId: 'a'.repeat(32) });
+        await configureContainerDO(params);
         const request = mockContainer.fetch.mock.calls.at(-1)![0] as Request;
-        expect(await request.clone().json()).toMatchObject({ cloudflareOauthAccountId });
+        expect(await request.json()).toMatchObject({ cloudflareOauthAccountId, cloudflareAccountId: 'a'.repeat(32) });
       }
     });
 
     it.each(['old-bucket', 'test-bucket'])(
       'REQ-AGENT-029: an old caller without OAuth metadata sends an authoritative clear for stored bucket %s', async storedBucket => {
         mockGetStoredBucketName.mockResolvedValue(storedBucket);
-        const result = await configureContainerDO(baseParams);
-        expect(JSON.parse(result.setBucketBody)).toHaveProperty('cloudflareOauthAccountId', null);
+        await configureContainerDO(baseParams);
         const request = mockContainer.fetch.mock.calls.at(-1)![0] as Request;
         expect(await request.clone().json()).toHaveProperty('cloudflareOauthAccountId', null);
       },
@@ -618,14 +616,13 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       fetch: vi.fn().mockResolvedValue(new Response('ok')),
       destroy: vi.fn().mockResolvedValue(undefined),
       getState: vi.fn().mockResolvedValue({ status: state }),
-      startAndWaitForPorts: vi.fn().mockResolvedValue(undefined),
+      startSession: vi.fn().mockResolvedValue(undefined),
     });
 
     const baseParams = (container: ReturnType<typeof createMockContainer>, overrides = {}) => ({
       container,
       needsBucketUpdate: false,
-      setBucketBody: '{}',
-      containerId: 'bucket-session1234',
+      expectedLifecycleGeneration: 0,
       sessionData: { id: 'session1234', userId: 'bucket', name: 'Test', status: 'stopped', createdAt: '2024-01-01T00:00:00Z' } as Session,
       sessionKey: 'session:bucket:session1234',
       env: { KV: mockKV as unknown as KVNamespace, USAGE_DB: createMockSessionD1(mockKV), } as Env,
@@ -635,16 +632,22 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       ...overrides,
     });
 
+    async function coldParams(container: ReturnType<typeof createMockContainer>, overrides = {}) {
+      const claim = await new D1SessionRepository(createMockSessionD1(mockKV)).start('bucket', 'session1234', new Date().toISOString(), 0);
+      return baseParams(container, { ...overrides, claimedGeneration: claim?.lifecycleGeneration });
+    }
+
     it('returns already_running when container is running and no bucket update needed', async () => {
       const container = createMockContainer('running');
+      mockKV._set('session:bucket:session1234', { id: 'session1234', status: 'running' });
       const result = await startOrRestartContainer(baseParams(container));
 
       expect(result.status).toBe('already_running');
       expect(container.destroy).not.toHaveBeenCalled();
-      expect(container.startAndWaitForPorts).not.toHaveBeenCalled();
+      expect(container.startSession).not.toHaveBeenCalled();
     });
 
-    it('destroys and restarts when running but bucket name changed', async () => {
+    it('refuses restart when a running runtime has no confirmed bucket binding', async () => {
       const container = createMockContainer('running');
       mockKV._set('session:bucket:session1234', {
         id: 'session1234', userId: 'bucket', name: 'Test', status: 'running',
@@ -655,15 +658,13 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
         sessionData: { id: 'session1234', userId: 'bucket', name: 'Test', status: 'running', createdAt: '2024-01-01T00:00:00Z' } as Session,
       });
 
-      const result = await startOrRestartContainer(params);
-
-      expect(container.destroy).toHaveBeenCalled();
-      expect(result.status).toBe('starting');
+      await expect(startOrRestartContainer(params)).rejects.toThrow('Session lifecycle moved');
+      expect(await mockKV.get('session:bucket:session1234', 'json')).toMatchObject({ status: 'running' });
     });
 
     it('kicks off background start when container is stopped', async () => {
       const container = createMockContainer('stopped');
-      const params = baseParams(container);
+      const params = await coldParams(container);
 
       const result = await startOrRestartContainer(params);
 
@@ -673,7 +674,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
 
     it('claims the D1 lifecycle as starting before process readiness', async () => {
       const container = createMockContainer('stopped');
-      const params = baseParams(container);
+      const params = await coldParams(container);
 
       await startOrRestartContainer(params);
 
@@ -688,7 +689,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
         editorReady: true, editorReadyError: true, createdAt: '2024-01-01T00:00:00Z',
       } as Session;
       mockKV._set('session:bucket:session1234', editorSession);
-      const params = baseParams(container, { sessionData: editorSession });
+      const params = await coldParams(container, { sessionData: editorSession });
 
       await startOrRestartContainer(params);
 
@@ -710,7 +711,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
 
       const stored = await mockKV.get('session:bucket:session1234', 'json') as Session;
       expect(stored).toMatchObject({ status: 'running', workspace: 'vscode', editorReady: true });
-      expect(container.startAndWaitForPorts).not.toHaveBeenCalled();
+      expect(container.startSession).not.toHaveBeenCalled();
     });
 
     it('does not invent stopped evidence when getState fails', async () => {
@@ -723,7 +724,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
 
     it('retains starting for bounded reconciliation when startAndWaitForPorts throws', async () => {
       const container = createMockContainer('stopped');
-      container.startAndWaitForPorts.mockRejectedValue(new Error('Container crashed'));
+      container.startSession.mockRejectedValue(new Error('Container crashed'));
 
       // Seed the session in KV so the rollback can read it
       mockKV._set('session:bucket:session1234', {
@@ -733,7 +734,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
         createdAt: '2024-01-01T00:00:00Z',
       });
 
-      const params = baseParams(container);
+      const params = await coldParams(container);
       // Use a waitUntil that awaits the promise so we can verify the rollback
       const capturedPromises: Promise<void>[] = [];
       params.waitUntil = vi.fn((p: Promise<void>) => {
@@ -752,7 +753,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
 
     it('handles KV rollback failure gracefully (does not throw)', async () => {
       const container = createMockContainer('stopped');
-      container.startAndWaitForPorts.mockRejectedValue(new Error('Container crashed'));
+      container.startSession.mockRejectedValue(new Error('Container crashed'));
 
       // Seed the session in KV
       mockKV._set('session:bucket:session1234', {
@@ -762,7 +763,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
         createdAt: '2024-01-01T00:00:00Z',
       });
 
-      const params = baseParams(container);
+      const params = await coldParams(container);
 
       // Make KV.put fail during rollback (after the initial read succeeds)
       const originalPut = mockKV.put;

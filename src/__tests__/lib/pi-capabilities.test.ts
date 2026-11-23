@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import capabilityExtension from '../../../preseed/agents/pi/extensions/capability';
 import toolExposureFinalizer from '../../../preseed/agents/pi/extensions/zz-tool-exposure-finalizer';
+import { attachConfiguredContextMode, CONTEXT_MODE_PACKAGE } from '../../../preseed/agents/pi/extensions/context-mode-runtime';
 import capabilityHelpersExtension, {
   activateRegisteredTools,
   activationGroup,
@@ -172,7 +173,6 @@ const rankingCandidates: SearchMatch[] = [
   { kind: 'tool', name: 'get_subagent_result', description: 'Check a background specialist' },
   { kind: 'tool', name: 'steer_subagent', description: 'Steer a background specialist' },
   { kind: 'tool', name: 'noise', description: 'Utility. Repository architecture appears in an unrelated example.' },
-  { kind: 'tool', name: 'goal_wait', description: 'Wait for Goal progress' },
   { kind: 'skill', name: 'vault-note-capture', description: 'Capture and save notes in Vault', filePath: '/fixture/vault-note-capture/SKILL.md' },
   { kind: 'skill', name: 'mcp-scripting', description: 'Write JavaScript for MCP tools', filePath: '/fixture/mcp-scripting/SKILL.md' },
 ];
@@ -464,7 +464,7 @@ describe('REQ-AGENT-096: native Hermes tool discovery and activation', () => {
       active: [...bootstrapNames, ...memoryTools.map(tool => tool.name)],
       tools: [...bootstrapTools, ...memoryTools],
     });
-    toolExposureFinalizer(fixture.pi, () => 'after-first-goal');
+    toolExposureFinalizer(fixture.pi);
     await fixture.handlers.get('before_agent_start')({}, {});
     expect(fixture.pi.getActiveTools()).toEqual(bootstrapNames);
     for (const tool of memoryTools) {
@@ -509,6 +509,39 @@ describe('REQ-AGENT-096: native Hermes tool discovery and activation', () => {
 });
 
 describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
+  it('REQ-AGENT-096 AC4: enabled foreground context tools stay deferred until exact capability activation', async () => {
+    const tools = [
+      { name: 'read', description: 'Read files' },
+      { name: 'bash', description: 'Run shell commands' },
+      { name: 'edit', description: 'Edit files' },
+      { name: 'write', description: 'Write files' },
+      { name: 'capability', description: 'Search tools' },
+    ];
+    const fixture = discoveryFixture({ tools });
+    const contextTools = [
+      { name: 'ctx_search', description: 'Search indexed context' },
+      { name: 'ctx_execute', description: 'Execute code in context sandbox' },
+    ];
+    // Real foreground admission, with a controlled upstream initializer that
+    // exposes tools just as a native registration does. No context server starts.
+    await attachConfiguredContextMode({ packages: [{ source: CONTEXT_MODE_PACKAGE, extensions: [] }] }, {}, fixture.pi, async () => {
+      tools.push(...contextTools);
+      fixture.pi.setActiveTools([...fixture.pi.getActiveTools(), ...contextTools.map(tool => tool.name)]);
+    });
+    toolExposureFinalizer(fixture.pi);
+    await fixture.handlers.get('before_agent_start')({}, {});
+    const bootstrap = ['read', 'bash', 'edit', 'write', 'capability'];
+    expect(fixture.pi.getActiveTools()).toEqual(bootstrap);
+
+    expect(identities(await fixture.search('tool:ctx_search'))).toContain('tool:ctx_search');
+    expect(identities(await fixture.search('tool:ctx_execute'))).toContain('tool:ctx_execute');
+    expect(fixture.pi.getActiveTools()).toEqual(bootstrap);
+    expect(await fixture.capability.execute('activate-context-search', { name: 'ctx_search' })).toMatchObject({
+      details: { name: 'ctx_search', added: ['ctx_search'] },
+    });
+    expect(fixture.pi.getActiveTools()).toEqual([...bootstrap, 'ctx_search']);
+  });
+
   it('loads the helper module as a side-effect-free standalone extension', () => {
     expect(capabilityHelpersExtension()).toBeUndefined();
   });
@@ -562,7 +595,7 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
     };
 
     capabilityExtension(pi);
-    toolExposureFinalizer(pi, () => 'after-first-goal');
+    toolExposureFinalizer(pi);
     handlers.get('before_agent_start')?.({}, {});
 
     expect(pi.getActiveTools()).toEqual(['read', 'bash', 'edit', 'write', 'capability']);
@@ -599,142 +632,6 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
     expect(pi.getActiveTools()).toEqual(['read', 'bash', 'edit', 'write', 'capability']);
   });
 
-  it('REQ-AGENT-191 AC1: hides registered Goal tools for a fresh lazy session', () => {
-    const base = fakePi({
-      active: ['read', 'goal_complete', 'goal_blocked', 'goal_wait'],
-      tools: [
-        { name: 'read', description: 'Read files' },
-        { name: 'bash', description: 'Run shell commands' },
-        { name: 'goal_complete', description: 'Complete Goal' },
-        { name: 'goal_blocked', description: 'Block Goal' },
-        { name: 'goal_wait', description: 'Wait for an external event' },
-      ],
-    });
-    const handlers = new EventRegistry();
-    const pi = {
-      ...base,
-      registerTool() {},
-      on(event: string, handler: (event: unknown, ctx: CapabilitySessionContext) => void) {
-        handlers.set(event, handler);
-      },
-    };
-    toolExposureFinalizer(pi, () => 'after-first-goal');
-
-    handlers.get('before_agent_start')?.({}, {
-      sessionManager: { getBranch: () => [] },
-    });
-
-    expect(pi.getActiveTools()).toEqual(['read', 'bash']);
-  });
-
-  it('REQ-AGENT-191 AC2: retains terminal Goal tools after the first session Goal', () => {
-    const base = fakePi({
-      active: ['read'],
-      tools: [
-        { name: 'read', description: 'Read files' },
-        { name: 'bash', description: 'Run shell commands' },
-        { name: 'goal_complete', description: 'Complete Goal' },
-        { name: 'goal_blocked', description: 'Block Goal' },
-        { name: 'goal_wait', description: 'Wait for an external event' },
-      ],
-    });
-    const handlers = new EventRegistry();
-    const pi = {
-      ...base,
-      registerTool() {},
-      on(event: string, handler: (event: unknown, ctx: CapabilitySessionContext) => void) {
-        handlers.set(event, handler);
-      },
-    };
-    capabilityExtension(pi);
-    toolExposureFinalizer(pi, () => 'after-first-goal');
-    const session = (status: string | null) => ({
-      sessionManager: {
-        getBranch: () => [{
-          type: 'custom',
-          customType: 'goal-state',
-          data: { goal: status === null ? null : { id: 'goal-1', status } },
-        }],
-      },
-    });
-
-    handlers.get('before_agent_start')?.({}, session('completed'));
-    expect(pi.getActiveTools()).toEqual(['read', 'bash', 'goal_complete', 'goal_blocked']);
-  });
-
-  it.each([
-    { label: 'fresh lazy session', visibility: 'after-first-goal', goal: null, plan: false, registered: true, visible: false },
-    { label: 'active Goal', visibility: 'after-first-goal', goal: 'active', plan: false, registered: true, visible: true },
-    { label: 'restored blocked Goal', visibility: 'after-first-goal', goal: 'blocked', plan: false, registered: true, visible: true },
-    { label: 'active Plan with paused Goal', visibility: 'after-first-goal', goal: 'paused', plan: true, registered: true, visible: false },
-    { label: 'always-visible controls during Plan', visibility: 'always', goal: 'paused', plan: true, registered: true, visible: true },
-    { label: 'older runtime without progress tool', visibility: 'after-first-goal', goal: 'active', plan: false, registered: false, visible: false },
-  ] as const)('REQ-AGENT-191: exposes only registered progress controls for $label', async ({ visibility, goal, plan, registered, visible }) => {
-    const base = fakePi({ tools: [
-      { name: 'read', description: 'Read files' },
-      { name: 'goal_complete', description: 'Complete Goal' },
-      { name: 'goal_blocked', description: 'Block Goal' },
-      { name: 'goal_wait', description: 'Disabled wait' },
-      { name: 'plan_mode_question', description: 'Ask a Plan question' },
-      { name: 'plan_mode_complete', description: 'Complete Plan' },
-      ...(registered ? [{ name: 'goal_progress', description: 'Report verified advancement or a stall' }] : []),
-    ] });
-    const handlers = new EventRegistry();
-    const pi = { ...base, on: (event: string, handler: EventHandler) => handlers.set(event, handler) };
-    toolExposureFinalizer(pi, () => visibility);
-    await handlers.get('before_agent_start')({}, { sessionManager: { getBranch: () => [
-      ...(goal ? [{ type: 'custom', customType: 'goal-state', data: { goal: { id: 'goal-1', status: goal } } }] : []),
-      ...(plan ? [{ type: 'custom', customType: 'plan-mode-state', data: {
-        enabled: true, workflowToolPolicy: { allowedNames: ['read'], resolved: true },
-      } }] : []),
-    ] } });
-    expect(pi.getActiveTools().includes('goal_progress')).toBe(visible);
-    expect(pi.getActiveTools()).not.toContain('goal_wait');
-  });
-
-  it('REQ-AGENT-191 AC3: preserves Goal tools already active under the always-visible policy', () => {
-    const base = fakePi({
-      active: ['read', 'goal_complete', 'goal_blocked', 'goal_wait'],
-      tools: [
-        { name: 'read', description: 'Read files' },
-        { name: 'bash', description: 'Run shell commands' },
-        { name: 'goal_complete', description: 'Complete Goal' },
-        { name: 'goal_blocked', description: 'Block Goal' },
-        { name: 'goal_wait', description: 'Wait for an external event' },
-      ],
-    });
-    const handlers = new EventRegistry();
-    const pi = {
-      ...base,
-      registerTool() {},
-      on(event: string, handler: (event: unknown, ctx: CapabilitySessionContext) => void) {
-        handlers.set(event, handler);
-      },
-    };
-    capabilityExtension(pi);
-    toolExposureFinalizer(pi, () => 'always');
-
-    handlers.get('before_agent_start')?.({}, {
-      sessionManager: { getBranch: () => [] },
-    });
-
-    expect(pi.getActiveTools()).toEqual(['read', 'bash', 'goal_complete', 'goal_blocked']);
-  });
-
-  it('REQ-AGENT-191 AC6: never discovers or activates goal_wait', () => {
-    const pi = fakePi({
-      active: ['read'],
-      tools: [
-        { name: 'read', description: 'Read files' },
-        { name: 'goal_wait', description: 'Wait for an external event' },
-      ],
-    });
-
-    expect(searchCapabilities({ query: 'wait external event', tools: pi.getAllTools() })).toEqual([]);
-    expect(activateRegisteredTools(pi, ['goal_wait'])).toEqual([]);
-    expect(pi.getActiveTools()).toEqual(['read']);
-  });
-
   it('REQ-AGENT-152/158: preserves only a restored Plan workflow policy plus required helpers', () => {
     const base = fakePi({
       tools: [
@@ -754,7 +651,7 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
         handlers.set(event, handler);
       },
     };
-    toolExposureFinalizer(pi, () => 'after-first-goal');
+    toolExposureFinalizer(pi);
     const ctx = {
       sessionManager: {
         getBranch: () => [{
@@ -775,132 +672,16 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
     ]);
   });
 
-  it('REQ-AGENT-191 AC3: keeps configured always-visible Goal tools during an active Plan', () => {
-    const base = fakePi({
-      tools: [
-        { name: 'read', description: 'Read files' },
-        { name: 'graphify_query', description: 'Query graph' },
-        { name: 'goal_complete', description: 'Complete Goal' },
-        { name: 'goal_blocked', description: 'Block Goal' },
-        { name: 'goal_wait', description: 'Wait for an external event' },
-        { name: 'plan_mode_question', description: 'Ask a Plan question' },
-        { name: 'plan_mode_complete', description: 'Complete a Plan' },
-      ],
-    });
+  it('REQ-AGENT-158: a malformed restored Plan policy keeps only bootstrap tools', () => {
+    const base = fakePi({ tools: ['read', 'bash', 'edit', 'write', 'capability', 'graphify_query', 'plan_mode_complete']
+      .map(name => ({ name, description: name })) });
     const handlers = new EventRegistry();
-    const pi = {
-      ...base,
-      registerTool() {},
-      on(event: string, handler: (event: unknown, ctx: CapabilitySessionContext) => void) {
-        handlers.set(event, handler);
-      },
-    };
-    toolExposureFinalizer(pi, () => 'always');
-
+    toolExposureFinalizer({ ...base, on: (name, handler) => handlers.set(name, handler) });
     handlers.get('before_agent_start')?.({}, {
-      sessionManager: {
-        getBranch: () => [{
-          type: 'custom',
-          customType: 'plan-mode-state',
-          data: {
-            enabled: true,
-            workflowToolPolicy: { allowedNames: ['read', 'graphify_query'], resolved: true },
-          },
-        }],
-      },
+      sessionManager: { getBranch: () => [{ type: 'custom', customType: 'plan-mode-state',
+        data: { enabled: true, workflowToolPolicy: { allowedNames: ['read', 42], resolved: true } } }] },
     });
-
-    expect(pi.getActiveTools()).toEqual([
-      'read', 'graphify_query', 'plan_mode_question', 'plan_mode_complete',
-      'goal_complete', 'goal_blocked',
-    ]);
-  });
-
-  it('REQ-AGENT-191 AC4/AC5 / REQ-AGENT-152/158: rejects malformed Plan policy and preserves active workflow ownership', () => {
-    const base = fakePi({
-      tools: [
-        { name: 'read', description: 'Read files' },
-        { name: 'bash', description: 'Run shell commands' },
-        { name: 'edit', description: 'Edit files' },
-        { name: 'write', description: 'Write files' },
-        { name: 'capability', description: 'Search tools' },
-        { name: 'goal_complete', description: 'Complete Goal' },
-        { name: 'goal_blocked', description: 'Block Goal' },
-        { name: 'goal_wait', description: 'Wait for an external event' },
-        { name: 'graphify_query', description: 'Query graph' },
-        { name: 'plan_mode_question', description: 'Ask a Plan question' },
-        { name: 'plan_mode_complete', description: 'Complete a Plan' },
-      ],
-    });
-    const handlers = new EventRegistry();
-    const pi = {
-      ...base,
-      registerTool() {},
-      on(event: string, handler: (event: unknown, ctx: CapabilitySessionContext) => void) {
-        handlers.set(event, handler);
-      },
-    };
-    toolExposureFinalizer(pi, () => 'after-first-goal');
-
-    handlers.get('before_agent_start')?.({}, {
-      sessionManager: {
-        getBranch: () => [{
-          type: 'custom',
-          customType: 'plan-mode-state',
-          data: {
-            enabled: true,
-            workflowToolPolicy: { allowedNames: ['read', 42], resolved: true },
-          },
-        }],
-      },
-    });
-    expect(pi.getActiveTools()).toEqual(['read', 'bash', 'edit', 'write', 'capability']);
-
-    handlers.get('before_agent_start')?.({}, {
-      sessionManager: {
-        getBranch: () => [
-          {
-            type: 'custom',
-            customType: 'goal-state',
-            data: { goal: { id: 'goal-1', status: 'paused' } },
-          },
-          {
-            type: 'custom',
-            customType: 'plan-mode-state',
-            data: {
-              enabled: true,
-              workflowToolPolicy: { allowedNames: ['read', 'graphify_query'], resolved: true },
-            },
-          },
-        ],
-      },
-    });
-    expect(pi.getActiveTools()).toEqual([
-      'read', 'graphify_query', 'plan_mode_question', 'plan_mode_complete',
-    ]);
-
-    handlers.get('before_agent_start')?.({}, {
-      sessionManager: {
-        getBranch: () => [
-          {
-            type: 'custom',
-            customType: 'goal-state',
-            data: { goal: { id: 'goal-1', status: 'active' } },
-          },
-          {
-            type: 'custom',
-            customType: 'plan-mode-state',
-            data: {
-              enabled: true,
-              workflowToolPolicy: { allowedNames: ['read', 'graphify_query'], resolved: true },
-            },
-          },
-        ],
-      },
-    });
-    expect(pi.getActiveTools()).toEqual([
-      'read', 'bash', 'edit', 'write', 'capability', 'goal_complete', 'goal_blocked',
-    ]);
+    expect(base.getActiveTools()).toEqual(['read', 'bash', 'edit', 'write', 'capability']);
   });
 
   it('searches registered inactive tools by name and description', () => {
@@ -973,7 +754,7 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
     pi.on('before_agent_start', () => {
       pi.setActiveTools([...pi.getActiveTools(), 'ctx_search']);
     });
-    toolExposureFinalizer(pi, () => 'after-first-goal');
+    toolExposureFinalizer(pi);
     for (const handler of handlers) await handler({}, {});
 
     expect(pi.getActiveTools()).toEqual(['read', 'bash', 'edit', 'write', 'capability']);

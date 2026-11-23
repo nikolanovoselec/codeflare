@@ -4,11 +4,21 @@ import http from 'node:http';
 import { once } from 'node:events';
 import {
   EDITOR_WARMING_BUDGET_MS,
+  workspaceStartupDecision,
   resolveSessionWorkspace,
   shouldPrewarmTerminal,
   startWorkspaceServices,
   waitForEditorReady,
 } from '../dist/workspace-readiness.js';
+
+it('REQ-SESSION-015: the fallback bypasses an init flag but not protected policy verification', () => {
+  assert.equal(workspaceStartupDecision(true, undefined, true, false), 'wait');
+  assert.equal(workspaceStartupDecision(true, undefined, true, true), 'timeout');
+  assert.equal(workspaceStartupDecision(true, 'failed', false, false), 'failed');
+  assert.equal(workspaceStartupDecision(true, 'verified', true, false), 'initialized');
+  assert.equal(workspaceStartupDecision(true, 'verified', false, true), 'degraded');
+  assert.equal(workspaceStartupDecision(false, undefined, false, true), 'degraded');
+});
 
 describe('REQ-IDE-048 AC3: host workspace startup selection', () => {
   it('defaults missing and invalid workspace values to the existing Terminal prewarm path', () => {

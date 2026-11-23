@@ -2,6 +2,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createMockKV } from '../helpers/mock-kv';
 import { createMockR2Config } from '../helpers/mock-factories';
 import { createTestApp } from '../helpers/test-app';
+import { Hono } from 'hono';
+import type { ContentfulStatusCode } from 'hono/utils/http-status';
+import { requireActiveUser, type AuthVariables } from '../../middleware/auth';
+import { resetAuthConfigCache } from '../../lib/access';
+import { signSessionJWT, SESSION_JWT_AUD } from '../../lib/session-jwt';
+import { AppError } from '../../lib/error-types';
+import type { Env } from '../../types';
 
 // Track mock state for assertions - vi.hoisted() ensures these are available when vi.mock() factory runs
 const {
@@ -87,6 +94,132 @@ describe('Storage Browse Routes / REQ-STOR-007 (web file browser: browse endpoin
       },
     });
   }
+
+  describe('REQ-STOR-001 AC3/AC4: authenticated owner-to-object request composition', () => {
+    function authenticatedApp() {
+      resetAuthConfigCache();
+      const owners = new Map<string, string>();
+      const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
+      const secret = 'synthetic-owner-request-secret-32-chars';
+      app.onError((error, c) => error instanceof AppError
+        ? c.json(error.toJSON(), error.statusCode as ContentfulStatusCode)
+        : c.json({ error: error.message }, 500));
+      app.use('*', async (c, next) => {
+        c.env = {
+          KV: mockKV as unknown as KVNamespace,
+          SAAS_MODE: 'active', OAUTH_CLIENT_ID: 'fixture-client', OAUTH_JWT_SECRET: secret,
+          R2_ACCESS_KEY_ID: 'fixture-key', R2_SECRET_ACCESS_KEY: 'fixture-secret',
+          CONTAINER: {
+            idFromName: (name: string) => name,
+            get: (name: string) => ({
+              claimBucketOwner: async (email: string, allowInitialClaim: boolean) => {
+                const owner = owners.get(name);
+                if (owner === email) return 'owned';
+                if (owner) return 'conflict';
+                if (!allowInitialClaim) return 'ambiguous';
+                owners.set(name, email);
+                return 'owned';
+              },
+            }),
+          },
+        } as unknown as Env;
+        return next();
+      });
+      app.use('*', requireActiveUser);
+      app.route('/browse', browseRoutes);
+      const request = async (email: string) => {
+        const token = await signSessionJWT(
+          { email, sub: email, ghLogin: 'fixture-user', aud: SESSION_JWT_AUD },
+          secret,
+        );
+        return app.request('/browse', { headers: { Cookie: `codeflare_session=${token}` } });
+      };
+      return { owners, request };
+    }
+
+    it('selects distinct claimed owners before R2 reads and preserves the real per-owner request allowance', async () => {
+      const { owners, request } = authenticatedApp();
+      mockKV._set('user:ab@example.com', { role: 'user', accessTier: 'standard' });
+      const objectReads: string[] = [];
+      mockFetch.mockImplementation(async (input: string) => {
+        const bucket = new URL(input).pathname.slice(1);
+        expect(owners.has(`bucket-owner:${bucket}`)).toBe(true);
+        objectReads.push(bucket);
+        return new Response('<ListBucketResult/>', { status: 200 });
+      });
+      const ownerWrites: string[] = [];
+      const store = mockKV.put.getMockImplementation()!;
+      mockKV.put.mockImplementation(async (key, value, options) => {
+        if (key.startsWith('bucket-owner:')) {
+          ownerWrites.push(key);
+          throw new Error('same-key ownership KV write rate limited');
+        }
+        return store(key, value, options);
+      });
+      for (let index = 0; index < 30; index++) {
+        const response = await request('ab@example.com');
+        expect(response.status).toBe(200);
+        expect(response.headers.get('X-RateLimit-Remaining')).toBe(String(29 - index));
+      }
+      const limited = await request('ab@example.com');
+      expect(limited.status).toBe(429);
+      expect(await limited.json()).toMatchObject({ code: 'RATE_LIMIT_ERROR' });
+      mockKV._set('user:a+b@example.com', { role: 'user', accessTier: 'standard' });
+      expect((await request('a+b@example.com')).status).toBe(200);
+      const secondBucket = objectReads.at(-1)!;
+      expect(secondBucket).toMatch(/^codeflare-ab-example-com-v2-[a-f0-9]{20}$/);
+      expect(objectReads.slice(0, 30)).toEqual(Array(30).fill('codeflare-ab-example-com'));
+      expect(objectReads).toHaveLength(31);
+      expect(owners.get(`bucket-owner:${secondBucket}`)).toBe('a+b@example.com');
+      expect(owners.get('bucket-owner:codeflare-ab-example-com')).toBe('ab@example.com');
+      expect(ownerWrites).toEqual([]);
+    });
+
+    it('concurrent authenticated requests read the same owner bucket without ownership-write rate-limit failures', async () => {
+      const { owners, request } = authenticatedApp();
+      mockKV._set('user:ab@example.com', { role: 'user', accessTier: 'standard' });
+      const objectReads: string[] = [];
+      mockFetch.mockImplementation(async (input: string) => {
+        const bucket = new URL(input).pathname.slice(1);
+        expect(owners.get(`bucket-owner:${bucket}`)).toBe('ab@example.com');
+        objectReads.push(bucket);
+        return new Response('<ListBucketResult/>');
+      });
+      const ownerWrites: string[] = [];
+      const store = mockKV.put.getMockImplementation()!;
+      mockKV.put.mockImplementation(async (key, value, options) => {
+        if (key.startsWith('bucket-owner:')) {
+          ownerWrites.push(key);
+          throw new Error('same-key ownership KV write rate limited');
+        }
+        return store(key, value, options);
+      });
+      const responses = await Promise.all(Array.from({ length: 12 }, () => request('ab@example.com')));
+      expect(responses.map(response => response.status)).toEqual(Array(12).fill(200));
+      expect(objectReads).toEqual(Array(12).fill('codeflare-ab-example-com'));
+      expect(ownerWrites).toEqual([]);
+    });
+
+    it('refuses ambiguous legacy identities before object I/O', async () => {
+      const { owners, request } = authenticatedApp();
+      for (const email of ['ab@example.com', 'a+b@example.com']) {
+        mockKV._set(`user:${email}`, { role: 'user', accessTier: 'standard' });
+      }
+      const objectReads: string[] = [];
+      mockFetch.mockImplementation(async (input: string) => {
+        objectReads.push(input);
+        return new Response('<ListBucketResult/>');
+      });
+      for (const email of ['ab@example.com', 'a+b@example.com']) {
+        const response = await request(email);
+        expect(response.status).toBe(403);
+        // The internal collision reason is not part of the public error contract.
+        expect(await response.json()).toEqual({ error: 'Access denied', code: 'FORBIDDEN' });
+      }
+      expect(objectReads).toEqual([]);
+      expect([...owners]).toEqual([]);
+    });
+  });
 
   describe('GET /browse', () => {
     it('returns objects and prefixes for valid request', async () => {

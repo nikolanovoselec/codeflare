@@ -1,4 +1,4 @@
-import type { SleepAfterOption } from '../types';
+import type { UserPreferences } from '../types';
 
 export interface SleepTimerInfo {
   remainingMs: number;
@@ -19,16 +19,19 @@ const SLEEP_AFTER_MS: Record<string, number> = {
   '12h': 43_200_000,
 };
 
-const DEFAULT_MS = 3_600_000; // 1h for new non-free sessions
+export const DEFAULT_IDLE_TIMEOUT = '1h';
+// Keep these selectable durations aligned with the preference API. Legacy minute values are read-only.
+export const IDLE_TIMEOUT_PRESETS = ['1h', '2h', '4h', '8h', '12h'] as const;
+const DEFAULT_MS = SLEEP_AFTER_MS[DEFAULT_IDLE_TIMEOUT];
 
-export function parseSleepAfterMs(opt: SleepAfterOption | undefined): number {
+export function parseSleepAfterMs(opt: UserPreferences['sleepAfter']): number {
   if (!opt) return DEFAULT_MS;
   return SLEEP_AFTER_MS[opt] ?? DEFAULT_MS;
 }
 
 export function getSleepTimerInfo(
   lastActiveAt: string | undefined,
-  sleepAfter: SleepAfterOption | undefined,
+  sleepAfter: UserPreferences['sleepAfter'],
 ): SleepTimerInfo | null {
   if (!lastActiveAt || !sleepAfter) return null;
 

@@ -78,7 +78,7 @@ const COPY_TIMEOUT_MS = 4_000;
  * a verify slice is one HEAD. The gate reserves this so the LAST slice it starts still finishes before
  * the platform kill. */
 export const MIGRATE_SLICE_MS = HEAD_TIMEOUT_MS + COPY_TIMEOUT_MS; // 6s
-const VERIFY_SLICE_MS = HEAD_TIMEOUT_MS; // 2s
+const VERIFY_SLICE_MS = 2 * HEAD_TIMEOUT_MS; // target HEAD plus an optional empty-object probe
 /** Bound the one-time container drain (an injected dep with no internal timeout) so a hung
  * container.destroy() can't consume the whole waitUntil window and strand the lease via a force-kill. */
 const DRAIN_TIMEOUT_MS = 10_000;
@@ -216,6 +216,11 @@ async function fetchWithTimeout(
   }
 }
 
+function isEmptyObject(response: Response): boolean {
+  return response.status === 200 && response.headers.get('content-length') === '0'
+    && !response.headers.has('content-range');
+}
+
 async function reEncryptObject(
   client: ReturnType<typeof createR2Client>,
   env: MigrateR2Env,
@@ -237,6 +242,9 @@ async function reEncryptObject(
   if (!srcHead.ok) {
     throw new Error(`reEncryptObject: source HEAD "${key}" failed: HTTP ${srcHead.status}`);
   }
+  // R2 may leave empty objects without SSE-C. Preserve their bytes and metadata;
+  // the verify pass independently proves the exception again before commit.
+  if (from === 'plain' && to === 'sse-c' && isEmptyObject(srcHead)) return 'skipped';
   const etag = srcHead.headers.get('etag');
   const validEtag = (value: string | null): value is string => value !== null && /^"[\x21\x23-\x7e\x80-\xff]+"$/.test(value);
   if (!validEtag(etag)) throw new Error(`reEncryptObject: source HEAD "${key}" has no valid ETag`);
@@ -431,8 +439,13 @@ async function verifyChunk(
   // into an endless migrate↔verify loop. They remain readable via the dual-regime read fallback.
   const results = await processSlices(parsed.objects, limits.maxObjects, () => Date.now() + VERIFY_SLICE_MS <= limits.deadline, async (obj) => {
     if (obj.size > COPY_OBJECT_MAX_BYTES) return { key: obj.key, ok: true };
-    const h = await fetchWithTimeout(client, objectUrl(endpoint, bucketName, obj.key), { method: 'HEAD', headers: readHeaders }, HEAD_TIMEOUT_MS, `verify HEAD ${obj.key}`);
-    return { key: obj.key, ok: h.ok };
+    const url = objectUrl(endpoint, bucketName, obj.key);
+    const h = await fetchWithTimeout(client, url, { method: 'HEAD', headers: readHeaders }, HEAD_TIMEOUT_MS, `verify HEAD ${obj.key}`);
+    if (h.ok || to !== 'sse-c' || obj.size !== 0 || (h.status !== 400 && h.status !== 403)) {
+      return { key: obj.key, ok: h.ok };
+    }
+    const empty = await fetchWithTimeout(client, url, { method: 'HEAD' }, HEAD_TIMEOUT_MS, `verify empty HEAD ${obj.key}`);
+    return { key: obj.key, ok: isEmptyObject(empty) };
   });
 
   const processed = results.length;
@@ -472,7 +485,8 @@ export async function fetchObjectWithRegimeFallback(
   // self-heal a known-oversized stray (best-effort: a range read reports a partial length, which
   // just falls back to the prior behavior).
   const oversized = Number(second.headers.get('content-length') ?? '0') > COPY_OBJECT_MAX_BYTES;
-  return { response: second, stray: second.ok && selfHealOnFallbackHit && !oversized, sseDisabled: fallback };
+  const emptyException = fallback && isEmptyObject(second);
+  return { response: second, stray: second.ok && selfHealOnFallbackHit && !oversized && !emptyException, sseDisabled: fallback };
 }
 
 /**
@@ -559,6 +573,7 @@ export function getBucketStorageOwner(env: Pick<Env, 'CONTAINER'>, bucketName: s
   return env.CONTAINER.getByName(`storage:${bucketName}`) as unknown as {
     runBucketMultipart(input: import('../routes/storage/upload').BucketMultipartOperation | Request): Promise<Response>;
     advanceBucketMigration(bucketName: string): Promise<void>;
+    retryBucketMigration(bucketName: string, haltedAt: string): Promise<Response>;
   };
 }
 
@@ -674,7 +689,7 @@ export async function advanceMigrationChunk(
     // would not finish before WORK_DEADLINE_MS, or the subrequest backstop is near — and RELEASES the
     // lease so the next poll resumes from the cursor. A force-kill is not catchable and would leave the
     // lease held; the deadline (+ the unconditional first slice in processSlices) is what prevents that.
-    const opsPerObject = (p: 'migrate' | 'verify') => (p === 'migrate' ? 2 : 1);
+    const opsPerObject = (p: 'migrate' | 'verify') => p === 'migrate' || to === 'sse-c' ? 2 : 1;
     const sliceMs = (p: 'migrate' | 'verify') => (p === 'migrate' ? MIGRATE_SLICE_MS : VERIFY_SLICE_MS);
     // Objects this chunk may process before the subrequest backstop — the time gate is usually binding.
     const objBudget = (p: 'migrate' | 'verify') => Math.max(0, Math.floor((MAX_SUBREQUESTS - usedSubreq) / opsPerObject(p)));
@@ -721,7 +736,7 @@ export async function advanceMigrationChunk(
         // Per-key: only accumulate while the SAME object keeps failing; a different key resets it.
         const stuckCount = (state.lastFailedKey === r.failedKey ? (state.stuckCount ?? 0) : 0) + 1;
         await commit({
-          ...state, drained, total, processed, stuckCount, lastFailedKey: r.failedKey, phase: 'migrate', cursor: null,
+          ...state, drained, total, processed: 0, stuckCount, lastFailedKey: r.failedKey, phase: 'migrate', cursor: null,
           // Mark halted at the retry ceiling so the dashboard suppresses the progress % — a wedged
           // migration must not read a misleading "99%" (the H2 backstop then stops advancing until admin).
           ...(stuckCount >= MAX_VERIFY_RETRIES ? { halted: true } : {}),
@@ -776,5 +791,6 @@ export async function markMixedRecovery(
   if (await hasHealthyContainer()) return; // D1: do not gate/drain a running session for an opportunistic self-heal
   await setRegimeState(env, bucketName, release({
     ...state, status: 'mixed-recovery', phase: 'migrate', cursor: null, drained: false, startedAt: new Date().toISOString(),
+    keyMd5: env.ENCRYPTION_KEY ? computeKeyMd5(env.ENCRYPTION_KEY) : undefined,
   }));
 }

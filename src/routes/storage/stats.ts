@@ -64,6 +64,7 @@ app.get('/', async (c) => {
   let totalSizeBytes = 0;
   const folderSet = new Set<string>();
   let continuationToken: string | undefined;
+  const seenTokens = new Set<string>();
 
   // Paginate through all objects to compute stats
   do {
@@ -79,8 +80,8 @@ app.get('/', async (c) => {
     const response = await r2Client.fetch(url, { method: 'GET' });
 
     if (!response.ok) {
-      // Bucket doesn't exist yet — return empty stats
-      if (response.status === 404) {
+      // Only an initial 404 establishes the bucket is absent.
+      if (response.status === 404 && continuationToken === undefined) {
         return c.json({ ...EMPTY_STATS, bucketName, maxStorageBytes });
       }
       logger.error('R2 ListObjects failed', undefined, { status: response.status, bucketName });
@@ -88,7 +89,19 @@ app.get('/', async (c) => {
     }
 
     const xml = await response.text();
-    const result = parseListObjectsXml(xml);
+    let result: ReturnType<typeof parseListObjectsXml>;
+    try {
+      result = parseListObjectsXml(xml, true);
+    } catch {
+      throw new ContainerError('storage-stats', 'Incomplete or malformed R2 listing');
+    }
+    continuationToken = result.isTruncated ? result.nextContinuationToken : undefined;
+    if (continuationToken !== undefined) {
+      if (seenTokens.has(continuationToken)) {
+        throw new ContainerError('storage-stats', 'R2 repeated a listing continuation token');
+      }
+      seenTokens.add(continuationToken);
+    }
 
     for (const obj of result.objects) {
       // Folder markers are zero-byte objects ending with '/' — count as folders, not files
@@ -104,8 +117,6 @@ app.get('/', async (c) => {
         folderSet.add(parts.slice(0, i).join('/') + '/');
       }
     }
-
-    continuationToken = result.isTruncated ? result.nextContinuationToken : undefined;
   } while (continuationToken);
 
   const totalFolders = folderSet.size;

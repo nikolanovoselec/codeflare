@@ -149,6 +149,44 @@ describe('user-scoped review completion state', () => {
   });
 });
 
+describe('REQ-STOR-027 AC3: Pi marker validation', () => {
+  it.each([
+    ['wrong schema', { version: 2 }],
+    ['missing schema', { version: undefined }],
+    ['missing timestamp', { reviewedAt: undefined }],
+    ['numeric timestamp', { reviewedAt: NOW.getTime() }],
+    ['invalid timestamp', { reviewedAt: 'not-a-date' }],
+    ['beyond future tolerance', { reviewedAt: new Date(NOW.getTime() + 300_001).toISOString() }],
+  ] as const)('rejects %s without changing outside bytes', (_label, patch) => {
+    const sandbox = root();
+    const stateRoot = join(sandbox, 'state');
+    const path = completionPath(identity(), stateRoot);
+    mkdirSync(dirname(path), { recursive: true });
+    const sentinel = join(sandbox, 'sentinel');
+    writeFileSync(sentinel, 'outside marker tree', { mode: 0o640 });
+    writeFileSync(path, JSON.stringify({ version: 1, ...identity(), reviewedAt: NOW.toISOString(), ...patch }));
+    expect(readCompletion(identity(), options(stateRoot)).status).toBe('missing');
+    pruneCompletionState(options(stateRoot));
+    expect(existsSync(path)).toBe(false);
+    expect(readFileSync(sentinel, 'utf8')).toBe('outside marker tree');
+    expect(statSync(sentinel).mode & 0o777).toBe(0o640);
+  });
+
+  it('refuses a directory in place of a marker and confines pruning to the state tree', () => {
+    const sandbox = root();
+    const stateRoot = join(sandbox, 'state');
+    const path = completionPath(identity(), stateRoot);
+    mkdirSync(path, { recursive: true });
+    writeFileSync(join(path, 'marker.json'), JSON.stringify({ version: 1, ...identity(), reviewedAt: NOW.toISOString() }));
+    const sentinel = join(sandbox, 'sentinel');
+    writeFileSync(sentinel, 'outside marker tree');
+    expect(readCompletion(identity(), options(stateRoot)).status).toBe('missing');
+    pruneCompletionState(options(stateRoot));
+    expect(existsSync(path)).toBe(false);
+    expect(readFileSync(sentinel, 'utf8')).toBe('outside marker tree');
+  });
+});
+
 for (const redirected of ['root', 'root-parent', 'repository', 'branch']) {
   it(`REQ-STOR-027: ${redirected} symlink refuses read/publication/prune without outside effects`, () => {
     const sandbox = root();

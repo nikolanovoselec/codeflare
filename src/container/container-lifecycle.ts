@@ -80,6 +80,10 @@ export interface SessionStopRequest {
   generation: number;
 }
 
+// Non-secret lifecycle evidence, retained through graceful cleanup so a
+// concurrent KILL can still prove which unfinished launch it may destroy.
+export const SESSION_LAUNCH_GENERATION_KEY = 'sessionLaunchGeneration';
+
 const OPERATIONAL_STORAGE_KEYS = [
   SESSION_ID_KEY, 'bucketName', 'workspaceSyncEnabled', 'syncPolicyMode', 'fastStartEnabled',
   'tabConfig', 'sessionWorkspace', 'sleepAfter', TRANSPORT_FAILURE_STREAK_KEY,
@@ -146,8 +150,9 @@ export async function stopSession(env: Env, input: SessionStopRequest, destroyCo
 }
 
 /** Force destruction shares D1 ownership with Stop, but never its graceful I/O. */
-export async function killSession(host: LifecycleHost, input: SessionStopRequest): Promise<void> {
+export async function killSession(host: LifecycleHost, input: SessionStopRequest, quiesceStart?: () => Promise<void>): Promise<void> {
   await stopSession(host.env, input, async claimed => {
+    if (quiesceStart) await quiesceStart();
     const epoch = host._teardownEpoch = (host._teardownEpoch ?? 0) + 1;
     const assertCurrent = () => {
       if (host._teardownEpoch !== epoch) throw new Error('KILL generation superseded');
@@ -175,8 +180,12 @@ export async function killSession(host: LifecycleHost, input: SessionStopRequest
         const storedGeneration = await txn.get<number>('lifecycleGeneration');
         assertCurrent();
         if (storedGeneration !== undefined && storedGeneration !== input.generation) {
-          cleanupAuthorized = false;
-          throw new Error('KILL operational generation changed');
+          const launchGeneration = await txn.get<number>(SESSION_LAUNCH_GENERATION_KEY);
+          assertCurrent();
+          if (!Number.isSafeInteger(storedGeneration) || storedGeneration >= input.generation || launchGeneration !== input.generation) {
+            cleanupAuthorized = false;
+            throw new Error('KILL operational generation changed');
+          }
         }
         await txn.delete([...OPERATIONAL_STORAGE_KEYS, TRANSPORT_RECOVERY_KEY]);
         assertCurrent();
@@ -194,7 +203,7 @@ export async function killSession(host: LifecycleHost, input: SessionStopRequest
 }
 
 /** Called when the container starts successfully. */
-export async function onStart(host: LifecycleHost): Promise<void> {
+export async function onStart(host: LifecycleHost, expected?: MetricsPin, operatorStart = false): Promise<void> {
   const shutdownAtEntry = host._shutdownStartedAt;
   const epochAtEntry = host._teardownEpoch;
   const ownerKey = host._bucketName;
@@ -209,12 +218,15 @@ export async function onStart(host: LifecycleHost): Promise<void> {
   const repository = new D1SessionRepository(host.env.USAGE_DB);
   const session = await repository.getSession(ownerKey, sessionId);
   assertEntryCurrent();
-  if (!session || (session.lifecycleState !== 'starting' && session.lifecycleState !== 'running'
-    && session.lifecycleState !== 'unreachable')) {
+  if (!session || (expected && (expected.ownerKey !== ownerKey || expected.sessionId !== sessionId
+      || expected.generation !== session.lifecycleGeneration))
+    || (session.lifecycleState !== 'starting' && session.lifecycleState !== 'running'
+      && session.lifecycleState !== 'unreachable')) {
     throw new Error('D1 start generation unavailable');
   }
 
   const isFreshStart = session.lifecycleState === 'starting';
+  if (isFreshStart && !expected && !operatorStart) throw new Error('D1 start claim required');
   if (isFreshStart) {
     const startEpoch = host._teardownEpoch = (host._teardownEpoch ?? 0) + 1;
     const assertStartCurrent = () => {
@@ -236,6 +248,7 @@ export async function onStart(host: LifecycleHost): Promise<void> {
       await txn.delete(SHUTDOWN_REQUESTED_KEY);
       await txn.delete([TRANSPORT_FAILURE_STREAK_KEY, TRANSPORT_RECOVERY_KEY]);
       await txn.put('lifecycleGeneration', session.lifecycleGeneration);
+      await txn.delete(SESSION_LAUNCH_GENERATION_KEY);
       await txn.put('observationSequence', 0);
       await txn.put('containerStartedAt', startedAt);
       assertStartCurrent();
@@ -508,7 +521,7 @@ async function recordFinalSyncAudit(host: LifecycleHost, result: FinalSyncResult
  * resurrect the KV entry (REQ-SESSION-009).
  */
 export async function destroy(host: LifecycleHost, context?: LifecycleLogContext,
-  onNativeExit?: () => Promise<void>): Promise<void> {
+  onNativeExit?: () => Promise<void>, quiesceStart?: () => Promise<void>): Promise<void> {
   const diagnostic: LifecycleLogContext = context ? { ...context } : {
     sessionId: host._sessionId, lifecycleGeneration: host._observedLifecycleGeneration ?? null, incidentId: null, reason: 'unknown',
   };
@@ -537,6 +550,9 @@ export async function destroy(host: LifecycleHost, context?: LifecycleLogContext
       if (timer) clearTimeout(timer);
     }
   };
+  // Finish cancelling startup inside the existing teardown deadline, before
+  // removing credentials or concluding that native destruction is sufficient.
+  if (quiesceStart) await withinDeadline(quiesceStart);
   // Fence protected admissions before any teardown I/O yields. Cleanup failures
   // do not prevent the existing bounded final sync and guaranteed stop path.
   try { await withinDeadline(() => host.ctx.storage.put(SHUTDOWN_REQUESTED_KEY, start)); }

@@ -127,16 +127,14 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
     cleanup();
   });
 
-  it('shows separate Operator Management navigation only for an eligible enterprise user', async () => {
+  it('REQ-OPERATOR-040: keeps Operators in the header but not in the Enterprise account menu', async () => {
     sessionStoreState.enterpriseMode = true;
-    const view = render(() => <Header {...defaultSessionProps} operatorManagementEligible />);
+    const props = { ...defaultSessionProps, operatorManagementEligible: true };
+    render(() => <Header {...props} />);
     await fireEvent.click(screen.getByTestId('header-user-menu'));
-    expect(screen.getByTestId('header-user-dropdown-operators')).toHaveAttribute('href', '/operators');
-    view.unmount();
-
-    render(() => <Header {...defaultSessionProps} />);
-    await fireEvent.click(screen.getByTestId('header-user-menu'));
-    expect(screen.queryByTestId('header-user-dropdown-operators')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Operator activity' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Usage' })).toHaveAttribute('href', '/app/usage');
+    expect(screen.queryByRole('link', { name: 'Operators' })).not.toBeInTheDocument();
   });
 
   describe('REQ-SESSION-036: Header sleep countdown', () => {
@@ -657,6 +655,16 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
       fireEvent.click(screen.getByTestId('header-user-menu'));
 
       expect(screen.getByTestId('header-user-dropdown-profile')).toBeInTheDocument();
+    });
+
+    it('REQ-SUB-023 AC1/6/7: SaaS account menu retains Usage, Guided Setup, and Logout', () => {
+      sessionStoreState.saasMode = true;
+      render(() => <Header {...defaultSessionProps} />);
+      fireEvent.click(screen.getByTestId('header-user-menu'));
+      expect(screen.getByTestId('header-user-dropdown-profile')).toBeInTheDocument();
+      expect(screen.getByTestId('header-user-dropdown-usage')).toBeInTheDocument();
+      expect(screen.getByTestId('header-user-dropdown-onboarding')).toBeInTheDocument();
+      expect(screen.getByTestId('header-user-dropdown-logout')).toBeInTheDocument();
     });
 
     it('shows Usage but hides Subscription in onboarding/default mode', () => {

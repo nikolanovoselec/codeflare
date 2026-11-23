@@ -1,13 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { createComponent } from 'solid-js';
+import { cleanup, fireEvent, render, screen, waitFor } from '@solidjs/testing-library';
+import { ApiError } from '../../api/fetch-helper';
+import UploadQueue from '../../components/storage/UploadQueue';
+import StorageBrowser from '../../components/StorageBrowser';
+import DownloadsDisabledPopup from '../../components/DownloadsDisabledPopup';
 
 // Mock the API modules BEFORE importing the store
-vi.mock('../../api/storage', () => ({
+vi.mock('../../api/storage', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../api/storage')>()),
   browseStorage: vi.fn(),
   uploadFile: vi.fn(),
   initiateMultipartUpload: vi.fn(),
   uploadPart: vi.fn(),
   completeMultipartUpload: vi.fn(),
   abortMultipartUpload: vi.fn(),
+  getMultipartRecovery: vi.fn().mockResolvedValue(null),
+  recoverMultipartUpload: vi.fn(),
   deleteFiles: vi.fn(),
   getStats: vi.fn(),
   getPreview: vi.fn(),
@@ -20,7 +29,8 @@ vi.mock('../../lib/constants', async (importOriginal) => {
 });
 
 // Mock file-upload helpers
-vi.mock('../../lib/file-upload', () => ({
+vi.mock('../../lib/file-upload', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/file-upload')>()),
   shouldUseMultipart: vi.fn((file: File) => file.size > 5 * 1024 * 1024),
   splitIntoParts: vi.fn((file: File) => [file.slice(0, file.size)]),
   fileToBase64: vi.fn(() => Promise.resolve('base64content')),
@@ -125,6 +135,52 @@ describe('Storage Store', () => {
       expect(storageStore.downloadsDisabled).toBe(false);
     });
 
+    it('REQ-ENTERPRISE-019 AC2: fetched user-profile policy reaches storage controls and opens the blocked-download notice', async () => {
+      // Keep the real HTTP parser, store, controls and notice in this chain.
+      // Only network bytes and the unrelated storage listing are controlled.
+      const client = await vi.importActual<typeof import('../../api/client')>('../../api/client');
+      const requests: string[] = [];
+      const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+        const url = String(input);
+        requests.push(url);
+        if (url !== '/api/user') throw new Error(`Unexpected network request: ${url}`);
+        return new Response(JSON.stringify({
+          email: 'viewer@example.com', authenticated: true, bucketName: 'fixture-bucket',
+          enterpriseMode: true, downloadsDisabled: true,
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      });
+      mockGetUser.mockImplementationOnce(client.getUser);
+      // Use a root object so the listing is visible without workspace sync.
+      mockBrowseStorage.mockResolvedValueOnce({
+        objects: [{ key: 'policy.txt', size: 4, lastModified: '2026-01-01T00:00:00Z' }],
+        prefixes: [], isTruncated: false,
+      });
+      try {
+        expect(storageStore.downloadsDisabled).toBe(false);
+        render(() => [createComponent(StorageBrowser, {}), createComponent(DownloadsDisabledPopup, {})]);
+        await waitFor(() => {
+          expect(screen.getByText('policy.txt')).toBeInTheDocument();
+          expect(storageStore.downloadsDisabled).toBe(true);
+        });
+        fireEvent.click(screen.getByTitle('Selection mode'));
+        fireEvent.click(screen.getByText('policy.txt'));
+        const download = screen.getByTestId('storage-download-selected');
+        // Intentional UI contract: blocked-looking, but still operable for notice.
+        expect(download).toHaveClass('storage-action-btn--blocked');
+        expect(download).toBeEnabled();
+        expect(download).toHaveAttribute('title', 'Downloads are disabled by your administrator');
+        fireEvent.click(download);
+        expect(screen.getByRole('alertdialog', { name: 'Downloads disabled' })).toHaveTextContent(
+          'Downloading files is disabled by your administrator.',
+        );
+        // Wire boundary: profile delivery happened, no download request escaped.
+        expect(requests).toEqual(['/api/user']);
+      } finally {
+        cleanup();
+        fetch.mockRestore();
+      }
+    });
+
     it('refreshDownloadsDisabled() leaves the flag unchanged when /api/user fails', async () => {
       storageStore.setDownloadsDisabled(true);
       mockGetUser.mockRejectedValue(new Error('network'));
@@ -194,6 +250,44 @@ describe('Storage Store', () => {
 
       expect(mockBrowseStorage).toHaveBeenCalledWith('workspace/subdir/');
     });
+  });
+
+  it('REQ-STOR-018 AC7: reuses fresh folder rows and quietly refreshes a stale return', async () => {
+    const row = (name: string) => ({ key: `Notes/${name}`, size: 1, lastModified: '2026-11-20T12:00:00Z' });
+    const page = (name: string) => ({ objects: [row(name)], prefixes: [], isTruncated: false });
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000);
+    try {
+      mockBrowseStorage.mockResolvedValueOnce(page('old.md')).mockResolvedValueOnce(page('fresh.md'));
+      await storageStore.navigateTo('Notes/');
+      now.mockReturnValue(300_999);
+      await storageStore.refreshListingOnReturn();
+      expect(storageStore.objects).toEqual([row('old.md')]);
+      now.mockReturnValue(301_000);
+      const refresh = storageStore.refreshListingOnReturn();
+      expect(storageStore.loading).toBe(false);
+      expect(storageStore.objects).toEqual([row('old.md')]);
+      await refresh;
+      expect(storageStore.currentPrefix).toBe('Notes/');
+      expect(storageStore.objects).toEqual([row('fresh.md')]);
+    } finally { now.mockRestore(); }
+  });
+
+  it('REQ-STOR-018 AC7: keeps accumulated pages on return but manual reload replaces them', async () => {
+    const first = { key: 'first.md', size: 2, lastModified: '2026-11-20T12:00:00Z' };
+    const next = { ...first, key: 'next.md' };
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000);
+    try {
+      mockBrowseStorage.mockResolvedValueOnce({ objects: [first], prefixes: [], isTruncated: true, nextContinuationToken: 'next' })
+        .mockResolvedValueOnce({ objects: [next], prefixes: [], isTruncated: false });
+      await storageStore.refreshListingOnReturn();
+      await storageStore.loadMore();
+      now.mockReturnValue(301_000);
+      mockBrowseStorage.mockResolvedValueOnce({ objects: [], prefixes: [], isTruncated: false });
+      await storageStore.refreshListingOnReturn();
+      expect(storageStore.objects).toEqual([first, next]);
+      await storageStore.refresh();
+      expect(storageStore.objects).toEqual([]);
+    } finally { now.mockRestore(); }
   });
 
   describe('loadMore()', () => {
@@ -576,6 +670,73 @@ describe('Storage Store', () => {
       // Final state should be complete with 100% progress
       expect(storageStore.uploads[0].progress).toBe(100);
       expect(storageStore.uploads[0].status).toBe('complete');
+    });
+
+    function prepareMultipartFailure(fileName = 'large.bin') {
+      mockShouldUseMultipart.mockReturnValue(true);
+      mockSplitIntoParts.mockReturnValue([new Blob(['part'])]);
+      mockInitiateMultipartUpload.mockResolvedValue({ key: `workspace/${decodeURIComponent(fileName)}`, uploadId: 'upload-held' });
+      mockUploadPart.mockResolvedValue({ etag: 'abc' });
+      mockBrowseStorage.mockResolvedValue({ objects: [], prefixes: [], isTruncated: false });
+      const abort = vi.mocked(storageApi.abortMultipartUpload).mockReset().mockResolvedValue(undefined);
+      const upload = () => storageStore.uploadFiles([{ file: new File(['part'], fileName), relativePath: fileName }], 'workspace/');
+      return { abort, upload };
+    }
+
+    it.each([false, true])('REQ-STOR-008 AC6: pre-completion failure preserves refused parts=%s', async refused => {
+      const { abort, upload } = prepareMultipartFailure();
+      const error = new ApiError('Part failed', 409, 'Conflict');
+      if (refused) error.code = 'MULTIPART_RESTART_REQUIRED';
+      mockUploadPart.mockRejectedValueOnce(error);
+      await upload();
+      expect(storageStore.uploads[0]).toMatchObject({ status: 'error', error: 'Part failed' });
+      if (refused) expect(abort).not.toHaveBeenCalled();
+      else expect(abort).toHaveBeenCalledWith('workspace/large.bin', 'upload-held');
+    });
+
+    it('REQ-STOR-008 AC7: a fresh upload queue rediscovers the server-recorded recovery action', async () => {
+      const identity = { key: 'Uploads/held%20file.bin', uploadId: 'held-id' };
+      vi.mocked(storageApi.getMultipartRecovery).mockResolvedValueOnce(identity);
+      const recover = vi.mocked(storageApi.recoverMultipartUpload).mockResolvedValueOnce(undefined);
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValue(true);
+      try {
+        render(() => createComponent(UploadQueue, {}));
+        const button = await screen.findByRole('button', { name: 'Abort upload' });
+        fireEvent.click(button);
+        expect(recover).not.toHaveBeenCalled();
+        fireEvent.click(button);
+        await waitFor(() => expect(screen.getByText('aborted')).toBeInTheDocument());
+        expect(recover).toHaveBeenCalledWith(identity.key, identity.uploadId);
+      } finally { cleanup(); confirm.mockRestore(); }
+    });
+
+    it('REQ-STOR-008 AC7: only confirmed recovery aborts the unconfirmed upload, and failed recovery stays available', async () => {
+      const { abort, upload } = prepareMultipartFailure('large%2520file.bin');
+      mockCompleteMultipartUpload.mockRejectedValueOnce(new Error('Response lost'));
+      const recovery = deferred<void>();
+      abort.mockReturnValueOnce(recovery.promise);
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValue(true);
+      try {
+        await upload();
+        render(() => createComponent(UploadQueue, {}));
+        const button = () => screen.getByRole('button', { name: 'Abort upload' });
+        expect(screen.getByText(/completion could not be confirmed/i)).toBeInTheDocument();
+        expect(abort).not.toHaveBeenCalled();
+        fireEvent.click(button());
+        expect(abort).not.toHaveBeenCalled();
+        fireEvent.click(button());
+        expect(abort).toHaveBeenCalledWith('workspace/large%2520file.bin', 'upload-held');
+        expect(button()).toBeDisabled();
+        recovery.reject(new Error('Recovery unavailable'));
+        await waitFor(() => expect(button()).toBeEnabled());
+        expect(screen.getByText('Recovery unavailable')).toBeInTheDocument();
+        fireEvent.click(button());
+        await waitFor(() => expect(screen.queryByRole('button', { name: 'Abort upload' })).not.toBeInTheDocument());
+        expect(screen.getByText('aborted')).toBeInTheDocument();
+      } finally {
+        cleanup();
+        confirm.mockRestore();
+      }
     });
 
     it('should mark upload as error on failure', async () => {

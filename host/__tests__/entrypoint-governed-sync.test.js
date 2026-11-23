@@ -467,6 +467,8 @@ function runRcloneFilterWiring() {
     `RCLONE_CONFIG='${join(home, 'rclone.conf')}'`,
     `RECOVERY_FILTER_FILE='${recoveryFile}'`,
     "SYNC_MODE='full'",
+    "SESSION_MODE='default'",
+    "MANAGED_RESOURCE_POLICY='mutable'",
     'VAULT_FILTER=()',
     'timeout() { shift; "$@"; }',
     `rclone() { { printf '%s\\n' '__CALL__'; printf '%s\\n' "$@"; } >> '${callsFile}'; return 0; }`,
@@ -571,7 +573,7 @@ describe('REQ-STOR-017 / AD88: bisync uses server-modtime + wider checkers (entr
 // it starves pi pre-warm and inflates startup latency. Scheduler config = contract.
 // ---------------------------------------------------------------------------
 const backgroundInitBlock = extractBetween(
-  'if [ $RCLONE_CONFIG_RESULT -eq 0 ] && [ "${STEP1_RESULT:-1}" -eq 0 ]; then',
+  'if [ "$RCLONE_CONFIG_RESULT" -eq 0 ] && { [ "${STEP1_RESULT:-1}" -eq 0 ] || [ "${STEP1_RESULT:-1}" -eq 124 ]; }; then',
   'BISYNC_INIT_PID=$!',
   'background-init subshell',
 );

@@ -404,6 +404,7 @@ describe('Auth Middleware', () => {
     it('denies a non-admin who is in no configured admin group (403)', async () => {
       mockKV._store.set(SETUP_KEYS.AUTH_DOMAIN, AUTH_DOMAIN);
       mockKV._store.set(SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP, 'ops_admins');
+      mockKV._set('user:nonmember@example.com', { role: 'user', addedBy: 'setup', addedAt: '2026-01-01' });
       mockGetIdentity([{ name: 'some_other_group' }]);
 
       const app = createAdminApp();
@@ -416,6 +417,7 @@ describe('Auth Middleware', () => {
 
     it('makes NO get-identity call and 403s when no admin groups are configured', async () => {
       mockKV._store.set(SETUP_KEYS.AUTH_DOMAIN, AUTH_DOMAIN);
+      mockKV._set('user:nonmember@example.com', { role: 'user', addedBy: 'setup', addedAt: '2026-01-01' });
       const spy = vi.spyOn(globalThis, 'fetch');
 
       const app = createAdminApp();

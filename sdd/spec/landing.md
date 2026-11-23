@@ -27,9 +27,40 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 ---
 
-### REQ-LANDING-001: Mode-aware public landing serving
+<a id="req-landing-001-mode-aware-public-landing-serving"></a>
+### REQ-LANDING-001: Public landing content and interaction
 
-**Intent:** Unauthenticated visitors to the deployment root in SaaS or onboarding mode see the enterprise marketing landing page — positioning Codeflare as the agentic engineering engine — while authenticated users and default-mode deployments keep their existing app entry flow.
+**Intent:** The public marketing page presents the enterprise narrative as complete, accessible content with or without enhancements.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Without JavaScript, the page presents the ordered enterprise narrative, shared proof terminals, folded substations, orchestration, cost, platform, governance, dogfood, FAQ, and contact surfaces. <!-- @impl: landing/src/pages/index.astro::<main = <main id="top"> --> <!-- @test: landing/src/__tests__/index-page.test.ts (landing page composition (REQ-LANDING-001)) -->
+2. Client enhancements animate terminal proofs, capability text, orchestration, reveals, and the page flare while preserving the complete server-rendered resting state and honoring reduced-motion preferences. <!-- @test: landing/src/__tests__/scramble.script.test.ts (scramble.ts (REQ-LANDING-001)) --> <!-- @manual -->
+3. At mobile, tablet, and desktop widths, peer and subordinate sections remain visually distinct without overlap, clipping, or hidden content. <!-- @manual -->
+4. Every visible navigation, trust, disclosure, contact, sign-in, and footer control reaches its intended destination by keyboard. <!-- @test: landing/src/__tests__/index-page.test.ts (grids, chips, nav, social proof, faq) --> <!-- @manual -->
+5. The five header section shortcuts are visible at widths of 900px and above. Below 900px they are hidden; the linked sections and Sign in remain available. Controls shown at each width do not overlap or clip. <!-- @impl: landing/src/components/Header.astro::nav-links --> <!-- @impl: landing/src/styles/global.css::@media (min-width: 900px) --> <!-- @manual -->
+
+**Constraints:**
+
+- Landing assets build after the web UI; request eligibility and fallback follow [REQ-LANDING-017](#req-landing-017-mode-aware-landing-dispatch).
+- User-facing marketing copy stays platform-neutral except for relationship-neutral trust marks and functional third-party resources.
+- The [Landing README](../../landing/README.md) owns composition and enhancement details. The [architecture lane](../../documentation/lanes/architecture.md#landing-composition-implementation) owns the system boundary.
+
+**Priority:** P1
+
+**Dependencies:** None.
+
+**Verification:** Automated: [index-page.test.ts](../../landing/src/__tests__/index-page.test.ts), [scramble.script.test.ts](../../landing/src/__tests__/scramble.script.test.ts); Manual: [Landing responsive navigation acceptance](../../landing/README.md#landing-responsive-navigation-acceptance)
+
+**Status:** Implemented
+
+---
+
+### REQ-LANDING-017: Mode-aware landing dispatch
+
+**Intent:** Eligible anonymous requests get the prerendered marketing page without changing authenticated or default-mode entry.
 
 **Applies To:** User
 
@@ -38,23 +69,18 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 1. In SaaS mode, an unauthenticated root-page request serves the prerendered landing app. <!-- @impl: src/index.ts::default --> <!-- @test: src/__tests__/index.test.ts (REQ-LANDING-001: serves the static landing at / in SaaS mode (unauthenticated)) -->
 2. An unauthenticated GET `/` in onboarding mode is served the same landing app. <!-- @impl: src/index.ts::default --> <!-- @test: src/__tests__/index.test.ts (REQ-LANDING-001: serves the static landing at / when onboarding mode is active (unauthenticated)) -->
 3. In default mode, root-page navigation redirects to the application entry and never serves the landing. <!-- @impl: src/index.ts::default --> <!-- @test: src/__tests__/index.test.ts (REQ-LANDING-001: keeps redirecting / to /app in default mode (no landing)) -->
-4. The static page composes the typed content model into the ordered enterprise narrative, shared proof terminals, folded substations, orchestration, cost, platform, governance, dogfood, FAQ, and contact surfaces without requiring JavaScript. <!-- @impl: landing/src/pages/index.astro::gate-req --> <!-- @test: landing/src/__tests__/index-page.test.ts (landing page composition (REQ-LANDING-001)) -->
-5. Client enhancements animate terminal proofs, capability text, orchestration, reveals, and the page flare while preserving the complete server-rendered resting state and honoring reduced-motion preferences. <!-- @test: landing/src/__tests__/scramble.script.test.ts (scramble.ts (REQ-LANDING-001)) --> <!-- @manual -->
-6. At mobile, tablet, and desktop widths, peer and subordinate sections remain visually distinct without overlap, clipping, or hidden content. <!-- @manual -->
-7. Each navigation, trust, disclosure, contact, sign-in, and footer control reaches its intended destination by keyboard and remains visible without overlap or clipping at mobile, tablet, and desktop widths. <!-- @test: landing/src/__tests__/index-page.test.ts (grids, chips, nav, social proof, faq) --> <!-- @manual -->
+4. In SaaS mode, authenticated root-page requests redirect active users to `/app/` and pending or blocked users to `/app/subscribe`. <!-- @impl: src/index.ts::default --> <!-- @test: src/__tests__/index.test.ts (REQ-LANDING-017 AC4: signed-in SaaS $state user redirects GET / to $destination without landing assets) -->
 
 **Constraints:**
 
-- Authenticated visitors retain the app and subscription redirects; unauthenticated sign-in routes directly to the provider chooser.
-- Landing assets build after the web UI, fall back to the legacy app when absent, and receive the root document's security headers.
-- User-facing marketing copy stays platform-neutral except for relationship-neutral trust marks and functional third-party resources.
-- Responsive, motion, typography, spacing, terminal, and enhancement mechanisms are documented in [architecture.md](../../documentation/lanes/architecture.md#landing-composition-implementation).
+- Authenticated onboarding visitors go to `/app/`; unauthenticated sign-in routes directly to the provider chooser.
+- If landing assets are absent, fall back to the legacy app; landing assets receive the root document's security headers.
 
 **Priority:** P1
 
-**Dependencies:** None.
+**Dependencies:** [REQ-LANDING-001](#req-landing-001-public-landing-content-and-interaction)
 
-**Verification:** Automated: [index-page.test.ts](../../landing/src/__tests__/index-page.test.ts), [index.test.ts](../../src/__tests__/index.test.ts); Manual: [Landing responsive navigation acceptance](../../landing/README.md#landing-responsive-navigation-acceptance)
+**Verification:** Automated: [index.test.ts](../../src/__tests__/index.test.ts)
 
 **Status:** Implemented
 
@@ -93,12 +119,13 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Acceptance Criteria:**
 
-1. Public contact submissions validate name (1-100), email, company (optional, ≤200), topic from the shared declared enum, and message (10-4000); invalid input is rejected with 400. <!-- @impl: src/lib/contact-topics.ts::CONTACT_TOPICS --> <!-- @test: src/__tests__/routes/public-contact.test.ts (Public contact route (REQ-LANDING-002)) -->
-2. The endpoint is available when SaaS mode or onboarding mode is active and returns 404 otherwise; the waitlist endpoint stays onboarding-only. <!-- @test: src/__tests__/routes/public-contact.test.ts (Public contact route (REQ-LANDING-002)) --> <!-- @manual -->
-3. Submissions require a passing Turnstile verification; failures are rejected with a CAPTCHA validation error. <!-- @impl: src/routes/public/index.ts::requireVerifiedSubmission --> <!-- @test: src/__tests__/routes/public-contact.test.ts (Public contact route (REQ-LANDING-002)) -->
-4. Accepted submissions are relayed as email to all admin users with reply-to set to the submitter, and every user-controlled field is HTML-escaped before rendering into the email body. <!-- @test: src/__tests__/routes/public-contact.test.ts (Public contact route (REQ-LANDING-002)) --> <!-- @manual -->
-5. Submission content is never persisted — the only KV writes on the contact path are rate-limiter bookkeeping. Accepted-contact and verification-failure application logs omit submitter email (including masked email), name, company, topic and message. <!-- @test: src/__tests__/routes/public-contact.test.ts (Public contact route (REQ-LANDING-002)) --> <!-- @manual --> <!-- @impl: src/routes/public/index.ts::app --> <!-- @test: src/__tests__/routes/public-contact.test.ts (REQ-LANDING-002 AC5: contact logs omit personal data on verification success=%s) -->
-6. Public contact-configuration reads expose the Turnstile site key under the same mode gate for the landing form widget. <!-- @impl: src/routes/public/index.ts::app --> <!-- @test: src/__tests__/routes/public-contact.test.ts (returns the Turnstile site key in SaaS mode) -->
+1. Public contact submissions validate name (1-100), email, company (optional, ≤200), topic from the shared declared enum, and message (10-4000); invalid input is rejected with 400. <!-- @test: src/__tests__/routes/public-contact.test.ts (REQ-LANDING-002 AC1: accepts $edge and relays the submitted fields) --> <!-- @test: src/__tests__/routes/public-contact.test.ts (REQ-LANDING-002 AC1: rejects $edge without delivering email) --> <!-- @impl: src/routes/public/index.ts::ContactRequestSchema --> <!-- @impl: src/lib/contact-topics.ts::CONTACT_TOPICS --> <!-- @test: src/__tests__/routes/public-contact.test.ts (Public contact route (REQ-LANDING-002)) -->
+2. The endpoint is available when SaaS mode or onboarding mode is active and returns 404 otherwise; the waitlist endpoint stays onboarding-only. <!-- @impl: src/routes/public/index.ts::app --> <!-- @impl: src/routes/public/index.ts::requireOnboardingMode --> <!-- @test: src/__tests__/routes/public-contact.test.ts (Public contact route (REQ-LANDING-002)) --> <!-- @manual -->
+3. Submissions require a passing Turnstile verification. An unsuccessful verdict returns a CAPTCHA validation error; a verifier transport or decoding failure still blocks delivery but is not a validation verdict. <!-- @test: src/__tests__/routes/public-contact.test.ts (REQ-LANDING-002 AC3: Turnstile %s blocks delivery without a CAPTCHA verdict) --> <!-- @impl: src/routes/public/index.ts::requireVerifiedSubmission --> <!-- @impl: src/lib/turnstile.ts::verifyTurnstileToken --> <!-- @test: src/__tests__/routes/public-contact.test.ts (rejects failed Turnstile verification with a CAPTCHA error) -->
+4. Accepted submissions are relayed as email to all admin users with reply-to set to the submitter, and every user-controlled field is HTML-escaped before rendering into the email body. <!-- @impl: src/routes/public/index.ts::requireVerifiedSubmission --> <!-- @impl: src/routes/public/index.ts::app --> <!-- @impl: src/routes/public/index.ts::sendNotificationEmail --> <!-- @test: src/__tests__/routes/public-contact.test.ts (Public contact route (REQ-LANDING-002)) --> <!-- @manual -->
+5. The contact path persists only rate-limit bookkeeping, never submission content. <!-- @impl: src/routes/public/index.ts::app --> <!-- @manual -->
+6. Public contact-configuration reads expose the Turnstile site key under the same mode gate for the landing form widget. <!-- @test: src/__tests__/routes/public-contact.test.ts (REQ-LANDING-002 AC6: onboarding contact-config exposes only the public site key) --> <!-- @impl: src/routes/public/index.ts::app --> <!-- @test: src/__tests__/routes/public-contact.test.ts (returns the Turnstile site key in SaaS mode) -->
+7. Accepted-contact and verification-failure application logs omit submitter email (including masked email), name, company, topic and message. <!-- @impl: src/routes/public/index.ts::app --> <!-- @test: src/__tests__/routes/public-contact.test.ts (REQ-LANDING-002 AC5: contact logs omit personal data on verification success=%s) --> <!-- @manual -->
 
 **Constraints:**
 
@@ -127,23 +154,23 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 1. The landing exposes the full Open Graph set: `og:type`, `og:site_name`, `og:title`, `og:description`, `og:url`, `og:image` (1200x630 with type/alt), `og:locale`. <!-- @impl: landing/src/layouts/BaseLayout.astro::og:description --> <!-- @test: landing/src/__tests__/metadata.test.ts (REQ-LANDING-003 AC1: emits the Open Graph meta tags with their contract values) -->
 2. Twitter Card metadata is set with `summary_large_image` plus title, description, image, and image alt. <!-- @impl: landing/src/layouts/BaseLayout.astro::twitter:card --> <!-- @test: landing/src/__tests__/metadata.test.ts (REQ-LANDING-003 AC2: emits the Twitter Card meta tags) -->
 3. The canonical URL is the served root (`https://codeflare.ch/`), not the internal landing-asset location. <!-- @impl: landing/src/layouts/BaseLayout.astro::title --> <!-- @test: landing/src/__tests__/metadata.test.ts (REQ-LANDING-003 AC3: emits a canonical link with a non-empty href) -->
-4. Social-share and structured-data surfaces carry the canonical "agentic engineering engine" positioning phrase and full external summary. <!-- @impl: landing/src/layouts/BaseLayout.astro::canonical --> <!-- @test: landing/src/__tests__/metadata.test.ts (REQ-LANDING-003: external metadata (SEO, social, structured data)) -->
-5. The landing emits a JSON-LD `@graph` of schema.org structured data: a site-wide `Organization` (named, logo, `sameAs` the public repo) and `WebSite`, with the home page grafting on a `SoftwareApplication` entity, so search engines and LLMs resolve Codeflare to a named entity. <!-- @impl: landing/src/layouts/BaseLayout.astro::canonical --> <!-- @test: landing/src/__tests__/metadata.test.ts (REQ-LANDING-003: external metadata (SEO, social, structured data)) -->
-6. The Worker serves discoverability documents at the deployment root, gated on the public landing being active (SaaS or onboarding): `robots.txt`, `sitemap.xml`, and `llms.txt`. In a private (default/enterprise) deployment `robots.txt` disallows all crawling and `sitemap.xml` / `llms.txt` return 404. <!-- @impl: src/lib/seo.ts::CANONICAL_ORIGIN --> <!-- @test: src/__tests__/lib/seo.test.ts (SEO discoverability documents (REQ-LANDING-003)) -->
+4. Social-share and structured-data surfaces carry the canonical "agentic engineering engine" positioning phrase and full external summary. <!-- @impl: landing/src/layouts/BaseLayout.astro::canonical --> <!-- @test: landing/src/__tests__/metadata.test.ts (REQ-LANDING-003 AC4: emits a meta description with non-empty content) -->
+5. The landing emits a JSON-LD `@graph` of schema.org structured data: a site-wide `Organization` (named, logo, `sameAs` the public repo) and `WebSite`, with the home page grafting on a `SoftwareApplication` entity, so search engines and LLMs resolve Codeflare to a named entity. <!-- @impl: landing/src/layouts/BaseLayout.astro::canonical --> <!-- @test: landing/src/__tests__/metadata.test.ts (REQ-LANDING-003 AC5: emits a JSON-LD block that parses to a schema.org @graph) -->
+6. The Worker serves discoverability documents at the deployment root, gated on the public landing being active (SaaS or onboarding): `robots.txt`, `sitemap.xml`, and `llms.txt`. In a private (default/enterprise) deployment `robots.txt` disallows all crawling and `sitemap.xml` / `llms.txt` return 404. <!-- @test: src/__tests__/index.test.ts (REQ-LANDING-003: serves an indexable robots.txt with the sitemap in a public mode) --> <!-- @test: src/__tests__/index.test.ts (REQ-LANDING-003: serves a disallow-all robots.txt with no sitemap in a private (default) mode) --> <!-- @test: src/__tests__/index.test.ts (REQ-LANDING-003: serves sitemap.xml + llms.txt in a public mode and 404s them in a private mode) --> <!-- @impl: src/lib/seo.ts::CANONICAL_ORIGIN --> <!-- @test: src/__tests__/lib/seo.test.ts (SEO discoverability documents (REQ-LANDING-003)) -->
 7. The landing declares a `theme-color` and an `apple-touch-icon` for mobile share/install surfaces. <!-- @test: landing/src/__tests__/metadata.test.ts (REQ-LANDING-003 AC7: emits theme-color meta and an apple-touch-icon link) --> <!-- @manual -->
 
 **Constraints:**
 
 - The OG/Twitter preview image is the brand asset at `web-ui/public/og.png` (1200x630), served from the SPA asset root at `/og.png`.
 - JSON-LD is a `<script type="application/ld+json">` data block (not executed), so it is unaffected by the landing's `script-src 'self'` CSP.
-- The discoverability documents are served before the setup-completion gate (so a crawler reaches them on a fresh instance) and use the hardcoded canonical origin (`https://codeflare.ch`), so an integration/staging host never advertises itself as canonical.
+- Serve discoverability documents before Setup completes, using `https://codeflare.ch` as the canonical origin; integration or staging never advertises itself as canonical.
 - [REQ-SETUP-010](setup.md#req-setup-010-social-share-preview-metadata-on-the-public-landing-page) continues to govern the SPA's own metadata (`web-ui/index.html`), which still serves `/app` and `/login`.
 
 **Priority:** P2
 
 **Dependencies:** [REQ-LANDING-001](#req-landing-001-mode-aware-public-landing-serving)
 
-**Verification:** Automated: [metadata.test.ts](../../landing/src/__tests__/metadata.test.ts), [seo.test.ts](../../src/__tests__/lib/seo.test.ts); Manual: [Landing mobile metadata acceptance](../../landing/README.md#landing-mobile-metadata-acceptance)
+**Verification:** Automated: [metadata.test.ts](../../landing/src/__tests__/metadata.test.ts), [SEO document generation](../../src/__tests__/lib/seo.test.ts), [Worker discoverability routes](../../src/__tests__/index.test.ts); Manual: [Landing mobile metadata acceptance](../../landing/README.md#landing-mobile-metadata-acceptance)
 
 **Status:** Implemented
 
@@ -158,7 +185,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 **Acceptance Criteria:**
 
 1. The sitemap omits the public login route. <!-- @impl: src/lib/seo.ts::SITEMAP_PATHS --> <!-- @test: src/__tests__/lib/seo.test.ts (buildSitemapXml) -->
-2. Every served login asset response carries `X-Robots-Tag: noindex, nofollow`. <!-- @impl: src/index.ts::fetch --> <!-- @test: src/__tests__/index.test.ts (REQ-LANDING-008: marks the public login response noindex without blocking the asset) -->
+2. Login documents served at `/login` or `/login/` carry `X-Robots-Tag: noindex, nofollow`. The prerendered onboarding login document also declares `noindex, nofollow` in its HTML, including when served from its build path. <!-- @impl: src/index.ts::dispatch --> <!-- @impl: landing/src/pages/login.astro::robots --> <!-- @test: src/__tests__/index.test.ts (REQ-LANDING-008: marks the public login response noindex without blocking the asset) --> <!-- @test: landing/src/__tests__/login-page.test.ts (is excluded from search indexing (auth URLs carry ?status / ?error)) -->
 3. Public `robots.txt` leaves the login route crawlable so search crawlers can observe the exclusion directive. <!-- @impl: src/lib/seo.ts::buildRobotsTxt --> <!-- @test: src/__tests__/lib/seo.test.ts (advertises the marketing surface + sitemap while excluding private routes) -->
 
 **Constraints:** None.
@@ -167,7 +194,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-003](#req-landing-003-landing-social-share-and-search-metadata)
 
-**Verification:** Automated: [index.test.ts](../../src/__tests__/index.test.ts), [seo.test.ts](../../src/__tests__/lib/seo.test.ts)
+**Verification:** Automated: [index.test.ts](../../src/__tests__/index.test.ts), [seo.test.ts](../../src/__tests__/lib/seo.test.ts), [login-page.test.ts](../../landing/src/__tests__/login-page.test.ts)
 
 **Status:** Implemented
 
@@ -181,18 +208,16 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Acceptance Criteria:**
 
-1. The landing layout declares the dark color scheme — a `<meta name="color-scheme" content="dark">` and an inline `html { color-scheme: dark; background-color: … }` rule emitted before any external stylesheet — so a cross-document navigation holds a dark canvas. <!-- @impl: landing/src/layouts/BaseLayout.astro::viewport --> <!-- @test: landing/src/__tests__/index-page.test.ts (REQ-LANDING-004: dark first paint (anti-flash contract)) -->
-2. Content-hashed landing assets remain reusable for one year without revalidation, while non-hashed assets continue to revalidate so HTML stays fresh. <!-- @impl: src/index.ts::default --> <!-- @test: src/__tests__/index.test.ts (REQ-LANDING-004: immutable /_astro/ asset caching) -->
-3. Every same-origin full-page navigation between the landing and login pages opts into a cross-document view transition. <!-- @test: landing/src/__tests__/index-page.test.ts (REQ-LANDING-004: dark first paint (anti-flash contract)) --> <!-- @manual -->
+1. The landing page uses a dark color scheme and canvas before external styles load, including during cross-document navigation. <!-- @impl: landing/src/layouts/BaseLayout.astro::viewport --> <!-- @test: landing/src/__tests__/index-page.test.ts (REQ-LANDING-004: dark first paint (anti-flash contract)) -->
+2. Landing builds use the fingerprinted-asset caching policy in [REQ-OPS-175](operations.md#req-ops-175-worker-served-build-asset-caching). <!-- @impl: src/index.ts::dispatch --> <!-- @test: src/__tests__/index.test.ts (REQ-LANDING-004: immutable /_astro/ asset caching) -->
+3. Both prerendered landing and onboarding login documents opt into cross-document transitions for same-origin full-page navigation between them. The [SaaS login SPA](authentication.md#req-auth-020-onboarding-mode-landing-integrated-login-shell) retains the dark first paint without opting in. <!-- @impl: landing/src/styles/global.css::view-transition --> <!-- @impl: src/index.ts::dispatch --> <!-- @manual -->
 4. Landing-built marketing and login content stays hidden over the dark canvas until the shared stylesheet and both critical local fonts have loaded. <!-- @impl: src/lib/design-ready.ts::DESIGN_READY_SCRIPT --> <!-- @impl: landing/src/layouts/BaseLayout.astro::data-design-ready --> <!-- @test: landing/src/__tests__/design-ready.script.test.ts (REQ-LANDING-004: final-design first paint gate) --> <!-- @test: landing/src/__tests__/index-page.test.ts (REQ-LANDING-004: dark first paint (anti-flash contract)) --> <!-- @test: landing/src/__tests__/login-page.test.ts (inherits the shared final-design gate before exposing the login shell) --> <!-- @test: src/__tests__/index.test.ts (REQ-LANDING-004 AC4: landing response authorizes only the integrity-pinned design-ready script) -->
 5. Without JavaScript, the complete server-rendered page remains visible and usable rather than inheriting the loading gate. <!-- @impl: landing/src/layouts/BaseLayout.astro::data-design-ready --> <!-- @test: landing/src/__tests__/index-page.test.ts (REQ-LANDING-004: dark first paint (anti-flash contract)) -->
 
 **Constraints:**
 
 - The SPA shell (`web-ui/index.html`) carries the same dark `color-scheme` meta and inline root paint, so navigating landing → `/login` (SPA) and back never flashes.
-- The installable manifest's `theme_color` and `background_color` match the dark first-paint background so the PWA splash/install surface is consistent with the app's dark canvas.
-- Immutability is keyed on the `/_astro/` path segment (Astro's content-hashed output directory): only those filenames change when content changes, so a stale cache entry is impossible; HTML and other non-hashed responses must keep revalidating so content stays fresh.
-- Immutability is applied only to a real `200` asset whose response is not `text/html`, never the SPA fallback served for a non-existent `/_astro/` URL.
+- The installable manifest's `theme_color` and `background_color` match the dark first-paint background.
 - The inline design-ready gate is authorized by one integrity-pinned CSP hash; broad inline-script execution remains forbidden.
 
 **Priority:** P2
@@ -213,11 +238,11 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Acceptance Criteria:**
 
-1. The landing presents Inference Mesh as a distinct family hero directly after the primary hero and before the Execution overview and detailed sections, reusing the existing section rhythm and tint while preserving one top-level page heading. <!-- @impl: landing/src/components/InferenceMeshHero.astro::INFERENCE_MESH --> <!-- @test: landing/src/__tests__/index-page.test.ts (inference mesh family hero (REQ-LANDING-005)) -->
-2. `Inference Mesh` is a plain white, unscrambled section heading with a shared `~/inference` kicker; both align right on desktop, and Codeflare is not repeated. <!-- @impl: landing/src/content/site.ts::INFERENCE_MESH --> <!-- @test: landing/src/__tests__/index-page.test.ts (inference mesh family hero (REQ-LANDING-005)) -->
-3. Copy presents Inference Mesh as optional private, low-cost capacity from owned idle machines with warm sessions and boundary-local sensitive work; any hosted provider remains a first-class default or fallback. <!-- @impl: landing/src/content/site.ts::INFERENCE_MESH --> <!-- @test: landing/src/__tests__/index-page.test.ts (inference mesh family hero (REQ-LANDING-005)) -->
-4. The band includes one external CTA labelled `See it on GitHub` linking to the public Inference Mesh repository, rendered with the shared compact text-link treatment (the same treatment as the dogfood CTA), with no secondary CTA and no dedicated detail route. <!-- @impl: landing/src/content/site.ts::INFERENCE_MESH --> <!-- @test: landing/src/__tests__/index-page.test.ts (inference mesh family hero (REQ-LANDING-005)) -->
-5. The band shows a concrete inference-call terminal whose bottom command cycles through the configured inference beats under normal motion. <!-- @impl: landing/src/content/site.ts::INFERENCE_MESH --> <!-- @test: landing/src/__tests__/index-page.test.ts (drives the shared typed reel on the terminal command line, looping over the beats) -->
+1. Inference Mesh is a distinct family hero between the primary hero and Execution overview. It shares the alternate-band treatment, including the flare layout's transparent bands, while preserving one top-level page heading. <!-- @impl: landing/src/components/InferenceMeshHero.astro::INFERENCE_MESH --> <!-- @test: landing/src/__tests__/index-page.test.ts (inference mesh family hero (REQ-LANDING-005)) -->
+2. `Inference Mesh` is a plain white, unscrambled section heading with a shared `~/inference` kicker. Both align right on desktop without a repeated Codeflare display wordmark. <!-- @impl: landing/src/content/site.ts::INFERENCE_MESH --> <!-- @test: landing/src/__tests__/index-page.test.ts (inference mesh family hero (REQ-LANDING-005)) -->
+3. Copy presents Inference Mesh as optional private, low-cost capacity from owned idle machines with warm sessions and boundary-local sensitive work; any hosted provider remains a first-class default or fallback. <!-- @test: landing/src/__tests__/index-page.test.ts (REQ-LANDING-005 AC3: renders the approved optional-capacity and provider-choice claims) --> <!-- @impl: landing/src/content/site.ts::INFERENCE_MESH --> <!-- @test: landing/src/__tests__/index-page.test.ts (inference mesh family hero (REQ-LANDING-005)) -->
+4. The band includes one external CTA labelled `See it on GitHub` linking to the public Inference Mesh repository, rendered with the shared compact text-link treatment (the same treatment as the dogfood CTA), with no secondary CTA and no dedicated detail route. <!-- @impl: landing/src/content/site.ts::INFERENCE_MESH --> <!-- @test: landing/src/__tests__/index-page.test.ts (renders the GitHub CTA as the shared micro-cta text link (matching the dogfood CTA), external) --> <!-- @test: landing/src/__tests__/index-page.test.ts (inference mesh family hero (REQ-LANDING-005)) -->
+5. The band shows a concrete inference-call terminal whose bottom command cycles through the configured inference beats under normal motion. <!-- @test: landing/src/__tests__/feature-terminals.script.test.ts (REQ-LANDING-005 AC5: the rendered Mesh reel types every beat and loops back to its first command) --> <!-- @impl: landing/src/content/site.ts::INFERENCE_MESH --> <!-- @test: landing/src/__tests__/index-page.test.ts (drives the shared typed reel on the terminal command line, looping over the beats) -->
 6. Desktop places the right-aligned kicker, heading, description, and sole micro-CTA opposite the proof terminal; mobile left-aligns them. No subtitle or repeated Codeflare wordmark appears. <!-- @impl: landing/src/content/site.ts::INFERENCE_MESH --> <!-- @test: landing/src/__tests__/index-page.test.ts (inference mesh family hero (REQ-LANDING-005)) -->
 
 **Constraints:**
@@ -232,7 +257,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-001](#req-landing-001-mode-aware-public-landing-serving)
 
-**Verification:** Automated: [index-page.test.ts](../../landing/src/__tests__/index-page.test.ts), [scramble.script.test.ts](../../landing/src/__tests__/scramble.script.test.ts)
+**Verification:** Automated: [rendered landing band](../../landing/src/__tests__/index-page.test.ts), [Mesh reel animation](../../landing/src/__tests__/feature-terminals.script.test.ts)
 
 **Status:** Implemented
 
@@ -368,7 +393,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 1. The side-by-side Hero-scale terminals remain readable and contained without horizontal page overflow at tablet and desktop widths, then stack cleanly on mobile. <!-- @impl: landing/src/styles/global.css::execution-reel --> <!-- @impl: landing/src/styles/global.css::execution-card --> <!-- @impl: landing/src/styles/global.css::execution-terminal --> <!-- @manual -->
 2. With normal-motion JavaScript enhancement at mobile and tablet widths, the rendered Hero and both Execution terminals retain equal outer heights through their typing animations and responsive viewport-width changes. <!-- @impl: landing/src/scripts/feature-terminals.ts::reserveHeroFrame --> <!-- @impl: landing/src/scripts/proof.ts::syncExecutionFrames --> <!-- @impl: landing/src/styles/global.css::execution-terminal --> <!-- @test: landing/src/__tests__/feature-terminals.script.test.ts (REQ-LANDING-014: reserves the Hero frame at its tallest command across typing) --> <!-- @test: landing/src/__tests__/feature-terminals.script.test.ts (REQ-LANDING-014: keeps shuffled non-Hero terminals intrinsically sized) --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (matches the Hero frame and queues fractionally clipped context without visible resets) --> <!-- @manual -->
 3. Each independently progressing transcript retains prior rows in a clipped scrolling log with the same contiguous line rhythm as the other landing-page terminals, never distributing spare body height between rows. <!-- @impl: landing/src/scripts/proof.ts::scrollFeedToEnd --> <!-- @impl: landing/src/styles/global.css::execution-terminal .transcript-feed --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (types the simulation to completion in a fixed scrolling log with final cursor) --> <!-- @manual -->
-4. Each appended event scrolls the newest work into view, and the completed active row—including a command prompt when applicable—reserves its wrapped height throughout typing without shifting the terminal or page. <!-- @impl: landing/src/scripts/proof.ts::typeFeedRow --> <!-- @impl: landing/src/styles/global.css::is-feed-typing --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (keeps wrapped row geometry reserved inside the fixed scrolling viewport) --> <!-- @manual -->
+4. The completed active row, including a command prompt when applicable, reserves its wrapped height throughout typing without shifting the terminal or page. <!-- @impl: landing/src/scripts/proof.ts::typeFeedRow --> <!-- @impl: landing/src/styles/global.css::is-feed-typing --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (keeps wrapped row geometry reserved inside the fixed scrolling viewport) --> <!-- @manual -->
 5. At mobile and tablet widths, normal motion reveals the largest approved context prefix that fits fully inside the synchronized frame together with one empty staged row for the first queued line. <!-- @impl: landing/src/scripts/proof.ts::prepareFeed --> <!-- @impl: landing/src/scripts/proof.ts::pendingFeedRow --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (matches the Hero frame and queues fractionally clipped context without visible resets) --> <!-- @manual -->
 6. Every context row outside that opening prefix types in original order before the authored events, so the first append never skips hidden pre-event history. <!-- @impl: landing/src/scripts/proof.ts::startFeed --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (matches the Hero frame and queues fractionally clipped context without visible resets) --> <!-- @manual -->
 7. All 40 owner-approved reel rows remain exact, including continuation evidence. <!-- @impl: landing/src/content/site.ts::EXECUTION --> <!-- @test: landing/src/__tests__/index-page.test.ts (keeps every owner-approved row in both coherent execution timelines) --> <!-- @manual -->
@@ -398,8 +423,9 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 **Acceptance Criteria:**
 
 1. Only the exact approved PR #1 URL, appearing once as the final standalone line of its row, becomes interactive. <!-- @impl: landing/src/lib/execution-link.ts::approvedExecutionLinkStart --> <!-- @impl: landing/src/components/Transcript.astro::transcript-feed --> <!-- @impl: landing/src/scripts/proof.ts::parseFeed --> <!-- @test: landing/src/__tests__/components.test.ts (accepts exactly one approved PR URL as the final standalone transcript line) --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (rejects a feed link other than the exact approved pull request) -->
-2. The approved URL opens externally by pointer or keyboard, and keyboard focus remains visible inside the terminal. <!-- @impl: landing/src/components/Transcript.astro::transcript-feed --> <!-- @impl: landing/src/scripts/proof.ts::renderFeedRowText --> <!-- @impl: landing/src/styles/global.css::transcript-feed-semantic --> <!-- @test: landing/src/__tests__/components.test.ts (animate='feed' sizes from the first eight context rows while retaining complete semantic content) --> <!-- @test: landing/src/__tests__/index-page.test.ts (renders the real merged PR as a terminal-styled external link) -->
+2. The approved URL opens externally by pointer or keyboard. <!-- @impl: landing/src/components/Transcript.astro::transcript-feed --> <!-- @impl: landing/src/scripts/proof.ts::renderFeedRowText --> <!-- @test: landing/src/__tests__/components.test.ts (animate='feed' sizes from the first eight context rows while retaining complete semantic content) --> <!-- @test: landing/src/__tests__/index-page.test.ts (renders the real merged PR as a terminal-styled external link) -->
 3. The link inherits terminal color and removes conventional link decoration. <!-- @impl: landing/src/styles/global.css::terminal-inline-link --> <!-- @test: landing/src/__tests__/index-page.test.ts (renders the real merged PR as a terminal-styled external link) -->
+4. Keyboard focus on the approved link stays visible inside the terminal. <!-- @impl: landing/src/styles/global.css::transcript-feed-semantic --> <!-- @test: landing/src/__tests__/index-page.test.ts (renders the real merged PR as a terminal-styled external link) -->
 
 **Constraints:**
 
@@ -424,18 +450,20 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Acceptance Criteria:**
 
-1. The landing header renders a single sign-in CTA whose visible text is an on-theme decode label sourced from the typed content model, linking to the sign-in destination unchanged. <!-- @impl: landing/src/content/site.ts::HEADER_SIGN_IN --> <!-- @test: landing/src/__tests__/components.test.ts (renders one Enter-the-Matrix sign-in CTA: content-model label, aria-label, unchanged href, matrix modifier + hover-scramble hooks) -->
+1. The landing header renders one sign-in CTA with the configured decode label and unchanged sign-in destination. <!-- @impl: landing/src/content/site.ts::HEADER_SIGN_IN --> <!-- @test: landing/src/__tests__/components.test.ts (renders one Enter-the-Matrix sign-in CTA: content-model label, aria-label, unchanged href, matrix modifier + hover-scramble hooks) -->
 2. The CTA carries `aria-label="Sign in"` so its accessible name and purpose stay clear regardless of the visible flourish. <!-- @test: landing/src/__tests__/components.test.ts (header sign-in CTA (REQ-LANDING-006)) --> <!-- @manual -->
-3. The CTA uses the page's primary white and the shared hover/focus scramble hook. <!-- @impl: landing/src/components/Header.astro::nav-signin--matrix --> <!-- @impl: landing/src/styles/global.css::nav-signin--matrix --> <!-- @test: landing/src/__tests__/components.test.ts (header sign-in CTA (REQ-LANDING-006)) --> <!-- @manual -->
-4. Without JavaScript or under reduced motion, the visible sign-in label remains static and readable. <!-- @impl: landing/src/components/Header.astro::nav-signin--matrix --> <!-- @impl: landing/src/scripts/scramble.ts::setupHoverElement --> <!-- @test: landing/src/__tests__/components.test.ts (header sign-in CTA (REQ-LANDING-006)) --> <!-- @test: landing/src/__tests__/scramble.script.test.ts (REQ-LANDING-001: under prefers-reduced-motion the element text is NOT mutated) -->
+3. The CTA shows its text scramble on hover and focus. <!-- @impl: landing/src/components/Header.astro::nav-signin--matrix --> <!-- @impl: landing/src/styles/global.css::nav-signin--matrix --> <!-- @test: landing/src/__tests__/components.test.ts (header sign-in CTA (REQ-LANDING-006)) --> <!-- @manual -->
+4. Without JavaScript or under reduced motion, the visible sign-in label remains static and readable. <!-- @impl: landing/src/components/Header.astro::nav-signin--matrix --> <!-- @impl: landing/src/scripts/scramble.ts::initScrambleHover --> <!-- @test: landing/src/__tests__/components.test.ts (header sign-in CTA (REQ-LANDING-006)) -->
 5. During the hover decode the visible button chrome — an out-of-flow shell shrink-wrapping the churning glyphs — grows and shrinks with the churn frame, centered so growth spills symmetrically, while the CTA's in-flow layout box keeps its resting size. <!-- @impl: landing/src/scripts/scramble.ts::setupHoverElement --> <!-- @impl: landing/src/styles/global.css::scramble-shell --> <!-- @test: landing/src/__tests__/scramble.script.test.ts (REQ-LANDING-006: the hover-decode CTA hands its chrome to an out-of-flow shell that shrink-wraps the churn while an in-flow ghost holds the layout box) -->
-6. The CTA animation leaves every navigation-link rectangle fixed. <!-- @impl: landing/src/styles/global.css::scramble-shell --> <!-- @test: landing/src/__tests__/scramble.script.test.ts (REQ-LANDING-006: the hover-decode CTA hands its chrome to an out-of-flow shell that shrink-wraps the churn while an in-flow ghost holds the layout box) -->
+6. The CTA animation leaves every navigation-link rectangle fixed. <!-- @impl: landing/src/styles/global.css::scramble-shell --> <!-- @manual: Compare visible sibling link rectangles before and during the hover decode in Landing sign-in accessibility acceptance. -->
+7. The CTA uses the page's primary white. <!-- @impl: landing/src/styles/global.css::nav-signin--matrix --> <!-- @manual -->
 
 **Constraints:**
 
 - The visible flourish never removes the accessible or semantic sign-in meaning (aria-label kept, href unchanged).
 - Client-side scramble is enhancement-only; the button is fully readable and usable without JavaScript and under reduced-motion.
-- The CTA is content-sized at every breakpoint — no reserved slot or width lock; sibling stability comes from the fixed in-flow anchor box, with the growing chrome on an out-of-flow shell.
+- The CTA is content-sized at every breakpoint, with no reserved slot or width lock.
+- A fixed in-flow anchor box and an out-of-flow growing shell keep sibling links stable.
 - No new color or font: the CTA colour is the existing `--text-primary` token; no new animation system (reuses `scramble.ts`).
 
 **Priority:** P3

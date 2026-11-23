@@ -4,6 +4,7 @@ import { createMockKV } from '../helpers/mock-kv';
 import { createTestApp } from '../helpers/test-app';
 import { createMockSessionD1 } from '../helpers/mock-session-d1';
 import { D1SessionRepository } from '../../lib/session-repository';
+import { createMockSessionStop, withMockStartClaim } from '../helpers/mock-session-stop';
 
 // ---------------------------------------------------------------------------
 // Mock container stub
@@ -12,8 +13,9 @@ function createMockContainer() {
   return {
     fetch: vi.fn().mockResolvedValue(new Response(JSON.stringify({ bucketName: null }), { status: 200 })),
     destroy: vi.fn().mockResolvedValue(undefined),
+    stopSession: vi.fn(),
     getState: vi.fn().mockResolvedValue({ status: 'stopped' }),
-    startAndWaitForPorts: vi.fn().mockResolvedValue(undefined),
+    startSession: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -21,6 +23,7 @@ function createMockContainer() {
 // Shared mutable state - vi.hoisted ensures this runs before vi.mock factories
 // ---------------------------------------------------------------------------
 const testState = vi.hoisted(() => ({
+  kv: null as ReturnType<typeof createMockKV> | null,
   container: null as ReturnType<typeof createMockContainer> | null,
   createBucketResult: { success: true, created: false } as { success: boolean; error?: string; created?: boolean },
 }));
@@ -29,7 +32,7 @@ const testState = vi.hoisted(() => ({
 // Module-level mocks
 // ---------------------------------------------------------------------------
 vi.mock('@cloudflare/containers', () => ({
-  getContainer: vi.fn(() => testState.container),
+  getContainer: vi.fn(() => withMockStartClaim(testState.container!, testState.kv!)),
 }));
 
 vi.mock('../../lib/r2-admin', () => ({
@@ -84,6 +87,7 @@ describe('Container Lifecycle Routes', () => {
 
   beforeEach(() => {
     mockKV = createMockKV();
+    testState.kv = mockKV;
     testState.container = createMockContainer();
     testState.createBucketResult = { success: true, created: false };
     // Seed a session in KV so the session existence check (S3 fix) passes
@@ -107,6 +111,7 @@ describe('Container Lifecycle Routes', () => {
    * ExecutionContext parameter in app.fetch().
    */
   function createLifecycleApp(bucketName = 'test-bucket', extraEnv: Partial<Env> = {}) {
+    container().stopSession.mockImplementation(createMockSessionStop(mockKV, () => container().destroy()));
     const app = createTestApp({
       routes: [{ path: '/container', handler: lifecycleRoutes }],
       mockKV,
@@ -136,6 +141,9 @@ describe('Container Lifecycle Routes', () => {
 
     function enterpriseHarness(running: boolean, enterprise = true,
       pauseConfiguration?: { entered: () => void; wait: Promise<void> }, staleHuman = false) {
+      if (running) mockKV._set('session:test-bucket:abcdef1234567890abcdef12', {
+        id: 'abcdef1234567890abcdef12', userId: 'test-bucket', status: 'running', lifecycleGeneration: 1,
+      });
       let boundHuman: string | null = running || staleHuman ? principal : null;
       const retainedOwner = principal;
       let configured = false;
@@ -275,7 +283,7 @@ describe('Container Lifecycle Routes', () => {
       expect(body.status).toBe('starting');
     });
 
-    it('returns already_running without an unowned KV lifecycle repair', async () => {
+    it('rejects an SDK-running process without a D1 running assignment', async () => {
       const fetch = createLifecycleApp('test-bucket');
       const key = 'session:test-bucket:abcdef1234567890abcdef12';
       mockKV._set(key, {
@@ -294,11 +302,7 @@ describe('Container Lifecycle Routes', () => {
         method: 'POST',
       });
 
-      expect(res.status).toBe(200);
-      const body = await res.json() as { success: boolean; status: string; containerState: string };
-      expect(body.success).toBe(true);
-      expect(body.status).toBe('already_running');
-      expect(body.containerState).toBe('running');
+      expect(res.status).toBe(500);
       expect(await mockKV.get(key, 'json')).toMatchObject({
         lastAccessedAt: '2024-01-01T00:05:00.000Z',
       });
@@ -308,6 +312,7 @@ describe('Container Lifecycle Routes', () => {
     });
 
     it('returns already_running when container is healthy with correct bucket', async () => {
+      mockKV._set('session:test-bucket:abcdef1234567890abcdef12', { id: 'abcdef1234567890abcdef12', status: 'running' });
       const fetch = createLifecycleApp('test-bucket');
       container().getState.mockResolvedValue({ status: 'healthy' });
       container().fetch.mockResolvedValue(
@@ -384,6 +389,44 @@ describe('Container Lifecycle Routes', () => {
         'https://test.r2.cloudflarestorage.com',
         { overwrite: false, r2SseDisabled: false }
       );
+    });
+
+    it.each(['Europe/Zurich', undefined] as const)(
+      'REQ-SESSION-016 AC3: Start consumes saved timezone %s without inventing an absent override', async userTimezone => {
+        const fetch = createLifecycleApp();
+        if (userTimezone !== undefined) mockKV._set('user-prefs:test-bucket', { userTimezone });
+        const requests: Array<{ path: string; body: Record<string, unknown> | null }> = [];
+        container().fetch.mockImplementation(async (request: Request) => {
+          const path = new URL(request.url).pathname;
+          requests.push({ path, body: request.method === 'POST' ? await request.clone().json() : null });
+          return Response.json({ bucketName: null });
+        });
+        const response = await fetch('/container/start?sessionId=abcdef1234567890abcdef12', { method: 'POST' });
+        expect(response.status).toBe(200);
+        const configuration = requests.filter(request => request.path === '/_internal/setBucketName');
+        expect(configuration).toHaveLength(1);
+        if (userTimezone === undefined) expect(configuration[0].body).not.toHaveProperty('userTimezone');
+        else expect(configuration[0].body).toMatchObject({ userTimezone: 'Europe/Zurich' });
+        expect(await new D1SessionRepository(createMockSessionD1(mockKV)).getSession('test-bucket', 'abcdef1234567890abcdef12'))
+          .toMatchObject({ lifecycleState: 'starting', lifecycleGeneration: 1 });
+      },
+    );
+
+    it.each([
+      { preference: undefined, enabled: true },
+      { preference: false, enabled: false },
+    ])('REQ-AGENT-012 AC1: Start forwards the effective Fast Start choice $enabled', async ({ preference, enabled }) => {
+      const fetch = createLifecycleApp();
+      if (preference !== undefined) mockKV._set('user-prefs:test-bucket', { fastStartEnabled: preference });
+      container().fetch.mockImplementation(async () => Response.json({ bucketName: null }));
+
+      const response = await fetch('/container/start?sessionId=abcdef1234567890abcdef12', { method: 'POST' });
+
+      expect(response.status).toBe(200);
+      const configuration = container().fetch.mock.calls.map(call => call[0] as Request)
+        .find(request => new URL(request.url).pathname === '/_internal/setBucketName');
+      expect(configuration).toBeDefined();
+      expect(await configuration!.json()).toMatchObject({ fastStartEnabled: enabled });
     });
 
     it.each([undefined, 'include', 'exclude'] as const)('REQ-SESSION-008: transports current global sync policy %s on start', async policy => {
@@ -567,7 +610,7 @@ describe('Container Lifecycle Routes', () => {
       expect(body.code).toBe('CONTAINER_ERROR');
     });
 
-    it('restarts container when bucket name changed', async () => {
+    it('REQ-SESSION-008: Start leaves a conflicting running bucket untouched', async () => {
       const fetch = createLifecycleApp('new-bucket');
       mockKV._set('session:new-bucket:abcdef1234567890abcdef12', {
         id: 'abcdef1234567890abcdef12',
@@ -579,20 +622,19 @@ describe('Container Lifecycle Routes', () => {
       });
       container().getState.mockResolvedValue({ status: 'running' });
 
-      // First fetch: getBucketName returns different bucket
-      // Second fetch: setBucketName succeeds
+      let running = true;
+      container().destroy.mockImplementation(async () => { running = false; });
       container().fetch
-        .mockResolvedValueOnce(
-          new Response(JSON.stringify({ bucketName: 'old-bucket' }), { status: 200 })
-        )
-        .mockResolvedValueOnce(new Response('', { status: 200 })); // setBucketName
+        .mockResolvedValueOnce(Response.json({ bucketName: 'old-bucket' }))
+        .mockResolvedValueOnce(Response.json({ error: 'Session configuration no longer authorized' }, { status: 412 }));
 
-      const res = await fetch('/container/start?sessionId=abcdef1234567890abcdef12', {
-        method: 'POST',
-      });
+      const res = await fetch('/container/start?sessionId=abcdef1234567890abcdef12', { method: 'POST' });
 
-      expect(res.status).toBe(200);
-      expect(container().destroy).toHaveBeenCalled();
+      expect(res.status).toBe(500);
+      expect(await res.json()).toMatchObject({ code: 'CONTAINER_ERROR' });
+      expect(running).toBe(true);
+      expect(await mockKV.get('session:new-bucket:abcdef1234567890abcdef12', 'json'))
+        .toMatchObject({ status: 'running', userId: 'new-bucket' });
     });
 
     it('throws ContainerError when setBucketName fails (Q11)', async () => {
@@ -650,7 +692,7 @@ describe('Container Lifecycle Routes', () => {
 
       expect(res.status).toBe(500);
       // Container should NOT have been started
-      expect(container().startAndWaitForPorts).not.toHaveBeenCalled();
+      expect(container().startSession).not.toHaveBeenCalled();
     });
   });
 
@@ -1072,8 +1114,9 @@ describe('Container Lifecycle Routes', () => {
   // =========================================================================
   describe('POST /container/destroy', () => {
     it('destroys the container and returns success', async () => {
+      const key = 'session:test-bucket:abcdef1234567890abcdef12';
+      mockKV._set(key, { id: 'abcdef1234567890abcdef12', status: 'running', lifecycleGeneration: 1 });
       const fetch = createLifecycleApp();
-      container().getState.mockResolvedValue({ status: 'running' });
 
       const res = await fetch('/container/destroy?sessionId=abcdef1234567890abcdef12', {
         method: 'POST',
@@ -1083,10 +1126,37 @@ describe('Container Lifecycle Routes', () => {
       const body = await res.json() as { success: boolean; message: string };
       expect(body.success).toBe(true);
       expect(body.message).toBe('Container destroyed');
-      expect(container().destroy).toHaveBeenCalled();
+      expect(await mockKV.get(key, 'json')).toMatchObject({ status: 'stopped', lifecycleGeneration: 1 });
+    });
+
+    it('does not issue native teardown for an already stopped session', async () => {
+      const key = 'session:test-bucket:abcdef1234567890abcdef12';
+      const fetch = createLifecycleApp();
+      container().destroy.mockRejectedValue(new Error('An existing stopped row needs no destroy'));
+      const res = await fetch('/container/destroy?sessionId=abcdef1234567890abcdef12', { method: 'POST' });
+      expect(res.status).toBe(200);
+      expect(await mockKV.get(key, 'json')).toMatchObject({ status: 'stopped' });
+    });
+
+    it('REQ-SESSION-018 AC4: a delayed Destroy cannot stop the replacement', async () => {
+      const key = 'session:test-bucket:abcdef1234567890abcdef12';
+      mockKV._set(key, { id: 'abcdef1234567890abcdef12', status: 'running', lifecycleGeneration: 1 });
+      const fetch = createLifecycleApp();
+      let replacementRunning = true;
+      const stop = createMockSessionStop(mockKV, async () => { replacementRunning = false; });
+      container().stopSession.mockImplementation(async input => {
+        // The originally captured request reaches the DO only after a restart.
+        mockKV._set(key, { id: 'abcdef1234567890abcdef12', status: 'running', lifecycleGeneration: 2 });
+        await stop(input);
+      });
+      const response = await fetch('/container/destroy?sessionId=abcdef1234567890abcdef12', { method: 'POST' });
+      expect(response.status).toBe(500);
+      expect(replacementRunning).toBe(true);
+      expect(await mockKV.get(key, 'json')).toMatchObject({ status: 'running', lifecycleGeneration: 2 });
     });
 
     it('returns 500 when destroy fails', async () => {
+      mockKV._set('session:test-bucket:abcdef1234567890abcdef12', { id: 'abcdef1234567890abcdef12', status: 'running' });
       const fetch = createLifecycleApp();
       container().getState.mockResolvedValue({ status: 'running' });
       container().destroy.mockRejectedValue(new Error('Destroy failed'));

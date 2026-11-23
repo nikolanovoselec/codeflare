@@ -45,8 +45,9 @@ function wire(mode, body = { number: 42, head: { sha: head, ref: 'feature' } }) 
 }
 
 function fixture(t, enrollment = 'remote-candidate', target = 'owner/repo', local = {}) {
-  const previous = Object.fromEntries(['ENTERPRISE_MODE', 'GH_REPO', 'GH_HOST'].map(key => [key, process.env[key]]));
+  const previous = Object.fromEntries(['ENTERPRISE_MODE', 'SESSION_MODE', 'GH_REPO', 'GH_HOST'].map(key => [key, process.env[key]]));
   process.env.ENTERPRISE_MODE = 'active';
+  process.env.SESSION_MODE = 'advanced';
   delete process.env.GH_REPO;
   delete process.env.GH_HOST;
   const root = mkdtempSync(join(tmpdir(), 'operator-review-selection-'));
@@ -80,8 +81,8 @@ function fixture(t, enrollment = 'remote-candidate', target = 'owner/repo', loca
     assert.equal(program, 'gh');
     const response = responses.get(cwd);
     if (response instanceof Error) throw response;
-    if (args[0] === 'pr') return { stdout: JSON.stringify({ number: 42, state: 'OPEN',
-      baseRefName: 'main', headRefOid: local.graphqlHead ?? head,
+    if (args[0] === 'pr') return { stdout: JSON.stringify({ number: 42, state: local.prState ?? 'OPEN',
+      baseRefName: local.prBase ?? 'main', headRefOid: local.graphqlHead ?? head,
       headRefName: local.graphqlBranch ?? 'feature', url: `https://github.com/${local.prRepository ?? target}/pull/42` }) };
     if (args[0] === 'repo') return { stdout: JSON.stringify({ nameWithOwner: target,
       url: `https://github.com/${target}` }) };
@@ -230,6 +231,62 @@ for (const enrollment of ['absent', 'disabled', 'other repository']) {
     assert.deepEqual(app.messages, [{ customType: 'local-session_start', cwd }]);
   });
 }
+
+for (const [name, command] of [
+  ['background clone', 'd=$(mktemp -d); git clone https://github.com/owner/target.git "$d" > /tmp/clone.log 2>&1 &'],
+  ['background command list', 'git clone https://github.com/owner/target.git copied && printf done &'],
+]) {
+  test(`REQ-OPERATOR-053 AC3: ${name} does not expose a Review boundary`, async t => {
+    const app = fixture(t, 'unavailable');
+    const cwd = app.repo('caller', wire('unavailable'));
+    await app.emit('tool_call', cwd, { input: { command } });
+    await app.emit('tool_result', cwd, { input: { command } });
+    assert.deepEqual(app.messages, []);
+    assert.equal(app.remoteActive(), false);
+  });
+}
+
+for (const [name, local, response] of [
+  ['no PR', {}, Object.assign(new Error('no PR'), { stderr: 'no pull requests found for branch develop' })],
+  ['closed PR', { prState: 'CLOSED' }, wire('unavailable')],
+  ['unprotected base', { prBase: 'sandbox' }, wire('unavailable')],
+  ['open protected PR', {}, wire('local')],
+  ['unknown PR lookup', {}, new Error('GitHub unavailable')],
+]) {
+  test(`REQ-OPERATOR-053 AC3: unavailable enrollment with ${name} warns only for an unresolved boundary`, async t => {
+    const app = fixture(t, 'unavailable', 'owner/repo', local);
+    const cwd = app.repo('inactive', response);
+    const expected = name === 'open protected PR' || name === 'unknown PR lookup' ? [unavailable] : [];
+    await app.emit('session_start', cwd, { input: undefined });
+    assert.deepEqual(app.messages.splice(0), expected);
+    if (!expected.length) {
+      await app.emit('tool_result', cwd);
+      assert.deepEqual(app.messages, []);
+      assert.equal(app.remoteActive(), false);
+    }
+  });
+}
+
+test('REQ-AGENT-092 AC1: open Import transition does not warn or start either Review path', async t => {
+  const app = fixture(t, 'unavailable');
+  const cwd = app.repo('import', wire('unavailable'));
+  writeFileSync(join(cwd, 'sdd/config.yml'), 'transition: true\n');
+  writeFileSync(join(cwd, 'sdd/.init-triage.md'), '**Status:** open\n');
+  await app.emit('session_start', cwd, { input: undefined });
+  await app.emit('tool_result', cwd);
+  assert.deepEqual(app.messages, []);
+  assert.equal(app.remoteActive(), false);
+});
+
+test('REQ-OPERATOR-053 AC3: default sessions do not warn or start either Review path', async t => {
+  const app = fixture(t, 'unavailable');
+  const cwd = app.repo('default', wire('unavailable'));
+  process.env.SESSION_MODE = 'default';
+  await app.emit('session_start', cwd, { input: undefined });
+  await app.emit('tool_result', cwd);
+  assert.deepEqual(app.messages, []);
+  assert.equal(app.remoteActive(), false);
+});
 
 test('REQ-OPERATOR-053: unavailable enrollment cannot silently select local', async t => {
   const app = fixture(t, 'unavailable');

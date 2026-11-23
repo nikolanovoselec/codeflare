@@ -1,10 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Env } from '../../types';
+import { SETUP_KEYS } from '../../lib/kv-keys';
+import { CONTAINER_POLL_BUDGET_MS } from '../../container/container-metrics';
 import { createMockKV } from '../helpers/mock-kv';
 import { createMockSessionD1 } from '../helpers/mock-session-d1';
 import { D1SessionRepository } from '../../lib/session-repository';
 
 const nativeDestroyByContext = vi.hoisted(() => new WeakMap<object, () => Promise<void>>());
+const nativeStartByContext = vi.hoisted(() => new WeakMap<object, (env?: Record<string, string>) => Promise<void>>());
 const schedulesByContext = vi.hoisted(() => new WeakMap<object, Map<string, unknown>>());
 const scheduleFailureByContext = vi.hoisted(() => new WeakMap<object, () => boolean>());
 vi.mock('@cloudflare/containers', () => ({
@@ -14,6 +17,13 @@ vi.mock('@cloudflare/containers', () => ({
     async schedule(_delay: number, method: string, payload: unknown) {
       if (scheduleFailureByContext.get(this.ctx)?.()) throw Error('exit reconciliation alarm unavailable');
       schedulesByContext.get(this.ctx)?.set(method, payload);
+    }
+    async startAndWaitForPorts() {
+      await nativeStartByContext.get(this.ctx)?.((this as { envVars?: Record<string, string> }).envVars);
+      await (this as unknown as { onStart(): Promise<void> }).onStart();
+    }
+    async stop() {
+      (this.ctx as { container?: { signal(): void } }).container?.signal();
     }
     async destroy() {
       const destroy = nativeDestroyByContext.get(this.ctx);
@@ -37,11 +47,12 @@ function deferred() {
 // Model the platform lifetime boundary: pending I/O is canceled on disconnect
 // unless an unsettled waitUntil task still owns execution. Assert D1/runtime
 // outcomes, not implementation calls or promise-registration counts.
-async function fixture(initial: 'running' | 'stopping' | 'unreachable' = 'running') {
+async function fixture(initial: 'stopped' | 'starting' | 'running' | 'stopping' | 'unreachable' = 'running', generation = ref.generation,
+  hermesFinalSyncStatus?: number) {
   const kv = createMockKV();
   const key = `session:${ref.bucket}:${ref.sessionId}`;
   kv._set(key, { id: ref.sessionId, userId: ref.bucket, name: 'Retained workspace',
-    status: initial, lifecycleGeneration: ref.generation, responseRevision: 4,
+    status: initial, lifecycleGeneration: generation, responseRevision: 4,
     ...(initial === 'stopping' ? { terminationIntentId: 'retained-intent', terminationGeneration: ref.generation } : {}) });
   const db = createMockSessionD1(kv);
   let confirmationUnavailable = false;
@@ -75,16 +86,26 @@ async function fixture(initial: 'running' | 'stopping' | 'unreachable' = 'runnin
     return statement;
   };
   const env = { USAGE_DB: db, KV: kv, R2_ACCOUNT_ID: 'test-account', R2_ENDPOINT: 'https://r2.test',
-    CONTAINER: { idFromName: (name: string) => ({ toString: () => name }) } } as unknown as Env;
+    CONTAINER: { idFromName: (name: string) => ({ toString: () => name }),
+      ...(hermesFinalSyncStatus !== undefined && { get: () => ({ admitHermesStore: async () => 'new' }) }),
+    } } as unknown as Env;
   const repository = new D1SessionRepository(db);
-  let running = true;
+  let running = initial !== 'starting' && initial !== 'stopped';
+  let startGate: ReturnType<typeof deferred> | undefined;
+  const startEntered = deferred();
+  let launched = false;
+  let launchEnv: Record<string, string> | undefined;
   let draining = false;
   let teardownGate: ReturnType<typeof deferred> | undefined;
   let teardownEntered = deferred();
   const protectedWork = new Set<Promise<unknown>>();
   const workFailures: unknown[] = [];
-  const storage = new Map<string, unknown>([['lifecycleGeneration', ref.generation]]);
+  const storage = new Map<string, unknown>([['lifecycleGeneration', generation]]);
   const schedules = new Map<string, unknown>();
+  const configureStart = (bucket = ref.bucket) => {
+    storage.set('bucketName', bucket);
+    storage.set('_sessionId', ref.sessionId);
+  };
   let scheduleUnavailable = false;
   let nativeForbidden = false;
   async function coordinator() {
@@ -92,6 +113,13 @@ async function fixture(initial: 'running' | 'stopping' | 'unreachable' = 'runnin
     let ready: Promise<unknown> = Promise.resolve();
     const ctx = {
       id: { toString: () => `${ref.bucket}-${ref.sessionId}` },
+      container: initial === 'starting' || initial === 'stopped' ? {
+        get running() { return running; },
+        signal() { running = false; },
+        getTcpPort: () => ({ fetch: async () => Response.json({ synced: hermesFinalSyncStatus === 200 },
+          { status: hermesFinalSyncStatus ?? 503 }) }),
+        monitor: () => new Promise<void>(() => {}),
+      } : undefined,
       blockConcurrencyWhile: (fn: () => Promise<unknown>) => { ready = fn(); },
       waitUntil: (task: Promise<unknown>) => {
         protectedWork.add(task);
@@ -99,7 +127,11 @@ async function fixture(initial: 'running' | 'stopping' | 'unreachable' = 'runnin
       },
       storage: {
         get: async (key: string) => storage.get(key),
-        put: async (key: string, value: unknown) => { if (key === 'finalSyncAudit') await pause('audit'); storage.set(key, value); },
+        put: async (key: string, value: unknown) => {
+          if (key === 'finalSyncAudit') await pause('audit');
+          if (key === 'sleepAfter') await pause('configuration');
+          storage.set(key, value);
+        },
         delete: async (key: string | string[]) => typeof key === 'string'
           ? storage.delete(key)
           : key.reduce((count, name) => count + Number(storage.delete(name)), 0),
@@ -108,6 +140,15 @@ async function fixture(initial: 'running' | 'stopping' | 'unreachable' = 'runnin
     Object.assign(ctx.storage, { transaction: async (work: (txn: typeof ctx.storage) => Promise<unknown>) => work(ctx.storage) });
     schedulesByContext.set(ctx, schedules);
     scheduleFailureByContext.set(ctx, () => scheduleUnavailable);
+    nativeStartByContext.set(ctx, async env => {
+      launchEnv = env ? { ...env } : undefined;
+      startEntered.resolve();
+      // The SDK can already be committed to a native call when Stop arrives.
+      // Model the callback arriving late even after cancellation was requested.
+      await startGate?.promise;
+      launched = true;
+      running = true;
+    });
     nativeDestroyByContext.set(ctx, async () => {
       if (nativeForbidden) throw Error('native destruction must not be repeated');
       if (draining) throw Error('duplicate concurrent teardown');
@@ -120,16 +161,18 @@ async function fixture(initial: 'running' | 'stopping' | 'unreachable' = 'runnin
     });
     const instance = new SessionContainer(ctx as unknown as DurableObjectState<Env>, env);
     await ready;
-    return instance as unknown as { stopSession(input: StopRef): Promise<void>; collectMetrics(pin?: StopRef): Promise<void> };
+    return instance;
   }
-  return { env, kv, key, repository, coordinator, workFailures,
+  return { env, kv, key, repository, coordinator, workFailures, configureStart, enteredStart: () => startEntered.promise,
+    launched: () => launched, launchSyncMode: () => launchEnv?.SYNC_MODE, launchEnv: () => launchEnv,
+    holdStart: () => { startGate = deferred(); return startGate; },
     forbidNative: () => { nativeForbidden = true; },
     failSchedule: (fail: boolean) => { scheduleUnavailable = fail; },
     reconcile: async (instance: Awaited<ReturnType<typeof coordinator>>) => {
       const payload = schedules.get('collectMetrics');
       if (!payload) throw Error('no exit reconciliation scheduled');
       schedules.delete('collectMetrics');
-      await instance.collectMetrics(payload as StopRef);
+      await instance.collectMetrics(payload as Parameters<typeof instance.collectMetrics>[0]);
     },
     settleWork: async () => { while (protectedWork.size) await Promise.allSettled(protectedWork); },
     read: () => repository.getSession(ref.bucket, ref.sessionId),
@@ -144,6 +187,7 @@ async function fixture(initial: 'running' | 'stopping' | 'unreachable' = 'runnin
     pause,
     disconnect: () => {
       if (protectedWork.size) return;
+      startGate?.reject(Error('caller disconnected'));
       teardownGate?.reject(Error('caller disconnected'));
       for (const io of pendingIO) io.reject(Error('caller disconnected'));
     },
@@ -151,6 +195,186 @@ async function fixture(initial: 'running' | 'stopping' | 'unreachable' = 'runnin
     failDatabase: (fail: boolean) => { databaseUnavailable = fail; },
   };
 }
+
+function configureLaunch(instance: SessionContainer, generation: number, workspaceSyncEnabled = false, sessionMode?: 'advanced') {
+  return instance.fetch(new Request('http://container/_internal/setBucketName', {
+    method: 'POST', headers: { 'X-Codeflare-Start-Generation': String(generation) },
+    body: JSON.stringify({ bucketName: ref.bucket, sessionId: ref.sessionId, sleepAfter: '1h', workspaceSyncEnabled, sessionMode }),
+  }));
+}
+
+describe('REQ-SESSION-018 AC4: pending Start cannot outlive its Stop', () => {
+  it.each(['stopSession', 'killSession'] as const)('cancels a Start delayed in preparation before %s finishes', async terminate => {
+    const f = await fixture('stopped', 6);
+    f.configureStart();
+    const instance = await f.coordinator();
+    const preparation = f.holdIO('preparation');
+    const get = f.kv.get.getMockImplementation()!;
+    f.kv.get.mockImplementation(async (key, type) => {
+      if (key === SETUP_KEYS.MCP_PORTALS) await f.pause('preparation');
+      return get(key, type);
+    });
+    expect((await configureLaunch(instance, 6)).headers.get('X-Codeflare-Start-Claim')).toBe('7');
+    const launch = instance.startSession(ref).catch(error => error);
+    try {
+      await preparation.entered;
+      const stop = instance[terminate](ref);
+      await vi.waitFor(async () => expect(await f.read()).toMatchObject({ lifecycleState: 'stopping' }));
+      preparation.resolve();
+      expect(await launch).toBeInstanceOf(Error);
+      await stop;
+      expect(f.launched()).toBe(false);
+      expect(f.running()).toBe(false);
+      expect(await f.read()).toMatchObject({ lifecycleState: 'stopped', lifecycleGeneration: 7 });
+    } finally { preparation.resolve(); }
+  });
+
+  it('keeps ownership when the pending startup has not settled by the shutdown check', async () => {
+    vi.useFakeTimers();
+    try {
+      const f = await fixture('stopped', 6);
+      f.configureStart();
+      const instance = await f.coordinator();
+      const gate = f.holdStart();
+      expect((await configureLaunch(instance, 6)).headers.get('X-Codeflare-Start-Claim')).toBe('7');
+      const launch = instance.startSession(ref).catch(error => error);
+      try {
+        await f.enteredStart();
+        const stop = instance.stopSession(ref).catch(error => error);
+        await vi.advanceTimersByTimeAsync(CONTAINER_POLL_BUDGET_MS);
+        expect(await stop).toBeInstanceOf(Error);
+        expect(await f.read()).toMatchObject({ lifecycleState: 'stopping', lifecycleGeneration: 7 });
+        expect(await f.repository.start(ref.bucket, ref.sessionId, new Date().toISOString())).toBeNull();
+        gate.resolve();
+        expect(await launch).toBeInstanceOf(Error);
+        await instance.stopSession(ref);
+        expect(f.running()).toBe(false);
+        expect(await f.read()).toMatchObject({ lifecycleState: 'stopped', lifecycleGeneration: 7 });
+      } finally { gate.resolve(); }
+    } finally { vi.useRealTimers(); }
+  });
+
+  it.each(['stopSession', 'killSession'] as const)('quiesces a late native launch before %s can release ownership', async terminate => {
+    const f = await fixture('stopped', 6);
+    f.configureStart();
+    const instance = await f.coordinator();
+    const launch = f.holdStart();
+    expect((await configureLaunch(instance, 6)).headers.get('X-Codeflare-Start-Claim')).toBe('7');
+    const start = instance.startSession(ref).catch(error => error);
+    await f.enteredStart();
+    const stop = instance[terminate](ref);
+    await vi.waitFor(async () => expect(await f.read()).toMatchObject({ lifecycleState: 'stopping' }));
+    expect(await f.repository.start(ref.bucket, ref.sessionId, new Date().toISOString())).toBeNull();
+    launch.resolve();
+    expect(await start).toBeInstanceOf(Error);
+    await stop;
+    expect(f.running()).toBe(false);
+    await expect(instance.startSession(ref)).rejects.toThrow();
+    expect(f.running()).toBe(false);
+    expect((await configureLaunch(instance, 7)).headers.get('X-Codeflare-Start-Claim')).toBe('8');
+    await instance.startSession({ ...ref, generation: 8 });
+    expect(f.running()).toBe(true);
+    expect(await f.read()).toMatchObject({ lifecycleState: 'running', lifecycleGeneration: 8 });
+  });
+});
+
+describe('REQ-SESSION-008: startup configuration uses the admitted run and bucket', () => {
+  it('REQ-MEM-042 AC3: unavailable memory admission defers persistence without stopping Advanced startup', async () => {
+    // The ordinary start fixture has no reachable bucket-owner RPC. The native
+    // launch environment is the contract consumed by the entrypoint.
+    const f = await fixture('stopped');
+    f.configureStart();
+    const instance = await f.coordinator();
+    const response = await configureLaunch(instance, ref.generation, true, 'advanced');
+    const generation = ref.generation + 1;
+    expect(response.headers.get('X-Codeflare-Start-Claim')).toBe(String(generation));
+    await instance.startSession({ ...ref, generation });
+    expect(await f.read()).toMatchObject({ lifecycleState: 'running', lifecycleGeneration: generation });
+    expect(f.launchEnv()).toMatchObject({ SESSION_MODE: 'advanced', SYNC_MODE: 'full', CODEFLARE_HERMES_PERSISTENCE: 'deferred' });
+  });
+
+  it.each([200, 504])('REQ-MEM-042 AC3: final-sync status %s governs eviction after the stopped session row is deleted', async status => {
+    const f = await fixture('stopped', ref.generation, status);
+    f.configureStart();
+    const started = await f.coordinator();
+    const generation = ref.generation + 1;
+    expect((await configureLaunch(started, ref.generation, true, 'advanced')).headers.get('X-Codeflare-Start-Claim')).toBe(String(generation));
+    const execution = { ...ref, generation };
+    await started.startSession(execution);
+    expect(f.launchEnv()?.CODEFLARE_HERMES_PERSISTENCE).toBe('new');
+    const writer = { sessionId: ref.sessionId, generation };
+    expect(await started.hermesWriterExited(ref.bucket, writer)).toBe(false);
+    expect(await started.hermesWriterSettled(ref.bucket, writer)).toBe(false);
+    await started.stopSession(execution);
+    expect(await started.hermesWriterExited(ref.bucket, writer)).toBe(true);
+    expect(await started.hermesWriterSettled(ref.bucket, writer)).toBe(status === 200);
+    expect(await f.repository.deleteConfirmed(ref.bucket, ref.sessionId, generation)).toBe(true);
+    const reopened = await f.coordinator();
+    expect(await f.read()).toBeNull();
+    expect(await reopened.hermesWriterSettled(ref.bucket, writer)).toBe(status === 200);
+    expect(await reopened.hermesWriterSettled(ref.bucket, { ...writer, generation: generation + 1 })).toBe(false);
+  });
+
+  it('only the winning configuration can claim and launch the stopped session', async () => {
+    const f = await fixture('stopped');
+    f.configureStart();
+    const instance = await f.coordinator();
+    const gate = f.holdIO('configuration');
+    const native = f.holdStart();
+    const configure = (workspaceSyncEnabled: boolean) => configureLaunch(instance, 7, workspaceSyncEnabled);
+    const winner = configure(true);
+    try {
+      await gate.entered;
+      expect((await configure(false)).status).toBe(412);
+      gate.resolve();
+      expect((await winner).headers.get('X-Codeflare-Start-Claim')).toBe('8');
+      expect((await configure(false)).status).toBe(412);
+      await f.enteredStart();
+      f.disconnect();
+      native.resolve();
+      await f.settleWork();
+      expect(f.launchSyncMode()).toBe('full');
+      expect(await f.read()).toMatchObject({ lifecycleState: 'running', lifecycleGeneration: 8 });
+    } finally { gate.resolve(); native.resolve(); }
+  });
+
+  it('an unfenced HTTP request cannot change a running replacement', async () => {
+    const f = await fixture('running', 8);
+    f.configureStart();
+    const instance = await f.coordinator();
+    const response = await instance.fetch(new Request('http://container/_internal/setBucketName', {
+      method: 'POST', body: JSON.stringify({ bucketName: ref.bucket, sessionId: ref.sessionId, workspaceSyncEnabled: true }),
+    }));
+    expect(response.status).toBe(412);
+    expect(instance.envVars?.SYNC_MODE).toBe('none');
+    expect(f.running()).toBe(true);
+    expect(await f.read()).toMatchObject({ lifecycleState: 'running', lifecycleGeneration: 8 });
+  });
+
+  it('an unpinned callback cannot adopt a fresh claim', async () => {
+    const f = await fixture('starting');
+    f.configureStart();
+    const instance = await f.coordinator();
+    await expect(instance.onStart()).rejects.toThrow('D1 start claim required');
+    expect(await f.read()).toMatchObject({ lifecycleState: 'starting', lifecycleGeneration: 7 });
+  });
+
+  it.each(['stale generation', 'different bucket'] as const)('rejects %s without changing the configured identity', async conflict => {
+    const f = await fixture('stopped');
+    const storedBucket = conflict === 'different bucket' ? 'earlier-bucket' : ref.bucket;
+    f.configureStart(storedBucket);
+    const instance = await f.coordinator();
+    const response = await instance.fetch(new Request('http://container/_internal/setBucketName', {
+      method: 'POST', headers: { 'X-Codeflare-Start-Generation': conflict === 'stale generation' ? '6' : '7' },
+      body: JSON.stringify({ bucketName: ref.bucket, sessionId: ref.sessionId, sleepAfter: '1h' }),
+    }));
+    expect(response.status).toBe(412);
+    const configured = await instance.fetch(new Request('http://container/_internal/getBucketName'));
+    expect(await configured.json()).toMatchObject({ bucketName: storedBucket });
+    expect(f.running()).toBe(false);
+    expect(await f.read()).toMatchObject({ lifecycleState: 'stopped', lifecycleGeneration: 7 });
+  });
+});
 
 describe('REQ-SESSION-035: caller-independent Stop and manual recovery', () => {
   it('finishes the claimed Stop after caller loss and erased operational identity, preserving the session for restart', async () => {

@@ -18,7 +18,6 @@ import { authMiddleware, AuthVariables } from '../middleware/auth';
 import { createRateLimiter } from '../middleware/rate-limit';
 import { getBaseUrl } from '../lib/kv-keys';
 import { D1SessionRepository } from '../lib/session-repository';
-import { normalizeTrackedClones } from '../lib/clone-targets';
 import { signOauthState } from '../lib/oauth-state';
 import { githubScopeForTier } from '../lib/oauth-scopes';
 import { createLogger } from '../lib/logger';
@@ -224,15 +223,14 @@ app.post('/clone', cloneRateLimiter, async (c) => {
     return c.json({ error: 'Container not running', code: 'NOT_RUNNING' }, 503);
   }
 
-  // REQ-GITHUB-015 AC3: track a successful panel clone immediately, so a stop
-  // in the ~1 metrics tick before the container reports its workspace still
-  // restores the repository. A failed clone tracks nothing.
+  // REQ-GITHUB-319: persist the bounded restore inventory before reporting clone
+  // success. The cap applies to tracking only: an overflow clone can succeed
+  // without appearing in the automatic restore directive.
   if (upstream.status === 200) {
-    const latestSession = await repository.getSession(c.get('bucketName'), sessionId);
-    if (!latestSession) return c.json({ error: 'Session not found', code: 'SESSION_NOT_FOUND' }, 404);
-    const clones = normalizeTrackedClones([...(latestSession.clones ?? []), { repo, ...(ref ? { ref } : {}) }]);
-    if (!await repository.updateTrackedClones(c.get('bucketName'), sessionId, clones)) {
-      return c.json({ error: 'Session not found', code: 'SESSION_NOT_FOUND' }, 404);
+    const tracking = await repository.appendTrackedClone(c.get('bucketName'), sessionId, { repo, ...(ref ? { ref } : {}) });
+    if (tracking === 'missing') return c.json({ error: 'Session not found', code: 'SESSION_NOT_FOUND' }, 404);
+    if (tracking === 'conflict') {
+      return c.json({ error: 'Repository cloned, but restore tracking could not be confirmed.', code: 'CLONE_TRACKING_UNCONFIRMED' }, 409);
     }
   }
 

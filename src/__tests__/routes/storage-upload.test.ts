@@ -7,11 +7,9 @@ import { createTestApp } from '../helpers/test-app';
 const mockFetch = vi.fn();
 const managedState = vi.hoisted(() => ({ snapshot: { configured: false, enabled: false } as any }));
 
-vi.mock('../../lib/r2-client', () => ({
+vi.mock('../../lib/r2-client', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../lib/r2-client')>()),
   createR2Client: vi.fn(() => ({ fetch: mockFetch })),
-  getR2Url: vi.fn((endpoint: string, bucket: string, key?: string) =>
-    key ? `${endpoint}/${bucket}/${key}` : `${endpoint}/${bucket}`
-  ),
   parseInitiateMultipartUploadXml: vi.fn(() => 'upload-id-123'),
 }));
 
@@ -31,11 +29,13 @@ import deleteRoutes from '../../routes/storage/delete';
 describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT)', () => {
   let mockKV: ReturnType<typeof createMockKV>;
   let multipartReceipts: Map<string, unknown>;
+  let multipartOwnerStores: Map<string, Map<string, unknown>>;
   const seedManagedUpload = (key: string, id: string) => multipartReceipts.set(`multipart:upload:${id}`, { key, generation: 0, regime: 'sse-c' });
 
   beforeEach(() => {
     mockKV = createMockKV();
     multipartReceipts = new Map();
+    multipartOwnerStores = new Map([['storage:test-bucket', multipartReceipts]]);
     mockFetch.mockReset();
     managedState.snapshot = { configured: false, enabled: false };
   });
@@ -46,15 +46,24 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
 
   function createApp(bucketName = 'test-bucket', envOverrides: Partial<Env> = {}) {
     const env = { KV: mockKV, R2_ACCESS_KEY_ID: 'test-key', R2_SECRET_ACCESS_KEY: 'test-secret', ...envOverrides } as unknown as Env;
-    const storage = {
-      get: async (key: string) => multipartReceipts.get(key),
-      put: async (key: string, value: unknown) => { multipartReceipts.set(key, value); },
-      delete: async (key: string) => multipartReceipts.delete(key),
-    } as unknown as Pick<DurableObjectStorage, 'get' | 'put' | 'delete'>;
+    // Model the existing DO namespace's per-name storage, not its owner guard
+    // or serialization. Route tests still execute the real multipart operation.
+    const container = { getByName: (name: string) => {
+      let values = multipartOwnerStores.get(name);
+      if (!values) { values = new Map(); multipartOwnerStores.set(name, values); }
+      const receipts = values;
+      const storage = {
+        get: async (key: string) => receipts.get(key),
+        put: async (key: string, value: unknown) => { receipts.set(key, value); },
+        delete: async (key: string) => receipts.delete(key),
+      } as unknown as Pick<DurableObjectStorage, 'get' | 'put' | 'delete'>;
+      return { runBucketMultipart: async (input: Parameters<typeof performBucketMultipart>[2] | Request) =>
+        performBucketMultipart(env, storage, input instanceof Request ? await input.json() as Parameters<typeof performBucketMultipart>[2] : input) };
+    } } as unknown as Env['CONTAINER'];
     return createTestApp({
       routes: [{ path: '/upload', handler: uploadRoutes }, { path: '/delete', handler: deleteRoutes }],
       mockKV, bucketName,
-      envOverrides: { ...env, CONTAINER: { getByName: () => ({ runBucketMultipart: async (input: Parameters<typeof performBucketMultipart>[2] | Request) => performBucketMultipart(env, storage, input instanceof Request ? await input.json() as Parameters<typeof performBucketMultipart>[2] : input) }) } as unknown as Env['CONTAINER'] },
+      envOverrides: { ...env, CONTAINER: container },
     });
   }
 
@@ -188,6 +197,9 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
       const [url, opts] = mockFetch.mock.calls[0];
       expect(url).toContain('workspace/file.ts');
       expect(opts.method).toBe('PUT');
+      // REQ-SEC-005 AC7: ordinary PUT without an operator key sends the bytes without SSE-C.
+      expect(await new Response(opts.body).text()).toBe('hello world');
+      expect([...new Headers(opts.headers).keys()].filter(name => name.startsWith('x-amz-server-side-encryption-customer-'))).toEqual([]);
     });
 
     it('REQ-ENTERPRISE-030: denies protected upload before the user-object R2 request', async () => {
@@ -411,6 +423,51 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
   // REQ-STOR-008 AC2: POST /api/storage/upload/part uploads a single part (base64 body) for a given upload ID
 
   describe('POST /upload/part (multipart part)', () => {
+    it.each(['wrong-owner', 'wrong-key', 'stale-generation', 'wrong-regime'] as const)(
+      'REQ-STOR-008 AC1/AC2: %s part replay is rejected without changing stored receipts or part bytes', async scenario => {
+        const key = 'Uploads/bound.bin';
+        const state = { status: 'ready', regime: 'plain', generation: 5 };
+        mockKV._set('r2-regime:test-bucket', state);
+        mockKV._set('r2-regime:other-bucket', state);
+        multipartOwnerStores.set('storage:other-bucket', new Map());
+        let remotePart = 'previous part bytes';
+        mockFetch.mockImplementation(async (url: string, init: RequestInit) => {
+          if (new URL(url).search === '?uploads') {
+            return new Response('<UploadId>upload-id-123</UploadId>');
+          }
+          remotePart = await new Response(init.body).text();
+          return new Response('', { headers: { etag: 'new-part-etag' } });
+        });
+        const initiated = await createApp().request('/upload/initiate', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key }),
+        });
+        expect(initiated.status).toBe(200);
+        const { uploadId } = await initiated.json() as { uploadId: string };
+        expect(multipartReceipts.get(`multipart:upload:${uploadId}`))
+          .toEqual({ key, generation: 5, regime: 'plain' });
+
+        if (scenario === 'stale-generation') {
+          // Durable generation has advanced while the KV observation is old.
+          multipartReceipts.set('multipart:regime', { generation: 6, regime: 'plain' });
+        } else if (scenario === 'wrong-regime') {
+          mockKV._set('r2-regime:test-bucket', { ...state, regime: 'sse-c' });
+        }
+        const receiptsBefore = structuredClone(multipartOwnerStores);
+        // A fresh route/RPC facade must use the retained receipt, not transient
+        // request state. Only the owner scenario changes the supplied auth bucket.
+        const response = await createApp(scenario === 'wrong-owner' ? 'other-bucket' : 'test-bucket').request('/upload/part', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: scenario === 'wrong-key' ? 'Uploads/other.bin' : key,
+            uploadId, partNumber: 1, content: btoa('replacement part bytes') }),
+        });
+        expect(response.status).toBe(409);
+        expect(await response.json()).toMatchObject({ code: 'MULTIPART_RESTART_REQUIRED' });
+        expect(remotePart).toBe('previous part bytes');
+        expect(multipartOwnerStores).toEqual(receiptsBefore);
+      },
+    );
+
     it('returns etag on success', async () => {
       seedManagedUpload('workspace/large.zip', 'upload-id-123');
       const app = createApp();
@@ -537,6 +594,32 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
         expect(successor.status).toBe(409);
         expect(await successor.json()).toMatchObject({ code: 'MULTIPART_RESTART_REQUIRED' });
       });
+
+    it('REQ-STOR-008 AC7: a fresh bucket-scoped request recovers only the exact pending upload', async () => {
+      const operation = { key: 'held%2520file.bin', uploadId: 'held-id' };
+      seedManagedUpload('held%20file.bin', operation.uploadId);
+      mockFetch.mockResolvedValueOnce(new Response('<Error><Code>InternalError</Code></Error>'));
+      const post = (path: string, body: object) => createApp().request(path, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+      expect((await post('/upload/complete', { ...operation, parts: [{ partNumber: 1, etag: 'abc' }] })).ok).toBe(false);
+      const pending = { key: 'held%20file.bin', uploadId: operation.uploadId };
+      const discovery = await createApp().request('/upload/recovery');
+      expect(discovery.headers.get('cache-control')).toBe('no-store');
+      expect(await discovery.json()).toEqual(pending);
+      expect(await (await createApp('other-bucket').request('/upload/recovery')).json()).toBeNull();
+      expect((await post('/upload/recovery', operation)).status).toBe(409);
+      let abortedPath: string | undefined;
+      mockFetch.mockImplementationOnce(async (url: string, init: RequestInit) => {
+        expect(init.method).toBe('DELETE');
+        abortedPath = new URL(url).pathname;
+        return new Response('', { status: 404 });
+      });
+      expect((await post('/upload/recovery', pending)).ok).toBe(true);
+      expect(abortedPath).toMatch(/held%2520file\.bin$/);
+      expect(await (await createApp().request('/upload/recovery')).json()).toBeNull();
+      expect((await post('/upload/recovery', pending)).status).toBe(409);
+    });
 
     it('succeeds with valid parts', async () => {
       seedManagedUpload('workspace/large.zip', 'upload-id-123');

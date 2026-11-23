@@ -8,7 +8,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
-import { clearCloneTargetState, cloneTargetHadGit, cloneTargetPath, effectiveCwdForCommand, graphifyClonePromptDecision, isFailedToolExecution, rememberCloneTargetHadGit, renderGraphifyCloneDirective } from "./graphify-helpers";
+import { clearCloneTargetState, cloneTargetHadGit, cloneTargetPath, effectiveCwdForCommand, graphifyClonePromptDecision, isFailedToolExecution, isVaultRepository, rememberCloneTargetHadGit, renderGraphifyCloneDirective } from "./graphify-helpers";
 import { activateRegisteredTools, type ToolActivationPi } from "./capability-helpers";
 import { sddCommandDecision, sddWorkflowExecutionText, sddWorkflowScopeText, type SddRepoState, SDD_HELP_TEXT } from "./sdd-helpers";
 import { recallActiveRepo, rememberActiveRepo } from "./active-repo-memory";
@@ -60,6 +60,7 @@ function ensureCacheDir(): void {
 function findGitRoot(startDir: string): string | undefined {
   let current = startDir;
   while (true) {
+    if (isVaultRepository(current)) return undefined;
     if (existsSync(join(current, ".git"))) return current;
     const parent = dirname(current);
     if (parent === current) return undefined;
@@ -143,7 +144,7 @@ function activeRepo(ctx: ExtensionContext): string | undefined {
     (path) => readFileSync(path, "utf8"),
     existsSync,
   );
-  if (restored) {
+  if (restored && !isVaultRepository(restored)) {
     // Display/Graphify fallback only; do not write sentinel-restored paths into review-routing memory.
     persistActiveRepo(restored);
     return restored;

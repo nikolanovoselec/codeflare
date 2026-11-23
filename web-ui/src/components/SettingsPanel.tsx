@@ -11,7 +11,8 @@ import type { Settings } from '../lib/settings';
 import { sessionStore } from '../stores/session';
 import { recreateGettingStartedDocs, recreateAgentConfigs } from '../api/storage';
 import { getUser } from '../api/client';
-import type { AccessTier, SessionMode, SessionWorkspace, SubscriptionTier } from '../types';
+import type { SessionMode, SessionWorkspace } from '../types';
+import { DEFAULT_IDLE_TIMEOUT } from '../lib/sleep-timer';
 import AppearanceSection from './settings/AppearanceSection';
 import SessionSection from './settings/SessionSection';
 import DeployKeysSection from './settings/DeployKeysSection';
@@ -36,7 +37,6 @@ interface SettingsPanelProps {
   mcpReturnOutcome?: import('../lib/mcp-portal-recovery').McpReturnOutcome;
   cloudflareReturn?: CloudflareReturnOutcome;
   currentUserRole?: 'admin' | 'user';
-  currentUserAccessTier?: import('../types').AccessTier;
   enterpriseMode?: boolean;
 }
 
@@ -135,10 +135,6 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   const [notificationError, setNotificationError] = createSignal<string | null>(null);
   let notificationRevision = 0;
 
-  // Live tier — refreshed from API each time panel opens so tier
-  // upgrades take effect without a full page reload.
-  const [liveAccessTier, setLiveAccessTier] = createSignal<AccessTier | SubscriptionTier | undefined>(props.currentUserAccessTier);
-
   const [liveAllowedModes, setLiveAllowedModes] = createSignal<SessionMode[] | undefined>();
 
   // Refresh on opening or owner/deployment changes. A closed/replaced read may
@@ -154,8 +150,6 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
       getUser().then((user) => {
         if (!current || !props.isOpen || props.currentUserEmail !== owner
           || sessionStore.saasMode !== saasMode || (owner && user.email !== owner)) return;
-        const tier = user.subscriptionTier ?? user.accessTier;
-        if (tier) setLiveAccessTier(tier);
         setUserHasSubscribed(user.hasSubscribed === true);
         setLiveSubscribedMode(user.subscribedMode ?? 'default');
         setLiveAllowedModes(user.allowedModes);
@@ -187,13 +181,9 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   const herdrEnabled = () => sessionStore.preferences.herdrEnabled === true;
   const currentSessionMode = () => sessionStore.preferences.sessionMode ?? 'default';
   const defaultWorkspace = () => sessionStore.preferences.defaultWorkspace ?? 'terminal';
-  const isFreeUser = () => {
-    const tier = liveAccessTier();
-    return tier === 'free';
-  };
-  const sleepAfter = () => isFreeUser() ? '15m' : (sessionStore.preferences.sleepAfter ?? '1h');
+  const sleepAfter = () => sessionStore.preferences.sleepAfter ?? DEFAULT_IDLE_TIMEOUT;
   const [userHasSubscribed, setUserHasSubscribed] = createSignal(false);
-  const canChangeSleepAfter = () => isAdmin() || (userHasSubscribed() && !isFreeUser());
+  const canChangeSleepAfter = () => isAdmin() || userHasSubscribed();
 
   const showButtonLabels = () => settings().showButtonLabels !== false;
   const showTips = () => settings().showTips !== false;
@@ -425,7 +415,6 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
               notificationError={notificationError}
               sleepAfter={sleepAfter}
               canChangeSleepAfter={canChangeSleepAfter}
-              isFreeUser={isFreeUser}
               recreateDocsLoading={recreateDocsLoading}
               recreateDocsMessage={recreateDocsMessage}
               recreateDocsError={recreateDocsError}

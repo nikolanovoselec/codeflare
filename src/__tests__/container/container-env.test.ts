@@ -54,6 +54,28 @@ function baseState(): ContainerEnvState {
 
 const baseEnv: Env = {} as Env;
 
+it.each([false, true])('REQ-SEC-002 AC1/AC2: no deployment credential enters the container environment (strict=%s)', strict => {
+  const deployment = { CLOUDFLARE_API_TOKEN: 'master-token-canary', R2_ACCESS_KEY_ID: 'deploy-access-canary', R2_SECRET_ACCESS_KEY: 'deploy-secret-canary' };
+  const vars = buildEnvVars({ ...baseState(), _strictEgress: strict,
+    _r2AccessKeyId: 'scoped-access', _r2SecretAccessKey: 'scoped-secret' }, { ...baseEnv, ...deployment });
+
+  expect(vars).toMatchObject({
+    R2_ACCESS_KEY_ID: strict ? ENTERPRISE_R2_KEY_PLACEHOLDER : 'scoped-access',
+    R2_SECRET_ACCESS_KEY: strict ? ENTERPRISE_R2_KEY_PLACEHOLDER : 'scoped-secret',
+  });
+  for (const credential of Object.values(deployment)) expect(JSON.stringify(vars)).not.toContain(credential);
+});
+
+it.each([
+  [null, null], ['scoped-access', null], [null, 'scoped-secret'],
+])('REQ-SESSION-003 AC2: an incomplete scoped R2 pair never uses deployment credentials (%s, %s)', (access, secret) => {
+  const vars = buildEnvVars({ ...baseState(), _r2AccessKeyId: access, _r2SecretAccessKey: secret }, {
+    R2_ACCESS_KEY_ID: 'deployment-access', R2_SECRET_ACCESS_KEY: 'deployment-secret',
+  } as Env);
+  expect(vars.R2_ACCESS_KEY_ID).toBe('');
+  expect(vars.R2_SECRET_ACCESS_KEY).toBe('');
+});
+
 // REQ-AGENT-012: Fast CLI Start (Configurable)
 // REQ-AGENT-018: Push & Deploy credential management UI
 // REQ-ENTERPRISE-023: Strict Gateway Egress Controller Transport

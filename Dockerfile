@@ -32,11 +32,12 @@ WORKDIR /src/rclone
 RUN curl -fsSL https://codeload.github.com/rclone/rclone/tar.gz/refs/tags/v1.76.0 -o /tmp/rclone.tar.gz \
     && echo "8cb7e5d576fe9a3aef8b1a0785e2ffc6c1953f8ed109f42000b0b86718f6628b  /tmp/rclone.tar.gz" | sha256sum -c - \
     && tar --strip-components=1 -xzf /tmp/rclone.tar.gz && rm /tmp/rclone.tar.gz \
-    && go mod edit -require=google.golang.org/grpc@v1.85.0 -require=github.com/klauspost/compress@v1.20.4 -require=golang.org/x/net@v0.62.0 \
+    && go mod edit -require=google.golang.org/grpc@v1.85.0 -require=github.com/klauspost/compress@v1.20.5 -require=golang.org/x/net@v0.62.0 \
     && go mod tidy
 COPY scripts/patch-rclone-bisync.py /tmp/patch-rclone-bisync.py
 COPY scripts/prepare-rclone-s3-fixture.py /tmp/prepare-rclone-s3-fixture.py
 COPY scripts/ci/rclone-bookkeeping_test.go /tmp/rclone-bookkeeping_test.go
+COPY scripts/ci/rclone-hermes-empty_test.go /tmp/rclone-hermes-empty_test.go
 # Only the CI server binary receives S3-compatible lexical pagination.
 # Restore upstream server code before building the shipped client.
 RUN mkdir -p /out \
@@ -45,8 +46,9 @@ RUN mkdir -p /out \
     && python3 /tmp/prepare-rclone-s3-fixture.py restore /src/rclone 1.76.0 /tmp/rclone-pager.go \
     && python3 /tmp/patch-rclone-bisync.py /src/rclone 1.76.0 \
     && cp /tmp/rclone-bookkeeping_test.go cmd/bisync/codeflare_bookkeeping_test.go \
-    && gofmt -w cmd/bisync/codeflare_bookkeeping_test.go \
-    && go test ./cmd/bisync -run '^TestCodeflare' -count=1 \
+    && cp /tmp/rclone-hermes-empty_test.go backend/s3/codeflare_hermes_empty_test.go \
+    && gofmt -w cmd/bisync/codeflare_bookkeeping_test.go backend/s3/codeflare_hermes_empty_test.go \
+    && go test ./cmd/bisync ./backend/s3 -run '^TestCodeflare' -count=1 \
     && go build -trimpath -ldflags '-s -w -X github.com/rclone/rclone/fs.Version=v1.76.0-codeflare-bisync1' -o /out/rclone . \
     && for binary in /out/rclone-unpatched /out/rclone; do \
          go version -m "$binary" | grep -E 'dep[[:space:]]+golang.org/x/net[[:space:]]+v0\.62\.0([[:space:]]|$)' || exit 1; \
@@ -318,11 +320,11 @@ RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.l
 # follow-redirects 1.16.2 fixes CVE-2026-111755/111756/116689 in its upstream 1.x API.
 # Drop each overlay after its upstream artifact contains at least the pinned
 # fixed version.
-RUN CODE_SERVER_VERSION="4.145.2" && \
-    CODE_SERVER_SHA256="2f6db6c3e8b733dd6b3aeee83532e148b2bae2e392353ba85452d03572348962" && \
-    CODE_SERVER_COMMIT="302bc77436721f5a474e06d1fe34cf8f86195d5e" && \
-    CODE_SERVER_CODE_VERSION="1.145.2" && \
-    CODE_SERVER_VSCODE_COMMIT="c4453f8ea430795f941c1b2ff6c9321135a74a02" && \
+RUN CODE_SERVER_VERSION="4.146.0" && \
+    CODE_SERVER_SHA256="cf7e82ca5fe1df664d43a43d900c3c9710f8f3403a5e8d0e18f6a12d10d7401b" && \
+    CODE_SERVER_COMMIT="9cc1033c190703416bbd5ec95d8f7db9f3edb63d" && \
+    CODE_SERVER_CODE_VERSION="1.146.0" && \
+    CODE_SERVER_VSCODE_COMMIT="69047191fc427f2f92828279aae1d90d8eeda7ab" && \
     CODE_SERVER_JS_YAML_VERSION="5.5.0" && \
     CODE_SERVER_IDE_TAR_VERSION="7.5.22" && \
     NODE_TAR_VERSION="7.5.23" && \
@@ -594,9 +596,9 @@ RUN --mount=from=openvscode-official-claude-extension,source=/out,target=/codefl
 # only in bump-shadow-pins.yml; image builds consume this committed identity,
 # never the mutable manifest or installer. Verify before reading archive members.
 # The 512 MiB extraction ceiling is a resource bound, not a per-release size pin.
-ARG ANTIGRAVITY_VERSION=1.5.12
-ARG ANTIGRAVITY_URL=https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.12-5281398513336320/linux-x64/cli_linux_x64.tar.gz
-ARG ANTIGRAVITY_SHA512=26de25fccb3fbf0b093e090ce14a14ac1df1ec3e90ef4ea6106887d3a81b0cc9edb0dadea7b9101d07f9606eba159062a6fb7b78e91b73f7520684a24db73428
+ARG ANTIGRAVITY_VERSION=1.5.14
+ARG ANTIGRAVITY_URL=https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.14-5302690847260672/linux-x64/cli_linux_x64.tar.gz
+ARG ANTIGRAVITY_SHA512=83311d3f354567612dc16c1ae2ea9b503d6f6833aa4e138d39aa229da3f3bb99b0e4d7cca0bce4796b0060d6a51d8113eb7449ed5dc0e7900bf217107ea5bff9
 RUN if node /opt/codeflare/scripts/coding-agent-selection.mjs has "$CODEFLARE_CODING_AGENTS" antigravity; then \
       curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --connect-timeout 30 --max-time 300 --max-filesize 268435456 "$ANTIGRAVITY_URL" -o /tmp/agy.tar.gz && \
       printf '%s  %s\n' "$ANTIGRAVITY_SHA512" /tmp/agy.tar.gz | sha512sum -c - && \
@@ -613,7 +615,7 @@ RUN if node /opt/codeflare/scripts/coding-agent-selection.mjs has "$CODEFLARE_CO
 # would run a slow npm install on first launch (~90s on mobile). Entrypoint
 # symlinks node_modules to this cache (instant, zero-copy).
 COPY preseed/agents/pi/package.json preseed/agents/pi/package-lock.json /opt/codeflare/pi-agent/npm/
-COPY scripts/verify-pi-lockstep.mjs scripts/patch-pi-goal-review-control.mjs scripts/patch-pi-plan-mode-tool-policy.mjs scripts/patch-pi-native-model-display.mjs scripts/patch-pi-codex-prompt-cache.mjs scripts/patch-pi-subagents-notifications.mjs scripts/patch-rpiv-host-peers.mjs scripts/patch-rpiv-question-timeout.mjs scripts/rpiv-question-timeout.mjs /opt/codeflare/scripts/
+COPY scripts/verify-pi-lockstep.mjs scripts/patch-pi-plan-mode-tool-policy.mjs scripts/patch-pi-native-model-display.mjs scripts/patch-pi-codex-prompt-cache.mjs scripts/patch-pi-subagents-notifications.mjs scripts/patch-rpiv-host-peers.mjs scripts/patch-rpiv-question-timeout.mjs scripts/rpiv-question-timeout.mjs /opt/codeflare/scripts/
 # better-sqlite3 / bufferutil / utf-8-validate are native (node-gyp) modules. Their
 # prebuilt-binary fetch is best-effort and falls back to a source compile, which needs
 # make + a C/C++ toolchain. stage-1 ships python3 but not make/gcc/g++ (those live only
@@ -630,9 +632,6 @@ RUN cd /opt/codeflare/pi-agent/npm && \
     apt-get install -y --no-install-recommends make gcc g++ && \
     npm ci --omit=dev --no-audit --no-fund && \
     node /opt/codeflare/scripts/patch-pi-subagents-notifications.mjs ./node_modules/@gotgenes/pi-subagents && \
-    GOAL_VERSION="$(node -p 'require("./package.json").dependencies["@narumitw/pi-goal"]')" && \
-    node /opt/codeflare/scripts/patch-pi-goal-review-control.mjs \
-      "$GOAL_VERSION" ./node_modules/@narumitw/pi-goal && \
     PLAN_MODE_VERSION="$(node -p 'require("./package.json").dependencies["@narumitw/pi-plan-mode"]')" && \
     node /opt/codeflare/scripts/patch-pi-plan-mode-tool-policy.mjs \
       "$PLAN_MODE_VERSION" ./node_modules/@narumitw/pi-plan-mode && \
@@ -764,8 +763,8 @@ RUN node -e "import('/opt/codeflare/browser-run-mcp/index.mjs').then(() => conso
 # ---------------------------------------------------------------------------
 # Upstream 0.9.72+ auto-refresh must not replace signed managed skills.
 ENV GRAPHIFY_NO_AUTO_REFRESH=1
-ARG UV_VERSION=0.13.7
-ARG UV_X86_64_LINUX_SHA256=c5221ff41b7892bfc223543883600125f6a47fe845093e0f5bdff4f359196d83
+ARG UV_VERSION=0.13.8
+ARG UV_X86_64_LINUX_SHA256=5acfd9177cfecf0bf87578f059728215ccc884388988f55f7a65041b57387d91
 COPY preseed/agents/claude/plugins/graphify/.claude-plugin/plugin.json /tmp/graphify-plugin.json
 RUN <<'EOF'
 set -e
@@ -926,7 +925,7 @@ RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
     cp -r /opt/codeflare/pi-agent/extensions /home/user/.pi/agent/extensions && \
     PI_WARM_PACKAGES="$(node -e 'const d=require("/opt/codeflare/pi-agent/npm/package.json").dependencies;process.stdout.write(JSON.stringify({packages:Object.entries(d).map(([n,v])=>n==="pi-open-tui"?{source:`npm:${n}@${v}`,extensions:[]}:`npm:${n}@${v}`)}))')" && \
     printf '%s' "$PI_WARM_PACKAGES" > /home/user/.pi/agent/settings.json && \
-    goal_source="/opt/codeflare/pi-agent/npm/node_modules/@narumitw/pi-goal/src/index.ts" && \
+    todo_loop_source="/opt/codeflare/pi-agent/npm/node_modules/@dumbmice/pi-todo-loop/src/index.ts" && \
     plan_source="/opt/codeflare/pi-agent/npm/node_modules/@narumitw/pi-plan-mode/dist/index.ts" && \
     open_tui_source="/opt/codeflare/pi-agent/npm/node_modules/pi-open-tui/extensions/open-tui/index.ts" && \
     evaluate_source="/opt/codeflare/pi-agent/npm/node_modules/pi-evaluate/extensions/evaluate.ts" && \
@@ -941,7 +940,7 @@ RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
     context_source="/opt/codeflare/pi-agent/npm/node_modules/context-mode/pi/index.js" && \
     TMPDIR=/opt/codeflare/jiti-warm-tmp HOME=/home/user PI_CODING_AGENT_DIR=/home/user/.pi/agent PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 \
       node /opt/codeflare/scripts/verify-pi-lockstep.mjs --warm-jiti-entrypoints \
-      /opt/codeflare/pi-agent/npm/node_modules/.bin/pi /opt/codeflare/jiti-warm-tmp/jiti "$goal_source" "$plan_source" "$open_tui_source" "$evaluate_source" "$codex_fast_source" "$subagents_source" "$mcp_source" \
+      /opt/codeflare/pi-agent/npm/node_modules/.bin/pi /opt/codeflare/jiti-warm-tmp/jiti "$todo_loop_source" "$plan_source" "$open_tui_source" "$evaluate_source" "$codex_fast_source" "$subagents_source" "$mcp_source" \
       "$advisor_source" "$ask_user_source" "$todo_source" "$web_source" "$smart_compact_source" "$context_source" /home/user/.pi/agent/extensions/*.ts \
       --dependencies /home/user/.pi/agent/extensions/transcript-trim/engine.mjs && \
     mv /opt/codeflare/jiti-warm-tmp/jiti /opt/codeflare/jiti-cache && \
@@ -949,7 +948,7 @@ RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
     for ext in /home/user/.pi/agent/extensions/*.ts; do \
         node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$ext" /opt/codeflare/jiti-cache || exit 1; \
     done && \
-    goal_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$goal_source" /opt/codeflare/jiti-cache)" && \
+    todo_loop_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$todo_loop_source" /opt/codeflare/jiti-cache)" && \
     plan_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$plan_source" /opt/codeflare/jiti-cache)" && \
     open_tui_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$open_tui_source" /opt/codeflare/jiti-cache)" && \
     evaluate_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$evaluate_source" /opt/codeflare/jiti-cache)" && \

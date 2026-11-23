@@ -276,7 +276,7 @@ export interface UserPreferences {
   fastStartEnabled?: boolean;
   sessionMode?: SessionMode;
   defaultWorkspace?: SessionWorkspace;
-  sleepAfter?: SleepAfterOption;
+  sleepAfter?: SleepAfterOption | '5m';
   /** REQ-MEM-001 AC4: user's IANA timezone captured from the browser. */
   userTimezone?: string;
   /** Server-owned stamp for the last fully applied verified managed release. */
@@ -345,7 +345,10 @@ interface InitProgressDetail {
   status?: 'ok' | 'error' | 'pending';
 }
 
+export type RepositoryRestoreStatus = 'pending' | 'restoring' | 'complete' | 'issues';
+
 export interface InitProgress {
+  repositoryRestore?: RepositoryRestoreStatus;
   stage: InitStage;
   progress: number;
   message: string;
@@ -356,6 +359,8 @@ export interface InitProgress {
 // Startup status response from polling endpoint
 export interface StartupStatusResponse {
   stage: InitStage;
+  confirmedStopped?: true;
+  generation?: number;
   progress: number;
   message: string;
   details: {
@@ -368,6 +373,7 @@ export interface StartupStatusResponse {
     syncError?: string | null;
     healthServerOk?: boolean;
     terminalServerOk?: boolean;
+    repositoryRestore?: RepositoryRestoreStatus;
     editorReady?: boolean;
     // System metrics from health server
     cpu?: string;

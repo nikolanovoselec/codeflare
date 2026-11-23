@@ -1,4 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@solidjs/testing-library';
+import { createComponent, createSignal, Show } from 'solid-js';
+import InitProgress from '../../components/InitProgress';
+import ClonePicker from '../../components/github/ClonePicker';
 
 const terminalLifecycle = vi.hoisted(() => ({
   ownedSessionIds: new Set<string>(),
@@ -121,6 +125,100 @@ describe('Session Store', () => {
   afterEach(() => {
     vi.useRealTimers();
     sessionStore.stopAllPolling();
+  });
+
+  describe('running-session repository clone notices', () => {
+    const repo = { full_name: 'octocat/hello', name: 'hello', owner: 'octocat', private: false,
+      visibility: 'public' as const, default_branch: 'main', updated_at: '2026-01-01T00:00:00Z' };
+    let requests: Array<{ path: string; body: unknown; resolve: (response: Response) => void; reject: (error: Error) => void }>;
+
+    beforeEach(async () => {
+      requests = [];
+      vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((resolve, reject) => {
+        requests.push({ path: String(input), body: JSON.parse(String(init?.body)), resolve, reject });
+      }));
+      mockGetSessions.mockResolvedValue(['clone-a', 'clone-b'].map(id => ({ id, name: id,
+        status: 'running' as const, lifecycle: 'running' as const, generation: 1, revision: 1,
+        createdAt: '2026-01-01', lastAccessedAt: '2026-01-01' })));
+      await sessionStore.loadSessions();
+      sessionStore.setActiveSession('clone-b');
+    });
+
+    afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+
+    it('REQ-GITHUB-320 AC6: Dashboard clone notification survives picker dismissal and clears after success', async () => {
+      const [pickerOpen, setPickerOpen] = createSignal(true);
+      render(() => createComponent(Show, {
+        keyed: true,
+        get when() { return pickerOpen(); },
+        get children() { return createComponent(ClonePicker, { repo, onClose: () => setPickerOpen(false) }); },
+      }));
+      fireEvent.click(screen.getAllByTestId('clone-picker-session-row')
+        .find(row => row.getAttribute('data-session-id') === 'clone-a')!);
+      expect(sessionStore.repositoryRestoreNotices['clone-a']).toMatchObject({ status: 'restoring', repo: repo.full_name });
+      expect(requests.map(({ path, body }) => ({ path, body }))).toEqual([
+        { path: '/api/github/clone', body: { repo: repo.full_name, sessionId: 'clone-a' } },
+      ]);
+      expect(screen.queryByRole('dialog', { name: 'Clone repository' })).not.toBeInTheDocument();
+      requests[0].resolve(Response.json({ status: 'cloned', path: '/home/user/workspace/hello' }));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(sessionStore.repositoryRestoreNotices['clone-a']).toMatchObject({ status: 'complete', outcome: 'cloned' });
+      expect(sessionStore.activeSessionId).toBe('clone-b');
+      expect(sessionStore.isSessionInitializing('clone-a')).toBe(false);
+      expect(sessionStore.getInitProgressForSession('clone-a')).toBeNull();
+      expect(sessionStore.sessions.map(({ id, status }) => ({ id, status }))).toEqual([
+        { id: 'clone-a', status: 'running' }, { id: 'clone-b', status: 'running' },
+      ]);
+      await vi.advanceTimersByTimeAsync(4_999);
+      expect(sessionStore.repositoryRestoreNotices['clone-a']).toBeDefined();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(sessionStore.repositoryRestoreNotices['clone-a']).toBeUndefined();
+    });
+
+    it.each(['exists', 'failed', 'network', 'tracking-unconfirmed'] as const)('REQ-GITHUB-320 AC6: %s clone outcomes remain dismissible', async outcome => {
+      const pending = sessionStore.cloneRepositoryIntoSession({ repo: repo.full_name, sessionId: 'clone-a' });
+      if (outcome === 'network') requests[0].reject(new Error('private transport diagnostic'));
+      else requests[0].resolve(Response.json({ code: outcome === 'exists' ? 'CLONE_TARGET_EXISTS'
+        : outcome === 'tracking-unconfirmed' ? 'CLONE_TRACKING_UNCONFIRMED' : 'CLONE_FAILED' },
+        { status: outcome === 'failed' ? 500 : 409 }));
+      const expected = outcome === 'network' ? 'failed' : outcome;
+      expect((await pending).outcome).toBe(expected);
+      expect(sessionStore.repositoryRestoreNotices['clone-a']).toEqual({ status: 'issues', repo: repo.full_name, outcome: expected });
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(sessionStore.repositoryRestoreNotices['clone-a']).toBeDefined();
+      sessionStore.dismissRepositoryRestore('clone-a');
+      expect(sessionStore.repositoryRestoreNotices['clone-a']).toBeUndefined();
+    });
+
+    it('REQ-GITHUB-320 AC7: dismissed and superseded clone responses cannot replace the current notice', async () => {
+      const dismissed = sessionStore.cloneRepositoryIntoSession({ repo: 'octocat/dismissed', sessionId: 'clone-a' });
+      sessionStore.dismissRepositoryRestore('clone-a');
+      requests[0].resolve(Response.json({ status: 'cloned', path: '/workspace/dismissed' }));
+      await dismissed;
+      expect(sessionStore.repositoryRestoreNotices['clone-a']).toBeUndefined();
+
+      const old = sessionStore.cloneRepositoryIntoSession({ repo: 'octocat/old', sessionId: 'clone-a' });
+      const latest = sessionStore.cloneRepositoryIntoSession({ repo: 'octocat/latest', sessionId: 'clone-a' });
+      requests[2].resolve(Response.json({ code: 'CLONE_FAILED' }, { status: 500 }));
+      await latest;
+      requests[1].resolve(Response.json({ status: 'cloned', path: '/workspace/old' }));
+      await old;
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(sessionStore.repositoryRestoreNotices['clone-a']).toEqual({ status: 'issues', repo: 'octocat/latest', outcome: 'failed' });
+    });
+
+    it('REQ-GITHUB-320 AC7: concurrent sessions keep independent clone notifications', async () => {
+      const first = sessionStore.cloneRepositoryIntoSession({ repo: repo.full_name, sessionId: 'clone-a' });
+      const second = sessionStore.cloneRepositoryIntoSession({ repo: 'octocat/second', sessionId: 'clone-b' });
+      requests[0].resolve(Response.json({ status: 'cloned', path: '/workspace/hello' }));
+      await first;
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(sessionStore.repositoryRestoreNotices['clone-a']).toBeUndefined();
+      expect(sessionStore.repositoryRestoreNotices['clone-b']).toEqual({ status: 'restoring', repo: 'octocat/second' });
+      requests[1].resolve(Response.json({ code: 'CLONE_TARGET_EXISTS' }, { status: 409 }));
+      await second;
+      expect(sessionStore.repositoryRestoreNotices['clone-b']).toMatchObject({ status: 'issues', outcome: 'exists' });
+    });
   });
 
   describe('loadSessions', () => {
@@ -357,6 +455,23 @@ describe('Session Store', () => {
       await loading; // Ancillary is still unresolved: it cannot own catalog readiness.
       ancillary.resolve({ maxSessions: 3 });
       await sessionStore.refreshSessionAncillaryStatus();
+    });
+
+    it('REQ-ENTERPRISE-323: checks status after a poll already in flight when retry settles', async () => {
+      const halted = deferred<api.SessionAncillaryStatus>();
+      const running = deferred<api.SessionAncillaryStatus>();
+      mockGetSessionAncillaryStatus.mockReturnValueOnce(halted.promise).mockReturnValueOnce(running.promise);
+      const poll = sessionStore.refreshSessionAncillaryStatus();
+      const retryRefresh = sessionStore.refreshSessionAncillaryStatus({ afterCurrent: true });
+      const timestamp = '2026-11-21T14:23:45.678Z';
+      halted.resolve({ maxSessions: 3, bucketMigrating: true, bucketMigrationHaltedAt: timestamp });
+      await poll;
+      expect(sessionStore.bucketMigrationHaltedAt).toBe(timestamp);
+
+      running.resolve({ maxSessions: 3, bucketMigrating: true });
+      await retryRefresh;
+      expect(sessionStore.bucketMigrationHaltedAt).toBeNull();
+      expect(sessionStore.bucketMigrating).toBe(true);
     });
 
     it.each(['starting', 'unreachable', 'stopping', 'running', 'stopped'] as const)(
@@ -1358,7 +1473,7 @@ describe('Session Store', () => {
         createdAt: new Date().toISOString(),
         lastAccessedAt: new Date().toISOString(),
       });
-      let completeStart: (() => void) | undefined;
+      let completeStart: ((generation: number) => void) | undefined;
       vi.mocked(api.startSession).mockImplementation((_id, _progress, onComplete) => {
         completeStart = onComplete;
         return () => {};
@@ -1369,7 +1484,7 @@ describe('Session Store', () => {
 
       expect(sessionStore.activeSessionId).toBeNull();
       expect(sessionStore.getTerminalsForSession('clone-editor')).toBeNull();
-      completeStart?.();
+      completeStart?.(1);
       await creating;
 
       expect(sessionStore.activeSessionId).toBeNull();
@@ -1389,7 +1504,7 @@ describe('Session Store', () => {
         createdAt: new Date().toISOString(),
         lastAccessedAt: new Date().toISOString(),
       });
-      let completeStart: (() => void) | undefined;
+      let completeStart: ((generation: number) => void) | undefined;
       vi.mocked(api.startSession).mockImplementation((_id, _progress, onComplete) => {
         completeStart = onComplete;
         return () => {};
@@ -1399,7 +1514,7 @@ describe('Session Store', () => {
       await vi.waitFor(() => expect(api.startSession).toHaveBeenCalled());
 
       expect(sessionStore.activeSessionId).toBe('clone-terminal');
-      completeStart?.();
+      completeStart?.(1);
       await creating;
 
       expect(sessionStore.getTerminalsForSession('clone-terminal')).not.toBeNull();
@@ -1834,6 +1949,79 @@ describe('Session Store', () => {
       expect(sessionStore.isSessionInitializing('session-1')).toBe(false);
     });
 
+    it('REQ-TERM-043: matching Ready shows Open and releases startup on click', async () => {
+      const id = 'terminal-ready-session';
+      mockGetSessions.mockResolvedValue([{
+        id, name: 'Terminal', workspace: 'terminal', status: 'stopped', lifecycle: 'stopped', generation: 6, revision: 1,
+        createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      }]);
+      await sessionStore.loadSessions();
+      const ready = { stage: 'ready', progress: 100, message: 'Container ready' } as const;
+      let deliverReady!: () => void;
+      vi.mocked(api.startSession).mockImplementation((_id, onProgress, onComplete) => {
+        deliverReady = () => { onProgress(ready); onComplete(7); };
+        return () => {};
+      });
+      const starting = sessionStore.startSession(id);
+      try {
+        render(() => createComponent(Show, {
+          keyed: true,
+          get when() { return sessionStore.isSessionInitializing(id); },
+          get children() {
+            return createComponent(InitProgress, {
+              sessionName: 'Terminal',
+              get progress() { return sessionStore.getInitProgressForSession(id); },
+              onOpen: () => sessionStore.dismissInitProgressForSession(id),
+            });
+          },
+        }));
+        expect(screen.queryByRole('button', { name: 'Open' })).not.toBeInTheDocument();
+        deliverReady();
+        await starting;
+        expect(screen.getByText('Container ready')).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+        expect(screen.queryByTestId('init-progress')).not.toBeInTheDocument();
+        expect(sessionStore.sessions.find(session => session.id === id)?.status).toBe('running');
+      } finally { cleanup(); }
+    });
+
+    it('REQ-GITHUB-320: enables Open while restoration runs and shows its later partial outcome', async () => {
+      vi.useFakeTimers();
+      const id = 'terminal-repository-restore';
+      try {
+        mockGetSessions.mockResolvedValue([{
+          id, name: 'Terminal', workspace: 'terminal', status: 'stopped', lifecycle: 'stopped', generation: 6, revision: 1,
+          createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+        }]);
+        await sessionStore.loadSessions();
+        vi.mocked(api.startSession).mockImplementation((_id, onProgress, onComplete) => {
+          queueMicrotask(() => {
+            onProgress({ stage: 'ready', progress: 100, message: 'Container ready', repositoryRestore: 'restoring' });
+            onComplete(7);
+          });
+          return () => {};
+        });
+        const details = { bucketName: 'bucket', container: 'container', path: '/' };
+        vi.mocked(api.getStartupStatus).mockResolvedValueOnce({ stage: 'starting', generation: 7, progress: 20,
+          message: 'Health not available', details }).mockResolvedValue({ stage: 'ready', generation: 7, progress: 100,
+          message: 'Container ready', details: { ...details, repositoryRestore: 'issues' } });
+        await sessionStore.startSession(id);
+        expect(sessionStore.getInitProgressForSession(id)?.stage).toBe('ready');
+        expect(sessionStore.repositoryRestoreNotices[id]).toEqual({ status: 'restoring' });
+        sessionStore.dismissInitProgressForSession(id);
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(api.getStartupStatus).toHaveBeenCalledWith(id);
+        expect(sessionStore.repositoryRestoreNotices[id]).toEqual({ status: 'restoring' });
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(sessionStore.repositoryRestoreNotices[id]).toEqual({ status: 'issues' });
+        sessionStore.dismissRepositoryRestore(id);
+        expect(sessionStore.repositoryRestoreNotices[id]).toBeUndefined();
+      } finally {
+        sessionStore.stopAllPolling();
+        vi.useRealTimers();
+      }
+    });
+
     it('REQ-IDE-048 AC2 + REQ-IDE-050 AC1: completes VS Code startup without creating terminal state', async () => {
       sessionStore.initializeTerminalsForSession('session-1');
       expect(sessionStore.getTerminalsForSession('session-1')).not.toBeNull();
@@ -1846,7 +2034,7 @@ describe('Session Store', () => {
         maxSessions: 3,
       } as never);
       await sessionStore.loadSessions();
-      let completeStart: (() => void) | undefined;
+      let completeStart: ((generation: number) => void) | undefined;
       vi.mocked(api.startSession).mockImplementation((_id, _progress, onComplete) => {
         completeStart = onComplete;
         return () => {};
@@ -1855,12 +2043,79 @@ describe('Session Store', () => {
       const starting = sessionStore.startSession('session-1');
       expect(sessionStore.sessions[0].editorReady).toBe(false);
       expect(sessionStore.isSessionInitializing('session-1')).toBe(true);
-      completeStart?.();
+      completeStart?.(1);
       await starting;
 
       expect(sessionStore.sessions[0]).toMatchObject({ status: 'running', editorReady: true });
       expect(sessionStore.isSessionInitializing('session-1')).toBe(false);
       expect(sessionStore.getTerminalsForSession('session-1')).toBeNull();
+    });
+
+    it.each([
+      ...(['catalog', 'batch', 'catalog-with-batch'] as const).flatMap(source => [
+        { source, generation: 8, lifecycle: 'starting' as const },
+        { source, generation: 7, lifecycle: 'stopping' as const },
+      ]),
+    ])('REQ-SESSION-018 AC4: a late Ready cannot override accepted $lifecycle authority', async ({ generation, lifecycle, source }) => {
+      const editor = { id: `late-ready-${lifecycle}`, name: 'Editor', workspace: 'vscode' as const, editorReady: false,
+        createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString() };
+      mockGetSessions.mockResolvedValue([{ ...editor, status: 'stopped', lifecycle: 'stopped', generation: 6, revision: 1 }]);
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {} });
+      await sessionStore.loadSessions();
+      let complete!: (generation: number) => void;
+      vi.mocked(api.startSession).mockImplementation((_id, onProgress, onComplete) => {
+        complete = (generation) => {
+          onProgress({ stage: 'ready', progress: 100, message: 'Stale ready' });
+          expect(sessionStore.getInitProgressForSession(editor.id)).toBeNull();
+          onComplete(generation);
+        };
+        return () => {};
+      });
+      const start = sessionStore.startSession(editor.id);
+      const replacement = { ...editor, generation, lifecycle, status: lifecycle, revision: 4 };
+      mockGetSessions.mockResolvedValue([replacement]);
+      const readEditor = () => sessionStore.sessions.find(session => session.id === editor.id);
+      if (source !== 'catalog') {
+        mockGetBatchSessionStatus.mockResolvedValue({ statuses: { [editor.id]: { ...replacement, ptyActive: false } } });
+        if (source === 'batch') await sessionStore.refreshSessionStatuses();
+        else {
+          mockGetSessions.mockResolvedValueOnce([{ ...editor, status: 'stopped', lifecycle: 'stopped', generation: 6, revision: 1 }]);
+          await sessionStore.loadSessions();
+        }
+        expect(readEditor()?.status).toBe('initializing');
+      } else {
+        await sessionStore.loadSessions();
+      }
+      expect(readEditor()).toMatchObject({ generation, lifecycle, revision: 4 });
+      const staleReady = expect(start).rejects.toThrow('superseded');
+      complete(7);
+      await staleReady;
+      await vi.waitFor(() => expect(sessionStore.loading).toBe(false));
+      expect(readEditor()).toMatchObject({ generation, lifecycle, editorReady: false });
+      expect(sessionStore.isSessionInitializing(editor.id)).toBe(false);
+      expect(sessionStore.getTerminalsForSession(editor.id)).toBeNull();
+    });
+
+    it('REQ-SESSION-017: Error after a lost Start acknowledgement reloads authoritative session state', async () => {
+      const entry = { id: 'session00123', name: 'Workspace', workspace: 'terminal' as const,
+        createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString() };
+      mockGetSessions.mockResolvedValueOnce([{ ...entry, status: 'stopped', lifecycle: 'stopped', generation: 6, revision: 1 }])
+        .mockResolvedValue([{ ...entry, status: 'running', lifecycle: 'running', generation: 7, revision: 3 }]);
+      await sessionStore.loadSessions();
+      const client = await vi.importActual<typeof api>('../../api/client');
+      vi.mocked(api.startSession).mockImplementationOnce(client.startSession);
+      vi.stubGlobal('fetch', vi.fn<typeof fetch>()
+        .mockRejectedValueOnce(new Error('Start acknowledgement lost'))
+        .mockResolvedValueOnce(Response.json({ stage: 'error', generation: 6, progress: 0, message: 'Previous run failed',
+          details: { bucketName: 'test', container: 'test', path: '/workspace' } })));
+      try {
+        await expect(sessionStore.startSession(entry.id)).rejects.toThrow('This Start could not be confirmed');
+        expect(sessionStore.isSessionInitializing(entry.id)).toBe(false);
+        expect(sessionStore.sessions.find(({ id }) => id === entry.id))
+          .toMatchObject({ status: 'running', generation: 7, revision: 3 });
+      } finally {
+        vi.unstubAllGlobals();
+      }
     });
 
     it('REQ-IDE-049 AC3: marks a failed VS Code start as an editor-timeout retry', async () => {

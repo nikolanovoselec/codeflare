@@ -71,7 +71,7 @@ Use existing approved targets and content. Protected access, authentication, del
 
 ### Landing responsive navigation acceptance
 
-For REQ-LANDING-001 AC5–AC7, inspect mobile, tablet and desktop breakpoints with normal motion, reduced motion and JavaScript disabled. Trigger terminal proofs, capability text, orchestration, reveals and flare; complete resting content must remain present without JavaScript and readable under reduced motion. Keyboard-traverse navigation, trust, disclosures, contact, sign-in and footer controls. Pass only if destinations are correct and sections/controls remain distinct and visible without clipping, overlap or hidden content at every width. Do not submit contact or authenticate without separate approval.
+For [REQ-LANDING-001](../sdd/spec/landing.md#req-landing-001-public-landing-content-and-interaction) AC2–AC5, inspect mobile, tablet and desktop breakpoints with normal motion, reduced motion and JavaScript disabled. Trigger terminal proofs, capability text, orchestration, reveals and flare; complete resting content must remain present without JavaScript and readable under reduced motion. At 900px and above, confirm the Velocity, Quality, Security, Control, and Cost header links are visible and keyboard-operable. Below 900px, confirm those shortcuts are hidden, their sections are still present, and Sign in remains visible. Keyboard-traverse the controls shown at each width; check destinations and unintended clipping or overlap. Do not submit contact or authenticate without separate approval.
 
 ### Landing mobile metadata acceptance
 
@@ -101,7 +101,7 @@ At opening, compare authored context with the largest fully fitting prefix plus 
 
 ### Landing sign-in accessibility acceptance
 
-For REQ-LANDING-006 AC2/AC3, keyboard-focus the header CTA: its accessible name must remain Sign in. Hover/focus to trigger scrambling; compare primary-white color, shared interaction and unchanged destination. Repeat reduced-motion/no-JavaScript: the label must remain static/readable. Pass only if the flourish never obscures purpose or shifts sibling links. Authentication is not part of this check.
+For REQ-LANDING-006 AC2–AC4 and AC6–AC7, keyboard-focus the header CTA: its accessible name must remain Sign in. Hover/focus to trigger scrambling; compare primary-white color and unchanged destination. On a viewport with visible sibling links, compare their rendered rectangles before and during decoding. Repeat with reduced motion and without JavaScript: the label must remain static and readable. Authentication is not part of this check.
 
 ### Landing IDE band acceptance
 

@@ -22,6 +22,7 @@ type TestContext = {
   sessionManager: {
     getSessionFile(): string;
     getEntries(): Record<string, unknown>[];
+    getBranch?(): Record<string, unknown>[];
     getHeader(): { parentSession?: string };
   };
   ui: { select(title: string, options: string[]): Promise<string | undefined>; notify(): void };
@@ -104,11 +105,11 @@ function toolCall(id: string, name: string, arguments_: Record<string, unknown>)
   };
 }
 
-function toolResult(id: string, name: string): Record<string, unknown> {
+function toolResult(id: string, name: string, details?: Record<string, unknown>): Record<string, unknown> {
   return {
     type: 'message',
     id: `result-${sequence += 1}`,
-    message: { role: 'toolResult', toolCallId: id, toolName: name, content: [{ type: 'text', text: 'ok' }], isError: false },
+    message: { role: 'toolResult', toolCallId: id, toolName: name, content: [{ type: 'text', text: 'ok' }], isError: false, details },
   };
 }
 
@@ -166,31 +167,32 @@ function reviewerPrompt(head: string, lane: ReviewLane): string {
   ].join('\n');
 }
 
-function appendSuccessfulRound(input: ReturnType<typeof fixture>, lanes: ReviewLane[], prefix: string): void {
+function appendRoundLaunches(input: ReturnType<typeof fixture>, lanes: ReviewLane[], prefix: string): void {
   append(input.sessionFile,
     ...lanes.flatMap((lane, index) => {
       const id = `${prefix}-review-${index}`;
-      return [
-        toolCall(id, 'subagent', {
-          subagent_type: lane,
-          run_in_background: true,
-          inherit_context: false,
-          prompt: reviewerPrompt(input.head, lane),
-        }),
-        toolResult(id, 'subagent'),
-        notification(id),
-      ];
+      return [toolCall(id, 'subagent', { subagent_type: lane, run_in_background: true,
+        inherit_context: false, prompt: reviewerPrompt(input.head, lane) }), toolResult(id, 'subagent')];
     }),
     toolCall(`${prefix}-ci`, 'subagent', {
-      subagent_type: 'ci-monitor',
-      run_in_background: true,
-      inherit_context: false,
+      subagent_type: 'ci-monitor', run_in_background: true, inherit_context: false,
       prompt: JSON.stringify({ repo: 'owner/repo', pr: 42, head: input.head, cwd: input.repo }),
     }),
     toolResult(`${prefix}-ci`, 'subagent'),
+  );
+}
+
+function appendRoundResults(input: ReturnType<typeof fixture>, lanes: ReviewLane[], prefix: string): void {
+  append(input.sessionFile,
+    ...lanes.map((_, index) => notification(`${prefix}-review-${index}`)),
     notification(`${prefix}-ci`, `<result>CI_RESULT success\npr=42 head=${input.head} repo=owner/repo</result>`),
     triage(),
   );
+}
+
+function appendSuccessfulRound(input: ReturnType<typeof fixture>, lanes: ReviewLane[], prefix: string): void {
+  appendRoundLaunches(input, lanes, prefix);
+  appendRoundResults(input, lanes, prefix);
 }
 
 function boundary(command: string, id = `boundary-${sequence += 1}`, output = 'ok') {
@@ -223,33 +225,23 @@ async function harness(
   input: ReturnType<typeof fixture>,
   decisions: Array<string | undefined> = ['Launch review'],
   dependencyOverrides: Record<string, any> = {},
-  route?: () => Promise<'local' | 'remote' | 'unavailable'>,
+  route?: (event: any) => Promise<'local' | 'remote' | 'unavailable' | 'none'>,
 ) {
   process.env.HOME = input.home;
   process.env.CODEFLARE_SYNC_DAEMON_PIDFILE = join(input.home, 'missing.pid');
   const { registerReviewEnforcement } = await import('../../../preseed/agents/pi/extensions/review-enforcement');
   const handlers = new Map<string, Handler[]>();
-  const { goalControlAvailable = true, ...reviewDependencyOverrides } = dependencyOverrides;
   const sent: Array<{ customType: string; content?: string; details?: Record<string, unknown> }> = [];
   const prompts: Array<{ title: string; options: string[] }> = [];
   const entries = () => readFileSync(input.sessionFile, 'utf8').split('\n').filter(Boolean)
     .map((line) => JSON.parse(line) as Record<string, unknown>).filter((entry) => entry.type !== 'session');
+  const markerAtFix: string[] = [];
   let activeTools = ['read', 'bash'];
-  const goalActions: string[] = [];
   const pi = {
     on: (event: string, handler: Handler) => handlers.set(event, [...(handlers.get(event) ?? []), handler]),
-    events: {
-      emit: vi.fn((_channel: string, request: any) => {
-        if (!goalControlAvailable) return;
-        request.accepted();
-        goalActions.push(request.action);
-        const status = request.action === 'pause' ? 'paused' : 'active';
-        append(input.sessionFile, { type: 'custom', customType: 'goal-state', data: { goal: { id: request.goalId, status } } });
-        request.respond({ ok: true, goalId: request.goalId, status });
-      }),
-    },
     appendEntry: (customType: string, data: unknown) => append(input.sessionFile, { type: 'custom', customType, data }),
     sendMessage: (message: { customType: string; content?: string; details?: Record<string, unknown> }) => {
+      if (message.customType === 'pr-boundary-fix-follow-up') markerAtFix.push(readCompletion(input.identity).status);
       sent.push(message);
       append(input.sessionFile, { type: 'custom_message', ...message });
     },
@@ -279,7 +271,7 @@ async function harness(
     queryBranch: async () => input.pr.headRefName,
     queryRepository: async () => ({ gitHost: 'github.com', repository: 'owner/repo' }),
     headRetryDelaysMs: [0],
-    ...reviewDependencyOverrides,
+    ...dependencyOverrides,
   });
   if (route) {
     const { registerOperatorReviewSelector } = await import('../../../preseed/agents/pi/extensions/operator-review-selector');
@@ -290,10 +282,12 @@ async function harness(
     ctx,
     sent,
     prompts,
-    goalActions,
+    markerAtFix,
     activeTools: () => activeTools,
     emit: async (event: string, payload: any = {}) => {
-      for (const handler of handlers.get(event) ?? []) await handler(payload, ctx);
+      let result: unknown;
+      for (const handler of handlers.get(event) ?? []) result = await handler(payload, ctx) ?? result;
+      return result;
     },
   };
 }
@@ -356,6 +350,28 @@ describe('Pi marker-or-dialog review ingress', () => {
     expect(existsSync(outsideMarker)).toBe(true);
 
     const later = { ...input.identity, repository: 'owner/unrelated', head: 'd'.repeat(40) };
+    writeCompletion(later, { root: stateRoot, now: () => new Date(0) });
+    await app.emit('session_start', { reason: 'resume' });
+    expect(existsSync(completionPath(later, stateRoot))).toBe(true);
+  });
+
+  it('REQ-STOR-027 AC4: child startup preserves markers and leaves the first root prune available', async () => {
+    vi.resetModules();
+    const input = fixture({ child: true });
+    const stateRoot = join(input.home, '.codeflare/review-state/v1');
+    const old = { ...input.identity, head: 'c'.repeat(40) };
+    writeCompletion(old, { root: stateRoot, now: () => new Date(0) });
+    const app = await harness(input, [undefined]);
+
+    await app.emit('session_start', { reason: 'startup' });
+    expect(existsSync(completionPath(old, stateRoot))).toBe(true);
+    expect(app.prompts).toEqual([]);
+
+    writeFileSync(input.sessionFile, `${JSON.stringify({ type: 'session', version: 3, id: 'root', cwd: input.repo })}\n`);
+    await app.emit('session_start', { reason: 'resume' });
+    expect(existsSync(completionPath(old, stateRoot))).toBe(false);
+
+    const later = { ...old, repository: 'owner/unrelated' };
     writeCompletion(later, { root: stateRoot, now: () => new Date(0) });
     await app.emit('session_start', { reason: 'resume' });
     expect(existsSync(completionPath(later, stateRoot))).toBe(true);
@@ -477,6 +493,8 @@ describe('Pi marker-or-dialog review ingress', () => {
       head: input.head,
       requiredLanes: ['code-reviewer', 'spec-reviewer', 'doc-updater'],
     });
+    expect(app.sent[0]?.content).toContain('Do not poll or retrieve in-flight results.');
+    expect(app.sent[0]?.content).toContain('If a finished reviewer’s full findings are missing, activate `get_subagent_result` with `capability` if needed. Before triage, call it with the agent ID from that exact finished launch.');
     expect(app.sent[0]?.content).toContain('verify that it is evidence-backed and in scope');
     expect(app.sent[0]?.content).toContain('judge the finding separately from its proposed fix');
     expect(app.sent[0]?.content).toContain('reject unsupported or overengineered proposals');
@@ -495,6 +513,32 @@ describe('Pi marker-or-dialog review ingress', () => {
 
   it('automatically emits the exact review plan after successful push', async () => {
     await expectAutomaticDeliveryPlan('git push origin feature');
+  });
+
+  it('REQ-AGENT-122 AC1: the boundary assigns the newest of two same-PR ancestors', async () => {
+    const input = fixture();
+    const root = join(input.home, '.codeflare/review-state/v1');
+    const newest = input.head;
+    const now = Date.now();
+    expect(writeCompletion({ ...input.identity, head: input.base }, {
+      root, now: () => new Date(now - 60_000),
+    })).toEqual({ written: true });
+    expect(writeCompletion(input.identity, { root, now: () => new Date(now) })).toEqual({ written: true });
+    write(input.repo, 'src/review.ts', 'export const changed = false;\n');
+    git(input.repo, 'add', 'src/review.ts');
+    git(input.repo, 'commit', '-m', 'next change');
+    input.head = git(input.repo, 'rev-parse', 'HEAD');
+    input.pr.headRefOid = input.head;
+    input.identity.head = input.head;
+
+    const app = await harness(input, []);
+    await app.emit('tool_result', boundary('git push origin feature', 'incremental-push'));
+
+    const plans = app.sent.filter(message => message.customType === 'pr-boundary-launch-plan');
+    expect(plans).toHaveLength(1);
+    const assignments = plans[0].content?.split('\n').filter(line => /^review_(range|base)=/.test(line)) ?? [];
+    expect(assignments).not.toHaveLength(0);
+    expect([...new Set(assignments)]).toEqual([`review_range=${newest}..${input.head}`]);
   });
 
   it('resolves one preceding literal git -C variable assignment for a push boundary', async () => {
@@ -1080,6 +1124,60 @@ describe('Pi marker-or-dialog review ingress', () => {
     }
   });
 
+  it('REQ-AGENT-244: unrelated PR creation cannot suppress the active exact-head FIX', async () => {
+    const input = fixture();
+    const unrelated = join(input.home, 'curation');
+    mkdirSync(join(unrelated, '.git'), { recursive: true });
+    const { selectOperatorReviewApplicability } = await import('../../../preseed/agents/pi/extensions/operator-review-selector');
+    const app = await harness(input, [], {}, async event => {
+      if (event.toolCallId !== 'other-pr') return 'local';
+      const previous = process.env.ENTERPRISE_MODE;
+      process.env.ENTERPRISE_MODE = 'active';
+      try { return await selectOperatorReviewApplicability(event, { cwd: input.repo }); }
+      finally {
+        if (previous === undefined) delete process.env.ENTERPRISE_MODE;
+        else process.env.ENTERPRISE_MODE = previous;
+      }
+    });
+    await app.emit('tool_result', boundary('gh pr create --base main', 'owner-pr', 'https://github.com/owner/repo/pull/42'));
+    await app.emit('agent_end');
+    const lanes = app.sent[0]!.details?.requiredLanes as ReviewLane[];
+    appendRoundLaunches(input, lanes, 'owned');
+    const otherPr = boundary(`cd ${JSON.stringify(unrelated)} && gh pr create --base main`, 'other-pr', 'https://github.com/owner/curation/pull/95');
+    await app.emit('tool_call', otherPr);
+    await app.emit('tool_result', otherPr);
+    await app.emit('agent_end');
+    appendRoundResults(input, lanes, 'owned');
+    await app.emit('agent_settled');
+    expect(readCompletion(input.identity, { root: join(input.home, '.codeflare/review-state/v1') }).status).toBe('complete');
+    await app.emit('agent_end');
+    expect(app.sent.map(message => message.customType)).toEqual(['pr-boundary-launch-plan', 'pr-boundary-fix-follow-up']);
+    expect(app.markerAtFix).toEqual(['complete']);
+  });
+
+  it.each([false, true])('REQ-AGENT-244: offers FIX on the next native turn without waiting for settlement (prior continuation=%s)', async priorContinuation => {
+    const input = fixture();
+    const app = await harness(input, [], {}, async () => 'local');
+    await app.emit('tool_result', boundary('git push origin feature', 'timing-push'));
+    await app.emit('agent_end');
+    const lanes = app.sent[0]!.details?.requiredLanes as ReviewLane[];
+    const entries = priorContinuation ? [{ type: 'custom_message', customType: 'todo-loop-continuation', content: 'Continue open work.', display: false }] : [];
+    const boundaryEvent = { outcome: 'completed', toolResults: [], entries, continue: priorContinuation,
+      context: { canContinue: priorContinuation } };
+    appendRoundLaunches(input, lanes, 'timing');
+    expect(await app.emit('turn_end', boundaryEvent)).toBeUndefined();
+    appendRoundResults(input, lanes, 'timing');
+    const next = await app.emit('turn_end', boundaryEvent);
+    expect(readCompletion(input.identity).status).toBe('complete');
+    expect(next).toEqual({ continue: true, entries: [...entries,
+      expect.objectContaining({ type: 'custom_message', customType: 'pr-boundary-fix-follow-up',
+        details: expect.objectContaining({ head: input.head }) })] });
+    expect(await app.emit('turn_end', boundaryEvent)).toBeUndefined();
+    await app.emit('agent_end');
+    await app.emit('agent_settled');
+    expect(app.sent.map(message => message.customType)).toEqual(['pr-boundary-launch-plan']);
+  });
+
   it('keeps a fully terminal round until canonical triage arrives', async () => {
     const input = fixture();
     const app = await harness(input, []);
@@ -1115,6 +1213,59 @@ describe('Pi marker-or-dialog review ingress', () => {
     append(input.sessionFile, triage());
     await app.emit('agent_settled');
     expect(app.sent.some((message) => message.customType === 'pr-boundary-fix-follow-up')).toBe(true);
+  });
+
+  it('REQ-AGENT-053 AC2: recovers an exact reviewer completion without its notification', async () => {
+    const input = fixture();
+    const app = await harness(input, []);
+    await app.emit('tool_result', boundary('git push origin feature', 'push-lost-notification'));
+    await app.emit('agent_end');
+    const lanes = app.sent[0]!.details?.requiredLanes as ReviewLane[];
+    const lane = lanes[0]!;
+    const others = lanes.slice(1);
+    const agentId = 'reviewer-without-notification';
+    const record = (id: string, type: ReviewLane, status = 'completed') => ({
+      type: 'custom', customType: 'subagents:record', data: { id, type, status, startedAt: 1, completedAt: 2 },
+    });
+    const abandoned = { ...record(agentId, lane), id: 'abandoned-branch-entry' };
+    append(input.sessionFile,
+      ...others.flatMap(type => [
+        toolCall(type, 'subagent', { subagent_type: type, run_in_background: true, inherit_context: false,
+          prompt: reviewerPrompt(input.head, type) }),
+        toolResult(type, 'subagent'), notification(type),
+      ]),
+      toolCall('older-review', 'subagent', { subagent_type: lane, run_in_background: true, inherit_context: false,
+        prompt: reviewerPrompt(input.base, lane) }),
+      toolResult('older-review', 'subagent', { agentId: 'earlier-head', subagentType: lane }),
+      toolCall('current-review', 'subagent', { subagent_type: lane, run_in_background: true, inherit_context: false,
+        prompt: reviewerPrompt(input.head, lane) }),
+      toolResult('current-review', 'subagent', { agentId, subagentType: lane }),
+      toolCall('current-ci', 'subagent', { subagent_type: 'ci-monitor', run_in_background: true, inherit_context: false,
+        prompt: JSON.stringify({ repo: 'owner/repo', pr: 42, head: input.head, cwd: input.repo }) }),
+      toolResult('current-ci', 'subagent'),
+      notification('current-ci', `<result>CI_RESULT success\npr=42 head=${input.head} repo=owner/repo</result>`),
+      record('earlier-head', lane), record(agentId, lane === 'doc-updater' ? 'code-reviewer' : 'doc-updater'),
+      record(agentId, lane, 'stopped'), abandoned, triage(),
+    );
+    const completion = () => readCompletion(input.identity, { root: join(input.home, '.codeflare/review-state/v1') }).status;
+    const expectNoFix = async () => {
+      await app.emit('agent_settled');
+      expect(completion()).not.toBe('complete');
+      expect(app.sent.some(message => message.customType === 'pr-boundary-fix-follow-up')).toBe(false);
+    };
+    await expectNoFix(); // Full history alone cannot establish branch membership.
+    app.ctx.sessionManager.getBranch = () => app.ctx.sessionManager.getEntries().filter(entry => entry.id !== abandoned.id);
+    await expectNoFix(); // A matching completion on another branch cannot authorize FIX.
+
+    append(input.sessionFile, record(agentId, lane));
+    await app.emit('agent_settled');
+    expect(completion()).not.toBe('complete');
+    expect(app.sent.at(-1)?.customType).toBe('pr-boundary-triage-correction');
+
+    append(input.sessionFile, triage());
+    await app.emit('agent_settled');
+    expect(completion()).toBe('complete');
+    expect(app.sent.at(-1)?.customType).toBe('pr-boundary-fix-follow-up');
   });
 
   it('reports malformed reviewer and CI launches once, then accepts corrected launches', async () => {
@@ -1291,54 +1442,12 @@ describe('Pi marker-or-dialog review ingress', () => {
     ]);
   });
 
-  it.each(['active', 'paused', 'blocked', 'complete'] as const)(
-    'REQ-AGENT-112/113: preserves %s Goal state through review and FIX', async (status) => {
-      const input = fixture();
-      const goal = { id: 'goal-1', status };
-      append(input.sessionFile, { type: 'custom', customType: 'goal-state', data: { goal } });
-      const currentGoal = () => readFileSync(input.sessionFile, 'utf8').split('\n').filter(Boolean)
-        .map((line) => JSON.parse(line)).filter((entry) => entry.customType === 'goal-state').at(-1)?.data.goal;
-      const app = await harness(input, []);
-      await app.emit('tool_result', boundary('git push origin feature', 'push-goal'));
-      await app.emit('agent_end');
-      expect(currentGoal()).toEqual(goal);
-
-      appendSuccessfulRound(input, app.sent[0]!.details?.requiredLanes as ReviewLane[], 'goal');
-      await app.emit('agent_end');
-
-      expect(currentGoal()).toEqual(goal);
-      expect(app.sent.map((message) => message.customType)).toEqual([
-        'pr-boundary-launch-plan',
-        'pr-boundary-fix-follow-up',
-      ]);
-      expect(readCompletion(input.identity, { root: join(input.home, '.codeflare/review-state/v1') }).status).toBe('complete');
-    },
-  );
-
-  it.each(['active', 'paused'] as const)(
-    'REQ-AGENT-117: leaves %s Goal untouched when restoring legacy review pause data', async (status) => {
-      const input = fixture();
-      const goal = { id: 'goal-legacy', status };
-      append(input.sessionFile,
-        { type: 'custom', customType: 'goal-state', data: { goal } },
-        { type: 'custom', customType: 'pr-boundary-goal-pause', data: { head: input.head, goalId: goal.id } },
-      );
-      const app = await harness(input, []);
-      await app.emit('session_start');
-      await app.emit('agent_end');
-      const restoredGoal = readFileSync(input.sessionFile, 'utf8').split('\n').filter(Boolean)
-        .map((line) => JSON.parse(line)).filter((entry) => entry.customType === 'goal-state').at(-1)?.data.goal;
-      expect(restoredGoal).toEqual(goal);
-      expect(app.sent).toEqual([]);
-    },
-  );
-
-  it('REQ-AGENT-112/113: delivers review and FIX without Goal installed', async () => {
+  it('delivers review and FIX through native completion', async () => {
     const input = fixture();
-    const app = await harness(input, [], { goalControlAvailable: false });
-    await app.emit('tool_result', boundary('git push origin feature', 'push-no-goal'));
+    const app = await harness(input, []);
+    await app.emit('tool_result', boundary('git push origin feature', 'push-completion'));
     await app.emit('agent_end');
-    appendSuccessfulRound(input, app.sent[0]!.details?.requiredLanes as ReviewLane[], 'no-goal');
+    appendSuccessfulRound(input, app.sent[0]!.details?.requiredLanes as ReviewLane[], 'completion');
     await app.emit('agent_end');
     expect(app.sent.map((message) => message.customType)).toEqual([
       'pr-boundary-launch-plan',
@@ -1346,29 +1455,6 @@ describe('Pi marker-or-dialog review ingress', () => {
     ]);
     expect(readCompletion(input.identity, { root: join(input.home, '.codeflare/review-state/v1') }).status).toBe('complete');
   });
-
-  it.each(['fix', 'abandon', 'close'] as const)(
-    'REQ-AGENT-113: preserves a user-paused Goal during review %s cleanup', async (ending) => {
-      const input = fixture();
-      const goal = { id: 'goal-user', status: 'active' };
-      append(input.sessionFile, { type: 'custom', customType: 'goal-state', data: { goal } });
-      const app = await harness(input, []);
-      await app.emit('tool_result', boundary('git push origin feature', 'push-user-goal'));
-      await app.emit('agent_end');
-      const paused = { ...goal, status: 'paused' };
-      append(input.sessionFile, { type: 'custom', customType: 'goal-state', data: { goal: paused } });
-      if (ending === 'fix') {
-        appendSuccessfulRound(input, app.sent[0]!.details?.requiredLanes as ReviewLane[], 'user-paused');
-      } else if (ending === 'close') {
-        input.pr.state = 'CLOSED';
-      }
-      await app.emit('agent_end');
-      const actualGoal = readFileSync(input.sessionFile, 'utf8').split('\n').filter(Boolean)
-        .map((line) => JSON.parse(line)).filter((entry) => entry.customType === 'goal-state').at(-1)?.data.goal;
-      expect(actualGoal).toEqual(paused);
-      if (ending === 'fix') expect(app.sent.at(-1)?.customType).toBe('pr-boundary-fix-follow-up');
-    },
-  );
 
   it('clears stopped work without a recovery message or marker', async () => {
     const input = fixture();

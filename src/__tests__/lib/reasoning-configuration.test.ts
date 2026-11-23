@@ -194,6 +194,24 @@ describe('REQ-ENTERPRISE-031 atomic reasoning configuration', () => {
       .toThrow(/referenced/i);
   });
 
+  it.each(['route', 'leg'] as const)('REQ-ENTERPRISE-031 AC3: refuses disabling the exact revision referenced by a %s', async (reference) => {
+    const { parseReasoningConfiguration, validateReasoningConfigurationUpdate } = await subject();
+    const revision = customRevision();
+    const profileRef = { id: revision.id, revision: revision.revision, hash: revision.hash };
+    const assignment = reference === 'route' ? { activeProfile: profileRef } : {
+      activeProfile: getBuiltInProfileRef('workers-ai-glm-thinking'),
+      legs: [{ nodeId: 'primary', provider: 'custom', declaredModel: 'alias', profileRef }],
+    };
+    const current = { ...empty, customProfileRevisions: [revision], routeAssignments: { route: assignment } };
+    expect(parseReasoningConfiguration(current)).toEqual(current);
+    expect(validateReasoningConfigurationUpdate(current, current)).toEqual(current);
+    const disabled = customRevision({ enabled: false });
+    expect(() => validateReasoningConfigurationUpdate(current, { ...current, customProfileRevisions: [disabled] }))
+      .toThrow(/referenced and cannot be disabled/i);
+    expect(current.customProfileRevisions[0].enabled).toBe(true);
+    expect(current.routeAssignments.route).toEqual(assignment);
+  });
+
   it('REQ-ENTERPRISE-031 AC3: rejects an in-place mutation of an existing custom revision', async () => {
     const { validateReasoningConfigurationUpdate } = await subject();
     const currentRevision = customRevision();

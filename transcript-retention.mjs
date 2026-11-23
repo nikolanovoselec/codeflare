@@ -9,6 +9,7 @@ import {
   openSync,
   readSync,
   readdirSync,
+  realpathSync,
   unlinkSync,
 } from 'node:fs';
 import { basename, resolve, sep } from 'node:path';
@@ -226,6 +227,17 @@ function main() {
   if (!rootArgument) throw new Error('transcript root is required');
 
   const root = resolve(rootArgument);
+  // A directory under a symlinked ancestor is still a directory to lstat().
+  // Skip redirected stores before either pruning or removing conflict copies.
+  try {
+    if (realpathSync(root) !== root) {
+      process.stderr.write(`[transcript-cleanup] agent=${agent} skipped redirected store\n`);
+      return;
+    }
+  } catch (error) {
+    if (error?.code === 'ENOENT') return;
+    throw error;
+  }
   const excluded = agent === 'claude'
     ? new Set(['subagents', 'tool-results', 'workflows'])
     : new Set(['tasks']);

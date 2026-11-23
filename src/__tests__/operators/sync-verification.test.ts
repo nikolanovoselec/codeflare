@@ -67,6 +67,13 @@ describe('REQ-OPERATOR-024: independently verified sync bytes', () => {
     await expect(verifyOperatorSync(f.expected, f.read)).rejects.toBeInstanceOf(ValidationError);
   });
 
+  it('REQ-OPERATOR-024 AC5: a current uploader timestamp cannot replace a file manifest', async () => {
+    const f = await fixture({ files: undefined, uploadedAt: new Date().toISOString() });
+    // Even the correct hash for this stored document cannot turn a timestamp into durability evidence.
+    await expect(verifyOperatorSync(f.expected, f.read)).rejects.toBeInstanceOf(ValidationError);
+    expect(f.reads).toEqual([`${f.expected.prefix}manifest.json`]);
+  });
+
   it.each(['manifest.json', 'result.txt'])('rejects changed stored %s bytes', async path => {
     const f = await fixture();
     f.objects.set(`${path === 'manifest.json' ? f.expected.prefix : f.expected.filePrefix}${path}`,

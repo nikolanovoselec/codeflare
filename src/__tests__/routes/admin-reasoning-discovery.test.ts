@@ -192,6 +192,27 @@ describe('REQ-ENTERPRISE-035 actionable route discovery', () => {
     expect(JSON.stringify(body)).not.toContain('private truncated thinking');
   });
 
+  it('REQ-ENTERPRISE-035 AC4: continues past HTTP-200 non-SSE candidates to a compatible mapping', async () => {
+    const { app } = appWithProfiles();
+    const nonSseBody = '<html>private non-SSE response</html>';
+    const { parsePiSseText } = await import('../../lib/reasoning-discovery');
+    expect(await parsePiSseText(nonSseBody)).toMatchObject({ eventCount: 0, malformedEvents: 0, content: '', toolCalls: [] });
+    provider((body) => body.chat_template_kwargs?.clear_thinking === false
+      ? lifecycle(body)
+      : new Response(nonSseBody, { status: 200, headers: { 'content-type': 'text/html' } }));
+
+    const body = await discover(app);
+    const kimi = getBuiltInProfile('workers-ai-kimi-k-thinking')!;
+    expect(body).toMatchObject({ outcome: 'existing-profile', assignable: true });
+    expect(body.matchedProfiles).toContainEqual({ name: kimi.name,
+      profileRef: { id: kimi.id, revision: kimi.revision, hash: kimi.hash }, supportedLevels: kimi.supportedLevels });
+    expect(body.candidateResults[0]).toMatchObject({ assignable: false, verifiedLevels: [] });
+    expect(body.candidateResults).toContainEqual(expect.objectContaining({ profileId: kimi.id, assignable: true }));
+    expect(body.diagnostics.some((diagnostic: any) => diagnostic.code === 'malformed_response')).toBe(false);
+    expect(body).not.toHaveProperty('profileDraft');
+    expect(JSON.stringify(body)).not.toContain('private non-SSE response');
+  });
+
   it.each([401, 403, 429, 500, 503])('stops the whole candidate scan after HTTP %s', async (status) => {
     const { app } = appWithProfiles();
     const fetcher = provider(() => Response.json({ errors: [{ message: 'private provider error' }] }, { status }));

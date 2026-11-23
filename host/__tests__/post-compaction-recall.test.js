@@ -7,7 +7,7 @@
 //   AC5: the cap is visible as a truncation marker that keeps the source path
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync, existsSync, utimesSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync, existsSync, utimesSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
@@ -46,7 +46,7 @@ function seed(dir, files) {
   }
 }
 
-function runHook({ sessionsDir, source = 'compact', count, perFileBytes, sessionId = 's1' }) {
+function runHook({ sessionsDir, source = 'compact', count, perFileBytes, sessionId = 's1', env = {} }) {
   const result = spawnSync('bash', [HOOK], {
     encoding: 'utf-8',
     input: JSON.stringify({ hook_event_name: 'SessionStart', session_id: sessionId, source }),
@@ -55,6 +55,7 @@ function runHook({ sessionsDir, source = 'compact', count, perFileBytes, session
       POST_COMPACT_SESSIONS_DIR: sessionsDir,
       ...(count ? { POST_COMPACT_EXTRACT_COUNT: String(count) } : {}),
       ...(perFileBytes ? { POST_COMPACT_PER_FILE_BYTES: String(perFileBytes) } : {}),
+      ...env,
     },
   });
   const stdout = result.stdout.trim();
@@ -66,6 +67,75 @@ function runHook({ sessionsDir, source = 'compact', count, perFileBytes, session
     json,
     context: json?.hookSpecificOutput?.additionalContext ?? '',
   };
+}
+
+// Interpose only the production Python descriptor boundary, delegating allowed
+// reads to real files. Persist violations because the hook intentionally swallows
+// I/O errors; successful fallback output alone must not hide an over-budget read.
+function guardedRecall(options, bodyCandidates) {
+  const guardDir = mkdtempSync(join(tmpdir(), 'recall-io-guard-'));
+  const log = join(guardDir, 'reads.jsonl');
+  writeFileSync(log, '');
+  writeFileSync(join(guardDir, 'sitecustomize.py'), `
+import json, os
+real_open, real_fdopen = os.open, os.fdopen
+paths, used = {}, {}
+allowed = set(json.loads(os.environ['RECALL_BODY_CANDIDATES']))
+root = os.environ['POST_COMPACT_SESSIONS_DIR'] + os.sep
+
+def record(event):
+    with open(os.environ['RECALL_IO_LOG'], 'a') as output:
+        output.write(json.dumps(event) + '\\n')
+
+class Guard:
+    def __init__(self, file, path):
+        self.file, self.path, self.body = file, path, False
+    def __enter__(self):
+        self.file.__enter__()
+        return self
+    def __exit__(self, *args):
+        return self.file.__exit__(*args)
+    def __getattr__(self, name):
+        return getattr(self.file, name)
+    def seek(self, *args):
+        self.body = True
+        return self.file.seek(*args)
+    def read(self, size=-1):
+        phase = 'body' if self.body else 'metadata'
+        if ((self.body and self.path not in allowed)
+                or (not self.body and (size < 0 or used.get(self.path, 0) + size > 2048))):
+            record(dict(path=self.path, phase=phase, violation=True))
+            raise OSError('recall read budget exceeded')
+        data = self.file.read(size)
+        if not self.body:
+            used[self.path] = used.get(self.path, 0) + len(data)
+        record(dict(path=self.path, phase=phase, bytes=len(data)))
+        return data
+
+def tracked_open(path, *args, **kwargs):
+    fd = real_open(path, *args, **kwargs)
+    if isinstance(path, str) and path.startswith(root):
+        paths[fd] = path
+    return fd
+
+def guarded_fdopen(fd, *args, **kwargs):
+    file = real_fdopen(fd, *args, **kwargs)
+    path = paths.pop(fd, None)
+    return Guard(file, path) if path else file
+
+os.open, os.fdopen = tracked_open, guarded_fdopen
+`);
+  try {
+    const result = runHook({ ...options, env: {
+      PYTHONPATH: guardDir,
+      RECALL_IO_LOG: log,
+      RECALL_BODY_CANDIDATES: JSON.stringify(bodyCandidates),
+    } });
+    const reads = readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
+    return { ...result, reads };
+  } finally {
+    rmSync(guardDir, { recursive: true, force: true });
+  }
 }
 
 describe('post-compaction-recall.sh (REQ-MEM-019)', () => {
@@ -92,6 +162,64 @@ describe('post-compaction-recall.sh (REQ-MEM-019)', () => {
     assert.ok(context.includes('global newest'));
     assert.ok(context.includes('global middle'));
     assert.ok(!context.includes('redirected identity'));
+  });
+
+  for (const kind of ['symlink', 'FIFO']) {
+    it(`REQ-MEM-027 AC5: rejected ${kind} occupies the global window and displaces older fallback`, () => {
+      const dir = join(baseTmp, `window-${kind}`);
+      const newest = '2026-07-03T10-00-00+0200-newest.md';
+      const older = '2026-07-02T10-00-00+0200-older.md';
+      seed(dir, {
+        [newest]: extract('remaining fallback', { sessionId: 'other' }),
+        [older]: extract('displaced fallback', { sessionId: 'other' }),
+        'target.txt': extract('unsafe redirected body', { sessionId: 'active' }),
+      });
+      const rejected = join(dir, '2026-07-04T10-00-00+0200-rejected.md');
+      if (kind === 'symlink') symlinkSync(join(dir, 'target.txt'), rejected);
+      else assert.equal(spawnSync('mkfifo', [rejected]).status, 0);
+
+      const { status, context } = runHook({ sessionsDir: dir, count: 2, sessionId: 'active' });
+
+      assert.equal(status, 0);
+      assert.ok(context.includes('the 1 most recent session extracts'));
+      assert.deepEqual(context.split('\n').filter(line => line.startsWith('Source: ')), [`Source: ${join(dir, newest)}`]);
+      assert.ok(!context.includes('displaced fallback'));
+      assert.ok(!context.includes('unsafe redirected body'));
+    });
+  }
+
+  it('REQ-MEM-027 AC4/AC7: reads at most 2048 metadata bytes per note and no noncandidate bodies', () => {
+    const dir = join(baseTmp, 'guarded-reads');
+    const global = '2026-07-03T10-00-00+0200-global.md';
+    const excluded = '2026-07-02T10-00-00+0200-excluded.md';
+    const match = '2026-07-01T10-00-00+0200-match.md';
+    const longExtract = (title, sessionId) => `---\nsession_id: ${sessionId}\n---\n# ${title}\n\n## Observations\n${'x'.repeat(4096)}\n\n## Context\n${title} body beyond metadata\n`;
+    seed(dir, {
+      [global]: longExtract('global candidate', 'other'),
+      [excluded]: longExtract('noncandidate', 'other'),
+      [match]: longExtract('active candidate', 'active'),
+    });
+
+    const { status, context, reads } = guardedRecall(
+      { sessionsDir: dir, count: 1, sessionId: 'active' },
+      [join(dir, global), join(dir, match)],
+    );
+
+    assert.equal(status, 0);
+    assert.deepEqual(reads.filter(read => read.violation), []);
+    for (const name of [global, excluded, match]) {
+      const metadata = reads.filter(read => read.path === join(dir, name) && read.phase === 'metadata');
+      const bytes = metadata.reduce((total, read) => total + read.bytes, 0);
+      assert.ok(bytes > 0 && bytes <= 2048, `${name}: ${bytes} metadata bytes`);
+    }
+    const bodyReads = reads.filter(read => read.phase === 'body');
+    assert.deepEqual([...new Set(bodyReads.map(read => read.path))].sort(),
+      [join(dir, global), join(dir, match)].sort());
+    for (const name of [global, match]) {
+      assert.ok(bodyReads.filter(read => read.path === join(dir, name)).reduce((bytes, read) => bytes + read.bytes, 0) > 2048);
+    }
+    assert.ok(context.includes('active candidate body beyond metadata'));
+    assert.deepEqual(context.split('\n').filter(line => line.startsWith('Source: ')), [`Source: ${join(dir, match)}`]);
   });
 
   it('AC1: injects the N most recent extracts newest-first as SessionStart context', () => {
@@ -324,17 +452,21 @@ describe('post-compaction-recall.sh (REQ-MEM-019)', () => {
   });
 
   it('AC5: marks the truncation and keeps the source path', () => {
-    const dir = join(baseTmp, 'ac5');
+    const dir = join(baseTmp, 'ac5-会话-é');
     const name = '2026-07-03T10-00-00+0200-ddd.md';
     seed(dir, {
-      [name]: extract('capped session', { decisions: `- ${'y'.repeat(4000)}` }),
+      [name]: extract('capped session', { decisions: `- ${'界'.repeat(4000)}\nDROPPED-TAIL` }),
     });
 
     const { context } = runHook({ sessionsDir: dir, perFileBytes: 500 });
 
-    assert.ok(context.includes('truncated'));
-    // The path is what makes the dropped content recoverable.
-    assert.ok(context.includes(join(dir, name)));
+    const block = context.match(/### [\s\S]*?(?=\n\nFull extracts live in)/)?.[0] ?? '';
+    assert.ok(block.includes('... (truncated - read the file for the rest)'));
+    assert.deepEqual(block.split('\n').filter(line => line.startsWith('Source: ')), [`Source: ${join(dir, name)}`]);
+    assert.ok(block.includes('界'));
+    assert.ok(!block.includes('DROPPED-TAIL'));
+    assert.ok(!block.includes('�'));
+    assert.ok(Buffer.byteLength(block, 'utf8') <= 500);
   });
 
   it('counts blocks actually emitted, not files selected', () => {

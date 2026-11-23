@@ -655,6 +655,7 @@ function reviewWindow(entry: Record<string, any>): ReviewWindow | undefined {
 export function reviewTranscriptFacts(input: {
   sessionFile: string;
   entries?: Record<string, any>[];
+  activeBranchKnown?: boolean;
   requiredLanes: ReviewLane[];
   ci?: { repository: string; repo: string; prNumber: number; head: string };
   reviewHead?: string;
@@ -836,13 +837,16 @@ export function reviewTranscriptFacts(input: {
       const publicTerminal = launchedAgent && completedAgents.get(launchedAgent)?.lane === lane
         ? completedAgents.get(launchedAgent)
         : undefined;
-      const nativeIndex = nativeTerminal?.index;
-      const publicIndex = publicTerminal?.index;
-      const terminalIndex = nativeIndex === undefined
-        ? publicIndex ?? -1
-        : publicIndex === undefined ? nativeIndex : Math.min(nativeIndex, publicIndex);
+      // The subagent runtime persists completion even when no notification arrives.
+      // Credit only the agent ID issued by this exact successful public launch.
+      const recordedIndex = input.activeBranchKnown && input.entries && launchedAgent ? later.findIndex((entry, index) => index > entryIndex
+        && entry.type === "custom" && entry.customType === "subagents:record"
+        && entry.data?.id === launchedAgent && entry.data.type === lane
+        && entry.data.status === "completed" && Number.isFinite(entry.data.completedAt)) : -1;
+      const terminalIndex = Math.min(nativeTerminal?.index ?? Infinity, publicTerminal?.index ?? Infinity,
+        recordedIndex >= 0 ? recordedIndex : Infinity);
       const failed = notifications.some((candidate) => candidate.value?.succeeded === false);
-      if (terminalIndex >= 0) {
+      if (Number.isFinite(terminalIndex)) {
         lanes[lane] = { state: "terminal", toolUseId: call.id };
         const previousTerminal = terminalIndexes.get(lane);
         terminalIndexes.set(lane, previousTerminal === undefined

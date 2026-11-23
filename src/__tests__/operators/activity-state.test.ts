@@ -10,7 +10,11 @@ import { OperatorRegistry } from '../../operators/registry';
 import { OperatorActivity, createOperatorIntentDigest } from '../../operators/activity';
 import { operatorOwnerKey } from '../../operators/browser-activity';
 import { createOperatorExecutionContext } from '../../operators/execution-context';
-import type { VerifiedHumanAccessClaims } from '../../lib/jwt';
+import { resetJWKSCache, verifyHumanAccessJWT, type VerifiedHumanAccessClaims } from '../../lib/jwt';
+import { verifyOperatorSync } from '../../operators/sync-verification';
+import { OwnedOperatorSessionService } from '../../operators/owned-session';
+import { ContainerOwnedSessionRuntime, type OperatorContainerStub } from '../../operators/owned-session-runtime';
+import { operatorActivitySessionStore, type OperatorActivityStub } from '../../operators/owned-session-production';
 
 // Native SQLite Activity storage/context supplies instrumented state coverage.
 // The separate Wrangler fixture remains the authority for cross-DO RPC and eviction.
@@ -126,6 +130,136 @@ async function withNativeConductor(test: (activity: OperatorActivity, ctx: Durab
     await test(activity, ctx, securedEnv);
   }, false, false);
 }
+
+describe('REQ-OPERATOR-024 AC6: per-operation receipts remain independent of cleanup', () => {
+  describe.each(['stopped', 'unknown', 'failed'] as const)('controlled stop outcome %s', cleanup => {
+    it.each(['absent', 'prepared', 'uploaded-only', 'missing-manifest', 'missing-file',
+      'read-failed', 'corrupt-file', 'verified'] as const)(
+      'retains exact %s evidence without borrowing a verified sibling receipt', fault =>
+        withNativeConductor(async (activity, ctx, activityEnv) => {
+          const fixture = ownedSessionFixture();
+          // This matrix reaches getContainerId, which requires 8–24 lowercase alphanumeric characters.
+          const sessionId = 'session1';
+          const session = { ...fixture, sessionId, profile: { ...fixture.profile, sessionId } };
+          const context = (await activity.getExecutionContext())!;
+          const deadline = (await activity.getRuntimePlan())!.deadline;
+          const encode = (value: unknown) => new TextEncoder().encode(JSON.stringify(value));
+          const hash = async (bytes: Uint8Array) => Array.from(new Uint8Array(
+            await crypto.subtle.digest('SHA-256', Uint8Array.from(bytes)))).map(byte => byte.toString(16).padStart(2, '0')).join('');
+          const objects = new Map<string, Uint8Array>();
+          const read = async (key: string, maxBytes: number) => {
+            if (fault === 'read-failed' && key === 'Operators/target.txt') throw new Error('Storage unavailable');
+            const bytes = objects.get(key);
+            if (bytes && bytes.byteLength > maxBytes) throw new Error('Read exceeds bound');
+            return bytes ?? null;
+          };
+          const operation = async (operationId: string) => {
+            const content = new TextEncoder().encode(`${operationId} durable bytes`);
+            const path = `${operationId}.txt`;
+            const requestDigest = await hash(encode({ operationId, path }));
+            const scope = { operationId, activityId: 'activity', sessionId: session.sessionId, requestDigest,
+              policyDigest: context.policyDigest, prefix: `.codeflare/operators/activity/${operationId}/`,
+              filePrefix: 'Operators/', deadline };
+            const manifest = encode({ schemaVersion: 1, activityId: scope.activityId, sessionId: scope.sessionId,
+              operationId, requestDigest, policyDigest: scope.policyDigest,
+              files: [{ path, size: content.byteLength, sha256: await hash(content) }] });
+            const expected = { ...scope, manifestDigest: await hash(manifest) };
+            objects.set(`${scope.prefix}manifest.json`, manifest);
+            objects.set(`Operators/${path}`, content);
+            const keys = [`Operators/${path}`];
+            const preparation = { operationId, sessionId: scope.sessionId, requestDigest,
+              policyDigest: scope.policyDigest, prefix: scope.prefix, keys, deadline };
+            return { expected, preparation, keys, content };
+          };
+          const sibling = await operation('sibling');
+          expect(await activity.prepareSync(sibling.preparation)).toEqual({ ok: true, phase: 'prepared' });
+          expect(await activity.recordSyncUploaded('sibling', sibling.expected.manifestDigest))
+            .toEqual({ ok: true, phase: 'uploaded' });
+          const siblingEvidence = await verifyOperatorSync(sibling.expected, read);
+          expect(await activity.recordSyncVerified('sibling', siblingEvidence)).toEqual({ ok: true, phase: 'verified' });
+
+          const target = await operation('target');
+          if (fault !== 'absent') {
+            expect(await activity.prepareSync(target.preparation)).toEqual({ ok: true, phase: 'prepared' });
+            if (fault !== 'prepared') {
+              expect(await activity.recordSyncUploaded('target', target.expected.manifestDigest))
+                .toEqual({ ok: true, phase: 'uploaded' });
+            }
+          }
+          // A real receipt for another operation cannot fill the missing/uncertain one.
+          expect(await activity.recordSyncVerified('target', siblingEvidence)).toEqual({ ok: false,
+            reason: fault === 'absent' ? 'not-prepared' : 'evidence-mismatch' });
+          if (fault === 'missing-manifest') objects.delete(`${target.expected.prefix}manifest.json`);
+          if (fault === 'missing-file') objects.delete(target.keys[0]);
+          if (fault === 'corrupt-file') {
+            const corrupt = target.content.slice();
+            corrupt[0] ^= 1; // Same size: only the independent hash check detects this corruption.
+            objects.set(target.keys[0], corrupt);
+          }
+          if (fault === 'verified') {
+            const evidence = await verifyOperatorSync(target.expected, read);
+            expect(evidence).toEqual({ manifestDigest: target.expected.manifestDigest,
+              filesVerified: 1, bytesVerified: target.content.byteLength });
+            expect(await activity.recordSyncVerified('target', evidence)).toEqual({ ok: true, phase: 'verified' });
+          } else if (!['absent', 'prepared', 'uploaded-only'].includes(fault)) {
+            await expect(verifyOperatorSync(target.expected, read)).rejects.toThrow('Operator sync evidence verification failed');
+          }
+          const before = await activity.getSync('target');
+          if (fault === 'absent') expect(before).toBeNull();
+          else expect(before).toEqual({ operationId: 'target', sessionId: session.sessionId,
+            requestDigest: target.expected.requestDigest, policyDigest: context.policyDigest,
+            prefix: target.expected.prefix, keys: target.keys, deadline,
+            phase: fault === 'verified' ? 'verified' : fault === 'prepared' ? 'prepared' : 'uploaded',
+            manifestDigest: fault === 'prepared' ? null : target.expected.manifestDigest,
+            evidence: fault === 'verified' ? { filesVerified: 1, bytesVerified: target.content.byteLength } : null });
+          const siblingBefore = await activity.getSync('sibling');
+          expect(siblingBefore).toMatchObject({ operationId: 'sibling', phase: 'verified',
+            manifestDigest: sibling.expected.manifestDigest,
+            evidence: { filesVerified: 1, bytesVerified: sibling.content.byteLength } });
+
+          expect(await activity.saveOwnedSession(session)).toEqual({ ok: true });
+          for (const status of ['configuring', 'configured', 'starting', 'ready'] as const) {
+            expect(await activity.saveOwnedSession({ ...session, status })).toEqual({ ok: true });
+          }
+          // Only the external stop RPC is controlled. The actual runtime, service, store adapter
+          // and Activity persist the outcome; none of this asserts physical destruction.
+          let enterStop!: () => void;
+          let releaseStop!: () => void;
+          const stopEntered = new Promise<void>(resolve => { enterStop = resolve; });
+          const stopReleased = new Promise<void>(resolve => { releaseStop = resolve; });
+          const runtime = new ContainerOwnedSessionRuntime({ activityId: session.activityId,
+            ownerBucket: session.ownerBucket, sessionId: session.sessionId, userEmail: session.profile.human.email,
+            userGroups: [], routes: { routeCatalog: [], defaultRoute: '', defaultReasoning: '',
+              routeContextWindows: {}, routeReasoningLevels: {}, modelDisplayNames: {} },
+            bootstrap: { r2AccessKeyId: 'fixture', r2SecretAccessKey: 'fixture', r2AccountId: 'fixture',
+              r2Endpoint: 'https://r2.example.test', workspaceSyncEnabled: false, fastStartEnabled: true,
+              sessionMode: 'advanced', sessionWorkspace: 'terminal', terminalMode: 'classic', managedResourcePolicy: 'exclusive' },
+            resolve: () => ({ stopOperatorSession: async (activityId: string, sessionId: string) => {
+              if (activityId !== session.activityId || sessionId !== session.sessionId) throw new Error('Wrong owner');
+              enterStop();
+              await stopReleased;
+              if (cleanup === 'failed') throw new Error('Stop RPC failed');
+              return cleanup;
+            } } as OperatorContainerStub) });
+          const service = new OwnedOperatorSessionService(operatorActivitySessionStore(activity as unknown as OperatorActivityStub), runtime);
+          const status = cleanup === 'stopped' ? 'stopped' : 'unknown';
+          const pendingStop = service.stop({ activityId: session.activityId, ownerBucket: session.ownerBucket, drain: false });
+          try {
+            await Promise.race([stopEntered, pendingStop.then(() => { throw new Error('Stop settled before the RPC barrier'); })]);
+            expect(await activity.getOwnedSession()).toMatchObject({ sessionId: session.sessionId, status: 'stopping' });
+            expect(await activity.getSync('target')).toEqual(before);
+            expect(await activity.getSync('sibling')).toEqual(siblingBefore);
+          } finally { releaseStop(); }
+          expect(await pendingStop).toMatchObject({ activityId: session.activityId, sessionId: session.sessionId, status });
+          const cold = new OperatorActivity(ctx, activityEnv);
+          expect(await cold.getOwnedSession()).toMatchObject({ sessionId: session.sessionId, status });
+          expect(await cold.getSync('target')).toEqual(before);
+          expect(await cold.getSync('sibling')).toEqual(siblingBefore);
+          expect(await cold.authorizeSyncRead(target.keys[0], target.content.byteLength))
+            .toEqual({ ok: fault === 'verified' });
+        }));
+  });
+});
 
 describe('REQ-OPERATOR-007/047: durable Conductor native recovery without logging', () => {
   it.each([{ override: undefined, source: 'inherited' }, { override: 'low' as const, source: 'installation' }])(
@@ -703,11 +837,22 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     });
     const first = await activity.cancelDrive();
     expect(first).toMatchObject({ ok: true, state: { generation: 1, status: 'cancel-requested' } });
+    // Intentional durable proof contract: fencing generation zero, not merely an
+    // absent lease, establishes that this cancellation never acquired runtime.
+    const proof = (await ctx.storage.get<{ diagnosticFence: unknown }>('admission'))!.diagnosticFence;
+    expect(proof).toEqual({ generation: 0, timestamp: expect.any(Number),
+      boundary: 'fence', code: 'cancelled', uncertain: false });
+    const acknowledged = await activity.getBrowserSummary(ownerKey);
+    expect(acknowledged).toMatchObject({ activityId: 'activity', executionStatus: 'cancel-requested',
+      cleanupStatus: 'stopped', collectionStatus: 'unavailable', sessionId: null, source: null });
     expect(await activity.getBrowserDetail()).toMatchObject({ cleanupStatus: 'stopped', checkpoint: null, result: null });
     const cold = new OperatorActivity(ctx, activityEnv);
     expect(await cold.cancelDrive()).toEqual(first);
+    expect(await cold.getBrowserSummary(ownerKey)).toEqual(acknowledged);
+    expect((await ctx.storage.get<{ diagnosticFence: unknown }>('admission'))!.diagnosticFence).toEqual(proof);
     expect(await cold.cancelDrive()).toEqual(first);
-    expect(await cold.getBrowserSummary(ownerKey)).toMatchObject({ cleanupStatus: 'stopped', executionStatus: 'cancel-requested' });
+    expect(await cold.getBrowserSummary(ownerKey)).toEqual(acknowledged);
+    expect((await ctx.storage.get<{ diagnosticFence: unknown }>('admission'))!.diagnosticFence).toEqual(proof);
     expect(await registry.getOwnedActivity(ownerKey, 'activity')).toMatchObject({ cleanupStatus: 'stopped' });
     expect(await cold.getDispatcherDiagnostics(ownerKey)).toMatchObject({
       parent: { driveGeneration: 1, lease: null }, sdk: { status: 'unavailable', reason: 'unbound' },
@@ -715,15 +860,16 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     expect(await cold.beginDrive()).toEqual({ ok: false, reason: 'drive-settled' });
     expect(await cold.start('s'.repeat(43))).toEqual({ ok: false, reason: 'already-started' });
     expect(await cold.commitDrive(1, update)).toEqual({ ok: false, reason: 'stale-drive' });
+    expect((await ctx.storage.get<{ diagnosticFence: unknown }>('admission'))!.diagnosticFence).toEqual(proof);
   }));
 
-  it.each(['begun', 'unknown', 'conductor', 'missing-proof', 'mismatched-proof'] as const)(
+  it.each(['begun', 'unknown', 'conductor', 'resource-profile', 'missing-proof', 'mismatched-proof'] as const)(
     'REQ-OPERATOR-104: absent SDK lease does not prove stopped compute for %s', scenario => withActivity(async ({ activity, ctx, activityEnv }) => {
       const admission = await ctx.storage.get<{ receipt: Record<string, unknown> }>('admission');
       if (!admission) throw new Error('Missing fixture admission');
       await ctx.storage.put('admission', { ...admission, receipt: { ...admission.receipt, selection: {
         operator: { profile: scenario === 'conductor' ? 'conductor' : 'dispatcher', policy: { loggingEnabled: false } },
-        installation: { policy: { resourceProfileId: null } },
+        installation: { policy: { resourceProfileId: scenario === 'resource-profile' ? 'owned-session-profile' : null } },
         release: { bundleDigest: 'a'.repeat(64) }, manifestJson: '{}',
       } } });
       if (scenario === 'begun') await activity.beginDrive();
@@ -850,6 +996,75 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     expect(await secured.start(token)).toMatchObject({ ok: false });
     expect(await secured.startWebhook(token)).toMatchObject({ ok: false });
     expect(await secured.getRuntimePlan()).toBeNull();
+  }, false));
+
+  it('REQ-OPERATOR-003 AC4: shorter reauthentication fences prepared uploads but preserves sealed replies', () => withActivity(async ({ registry, ctx, activityEnv, token }) => {
+    const now = Date.now();
+    const policyJson = JSON.stringify({ schemaVersion: 1, networkHosts: [], github: { repositories: [], methods: [] },
+      storage: { readPrefixes: [], writePrefixes: [] }, inference: { routeIds: [], defaultRouteId: null,
+        reasoningLevels: [], defaultReasoningLevel: null, inheritUserDefaults: false } });
+    await registry.create('operator');
+    await registry.setPolicy('operator', policyJson, 1);
+    await registry.approve('operator', 'a'.repeat(64), 2);
+    await registry.setEnabled('operator', true, 3);
+    const hash = async (text: string) => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',
+      new TextEncoder().encode(text)))).map(byte => byte.toString(16).padStart(2, '0')).join('');
+    const policyDigest = await hash(policyJson);
+    const domain = 'activity-short-reauth.cloudflareaccess.com', issuer = `https://${domain}`;
+    const pair = await crypto.subtle.generateKey({ name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048,
+      publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, ['sign', 'verify']);
+    if (!('privateKey' in pair) || !('publicKey' in pair)) throw new Error('Expected RSA key pair');
+    const jwk = { ...await crypto.subtle.exportKey('jwk', pair.publicKey), kid: 'short-reauth', alg: 'RS256', use: 'sig' };
+    const encode = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const json = (value: unknown) => encode(new TextEncoder().encode(JSON.stringify(value)));
+    const credentials = new Set<string>();
+    // Only external Access transports are fixtures; claims come from the real verifier.
+    const identity = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const request = new Request(input, init);
+      if (request.url === `${issuer}/cdn-cgi/access/certs`) return Response.json({ keys: [jwk] });
+      if (request.url === `${issuer}/cdn-cgi/access/get-identity` && request.redirect === 'manual'
+        && credentials.has(request.headers.get('cookie') ?? '')) {
+        return Response.json({ user_uuid: 'owner', email: 'owner@example.test' });
+      }
+      return new Response(null, { status: 401 });
+    });
+    const credential = async (expiresAt: number) => {
+      const signed = `${json({ alg: 'RS256', kid: jwk.kid })}.${json({ type: 'app', sub: 'owner',
+        email: 'owner@example.test', iss: issuer, aud: ['audience'], iat: Math.floor(now / 1000) - 10, exp: expiresAt })}`;
+      const signature = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', pair.privateKey, new TextEncoder().encode(signed));
+      const accessJwt = `${signed}.${encode(new Uint8Array(signature))}`;
+      const human = await verifyHumanAccessJWT(accessJwt, domain, 'audience');
+      if (!human) throw new Error('Expected verified fixture Access credential');
+      credentials.add(`CF_Authorization=${accessJwt}`);
+      return { human, accessJwt };
+    };
+    const clock = vi.spyOn(Date, 'now');
+    try {
+      const { human, accessJwt } = await credential(Math.floor(now / 1000) + 300);
+      const encryption = { ENCRYPTION_KEY: btoa('a'.repeat(32)) };
+      const context = await createOperatorExecutionContext({ activityId: 'activity', operatorId: 'operator',
+        artifactDigest: 'a'.repeat(64), policyDigest, human, accessJwt }, encryption);
+      const activity = new OperatorActivity(ctx, { ...activityEnv, ...encryption });
+      const intentDigest = await createOperatorIntentDigest('operator', 'activity', 'null');
+      expect(await activity.prepareAuthorized({ operatorId: 'operator', activityId: 'activity', intentDigest,
+        expectedRevision: 4, deadline: human.expiresAt * 1000, startExpiresAt: now + 60_000,
+        startVerifier: await hash(token) }, context)).toMatchObject({ ok: true });
+      expect(await activity.start(token)).toEqual({ ok: true, phase: 'queued' });
+      for (const operationId of ['pending', 'sealed']) {
+        expect(await activity.prepareSync({ operationId, sessionId: 'session-1', requestDigest: 'd'.repeat(64),
+          policyDigest, prefix: `.codeflare/operators/activity/${operationId}/`, keys: ['Operators/result.txt'],
+          deadline: now + 60_000 })).toEqual({ ok: true, phase: 'prepared' });
+      }
+      expect(await activity.authorizeSyncWrite('pending', 'Operators/result.txt')).toEqual({ ok: true });
+      expect(await activity.recordSyncUploaded('sealed', 'e'.repeat(64))).toEqual({ ok: true, phase: 'uploaded' });
+      const { human: shorter, accessJwt: shorterJwt } = await credential(Math.floor(now / 1000) + 15);
+      expect(await activity.reauthenticate(shorter, shorterJwt)).toMatchObject({ expiresAt: shorter.expiresAt });
+      clock.mockReturnValue(shorter.expiresAt * 1000);
+      expect(await activity.authorizeSyncWrite('pending', 'Operators/result.txt')).toEqual({ ok: false, reason: 'authority-expired' });
+      expect(await activity.recordSyncUploaded('pending', 'e'.repeat(64))).toEqual({ ok: false, reason: 'authority-expired' });
+      expect(await activity.getSync('pending')).toMatchObject({ phase: 'prepared' });
+      expect(await activity.recordSyncUploaded('sealed', 'e'.repeat(64))).toEqual({ ok: true, phase: 'uploaded' });
+    } finally { clock.mockRestore(); identity.mockRestore(); resetJWKSCache(); }
   }, false));
 
   it('queues authorized intent only when registry artifact and policy identities match', () => withActivity(async ({ registry, ctx, activityEnv, token }) => {

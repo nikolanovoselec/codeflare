@@ -1,5 +1,6 @@
 import { Component, onMount, onCleanup, createSignal, Show, For, type JSX } from 'solid-js';
-import { markOnboardingComplete, getAuthStatus, getPreferences, updatePreferences } from '../api/client';
+import { markOnboardingComplete, getPreferences, updatePreferences } from '../api/client';
+import { DEFAULT_IDLE_TIMEOUT, IDLE_TIMEOUT_PRESETS } from '../lib/sleep-timer';
 import OAuthConnectCard from './connect/OAuthConnectCard';
 import { createConnections } from '../lib/oauth-connections';
 import { cloudflareRetryMessage, parseCloudflareReturn } from '../lib/cloudflare-oauth-return';
@@ -102,8 +103,7 @@ const OnboardingPage: Component = () => {
   const [cfTier, setCfTier] = createSignal<ScopeTier>('recommended');
 
   // Idle timeout state
-  const [isFreeUser, setIsFreeUser] = createSignal(false);
-  const [sleepAfter, setSleepAfter] = createSignal('30m');
+  const [sleepAfter, setSleepAfter] = createSignal<string>(DEFAULT_IDLE_TIMEOUT);
 
   onMount(async () => {
     // Override global overflow:hidden on html/body so this standalone page can scroll.
@@ -119,18 +119,8 @@ const OnboardingPage: Component = () => {
     });
 
     try {
-      const [auth, prefs] = await Promise.all([
-        getAuthStatus().catch(() => null),
-        getPreferences().catch(() => null),
-        conn.refresh(),
-      ]);
-      const effectiveTier = auth?.subscriptionTier ?? auth?.accessTier;
-      if (effectiveTier === 'free') {
-        setIsFreeUser(true);
-        setSleepAfter('15m');
-      } else if (prefs?.sleepAfter) {
-        setSleepAfter(prefs.sleepAfter);
-      }
+      const [prefs] = await Promise.all([getPreferences().catch(() => null), conn.refresh()]);
+      if (prefs?.sleepAfter) setSleepAfter(prefs.sleepAfter);
     } catch (err) {
       logger.warn('Failed to load onboarding data:', err);
     } finally {
@@ -139,7 +129,7 @@ const OnboardingPage: Component = () => {
   });
 
   const handleSleepAfterChange = (value: string) => {
-    if (value === sleepAfter() || isFreeUser()) return;
+    if (value === sleepAfter()) return;
     const previous = sleepAfter();
     setSleepAfter(value);
     updatePreferences({ sleepAfter: value as import('../types').SleepAfterOption }).catch(() => {
@@ -197,21 +187,19 @@ const OnboardingPage: Component = () => {
                 id="onboarding-sleep-after"
                 class="onboarding-timeout-select"
                 value={sleepAfter()}
-                disabled={isFreeUser()}
                 onChange={(e) => handleSleepAfterChange(e.currentTarget.value)}
                 data-testid="onboarding-timeout-select"
               >
-                <option value="15m">15 minutes</option>
-                <option value="30m">30 minutes</option>
-                <option value="1h">1 hour</option>
-                <option value="2h">2 hours</option>
-                <option value="4h">4 hours</option>
+                <Show when={['5m', '15m', '30m'].includes(sleepAfter())}>
+                  <option value={sleepAfter()} disabled>Current {sleepAfter().replace('m', ' minutes')}</option>
+                </Show>
+                <For each={IDLE_TIMEOUT_PRESETS}>{value => (
+                  <option value={value}>{value === '1h' ? '1 hour' : `${value.slice(0, -1)} hours`}</option>
+                )}</For>
               </select>
             </div>
             <span class="onboarding-section-hint">
-              {isFreeUser()
-                ? 'Fixed at 15 minutes on the Free plan. Upgrade for longer idle timeouts.'
-                : 'You can also change this anytime in Settings.'}
+              You can also change this anytime in Settings.
             </span>
           </div>
 

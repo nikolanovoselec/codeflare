@@ -104,28 +104,16 @@ describe('Storage Stats Routes / REQ-STOR-006 (storage stats endpoint reports by
     });
 
     it('paginates through IsTruncated responses', async () => {
-      // First call: truncated with a continuation token
-      mockParseListObjectsXml
-        .mockReturnValueOnce({
-          objects: [
-            { key: 'folder1/file1.txt', size: 50, lastModified: '2024-01-01T00:00:00Z' },
-          ],
-          prefixes: [],
-          isTruncated: true,
-          nextContinuationToken: 'token-abc',
-        })
-        // Second call: not truncated
-        .mockReturnValueOnce({
-          objects: [
-            { key: 'folder2/file2.txt', size: 75, lastModified: '2024-01-01T00:00:00Z' },
-          ],
-          prefixes: [],
-          isTruncated: false,
-        });
-
-      mockFetch
-        .mockResolvedValueOnce(new Response('<ListBucketResult></ListBucketResult>', { status: 200 }))
-        .mockResolvedValueOnce(new Response('<ListBucketResult></ListBucketResult>', { status: 200 }));
+      const { parseListObjectsXml } = await vi.importActual<typeof import('../../lib/r2-client')>('../../lib/r2-client');
+      mockParseListObjectsXml.mockImplementation(parseListObjectsXml);
+      const page = (key: string, size: number, next?: string) => new Response(
+        `<?xml version="1.0"?><ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">`
+        + `<Name>test-bucket</Name><KeyCount>1</KeyCount><IsTruncated>${Boolean(next)}</IsTruncated>`
+        + (next ? `<NextContinuationToken>${next}</NextContinuationToken>` : '')
+        + `<Contents><Key>${key}</Key><Size>${size}</Size><LastModified>2024-01-01T00:00:00Z</LastModified></Contents></ListBucketResult>`,
+      );
+      mockFetch.mockResolvedValueOnce(page('folder1/file1.txt', 50, 'token-abc'))
+        .mockResolvedValueOnce(page('folder2/file2.txt', 75));
 
       const app = createTestApp();
 
@@ -148,6 +136,39 @@ describe('Storage Stats Routes / REQ-STOR-006 (storage stats endpoint reports by
       const secondUrl = mockFetch.mock.calls[1][0] as string;
       const urlParams = new URLSearchParams(secondUrl.split('?')[1]);
       expect(urlParams.get('continuation-token')).toBe('token-abc');
+    });
+
+    it.each([
+      ['missing continuation', ['<IsTruncated>true</IsTruncated>']],
+      ['repeated continuation', Array(2).fill('<IsTruncated>true</IsTruncated><NextContinuationToken>same</NextContinuationToken>') as string[]],
+      ['missing truncation state', ['']],
+      ['ambiguous truncation state', ['<IsTruncated>false</IsTruncated><IsTruncated>unknown</IsTruncated>']],
+      ['ambiguous object size', ['<IsTruncated>false</IsTruncated><Contents><Key>bad.txt</Key><Size>1</Size><Size/><LastModified>2024-01-01T00:00:00Z</LastModified></Contents>']],
+      ['invalid object size', ['<IsTruncated>false</IsTruncated><Contents><Key>bad.txt</Key><Size>-1</Size><LastModified>2024-01-01T00:00:00Z</LastModified></Contents>']],
+    ] as const)('REQ-STOR-014 AC1: refuses to cache a listing with %s', async (_reason, pages) => {
+      const { parseListObjectsXml } = await vi.importActual<typeof import('../../lib/r2-client')>('../../lib/r2-client');
+      mockParseListObjectsXml.mockImplementation(parseListObjectsXml);
+      for (const page of pages) mockFetch.mockResolvedValueOnce(new Response(`<ListBucketResult>${page}</ListBucketResult>`));
+      mockFetch.mockImplementation(async () => new Response('<ListBucketResult><IsTruncated>false</IsTruncated></ListBucketResult>'));
+      const response = await createTestApp().request('/stats');
+      expect(response.status).toBe(500);
+      expect(await mockKV.get('storage-stats:test-bucket', 'json')).toBeNull();
+    });
+
+    it('REQ-STOR-014 AC1: a continuation 404 is not an empty bucket', async () => {
+      mockParseListObjectsXml.mockReturnValueOnce({ objects: [], prefixes: [], isTruncated: true, nextContinuationToken: 'next' });
+      mockFetch.mockResolvedValueOnce(new Response('<ListBucketResult/>'))
+        .mockResolvedValueOnce(new Response(null, { status: 404 }));
+      const response = await createTestApp().request('/stats');
+      expect(response.status).toBe(500);
+      expect(await mockKV.get('storage-stats:test-bucket', 'json')).toBeNull();
+    });
+
+    it('returns zeroes for a first-page 404', async () => {
+      mockFetch.mockResolvedValueOnce(new Response(null, { status: 404 }));
+      const response = await createTestApp().request('/stats');
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ totalFiles: 0, totalFolders: 0, totalSizeBytes: 0 });
     });
 
     it('uses KV cache when fresh (<60s)', async () => {

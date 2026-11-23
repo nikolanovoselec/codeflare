@@ -15,7 +15,7 @@ import { checkContainerAuth } from './auth-check.js';
 import { ownerInference, OperatorInferenceRefusal, type OperatorInferenceOwner,
   type OperatorInferenceOwnerResolver } from './operator-inference.js';
 import { emitRaw, type RawLogContext } from './operator-raw-logging.js';
-import { getSyncStatus, getSystemMetrics, collectWorkspaceRepos, isWorkspaceInventoryReady } from './metrics.js';
+import { getSyncStatus, getSystemMetrics, collectWorkspaceRepos, isWorkspaceInventoryReady, getRepositoryRestoreStatus } from './metrics.js';
 import { evaluateFinalSync } from './final-sync.js';
 import type { PiMemoryShutdown } from './pi-memory-shutdown.js';
 import { AGENT_EVENT_LIMITS, type AgentEventDrainResult, type AgentEventKind } from './agent-events.js';
@@ -78,6 +78,7 @@ export interface ReadinessFlags {
   terminalServiceReady: boolean;
   editorReady: boolean;
   editorReadyTimedOut: boolean;
+  startupPolicyError?: 'failed' | 'timeout';
 }
 
 export interface RequestRouterDeps {
@@ -278,7 +279,7 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
   const { sessionManager, log } = deps;
 
   return async (req: http.IncomingMessage, res: http.ServerResponse): Promise<void> => {
-    const { pathname } = parseUrl(req.url ?? '');
+    const { pathname, search } = parseUrl(req.url ?? '');
     const method = req.method;
 
     // REQ-SEC-022: the legacy exemptions apply only to a minimal startup
@@ -441,12 +442,19 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
     // One authenticated runtime observation for the metrics projection. Keep the
     // existing /activity and /health endpoints for their established callers.
     if (pathname === '/internal/runtime-observation' && method === 'GET') {
+      const inventory = new URLSearchParams(search ?? '').get('inventory');
+      const inventoryReady = isWorkspaceInventoryReady();
+      if (inventory === 'only') {
+        const workspaceRepos = inventoryReady ? await collectWorkspaceRepos(resolveWorkspaceRoot(process.env), log) : undefined;
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ workspaceRepos }));
+        return;
+      }
       const syncInfo = getSyncStatus();
       const sysMetrics = await getSystemMetrics(log);
       const activity = deps.activityTracker.getActivityInfo(sessionManager);
-      const workspaceRepos = isWorkspaceInventoryReady()
-        ? await collectWorkspaceRepos(resolveWorkspaceRoot(process.env), log)
-        : undefined;
+      const inventoryFields = inventory === 'defer' ? { workspaceInventoryReady: inventoryReady }
+        : { workspaceRepos: inventoryReady ? await collectWorkspaceRepos(resolveWorkspaceRoot(process.env), log) : undefined };
       const { terminalServiceReady, editorReady, editorReadyTimedOut } = deps.readiness();
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
@@ -458,7 +466,7 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
         terminalReady: terminalServiceReady,
         editorReady,
         editorReadyError: editorReadyTimedOut,
-        workspaceRepos,
+        ...inventoryFields,
         observedAt: new Date().toISOString(),
       }));
       return;
@@ -483,7 +491,7 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
       const workspaceRepos = isWorkspaceInventoryReady()
         ? await collectWorkspaceRepos(resolveWorkspaceRoot(process.env), log)
         : undefined;
-      const { prewarmReady, initFlagObserved, terminalServiceReady, editorReady, editorReadyTimedOut } = deps.readiness();
+      const { prewarmReady, initFlagObserved, terminalServiceReady, editorReady, editorReadyTimedOut, startupPolicyError } = deps.readiness();
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(
@@ -499,6 +507,8 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
           terminalServiceReady,
           editorReady,
           editorReadyTimedOut,
+          startupPolicyError,
+          repositoryRestore: getRepositoryRestoreStatus(),
           cpu: sysMetrics.cpu,
           mem: sysMetrics.mem,
           hdd: sysMetrics.hdd,
@@ -533,6 +543,12 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
 
     // Create session
     if (pathname === '/sessions' && method === 'POST') {
+      if ((process.env.MANAGED_RESOURCE_POLICY === 'immutable' || process.env.MANAGED_RESOURCE_POLICY === 'exclusive')
+        && !deps.readiness().terminalServiceReady) {
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Terminal is not ready' }));
+        return;
+      }
       const MAX_BODY_SIZE = 64 * 1024; // 64KB
       let body = '';
       let bodySize = 0;

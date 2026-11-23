@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { Hono } from 'hono';
 import { createMcpOAuthRoutes, createMcpPortalApiRoutes, type McpOAuthDependencies } from '../../routes/mcp-oauth';
 import { beginMcpPortalConnect, finishMcpPortalConnect, getMcpPortalGrant, getValidMcpPortalToken, disconnectMcpPortal } from '../../lib/mcp-portal-token';
-import { mcpPortalFixture, portal, access, refresh } from '../helpers/mcp-portal-fixture';
+import { mcpPortalFixture, portal, access, refresh, legacyCiphertext, legacyConnectionKey } from '../helpers/mcp-portal-fixture';
 import type { AuthVariables } from '../../middleware/auth';
 import type { Env } from '../../types';
 import { forwardMcpPortal } from '../../mcp-portal-interceptor';
@@ -14,7 +14,7 @@ let actor = 'owner';
 async function fixture(mode = '') {
   actor = 'owner';
   const f = await mcpPortalFixture();
-  const env = { ...f.env, ...(mode === 'enterprise' ? { ENTERPRISE_MODE: 'active' } : mode === 'saas' ? { SAAS_MODE: 'active' } : {}) } as Env;
+  const env = Object.assign(f.env, mode === 'enterprise' ? { ENTERPRISE_MODE: 'active' } : mode === 'saas' ? { SAAS_MODE: 'active' } : {});
   const retained: string[] = [];
   const deps: McpOAuthDependencies = {
     authenticate: async request => {
@@ -86,9 +86,11 @@ describe('Settings MCP owner OAuth and non-secret status API', () => {
   });
 
   it('REQ-AGENT-226 AC4: plaintext saved grants remain disconnected in the owner status API', async () => {
-    const f = await fixture(); await f.begin(); await f.finish();
-    const key = 'mcp-portal:owner:owner:portal:fixture';
-    const stored = await f.kv.get(key) as string;
+    const source = await mcpPortalFixture(); await source.begin(); await source.finish();
+    const grant = (await getMcpPortalGrant(source.env, 'owner', portal))!;
+    const f = await fixture();
+    const key = legacyConnectionKey();
+    const stored = await legacyCiphertext(f.env, grant);
     await f.kv.put(key, await decryptFromKV(stored.slice(3), (await getOrImportKey(f.env))!, key));
     const response = await f.request('/api/mcp-portals');
     expect(response.status).toBe(200);
@@ -367,5 +369,57 @@ describe('MCP route diagnostics preserve clean outcomes', () => {
       expect(response.headers.get('Location')).toBe('/app/?mcp=reconnect');
       expect(await getMcpPortalGrant(f.env, 'owner', portal)).toBeNull();
     } finally { output.mockRestore(); setLogLevel('silent'); }
+  });
+});
+
+
+// Public route shapes remain unchanged by the internal owner-store move.
+describe('MCP route outcomes across offboarding', () => {
+  it.each(['default', 'saas', 'enterprise'])(
+    'REQ-AUTH-026 AC2 / REQ-AGENT-226 AC2: %s stale callback redirects cleanly and only fresh Connect restores connected status', async mode => {
+      const f = await fixture(mode); await f.begin(); await f.finish();
+      const original = (await getMcpPortalGrant(f.env, 'owner', portal))!;
+      const pending = await f.begin();
+      const owner = f.owners.owner('owner');
+      const operation = await owner.mcpPortalBeginOffboarding('owner', 'owner@example.com');
+      await owner.mcpPortalCompleteOffboarding('owner', operation.operationId);
+      f.owners.reconstruct('owner');
+      const state = pending.searchParams.get('state')!;
+      const callback = await f.request(`/auth/mcp/callback?state=${state}&code=synthetic-code`);
+      expect(callback.status).toBe(303);
+      expect(callback.headers.get('Location')).toBe('/app/?mcp=reconnect');
+      expect(callback.headers.get('Cache-Control')).toBe('no-store');
+      expect(callback.headers.get('Referrer-Policy')).toBe('no-referrer');
+      const status = await f.request('/api/mcp-portals');
+      expect(status.status).toBe(200);
+      expect(await status.json()).toEqual({ portals: [{ ...portal, connected: false }] });
+      const recovery = await f.request(recoveryPath, recoveryRequest());
+      expect(recovery.status).toBe(200);
+      expect(await recovery.json()).toEqual({ state: 'ineligible' });
+      const connect = await f.request('/auth/mcp/connect/fixture');
+      expect(connect.status).toBe(302);
+      f.visitAuthorization(connect.headers.get('Location')!);
+      const freshState = f.authorization.searchParams.get('state')!;
+      const fresh = await f.request(`/auth/mcp/callback?state=${freshState}&code=synthetic-code`);
+      expect(fresh.status).toBe(303);
+      expect(fresh.headers.get('Location')).toBe('/app/?mcp=connected');
+      expect((await getMcpPortalGrant(f.env, 'owner', portal))?.id).not.toBe(original.id);
+      expect(await (await f.request('/api/mcp-portals')).json()).toEqual({ portals: [{ ...portal, connected: true }] });
+      const artifacts = JSON.stringify({ retained: f.retained, headers: [...callback.headers], body: await callback.text() });
+      for (const secret of [access, refresh, state, freshState, 'synthetic-code']) expect(artifacts).not.toContain(secret);
+    });
+
+  it('REQ-AUTH-026 AC2 / REQ-AGENT-226 AC5/6: offboarding during route recovery refresh returns unavailable without a browser authorization', async () => {
+    const f = await fixture(); f.expiry(30); await f.begin(); await f.finish();
+    f.beforeToken(async () => {
+      const owner = f.owners.owner('owner');
+      const operation = await owner.mcpPortalBeginOffboarding('owner', 'owner@example.com');
+      await owner.mcpPortalCompleteOffboarding('owner', operation.operationId);
+    });
+    const response = await f.request(recoveryPath, recoveryRequest());
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ state: 'unavailable' });
+    expect(response.headers.get('Cache-Control')).toBe('no-store');
+    expect(await (await f.request('/api/mcp-portals')).json()).toEqual({ portals: [{ ...portal, connected: false }] });
   });
 });

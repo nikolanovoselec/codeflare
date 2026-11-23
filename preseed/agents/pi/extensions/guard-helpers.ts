@@ -385,17 +385,25 @@ export function isLocalBuildCommand(command: string): boolean {
       return script >= 0 && isLocalBuildCommand(args[script + 1] ?? "");
     }
     if (["node", "python", "python3"].includes(binary)) {
-      const script = args.findIndex((arg) => ["-e", "--eval", "-c"].includes(arg));
-      if (script >= 0) return isLocalBuildCommand(args[script + 1] ?? "");
+      if (binary !== "node") {
+        const script = args.findIndex((arg) => ["-e", "--eval", "-c"].includes(arg));
+        if (script >= 0) return isLocalBuildCommand(args[script + 1] ?? "");
+        if (args[0] === "-m") return args[1] === "pytest";
+      }
       // Known runner entrypoints remain execution when launched by an interpreter;
       // do not scan ordinary script arguments as if they were shell commands.
-      if (binary !== "node" && args[0] === "-m") return args[1] === "pytest";
       let entrypointIndex = 0;
       const valueOptions = binary === "node"
         ? ["-r", "--require", "--import", "--loader", "--experimental-loader", "--env-file", "--env-file-if-exists"]
         : ["-W", "-X"];
       while ((args[entrypointIndex] ?? "").startsWith("-")) {
         const option = args[entrypointIndex++];
+        if (option === "--") break;
+        if (binary === "node" && option === "-") return false;
+        if (binary === "node" && option === "--test") return true;
+        if (binary === "node" && ["-e", "--eval", "-c"].includes(option ?? "")) {
+          return isLocalBuildCommand(args[entrypointIndex] ?? "");
+        }
         if (valueOptions.includes(option ?? "")) entrypointIndex += 1;
       }
       return LOCAL_CHECK_RUNNER.test(args[entrypointIndex]?.split("/").at(-1) ?? "");

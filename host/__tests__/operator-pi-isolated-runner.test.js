@@ -24,7 +24,10 @@ const report = lane => JSON.stringify({ schemaVersion: 1, lane, packetDigest: 'a
 
 async function fixture(t, configOverrides = {}, behavior = {}) {
   const allowedRoot = await mkdtemp(path.join(tmpdir(), 'operator-pi-isolated-'));
-  t.after(() => rm(allowedRoot, { recursive: true, force: true }));
+  t.after(async () => {
+    try { if (behavior.beforeCleanup) await behavior.beforeCleanup(); }
+    finally { await rm(allowedRoot, { recursive: true, force: true }); }
+  });
   const root = path.join(allowedRoot, 'activity-1');
   const cwd = path.join(root, 'work');
   const outputRoot = path.join(root, 'output');
@@ -480,11 +483,22 @@ for (const scenario of [
 
 test('REQ-OPERATOR-021/047: actual child auth failure survives task polling and reconstruction without publishing partial reports', async t => {
   const failure = { code: 'PI_LOGIN_REQUIRED', reason: 'rejected', provider: 'openai-codex' };
-  const f = await fixture(t, {}, { native: true, prompt: async ({ lane, options }) => {
-    if (lane === 'code-reviewer') throw Object.assign(new Error('synthetic-secret SDK body'), failure);
-    await options.customTools.find(tool => tool.name === 'write').execute('report',
-      { path: `reports/${lane}.json`, content: report(lane) });
-  } });
+  const reportWrites = [];
+  const f = await fixture(t, {}, { native: true,
+    async beforeCleanup() {
+      // A fixture child acknowledges abort without stopping its in-flight write.
+      const errors = (await Promise.allSettled(reportWrites))
+        .flatMap(result => result.status === 'rejected' ? [result.reason] : []);
+      if (errors.length) throw new AggregateError(errors, 'Child report writes failed');
+    },
+    async prompt({ lane, options }) {
+      if (lane === 'code-reviewer') throw Object.assign(new Error('synthetic-secret SDK body'), failure);
+      const write = options.customTools.find(tool => tool.name === 'write').execute('report',
+        { path: `reports/${lane}.json`, content: report(lane) });
+      reportWrites.push(write);
+      await write;
+    },
+  });
   assert.equal(await submit(f, 'native-failed-round'), 'failed');
   const task = { taskId: 'native-failed-round', digest: 'c'.repeat(64), mode: 'tool',
     toolName: 'run_approved_tasks', arguments: taskArgs };

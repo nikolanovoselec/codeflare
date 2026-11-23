@@ -91,6 +91,24 @@ describe('rate-limit fallback on KV failure / REQ-SEC-007 AC2 (KV primary, in-me
     await expect(limiter(c as any, next)).rejects.toThrow('Rate limit exceeded');
   });
 
+  it('REQ-SEC-007 AC2: fallback denies until the exact window boundary and then resets admission', async () => {
+    const { checkRateLimit } = await import('../../lib/rate-limit-core');
+    const failingKv = createMockContext().env.KV;
+    const params = { kv: failingKv, key: 'fallback-expiry-boundary', limit: 1, windowMs: 60_000, ttlSeconds: 120 };
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
+    try {
+      expect(await checkRateLimit(params)).toEqual({ allowed: true, count: 1, retryAfterSec: 0 });
+      vi.setSystemTime(new Date('2026-01-01T00:00:59.999Z'));
+      expect(await checkRateLimit(params)).toEqual({ allowed: false, count: 2, retryAfterSec: 1 });
+      vi.setSystemTime(new Date('2026-01-01T00:01:00.000Z'));
+      expect(await checkRateLimit(params)).toEqual({ allowed: true, count: 1, retryAfterSec: 0 });
+      expect(await checkRateLimit(params)).toEqual({ allowed: false, count: 2, retryAfterSec: 60 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('skips rate limiting when KV is not available at all', async () => {
     const limiter = createRateLimiter(config);
     const c = createMockContext();

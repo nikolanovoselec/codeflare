@@ -436,7 +436,7 @@ it('REQ-STOR-015: authenticated manual recovery uses SIGUSR2; ordinary triggers 
   }
 });
 
-// REQ-MEM-035 AC7: shutdown and final sync share the existing endpoint budget.
+// REQ-MEM-035 AC6: shutdown and final sync share the existing endpoint budget.
 // Only the documented finalSync platform-I/O seam is simulated; requests go
 // through a real HTTP server and the scan/upload artifacts are real files.
 import { existsSync } from 'node:fs';
@@ -471,7 +471,7 @@ function memorySyncRequest(port, path = '/internal/final-sync', token = 'final-s
   });
 }
 
-describe('REQ-MEM-035 AC7: foreground shutdown before authoritative final sync', () => {
+describe('REQ-MEM-035 AC6: foreground shutdown before authoritative final sync', () => {
   it('REQ-MEM-035: AC7 awaits final Markdown and takes the sync trigger timestamp after preparation', async t => {
     const f = memoryFinalSyncFixture(t);
     const finalMarkdown = '# Last foreground capture\n\nUse metric units.\n';

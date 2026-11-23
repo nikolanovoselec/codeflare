@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { closeSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -23,7 +23,8 @@ RECOVERY_FILTER_FILE="$CODEFLARE_RUNTIME_ROOT/sync/recovery-filters.txt"
 function runtimeEnv(env = {}) {
   const runtimeRoot = env.CODEFLARE_RUNTIME_ROOT ?? mkdtempSync(join(tmpdir(), 'entrypoint-runtime-'));
   mkdirSync(join(runtimeRoot, 'sync'), { recursive: true });
-  return { ...process.env, CODEFLARE_RUNTIME_ROOT: runtimeRoot, ...env };
+  // These ordinary-start fixtures must not inherit the runner's protected policy.
+  return { ...process.env, MANAGED_RESOURCE_POLICY: 'mutable', CODEFLARE_RUNTIME_ROOT: runtimeRoot, ...env };
 }
 
 function extractFunction(name) {
@@ -237,109 +238,50 @@ describe('entrypoint production helpers', () => {
       }
     } finally { rmSync(home, { recursive: true, force: true }); }
   });
-  it('REQ-AGENT-111 AC4 / REQ-AGENT-129 AC1: creates every Codeflare-owned Goal startup default when config is absent', () => {
-    const fixture = mkdtempSync(join(tmpdir(), 'pi-goal-settings-'));
-    const configPath = join(fixture, '.pi/agent/pi-goal.json');
-    const conflictingPath = join(fixture, 'legacy/pi-goal.json');
-    const env = { USER_HOME: fixture, PI_GOAL_CONFIG_FILE: conflictingPath };
-
-    const result = runStartupInvocation('configure_pi_goal_defaults', env);
-    assert.equal(result.status, 0, result.stderr);
-    assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), {
-      toolVisibility: 'after-first-goal',
-      continuationLimits: { automaticTurns: null, noProgressTurns: 5, minIntervalMs: 300_000 },
-    });
-    assert.equal(existsSync(conflictingPath), false);
-  });
-
-  it('REQ-AGENT-129 AC2/AC3: enforces five-minute pacing while preserving unrelated preferences', () => {
-    const fixture = mkdtempSync(join(tmpdir(), 'pi-goal-settings-merge-'));
-    const configPath = join(fixture, '.pi/agent/pi-goal.json');
-    const env = { USER_HOME: fixture };
-    mkdirSync(dirname(configPath), { recursive: true });
-    writeFileSync(configPath, JSON.stringify({
-      toolVisibility: 'always',
-      continuationLimits: {
-        automaticTurns: null,
-        noProgressTurns: 8,
-        customLimit: 'keep',
-      },
-      rpc: { enabled: true, customTransport: 'keep' },
-      unknownRoot: { enabled: null },
-    }));
-
-    const explicit = runStartupInvocation('configure_pi_goal_defaults', env);
-    assert.equal(explicit.status, 0, explicit.stderr);
-    assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), {
-      toolVisibility: 'always',
-      continuationLimits: {
-        automaticTurns: null,
-        noProgressTurns: 5,
-        customLimit: 'keep',
-        minIntervalMs: 300_000,
-      },
-      rpc: { enabled: true, customTransport: 'keep' },
-      unknownRoot: { enabled: null },
-    });
-
-    writeFileSync(configPath, JSON.stringify({
-      continuationLimits: { minIntervalMs: 0 },
-      rpc: { enabled: false },
-      unknownRoot: 'keep',
-    }));
-    const missing = runStartupInvocation('configure_pi_goal_defaults', env);
-    assert.equal(missing.status, 0, missing.stderr);
-    assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), {
-      toolVisibility: 'after-first-goal',
-      continuationLimits: { minIntervalMs: 300_000, automaticTurns: null, noProgressTurns: 5 },
-      rpc: { enabled: false },
-      unknownRoot: 'keep',
-    });
-  });
-
-  it('REQ-AGENT-129: repairs disabled or legacy stall safety even when cadence is already correct', () => {
-    const fixture = mkdtempSync(join(tmpdir(), 'pi-goal-stall-migration-'));
-    const configPath = join(fixture, '.pi/agent/pi-goal.json');
-    mkdirSync(dirname(configPath), { recursive: true });
-    try {
-      for (const noProgressTurns of [undefined, null, 3, 8]) {
-        for (const automaticTurns of [null, 2]) {
-          const original = {
-            toolVisibility: 'always', rpc: { enabled: true }, custom: { preserve: 'owned' },
-            continuationLimits: { automaticTurns, ...(noProgressTurns === undefined ? {} : { noProgressTurns }),
-              minIntervalMs: 300_000, custom: 'keep' },
-          };
-          writeFileSync(configPath, JSON.stringify(original));
-          const first = runStartupInvocation('configure_pi_goal_defaults', { USER_HOME: fixture });
-          assert.equal(first.status, 0, first.stderr);
-          const expected = { ...original, continuationLimits: { ...original.continuationLimits, noProgressTurns: 5 } };
-          assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), expected);
-          const repeated = runStartupInvocation('configure_pi_goal_defaults', { USER_HOME: fixture });
-          assert.equal(repeated.status, 0, repeated.stderr);
-          assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), expected);
+  it('REQ-AGENT-216 AC2: unsafe filesystem entries are preserved with a sanitized startup warning', () => {
+    for (const kind of ['dangling-link', 'live-link', 'directory']) {
+      const home = mkdtempSync(join(tmpdir(), 'pi-subagent-unsafe-'));
+      try {
+        const path = join(home, '.pi/agent/subagents.json');
+        const target = join(home, 'fixture-private-target');
+        mkdirSync(dirname(path), { recursive: true });
+        if (kind === 'directory') mkdirSync(path);
+        else {
+          if (kind === 'live-link') writeFileSync(target, 'fixture-private-preferences');
+          symlinkSync(target, path);
         }
-      }
-    } finally { rmSync(fixture, { recursive: true, force: true }); }
+        const result = runStartupInvocation('configure_pi_subagent_defaults', { USER_HOME: home });
+        assert.equal(result.status, 0, result.stderr);
+        assert.match(result.stdout, /Pi subagent update defaults could not be applied; existing preferences preserved/);
+        assert.doesNotMatch(`${result.stdout}${result.stderr}`, /fixture-private/);
+        if (kind === 'directory') assert.equal(lstatSync(path).isDirectory(), true);
+        else {
+          assert.equal(lstatSync(path).isSymbolicLink(), true);
+          assert.equal(readlinkSync(path), target);
+          if (kind === 'live-link') assert.equal(readFileSync(target, 'utf8'), 'fixture-private-preferences');
+          else assert.equal(existsSync(target), false, 'startup must not create a dangling link target');
+        }
+      } finally { rmSync(home, { recursive: true, force: true }); }
+    }
   });
 
-  it('REQ-AGENT-129 AC4: preserves malformed Goal config byte-for-byte', () => {
-    const fixture = mkdtempSync(join(tmpdir(), 'pi-goal-settings-malformed-'));
-    const configPath = join(fixture, '.pi/agent/pi-goal.json');
-    const env = { USER_HOME: fixture };
-    mkdirSync(dirname(configPath), { recursive: true });
-
-    for (const malformed of [
-      '{"toolVisibility":"always",\n',
-      '{"toolVisibility":"always","continuationLimits":null}\n',
-      '{"continuationLimits":{"noProgressTurns":"5"}}\n',
-      '{"continuationLimits":{"noProgressTurns":0}}\n',
-      '{"continuationLimits":{"automaticTurns":0}}\n',
-    ]) {
-      writeFileSync(configPath, malformed);
-      const result = runStartupInvocation('configure_pi_goal_defaults', env);
-      assert.equal(result.status, 0, result.stderr);
-      assert.equal(readFileSync(configPath, 'utf8'), malformed);
-    }
+  it('REQ-AGENT-223 AC1: seeds Smart Compact before Pi discovery and preserves explicit settings', (t) => {
+    const home = mkdtempSync(join(tmpdir(), 'pi-smart-compact-startup-'));
+    t.after(() => rmSync(home, { recursive: true, force: true }));
+    const settingsPath = join(home, '.pi/agent/settings.json');
+    const env = { USER_HOME: home, PI_WARM_EXTENSIONS_DIR: resolve(__dirname, '../../preseed/agents/pi/extensions') };
+    const first = runStartupInvocation('configure_pi_smart_compact_defaults', env);
+    assert.equal(first.status, 0, first.stderr);
+    const { smartCompact } = JSON.parse(readFileSync(settingsPath, 'utf8'));
+    assert.equal(smartCompact.mode, 'thorough');
+    assert.equal(smartCompact.autoTriggerStrategy, 'background');
+    assert.equal(smartCompact.minContextPercent, 80);
+    assert.equal(smartCompact.scrubSecrets, true);
+    const restored = ' { "smartCompact": { "autoTrigger": false, "maxContextTokens": 0 }, "theme": "user" }\n';
+    writeFileSync(settingsPath, restored);
+    const next = runStartupInvocation('configure_pi_smart_compact_defaults', env);
+    assert.equal(next.status, 0, next.stderr);
+    assert.equal(readFileSync(settingsPath, 'utf8'), restored);
   });
 
   it('REQ-AGENT-152 AC5/AC6: overwrites Plan Mode settings with the Codeflare policy on every start', () => {
@@ -353,10 +295,35 @@ describe('entrypoint production helpers', () => {
     assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), EXPECTED_PLAN_MODE_SETTINGS);
     assert.equal(existsSync(conflictingPath), false);
 
-    writeFileSync(configPath, '{"thinkingLevel":"max","toggleShortcut":"ctrl+alt+p","unknown":"drop"}\n');
-    const second = runStartupInvocation('configure_pi_plan_mode', env);
-    assert.equal(second.status, 0, second.stderr);
-    assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), EXPECTED_PLAN_MODE_SETTINGS);
+    const oldBytes = '{"thinkingLevel":"max","toggleShortcut":"ctrl+alt+p","unknown":"drop"}\n';
+    writeFileSync(configPath, oldBytes);
+    const priorReader = openSync(configPath, 'r');
+    try {
+      const second = runStartupInvocation('configure_pi_plan_mode', env);
+      assert.equal(second.status, 0, second.stderr);
+      // A reader that opened the old document before publication still sees it whole.
+      assert.equal(readFileSync(priorReader, 'utf8'), oldBytes);
+      assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), EXPECTED_PLAN_MODE_SETTINGS);
+    } finally { closeSync(priorReader); }
+  });
+
+  it('REQ-AGENT-266 AC1: a blocked Plan Mode replacement warns and leaves startup eligible', (t) => {
+    const home = mkdtempSync(join(tmpdir(), 'pi-plan-mode-blocked-'));
+    t.after(() => rmSync(home, { recursive: true, force: true }));
+    const configPath = join(home, '.pi/agent/pi-plan-mode.json');
+    mkdirSync(configPath, { recursive: true });
+    const sentinel = join(configPath, 'keep.json');
+    writeFileSync(sentinel, '{"unchanged":true}\n');
+
+    const result = runStartupInvocation('configure_pi_plan_mode', {
+      USER_HOME: home, CODEFLARE_RUNTIME_ROOT: join(home, 'runtime'),
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /WARNING: Pi Plan Mode configuration failed; continuing startup/);
+    assert.doesNotMatch(result.stdout, /Pi Plan Mode policy configured/);
+    assert.equal(readFileSync(sentinel, 'utf8'), '{"unchanged":true}\n');
+    assert.deepEqual(readdirSync(dirname(configPath)), ['pi-plan-mode.json']);
   });
 
   it('REQ-AGENT-023: restores a missing Graphify CLI path without replacing an existing destination', () => {
@@ -376,6 +343,15 @@ describe('entrypoint production helpers', () => {
     assert.equal(first.status, 0, first.stderr);
     assert.equal(lstatSync(destination).isSymbolicLink(), true);
     assert.equal(resolve(dirname(destination), readlinkSync(destination)), source);
+
+    rmSync(destination);
+    symlinkSync(join(fixture, 'missing-target'), destination);
+    assert.equal(existsSync(destination), false);
+    const dangling = runFunction('ensure_graphify_cli_path', '', 'ensure_graphify_cli_path',
+      { GRAPHIFY_BIN_SRC: source, GRAPHIFY_BIN_DST: destination });
+    assert.equal(dangling.status, 0, dangling.stderr);
+    assert.equal(resolve(dirname(destination), readlinkSync(destination)), source);
+    assert.equal(spawnSync(destination).status, 0, 'repaired command must be executable');
 
     rmSync(destination);
     writeFileSync(destination, 'operator-owned\n');

@@ -123,3 +123,31 @@ test('REQ-IDE-026: inline edit payloads above 256 KiB fail closed', () => {
     { ...boundedEdit, newText: 'x'.repeat(300 * 1024) },
   ]), /size/i);
 });
+
+
+test('REQ-IDE-026 AC1: accepts exactly 64 distinct edits in document order', () => {
+  const snapshot = { version: 7, lineCount: 64, lineLength: () => 0 };
+  const edits = Array.from({ length: 64 }, (_, line) => ({
+    startLine: line, startCharacter: 0, endLine: line, endCharacter: 0, newText: `line-${line}`,
+  }));
+  assert.deepEqual(validateInlineTextEdits(snapshot, 7, [...edits].reverse()), edits);
+});
+
+test('REQ-IDE-026 AC2: accepts exactly 256 KiB combined UTF-8 and rejects one extra byte', () => {
+  const edits = [
+    { ...boundedEdit, newText: '🙂'.repeat(32 * 1024) },
+    { startLine: 1, startCharacter: 0, endLine: 1, endCharacter: 0, newText: 'é'.repeat(64 * 1024) },
+  ];
+  assert.equal(edits.reduce((size, edit) => size + Buffer.byteLength(edit.newText, 'utf8'), 0), 256 * 1024);
+  assert.deepEqual(validateInlineTextEdits(document, 7, edits), edits);
+  assert.throws(() => validateInlineTextEdits(document, 7, [edits[0]!, { ...edits[1]!, newText: `${edits[1]!.newText}x` }]), /size/i);
+});
+
+for (const coordinate of ['startLine', 'startCharacter', 'endLine', 'endCharacter']) {
+  for (const value of [0.5, Number.MAX_SAFE_INTEGER + 1, NaN, Infinity, '0', null, undefined]) {
+    test(`REQ-IDE-026 AC3: rejects ${coordinate}=${String(value)} as a non-safe coordinate`, () => {
+      const edit = { ...boundedEdit, [coordinate]: value };
+      assert.throws(() => validateInlineTextEdits(document, 7, [edit as typeof boundedEdit]), /range/i);
+    });
+  }
+}

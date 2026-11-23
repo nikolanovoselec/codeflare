@@ -25,7 +25,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, utimesSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, statSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -72,11 +72,14 @@ CODEFLARE_RUNTIME_ROOT=$(mktemp -d)
 mkdir -p "$CODEFLARE_RUNTIME_ROOT/sync"
 trap 'rm -rf "$CODEFLARE_RUNTIME_ROOT"' EXIT
 USER_HOME="$CODEFLARE_RUNTIME_ROOT"
+# This base-filter fixture has no restored managed policy. Protected policies
+# have their own signed-input fixtures below; do not inherit the caller's mode.
+MANAGED_RESOURCE_POLICY=mutable
 MANAGED_RESOURCE_FILTER_FILE="$CODEFLARE_RUNTIME_ROOT/sync/managed.filter"
 RECOVERY_FILTER_FILE="$CODEFLARE_RUNTIME_ROOT/sync/recovery.filter"
 : > "$RECOVERY_FILTER_FILE"
 ${policyFunctions}
-compose_rclone_filters
+compose_rclone_filters || exit $?
 `;
 
 // Build a fixture tree that contains one representative path per filter
@@ -116,6 +119,7 @@ function verdictUnder({ sessionMode, syncMode = 'full', syncPolicyMode = 'includ
     'Vault/graphify-out/graph.json': 'per-run derived graph',
     'Vault/graphify-out/graph.html': 'rendered viz',
     'Vault/graphify-out/vault-extract-manifest.json': 'content-hash high-water mark',
+    'Vault/graphify-out/vault-extract-initialized': '1\n',
     'Uploads/a.txt': 'upload tray file',
     'Temporary/b.txt': 'temporary tray file',
     '.graphify/global-graph.json': 'ephemeral unified graph',
@@ -229,7 +233,12 @@ describe('entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2
       'INCLUDED',
       'vault-extract content-hash manifest must persist to R2 (REQ-VAULT-026 allow-rule ordered before the graphify-out exclude)',
     );
-    // Specificity guard: only the cumulative graph and content-hash manifest
+    assert.equal(
+      v['Vault/graphify-out/vault-extract-initialized'],
+      'INCLUDED',
+      'the nonempty first-initialization record must survive the real filter and minimum-size policy',
+    );
+    // Specificity guard: cumulative graph, manifest and initialization record
     // are allow-listed; per-run graph.json and rendered graph.html fall through
     // to the graphify-out exclude. The served visualization persists separately
     // under Vault/Raw/Graphs/.
@@ -333,6 +342,43 @@ describe('entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2
     }
   });
 
+  it('REQ-IDE-002 AC6: keeps live editor files out of sync while admitting the two bounded manifests', () => {
+    // The live tree is under /run, outside the sync root. Mirror its layout
+    // under home-private .codeflare to exercise the actual filter veto too.
+    const editorFiles = [
+      'extensions/publisher.extension/out/extension.js',
+      'data/User/workspaceStorage/session/state.vscdb',
+      'data/User/workspaceStorage/session/state.vscdb-wal',
+      'data/User/workspaceStorage/session/state.vscdb-shm',
+      'data/User/workspaceStorage/session/workspace.json',
+      'data/User/workspaceStorage/session/publisher.extension/storage.json',
+      'data/User/workspaceStorage/session/chatSessions/chat.json',
+      'data/User/globalStorage/state.vscdb', // Includes SecretStorage and authentication state.
+      'data/User/globalStorage/state.vscdb-wal',
+      'data/User/globalStorage/state.vscdb-shm',
+      'data/User/globalStorage/publisher.extension/storage.json',
+      'data/User/History/file/entries.json',
+      'data/User/settings.json',
+      'data/User/keybindings.json',
+      'data/User/snippets/private.code-snippets',
+      'data/logs/session/exthost/exthost.log',
+    ].map(path => `.codeflare/openvscode/data/${path}`);
+    const extraFixtures = Object.fromEntries(editorFiles.map(path => [path, 'private editor state']));
+    const excluded = [...editorFiles, '.local/share/code-server/coder-logs/code-server-stdout.log'];
+    for (const sessionMode of ['advanced', 'default']) {
+      for (const syncMode of ['none', 'metadata', 'full']) {
+        for (const syncPolicyMode of ['include', 'exclude']) {
+          const v = verdictUnder({ sessionMode, syncMode, syncPolicyMode, extraFixtures });
+          const scope = `${sessionMode}/${syncMode}/${syncPolicyMode}`;
+          for (const path of excluded) assert.equal(v[path], 'EXCLUDED', `${scope}: ${path}`);
+          for (const path of ['.codeflare/ide-ui-state.json', '.codeflare/ide-extensions.json']) {
+            assert.equal(v[path], 'INCLUDED', `${scope}: ${path}`);
+          }
+        }
+      }
+    }
+  });
+
   it('REQ-STOR-011 AC4: disposable agent checkouts never sync while user trays remain persistent', () => {
     const disposable = [
       'Temporary/.agent-work/sdk-research/source.ts',
@@ -357,6 +403,29 @@ describe('entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2
         for (const path of disposable) assert.equal(v[path], 'EXCLUDED', `${path} must stay local in ${sessionMode}/${syncMode}`);
         for (const path of persistent) assert.equal(v[path], 'INCLUDED', `${path} must persist in ${sessionMode}/${syncMode}`);
       }
+    }
+  });
+
+  describe('REQ-STOR-011 AC4: excludes directories ending in node_modules in both persistence modes', () => {
+    const transient = [
+      'root-node_modules/pkg/index.js',
+      '.pi/agent/installer-scratch/installer-node_modules/pkg/index.js',
+      'Temporary/build-copy/vendor_node_modules/pkg/index.js',
+      'workspace/repo/node_modules/pkg/index.js',
+    ];
+    const durable = [
+      '.pi/agent/installer-scratch/notes.md',
+      '.pi/agent/local-packages/custom-package/package.json',
+      'Temporary/build-copy/node_modules-notes/README.md',
+      'Uploads/notes-node_modules',
+    ];
+    const extraFixtures = Object.fromEntries([...transient, ...durable].map(path => [path, 'fixture']));
+    for (const syncPolicyMode of ['include', 'exclude']) {
+      it(`skips dependency trees and preserves unrelated paths in ${syncPolicyMode} mode`, () => {
+        const verdict = verdictUnder({ sessionMode: 'advanced', syncPolicyMode, extraFixtures });
+        for (const path of transient) assert.equal(verdict[path], 'EXCLUDED', path);
+        for (const path of durable) assert.equal(verdict[path], 'INCLUDED', path);
+      });
     }
   });
 
@@ -636,11 +705,12 @@ const governedPaths = [...governedRoots.map(root => `${root}managed/item`),
   '.codeflare/managed-extensions.json', '.codeflare/managed-paths.json',
   '.pi/agent/extensions/synthetic-retired.ts'].sort();
 
-function persistenceFixture(t, { sessionMode = 'advanced', syncMode = 'full', syncPolicyMode = 'include', policy = 'immutable' } = {}) {
+function persistenceFixture(t, { sessionMode = 'advanced', syncMode = 'full', syncPolicyMode = 'include', policy = 'immutable',
+  sessionId = 'abc12345', remote: sharedRemote, hermes = 'deferred', governed = [] } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'persistence-policy-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const home = join(root, 'home');
-  const remote = join(root, 'remote');
+  const remote = sharedRemote ?? join(root, 'remote');
   const runtime = join(root, 'runtime');
   for (const directory of [home, remote, join(runtime, 'sync/rclone')]) mkdirSync(directory, { recursive: true });
   const put = (base, path, bytes) => {
@@ -650,7 +720,7 @@ function persistenceFixture(t, { sessionMode = 'advanced', syncMode = 'full', sy
   put(home, '.pi/agent/sentinel', 'unchanged ordinary state');
   const releaseDigest = createHash('sha256').update('synthetic-release').digest('hex');
   const policyBytes = `${JSON.stringify({ schemaVersion: 1, releaseDigest, resourcePolicy: policy,
-    paths: governedPaths, resourceRoots: policy === 'exclusive' ? governedRoots.sort() : [] })}\n`;
+    paths: [...governedPaths, ...governed].sort(), resourceRoots: policy === 'exclusive' ? governedRoots.sort() : [] })}\n`;
   const digest = createHash('sha256').update(policyBytes).digest('hex');
   const config = join(root, 'rclone.conf');
   writeFileSync(config, '[r2]\ntype = local\n');
@@ -668,14 +738,20 @@ R2_BUCKET_NAME=${JSON.stringify(remote)}
 MANAGED_RESOURCE_POLICY=${policy}
 REMOTE_CURATION_RELEASE_DIGEST=${releaseDigest}
 MANAGED_RESOURCE_PATHS_DIGEST=${digest}
-SESSION_ID=abc12345
+SESSION_ID=${JSON.stringify(sessionId)}
 SESSION_MODE=${sessionMode}
+CODEFLARE_HERMES_PERSISTENCE=${JSON.stringify(hermes)}
+PI_WARM_EXTENSIONS_DIR=${JSON.stringify(resolve(__dirname, '../../preseed/agents/pi/extensions'))}
 SYNC_MODE=${syncMode}
 ${syncPolicyMode === null ? 'unset SYNC_POLICY_MODE' : `SYNC_POLICY_MODE=${JSON.stringify(syncPolicyMode)}`}
 ${filterSlice}
 ${policyFunctions}
 source ${JSON.stringify(resolve(__dirname, '../../scripts/rclone-conflict-cleanup.sh'))}
 ${shellFunction('initial_sync_from_r2')}
+${shellFunction('transfer_pi_hermes_memory')}
+${shellFunction('configure_pi_hermes_memory')}
+${shellFunction('prepare_pi_hermes_persistence')}
+${shellFunction('persist_pi_hermes_memory')}
 ${shellFunction('record_sync_disk_failure')}
 ${shellFunction('establish_bisync_baseline')}
 ${shellFunction('bisync_with_r2')}
@@ -683,6 +759,14 @@ ${shellFunction('shutdown_handler')}
 cleanup_main_transcripts() { :; }
 cleanup_remote_pi_transcript_conflicts() { :; }
 repair_hook_exec_bits() { :; }
+restore_hermes() {
+  initial_sync_from_r2 || return
+  mkdir -p "$USER_HOME/.pi/agent/extensions"
+  cp "$PI_WARM_EXTENSIONS_DIR/hermes-memory-runtime.ts" "$USER_HOME/.pi/agent/extensions/"
+  prepare_managed_resource_filter || return
+  HERMES_RESTORE_DEADLINE=$((SECONDS+20))
+  prepare_pi_hermes_persistence
+}
 `;
   const run = (commands, success = true) => {
     const result = spawnSync('bash', ['-c', `${setup}\n${commands}`], { encoding: 'utf8', timeout: 30000 });
@@ -695,6 +779,176 @@ repair_hook_exec_bits() { :; }
   };
   return { home, remote, runtime, put, run, policyBytes };
 }
+
+describe('REQ-MEM-035 AC2 / REQ-MEM-041 AC2: session Markdown sync', () => {
+  function initializeRemote(fx, id, memory) {
+    const prefix = `Vault/Memory/Sessions/${id}`;
+    for (const [relative, contents] of Object.entries({
+      'global/MEMORY.md': memory, 'global/USER.md': 'Original user preference', 'global/failures.md': '',
+      'Projects/workspace/MEMORY.md': 'Workspace facts', 'session-id': `${id}\n`,
+    })) fx.put(fx.remote, `${prefix}/${relative}`, contents);
+  }
+
+  for (const syncPolicyMode of ['include', 'exclude']) {
+    it(`round-trips cleared Markdown without transferring Hermes transient files (${syncPolicyMode})`, t => {
+      const fx = persistenceFixture(t, { policy: 'mutable', syncPolicyMode, hermes: 'existing' });
+      const session = 'Vault/Memory/Sessions/abc12345';
+      const memory = `${session}/global/MEMORY.md`;
+      const empty = `${session}/global/USER.md`;
+      const transients = [
+        'global/sessions.db', 'global/sessions.db-wal', 'global/sessions.db-shm', 'global/sessions.db-journal',
+        'global/sessions.db.recovery-state.json', 'global/sessions.db.corrupt-example',
+        'global/sessions.db.rebuild-123-123-example.tmp',
+        'global/.pi-hermes-locks.sqlite', 'global/.pi-hermes-locks.sqlite-wal',
+        'Projects/workspace/.pi-hermes-locks.sqlite-journal',
+        'global/.MEMORY.md.recovery-1700000000000-00000000-0000-4000-8000-000000000000',
+        'global/.MEMORY.md.retired-1700000000000-00000000-0000-4000-8000-000000000000',
+        'global/.tmp-example/write.tmp',
+      ];
+      initializeRemote(fx, 'abc12345', 'Previously persisted text.');
+      fx.put(fx.remote, `${session}/checkpoint.json`, '{"legacy":true}\n');
+      fx.put(fx.remote, 'Vault/Memory/MEMORY.md', 'Shared master.');
+      fx.run('restore_hermes');
+      assert.equal(readFileSync(join(fx.home, memory), 'utf8'), 'Previously persisted text.');
+      fx.put(fx.home, empty, '');
+      fx.run('establish_bisync_baseline');
+      assert.deepEqual(readFileSync(join(fx.remote, empty)), Buffer.alloc(0), 'baseline must persist empty Markdown');
+      fx.put(fx.home, memory, '');
+      for (const path of transients) fx.put(fx.home, `${session}/${path}`, 'do not transfer');
+      fx.run('bisync_with_r2 ""');
+      assert.deepEqual(readFileSync(join(fx.remote, memory)), Buffer.alloc(0));
+      for (const path of transients) assert.equal(existsSync(join(fx.remote, session, path)), false, path);
+      rmSync(fx.home, { recursive: true });
+      mkdirSync(fx.home);
+      fx.run('restore_hermes');
+      assert.deepEqual(readFileSync(join(fx.home, memory)), Buffer.alloc(0));
+      assert.deepEqual(readFileSync(join(fx.home, empty)), Buffer.alloc(0));
+      assert.equal(readFileSync(join(fx.remote, `${session}/checkpoint.json`), 'utf8'), '{"legacy":true}\n');
+      assert.equal(readFileSync(join(fx.remote, 'Vault/Memory/MEMORY.md'), 'utf8'), 'Shared master.');
+    });
+
+    it(`REQ-MEM-042 AC4: sessions sharing a bucket cannot restore or re-upload each other's Hermes Markdown (${syncPolicyMode})`, t => {
+      const a = persistenceFixture(t, { policy: 'mutable', syncPolicyMode, hermes: 'existing', sessionId: 'sessiona' });
+      const b = persistenceFixture(t, { policy: 'mutable', syncPolicyMode, hermes: 'existing', sessionId: 'sessionb', remote: a.remote });
+      const victim = 'Vault/Memory/Sessions/sessiona';
+      const aMemory = `${victim}/global/MEMORY.md`;
+      const bMemory = 'Vault/Memory/Sessions/sessionb/global/MEMORY.md';
+      const legacy = 'Vault/Memory/Sessions/sessionarchive/checkpoint.json';
+      const ordinary = 'Vault/Notes/ordinary.md';
+      initializeRemote(a, 'sessiona', 'Original A');
+      initializeRemote(a, 'sessionb', 'Original B');
+      a.put(a.remote, legacy, 'Legacy checkpoint');
+      a.put(a.remote, ordinary, 'Ordinary Vault file');
+
+      for (const [owner, own, peer, original] of [[a, aMemory, bMemory, 'Original A'], [b, bMemory, aMemory, 'Original B']]) {
+        owner.run('restore_hermes');
+        assert.equal(existsSync(join(owner.home, peer)), false, 'bootstrap must not copy a peer store');
+        assert.equal(readFileSync(join(owner.home, own), 'utf8'), original);
+        assert.equal(readFileSync(join(owner.home, ordinary), 'utf8'), 'Ordinary Vault file');
+        owner.put(owner.home, peer, 'Stale peer file from local disk');
+        owner.run('establish_bisync_baseline');
+      }
+      assert.equal(readFileSync(join(a.remote, aMemory), 'utf8'), 'Original A');
+      assert.equal(readFileSync(join(a.remote, bMemory), 'utf8'), 'Original B');
+
+      a.put(a.home, aMemory, 'Latest A');
+      a.run('bisync_with_r2 ""');
+      assert.equal(readFileSync(join(a.remote, aMemory), 'utf8'), 'Latest A');
+      // Model the remote result of confirmed whole-folder eviction after A has stopped.
+      rmSync(join(a.remote, victim), { recursive: true });
+      b.put(b.home, aMemory, 'Stale A that must never be uploaded');
+      b.put(b.home, `${victim}/Projects/workspace/MEMORY.md`, 'Stale project memory');
+      b.put(b.home, bMemory, 'Latest B');
+      b.run('bisync_with_r2 ""');
+      assert.equal(existsSync(join(a.remote, victim)), false);
+      assert.equal(readFileSync(join(a.remote, bMemory), 'utf8'), 'Latest B');
+      assert.equal(readFileSync(join(a.remote, legacy), 'utf8'), 'Legacy checkpoint');
+      assert.equal(readFileSync(join(a.remote, ordinary), 'utf8'), 'Ordinary Vault file');
+    });
+  }
+
+  it('REQ-MEM-042 AC2: identical Markdown keeps its remote timestamp and equal-size edits still transfer', t => {
+    const fx = persistenceFixture(t, { policy: 'mutable', hermes: 'new' });
+    const path = 'Vault/Memory/Sessions/abc12345/global/MEMORY.md';
+    const local = join(fx.home, path);
+    const remote = join(fx.remote, path);
+    fx.put(fx.remote, 'Vault/Memory/MEMORY.md', 'abcd');
+    fx.run('restore_hermes; establish_bisync_baseline');
+    assert.equal(readFileSync(remote, 'utf8'), 'abcd');
+    const old = new Date('2025-01-01T00:00:00Z');
+    const newer = new Date('2025-02-01T00:00:00Z');
+    utimesSync(remote, old, old);
+    utimesSync(local, newer, newer);
+    fx.run('bisync_with_r2 ""');
+    assert.equal(statSync(remote).mtimeMs, old.getTime(), 'a byte-identical copy must not rewrite the object');
+    writeFileSync(local, 'efgh');
+    utimesSync(local, old, old);
+    fx.run('bisync_with_r2 ""');
+    assert.equal(readFileSync(remote, 'utf8'), 'efgh', 'same size and mtime must not hide changed Markdown');
+  });
+
+  it('REQ-MEM-041 AC6: replacement preparation opens saved session Markdown without reseeding', t => {
+    const fx = persistenceFixture(t, { policy: 'mutable', hermes: 'existing' });
+    const store = 'Vault/Memory/Sessions/abc12345';
+    initializeRemote(fx, 'abc12345', 'Last saved session fact');
+    fx.put(fx.remote, 'Vault/Memory/MEMORY.md', 'A different shared master');
+    fx.run('restore_hermes');
+    const config = JSON.parse(readFileSync(join(fx.home, '.pi/agent/hermes-memory-config.json'), 'utf8'));
+    assert.equal(config.memoryDir, join(fx.home, store, 'global'));
+    assert.equal(readFileSync(join(config.memoryDir, 'MEMORY.md'), 'utf8'), 'Last saved session fact');
+    assert.equal(readFileSync(join(fx.home, 'Vault/Memory/MEMORY.md'), 'utf8'), 'A different shared master');
+    assert.equal(existsSync(join(config.memoryDir, 'sessions.db')), false);
+  });
+
+  it('REQ-MEM-041 AC3: refused or incomplete existing restore never reads from masters or reuploads stale local files', t => {
+    const fx = persistenceFixture(t, { policy: 'mutable', hermes: 'existing' });
+    const prefix = 'Vault/Memory/Sessions/abc12345';
+    initializeRemote(fx, 'abc12345', 'Existing fact');
+    fx.put(fx.remote, 'Vault/Memory/MEMORY.md', 'Shared master');
+    rmSync(join(fx.remote, prefix, 'global/USER.md'));
+    fx.put(fx.home, `${prefix}/global/USER.md`, 'Stale local file that cannot satisfy restore');
+    fx.run('restore_hermes', false);
+    assert.equal(existsSync(join(fx.home, '.pi/agent/hermes-memory-config.json')), false);
+    assert.equal(existsSync(join(fx.home, prefix, 'global/MEMORY.md')), false);
+    assert.equal(fx.run('establish_bisync_baseline', false).status, 65);
+    assert.equal(existsSync(join(fx.remote, prefix, 'global/USER.md')), false);
+  });
+
+  it('REQ-MEM-035 AC2: managed and recovery vetoes apply to exact Hermes transfers', t => {
+    const blocked = 'Vault/Memory/Sessions/abc12345/global/USER.md';
+    const fx = persistenceFixture(t, { hermes: 'existing', governed: [blocked] });
+    initializeRemote(fx, 'abc12345', 'Existing fact');
+    fx.put(fx.remote, '.codeflare/managed-paths.json', fx.policyBytes);
+    fx.run('restore_hermes', false);
+    assert.equal(existsSync(join(fx.home, blocked)), false);
+    assert.equal(existsSync(join(fx.home, '.pi/agent/hermes-memory-config.json')), false);
+
+    const recovery = persistenceFixture(t, { policy: 'mutable', hermes: 'existing' });
+    initializeRemote(recovery, 'abc12345', 'Existing fact');
+    recovery.run('restore_hermes; establish_bisync_baseline');
+    recovery.put(recovery.home, blocked, 'Unuploaded edit');
+    recovery.put(recovery.runtime, 'sync/recovery.filter', `- /${blocked}\n`);
+    assert.equal(recovery.run('bisync_with_r2', false).status, 65);
+    assert.equal(readFileSync(join(recovery.remote, blocked), 'utf8'), 'Original user preference');
+  });
+
+  it('REQ-MEM-042 AC4: a deferred container cannot restore or recreate its own evicted store from disk', t => {
+    const fx = persistenceFixture(t, { policy: 'mutable', hermes: 'deferred' });
+    const prefix = 'Vault/Memory/Sessions/abc12345';
+    initializeRemote(fx, 'abc12345', 'Prior memory');
+    fx.put(fx.remote, 'Vault/Notes/ordinary.md', 'Ordinary persisted note');
+    fx.run('initial_sync_from_r2');
+    assert.equal(existsSync(join(fx.home, prefix)), false);
+    rmSync(join(fx.remote, prefix), { recursive: true });
+    for (const path of ['global/USER.md', 'global/MEMORY.md', 'global/failures.md', 'Projects/workspace/MEMORY.md']) {
+      fx.put(fx.home, `${prefix}/${path}`, 'Stale local bytes');
+    }
+    fx.put(fx.home, `${prefix}/session-id`, 'abc12345\n');
+    fx.put(fx.runtime, 'sync/hermes-ready', 'direct:abc12345\n');
+    fx.run('establish_bisync_baseline; bisync_with_r2');
+    assert.equal(existsSync(join(fx.remote, prefix)), false);
+  });
+});
 
 describe('REQ-STOR-002/004/011/031/032: production persistence policy matrix', () => {
   it('REQ-AGENT-217 AC5: native preparation excludes only retired root stock from a real local baseline', t => {
@@ -723,15 +977,25 @@ describe('REQ-STOR-002/004/011/031/032: production persistence policy matrix', (
     const fx = persistenceFixture(t, { policy: 'mutable' });
     const path = 'Vault/graphify-out/vault-extract-manifest.json';
     const manifest = '{"files":{"Notes/persisted.md":{"sha256":"synthetic-content-hash"}}}\n';
+    const initialized = 'Vault/graphify-out/vault-extract-initialized';
+    // Intentional durable wire contents: nonempty even with --min-size 1B.
+    // The existing boot test covers its first-init/no-rebaseline meaning.
+    fx.put(fx.remote, initialized, '1\n');
     fx.put(fx.remote, path, manifest);
     fx.put(fx.remote, 'Vault/Notes/unchanged.md', 'unchanged user note');
     fx.run('initial_sync_from_r2\nestablish_bisync_baseline');
     assert.equal(readFileSync(join(fx.home, path), 'utf8'), manifest);
+    for (const base of [fx.home, fx.remote]) {
+      assert.equal(readFileSync(join(base, initialized), 'utf8'), '1\n');
+    }
     const updated = '{"files":{"Notes/updated.md":{"sha256":"updated-content-hash"}}}\n';
     fx.put(fx.remote, path, updated);
     fx.run('bisync_with_r2 ""');
     assert.equal(readFileSync(join(fx.home, path), 'utf8'), updated);
     assert.equal(readFileSync(join(fx.remote, path), 'utf8'), updated);
+    for (const base of [fx.home, fx.remote]) {
+      assert.equal(readFileSync(join(base, initialized), 'utf8'), '1\n');
+    }
     assert.equal(readFileSync(join(fx.home, 'Vault/Notes/unchanged.md'), 'utf8'), 'unchanged user note');
     assert.equal(readFileSync(join(fx.remote, 'Vault/Notes/unchanged.md'), 'utf8'), 'unchanged user note');
   });
@@ -743,7 +1007,8 @@ describe('REQ-STOR-002/004/011/031/032: production persistence policy matrix', (
           const fx = persistenceFixture(t, { sessionMode, syncMode, syncPolicyMode, policy: protectedMode ? 'immutable' : 'mutable' });
           const all = [...durablePaths, ...fallbackPaths, ...transientPaths, ...vaultPaths, ...workspacePaths,
             ...governedPaths.filter(path => path !== '.codeflare/managed-paths.json'), 'Vault/graphify-out/derived.bin'];
-          for (const path of all) fx.put(fx.home, path, Buffer.from(`synthetic:${path}\0`));
+          for (const path of all) fx.put(fx.home, path,
+            path === 'Vault/graphify-out/vault-extract-initialized' ? '1\n' : Buffer.from(`synthetic:${path}\0`));
           fx.put(fx.home, '.codeflare/managed-paths.json', fx.policyBytes);
           const expected = new Set([
             ...durablePaths,

@@ -1698,6 +1698,33 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
   });
 
   describe('WebSocket reconnection behavior', () => {
+    it.each([
+      { random: 0, delays: [50, 100, 100, 100] },
+      { random: 1, delays: [100, 200, 200, 200] },
+    ])('REQ-SESSION-012 AC3: delivered retries respect jitter extreme $random and the delay cap', async ({ random, delays }) => {
+      vi.mocked(Math.random).mockReturnValue(random);
+      const sockets: InstanceType<typeof _MockWebSocket>[] = [];
+      vi.stubGlobal('WebSocket', class extends _MockWebSocket {
+        constructor(url: string) { super(url); sockets.push(this); }
+      });
+      const terminal = createMockTerminal();
+      terminalStore.connect(sessionId, terminalId, terminal);
+      for (const delay of delays) {
+        const socket = sockets[sockets.length - 1]!;
+        // Deliver failure before open, so repeated failed attempts cannot reset backoff.
+        socket.close(1013, 'warming');
+        socket.onopen = null;
+        const count = sockets.length;
+        await vi.advanceTimersByTimeAsync(delay - 1);
+        expect(sockets).toHaveLength(count);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(sockets).toHaveLength(count + 1);
+        expect(sockets[sockets.length - 1]!.url).toBe(socket.url);
+        expect(terminalStore.getTerminal(sessionId, terminalId)).toBe(terminal);
+        expect(terminalStore.getConnectionState(sessionId, terminalId)).toBe('connecting');
+      }
+    });
+
     it('REQ-SESSION-012 AC7 / REQ-TERM-003: delivered 1011 backs off, restores the same terminal and accepts fresh input/output', async () => {
       // Store-layer contract, not an end-to-end relay test: the Workers test
       // independently verifies that an upstream 1006 delivers this wire code.

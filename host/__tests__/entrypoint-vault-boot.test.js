@@ -29,7 +29,10 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { once } from 'node:events';
+import http from 'node:http';
+import { setTimeout as delay } from 'node:timers/promises';
 import {
   mkdtempSync,
   mkdirSync,
@@ -82,10 +85,16 @@ function mkTmp(prefix) {
 function runBash(script) {
   const runtimeRoot = mkTmp('vault-boot-runtime-');
   mkdirSync(join(runtimeRoot, 'locks'), { recursive: true });
-  return spawnSync('bash', ['-c', script], {
-    encoding: 'utf8',
-    env: { ...process.env, CODEFLARE_RUNTIME_ROOT: runtimeRoot },
-  });
+  try {
+    return spawnSync('bash', ['-c', script], {
+      encoding: 'utf8',
+      timeout: 10_000,
+      killSignal: 'SIGKILL',
+      env: { ...process.env, CODEFLARE_RUNTIME_ROOT: runtimeRoot },
+    });
+  } finally {
+    rmSync(runtimeRoot, { recursive: true, force: true });
+  }
 }
 
 // REQ-VAULT-010: Codeflare-authoritative files preseeded into the vault on every boot
@@ -159,10 +168,10 @@ relay_managed_pi_extensions() { :; }
   //  - point USER_HOME at a temp dir
   //  - override PRESEED_DIR (it is `local` inside the function, so we
   //    patch the literal assignment to our temp preseed root)
-  //  - stub `graphify` lookups (command -v graphify -> not found) so the
-  //    global-add block is a no-op and needs no real graphify binary
+  //  - default to disabling graphify; the offline merge bridge may supply its
+  //    isolated CLI directory instead (never the real user's graph workspace)
   // Returns the rendered script that runs init_user_vault N times.
-  function buildInitVaultHarness({ userHome, preseedDir, pluginDir = join(preseedDir, 'plugins'), runs = 1 }) {
+  function buildInitVaultHarness({ userHome, preseedDir, pluginDir = join(preseedDir, 'plugins'), runs = 1, graphifyBin }) {
     let body = extractFunctionBody('init_user_vault');
     // Repoint the function's local PRESEED_DIR at our temp preseed root.
     body = body.replace(
@@ -172,12 +181,11 @@ relay_managed_pi_extensions() { :; }
     const calls = Array.from({ length: runs }, () => 'init_user_vault >/dev/null 2>&1').join('\n');
     return `
       set +e
-      # Force the graphify global-add branch to be skipped: shadow the
-      # builtin lookup so 'command -v graphify' reports "not found".
-      command() {
+      ${graphifyBin ? `export HOME=${JSON.stringify(userHome)} PYTHONPATH="" PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1
+      export PATH=${JSON.stringify(graphifyBin)}:/usr/local/bin:/usr/bin:/bin` : `command() {
         if [ "$1" = "-v" ] && [ "$2" = "graphify" ]; then return 1; fi
         builtin command "$@"
-      }
+      }`}
       USER_HOME=${userHome}
       PLUGIN_DIR=${pluginDir}
       export USER_HOME PLUGIN_DIR
@@ -236,6 +244,262 @@ relay_managed_pi_extensions() { :; }
       assert.ok(existsSync(join(vault, d)), `init_user_vault must ensure ~/Vault/${d} exists`);
     }
   });
+
+  it('REQ-VAULT-001 AC5: initializer creates missing Uploads and Temporary and preserves user content on re-run', (t) => {
+    const root = mkTmp('vault-trays-');
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const userHome = join(root, 'home');
+    const preseedDir = join(root, 'preseed');
+    const note = join(userHome, 'Vault', 'Notes', 'retained.md');
+    mkdirSync(dirname(note), { recursive: true });
+    mkdirSync(preseedDir);
+    writeFileSync(note, 'restored user note\n');
+    for (const tray of ['Uploads', 'Temporary']) {
+      assert.equal(existsSync(join(userHome, tray)), false);
+    }
+
+    const script = buildInitVaultHarness({ userHome, preseedDir });
+    const first = runBash(script);
+    assert.equal(first.status, 0, first.stderr);
+    for (const tray of ['Uploads', 'Temporary']) {
+      assert.ok(statSync(join(userHome, tray)).isDirectory(), `${tray} must be created by init_user_vault`);
+      writeFileSync(join(userHome, tray, 'user.txt'), `${tray} user bytes\n`);
+    }
+    assert.equal(readFileSync(note, 'utf8'), 'restored user note\n');
+
+    const second = runBash(script);
+    assert.equal(second.status, 0, second.stderr);
+    assert.equal(readFileSync(note, 'utf8'), 'restored user note\n');
+    for (const tray of ['Uploads', 'Temporary']) {
+      assert.equal(readFileSync(join(userHome, tray, 'user.txt'), 'utf8'), `${tray} user bytes\n`);
+    }
+  });
+
+  it('REQ-VAULT-001 AC3: creates missing Raw/Pasted on first initialization and restores it on reinitialization', (t) => {
+    const root = mkTmp('vault-pasted-');
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const userHome = join(root, 'home');
+    const preseedDir = join(root, 'preseed');
+    mkdirSync(preseedDir);
+    const pasted = join(userHome, 'Vault', 'Raw', 'Pasted');
+    const script = buildInitVaultHarness({ userHome, preseedDir });
+    assert.equal(existsSync(pasted), false);
+    for (let boot = 0; boot < 2; boot++) {
+      const result = runBash(script);
+      assert.equal(result.status, 0, result.stderr);
+      assert.ok(statSync(pasted).isDirectory());
+      rmSync(pasted, { recursive: true });
+    }
+  });
+
+  it('REQ-VAULT-001 AC2: boot reconstructs the merged graph from restored source artifacts, excluding stale merged input', (t) => {
+    const python = process.env.GRAPHIFY_TEST_PYTHON;
+    assert.ok(python, 'Use the existing offline Graphify interpreter supplied by host CI; never install or stub it');
+    const root = mkTmp('vault-boot-offline-merge-');
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const userHome = join(root, 'home');
+    const remote = join(root, 'remote');
+    const preseedDir = join(root, 'preseed');
+    const bin = join(root, 'bin');
+    for (const path of [userHome, remote, preseedDir, bin]) mkdirSync(path);
+    const put = (path, bytes) => {
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, bytes);
+    };
+    const sourcePath = 'Vault/graphify-out/vault-graph.json';
+    const sourceBytes = JSON.stringify({ directed: false, multigraph: false, graph: {},
+      nodes: [
+        { id: 'note', label: 'RestoredNote', source_file: 'Notes/saved.md' },
+        { id: 'capture', label: 'RestoredCapture', source_file: 'Raw/Sessions/saved.md' },
+      ], links: [{ source: 'note', target: 'capture', relation: 'references' }] });
+    const staleBytes = JSON.stringify({ directed: false, multigraph: false, graph: {},
+      nodes: [{ id: 'stale', label: 'StaleMergedInput', source_file: 'obsolete.md' }], links: [] });
+    put(join(remote, sourcePath), sourceBytes);
+    put(join(remote, 'Vault/graphify-out/vault-extract-initialized'), '1\n');
+    put(join(remote, '.graphify/global-graph.json'), staleBytes);
+    put(join(remote, '.graphify/global-manifest.json'), '{"version":1,"repos":{"obsolete":{}}}\n');
+    put(join(remote, 'Vault/graphify-out/graph.json'), staleBytes);
+
+    // Same production filter/composition slices as entrypoint-rclone-filters:
+    // restore local fixture artifacts, not a substitute filtering algorithm.
+    const entrypoint = readFileSync(ENTRYPOINT, 'utf8');
+    const filterStart = entrypoint.indexOf('if [ "${SESSION_MODE:-default}" = "advanced" ]; then');
+    const filterEnd = entrypoint.indexOf('# ============================================================================\n# Recovery filter', filterStart);
+    const policyStart = entrypoint.indexOf('prepare_managed_resource_filter() {');
+    const policyEnd = entrypoint.indexOf('\n# Step 1: One-way sync FROM R2 TO local', policyStart);
+    assert.ok(filterStart >= 0 && filterEnd > filterStart && policyStart >= 0 && policyEnd > policyStart);
+    const restored = runBash(`
+      set -eu
+      USER_HOME=${JSON.stringify(userHome)}
+      SESSION_MODE=advanced
+      SESSION_ID=offline-boot
+      SYNC_MODE=full
+      SYNC_POLICY_MODE=include
+      MANAGED_RESOURCE_POLICY=mutable
+      mkdir -p "$CODEFLARE_RUNTIME_ROOT/sync"
+      MANAGED_RESOURCE_FILTER_FILE="$CODEFLARE_RUNTIME_ROOT/sync/managed.filter"
+      RECOVERY_FILTER_FILE="$CODEFLARE_RUNTIME_ROOT/sync/recovery.filter"
+      : > "$RECOVERY_FILTER_FILE"
+      ${entrypoint.slice(filterStart, filterEnd)}
+      ${entrypoint.slice(policyStart, policyEnd)}
+      compose_rclone_filters
+      rclone copy --config /dev/null "\${RCLONE_EFFECTIVE_FILTERS[@]}" ${JSON.stringify(remote)} "$USER_HOME"
+    `);
+    assert.equal(restored.status, 0, restored.stderr);
+    assert.equal(readFileSync(join(userHome, sourcePath), 'utf8'), sourceBytes);
+    const globalGraph = join(userHome, '.graphify', 'global-graph.json');
+    const manifest = join(userHome, '.graphify', 'global-manifest.json');
+    assert.equal(existsSync(globalGraph), false);
+    assert.equal(existsSync(manifest), false);
+    assert.equal(existsSync(join(userHome, 'Vault/graphify-out/graph.json')), false);
+
+    // Reuse actualFixture's offline CLI protocol. No extraction/model command,
+    // fake merger or fake lock: real global add runs under real fixture flock.
+    const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
+    put(join(bin, 'graphify'), `#!/bin/sh\nexec ${quote(python)} -m graphify "$@"\n`);
+    chmodSync(join(bin, 'graphify'), 0o755);
+    const boot = runBash(buildInitVaultHarness({ userHome, preseedDir, graphifyBin: bin }));
+    assert.equal(boot.status, 0, boot.stderr);
+    const merged = JSON.parse(readFileSync(globalGraph, 'utf8'));
+    assert.deepEqual(merged.nodes.map(node => node.label).sort(), ['RestoredCapture', 'RestoredNote']);
+    const labels = new Map(merged.nodes.map(node => [node.id, node.label]));
+    assert.deepEqual(merged.links.map(link => ({
+      endpoints: [labels.get(link.source), labels.get(link.target)].sort(), relation: link.relation,
+    })), [{ endpoints: ['RestoredCapture', 'RestoredNote'], relation: 'references' }]);
+    const repos = JSON.parse(readFileSync(manifest, 'utf8')).repos;
+    assert.deepEqual(Object.keys(repos), ['user_vault']);
+    assert.equal(repos.user_vault.source_path, join(userHome, sourcePath));
+    assert.equal(readFileSync(join(userHome, sourcePath), 'utf8'), sourceBytes);
+    assert.equal(readFileSync(join(remote, '.graphify/global-graph.json'), 'utf8'), staleBytes);
+  });
+
+  it('REQ-VAULT-010 AC2: authoritative page refresh preserves bytes and mtimes in every user-owned content directory', (t) => {
+    const root = mkTmp('vault-owned-');
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const userHome = join(root, 'home');
+    const preseedDir = join(root, 'preseed');
+    const vault = join(userHome, 'Vault');
+    mkdirSync(preseedDir);
+    const retained = [];
+    const oldTime = new Date('2025-02-03T04:05:06Z');
+    for (const directory of ['Notes', 'References', 'Inbox', 'Journal', 'Raw/Pasted', 'Raw/Sessions']) {
+      const path = join(vault, directory, 'nested', 'user.md');
+      const bytes = Buffer.from(`User-owned ${directory}\n\0\u00e9\n`);
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, bytes);
+      utimesSync(path, oldTime, oldTime);
+      retained.push({ path, bytes, mtime: statSync(path).mtimeMs });
+      const preseedPath = join(preseedDir, directory, 'nested', 'user.md');
+      mkdirSync(dirname(preseedPath), { recursive: true });
+      writeFileSync(preseedPath, 'must not replace user content\n');
+    }
+    const script = buildInitVaultHarness({ userHome, preseedDir });
+    for (const revision of ['first', 'second']) {
+      for (const page of ['CONFIG.md', 'README.md', 'STYLES.md']) {
+        writeFileSync(join(preseedDir, page), `${revision} authoritative ${page}\n`);
+      }
+      const result = runBash(script);
+      assert.equal(result.status, 0, result.stderr);
+      for (const page of ['CONFIG.md', 'README.md', 'STYLES.md']) {
+        assert.equal(readFileSync(join(vault, page), 'utf8'), `${revision} authoritative ${page}\n`);
+      }
+      for (const { path, bytes, mtime } of retained) {
+        assert.deepEqual(readFileSync(path), bytes, path);
+        assert.equal(statSync(path).mtimeMs, mtime, path);
+      }
+    }
+  });
+
+  for (const restored of [false, true]) {
+    it(`REQ-VAULT-010 AC3: initializer never writes a partial built-in library (${restored ? 'restored user overlay' : 'fresh Vault'})`, (t) => {
+      const root = mkTmp('vault-no-builtin-overlay-');
+      t.after(() => rmSync(root, { recursive: true, force: true }));
+      const userHome = join(root, 'home');
+      const preseedDir = join(root, 'preseed');
+      const vault = join(userHome, 'Vault');
+      const builtin = join(vault, 'Library', 'Std');
+      const userPage = join(builtin, 'Query.md');
+      const userBytes = 'User-retained old overlay\n';
+      const userTime = new Date('2025-04-05T06:07:08Z');
+      // Competing built-in pages must not be copied, even if present in preseed.
+      // A Codeflare plug is a positive control that real initialization ran.
+      mkdirSync(join(preseedDir, 'Library', 'Std'), { recursive: true });
+      mkdirSync(join(preseedDir, 'plugs', 'activity'), { recursive: true });
+      writeFileSync(join(preseedDir, 'Library', 'Std', 'Query.md'), 'partial replacement\n');
+      writeFileSync(join(preseedDir, 'Library', 'Std', 'Widgets.md'), 'partial addition\n');
+      if (restored) {
+        mkdirSync(builtin, { recursive: true });
+        writeFileSync(userPage, userBytes);
+        utimesSync(userPage, userTime, userTime);
+      }
+      const script = buildInitVaultHarness({ userHome, preseedDir });
+      for (const version of ['first', 'second']) {
+        writeFileSync(join(preseedDir, 'plugs', 'activity', 'activity.plug.js'), `${version} managed plug\n`);
+        const result = runBash(script);
+        assert.equal(result.status, 0, result.stderr);
+        assert.equal(readFileSync(join(vault, 'Library', 'Codeflare', 'activity.plug.js'), 'utf8'), `${version} managed plug\n`);
+        assert.deepEqual(readdirSync(join(vault, 'Library')).sort(), restored ? ['Codeflare', 'Std'] : ['Codeflare']);
+        if (restored) {
+          assert.deepEqual(readdirSync(builtin), ['Query.md']);
+          assert.equal(readFileSync(userPage, 'utf8'), userBytes);
+          assert.equal(statSync(userPage).mtimeMs, userTime.getTime());
+        } else {
+          assert.equal(existsSync(builtin), false, 'fresh initialization must not create a partial built-in overlay');
+        }
+      }
+    });
+  }
+
+  it('REQ-VAULT-010 AC4: seeds a valid empty graph only when absent and preserves populated graph bytes on rerun', (t) => {
+    const root = mkTmp('vault-empty-graph-');
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const userHome = join(root, 'home');
+    const preseedDir = join(root, 'preseed');
+    mkdirSync(preseedDir);
+    const graph = join(userHome, 'Vault', 'graphify-out', 'graph.json');
+    const script = buildInitVaultHarness({ userHome, preseedDir });
+    assert.equal(existsSync(graph), false);
+    const first = runBash(script);
+    assert.equal(first.status, 0, first.stderr);
+    // Intentional serialized graph contract, not a snapshot of implementation.
+    assert.deepEqual(JSON.parse(readFileSync(graph, 'utf8')), {
+      directed: true, multigraph: false, graph: {}, nodes: [], links: [],
+    });
+    const populated = '{"directed":true,"multigraph":false,"graph":{},"nodes":[{"id":"retained"}],"links":[]}\n';
+    writeFileSync(graph, populated);
+    const second = runBash(script);
+    assert.equal(second.status, 0, second.stderr);
+    assert.equal(readFileSync(graph, 'utf8'), populated);
+  });
+
+  for (const page of ['README.md', 'STYLES.md']) {
+    for (const state of ['changed', 'unchanged']) {
+      it(`REQ-VAULT-023 AC1: ${page} ${state} bytes receive the preseed mtime on each boot`, (t) => {
+        const root = mkTmp('vault-page-mtime-');
+        t.after(() => rmSync(root, { recursive: true, force: true }));
+        const userHome = join(root, 'home');
+        const preseedDir = join(root, 'preseed');
+        const vault = join(userHome, 'Vault');
+        mkdirSync(preseedDir);
+        mkdirSync(vault, { recursive: true });
+        const source = join(preseedDir, page);
+        const target = join(vault, page);
+        writeFileSync(source, `authoritative ${page}\n`);
+        const sourceTime = new Date('2025-03-04T05:06:07Z');
+        utimesSync(source, sourceTime, sourceTime);
+        const script = buildInitVaultHarness({ userHome, preseedDir });
+        for (let boot = 0; boot < 2; boot++) {
+          writeFileSync(target, state === 'changed' ? `stale boot ${boot}\n` : readFileSync(source));
+          const drifted = new Date('2026-07-08T09:10:11Z');
+          utimesSync(target, drifted, drifted);
+          const result = runBash(script);
+          assert.equal(result.status, 0, result.stderr);
+          assert.deepEqual(readFileSync(target), readFileSync(source));
+          assert.equal(statSync(target).mtimeMs, statSync(source).mtimeMs);
+        }
+      });
+    }
+  }
 
   // -------------------------------------------------------------------------
   // Deterministic preseed-page mtimes — the warm 2nd-start "stuck preparing"
@@ -534,6 +798,103 @@ relay_managed_pi_extensions() { :; }
       'init_user_vault must only manage Library/Codeflare, never other Library subdirs',
     );
   });
+});
+
+describe('SilverBullet supervisor launch boundary (real entrypoint function)', () => {
+  async function exerciseSupervisor(overrideHost) {
+    const expectedHost = overrideHost ?? '127.0.0.1';
+    const root = mkTmp('vault-supervisor-');
+    const home = join(root, 'home');
+    const runtime = join(root, 'runtime');
+    const launchesFile = join(root, 'launches.jsonl');
+    const binary = join(root, 'silverbullet-peer.cjs');
+    const pidFile = join(runtime, 'services', 'silverbullet.pid');
+    mkdirSync(join(home, 'Vault'), { recursive: true });
+    mkdirSync(join(runtime, 'services'), { recursive: true });
+
+    // Controlled editor executable, not a replacement supervisor: consume the
+    // real launcher's argv, bind that address, and keep running until killed.
+    writeFileSync(binary, `#!${process.execPath}
+const http = require('node:http');
+const { appendFileSync } = require('node:fs');
+const args = process.argv.slice(2);
+const server = http.createServer((_req, res) => res.end(JSON.stringify({ pid: process.pid })));
+server.listen(Number(args[args.indexOf('--port') + 1]), args[args.indexOf('--hostname') + 1], () => {
+  appendFileSync(process.env.LAUNCHES_FILE, JSON.stringify({
+    pid: process.pid, address: server.address(), vault: args.at(-1), index: process.env.SB_INDEX_PAGE
+  }) + '\\n');
+});
+`);
+    chmodSync(binary, 0o755);
+    const env = { ...process.env, HOME: home, CODEFLARE_RUNTIME_ROOT: runtime,
+      SILVERBULLET_BIN: binary, SILVERBULLET_PORT: '0', LAUNCHES_FILE: launchesFile };
+    // Do not let inherited configuration turn the default case into an override.
+    delete env.SILVERBULLET_HOST;
+    if (overrideHost !== undefined) env.SILVERBULLET_HOST = overrideHost;
+    const host = spawn('bash', ['-c', `${extractFunctionBody('start_silverbullet_supervisor')}
+start_silverbullet_supervisor
+wait "$SILVERBULLET_SUPERVISOR_PID"
+`], { env, stdio: 'ignore' });
+    const hostExit = once(host, 'exit');
+    const launches = () => existsSync(launchesFile)
+      ? readFileSync(launchesFile, 'utf8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line))
+      : [];
+    const waitForLaunch = async (count) => {
+      const deadline = Date.now() + 9000;
+      while (Date.now() < deadline) {
+        const observed = launches();
+        if (observed.length >= count) return observed[count - 1];
+        assert.equal(host.exitCode, null, 'launcher host must remain alive');
+        await delay(25);
+      }
+      assert.fail(`editor launch ${count} not observed; log: ${readFileSync(join(runtime, 'services', 'silverbullet.log'), 'utf8')}`);
+    };
+    const probe = (port) => new Promise((resolve, reject) => {
+      const request = http.get({ hostname: expectedHost, port }, (response) => {
+        let body = '';
+        response.setEncoding('utf8');
+        response.on('data', (chunk) => { body += chunk; });
+        response.on('end', () => resolve(JSON.parse(body)));
+        response.on('error', reject);
+      });
+      request.setTimeout(1000, () => request.destroy(new Error('editor probe timed out')));
+      request.on('error', reject);
+    });
+    try {
+      await once(host, 'spawn');
+      const first = await waitForLaunch(1);
+      assert.equal(first.address.address, expectedHost);
+      assert.equal(first.vault, join(home, 'Vault'));
+      assert.equal(first.index, 'Index');
+      assert.deepEqual(await probe(first.address.port), { pid: first.pid });
+      const supervisorPid = readFileSync(pidFile, 'utf8');
+
+      const crashedAt = Date.now();
+      process.kill(first.pid, 'SIGKILL');
+      const restarted = await waitForLaunch(2);
+      assert.notEqual(restarted.pid, first.pid);
+      assert.equal(restarted.address.address, expectedHost);
+      assert.deepEqual(await probe(restarted.address.port), { pid: restarted.pid });
+      assert.ok(Date.now() - crashedAt < 9000, 'restart must complete within the 5s backoff plus local scheduling allowance');
+      assert.equal(readFileSync(pidFile, 'utf8'), supervisorPid, 'same supervisor survives the editor crash');
+      assert.equal(host.exitCode, null, 'surrounding launcher host must survive the editor crash');
+      assert.equal(host.signalCode, null);
+    } finally {
+      // The production supervisor owns a separate process group. Stop that
+      // entire group before removing the isolated runtime, including on failure.
+      if (existsSync(pidFile)) {
+        try { process.kill(-Number(readFileSync(pidFile, 'utf8').trim()), 'SIGKILL'); }
+        catch (error) { if (error.code !== 'ESRCH') throw error; }
+      }
+      host.kill('SIGKILL');
+      await hostExit;
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  it('REQ-VAULT-005 AC2/AC6: launches on loopback and restarts a crashed editor without restarting its host', { timeout: 15000 }, () => exerciseSupervisor());
+
+  it('REQ-VAULT-005 AC2/AC6: launches on loopback and restarts a crashed editor without restarting its host (SILVERBULLET_HOST=127.0.0.2)', { timeout: 15000 }, () => exerciseSupervisor('127.0.0.2'));
 });
 
 // ---------------------------------------------------------------------------

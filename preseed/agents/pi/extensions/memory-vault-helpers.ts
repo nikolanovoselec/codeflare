@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { isAbsolute, relative } from "node:path";
+import { isAbsolute, relative, sep } from "node:path";
 
 export const MEMORY_EVERY_N_PROMPTS = 20;
 export const VAULT_EVERY_N_PROMPTS = 20;
@@ -83,6 +83,7 @@ export type ExtractionDue =
 // the directory itself and anything beneath it.
 export const VAULT_GENERATED_PREFIXES = [
   "Raw/Sessions",
+  "Memory", // Hermes native recall owns these stores and recovery files.
   "Raw/Graphs",
   "graphify-out",
   ".silverbullet",
@@ -164,6 +165,7 @@ export function parseVaultExtractRequest(value: unknown): VaultExtractRequest | 
 
 const GRAPHIFY_FILE_TYPES = new Set(["code", "document", "concept"]);
 const GRAPHIFY_RELATIONS = new Set(["contains", "references", "conceptually_related_to", "cites"]);
+const GRAPHIFY_HYPEREDGE_RELATIONS = new Set(["form", "implement", "participate_in"]);
 const GRAPHIFY_CONFIDENCE = new Set(["EXTRACTED", "INFERRED"]);
 
 function nullableString(value: unknown): boolean {
@@ -210,6 +212,23 @@ export function isGraphifyExtractionChunk(value: unknown): boolean {
       || !nullableString(edge.source_location)
       || !finiteNumber(edge.weight)
       || Number(edge.weight) <= 0;
+  })) return false;
+  if (chunk.hyperedges.some((value) => {
+    const hyperedge = record(value);
+    return !hyperedge
+      || !nonEmptyString(hyperedge.id)
+      || !nonEmptyString(hyperedge.label)
+      || !Array.isArray(hyperedge.nodes)
+      || hyperedge.nodes.length === 0
+      || hyperedge.nodes.some((node) => !nonEmptyString(node))
+      || typeof hyperedge.relation !== "string"
+      || !GRAPHIFY_HYPEREDGE_RELATIONS.has(hyperedge.relation)
+      || typeof hyperedge.confidence !== "string"
+      || !GRAPHIFY_CONFIDENCE.has(hyperedge.confidence)
+      || !finiteNumber(hyperedge.confidence_score)
+      || Number(hyperedge.confidence_score) < 0
+      || Number(hyperedge.confidence_score) > 1
+      || !nonEmptyString(hyperedge.source_file);
   })) return false;
   return true;
 }
@@ -427,7 +446,7 @@ export function isChildSessionFirstLine(firstLine: string | undefined): boolean 
 }
 
 export function isVaultExcludedPath(vaultRoot: string, path: string): boolean {
-  const rel = relative(vaultRoot, path).replaceAll("\\", "/");
+  const rel = relative(vaultRoot, path).split(sep).join("/");
   if (!rel || rel.startsWith("..")) return true;
   if (VAULT_PRESEED_ROOT_FILES.has(rel)) return true;
   return VAULT_GENERATED_PREFIXES.some((prefix) => rel === prefix || rel.startsWith(`${prefix}/`));

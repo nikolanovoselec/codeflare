@@ -4,6 +4,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { appendFileSync, chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { completionPath } from '../../preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/review-completion-state.mjs';
 
 const ROOT = join(import.meta.dirname, '../..');
 const STOP = join(ROOT, 'preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh');
@@ -211,6 +212,31 @@ afterEach(() => {
 });
 
 describe('Claude current-round completion enforcement', () => {
+  it('REQ-AGENT-244 AC4: a separate clone honors the same user-scoped completion', () => {
+    const origin = setup();
+    const repo = temp('claude-stop-clone-');
+    git(origin.repo, 'clone', '-q', '--no-local', origin.repo, repo);
+    const clone = { ...origin, repo, transcript: join(repo, 'transcript.jsonl') };
+
+    const before = invoke(REMINDER, clone, { hook_event_name: 'SessionStart', session_id: 'clone-before-mark' });
+    assert.equal(before.status, 0);
+    assert.match(JSON.parse(before.stdout).hookSpecificOutput.additionalContext, /Reason: no saved completion\./);
+
+    const options = { cwd: origin.repo, env: origin.env, encoding: 'utf8' };
+    const mark = JSON.parse(execFileSync('node', [STATE, 'mark', '--cwd', origin.repo], options));
+    assert.equal(mark.written, true);
+    const path = completionPath(mark.identity, join(origin.home, '.codeflare/review-state/v1'));
+    const marker = JSON.parse(readFileSync(path, 'utf8'));
+    assert.equal(marker.head, origin.head);
+
+    const status = JSON.parse(execFileSync('node', [STATE, 'status', '--cwd', repo], { ...options, cwd: repo }));
+    assert.equal(status.repo, git(repo, 'rev-parse', '--show-toplevel'));
+    assert.deepEqual(status.completion, { status: 'complete', marker });
+    const after = invoke(REMINDER, clone, { hook_event_name: 'SessionStart', session_id: 'clone-after-mark' });
+    assert.equal(after.status, 0);
+    assert.equal(after.stdout, '', 'the shared exact marker suppresses the separate clone’s startup prompt');
+  });
+
   it('writes marker immediately before separate FIX reminder after terminal triage', () => {
     for (const ciTextBlocks of [false, true]) {
       const fx = setup();
@@ -291,13 +317,32 @@ describe('Claude current-round completion enforcement', () => {
       start(missing);
       round(missing, { ciResult, withTriage: false });
       append(missing, triage());
-      assert.equal(stop(missing).status, 2);
+      const missingResult = stop(missing);
+      assert.equal(missingResult.status, 2);
+      assert.match(missingResult.stderr, /publish the canonical triage table/);
+      assert.doesNotMatch(missingResult.stderr, /Review complete for/);
+      assert.notEqual(markerStatus(missing), 'complete');
+
+      const mismatched = setup();
+      start(mismatched);
+      round(mismatched, { ciResult, withTriage: false });
+      const wrongResult = ciResult === 'failure' ? 'timeout' : 'failure';
+      append(mismatched, triage(`\n| Exact-head CI | valid | CI_RESULT ${wrongResult} | proportional | fix |`));
+      const rejected = stop(mismatched);
+      assert.equal(rejected.status, 2);
+      assert.match(rejected.stderr, /publish the canonical triage table/);
+      assert.doesNotMatch(rejected.stderr, /Review complete for/);
+      assert.notEqual(markerStatus(mismatched), 'complete');
 
       for (const formattedCi of [false, true]) {
         const fx = setup();
         start(fx);
         round(fx, { ciResult, formattedCi });
-        assert.equal(stop(fx).status, 2);
+        const accepted = stop(fx);
+        assert.equal(accepted.status, 2);
+        assert.match(accepted.stderr, /Review complete for repo:feature\. FIX:/);
+        assert.doesNotMatch(accepted.stderr, /publish the canonical triage table/);
+        assert.equal(markerStatus(fx), 'complete');
       }
     }
   });

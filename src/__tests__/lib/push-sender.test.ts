@@ -158,6 +158,25 @@ describe('REQ-TERM-023 AC5 / REQ-SEC-024 AC1-AC6: Web Push sender', () => {
     expect(result.sentEventIds).toEqual(['event-a']);
   });
 
+  it('REQ-SEC-024 AC2: a provider 404 removes the subscription and acknowledges the event even without an expired flag', async () => {
+    const expiredKey = await storeSubscription(kv, bucketName, 'digest-404', subscription(
+      'https://web.push.apple.com/device-missing', 1,
+    ));
+    const otherBucket = 'codeflare-other-owner';
+    const otherKey = await storeSubscription(kv, otherBucket, 'digest-other', subscription(
+      'https://web.push.apple.com/device-other', 2,
+    ));
+    const otherBefore = await kv.get(otherKey);
+    sendNotificationMock.mockResolvedValueOnce({ status: 404, expired: false, body: '' });
+    const result = await sendAgentEventPushes({
+      kv: kv as unknown as KVNamespace, bucketName, session: SESSION,
+      events: [event('event-404')], vapid: VAPID,
+    });
+    expect(result.sentEventIds).toEqual(['event-404']);
+    expect(await kv.get(expiredKey)).toBeNull();
+    expect(await kv.get(otherKey)).toBe(otherBefore);
+  });
+
   it('retains transient failures for re-offer and never deletes their subscription', async () => {
     const retainedKey = await storeSubscription(kv, bucketName, 'digest-retained', subscription(
       'https://fcm.googleapis.com/fcm/send/device-retained',

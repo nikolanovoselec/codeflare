@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { transformSync } from 'esbuild';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { patchPiSubagentsNotifications } from '../../scripts/patch-pi-subagents-notifications.mjs';
 
 const capture = JSON.parse(readFileSync(new URL('../__fixtures__/pi-subagents-25.0.5-source.json', import.meta.url)));
@@ -167,6 +169,32 @@ test('REQ-AGENT-053: queued parent follow-ups cannot starve completion past the 
   assert.deepEqual(h.followUps, [{ role: 'user', content: 'Already queued parent request' }]);
   assert.deepEqual(h.sent.map(entry => entry.options), [{ deliverAs: 'steer', triggerTurn: true }],
     'public Pi delivery-mode contract: completion reaches the next request, not the idle queue');
+});
+
+test('REQ-AGENT-059 AC1: native retrieval delivers findings beyond the completion preview', {
+  skip: process.env.GITHUB_ACTIONS !== 'true', // Host CI provisions the locked preseed packages.
+}, async t => {
+  const h = await host(t);
+  const result = `${'First verified finding.\n'.repeat(40)}Final finding: retain the original receipt.`;
+  const reviewer = record('reviewer-with-long-report', { type: 'doc-updater', result });
+  h.notifications.sendCompletion(reviewer);
+  const [preview] = h.nextModelMessages();
+  assert.equal(preview.details.id, reviewer.id);
+  assert.match(preview.content, /truncated, use get_subagent_result/);
+  assert.doesNotMatch(preview.content, /Final finding/);
+
+  const { createJiti } = createRequire(import.meta.url)('jiti');
+  const jiti = createJiti(import.meta.url, { fsCache: false });
+  const source = fileURLToPath(new URL('../../preseed/agents/pi/node_modules/@gotgenes/pi-subagents/src/tools/get-result-tool.ts', import.meta.url));
+  const { GetResultTool } = await jiti.import(source);
+  const finished = { ...reviewer, latestRun: { ...reviewer, markConsumed() {} } };
+  const tool = new GetResultTool({ getRecord: id => id === reviewer.id ? finished : undefined }, {
+    resolveAgentConfig: name => ({ name }),
+  }).toToolDefinition();
+  const report = await tool.execute('retrieve-review', { agent_id: preview.details.id }, new AbortController().signal);
+  assert.equal(report.details.agentId, reviewer.id);
+  assert.equal(report.details.status, 'completed');
+  assert.ok(report.content[0].text.includes(result), 'the parent receives the intact findings, not just the preview');
 });
 
 test('Task118: result consumed by a tool in the same batch is not announced', async t => {

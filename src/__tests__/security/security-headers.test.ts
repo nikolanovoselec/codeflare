@@ -74,6 +74,24 @@ describe('REQ-SEC-008: Security headers on every worker response', () => {
     expect(hsts).toContain('includeSubDomains');
   });
 
+  it.each([
+    { method: 'OPTIONS', path: '/api/health', status: 204, location: null },
+    { method: 'GET', path: '/', status: 302, location: '/setup' },
+    { method: 'GET', path: '/api/auth/status', status: 401, location: null },
+  ])('REQ-SEC-008 AC1: HSTS survives $method $path with status $status', async ({ method, path, status, location }) => {
+    const { env, ctx } = createBaseEnv();
+    const res = await worker.fetch(new Request(`https://example.com${path}`, {
+      method,
+      headers: { Origin: 'https://codeflare.workers.dev' },
+    }), env, ctx);
+    expect(res.status).toBe(status);
+    expect(res.headers.get('Location')).toBe(location);
+    expect(res.headers.get('Strict-Transport-Security')).toMatch(/max-age=\d+;.*includeSubDomains/);
+    if (method === 'OPTIONS') {
+      expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://codeflare.workers.dev');
+    }
+  });
+
   it('REQ-SEC-008 AC2: Content-Security-Policy is set', async () => {
     const res = await fetchHealth();
     const csp = res.headers.get('Content-Security-Policy');

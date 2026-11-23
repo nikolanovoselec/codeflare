@@ -11,8 +11,9 @@ import { importPiExtension } from './pi-extension-module.mjs';
 const [scenario, home, repo] = process.argv.slice(2);
 const deps = join(repo, 'preseed/agents/pi/node_modules');
 const agentDir = join(home, '.pi/agent'), cwd = join(home, 'workspace');
-const memoryDir = join(home, 'Vault/Memory');
-const workspaceMemoryDir = join(memoryDir, 'Projects/workspace');
+const work = join(home, 'Vault/Memory/Sessions', process.env.SESSION_ID);
+const memoryDir = join(work, 'global');
+const workspaceMemoryDir = join(work, 'Projects/workspace');
 const paths = { user: join(memoryDir, 'USER.md'), global: join(memoryDir, 'MEMORY.md'),
   workspace: join(workspaceMemoryDir, 'MEMORY.md'), lesson: join(memoryDir, 'failures.md') };
 const facts = JSON.parse(readFileSync(join(home, 'facts.json'), 'utf8'));
@@ -75,7 +76,7 @@ globalThis.fetch = async (input, init) => {
     requests.push(body);
     assert.equal(body.model, expectedModel, 'foreground and review use the current configured model');
     assert.equal(body.stream, true);
-    if (['cold', 'warm', 'recall', 'managed', 'large'].includes(scenario)) assert.fail('eager rebuild/search must not call a provider');
+    if (['cold', 'warm', 'recall', 'managed', 'large'].includes(scenario)) assert.fail('index initialization/search must not call a provider');
     const lastUser = text(body.messages.findLast(message => message.role === 'user') ?? {});
     if (lastUser.includes('--- User Correction to Save ---')) {
       assert.equal(childMode, false, 'helper prompts cannot start correction extraction');
@@ -233,7 +234,7 @@ async function start({ parentSession, context = false, managed = false } = {}) {
     },
   };
 }
-const databasePath = join(home, '.cache/pi-hermes-memory/global/sessions.db');
+const databasePath = join(memoryDir, 'sessions.db');
 function openDatabase() {
   assert.ok(existsSync(databasePath), 'eager initialization produced the native database');
   const db = new Database(databasePath, { fileMustExist: true });
@@ -334,7 +335,7 @@ async function run() {
     return { searchableScopes: 3, crudScopes: 3, originalsPreserved: true, providerRequests: requests.length };
   }
   if (scenario === 'context') {
-    // Keep the canaries stable: stock search reads SQLite, reconciled at startup
+    // Keep the canaries stable: stock search reads SQLite, reconciled at initialization
     // and by native mutations, not by watching arbitrary live Markdown edits.
     // Native large-store CRUD and automatic correction have separate scenarios.
     const initialMarkdown = markdown();
@@ -390,7 +391,8 @@ async function run() {
   }
   assert.ok(['cold', 'warm', 'recall', 'managed'].includes(scenario));
   if (scenario === 'cold') assert.equal(existsSync(databasePath), false, 'fixture begins with canonical Markdown only');
-  const f = await start({ managed: scenario === 'managed' });
+  const f = await start({ managed: scenario === 'managed' || scenario === 'cold' || scenario === 'warm' });
+  const databaseOpenedAtStartup = existsSync(databasePath);
   if (scenario === 'managed') {
     assert.equal(f.session.sessionManager.getCwd(), join(cwd, 'unrelated-clone'), 'memory scope must not change the real session cwd');
     const helper = await start({ managed: true, parentSession: join(agentDir, 'sessions/root.jsonl') });
@@ -418,7 +420,7 @@ async function run() {
   } finally { db.close(); }
   assert.equal(requests.length, 0);
   const ownerRegistered = scenario === 'managed' && existsSync(join(home, '.cache/pi-hermes-memory/owners', `${process.pid}.json`));
-  return { ...result, providerRequests: requests.length, reusedNativeDatabase: scenario === 'warm', recalledCorrection: scenario === 'recall', ownerRegistered };
+  return { ...result, databaseOpenedAtStartup, providerRequests: requests.length, reusedNativeDatabase: scenario === 'warm', recalledCorrection: scenario === 'recall', ownerRegistered };
 }
 
 try {
