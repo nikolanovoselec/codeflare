@@ -7,6 +7,7 @@ import SessionContextMenu from './SessionContextMenu';
 import CreateSessionDialog from './CreateSessionDialog';
 import type { MultiViewWorkspace, SessionWithStatus, SessionStatus, AgentType, TabConfig } from '../types';
 import { sessionStore } from '../stores/session';
+import { isShutdownInProgress } from '../lib/session-presentation';
 import { generateSessionName } from '../lib/session-utils';
 import '../styles/session-dropdown.css';
 
@@ -222,10 +223,12 @@ const SessionDropdown: Component<SessionDropdownProps> = (props) => {
       <SessionContextMenu
         isOpen={menuState().isOpen}
         position={menuState().position}
-        canStop={['running', 'initializing', 'starting', 'unreachable', 'stopping'].includes(menuState().session?.status ?? '')}
-        canKill={['starting', 'running', 'unreachable', 'stopping'].includes(menuSession()?.status ?? '')}
+        canStop={!isShutdownInProgress(menuSession()?.shutdownPhase)
+          && ['running', 'initializing', 'starting', 'unreachable', 'stopping'].includes(menuSession()?.status ?? '')}
+        canKill={isShutdownInProgress(menuSession()?.shutdownPhase)
+          || ['starting', 'running', 'unreachable', 'stopping'].includes(menuSession()?.status ?? '')}
         onKill={() => { const session = menuSession(); if (session) void sessionStore.killSession(session.id); }}
-        stopLabel={menuState().session?.status === 'stopping' ? 'Retry Stop' : 'Stop'}
+        stopLabel={menuSession()?.status === 'stopping' ? 'Retry Stop' : 'Stop'}
         sessionName={menuState().session?.name || ''}
         onStop={() => { if (menuState().session) props.onStopSession(menuState().session!.id); }}
         onDelete={() => { if (menuState().session) props.onDeleteSession(menuState().session!.id); }}

@@ -215,6 +215,16 @@ describe('SessionDropdown', () => {
     },
   );
 
+  it.each([['stopping', 'consolidating'], ['stopped', 'queued']] as const)(
+    'REQ-SESSION-043: keeps Kill without Retry Stop while %s with phase %s', (status, shutdownPhase) => {
+      render(() => <SessionDropdown {...defaultProps}
+        sessions={[createSession({ id: 'recover', status, shutdownPhase })]} />);
+      fireEvent.click(screen.getByTestId('card-menu-recover'));
+      expect(screen.getByRole('button', { name: 'Kill' })).toBeEnabled();
+      expect(screen.queryByRole('button', { name: 'Retry Stop' })).not.toBeInTheDocument();
+    },
+  );
+
   describe('REQ-SESSION-038: KILL in the existing session menu', () => {
     it.each(['starting', 'running', 'unreachable', 'stopping'] as const)(
       'AC1/AC3 and inherited-behavior constraints: offers one KILL for %s, targets only the selected session and closes its menu', status => {

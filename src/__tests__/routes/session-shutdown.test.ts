@@ -31,7 +31,8 @@ vi.mock('@cloudflare/containers', () => ({
     constructor(public ctx: DurableObjectState, public env: Env) {}
     async startAndWaitForPorts() {
       const host = this as unknown as { envVars: Record<string, string>; onStart(): Promise<void> };
-      await this.ctx.container?.start({ envVars: host.envVars });
+      const native = this.ctx.container as unknown as { start(options: { envVars: Record<string, string> }): Promise<void> } | undefined;
+      await native?.start({ envVars: host.envVars });
       await host.onStart();
     }
     async destroy() { await this.ctx.container?.destroy(); }
@@ -73,7 +74,7 @@ function gate<T>(fallback: T) {
 
 // The wait bound is test infrastructure, not a production queue ETA. Stop and
 // Delete must acknowledge acceptance before the test releases the held Host.
-async function bounded(request: Promise<Response>) {
+async function bounded(request: Response | Promise<Response>) {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([request, new Promise<never>((_, reject) => {
@@ -84,7 +85,7 @@ async function bounded(request: Promise<Response>) {
   }
 }
 
-async function expectAccepted(request: Promise<Response>) {
+async function expectAccepted(request: Response | Promise<Response>) {
   expect((await bounded(request)).ok).toBe(true);
 }
 
@@ -94,6 +95,7 @@ function rig(enterprise = true) {
   const states = new Map<string, { ready: Promise<void>; instance: SessionContainer }>();
   const processes = new Map<string, ReturnType<typeof processFixture>>();
   const trace: string[] = [];
+  const alarms = new Set<string>();
 
   function processFixture(label: string, initiallyRunning: boolean, hasSnapshot: boolean) {
     let running = initiallyRunning;
@@ -101,6 +103,7 @@ function rig(enterprise = true) {
     // uses awaited native destroy as its source of positive exit evidence.
     const monitor = new Promise<void>(() => {});
     const save = gate<'saved' | 'failed'>('saved');
+    let firstSave = true;
     const exit = gate<void>(undefined);
     const merge = gate<'skipped' | 'merged' | 'pending' | 'uncertain'>('skipped');
     const retryResult = gate<'merged' | 'pending'>('pending');
@@ -131,9 +134,11 @@ function rig(enterprise = true) {
         }
         if (path === '/internal/final-sync') {
           trace.push(`${label}:save`);
-          if (await save.promise === 'failed') {
+          const result = firstSave ? await save.promise : 'saved';
+          firstSave = false;
+          if (result === 'failed') {
             trace.push(`${label}:save-failed`);
-            return Response.json({ synced: false, reason: 'bisync-failed' }, { status: 503 });
+            return Response.json({ synced: false, reason: 'bisync-failed' }, { status: 500 });
           }
           trace.push(`${label}:saved`);
           if (enterprise) expect(request.headers.get('x-codeflare-hermes-merge')).toBe('1');
@@ -175,7 +180,7 @@ function rig(enterprise = true) {
           ? key.filter(item => records.delete(item)).length : records.delete(key),
         list: async ({ prefix = '' } = {}) => new Map([...records].filter(([key]) => key.startsWith(prefix))),
         transaction: async <T>(work: (txn: unknown) => Promise<T>): Promise<T> => work(storage),
-        setAlarm: async () => {}, deleteAlarm: async () => {},
+        setAlarm: async () => { alarms.add(address); }, deleteAlarm: async () => { alarms.delete(address); },
       };
       let ready = Promise.resolve();
       const instance = new SessionContainer({ id: idFromName(address), container: process?.native, storage,
@@ -230,7 +235,12 @@ function rig(enterprise = true) {
   const remove = (id: string) => app().request(path(id), { method: 'DELETE' });
   const kill = (id: string) => app().request(`${path(id)}/kill`, { method: 'POST' });
   const retry = (id: string, bucket = owner) => app(bucket).request(`${path(id)}/retry-memory-consolidation`, { method: 'POST' });
-  return { owner, other, app, path, create, batch, stop, remove, kill, retry, trace, session: (id: string) => getByName(`${owner}-${id}`) };
+  const deliverAlarm = async () => {
+    const address = `storage:${owner}`;
+    expect(alarms.delete(address)).toBe(true);
+    await getByName(address).alarm();
+  };
+  return { owner, other, app, path, create, batch, stop, remove, kill, retry, trace, deliverAlarm, session: (id: string) => getByName(`${owner}-${id}`) };
 }
 
 const a = 'sessionaaa1';
@@ -315,6 +325,22 @@ it('REQ-SESSION-043: unconfirmed final sync preserves the running Delete target 
   expect(f.trace.filter(event => event.startsWith(`${a}:`))).toEqual([`${a}:final-events`, `${a}:save`, `${a}:save-failed`, `${a}:exit`]);
 });
 
+it('REQ-SESSION-043: Retry Stop can recover from a definitive final-save failure', async () => {
+  const f = rig();
+  const A = await f.create(a);
+  A.save.release('failed');
+  A.exit.release();
+  await expectAccepted(f.stop(a));
+  await vi.waitFor(async () => {
+    expect(f.trace).toContain(`${a}:save-failed`);
+    expect((await f.batch())[a]).toMatchObject({ status: 'stopping' });
+    expect((await f.batch())[a].shutdownPhase).toBeUndefined();
+  });
+  await expectAccepted(f.stop(a));
+  await vi.waitFor(async () => expect((await f.batch())[a]?.status).toBe('stopped'));
+  expect(f.trace.filter(event => event === `${a}:save`)).toHaveLength(2);
+});
+
 it('REQ-SESSION-043: retains an accepted Delete through finishing and removes the row only after confirmed exit', async () => {
   const f = rig();
   const A = await f.create(a);
@@ -365,6 +391,32 @@ it('REQ-MEM-044: Resume keeps an uncertain earlier publication slot without offe
   expect(resumed).toMatchObject({ lifecycleState: 'starting', lifecycleGeneration: 2 });
   expect((await f.batch())[a]?.shutdownPhase).toBeUndefined();
   expect((await repository.shutdownHead(f.owner))?.sessionId).toBe(a);
+});
+
+it('REQ-MEM-044: a failed restore does not consume the saved merge receipt', async () => {
+  const f = rig();
+  const A = await f.create(a, { holdMerge: true });
+  A.save.release('saved'); A.exit.release();
+  await expectAccepted(f.stop(a));
+  await vi.waitFor(() => expect(f.trace).toContain(`${a}:merge`));
+  A.merge.release('merged');
+  await vi.waitFor(async () => {
+    expect((await f.batch())[a]?.status).toBe('stopped');
+    expect((await f.batch())[a]?.shutdownPhase).toBeUndefined();
+  });
+  const saved = (await repository.getSession(f.owner, a))!;
+  const first = await repository.start(f.owner, a, stamp, saved.lifecycleGeneration, saved.shutdown);
+  expect(first?.mergedSnapshotId).toBe(snapshotId);
+  await repository.project(f.owner, a, 2, 0, { lifecycleState: 'running', observedAt: stamp });
+  const stopped = await repository.claimStop(f.owner, a, 'failed-restore-stop', stamp, 2);
+  expect(stopped).not.toBeNull();
+  await repository.confirmStopped(f.owner, a, 2, 'failed-restore-stop', stamp);
+  const second = await repository.start(f.owner, a, stamp, 2);
+  expect(second?.mergedSnapshotId).toBe(snapshotId);
+  await repository.project(f.owner, a, 3, 0, { lifecycleState: 'running', observedAt: stamp });
+  expect(await repository.confirmHermesRestore(f.owner, a, 2, snapshotId)).toBe(false);
+  expect(await repository.confirmHermesRestore(f.owner, a, 3, snapshotId)).toBe(true);
+  expect((await repository.getSession(f.owner, a))?.mergedSnapshotId).toBeUndefined();
 });
 
 it('REQ-SESSION-043: rejects headless Retry for an active session or a different owner without starting work', async () => {
@@ -494,6 +546,9 @@ it('REQ-SESSION-043: confirms an uncertain publication from the exact complete R
   await expectAccepted(f.stop(b));
   A.save.release('saved');
   await vi.waitFor(() => expect(f.trace).toContain(`${a}:merge`));
+  A.merge.release('uncertain'); A.exit.release();
+  await vi.waitFor(async () => expect((await f.batch())[a]?.shutdownPhase).toBe('memory-not-merged'));
+  await f.deliverAlarm();
   const revision = 'test-revision';
   const prefix = `/${f.owner}/Vault/Memory/Masters`;
   const files: Record<string, string> = {};
@@ -505,7 +560,8 @@ it('REQ-SESSION-043: confirms an uncertain publication from the exact complete R
   readback.set(`${prefix}/current.json`, JSON.stringify({ revision, files, source: {
     owner: f.owner, sessionId: a, generation: 1, intent: A.mergeRequest!.intent, snapshotId,
   } }));
-  A.merge.release('uncertain'); A.exit.release(); B.save.release('saved'); B.exit.release();
+  B.save.release('saved'); B.exit.release();
+  await f.deliverAlarm();
   await vi.waitFor(async () => {
     const settled = await f.batch();
     expect(settled[a]).toBeUndefined();

@@ -38,6 +38,7 @@ export interface D1Session extends AuthoritySession {
   terminationSignalAcceptedAt?: string;
   boundaryActivityId?: string;
   shutdown?: SessionShutdown;
+  mergedSnapshotId?: string;
 }
 
 type SessionRow = Record<string, string | number | null>;
@@ -67,6 +68,7 @@ function fromRow(row: SessionRow): D1Session {
     terminationClaimedAt: optional(row.termination_claimed_at as string | null),
     terminationSignalAcceptedAt: optional(row.termination_signal_accepted_at as string | null),
     boundaryActivityId: optional(row.boundary_activity_id as string | null),
+    ...(row.hermes_merged_snapshot ? { mergedSnapshotId: String(row.hermes_merged_snapshot) } : {}),
     ...(row.shutdown_json ? { shutdown: json<SessionShutdown>(row.shutdown_json as string | null) } : {}),
   };
 }
@@ -112,19 +114,28 @@ export class D1SessionRepository implements SessionAuthority {
   }
 
   async start(ownerKey: string, sessionId: string, transitionedAt: string, expectedGeneration?: number, resume?: SessionShutdown): Promise<D1Session | null> {
+    const mergedSnapshot = resume?.phase === 'merged' ? resume.snapshotId : undefined;
     const uncertain = resume?.phase === 'uncertain' ? { ...resume, resumed: true, delete: false } : null;
     const row = await this.db.prepare(`UPDATE runtime_sessions SET lifecycle_state='starting',
       lifecycle_generation=lifecycle_generation+1, response_revision=response_revision+1,
       observation_sequence=-1, editor_ready=0, editor_ready_error=0,
-      transitioned_at=?3, lifecycle_reason=NULL${uncertain ? ', shutdown_json=?6' : resume ? ', shutdown_json=NULL, shutdown_order=NULL' : ''}
+      transitioned_at=?3, lifecycle_reason=NULL${uncertain ? ', shutdown_json=?6' : resume ? ', shutdown_json=NULL, shutdown_order=NULL' : ''}${mergedSnapshot ? ', hermes_merged_snapshot=?6' : ''}
       WHERE owner_key=?1 AND session_id=?2 AND lifecycle_state='stopped'
         AND (?4 IS NULL OR lifecycle_generation=?4)
         AND termination_intent_id IS NULL AND boundary_activity_id IS NULL
         AND EXISTS (SELECT 1 FROM session_cutover WHERE id=1 AND state='complete')
         ${resume ? 'AND shutdown_json=?5' : ''}
       RETURNING *`).bind(ownerKey, sessionId, transitionedAt, expectedGeneration ?? null,
-        ...(resume ? [JSON.stringify(resume)] : []), ...(uncertain ? [JSON.stringify(uncertain)] : [])).first<SessionRow>();
+        ...(resume ? [JSON.stringify(resume)] : []), ...(uncertain ? [JSON.stringify(uncertain)] : mergedSnapshot ? [mergedSnapshot] : [])).first<SessionRow>();
     return row ? fromRow(row) : null;
+  }
+
+  async confirmHermesRestore(owner: string, session: string, generation: number, snapshotId: string): Promise<boolean> {
+    const result = await this.db.prepare(`UPDATE runtime_sessions SET hermes_merged_snapshot=NULL
+      WHERE owner_key=?1 AND session_id=?2 AND lifecycle_generation=?3 AND hermes_merged_snapshot=?4
+        AND lifecycle_state='running' AND termination_intent_id IS NULL`)
+      .bind(owner, session, generation, snapshotId).run();
+    return result.meta.changes === 1;
   }
 
   async beginShutdownRetry(session: D1Session, next: SessionShutdown): Promise<D1Session | null> {

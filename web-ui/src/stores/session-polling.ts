@@ -60,6 +60,7 @@ let setStateProduce: ProduceSetter;
 let setStateRaw: RawSetter;
 let updateSessionStatusFn: StatusUpdater;
 let applyShutdownFieldsFn: ShutdownUpdater;
+let removeConfirmedSession: (id: string) => void;
 let isSessionInitializingFn: InitChecker;
 let isLocallyStoppingFn: InitChecker;
 let shouldRetainNegativeKvFn: NegativeKvGuard;
@@ -73,6 +74,7 @@ export function registerPollingDeps(deps: {
   setStateRaw: RawSetter;
   updateSessionStatus: StatusUpdater;
   applyShutdownFields: ShutdownUpdater;
+  removeConfirmedSession: (id: string) => void;
   isSessionInitializing: InitChecker;
   isLocallyStopping: InitChecker;
   shouldRetainNegativeKv: NegativeKvGuard;
@@ -85,6 +87,7 @@ export function registerPollingDeps(deps: {
   setStateRaw = deps.setStateRaw;
   updateSessionStatusFn = deps.updateSessionStatus;
   applyShutdownFieldsFn = deps.applyShutdownFields;
+  removeConfirmedSession = deps.removeConfirmedSession;
   isSessionInitializingFn = deps.isSessionInitializing;
   isLocallyStoppingFn = deps.isLocallyStopping;
   shouldRetainNegativeKvFn = deps.shouldRetainNegativeKv;
@@ -247,7 +250,7 @@ async function refreshSessionStatusesOnce(forceManagedReleaseCheck: boolean): Pr
     const removedIds: string[] = [];
     for (const session of state.sessions) {
       if (!batchStatuses[session.id]) {
-        if (shouldRetainNegativeKvFn(session.id)) {
+        if (!session.pendingDelete && shouldRetainNegativeKvFn(session.id)) {
           sessionMissCounters.delete(session.id);
           continue;
         }
@@ -262,13 +265,7 @@ async function refreshSessionStatusesOnce(forceManagedReleaseCheck: boolean): Pr
     }
     if (removedIds.length > 0) {
       invalidateSessionStatusReads();
-      for (const id of removedIds) {
-        sessionMissCounters.delete(id);
-      }
-      setStateProduce((s: SessionState) => {
-        s.sessions = s.sessions.filter((sess: SessionWithStatus) => !removedIds.includes(sess.id));
-        for (const id of removedIds) delete s.memoryRetryAttempts[id];
-      });
+      for (const id of removedIds) removeConfirmedSession(id);
     }
     for (const session of getState().sessions) {
       const remote = batchStatuses[session.id];
@@ -332,6 +329,8 @@ async function refreshSessionStatusesOnce(forceManagedReleaseCheck: boolean): Pr
       // Apply the ordered D1 lifecycle projection. Transport ownership remains
       // local, so uncertainty never disposes mounted terminal/editor state.
       const statusChanged = remote.status !== session.status;
+      const settlingStop = remote.status === 'stopped' && !isShutdownInProgress(remote.shutdownPhase)
+        && (statusChanged || isShutdownInProgress(session.shutdownPhase));
       if (ordered === incomingProjection) {
         if (statusChanged) updateSessionStatusFn(session.id, remote.status, remote.shutdownPhase);
         setStateRaw('sessions', idx, 'lifecycle', remote.lifecycle ?? remote.status);
@@ -339,7 +338,7 @@ async function refreshSessionStatusesOnce(forceManagedReleaseCheck: boolean): Pr
         if (remote.revision !== undefined) setStateRaw('sessions', idx, 'revision', remote.revision);
         if (remote.unreachableDeadlineMs !== undefined) setStateRaw('sessions', idx, 'unreachableDeadlineMs', remote.unreachableDeadlineMs);
         applyShutdownFieldsFn(idx, remote);
-        if (remote.status === 'stopped' && statusChanged && !isShutdownInProgress(remote.shutdownPhase)) {
+        if (settlingStop) {
           terminalStore.disposeSession(session.id);
         }
       }

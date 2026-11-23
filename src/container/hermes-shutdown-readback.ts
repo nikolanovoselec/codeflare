@@ -39,7 +39,7 @@ export async function reconcileHermesPublication(env: Env, row: D1Session, signa
   const pointer = await get('current.json');
   const etag = pointer.headers.get('etag');
   if (pointer.status !== 200 || !etag || !/^"[^"\r\n]+"$/.test(etag)) { await pointer.body?.cancel(); return; }
-  const commit = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(
+  const commit = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(
     await readBoundedResponse(pointer, 4096, 'Hermes pointer', signal),
   )) as { files?: Record<string, unknown> } | null;
   const revision = verifiedMergeRevision(commit, row, snapshotId);

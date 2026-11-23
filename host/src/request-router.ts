@@ -475,6 +475,11 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
         res.end(JSON.stringify({ workspaceRepos }));
         return;
       }
+      // Only report the launch's exact receipt after scoped session upload succeeded.
+      const receipt = process.env.CODEFLARE_HERMES_MERGED_SNAPSHOT;
+      const hermesRestoredSnapshot = receipt && /^[a-f0-9]{64}$/.test(receipt)
+        && await fs.promises.readFile(`${SYNC_RUNTIME_DIR}/hermes-restore-synced`, 'utf8').catch(() => '') === `${receipt}\n`
+        ? receipt : undefined;
       const syncInfo = getSyncStatus();
       const sysMetrics = await getSystemMetrics(log);
       const activity = deps.activityTracker.getActivityInfo(sessionManager);
@@ -492,6 +497,7 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
         editorReady,
         editorReadyError: editorReadyTimedOut,
         ...inventoryFields,
+        ...(hermesRestoredSnapshot ? { hermesRestoredSnapshot } : {}),
         observedAt: new Date().toISOString(),
       }));
       return;

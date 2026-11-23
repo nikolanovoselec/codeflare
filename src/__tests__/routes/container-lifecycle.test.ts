@@ -149,9 +149,11 @@ describe('Container Lifecycle Routes', () => {
       let configured = false;
       let retired = false;
       const stub = container() as ReturnType<typeof createMockContainer> & {
+        canQueueHermesShutdown: ReturnType<typeof vi.fn>;
         bindReviewHuman: ReturnType<typeof vi.fn>;
         getReviewHuman: ReturnType<typeof vi.fn>;
       };
+      stub.canQueueHermesShutdown = vi.fn(async () => false);
       stub.getReviewHuman = vi.fn(async () => boundHuman);
       stub.bindReviewHuman = vi.fn(async (authority: { human: { email: string } } | null) => {
         if (!configured) throw new Error('binding preceded lifecycle configuration');

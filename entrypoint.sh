@@ -1017,7 +1017,11 @@ persist_pi_hermes_memory() {
     case "${CODEFLARE_HERMES_PERSISTENCE:-}:$layout" in
         "new:direct:$SESSION_ID"|"existing:direct:$SESSION_ID")
             configure_pi_hermes_memory "$USER_HOME" check-direct || return 1
-            transfer_pi_hermes_memory upload direct "$((SECONDS + 30))" ;;
+            transfer_pi_hermes_memory upload direct "$((SECONDS + 30))" || return 1
+            local verified="$CODEFLARE_RUNTIME_ROOT/sync/hermes-restore-verified"
+            if [ -f "$verified" ]; then
+                mv -f -- "$verified" "$CODEFLARE_RUNTIME_ROOT/sync/hermes-restore-synced" || return 1
+            fi ;;
         "legacy:v197:$SESSION_ID")
             configure_pi_hermes_memory "$USER_HOME" checkpoint || return 1
             transfer_pi_hermes_memory upload v197 "$((SECONDS + 30))" ;;
@@ -3099,7 +3103,8 @@ init_sync_log
 # ============================================================================
 export CODEFLARE_INIT_FLAG_FILE=$CODEFLARE_RUNTIME_ROOT/services/init-complete
 export CODEFLARE_POLICY_STATUS_FILE=$CODEFLARE_RUNTIME_ROOT/services/managed-policy-status
-rm -f "$CODEFLARE_INIT_FLAG_FILE" "$CODEFLARE_POLICY_STATUS_FILE" "$SYNC_RUNTIME_DIR/hermes-ready"
+rm -f "$CODEFLARE_INIT_FLAG_FILE" "$CODEFLARE_POLICY_STATUS_FILE" "$SYNC_RUNTIME_DIR/hermes-ready" \
+    "$SYNC_RUNTIME_DIR/hermes-restore-verified" "$SYNC_RUNTIME_DIR/hermes-restore-synced"
 
 # REQ-GITHUB-015 AC1: gates the /health workspace repository inventory so a
 # repository the restore below has not yet recreated is never reported as
@@ -3491,16 +3496,17 @@ def replace_text(destination, content, staging):
 
 
 def merged_snapshot_matches():
+    # None means the restored store cannot prove either equality or inequality.
     receipt = os.environ.get('CODEFLARE_HERMES_MERGED_SNAPSHOT', '')
     if not enterprise or persistence != 'existing' or not re.fullmatch('[0-9a-f]{64}', receipt) or not kind(baseline, stat.S_ISREG):
-        return False
+        return None
     check_direct(True)
     try:
         original = json.loads(read(baseline))
     except (json.JSONDecodeError, UnicodeDecodeError):
-        return False  # Invalid baseline bytes cannot authorize replacing intact session files.
+        return None  # Invalid baseline bytes cannot authorize replacing intact session files.
     if not isinstance(original, dict) or original.keys() != set(paths.values()) or not all(isinstance(value, str) for value in original.values()):
-        return False
+        return None
     current = snapshot(evidence, paths)
     def digest(text):
         return hashlib.sha256(text.encode()).hexdigest()
@@ -3549,7 +3555,8 @@ def prepare_direct_layout():
         raise ValueError('conflicting memory alias')
     retirement = None
     # Validate the entire newer revision before moving any restored session bytes.
-    reseed = merged_snapshot_matches()
+    receipt_match = merged_snapshot_matches()
+    reseed = receipt_match is True
     seed = read_seed(require_commit=True) if reseed else None
     if (persistence == 'new' or reseed) and generation:
         if not re.fullmatch('[1-9][0-9]{0,15}', generation):
@@ -3607,7 +3614,7 @@ def prepare_direct_layout():
     for path in (cache / 'owners', cache / 'consolidation-locks'):
         path.mkdir(parents=True, exist_ok=True, mode=0o700)
     write_config(evidence / 'global')
-    return retirement
+    return retirement, receipt_match
 
 
 def prepare_signed_legacy_layout():
@@ -3754,7 +3761,7 @@ try:
     if not isinstance(config, dict):
         raise ValueError('memory configuration must be an object')
     if layout == 'direct':
-        retirement = prepare_direct_layout()
+        retirement, receipt_match = prepare_direct_layout()
         if generation:
             replace_text(local_generation, f'{session}:{generation}\n', ready.parent)
         if retirement:
@@ -3765,6 +3772,8 @@ try:
         for parent in (work / 'global', work / 'Projects/workspace', evidence):
             direct_directory(parent)
         prepare_checkpoint_layout()
+    if layout == 'direct' and receipt_match is not None:
+        replace_text(ready.with_name('hermes-restore-verified'), os.environ['CODEFLARE_HERMES_MERGED_SNAPSHOT'] + '\n', ready.parent)
     ready.write_text(f'{layout}:{session}\n', encoding='utf-8')
     print('[entrypoint] Hermes memory prepared (' + layout + ')')
 except (OSError, ValueError) as error:

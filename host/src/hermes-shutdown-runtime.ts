@@ -21,7 +21,7 @@ export function createHermesShutdownRuntime(env: NodeJS.ProcessEnv, syncRuntimeD
     || !owner || !endpoint || !accessKeyId || !secretAccessKey) return;
   const key = env.R2_SSE_DISABLED === 'true' ? undefined : env.ENCRYPTION_KEY;
   if (key && Buffer.from(key, 'base64').byteLength !== 32) return;
-  const sseHeaders = key ? {
+  const sseHeaders: Record<string, string> = key ? {
     'x-amz-server-side-encryption-customer-algorithm': 'AES256',
     'x-amz-server-side-encryption-customer-key': key,
     'x-amz-server-side-encryption-customer-key-md5': createHash('md5').update(Buffer.from(key, 'base64')).digest('base64'),

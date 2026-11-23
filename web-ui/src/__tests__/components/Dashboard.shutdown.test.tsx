@@ -3,6 +3,8 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@solidjs/te
 import Dashboard from '../../components/Dashboard';
 import { createMigrationRetry } from '../../components/MigrationRetryNotice';
 import { sessionStore } from '../../stores/session';
+import { terminalStore } from '../../stores/terminal';
+import type { Terminal } from '@xterm/xterm';
 
 // Keep the Dashboard, SessionStatCard, session store, and HTTP client real.
 // jsdom can check accessible content and commands, not card dimensions or tap targets.
@@ -149,8 +151,8 @@ it('REQ-SESSION-043: keeps separate Retry and Resume actions after reload and re
   expect(dashboard.openTerminal).toHaveBeenCalledWith(id);
 });
 
-it.each(['queued', 'consolidating'] as const)('REQ-SESSION-043: keeps Kill independently usable on the %s card', async phase => {
-  project(phase === 'queued' ? 'running' : 'stopping', 10, phase);
+it.each([['queued', 'running'], ['queued', 'stopped'], ['consolidating', 'stopping']] as const)('REQ-SESSION-043: keeps Kill independently usable on the %s card while %s', async (phase, status) => {
+  project(status, 10, phase);
   await sessionStore.loadSessions();
   const dashboard = renderDashboard();
   expect(card().getByText(phase === 'queued' ? 'Queued for shutdown.' : 'Shutting down. Consolidating memory')).toBeVisible();
@@ -184,9 +186,14 @@ it('REQ-SESSION-043: an accepted Delete retains the card through merge failure a
   project('stopping', 13, 'finishing', true);
   await sessionStore.refreshSessionStatuses();
   expect(card().getByText(/finishing/i)).toBeVisible();
+  sessionStore.setActiveSession(id);
   catalog = polled = undefined;
-  await sessionStore.loadSessions();
+  await sessionStore.refreshSessionStatuses();
+  expect(card().getByText(/finishing/i)).toBeVisible();
+  await sessionStore.refreshSessionStatuses();
+  await sessionStore.refreshSessionStatuses();
   expect(screen.queryByText(name)).not.toBeInTheDocument();
+  expect(sessionStore.activeSessionId).toBeNull();
 });
 
 it('REQ-SESSION-043: a settled Stop clears recovery controls and rejects older merge-failure evidence', async () => {
@@ -207,7 +214,7 @@ it('REQ-SESSION-043: a settled Stop clears recovery controls and rejects older m
   expect(card().queryByRole('button', { name: 'Retry memory consolidation' })).not.toBeInTheDocument();
 });
 
-it('REQ-SESSION-043: late retry failure from the prior generation does not overwrite a resumed session', async () => {
+it('REQ-SESSION-043: a stale status from the prior generation does not overwrite a resumed session', async () => {
   project('stopped', 10, 'memory-not-merged');
   await sessionStore.loadSessions();
   const dashboard = renderDashboard();
@@ -220,4 +227,35 @@ it('REQ-SESSION-043: late retry failure from the prior generation does not overw
   expect(card().getByRole('status', { name: 'IDLE' })).toBeVisible();
   expect(card().queryByRole('button', { name: 'Retry memory consolidation' })).not.toBeInTheDocument();
   expect(operations).toEqual([]);
+});
+
+
+it.each(['poll', 'catalog'])('REQ-SESSION-043: settled stop releases terminal state through %s after confirmed exit', async read => {
+  const refresh = read === 'poll' ? sessionStore.refreshSessionStatuses : sessionStore.loadSessions;
+  project('stopping', 10, 'finishing');
+  await sessionStore.loadSessions();
+  const terminal = { dispose() {} } as Terminal;
+  terminalStore.setTerminal(id, '1', terminal);
+  project('stopped', 11, 'finishing');
+  await refresh();
+  expect(terminalStore.getTerminal(id, '1')).toBe(terminal);
+  project('stopped', 12);
+  await refresh();
+  expect(terminalStore.getTerminal(id, '1')).toBeUndefined();
+});
+
+it('REQ-SESSION-043: late retry failure from the prior generation does not overwrite a resumed session', async () => {
+  project('stopped', 10, 'memory-not-merged');
+  await sessionStore.loadSessions();
+  let respond!: (response: Response) => void;
+  retryResponse = new Promise<Response>(resolve => { respond = resolve; });
+  const priorError = sessionStore.error;
+  const attempt = sessionStore.retryMemoryConsolidation(id);
+  await waitFor(() => expect(operations).toEqual([`POST ${sessionPath}/retry-memory-consolidation`]));
+  project('running', 11, undefined, undefined, 8);
+  await sessionStore.refreshSessionStatuses();
+  respond(Response.json({ error: 'Old retry failed' }, { status: 409 }));
+  await attempt;
+  expect(sessionStore.sessions[0]).toMatchObject({ status: 'running', generation: 8 });
+  expect(sessionStore.error).toBe(priorError);
 });

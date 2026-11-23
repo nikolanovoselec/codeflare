@@ -361,6 +361,7 @@ registerPollingDeps({
   },
   updateSessionStatus,
   applyShutdownFields,
+  removeConfirmedSession,
   isSessionInitializing,
   isLocallyStopping,
   shouldRetainNegativeKv,
@@ -407,6 +408,7 @@ async function loadSessions(): Promise<void> {
 
     const existingSessions = new Map(state.sessions.map(s => [s.id, s]));
     const existingStatuses = new Map(state.sessions.map(s => [s.id, s.status]));
+    const previouslyShuttingDown = new Set(state.sessions.filter(s => isShutdownInProgress(s.shutdownPhase)).map(s => s.id));
     const oldIds = new Set(state.sessions.map(s => s.id));
     const listedIds = new Set(sessions.map(s => s.id));
 
@@ -437,7 +439,7 @@ async function loadSessions(): Promise<void> {
     // KV LIST may temporarily omit a recently written record. The same negative-
     // evidence gate used by polling decides whether local lifecycle ownership wins.
     for (const existing of existingSessions.values()) {
-      if (!listedIds.has(existing.id) && shouldRetainNegativeKv(existing.id)) {
+      if (!listedIds.has(existing.id) && !existing.pendingDelete && shouldRetainNegativeKv(existing.id)) {
         sessionsWithStatus.push(existing);
       }
     }
@@ -460,10 +462,7 @@ async function loadSessions(): Promise<void> {
 
     const newIds = new Set(sessionsWithStatus.map(s => s.id));
     for (const id of oldIds) {
-      if (!newIds.has(id)) {
-        reconcileMemoryRetry(id);
-        cleanupTerminalsForSession(id);
-      }
+      if (!newIds.has(id)) removeConfirmedSession(id);
     }
 
     // Publish the authoritative catalog before optional status enrichment.
@@ -551,11 +550,6 @@ async function loadSessions(): Promise<void> {
         if (!wasRunning && session.workspace !== 'vscode') {
           initializeTerminalsForSession(session.id);
         }
-      } else if (wasRunning && batchStatus.status === 'stopped' && !isShutdownInProgress(batchStatus.shutdownPhase)) {
-        // Container stopped externally (hibernation/crash) — kill WS retry loops
-        // so reconnect attempts don't keep waking the DO. Fresh connect() calls
-        // are made when the user starts the session again.
-        terminalStore.disposeSession(session.id);
       }
     }
     // Resolve list and batch order before disposing a previously stopping
@@ -563,8 +557,9 @@ async function loadSessions(): Promise<void> {
     if (thisGen !== loadSessionsGeneration) return;
     for (const session of state.sessions) {
       reconcileKillGeneration(session.id);
-      if (existingStatuses.get(session.id) === 'stopping' && session.status === 'stopped'
-        && !isShutdownInProgress(session.shutdownPhase)) {
+      const previous = existingStatuses.get(session.id);
+      if (session.status === 'stopped' && !isShutdownInProgress(session.shutdownPhase)
+        && (previous === 'running' || previous === 'stopping' || previouslyShuttingDown.has(session.id))) {
         terminalStore.disposeSession(session.id);
       }
     }
@@ -637,6 +632,28 @@ async function renameSession(id: string, name: string): Promise<void> {
   }
 }
 
+function removeConfirmedSession(id: string): void {
+  localKillAttempts.delete(id);
+  reconcileMemoryRetry(id);
+  sessionMissCounters.delete(id);
+  cleanupTerminalsForSession(id);
+  // REQ-VAULT-034 AC1: drop legacy session-scoped SilverBullet localStorage markers.
+  // Bucket-stable databases and SW registration remain untouched; best-effort and async
+  // -- we do not block the UI on it.
+  void cleanupSessionVaultCache(id).catch((err) =>
+    logger.warn('vault cache cleanup failed', { id, error: err instanceof Error ? err.message : String(err) }),
+  );
+  setState(
+    produce((s) => {
+      s.sessions = s.sessions.filter((session) => session.id !== id);
+      if (s.activeSessionId === id) {
+        s.activeSessionId = null;
+      }
+      delete s.sessionMetrics[id];
+    })
+  );
+}
+
 async function deleteSession(id: string): Promise<void> {
   dismissRepositoryRestore(id);
   try {
@@ -647,25 +664,7 @@ async function deleteSession(id: string): Promise<void> {
     }
     if (await api.deleteSession(id)) return; // Completion will come from the ordered catalog/status reads.
     invalidateSessionStatusReads();
-    localKillAttempts.delete(id);
-    reconcileMemoryRetry(id);
-    sessionMissCounters.delete(id);
-    cleanupTerminalsForSession(id);
-    // REQ-VAULT-034 AC1: drop legacy session-scoped SilverBullet localStorage markers.
-    // Bucket-stable databases and SW registration remain untouched; best-effort and async
-    // -- we do not block the UI on it.
-    void cleanupSessionVaultCache(id).catch((err) =>
-      logger.warn('vault cache cleanup failed', { id, error: err instanceof Error ? err.message : String(err) }),
-    );
-    setState(
-      produce((s) => {
-        s.sessions = s.sessions.filter((session) => session.id !== id);
-        if (s.activeSessionId === id) {
-          s.activeSessionId = null;
-        }
-        delete s.sessionMetrics[id];
-      })
-    );
+    removeConfirmedSession(id);
   } catch (err) {
     setState('error', err instanceof Error ? err.message : 'Failed to delete session');
   }

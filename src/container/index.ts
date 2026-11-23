@@ -34,7 +34,7 @@ import { captureRawValue } from '../../host/src/operator-raw-logging';
 import { DispatcherSdkStorageError, handleDispatcherSdkCredentials, type DispatcherSdkCredentialResult, type SdkStorageScope, type SdkCredentialAuthority } from '../operators/dispatcher-sdk-storage';
 import type { Env, ManagedResourcePolicy, SessionWorkspace, TabConfig, TerminalMode, UserPreferences } from '../types';
 import type { PiDefaultSource } from '../lib/personal-pi-policy';
-import type { OperatorLoggingContext } from '../lib/container-helpers';
+import { getContainerId, type OperatorLoggingContext } from '../lib/container-helpers';
 import { readBoundedResponse } from '../lib/bounded-stream';
 import { getR2Config } from '../lib/r2-config';
 import { readCachedScopedR2Token } from '../lib/r2-admin';
@@ -607,7 +607,8 @@ export class container extends Container<Env> implements ContainerEnvState {
     this.requireShutdownCoordinator(bucket);
     const head = await new D1SessionRepository(this.env.USAGE_DB).shutdownHead(bucket);
     if (!head) return;
-    if (head.shutdown?.phase !== 'uncertain') await this.ctx.storage.setAlarm(Date.now() + SHUTDOWN_QUEUE_ALARM_MS);
+    await this.ctx.storage.setAlarm(Date.now() + (head.shutdown?.phase === 'uncertain'
+      ? 60_000 : SHUTDOWN_QUEUE_ALARM_MS));
     this.kickShutdownQueue(bucket);
   }
 
@@ -1456,7 +1457,7 @@ export class container extends Container<Env> implements ContainerEnvState {
       // Own the launch before acknowledgement. It waits for this configuration
       // reservation to settle, but does not depend on its RPC caller returning.
       void this.launchSession({ bucket: bucketName, sessionId, generation: claimed.lifecycleGeneration },
-        current.shutdown?.phase === 'merged' ? current.shutdown.snapshotId : undefined).catch(() => {
+        claimed.mergedSnapshotId).catch(() => {
         this.logger.warn('Session start not confirmed', { sessionId, lifecycleGeneration: claimed.lifecycleGeneration });
       });
       const headers = new Headers(response.headers);
@@ -1654,9 +1655,13 @@ export class container extends Container<Env> implements ContainerEnvState {
         assertCurrent: async () => { await assertCurrent('saving'); },
         forwardExisting: async request => {
           const response = await raceAbort(request.signal, () => this.#forwardPrivatePort(request));
-          saveRefused = [409, 503, 504].includes(response.status) && response.headers.get('Content-Type')?.includes('application/json') === true;
           // The save and its acknowledgement share the same bounded lifetime.
           const receipt = await readBoundedResponse(response, 4096, 'Final save acknowledgement', request.signal);
+          if (response.headers.get('Content-Type')?.includes('application/json')) {
+            const result = JSON.parse(new TextDecoder().decode(receipt)) as { synced?: unknown; reason?: unknown } | null;
+            saveRefused = result?.synced === false && ([409, 503, 504].includes(response.status)
+              || (response.status === 500 && result.reason === 'bisync-failed'));
+          }
           return new Response(receipt, { status: response.status, headers: response.headers });
         },
         merge: async ({ deadline, signal, snapshotId }) => {

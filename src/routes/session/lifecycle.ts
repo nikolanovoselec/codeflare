@@ -307,7 +307,7 @@ app.get('/:id/status', async (c) => {
   }
   const session = await new D1SessionRepository(c.env.USAGE_DB).getSession(bucketName, sessionId);
   if (!session) throw new NotFoundError('Session not found');
-  const { shutdown: _shutdown, ...publicSession } = session;
+  const { shutdown: _shutdown, mergedSnapshotId: _mergedSnapshotId, ...publicSession } = session;
   const projection = shutdownProjection(session);
   return c.json({
     session: publicSession,

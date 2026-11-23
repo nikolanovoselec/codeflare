@@ -17,7 +17,7 @@ export async function mergeAfterFinalSave<T>(input: {
   const response = await input.forwardExisting(new Request('http://localhost/internal/final-sync', {
     method: 'POST', headers: { 'x-codeflare-hermes-merge': '1' }, signal: saveSignal,
   }));
-  const receipt: { synced?: boolean; snapshotId?: unknown } | null = await response.json().catch(() => null);
+  const receipt = await response.json().catch(() => null) as { synced?: unknown; snapshotId?: unknown } | null;
   if (!response.ok || receipt?.synced !== true) throw new Error('Final save not confirmed');
   saveSignal.throwIfAborted();
   const deadline = Date.now() + HERMES_MERGE_BUDGET_MS;

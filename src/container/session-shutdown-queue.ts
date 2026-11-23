@@ -15,7 +15,7 @@ interface ShutdownSession {
 
 // Recovery may report an interrupted save after the Host budget. Elapsed
 // time is not a save acknowledgement and does not authorize another sync.
-export const SAVE_RECOVERY_WINDOW_MS = 130_000;
+const SAVE_RECOVERY_WINDOW_MS = 130_000;
 export const MERGE_READBACK_WINDOW_MS = 5_000;
 
 export async function acceptShutdown(repository: D1SessionRepository, input: ShutdownRequest): Promise<ShutdownAcceptance> {
