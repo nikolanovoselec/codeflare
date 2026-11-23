@@ -1001,6 +1001,9 @@ prepare_pi_hermes_persistence() {
                 reseed=$(configure_pi_hermes_memory "$USER_HOME" receipt) || return 1
                 if [ "$reseed" = matched ]; then
                     restore_pi_hermes_masters "$HERMES_RESTORE_DEADLINE" || return 1
+                elif [ "$reseed" = different ]; then
+                    # Best effort: a prior reseed may have synced before its runtime exited.
+                    restore_pi_hermes_masters "$HERMES_RESTORE_DEADLINE" || rm -rf -- "$CODEFLARE_RUNTIME_ROOT/sync/hermes-masters"
                 fi
             fi ;;
         *) return 1 ;;
@@ -3302,14 +3305,14 @@ configure_pi_hermes_memory() {
     python3 - "$memory_home" "${SESSION_ID:-}" "${2:-prepare}" "${REMOTE_CURATION_ACTIVE:-false}" \
         "${CODEFLARE_HERMES_PERSISTENCE:-}" "$CODEFLARE_RUNTIME_ROOT/sync/hermes-ready" \
         "${PI_WARM_EXTENSIONS_DIR:-/opt/codeflare/pi-agent/extensions}/hermes-memory-runtime.ts" \
-        "${CODEFLARE_HERMES_GENERATION:-}" <<'PY'
+        "${CODEFLARE_HERMES_GENERATION:-}" "${R2_BUCKET_NAME:-}" <<'PY'
 import hashlib, json, os, re, stat, sys, tempfile, shutil
 from pathlib import Path
 
 home = Path(os.path.abspath(sys.argv[1]))
 session, phase, remote, persistence = sys.argv[2:6]
 ready, image_adapter = map(Path, sys.argv[6:8])
-generation = sys.argv[8]
+generation, bucket = sys.argv[8:10]
 local_generation = ready.with_name('hermes-generation')
 agent = home / '.pi/agent'
 vault = home / 'Vault/Memory'
@@ -3514,7 +3517,7 @@ def merged_snapshot_matches():
     return hashlib.sha256(json.dumps(contents, separators=(',', ':')).encode()).hexdigest() == receipt
 
 
-def read_seed(require_commit=False):
+def read_seed(require_commit=False, receipt=None):
     direct_directory(vault / 'Projects/workspace')
     stage = ready.with_name('hermes-masters')
     commit_path = stage / 'current.json'
@@ -3525,6 +3528,12 @@ def read_seed(require_commit=False):
     if commit_path.stat().st_size > 4096:
         raise ValueError('invalid Hermes commit size')
     commit = json.loads(read(commit_path))
+    if not isinstance(commit, dict):
+        raise ValueError('invalid Hermes commit')
+    if receipt is not None:
+        source = commit.get('source')
+        if not isinstance(source, dict) or (source.get('owner'), source.get('sessionId'), source.get('snapshotId')) != (bucket, session, receipt):
+            raise ValueError('not the committed revision for this receipt')
     revision, hashes = commit.get('revision'), commit.get('files')
     if not isinstance(revision, str) or not re.fullmatch('[a-zA-Z0-9_-]{1,180}', revision) or revision == 'legacy' \
             or not isinstance(hashes, dict) or hashes.keys() != set(paths.values()):
@@ -3539,6 +3548,17 @@ def read_seed(require_commit=False):
             raise ValueError('unverified Hermes revision')
         seed[name] = value
     return seed
+
+
+def restored_replacement_matches(receipt):
+    # Never use mismatch alone: an interrupted upload can leave every name
+    # present while only some bytes (including the baseline) were replaced.
+    try:
+        seed = read_seed(require_commit=True, receipt=receipt)
+        return json.loads(read(baseline)) == {rel: seed[name] for name, rel in paths.items()} \
+            and snapshot(evidence, paths) == seed
+    except (OSError, ValueError):
+        return False
 
 
 def prepare_direct_layout():
@@ -3738,8 +3758,9 @@ try:
         check_direct(True)
         sys.exit(0)
     if phase == 'receipt' and layout == 'direct':
-        if merged_snapshot_matches():
-            print('matched')
+        match = merged_snapshot_matches()
+        if match is not None:
+            print('matched' if match else 'different')
         sys.exit(0)
     if phase == 'checkpoint' and layout == 'v197':
         for parent in (work / 'global', work / 'Projects/workspace', evidence):
@@ -3772,10 +3793,12 @@ try:
         for parent in (work / 'global', work / 'Projects/workspace', evidence):
             direct_directory(parent)
         prepare_checkpoint_layout()
-    # A mismatch can mean a prior reseed uploaded only some files. It is
-    # never proof that the replacement was restored or persisted as a whole.
-    if layout == 'direct' and receipt_match is True:
-        replace_text(ready.with_name('hermes-restore-verified'), os.environ['CODEFLARE_HERMES_MERGED_SNAPSHOT'] + '\n', ready.parent)
+    if layout == 'direct' and receipt_match is not None:
+        receipt = os.environ['CODEFLARE_HERMES_MERGED_SNAPSHOT']
+        if receipt_match is True:
+            replace_text(ready.with_name('hermes-restore-verified'), receipt + '\n', ready.parent)
+        elif restored_replacement_matches(receipt):
+            replace_text(ready.with_name('hermes-restore-synced'), receipt + '\n', ready.parent)
     ready.write_text(f'{layout}:{session}\n', encoding='utf-8')
     print('[entrypoint] Hermes memory prepared (' + layout + ')')
 except (OSError, ValueError) as error:

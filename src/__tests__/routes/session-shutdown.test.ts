@@ -185,7 +185,10 @@ function rig(enterprise = true) {
       };
       let ready = Promise.resolve();
       const instance = new SessionContainer({ id: idFromName(address), container: process?.native, storage,
-        exports: { LlmInterceptor: () => ({ fetch: () => { throw new Error('Unexpected provider call'); } }) },
+        // Native startup wires both mandatory Enterprise transports. This fixture
+        // stops at the Host boundary; any use of those transports is unexpected.
+        exports: Object.fromEntries(['OperatorOwnerInferenceAuthority', 'LlmInterceptor'].map(name =>
+          [name, () => ({ fetch: () => { throw new Error(`Unexpected ${name} call`); } })])),
         blockConcurrencyWhile: (work: () => Promise<void>) => { ready = ready.then(work); return ready; },
         waitUntil: (work: Promise<unknown>) => { void work.catch(() => {}); },
       } as unknown as DurableObjectState<Env>, envOverrides as Env);

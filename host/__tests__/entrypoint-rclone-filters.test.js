@@ -803,7 +803,9 @@ describe('REQ-MEM-035 AC2 / REQ-MEM-041 AC2: session Markdown sync', () => {
       fx.put(fx.remote, `Vault/Memory/Masters/${revision}/${key}`, text);
       return [key, digest(text)];
     }));
-    fx.put(fx.remote, 'Vault/Memory/Masters/current.json', JSON.stringify({ revision, files }));
+    fx.put(fx.remote, 'Vault/Memory/Masters/current.json', JSON.stringify({ revision, files,
+      source: { owner: fx.remote, sessionId: 'abc12345', snapshotId: receipt },
+    }));
     const resume = generation => `export CODEFLARE_HERMES_MERGED_SNAPSHOT=${receipt} CODEFLARE_HERMES_GENERATION=${generation};
       CODEFLARE_HERMES_PERSISTENCE=existing; restore_hermes`;
     const resetHome = () => { rmSync(fx.home, { recursive: true }); mkdirSync(fx.home); };
@@ -831,6 +833,15 @@ describe('REQ-MEM-035 AC2 / REQ-MEM-041 AC2: session Markdown sync', () => {
     fx.run(`${resume(4)}; persist_pi_hermes_memory`);
     assert.equal(readFileSync(synced, 'utf8'), `${receipt}\n`);
     for (const key of keys) assert.equal(digest(readFileSync(join(fx.remote, store, key))), files[key]);
+
+    // A replacement starts after upload but before the first runtime reported it to D1.
+    resetHome();
+    for (const marker of ['hermes-restore-verified', 'hermes-restore-synced']) {
+      rmSync(join(fx.runtime, 'sync', marker), { force: true });
+    }
+    fx.run(resume(5));
+    assert.equal(readFileSync(synced, 'utf8'), `${receipt}\n`);
+    for (const key of keys) assert.equal(digest(readFileSync(join(fx.home, store, key))), files[key]);
   });
 
   for (const syncPolicyMode of ['include', 'exclude']) {

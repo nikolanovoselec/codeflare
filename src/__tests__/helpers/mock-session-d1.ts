@@ -17,6 +17,7 @@ function row(ownerKey: string, session: Record<string, any>): Record<string, unk
     lifecycle_generation: session.lifecycleGeneration ?? 0,
     response_revision: session.responseRevision ?? 0,
     observation_sequence: session.observationSequence ?? -1,
+    hermes_merged_snapshot: session.mergedSnapshotId ?? null,
     last_started_at: session.lastStartedAt ?? null,
     last_active_at: session.lastActiveAt ?? null,
     editor_ready: session.editorReady ? 1 : 0,
@@ -169,6 +170,7 @@ export function createMockSessionD1(kv: MockKV): D1Database {
             session.editorReady = args[10] === 1;
             session.editorReadyError = args[11] === 1;
             session.observationSequence = args[3];
+            if (args[13] != null && session.mergedSnapshotId === args[13]) delete session.mergedSnapshotId;
           } else if (sql.includes('lifecycle_state=COALESCE')) {
             if (!['starting', 'running', 'unreachable'].includes(session.status) || session.terminationIntentId) return { success: true, meta: { changes: 0 } };
             if (args[3] != null) session.status = args[3];

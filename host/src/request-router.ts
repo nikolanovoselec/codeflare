@@ -475,7 +475,7 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
         res.end(JSON.stringify({ workspaceRepos }));
         return;
       }
-      // Only report the launch's exact receipt after scoped session upload succeeded.
+      // Only report the launch's exact receipt once the replacement is verified in R2.
       const receipt = process.env.CODEFLARE_HERMES_MERGED_SNAPSHOT;
       const hermesRestoredSnapshot = receipt && /^[a-f0-9]{64}$/.test(receipt)
         && await fs.promises.readFile(`${SYNC_RUNTIME_DIR}/hermes-restore-synced`, 'utf8').catch(() => '') === `${receipt}\n`
