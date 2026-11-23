@@ -13,6 +13,7 @@ Public Worker, authenticated proxy, and integration endpoint contracts for Codef
 - [Container Lifecycle](#container-lifecycle)
 - [Operator Activities](#operator-activities)
 - [Internal Review enrollment](#internal-review-enrollment)
+- [Private Hermes shutdown Host API](#private-hermes-shutdown-host-api)
 - [Internal Operator Host APIs](#internal-operator-host-apis)
 - [Terminal](#terminal)
 - [Vault](#vault)
@@ -430,8 +431,8 @@ The owning Durable Object forwards these calls with the existing private Host be
 
 | Request | Result |
 |---|---|
-| `POST /internal/final-sync` with `x-codeflare-hermes-merge: 1` | `200 { synced: true, snapshotId? }`. No `snapshotId` means the workspace save was confirmed but no retryable Hermes snapshot was identified. |
-| `POST /internal/hermes-merge` | Requires the exact confirmed snapshot and a valid attempt deadline. Inspect `status`: `merged` includes a receipt, `skipped` is a verified no-op, and `pending` or `uncertain` do not prove publication. HTTP `200` alone is not a publication receipt. |
+| `POST /internal/final-sync` with `x-codeflare-hermes-merge: 1` | `200 { synced: true, snapshotId? }`. No `snapshotId` means the workspace save was confirmed but no retryable Hermes snapshot was identified. A structured `500 { synced: false, reason: "bisync-failed" }` is definitive; a generic 500 or missing or malformed acknowledgement is not. |
+| `POST /internal/hermes-merge` | Send `{ intent, snapshotId, deadline, allowPersonalPiProviders, gateway? }`. `snapshotId` must match the confirmed save, `deadline` is a future Unix time in milliseconds within the 20-minute budget, and `allowPersonalPiProviders` is a boolean. Optional `gateway` includes `model`, `contextWindow`, and optional `reasoning` and `reasoningLevels`. Invalid or unmatched requests return `409`. For `200`, inspect `status`: `merged` includes a receipt, `skipped` is a verified no-op, and `pending` or `uncertain` do not prove publication. HTTP `200` alone is not a publication receipt. |
 
 <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @impl: host/src/hermes-shutdown-service.ts::createHermesShutdownService -->
 
@@ -1247,6 +1248,8 @@ Anonymous GET `/health` returns only `{ "status": "healthy" }` before protected 
 | None | Runtime metrics and readiness, with `workspaceRepos` when the bounded inventory is reported. |
 | `inventory=defer` | Runtime metrics and readiness plus `workspaceInventoryReady`; omits `workspaceRepos`. |
 | `inventory=only` | `workspaceRepos` when available, otherwise `{}`. No metrics or `observedAt`. |
+
+An ordinary or `inventory=defer` observation may include private `hermesRestoredSnapshot`. It is the exact launch receipt after verified reseed and successful scoped upload. It is omitted for inventory-only observations or when that proof is absent or mismatched. The Worker consumes the matching receipt in its generation-fenced projection; it is not a public session-status field. <!-- @impl: entrypoint.sh::persist_pi_hermes_memory --> <!-- @impl: src/lib/session-repository.ts::project -->
 
 **Errors:** `401` for a missing or invalid bearer; `503` if the host auth token is not configured. <!-- @impl: host/src/auth-check.ts::checkContainerAuth -->
 

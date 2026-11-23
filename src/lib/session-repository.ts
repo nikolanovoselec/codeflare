@@ -130,14 +130,6 @@ export class D1SessionRepository implements SessionAuthority {
     return row ? fromRow(row) : null;
   }
 
-  async confirmHermesRestore(owner: string, session: string, generation: number, snapshotId: string): Promise<boolean> {
-    const result = await this.db.prepare(`UPDATE runtime_sessions SET hermes_merged_snapshot=NULL
-      WHERE owner_key=?1 AND session_id=?2 AND lifecycle_generation=?3 AND hermes_merged_snapshot=?4
-        AND lifecycle_state='running' AND termination_intent_id IS NULL`)
-      .bind(owner, session, generation, snapshotId).run();
-    return result.meta.changes === 1;
-  }
-
   async beginShutdownRetry(session: D1Session, next: SessionShutdown): Promise<D1Session | null> {
     const row = await this.db.prepare(`UPDATE runtime_sessions SET lifecycle_state='starting',
       lifecycle_generation=lifecycle_generation+1, response_revision=response_revision+1,
@@ -348,20 +340,21 @@ export class D1SessionRepository implements SessionAuthority {
 
   async project(ownerKey: string, sessionId: string, generation: number, sequence: number, projection: {
     lifecycleState?: 'starting' | 'running'; lastInputAt?: string; cpu?: string; memory?: string; disk?: string;
-    syncStatus?: string; editorReady?: boolean; editorReadyError?: boolean; observedAt: string;
+    syncStatus?: string; editorReady?: boolean; editorReadyError?: boolean; observedAt: string; hermesRestoredSnapshot?: string;
   }): Promise<boolean> {
     const result = await this.db.prepare(`UPDATE runtime_sessions SET
       lifecycle_state=COALESCE(?5,lifecycle_state), last_input_at=COALESCE(?6,last_input_at),
       cpu=?7, memory=?8, disk=?9, sync_status=?10, editor_ready=?11,
       editor_ready_error=?12, metrics_observed_at=?13, observation_sequence=?4,
-      response_revision=response_revision+1
+      response_revision=response_revision+1${projection.hermesRestoredSnapshot ? `,
+      hermes_merged_snapshot=CASE WHEN hermes_merged_snapshot=?14 THEN NULL ELSE hermes_merged_snapshot END` : ''}
       WHERE owner_key=?1 AND session_id=?2 AND lifecycle_generation=?3 AND ?4>observation_sequence
         AND lifecycle_state IN ('starting','running') AND unreachable_incident_id IS NULL
         AND termination_intent_id IS NULL`)
       .bind(ownerKey, sessionId, generation, sequence, projection.lifecycleState ?? null,
         projection.lastInputAt ?? null, projection.cpu ?? null, projection.memory ?? null, projection.disk ?? null,
         projection.syncStatus ?? null, projection.editorReady ? 1 : 0, projection.editorReadyError ? 1 : 0,
-        projection.observedAt).run();
+        projection.observedAt, ...(projection.hermesRestoredSnapshot ? [projection.hermesRestoredSnapshot] : [])).run();
     return result.meta.changes === 1;
   }
 

@@ -1,3 +1,4 @@
+import { getContainer } from '@cloudflare/containers';
 import type { Env } from '../../types';
 import { getContainerId } from '../../lib/container-helpers';
 import { getBucketStorageOwner } from '../../lib/r2-migration';
@@ -18,7 +19,7 @@ export async function maybeQueueShutdown(env: Env, session: D1Session, remove: b
     if (shutdown && shutdown.phase !== 'merged') return Response.json({ error: 'Session shutdown has not settled' }, { status: 409 });
     return null;
   }
-  const addressed = env.CONTAINER.getByName(getContainerId(bucket, sessionId)) as unknown as {
+  const addressed = getContainer(env.CONTAINER, getContainerId(bucket, sessionId)) as unknown as {
     canQueueHermesShutdown(input: SessionStopRequest): Promise<boolean>;
   };
   const input = { bucket, sessionId, generation };

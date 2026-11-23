@@ -97,7 +97,7 @@ describe('REQ-ENTERPRISE-005 AC2: terminal server CA inheritance', () => {
         assert.ok(start >= 0 && end > start, 'terminal launch fixture boundary not found');
         const launch = entrypoint.slice(start, end)
           .replaceAll('/etc/cloudflare/certs/cloudflare-containers-ca.crt', caPath)
-          .replace('cd /app/host', 'cd "$USER_HOME"');
+          .replaceAll('cd /app/host', 'cd "$USER_HOME"');
         const script = [
           'set -eo pipefail',
           // Stand in for the server and inspect its exported environment in a real child.

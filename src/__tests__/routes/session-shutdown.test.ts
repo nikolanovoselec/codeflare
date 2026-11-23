@@ -102,7 +102,7 @@ function rig(enterprise = true) {
     // Model exit confirmation independently of the running hint. The fixture
     // uses awaited native destroy as its source of positive exit evidence.
     const monitor = new Promise<void>(() => {});
-    const save = gate<'saved' | 'failed'>('saved');
+    const save = gate<'saved' | 'failed' | 'ambiguous'>('saved');
     let firstSave = true;
     const exit = gate<void>(undefined);
     const merge = gate<'skipped' | 'merged' | 'pending' | 'uncertain'>('skipped');
@@ -113,6 +113,7 @@ function rig(enterprise = true) {
     const native = {
       get running() { return running; },
       monitor: () => monitor,
+      interceptOutboundHttps: () => {},
       start: async ({ envVars }: { envVars: Record<string, string> }) => {
         expect(envVars.CODEFLARE_HERMES_RETRY_SNAPSHOT).toBe(snapshotId);
         token = envVars.CONTAINER_AUTH_TOKEN;
@@ -136,9 +137,9 @@ function rig(enterprise = true) {
           trace.push(`${label}:save`);
           const result = firstSave ? await save.promise : 'saved';
           firstSave = false;
-          if (result === 'failed') {
+          if (result === 'failed' || result === 'ambiguous') {
             trace.push(`${label}:save-failed`);
-            return Response.json({ synced: false, reason: 'bisync-failed' }, { status: 500 });
+            return Response.json({ synced: false, reason: result === 'failed' ? 'bisync-failed' : 'unexpected' }, { status: 500 });
           }
           trace.push(`${label}:saved`);
           if (enterprise) expect(request.headers.get('x-codeflare-hermes-merge')).toBe('1');
@@ -184,6 +185,7 @@ function rig(enterprise = true) {
       };
       let ready = Promise.resolve();
       const instance = new SessionContainer({ id: idFromName(address), container: process?.native, storage,
+        exports: { LlmInterceptor: () => ({ fetch: () => { throw new Error('Unexpected provider call'); } }) },
         blockConcurrencyWhile: (work: () => Promise<void>) => { ready = ready.then(work); return ready; },
         waitUntil: (work: Promise<unknown>) => { void work.catch(() => {}); },
       } as unknown as DurableObjectState<Env>, envOverrides as Env);
@@ -302,7 +304,7 @@ it('REQ-SESSION-043: unconfirmed final sync preserves the running Delete target 
   await expectAccepted(f.remove(a));
   await expectAccepted(f.stop(b));
   await vi.waitFor(() => expect(f.trace).toContain(`${a}:save`));
-  A.save.release('failed');
+  A.save.release('ambiguous');
   await vi.waitFor(() => expect(f.trace).toContain(`${a}:save-failed`));
   await vi.waitFor(async () => {
     const projected = await f.batch();
@@ -310,6 +312,7 @@ it('REQ-SESSION-043: unconfirmed final sync preserves the running Delete target 
     expect(projected[a]?.shutdownPhase).toBeUndefined();
     expect(projected[b]?.shutdownPhase).toBe('queued');
   });
+  expect((await f.stop(a)).status).toBe(409);
   expect(A.native.running).toBe(true);
   expect(f.trace).not.toContain(`${a}:sigterm`);
   expect(f.trace).not.toContain(`${a}:exit`);
@@ -413,9 +416,12 @@ it('REQ-MEM-044: a failed restore does not consume the saved merge receipt', asy
   await repository.confirmStopped(f.owner, a, 2, 'failed-restore-stop', stamp);
   const second = await repository.start(f.owner, a, stamp, 2);
   expect(second?.mergedSnapshotId).toBe(snapshotId);
-  await repository.project(f.owner, a, 3, 0, { lifecycleState: 'running', observedAt: stamp });
-  expect(await repository.confirmHermesRestore(f.owner, a, 2, snapshotId)).toBe(false);
-  expect(await repository.confirmHermesRestore(f.owner, a, 3, snapshotId)).toBe(true);
+  const observation = { lifecycleState: 'running' as const, observedAt: stamp, hermesRestoredSnapshot: snapshotId };
+  expect(await repository.project(f.owner, a, 2, 1, observation)).toBe(false);
+  expect((await repository.getSession(f.owner, a))?.mergedSnapshotId).toBe(snapshotId);
+  expect(await repository.project(f.owner, a, 3, 0, { ...observation, hermesRestoredSnapshot: 'b'.repeat(64) })).toBe(true);
+  expect((await repository.getSession(f.owner, a))?.mergedSnapshotId).toBe(snapshotId);
+  expect(await repository.project(f.owner, a, 3, 1, observation)).toBe(true);
   expect((await repository.getSession(f.owner, a))?.mergedSnapshotId).toBeUndefined();
 });
 

@@ -6,8 +6,8 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 ## 2026-11-23: Consolidate Hermes at graceful shutdown
 
-- [REQ-SESSION-043](session-lifecycle.md#req-session-043-queued-graceful-shutdown-and-memory-recovery) orders eligible Enterprise Stop and Delete requests per owner and keeps explicit Kill outside the queue. Recovery stays on the existing session card.
-- [REQ-MEM-044](memory.md#req-mem-044-consolidate-hermes-on-graceful-shutdown) compares saved Hermes entries to their original baseline and validates a complete revision before publication. Only a matching saved snapshot can reseed on Resume.
+- [REQ-SESSION-043](session-lifecycle.md#req-session-043-queued-graceful-shutdown-and-memory-recovery) orders eligible Enterprise Stop and Delete requests per owner and keeps Kill outside the queue. Retry Stop can repeat a definitively failed save, not an unconfirmed one.
+- [REQ-MEM-044](memory.md#req-mem-044-consolidate-hermes-on-graceful-shutdown) compares saved entries to their original baseline and verifies a complete revision before publication. A matching snapshot can reseed on Resume; a partial restore or upload does not consume the receipt.
 - [REQ-ENTERPRISE-100](models-and-routing.md#req-enterprise-100-exact-inference-route-for-hermes-shutdown-merge) uses the owner's current authorized native or Gateway model after the final save, without model substitution or additional access grants.
 
 ## 2026-11-22: Recover halted storage migrations

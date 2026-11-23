@@ -8,8 +8,9 @@ import type { Terminal } from '@xterm/xterm';
 
 // Keep the Dashboard, SessionStatCard, session store, and HTTP client real.
 // jsdom can check accessible content and commands, not card dimensions or tap targets.
-const id = 'shutdownsession1';
-const sessionPath = `/api/sessions/${id}`;
+let scenario = 0;
+let id: string;
+let sessionPath: string;
 const name = 'Shutdown workspace';
 const stamp = '2026-11-23T10:00:00.000Z';
 type Phase = 'queued' | 'saving' | 'consolidating' | 'finishing' | 'memory-not-merged';
@@ -48,6 +49,8 @@ const accepted = (shutdownPhase: Phase, pendingDelete = false) =>
   Response.json({ id, success: true, shutdownPhase, pendingDelete }, { status: 202 });
 
 beforeEach(async () => {
+  id = `shutdownsession${++scenario}`;
+  sessionPath = `/api/sessions/${id}`;
   catalog = polled = undefined;
   operations = [];
   retryResponse = undefined;
@@ -78,6 +81,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   cleanup();
+  terminalStore.disposeSession(id);
   sessionStore.stopSessionListPolling();
   sessionStore.stopR2Polling();
   sessionStore.stopAllPolling();

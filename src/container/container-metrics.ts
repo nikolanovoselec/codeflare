@@ -1281,10 +1281,6 @@ export async function collectMetrics(
           || (snapshot.editorReady !== undefined && typeof snapshot.editorReady !== 'boolean')
           || (snapshot.editorReadyError !== undefined && typeof snapshot.editorReadyError !== 'boolean')
           || !execution.isCurrent()) throw new Error('Runtime snapshot unavailable');
-      if (typeof snapshot.hermesRestoredSnapshot === 'string' && /^[a-f0-9]{64}$/.test(snapshot.hermesRestoredSnapshot)) {
-        await raceBudget(repository.confirmHermesRestore(ownerKey, sessionId, generation, snapshot.hermesRestoredSnapshot),
-          CONTAINER_POLL_BUDGET_MS).catch(() => undefined);
-      }
       // Only a finite positive timestamp is usable activity evidence. An
       // invalid value must not become the idle reference or D1 activity.
       const observedInputAt = typeof snapshot.lastInputAt === 'number'
@@ -1391,6 +1387,8 @@ export async function collectMetrics(
             lastInputAt: observedInputAt === null ? undefined : new Date(observedInputAt).toISOString(),
             cpu: snapshot.cpu, memory: snapshot.memory, disk: snapshot.disk, syncStatus: snapshot.syncStatus,
             editorReady: snapshot.editorReady, editorReadyError: snapshot.editorReadyError, observedAt: snapshot.observedAt,
+            hermesRestoredSnapshot: typeof snapshot.hermesRestoredSnapshot === 'string'
+              && /^[a-f0-9]{64}$/.test(snapshot.hermesRestoredSnapshot) ? snapshot.hermesRestoredSnapshot : undefined,
           }), CONTAINER_POLL_BUDGET_MS);
           if (accepted === null) throw new Error('D1 metrics projection deadline exceeded');
           projectionAccepted = accepted;

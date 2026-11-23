@@ -3772,7 +3772,9 @@ try:
         for parent in (work / 'global', work / 'Projects/workspace', evidence):
             direct_directory(parent)
         prepare_checkpoint_layout()
-    if layout == 'direct' and receipt_match is not None:
+    # A mismatch can mean a prior reseed uploaded only some files. It is
+    # never proof that the replacement was restored or persisted as a whole.
+    if layout == 'direct' and receipt_match is True:
         replace_text(ready.with_name('hermes-restore-verified'), os.environ['CODEFLARE_HERMES_MERGED_SNAPSHOT'] + '\n', ready.parent)
     ready.write_text(f'{layout}:{session}\n', encoding='utf-8')
     print('[entrypoint] Hermes memory prepared (' + layout + ')')

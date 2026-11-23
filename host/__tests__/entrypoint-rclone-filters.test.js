@@ -783,6 +783,56 @@ restore_hermes() {
 }
 
 describe('REQ-MEM-035 AC2 / REQ-MEM-041 AC2: session Markdown sync', () => {
+  it('REQ-MEM-044: an interrupted reseed upload cannot acknowledge a mixed restored snapshot', t => {
+    const fx = persistenceFixture(t, { policy: 'mutable', hermes: 'new', enterprise: true });
+    const store = 'Vault/Memory/Sessions/abc12345';
+    const baselinePath = `${store}/baseline.json`;
+    const keys = ['global/USER.md', 'global/MEMORY.md', 'global/failures.md', 'Projects/workspace/MEMORY.md'];
+    const digest = value => createHash('sha256').update(value).digest('hex');
+    const synced = join(fx.runtime, 'sync/hermes-restore-synced');
+    fx.put(fx.remote, 'Vault/Memory/MEMORY.md', 'Original baseline');
+    fx.run('restore_hermes');
+    fx.put(fx.home, `${store}/global/MEMORY.md`, 'Original saved edit');
+    fx.run('persist_pi_hermes_memory');
+    const original = JSON.parse(readFileSync(join(fx.remote, baselinePath), 'utf8'));
+    const originalBytes = Object.fromEntries(keys.map(key => [key, readFileSync(join(fx.remote, store, key))]));
+    const receipt = digest(JSON.stringify(keys.map(key => [key, digest(original[key]), digest(originalBytes[key])])));
+    const revision = 'merged-test-revision';
+    const files = Object.fromEntries(keys.map(key => {
+      const text = `Merged ${key}`;
+      fx.put(fx.remote, `Vault/Memory/Masters/${revision}/${key}`, text);
+      return [key, digest(text)];
+    }));
+    fx.put(fx.remote, 'Vault/Memory/Masters/current.json', JSON.stringify({ revision, files }));
+    const resume = generation => `export CODEFLARE_HERMES_MERGED_SNAPSHOT=${receipt} CODEFLARE_HERMES_GENERATION=${generation};
+      CODEFLARE_HERMES_PERSISTENCE=existing; restore_hermes`;
+    const resetHome = () => { rmSync(fx.home, { recursive: true }); mkdirSync(fx.home); };
+    resetHome();
+    fx.run(`${resume(2)}; timeout() {
+      if [ "$2:$3" = rclone:copy ]; then
+        command rclone copyto "$USER_HOME/${baselinePath}" "r2:$R2_BUCKET_NAME/${baselinePath}" --config "$RCLONE_CONFIG"
+        return 1
+      fi
+      command timeout "$@"
+    }; persist_pi_hermes_memory`, false);
+    assert.equal(existsSync(synced), false);
+    assert.notDeepEqual(JSON.parse(readFileSync(join(fx.remote, baselinePath), 'utf8')), original);
+    assert.deepEqual(readFileSync(join(fx.remote, store, 'global/MEMORY.md')), originalBytes['global/MEMORY.md']);
+
+    // New container: the baseline changed but the scoped files still match the old save.
+    resetHome();
+    rmSync(join(fx.runtime, 'sync/hermes-restore-verified'), { force: true });
+    fx.run(`${resume(3)}; persist_pi_hermes_memory`);
+    assert.equal(existsSync(synced), false, 'a mixed restore must not acknowledge the receipt');
+    assert.deepEqual(readFileSync(join(fx.home, store, 'global/MEMORY.md')), originalBytes['global/MEMORY.md']);
+
+    fx.put(fx.remote, baselinePath, JSON.stringify(original));
+    resetHome();
+    fx.run(`${resume(4)}; persist_pi_hermes_memory`);
+    assert.equal(readFileSync(synced, 'utf8'), `${receipt}\n`);
+    for (const key of keys) assert.equal(digest(readFileSync(join(fx.remote, store, key))), files[key]);
+  });
+
   for (const syncPolicyMode of ['include', 'exclude']) {
     it(`REQ-MEM-044: only scoped sync round-trips the owning baseline (${syncPolicyMode})`, t => {
       const fx = persistenceFixture(t, { policy: 'mutable', syncPolicyMode, hermes: 'new', enterprise: true });
