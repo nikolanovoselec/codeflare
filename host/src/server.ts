@@ -33,6 +33,8 @@ import { getPrewarmConfig } from './prewarm-config.js';
 import { handlePrewarmOrphanExpiry } from './prewarm-readiness.js';
 import { createRequestHandler, type ProxyTarget } from './request-router.js';
 import { shutdownPiMemoryOwners } from './pi-memory-shutdown.js';
+import { createHermesShutdownRuntime } from './hermes-shutdown-runtime.js';
+import { SYNC_RUNTIME_DIR } from './runtime-paths.js';
 import { createOperatorPiService } from './operator-pi-service.js';
 import { createOperatorInferenceOwnerResolver } from './operator-inference-owner.js';
 import { createOperatorSyncService } from './operator-sync-service.js';
@@ -299,12 +301,19 @@ const operatorInference = !process.env.CODEFLARE_OPERATOR_SESSION
     agentDir: process.env.PI_CODING_AGENT_DIR ?? '/home/user/.pi/agent' })
   : null;
 
+const headlessHermesRetry = process.env.ENTERPRISE_MODE === 'active' && !!process.env.CODEFLARE_HERMES_RETRY_SNAPSHOT;
+if (headlessHermesRetry) sessionManager.quiesceForHermesMerge();
+let hermesShutdown: ReturnType<typeof createHermesShutdownRuntime>;
+try { hermesShutdown = createHermesShutdownRuntime(process.env, SYNC_RUNTIME_DIR); }
+catch { log('warn', 'Hermes shutdown merge storage configuration is unavailable'); }
+
 // Create HTTP server; all plain-HTTP branches live in request-router.ts.
 const server = http.createServer(createRequestHandler({
   ...(operatorInference ? { operatorInference } : {}),
   ...(operatorPacket ? { operatorPacket } : {}),
   ...(operatorPi ? { operatorPi } : {}),
   ...(operatorSync ? { operatorSync } : {}),
+  hermesShutdown,
   sessionManager,
   wsEventLog: state.wsEventLog,
   activityTracker: state.activityTracker,
@@ -418,6 +427,7 @@ function waitForInitFlag(): Promise<void> {
 // Start server
 server.listen(PORT, '0.0.0.0', async () => {
   log('info', 'Terminal server listening', { port: PORT });
+  if (headlessHermesRetry) return;
   log('info', 'Workspace config', { workspace: WORKSPACE_DEFAULT, workingDir: getWorkingDirectory(), keepAliveSec: PTY_KEEPALIVE_MS / 1000 });
 
   // Start periodic cleanup of dead sessions

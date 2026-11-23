@@ -13,6 +13,7 @@
   "dependencies": {
     "@xterm/addon-serialize": "^0.14.0",
     "@xterm/headless": "^6.0.0",
+    "aws4fetch": "^1.0.20",
     "node-pty": "^1.1.0",
     "ws": "^8.23.0"
   },

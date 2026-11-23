@@ -574,6 +574,8 @@ export function getBucketStorageOwner(env: Pick<Env, 'CONTAINER'>, bucketName: s
     runBucketMultipart(input: import('../routes/storage/upload').BucketMultipartOperation | Request): Promise<Response>;
     advanceBucketMigration(bucketName: string): Promise<void>;
     retryBucketMigration(bucketName: string, haltedAt: string): Promise<Response>;
+    wakeHermesShutdownQueue(bucket: string): Promise<void>;
+    enqueueHermesShutdown(input: import('../container/session-shutdown-queue').ShutdownRequest): Promise<import('../container/session-shutdown-queue').ShutdownAcceptance>;
   };
 }
 

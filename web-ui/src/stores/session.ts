@@ -1,6 +1,6 @@
 import { createStore, produce } from 'solid-js/store';
 import { createSignal } from 'solid-js';
-import type { SessionWithStatus, SessionStatus, InitProgress, RepositoryRestoreStatus, SessionTerminals, AgentType, TabConfig, UserPreferences } from '../types';
+import type { SessionWithStatus, SessionStatus, ShutdownPhase, InitProgress, RepositoryRestoreStatus, SessionTerminals, AgentType, TabConfig, UserPreferences } from '../types';
 import * as api from '../api/client';
 import { ApiError } from '../api/fetch-helper';
 import { upgradeAgentConfigs } from '../api/storage';
@@ -8,7 +8,7 @@ import { cloneIntoSession, type CloneIntoSessionResult } from '../api/github';
 import type { ManagedReleaseProgress } from '../api/client';
 import { terminalStore } from './terminal';
 import { logger } from '../lib/logger';
-import { applyOrderedProjection, type BackendLifecycle } from '../lib/session-presentation';
+import { applyOrderedProjection, isShutdownInProgress, type BackendLifecycle } from '../lib/session-presentation';
 import { cleanupSessionVaultCache, sweepOrphanVaultCaches } from '../lib/vault-cache';
 import { MAX_STOP_POLL_ATTEMPTS, STOP_POLL_INTERVAL_MS, MAX_STOP_POLL_ERRORS, MAX_STARTUP_POLL_ERRORS, SESSION_POLL_TRANSITION_MS, CONTEXT_EXPIRY_MS } from '../lib/constants';
 import {
@@ -86,21 +86,8 @@ export interface SessionMetrics {
   hdd?: string;
 }
 
-/** Batch status entry shape from the backend */
-type BatchStatusEntry = {
-  status: 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping';
-  lifecycle?: 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping';
-  generation?: number;
-  revision?: number;
-  unreachableDeadlineMs?: number;
-  ptyActive?: boolean;
-  startupStage?: string;
-  lastStartedAt?: string;
-  lastActiveAt?: string;
-  editorReady?: boolean;
-  editorReadyError?: boolean;
-  metrics?: { cpu?: string; mem?: string; hdd?: string; syncStatus?: string; updatedAt?: string };
-};
+type BatchStatusResponse = Awaited<ReturnType<typeof api.getBatchSessionStatus>>;
+type MemoryRetryAttempt = { token: symbol; generation?: number; revision?: number };
 
 /**
  * Populate sessionMetrics from batch-status metrics.
@@ -129,6 +116,7 @@ export interface SessionState {
   initProgressBySession: Record<string, InitProgress>;
   terminalsPerSession: Record<string, SessionTerminals>;
   sessionMetrics: Record<string, SessionMetrics>;
+  memoryRetryAttempts: Partial<Record<string, MemoryRetryAttempt>>;
   preferences: UserPreferences;
   maxSessions: number;
   preseedUpgrading: boolean;
@@ -159,6 +147,7 @@ const [state, setState] = createStore<SessionState>({
   initProgressBySession: {},
   terminalsPerSession: loadTerminalsFromStorage(),
   sessionMetrics: {},
+  memoryRetryAttempts: {},
   preferences: {},
   maxSessions: 3,
   preseedUpgrading: false,
@@ -214,10 +203,10 @@ registerR2ReadinessDeps({
 
 // ── Core session helpers ────────────────────────────────────────────────────
 
-function updateSessionStatus(id: string, status: SessionStatus): void {
+function updateSessionStatus(id: string, status: SessionStatus, shutdownPhase?: ShutdownPhase): void {
   const index = state.sessions.findIndex((sess) => sess.id === id);
   if (index !== -1) {
-    if (status === 'stopped') {
+    if (status === 'stopped' && !isShutdownInProgress(shutdownPhase)) {
       localKillAttempts.delete(id);
     } else if (localKillAttempts.has(id)) {
       // Keep the local termination intent through an older live observation;
@@ -319,6 +308,29 @@ const supersededStopAttempts = new Set<string>();
 // Keep successful commands deduplicated until authoritative polling confirms exit.
 const localKillAttempts = new Map<string, { request: Promise<void> | null; generation?: number }>();
 
+function isMemoryRetryPending(id: string): boolean {
+  return !!state.memoryRetryAttempts[id] || state.sessions.some(session => session.id === id && session.retryingMemory);
+}
+
+// A Retry acknowledgment isn't a phase projection. Release the local action
+// lock only when an ordered read takes over, settles it, or replaces its generation.
+function reconcileMemoryRetry(id: string, session?: SessionWithStatus): void {
+  const attempt = state.memoryRetryAttempts[id];
+  if (!attempt) return;
+  if (!session || session.generation !== attempt.generation || session.retryingMemory
+    || (!isShutdownInProgress(session.shutdownPhase)
+      && session.revision !== undefined && session.revision > (attempt.revision ?? -1))) {
+    setState('memoryRetryAttempts', id, undefined);
+  }
+}
+
+function applyShutdownFields(index: number, incoming: BatchStatusResponse['statuses'][string]): void {
+  const { shutdownPhase, pendingDelete, retryingMemory } = incoming;
+  setState('sessions', index, { shutdownPhase, pendingDelete, retryingMemory });
+  const session = state.sessions[index];
+  reconcileMemoryRetry(session.id, session);
+}
+
 function reconcileKillGeneration(id: string): void {
   const attempt = localKillAttempts.get(id);
   const session = state.sessions.find((candidate) => candidate.id === id);
@@ -327,7 +339,7 @@ function reconcileKillGeneration(id: string): void {
     // A command for the old runtime must not pin a replacement as stopping.
     localKillAttempts.delete(id);
     if (session.lifecycle) updateSessionStatus(id, session.lifecycle);
-  } else if (session.status === 'stopped') {
+  } else if (session.status === 'stopped' && !isShutdownInProgress(session.shutdownPhase)) {
     localKillAttempts.delete(id);
   }
 }
@@ -348,6 +360,7 @@ registerPollingDeps({
     }
   },
   updateSessionStatus,
+  applyShutdownFields,
   isSessionInitializing,
   isLocallyStopping,
   shouldRetainNegativeKv,
@@ -383,11 +396,11 @@ async function loadSessions(): Promise<void> {
     void refreshSessionAncillaryStatus().catch((err) => {
       logger.warn('[SessionStore] ancillary status refresh failed:', err);
     });
-    const batchRequest = api.getBatchSessionStatus().catch((err) => {
+    const batchRequest = api.getBatchSessionStatus().catch((err): BatchStatusResponse => {
       logger.warn('[SessionStore] getBatchSessionStatus failed:', err);
       batchError = err instanceof Error ? err.message : 'Failed to fetch session statuses';
       batchAuthFailure = err instanceof ApiError && err.status === 401;
-      return { statuses: {} as Record<string, BatchStatusEntry> };
+      return { statuses: {} };
     });
     const sessions = await api.getSessions();
     if (thisGen !== loadSessionsGeneration || requestedCatalogRevision !== getSessionCatalogRevision()) return;
@@ -414,7 +427,7 @@ async function loadSessions(): Promise<void> {
       if (local && localNewer) return local;
       const kill = localKillAttempts.get(s.id);
       const keepLocalStatus = local && (local.status === 'initializing'
-        || (kill && kill.generation === s.generation && listedStatus !== 'stopped')
+        || (kill && kill.generation === s.generation && (listedStatus !== 'stopped' || isShutdownInProgress(s.shutdownPhase)))
         || isLocallyStopping(s.id) || isSessionInitializing(s.id));
       return {
         ...s,
@@ -433,7 +446,10 @@ async function loadSessions(): Promise<void> {
     sessionMissCounters.clear();
     setState('sessions', sessionsWithStatus);
     setState('loading', false);
-    for (const session of state.sessions) reconcileKillGeneration(session.id);
+    for (const session of state.sessions) {
+      reconcileKillGeneration(session.id);
+      reconcileMemoryRetry(session.id, session);
+    }
     // REQ-VAULT-034 AC2: sweep orphan legacy SilverBullet markers only after
     // an authoritative session-list fetch succeeds. Dashboard mount can
     // see the initial empty store before loadSessions resolves; sweeping
@@ -445,6 +461,7 @@ async function loadSessions(): Promise<void> {
     const newIds = new Set(sessionsWithStatus.map(s => s.id));
     for (const id of oldIds) {
       if (!newIds.has(id)) {
+        reconcileMemoryRetry(id);
         cleanupTerminalsForSession(id);
       }
     }
@@ -510,27 +527,31 @@ async function loadSessions(): Promise<void> {
         if (batchStatus.generation !== undefined && batchStatus.revision !== undefined) {
           setState('sessions', idx, { lifecycle: batchStatus.lifecycle ?? batchStatus.status,
             generation: batchStatus.generation, revision: batchStatus.revision });
+          applyShutdownFields(idx, batchStatus);
         }
         continue;
       }
       if (batchStatus.status === 'stopped' && currentStatus !== 'stopping'
-        && (batchStatus.generation === undefined || batchStatus.revision === undefined || isWithinStartupGuard(session.id))
+        && (batchStatus.generation === undefined || batchStatus.revision === undefined
+          || (isWithinStartupGuard(session.id) && !isShutdownInProgress(current?.shutdownPhase)
+            && batchStatus.shutdownPhase !== 'memory-not-merged'))
         && shouldRetainNegativeKv(session.id)) continue;
 
       const wasRunning = existingStatuses.get(session.id) === 'running';
-      updateSessionStatus(session.id, batchStatus.status);
+      updateSessionStatus(session.id, batchStatus.status, batchStatus.shutdownPhase);
       const latestIndex = state.sessions.findIndex((candidate) => candidate.id === session.id);
       if (latestIndex !== -1) {
         setState('sessions', latestIndex, 'lifecycle', batchStatus.lifecycle ?? batchStatus.status);
         if (batchStatus.generation !== undefined) setState('sessions', latestIndex, 'generation', batchStatus.generation);
         if (batchStatus.revision !== undefined) setState('sessions', latestIndex, 'revision', batchStatus.revision);
         if (batchStatus.unreachableDeadlineMs !== undefined) setState('sessions', latestIndex, 'unreachableDeadlineMs', batchStatus.unreachableDeadlineMs);
+        applyShutdownFields(latestIndex, batchStatus);
       }
       if (batchStatus.status === 'running') {
         if (!wasRunning && session.workspace !== 'vscode') {
           initializeTerminalsForSession(session.id);
         }
-      } else if (wasRunning && batchStatus.status === 'stopped') {
+      } else if (wasRunning && batchStatus.status === 'stopped' && !isShutdownInProgress(batchStatus.shutdownPhase)) {
         // Container stopped externally (hibernation/crash) — kill WS retry loops
         // so reconnect attempts don't keep waking the DO. Fresh connect() calls
         // are made when the user starts the session again.
@@ -542,7 +563,8 @@ async function loadSessions(): Promise<void> {
     if (thisGen !== loadSessionsGeneration) return;
     for (const session of state.sessions) {
       reconcileKillGeneration(session.id);
-      if (existingStatuses.get(session.id) === 'stopping' && session.status === 'stopped') {
+      if (existingStatuses.get(session.id) === 'stopping' && session.status === 'stopped'
+        && !isShutdownInProgress(session.shutdownPhase)) {
         terminalStore.disposeSession(session.id);
       }
     }
@@ -623,9 +645,10 @@ async function deleteSession(id: string): Promise<void> {
       startupCleanup();
       startupCleanups.delete(id);
     }
-    await api.deleteSession(id);
+    if (await api.deleteSession(id)) return; // Completion will come from the ordered catalog/status reads.
     invalidateSessionStatusReads();
     localKillAttempts.delete(id);
+    reconcileMemoryRetry(id);
     sessionMissCounters.delete(id);
     cleanupTerminalsForSession(id);
     // REQ-VAULT-034 AC1: drop legacy session-scoped SilverBullet localStorage markers.
@@ -733,6 +756,7 @@ function watchRepositoryRestore(id: string, generation: number, initial: Reposit
 }
 
 function startSession(id: string): Promise<void> {
+  if (isMemoryRetryPending(id)) return Promise.reject(new Error('Memory consolidation is in progress.'));
   dismissRepositoryRestore(id);
   const session = state.sessions.find((candidate) => candidate.id === id);
   const retryEditorTimeout = session?.workspace === 'vscode' && session.editorReadyError === true;
@@ -831,6 +855,20 @@ function startSession(id: string): Promise<void> {
   });
 }
 
+async function retryMemoryConsolidation(id: string): Promise<void> {
+  const session = state.sessions.find(candidate => candidate.id === id);
+  if (session?.status !== 'stopped' || session.shutdownPhase !== 'memory-not-merged' || isMemoryRetryPending(id)) return;
+  const token = Symbol();
+  setState('memoryRetryAttempts', id, { token, generation: session.generation, revision: session.revision });
+  try {
+    await api.retryMemoryConsolidation(id);
+  } catch (err) {
+    if (state.memoryRetryAttempts[id]?.token !== token) return;
+    setState('memoryRetryAttempts', id, undefined);
+    setState('error', err instanceof Error ? err.message : 'Failed to retry memory consolidation');
+  }
+}
+
 async function stopSession(id: string): Promise<void> {
   dismissRepositoryRestore(id);
   if (localStopAttempts.has(id)) return;
@@ -838,6 +876,7 @@ async function stopSession(id: string): Promise<void> {
   const attemptedSession = state.sessions.find((session) => session.id === id);
   const generation = attemptedSession?.generation;
   const revision = attemptedSession?.revision;
+  const previousStatus = attemptedSession?.status === 'initializing' ? attemptedSession.lifecycle : attemptedSession?.status;
   try {
     const startupCleanup = startupCleanups.get(id);
     if (startupCleanup) {
@@ -853,9 +892,18 @@ async function stopSession(id: string): Promise<void> {
     localStopAttempts.add(id);
     if (localKillAttempts.has(id)) supersededStopAttempts.add(id);
     updateSessionStatus(id, 'stopping');
-    await api.stopSession(id);
+    const queued = await api.stopSession(id);
     // KILL takes confirmation ownership even if this HTTP caller was hung.
     if (supersededStopAttempts.has(id)) return;
+    if (queued) {
+      // Durable shutdowns use the existing ordered batch reads, not the legacy
+      // short confirmation deadline. The acknowledgment itself isn't a phase.
+      const current = state.sessions.find(session => session.id === id);
+      if (current && current.generation === generation && current.revision === revision && previousStatus) {
+        updateSessionStatus(id, previousStatus, current.shutdownPhase);
+      }
+      return;
+    }
 
     // Poll batch-status until session reaches 'stopped' (sync may still be running)
     const pollForStopped = (): Promise<void> => {
@@ -1061,6 +1109,8 @@ export const sessionStore = {
   startSession,
   stopSession,
   killSession,
+  retryMemoryConsolidation,
+  isMemoryRetryPending,
   setActiveSession,
   clearError,
   dismissInitProgressForSession,

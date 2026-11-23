@@ -1,5 +1,6 @@
 import type { AgentType, SessionWorkspace, TabConfig, TerminalMode } from '../types';
 import { normalizeTrackedClones, type TrackedClone } from './clone-targets';
+import type { SessionShutdown } from './session-shutdown';
 import type { SessionAuthority, AuthoritySession } from './session-authority';
 
 type SessionLifecycleState = 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping';
@@ -36,6 +37,7 @@ export interface D1Session extends AuthoritySession {
   terminationClaimedAt?: string;
   terminationSignalAcceptedAt?: string;
   boundaryActivityId?: string;
+  shutdown?: SessionShutdown;
 }
 
 type SessionRow = Record<string, string | number | null>;
@@ -65,6 +67,7 @@ function fromRow(row: SessionRow): D1Session {
     terminationClaimedAt: optional(row.termination_claimed_at as string | null),
     terminationSignalAcceptedAt: optional(row.termination_signal_accepted_at as string | null),
     boundaryActivityId: optional(row.boundary_activity_id as string | null),
+    ...(row.shutdown_json ? { shutdown: json<SessionShutdown>(row.shutdown_json as string | null) } : {}),
   };
 }
 
@@ -108,17 +111,63 @@ export class D1SessionRepository implements SessionAuthority {
     return result.results.map(fromRow);
   }
 
-  async start(ownerKey: string, sessionId: string, transitionedAt: string, expectedGeneration?: number): Promise<D1Session | null> {
+  async start(ownerKey: string, sessionId: string, transitionedAt: string, expectedGeneration?: number, resume?: SessionShutdown): Promise<D1Session | null> {
+    const uncertain = resume?.phase === 'uncertain' ? { ...resume, resumed: true, delete: false } : null;
     const row = await this.db.prepare(`UPDATE runtime_sessions SET lifecycle_state='starting',
       lifecycle_generation=lifecycle_generation+1, response_revision=response_revision+1,
       observation_sequence=-1, editor_ready=0, editor_ready_error=0,
-      transitioned_at=?3, lifecycle_reason=NULL
+      transitioned_at=?3, lifecycle_reason=NULL${uncertain ? ', shutdown_json=?6' : resume ? ', shutdown_json=NULL, shutdown_order=NULL' : ''}
       WHERE owner_key=?1 AND session_id=?2 AND lifecycle_state='stopped'
         AND (?4 IS NULL OR lifecycle_generation=?4)
         AND termination_intent_id IS NULL AND boundary_activity_id IS NULL
         AND EXISTS (SELECT 1 FROM session_cutover WHERE id=1 AND state='complete')
-      RETURNING *`).bind(ownerKey, sessionId, transitionedAt, expectedGeneration ?? null).first<SessionRow>();
+        ${resume ? 'AND shutdown_json=?5' : ''}
+      RETURNING *`).bind(ownerKey, sessionId, transitionedAt, expectedGeneration ?? null,
+        ...(resume ? [JSON.stringify(resume)] : []), ...(uncertain ? [JSON.stringify(uncertain)] : [])).first<SessionRow>();
     return row ? fromRow(row) : null;
+  }
+
+  async beginShutdownRetry(session: D1Session, next: SessionShutdown): Promise<D1Session | null> {
+    const row = await this.db.prepare(`UPDATE runtime_sessions SET lifecycle_state='starting',
+      lifecycle_generation=lifecycle_generation+1, response_revision=response_revision+1,
+      observation_sequence=-1, editor_ready=0, editor_ready_error=0,
+      transitioned_at=?5, lifecycle_reason=NULL, shutdown_json=?6
+      WHERE owner_key=?1 AND session_id=?2 AND lifecycle_generation=?3 AND shutdown_json=?4
+        AND lifecycle_state='stopped' AND shutdown_order IS NOT NULL
+        AND termination_intent_id IS NULL AND boundary_activity_id IS NULL
+        AND EXISTS (SELECT 1 FROM session_cutover WHERE id=1 AND state='complete')
+      RETURNING *`).bind(session.ownerKey, session.sessionId, session.lifecycleGeneration,
+        JSON.stringify(session.shutdown), new Date().toISOString(), JSON.stringify(next)).first<SessionRow>();
+    return row ? fromRow(row) : null;
+  }
+
+  async shutdownHead(owner: string): Promise<D1Session | null> {
+    const row = await this.db.prepare(`SELECT * FROM runtime_sessions WHERE owner_key=?1
+      AND shutdown_order IS NOT NULL ORDER BY shutdown_order LIMIT 1`).bind(owner).first<SessionRow>();
+    return row ? fromRow(row) : null;
+  }
+
+  /** One CAS owns both FIFO placement and the public phase revision. */
+  async updateShutdown(session: D1Session, next: SessionShutdown | undefined): Promise<boolean> {
+    const place = next?.phase === 'queued' && (!session.shutdown || session.shutdown.phase === 'memory-not-merged');
+    const retry = place && next?.sourceGeneration !== undefined;
+    const hold = next && !['memory-not-merged', 'merged'].includes(next.phase);
+    const result = await this.db.prepare(`UPDATE runtime_sessions SET shutdown_json=?5,
+      shutdown_order=${place
+        ? '(SELECT COALESCE(MAX(q.shutdown_order),0)+1 FROM runtime_sessions q WHERE q.owner_key=?1)'
+        : hold ? 'shutdown_order' : 'NULL'}, response_revision=response_revision+1
+      WHERE owner_key=?1 AND session_id=?2 AND lifecycle_generation=?3 AND shutdown_json IS ?4
+      ${place ? `AND lifecycle_state='${retry ? 'stopped' : 'running'}' AND termination_intent_id IS NULL` : ''}`)
+      .bind(session.ownerKey, session.sessionId, session.lifecycleGeneration,
+        session.shutdown ? JSON.stringify(session.shutdown) : null, next ? JSON.stringify(next) : null).run();
+    return result.meta.changes === 1;
+  }
+
+  async deleteAfterShutdown(session: D1Session): Promise<boolean> {
+    const result = await this.db.prepare(`DELETE FROM runtime_sessions WHERE owner_key=?1 AND session_id=?2
+      AND lifecycle_generation=?3 AND lifecycle_state='stopped' AND boundary_activity_id IS NULL AND shutdown_json=?4`)
+      .bind(session.ownerKey, session.sessionId, session.lifecycleGeneration, JSON.stringify(session.shutdown)).run();
+    return result.meta.changes === 1;
   }
 
   /** Exceptional-path read only: a missing acknowledgement is not permission to signal. */

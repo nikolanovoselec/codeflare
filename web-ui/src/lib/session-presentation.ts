@@ -1,4 +1,10 @@
+import type { ShutdownPhase } from '../types';
+
 export type BackendLifecycle = 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping';
+
+export function isShutdownInProgress(phase: ShutdownPhase | undefined): boolean {
+  return phase !== undefined && phase !== 'memory-not-merged';
+}
 export interface OrderedProjection {
   lifecycle: BackendLifecycle;
   generation?: number;

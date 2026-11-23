@@ -3,6 +3,7 @@
 // their integration suites. In particular, this does not claim REQ-MEM-036.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import {
   cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync,
@@ -65,7 +66,7 @@ function fixture(t) {
 }
 
 function run(fx, { mode = 'advanced', explicitHome = true, id = sessionId, checkpoint = false, remote = false,
-  persistence = 'new', generation = '1', faultHooks } = {}) {
+  persistence = 'new', generation = '1', enterprise = false, mergedSnapshot = '', faultHooks } = {}) {
   return spawnSync('bash', ['-c', [
     'set -euo pipefail',
     functionSource('configure_pi_hermes_memory'),
@@ -82,6 +83,7 @@ function run(fx, { mode = 'advanced', explicitHome = true, id = sessionId, check
       XDG_CACHE_HOME: join(fx.home, '.cache'),
       CODEFLARE_RUNTIME_ROOT: fx.runtime,
       SESSION_MODE: mode, SESSION_ID: id, REMOTE_CURATION_ACTIVE: String(remote),
+      ENTERPRISE_MODE: enterprise ? 'active' : 'inactive', CODEFLARE_HERMES_MERGED_SNAPSHOT: mergedSnapshot,
       PI_WARM_EXTENSIONS_DIR: imageAdapterDir, CODEFLARE_HERMES_PERSISTENCE: persistence,
       CODEFLARE_HERMES_GENERATION: generation, ...(faultHooks ? { PYTHONPATH: faultHooks } : {}),
     },
@@ -291,6 +293,102 @@ describe('Pi Hermes startup (actual entrypoint helper)', () => {
     const otherGlobal = normalizedMemoryDir(privateCopy, config(privateCopy).memoryDir);
     assert.notEqual(readFileSync(join(otherGlobal, 'MEMORY.md'), 'utf8'), readFileSync(memory, 'utf8'));
     assertSaved(masters);
+  });
+
+  it('REQ-MEM-044 AC5: records the exact Enterprise seed and preserves it while opening an unmerged save', t => {
+    const origin = fixture(t), resumed = fixture(t);
+    const seeded = restoredMarkdown(origin);
+    succeeds(run(origin, { enterprise: true }));
+    const store = join(origin.home, sessionRoot);
+    const baseline = JSON.parse(readFileSync(join(store, 'baseline.json'), 'utf8'));
+    assert.deepEqual(baseline, Object.fromEntries(canonicalFiles.map(path => {
+      const key = path.replace('Vault/Memory/', '');
+      return [key.includes('/') ? key : `global/${key}`, seeded.get(join(origin.home, path)).bytes.toString()];
+    })));
+    writeFileSync(join(store, 'global/MEMORY.md'), 'A fact saved before Kill.');
+    const restored = join(resumed.home, sessionRoot);
+    mkdirSync(dirname(restored), { recursive: true });
+    cpSync(store, restored, { recursive: true });
+    put(join(resumed.home, 'Vault/Memory/MEMORY.md'), 'A different shared master.');
+    succeeds(run(resumed, { enterprise: true, persistence: 'existing', generation: '2' }));
+    assert.equal(readFileSync(join(restored, 'global/MEMORY.md'), 'utf8'), 'A fact saved before Kill.');
+    assert.deepEqual(JSON.parse(readFileSync(join(restored, 'baseline.json'), 'utf8')), baseline);
+  });
+
+  it('REQ-MEM-044 AC5: a new Enterprise session seeds only a complete verified revision', t => {
+    const fx = fixture(t);
+    const previous = restoredMarkdown(fx);
+    const fixtureFiles = Object.fromEntries(canonicalFiles.map(path => {
+      const name = path.replace('Vault/Memory/', '');
+      return [name.includes('/') ? name : `global/${name}`, `Committed ${name}\n`];
+    }));
+    const stage = join(fx.runtime, 'sync/hermes-masters');
+    const manifest = { revision: 'verified-fixture', files: Object.fromEntries(Object.entries(fixtureFiles).map(([name, value]) => [name,
+      createHash('sha256').update(value).digest('hex')])) };
+    put(join(stage, 'current.json'), JSON.stringify(manifest));
+    for (const [name, value] of Object.entries(fixtureFiles)) put(join(stage, manifest.revision, name), value);
+    put(join(stage, manifest.revision, 'global/MEMORY.md'), 'Corrupt staged object');
+    fails(run(fx, { enterprise: true }));
+    assert.equal(existsSync(join(fx.home, sessionRoot, 'session-id')), false);
+    put(join(stage, manifest.revision, 'global/MEMORY.md'), fixtureFiles['global/MEMORY.md']);
+    succeeds(run(fx, { enterprise: true }));
+    for (const [name, value] of Object.entries(fixtureFiles)) {
+      assert.equal(readFileSync(join(fx.home, sessionRoot, name), 'utf8'), value);
+    }
+    assertSaved(previous);
+  });
+
+  it('REQ-MEM-044 AC5: seeds from the latest complete revision only when the receipt matches the restored snapshot', t => {
+    const fx = fixture(t);
+    restoredMarkdown(fx);
+    succeeds(run(fx, { enterprise: true }));
+    const store = join(fx.home, sessionRoot), stage = join(fx.runtime, 'sync/hermes-masters');
+    const original = JSON.parse(readFileSync(join(store, 'baseline.json'), 'utf8'));
+    const own = join(store, 'global/MEMORY.md');
+    put(own, 'My saved addition.');
+    const digest = data => createHash('sha256').update(data).digest('hex');
+    const keys = ['global/USER.md', 'global/MEMORY.md', 'global/failures.md', 'Projects/workspace/MEMORY.md'];
+    const receipt = digest(JSON.stringify(keys.map(key => [key, digest(original[key]), digest(readFileSync(join(store, key)))])));
+    const manifest = { revision: 'following-verified-shutdown', files: {} };
+    for (const key of keys) {
+      const text = `Newest merged ${key}`;
+      manifest.files[key] = digest(text);
+      put(join(stage, manifest.revision, key), text);
+    }
+    put(join(stage, 'current.json'), JSON.stringify(manifest));
+    const resume = { enterprise: true, persistence: 'existing', generation: '2' };
+    succeeds(run(fx, { ...resume, mergedSnapshot: 'a'.repeat(64) }));
+    assert.equal(readFileSync(own, 'utf8'), 'My saved addition.');
+    assert.deepEqual(JSON.parse(readFileSync(join(store, 'baseline.json'), 'utf8')), original);
+    succeeds(run(fx, { ...resume, mergedSnapshot: receipt }));
+    assert.equal(readFileSync(own, 'utf8'), 'Newest merged global/MEMORY.md');
+    assert.equal(JSON.parse(readFileSync(join(store, 'baseline.json'), 'utf8'))['global/MEMORY.md'], 'Newest merged global/MEMORY.md');
+  });
+
+  it('REQ-MEM-044 AC5: invalid baseline bytes never replace an intact restored store', t => {
+    for (const invalid of [Buffer.from('{not-json'), Buffer.from([0xc3, 0x28])]) {
+      const fx = fixture(t);
+      succeeds(run(fx, { enterprise: true }));
+      const store = join(fx.home, sessionRoot);
+      const own = join(store, 'global/MEMORY.md');
+      const baselinePath = join(store, 'baseline.json');
+      writeFileSync(own, 'Preserve my saved Hermes entry.');
+      writeFileSync(baselinePath, invalid);
+      succeeds(run(fx, { enterprise: true, persistence: 'existing', generation: '2', mergedSnapshot: 'a'.repeat(64) }));
+      assert.equal(readFileSync(own, 'utf8'), 'Preserve my saved Hermes entry.');
+      assert.deepEqual(readFileSync(baselinePath), invalid);
+      assert.equal(normalizedMemoryDir(fx, config(fx).memoryDir), join(store, 'global'));
+    }
+  });
+
+  it('REQ-MEM-044 AC5: does not fabricate an Enterprise baseline for an old restored session', t => {
+    const fx = fixture(t);
+    succeeds(run(fx));
+    const store = join(fx.home, sessionRoot);
+    writeFileSync(join(store, 'global/MEMORY.md'), 'An old store predating the merge feature.');
+    succeeds(run(fx, { enterprise: true, persistence: 'existing', generation: '2' }));
+    assert.equal(readFileSync(join(store, 'global/MEMORY.md'), 'utf8'), 'An old store predating the merge feature.');
+    assert.equal(existsSync(join(store, 'baseline.json')), false);
   });
 
   it('REQ-MEM-041 AC1: a new user without Vault masters gets an empty usable session store', t => {
@@ -565,7 +663,7 @@ describe('Pi Hermes startup (actual entrypoint helper)', () => {
     ].join('\n');
     const result = spawnSync('bash', ['-c', script], { encoding: 'utf8', timeout: 20000,
       env: { ...process.env, USER_HOME: fx.home, HOME: fx.home, SESSION_MODE: 'advanced', SESSION_ID: sessionId,
-        CODEFLARE_OPERATOR_SESSION: '', CODEFLARE_RUNTIME_ROOT: fx.runtime,
+        CODEFLARE_OPERATOR_SESSION: '', CODEFLARE_RUNTIME_ROOT: fx.runtime, ENTERPRISE_MODE: 'inactive',
         CODEFLARE_HERMES_PERSISTENCE: 'new', PI_WARM_EXTENSIONS_DIR: imageAdapterDir } });
     succeeds(result);
     assert.equal(readFileSync(join(fx.home, 'release-result'), 'utf8'), 'released-after-memory-ready');

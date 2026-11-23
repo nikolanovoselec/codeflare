@@ -706,7 +706,7 @@ const governedPaths = [...governedRoots.map(root => `${root}managed/item`),
   '.pi/agent/extensions/synthetic-retired.ts'].sort();
 
 function persistenceFixture(t, { sessionMode = 'advanced', syncMode = 'full', syncPolicyMode = 'include', policy = 'immutable',
-  sessionId = 'abc12345', remote: sharedRemote, hermes = 'deferred', governed = [] } = {}) {
+  sessionId = 'abc12345', remote: sharedRemote, hermes = 'deferred', governed = [], enterprise = false } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'persistence-policy-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const home = join(root, 'home');
@@ -740,6 +740,7 @@ REMOTE_CURATION_RELEASE_DIGEST=${releaseDigest}
 MANAGED_RESOURCE_PATHS_DIGEST=${digest}
 SESSION_ID=${JSON.stringify(sessionId)}
 SESSION_MODE=${sessionMode}
+export ENTERPRISE_MODE=${enterprise ? 'active' : 'inactive'}
 CODEFLARE_HERMES_PERSISTENCE=${JSON.stringify(hermes)}
 PI_WARM_EXTENSIONS_DIR=${JSON.stringify(resolve(__dirname, '../../preseed/agents/pi/extensions'))}
 SYNC_MODE=${syncMode}
@@ -749,6 +750,7 @@ ${policyFunctions}
 source ${JSON.stringify(resolve(__dirname, '../../scripts/rclone-conflict-cleanup.sh'))}
 ${shellFunction('initial_sync_from_r2')}
 ${shellFunction('transfer_pi_hermes_memory')}
+${shellFunction('restore_pi_hermes_masters')}
 ${shellFunction('configure_pi_hermes_memory')}
 ${shellFunction('prepare_pi_hermes_persistence')}
 ${shellFunction('persist_pi_hermes_memory')}
@@ -781,6 +783,26 @@ restore_hermes() {
 }
 
 describe('REQ-MEM-035 AC2 / REQ-MEM-041 AC2: session Markdown sync', () => {
+  for (const syncPolicyMode of ['include', 'exclude']) {
+    it(`REQ-MEM-044: only scoped sync round-trips the owning baseline (${syncPolicyMode})`, t => {
+      const fx = persistenceFixture(t, { policy: 'mutable', syncPolicyMode, hermes: 'new', enterprise: true });
+      const baseline = 'Vault/Memory/Sessions/abc12345/baseline.json';
+      const commit = 'Vault/Memory/Masters/current.json';
+      fx.put(fx.remote, 'Vault/Memory/MEMORY.md', 'Baseline fact');
+      fx.run('restore_hermes');
+      fx.put(fx.remote, commit, 'Existing revision');
+      assert.equal(existsSync(join(fx.home, commit)), false);
+      fx.put(fx.home, commit, 'Must not publish via ordinary sync');
+      fx.run('establish_bisync_baseline');
+      assert.equal(JSON.parse(readFileSync(join(fx.remote, baseline), 'utf8'))['global/MEMORY.md'], 'Baseline fact');
+      assert.equal(readFileSync(join(fx.remote, commit), 'utf8'), 'Existing revision');
+      rmSync(fx.home, { recursive: true });
+      mkdirSync(fx.home);
+      fx.run('CODEFLARE_HERMES_PERSISTENCE=existing; restore_hermes');
+      assert.equal(JSON.parse(readFileSync(join(fx.home, baseline), 'utf8'))['global/MEMORY.md'], 'Baseline fact');
+    });
+  }
+
   function initializeRemote(fx, id, memory) {
     const prefix = `Vault/Memory/Sessions/${id}`;
     for (const [relative, contents] of Object.entries({

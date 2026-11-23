@@ -41,6 +41,16 @@ Custom compatibility revisions use only `ai-gateway-chat-completions` ingress an
 
 Revisions are immutable/hash-addressed; referenced revisions cannot be disabled or collected. Generic native-provider discovery may produce a provider-default custom revision with empty reasoning levels/mappings/aliases; naming it preserves custom identity rather than assigning a Mesh built-in. Verification and explicit Save remain required.
 
+### Hermes shutdown inference
+
+After the foreground Pi drains and the final save is confirmed, the Enterprise worker uses the session’s existing model access. It selects the saved native provider/model when Administration permits it; otherwise it uses the configured eligible Gateway default. For Gateway requests, exact-default mode can only narrow the route: a changed or revoked default refuses inference rather than substituting another model. Native authentication failure is not permission to fall back to Gateway. [REQ-ENTERPRISE-100](../../sdd/spec/models-and-routing.md#req-enterprise-100-exact-inference-route-for-hermes-shutdown-merge) <!-- @impl: host/src/hermes-shutdown-inference.ts::runHermesShutdownInference --> <!-- @impl: src/llm-interceptor.ts::LlmInterceptor -->
+
+The headless SDK call receives only the merge prompt and data, with no workspace tools or foreground transcript. It uses the pinned SDK's normal provider behavior; the shutdown worker introduces no new cache policy. Interactive cache hits do not prove cache reuse during shutdown.
+
+#### Shutdown inference route acceptance
+
+Use an authorized disposable owner on the candidate Enterprise Integration build. With native providers enabled, save an eligible native default, choose a different foreground model without persisting it, and initiate Stop with a mergeable change. Verify the successful save precedes the exact saved native provider/model request. With native providers disabled, repeat for the configured Dynamic and managed Native defaults. In separate cases, deny the selected route or its credentials and require a pending merge with no request to a substitute. Record the sanitized route, outcome, and candidate build, not credentials or private prompt data.
+
 <a id="target-capability-discovery"></a>
 <a id="normal-administrator-flow"></a>
 <a id="explicit-discovery-and-qualification"></a>

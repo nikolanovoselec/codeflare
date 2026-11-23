@@ -752,6 +752,35 @@ describe('REQ-ENTERPRISE-016 / AD86: EgressController account-scoped exemption (
     fetchSpy.mockRestore();
   });
 
+  it('REQ-MEM-044: strict egress relays only verified zero-byte Hermes fallback reads', async () => {
+    const seen: Request[] = [];
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      const request = input as Request;
+      seen.push(request);
+      const withSse = request.headers.has('x-amz-server-side-encryption-customer-key');
+      return withSse ? new Response(null, { status: 400 })
+        : new Response(new Uint8Array(), { headers: { 'content-length': '0' } });
+    });
+    try {
+      const { controller } = makeController({ ENCRYPTION_KEY: btoa('a'.repeat(32)) }, { accountId: 'acc' });
+      const get = (key: string) => controller.fetch(new Request(`https://acc.r2.cloudflarestorage.com/bucket/${key}`, {
+        headers: { 'x-codeflare-hermes-empty-read': '1' },
+      }));
+      const valid = await get('Vault/Memory/Sessions/sessionaa/global/USER.md');
+      expect(valid.status).toBe(200);
+      expect(await valid.text()).toBe('');
+      expect(seen[0].headers.has('x-amz-server-side-encryption-customer-key')).toBe(false);
+      expect(seen[0].headers.get('authorization')).toContain('Credential=user-r2-key/');
+      expect(seen[0].headers.has('x-codeflare-hermes-empty-read')).toBe(false);
+      expect((await get('Vault/Notes/not-hermes.md')).status).toBe(400);
+      expect(seen[1].headers.has('x-amz-server-side-encryption-customer-key')).toBe(true);
+      fetchSpy.mockResolvedValueOnce(new Response('nonempty', { headers: { 'content-length': '8' } }));
+      const invalid = await get('Vault/Memory/Sessions/sessionaa/global/USER.md');
+      expect(invalid.ok).toBe(false);
+      expect(await invalid.text()).not.toContain('nonempty');
+    } finally { fetchSpy.mockRestore(); }
+  });
+
   it('accepts the bound bucket in virtual-hosted R2 form and signs with its scoped key', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('r2', { status: 200 }));
     const { controller, egressFetch } = makeController({}, { accountId: 'acc', bucket: 'bound-bucket' });

@@ -289,6 +289,8 @@ export interface UserPreferences {
   };
 }
 
+export type ShutdownPhase = 'queued' | 'saving' | 'consolidating' | 'finishing' | 'memory-not-merged';
+
 /** Mirrors backend Session type (see src/types.ts). Keep in sync manually. */
 export interface Session {
   id: string;
@@ -301,6 +303,10 @@ export interface Session {
   generation?: number;
   revision?: number;
   unreachableDeadlineMs?: number;
+  shutdownPhase?: ShutdownPhase;
+  pendingDelete?: boolean;
+  /** A headless memory retry is queued or in progress. */
+  retryingMemory?: boolean;
   agentType?: AgentType;
   workspace?: SessionWorkspace;
   terminalMode?: TerminalMode;

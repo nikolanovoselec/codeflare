@@ -8,6 +8,8 @@ import { getContainer } from '@cloudflare/containers';
 import { AgentTypeSchema, resolveSessionWorkspace, resolveTerminalMode, type Env, type Session, type TerminalMode, type UserPreferences } from '../../types';
 import { getPreferencesKey, generateSessionId, sanitizeSessionName } from '../../lib/kv-keys';
 import { D1SessionRepository, type D1Session } from '../../lib/session-repository';
+import { shutdownProjection } from '../../lib/session-shutdown';
+import { maybeQueueShutdown } from './shutdown';
 import type { SessionStopRequest } from '../../container/container-lifecycle';
 import { fencePendingBoundaryStart } from './boundary-stop';
 import { AuthVariables } from '../../middleware/auth';
@@ -82,7 +84,7 @@ function toWorkspaceApiSession(session: Session | D1Session) {
   } : session;
   return {
     ...toApiSession(normalized),
-    ...('sessionId' in session ? { lifecycle: session.lifecycleState, generation: session.lifecycleGeneration, revision: session.responseRevision, unreachableDeadlineMs: session.unreachableDeadlineMs } : {}),
+    ...('sessionId' in session ? { ...shutdownProjection(session), lifecycle: session.lifecycleState, generation: session.lifecycleGeneration, revision: session.responseRevision, unreachableDeadlineMs: session.unreachableDeadlineMs } : {}),
     workspace: resolveSessionWorkspace(normalized.workspace),
     terminalMode: resolveTerminalMode(normalized.terminalMode),
   };
@@ -250,6 +252,8 @@ app.delete('/:id', sessionDeleteRateLimiter, async (c) => {
   if (!session) throw new NotFoundError('Session not found');
 
   const generation = session.lifecycleGeneration;
+  const queued = await maybeQueueShutdown(c.env, session, true);
+  if (queued) return queued;
   if (session.lifecycleState === 'stopped') {
     await fencePendingBoundaryStart(c.env, repository, session);
   } else {

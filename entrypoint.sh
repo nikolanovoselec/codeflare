@@ -408,6 +408,9 @@ if [ "${SESSION_MODE:-default}" = "advanced" ]; then
         --filter "+ /Vault/graphify-out/vault-extract-initialized"
         --filter "- Vault/graphify-out/**"
     )
+    if [ "${ENTERPRISE_MODE:-}" = active ]; then
+        VAULT_FILTER+=(--filter "- /Vault/Memory/Masters/**" --filter "- /Vault/Memory/Masters")
+    fi
 else
     VAULT_FILTER=(--filter "- Vault/**")
 fi
@@ -878,16 +881,34 @@ transfer_pi_hermes_memory() {
             v197) files=("$prefix/checkpoint.json") ;;
             *) return 1 ;;
         esac
-        local filter expected listed
+        local filter expected listed baseline= required
+        if [ "$layout" = direct ] && [ "${ENTERPRISE_MODE:-}" = active ]; then
+            baseline="$prefix/baseline.json"
+        fi
         filter=$(mktemp "$CODEFLARE_RUNTIME_ROOT/sync/hermes-filter.XXXXXX") || return 1
         trap 'rm -f "$filter"' EXIT
         {
             cat "$MANAGED_RESOURCE_FILTER_FILE" "$RECOVERY_FILTER_FILE" &&
-            printf '+ /%s\n' "${files[@]}" && printf '%s\n' '- **'
+            printf '+ /%s\n' "${files[@]}" &&
+            { [ -z "$baseline" ] || printf '+ /%s\n' "$baseline"; } && printf '%s\n' '- **'
         } > "$filter" || return 1
         local -a args=(--config "$RCLONE_CONFIG" --filter-from "$filter" --contimeout 5s --timeout 15s --checkers 4)
-        expected=$(printf '%s\n' "${files[@]}" | LC_ALL=C sort)
+        required=$(printf '%s\n' "${files[@]}" | LC_ALL=C sort)
+        expected="$required"
         [ "$deadline" -gt "$SECONDS" ] || return 1
+        if [ -n "$baseline" ]; then
+            # Baselines are optional for old stores. Only a successful exact inventory can establish absence.
+            listed=$(timeout "$((deadline - SECONDS))" rclone lsf "$source" --recursive --files-only "${args[@]}") || return 1
+            if printf '%s\n' "$listed" | grep -Fxq -- "$baseline"; then
+                expected=$(printf '%s\n%s\n' "$required" "$baseline" | LC_ALL=C sort)
+            elif [ "$direction" = upload ] && [ -e "$USER_HOME/$baseline" ]; then
+                return 1  # A filter veto must not hide an authoritative local baseline.
+            elif [ "$direction" = restore ] && { [ -e "$USER_HOME/$baseline" ] || [ -L "$USER_HOME/$baseline" ]; }; then
+                return 1  # Never infer from a stale local baseline after a replacement restore.
+            fi
+            [ "$(printf '%s\n' "$listed" | LC_ALL=C sort)" = "$expected" ] || return 1
+            [ "$deadline" -gt "$SECONDS" ] || return 1
+        fi
         if [ "$layout:$direction" = direct:upload ]; then
             # SSE-C metadata cannot establish byte equality. Download-compare
             # the exact files, so a byte-identical object keeps its R2 timestamp.
@@ -932,14 +953,56 @@ transfer_pi_hermes_memory() {
     )
 }
 
+restore_pi_hermes_masters() {
+    (
+        local deadline="$1" stage="$CODEFLARE_RUNTIME_ROOT/sync/hermes-masters"
+        local remote="r2:$R2_BUCKET_NAME/Vault/Memory/Masters" listed revision name
+        local -a args=(--config "$RCLONE_CONFIG" --contimeout 5s --timeout 15s --retries 1)
+        rm -rf -- "$stage" && mkdir -m 700 -- "$stage" || return 1
+        [ "$deadline" -gt "$SECONDS" ] || return 1
+        listed=$(timeout "$((deadline - SECONDS))" rclone lsf "r2:$R2_BUCKET_NAME/" --recursive --files-only \
+            --include /Vault/Memory/Masters/current.json "${args[@]}") || return 1
+        [ -n "$listed" ] || return 0
+        [ "$listed" = Vault/Memory/Masters/current.json ] && [ "$deadline" -gt "$SECONDS" ] || return 1
+        timeout "$((deadline - SECONDS))" rclone copyto "$remote/current.json" "$stage/current.json" "${args[@]}" || return 1
+        revision=$(python3 - "$stage/current.json" <<'PY'
+import json, re, sys
+from pathlib import Path
+path = Path(sys.argv[1])
+if path.stat().st_size > 4096:
+    sys.exit(1)
+revision = json.loads(path.read_bytes()).get('revision')
+if not isinstance(revision, str) or not re.fullmatch(r'[a-zA-Z0-9_-]{1,180}', revision) or revision == 'legacy':
+    sys.exit(1)
+print(revision)
+PY
+        ) || return 1
+        for name in global/USER.md global/MEMORY.md global/failures.md Projects/workspace/MEMORY.md; do
+            [ "$deadline" -gt "$SECONDS" ] || return 1
+            timeout "$((deadline - SECONDS))" rclone copyto "$remote/$revision/$name" "$stage/$revision/$name" "${args[@]}" || return 1
+        done
+    )
+}
+
 prepare_pi_hermes_persistence() {
     local layout
     layout=$(configure_pi_hermes_memory "$USER_HOME" layout) || return 1
     case "${CODEFLARE_HERMES_PERSISTENCE:-}:$layout" in
-        new:direct|legacy:v196) ;;
+        new:direct)
+            if [ "${ENTERPRISE_MODE:-}" = active ]; then
+                restore_pi_hermes_masters "$HERMES_RESTORE_DEADLINE" || return 1
+            fi ;;
+        legacy:v196) ;;
         existing:direct|legacy:v197)
             configure_pi_hermes_memory "$USER_HOME" validate || return 1
-            transfer_pi_hermes_memory restore "$layout" "$HERMES_RESTORE_DEADLINE" || return 1 ;;
+            transfer_pi_hermes_memory restore "$layout" "$HERMES_RESTORE_DEADLINE" || return 1
+            if [ "$layout" = direct ] && [ "${ENTERPRISE_MODE:-}" = active ] && [ -n "${CODEFLARE_HERMES_MERGED_SNAPSHOT:-}" ]; then
+                local reseed
+                reseed=$(configure_pi_hermes_memory "$USER_HOME" receipt) || return 1
+                if [ "$reseed" = matched ]; then
+                    restore_pi_hermes_masters "$HERMES_RESTORE_DEADLINE" || return 1
+                fi
+            fi ;;
         *) return 1 ;;
     esac
     configure_pi_hermes_memory
@@ -3051,6 +3114,15 @@ export_enterprise_ca_environment() {
     export REQUESTS_CA_BUNDLE="/etc/ssl/certs/ca-certificates.crt"
 }
 
+# A retry only serves the existing private merge operation. No workspace
+# restore, bisync daemon, editor or terminal is started for this runtime.
+if [ "${ENTERPRISE_MODE:-}" = active ] && [ -n "${CODEFLARE_HERMES_RETRY_SNAPSHOT:-}" ]; then
+    cd /app/host || exit 1
+    if [ -f "$CF_CA_SRC" ]; then export_enterprise_ca_environment; fi
+    export HOME="$USER_HOME" TERMINAL_PORT=8080
+    exec node dist/server.js
+fi
+
 echo "[entrypoint] Starting terminal server on port 8080..."
 (
     cd /app/host || exit 1
@@ -3238,6 +3310,8 @@ agent = home / '.pi/agent'
 vault = home / 'Vault/Memory'
 evidence = vault / 'Sessions' / session
 marker = evidence / 'session-id'
+baseline = evidence / 'baseline.json'
+enterprise = os.environ.get('ENTERPRISE_MODE') == 'active'
 checkpoint = evidence / 'checkpoint.json'
 cache = home / '.cache/pi-hermes-memory'
 work = cache / 'working'
@@ -3400,6 +3474,8 @@ def check_direct(required):
     for path in [marker, *(evidence / name for name in paths.values())]:
         if kind(path, stat.S_ISREG, required) and path.lstat().st_nlink != 1:
             raise ValueError('Hermes file is not independently owned')
+    if enterprise and kind(baseline, stat.S_ISREG) and baseline.lstat().st_nlink != 1:
+        raise ValueError('Hermes baseline is not independently owned')
     if required and read(marker) != session + '\n':
         raise ValueError('wrong Hermes store marker')
 
@@ -3412,6 +3488,51 @@ def replace_text(destination, content, staging):
         os.replace(temporary, destination)
     finally:
         Path(temporary).unlink(missing_ok=True)
+
+
+def merged_snapshot_matches():
+    receipt = os.environ.get('CODEFLARE_HERMES_MERGED_SNAPSHOT', '')
+    if not enterprise or persistence != 'existing' or not re.fullmatch('[0-9a-f]{64}', receipt) or not kind(baseline, stat.S_ISREG):
+        return False
+    check_direct(True)
+    try:
+        original = json.loads(read(baseline))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return False  # Invalid baseline bytes cannot authorize replacing intact session files.
+    if not isinstance(original, dict) or original.keys() != set(paths.values()) or not all(isinstance(value, str) for value in original.values()):
+        return False
+    current = snapshot(evidence, paths)
+    def digest(text):
+        return hashlib.sha256(text.encode()).hexdigest()
+    contents = [[rel, digest(original[rel]), digest(current[name])] for name, rel in paths.items()]
+    return hashlib.sha256(json.dumps(contents, separators=(',', ':')).encode()).hexdigest() == receipt
+
+
+def read_seed(require_commit=False):
+    direct_directory(vault / 'Projects/workspace')
+    stage = ready.with_name('hermes-masters')
+    commit_path = stage / 'current.json'
+    if not enterprise or not kind(commit_path, stat.S_ISREG):
+        if require_commit:
+            raise ValueError('missing verified Hermes revision for reseed')
+        return {name: read(vault / name) if kind(vault / name, stat.S_ISREG) else '' for name in paths}
+    if commit_path.stat().st_size > 4096:
+        raise ValueError('invalid Hermes commit size')
+    commit = json.loads(read(commit_path))
+    revision, hashes = commit.get('revision'), commit.get('files')
+    if not isinstance(revision, str) or not re.fullmatch('[a-zA-Z0-9_-]{1,180}', revision) or revision == 'legacy' \
+            or not isinstance(hashes, dict) or hashes.keys() != set(paths.values()):
+        raise ValueError('invalid Hermes commit')
+    seed = {}
+    for name, relative in paths.items():
+        staged = stage / revision / relative
+        if not kind(staged, stat.S_ISREG, True) or staged.stat().st_size > 600000:
+            raise ValueError('invalid Hermes revision file')
+        value = read(staged)
+        if hashlib.sha256(value.encode()).hexdigest() != hashes[relative] or len(value.encode('utf-16-le')) > 300000:
+            raise ValueError('unverified Hermes revision')
+        seed[name] = value
+    return seed
 
 
 def prepare_direct_layout():
@@ -3427,12 +3548,15 @@ def prepare_direct_layout():
         project.is_symlink() and Path(os.path.abspath(project.parent / os.readlink(project))) == target)):
         raise ValueError('conflicting memory alias')
     retirement = None
-    if persistence == 'new' and generation:
+    # Validate the entire newer revision before moving any restored session bytes.
+    reseed = merged_snapshot_matches()
+    seed = read_seed(require_commit=True) if reseed else None
+    if (persistence == 'new' or reseed) and generation:
         if not re.fullmatch('[1-9][0-9]{0,15}', generation):
             raise ValueError('invalid Hermes admission generation')
         pending = cache / f'retiring-store-{session}'
         current = read(local_generation) if kind(local_generation, stat.S_ISREG) else None
-        if not kind(pending, stat.S_ISDIR) and os.path.lexists(marker) and current != f'{session}:{generation}\n':
+        if not kind(pending, stat.S_ISDIR) and os.path.lexists(marker) and (reseed or current != f'{session}:{generation}\n'):
             check_direct(True)
             ready.unlink(missing_ok=True)
             pending.mkdir(parents=True, mode=0o700)
@@ -3448,18 +3572,17 @@ def prepare_direct_layout():
             if not kind(complete, stat.S_ISREG):
                 # Move the old marker last; a retry finishes the same moves.
                 locks = [evidence / ('.pi-hermes-locks.sqlite' + suffix) for suffix in ('', '-wal', '-shm', '-journal')]
-                for path in [evidence / 'global', evidence / 'Projects', *locks, marker]:
+                for path in [evidence / 'global', evidence / 'Projects', *locks, baseline, marker]:
                     if os.path.lexists(path):
                         path.rename(attempt / path.name)
                 complete.touch(exist_ok=False)
-    if os.path.lexists(marker) or persistence == 'existing':
+    if os.path.lexists(marker) or (persistence == 'existing' and not reseed):
         check_direct(True)
     else:
         # Only a recorded retirement can resume interrupted local seeding.
         if not retirement and any(os.path.lexists(evidence / name) for name in paths.values()):
             raise ValueError('incomplete local Hermes store')
-        direct_directory(vault / 'Projects/workspace')
-        source = {name: read(vault / name) if kind(vault / name, stat.S_ISREG) else '' for name in paths}
+        source = seed if seed is not None else read_seed()
         for name, rel in paths.items():
             destination = evidence / rel
             destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -3470,6 +3593,8 @@ def prepare_direct_layout():
             else:
                 with os.fdopen(os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
                     output.write(source[name].encode())
+        if enterprise:
+            atomic(baseline, {rel: source[name] for name, rel in paths.items()}, evidence)
         if retirement:
             replace_text(marker, session + '\n', retirement)
         else:
@@ -3604,6 +3729,10 @@ try:
         sys.exit(0)
     if phase == 'check-direct' and layout == 'direct':
         check_direct(True)
+        sys.exit(0)
+    if phase == 'receipt' and layout == 'direct':
+        if merged_snapshot_matches():
+            print('matched')
         sys.exit(0)
     if phase == 'checkpoint' and layout == 'v197':
         for parent in (work / 'global', work / 'Projects/workspace', evidence):

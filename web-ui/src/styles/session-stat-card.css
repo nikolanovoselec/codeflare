@@ -154,9 +154,70 @@
   }
 }
 
+/* Outside the Dashboard, keep the original card layout. */
+.session-stat-card__body {
+  display: contents;
+}
+
+.dashboard-session-list > .session-stat-card {
+  flex-shrink: 0;
+}
+
+.dashboard-session-list .session-stat-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  /* Reserve the three running metric rows even without metrics. Each row uses
+     a 1.4 line height, two value paddings, and 2px of outer padding. */
+  min-block-size: calc(4.2 * var(--text-xs) + 6 * var(--space-1) + 6px);
+}
+
+.session-stat-card__shutdown {
+  display: grid;
+  gap: var(--space-1);
+  font-size: var(--text-xs);
+  line-height: 1.25;
+  color: var(--color-text-secondary);
+}
+
+.session-stat-card__phase {
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.session-stat-card__actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: var(--space-1);
+}
+
+.session-stat-card__actions .button[data-size="sm"] {
+  min-height: 44px;
+  padding-inline: var(--space-1);
+  line-height: inherit;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 /* Progress bar for initializing */
 .session-stat-card__progress {
   margin-top: 4px;
+}
+
+.session-stat-card__progress--indeterminate .progress-bar-fill {
+  width: 40%;
+  transform: translateX(75%);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .session-stat-card__progress--indeterminate .progress-bar-fill {
+    animation: session-shutdown-progress 1.5s ease-in-out infinite alternate;
+  }
+}
+
+@keyframes session-shutdown-progress {
+  from { transform: translateX(0); }
+  to { transform: translateX(150%); }
 }
 
 /* Mobile: menu trigger always visible */

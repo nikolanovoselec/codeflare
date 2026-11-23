@@ -115,7 +115,7 @@ function clearOperationalMemory(host: LifecycleHost): void {
 }
 
 /** Complete an owner-authorized Stop without depending on operational DO keys. */
-export async function stopSession(env: Env, input: SessionStopRequest, destroyContainer: (owned: D1Session) => Promise<void>): Promise<void> {
+export async function stopSession(env: Env, input: SessionStopRequest, destroyContainer: (owned: D1Session) => Promise<void>, expectedIntent?: string): Promise<void> {
   const { bucket, sessionId, generation } = input;
   const repository = new D1SessionRepository(env.USAGE_DB);
   const current = await repository.getSession(bucket, sessionId);
@@ -124,10 +124,11 @@ export async function stopSession(env: Env, input: SessionStopRequest, destroyCo
 
   const claimed = current.lifecycleState === 'stopping'
     ? current
-    : await repository.claimStop(bucket, sessionId, crypto.randomUUID(), new Date().toISOString(), generation)
+    : await repository.claimStop(bucket, sessionId, expectedIntent ?? crypto.randomUUID(), new Date().toISOString(), generation)
       ?? await repository.getSession(bucket, sessionId);
   if (!claimed || claimed.lifecycleState !== 'stopping' || claimed.lifecycleGeneration !== generation
-      || claimed.terminationGeneration !== generation || !claimed.terminationIntentId) {
+      || claimed.terminationGeneration !== generation || !claimed.terminationIntentId
+      || (expectedIntent && claimed.terminationIntentId !== expectedIntent)) {
     throw new Error('Session stop ownership unavailable');
   }
   const intentId = claimed.terminationIntentId;
@@ -521,7 +522,7 @@ async function recordFinalSyncAudit(host: LifecycleHost, result: FinalSyncResult
  * resurrect the KV entry (REQ-SESSION-009).
  */
 export async function destroy(host: LifecycleHost, context?: LifecycleLogContext,
-  onNativeExit?: () => Promise<void>, quiesceStart?: () => Promise<void>): Promise<void> {
+  onNativeExit?: () => Promise<void>, quiesceStart?: () => Promise<void>, confirmedSave = false, finalEventsAttempted = false): Promise<void> {
   const diagnostic: LifecycleLogContext = context ? { ...context } : {
     sessionId: host._sessionId, lifecycleGeneration: host._observedLifecycleGeneration ?? null, incidentId: null, reason: 'unknown',
   };
@@ -588,7 +589,7 @@ export async function destroy(host: LifecycleHost, context?: LifecycleLogContext
   // after teardown has started deleting them. Failure is best-effort and cannot
   // suppress the later sync, cleanup, or stop.
   try {
-    await withinDeadline(() => drainAgentEventsBeforeStop(
+    if (!finalEventsAttempted) await withinDeadline(() => drainAgentEventsBeforeStop(
       host,
       host.ctx,
       host.env,
@@ -643,9 +644,9 @@ export async function destroy(host: LifecycleHost, context?: LifecycleLogContext
   // failure/timeout so we always fall through to stop. Emit a durable audit
   // event recording the outcome so a skipped/failed final sync on delete is
   // never silent (#516).
-  let syncResult: FinalSyncResult;
+  let syncResult: FinalSyncResult = { outcome: 'completed' };
   try {
-    syncResult = await withinDeadline(() => drainFinalSyncAudited(
+    if (!confirmedSave) syncResult = await withinDeadline(() => drainFinalSyncAudited(
       host,
       Math.max(1, Math.min(FINAL_SYNC_BUDGET_MS, hardKillMs - (Date.now() - start))),
       auditAuthToken,

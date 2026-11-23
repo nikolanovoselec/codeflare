@@ -18,6 +18,7 @@ import { emitRaw, type RawLogContext } from './operator-raw-logging.js';
 import { getSyncStatus, getSystemMetrics, collectWorkspaceRepos, isWorkspaceInventoryReady, getRepositoryRestoreStatus } from './metrics.js';
 import { evaluateFinalSync } from './final-sync.js';
 import type { PiMemoryShutdown } from './pi-memory-shutdown.js';
+import type { createHermesShutdownService } from './hermes-shutdown-service.js';
 import { AGENT_EVENT_LIMITS, type AgentEventDrainResult, type AgentEventKind } from './agent-events.js';
 import type { HealthResponse } from './types.js';
 import { resolveGitClone, resolveWorkspaceRoot, buildCloneArgs } from './git-clone.js';
@@ -104,6 +105,7 @@ export interface RequestRouterDeps {
   enqueueAgentEvent?: (kind: AgentEventKind) => boolean;
   /** Quiesce registered foreground memory writers before the authoritative final sync. */
   prepareFinalSync?: (deadline: number) => Promise<PiMemoryShutdown>;
+  hermesShutdown?: ReturnType<typeof createHermesShutdownService>;
   /** Injectable final-sync I/O keeps endpoint tests deterministic; production uses host I/O below. */
   finalSync?: {
     now(): number;
@@ -296,6 +298,29 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
     if (!authOutcome.allowed) {
       res.writeHead(authOutcome.status, { 'Content-Type': 'application/json' });
       res.end(authOutcome.body);
+      return;
+    }
+
+    if (pathname === '/internal/hermes-merge') {
+      if (method !== 'POST' || !deps.hermesShutdown) { res.writeHead(404); res.end(); return; }
+      const cancelled = new AbortController();
+      const abort = () => cancelled.abort();
+      res.once('close', abort);
+      req.once('aborted', abort);
+      try {
+        const body = await readBoundedBody(req, 4096, AbortSignal.any([cancelled.signal, AbortSignal.timeout(5000)]));
+        if (body.byteLength > 4096) throw new Error('Oversized merge request');
+        const result = await deps.hermesShutdown.merge(JSON.parse(Buffer.from(body).toString('utf8')), cancelled.signal);
+        if (!cancelled.signal.aborted) {
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+          res.end(JSON.stringify(result));
+        }
+      } catch {
+        if (!cancelled.signal.aborted) { res.writeHead(409); res.end(); }
+      } finally {
+        res.removeListener('close', abort);
+        req.removeListener('aborted', abort);
+      }
       return;
     }
 
@@ -871,6 +896,8 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
     // triggered - the daemon coalesces our SIGUSR1 into a rerun whose `syncing`
     // ts lands after our trigger.
     if (pathname === '/internal/final-sync' && method === 'POST') {
+      const mergeSave = deps.hermesShutdown && req.headers['x-codeflare-hermes-merge'] === '1';
+      if (mergeSave) sessionManager.quiesceForHermesMerge();
       const reportDiskBlock = (): boolean => {
         if (!fs.existsSync(`${SYNC_RUNTIME_DIR}/disk-space-blocked`)) return false;
         res.writeHead(409, { 'Content-Type': 'application/json' });
@@ -932,8 +959,15 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
             res.writeHead(503, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ synced: false, reason: `pi-shutdown-${memoryShutdown.status}` }));
           } else {
+            let snapshotId: string | null = null;
+            if (mergeSave && deps.hermesShutdown) {
+              const remaining = deadline - finalSync.now();
+              if (remaining > 0) {
+                snapshotId = await deps.hermesShutdown.saved(AbortSignal.timeout(remaining)).catch(() => null);
+              }
+            }
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ synced: true }));
+            res.end(JSON.stringify({ synced: true, ...(snapshotId ? { snapshotId } : {}) }));
           }
           return;
         }

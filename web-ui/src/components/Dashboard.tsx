@@ -23,6 +23,7 @@ import KittScanner from './KittScanner';
 import DashboardCard from './TipsRotator';
 import { sessionStore, isAtUsageQuota } from '../stores/session';
 import { terminalWorkspaceStore } from '../stores/terminal-workspace';
+import { isShutdownInProgress } from '../lib/session-presentation';
 import { createTerminalViewportClass } from '../lib/mobile';
 import { decidePanelLayoutMode } from '../lib/panel-allocation';
 import { githubStore } from '../stores/github';
@@ -288,6 +289,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
   });
 
   const handleSessionSelect = (session: SessionWithStatus) => {
+    if (session.shutdownPhase && sessionStore.isMemoryRetryPending(session.id)) return;
     if (session.workspace !== 'vscode') {
       props.onOpenSessionById(session.id);
       return;
@@ -548,6 +550,8 @@ const Dashboard: Component<DashboardProps> = (props) => {
                         onStop={() => props.onStopSession(session.id)}
                         onDelete={() => props.onDeleteSession(session.id)}
                         onMenuClick={handleMenuClick}
+                        onRetryMemoryConsolidation={() => void sessionStore.retryMemoryConsolidation(session.id)}
+                        memoryRetryPending={session.shutdownPhase !== undefined && sessionStore.isMemoryRetryPending(session.id)}
                       />
                     )}
                   </For>
@@ -556,11 +560,13 @@ const Dashboard: Component<DashboardProps> = (props) => {
                   <SessionContextMenu
                     isOpen={menuState().isOpen}
                     position={menuState().position}
-                    canStop={['running', 'initializing', 'starting', 'unreachable', 'stopping'].includes(menuState().session?.status ?? '')
-                      || (menuState().session?.workspace === 'vscode' && menuState().session?.status === 'error')}
-                    canKill={['starting', 'running', 'unreachable', 'stopping'].includes(menuSession()?.status ?? '')}
+                    canStop={!isShutdownInProgress(menuSession()?.shutdownPhase)
+                      && (['running', 'initializing', 'starting', 'unreachable', 'stopping'].includes(menuSession()?.status ?? '')
+                        || (menuSession()?.workspace === 'vscode' && menuSession()?.status === 'error'))}
+                    canKill={isShutdownInProgress(menuSession()?.shutdownPhase)
+                      || ['starting', 'running', 'unreachable', 'stopping'].includes(menuSession()?.status ?? '')}
                     onKill={() => { const session = menuSession(); if (session) void sessionStore.killSession(session.id); }}
-                    stopLabel={menuState().session?.status === 'stopping' ? 'Retry Stop' : 'Stop'}
+                    stopLabel={menuSession()?.status === 'stopping' ? 'Retry Stop' : 'Stop'}
                     sessionName={menuState().session?.name || ''}
                     onStop={() => { if (menuState().session) props.onStopSession(menuState().session!.id); }}
                     onDelete={() => { if (menuState().session) props.onDeleteSession(menuState().session!.id); }}

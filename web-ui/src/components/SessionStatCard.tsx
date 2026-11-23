@@ -1,12 +1,13 @@
 import { Component, Show, createMemo, createSignal, onCleanup } from 'solid-js';
 import { mdiConsole, mdiChip, mdiMemory, mdiHarddisk, mdiDotsVertical, mdiClockTimeEightOutline } from '@mdi/js';
 import Icon from './Icon';
-import { resolveTerminalMode, type SessionWithStatus, type SessionStatus } from '../types';
+import Button from './ui/Button';
+import { resolveTerminalMode, type SessionWithStatus, type SessionStatus, type ShutdownPhase } from '../types';
 import { sessionStore } from '../stores/session';
 import { terminalStore } from '../stores/terminal';
 import { AGENT_ICON_MAP } from '../lib/terminal-config';
 import { getSleepTimerInfo } from '../lib/sleep-timer';
-import { terminalPresentation, vscodePresentation, type BackendLifecycle } from '../lib/session-presentation';
+import { isShutdownInProgress, terminalPresentation, vscodePresentation, type BackendLifecycle } from '../lib/session-presentation';
 import '../styles/stat-cards.css';
 import '../styles/session-stat-card.css';
 
@@ -30,6 +31,14 @@ const statusPulses: Record<SessionStatus, boolean> = {
   error: false,
 };
 
+const shutdownLabels: Record<ShutdownPhase, string> = {
+  queued: 'Queued for shutdown.',
+  saving: 'Shutting down. Saving session files',
+  consolidating: 'Shutting down. Consolidating memory',
+  finishing: 'Shutting down. Finishing',
+  'memory-not-merged': 'Stopped · memory not merged',
+};
+
 interface SessionStatCardProps {
   session: SessionWithStatus;
   isActive: boolean;
@@ -37,9 +46,18 @@ interface SessionStatCardProps {
   onStop: () => void;
   onDelete: () => void;
   onMenuClick?: (e: MouseEvent, session: SessionWithStatus) => void;
+  onRetryMemoryConsolidation?: () => void;
+  memoryRetryPending?: boolean;
 }
 
 const SessionStatCard: Component<SessionStatCardProps> = (props) => {
+  const phase = () => props.onRetryMemoryConsolidation ? props.session.shutdownPhase : undefined;
+  const shutdownLabel = () => {
+    const current = phase();
+    return current && shutdownLabels[current];
+  };
+  const shutdownInProgress = () => isShutdownInProgress(phase());
+  const memoryNotMerged = () => phase() === 'memory-not-merged';
   const metrics = createMemo(() => sessionStore.getMetricsForSession(props.session.id));
   const wsState = () => {
     const terminalId = resolveTerminalMode(props.session.terminalMode) === 'herdr'
@@ -60,6 +78,8 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
     return 'label' in presentation ? presentation.label : `Session ${props.session.status}`;
   };
   const dotVariant = () => {
+    if (shutdownInProgress()) return 'warning';
+    if (memoryNotMerged()) return 'error';
     if (props.session.workspace === 'vscode') {
       if (props.session.status === 'error' || props.session.editorReadyError === true) return 'error';
       if (props.session.status === 'running' || props.session.status === 'unreachable') return props.session.editorReady === true ? 'success' : 'default';
@@ -70,9 +90,9 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
     }
     return statusDotVariant[props.session.status];
   };
-  const isPulsing = () => props.session.workspace === 'vscode' && dotVariant() === 'error'
-    ? false
-    : statusPulses[props.session.status];
+  const isPulsing = () => shutdownInProgress() || (!memoryNotMerged()
+    && !(props.session.workspace === 'vscode' && dotVariant() === 'error')
+    && statusPulses[props.session.status]);
   const isActionable = () => props.session.workspace !== 'vscode'
     || props.session.status === 'stopped'
     || props.session.status === 'error'
@@ -83,8 +103,11 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
     || sessionStore.managedReleaseStatus === 'upgrading';
   const isStoppedForManagedSeedUpdate = () => managedSeedUpdateActive()
     && props.session.status === 'stopped';
-  const isSelectionEnabled = () => isActionable()
-    && !isStoppedForManagedSeedUpdate();
+  // A running session can still be used while it waits for its queue turn.
+  const waitingWhileRunning = () => phase() === 'queued' && props.session.status === 'running' && !props.memoryRetryPending;
+  const isSelectionEnabled = () => isActionable() && (!phase() || waitingWhileRunning()) && !isStoppedForManagedSeedUpdate();
+  const canRecoverMemory = () => memoryNotMerged() && props.session.status === 'stopped'
+    && !props.memoryRetryPending && !isStoppedForManagedSeedUpdate();
   const select = () => {
     if (!isSelectionEnabled()) return;
     props.onSelect();
@@ -97,7 +120,7 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
 
   const timerInfo = createMemo(() => {
     timerTick(); // subscribe to tick
-    if (props.session.status !== 'running') return null;
+    if (props.session.status !== 'running' || (phase() && !waitingWhileRunning())) return null;
     return getSleepTimerInfo(props.session.lastActiveAt, sessionStore.preferences.sleepAfter);
   });
   const [showTimerTooltip, setShowTimerTooltip] = createSignal(false);
@@ -130,8 +153,8 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
         <span class="stat-card__title type-section-header session-stat-card__name">{props.session.name}</span>
         <span
           class={`session-stat-card__dot session-stat-card__dot--${dotVariant()} ${isPulsing() ? 'session-stat-card__dot--pulse' : ''}`}
-          role="status"
-          aria-label={props.session.workspace === 'vscode'
+          role={phase() ? undefined : 'status'}
+          aria-label={phase() ? undefined : props.session.workspace === 'vscode'
             ? `Session ${props.session.status}`
             : lifecycleLabel()}
         />
@@ -166,6 +189,7 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
           class="session-stat-card__menu-trigger"
           data-testid={`session-stat-card-${props.session.id}-menu`}
           title="Session actions"
+          aria-label="Session actions"
           onClick={(e) => {
             e.stopPropagation();
             props.onMenuClick?.(e, props.session);
@@ -175,41 +199,72 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
         </button>
       </div>
 
-      <Show when={props.session.status === 'running' || metrics()}>
-        <div class="stat-card__metrics">
-          <div class="stat-card__metric" data-testid={`session-stat-card-${props.session.id}-metric-cpu`}>
-            <span class="stat-card__metric-label">
-              <Icon path={mdiChip} size={12} />
-              CPU
-            </span>
-            <span class="stat-card__metric-value">{metrics()?.cpu || '...'}</span>
+      <div class="session-stat-card__body">
+        <Show when={shutdownLabel()} fallback={<>
+          <Show when={props.session.status === 'running' || metrics()}>
+            <div class="stat-card__metrics">
+              <div class="stat-card__metric" data-testid={`session-stat-card-${props.session.id}-metric-cpu`}>
+                <span class="stat-card__metric-label">
+                  <Icon path={mdiChip} size={12} />
+                  CPU
+                </span>
+                <span class="stat-card__metric-value">{metrics()?.cpu || '...'}</span>
+              </div>
+              <div class="stat-card__metric" data-testid={`session-stat-card-${props.session.id}-metric-mem`}>
+                <span class="stat-card__metric-label">
+                  <Icon path={mdiMemory} size={12} />
+                  MEM
+                </span>
+                <span class="stat-card__metric-value">{metrics()?.mem || '...'}</span>
+              </div>
+              <div class="stat-card__metric" data-testid={`session-stat-card-${props.session.id}-metric-hdd`}>
+                <span class="stat-card__metric-label">
+                  <Icon path={mdiHarddisk} size={12} />
+                  HDD
+                </span>
+                <span class="stat-card__metric-value">{metrics()?.hdd || '...'}</span>
+              </div>
+            </div>
+          </Show>
+          <Show when={props.session.status === 'initializing'}>
+            <div class="progress-bar progress-bar-thin progress-bar-animated session-stat-card__progress">
+              <div
+                class="progress-bar-fill"
+                style={{ width: `${getProgress()}%` }}
+                data-testid={`session-stat-card-${props.session.id}-progress`}
+              />
+            </div>
+          </Show>
+        </>}>
+          <div class="session-stat-card__shutdown">
+            <div>
+              <div role="status">
+                <div class="session-stat-card__phase">{shutdownLabel()}</div>
+                <Show when={memoryNotMerged()}>
+                  <div>{props.session.pendingDelete ? 'Files saved. Not deleted.' : 'Session files were saved.'}</div>
+                </Show>
+              </div>
+              <Show when={shutdownInProgress() && phase() !== 'queued'}>
+                <div class="progress-bar progress-bar-thin session-stat-card__progress--indeterminate"
+                  role="progressbar" aria-label={shutdownLabel()}>
+                  <div class="progress-bar-fill" />
+                </div>
+              </Show>
+            </div>
+            <Show when={memoryNotMerged() || props.memoryRetryPending}>
+              <div class="session-stat-card__actions">
+                <Button size="sm" disabled={!canRecoverMemory()} onClick={props.onRetryMemoryConsolidation}>
+                  Retry memory consolidation
+                </Button>
+                <Button size="sm" variant="secondary" disabled={!canRecoverMemory()}
+                  onClick={() => { if (canRecoverMemory()) props.onSelect(); }}>
+                  Resume session
+                </Button>
+              </div>
+            </Show>
           </div>
-          <div class="stat-card__metric" data-testid={`session-stat-card-${props.session.id}-metric-mem`}>
-            <span class="stat-card__metric-label">
-              <Icon path={mdiMemory} size={12} />
-              MEM
-            </span>
-            <span class="stat-card__metric-value">{metrics()?.mem || '...'}</span>
-          </div>
-          <div class="stat-card__metric" data-testid={`session-stat-card-${props.session.id}-metric-hdd`}>
-            <span class="stat-card__metric-label">
-              <Icon path={mdiHarddisk} size={12} />
-              HDD
-            </span>
-            <span class="stat-card__metric-value">{metrics()?.hdd || '...'}</span>
-          </div>
-        </div>
-      </Show>
-
-      <Show when={props.session.status === 'initializing'}>
-        <div class="progress-bar progress-bar-thin progress-bar-animated session-stat-card__progress">
-          <div
-            class="progress-bar-fill"
-            style={{ width: `${getProgress()}%` }}
-            data-testid={`session-stat-card-${props.session.id}-progress`}
-          />
-        </div>
-      </Show>
+        </Show>
+      </div>
     </div>
   );
 };

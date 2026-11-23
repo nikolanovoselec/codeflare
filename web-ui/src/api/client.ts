@@ -386,13 +386,21 @@ export async function updateSession(
   return response.session;
 }
 
-export async function deleteSession(id: string): Promise<void> {
+/** A 202 acknowledges durable work, not a completed Stop or Delete. */
+async function requestGracefulShutdown(endpoint: string, method: 'POST' | 'DELETE'): Promise<true | void> {
+  let accepted = false;
+  await baseFetch(`${BASE_URL}${endpoint}`, { method }, {
+    credentials: 'same-origin',
+    onSuccessStatus: (status) => { accepted = status === 202; },
+  });
+  if (accepted) return true;
+}
+
+export async function deleteSession(id: string): Promise<true | void> {
   if (!SESSION_ID_RE.test(id)) {
     throw new ApiError('Invalid session ID format', 400, 'Bad Request');
   }
-  await fetchApi(`/sessions/${id}`, {
-    method: 'DELETE',
-  });
+  return requestGracefulShutdown(`/sessions/${id}`, 'DELETE');
 }
 
 export interface ManagedReleaseProgress {
@@ -402,7 +410,7 @@ export interface ManagedReleaseProgress {
 }
 
 /** Get authoritative lifecycle projections for all sessions. */
-export async function getBatchSessionStatus(_legacyOptions?: unknown): Promise<{ statuses: Record<string, { status: 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping'; lifecycle?: 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping'; generation?: number; revision?: number; unreachableDeadlineMs?: number; ptyActive?: boolean; startupStage?: string; lastStartedAt?: string | null; lastActiveAt?: string | null; editorReady?: boolean; editorReadyError?: boolean; metrics?: { cpu?: string; mem?: string; hdd?: string; syncStatus?: string; updatedAt?: string } }> }> {
+export async function getBatchSessionStatus(_legacyOptions?: unknown): Promise<z.infer<typeof BatchSessionStatusResponseSchema>> {
   return fetchApi('/sessions/batch-status', {}, BatchSessionStatusResponseSchema);
 }
 
@@ -578,13 +586,18 @@ export function startSession(
   return cancel;
 }
 
-export async function stopSession(id: string): Promise<void> {
+export async function stopSession(id: string): Promise<true | void> {
   if (!SESSION_ID_RE.test(id)) {
     throw new ApiError('Invalid session ID format', 400, 'Bad Request');
   }
-  await fetchApi(`/sessions/${id}/stop`, {
-    method: 'POST',
-  });
+  return requestGracefulShutdown(`/sessions/${id}/stop`, 'POST');
+}
+
+export async function retryMemoryConsolidation(id: string): Promise<void> {
+  if (!SESSION_ID_RE.test(id)) {
+    throw new ApiError('Invalid session ID format', 400, 'Bad Request');
+  }
+  await fetchApi(`/sessions/${id}/retry-memory-consolidation`, { method: 'POST' });
 }
 
 export async function killSession(id: string): Promise<void> {

@@ -1,0 +1,525 @@
+import { env as poolEnv } from 'cloudflare:test';
+import { afterEach, beforeAll, expect, it, vi } from 'vitest';
+import type { Env } from '../../types';
+import { D1SessionRepository } from '../../lib/session-repository';
+import { createHash } from 'node:crypto';
+import { SETUP_KEYS, getRegimeStateKey } from '../../lib/kv-keys';
+import { createTestApp } from '../helpers/test-app';
+// @ts-expect-error Vite raw-loader module used by the Workers test runtime.
+import migration from '../../../migrations/usage/0002_runtime_sessions.sql?raw';
+// @ts-expect-error Vite raw-loader module used by the Workers test runtime.
+import completion from '../../../migrations/usage/0003_complete_session_cutover.sql?raw';
+// @ts-expect-error Vite raw-loader module used by the Workers test runtime.
+import boundary from '../../../migrations/usage/0004_boundary_activity.sql?raw';
+
+const readback = vi.hoisted(() => new Map<string, string>());
+vi.mock('../../lib/r2-client', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../../lib/r2-client')>();
+  return { ...original, createR2Client: () => ({ fetch: async (url: string, init?: RequestInit) => {
+    if ((init?.method ?? 'GET') !== 'GET') throw new Error('Readback must not publish');
+    const body = readback.get(new URL(url).pathname);
+    return body === undefined ? new Response(null, { status: 404 })
+      : new Response(body, { headers: { etag: '"fixture-revision"' } });
+  } }) };
+});
+
+// Real routes, D1 and session/bucket coordinators. Replace only the platform
+// namespace, Container SDK/native process and Host transport (no Miniflare proxy).
+vi.mock('@cloudflare/containers', () => ({
+  getContainer: (namespace: DurableObjectNamespace, name: string) => namespace.getByName(name),
+  Container: class {
+    constructor(public ctx: DurableObjectState, public env: Env) {}
+    async startAndWaitForPorts() {
+      const host = this as unknown as { envVars: Record<string, string>; onStart(): Promise<void> };
+      await this.ctx.container?.start({ envVars: host.envVars });
+      await host.onStart();
+    }
+    async destroy() { await this.ctx.container?.destroy(); }
+    async stop(signal: string | number = 'SIGTERM') { this.ctx.container?.signal(signal === 'SIGTERM' ? 15 : Number(signal)); }
+    async schedule(delay: number, callback: string) {
+      return { taskId: crypto.randomUUID(), callback, type: 'delayed', time: Math.floor(Date.now() / 1000) + delay, delayInSeconds: delay };
+    }
+    deleteSchedules() {}
+    renewActivityTimeout() {}
+  },
+}));
+
+import { container as SessionContainer } from '../../container/index';
+import lifecycle from '../../routes/session/lifecycle';
+import crud from '../../routes/session/crud';
+
+// @ts-expect-error Vite raw-loader module used by the Workers test runtime.
+import shutdown from '../../../migrations/usage/0005_session_shutdown.sql?raw';
+
+const db = (poolEnv as unknown as Env).USAGE_DB;
+const repository = new D1SessionRepository(db);
+const snapshotId = 'a'.repeat(64);
+const stamp = '2026-11-23T10:00:00.000Z';
+const gates: Array<() => void> = [];
+
+beforeAll(async () => {
+  for (const source of [migration, completion, boundary, shutdown]) {
+    for (const statement of source.split(';').map((part: string) => part.trim()).filter(Boolean)) await db.prepare(statement).run();
+  }
+});
+afterEach(() => { for (const release of gates.splice(0)) release(); });
+
+function gate<T>(fallback: T) {
+  let release!: (value: T) => void;
+  const promise = new Promise<T>(resolve => { release = resolve; });
+  gates.push(() => release(fallback));
+  return { promise, release };
+}
+
+// The wait bound is test infrastructure, not a production queue ETA. Stop and
+// Delete must acknowledge acceptance before the test releases the held Host.
+async function bounded(request: Promise<Response>) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([request, new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error('Shutdown request did not return while the Host was held')), 1_500);
+    })]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function expectAccepted(request: Promise<Response>) {
+  expect((await bounded(request)).ok).toBe(true);
+}
+
+function rig(enterprise = true) {
+  const owner = `shutdown-${crypto.randomUUID()}`;
+  const other = `shutdown-${crypto.randomUUID()}`;
+  const states = new Map<string, { ready: Promise<void>; instance: SessionContainer }>();
+  const processes = new Map<string, ReturnType<typeof processFixture>>();
+  const trace: string[] = [];
+
+  function processFixture(label: string, initiallyRunning: boolean, hasSnapshot: boolean) {
+    let running = initiallyRunning;
+    // Model exit confirmation independently of the running hint. The fixture
+    // uses awaited native destroy as its source of positive exit evidence.
+    const monitor = new Promise<void>(() => {});
+    const save = gate<'saved' | 'failed'>('saved');
+    const exit = gate<void>(undefined);
+    const merge = gate<'skipped' | 'merged' | 'pending' | 'uncertain'>('skipped');
+    const retryResult = gate<'merged' | 'pending'>('pending');
+    let retrying = false;
+    let mergeRequest: { intent: string; snapshotId: string; deadline: number; allowPersonalPiProviders: boolean } | undefined;
+    let token = `fixture-token-${label}`;
+    const native = {
+      get running() { return running; },
+      monitor: () => monitor,
+      start: async ({ envVars }: { envVars: Record<string, string> }) => {
+        expect(envVars.CODEFLARE_HERMES_RETRY_SNAPSHOT).toBe(snapshotId);
+        token = envVars.CONTAINER_AUTH_TOKEN;
+        retrying = true;
+        trace.push(`${label}:headless-start`);
+        running = true;
+      },
+      signal: () => { trace.push(`${label}:sigterm`); running = false; },
+      destroy: async () => { await exit.promise; trace.push(`${label}:exit`); running = false; },
+      getTcpPort: () => ({ fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = new Request(input, init);
+        const path = new URL(request.url).pathname;
+        if (path === '/health') return Response.json({ healthy: true });
+        if (request.headers.get('Authorization') !== `Bearer ${token}`) return Response.json({ error: 'Unauthenticated' }, { status: 401 });
+        if (path === '/internal/agent-events/drain') {
+          const input = await request.json() as { final?: unknown };
+          if (input?.final === true) trace.push(`${label}:final-events`);
+          return Response.json({ events: [] });
+        }
+        if (path === '/internal/final-sync') {
+          trace.push(`${label}:save`);
+          if (await save.promise === 'failed') {
+            trace.push(`${label}:save-failed`);
+            return Response.json({ synced: false, reason: 'bisync-failed' }, { status: 503 });
+          }
+          trace.push(`${label}:saved`);
+          if (enterprise) expect(request.headers.get('x-codeflare-hermes-merge')).toBe('1');
+          return Response.json({ synced: true, ...(hasSnapshot && { snapshotId }) });
+        }
+        if (path === '/internal/hermes-merge') {
+          const body = mergeRequest = await request.json() as typeof mergeRequest & {};
+          trace.push(`${label}:merge`);
+          const status = await (retrying ? retryResult.promise : merge.promise);
+          const sessionId = label.split(':').at(-1)!;
+          return Response.json({ status, ...(status === 'merged' && { receipt: { revision: 'revision-1', source: {
+            owner: label.startsWith('other:') ? other : owner, sessionId, generation: 1, intent: body.intent, snapshotId: body.snapshotId,
+          } } }) });
+        }
+        return Response.json({ error: `Unexpected fixture Host path ${path}` }, { status: 404 });
+      } }),
+    };
+    return { native, get token() { return token; }, save, exit, merge, retryResult, get mergeRequest() { return mergeRequest; } };
+  }
+
+  const idFromName = (name: string) => ({ toString: () => name });
+  function getByName(address: string) {
+    if (!states.has(address)) {
+      const process = processes.get(address);
+      const first = address.lastIndexOf('-');
+      const records = new Map<string, unknown>(process ? [
+        ['bucketName', address.slice(0, first)], ['_sessionId', address.slice(first + 1)],
+        ['lifecycleGeneration', 1], ['containerAuthToken', process.token], ['workspaceSyncEnabled', true],
+        ['sessionMode', 'advanced'], ['hermes:direct-generation', 1], ['userEmail', 'test@example.com'], ['userGroups', ['shutdown-fixture']],
+      ] : []);
+      const storage = {
+        get: async (key: string | string[]) => Array.isArray(key)
+          ? new Map(key.filter(item => records.has(item)).map(item => [item, structuredClone(records.get(item))]))
+          : structuredClone(records.get(key)),
+        put: async (key: string | Record<string, unknown>, value?: unknown) => {
+          for (const [item, data] of Object.entries(typeof key === 'string' ? { [key]: value } : key)) records.set(item, structuredClone(data));
+        },
+        delete: async (key: string | string[]) => Array.isArray(key)
+          ? key.filter(item => records.delete(item)).length : records.delete(key),
+        list: async ({ prefix = '' } = {}) => new Map([...records].filter(([key]) => key.startsWith(prefix))),
+        transaction: async <T>(work: (txn: unknown) => Promise<T>): Promise<T> => work(storage),
+        setAlarm: async () => {}, deleteAlarm: async () => {},
+      };
+      let ready = Promise.resolve();
+      const instance = new SessionContainer({ id: idFromName(address), container: process?.native, storage,
+        blockConcurrencyWhile: (work: () => Promise<void>) => { ready = ready.then(work); return ready; },
+        waitUntil: (work: Promise<unknown>) => { void work.catch(() => {}); },
+      } as unknown as DurableObjectState<Env>, envOverrides as Env);
+      states.set(address, { ready, instance });
+    }
+    const { ready, instance } = states.get(address)!;
+    return new Proxy(instance, { get(target, key, receiver) {
+      const value: unknown = Reflect.get(target, key, receiver);
+      return typeof value === 'function' ? async (...args: unknown[]) => { await ready; return value.apply(target, args); } : value;
+    } });
+  }
+  const envOverrides: Partial<Env> = {
+    USAGE_DB: db,
+    R2_ACCOUNT_ID: 'fixture', R2_ENDPOINT: 'https://r2.shutdown.invalid',
+    ...(enterprise && { ENTERPRISE_MODE: 'active' }),
+    KV: (poolEnv as unknown as Env).KV,
+    CONTAINER: { idFromName, getByName, get: (id: DurableObjectId) => getByName(id.toString()) } as unknown as Env['CONTAINER'],
+  };
+  const app = (bucketName = owner) => createTestApp({ bucketName, mockKV: envOverrides.KV,
+    envOverrides, routes: [{ path: '/api/sessions', handler: lifecycle }, { path: '/api/sessions', handler: crud }] });
+  const path = (id: string) => `/api/sessions/${id}`;
+  async function create(id: string, { bucket = owner, running = true, holdMerge = false, hasSnapshot = true }: {
+    bucket?: string; running?: boolean; holdMerge?: boolean; hasSnapshot?: boolean;
+  } = {}) {
+    await envOverrides.KV!.put(getRegimeStateKey(bucket), JSON.stringify({ status: 'ready', regime: 'plain', generation: 1 }));
+    await envOverrides.KV!.put('r2token:test@example.com', JSON.stringify({ bucketName: bucket, accessKeyId: 'fixture-key', secretAccessKey: 'fixture-secret' }));
+    await envOverrides.KV!.put(SETUP_KEYS.REASONING_CONFIGURATION, JSON.stringify({ schemaVersion: 1, customProfileRevisions: [], routeAssignments: {} }));
+    await envOverrides.KV!.put(SETUP_KEYS.GROUP_ROUTING, JSON.stringify({ 'shutdown-fixture': {
+      routes: [], defaultRoute: '', reasoning: 'off', allowPersonalPiProviders: true, piDefaultSource: 'pi-native',
+    } }));
+    await repository.create({ ownerKey: bucket, sessionId: id, name: id, agentType: 'bash',
+      createdAt: stamp, lastAccessedAt: stamp, workspace: 'terminal', terminalMode: 'classic' });
+    if (running) {
+      await repository.start(bucket, id, stamp);
+      await repository.project(bucket, id, 1, 0, { lifecycleState: 'running', observedAt: stamp });
+    }
+    const process = processFixture(bucket === owner ? id : `other:${id}`, running, hasSnapshot);
+    if (!holdMerge) process.merge.release('skipped');
+    processes.set(`${bucket}-${id}`, process);
+    return process;
+  }
+  async function batch(bucket = owner) {
+    const response = await app(bucket).request('/api/sessions/batch-status');
+    expect(response.status).toBe(200);
+    const { statuses } = await response.json() as { statuses: Record<string, { status: string; shutdownPhase?: string; pendingDelete?: boolean; generation: number }> };
+    return statuses;
+  }
+  const stop = (id: string, bucket = owner, signal?: AbortSignal) => app(bucket).request(`${path(id)}/stop`, { method: 'POST', signal });
+  const remove = (id: string) => app().request(path(id), { method: 'DELETE' });
+  const kill = (id: string) => app().request(`${path(id)}/kill`, { method: 'POST' });
+  const retry = (id: string, bucket = owner) => app(bucket).request(`${path(id)}/retry-memory-consolidation`, { method: 'POST' });
+  return { owner, other, app, path, create, batch, stop, remove, kill, retry, trace, session: (id: string) => getByName(`${owner}-${id}`) };
+}
+
+const a = 'sessionaaa1';
+const b = 'sessionbbb1';
+const c = 'sessionccc1';
+
+it('REQ-SESSION-043: accepts overlapping Stop/Delete in owner order across client reload without duplicating a generation or blocking another owner', async () => {
+  const f = rig();
+  const [A, B, C, otherA] = await Promise.all([f.create(a), f.create(b), f.create(c), f.create(a, { bucket: f.other })]);
+  const originalClient = new AbortController();
+  await expectAccepted(f.stop(a, f.owner, originalClient.signal));
+  originalClient.abort();
+  await vi.waitFor(() => expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`]));
+
+  const waitingDelete = f.remove(b);
+  const repeatedHead = f.stop(a);
+  await expectAccepted(waitingDelete);
+  await expectAccepted(repeatedHead);
+  await expectAccepted(f.stop(c));
+  await expectAccepted(f.remove(b));
+  const reloaded = await f.batch();
+  expect(reloaded[b]).toMatchObject({ shutdownPhase: 'queued', pendingDelete: true, generation: 1 });
+  expect(reloaded[c]).toMatchObject({ shutdownPhase: 'queued', generation: 1 });
+  const catalog = await f.app().request('/api/sessions');
+  expect(await catalog.json()).toMatchObject({ sessions: expect.arrayContaining([
+    expect.objectContaining({ id: b, shutdownPhase: 'queued', pendingDelete: true }),
+    expect.objectContaining({ id: c, shutdownPhase: 'queued' }),
+  ]) });
+  expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`]);
+
+  otherA.save.release('saved'); otherA.exit.release();
+  await expectAccepted(f.stop(a, f.other));
+  await vi.waitFor(async () => expect((await f.batch(f.other))[a]?.status).toBe('stopped'));
+  expect((await f.batch())[b]?.shutdownPhase).toBe('queued');
+
+  A.save.release('saved'); A.exit.release();
+  await vi.waitFor(() => expect(f.trace).toContain(`${b}:save`));
+  B.save.release('saved'); B.exit.release();
+  await vi.waitFor(() => expect(f.trace).toContain(`${c}:save`));
+  C.save.release('saved'); C.exit.release();
+  await vi.waitFor(async () => {
+    const settled = await f.batch();
+    expect(settled[a]?.status).toBe('stopped');
+    expect(settled[b]).toBeUndefined();
+    expect(settled[c]?.status).toBe('stopped');
+  });
+  // The Host final-save boundary and positive native exit are ordered effects,
+  // including one save for a duplicated generation, not helper call counts.
+  expect(f.trace.filter(event => !event.startsWith('other:') && /:(save|exit)$/.test(event))).toEqual([
+    `${a}:save`, `${a}:exit`, `${b}:save`, `${b}:exit`, `${c}:save`, `${c}:exit`,
+  ]);
+});
+
+it('REQ-SESSION-043: unconfirmed final sync preserves the running Delete target and holds its successor until authority is revoked', async () => {
+  const f = rig();
+  const A = await f.create(a);
+  const B = await f.create(b);
+  A.exit.release();
+  await expectAccepted(f.remove(a));
+  await expectAccepted(f.stop(b));
+  await vi.waitFor(() => expect(f.trace).toContain(`${a}:save`));
+  A.save.release('failed');
+  await vi.waitFor(() => expect(f.trace).toContain(`${a}:save-failed`));
+  await vi.waitFor(async () => {
+    const projected = await f.batch();
+    expect(projected[a]).toMatchObject({ status: 'stopping', pendingDelete: true });
+    expect(projected[a]?.shutdownPhase).toBeUndefined();
+    expect(projected[b]?.shutdownPhase).toBe('queued');
+  });
+  expect(A.native.running).toBe(true);
+  expect(f.trace).not.toContain(`${a}:sigterm`);
+  expect(f.trace).not.toContain(`${a}:exit`);
+  expect(f.trace).not.toContain(`${b}:save`);
+
+  expect((await bounded(f.kill(a))).status).toBe(200);
+  B.save.release('saved'); B.exit.release();
+  await vi.waitFor(async () => {
+    const settled = await f.batch();
+    expect(settled[a]?.status).toBe('stopped');
+    expect(settled[b]?.status).toBe('stopped');
+  });
+  expect(f.trace.filter(event => event.startsWith(`${a}:`))).toEqual([`${a}:final-events`, `${a}:save`, `${a}:save-failed`, `${a}:exit`]);
+});
+
+it('REQ-SESSION-043: retains an accepted Delete through finishing and removes the row only after confirmed exit', async () => {
+  const f = rig();
+  const A = await f.create(a);
+  await expectAccepted(f.remove(a));
+  A.save.release('saved');
+  await vi.waitFor(async () => {
+    expect((await f.batch())[a]).toMatchObject({ status: 'stopping', shutdownPhase: 'finishing', pendingDelete: true });
+  });
+  expect(f.trace).toContain(`${a}:saved`);
+  const retained = await f.app().request(f.path(a));
+  expect(retained.status).toBe(200);
+  expect((await f.batch())[a]?.status).not.toBe('stopped');
+  A.exit.release();
+  await vi.waitFor(async () => expect((await f.app().request(f.path(a))).status).toBe(404));
+  expect(f.trace).toContain(`${a}:exit`);
+});
+
+it('REQ-SESSION-043: Kill removes queued Delete work immediately without a final save or implicit deletion', async () => {
+  const f = rig();
+  const [A, B, C] = await Promise.all([f.create(a), f.create(b), f.create(c)]);
+  await expectAccepted(f.stop(a));
+  await vi.waitFor(() => expect(f.trace).toContain(`${a}:save`));
+  await expectAccepted(f.remove(b));
+  await expectAccepted(f.stop(c));
+  expect((await f.batch())[b]).toMatchObject({ shutdownPhase: 'queued', pendingDelete: true });
+  B.exit.release();
+  expect((await bounded(f.kill(b))).status).toBe(200);
+  expect((await f.batch())[b]).toMatchObject({ status: 'stopped', generation: 1 });
+  expect(f.trace).not.toContain(`${a}:saved`);
+  A.save.release('saved'); A.exit.release();
+  C.save.release('saved'); C.exit.release();
+  await vi.waitFor(async () => expect((await f.batch())[c]?.status).toBe('stopped'));
+  expect(f.trace.filter(event => event.startsWith(`${b}:`))).toEqual([`${b}:exit`]);
+  expect((await f.app().request(f.path(b))).status).toBe(200);
+});
+
+it('REQ-MEM-044: Resume keeps an uncertain earlier publication slot without offering it the new runtime', async () => {
+  const f = rig();
+  const A = await f.create(a, { holdMerge: true });
+  A.save.release('saved');
+  A.exit.release();
+  await expectAccepted(f.stop(a));
+  await vi.waitFor(() => expect(f.trace).toContain(`${a}:merge`));
+  A.merge.release('uncertain');
+  await vi.waitFor(async () => expect((await f.batch())[a]).toMatchObject({ status: 'stopped', shutdownPhase: 'memory-not-merged' }));
+  const saved = await repository.getSession(f.owner, a);
+  const resumed = await repository.start(f.owner, a, stamp, saved!.lifecycleGeneration, saved!.shutdown);
+  expect(resumed).toMatchObject({ lifecycleState: 'starting', lifecycleGeneration: 2 });
+  expect((await f.batch())[a]?.shutdownPhase).toBeUndefined();
+  expect((await repository.shutdownHead(f.owner))?.sessionId).toBe(a);
+});
+
+it('REQ-SESSION-043: rejects headless Retry for an active session or a different owner without starting work', async () => {
+  const f = rig();
+  await f.create(a);
+  const own = await f.retry(a);
+  expect(own.status).toBe(409);
+  expect((await f.retry(a, f.other)).status).toBe(404);
+  expect((await f.batch())[a]).toMatchObject({ status: 'running', generation: 1 });
+  expect(f.trace).toEqual([]);
+});
+
+it('REQ-SESSION-043: Retry launches only the headless runtime with the same confirmed snapshot', async () => {
+  const f = rig();
+  const A = await f.create(a, { holdMerge: true });
+  A.save.release('saved');
+  A.exit.release();
+  await expectAccepted(f.stop(a));
+  await vi.waitFor(() => expect(f.trace).toContain(`${a}:merge`));
+  const first = A.mergeRequest;
+  A.merge.release('pending');
+  await vi.waitFor(async () => expect((await f.batch())[a]).toMatchObject({ status: 'stopped', shutdownPhase: 'memory-not-merged' }));
+  await expectAccepted(f.retry(a));
+  await vi.waitFor(() => expect(f.trace).toContain(`${a}:headless-start`));
+  await vi.waitFor(async () => expect((await f.batch())[a]).toMatchObject({ retryingMemory: true, shutdownPhase: 'consolidating' }));
+  const terminal = await f.session(a).fetch(new Request('http://container/terminal', { headers: { upgrade: 'websocket' } }));
+  expect(terminal.status).toBe(409);
+  await vi.waitFor(() => expect(f.trace.filter(event => event === `${a}:merge`)).toHaveLength(2));
+  expect(A.mergeRequest).toMatchObject({ intent: first?.intent, snapshotId });
+  A.retryResult.release('merged');
+  await vi.waitFor(async () => expect((await f.batch())[a]).toMatchObject({ status: 'stopped', generation: 2 }));
+  expect((await f.batch())[a]?.shutdownPhase).toBeUndefined();
+  expect(f.trace.filter(event => event === `${a}:save`)).toHaveLength(1);
+});
+
+it('REQ-SESSION-006: deleting an already stopped, settled row does not launch or stop a native process', async () => {
+  const f = rig(false);
+  await f.create(a, { running: false });
+  expect((await f.remove(a)).status).toBe(200);
+  expect((await f.app().request(f.path(a))).status).toBe(404);
+  expect(f.trace).toEqual([]);
+});
+
+
+it('REQ-SESSION-043: fences terminal and browser ingress before merge but preserves existing native authority until formal teardown', async () => {
+  const f = rig();
+  const A = await f.create(a, { holdMerge: true });
+  await expectAccepted(f.stop(a));
+  await vi.waitFor(() => expect(f.trace).toContain(`${a}:save`));
+  const terminal = () => f.session(a).fetch(new Request('http://container/terminal', { headers: { upgrade: 'websocket' } }));
+  expect((await terminal()).status).toBe(409);
+  const nativeAuthority = () => f.session(a).getPersonalPiSession({ bucket: f.owner, sessionId: a, email: 'test@example.com' }, true);
+  await expect(nativeAuthority()).resolves.toMatchObject({ generation: 1 });
+  const privatePost = (path: string, headers?: HeadersInit) => f.session(a).forwardExisting(new Request(`http://container${path}`, { method: 'POST', headers }));
+  expect((await privatePost('/internal/hermes-merge')).status).toBe(404);
+  expect((await privatePost('/internal/final-sync', { 'x-codeflare-hermes-merge': '1' })).status).toBe(404);
+  A.save.release('saved');
+  await vi.waitFor(async () => expect((await f.batch())[a]).toMatchObject({ status: 'stopping', shutdownPhase: 'consolidating' }));
+  await vi.waitFor(() => expect(f.trace).toContain(`${a}:merge`));
+  expect(A.mergeRequest).toMatchObject({ snapshotId, allowPersonalPiProviders: true });
+  expect(A.mergeRequest!.deadline).toBeGreaterThan(Date.now());
+  await expect(nativeAuthority()).resolves.toMatchObject({ generation: 1 });
+  expect(f.trace).not.toContain(`${a}:sigterm`);
+  A.merge.release('merged');
+  await vi.waitFor(async () => expect((await f.batch())[a]).toMatchObject({ shutdownPhase: 'finishing' }));
+  await vi.waitFor(() => expect(f.trace).toContain(`${a}:sigterm`));
+  await expect(nativeAuthority()).rejects.toThrow();
+  A.exit.release();
+  await vi.waitFor(async () => expect((await f.batch())[a]?.status).toBe('stopped'));
+  // REQ-SESSION-032 AC1: one final notification attempt precedes sync; teardown reuses it.
+  expect(f.trace.filter(event => [`${a}:final-events`, `${a}:save`].includes(event))).toEqual([`${a}:final-events`, `${a}:save`]);
+});
+
+it('REQ-SESSION-043: retains a saved failed Delete after exit and advances the queue without deleting it', async () => {
+  const f = rig();
+  const [A, B] = await Promise.all([f.create(a, { holdMerge: true }), f.create(b)]);
+  await expectAccepted(f.remove(a));
+  await expectAccepted(f.stop(b));
+  A.save.release('saved'); A.merge.release('pending');
+  await vi.waitFor(async () => expect((await f.batch())[a]).toMatchObject({ status: 'stopping', pendingDelete: true }));
+  expect(f.trace).not.toContain(`${b}:save`);
+  A.exit.release(); B.save.release('saved'); B.exit.release();
+  await vi.waitFor(async () => {
+    const settled = await f.batch();
+    expect(settled[a]).toMatchObject({ status: 'stopped', shutdownPhase: 'memory-not-merged', pendingDelete: true });
+    expect(settled[b]?.status).toBe('stopped');
+  });
+  expect(await f.session(a).hermesWriterSettled(f.owner, { sessionId: a, generation: 1 })).toBe(false);
+  expect((await f.remove(a)).status).toBe(409);
+  expect((await f.app().request(f.path(a))).status).toBe(200);
+});
+
+it('REQ-SESSION-043: Kill during inference retains the session, rejects a late receipt and holds unreconciled publication', async () => {
+  const f = rig();
+  const [A, B] = await Promise.all([f.create(a, { holdMerge: true }), f.create(b)]);
+  await expectAccepted(f.remove(a));
+  await expectAccepted(f.stop(b));
+  A.save.release('saved');
+  await vi.waitFor(() => expect(f.trace).toContain(`${a}:merge`));
+  A.exit.release();
+  expect((await bounded(f.kill(a))).status).toBe(200);
+  A.merge.release('merged');
+  await vi.waitFor(async () => expect((await f.batch())[a]).toMatchObject({ status: 'stopped', pendingDelete: false }));
+  expect((await f.app().request(f.path(a))).status).toBe(200);
+  expect((await f.batch())[b]?.shutdownPhase).toBe('queued');
+  expect(f.trace).not.toContain(`${b}:save`);
+  B.save.release('saved'); B.exit.release();
+});
+
+
+it('REQ-SESSION-043: stops a confirmed save without a trustworthy baseline but never infers a merge or deletes it', async () => {
+  const f = rig();
+  const A = await f.create(a, { hasSnapshot: false });
+  await expectAccepted(f.remove(a));
+  A.save.release('saved'); A.exit.release();
+  await vi.waitFor(async () => expect((await f.batch())[a]).toMatchObject({
+    status: 'stopped', shutdownPhase: 'memory-not-merged', pendingDelete: true,
+  }));
+  expect(f.trace).not.toContain(`${a}:merge`);
+  expect((await f.app().request(f.path(a))).status).toBe(200);
+});
+
+it('REQ-SESSION-043: confirms an uncertain publication from the exact complete R2 revision and never repeats the merge', async () => {
+  const f = rig();
+  const [A, B] = await Promise.all([f.create(a, { holdMerge: true }), f.create(b)]);
+  await expectAccepted(f.remove(a));
+  await expectAccepted(f.stop(b));
+  A.save.release('saved');
+  await vi.waitFor(() => expect(f.trace).toContain(`${a}:merge`));
+  const revision = 'test-revision';
+  const prefix = `/${f.owner}/Vault/Memory/Masters`;
+  const files: Record<string, string> = {};
+  for (const file of ['global/USER.md', 'global/MEMORY.md', 'global/failures.md', 'Projects/workspace/MEMORY.md']) {
+    const text = `Saved entry for ${file}`;
+    readback.set(`${prefix}/${revision}/${file}`, text);
+    files[file] = createHash('sha256').update(text).digest('hex');
+  }
+  readback.set(`${prefix}/current.json`, JSON.stringify({ revision, files, source: {
+    owner: f.owner, sessionId: a, generation: 1, intent: A.mergeRequest!.intent, snapshotId,
+  } }));
+  A.merge.release('uncertain'); A.exit.release(); B.save.release('saved'); B.exit.release();
+  await vi.waitFor(async () => {
+    const settled = await f.batch();
+    expect(settled[a]).toBeUndefined();
+    expect(settled[b]?.status).toBe('stopped');
+  });
+  expect(f.trace.filter(event => event === `${a}:merge`)).toEqual([`${a}:merge`]);
+});
+
+it('REQ-SESSION-011: non-Enterprise Stop retains the ordinary final-sync and exit lane', async () => {
+  const f = rig(false);
+  const A = await f.create(a);
+  A.save.release('saved'); A.exit.release();
+  const result = await f.stop(a);
+  expect(result.status).toBe(200);
+  expect((await f.batch())[a]).toMatchObject({ status: 'stopped' });
+  expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`, `${a}:saved`, `${a}:sigterm`, `${a}:exit`]);
+});

@@ -6,8 +6,8 @@ import { logger } from '../lib/logger';
 import { SESSION_POLL_STABLE_MS, SESSION_POLL_TRANSITION_MS } from '../lib/constants';
 import { updateStatsFromBatch } from './storage';
 import { setUsageState } from './session-usage';
-import { applyOrderedProjection, type BackendLifecycle } from '../lib/session-presentation';
-import type { SessionWithStatus, SessionStatus } from '../types';
+import { applyOrderedProjection, isShutdownInProgress, type BackendLifecycle } from '../lib/session-presentation';
+import type { SessionWithStatus, SessionStatus, ShutdownPhase } from '../types';
 // Type-only imports - erased at runtime, so they do NOT reintroduce the
 // circular dependency that the registerPollingDeps DI pattern guards against.
 import type { SessionState, SessionMetrics } from './session';
@@ -44,7 +44,8 @@ type StateGetter = () => PollingStateView;
 type ProduceSetter = (fn: (s: SessionState) => void) => void;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type RawSetter = (...args: any[]) => void;
-type StatusUpdater = (id: string, status: SessionStatus) => void;
+type StatusUpdater = (id: string, status: SessionStatus, shutdownPhase?: ShutdownPhase) => void;
+type ShutdownUpdater = (index: number, incoming: Awaited<ReturnType<typeof api.getBatchSessionStatus>>['statuses'][string]) => void;
 type InitChecker = (id: string) => boolean;
 type NegativeKvGuard = (id: string) => boolean;
 type AuthExpiredSetter = (expired: boolean) => void;
@@ -58,6 +59,7 @@ let getState: StateGetter;
 let setStateProduce: ProduceSetter;
 let setStateRaw: RawSetter;
 let updateSessionStatusFn: StatusUpdater;
+let applyShutdownFieldsFn: ShutdownUpdater;
 let isSessionInitializingFn: InitChecker;
 let isLocallyStoppingFn: InitChecker;
 let shouldRetainNegativeKvFn: NegativeKvGuard;
@@ -70,6 +72,7 @@ export function registerPollingDeps(deps: {
   setStateProduce: ProduceSetter;
   setStateRaw: RawSetter;
   updateSessionStatus: StatusUpdater;
+  applyShutdownFields: ShutdownUpdater;
   isSessionInitializing: InitChecker;
   isLocallyStopping: InitChecker;
   shouldRetainNegativeKv: NegativeKvGuard;
@@ -81,6 +84,7 @@ export function registerPollingDeps(deps: {
   setStateProduce = deps.setStateProduce;
   setStateRaw = deps.setStateRaw;
   updateSessionStatusFn = deps.updateSessionStatus;
+  applyShutdownFieldsFn = deps.applyShutdownFields;
   isSessionInitializingFn = deps.isSessionInitializing;
   isLocallyStoppingFn = deps.isLocallyStopping;
   shouldRetainNegativeKvFn = deps.shouldRetainNegativeKv;
@@ -263,6 +267,7 @@ async function refreshSessionStatusesOnce(forceManagedReleaseCheck: boolean): Pr
       }
       setStateProduce((s: SessionState) => {
         s.sessions = s.sessions.filter((sess: SessionWithStatus) => !removedIds.includes(sess.id));
+        for (const id of removedIds) delete s.memoryRetryAttempts[id];
       });
     }
     for (const session of getState().sessions) {
@@ -310,6 +315,7 @@ async function refreshSessionStatusesOnce(forceManagedReleaseCheck: boolean): Pr
         if (remote.generation !== undefined && remote.revision !== undefined) {
           setStateRaw('sessions', idx, { lifecycle: remote.lifecycle ?? remote.status,
             generation: remote.generation, revision: remote.revision });
+          applyShutdownFieldsFn(idx, remote);
         }
         continue;
       }
@@ -318,19 +324,24 @@ async function refreshSessionStatusesOnce(forceManagedReleaseCheck: boolean): Pr
       // After the startup guard, an accepted generation/revision-fenced D1
       // stop must not be vetoed by a lingering socket/retry loop.
       if (remote.status === 'stopped' && session.status !== 'stopping'
-        && (remote.generation === undefined || remote.revision === undefined || isWithinStartupGuard(session.id))
+        && (remote.generation === undefined || remote.revision === undefined
+          || (isWithinStartupGuard(session.id) && !isShutdownInProgress(session.shutdownPhase)
+            && remote.shutdownPhase !== 'memory-not-merged'))
         && shouldRetainNegativeKvFn(session.id)) continue;
 
       // Apply the ordered D1 lifecycle projection. Transport ownership remains
       // local, so uncertainty never disposes mounted terminal/editor state.
       const statusChanged = remote.status !== session.status;
       if (ordered === incomingProjection) {
-        if (statusChanged) updateSessionStatusFn(session.id, remote.status);
+        if (statusChanged) updateSessionStatusFn(session.id, remote.status, remote.shutdownPhase);
         setStateRaw('sessions', idx, 'lifecycle', remote.lifecycle ?? remote.status);
         if (remote.generation !== undefined) setStateRaw('sessions', idx, 'generation', remote.generation);
         if (remote.revision !== undefined) setStateRaw('sessions', idx, 'revision', remote.revision);
         if (remote.unreachableDeadlineMs !== undefined) setStateRaw('sessions', idx, 'unreachableDeadlineMs', remote.unreachableDeadlineMs);
-        if (remote.status === 'stopped' && statusChanged) terminalStore.disposeSession(session.id);
+        applyShutdownFieldsFn(idx, remote);
+        if (remote.status === 'stopped' && statusChanged && !isShutdownInProgress(remote.shutdownPhase)) {
+          terminalStore.disposeSession(session.id);
+        }
       }
     }
   } catch (err) {

@@ -4,6 +4,12 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-23: Consolidate Hermes at graceful shutdown
+
+- [REQ-SESSION-043](session-lifecycle.md#req-session-043-queued-graceful-shutdown-and-memory-recovery) orders eligible Enterprise Stop and Delete requests per owner and keeps explicit Kill outside the queue. Recovery stays on the existing session card.
+- [REQ-MEM-044](memory.md#req-mem-044-consolidate-hermes-on-graceful-shutdown) compares saved Hermes entries to their original baseline and validates a complete revision before publication. Only a matching saved snapshot can reseed on Resume.
+- [REQ-ENTERPRISE-100](models-and-routing.md#req-enterprise-100-exact-inference-route-for-hermes-shutdown-merge) uses the owner's current authorized native or Gateway model after the final save, without model substitution or additional access grants.
+
 ## 2026-11-22: Recover halted storage migrations
 
 - [REQ-ENTERPRISE-020](storage.md#req-enterprise-020-governed-mode-re-encrypt-migration-engine) preserves verified empty objects without SSE-C conversion. The [dashboard offers an icon-only retry beside the halted status](storage.md#req-enterprise-304-dashboard-migration-affordance-and-refresh), including for mixed recovery with a matching recorded key identity; [older halts without that record](storage.md#req-enterprise-322-owner-authorized-migration-retry) require administrator review.
