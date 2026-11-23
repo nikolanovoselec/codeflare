@@ -151,6 +151,24 @@ describe('entrypoint.sh configure_tab_autostart / REQ-AGENT-003 (Agent CLI auto-
     assert.match(bashrc, /^# terminal-autostart$/m);
   });
 
+  it('REQ-AGENT-272 AC1: a fresh Chat-first Classic boot does not create a CLI conversation', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'classic-chat-first-'));
+    try {
+      mkdirSync(join(dir, 'workspace'));
+      const { result } = runHarness({ dir,
+        env: { CODEFLARE_PI_SURFACE: 'chat', CODEFLARE_PI_GENERATION: '7' },
+        tabConfig: JSON.stringify([{ id: '1', command: 'pi', label: 'Terminal 1' }]),
+      });
+      assert.equal(result.status, 0, result.stderr);
+      const shell = runGeneratedBashrc(dir, 'pi');
+      assert.equal(existsSync(join(dir, 'agent.log')), false, 'native Pi must not take the Chat writer slot');
+      assert.equal(existsSync(join(dir, '.pi/agent/sessions')), false, 'Chat creates the first native transcript');
+      assert.doesNotMatch(shell.result.stderr, /missing-session/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('REQ-AGENT-211 AC1+AC3+AC4: binds fresh and restored Pi and Claude launches to the Codeflare session', () => {
     for (const command of ['pi', 'claude']) {
       const sessionId = command === 'pi' ? 'piabc123' : 'claude12';

@@ -1,6 +1,10 @@
 import { Component, createSignal, createMemo, createEffect, onMount, onCleanup, For, Show, untrack } from 'solid-js';
 import Header from './Header';
 import TerminalArea from './TerminalArea';
+import PiWebChat from './PiWebChat';
+import PiWebSwitchControls from './PiWebSwitchControls';
+import { createPiWebSurface, isPiWebSwitchPending } from '../hooks/usePiWebSurface';
+import { isPiWebSession } from '../lib/pi-web-session';
 import { createMigrationRetry, MigrationRetryNotice } from './MigrationRetryNotice';
 import SettingsPanel from './SettingsPanel';
 import StoragePanel from './StoragePanel';
@@ -13,8 +17,8 @@ import { terminalWorkspaceStore } from '../stores/terminal-workspace';
 import { forceResetKeyboardState, enableVirtualKeyboardOverlay, isSamsungBrowser, cleanupDebugOverlay } from '../lib/mobile';
 import { logger } from '../lib/logger';
 import { loadSettings, applyAccentColor } from '../lib/settings';
-import { resolveTerminalMode, type TileLayout, type AgentType, type TabConfig, type SessionWithStatus } from '../types';
-import { VIEW_TRANSITION_DURATION_MS, DASHBOARD_WS_DISCONNECT_DELAY_MS } from '../lib/constants';
+import { resolveTerminalMode, type TileLayout, type AgentType, type TabConfig, type SessionWithStatus, type PiSurface } from '../types';
+import { VIEW_TRANSITION_DURATION_MS, DASHBOARD_WS_DISCONNECT_DELAY_MS, SESSION_ID_RE } from '../lib/constants';
 import { startVaultReadinessProbe, probeVaultReady } from '../lib/vault-readiness';
 import { DEFAULT_VAULT_PREWARM_TIMEOUT_MS, startVaultPrewarm, type VaultPrewarmStatus } from '../lib/vault-prewarm';
 import { checkVaultKeyRecoverable } from '../lib/vault-local-readiness';
@@ -81,6 +85,46 @@ const Layout: Component<LayoutProps> = (props) => {
   const [isStoragePanelOpen, setIsStoragePanelOpen] = createSignal(false);
   const [showTilingOverlay, setShowTilingOverlay] = createSignal(false);
   const [viewState, setViewState] = createSignal<ViewState>('dashboard');
+  const [chatStartSid, setChatStartSid] = createSignal<string>();
+  const showTerminal = createMemo(() => viewState() === 'terminal' || viewState() === 'expanding');
+  const showDashboard = createMemo(() => viewState() === 'dashboard' || viewState() === 'collapsing');
+
+  const piWebSession = () => {
+    const session = sessionStore.getActiveSession();
+    if (showTerminal() && terminalWorkspaceStore.getActiveWorkspace().kind !== 'multiview'
+      && session && SESSION_ID_RE.test(session.id) && isPiWebSession(session) && session.lifecycle !== 'stopping'
+      && (session.status === 'running' || session.status === 'unreachable' || session.status === 'starting'
+        || (session.status === 'initializing' && session.lifecycle !== 'stopped'))) return session;
+    return undefined;
+  };
+  // Track identity independently of metrics, PTY readiness and D1 revision churn.
+  const piWebSid = createMemo(() => piWebSession()?.id);
+  const piWebGeneration = createMemo(() => piWebSession()?.generation);
+  const piWeb = createMemo(() => {
+    const sid = piWebSid();
+    const generation = piWebGeneration();
+    if (sid && generation !== undefined && generation > 0) return createPiWebSurface(sid, generation);
+    return undefined;
+  });
+  const piWebStatus = () => piWeb()?.status();
+  const awaitingChatStart = () => !!chatStartSid() && chatStartSid() === sessionStore.activeSessionId;
+  const showPiWebPanel = createMemo(() => {
+    const status = piWebStatus();
+    if (status) return status.surface !== 'terminal';
+    return awaitingChatStart() || (!!piWeb() && piWebSession()?.status === 'running'
+      && (!piWeb()?.unavailable() || !!piWeb()?.mutation() || !!piWeb()?.canRetry()));
+  });
+  createEffect(() => {
+    if (awaitingChatStart() && piWebStatus()?.surface) setChatStartSid(undefined);
+  });
+  const piWebProblem = () => piWeb()?.mutationError()
+    ?? (piWeb()?.unavailable() && (piWebStatus() || awaitingChatStart()) ? 'Could not read the current Pi surface.' : undefined);
+  const canCancelPiWeb = () => !!piWebStatus()?.requestId && piWeb()?.mutation() !== 'cancel';
+  const retryPiWeb = () => piWeb()?.canRetry() ? piWeb()?.retry : undefined;
+  const cancelPiWeb = () => piWeb()?.cancel();
+  const canOpenChat = () => piWebStatus()?.surface === 'terminal' && piWebSession()?.status === 'running'
+    && !isPiWebSwitchPending(piWebStatus()) && !piWeb()?.mutation() && !retryPiWeb();
+
   let viewTransitionTimer: ReturnType<typeof setTimeout> | undefined;
 
   const clearViewTransitionTimer = () => {
@@ -459,7 +503,7 @@ const Layout: Component<LayoutProps> = (props) => {
   // so the Cloudflare Container can go idle.
   // On terminal: cancel scheduled disconnect and reconnect any dropped connections.
   createEffect(() => {
-    if (viewState() === 'dashboard') {
+    if (viewState() === 'dashboard' || showPiWebPanel()) {
       scheduleDisconnect(DASHBOARD_WS_DISCONNECT_DELAY_MS);
     } else {
       cancelScheduledDisconnect();
@@ -472,7 +516,7 @@ const Layout: Component<LayoutProps> = (props) => {
   // a stuck "Reconnecting..." overlay that only clears on full page refresh.
   {
     const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && viewState() !== 'dashboard') {
+      if (document.visibilityState === 'visible' && viewState() !== 'dashboard' && !showPiWebPanel()) {
         forceResetKeyboardState();
 
         if (isSamsungBrowser) {
@@ -496,7 +540,7 @@ const Layout: Component<LayoutProps> = (props) => {
         }
 
         setTimeout(() => {
-          if (viewState() !== 'dashboard') enableVirtualKeyboardOverlay();
+          if (viewState() !== 'dashboard' && !showPiWebPanel()) enableVirtualKeyboardOverlay();
         }, 300);
         reconnectOnVisibilityReturn(undefined, visibleTerminalKeys());
       }
@@ -504,10 +548,6 @@ const Layout: Component<LayoutProps> = (props) => {
     document.addEventListener('visibilitychange', onVisibilityChange);
     onCleanup(() => document.removeEventListener('visibilitychange', onVisibilityChange));
   }
-
-  // viewState-derived computations
-  const showTerminal = createMemo(() => viewState() === 'terminal' || viewState() === 'expanding');
-  const showDashboard = createMemo(() => viewState() === 'dashboard' || viewState() === 'collapsing');
 
   // Sync viewState with terminal-owned session state. Missing workspace fields
   // are historical Terminal sessions; only explicit `vscode` stays dashboard-owned.
@@ -568,7 +608,7 @@ const Layout: Component<LayoutProps> = (props) => {
 
   const openSessionWorkspace = (
     id: string,
-    options: { shouldStart?: boolean; updateHistory?: boolean; explicitVscodeOpen?: boolean } = {},
+    options: { shouldStart?: boolean; updateHistory?: boolean; explicitVscodeOpen?: boolean; surface?: PiSurface } = {},
   ) => {
     const session = sessionStore.sessions.find((candidate) => candidate.id === id);
     if (!session) return;
@@ -585,12 +625,20 @@ const Layout: Component<LayoutProps> = (props) => {
       return;
     }
 
+    const surface = isPiWebSession(session) ? options.surface : undefined;
+    setChatStartSid(shouldStart && surface === 'chat' ? id : undefined);
     const terminalId = shouldStart ? '1' : terminalIdForSession(session);
     sessionStore.setActiveSession(id);
     terminalWorkspaceStore.setSingleSessionWorkspace(id, terminalId, session);
     enterTerminalView();
     if (updateHistory) writeSessionHistoryPath(id, 'push');
-    if (shouldStart) void sessionStore.startSession(id).catch(() => {});
+    if (shouldStart) {
+      void (surface ? sessionStore.startSession(id, surface) : sessionStore.startSession(id)).catch(() => {});
+    } else if (surface && session.status === 'running') {
+      const handoff = piWeb();
+      if (handoff) handoff.select(surface);
+      else setTerminalError('Could not read the current session generation.');
+    }
   };
 
   const handleVscodeOpen = () => {
@@ -609,9 +657,11 @@ const Layout: Component<LayoutProps> = (props) => {
     }
   };
 
-  const handleStartSession = async (id: string) => {
+  const handleStartSession = async (id: string, selectedSurface?: PiSurface) => {
     const session = sessionStore.sessions.find((candidate) => candidate.id === id);
     if (!session) return;
+    const surface = isPiWebSession(session) ? selectedSurface : undefined;
+    setChatStartSid(surface === 'chat' ? id : undefined);
 
     if (session.workspace === 'vscode') {
       keepDashboardOwnership('push');
@@ -622,8 +672,10 @@ const Layout: Component<LayoutProps> = (props) => {
       writeSessionHistoryPath(id, 'push');
     }
     try {
-      await sessionStore.startSession(id);
+      if (surface) await sessionStore.startSession(id, surface);
+      else await sessionStore.startSession(id);
     } catch (err) {
+      if (surface === 'chat') setChatStartSid(current => current === id ? undefined : current);
       logger.error('Failed to start session:', err);
     }
   };
@@ -636,9 +688,13 @@ const Layout: Component<LayoutProps> = (props) => {
     await sessionStore.deleteSession(id);
   };
 
-  const handleCreateSession = async (name: string, agentType?: AgentType, tabConfig?: TabConfig[]) => {
-    const session = await sessionStore.createSession(name, agentType, tabConfig);
+  const handleCreateSession = async (name: string, agentType?: AgentType, tabConfig?: TabConfig[], surface?: PiSurface) => {
+    const session = surface
+      ? await sessionStore.createSession(name, agentType, tabConfig, undefined, surface)
+      : await sessionStore.createSession(name, agentType, tabConfig);
     if (!session) return;
+    const initialSurface = isPiWebSession(session) ? surface : undefined;
+    setChatStartSid(initialSurface === 'chat' ? session.id : undefined);
 
     if (session.workspace === 'vscode') {
       keepDashboardOwnership('push');
@@ -652,7 +708,13 @@ const Layout: Component<LayoutProps> = (props) => {
     if (agentType) {
       sessionStore.updatePreferences({ lastAgentType: agentType });
     }
-    await sessionStore.startSession(session.id);
+    try {
+      if (initialSurface) await sessionStore.startSession(session.id, initialSurface);
+      else await sessionStore.startSession(session.id);
+    } catch (error) {
+      if (initialSurface === 'chat') setChatStartSid(current => current === session.id ? undefined : current);
+      throw error;
+    }
   };
 
   const handleOpenMultiView = () => {
@@ -743,16 +805,16 @@ const Layout: Component<LayoutProps> = (props) => {
     }, VIEW_TRANSITION_DURATION_MS);
   };
 
-  const handleDashboardSessionSelect = (sessionId: string) => {
+  const handleDashboardSessionSelect = (sessionId: string, surface?: PiSurface) => {
     const session = sessionStore.sessions.find(s => s.id === sessionId);
     if (session && (session.status === 'initializing'
       || (session.status !== 'error' && isMountedLifecycle(session.status as 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping')))) {
-      openSessionWorkspace(sessionId);
+      openSessionWorkspace(sessionId, { surface });
     } else if (session?.status === 'stopped') {
       // Always do a full start — even if the container could auto-wake via SDK,
       // the filesystem is empty after sleep (no R2 sync). startSession() runs
       // entrypoint.sh, restoring files before the selected workspace becomes ready.
-      openSessionWorkspace(sessionId, { shouldStart: true });
+      openSessionWorkspace(sessionId, { shouldStart: true, surface });
     }
   };
 
@@ -854,6 +916,7 @@ const Layout: Component<LayoutProps> = (props) => {
             && sessionStore.getActiveSession()?.status === 'running'
             ? handleVscodeOpen
             : undefined}
+          onChatOpen={canOpenChat() ? () => piWeb()?.select('chat') : undefined}
           vaultReady={vaultReady()}
           vaultStatus={vaultButtonStatus()}
           onLogoClick={showDashboard() ? undefined : handleOpenDashboard}
@@ -906,7 +969,27 @@ const Layout: Component<LayoutProps> = (props) => {
               }}</For>
             </section>
           }
-          showTerminal={showTerminal() ?? false}
+          showTerminal={showTerminal()}
+          showPiWebPanel={showPiWebPanel()}
+          piWebTerminalStatus={
+            <PiWebSwitchControls phase={piWebStatus()?.phase} problem={piWebProblem()} canCancel={canCancelPiWeb()}
+              onCancel={cancelPiWeb} onRetry={retryPiWeb()} />
+          }
+          piWebPanel={
+            <Show when={piWebStatus()?.surface === 'chat' && piWebStatus()} fallback={
+              <div class="pi-web-chat">
+                <PiWebSwitchControls phase={piWebStatus()?.phase} problem={piWebProblem()} canCancel={canCancelPiWeb()}
+                  onCancel={cancelPiWeb} onRetry={retryPiWeb()} />
+                <Show when={!piWebStatus() && !piWebProblem()}>
+                  <div class="pi-web-chat__space"><p role="status">{awaitingChatStart() ? 'Preparing Chat…' : 'Checking Pi surface…'}</p></div>
+                </Show>
+              </div>
+            }>
+              {status => <PiWebChat sessionId={piWebSid()!} generation={piWebGeneration()!} status={status()}
+                onTerminal={() => piWeb()?.select('terminal')} onCancel={cancelPiWeb} onRetry={retryPiWeb()}
+                problem={piWebProblem()} canCancel={canCancelPiWeb()} switching={!!piWeb()?.mutation() || !!retryPiWeb()} />}
+            </Show>
+          }
           showTilingOverlay={showTilingOverlay()}
           onTilingButtonClick={handleTilingButtonClick}
           onSelectTilingLayout={handleSelectTilingLayout}

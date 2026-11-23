@@ -251,6 +251,9 @@ export type ManagedResourcePolicy = z.infer<typeof ManagedResourcePolicySchema>;
 export const SessionWorkspaceSchema = z.enum(['terminal', 'vscode']);
 export type SessionWorkspace = z.infer<typeof SessionWorkspaceSchema>;
 
+export const PiSurfaceSchema = z.enum(['chat', 'terminal']);
+export type PiSurface = z.infer<typeof PiSurfaceSchema>;
+
 export function resolveSessionWorkspace(value: unknown): SessionWorkspace {
   const parsed = SessionWorkspaceSchema.safeParse(value);
   return parsed.success ? parsed.data : 'terminal';
@@ -464,6 +467,7 @@ export interface ContainerConfigPayload {
   fastStartEnabled: boolean;
   sessionMode: string;
   sessionWorkspace: SessionWorkspace;
+  surface?: PiSurface;
   sleepAfter?: string;
   encryptionKey?: string;
   /** REQ-ENTERPRISE-018: Governed Mode — this bucket's effective R2 SSE-C-disabled

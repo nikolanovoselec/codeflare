@@ -268,7 +268,8 @@ Persisted Herdr state and runtime lifetime are documented in [Sessions & Runtime
 - Herdr is pinned to v0.9.5, commit `2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01`, with Linux x86-64 SHA-256 `14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d` and Apache-2.0 attribution.
 - The launcher validates `SESSION_ID`, derives only `cf-<SESSION_ID>`, reads only `TAB_CONFIG` entry `1`, exports `TERMINAL_APP_STARTED=1`, and uses mode-0700 state under `/run/codeflare/herdr/<SESSION_ID>`.
 - Herdr processes and runtime artifacts remain local; only [REQ-TERM-033](#req-term-033-durable-herdr-structural-session-recovery) snapshots enter R2, and no private Herdr interface reaches Worker routes.
-- Startup maps reviewed values to fixed argv and never interpolates browser or `TAB_CONFIG` text into a shell command.
+- Startup maps reviewed values to fixed commands and never interpolates browser or `TAB_CONFIG` text into a shell command.
+- With a managed Pi handoff, the primary launch is the ticket-gated wrapper, not another Pi writer. Herdr topology readiness does not establish Chat writer readiness under [REQ-AGENT-272](agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff).
 
 **Priority:** P0
 
@@ -361,7 +362,8 @@ Persisted Herdr state and runtime lifetime are documented in [Sessions & Runtime
 
 - Snapshot durability follows existing 15-minute bisync, explicit Sync and final-sync boundaries; abrupt loss may discard changes since the last successful sync.
 - `session-history.json` stays excluded: terminal output may contain prompts/credentials/tokens/command output.
-- Recovery uses the pinned Herdr runtime’s official snapshot format; Codeflare defines no parallel schema.
+- Recovery uses the pinned Herdr runtime’s official snapshot format; Codeflare defines no parallel topology schema.
+- The exact Pi binding for [REQ-AGENT-272](agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff) can sync beside the snapshot; writer tickets, receipts, and output do not.
 
 **Priority:** P0
 

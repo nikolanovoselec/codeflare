@@ -45,6 +45,15 @@ updates:
       semver-major-days: 30
 
   - package-ecosystem: npm
+    directory: /image/pi-web
+    target-branch: develop
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
+
+  - package-ecosystem: npm
     directory: /image/oxlint
     target-branch: develop
     schedule:

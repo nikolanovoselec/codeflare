@@ -74,6 +74,15 @@ describe('Codeflare Herdr launcher', () => {
       assert.equal(calls.find(call => call.startsWith('pane run ')), 'pane run w1:p1 pi --tui-mode fullscreen');
     }
   });
+  it('REQ-AGENT-272 AC1: Chat-first prewarms Herdr without launching native Pi', () => {
+    const { result, calls, runtime } = harness('pi', undefined, undefined, {
+      CODEFLARE_PI_SURFACE: 'chat', CODEFLARE_PI_GENERATION: '7',
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(existsSync(join(runtime, 'herdr', 'abc12345', 'bootstrap.done')));
+    assert.equal(calls.some(call => call.startsWith('pane run ') && /\bpi\b/.test(call)), false);
+  });
+
   it('REQ-AGENT-012: Herdr Codex launch honors Fast Start without changing tab configuration', () => {
     for (const fastStart of [undefined, 'true', 'false']) {
       const { result, calls } = harness('codex', undefined, fastStart);

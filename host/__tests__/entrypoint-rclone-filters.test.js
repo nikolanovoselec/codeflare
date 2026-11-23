@@ -133,6 +133,9 @@ function verdictUnder({ sessionMode, syncMode = 'full', syncPolicyMode = 'includ
     '.codeflare/herdr/sessions/cf-abc12345/session-history.json': 'terminal output must stay local',
     '.codeflare/herdr/sessions/cf-abc12345/herdr.sock': 'socket must stay local',
     '.codeflare/herdr/sessions/cf-other123/session.json': '{"version":3,"workspaces":[]}',
+    '.codeflare/herdr/sessions/cf-abc12345/agent-session-id': '01991fc9-f25d-7000-8000-000000000001',
+    '.codeflare/herdr/sessions/cf-abc12345/owner.json': 'ephemeral writer ownership',
+    '.codeflare/herdr/sessions/cf-other123/agent-session-id': '01991fc9-f25d-7000-8000-000000000002',
     '.codeflare/classic/sessions/cf-abc12345/agent-session-id': '01991fc9-f25d-7000-8000-000000000001',
     '.codeflare/classic/sessions/cf-abc12345/private.json': 'must stay local',
     '.codeflare/classic/sessions/cf-other123/agent-session-id': '01991fc9-f25d-7000-8000-000000000002',
@@ -290,6 +293,13 @@ describe('entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2
     assert.equal(v['.codeflare/herdr/sessions/cf-abc12345/session-history.json'], 'EXCLUDED');
     assert.equal(v['.codeflare/herdr/sessions/cf-abc12345/herdr.sock'], 'EXCLUDED');
     assert.equal(v['.codeflare/herdr/sessions/cf-other123/session.json'], 'EXCLUDED');
+  });
+
+  it('REQ-AGENT-272 AC2: syncs only the current Herdr transcript binding, not live ownership', () => {
+    const v = verdictUnder({ sessionMode: 'default' });
+    assert.equal(v['.codeflare/herdr/sessions/cf-abc12345/agent-session-id'], 'INCLUDED');
+    assert.equal(v['.codeflare/herdr/sessions/cf-abc12345/owner.json'], 'EXCLUDED');
+    assert.equal(v['.codeflare/herdr/sessions/cf-other123/agent-session-id'], 'EXCLUDED');
   });
 
   it('REQ-AGENT-211 AC3: persists only the current classic agent-session binding', () => {

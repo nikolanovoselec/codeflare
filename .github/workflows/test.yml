@@ -175,6 +175,8 @@ jobs:
               - 'landing/**'
               - 'src/lib/design-ready.ts'
             pi:
+              - 'image/pi-web/**'
+              - 'scripts/ci/smoke-pi-web-handoff.mjs'
               - 'scripts/qualify-pi-mcp.mjs'
               - 'host/__tests__/pi-mcp-stock.test.js'
               - 'scripts/patch-rpiv-question-timeout.mjs'
@@ -260,6 +262,7 @@ jobs:
               - 'scripts/ci/actionlint-input.mjs'
               - 'host/__tests__/actionlint-input.test.js'
             dependencies:
+              - 'image/pi-web/package-lock.json'
               - 'package-lock.json'
               - 'web-ui/package-lock.json'
               - 'openvscode/agent-sidebar/package-lock.json'
@@ -997,6 +1000,17 @@ jobs:
       - name: Install pristine lock-matched Pi dependencies
         working-directory: preseed/agents/pi
         run: npm ci --ignore-scripts --prefer-offline --no-audit --no-fund
+
+      - name: Install the locked stock pi-web artifact
+        working-directory: image/pi-web
+        run: npm ci --omit=dev --omit=peer --no-audit --no-fund
+
+      - name: Verify native Pi and stock pi-web transcript interoperability
+        env:
+          CODEFLARE_PI_WEB_SMOKE_ROOT: ${{ github.workspace }}/image/pi-web
+          CODEFLARE_PI_WEB_SMOKE_PI_PACKAGE: ${{ github.workspace }}/preseed/agents/pi/node_modules/@earendil-works/pi-coding-agent
+          CODEFLARE_PI_WEB_SMOKE_CLI: ${{ github.workspace }}/preseed/agents/pi/node_modules/.bin/pi
+        run: node scripts/ci/smoke-pi-web-handoff.mjs
 
       - name: Qualify the real stock MCP extension and public client
         run: node scripts/qualify-pi-mcp.mjs

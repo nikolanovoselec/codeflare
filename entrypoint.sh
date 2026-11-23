@@ -647,12 +647,17 @@ RCLONE_FILTERS_COMMON=(
     --filter "+ /.codeflare/herdr/sessions/"
     --filter "+ /.codeflare/herdr/sessions/cf-${SESSION_ID:-unknown}/"
     --filter "+ /.codeflare/herdr/sessions/cf-${SESSION_ID:-unknown}/session.json"
+    --filter "+ /.codeflare/herdr/sessions/cf-${SESSION_ID:-unknown}/agent-session-id"
     --filter "- .codeflare/herdr/**"
     --filter "+ /.codeflare/managed-paths.json"
     --filter "+ /.codeflare/review-state/"
     --filter "+ /.codeflare/review-state/v1/"
     --filter "+ /.codeflare/review-state/v1/**"
     --filter "- .codeflare/**"
+
+    # Image-only handoff extension discovery link is not user Pi state.
+    --filter "- /.pi/agent/extensions/codeflare-web-handoff.ts"
+    --filter "- /.pi/agent/extensions/codeflare-web-handoff.ts.rclonelink"
 
     # Root-anchored durable namespaces. New SDK files and user package source
     # are intentionally admitted; known transients above still take precedence.
@@ -2498,6 +2503,7 @@ configure_tab_autostart() {
     BASH_PROFILE="$USER_HOME/.bash_profile"
     AUTOSTART_MARKER="# terminal-autostart"
     local classic_agent_kind="" classic_agent_state="" classic_agent_id="" classic_agent_launch=""
+    local managed_pi_primary=0
     local classic_binding_dir classic_binding_file classic_binding_tmp configured_primary
     local classic_pi_cwd classic_pi_session_dir classic_pi_session_file classic_pi_session_tmp classic_pi_timestamp
 
@@ -2518,6 +2524,16 @@ configure_tab_autostart() {
                 pi) classic_agent_kind="pi" ;;
                 claude|claude\ --dangerously-skip-permissions) classic_agent_kind="claude" ;;
             esac
+        fi
+
+        # REQ-AGENT-272: the selected writer creates the native conversation.
+        # A Chat-first boot must not allocate even a Classic CLI header or ID.
+        if [ "$classic_agent_kind" = pi ] \
+            && [[ "${CODEFLARE_PI_SURFACE:-}" =~ ^(chat|terminal)$ ]]; then
+            managed_pi_primary=1
+            if [ "${CODEFLARE_PI_SURFACE:-}" = chat ]; then
+                classic_agent_kind=""
+            fi
         fi
 
         if [ -n "$classic_agent_kind" ]; then
@@ -2716,10 +2732,14 @@ CASE_EOF
 CASE_EOF
                     ;;
                 pi)
+                    local pi_launch="${classic_agent_launch:-pi}"
+                    if [ "$key" = 1 ] && [ "$managed_pi_primary" = 1 ]; then
+                        pi_launch=/usr/local/bin/codeflare-terminal-writer
+                    fi
                     cat >> "$BASHRC_FILE" << CASE_EOF
         ${key})
             # Pi (bash stays as session leader for TTY stability)
-            ${classic_agent_launch:-pi}
+            ${pi_launch}
             ;;
 CASE_EOF
                     ;;

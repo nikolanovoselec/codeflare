@@ -21,6 +21,15 @@ COPY scripts/ci/prune-npm-platform-artifacts.mjs /tmp/prune-npm-platform-artifac
 RUN npm prune --omit=dev && \
     node /tmp/prune-npm-platform-artifacts.mjs node_modules
 
+# Stock pi-web uses Codeflare's selected Pi SDK, not a second runtime.
+ARG CODEFLARE_CODING_AGENTS=claude-code,codex,copilot,antigravity,opencode,pi
+COPY scripts/ci/coding-agent-selection-core.mjs scripts/ci/coding-agent-selection.mjs /tmp/
+COPY image/pi-web/package*.json /opt/codeflare/pi-web/
+RUN if node /tmp/coding-agent-selection.mjs has "$CODEFLARE_CODING_AGENTS" pi; then \
+      cd /opt/codeflare/pi-web && npm ci --omit=dev --omit=peer --no-audit --no-fund && \
+      node /tmp/prune-npm-platform-artifacts.mjs node_modules; \
+    fi
+
 # ---- Pinned rclone with verified per-side bisync bookkeeping ----
 FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS rclone-builder
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl python3 && rm -rf /var/lib/apt/lists/*
@@ -1042,6 +1051,9 @@ RUN mkdir -p /app/host
 COPY --from=builder /app/host/node_modules /app/host/node_modules
 COPY --from=builder /app/host/dist /app/host/dist
 COPY host/package.json /app/host/
+COPY --from=builder /opt/codeflare/pi-web /opt/codeflare/pi-web
+COPY --chmod=0555 image/pi-web/codeflare-pi /usr/local/bin/codeflare-terminal-writer
+COPY --chmod=0444 image/pi-web/handoff-extension.ts scripts/ci/smoke-pi-web-handoff.mjs /opt/codeflare/pi-web/
 
 # Copy entrypoint script and its phase-oriented Vault compaction helper.
 COPY entrypoint.sh /entrypoint.sh

@@ -3,7 +3,8 @@ import { Portal } from 'solid-js/web';
 import { mdiXml, mdiCogOutline, mdiShieldAccount, mdiAccountOutline, mdiRocketLaunchOutline, mdiChartBar, mdiLogout, mdiFlipVertical, mdiReflectHorizontal } from '@mdi/js';
 import Icon from './Icon';
 import IconButton from './ui/IconButton';
-import type { SessionWithStatus, AgentType, TabConfig } from '../types';
+import type { SessionWithStatus, AgentType, TabConfig, PiSurface } from '../types';
+import { isPiWebSession } from '../lib/pi-web-session';
 import { storageStore } from '../stores/storage';
 import { recreateAgentConfigs } from '../api/storage';
 import type { MigrationRetry } from './MigrationRetryNotice';
@@ -35,10 +36,10 @@ import '../styles/dashboard.css';
 interface DashboardProps {
   migrationRetry: MigrationRetry;
   sessions: SessionWithStatus[];
-  onCreateSession: (agentType?: AgentType, tabConfig?: TabConfig[]) => void;
-  onStartSession: (id: string) => void;
+  onCreateSession: (agentType?: AgentType, tabConfig?: TabConfig[], surface?: PiSurface) => void;
+  onStartSession: (id: string, surface?: PiSurface) => void;
   onOpenVscodeSession: (id: string) => void;
-  onOpenSessionById: (id: string) => void;
+  onOpenSessionById: (id: string, surface?: PiSurface) => void;
   onOpenMultiView?: () => void;
   onStopSession: (id: string) => void;
   onDeleteSession: (id: string) => void;
@@ -133,6 +134,16 @@ const Dashboard: Component<DashboardProps> = (props) => {
     session: null,
   });
   const menuSession = createMemo(() => props.sessions.find(session => session.id === menuState().session?.id));
+  const canSelectPiSurface = () => {
+    const session = menuSession();
+    return (session?.status === 'stopped' || session?.status === 'running') && isPiWebSession(session);
+  };
+  const selectPiSurface = (surface: PiSurface) => {
+    const session = menuSession();
+    if (!session || !canSelectPiSurface()) return;
+    if (session.status === 'stopped') props.onStartSession(session.id, surface);
+    else props.onOpenSessionById(session.id, surface);
+  };
 
   // ── Adaptive right-column split (bug #21) ──────────────────────────────
   // GitHub (top) + Storage (bottom) share the column. The flex engine does the
@@ -445,6 +456,10 @@ const Dashboard: Component<DashboardProps> = (props) => {
                       setShowCreateDialog(false);
                       props.onCreateSession(agentType, tabConfig);
                     }}
+                    onSelectPiSurface={(surface) => {
+                      setShowCreateDialog(false);
+                      props.onCreateSession('pi', undefined, surface);
+                    }}
                     anchorRef={newSessionBtnRef()}
                   />
                 </Portal>
@@ -556,6 +571,8 @@ const Dashboard: Component<DashboardProps> = (props) => {
                   <SessionContextMenu
                     isOpen={menuState().isOpen}
                     position={menuState().position}
+                    onSelectPiSurface={canSelectPiSurface() ? selectPiSurface : undefined}
+                    surfaceAction={menuSession()?.status === 'stopped' ? 'Start' : 'Open'}
                     canStop={['running', 'initializing', 'starting', 'unreachable', 'stopping'].includes(menuState().session?.status ?? '')
                       || (menuState().session?.workspace === 'vscode' && menuState().session?.status === 'error')}
                     canKill={['starting', 'running', 'unreachable', 'stopping'].includes(menuSession()?.status ?? '')}

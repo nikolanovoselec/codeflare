@@ -1,0 +1,207 @@
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { Duplex } from 'node:stream';
+import { Readable } from 'node:stream';
+import { WebSocket, WebSocketServer } from 'ws';
+import { PI_WEB_PORT } from './pi-web-services.js';
+import type { PiWebRuntime } from './pi-web-runtime.js';
+
+const root = `http://127.0.0.1:${PI_WEB_PORT}`;
+const maxBody = 1024 * 1024;
+const requestIdPattern = /^[a-f0-9-]{36}$/i;
+const settlers = new Set(['abort', 'ask/submit', 'ask/cancel', 'dialogs/answer', 'dialogs/cancel', 'commands/respond']);
+const sessionMutations = new Set(['prompt', ...settlers, 'queue/message', 'queue/clear', 'unread/acknowledge',
+  'warnings/dismiss', 'notifications/dismiss', 'notifications/dismiss-all', 'model', 'thinking']);
+
+function send(res: ServerResponse, code: number, data: object): void {
+  res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+  res.end(JSON.stringify(data));
+}
+
+async function jsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+  const chunks: Buffer[] = [];
+  let bytes = 0;
+  for await (const part of req) {
+    const chunk = Buffer.isBuffer(part) ? part : Buffer.from(part);
+    bytes += chunk.length;
+    if (bytes > maxBody) throw new Error('Pi web request is too large');
+    chunks.push(chunk);
+  }
+  const body: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('Invalid Pi web request');
+  return body as Record<string, unknown>;
+}
+
+// REQ-AGENT-272 AC5: no scoped browser request owns a transcript or starts a runtime.
+export function createPiWebProxy(options: { sessionId: string; runtime: PiWebRuntime; recordInput(): void }) {
+  const { sessionId, runtime } = options;
+  const prefix = `/api/pi-web/${sessionId}/`;
+  const wss = new WebSocketServer({ noServer: true, maxPayload: maxBody });
+  let closed = false;
+
+  function route(req: IncomingMessage): URL | undefined {
+    const raw = req.url;
+    if (closed || req.headers['x-codeflare-pi-generation'] !== String(runtime.generation) || !raw?.startsWith(prefix)) return;
+    const target = raw.slice(prefix.length);
+    const path = target.split('?')[0];
+    if (path.startsWith('/') || /%2f|%5c|%2e|\\|(?:^|\/)\.{1,2}(?:\/|$)/i.test(path)) return;
+    return new URL(`/${target}`, root);
+  }
+
+  function publicOrigin(req: IncomingMessage): string | undefined {
+    const host = req.headers['x-forwarded-host'];
+    const proto = req.headers['x-forwarded-proto'];
+    if (typeof host !== 'string' || (proto !== 'https' && proto !== 'http')) return;
+    try {
+      const url = new URL(`${proto}://${host}`);
+      if (url.host === host && url.pathname === '/' && !url.username && !url.password && !url.search && !url.hash) {
+        return url.origin;
+      }
+    } catch { /* Refuse damaged canonical forwarding metadata. */ }
+  }
+
+  const browserPath = (pathname: string) => pathname.replace(/^\/api\/machines\/local(?=\/)/, '/api');
+
+  function isScoped(path: string, url: URL): boolean {
+    if (/^\/api\/machines\/[^/]+\//.test(path)) return false;
+    if (url.searchParams.has('cwd') && (url.searchParams.getAll('cwd').length !== 1 || url.searchParams.get('cwd') !== runtime.cwd)) return false;
+    const matched = /^\/api\/sessions\/([^/]+)(?:\/|$)/.exec(path);
+    return !matched || matched[1] === 'events' || matched[1] === runtime.binding?.id;
+  }
+
+  async function control(req: IncomingMessage, res: ServerResponse, path: string, url: URL): Promise<void> {
+    if (req.method === 'GET' && path === '/_switch') {
+      if (url.searchParams.get('generation') !== String(runtime.generation)) { send(res, 409, { error: 'Stale Pi workspace' }); return; }
+      send(res, 200, runtime.status());
+      return;
+    }
+    if (req.method !== 'POST' || url.search) { send(res, 405, { error: 'Unsupported Pi handoff request' }); return; }
+    const { generation, requestId, target } = await jsonBody(req);
+    if (generation !== runtime.generation || typeof requestId !== 'string' || !requestIdPattern.test(requestId)) {
+      send(res, 409, { error: 'Invalid Pi handoff identity' }); return;
+    }
+    if (path === '/_cancel') {
+      const cancelled = runtime.handoff.cancel({ generation, requestId });
+      send(res, cancelled ? 200 : 409, runtime.status());
+      return;
+    }
+    if (target !== 'terminal' && target !== 'chat') { send(res, 400, { error: 'Unknown Pi surface' }); return; }
+    const status = runtime.status();
+    if (runtime.legacyHerdr || (status.phase === 'opening' || status.phase === 'failed') && !status.requestId) {
+      send(res, 409, status); return;
+    }
+    let rejected = false;
+    // The switch keeps running if the browser disconnects. Admission changes
+    // synchronously; wait one microtask for an immediate validation failure.
+    void runtime.handoff.switchTo({ generation, target, requestId }).catch(() => { rejected = true; });
+    await Promise.resolve();
+    send(res, rejected ? 409 : 202, runtime.status());
+  }
+
+  async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const url = route(req);
+    const origin = publicOrigin(req);
+    if (!url || !origin) { send(res, 409, { error: 'Pi workspace unavailable' }); return; }
+    const path = browserPath(url.pathname);
+    if (path === '/_switch' || path === '/_cancel') {
+      try { await control(req, res, path, url); }
+      catch { send(res, 400, { error: 'Invalid Pi handoff request' }); }
+      return;
+    }
+    const read = req.method === 'GET' || req.method === 'HEAD';
+    const endpoint = /^\/api\/sessions\/[^/]+\/(.+)$/.exec(path)?.[1];
+    const preference = path === '/api/config' && req.method === 'PATCH';
+    const kind = read ? 'read' : endpoint && settlers.has(endpoint) ? 'settle' : 'work';
+    if (!runtime.ready || !isScoped(path, url) || (!read && !preference && (req.method !== 'POST' || !endpoint || !sessionMutations.has(endpoint)))) {
+      send(res, 409, { error: 'Request is outside the active Chat conversation' }); return;
+    }
+    const finish = runtime.handoff.admit('chat', kind);
+    if (!finish) { send(res, 409, { error: 'Chat is releasing its conversation' }); return; }
+    let dispatched = false;
+    let upstreamSettled = false;
+    try {
+      let body: string | undefined;
+      if (!read) {
+        const data = await jsonBody(req);
+        if (preference) {
+          const set = data.set as Record<string, unknown> | undefined;
+          if (!set || Object.keys(data).length !== 1 || Object.keys(set).length !== 1 || typeof set.quietMode !== 'boolean') {
+            send(res, 400, { error: 'Only the Chat display preference can be changed here' }); return;
+          }
+        } else if (data.cwd !== runtime.cwd) {
+          send(res, 400, { error: 'Workspace does not match the Chat conversation' }); return;
+        }
+        body = JSON.stringify(data);
+      }
+      dispatched = true;
+      const result = await fetch(url, {
+        method: req.method, signal: AbortSignal.timeout(25_000), redirect: 'manual',
+        headers: { Host: new URL(origin).host, ...(req.headers.origin && { Origin: req.headers.origin }),
+          ...(body !== undefined && { 'Content-Type': 'application/json' }) }, body,
+      });
+      upstreamSettled = true;
+      const headers: Record<string, string> = { 'Cache-Control': 'no-store' };
+      const contentType = result.headers.get('content-type');
+      if (contentType) headers['Content-Type'] = contentType;
+      if (result.ok && endpoint && ['prompt', ...settlers].includes(endpoint)) options.recordInput();
+      if (result.ok && read && path === '/api/sessions' && req.method !== 'HEAD') {
+        const rows: unknown = await result.json();
+        send(res, result.status, Array.isArray(rows) ? rows.filter(row => row?.id === runtime.binding?.id && row?.cwd === runtime.cwd) : []);
+        return;
+      }
+      res.writeHead(result.status, headers);
+      if (!result.body) { res.end(); return; }
+      const stream = Readable.fromWeb(result.body as import('node:stream/web').ReadableStream<Uint8Array>);
+      // For a complete release, finish counts upstream I/O, not merely the
+      // disconnected browser. Cancel the upstream stream before dropping it.
+      await new Promise<void>((resolve, reject) => {
+        stream.once('error', reject);
+        stream.once('close', resolve);
+        res.once('close', () => stream.destroy());
+        stream.pipe(res);
+      });
+    } catch {
+      // Cancelling fetch is not proof that sessiond cancelled getOrOpen or
+      // accepted work. Preserve exclusivity even if the private hop timed out.
+      if (dispatched && !upstreamSettled && path.startsWith('/api/')) runtime.markWebRequestUnconfirmed();
+      if (!res.headersSent) send(res, 503, { error: 'Chat service unavailable' });
+      else res.destroy();
+    } finally { finish(); }
+  }
+
+  function upgrade(req: IncomingMessage, socket: Duplex, head: Buffer): void {
+    const url = route(req);
+    const origin = publicOrigin(req);
+    const path = url && browserPath(url.pathname);
+    if (!url || !origin || !path || !runtime.ready || !runtime.handoff.permits('chat', 'read') || !isScoped(path, url)
+      || !/^\/api\/(?:events|sessions\/(?:events|[^/]+\/events))$/.test(path)) {
+      socket.end('HTTP/1.1 409 Conflict\r\nConnection: close\r\n\r\n'); return;
+    }
+    url.protocol = 'ws:';
+    const ws = new WebSocket(url, { headers: { Host: new URL(origin).host, Origin: origin }, handshakeTimeout: 5000, maxPayload: 8 * maxBody });
+    socket.once('close', () => ws.terminate());
+    ws.once('error', () => socket.destroy());
+    ws.once('open', () => {
+      if (socket.destroyed || !runtime.handoff.permits('chat', 'read')) { ws.terminate(); socket.destroy(); return; }
+      wss.handleUpgrade(req, socket, head, client => {
+        client.on('error', () => ws.terminate());
+        client.on('close', () => ws.terminate());
+        ws.on('close', () => client.close());
+        ws.on('message', (frame, binary) => {
+          if (!runtime.handoff.permits('chat', 'read') || client.bufferedAmount > 8 * maxBody) {
+            client.close(); ws.close(); return;
+          }
+          client.send(frame, { binary });
+        });
+      });
+    });
+  }
+
+  return { handle, upgrade, close() {
+    closed = true;
+    for (const client of wss.clients) client.terminate();
+    wss.close();
+    return runtime.close();
+  } };
+}
+
+export type PiWebProxy = ReturnType<typeof createPiWebProxy>;

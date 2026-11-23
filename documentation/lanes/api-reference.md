@@ -51,6 +51,7 @@ Public Worker, authenticated proxy, and integration endpoint contracts for Codef
 | Worker `/api/container/*` | Authenticated edge proxy into the caller's session container; these are not direct host URLs. |
 | Host `/health`, `/activity`, `/internal/runtime-observation`, `/terminal` | Private container-server routes reached through the Durable Object or Worker proxy. Rich health and consolidated runtime observation include metrics; normal metrics collection uses the authenticated consolidated observation. There is no separate `/metrics` route. Runtime mechanics belong to [Container](container.md). |
 | Worker and host `/api/vscode/:sessionId/*` | Authenticated Worker route with private forwarding to the same host path; IDE process and proxy mechanics belong to [Terminal & IDE](terminal-and-ide.md#browser-ide-internals). |
+| Worker and host `/api/pi-web/:sessionId/…` | Same-origin Chat path for the owner's running Pi Terminal workspace; the Host binds stock web requests to the current transcript writer. |
 
 Route paths in this reference are externally callable only where their row says so; a private host path is not an alternate public endpoint.
 
@@ -135,6 +136,18 @@ These are endpoint observations, not persisted lifecycle states. `details` ident
 Session creation may reject the enterprise agent allowlist or SaaS storage quota before writing a record. Start may reject an active bucket migration, an agent absent from the deployed image, the current concurrent-session policy check, or compute quota. The session-count check and later generation-bound D1 lifecycle claim are not atomic. Concurrent-session admission is explicitly best effort, so simultaneous starts may exceed the nominal per-user limit; deployment `max_instances` is a separate hard platform boundary. Enterprise currently follows the non-SaaS role-based resolver, while [issue #880](https://github.com/nikolanovoselec/codeflare/issues/880) tracks one role-independent Enterprise limit.
 
 A successful Start returns the acknowledged `generation`; `starting` means the DO owns the asynchronous launch, not that ports are ready. `/startup-status` returns the observed `generation` on ordinary responses when a row was read; a handler-level `error` response can omit it. A D1-confirmed stop always includes it. <!-- @impl: src/routes/container/status.ts::app --> Only `ready` for the acknowledged generation completes that Start in the browser. SDK startup failure does not establish stopped. See [Troubleshooting](troubleshooting.md#container-start-is-rejected-or-returns-to-stopped).
+
+## Pi Chat handoff
+
+`POST /api/sessions` and `POST /api/container/start?sessionId=…` accept optional `surface: "chat" | "terminal"` for the eligible Pi path. Explicit creation resolves the Terminal workspace server-side; the regular default still applies without the field. Start binds the surface to the launch's generation, not a stored workspace selector. Use the handoff routes for an already running session. <!-- @impl: src/routes/session/crud.ts::app.post --> <!-- @impl: src/routes/container/lifecycle.ts::app.post -->
+
+| Method | Path (under `/api/pi-web/:sessionId/`) | Request |
+|---|---|---|
+| POST | `_switch` | `{ generation, requestId, target }`: begin or reconcile the same UUID attempt toward `chat` or `terminal`. |
+| GET | `_switch` | `generation` and optional `requestId` query: observe the current attempt without starting or switching anything. |
+| POST | `_cancel` | `{ generation, requestId }`: cancel a still-waiting switch, without aborting Pi. |
+
+Responses carry `phase` and `surface`, optionally `target`, `requestId`, and the scoped `chatUrl`. `waiting` leaves the source available for native answers and Abort. `releasing` and `opening` are not writer readiness. Only `complete` confirms destination ownership. `failed` or `uncertain` is not authorization to open a different transcript; writer uncertainty blocks another open. An authenticated request for a stale generation is refused. Browser app HTTP and event WebSockets use the same session prefix and never launch a replacement container. <!-- @impl: src/routes/pi-web.ts::handlePiWebRequest --> <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @impl: host/src/pi-web-handoff.ts::createPiWebHandoff --> [REQ-AGENT-272](../../sdd/spec/agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff)
 
 ## Operator Activities
 

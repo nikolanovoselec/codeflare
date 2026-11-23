@@ -1,6 +1,6 @@
 import { createStore, produce } from 'solid-js/store';
 import { createSignal } from 'solid-js';
-import type { SessionWithStatus, SessionStatus, InitProgress, RepositoryRestoreStatus, SessionTerminals, AgentType, TabConfig, UserPreferences } from '../types';
+import type { SessionWithStatus, SessionStatus, InitProgress, RepositoryRestoreStatus, SessionTerminals, AgentType, TabConfig, UserPreferences, PiSurface } from '../types';
 import * as api from '../api/client';
 import { ApiError } from '../api/fetch-helper';
 import { upgradeAgentConfigs } from '../api/storage';
@@ -557,12 +557,14 @@ async function loadSessions(): Promise<void> {
   }
 }
 
-async function createSession(name: string, agentType?: AgentType, tabConfig?: TabConfig[], clone?: api.CreateSessionClone): Promise<SessionWithStatus | null> {
+async function createSession(name: string, agentType?: AgentType, tabConfig?: TabConfig[], clone?: api.CreateSessionClone, surface?: PiSurface): Promise<SessionWithStatus | null> {
   try {
     const submittedTabConfig = state.preferences.herdrEnabled === true
       ? tabConfig?.slice(0, 1)
       : tabConfig;
-    const session = await api.createSession(name, agentType, submittedTabConfig, clone);
+    const session = surface
+      ? await api.createSession(name, agentType, submittedTabConfig, clone, surface)
+      : await api.createSession(name, agentType, submittedTabConfig, clone);
     const sessionWithStatus: SessionWithStatus = {
       ...session,
       status: 'stopped',
@@ -732,7 +734,7 @@ function watchRepositoryRestore(id: string, generation: number, initial: Reposit
   update(initial);
 }
 
-function startSession(id: string): Promise<void> {
+function startSession(id: string, surface?: PiSurface): Promise<void> {
   dismissRepositoryRestore(id);
   const session = state.sessions.find((candidate) => candidate.id === id);
   const retryEditorTimeout = session?.workspace === 'vscode' && session.editorReadyError === true;
@@ -794,7 +796,8 @@ function startSession(id: string): Promise<void> {
           }));
         } else {
           initializeTerminalsForSession(id);
-          if (readyProgress) setState('initProgressBySession', id, readyProgress);
+          if (surface === 'chat') dismissInitProgressForSession(id);
+          else if (readyProgress) setState('initProgressBySession', id, readyProgress);
         }
         resolve();
       },
@@ -823,7 +826,7 @@ function startSession(id: string): Promise<void> {
         }
         reject(new Error(error));
       },
-      { retryEditorTimeout },
+      { retryEditorTimeout, ...(surface && { surface }) },
     );
 
     startupCleanups.get(id)?.();

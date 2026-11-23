@@ -8,7 +8,7 @@
  */
 import { z } from 'zod';
 import { syncPolicyModeSchema } from './sync-policy';
-import { ManagedResourcePolicySchema } from '../types';
+import { ManagedResourcePolicySchema, PiSurfaceSchema } from '../types';
 
 /** REQ-AGENT-240 AC2/4: omission preserves, null clears, and non-null hints are 32-hex IDs. */
 export const CloudflareOauthAccountIdSchema = z.string().length(32).regex(/^[0-9a-f]{32}$/i).nullable().optional();
@@ -45,6 +45,7 @@ export const SetBucketNameBodySchema = z.object({
   managedResourcePathsDigest: z.string().regex(/^[0-9a-f]{64}$/).nullable(),
   sessionMode: z.string(),
   sessionWorkspace: z.enum(['terminal', 'vscode']),
+  surface: PiSurfaceSchema.optional(),
   sleepAfter: z.string(),
   /** REQ-ENTERPRISE-004: the user's matched Access groups, one cf-aig-metadata tag per group. */
   userGroups: z.array(z.string()).optional(),

@@ -4,6 +4,10 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-23: Continue Pi conversations in Chat or Terminal
+
+- [REQ-AGENT-272](agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff) specifies Dashboard-selected Pi Start and Resume in Chat or Terminal. A pending switch waits for the turn to finish or for user-initiated Abort to settle, then opens the same transcript; Browser VS Code remains independent.
+
 ## 2026-11-22: Recover halted storage migrations
 
 - [REQ-ENTERPRISE-020](storage.md#req-enterprise-020-governed-mode-re-encrypt-migration-engine) preserves verified empty objects without SSE-C conversion. The [dashboard offers an icon-only retry beside the halted status](storage.md#req-enterprise-304-dashboard-migration-affordance-and-refresh), including for mixed recovery with a matching recorded key identity; [older halts without that record](storage.md#req-enterprise-322-owner-authorized-migration-retry) require administrator review.

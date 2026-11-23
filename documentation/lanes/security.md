@@ -250,6 +250,12 @@ Vault/SilverBullet and Browser IDE require narrowly scoped framing/proxy behavio
 
 Public workspace selectors are rejected independently by Worker and host. Only the private loopback root request receives the fixed workspace. This constrains browser navigation, not terminal/trusted-extension filesystem access. The package is pinned and image-verified without patching code-server/Code OSS or Anthropic's official extension.
 
+### Pi Chat proxy boundary
+
+The Worker admits the exact same-origin session prefix only for an authenticated owner of an eligible running Pi Terminal session. The DO forwards through the existing private port and bearer without a Start or Terminal keepalive; the Host rechecks the generation and gates its stock pi-web requests by writer state. An old iframe cannot acquire a second writer through a transcript read, prompt, or reconnect. <!-- @impl: src/routes/pi-web.ts::handlePiWebRequest --> <!-- @impl: src/container/index.ts::forwardExisting --> <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy -->
+
+The stock listener and daemon socket stay private. Browser credentials and untrusted forwarding metadata are not passed to them, and the scoped same-origin frame does not relax public or IDE framing. This is a boundary on managed browser requests, not a sandbox for Pi commands or the user's own shell. [REQ-AGENT-272 AC5](../../sdd/spec/agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff) owns the user-visible fence. <!-- @test: src/__tests__/routes/pi-web-auth-chain.test.ts (REQ-AGENT-272 AC5: keeps an owned app fetch passive while preserving the exact scoped path, query, and canonical browser origin) -->
+
 <a id="browser-ide-user-extensions"></a>
 ### User-installed Browser IDE extensions
 

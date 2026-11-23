@@ -1,5 +1,5 @@
 import type {
-  Session, UserInfo, InitProgress, StartupStatusResponse, AgentType, TabConfig, UserPreferences, McpPortal,
+  Session, UserInfo, InitProgress, StartupStatusResponse, AgentType, TabConfig, UserPreferences, McpPortal, PiSurface,
   AuthStatus, AuthProvider, AdminConfigurationResponse, ConfigurationSection, ReasoningCatalog,
   NativeAiTargetDraft, NativeTargetCheckResult, ReasoningDiscoveryRequest, ReasoningDiscoveryResult, ReasoningRouteInventory, ReasoningGatewayDraft, ReasoningManagementContext,
 } from '../types';
@@ -353,11 +353,13 @@ export async function createSession(
   agentType?: AgentType,
   tabConfig?: TabConfig[],
   clone?: CreateSessionClone,
+  surface?: PiSurface,
 ): Promise<Session> {
   const body: Record<string, unknown> = { name };
   if (agentType) body.agentType = agentType;
   if (tabConfig) body.tabConfig = tabConfig;
   if (clone) body.clone = clone;
+  if (surface) body.surface = surface;
 
   const response = await fetchApi('/sessions', {
     method: 'POST',
@@ -443,7 +445,7 @@ export function startSession(
   onProgress: (progress: InitProgress) => void,
   onComplete: (generation: number) => void,
   onError: (error: string, code?: string) => void,
-  options: { retryEditorTimeout?: boolean } = {},
+  options: { retryEditorTimeout?: boolean; surface?: PiSurface } = {},
 ): () => void {
   if (!SESSION_ID_RE.test(id)) {
     onError('Invalid session ID format');
@@ -478,8 +480,10 @@ export function startSession(
         startedAt,
       });
 
-      const claim = await fetchApi(`/container/start?sessionId=${id}`, { method: 'POST', signal: claimRequest.signal },
-        z.object({ generation: z.number().int().nonnegative() }));
+      const claim = await fetchApi(`/container/start?sessionId=${id}`, {
+        method: 'POST', signal: claimRequest.signal,
+        ...(options.surface && { body: JSON.stringify({ surface: options.surface }) }),
+      }, z.object({ generation: z.number().int().nonnegative() }));
       if (cancelled) return;
       generation = claim.generation;
       clearTimeout(unconfirmedTimer);

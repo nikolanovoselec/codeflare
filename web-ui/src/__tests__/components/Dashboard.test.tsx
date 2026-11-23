@@ -407,6 +407,51 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(screen.getByTestId('context-menu-delete')).toBeInTheDocument();
   });
 
+  it.each([
+    { status: 'stopped', terminalMode: 'classic', surface: 'chat', action: 'start' },
+    { status: 'stopped', terminalMode: 'herdr', surface: 'terminal', action: 'start' },
+    { status: 'running', terminalMode: 'classic', surface: 'terminal', action: 'open' },
+    { status: 'running', terminalMode: 'herdr', surface: 'chat', action: 'open' },
+  ] as const)('REQ-AGENT-272 AC1: selects $surface for this $status $terminalMode card action only', async ({ status, terminalMode, surface, action }) => {
+    const id = 'managed-pi';
+    const actions: { action: string; id: string; surface?: string }[] = [];
+    render(() => <Dashboard {...defaultProps} sessions={[{
+      id, name: 'Managed Pi', status, workspace: 'terminal', agentType: 'pi', terminalMode,
+      createdAt: '2024-01-01', lastAccessedAt: '2024-01-01',
+    }]}
+      onStartSession={(id: string, surface?: string) => actions.push({ action: 'start', id, surface })}
+      onOpenSessionById={(id: string, surface?: string) => actions.push({ action: 'open', id, surface })} />);
+
+    await fireEvent.click(screen.getByTestId(`menu-${id}`));
+    const menu = within(screen.getByTestId('session-context-menu'));
+    const chat = menu.getByRole('button', { name: /\bChat\b/i });
+    const terminal = menu.getByRole('button', { name: /\bTerminal\b/i });
+    await fireEvent.click(surface === 'chat' ? chat : terminal);
+
+    expect(actions).toEqual([{ action, id, surface }]);
+    expect(screen.queryByTestId('session-context-menu')).not.toBeInTheDocument();
+    await fireEvent.click(screen.getByTestId(`select-${id}`));
+    expect(actions).toEqual([{ action, id, surface }, { action: 'open', id, surface: undefined }]);
+  });
+
+  it.each([
+    { agentType: 'bash', workspace: 'terminal' }, { agentType: 'pi', workspace: 'vscode' },
+    { agentType: 'pi', workspace: 'terminal', tabConfig: [{ id: '1', label: 'Terminal 1', command: '' }] },
+  ] as const)('REQ-AGENT-272 AC1: omits handoff actions on an ineligible $agentType $workspace card', async ({ agentType, workspace, ...fields }) => {
+    const id = 'ordinary';
+    render(() => <Dashboard {...defaultProps} sessions={[{
+      id, name: 'Ordinary session', status: 'running', workspace, agentType, terminalMode: 'herdr',
+      createdAt: '2024-01-01', lastAccessedAt: '2024-01-01', editorReady: true,
+      ...('tabConfig' in fields && fields.tabConfig && { tabConfig: [...fields.tabConfig] }),
+    }]} />);
+
+    await fireEvent.click(screen.getByTestId(`menu-${id}`));
+    const menu = within(screen.getByTestId('session-context-menu'));
+    expect(menu.queryByRole('button', { name: /\bChat\b/i })).not.toBeInTheDocument();
+    expect(menu.queryByRole('button', { name: /\bTerminal\b/i })).not.toBeInTheDocument();
+    expect(menu.getByRole('button', { name: 'Rename' })).toBeVisible();
+  });
+
   // === Initialization Tests ===
 
   it('REQ-IDE-049 AC1 / REQ-IDE-054 AC1: starts a stopped VS Code session from the whole card', () => {

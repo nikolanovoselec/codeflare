@@ -110,6 +110,8 @@ Advanced users choose Terminal or VS Code as the default for new sessions. Termi
 
 ![Codeflare Browser VS Code workspace](assets/documentation/browser-vscode.gif)
 
+For Pi in a Terminal workspace, [Chat handoff behavior and acceptance](documentation/lanes/terminal-and-ide.md#pi-chat-handoff-acceptance) describes choosing Chat or Terminal and continuing the same saved conversation independently of Browser VS Code.
+
 ## Architecture in one minute
 
 A Hono Worker authenticates HTTP and WebSocket traffic, serves application APIs, routes sessions, and applies control-plane policy. One Container Durable Object coordinates each session lifecycle. One Cloudflare Container provides that session's Linux environment, terminals, selected agent, and code-server process.

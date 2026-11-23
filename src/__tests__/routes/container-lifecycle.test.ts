@@ -266,6 +266,62 @@ describe('Container Lifecycle Routes', () => {
   // POST /container/start
   // =========================================================================
   describe('POST /container/start', () => {
+    it.each([
+      { terminalMode: 'classic', surface: 'chat' }, { terminalMode: 'classic', surface: 'terminal' },
+      { terminalMode: 'herdr', surface: 'chat' }, { terminalMode: 'herdr', surface: 'terminal' },
+    ] as const)('REQ-AGENT-272 AC1: forwards $terminalMode $surface only with the exact Start claim', async ({ terminalMode, surface }) => {
+      const id = 'abcdef1234567890abcdef12';
+      const key = `session:test-bucket:${id}`;
+      const session = await mockKV.get(key, 'json') as Session;
+      mockKV._set(key, { ...session, agentType: 'pi', workspace: 'terminal', terminalMode, lifecycleGeneration: 4 });
+      const launches: unknown[] = [];
+      const configs: Array<{ previousGeneration: string | null; body: unknown }> = [];
+      container().startSession.mockImplementation(async input => { launches.push(input); });
+      container().fetch.mockImplementation(async (request: Request) => {
+        if (new URL(request.url).pathname === '/_internal/setBucketName') {
+          configs.push({ previousGeneration: request.headers.get('X-Codeflare-Start-Generation'), body: await request.json() });
+        }
+        return Response.json({ bucketName: 'test-bucket' });
+      });
+
+      const response = await createLifecycleApp()(`/container/start?sessionId=${id}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ surface }),
+      });
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ status: 'starting', generation: 5 });
+      expect(await new D1SessionRepository(createMockSessionD1(mockKV)).getSession('test-bucket', id))
+        .toMatchObject({ workspace: 'terminal', lifecycleState: 'starting', lifecycleGeneration: 5 });
+      expect(configs).toEqual([{
+        previousGeneration: '4',
+        body: expect.objectContaining({ bucketName: 'test-bucket', sessionId: id, sessionWorkspace: 'terminal', terminalMode, surface }),
+      }]);
+      expect(launches).toEqual([expect.objectContaining({ bucket: 'test-bucket', sessionId: id, generation: 5 })]);
+    });
+
+    it.each([
+      { label: 'unrecognized surface', surface: 'editor', fields: {} },
+      { label: 'VS Code workspace', surface: 'chat', fields: { workspace: 'vscode' } },
+      { label: 'non-Pi agent', surface: 'chat', fields: { agentType: 'bash' } },
+      { label: 'non-Pi primary command', surface: 'chat', fields: {
+        terminalMode: 'herdr', tabConfig: [{ id: '1', label: 'Terminal 1', command: '' }],
+      } },
+    ])('REQ-AGENT-272 AC1: rejects $label before claiming an explicit-surface Start', async ({ surface, fields }) => {
+      const id = 'abcdef1234567890abcdef12';
+      const key = `session:test-bucket:${id}`;
+      const session = await mockKV.get(key, 'json') as Session;
+      mockKV._set(key, { ...session, agentType: 'pi', workspace: 'terminal', ...fields });
+      container().fetch.mockImplementation(async () => Response.json({ bucketName: 'test-bucket' }));
+      const response = await createLifecycleApp()(`/container/start?sessionId=${id}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ surface }),
+      });
+
+      expect(response.status).toBeGreaterThanOrEqual(400);
+      expect(response.status).toBeLessThan(500);
+      expect(await new D1SessionRepository(createMockSessionD1(mockKV)).getSession('test-bucket', id))
+        .toMatchObject({ lifecycleState: 'stopped', lifecycleGeneration: 0 });
+    });
+
     it('returns starting status when container is stopped', async () => {
       const fetch = createLifecycleApp();
       container().getState.mockResolvedValue({ status: 'stopped' });

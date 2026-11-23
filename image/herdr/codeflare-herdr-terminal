@@ -55,6 +55,34 @@ primary_command() {
     printf '%s' "$command"
 }
 
+managed_pi() {
+    [[ "${CODEFLARE_PI_SURFACE:-}" =~ ^(chat|terminal)$ ]] && [ "$(primary_command)" = pi ]
+}
+
+verify_managed_restore() {
+    # REQ-AGENT-272: a saved native Pi ref, focus, or tab position does not
+    # distinguish the configured primary from a user-created Pi pane. Only the
+    # exact wrapper resume role is sufficient; Herdr will run it in that pane.
+    jq -e '
+        .version == 3 and ([.workspaces[].tabs[].panes[]
+            | select(.agent_resume.argv == ["codeflare-terminal-writer", "--tui-mode", "fullscreen"]
+                and ((.agent_resume.source == "codeflare:terminal-writer" and .agent_resume.agent == "codeflare-terminal-writer")
+                or (.agent_resume.source == "herdr:pi" and .agent_resume.agent == "pi")))] | length == 1)
+    ' "$HERDR_SESSION_FILE" >/dev/null 2>&1
+}
+
+restore_legacy_pi() {
+    # Tell Host before starting Herdr: its legacy native writer may resume, so
+    # Chat must not open any transcript in this generation.
+    [[ "${CODEFLARE_PI_GENERATION:-}" =~ ^[1-9][0-9]*$ ]] || fail "invalid Pi handoff generation"
+    local runtime="$CODEFLARE_RUNTIME_ROOT/pi-web" marker
+    mkdir -p -- "$runtime"
+    marker=$(mktemp "$runtime/.legacy-herdr.XXXXXX")
+    printf '%s\n' "$CODEFLARE_PI_GENERATION" > "$marker"
+    mv -f -- "$marker" "$runtime/legacy-herdr"
+    unset CODEFLARE_PI_SURFACE CODEFLARE_PI_GENERATION
+}
+
 wait_for_root_pane() {
     local snapshot pane=""
     for _ in $(seq 1 40); do
@@ -202,8 +230,15 @@ bootstrap() {
     generation=$(cat "$generation_file" 2>/dev/null || true)
 
     local pane command
-    pane=$(wait_for_root_pane)
-    command=$(primary_command)
+    if [ "${CODEFLARE_HERDR_RESTORING:-0}" = 1 ] && managed_pi; then
+        # The client checked the saved role before starting the server. Do not
+        # inject another command into whichever pane is now focused.
+        server_is_healthy || fail "restored Herdr runtime unavailable"
+        command=pi
+    else
+        pane=$(wait_for_root_pane)
+        command=$(primary_command)
+    fi
     case "$command" in
         '') ;;
         'claude'|'claude --dangerously-skip-permissions') run_agent "$pane" "$command" claude claude ;;
@@ -213,8 +248,16 @@ bootstrap() {
         'opencode') run_agent "$pane" "$command" opencode opencode ;;
         'copilot'|'copilot --yolo') run_agent "$pane" "$command" copilot copilot ;;
         'pi')
-            local pi_command='pi --tui-mode fullscreen'
-            run_agent "$pane" "$pi_command" pi pi
+            if [[ "${CODEFLARE_PI_SURFACE:-}" =~ ^(chat|terminal)$ ]]; then
+                if [ "${CODEFLARE_HERDR_RESTORING:-0}" != 1 ]; then
+                    install_integration pi
+                    # pane run types a fixed command and Enter. Only the wrapper
+                    # reads the private ticket; paths/args never cross the PTY.
+                    timeout 10 "$HERDR_BIN" pane run "$pane" 'codeflare-terminal-writer --tui-mode fullscreen' >/dev/null
+                fi
+            else
+                run_agent "$pane" 'pi --tui-mode fullscreen' pi pi
+            fi
             ;;
         'agy'|'agy --dangerously-skip-permissions') run_agent "$pane" "$command" antigravity-cli agy ;;
         'htop'|'yazi'|'lazygit') run_process "$pane" "$command" ;;
@@ -286,6 +329,10 @@ fi
 
 prepare_runtime
 if [ -f "$HERDR_SESSION_FILE" ]; then
+    if managed_pi && { [ ! -f "$HERDR_RUNTIME_ROOT/bootstrap.done" ] || ! server_is_healthy; } \
+        && ! verify_managed_restore; then
+        restore_legacy_pi
+    fi
     export CODEFLARE_HERDR_RESTORING=1
 fi
 "$0" bootstrap &

@@ -11,8 +11,10 @@ import {
   mdiMicrosoftVisualStudioCode,
   mdiOpenInNew,
   mdiClockTimeEightOutline,
+  mdiMessageTextOutline,
 } from '@mdi/js';
 import Icon from './Icon';
+import IconButton from './ui/IconButton';
 import SessionSwitcher from './SessionSwitcher';
 import VaultButton, { type VaultButtonStatus } from './VaultButton';
 import { sessionStore } from '../stores/session';
@@ -34,6 +36,7 @@ interface HeaderProps {
   vaultReady?: boolean;
   vaultStatus?: VaultButtonStatus;
   onVscodeOpen?: () => void;
+  onChatOpen?: () => void;
   onLogoClick?: () => void;
   sessions: SessionWithStatus[];
   activeSessionId: string | null;
@@ -283,6 +286,10 @@ const Header: Component<HeaderProps> = (props) => {
         {/* Terminal: keep operator activity with the session tools, between VS Code and Storage. */}
         <Show when={props.onVscodeOpen}>
           <OperatorActivityButton enabled={sessionStore.enterpriseMode} />
+        </Show>
+
+        <Show when={props.onChatOpen}>
+          {open => <IconButton icon={mdiMessageTextOutline} size={20} label="Switch to Chat" onClick={open()} />}
         </Show>
 
         {/* Storage button */}

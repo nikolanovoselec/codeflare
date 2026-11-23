@@ -58,6 +58,10 @@ Node Docker major proposals are ignored; Node LTS migration is manual, not an au
 
 **Registry bypass:** `registry: dockerhub` uses the same Deploy/Image workflows rather than a duplicate. It requires the private registry credentials and a public pullable repository after first push. The scan preparation frees runner disk, preserves the target image and prunes dangling layers. The owning workflows pin runner images and support explicit `RUNNER` overrides rather than a floating default.
 
+### Stock pi-web pin
+
+Dependabot owns the dedicated `/image/pi-web` npm manifest and consumer lock; Shadow Pins does not update it. The locked artifact is exercised against the pinned Pi SDK in PR checks and the packaged runtime. The test establishes stock transcript interchange, not end-to-end Codeflare switching; use [Pi Chat handoff acceptance](terminal-and-ide.md#pi-chat-handoff-acceptance) for that evidence.
+
 ### Shadow-pin ownership and mutation boundaries
 
 The [Shadow Pins workflow](../../.github/workflows/bump-shadow-pins.yml) owns context-mode, graphify, checksum-backed binaries/uv, shared npm tools and agent CLIs, Browser Run MCP's dedicated lock, Pi preseed pins, Impeccable, code-server/Code gitlink, official Claude extension, Antigravity, Herdr, actionlint and zizmor. Image/CI matrices also cover Go, Rust, GitHub CLI, rclone/gRPC/compress, k6, Trivy and governed CI Node patches; security matrices own image overlays and explicit override/floor pins. <!-- @impl: scripts/ci/update-shadow-image-pins.mjs::IMAGE_PIN_IDS --> <!-- @impl: scripts/ci/update-npm-security-pins.mjs::SECURITY_PIN_OWNERS -->

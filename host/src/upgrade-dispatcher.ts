@@ -22,6 +22,7 @@ import {
   vscodeModeAllowed,
 } from './vscode-proxy.js';
 import type { ProxyTarget } from './request-router.js';
+import type { PiWebProxy } from './pi-web-proxy.js';
 import type { ActivityTracker, Logger } from './types.js';
 
 interface UpgradeDispatcherDeps {
@@ -31,6 +32,7 @@ interface UpgradeDispatcherDeps {
   log: Logger;
   silverbullet: ProxyTarget;
   openvscode: ProxyTarget;
+  piWeb?: PiWebProxy;
   wsMaxPayload: number;
 }
 
@@ -244,6 +246,11 @@ export function createUpgradeDispatcher(deps: UpgradeDispatcherDeps): UpgradeDis
       const reason = authOutcome.status === 401 ? 'Unauthorized' : 'Service Unavailable';
       socket.write(`HTTP/1.1 ${authOutcome.status} ${reason}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n${authOutcome.body}`);
       socket.destroy();
+      return;
+    }
+
+    if (deps.piWeb && pathname?.startsWith('/api/pi-web/')) {
+      deps.piWeb.upgrade(req, socket, head);
       return;
     }
 

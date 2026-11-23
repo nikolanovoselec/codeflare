@@ -1,0 +1,32 @@
+name: Resolve pi-web consumer lock
+
+on:
+  push:
+    branches: [pi-web]
+    paths: ['.github/workflows/pi-web-lock-bootstrap.yml', 'image/pi-web/package.json']
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Read explicit CI Node patch pin
+        id: node-pin
+        run: node scripts/ci/workflow-tool-pins.mjs github-output ci-node-26 >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ steps.node-pin.outputs.version }}
+      - name: Resolve package-lock without running lifecycle scripts
+        run: node scripts/regenerate-npm-package-lock.mjs image/pi-web
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pi-web-package-lock
+          path: image/pi-web/package-lock.json
+          retention-days: 1
+          if-no-files-found: error

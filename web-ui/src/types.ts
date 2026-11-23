@@ -15,6 +15,7 @@ export interface TabConfig {
 /** User preferences persisted across sessions */
 export type SessionMode = z.infer<typeof SessionModeSchema>;
 export type SessionWorkspace = z.infer<typeof SessionWorkspaceSchema>;
+export type PiSurface = 'chat' | 'terminal';
 export type TerminalMode = z.infer<typeof TerminalModeSchema>;
 
 export type AdministrationMode = 'default' | 'onboarding' | 'saas' | 'enterprise';

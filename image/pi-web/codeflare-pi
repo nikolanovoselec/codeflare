@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+# Foreground supervisor for the configured primary only. The shell/PTY remains
+# mounted while Chat owns Pi; only a Host ticket can start another CLI child.
+set -euo pipefail
+
+case "${CODEFLARE_PI_SURFACE:-}" in chat|terminal) ;; *) exit 1 ;; esac
+[[ "${CODEFLARE_PI_GENERATION:-}" =~ ^[1-9][0-9]*$ ]] || exit 1
+[[ "${SESSION_ID:-}" =~ ^[a-z0-9]{8,24}$ ]] || exit 1
+
+if [ "$#" -eq 0 ]; then
+    mode=classic
+elif [ "$#" -eq 2 ] && [ "$1" = --tui-mode ] && [ "$2" = fullscreen ] \
+    && [ "${HERDR_ENV:-}" = 1 ] && [[ "${HERDR_PANE_ID:-}" =~ ^[A-Za-z0-9._:-]{1,128}$ ]]; then
+    mode=herdr
+else
+    exit 1
+fi
+
+runtime="${CODEFLARE_RUNTIME_ROOT:-/run/codeflare}/pi-web"
+owner="$runtime/owner.json"
+tickets="$runtime/terminal-tickets/$CODEFLARE_PI_GENERATION"
+binding="$HOME/.codeflare/$mode/sessions/cf-$SESSION_ID/agent-session-id"
+workspace=$(realpath -e -- "$HOME/workspace")
+workspace_slug=${workspace#/}
+workspace_slug=${workspace_slug//[\/:]/-}
+export PI_CODING_AGENT_DIR="$HOME/.pi/agent"
+session_dir="$PI_CODING_AGENT_DIR/sessions/--${workspace_slug}--"
+(umask 077; mkdir -p -- "$tickets")
+exec 9> "$runtime/terminal-wrapper.lock"
+flock -n 9 || exit 1
+
+report_waiting_pane() {
+    [ "$mode" = herdr ] || return 0
+    # Herdr requires a reporter to hold the pane before storing its resume argv.
+    # This is a wrapper role, not a report that a native Pi session is open.
+    timeout 3 /usr/local/bin/herdr pane report-agent "$HERDR_PANE_ID" \
+        --source codeflare:terminal-writer --agent codeflare-terminal-writer --state idle \
+        -- codeflare-terminal-writer --tui-mode fullscreen >/dev/null || \
+        printf 'Codeflare: Herdr could not persist the managed terminal role.\n' >&2
+}
+
+read_ticket() {
+    # Absent state is distinct from malformed, stale or inaccessible state.
+    if [ ! -e "$owner" ] && [ ! -L "$owner" ]; then
+        [ "$CODEFLARE_PI_SURFACE" = terminal ] && [ ! -e "$binding" ] && [ ! -L "$binding" ] || return 1
+        ticket=initial
+        path=
+        return 0
+    fi
+
+    local grant id cwd canonical header
+    grant=$(jq -ce --arg generation "$CODEFLARE_PI_GENERATION" '
+        select(.generation == ($generation | tonumber) and has("surface"))
+        | select((.surface == "terminal" and .phase == "active")
+            or (.phase == "opening" and .target == "terminal" and (.surface == null or .surface == "terminal")))
+        | select(.terminalTicket | type == "string" and test("^[A-Za-z0-9_-]{1,128}$"))
+        | select((has("target") | not) or .target == "terminal" or .target == "chat")
+        | select((has("requestId") | not) or (.requestId | type == "string" and length > 0))
+        | select((has("binding") | not) or (.binding | type == "object"
+            and ([.id, .cwd, .path] | all(type == "string" and length > 0 and (test("[[:cntrl:]]") | not)))))
+    ' "$owner" 2>/dev/null) || return 1
+    ticket=$(jq -r '.terminalTicket' <<< "$grant")
+    path=$(jq -r '.binding.path // ""' <<< "$grant")
+    if [ -z "$path" ]; then
+        [ "$CODEFLARE_PI_SURFACE" = terminal ] && [ "$ticket" = initial ] \
+            && [ ! -e "$binding" ] && [ ! -L "$binding" ] \
+            && jq -e '.phase == "active" and .requestId == null' <<< "$grant" >/dev/null
+        return
+    fi
+
+    id=$(jq -r '.binding.id' <<< "$grant")
+    cwd=$(jq -r '.binding.cwd' <<< "$grant")
+    [ "$cwd" = "$workspace" ] || return 1
+    [[ "$id" =~ ^[A-Za-z0-9]([A-Za-z0-9_.-]{0,126}[A-Za-z0-9])?$ ]] || return 1
+    canonical=$(realpath -e -- "$path") || return 1
+    [[ "$path" = "$canonical" && "${path%/*}" = "$session_dir" && "$path" = *_"$id".jsonl && -f "$path" ]] || return 1
+    IFS= read -r header < "$path" || return 1
+    jq -e --arg id "$id" --arg cwd "$cwd" \
+        '.type == "session" and .id == $id and .cwd == $cwd' <<< "$header" >/dev/null 2>&1
+}
+
+cd -- "$workspace"
+# Classic prewarm observes PTY output even when the first ticket is for Chat.
+printf '\r'
+report_waiting_pane
+while true; do
+    if read_ticket && (umask 077; set -o noclobber; : > "$tickets/$ticket") 2>/dev/null; then
+        args=("$@" --extension /opt/codeflare/pi-web/handoff-extension.ts)
+        [ -z "$path" ] || args+=(--session "$path")
+        (
+            export CODEFLARE_PI_TERMINAL_PID="$BASHPID" CODEFLARE_PI_TERMINAL_TICKET="$ticket"
+            export CODEFLARE_PI_TERMINAL_SESSION_PATH="$path"
+            exec /usr/local/bin/pi "${args[@]}"
+        ) || printf 'Codeflare: the managed Pi process exited unsuccessfully.\n' >&2
+        report_waiting_pane
+    fi
+    sleep 0.25
+done

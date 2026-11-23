@@ -5,8 +5,9 @@
 import { Hono } from 'hono';
 import { readSyncPolicyMode } from '../../lib/sync-policy';
 import { getContainer } from '@cloudflare/containers';
+import { z } from 'zod';
 import type { Env, Session, UserPreferences, LlmKeys, DeployKeys, ManagedResourcePolicy } from '../../types';
-import { resolveSessionWorkspace, resolveTerminalMode } from '../../types';
+import { PiSurfaceSchema, resolveSessionWorkspace, resolveTerminalMode } from '../../types';
 import { resolveEffectiveSessionMode } from '../../lib/session-mode';
 import { getContainerContext, getSessionIdFromQuery, getContainerId } from '../../lib/container-helpers';
 import { AuthVariables } from '../../middleware/auth';
@@ -20,7 +21,9 @@ import { D1SessionRepository } from '../../lib/session-repository';
 import type { SessionStopRequest } from '../../container/container-lifecycle';
 import { getDefaultTabConfig } from '../../lib/agent-config';
 import { buildCloneTargets } from '../../lib/clone-targets';
-import { installedAgents } from '../../lib/agent-allowlist';
+import { allowedAgents, installedAgents } from '../../lib/agent-allowlist';
+import { parseJsonBody } from '../../lib/request-helpers';
+import { isPiWebEligible } from '../../container/pi-web';
 import { containerLogger } from './shared';
 import type { Logger } from '../../lib/logger';
 import { getAndDecrypt, getOrImportKey } from '../../lib/kv-crypto';
@@ -123,6 +126,7 @@ export async function startOrRestartContainer(params: {
 // ---------------------------------------------------------------------------
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
+const StartBody = z.object({ surface: PiSurfaceSchema.optional() });
 
 /**
  * Rate limiter for container start endpoint
@@ -144,6 +148,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
   try {
     const bucketName = c.get('bucketName');
     const sessionId = getSessionIdFromQuery(c);
+    const requestedSurface = c.req.raw.body === null ? undefined : (await parseJsonBody(c, StartBody)).surface;
     const user = c.get('user');
     const preferencesKey = getPreferencesKey(bucketName);
     const preferences = await runStartStage(
@@ -243,6 +248,10 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     if (!installedAgents(c.env).includes(sessionAgent)) {
       throw new ValidationError(`Agent type '${sessionAgent}' is not available in this deployment`);
     }
+    const eligible = !sessionData.boundaryActivityId && isPiWebEligible(sessionData)
+      && (await allowedAgents(c.env)).includes('pi');
+    if (requestedSurface && !eligible) throw new ValidationError('Surface selection requires an ordinary Pi Terminal workspace');
+    const surface = eligible ? requestedSurface ?? 'terminal' : undefined;
 
     const containerId = getContainerId(bucketName, sessionId);
     const shortContainerId = containerId.substring(0, CONTAINER_ID_DISPLAY_LENGTH);
@@ -383,6 +392,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       fastStartEnabled,
       sessionMode,
       sessionWorkspace: resolveSessionWorkspace(sessionData.workspace),
+      surface,
       sleepAfter,
       encryptionKey: c.env.ENCRYPTION_KEY,
       // REQ-ENTERPRISE-018: this bucket's resolved Governed Mode regime (post-migration).

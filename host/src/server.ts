@@ -33,6 +33,8 @@ import { getPrewarmConfig } from './prewarm-config.js';
 import { handlePrewarmOrphanExpiry } from './prewarm-readiness.js';
 import { createRequestHandler, type ProxyTarget } from './request-router.js';
 import { shutdownPiMemoryOwners } from './pi-memory-shutdown.js';
+import { createPiWebProxy } from './pi-web-proxy.js';
+import { createPiWebRuntime } from './pi-web-runtime.js';
 import { createOperatorPiService } from './operator-pi-service.js';
 import { createOperatorInferenceOwnerResolver } from './operator-inference-owner.js';
 import { createOperatorSyncService } from './operator-sync-service.js';
@@ -299,8 +301,27 @@ const operatorInference = !process.env.CODEFLARE_OPERATOR_SESSION
     agentDir: process.env.PI_CODING_AGENT_DIR ?? '/home/user/.pi/agent' })
   : null;
 
+const initialPiSurface = process.env.CODEFLARE_PI_SURFACE;
+const piGeneration = Number(process.env.CODEFLARE_PI_GENERATION);
+const piSessionId = process.env.SESSION_ID ?? '';
+const piWebRuntime = !process.env.CODEFLARE_OPERATOR_SESSION && SESSION_WORKSPACE === 'terminal'
+  && /^[a-z0-9]{8,24}$/.test(piSessionId) && Number.isSafeInteger(piGeneration) && piGeneration > 0
+  && (initialPiSurface === 'chat' || initialPiSurface === 'terminal')
+  ? createPiWebRuntime({
+    sessionId: piSessionId, generation: piGeneration, initialSurface: initialPiSurface, terminalMode: TERMINAL_MODE,
+    cwd: WORKSPACE_DEFAULT, home: process.env.HOME ?? '/home/user',
+    runtimeDir: `${process.env.CODEFLARE_RUNTIME_ROOT ?? '/run/codeflare'}/pi-web`,
+    cloneRestored: () => initFlagObserved && !!process.env.CODEFLARE_CLONE_RESTORE_FLAG_FILE
+      && fs.existsSync(process.env.CODEFLARE_CLONE_RESTORE_FLAG_FILE)
+      && (TERMINAL_MODE !== 'herdr' || fs.existsSync(`${process.env.CODEFLARE_RUNTIME_ROOT ?? '/run/codeflare'}/herdr/${piSessionId}/bootstrap.done`)),
+  }) : undefined;
+const piWeb = piWebRuntime && createPiWebProxy({
+  sessionId: piSessionId, runtime: piWebRuntime, recordInput: () => state.activityTracker.recordInput(),
+});
+
 // Create HTTP server; all plain-HTTP branches live in request-router.ts.
 const server = http.createServer(createRequestHandler({
+  piWeb,
   ...(operatorInference ? { operatorInference } : {}),
   ...(operatorPacket ? { operatorPacket } : {}),
   ...(operatorPi ? { operatorPi } : {}),
@@ -310,7 +331,10 @@ const server = http.createServer(createRequestHandler({
   activityTracker: state.activityTracker,
   log,
   serverStartTime: SERVER_START_TIME,
-  prepareFinalSync: deadline => shutdownPiMemoryOwners('/home/user/.cache/pi-hermes-memory/owners', deadline),
+  prepareFinalSync: async deadline => {
+    await piWeb?.close();
+    return shutdownPiMemoryOwners('/home/user/.cache/pi-hermes-memory/owners', deadline);
+  },
   readiness: () => ({ prewarmReady, initFlagObserved, terminalServiceReady, editorReady, editorReadyTimedOut, startupPolicyError }),
   silverbullet: SILVERBULLET,
   openvscode: OPENVSCODE,
@@ -351,6 +375,7 @@ attachTerminalConnectionHandler(wss, {
 
 const upgradeDispatcher = createUpgradeDispatcher({
   terminalWss: wss,
+  piWeb,
   activityTracker: state.activityTracker,
   log,
   silverbullet: SILVERBULLET,
@@ -459,6 +484,7 @@ server.listen(PORT, '0.0.0.0', async () => {
   // (non-tab-1) sessions created from here on also read the final .bashrc
   // because waitForInitFlag has already resolved.
   terminalServiceReady = true;
+  void piWebRuntime?.initialize().catch(() => log('warn', 'Chat startup not confirmed'));
   if (HERDR_SOCKET_PATH) {
     herdrAgentStatusMonitor = new HerdrAgentStatusMonitor({
       socketPath: HERDR_SOCKET_PATH,
@@ -574,6 +600,8 @@ async function shutdown(signal: string): Promise<void> {
   // Fence private Pi authentication before awaiting owned SDK cancellation.
   try { await operatorPi?.stop(); }
   catch { log('warn', 'Owned Pi shutdown cancellation uncertain'); }
+  try { await piWeb?.close(); }
+  catch { log('warn', 'Chat shutdown not confirmed'); }
   herdrAgentStatusMonitor?.stop();
   herdrAgentStatusMonitor = null;
   // M2: Kill all active sessions before exit to avoid orphaned PTY processes

@@ -1,0 +1,8 @@
+{
+  "name": "codeflare-pi-web-image",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@jmfederico/pi-web": "1.202611.5"
+  }
+}

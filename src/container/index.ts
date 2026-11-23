@@ -32,7 +32,8 @@ import { runOwnedUserCleanup, type CleanupResult } from '../lib/user-cleanup';
 import { Container } from '@cloudflare/containers';
 import { captureRawValue } from '../../host/src/operator-raw-logging';
 import { DispatcherSdkStorageError, handleDispatcherSdkCredentials, type DispatcherSdkCredentialResult, type SdkStorageScope, type SdkCredentialAuthority } from '../operators/dispatcher-sdk-storage';
-import type { Env, ManagedResourcePolicy, SessionWorkspace, TabConfig, TerminalMode } from '../types';
+import { PiSurfaceSchema, type Env, type ManagedResourcePolicy, type PiSurface, type SessionWorkspace, type TabConfig, type TerminalMode } from '../types';
+import { isPiWebEligible, isPiWebPath, PI_WEB_GENERATION_HEADER, piWebSessionId } from './pi-web';
 import type { PiDefaultSource } from '../lib/personal-pi-policy';
 import type { OperatorLoggingContext } from '../lib/container-helpers';
 import { getR2Config } from '../lib/r2-config';
@@ -82,7 +83,7 @@ import {
   ensureVaultKey as configEnsureVaultKey,
   type ContainerHost,
 } from './container-config';
-import { captureMetricsExecution, CONTAINER_POLL_BUDGET_MS, FINAL_SYNC_AUDIT_KEY, raceBudget, type MetricsPin } from './container-metrics';
+import { captureMetricsExecution, CONTAINER_POLL_BUDGET_MS, FINAL_SYNC_AUDIT_KEY, SHUTDOWN_REQUESTED_KEY, raceBudget, type MetricsPin } from './container-metrics';
 import { dispatchInternalRoute } from './container-router';
 import { bindReviewSessionHuman, openReviewSessionHuman } from './review-session-human';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
@@ -1084,6 +1085,27 @@ export class container extends Container<Env> implements ContainerEnvState {
     return configEnsureVaultKey(this.host);
   }
 
+  private async admitsPiWeb(url: URL, headers: Headers): Promise<boolean> {
+    const sessionId = piWebSessionId(url.pathname);
+    const bucket = this._bucketName;
+    const generation = Number(headers.get(PI_WEB_GENERATION_HEADER));
+    const epoch = this._teardownEpoch;
+    const stillOwned = () => this._bucketName === bucket && this._sessionId === sessionId
+      && !this._operatorContainerProfile && !this._operatorPolicy && this._teardownEpoch === epoch
+      && !this._shutdownStartedAt && !this.sessionStopInFlight && !this.sessionKillInFlight;
+    if (!bucket || !sessionId || !stillOwned() || !Number.isSafeInteger(generation) || generation < 1
+      || headers.get(PI_WEB_GENERATION_HEADER) !== String(generation)
+      || headers.get('X-Forwarded-Host') !== url.host
+      || headers.get('X-Forwarded-Proto') !== url.protocol.slice(0, -1)) return false;
+    const session = await new D1SessionRepository(this.env.USAGE_DB).getSession(bucket, sessionId);
+    if (!session || session.lifecycleState !== 'running' || session.lifecycleGeneration !== generation
+      || session.terminationIntentId || session.boundaryActivityId || !isPiWebEligible(session)) return false;
+    const [storedGeneration, shutdown] = await Promise.all([
+      this.ctx.storage.get<number>('lifecycleGeneration'), this.ctx.storage.get(SHUTDOWN_REQUESTED_KEY),
+    ]);
+    return storedGeneration === generation && shutdown == null && stillOwned();
+  }
+
   /** Low-level port forwarding cannot start a replacement or trust stale SDK state. */
   async forwardExisting(request: Request, loggingContext?: OperatorLoggingContext): Promise<Response> {
     const token = await this.ctx.storage.get<string>('containerAuthToken');
@@ -1092,6 +1114,10 @@ export class container extends Container<Env> implements ContainerEnvState {
       // The private port accepts HTTP only. Preserve the public request's path,
       // query, method and upgrade headers, but never forward its HTTPS origin.
       const url = new URL(request.url);
+      const piWeb = isPiWebPath(url.pathname);
+      if (piWeb && !await this.admitsPiWeb(url, request.headers)) {
+        return Response.json({ error: 'Pi web lifecycle no longer authorized' }, { status: 409 });
+      }
       const privateUrl = new URL('http://container');
       privateUrl.pathname = url.pathname;
       privateUrl.search = url.search;
@@ -1209,8 +1235,8 @@ export class container extends Container<Env> implements ContainerEnvState {
     // Stub.fetch has native WebSocket response transport; keep terminal and IDE
     // sockets on the same no-start private-port forwarding used for health probes.
     const pathname = new URL(request.url).pathname;
-    if ((pathname === '/terminal' || pathname.startsWith('/api/vscode/')) &&
-        request.headers.get('Upgrade')?.toLowerCase() === 'websocket') {
+    if (isPiWebPath(pathname) || ((pathname === '/terminal' || pathname.startsWith('/api/vscode/')) &&
+        request.headers.get('Upgrade')?.toLowerCase() === 'websocket')) {
       const forwarded = await this.forwardExisting(request);
       return forwarded.webSocket ? this.relayWebSocket(forwarded, { terminalKeepalive: pathname === '/terminal' }) : forwarded;
     }
@@ -1312,8 +1338,12 @@ export class container extends Container<Env> implements ContainerEnvState {
     const conflict = () => Response.json({ error: 'Session configuration no longer authorized' }, { status: 412 });
     const value = request.headers.get('X-Codeflare-Start-Generation');
     if (value === null || !/^\d+$/.test(value) || !Number.isSafeInteger(Number(value))) return conflict();
-    const body = await request.clone().json().catch(() => null) as { bucketName?: unknown; sessionId?: unknown } | null;
+    const body = await request.clone().json().catch(() => null) as {
+      bucketName?: unknown; sessionId?: unknown; surface?: unknown; sessionWorkspace?: SessionWorkspace; tabConfig?: TabConfig[];
+    } | null;
     const { bucketName, sessionId } = body ?? {};
+    const surface = PiSurfaceSchema.optional().safeParse(body?.surface);
+    if (!surface.success) return Response.json({ error: 'Invalid Pi surface' }, { status: 400 });
     if (typeof bucketName !== 'string' || typeof sessionId !== 'string'
       || this.env.CONTAINER.idFromName(`${bucketName}-${sessionId}`).toString() !== this.ctx.id.toString()) return conflict();
     if (this.sessionConfigurationInFlight || this.sessionStartInFlight || this.sessionStopInFlight || this.sessionKillInFlight) return conflict();
@@ -1324,6 +1354,10 @@ export class container extends Container<Env> implements ContainerEnvState {
         || current.lifecycleState === 'starting' || current.lifecycleState === 'stopping'
         || this.sessionStopInFlight || this.sessionKillInFlight || this._operatorContainerProfile
         || (this._bucketName && this._bucketName !== bucketName) || (this._sessionId && this._sessionId !== sessionId)) return conflict();
+      if (surface.data && (current.boundaryActivityId || this._operatorPolicy || !isPiWebEligible(current)
+        || !body?.tabConfig || !isPiWebEligible({ agentType: current.agentType, workspace: body.sessionWorkspace, tabConfig: body.tabConfig }))) {
+        return conflict();
+      }
       if (current.lifecycleState === 'stopped') {
         if (this.ctx.container?.running) return conflict();
       } else if (!this._bucketName || await this.ctx.storage.get<number>('lifecycleGeneration') !== current.lifecycleGeneration) {
@@ -1341,7 +1375,7 @@ export class container extends Container<Env> implements ContainerEnvState {
       if (!claimed) return conflict();
       // Own the launch before acknowledgement. It waits for this configuration
       // reservation to settle, but does not depend on its RPC caller returning.
-      void this.launchSession({ bucket: bucketName, sessionId, generation: claimed.lifecycleGeneration }).catch(() => {
+      void this.launchSession({ bucket: bucketName, sessionId, generation: claimed.lifecycleGeneration }, surface.data).catch(() => {
         this.logger.warn('Session start not confirmed', { sessionId, lifecycleGeneration: claimed.lifecycleGeneration });
       });
       const headers = new Headers(response.headers);
@@ -1367,7 +1401,7 @@ export class container extends Container<Env> implements ContainerEnvState {
     }
   }
 
-  private async launchSession(input: SessionStopRequest): Promise<void> {
+  private async launchSession(input: SessionStopRequest, surface?: PiSurface): Promise<void> {
     const { bucket, sessionId, generation } = input;
     if (this.env.CONTAINER.idFromName(`${bucket}-${sessionId}`).toString() !== this.ctx.id.toString()) {
       throw new Error('Session start address mismatch');
@@ -1405,6 +1439,9 @@ export class container extends Container<Env> implements ContainerEnvState {
       }
       await stillAdmitted();
       if (this.ctx.container?.running) throw new Error('Unexpected existing session process');
+      if (surface) {
+        this.envVars = { ...this.envVars, CODEFLARE_PI_SURFACE: surface, CODEFLARE_PI_GENERATION: String(generation) };
+      }
       await super.startAndWaitForPorts({ cancellationOptions: { abort: cancellation.signal } });
       if (cancellation.signal.aborted || !startup.ready) throw new Error('Session start not confirmed');
     }).finally(() => { this.sessionStartInFlight = undefined; });

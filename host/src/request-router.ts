@@ -12,6 +12,7 @@ import { parse as parseUrl } from 'node:url';
 import fs from 'node:fs';
 import { spawn } from 'node:child_process';
 import { checkContainerAuth } from './auth-check.js';
+import type { PiWebProxy } from './pi-web-proxy.js';
 import { ownerInference, OperatorInferenceRefusal, type OperatorInferenceOwner,
   type OperatorInferenceOwnerResolver } from './operator-inference.js';
 import { emitRaw, type RawLogContext } from './operator-raw-logging.js';
@@ -91,6 +92,7 @@ export interface RequestRouterDeps {
   readiness(): ReadinessFlags;
   silverbullet: ProxyTarget;
   openvscode: ProxyTarget;
+  piWeb?: PiWebProxy;
   /** Present only for a parent-configured restricted operator session; container auth remains outermost. */
   operatorPi?: OperatorPiHttpController;
   /** Configured owner SDK services; never supplied by an HTTP caller or a restricted Conductor profile. */
@@ -296,6 +298,11 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
     if (!authOutcome.allowed) {
       res.writeHead(authOutcome.status, { 'Content-Type': 'application/json' });
       res.end(authOutcome.body);
+      return;
+    }
+
+    if (deps.piWeb && pathname?.startsWith('/api/pi-web/')) {
+      await deps.piWeb.handle(req, res);
       return;
     }
 
