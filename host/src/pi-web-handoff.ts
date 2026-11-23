@@ -24,6 +24,7 @@ interface Options {
   release(surface: PiSurface): Promise<PiTranscript>;
   // False proves the new writer did not start. A throw leaves ownership unknown.
   open(surface: PiSurface, transcript: PiTranscript): Promise<boolean>;
+  confirmOpen?(surface: PiSurface, transcript: PiTranscript): boolean;
   onChange?(status: PiSwitchStatus): void;
 }
 
@@ -63,8 +64,14 @@ export function createPiWebHandoff(options: Options) {
     }
     if (state.requestId === requestId && state.target !== target) throw new Error('Switch request target changed');
     if (state.phase === 'uncertain') {
-      if (state.requestId === requestId) return status();
-      throw new Error('The previous Pi writer is unconfirmed');
+      if (state.requestId !== requestId) throw new Error('The previous Pi writer is unconfirmed');
+      // Only a matching late launch receipt can reconcile; a retry never
+      // dispatches a second launch while ownership is uncertain.
+      if (released && options.confirmOpen?.(target, released)) {
+        set({ requestId, target, phase: 'complete', surface: target });
+        released = undefined;
+      }
+      return status();
     }
     if (state.surface === target) return status();
     if (!state.surface && (state.requestId !== requestId || !released)) throw new Error('Retry the previous Pi switch');

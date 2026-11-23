@@ -144,13 +144,15 @@ export default function (pi: ExtensionAPI) {
 	function accepts(owner: Owner | undefined | null): boolean {
 		if (owner === undefined) return terminal && ticket === "initial" && process.env.CODEFLARE_PI_SURFACE === "terminal";
 		if (!owner || (terminal && owner.terminalTicket !== ticket)) return false;
-		if (owner.phase === "opening") return owner.target === surface && (owner.surface === null || owner.surface === surface);
+		if (owner.phase === "opening" || (terminal && owner.phase === "uncertain")) {
+			return owner.target === surface && (owner.surface === null || owner.surface === surface);
+		}
 		return owner.surface === surface && ["active", "waiting", "releasing", "complete", "cancelled", "failed"].includes(owner.phase);
 	}
 
 	function frozen(): boolean {
 		const owner = readOwner(generation);
-		return !!release || !accepts(owner) || owner?.phase === "waiting" || owner?.phase === "releasing" || owner?.phase === "opening";
+		return !!release || !accepts(owner) || owner?.phase === "waiting" || owner?.phase === "releasing" || owner?.phase === "opening" || owner?.phase === "uncertain";
 	}
 
 	function identity(context: ExtensionContext) {

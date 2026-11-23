@@ -189,6 +189,11 @@ export function createPiWebRuntime(options: {
       save(source);
       return binding!;
     },
+    confirmOpen(surface, ref) {
+      if (closed || surface !== 'terminal') return false;
+      const next = receipt('terminal');
+      return !!next && next.id === ref.id && next.path === ref.path && !next.released && processMatches(next);
+    },
     async open(surface, ref) {
       if (closed) return false;
       if (surface === 'chat') await openChat(ref);

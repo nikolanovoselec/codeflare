@@ -16,6 +16,7 @@ function fixture(initialSurface) {
   let finish;
   let openOutcome = 'started';
   let openingIdle = true;
+  let confirmLateOwner = false;
   const transcript = [];
   const maybeIdle = () => {
     if (!working && !question && openingIdle) finish?.();
@@ -37,6 +38,7 @@ function fixture(initialSurface) {
       writer = null;
       return binding;
     },
+    confirmOpen: (surface, next) => confirmLateOwner && writer === surface && next === binding,
     open: async (surface, next) => {
       assert.equal(writer, null, 'the outgoing writer must have closed');
       assert.deepEqual(next, binding);
@@ -71,6 +73,7 @@ function fixture(initialSurface) {
     waitForNativeQueue() { openingIdle = false; },
     settleNativeQueue() { openingIdle = true; maybeIdle(); },
     setOpenOutcome(outcome) { openOutcome = outcome; },
+    confirmLateOwner() { confirmLateOwner = true; },
   };
 }
 
@@ -133,7 +136,7 @@ test('REQ-AGENT-272 AC2: an empty conversation switches without another prompt',
   assert.deepEqual(f.transcript, []);
 });
 
-test('REQ-AGENT-272 AC3: cancel switch preserves the source; native abort settles a later switch', async () => {
+test('REQ-AGENT-272 AC6: cancel switch preserves the source; native abort settles a later switch', async () => {
   const f = fixture('terminal');
   f.startWork('ongoing turn');
   f.waitForNativeQueue();
@@ -174,4 +177,8 @@ test('REQ-AGENT-272 AC2: an ambiguous launch rejects new owners until the origin
   await assert.rejects(f.handoff.switchTo({ generation, requestId: 'other-tab', target: 'chat' }));
   assert.equal((await f.handoff.switchTo(attempt)).phase, 'uncertain');
   assert.equal(f.writer, 'terminal');
+  f.confirmLateOwner();
+  assert.equal((await f.handoff.switchTo(attempt)).phase, 'complete');
+  assert.equal(f.handoff.permits('terminal', 'work'), true);
+  assert.equal(f.handoff.permits('chat', 'read'), false);
 });
