@@ -613,9 +613,11 @@ For a matching receipt, interrupt the first scoped upload after only a subset of
 
 In a separate disposable fixture, restore the exact matching saved snapshot and let reseed and scoped upload finish. Verify the bytes against the committed revision and check that a matching current-generation observation consumes the receipt.
 
-For the restart case, proceed only if an existing authorized control can hold receipt-consuming projection for the disposable session before upload completes. Verify the upload, advance the shared revision from another disposable session, and confirm through authorized Worker evidence that the original receipt is still pending immediately before restart. Keep the hold in place until the new generation is running. If the control or pending-state evidence is unavailable, mark this hosted case unverified; timing alone does not qualify it.
+For the pending-receipt restart case, use a fresh disposable fixture with an exact matching saved snapshot and its pending merge receipt. Proceed only if an existing authorized control can hold receipt-consuming projection for that session. Engage the hold before restoring the snapshot so the Worker cannot consume the receipt after upload. Let the reseed and scoped upload finish. Verify the replacement against the selected committed revision, then record the uploaded baseline and all four file digests.
 
-After restart, compare the baseline and all four files to the earlier verified replacement, not the newer shared revision. Confirm through authorized private observations that the restarted Host reports the original receipt. Release the hold and verify that an accepted projection for the restarted generation clears it. With proof for a different receipt, require no acknowledgement or rewrite. Missing byte, Host, or Worker evidence leaves the hosted case unverified.
+Let another disposable session advance the shared revision. Confirm through authorized Worker evidence that the original receipt is still pending immediately before restart. Restart the original session and keep the hold in place until the new generation is running. If the control or pending-state evidence is unavailable, mark the hosted case unverified; timing alone does not qualify it.
+
+After restart, compare the baseline and all four files to the recorded replacement, not the newer shared revision. Confirm through authorized private observations that the restarted Host reports the original receipt. Release the hold and verify that an accepted projection for the restarted generation clears it. With proof for a different receipt, require no acknowledgement or rewrite. Missing byte, Host, or Worker evidence leaves the hosted case unverified.
 
 ### Native policy-only recall acceptance
 
