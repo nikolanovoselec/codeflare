@@ -1521,7 +1521,7 @@ export class container extends Container<Env> implements ContainerEnvState {
         })(), budget).catch(() => null);
         if (disposition === 'new' || disposition === 'existing') {
           await this.ctx.storage.put(HERMES_DIRECT_LAYOUT_KEY, true);
-          if (isEnterpriseMode(this.env) && this._workspaceSyncEnabled) {
+          if (isEnterpriseMode(this.env)) {
             await this.ctx.storage.put(HERMES_DIRECT_GENERATION_KEY, generation);
             this.hermesDirectGeneration = generation;
           }
@@ -1607,7 +1607,7 @@ export class container extends Container<Env> implements ContainerEnvState {
   }
 
   async canQueueHermesShutdown(input: SessionStopRequest): Promise<boolean> {
-    return isEnterpriseMode(this.env) && !this._operatorPolicy && !this._operatorContainerProfile && this._workspaceSyncEnabled
+    return isEnterpriseMode(this.env) && !this._operatorPolicy && !this._operatorContainerProfile
       && this._bucketName === input.bucket && this._sessionId === input.sessionId
       && this.hermesDirectGeneration === input.generation;
   }

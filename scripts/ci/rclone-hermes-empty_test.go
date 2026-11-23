@@ -13,8 +13,8 @@ import (
 	"github.com/rclone/rclone/fs/config/configmap"
 )
 
-// An S3 peer rejects SSE-C on a plain object. Only an actual zero-length
-// response may cross the scoped fallback, even after a zero-length HEAD.
+// Strict egress reattaches SSE-C unless the scoped fallback opts out. The
+// provider rejects SSE-C on a plain object; only verified empty reads can pass.
 func TestCodeflareHermesEmptyRead(t *testing.T) {
 	backend, err := fs.Find("s3")
 	if err != nil {
@@ -36,7 +36,8 @@ func TestCodeflareHermesEmptyRead(t *testing.T) {
 					w.WriteHeader(http.StatusNotFound)
 					return
 				}
-				if r.Header.Get("X-Amz-Server-Side-Encryption-Customer-Key") != "" {
+				if r.Header.Get("X-Amz-Server-Side-Encryption-Customer-Key") != "" ||
+					r.Header.Get("X-Codeflare-Hermes-Empty-Read") != "1" {
 					w.WriteHeader(http.StatusBadRequest)
 					return
 				}

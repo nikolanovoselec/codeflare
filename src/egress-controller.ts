@@ -378,8 +378,10 @@ export class EgressController extends WorkerEntrypoint<Env> {
     headers.delete('host');
     headers.delete('content-length');
     headers.delete(OPERATOR_SYNC_OPERATION_HEADER);
+    const head = effectiveRequest.method === 'HEAD';
     const emptyHermesRead = ownR2 && !props.operatorPolicy && !!props.bucket
-      && effectiveRequest.method === 'GET' && !url.search && !headers.has('range')
+      && (head || effectiveRequest.method === 'GET') && !headers.has('range')
+      && (!url.search || url.search === (head ? '?x-id=HeadObject' : '?x-id=GetObject'))
       && headers.get(HERMES_EMPTY_READ_HEADER) === '1'
       && isHermesMarkdown(operatorR2Path(url, accountId, props.bucket));
     headers.delete(HERMES_EMPTY_READ_HEADER);
@@ -434,7 +436,7 @@ export class EgressController extends WorkerEntrypoint<Env> {
               return jsonError(403, 'HERMES_EMPTY_READ_DENIED', 'Hermes empty object was not verified');
             }
           } finally { await reader?.cancel().catch(() => {}); }
-          upstream = new Response(new Uint8Array(), { status: 200, headers: upstream.headers });
+          upstream = new Response(head ? null : new Uint8Array(), { status: 200, headers: upstream.headers });
         }
         resigned = true;
       } else {

@@ -6,8 +6,8 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 ## 2026-11-23: Consolidate Hermes at graceful shutdown
 
-- [REQ-SESSION-043](session-lifecycle.md#req-session-043-queued-graceful-shutdown-and-memory-recovery) orders eligible Enterprise Stop and Delete requests per owner and keeps Kill outside the queue. [Same-generation Retry Stop](session-lifecycle.md#req-session-042-same-generation-stop-retry-authority) can repeat a definitively failed save, not an unconfirmed one.
-- [REQ-MEM-044](memory.md#req-mem-044-consolidate-hermes-on-graceful-shutdown) compares saved entries to their original baseline and verifies a complete revision before publication. A matching snapshot can reseed on Resume; a partial restore or upload does not consume the receipt.
+- [REQ-SESSION-043](session-lifecycle.md#req-session-043-queued-graceful-shutdown-and-memory-recovery) orders eligible Enterprise Stop and Delete requests per owner, even with workspace sync off, and keeps Kill outside the queue. [Same-generation Retry Stop](session-lifecycle.md#req-session-042-same-generation-stop-retry-authority) can repeat a definitively failed save, not an unconfirmed one.
+- [REQ-MEM-044](memory.md#req-mem-044-consolidate-hermes-on-graceful-shutdown) compares saved entries to their original baseline and verifies a complete revision before publication. A matching snapshot can reseed on Resume; a partial restore or upload does not consume the receipt. Strict egress preserves [verified empty Hermes files](memory.md#req-mem-041-session-isolated-hermes-markdown) during SSE-C reads without admitting nonempty default-encrypted objects.
 - [REQ-ENTERPRISE-100](models-and-routing.md#req-enterprise-100-exact-inference-route-for-hermes-shutdown-merge) uses the owner's current authorized native or Gateway model after the final save, without model substitution or additional access grants.
 
 ## 2026-11-22: Recover halted storage migrations

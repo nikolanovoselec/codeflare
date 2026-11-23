@@ -48,7 +48,7 @@ function deferred() {
 // unless an unsettled waitUntil task still owns execution. Assert D1/runtime
 // outcomes, not implementation calls or promise-registration counts.
 async function fixture(initial: 'stopped' | 'starting' | 'running' | 'stopping' | 'unreachable' = 'running', generation = ref.generation,
-  hermesFinalSyncStatus?: number) {
+  hermesFinalSyncStatus?: number, enterprise = false) {
   const kv = createMockKV();
   const key = `session:${ref.bucket}:${ref.sessionId}`;
   kv._set(key, { id: ref.sessionId, userId: ref.bucket, name: 'Retained workspace',
@@ -86,6 +86,7 @@ async function fixture(initial: 'stopped' | 'starting' | 'running' | 'stopping' 
     return statement;
   };
   const env = { USAGE_DB: db, KV: kv, R2_ACCOUNT_ID: 'test-account', R2_ENDPOINT: 'https://r2.test',
+    ...(enterprise && { ENTERPRISE_MODE: 'active' }),
     CONTAINER: { idFromName: (name: string) => ({ toString: () => name }),
       ...(hermesFinalSyncStatus !== undefined && { get: () => ({ admitHermesStore: async () => 'new' }) }),
     } } as unknown as Env;
@@ -113,9 +114,12 @@ async function fixture(initial: 'stopped' | 'starting' | 'running' | 'stopping' 
     let ready: Promise<unknown> = Promise.resolve();
     const ctx = {
       id: { toString: () => `${ref.bucket}-${ref.sessionId}` },
+      exports: Object.fromEntries(['LlmInterceptor', 'GitHubInterceptor'].map(name =>
+        [name, () => ({ fetch: () => { throw new Error(`Unexpected ${name} request during startup`); } })])),
       container: initial === 'starting' || initial === 'stopped' ? {
         get running() { return running; },
         signal() { running = false; },
+        interceptOutboundHttps() {},
         getTcpPort: () => ({ fetch: async () => Response.json({ synced: hermesFinalSyncStatus === 200 },
           { status: hermesFinalSyncStatus ?? 503 }) }),
         monitor: () => new Promise<void>(() => {}),
@@ -279,6 +283,19 @@ describe('REQ-SESSION-018 AC4: pending Start cannot outlive its Stop', () => {
 });
 
 describe('REQ-SESSION-008: startup configuration uses the admitted run and bucket', () => {
+  it('REQ-SESSION-043: a started Enterprise direct Hermes generation is eligible with workspace sync off', async () => {
+    const f = await fixture('stopped', ref.generation, 200, true);
+    f.configureStart();
+    const instance = await f.coordinator();
+    const execution = { ...ref, generation: ref.generation + 1 };
+    expect((await configureLaunch(instance, ref.generation, false, 'advanced')).headers.get('X-Codeflare-Start-Claim'))
+      .toBe(String(execution.generation));
+    await instance.startSession(execution);
+    expect(f.launchEnv()).toMatchObject({ SESSION_MODE: 'advanced', SYNC_MODE: 'none', CODEFLARE_HERMES_PERSISTENCE: 'new' });
+    expect(await f.read()).toMatchObject({ lifecycleState: 'running', lifecycleGeneration: execution.generation });
+    expect(await (await f.coordinator()).canQueueHermesShutdown(execution)).toBe(true);
+  });
+
   it('REQ-MEM-042 AC3: unavailable memory admission defers persistence without stopping Advanced startup', async () => {
     // The ordinary start fixture has no reachable bucket-owner RPC. The native
     // launch environment is the contract consumed by the entrypoint.

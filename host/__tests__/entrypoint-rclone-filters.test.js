@@ -783,6 +783,27 @@ restore_hermes() {
 }
 
 describe('REQ-MEM-035 AC2 / REQ-MEM-041 AC2: session Markdown sync', () => {
+  it('REQ-MEM-044 AC2: seeds from a committed revision with a verified default-encrypted empty master', t => {
+    const fx = persistenceFixture(t, { policy: 'mutable', hermes: 'new', enterprise: true, syncMode: 'none' });
+    const revision = 'empty-master-test';
+    const entries = { 'global/USER.md': 'Owner fact', 'global/MEMORY.md': '', 'global/failures.md': 'Failure fact',
+      'Projects/workspace/MEMORY.md': 'Workspace fact' };
+    for (const [key, value] of Object.entries(entries)) fx.put(fx.remote, `Vault/Memory/Masters/${revision}/${key}`, value);
+    fx.put(fx.remote, 'Vault/Memory/Masters/current.json', JSON.stringify({ revision,
+      files: Object.fromEntries(Object.entries(entries).map(([key, value]) => [key, createHash('sha256').update(value).digest('hex')])),
+    }));
+    // Model a default-encrypted empty object that can only be read by the
+    // scoped rclone fallback, while real rclone transfers the fixture bytes.
+    fx.run(`timeout() {
+      if [ "$2:$3" = rclone:copyto ] && [[ "$4" = */Masters/${revision}/global/MEMORY.md ]] && [ "\${CODEFLARE_RCLONE_HERMES_EMPTY_READ:-}" != 1 ]; then
+        return 1
+      fi
+      command timeout "$@"
+    }; restore_hermes`);
+    const root = join(fx.home, 'Vault/Memory/Sessions/abc12345');
+    for (const [key, value] of Object.entries(entries)) assert.equal(readFileSync(join(root, key), 'utf8'), value);
+  });
+
   it('REQ-MEM-044: an interrupted reseed upload cannot acknowledge a mixed restored snapshot', t => {
     const fx = persistenceFixture(t, { policy: 'mutable', hermes: 'new', enterprise: true });
     const store = 'Vault/Memory/Sessions/abc12345';

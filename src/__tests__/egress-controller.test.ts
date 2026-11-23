@@ -759,25 +759,36 @@ describe('REQ-ENTERPRISE-016 / AD86: EgressController account-scoped exemption (
       seen.push(request);
       const withSse = request.headers.has('x-amz-server-side-encryption-customer-key');
       return withSse ? new Response(null, { status: 400 })
-        : new Response(new Uint8Array(), { headers: { 'content-length': '0' } });
+        : new Response(request.method === 'HEAD' ? null : new Uint8Array(), { headers: { 'content-length': '0' } });
     });
     try {
       const { controller } = makeController({ ENCRYPTION_KEY: btoa('a'.repeat(32)) }, { accountId: 'acc' });
-      const get = (key: string) => controller.fetch(new Request(`https://acc.r2.cloudflarestorage.com/bucket/${key}`, {
+      const request = (key: string, method = 'GET') => controller.fetch(new Request(`https://acc.r2.cloudflarestorage.com/bucket/${key}`, {
+        method,
         headers: { 'x-codeflare-hermes-empty-read': '1' },
       }));
-      const valid = await get('Vault/Memory/Sessions/sessionaa/global/USER.md');
+      const markdown = 'Vault/Memory/Sessions/sessionaa/global/USER.md';
+      const valid = await request(`${markdown}?x-id=GetObject`);
       expect(valid.status).toBe(200);
       expect(await valid.text()).toBe('');
       expect(seen[0].headers.has('x-amz-server-side-encryption-customer-key')).toBe(false);
       expect(seen[0].headers.get('authorization')).toContain('Credential=user-r2-key/');
       expect(seen[0].headers.has('x-codeflare-hermes-empty-read')).toBe(false);
-      expect((await get('Vault/Notes/not-hermes.md')).status).toBe(400);
-      expect(seen[1].headers.has('x-amz-server-side-encryption-customer-key')).toBe(true);
+      const head = await request(`${markdown}?x-id=HeadObject`, 'HEAD');
+      expect(head.status).toBe(200);
+      expect(head.body).toBeNull();
+      expect(head.headers.get('content-length')).toBe('0');
+      expect(seen.at(-1)?.headers.has('x-amz-server-side-encryption-customer-key')).toBe(false);
+      for (const key of ['Vault/Notes/not-hermes.md', `${markdown}?x-id=GetObject&versionId=unverified`]) {
+        expect((await request(key)).status).toBe(400);
+        expect(seen.at(-1)?.headers.has('x-amz-server-side-encryption-customer-key')).toBe(true);
+      }
       fetchSpy.mockResolvedValueOnce(new Response('nonempty', { headers: { 'content-length': '8' } }));
-      const invalid = await get('Vault/Memory/Sessions/sessionaa/global/USER.md');
+      const invalid = await request(markdown);
       expect(invalid.ok).toBe(false);
       expect(await invalid.text()).not.toContain('nonempty');
+      fetchSpy.mockResolvedValueOnce(new Response(null, { headers: { 'content-length': '8' } }));
+      expect((await request(markdown, 'HEAD')).ok).toBe(false);
     } finally { fetchSpy.mockRestore(); }
   });
 

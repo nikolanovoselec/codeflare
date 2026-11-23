@@ -89,7 +89,7 @@ async function expectAccepted(request: Response | Promise<Response>) {
   expect((await bounded(request)).ok).toBe(true);
 }
 
-function rig(enterprise = true) {
+function rig(enterprise = true, workspaceSyncEnabled = true) {
   const owner = `shutdown-${crypto.randomUUID()}`;
   const other = `shutdown-${crypto.randomUUID()}`;
   const states = new Map<string, { ready: Promise<void>; instance: SessionContainer }>();
@@ -167,7 +167,7 @@ function rig(enterprise = true) {
       const first = address.lastIndexOf('-');
       const records = new Map<string, unknown>(process ? [
         ['bucketName', address.slice(0, first)], ['_sessionId', address.slice(first + 1)],
-        ['lifecycleGeneration', 1], ['containerAuthToken', process.token], ['workspaceSyncEnabled', true],
+        ['lifecycleGeneration', 1], ['containerAuthToken', process.token], ['workspaceSyncEnabled', workspaceSyncEnabled],
         ['sessionMode', 'advanced'], ['hermes:direct-generation', 1], ['userEmail', 'test@example.com'], ['userGroups', ['shutdown-fixture']],
       ] : []);
       const storage = {
@@ -252,8 +252,8 @@ const a = 'sessionaaa1';
 const b = 'sessionbbb1';
 const c = 'sessionccc1';
 
-it('REQ-SESSION-043: accepts overlapping Stop/Delete in owner order across client reload without duplicating a generation or blocking another owner', async () => {
-  const f = rig();
+it.each([true, false])('REQ-SESSION-043: accepts overlapping Stop/Delete in owner order across client reload without duplicating a generation or blocking another owner (workspace sync %s)', async workspaceSyncEnabled => {
+  const f = rig(true, workspaceSyncEnabled);
   const [A, B, C, otherA] = await Promise.all([f.create(a), f.create(b), f.create(c), f.create(a, { bucket: f.other })]);
   const originalClient = new AbortController();
   await expectAccepted(f.stop(a, f.owner, originalClient.signal));

@@ -979,7 +979,8 @@ PY
         ) || return 1
         for name in global/USER.md global/MEMORY.md global/failures.md Projects/workspace/MEMORY.md; do
             [ "$deadline" -gt "$SECONDS" ] || return 1
-            timeout "$((deadline - SECONDS))" rclone copyto "$remote/$revision/$name" "$stage/$revision/$name" "${args[@]}" || return 1
+            CODEFLARE_RCLONE_HERMES_EMPTY_READ=1 timeout "$((deadline - SECONDS))" rclone copyto \
+                "$remote/$revision/$name" "$stage/$revision/$name" "${args[@]}" || return 1
         done
     )
 }
