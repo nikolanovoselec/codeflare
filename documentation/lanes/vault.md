@@ -613,9 +613,9 @@ For a matching receipt, interrupt the first scoped upload after only a subset of
 
 In a separate disposable fixture, restore the exact matching saved snapshot and let reseed and scoped upload finish. Verify the bytes against the committed revision and check that a matching current-generation observation consumes the receipt.
 
-Repeat from the exact snapshot. After upload but before acknowledgement, let another session advance the shared revision, then restart the original session. Verify that its baseline and all four files still match the earlier verified replacement, not the newer shared revision. Through authorized private observations, confirm that the restarted Host reports the original receipt and an accepted projection for that generation clears it.
+For the restart case, proceed only if an existing authorized control can hold receipt-consuming projection for the disposable session before upload completes. Verify the upload, advance the shared revision from another disposable session, and confirm through authorized Worker evidence that the original receipt is still pending immediately before restart. Keep the hold in place until the new generation is running. If the control or pending-state evidence is unavailable, mark this hosted case unverified; timing alone does not qualify it.
 
-With proof for a different receipt, require no acknowledgement or rewrite. Mark the hosted case unverified if the byte comparison, Host acknowledgement, or Worker receipt consumption cannot be observed.
+After restart, compare the baseline and all four files to the earlier verified replacement, not the newer shared revision. Confirm through authorized private observations that the restarted Host reports the original receipt. Release the hold and verify that an accepted projection for the restarted generation clears it. With proof for a different receipt, require no acknowledgement or rewrite. Missing byte, Host, or Worker evidence leaves the hosted case unverified.
 
 ### Native policy-only recall acceptance
 
