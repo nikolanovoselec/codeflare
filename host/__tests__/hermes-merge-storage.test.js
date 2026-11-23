@@ -78,6 +78,21 @@ test('REQ-MEM-044: accepts a verified zero-byte default-encrypted file in an SSE
   assert.ok(f.trace.filter(event => event.method === 'PUT').every(event => event.sse));
 });
 
+test('REQ-MEM-044: a reseeded baseline preserves subsequent whole-entry change detection', async () => {
+  const f = fixture();
+  const baselineKey = `${prefix}baseline.json`;
+  const baseline = JSON.parse(f.objects.get(baselineKey).toString());
+  const reseed = { owner: bucket, sessionId: session, snapshotId: 'c'.repeat(64), revision: 'previous-reseed',
+    files: Object.fromEntries(files.map(file => [file, createHash('sha256').update(baseline[file]).digest('hex')])),
+  };
+  f.objects.set(baselineKey, Buffer.from(JSON.stringify({ ...baseline, _reseed: reseed })));
+  const result = await f.run(f.source, input => {
+    assert.deepEqual(input.changes['global/MEMORY.md'], ['New fact.']);
+    return bytes(all('Known fact.\n§\nNew fact.'));
+  });
+  assert.equal(result.status, 'merged');
+});
+
 test('REQ-MEM-044: missing baseline or a different durable snapshot never reaches inference', async () => {
   const f = fixture();
   f.objects.set(`${prefix}global/MEMORY.md`, Buffer.from('A later save.'));

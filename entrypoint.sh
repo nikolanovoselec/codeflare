@@ -1001,9 +1001,6 @@ prepare_pi_hermes_persistence() {
                 reseed=$(configure_pi_hermes_memory "$USER_HOME" receipt) || return 1
                 if [ "$reseed" = matched ]; then
                     restore_pi_hermes_masters "$HERMES_RESTORE_DEADLINE" || return 1
-                elif [ "$reseed" = different ]; then
-                    # Best effort: a prior reseed may have synced before its runtime exited.
-                    restore_pi_hermes_masters "$HERMES_RESTORE_DEADLINE" || rm -rf -- "$CODEFLARE_RUNTIME_ROOT/sync/hermes-masters"
                 fi
             fi ;;
         *) return 1 ;;
@@ -3498,6 +3495,14 @@ def replace_text(destination, content, staging):
         Path(temporary).unlink(missing_ok=True)
 
 
+def read_hermes_baseline():
+    original = json.loads(read(baseline))
+    if not isinstance(original, dict) or original.keys() - {'_reseed'} != set(paths.values()) \
+            or not all(isinstance(original[rel], str) for rel in paths.values()):
+        raise ValueError('invalid Hermes baseline')
+    return original
+
+
 def merged_snapshot_matches():
     # None means the restored store cannot prove either equality or inequality.
     receipt = os.environ.get('CODEFLARE_HERMES_MERGED_SNAPSHOT', '')
@@ -3505,35 +3510,31 @@ def merged_snapshot_matches():
         return None
     check_direct(True)
     try:
-        original = json.loads(read(baseline))
-    except (json.JSONDecodeError, UnicodeDecodeError):
+        original = read_hermes_baseline()
+    except ValueError:
         return None  # Invalid baseline bytes cannot authorize replacing intact session files.
-    if not isinstance(original, dict) or original.keys() != set(paths.values()) or not all(isinstance(value, str) for value in original.values()):
-        return None
     current = snapshot(evidence, paths)
-    def digest(text):
-        return hashlib.sha256(text.encode()).hexdigest()
-    contents = [[rel, digest(original[rel]), digest(current[name])] for name, rel in paths.items()]
+    contents = [[rel, digest_text(original[rel]), digest_text(current[name])] for name, rel in paths.items()]
     return hashlib.sha256(json.dumps(contents, separators=(',', ':')).encode()).hexdigest() == receipt
 
 
-def read_seed(require_commit=False, receipt=None):
+def digest_text(text):
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def read_seed(require_commit=False):
     direct_directory(vault / 'Projects/workspace')
     stage = ready.with_name('hermes-masters')
     commit_path = stage / 'current.json'
     if not enterprise or not kind(commit_path, stat.S_ISREG):
         if require_commit:
             raise ValueError('missing verified Hermes revision for reseed')
-        return {name: read(vault / name) if kind(vault / name, stat.S_ISREG) else '' for name in paths}
+        return {name: read(vault / name) if kind(vault / name, stat.S_ISREG) else '' for name in paths}, None
     if commit_path.stat().st_size > 4096:
         raise ValueError('invalid Hermes commit size')
     commit = json.loads(read(commit_path))
     if not isinstance(commit, dict):
         raise ValueError('invalid Hermes commit')
-    if receipt is not None:
-        source = commit.get('source')
-        if not isinstance(source, dict) or (source.get('owner'), source.get('sessionId'), source.get('snapshotId')) != (bucket, session, receipt):
-            raise ValueError('not the committed revision for this receipt')
     revision, hashes = commit.get('revision'), commit.get('files')
     if not isinstance(revision, str) or not re.fullmatch('[a-zA-Z0-9_-]{1,180}', revision) or revision == 'legacy' \
             or not isinstance(hashes, dict) or hashes.keys() != set(paths.values()):
@@ -3544,19 +3545,25 @@ def read_seed(require_commit=False, receipt=None):
         if not kind(staged, stat.S_ISREG, True) or staged.stat().st_size > 600000:
             raise ValueError('invalid Hermes revision file')
         value = read(staged)
-        if hashlib.sha256(value.encode()).hexdigest() != hashes[relative] or len(value.encode('utf-16-le')) > 300000:
+        if digest_text(value) != hashes[relative] or len(value.encode('utf-16-le')) > 300000:
             raise ValueError('unverified Hermes revision')
         seed[name] = value
-    return seed
+    return seed, revision
 
 
 def restored_replacement_matches(receipt):
     # Never use mismatch alone: an interrupted upload can leave every name
     # present while only some bytes (including the baseline) were replaced.
     try:
-        seed = read_seed(require_commit=True, receipt=receipt)
-        return json.loads(read(baseline)) == {rel: seed[name] for name, rel in paths.items()} \
-            and snapshot(evidence, paths) == seed
+        original = read_hermes_baseline()
+        proof = original.get('_reseed')
+        if not isinstance(proof, dict) or (proof.get('owner'), proof.get('sessionId'), proof.get('snapshotId')) != (bucket, session, receipt):
+            return False
+        revision = proof.get('revision')
+        if not isinstance(revision, str) or not re.fullmatch('[a-zA-Z0-9_-]{1,180}', revision) or revision == 'legacy':
+            return False
+        return proof.get('files') == {rel: digest_text(original[rel]) for rel in paths.values()} \
+            and snapshot(evidence, paths) == {name: original[rel] for name, rel in paths.items()}
     except (OSError, ValueError):
         return False
 
@@ -3577,7 +3584,7 @@ def prepare_direct_layout():
     # Validate the entire newer revision before moving any restored session bytes.
     receipt_match = merged_snapshot_matches()
     reseed = receipt_match is True
-    seed = read_seed(require_commit=True) if reseed else None
+    seed, revision = read_seed(require_commit=True) if reseed else (None, None)
     if (persistence == 'new' or reseed) and generation:
         if not re.fullmatch('[1-9][0-9]{0,15}', generation):
             raise ValueError('invalid Hermes admission generation')
@@ -3609,7 +3616,7 @@ def prepare_direct_layout():
         # Only a recorded retirement can resume interrupted local seeding.
         if not retirement and any(os.path.lexists(evidence / name) for name in paths.values()):
             raise ValueError('incomplete local Hermes store')
-        source = seed if seed is not None else read_seed()
+        source = seed if seed is not None else read_seed()[0]
         for name, rel in paths.items():
             destination = evidence / rel
             destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -3621,7 +3628,13 @@ def prepare_direct_layout():
                 with os.fdopen(os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
                     output.write(source[name].encode())
         if enterprise:
-            atomic(baseline, {rel: source[name] for name, rel in paths.items()}, evidence)
+            saved_baseline = {rel: source[name] for name, rel in paths.items()}
+            if reseed:
+                saved_baseline['_reseed'] = {
+                    'owner': bucket, 'sessionId': session, 'snapshotId': os.environ['CODEFLARE_HERMES_MERGED_SNAPSHOT'],
+                    'revision': revision, 'files': {rel: digest_text(source[name]) for name, rel in paths.items()},
+                }
+            atomic(baseline, saved_baseline, evidence)
         if retirement:
             replace_text(marker, session + '\n', retirement)
         else:
@@ -3758,9 +3771,8 @@ try:
         check_direct(True)
         sys.exit(0)
     if phase == 'receipt' and layout == 'direct':
-        match = merged_snapshot_matches()
-        if match is not None:
-            print('matched' if match else 'different')
+        if merged_snapshot_matches() is True:
+            print('matched')
         sys.exit(0)
     if phase == 'checkpoint' and layout == 'v197':
         for parent in (work / 'global', work / 'Projects/workspace', evidence):

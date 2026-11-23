@@ -797,15 +797,20 @@ describe('REQ-MEM-035 AC2 / REQ-MEM-041 AC2: session Markdown sync', () => {
     const original = JSON.parse(readFileSync(join(fx.remote, baselinePath), 'utf8'));
     const originalBytes = Object.fromEntries(keys.map(key => [key, readFileSync(join(fx.remote, store, key))]));
     const receipt = digest(JSON.stringify(keys.map(key => [key, digest(original[key]), digest(originalBytes[key])])));
-    const revision = 'merged-test-revision';
-    const files = Object.fromEntries(keys.map(key => {
-      const text = `Merged ${key}`;
-      fx.put(fx.remote, `Vault/Memory/Masters/${revision}/${key}`, text);
-      return [key, digest(text)];
-    }));
-    fx.put(fx.remote, 'Vault/Memory/Masters/current.json', JSON.stringify({ revision, files,
-      source: { owner: fx.remote, sessionId: 'abc12345', snapshotId: receipt },
-    }));
+    const publish = (revision, sessionId, snapshotId) => {
+      const files = Object.fromEntries(keys.map(key => {
+        const text = `${revision}: ${key}`;
+        fx.put(fx.remote, `Vault/Memory/Masters/${revision}/${key}`, text);
+        return [key, digest(text)];
+      }));
+      fx.put(fx.remote, 'Vault/Memory/Masters/current.json', JSON.stringify({ revision, files,
+        source: { owner: fx.remote, sessionId, snapshotId },
+      }));
+      return files;
+    };
+    // The original receipt authorizes adopting the latest verified masters,
+    // which can already belong to a different session.
+    const files = publish('merged-test-revision', 'peersess1', 'b'.repeat(64));
     const resume = generation => `export CODEFLARE_HERMES_MERGED_SNAPSHOT=${receipt} CODEFLARE_HERMES_GENERATION=${generation};
       CODEFLARE_HERMES_PERSISTENCE=existing; restore_hermes`;
     const resetHome = () => { rmSync(fx.home, { recursive: true }); mkdirSync(fx.home); };
@@ -834,14 +839,28 @@ describe('REQ-MEM-035 AC2 / REQ-MEM-041 AC2: session Markdown sync', () => {
     assert.equal(readFileSync(synced, 'utf8'), `${receipt}\n`);
     for (const key of keys) assert.equal(digest(readFileSync(join(fx.remote, store, key))), files[key]);
 
-    // A replacement starts after upload but before the first runtime reported it to D1.
-    resetHome();
-    for (const marker of ['hermes-restore-verified', 'hermes-restore-synced']) {
-      rmSync(join(fx.runtime, 'sync', marker), { force: true });
-    }
+    // Advance the shared pointer after upload, but before the runtime reports to D1.
+    publish('later-peer-revision', 'peersess2', 'c'.repeat(64));
+    const restart = () => {
+      resetHome();
+      for (const marker of ['hermes-restore-verified', 'hermes-restore-synced']) {
+        rmSync(join(fx.runtime, 'sync', marker), { force: true });
+      }
+    };
+    restart();
     fx.run(resume(5));
+    assert.equal(existsSync(synced), true, 'complete replacement must not depend on the current pointer');
     assert.equal(readFileSync(synced, 'utf8'), `${receipt}\n`);
     for (const key of keys) assert.equal(digest(readFileSync(join(fx.home, store, key))), files[key]);
+
+    // Complete bytes alone must not consume a different receipt.
+    restart();
+    fx.run(resume(6).replace(receipt, 'd'.repeat(64)));
+    assert.equal(existsSync(synced), false);
+    for (const key of keys) {
+      assert.equal(digest(readFileSync(join(fx.home, store, key))), files[key]);
+      assert.equal(digest(readFileSync(join(fx.remote, store, key))), files[key]);
+    }
   });
 
   for (const syncPolicyMode of ['include', 'exclude']) {

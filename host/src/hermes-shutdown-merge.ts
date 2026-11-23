@@ -151,7 +151,8 @@ const maxRead = 4 * 1024 * 1024;
 
 export function parseHermesBaseline(bytes: Uint8Array): Store<Uint8Array> {
   const original = JSON.parse(decode(bytes)) as Store<string> | null;
-  if (!original || Object.keys(original).length !== files.length
+  // Reseed proof is for restart acknowledgement, not part of the memory delta.
+  if (!original || Object.keys(original).some(key => key !== '_reseed' && !files.includes(key as File))
     || !files.every(file => typeof original[file] === 'string')) throw new Error('Invalid Hermes baseline');
   return mapFiles(file => Buffer.from(original[file]));
 }

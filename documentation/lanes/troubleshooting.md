@@ -608,6 +608,8 @@ These notes hold details moved out of long table cells above; the table keeps th
 
 Check `shutdownPhase` and the underlying `lifecycle` in the [session status API](api-reference.md#queued-hermes-shutdown). A missing phase does not distinguish a definitive private save refusal from an ambiguous save. Use the authenticated Stop outcome and authorized Host or Worker diagnostics for the attempt. A conflict or missing acknowledgement proves neither exit nor permission to replay the save.
 
+After a definitive save failure, use **Retry Stop** for the same generation. An unconfirmed save must not be replayed. See [REQ-SESSION-042 AC4](../../sdd/spec/session-lifecycle.md#req-session-042-same-generation-stop-retry-authority).
+
 After formal teardown begins, use Retry Stop if exit is unconfirmed. Do not start a replacement until exit is confirmed. See [REQ-SESSION-035](../../sdd/spec/session-lifecycle.md#req-session-035-stale-stopping-retains-ownership-until-confirmed-exit).
 
 <a id="websocket-fails-with-close-code-1013"></a>

@@ -385,12 +385,12 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     vi.restoreAllMocks();
   });
 
-  it.each(['ordinary', 'current receipt', 'stale receipt'] as const)(
+  it.each(['ordinary', 'current receipt'] as const)(
     'REQ-SESSION-020 AC1-2: one complete authenticated observation projects without a D1 pre-read or readback (%s)', async mode => {
       const key = 'session:test-bucket:testsession123456';
       const mergedSnapshotId = mode === 'ordinary' ? undefined : 'a'.repeat(64);
       mockKV._set(key, { id: 'testsession123456', userId: 'test-bucket', name: 'Complete snapshot', status: 'running',
-        mergedSnapshotId, observationSequence: mode === 'stale receipt' ? 0 : -1 });
+        mergedSnapshotId, observationSequence: -1 });
       const inputAt = Date.now() - 1_000;
       const observedAt = new Date().toISOString();
       testState.runtimeObservationBody = { lastInputAt: inputAt, cpu: '17%', memory: '3GB', disk: '9GB',
@@ -429,18 +429,31 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(requests.filter(request => request.path !== '/internal/agent-events/drain')).toEqual([
         { path: '/internal/runtime-observation', authorization: 'Bearer agent-event-token' },
       ]);
-      const projectionWrite = { sql: expect.stringMatching(/^UPDATE runtime_sessions SET/), operation: 'run' };
-      expect(mode === 'stale receipt' ? operations.filter(op => op.operation === 'run') : operations).toEqual([projectionWrite]);
+      expect(operations).toEqual([{ sql: expect.stringMatching(/^UPDATE runtime_sessions SET/), operation: 'run' }]);
       expect(kvOperations).toEqual([]);
       // The D1 fixture's private backing KV is not a production KV call and is not counted as one.
       const saved = await mockKV.get(key, 'json') as (Session & Pick<D1Session, 'mergedSnapshotId' | 'observationSequence'>) | null;
-      expect(saved?.mergedSnapshotId).toBe(mode === 'stale receipt' ? mergedSnapshotId : undefined);
-      if (mode === 'stale receipt') expect(saved).toMatchObject({ observationSequence: 0, status: 'running' });
-      else expect(saved).toMatchObject({ status: 'running', lastInputAt: new Date(inputAt).toISOString(),
+      expect(saved?.mergedSnapshotId).toBeUndefined();
+      expect(saved).toMatchObject({ status: 'running', lastInputAt: new Date(inputAt).toISOString(),
         editorReady: true, editorReadyError: false,
         metrics: { cpu: '17%', mem: '3GB', hdd: '9GB', syncStatus: 'success', updatedAt: observedAt } });
       expect(testState.platformStopSignals).toEqual([]);
     });
+
+  it('REQ-MEM-044 AC6: a stale runtime observation neither projects metrics nor clears the matching receipt', async () => {
+    const key = 'session:test-bucket:testsession123456';
+    const mergedSnapshotId = 'a'.repeat(64);
+    const initial = { id: 'testsession123456', userId: 'test-bucket', name: 'Stale sample',
+      status: 'running', observationSequence: 0, mergedSnapshotId };
+    mockKV._set(key, initial);
+    testState.runtimeObservationBody = { cpu: '17%', editorReady: true, lastInputAt: Date.now() - 1_000,
+      observedAt: new Date().toISOString(), hermesRestoredSnapshot: mergedSnapshotId };
+
+    await containerInstance.collectMetrics();
+
+    expect(await mockKV.get(key, 'json')).toEqual(initial);
+    expect(testState.platformStopSignals).toEqual([]);
+  });
 
   it.each(['retained', 'missing'] as const)(
     'REQ-SESSION-008 AC2: reconstructed idle detection expires from its %s valid baseline', async baseline => {
