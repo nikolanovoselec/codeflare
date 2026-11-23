@@ -422,9 +422,16 @@ it('REQ-MEM-044: a failed restore does not consume the saved merge receipt', asy
   const observation = { lifecycleState: 'running' as const, observedAt: stamp, hermesRestoredSnapshot: snapshotId };
   expect(await repository.project(f.owner, a, 2, 1, observation)).toBe(false);
   expect((await repository.getSession(f.owner, a))?.mergedSnapshotId).toBe(snapshotId);
-  expect(await repository.project(f.owner, a, 3, 0, { ...observation, hermesRestoredSnapshot: 'b'.repeat(64) })).toBe(true);
-  expect((await repository.getSession(f.owner, a))?.mergedSnapshotId).toBe(snapshotId);
-  expect(await repository.project(f.owner, a, 3, 1, observation)).toBe(true);
+  expect(await repository.project(f.owner, a, 3, 0, {
+    ...observation, cpu: '17%', hermesRestoredSnapshot: 'b'.repeat(64),
+  })).toBe(true);
+  const beforeReplay = await repository.getSession(f.owner, a);
+  expect(beforeReplay).toMatchObject({ mergedSnapshotId: snapshotId, observationSequence: 0, cpu: '17%' });
+  expect(await repository.project(f.owner, a, 3, 0, { ...observation, cpu: '99%' })).toBe(false);
+  // An equal-sequence replay cannot change the metrics, revision, or receipt.
+  expect(await repository.getSession(f.owner, a)).toEqual(beforeReplay);
+  expect(await repository.project(f.owner, a, 3, 1, { ...observation, cpu: '21%' })).toBe(true);
+  expect(await repository.getSession(f.owner, a)).toMatchObject({ observationSequence: 1, cpu: '21%' });
   expect((await repository.getSession(f.owner, a))?.mergedSnapshotId).toBeUndefined();
 });
 

@@ -569,6 +569,8 @@ Ordinary sync and final sync use the same scoped transfer of the four Markdown f
 
 A reseed records the selected revision, receipt, and four file digests in the existing session baseline. On restart, that proof must match the receipt, the baseline, and all four restored files before acknowledgement. No shared-pointer lookup is needed, and the proof is not part of the memory delta. <!-- @impl: entrypoint.sh::restored_replacement_matches --> <!-- @impl: host/src/hermes-shutdown-merge.ts::parseHermesBaseline -->
 
+The first supported shutdown-merge rollout writes this proof from the start. There is no migration for replacements written by earlier development builds. If restored replacement bytes lack proof, startup preserves them and leaves the receipt pending. Reseeding still requires an exact match to the original saved snapshot. <!-- @impl: entrypoint.sh::configure_pi_hermes_memory --> <!-- @impl: entrypoint.sh::restored_replacement_matches -->
+
 Up to ten direct-layout stores persist per user. At capacity, admission selects the least recently updated store. Only a new or changed Markdown upload gets a write timestamp; reads, resumes, unchanged sync, and R2 re-encryption do not advance its rank. Ties use the session ID. Unpublished reservations count toward capacity but are not eviction candidates. Eviction and reuse of an unpublished reservation require confirmed exit and a matching successful final-sync receipt, or recorded proof of both. Uncertain settlement or incomplete eviction inventory defers persistence without blocking the terminal. [Retention contract](../../sdd/spec/memory.md#req-mem-042-retain-ten-recent-session-memory-stores) <!-- @impl: src/lib/hermes-retention.ts::HermesRetention --> <!-- @impl: src/container/index.ts::hermesWriterSettled -->
 
 Confirmed eviction deletes the entire exact memory folder, including a checkpoint inside it, but not the Codeflare session, transcript, shared masters, or separate checkpoint-only folders. A readmitted evicted session starts from the masters again. <!-- @impl: src/lib/hermes-retention.ts::HermesRetention -->
@@ -611,7 +613,9 @@ For a matching receipt, interrupt the first scoped upload after only a subset of
 
 In a separate disposable fixture, restore the exact matching saved snapshot and let reseed and scoped upload finish. Verify the bytes against the committed revision and check that a matching current-generation observation consumes the receipt.
 
-Repeat from the exact snapshot, but restart before acknowledgement and after another session advances the shared revision. Require the original receipt’s saved proof to match the restored baseline and all four files. With proof for a different receipt, require no acknowledgement or rewrite. Mark hosted outcomes unverified wherever restore, upload, or acknowledgement evidence is unavailable.
+Repeat from the exact snapshot. After upload but before acknowledgement, let another session advance the shared revision, then restart the original session. Verify that its baseline and all four files still match the earlier verified replacement, not the newer shared revision. Through authorized private observations, confirm that the restarted Host reports the original receipt and an accepted projection for that generation clears it.
+
+With proof for a different receipt, require no acknowledgement or rewrite. Mark the hosted case unverified if the byte comparison, Host acknowledgement, or Worker receipt consumption cannot be observed.
 
 ### Native policy-only recall acceptance
 
