@@ -29,16 +29,54 @@ session_dir="$PI_CODING_AGENT_DIR/sessions/--${workspace_slug}--"
 exec 9> "$runtime/terminal-wrapper.lock"
 flock -n 9 || exit 1
 
+retired_native_path() {
+    local retired_ticket="$1" pid
+    IFS= read -r pid < "$tickets/$retired_ticket" || return 1
+    [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 1
+    jq -er --arg generation "$CODEFLARE_PI_GENERATION" --arg ticket "$retired_ticket" --arg pid "$pid" \
+        --arg cwd "$workspace" --arg root "$session_dir/" --slurpfile owner "$owner" '
+        select(.generation == ($generation | tonumber) and .ticket == $ticket and .pid == ($pid | tonumber)
+            and .released == true and .idle == true and .cwd == $cwd
+            and (.path | startswith($root)) and (.releaseReady | type == "string"))
+        | select($owner[0].generation == .generation and $owner[0].terminalTicket == .ticket
+            and $owner[0].requestId == .releaseReady and $owner[0].binding.path == .path)
+        | .path
+    ' "$runtime/terminal.json" 2>/dev/null
+}
+
 report_waiting_pane() {
     [ "$mode" = herdr ] || return 0
     # Herdr requires a reporter to hold the pane before storing its resume argv.
     # This is a wrapper role, not a report that a native Pi session is open.
-    local status deadline=$((SECONDS + 12))
+    local status retired_path="" deadline=$((SECONDS + 12))
+    if [ "$#" -eq 1 ]; then
+        # Only the foreground wrapper that has joined its exact child may
+        # attach resume argv to that dead child's remaining Herdr registration.
+        retired_path=$(retired_native_path "$1") || retired_path=""
+    fi
     while (( SECONDS < deadline )); do
-        # Wait for this pane's native reporter to release its claim. The
-        # parked wrapper never impersonates the stock Pi reporter.
-        if status=$(timeout 1 /usr/local/bin/herdr pane get "$HERDR_PANE_ID" 2>/dev/null) \
-            && jq -e --arg pane "$HERDR_PANE_ID" '.result.pane | .pane_id == $pane
+        if ! status=$(timeout 1 /usr/local/bin/herdr pane get "$HERDR_PANE_ID" 2>/dev/null); then
+            sleep 0.25
+            continue
+        fi
+        if [ -n "$retired_path" ] && jq -e --arg pane "$HERDR_PANE_ID" --arg path "$retired_path" '
+            .result.pane | .pane_id == $pane and .agent == "pi"
+                and .agent_session == {source:"herdr:pi", agent:"pi", kind:"path", value:$path}
+        ' <<< "$status" >/dev/null; then
+            # Herdr ignores release-agent for official reporters. Retain
+            # this exact session registration and give it gated resume argv.
+            # No stock Pi reporter is still live for the joined process.
+            if timeout 1 /usr/local/bin/herdr pane report-agent-session "$HERDR_PANE_ID" \
+                --source herdr:pi --agent pi --seq "$(date +%s%6N)" --agent-session-path "$retired_path" \
+                -- codeflare-terminal-writer --tui-mode fullscreen >/dev/null; then
+                # Host separately checks Herdr's saved argv; exit 0 alone
+                # is not a persisted role receipt.
+                return 0
+            fi
+            sleep 0.25
+            continue
+        fi
+        if jq -e --arg pane "$HERDR_PANE_ID" '.result.pane | .pane_id == $pane
                 and .agent_session == null and (.agent == null or .agent == "codeflare-terminal-writer")' \
                 <<< "$status" >/dev/null \
             && timeout 1 /usr/local/bin/herdr pane report-agent "$HERDR_PANE_ID" \
@@ -103,11 +141,13 @@ while true; do
         args=("$@" --extension /opt/codeflare/pi-web/handoff-extension.ts)
         [ -z "$path" ] || args+=(--session "$path")
         (
+            # This is the exact PID that execs Pi and that the wrapper waits on.
+            printf '%s\n' "$BASHPID" > "$tickets/$ticket" || exit 1
             export CODEFLARE_PI_TERMINAL_PID="$BASHPID" CODEFLARE_PI_TERMINAL_TICKET="$ticket"
             export CODEFLARE_PI_TERMINAL_SESSION_PATH="$path"
             exec /usr/local/bin/pi "${args[@]}"
         ) || printf 'Codeflare: the managed Pi process exited unsuccessfully.\n' >&2
-        report_waiting_pane
+        report_waiting_pane "$ticket"
     fi
     sleep 0.25
 done

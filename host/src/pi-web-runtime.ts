@@ -330,11 +330,16 @@ export function createPiWebRuntime(options: {
         const snapshot = join(bindingDir, 'session.json');
         await until(() => {
           const saved = loadJson<{ version: number; workspaces: Array<{ tabs: Array<{ panes: Record<string,
-            { agent_resume?: { source?: string; agent?: string; argv?: string[] } }> }> }> }>(snapshot);
+            { agent_resume?: { source?: string; agent?: string; argv?: string[] };
+              agent_session?: { source?: string; agent?: string; kind?: string; value?: string } }> }> }> }>(snapshot);
           if (saved?.version !== 3) return;
           const roles = saved.workspaces.flatMap(workspace => workspace.tabs.flatMap(tab => Object.values(tab.panes)))
-            .filter(({ agent_resume: role }) => role?.source === 'codeflare:terminal-writer' && role.agent === 'codeflare-terminal-writer'
-              && JSON.stringify(role.argv) === '["codeflare-terminal-writer","--tui-mode","fullscreen"]');
+            .filter(({ agent_resume: role, agent_session: session }) => {
+              if (JSON.stringify(role?.argv) !== '["codeflare-terminal-writer","--tui-mode","fullscreen"]') return false;
+              return role?.source === 'codeflare:terminal-writer' && role.agent === 'codeflare-terminal-writer'
+                || !!binding && role?.source === 'herdr:pi' && role.agent === 'pi' && session?.source === 'herdr:pi'
+                && session.agent === 'pi' && session.kind === 'path' && session.value === binding.path;
+            });
           return roles.length === 1 ? true : undefined;
         }, undefined, 20_000).catch(() => { throw new Error('Herdr did not save the managed terminal role'); });
       }
