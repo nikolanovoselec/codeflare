@@ -51,6 +51,8 @@ let vscodeWarmingSince: number | undefined;
 
 const GIT_CLONE_TIMEOUT_MS = 120_000;
 export const FINAL_SYNC_INTERNAL_TIMEOUT_MS = 125_000;
+// Refuse an undispatched save before the Worker's 120s acknowledgement deadline.
+const HERMES_SAVE_READINESS_TIMEOUT_MS = 110_000;
 const FINAL_SYNC_POLL_MS = 500;
 const AGENT_EVENT_DRAIN_BODY_MAX_BYTES = 4 * 1024;
 const AGENT_EVENT_INGRESS_BODY_MAX_BYTES = 256;
@@ -936,15 +938,22 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
         },
         poll: (delayMs: number) => new Promise<void>((resolve) => setTimeout(resolve, delayMs)),
       };
-      const deadline = finalSync.now() + FINAL_SYNC_INTERNAL_TIMEOUT_MS;
+      const startedAt = finalSync.now();
+      const deadline = startedAt + FINAL_SYNC_INTERNAL_TIMEOUT_MS;
       if (mergeSave) {
         // The Host binds before restore, and the daemon starts after it. A
         // disabled launch can be acknowledged even when no sync can run.
         const readStartup = (file: string) => fs.promises.readFile(`${SYNC_RUNTIME_DIR}/${file}`, 'utf8').catch(() => '');
         let readyToSave = false;
-        while (!req.aborted && !res.destroyed && finalSync.now() < deadline) {
-          if (await readStartup('hermes-ready') === `direct:${sessionId}\n`) {
-            if (reportDiskBlock()) return;
+        while (!req.aborted && !res.destroyed && finalSync.now() < startedAt + HERMES_SAVE_READINESS_TIMEOUT_MS) {
+          const opened = await readStartup('hermes-ready') === `direct:${sessionId}\n`;
+          if (!opened && await readStartup('hermes-disabled-at-startup') === `${sessionId}:${generation}\n`) {
+            res.writeHead(409, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+            res.end(JSON.stringify({ synced: false, reason: 'hermes-disabled-at-startup', generation: Number(generation) }));
+            return;
+          }
+          if (reportDiskBlock()) return;
+          if (opened) {
             if (!deps.hermesShutdown) {
               res.writeHead(503, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({ synced: false, reason: 'hermes-merge-unavailable' }));
@@ -954,17 +963,13 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
               readyToSave = true;
               break;
             }
-          } else if (await readStartup('hermes-disabled-at-startup') === `${sessionId}:${generation}\n`) {
-            res.writeHead(409, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-            res.end(JSON.stringify({ synced: false, reason: 'hermes-disabled-at-startup', generation: Number(generation) }));
-            return;
           }
           await finalSync.poll(FINAL_SYNC_POLL_MS);
         }
         if (req.aborted || res.destroyed) return;
         if (!readyToSave) {
-          res.writeHead(504, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ synced: false, reason: 'timeout' }));
+          res.writeHead(503, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ synced: false, reason: 'hermes-save-not-started' }));
           return;
         }
       }

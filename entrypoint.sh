@@ -1610,10 +1610,20 @@ start_sync_daemon() {
             BISYNC_REQUESTED=0
             BISYNC_RERUN_REQUESTED=0
             BISYNC_IN_FLIGHT=
-            # shellcheck disable=SC2064
-            trap 'if [ -n "$BISYNC_IN_FLIGHT" ]; then BISYNC_RERUN_REQUESTED=1; else BISYNC_REQUESTED=1; fi' USR1
+            request_bisync() {
+                if [ -n "$BISYNC_IN_FLIGHT" ]; then
+                    BISYNC_RERUN_REQUESTED=1
+                else
+                    BISYNC_REQUESTED=1
+                    # A signal may arrive after the sleeper starts but before wait.
+                    if [ -n "${SYNC_SLEEP_PID:-}" ]; then
+                        kill "$SYNC_SLEEP_PID" 2>/dev/null || true
+                    fi
+                fi
+            }
             BISYNC_RECOVERY_REQUESTED=0
-            trap 'BISYNC_RECOVERY_REQUESTED=1; if [ -n "$BISYNC_IN_FLIGHT" ]; then BISYNC_RERUN_REQUESTED=1; else BISYNC_REQUESTED=1; fi' USR2
+            trap 'request_bisync' USR1
+            trap 'BISYNC_RECOVERY_REQUESTED=1; request_bisync' USR2
             CONSECUTIVE_FAILURES=0
             TRAP_INSTALLED=1
             # Publish from the daemon only after both handlers can receive a signal.
@@ -1638,7 +1648,8 @@ start_sync_daemon() {
         if [ "$BISYNC_REQUESTED" = "0" ] && [ "$BISYNC_RERUN_REQUESTED" = "0" ]; then
             sleep $((CONSECUTIVE_FAILURES > 0 ? 120 : 900)) &
             SYNC_SLEEP_PID=$!
-            if wait "$SYNC_SLEEP_PID" 2>/dev/null; then
+            # A signal received before the sleeper PID was assigned is already latched.
+            if [ "$BISYNC_REQUESTED" = "0" ] && wait "$SYNC_SLEEP_PID" 2>/dev/null; then
                 # Only an uninterrupted cadence wait is natural. A USR1/USR2
                 # request, including one queued at the wait boundary, remains a
                 # manual cycle and cannot initiate compaction.

@@ -102,7 +102,7 @@ function rig(enterprise = true, workspaceSyncEnabled = true) {
     // Model exit confirmation independently of the running hint. The fixture
     // uses awaited native destroy as its source of positive exit evidence.
     const monitor = new Promise<void>(() => {});
-    const save = gate<'saved' | 'failed' | 'ambiguous' | { disabledGeneration: number }>('saved');
+    const save = gate<'saved' | 'failed' | 'ambiguous' | 'timed-out' | 'not-started' | { disabledGeneration: number }>('saved');
     let firstSave = true;
     let disabledAtStartup = false;
     const exit = gate<void>(undefined);
@@ -141,6 +141,11 @@ function rig(enterprise = true, workspaceSyncEnabled = true) {
           if (typeof result === 'object') {
             disabledAtStartup = true;
             return Response.json({ synced: false, reason: 'hermes-disabled-at-startup', generation: result.disabledGeneration }, { status: 409 });
+          }
+          if (result === 'timed-out' || result === 'not-started') {
+            trace.push(`${label}:save-failed`);
+            return result === 'timed-out' ? Response.json({ synced: false, reason: 'timeout' }, { status: 504 })
+              : Response.json({ synced: false, reason: 'hermes-save-not-started' }, { status: 503 });
           }
           if (disabledAtStartup || result === 'failed' || result === 'ambiguous') {
             if (disabledAtStartup) expect(request.headers.get('x-codeflare-hermes-merge')).toBeNull();
@@ -371,7 +376,7 @@ it('REQ-SESSION-043: an unbound Hermes startup result cannot bypass the save gat
   expect(f.trace.filter(event => event === `${a}:save`)).toEqual([`${a}:save`]);
 });
 
-it('REQ-SESSION-043: unconfirmed final sync preserves the running Delete target and holds its successor until authority is revoked', async () => {
+it.each(['ambiguous', 'timed-out'] as const)('REQ-SESSION-043: unconfirmed final sync (%s) preserves Delete target and holds its successor until authority is revoked', async outcome => {
   const f = rig(true, false);
   const A = await f.create(a);
   const B = await f.create(b);
@@ -379,7 +384,7 @@ it('REQ-SESSION-043: unconfirmed final sync preserves the running Delete target 
   await expectAccepted(f.remove(a));
   await expectAccepted(f.stop(b));
   await vi.waitFor(() => expect(f.trace).toContain(`${a}:save`));
-  A.save.release('ambiguous');
+  A.save.release(outcome);
   await vi.waitFor(() => expect(f.trace).toContain(`${a}:save-failed`));
   await vi.waitFor(async () => {
     const projected = await f.batch();
@@ -403,10 +408,10 @@ it('REQ-SESSION-043: unconfirmed final sync preserves the running Delete target 
   expect(f.trace.filter(event => event.startsWith(`${a}:`))).toEqual([`${a}:final-events`, `${a}:save`, `${a}:save-failed`, `${a}:exit`]);
 });
 
-it('REQ-SESSION-043: Retry Stop can recover from a definitive final-save failure', async () => {
+it.each(['failed', 'not-started'] as const)('REQ-SESSION-043: Retry Stop can recover after final save was %s', async outcome => {
   const f = rig();
   const A = await f.create(a);
-  A.save.release('failed');
+  A.save.release(outcome);
   A.exit.release();
   await expectAccepted(f.stop(a));
   await vi.waitFor(async () => {

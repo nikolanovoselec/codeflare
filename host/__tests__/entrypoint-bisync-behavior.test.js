@@ -402,6 +402,31 @@ describe('entrypoint.sh bisync daemon behavior (real) / REQ-STOR-002 (file persi
     }
   });
 
+  it('REQ-SESSION-043: a sync signal just before the cadence wait starts a manual cycle', async () => {
+    const h = spawnHarness({ daemonBody: `
+    sleep() { exec /bin/sleep "10"; }
+    wait() {
+      if [ -n "\${SYNC_SLEEP_PID:-}" ] && [ -z "\${BOUNDARY_SIGNALED:-}" ]; then
+        BOUNDARY_SIGNALED=1
+        printf '%s\\n' "$SYNC_SLEEP_PID" > "$SYNC_RUNTIME_DIR/boundary-sleeper"
+        kill -USR1 "$BASHPID"
+      fi
+      builtin wait "$@"
+    }
+    ${daemonBody}` });
+    const pid = await readDaemonPid(h.child);
+    try {
+      const log = await waitFor(h.logFile, s => s.includes('BISYNC_CALLED'), 2_000);
+      assert.match(log, /BISYNC_CALLED/, 'the signal must trigger sync before the ten-second cadence');
+    } finally {
+      const sleeper = join(h.dir, 'runtime/sync/boundary-sleeper');
+      if (existsSync(sleeper)) {
+        try { process.kill(Number(readFileSync(sleeper, 'utf8')), 'SIGTERM'); } catch {}
+      }
+      killHarness(h.child, pid);
+    }
+  });
+
   // REQ-MEM-004 AC4: SIGUSR1 trigger (Sync-now button).
   it('SIGUSR1 interrupts the cadence sleep and triggers bisync immediately (REQ-STOR-003 AC2 / REQ-STOR-015 AC5 / REQ-MEM-004 AC4: SIGUSR1 trigger)', async () => {
     // REQ-STOR-003 AC2: sleep is interruptible by an external signal

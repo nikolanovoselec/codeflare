@@ -1660,7 +1660,7 @@ export class container extends Container<Env> implements ContainerEnvState {
           if (response.headers.get('Content-Type')?.includes('application/json')) {
             const result = JSON.parse(new TextDecoder().decode(receipt)) as { synced?: unknown; reason?: unknown } | null;
             saveRefused = result?.synced === false && result.reason !== 'hermes-disabled-at-startup'
-              && ([409, 503, 504].includes(response.status)
+              && ([409, 503].includes(response.status)
               || (response.status === 500 && result.reason === 'bisync-failed'));
           }
           return new Response(receipt, { status: response.status, headers: response.headers });

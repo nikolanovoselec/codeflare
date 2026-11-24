@@ -276,12 +276,15 @@ function cleanupSyncFixtures() {
 }
 
 describe('REQ-SESSION-043: authenticated final sync observes the launch outcome', () => {
-  for (const { name, marker, ready, runtime = true, diskBlocked, status, reason } of [
+  for (const { name, marker, ready, daemon = ready, runtime = true, diskBlocked, pendingSync, status, reason } of [
     { name: 'disabled after request', marker: 'sessionaaa1:7\n', status: 409, reason: 'hermes-disabled-at-startup' },
     { name: 'disabled without merge runtime', marker: 'sessionaaa1:7\n', runtime: false, status: 409, reason: 'hermes-disabled-at-startup' },
     { name: 'disabled with blocked disk', marker: 'sessionaaa1:7\n', diskBlocked: true, status: 409, reason: 'hermes-disabled-at-startup' },
-    { name: 'wrong generation', marker: 'sessionaaa1:6\n', status: 504, reason: 'timeout' },
-    { name: 'no startup outcome', status: 504, reason: 'timeout' },
+    { name: 'wrong generation', marker: 'sessionaaa1:6\n', status: 503, reason: 'hermes-save-not-started' },
+    { name: 'no startup outcome', status: 503, reason: 'hermes-save-not-started' },
+    { name: 'opened without a ready daemon', ready: true, daemon: false, status: 503, reason: 'hermes-save-not-started' },
+    { name: 'pending startup with blocked disk', diskBlocked: true, status: 409, reason: 'disk-space-blocked' },
+    { name: 'sync dispatched but outcome unknown', ready: true, pendingSync: true, status: 504, reason: 'timeout' },
     { name: 'opened without merge runtime', ready: true, runtime: false, status: 503, reason: 'hermes-merge-unavailable' },
     { name: 'opened with blocked disk', ready: true, diskBlocked: true, status: 409, reason: 'disk-space-blocked' },
     { name: 'opened before daemon readiness', ready: true, status: 200 },
@@ -297,7 +300,11 @@ describe('REQ-SESSION-043: authenticated final sync observes the launch outcome'
     let signalAt;
     let drainedAt;
     try {
-      if (diskBlocked) writeFileSync(diskPath, 'blocked');
+      if (diskBlocked) {
+        writeFileSync(diskPath, 'blocked');
+        if (marker) writeFileSync(disabledPath, marker);
+        if (ready) writeFileSync(readyPath, 'direct:sessionaaa1\n');
+      }
       await withRouter({ hermesShutdown: runtime ? { saved: async () => 'a'.repeat(64) } : undefined,
         prepareFinalSync: async deadline => {
           assert.equal(deadline, TRIGGER + FINAL_SYNC_INTERNAL_TIMEOUT_MS);
@@ -311,13 +318,13 @@ describe('REQ-SESSION-043: authenticated final sync observes the launch outcome'
             if (!existsSync(PID_FILE)) throw new Error('daemon not ready');
             signalAt = now;
           },
-          readStatus: () => ({ status: now === signalAt ? 'syncing' : 'success', ts: now + 1 }),
+          readStatus: () => ({ status: pendingSync || now === signalAt ? 'syncing' : 'success', ts: now + 1 }),
           poll: async () => {
             if (now === TRIGGER) {
               if (marker) writeFileSync(disabledPath, marker);
               if (ready) writeFileSync(readyPath, 'direct:sessionaaa1\n');
             }
-            if (ready && now === TRIGGER + 1_000) writeFileSync(PID_FILE, String(process.pid));
+            if (daemon && now === TRIGGER + 1_000) writeFileSync(PID_FILE, String(process.pid));
             now += 1_000;
           },
         },
@@ -327,8 +334,10 @@ describe('REQ-SESSION-043: authenticated final sync observes the launch outcome'
         if (reason === 'hermes-disabled-at-startup') assert.deepEqual(response.body, { synced: false, reason, generation: 7 });
         else if (reason) assert.deepEqual(response.body, { synced: false, reason });
         else assert.deepEqual(response.body, { synced: true, snapshotId: 'a'.repeat(64) });
-        assert.equal(drainedAt, status === 200 ? TRIGGER + 2_000 : undefined);
+        assert.equal(drainedAt, status === 200 || pendingSync ? TRIGGER + 2_000 : undefined);
         assert.equal(signalAt, drainedAt);
+        if (diskBlocked) assert.equal(now, TRIGGER, 'known disk blockers must not wait for startup');
+        if (reason === 'hermes-save-not-started') assert.ok(now < TRIGGER + 120_000, 'refuse before the Worker aborts');
       });
     } finally {
       for (const file of [disabledPath, readyPath, diskPath, PID_FILE]) rmSync(file, { force: true });
