@@ -441,7 +441,8 @@ function waitForInitFlag(): Promise<void> {
 
 // Start server
 server.listen(PORT, '0.0.0.0', async () => {
-  log('info', 'Terminal server listening', { port: PORT });
+  const address = server.address();
+  log('info', 'Terminal server listening', { port: address && typeof address !== 'string' ? address.port : PORT });
   log('info', 'Workspace config', { workspace: WORKSPACE_DEFAULT, workingDir: getWorkingDirectory(), keepAliveSec: PTY_KEEPALIVE_MS / 1000 });
 
   // Start periodic cleanup of dead sessions

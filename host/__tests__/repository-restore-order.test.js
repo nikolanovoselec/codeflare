@@ -3,8 +3,6 @@
 // Herdr hydration or R2. Run in the normal Linux host lane after its host build.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { once } from 'node:events';
-import { createServer } from 'node:net';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -97,11 +95,6 @@ fs.renameSync(destination + '.tmp', destination);
 setTimeout(() => process.exit(0), 15_000);
 `);
 
-  const reservation = createServer();
-  reservation.listen(0, '127.0.0.1');
-  await once(reservation, 'listening');
-  const { port } = reservation.address();
-  await new Promise(resolve => reservation.close(resolve));
   const token = 'isolated-restore-order-fixture';
   child = spawn(process.execPath, [fileURLToPath(new URL('../dist/server.js', import.meta.url))], {
     cwd: workspace,
@@ -126,7 +119,7 @@ setTimeout(() => process.exit(0), 15_000);
       CODEFLARE_PI_GENERATION: '7',
       CODEFLARE_CLONE_RESTORE_FLAG_FILE: flag,
       SESSION_ID: sessionId,
-      TERMINAL_PORT: String(port),
+      TERMINAL_PORT: '0',
       TERMINAL_COMMAND: process.execPath,
       TERMINAL_ARGS: peer,
       CONTAINER_AUTH_TOKEN: token,
@@ -161,7 +154,11 @@ setTimeout(() => process.exit(0), 15_000);
     } while (Date.now() < deadline);
   }
 
-  await waitFor(() => diagnostics.includes('Terminal server listening'), 'Host never reported listening');
+  let port;
+  await waitFor(() => {
+    port = Number(diagnostics.match(/Terminal server listening \{"port":([1-9]\d*)\}/)?.[1]);
+    return Number.isInteger(port) && port <= 65535;
+  }, 'Host never reported its bound port');
   // REQ-AGENT-272: exercise the real Host composition root with otherwise
   // eligible handoff settings. The routed control would return 200 if mounted.
   const chat = await fetch(`http://127.0.0.1:${port}/api/pi-web/${sessionId}/_switch?generation=7`, {

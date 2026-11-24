@@ -385,16 +385,18 @@ Persisted Herdr state and runtime lifetime are documented in [Sessions & Runtime
 **Acceptance Criteria:**
 
 1. Normal Stop preserves the verified managed Pi role in its original pane, independently of focus. If a saved Pi session lacks a verified managed role, use legacy native restore and refuse Chat for that generation. <!-- @impl: image/herdr/codeflare-herdr-terminal::verify_managed_restore --> <!-- @manual: documentation/lanes/terminal-and-ide.md#future-herdr-handoff-qualification -->
+2. Managed Chat-first bootstrap waits for the selected primary pane topology without launching a native writer. <!-- @impl: image/herdr/codeflare-herdr-terminal::bootstrap --> <!-- @manual: documentation/lanes/terminal-and-ide.md#future-herdr-handoff-qualification -->
 
-2. Managed Chat-first bootstrap waits for the selected primary pane topology without launching a native writer. <!-- @impl: image/herdr/codeflare-herdr-terminal::bootstrap --> <!-- @test: host/__tests__/herdr-launcher.test.js (REQ-AGENT-272 AC1: Chat-first prewarms Herdr without launching native Pi) -->
+**Constraints:**
 
-**Constraints:** Herdr Chat handoff is deferred. Herdr topology readiness does not establish Chat writer readiness.
+- Herdr Chat handoff is deferred.
+- Herdr topology readiness does not establish Chat writer readiness.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-TERM-033](#req-term-033-durable-herdr-structural-session-recovery)
 
-**Verification:** Automated: [Herdr launcher fixture](../../host/__tests__/herdr-launcher.test.js); Manual: [Managed and legacy Herdr writer restore](../../documentation/lanes/terminal-and-ide.md#future-herdr-handoff-qualification)
+**Verification:** Manual: [Deferred Herdr handoff qualification](../../documentation/lanes/terminal-and-ide.md#future-herdr-handoff-qualification)
 
 **Status:** Planned
 

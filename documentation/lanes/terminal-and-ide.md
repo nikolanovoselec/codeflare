@@ -107,7 +107,9 @@ export default function (pi: ExtensionAPI) {
 
 #### Future Herdr handoff qualification
 
-Herdr Chat is not part of the current delivery. These checks apply only if Herdr handoff is enabled in a future release.
+Herdr Chat is not part of the current delivery. These checks apply only if Herdr handoff is enabled in a future release. The [launcher fixture](../../host/__tests__/herdr-launcher.test.js) shows that Chat-first does not launch native Pi when the pane is already available. Delayed-pane readiness is unverified.
+
+- In a Chat-first start, delay the selected primary pane. Bootstrap must stay pending until that pane appears, without launching native Pi.
 
 - For [REQ-TERM-048](../../sdd/spec/terminal.md#req-term-048-managed-herdr-pi-writer-restore), Stop a live managed Herdr writer, then repeat with one already parked. Confirm the original pane retains the wrapper role.
 - Restore with a different pane focused. The writer returns to the original pane. A legacy snapshot with no verified role restores its native Terminal and refuses Chat.
