@@ -214,6 +214,7 @@ function filterResolution() {
 function transfer(fx, from, to) {
   const script = [
     'set -euo pipefail',
+    'ENTERPRISE_MODE=inactive',
     'SYNC_MODE=full',
     'SYNC_POLICY_MODE=include',
     'SESSION_ID=hermes-fixture',
@@ -330,47 +331,18 @@ describe('Pi Hermes startup (actual entrypoint helper)', () => {
     assert.deepEqual(JSON.parse(readFileSync(join(restored, 'baseline.json'), 'utf8')), baseline);
   });
 
-  it('REQ-MEM-044 AC5: a new Enterprise session seeds only a complete verified revision', t => {
-    const fx = fixture(t);
-    const previous = restoredMarkdown(fx);
-    const fixtureFiles = Object.fromEntries(canonicalFiles.map(path => {
-      const name = path.replace('Vault/Memory/', '');
-      return [name.includes('/') ? name : `global/${name}`, `Committed ${name}\n`];
-    }));
-    const stage = join(fx.runtime, 'sync/hermes-masters');
-    const manifest = { revision: 'verified-fixture', files: Object.fromEntries(Object.entries(fixtureFiles).map(([name, value]) => [name,
-      createHash('sha256').update(value).digest('hex')])) };
-    put(join(stage, 'current.json'), JSON.stringify(manifest));
-    for (const [name, value] of Object.entries(fixtureFiles)) put(join(stage, manifest.revision, name), value);
-    put(join(stage, manifest.revision, 'global/MEMORY.md'), 'Corrupt staged object');
-    fails(run(fx, { enterprise: true }));
-    assert.equal(existsSync(join(fx.home, sessionRoot, 'session-id')), false);
-    put(join(stage, manifest.revision, 'global/MEMORY.md'), fixtureFiles['global/MEMORY.md']);
-    succeeds(run(fx, { enterprise: true }));
-    for (const [name, value] of Object.entries(fixtureFiles)) {
-      assert.equal(readFileSync(join(fx.home, sessionRoot, name), 'utf8'), value);
-    }
-    assertSaved(previous);
-  });
-
-  it('REQ-MEM-044 AC5: seeds from the latest complete revision only when the receipt matches the restored snapshot', t => {
+  it('REQ-MEM-044 AC5: seeds from the fixed masters only when the receipt matches the restored snapshot', t => {
     const fx = fixture(t);
     restoredMarkdown(fx);
     succeeds(run(fx, { enterprise: true }));
-    const store = join(fx.home, sessionRoot), stage = join(fx.runtime, 'sync/hermes-masters');
+    const store = join(fx.home, sessionRoot);
     const original = JSON.parse(readFileSync(join(store, 'baseline.json'), 'utf8'));
     const own = join(store, 'global/MEMORY.md');
     put(own, 'My saved addition.');
     const digest = data => createHash('sha256').update(data).digest('hex');
     const keys = ['global/USER.md', 'global/MEMORY.md', 'global/failures.md', 'Projects/workspace/MEMORY.md'];
     const receipt = digest(JSON.stringify(keys.map(key => [key, digest(original[key]), digest(readFileSync(join(store, key)))])));
-    const manifest = { revision: 'following-verified-shutdown', files: {} };
-    for (const key of keys) {
-      const text = `Newest merged ${key}`;
-      manifest.files[key] = digest(text);
-      put(join(stage, manifest.revision, key), text);
-    }
-    put(join(stage, 'current.json'), JSON.stringify(manifest));
+    for (const key of keys) put(join(fx.home, 'Vault/Memory', key.replace(/^global\//, '')), `Newest merged ${key}`);
     const resume = { enterprise: true, persistence: 'existing', generation: '2' };
     succeeds(run(fx, { ...resume, mergedSnapshot: 'a'.repeat(64) }));
     assert.equal(readFileSync(own, 'utf8'), 'My saved addition.');

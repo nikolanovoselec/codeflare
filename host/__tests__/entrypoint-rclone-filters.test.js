@@ -783,24 +783,19 @@ restore_hermes() {
 }
 
 describe('REQ-MEM-035 AC2 / REQ-MEM-041 AC2: session Markdown sync', () => {
-  it('REQ-MEM-044 AC2: seeds from a committed revision with a verified default-encrypted empty master', t => {
+  it('REQ-MEM-044 AC5: seeds the baseline and active store from four fixed masters, including an empty master', t => {
     const fx = persistenceFixture(t, { policy: 'mutable', hermes: 'new', enterprise: true, syncMode: 'none' });
-    const revision = 'empty-master-test';
     const entries = { 'global/USER.md': 'Owner fact', 'global/MEMORY.md': '', 'global/failures.md': 'Failure fact',
       'Projects/workspace/MEMORY.md': 'Workspace fact' };
-    for (const [key, value] of Object.entries(entries)) fx.put(fx.remote, `Vault/Memory/Masters/${revision}/${key}`, value);
-    fx.put(fx.remote, 'Vault/Memory/Masters/current.json', JSON.stringify({ revision,
-      files: Object.fromEntries(Object.entries(entries).map(([key, value]) => [key, createHash('sha256').update(value).digest('hex')])),
-    }));
-    // Model a default-encrypted empty object that can only be read by the
-    // scoped rclone fallback, while real rclone transfers the fixture bytes.
+    for (const [key, value] of Object.entries(entries)) fx.put(fx.remote, `Vault/Memory/${key.replace(/^global\//, '')}`, value);
     fx.run(`timeout() {
-      if [ "$2:$3" = rclone:copyto ] && [[ "$4" = */Masters/${revision}/global/MEMORY.md ]] && [ "\${CODEFLARE_RCLONE_HERMES_EMPTY_READ:-}" != 1 ]; then
+      if [ "$2:$3" = rclone:copyto ] && [[ "$4" = */Vault/Memory/MEMORY.md ]] && [ "\${CODEFLARE_RCLONE_HERMES_EMPTY_READ:-}" != 1 ]; then
         return 1
       fi
       command timeout "$@"
     }; restore_hermes`);
     const root = join(fx.home, 'Vault/Memory/Sessions/abc12345');
+    assert.deepEqual(JSON.parse(readFileSync(join(root, 'baseline.json'), 'utf8')), entries);
     for (const [key, value] of Object.entries(entries)) assert.equal(readFileSync(join(root, key), 'utf8'), value);
   });
 
@@ -818,20 +813,12 @@ describe('REQ-MEM-035 AC2 / REQ-MEM-041 AC2: session Markdown sync', () => {
     const original = JSON.parse(readFileSync(join(fx.remote, baselinePath), 'utf8'));
     const originalBytes = Object.fromEntries(keys.map(key => [key, readFileSync(join(fx.remote, store, key))]));
     const receipt = digest(JSON.stringify(keys.map(key => [key, digest(original[key]), digest(originalBytes[key])])));
-    const publish = (revision, sessionId, snapshotId) => {
-      const files = Object.fromEntries(keys.map(key => {
-        const text = `${revision}: ${key}`;
-        fx.put(fx.remote, `Vault/Memory/Masters/${revision}/${key}`, text);
-        return [key, digest(text)];
-      }));
-      fx.put(fx.remote, 'Vault/Memory/Masters/current.json', JSON.stringify({ revision, files,
-        source: { owner: fx.remote, sessionId, snapshotId },
-      }));
-      return files;
-    };
-    // The original receipt authorizes adopting the latest verified masters,
-    // which can already belong to a different session.
-    const files = publish('merged-test-revision', 'peersess1', 'b'.repeat(64));
+    const publish = label => Object.fromEntries(keys.map(key => {
+      const text = `${label}: ${key}`;
+      fx.put(fx.remote, `Vault/Memory/${key.replace(/^global\//, '')}`, text);
+      return [key, digest(text)];
+    }));
+    const files = publish('Merged masters');
     const resume = generation => `export CODEFLARE_HERMES_MERGED_SNAPSHOT=${receipt} CODEFLARE_HERMES_GENERATION=${generation};
       CODEFLARE_HERMES_PERSISTENCE=existing; restore_hermes`;
     const resetHome = () => { rmSync(fx.home, { recursive: true }); mkdirSync(fx.home); };
@@ -860,8 +847,8 @@ describe('REQ-MEM-035 AC2 / REQ-MEM-041 AC2: session Markdown sync', () => {
     assert.equal(readFileSync(synced, 'utf8'), `${receipt}\n`);
     for (const key of keys) assert.equal(digest(readFileSync(join(fx.remote, store, key))), files[key]);
 
-    // Advance the shared pointer after upload, but before the runtime reports to D1.
-    publish('later-peer-revision', 'peersess2', 'c'.repeat(64));
+    // Update the fixed masters after upload, but before the runtime reports to D1.
+    publish('Later peer masters');
     const restart = () => {
       resetHome();
       for (const marker of ['hermes-restore-verified', 'hermes-restore-synced']) {
@@ -870,7 +857,7 @@ describe('REQ-MEM-035 AC2 / REQ-MEM-041 AC2: session Markdown sync', () => {
     };
     restart();
     fx.run(resume(5));
-    assert.equal(existsSync(synced), true, 'complete replacement must not depend on the current pointer');
+    assert.equal(existsSync(synced), true, 'complete replacement must not depend on later writes to the fixed masters');
     assert.equal(readFileSync(synced, 'utf8'), `${receipt}\n`);
     for (const key of keys) assert.equal(digest(readFileSync(join(fx.home, store, key))), files[key]);
 
@@ -894,9 +881,13 @@ describe('REQ-MEM-035 AC2 / REQ-MEM-041 AC2: session Markdown sync', () => {
       fx.put(fx.remote, commit, 'Existing revision');
       assert.equal(existsSync(join(fx.home, commit)), false);
       fx.put(fx.home, commit, 'Must not publish via ordinary sync');
+      fx.put(fx.home, 'Vault/Memory/MEMORY.md', 'Stale master');
+      fx.put(fx.home, 'Vault/ordinary.md', 'Unrelated Vault note');
       fx.run('establish_bisync_baseline');
       assert.equal(JSON.parse(readFileSync(join(fx.remote, baseline), 'utf8'))['global/MEMORY.md'], 'Baseline fact');
       assert.equal(readFileSync(join(fx.remote, commit), 'utf8'), 'Existing revision');
+      assert.equal(readFileSync(join(fx.remote, 'Vault/Memory/MEMORY.md'), 'utf8'), 'Baseline fact');
+      assert.equal(readFileSync(join(fx.remote, 'Vault/ordinary.md'), 'utf8'), 'Unrelated Vault note');
       rmSync(fx.home, { recursive: true });
       mkdirSync(fx.home);
       fx.run('CODEFLARE_HERMES_PERSISTENCE=existing; restore_hermes');

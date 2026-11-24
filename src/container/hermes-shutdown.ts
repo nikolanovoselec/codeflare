@@ -1,3 +1,5 @@
+import type { D1Session } from '../lib/session-repository';
+
 export const HERMES_MERGE_BUDGET_MS = 20 * 60_000;
 
 /** The queue head is fenced from terminal use before this runs. Native model
@@ -34,4 +36,12 @@ export async function mergeAfterFinalSave<T>(input: {
   const snapshotId = typeof receipt.snapshotId === 'string' && /^[0-9a-f]{64}$/.test(receipt.snapshotId)
     ? receipt.snapshotId : undefined;
   return input.merge({ deadline, signal: mergeSignal, snapshotId });
+}
+
+export function verifiedHermesMerge(value: unknown, row: D1Session, snapshotId: string): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const { source } = value as { source?: Record<string, unknown> };
+  return source?.owner === row.ownerKey && source.sessionId === row.sessionId
+    && source.generation === (row.shutdown?.sourceGeneration ?? row.lifecycleGeneration)
+    && source.intent === row.shutdown?.intent && source.snapshotId === snapshotId;
 }

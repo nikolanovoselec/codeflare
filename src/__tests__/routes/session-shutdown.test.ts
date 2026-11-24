@@ -2,7 +2,6 @@ import { env as poolEnv } from 'cloudflare:test';
 import { afterEach, beforeAll, expect, it, vi } from 'vitest';
 import type { Env } from '../../types';
 import { D1SessionRepository } from '../../lib/session-repository';
-import { createHash } from 'node:crypto';
 import { SETUP_KEYS, getRegimeStateKey } from '../../lib/kv-keys';
 import { createTestApp } from '../helpers/test-app';
 // @ts-expect-error Vite raw-loader module used by the Workers test runtime.
@@ -11,17 +10,6 @@ import migration from '../../../migrations/usage/0002_runtime_sessions.sql?raw';
 import completion from '../../../migrations/usage/0003_complete_session_cutover.sql?raw';
 // @ts-expect-error Vite raw-loader module used by the Workers test runtime.
 import boundary from '../../../migrations/usage/0004_boundary_activity.sql?raw';
-
-const readback = vi.hoisted(() => new Map<string, string>());
-vi.mock('../../lib/r2-client', async (importOriginal) => {
-  const original = await importOriginal<typeof import('../../lib/r2-client')>();
-  return { ...original, createR2Client: () => ({ fetch: async (url: string, init?: RequestInit) => {
-    if ((init?.method ?? 'GET') !== 'GET') throw new Error('Readback must not publish');
-    const body = readback.get(new URL(url).pathname);
-    return body === undefined ? new Response(null, { status: 404 })
-      : new Response(body, { headers: { etag: '"fixture-revision"' } });
-  } }) };
-});
 
 // Real routes, D1 and session/bucket coordinators. Replace only the platform
 // namespace, Container SDK/native process and Host transport (no Miniflare proxy).
@@ -172,7 +160,7 @@ function rig(enterprise = true, workspaceSyncEnabled = true) {
           trace.push(`${label}:merge`);
           const status = await (retrying ? retryResult.promise : merge.promise);
           const sessionId = label.split(':').at(-1)!;
-          return Response.json({ status, ...(status === 'merged' && { receipt: { revision: 'revision-1', source: {
+          return Response.json({ status, ...(status === 'merged' && { receipt: { source: {
             owner: label.startsWith('other:') ? other : owner, sessionId, generation: 1, intent: body.intent, snapshotId: body.snapshotId,
           } } }) });
         }
@@ -264,12 +252,7 @@ function rig(enterprise = true, workspaceSyncEnabled = true) {
   const remove = (id: string) => app().request(path(id), { method: 'DELETE' });
   const kill = (id: string) => app().request(`${path(id)}/kill`, { method: 'POST' });
   const retry = (id: string, bucket = owner) => app(bucket).request(`${path(id)}/retry-memory-consolidation`, { method: 'POST' });
-  const deliverAlarm = async () => {
-    const address = `storage:${owner}`;
-    expect(alarms.delete(address)).toBe(true);
-    await getByName(address).alarm();
-  };
-  return { owner, other, app, path, create, batch, stop, remove, kill, retry, trace, deliverAlarm, session: (id: string) => getByName(`${owner}-${id}`) };
+  return { owner, other, app, path, create, batch, stop, remove, kill, retry, trace, session: (id: string) => getByName(`${owner}-${id}`) };
 }
 
 const a = 'sessionaaa1';
@@ -471,7 +454,7 @@ it('REQ-SESSION-043: Kill removes queued Delete work immediately without a final
   expect((await f.app().request(f.path(b))).status).toBe(200);
 });
 
-it('REQ-MEM-044: Resume keeps an uncertain earlier publication slot without offering it the new runtime', async () => {
+it('REQ-MEM-044: Resume after an unconfirmed master transfer keeps the saved snapshot without a merge receipt', async () => {
   const f = rig();
   const A = await f.create(a, { holdMerge: true });
   A.save.release('saved');
@@ -484,7 +467,8 @@ it('REQ-MEM-044: Resume keeps an uncertain earlier publication slot without offe
   const resumed = await repository.start(f.owner, a, stamp, saved!.lifecycleGeneration, saved!.shutdown);
   expect(resumed).toMatchObject({ lifecycleState: 'starting', lifecycleGeneration: 2 });
   expect((await f.batch())[a]?.shutdownPhase).toBeUndefined();
-  expect((await repository.shutdownHead(f.owner))?.sessionId).toBe(a);
+  expect(resumed?.mergedSnapshotId).toBeUndefined();
+  expect(await repository.shutdownHead(f.owner)).toBeNull();
 });
 
 it('REQ-MEM-044: a failed restore does not consume the saved merge receipt', async () => {
@@ -613,21 +597,25 @@ it('REQ-SESSION-043: retains a saved failed Delete after exit and advances the q
   expect((await f.app().request(f.path(a))).status).toBe(200);
 });
 
-it('REQ-SESSION-043: Kill during inference retains the session, rejects a late receipt and holds unreconciled publication', async () => {
+it('REQ-SESSION-043: Kill during inference retains the session, rejects a late receipt and allows the next writer only after exit', async () => {
   const f = rig();
   const [A, B] = await Promise.all([f.create(a, { holdMerge: true }), f.create(b)]);
   await expectAccepted(f.remove(a));
   await expectAccepted(f.stop(b));
   A.save.release('saved');
   await vi.waitFor(() => expect(f.trace).toContain(`${a}:merge`));
+  const killed = f.kill(a);
+  expect((await f.batch())[b]?.shutdownPhase).toBe('queued');
+  expect(f.trace).not.toContain(`${b}:save`);
   A.exit.release();
-  expect((await bounded(f.kill(a))).status).toBe(200);
+  expect((await bounded(killed)).status).toBe(200);
   A.merge.release('merged');
   await vi.waitFor(async () => expect((await f.batch())[a]).toMatchObject({ status: 'stopped', pendingDelete: false }));
   expect((await f.app().request(f.path(a))).status).toBe(200);
-  expect((await f.batch())[b]?.shutdownPhase).toBe('queued');
-  expect(f.trace).not.toContain(`${b}:save`);
+  expect((await repository.getSession(f.owner, a))?.mergedSnapshotId).toBeUndefined();
   B.save.release('saved'); B.exit.release();
+  await vi.waitFor(async () => expect((await f.batch())[b]?.status).toBe('stopped'));
+  expect(f.trace.indexOf(`${a}:exit`)).toBeLessThan(f.trace.indexOf(`${b}:save`));
 });
 
 
@@ -643,34 +631,23 @@ it('REQ-SESSION-043: stops a confirmed save without a trustworthy baseline but n
   expect((await f.app().request(f.path(a))).status).toBe(200);
 });
 
-it('REQ-SESSION-043: confirms an uncertain publication from the exact complete R2 revision and never repeats the merge', async () => {
+it('REQ-SESSION-043: unconfirmed master transfer retains Delete and releases the queue only after exit', async () => {
   const f = rig();
   const [A, B] = await Promise.all([f.create(a, { holdMerge: true }), f.create(b)]);
   await expectAccepted(f.remove(a));
   await expectAccepted(f.stop(b));
   A.save.release('saved');
   await vi.waitFor(() => expect(f.trace).toContain(`${a}:merge`));
-  A.merge.release('uncertain'); A.exit.release();
-  await vi.waitFor(async () => expect((await f.batch())[a]?.shutdownPhase).toBe('memory-not-merged'));
-  await f.deliverAlarm();
-  const revision = 'test-revision';
-  const prefix = `/${f.owner}/Vault/Memory/Masters`;
-  const files: Record<string, string> = {};
-  for (const file of ['global/USER.md', 'global/MEMORY.md', 'global/failures.md', 'Projects/workspace/MEMORY.md']) {
-    const text = `Saved entry for ${file}`;
-    readback.set(`${prefix}/${revision}/${file}`, text);
-    files[file] = createHash('sha256').update(text).digest('hex');
-  }
-  readback.set(`${prefix}/current.json`, JSON.stringify({ revision, files, source: {
-    owner: f.owner, sessionId: a, generation: 1, intent: A.mergeRequest!.intent, snapshotId,
-  } }));
-  B.save.release('saved'); B.exit.release();
-  await f.deliverAlarm();
+  A.merge.release('uncertain');
+  expect((await f.batch())[b]?.shutdownPhase).toBe('queued');
+  expect(f.trace).not.toContain(`${b}:save`);
+  A.exit.release(); B.save.release('saved'); B.exit.release();
   await vi.waitFor(async () => {
     const settled = await f.batch();
-    expect(settled[a]).toBeUndefined();
+    expect(settled[a]).toMatchObject({ status: 'stopped', shutdownPhase: 'memory-not-merged', pendingDelete: true });
     expect(settled[b]?.status).toBe('stopped');
   });
+  expect(f.trace.indexOf(`${a}:exit`)).toBeLessThan(f.trace.indexOf(`${b}:save`));
   expect(f.trace.filter(event => event === `${a}:merge`)).toEqual([`${a}:merge`]);
 });
 

@@ -410,6 +410,12 @@ if [ "${SESSION_MODE:-default}" = "advanced" ]; then
     )
     if [ "${ENTERPRISE_MODE:-}" = active ]; then
         VAULT_FILTER+=(--filter "- /Vault/Memory/Masters/**" --filter "- /Vault/Memory/Masters")
+        case "${CODEFLARE_HERMES_PERSISTENCE:-}" in
+            new|existing) VAULT_FILTER+=(
+                --filter "- /Vault/Memory/USER.md" --filter "- /Vault/Memory/MEMORY.md"
+                --filter "- /Vault/Memory/failures.md" --filter "- /Vault/Memory/Projects/workspace/MEMORY.md"
+            ) ;;
+        esac
     fi
 else
     VAULT_FILTER=(--filter "- Vault/**")
@@ -955,32 +961,25 @@ transfer_pi_hermes_memory() {
 
 restore_pi_hermes_masters() {
     (
-        local deadline="$1" stage="$CODEFLARE_RUNTIME_ROOT/sync/hermes-masters"
-        local remote="r2:$R2_BUCKET_NAME/Vault/Memory/Masters" listed revision name
+        local deadline="$1" require_all="${2:-false}" key listed target dir remote="r2:$R2_BUCKET_NAME/"
         local -a args=(--config "$RCLONE_CONFIG" --contimeout 5s --timeout 15s --retries 1)
-        rm -rf -- "$stage" && mkdir -m 700 -- "$stage" || return 1
-        [ "$deadline" -gt "$SECONDS" ] || return 1
-        listed=$(timeout "$((deadline - SECONDS))" rclone lsf "r2:$R2_BUCKET_NAME/" --recursive --files-only \
-            --include /Vault/Memory/Masters/current.json "${args[@]}") || return 1
-        [ -n "$listed" ] || return 0
-        [ "$listed" = Vault/Memory/Masters/current.json ] && [ "$deadline" -gt "$SECONDS" ] || return 1
-        timeout "$((deadline - SECONDS))" rclone copyto "$remote/current.json" "$stage/current.json" "${args[@]}" || return 1
-        revision=$(python3 - "$stage/current.json" <<'PY'
-import json, re, sys
-from pathlib import Path
-path = Path(sys.argv[1])
-if path.stat().st_size > 4096:
-    sys.exit(1)
-revision = json.loads(path.read_bytes()).get('revision')
-if not isinstance(revision, str) or not re.fullmatch(r'[a-zA-Z0-9_-]{1,180}', revision) or revision == 'legacy':
-    sys.exit(1)
-print(revision)
-PY
-        ) || return 1
-        for name in global/USER.md global/MEMORY.md global/failures.md Projects/workspace/MEMORY.md; do
+        for dir in Vault Vault/Memory Vault/Memory/Projects Vault/Memory/Projects/workspace; do
+            [ ! -L "$USER_HOME/$dir" ] && mkdir -p -- "$USER_HOME/$dir" || return 1
+        done
+        for key in USER.md MEMORY.md failures.md Projects/workspace/MEMORY.md; do
+            target="$USER_HOME/Vault/Memory/$key"
+            [ ! -L "$target" ] && { [ ! -e "$target" ] || [ -f "$target" ]; } || return 1
             [ "$deadline" -gt "$SECONDS" ] || return 1
+            listed=$(timeout "$((deadline - SECONDS))" rclone lsf "$remote" --recursive --files-only \
+                --include "/Vault/Memory/$key" "${args[@]}") || return 1
+            if [ -z "$listed" ]; then
+                [ "$require_all" = false ] && rm -f -- "$target" || return 1
+                continue
+            fi
+            [ "$listed" = "Vault/Memory/$key" ] && [ "$deadline" -gt "$SECONDS" ] || return 1
             CODEFLARE_RCLONE_HERMES_EMPTY_READ=1 timeout "$((deadline - SECONDS))" rclone copyto \
-                "$remote/$revision/$name" "$stage/$revision/$name" "${args[@]}" || return 1
+                "${remote}Vault/Memory/$key" "$target" --ignore-times "${args[@]}" || return 1
+            [ -f "$target" ] || return 1
         done
     )
 }
@@ -1001,7 +1000,7 @@ prepare_pi_hermes_persistence() {
                 local reseed
                 reseed=$(configure_pi_hermes_memory "$USER_HOME" receipt) || return 1
                 if [ "$reseed" = matched ]; then
-                    restore_pi_hermes_masters "$HERMES_RESTORE_DEADLINE" || return 1
+                    restore_pi_hermes_masters "$HERMES_RESTORE_DEADLINE" true || return 1
                 fi
             fi ;;
         *) return 1 ;;
@@ -3537,33 +3536,18 @@ def digest_text(text):
     return hashlib.sha256(text.encode()).hexdigest()
 
 
-def read_seed(require_commit=False):
+def read_seed(require_all=False):
     direct_directory(vault / 'Projects/workspace')
-    stage = ready.with_name('hermes-masters')
-    commit_path = stage / 'current.json'
-    if not enterprise or not kind(commit_path, stat.S_ISREG):
-        if require_commit:
-            raise ValueError('missing verified Hermes revision for reseed')
-        return {name: read(vault / name) if kind(vault / name, stat.S_ISREG) else '' for name in paths}, None
-    if commit_path.stat().st_size > 4096:
-        raise ValueError('invalid Hermes commit size')
-    commit = json.loads(read(commit_path))
-    if not isinstance(commit, dict):
-        raise ValueError('invalid Hermes commit')
-    revision, hashes = commit.get('revision'), commit.get('files')
-    if not isinstance(revision, str) or not re.fullmatch('[a-zA-Z0-9_-]{1,180}', revision) or revision == 'legacy' \
-            or not isinstance(hashes, dict) or hashes.keys() != set(paths.values()):
-        raise ValueError('invalid Hermes commit')
     seed = {}
-    for name, relative in paths.items():
-        staged = stage / revision / relative
-        if not kind(staged, stat.S_ISREG, True) or staged.stat().st_size > 600000:
-            raise ValueError('invalid Hermes revision file')
-        value = read(staged)
-        if digest_text(value) != hashes[relative] or len(value.encode('utf-16-le')) > 300000:
-            raise ValueError('unverified Hermes revision')
-        seed[name] = value
-    return seed, revision
+    for name in paths:
+        master = vault / name
+        if kind(master, stat.S_ISREG, require_all):
+            if enterprise and master.stat().st_size > 4 * 1024 * 1024:
+                raise ValueError('oversized Hermes master')
+            seed[name] = read(master)
+        else:
+            seed[name] = ''
+    return seed
 
 
 def restored_replacement_matches(receipt):
@@ -3573,9 +3557,6 @@ def restored_replacement_matches(receipt):
         original = read_hermes_baseline()
         proof = original.get('_reseed')
         if not isinstance(proof, dict) or (proof.get('owner'), proof.get('sessionId'), proof.get('snapshotId')) != (bucket, session, receipt):
-            return False
-        revision = proof.get('revision')
-        if not isinstance(revision, str) or not re.fullmatch('[a-zA-Z0-9_-]{1,180}', revision) or revision == 'legacy':
             return False
         return proof.get('files') == {rel: digest_text(original[rel]) for rel in paths.values()} \
             and snapshot(evidence, paths) == {name: original[rel] for name, rel in paths.items()}
@@ -3596,10 +3577,10 @@ def prepare_direct_layout():
         project.is_symlink() and Path(os.path.abspath(project.parent / os.readlink(project))) == target)):
         raise ValueError('conflicting memory alias')
     retirement = None
-    # Validate the entire newer revision before moving any restored session bytes.
+    # Read all fixed masters before moving any restored session bytes.
     receipt_match = merged_snapshot_matches()
     reseed = receipt_match is True
-    seed, revision = read_seed(require_commit=True) if reseed else (None, None)
+    seed = read_seed(require_all=True) if reseed else None
     if (persistence == 'new' or reseed) and generation:
         if not re.fullmatch('[1-9][0-9]{0,15}', generation):
             raise ValueError('invalid Hermes admission generation')
@@ -3631,7 +3612,7 @@ def prepare_direct_layout():
         # Only a recorded retirement can resume interrupted local seeding.
         if not retirement and any(os.path.lexists(evidence / name) for name in paths.values()):
             raise ValueError('incomplete local Hermes store')
-        source = seed if seed is not None else read_seed()[0]
+        source = seed if seed is not None else read_seed()
         for name, rel in paths.items():
             destination = evidence / rel
             destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -3647,7 +3628,7 @@ def prepare_direct_layout():
             if reseed:
                 saved_baseline['_reseed'] = {
                     'owner': bucket, 'sessionId': session, 'snapshotId': os.environ['CODEFLARE_HERMES_MERGED_SNAPSHOT'],
-                    'revision': revision, 'files': {rel: digest_text(source[name]) for name, rel in paths.items()},
+                    'files': {rel: digest_text(source[name]) for name, rel in paths.items()},
                 }
             atomic(baseline, saved_baseline, evidence)
         if retirement:

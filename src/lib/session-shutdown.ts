@@ -10,6 +10,8 @@ export interface SessionShutdown {
   delete: boolean;
   snapshotId?: string;
   deadline?: number;
+  mergeVerified?: true;
+  /** Confirmed result of an earlier deployed revision-based merge. */
   revision?: string;
   teardownClaimed?: true;
   /** Authenticated proof that this generation never opened its Hermes store. */

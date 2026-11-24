@@ -3,7 +3,6 @@ import { getContainerId } from '../lib/container-helpers';
 import { D1SessionRepository } from '../lib/session-repository';
 import { shutdownProjection, snapshotPattern, type SessionShutdown, type ShutdownPhase } from '../lib/session-shutdown';
 import type { SessionStopRequest } from './container-lifecycle';
-import { reconcileHermesPublication } from './hermes-shutdown-readback';
 
 export type ShutdownRequest = SessionStopRequest & { delete: boolean; retry?: true };
 export type ShutdownAcceptance = { accepted: false } | { accepted: true; projection: ReturnType<typeof shutdownProjection> };
@@ -66,12 +65,9 @@ export async function advanceShutdownQueue(env: Env, bucket: string): Promise<vo
     const session = env.CONTAINER.getByName(getContainerId(bucket, row.sessionId)) as unknown as ShutdownSession;
     const transition = (change: (current: SessionShutdown) => SessionShutdown | undefined) =>
       transitionShutdown(repository, input, job.intent, job.phase, change);
-    if (job.phase === 'uncertain') {
-      const signal = AbortSignal.timeout(MERGE_READBACK_WINDOW_MS);
-      const revision = await raceAbort(signal, () => reconcileHermesPublication(env, row, signal)).catch(() => undefined);
-      if (!revision) return;
-      // A resumed runtime keeps its own store; late proof settles publication only.
-      await transition(current => current.resumed ? undefined : { ...current, phase: 'finishing', revision });
+    if (job.phase === 'uncertain' && job.resumed) {
+      // Old publication state can never authorize reseeding a resumed runtime.
+      await transition(() => undefined);
       continue;
     }
     if (row.lifecycleState === 'stopped') {
@@ -81,12 +77,12 @@ export async function advanceShutdownQueue(env: Env, bucket: string): Promise<vo
       }
       if (job.phase === 'finishing') {
         if (job.delete && job.teardownClaimed) await repository.deleteAfterShutdown(row);
-        else await transition(current => current.revision ? { ...current, phase: 'merged' } : undefined);
-      } else if (job.phase === 'consolidating' || job.phase.endsWith('-uncertain')) {
-        await transition(current => ({ ...current, phase: 'uncertain', sourceGeneration: current.sourceGeneration ?? row.lifecycleGeneration }));
-      } else if (job.phase === 'killing' && job.revision) {
+        else await transition(current => (current.mergeVerified || current.revision) ? { ...current, phase: 'merged' } : undefined);
+      } else if (job.phase === 'killing' && (job.mergeVerified || job.revision)) {
         await transition(current => ({ ...current, phase: 'merged' }));
-      } else if (job.phase === 'finishing-pending') {
+      } else if (job.phase === 'consolidating' || job.phase.endsWith('-uncertain')
+        || job.phase === 'uncertain' || job.phase === 'finishing-pending') {
+        // Confirmed exit fences the old writer. Unconfirmed transfers grant no receipt.
         await transition(current => ({ ...current, phase: 'memory-not-merged' }));
       } else {
         // Exit outside the graceful path or an acknowledged Kill. No inferred save or Delete.
@@ -112,7 +108,7 @@ export async function advanceShutdownQueue(env: Env, bucket: string): Promise<vo
         break;
       case 'consolidating':
         if (Date.now() < (job.deadline ?? 0) + MERGE_READBACK_WINDOW_MS) return;
-        await transition(current => ({ ...current, phase: 'finishing-uncertain' }));
+        await transition(current => ({ ...current, phase: 'finishing-pending' }));
         break;
       case 'finishing':
       case 'finishing-pending':

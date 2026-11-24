@@ -110,8 +110,7 @@ import {
   type LifecycleLogContext,
 } from './container-lifecycle';
 
-import { HERMES_MERGE_BUDGET_MS, mergeAfterFinalSave } from './hermes-shutdown';
-import { verifiedMergeRevision } from './hermes-shutdown-readback';
+import { HERMES_MERGE_BUDGET_MS, mergeAfterFinalSave, verifiedHermesMerge } from './hermes-shutdown';
 import { acceptShutdown, advanceShutdownQueue, MERGE_READBACK_WINDOW_MS, raceAbort, transitionShutdown,
   type ShutdownRequest, type ShutdownAcceptance } from './session-shutdown-queue';
 
@@ -607,8 +606,7 @@ export class container extends Container<Env> implements ContainerEnvState {
     this.requireShutdownCoordinator(bucket);
     const head = await new D1SessionRepository(this.env.USAGE_DB).shutdownHead(bucket);
     if (!head) return;
-    await this.ctx.storage.setAlarm(Date.now() + (head.shutdown?.phase === 'uncertain'
-      ? 60_000 : SHUTDOWN_QUEUE_ALARM_MS));
+    await this.ctx.storage.setAlarm(Date.now() + SHUTDOWN_QUEUE_ALARM_MS);
     this.kickShutdownQueue(bucket);
   }
 
@@ -1622,7 +1620,6 @@ export class container extends Container<Env> implements ContainerEnvState {
     let confirmedSave = false;
     let confirmedSnapshot: string | undefined;
     let saveRefused = false;
-    let dispatched = false;
     const assertCurrent = async (phase: 'saving' | 'consolidating') => {
       const row = await repository.getSession(bucket, sessionId);
       abort.signal.throwIfAborted();
@@ -1689,7 +1686,7 @@ export class container extends Container<Env> implements ContainerEnvState {
             ...job, phase: 'consolidating', snapshotId, deadline,
           }))) throw new Error('Hermes shutdown superseded');
           const row = await assertCurrent('consolidating');
-          const outcome = await this.#runHermesMerge(row, snapshotId, deadline, signal, abort.signal, () => { dispatched = true; });
+          const outcome = await this.#runHermesMerge(row, snapshotId, deadline, signal, abort.signal);
           await transitionShutdown(repository, input, intent, 'consolidating', job => ({ ...job, ...outcome }));
         },
       });
@@ -1698,7 +1695,7 @@ export class container extends Container<Env> implements ContainerEnvState {
         this.logger.warn('Hermes shutdown did not settle normally; preserving saved state', { sessionId, generation });
         if (confirmedSave) {
           if (!await transitionShutdown(repository, input, intent, 'consolidating', job => ({
-            ...job, phase: dispatched ? 'finishing-uncertain' : 'finishing-pending',
+            ...job, phase: 'finishing-pending',
           }))) await transitionShutdown(repository, input, intent, 'saving', job => ({
             ...job, phase: 'finishing-pending', snapshotId: confirmedSnapshot,
           }));
@@ -1727,7 +1724,6 @@ export class container extends Container<Env> implements ContainerEnvState {
     const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(HERMES_MERGE_BUDGET_MS)]);
     const failBeforeStart = () => transitionShutdown(repository, input, intent, 'queued', current => ({ ...current, phase: 'memory-not-merged' }));
     let active: SessionStopRequest | undefined;
-    let dispatched = false;
     try {
       const email = this._userEmail;
       if (!email || this._operatorPolicy || this._operatorContainerProfile || this.ctx.container?.running
@@ -1778,13 +1774,13 @@ export class container extends Container<Env> implements ContainerEnvState {
       signal.throwIfAborted();
       if (!running || running.lifecycleGeneration !== active.generation || running.lifecycleState !== 'running'
         || running.shutdown?.intent !== intent || running.shutdown.phase !== 'consolidating') throw new Error('Hermes retry superseded');
-      const outcome = await this.#runHermesMerge(running, snapshotId, deadline, signal, abort.signal, () => { dispatched = true; });
+      const outcome = await this.#runHermesMerge(running, snapshotId, deadline, signal, abort.signal);
       await transitionShutdown(repository, active, intent, 'consolidating', state => ({ ...state, ...outcome }));
     } catch {
       if (!active) await failBeforeStart();
       else if (!abort.signal.aborted) {
         await transitionShutdown(repository, active, intent, 'consolidating', current => ({
-          ...current, phase: dispatched ? 'finishing-uncertain' : 'finishing-pending',
+          ...current, phase: 'finishing-pending',
         }));
       }
     } finally {
@@ -1793,7 +1789,7 @@ export class container extends Container<Env> implements ContainerEnvState {
   }
 
   async #runHermesMerge(row: D1Session, snapshotId: string, deadline: number, signal: AbortSignal,
-    cancel: AbortSignal, dispatching: () => void) {
+    cancel: AbortSignal) {
     const email = this._userEmail;
     if (!email) return { phase: 'finishing-pending' as const };
     const config = await raceAbort(signal, async () => {
@@ -1815,7 +1811,6 @@ export class container extends Container<Env> implements ContainerEnvState {
     const observation = AbortSignal.any([cancel, AbortSignal.timeout(remaining + MERGE_READBACK_WINDOW_MS)]);
     const body = JSON.stringify({ intent: row.shutdown?.intent, snapshotId, deadline, allowPersonalPiProviders, gateway });
     const result = await raceAbort(observation, async () => {
-      dispatching();
       const response = await this.#forwardPrivatePort(new Request('http://localhost/internal/hermes-merge', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: observation, body,
       }));
@@ -1825,10 +1820,9 @@ export class container extends Container<Env> implements ContainerEnvState {
       ))) as { status?: unknown; receipt?: unknown } | null;
     });
     cancel.throwIfAborted();
-    const revision = result?.status === 'merged' ? verifiedMergeRevision(result.receipt, row, snapshotId) : undefined;
-    const phase = revision || result?.status === 'skipped' ? 'finishing'
-      : result?.status === 'pending' ? 'finishing-pending' : 'finishing-uncertain';
-    return { phase, revision } as const;
+    const mergeVerified = result?.status === 'merged' && verifiedHermesMerge(result.receipt, row, snapshotId);
+    const phase = mergeVerified || result?.status === 'skipped' ? 'finishing' : 'finishing-pending';
+    return { phase, ...(mergeVerified ? { mergeVerified: true } : {}) } as const;
   }
 
   private requireShutdownSession(input: SessionStopRequest): void {

@@ -444,7 +444,7 @@ A `503` alone is not retry authority. `503 daemon-not-running` means the daemon 
 
 For the merge request, send `{ intent, snapshotId, deadline, allowPersonalPiProviders, gateway? }`. The snapshot must match the confirmed save. The deadline is a future Unix time in milliseconds within the 20-minute budget. `allowPersonalPiProviders` is a boolean. Optional `gateway` includes `model`, `contextWindow`, and optional `reasoning` and `reasoningLevels`.
 
-For `200`, inspect the JSON `status` field: `merged` includes a receipt, `skipped` is a verified no-op, and `pending` or `uncertain` do not prove publication. <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @impl: host/src/hermes-shutdown-service.ts::createHermesShutdownService -->
+For `200`, inspect the JSON `status` field: `merged` includes a source-snapshot receipt after verifying all four masters, `skipped` is a verified no-op, and `pending` does not confirm a merge. <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @impl: host/src/hermes-shutdown-service.ts::createHermesShutdownService -->
 
 ## Internal Operator Host APIs
 

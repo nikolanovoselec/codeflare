@@ -1,6 +1,6 @@
 type Source = { owner: string; sessionId: string; generation: number; intent: string; snapshotId: string };
 type Gateway = { model: string; reasoning?: string; contextWindow: number; reasoningLevels?: string[] };
-type Result = { status: 'pending' | 'skipped' | 'uncertain' } | { status: 'merged'; receipt: { source: Source; revision: string } };
+type Result = { status: 'pending' | 'skipped' } | { status: 'merged'; receipt: { source: Source } };
 const hex = /^[a-f0-9]{64}$/;
 const route = /^[A-Za-z0-9._-]{1,128}$/;
 const budget = 20 * 60_000;
