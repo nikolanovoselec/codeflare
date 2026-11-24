@@ -923,7 +923,8 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 2. Passive refresh or reconnect cannot acquire a writer or wake a stopped container. <!-- @impl: src/routes/pi-web.ts::handlePiWebRequest --> <!-- @impl: host/src/pi-web-handoff.ts::createPiWebHandoff --> <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-272 AC2+AC5: an admitted web request cannot outlive the writer or let a stale tab reopen it) --> <!-- @test: src/__tests__/container/terminal-ws-relay.test.ts (REQ-AGENT-272 AC5: reconnect after Pi web’s private process exits cannot start a new generation) -->
 3. The destination opens the saved history without replaying the interrupted prompt or queue. <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-272 AC3: ${source} requests abort before ${target} may open the saved conversation) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time -->
 4. Terminal text recovered by Abort returns as an editable, unsent draft. <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time -->
-5. Ordinary quit returns to the same Terminal shell. An explicit re-entry reopens the exact transcript only after the previous writer exits; returning from Chat must not grant a ticket to a retiring wrapper. <!-- @impl: host/src/pi-web-runtime.ts::rearmSelectedTerminal --> <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-273: only an explicit native re-entry can request a new Terminal grant) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#quit-and-reopen-native-pi -->
+5. Ordinary quit returns to a usable shell in the same Terminal pane. <!-- @manual: documentation/lanes/terminal-and-ide.md#quit-and-reopen-native-pi -->
+6. Explicit re-entry opens the exact saved transcript only after the previous writer exits. Returning from Chat after quit requires a fresh launcher waiting in the original pane. <!-- @impl: host/src/pi-web-runtime.ts::rearmSelectedTerminal --> <!-- @manual: documentation/lanes/terminal-and-ide.md#quit-and-reopen-native-pi -->
 
 **Constraints:** None.
 
@@ -931,7 +932,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Dependencies:** [REQ-AGENT-272](#req-agent-272-pi-chat-and-terminal-transcript-handoff)
 
-**Verification:** Automated: [Chat panel](../../web-ui/src/__tests__/components/PiWebChat.test.tsx), [Host handoff](../../host/__tests__/pi-web-handoff.test.js), [DO relay](../../src/__tests__/container/terminal-ws-relay.test.ts); Manual: [Packaged Chat handoff acceptance](../../documentation/lanes/terminal-and-ide.md#pi-chat-handoff-acceptance).
+**Verification:** Automated: [Chat panel](../../web-ui/src/__tests__/components/PiWebChat.test.tsx), [Host handoff coordinator](../../host/__tests__/pi-web-handoff.test.js), [DO relay](../../src/__tests__/container/terminal-ws-relay.test.ts); Manual: [Switch one writer at a time](../../documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time), [Quit and reopen native Pi](../../documentation/lanes/terminal-and-ide.md#quit-and-reopen-native-pi).
 
 **Status:** Planned
 

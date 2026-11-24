@@ -248,8 +248,8 @@ export default function (pi) {
       http.request = (options, receive) => {
         if (options.hostname === '127.0.0.1' && options.port === PI_WEB_PORT && options.path === '/api/projects') {
           return nativeHttpRequest(options, response => {
-            response.headers['content-security-policy'] = "default-src 'none'";
-            response.headers['x-frame-options'] = 'DENY';
+            response.headers['content-security-policy'] = ["default-src 'none'", 'sandbox'];
+            response.headers['x-frame-options'] = ['SAMEORIGIN', 'DENY'];
             receive(response);
           });
         }
@@ -271,7 +271,8 @@ export default function (pi) {
     }
     const preview = await nativeFetch(`${origin}${appPrefix}/api/projects`, { headers: browserHeaders });
     assert.equal(preview.status, 200);
-    assert.equal(preview.headers.get('Content-Security-Policy'), "default-src 'none'");
+    assert.deepEqual(preview.headers.get('Content-Security-Policy')?.split(',').map(policy => policy.trim()),
+      ["default-src 'none'", 'sandbox']);
     assert.equal(preview.headers.get('X-Frame-Options'), 'DENY');
     await preview.arrayBuffer();
     const prompt = (message, status = 200) => api(`${ref}/prompt`, status, { cwd, text: message });

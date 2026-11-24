@@ -187,6 +187,21 @@ async function qualify(mode) {
   }
 
   let binding, leaf, saved, inode, host;
+  async function registerHeldReentry(pane, retiredTicket, pid) {
+    // Controlled private-protocol fixture: the registered process is alive
+    // but does not claim the ticket, like a wrapper held before its next poll.
+    const stat = read(`/proc/${pid}/stat`);
+    const startTime = stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19];
+    const path = join(runtimeDir, 'wrapper.json');
+    writeFileSync(`${path}.next`, JSON.stringify({ generation, pid, startTime, pane, rearmTicket: retiredTicket }));
+    renameSync(`${path}.next`, path);
+    const interrupted = await pty.until('Host publishes a grant while the registered wrapper is held', () => {
+      const owner = json(ownerPath);
+      return owner.phase === 'opening' && owner.terminalTicket !== retiredTicket && owner;
+    });
+    assert.equal(existsSync(join(runtimeDir, 'terminal-tickets', `${generation}`, interrupted.terminalTicket)), false);
+    return interrupted.terminalTicket;
+  }
   async function openExact(pane, host) {
     const grant = host ? json(ownerPath) : { surface: null, phase: 'opening', target: 'terminal', requestId: randomUUID(),
       terminalTicket: randomUUID(), binding };
@@ -276,10 +291,19 @@ async function qualify(mode) {
         existsSync(shellProbe) && read(shellProbe).trim() === cwd);
       assert.equal(host.status().surface, 'terminal');
       assert.equal(json(ownerPath).terminalTicket, reopened.grant.terminalTicket, 'observing status does not relaunch Pi');
+      const held = spawn('/bin/sleep', ['60'], { stdio: 'ignore' });
+      const exited = new Promise(resolve => held.once('close', resolve));
+      let revoked;
+      try { revoked = await registerHeldReentry('classic', reopened.grant.terminalTicket, held.pid); }
+      finally { held.kill(); await exited; }
+      await pty.until('interrupted unclaimed re-entry leaves Terminal selected', () =>
+        host.status().phase === 'active' && host.status().surface === 'terminal', 25_000);
+      assert.equal(json(reportPath).instance, reopened.native.instance, 'no writer started during the interruption');
       pty.write('codeflare-terminal-writer\r');
       await pty.until('explicit wrapper re-entry earns a fresh one-use ticket', () =>
         json(ownerPath).terminalTicket !== reopened.grant.terminalTicket);
       const restarted = await openExact(pane, host);
+      assert.notEqual(restarted.grant.terminalTicket, revoked, 'the previous grant cannot be reused');
       assert.notEqual(restarted.native.instance, reopened.native.instance);
       await pty.until('ordinary re-entry confirms Terminal without acquiring Chat', () =>
         host.status().phase === 'complete' && host.status().surface === 'terminal' && !host.status().chatUrl);
@@ -335,8 +359,22 @@ async function qualify(mode) {
     } catch (error) {
       throw new Error(`Herdr repark evidence: ${JSON.stringify(await parkEvidence(pane, restored.native, requestId))}`, { cause: error });
     }
+    host = createPiWebRuntime({ sessionId, generation, initialSurface: 'terminal', terminalMode: 'herdr',
+      cwd, home, runtimeDir, cloneRestored: () => existsSync(bootDone) });
+    await host.initialize();
+    const beforeStop = await openExact(pane, host);
+    const oldWrapper = json(join(runtimeDir, 'wrapper.json'));
+    await control('pane', 'send-keys', pane, 'ctrl+d');
+    await pty.until('Herdr ordinary quit retires the child and its wrapper', () => {
+      const end = json(reportPath);
+      return end.instance === beforeStop.native.instance && end.quit && !alive(beforeStop.native) && !alive(oldWrapper);
+    });
+    await registerHeldReentry(pane, beforeStop.grant.terminalTicket, process.pid);
+    await host.close();
+    assert.equal(json(reportPath).instance, beforeStop.native.instance, 'Stop must not start a pending re-entry');
+    assert.equal(host.status().chatUrl, undefined, 'Stop must not open the alternate writer');
     await stopRuntime();
-    assert.equal(countSavedRoles(), 1, 'stopping an already parked wrapper preserves its role');
+    assert.equal(countSavedRoles(), 1, 'Stop during re-entry preserves the original saved role');
     console.log('PI_WEB_HERDR_MANAGED_RESTORE_OK');
 
     // Feed a genuine saved native session without the newer wrapper role to

@@ -78,6 +78,7 @@ export function createPiWebRuntime(options: {
   let closing: Promise<void> | undefined;
   let wrapperWatch: ReturnType<typeof watch> | undefined;
   let rearmAttemptedFor: string | undefined;
+  let rearming: Promise<PiSwitchStatus> | undefined;
   let retiring = false;
   let closed = false;
 
@@ -218,22 +219,27 @@ export function createPiWebRuntime(options: {
     return observed.quit === true && observed.idle === true && !observed.released && !processMatches(observed);
   }
 
-  function canRearmTerminal(previous: NativeReceipt): boolean {
-    if (!previous.ticket || !quitTerminal(previous)) return false;
+  function waitingWrapper(previous: NativeReceipt) {
+    if (!previous.ticket || !quitTerminal(previous)) return;
     const wrapper = loadJson<Pick<NativeReceipt, 'generation' | 'pid' | 'startTime'> & { rearmTicket?: string }>(
       join(runtimeDir, 'wrapper.json'));
-    return !!wrapper && wrapper.generation === generation && wrapper.rearmTicket === previous.ticket
-      && Number.isSafeInteger(wrapper.pid) && wrapper.pid > 1 && typeof wrapper.startTime === 'string' && processMatches(wrapper);
+    if (wrapper && wrapper.generation === generation && wrapper.rearmTicket === previous.ticket
+      && Number.isSafeInteger(wrapper.pid) && wrapper.pid > 1 && typeof wrapper.startTime === 'string' && processMatches(wrapper)) return wrapper;
   }
 
   async function rearmSelectedTerminal(): Promise<void> {
-    if (retiring || closed || bootPhase !== undefined) return;
+    if (retiring || closed || rearming || bootPhase !== undefined) return;
     const state = handoff.status();
     if (state.surface !== 'terminal' || !['active', 'complete', 'cancelled', 'failed'].includes(state.phase)) return;
     const previous = receipt('terminal');
-    if (!previous?.ticket || rearmAttemptedFor === previous.ticket || !canRearmTerminal(previous)) return;
-    rearmAttemptedFor = previous.ticket;
-    await handoff.switchTo({ generation, requestId: randomUUID(), target: 'terminal' }, true);
+    const wrapper = previous && waitingWrapper(previous);
+    if (!wrapper) return;
+    const registration = `${wrapper.rearmTicket}:${wrapper.pid}:${wrapper.startTime}`;
+    if (rearmAttemptedFor === registration) return;
+    rearmAttemptedFor = registration;
+    rearming = handoff.switchTo({ generation, requestId: randomUUID(), target: 'terminal' }, true);
+    try { await rearming; }
+    finally { rearming = undefined; }
   }
 
   const handoff = createPiWebHandoff({ generation, initialSurface,
@@ -322,17 +328,36 @@ export function createPiWebRuntime(options: {
     async open(surface, ref) {
       if (closed || retiring) return false;
       if (surface === 'chat') return openChat(ref);
-      else {
-        const previous = receipt('terminal');
-        if (previous?.quit === true && !canRearmTerminal(previous)) return false;
-        terminalTicket = randomUUID();
-        publish(handoff.status());
-        await until(() => {
-          const next = receipt('terminal');
-          return next?.id === ref.id && next.path === ref.path && !next.released && processMatches(next) ? true : undefined;
-        }, undefined, 20_000);
+      const previous = receipt('terminal');
+      const wrapper = previous?.quit === true ? waitingWrapper(previous) : undefined;
+      if (previous?.quit === true && !wrapper) return false;
+      const previousTicket = terminalTicket;
+      const ticket = terminalTicket = randomUUID();
+      const claim = join(runtimeDir, 'terminal-tickets', String(generation), ticket);
+      function revokeUnclaimed(): boolean {
+        if (!wrapper) return false;
+        // The wrapper also uses exclusive creation for this path before
+        // spawning Pi. Creating it here fences even a cached grant; an
+        // existing claim is ambiguous and must never be removed or retried.
+        try { writeFileSync(claim, 'revoked\n', { mode: 0o600, flag: 'wx' }); }
+        catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false;
+          throw error;
+        }
+        terminalTicket = previousTicket;
+        return true;
       }
-      return true;
+      publish(handoff.status());
+      try {
+        return await until(() => {
+          const next = receipt('terminal');
+          if (next?.id === ref.id && next.path === ref.path && !next.released && processMatches(next)) return true;
+          if (wrapper && (retiring || !processMatches(wrapper)) && revokeUnclaimed()) return false;
+        }, undefined, 20_000);
+      } catch (error) {
+        if (revokeUnclaimed()) return false;
+        throw error;
+      }
     },
   });
 
@@ -349,6 +374,9 @@ export function createPiWebRuntime(options: {
 
   async function close(): Promise<void> {
     try {
+      // close() has already fenced new registrations. If a re-entry was
+      // accepted, join it before deciding which writer Stop must retire.
+      await rearming;
       if (options.terminalMode === 'herdr' && !legacyHerdr && bootPhase === undefined) {
         const state = handoff.status();
         if (state.surface === 'terminal') {

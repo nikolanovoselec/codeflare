@@ -257,3 +257,22 @@ test('REQ-AGENT-273: only an explicit native re-entry can request a new Terminal
   assert.equal(f.stopRequests, 1, 'explicit restart goes through the existing release fence');
   assert.equal(f.writer, 'terminal');
 });
+
+test('REQ-AGENT-273: a safely revoked native re-entry leaves Terminal selected', async () => {
+  const f = fixture('terminal');
+  f.setOpenOutcome('not-started');
+  const result = await f.handoff.switchTo({ generation, target: 'terminal', requestId: 'interrupted' }, true);
+  assert.deepEqual(result, { phase: 'active', surface: 'terminal' });
+  assert.equal(f.writer, null);
+  assert.equal(f.handoff.admit('chat', 'work'), undefined);
+});
+
+test('REQ-AGENT-273: a possibly consumed native re-entry remains fenced', async () => {
+  const f = fixture('terminal');
+  f.setOpenOutcome('unknown');
+  const result = await f.handoff.switchTo({ generation, target: 'terminal', requestId: 'unconfirmed' }, true);
+  assert.equal(result.phase, 'uncertain');
+  await assert.rejects(f.handoff.switchTo({ generation, target: 'chat', requestId: 'different' }));
+  assert.equal(f.handoff.admit('chat', 'work'), undefined);
+  assert.equal(f.writer, 'terminal');
+});

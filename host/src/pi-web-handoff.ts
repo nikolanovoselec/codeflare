@@ -132,8 +132,15 @@ export function createPiWebHandoff(options: Options) {
         set({ ...attempt, phase: 'uncertain', surface: null });
         return status();
       }
-      set({ ...attempt, phase: opened ? 'complete' : 'failed', surface: opened ? target : null });
-      if (opened) released = undefined;
+      if (!opened && restartTerminal && source === 'terminal' && target === 'terminal') {
+        // A proven unused grant leaves the same usable shell. A new explicit
+        // invocation can try again, or the user can switch away from Terminal.
+        set({ phase: 'active', surface: 'terminal' });
+        released = undefined;
+      } else {
+        set({ ...attempt, phase: opened ? 'complete' : 'failed', surface: opened ? target : null });
+        if (opened) released = undefined;
+      }
       return status();
     }).finally(() => { current = undefined; });
     current = { input, abort, result };

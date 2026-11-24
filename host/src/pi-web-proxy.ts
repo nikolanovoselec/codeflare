@@ -164,9 +164,15 @@ export function createPiWebProxy(options: { sessionId: string; runtime: PiWebRun
       if (!result.statusCode) throw new Error('Missing stock Chat HTTP status');
       const headers: http.OutgoingHttpHeaders = { 'Cache-Control': 'no-store' };
       if (result.headers['content-type']) headers['content-type'] = result.headers['content-type'];
-      for (const name of ['content-security-policy', 'x-frame-options'] as const) {
-        const value = result.headers[name];
-        if (value) headers[name] = value;
+      const policy = result.headers['content-security-policy'];
+      if (policy) headers['content-security-policy'] = Array.isArray(policy) ? policy.join(', ') : policy;
+      const framing = result.headers['x-frame-options'];
+      // X-Frame-Options is singular. Do not let conflicting values turn an
+      // upstream DENY into SAMEORIGIN at the public hop.
+      if (framing) {
+        const values = (Array.isArray(framing) ? framing : [framing]).flatMap(value => value.split(','));
+        headers['x-frame-options'] = values.length > 0 && values.every(value => value.trim().toUpperCase() === 'SAMEORIGIN')
+          ? 'SAMEORIGIN' : 'DENY';
       }
       const status = result.statusCode;
       const ok = status >= 200 && status < 300;
