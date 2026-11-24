@@ -396,7 +396,7 @@ Persisted Herdr state and runtime lifetime are documented in [Sessions & Runtime
 
 **Dependencies:** [REQ-TERM-033](#req-term-033-durable-herdr-structural-session-recovery)
 
-**Verification:** Manual: [Deferred Herdr restore checks (AC1)](../../documentation/lanes/terminal-and-ide.md#future-herdr-handoff-qualification). AC2 has no verification method yet.
+**Verification:** Manual: [Deferred Herdr restore checks (AC1)](../../documentation/lanes/terminal-and-ide.md#future-herdr-handoff-qualification)
 
 **Status:** Planned
 
