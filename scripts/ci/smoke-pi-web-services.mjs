@@ -48,7 +48,7 @@ const agentDir = join(home, '.pi/agent');
 // Same source basename, unrelated user package. Dismissal must not match by basename or wipe user packages.
 const localWorkflows = join(home, 'custom/workflows');
 let restored = false;
-const options = { runtimeDir, cwd, cloneRestored: () => restored };
+const options = { runtimeDir, cwd, profileRestored: () => restored };
 let services = createPiWebServices(options);
 
 async function checkReady() {
@@ -62,10 +62,18 @@ async function checkReady() {
   assert.equal(health.version.available, true);
   assert.equal(health.version.piVersion, piVersion, 'the actual daemon must load the managed Pi SDK');
 
+  const { effectiveConfig, enforcedSettings } = await services.request('/api/config');
+  assert.equal(effectiveConfig.installationName, 'Codeflare');
+  assert.deepEqual(effectiveConfig.defaultTheme, { themeId: 'themes:graphite', auto: false });
+  assert.equal(enforcedSettings?.['/defaultTheme'], undefined, 'the default must not lock user theme choices');
+
   const { plugins } = await services.request('/pi-web-plugins/manifest.json');
   const ids = plugins.map(({ id }) => id);
   assert.ok(ids.includes('files') && ids.includes('pi-web.terminal'), 'retain stock Files and required Terminal');
   assert.ok(!ids.includes('git') && !ids.includes('workflows'), 'stock browser manifest must not advertise Git or Workflows');
+  for (const id of ['info', 'updates', 'mcp-manager']) {
+    assert.ok(!ids.includes(id), `stock browser manifest must not load disabled panel: ${id}`);
+  }
 
   const { packages } = await services.request('/api/pi-packages');
   const sources = packages.filter(({ scope }) => scope === 'user').map(({ source }) => source).sort();
@@ -93,12 +101,12 @@ try {
   writeFileSync(join(localWorkflows, 'package.json'), JSON.stringify({ name: 'smoke-user-workflows', version: '1.0.0' }));
   writeFileSync(join(agentDir, 'settings.json'), JSON.stringify({ packages: [localWorkflows] }));
 
-  const start = () => services.start().then(() => assert.ok(restored, 'start cannot resolve before clone restore'));
+  const start = () => services.start().then(() => assert.ok(restored, 'start cannot resolve before profile restore'));
   await Promise.all([start(), start(), (async () => {
-    // Span multiple supervisor polling intervals with clone restore still held.
+    // Span multiple supervisor polling intervals with profile restore still held.
     await delay(600);
     assert.equal(services.running(), false);
-    assert.deepEqual(children(), [], 'do not launch stock processes before clone restore');
+    assert.deepEqual(children(), [], 'do not launch stock processes before profile restore');
     assert.deepEqual(listeners(), []);
     assert.equal(existsSync(daemonSocket), false);
     restored = true;

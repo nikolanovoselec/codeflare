@@ -56,7 +56,7 @@ function processMatches(receipt: Pick<NativeReceipt, 'pid' | 'startTime'>): bool
 
 export function createPiWebRuntime(options: {
   sessionId: string; generation: number; initialSurface: PiSurface; terminalMode: 'classic' | 'herdr';
-  runtimeDir: string; cwd: string; home: string; cloneRestored: () => boolean;
+  runtimeDir: string; cwd: string; home: string; profileRestored: () => boolean; cloneRestored: () => boolean;
 }) {
   const { sessionId, generation, runtimeDir, cwd, home, initialSurface } = options;
   const services = createPiWebServices(options);
@@ -457,10 +457,10 @@ export function createPiWebRuntime(options: {
     initialize() {
       boot ??= (async () => {
         bootPhase = 'opening';
-        // Entrypoint owns this budget (including disabled per-clone limits).
-        // A local deadline cannot authorize or permanently reject startup;
-        // wait for its real restore marker, or for this generation to close.
-        await until(() => options.cloneRestored() ? true : undefined);
+        // Chat needs the restored Pi profile and transcripts, not the later
+        // repository clone pass. Preserve the native launcher's clone gate.
+        await until(() => options.profileRestored()
+          && (initialSurface === 'chat' && options.terminalMode === 'classic' || options.cloneRestored()) ? true : undefined);
         if (options.terminalMode === 'herdr') {
           const marker = join(runtimeDir, 'legacy-herdr');
           legacyHerdr = existsSync(marker) && readFileSync(marker, 'utf8').trim() === String(generation);

@@ -141,8 +141,9 @@ async function qualify(ambiguous) {
       } else res.destroy();
     } catch { res.destroy(); }
   });
+  let cloneRestored = false;
   const runtime = createPiWebRuntime({ sessionId, generation, initialSurface: 'chat', terminalMode: 'classic',
-    cwd, home, runtimeDir, cloneRestored: () => true });
+    cwd, home, runtimeDir, profileRestored: () => true, cloneRestored: () => cloneRestored });
   const proxy = createPiWebProxy({ sessionId, runtime, recordInput() {} });
   const server = createServer((req, res) => { void proxy.handle(req, res); });
   try {
@@ -219,6 +220,9 @@ export default function (pi) {
     await boot;
     const source = chat();
     assert.deepEqual(identity(source), { id, cwd, path });
+    assert.equal(cloneRestored, false, 'Chat must open the native transcript before repository cloning finishes');
+    assert.equal(owner().terminalTicket, undefined, 'Chat-first startup must not grant a native Terminal ticket');
+    cloneRestored = true;
 
     let busyChecks = 0;
     let stop;
@@ -276,7 +280,40 @@ export default function (pi) {
     assert.equal(preview.headers.get('X-Frame-Options'), 'DENY');
     await preview.arrayBuffer();
     const prompt = (message, status = 200) => api(`${ref}/prompt`, status, { cwd, text: message });
+    const attachment = bytes => ({ kind: 'file', mimeType: 'application/octet-stream', name: 'fixture.bin', data: bytes.toString('base64') });
+    const uploadFolder = 'attachment-smoke';
+    const upload = (status, attachments, overrides = {}, route = ref) => api(`${route}/attachments`, status,
+      { cwd, folder: uploadFolder, attachments, ...overrides });
     if (!ambiguous) {
+      const first = Buffer.alloc(6_000_000, 0x31);
+      const second = Buffer.alloc(4_000_000, 0x32);
+      const batch = [attachment(first), attachment(second)];
+      const oversized = [...batch, attachment(Buffer.from('!'))];
+      await upload(413, oversized);
+      // Stay below the decoded limit but exceed the bounded JSON envelope.
+      await upload(413, [attachment(Buffer.from('small'))], { folder: 'a'.repeat(14 * 1024 * 1024) });
+      await upload(400, [batch[0], { ...batch[1], data: '!' }]);
+      await upload(400, [batch[0]], { cwd: dirname(cwd) });
+      await upload(409, [batch[0]], {}, '/api/sessions/another-conversation');
+      assert.equal(existsSync(join(cwd, uploadFolder)), false, 'rejected batches do not write even the first file');
+      const { attachments } = await upload(200, batch);
+      assert.deepEqual(attachments.map(({ size }) => size), [first.length, second.length]);
+      for (const [index, { path: file }] of attachments.entries()) {
+        assert.equal(dirname(file), uploadFolder);
+        assert.deepEqual(readFileSync(join(cwd, file)), [first, second][index]);
+      }
+      // The existing non-upload reader can close the socket on overflow.
+      const hugePrompt = await nativeFetch(`${origin}${appPrefix}${ref}/prompt`, {
+        method: 'POST', headers: { ...browserHeaders, Origin: origin, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cwd, text: 'x'.repeat(1024 * 1024) }), signal: AbortSignal.timeout(8000),
+      }).catch(error => {
+        if (error.cause?.code !== 'UND_ERR_SOCKET' && error.cause?.code !== 'ECONNRESET') throw error;
+        return undefined;
+      });
+      if (hugePrompt) {
+        assert.equal(hugePrompt.status, 503);
+        await hugePrompt.arrayBuffer();
+      }
       assert.equal((await prompt(seed)).accepted, true);
       await until('normal saved Chat reply', async () => await writer() === 'idle' &&
         text(messages(readFileSync(path, 'utf8')).at(-1)?.content) === reply);
@@ -323,6 +360,8 @@ export default function (pi) {
     assert.equal((await health()).activeSessions, 1);
     assert.deepEqual(calls, [seed], 'the parked request has not reached the model');
     await prompt('New prompt after the switch fence', 409);
+    await upload(409, [attachment(Buffer.from('fenced'))], { folder: 'fenced-attachment' });
+    assert.equal(existsSync(join(cwd, 'fenced-attachment')), false);
 
     writeFileSync(resume, '');
     const ticket = await until('Terminal ticket after native Chat release', () => {

@@ -156,7 +156,17 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
 
       <div class="repository-restore-anchor">{props.repositoryRestoreNotices}</div>
 
-      <Show when={props.showTerminal && props.showPiWebPanel}>{props.piWebPanel}</Show>
+      <Show when={props.showTerminal && props.showPiWebPanel}>
+        <Show when={!isActiveSessionInitializing()} fallback={
+          <div class="terminal-init-overlay">
+            <InitProgress
+              sessionName={activeSession()?.name || 'Terminal'}
+              progress={sessionStore.getInitProgressForSession(activeSessionId()!)}
+              onOpen={() => props.onOpenSessionById(activeSessionId()!)}
+            />
+          </div>
+        }>{props.piWebPanel}</Show>
+      </Show>
 
       {/* Terminal container: render only visible workspace panes.
           Hidden (display:none) when on dashboard to prevent bleed-through and

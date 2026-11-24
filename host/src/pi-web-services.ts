@@ -28,7 +28,7 @@ export interface PiWebServices {
 }
 
 /** Host-supervised stock processes; never expose their private API or socket directly. */
-export function createPiWebServices(options: { runtimeDir: string; cwd: string; cloneRestored: () => boolean }): PiWebServices {
+export function createPiWebServices(options: { runtimeDir: string; cwd: string; profileRestored: () => boolean }): PiWebServices {
   let starting: Promise<void> | undefined;
   let closing: Promise<void> | undefined;
   let processes: Array<{ child: ChildProcess; stopped: Promise<void>; running: boolean }> = [];
@@ -79,7 +79,7 @@ export function createPiWebServices(options: { runtimeDir: string; cwd: string; 
   }
 
   async function boot(): Promise<void> {
-    await until(options.cloneRestored, 120_000);
+    await until(options.profileRestored, 120_000);
     if (shuttingDown) throw new Error('Container is stopping');
     const piPackage = managedPiPackage();
     const home = process.env.HOME ?? '/home/user';
@@ -97,14 +97,24 @@ export function createPiWebServices(options: { runtimeDir: string; cwd: string; 
     const alreadyRegistered = Array.isArray(settings.packages) && settings.packages.some((item: unknown) =>
       item === workflows || (typeof item === 'object' && item !== null && 'source' in item && item.source === workflows));
     const defaultsPath = join(options.runtimeDir, 'defaults.json');
-    writeFileSync(defaultsPath, '{"quietMode":true}\n', { mode: 0o600 });
+    writeFileSync(defaultsPath, JSON.stringify({
+      installationName: 'Codeflare',
+      quietMode: true,
+      defaultTheme: { themeId: 'themes:graphite', auto: false },
+    }), { mode: 0o600 });
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       CODEFLARE_PI_WEB_DAEMON: '1', PI_CODING_AGENT_DIR: agentDir,
       PI_WEB_PI_PACKAGE_DIR: piPackage, PI_WEB_RUNTIME: 'node', PI_WEB_HOST: '127.0.0.1', PI_WEB_PORT: String(PI_WEB_PORT),
       PI_WEB_HOST_ACCESS: '{"mode":"any"}', PI_WEB_DATA_DIR: join(options.runtimeDir, 'data'),
       PI_WEB_SESSIOND_SOCKET: join(options.runtimeDir, 'daemon.sock'), PI_WEB_SKIP_VERSION_CHECK: '1',
-      PI_WEB_SPAWN_SESSIONS: 'false', PI_WEB_DEFAULTS_CONFIG: defaultsPath, PI_WEB_PLUGINS: '{"git":{"enabled":false}}',
+      PI_WEB_SPAWN_SESSIONS: 'false', PI_WEB_DEFAULTS_CONFIG: defaultsPath,
+      PI_WEB_PLUGINS: JSON.stringify({
+        git: { enabled: false },
+        info: { enabled: false },
+        updates: { enabled: false },
+        'mcp-manager': { enabled: false },
+      }),
     };
     // No private container credential or parent authority in agent child env.
     delete env.CONTAINER_AUTH_TOKEN;

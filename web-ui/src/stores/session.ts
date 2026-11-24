@@ -796,8 +796,7 @@ function startSession(id: string, surface?: PiSurface): Promise<void> {
           }));
         } else {
           initializeTerminalsForSession(id);
-          if (surface === 'chat') dismissInitProgressForSession(id);
-          else if (readyProgress) setState('initProgressBySession', id, readyProgress);
+          if (readyProgress) setState('initProgressBySession', id, readyProgress);
         }
         resolve();
       },

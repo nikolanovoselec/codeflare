@@ -1949,7 +1949,7 @@ describe('Session Store', () => {
       expect(sessionStore.isSessionInitializing('session-1')).toBe(false);
     });
 
-    it('REQ-TERM-043: matching Ready shows Open and releases startup on click', async () => {
+    it.each([undefined, 'chat'] as const)('REQ-TERM-043: matching Ready keeps Open available for surface %s', async surface => {
       const id = 'terminal-ready-session';
       mockGetSessions.mockResolvedValue([{
         id, name: 'Terminal', workspace: 'terminal', status: 'stopped', lifecycle: 'stopped', generation: 6, revision: 1,
@@ -1962,7 +1962,7 @@ describe('Session Store', () => {
         deliverReady = () => { onProgress(ready); onComplete(7); };
         return () => {};
       });
-      const starting = sessionStore.startSession(id);
+      const starting = sessionStore.startSession(id, surface);
       try {
         render(() => createComponent(Show, {
           keyed: true,

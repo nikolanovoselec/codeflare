@@ -192,7 +192,12 @@ describe('Pi web Worker proxy (REQ-AGENT-272 AC5)', () => {
         headers: { 'X-Codeflare-Pi-Generation': String(GENERATION) },
       }), env);
       const events = await handlePiWebRequest(request(`${scope}api/sessions/${transcript}/events`, { upgrade: true }), env);
+      const upload = await handlePiWebRequest(request(`${scope}api/sessions/${transcript}/attachments`, {
+        body: { cwd: '/home/user/workspace', attachments: [{ kind: 'file', name: 'test.txt', mimeType: 'text/plain', data: 'dGVzdA==' }] },
+        headers: { 'X-Codeflare-Pi-Generation': String(GENERATION) },
+      }), env);
       expect(result.status).toBe(409);
+      expect(upload.status).toBe(409);
       expect(events.status).toBe(409);
       expect(events.webSocket).toBeNull();
     }

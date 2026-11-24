@@ -7,33 +7,52 @@ import type { PiWebRuntime } from './pi-web-runtime.js';
 const hostname = '127.0.0.1';
 const root = `http://${hostname}:${PI_WEB_PORT}`;
 const maxBody = 1024 * 1024;
+const maxAttachmentBytes = 10_000_000;
+const maxAttachmentBody = 14 * 1024 * 1024; // Base64 plus bounded JSON metadata.
+class BodyTooLarge extends Error {}
 const requestIdPattern = /^[a-f0-9-]{36}$/i;
 const settlers = new Set(['abort', 'ask/submit', 'ask/cancel', 'dialogs/answer', 'dialogs/cancel', 'commands/respond']);
 const sessionMutations = new Set(['prompt', ...settlers, 'queue/message', 'queue/clear', 'unread', 'unread/acknowledge',
   'warnings/dismiss', 'notifications/dismiss', 'notifications/dismiss-all', 'model', 'model/cycle',
-  'models/enabled', 'models/scope', 'defaults', 'thinking-level', 'thinking-level/cycle', 'tree/navigate']);
+  'models/enabled', 'models/scope', 'defaults', 'thinking-level', 'thinking-level/cycle', 'tree/navigate', 'attachments']);
 
 function send(res: ServerResponse, code: number, data: object, headers: http.OutgoingHttpHeaders = {}): void {
   res.writeHead(code, { ...headers, 'content-type': 'application/json', 'Cache-Control': 'no-store' });
   res.end(JSON.stringify(data));
 }
 
-async function readJson(stream: IncomingMessage): Promise<unknown> {
+async function readJson(stream: IncomingMessage, limit = maxBody): Promise<unknown> {
   const chunks: Buffer[] = [];
   let bytes = 0;
-  for await (const part of stream) {
+  // An over-limit upload must be able to receive a 413 without destroying its socket.
+  const input = limit === maxAttachmentBody ? stream.iterator({ destroyOnReturn: false }) : stream;
+  for await (const part of input) {
     const chunk = Buffer.isBuffer(part) ? part : Buffer.from(part);
     bytes += chunk.length;
-    if (bytes > maxBody) throw new Error('Pi web request is too large');
+    if (bytes > limit) throw new BodyTooLarge();
     chunks.push(chunk);
   }
-  return JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
+  return JSON.parse(Buffer.concat(chunks, bytes).toString('utf8')) as unknown;
 }
 
-async function jsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
-  const body = await readJson(req);
+async function jsonBody(req: IncomingMessage, limit = maxBody): Promise<Record<string, unknown>> {
+  const body = await readJson(req, limit);
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('Invalid Pi web request');
   return body as Record<string, unknown>;
+}
+
+function validateAttachmentSize(attachments: unknown): void {
+  if (!Array.isArray(attachments) || attachments.length > 16) throw new Error('Invalid attachments');
+  let bytes = 0;
+  for (const item of attachments) {
+    const data: unknown = item?.data;
+    if (typeof data !== 'string' || data.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(data)) {
+      throw new Error('Invalid base64 attachment');
+    }
+    const padding = data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0;
+    bytes += data.length / 4 * 3 - padding;
+    if (bytes > maxAttachmentBytes) throw new BodyTooLarge();
+  }
 }
 
 // REQ-AGENT-272 AC5: no scoped browser request owns a transcript or starts a runtime.
@@ -136,7 +155,23 @@ export function createPiWebProxy(options: { sessionId: string; runtime: PiWebRun
     try {
       let body: string | undefined;
       if (!read) {
-        const data = await jsonBody(req);
+        let data: Record<string, unknown>;
+        if (endpoint === 'attachments') {
+          try {
+            data = await jsonBody(req, maxAttachmentBody);
+            validateAttachmentSize(data.attachments);
+          } catch (error) {
+            if (error instanceof BodyTooLarge) {
+              req.resume(); // Discard unread bytes; do not forward any portion of the batch.
+              send(res, 413, { error: 'Chat attachment uploads are limited to 10 MB per request' });
+            } else {
+              send(res, 400, { error: 'Invalid Chat attachment upload' });
+            }
+            return;
+          }
+        } else {
+          data = await jsonBody(req);
+        }
         if (preference) {
           const set = data.set as Record<string, unknown> | undefined;
           if (!set || Object.keys(data).length !== 1 || Object.keys(set).length !== 1 || typeof set.quietMode !== 'boolean') {

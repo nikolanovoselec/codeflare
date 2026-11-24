@@ -270,7 +270,7 @@ async function qualify(mode) {
       mkdirSync(bindingDir, { recursive: true });
       writeFileSync(join(bindingDir, 'agent-session-id'), `${binding.id}\n`);
       host = createPiWebRuntime({ sessionId, generation, initialSurface: 'terminal', terminalMode: 'herdr',
-        cwd, home, runtimeDir, cloneRestored: () => existsSync(bootDone) });
+        cwd, home, runtimeDir, profileRestored: () => true, cloneRestored: () => existsSync(bootDone) });
       await host.initialize();
     }
     const { grant, native } = await openExact(pane, host);
@@ -289,7 +289,7 @@ async function qualify(mode) {
       mkdirSync(bindingDir, { recursive: true });
       writeFileSync(join(bindingDir, 'agent-session-id'), `${binding.id}\n`);
       host = createPiWebRuntime({ sessionId, generation, initialSurface: 'terminal', terminalMode: 'classic',
-        cwd, home, runtimeDir, cloneRestored: () => true });
+        cwd, home, runtimeDir, profileRestored: () => true, cloneRestored: () => true });
       await host.initialize();
       const reopened = await openExact(pane, host);
       assert.notEqual(reopened.native.instance, native.instance);
@@ -431,7 +431,7 @@ async function qualify(mode) {
     process.kill(freshWrapper.pid, 'SIGSTOP');
     try {
       host = createPiWebRuntime({ sessionId, generation, initialSurface: 'terminal', terminalMode: 'herdr',
-        cwd, home, runtimeDir, cloneRestored: () => existsSync(bootDone) });
+        cwd, home, runtimeDir, profileRestored: () => true, cloneRestored: () => existsSync(bootDone) });
       initialized = host.initialize();
       void initialized.catch(() => {});
       pending = await pty.until('the held re-entry receives a new grant', () => {
@@ -479,7 +479,7 @@ async function qualify(mode) {
     });
     assert.equal(existsSync(reportPath), false, 'legacy Pi is not a ticket-managed writer');
     const runtime = createPiWebRuntime({ sessionId, generation, initialSurface: 'chat', terminalMode: 'herdr',
-      cwd, home, runtimeDir, cloneRestored: () => existsSync(bootDone) });
+      cwd, home, runtimeDir, profileRestored: () => true, cloneRestored: () => existsSync(bootDone) });
     const previousHome = process.env.HOME;
     process.env.HOME = home;
     try {

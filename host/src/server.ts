@@ -311,7 +311,8 @@ const piWebRuntime = !process.env.CODEFLARE_OPERATOR_SESSION && SESSION_WORKSPAC
     sessionId: piSessionId, generation: piGeneration, initialSurface: initialPiSurface, terminalMode: TERMINAL_MODE,
     cwd: WORKSPACE_DEFAULT, home: process.env.HOME ?? '/home/user',
     runtimeDir: `${process.env.CODEFLARE_RUNTIME_ROOT ?? '/run/codeflare'}/pi-web`,
-    cloneRestored: () => initFlagObserved && !!process.env.CODEFLARE_CLONE_RESTORE_FLAG_FILE
+    profileRestored: () => initFlagObserved,
+    cloneRestored: () => !!process.env.CODEFLARE_CLONE_RESTORE_FLAG_FILE
       && fs.existsSync(process.env.CODEFLARE_CLONE_RESTORE_FLAG_FILE),
   }) : undefined;
 const piWeb = piWebRuntime && createPiWebProxy({

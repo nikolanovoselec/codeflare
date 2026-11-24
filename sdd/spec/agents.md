@@ -951,14 +951,18 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 1. Chat retains Files and `@` references for workspace files. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
 2. Chat starts in Quiet mode and allows the user to change it. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
 3. The live Chat frame can answer a native Pi question, including during startup. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
+4. The Chat composer saves attachments to the active conversation’s workspace, up to 10,000,000 decoded bytes per request. An over-limit batch writes no files. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
+5. Chat defaults to Graphite without overriding a saved theme. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 
-**Constraints:** None.
+**Constraints:**
+
+- Existing MCP package selections and configuration are preserved.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-272](#req-agent-272-pi-chat-and-terminal-transcript-handoff)
 
-**Verification:** Manual: [Stock controls and native questions](../../documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions).
+**Verification:** Automated: [Host handoff smoke](../../scripts/ci/smoke-pi-web-host-handoff.mjs), [Stock supervisor smoke](../../scripts/ci/smoke-pi-web-services.mjs); Manual: [Stock controls and native questions](../../documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions).
 
 **Status:** Planned
 

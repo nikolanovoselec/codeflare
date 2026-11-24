@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, cleanup, waitFor } from '@solidjs/testing-library';
+import { render, screen, cleanup, waitFor, fireEvent } from '@solidjs/testing-library';
 import { createRoot, createSignal } from 'solid-js';
 
 const terminalLifecycle = vi.hoisted(() => ({
@@ -54,7 +54,7 @@ vi.mock('../../components/FloatingTerminalButtons', () => ({
 }));
 
 vi.mock('../../components/InitProgress', () => ({
-  default: () => <div data-testid="init-progress" />
+  default: (props: { onOpen: () => void }) => <div data-testid="init-progress"><button onClick={props.onOpen}>Open</button></div>
 }));
 
 vi.mock('../../components/Dashboard', () => ({
@@ -161,6 +161,26 @@ describe('TerminalArea', () => {
     const { container } = render(() => <TerminalArea {...defaultProps} />);
 
     expect(container.querySelector('.layout-main')).toBeInTheDocument();
+  });
+
+  it('keeps the standard startup screen until Open reveals Chat, without mounting a native terminal', async () => {
+    const id = 'abcdefgh1234';
+    mockSessions = [{ id, name: 'Pi workspace', status: 'running', workspace: 'terminal' }];
+    mockActiveSessionId = id;
+    mockVisiblePanes = [{ sessionId: id, terminalId: '1' }];
+    const [initializing, setInitializing] = createSignal(true);
+    vi.mocked(sessionStore.isSessionInitializing).mockImplementation(initializing);
+    const open = vi.fn(() => setInitializing(false));
+    render(() => <TerminalArea {...defaultProps} showTerminal showPiWebPanel viewState="terminal"
+      piWebPanel={<div>Pi Chat frame</div>} onOpenSessionById={open} />);
+
+    expect(screen.getByTestId('init-progress')).toBeVisible();
+    expect(screen.queryByText('Pi Chat frame')).not.toBeInTheDocument();
+    expect(screen.queryByTestId(`terminal-${id}-1`)).not.toBeInTheDocument();
+    await fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+    expect(open).toHaveBeenCalledWith(id);
+    expect(screen.getByText('Pi Chat frame')).toBeVisible();
+    expect(screen.queryByTestId(`terminal-${id}-1`)).not.toBeInTheDocument();
   });
 
   it('shows Dashboard when showTerminal is false', () => {

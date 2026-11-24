@@ -51,6 +51,7 @@ Herdr image settings manage mobile layout, mouse capture, browser-owned clipboar
 #### Choose the starting writer
 
 - In Standard and Pro where available, start Chat-first and Terminal-first in Classic. Send a synthetic message, Stop normally, then resume in the other surface. Only the selected primary opens the saved conversation.
+- On Chat-first Start and Resume, verify the standard startup overlay remains through **Ready** until **Open**. With a repository clone still running, choose **Open** and verify the Chat composer is usable, no native Pi writer opens, and the repository notification shows progress and the eventual outcome.
 - Verify unchanged workspace defaults, manually opened panes, and independent Browser VS Code behavior.
 
 #### Switch one writer at a time
@@ -75,6 +76,7 @@ Herdr image settings manage mobile layout, mouse capture, browser-owned clipboar
 
 - With 1440 × 900 CSS px available after the controls, expect a centered 800 × 720 frame. With 900 × 1600 available, expect 720 × 1200. Together these exercise the percentage and both caps.
 - In narrow or short views, expect 12 px gutters plus safe-area insets. Open the mobile keyboard and try browser zoom. The composer and Codeflare controls stay reachable without a second page scrollbar.
+- In a fresh browser context, verify the machine name defaults to **Codeflare** and the theme is Graphite. Save a different theme, then reopen Chat in that browser and verify the choice was preserved.
 
 #### Check stale frames and native questions
 
@@ -83,6 +85,7 @@ Herdr image settings manage mobile layout, mouse capture, browser-owned clipboar
 - For [REQ-AGENT-274](../../sdd/spec/agents.md#req-agent-274-stock-pi-chat-controls), open a harmless file through Files, then select it with `@`. Quiet starts on and can be changed. Chat has no Git or worktree controls; ordinary Terminal and VS Code Git still work.
 - Use the synthetic confirmation fixture below. During Chat opening, choose **Yes** on **Resume the Pi handoff smoke transcript?**. Verify `pi-fixture-opening-yes.txt` appears and the same frame becomes ready.
 - Once Chat is ready, submit `pi-fixture-question`. Choose **Yes** on **Continue the ready Chat fixture?**. Verify `pi-fixture-ready-yes.txt` appears without a model turn. Then send a separate harmless prompt and verify the composer works.
+- In the ready Chat composer, use **Save to …** with synthetic attachments totaling 10 MB (10,000,000 bytes). Verify the files are saved in the selected workspace folder. Repeat with a batch one byte larger and confirm no file from that batch is saved. Do not use real user files. Saved workspace attachments require full Workspace Sync and a successful sync to survive Stop and Resume. For files that must persist without Workspace Sync, use Dashboard → Storage → Uploads, then Sync now to make the files available under `~/Uploads` in the running session.
 - Recovering an already-pending question after refresh is not required. If Chat startup fails, retry the same transcript only after the previous attempt is confirmed closed.
 
 In the disposable workspace only, load the following as `handoff-fixture.ts` in the Pi agent’s `extensions` directory before opening Chat. It uses the same startup confirmation as the [packaged stock smoke](../../scripts/ci/smoke-pi-web-handoff.mjs) and adds the ready-state trigger. Start with both marker files absent; remove the fixture and marker files afterwards.

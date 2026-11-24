@@ -25,7 +25,7 @@ describe('pre-warm orphan expiry', () => {
     const owner = join(runtimeDir, 'owner.json');
     t.mock.timers.enable({ apis: ['Date'], now: 0 });
     const runtime = createPiWebRuntime({ sessionId: 'fixture123', generation: 7, initialSurface: 'terminal',
-      terminalMode: 'classic', cwd: join(home, 'workspace'), home, runtimeDir, cloneRestored: () => existsSync(flag) });
+      terminalMode: 'classic', cwd: join(home, 'workspace'), home, runtimeDir, profileRestored: () => true, cloneRestored: () => existsSync(flag) });
     const boot = runtime.initialize();
     void boot.catch(() => {});
     try {
