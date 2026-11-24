@@ -123,18 +123,32 @@ it('REQ-SESSION-043: headless Retry installs the mounted CA before starting the 
   const home = mkdtempSync(join(tmpdir(), 'retry-ca-'));
   t.after(() => rmSync(home, { recursive: true, force: true }));
   const ca = join(home, 'mounted.crt');
+  const trustDir = join(home, 'system-trust');
+  const bundle = join(home, 'trusted.crt');
+  mkdirSync(trustDir);
+  mkdirSync(join(home, 'dist'));
   writeFileSync(ca, 'fixture CA');
+  writeFileSync(join(home, 'dist/server.js'), `
+    const assert = require('node:assert/strict');
+    const fs = require('node:fs');
+    const path = require('node:path');
+    assert.equal(fs.readFileSync(process.env.NODE_EXTRA_CA_CERTS, 'utf8'), 'fixture CA');
+    assert.equal(fs.readFileSync(process.env.SSL_CERT_FILE, 'utf8'), 'fixture CA');
+    assert.equal(fs.existsSync(path.join(process.env.HOME, '.bashrc')), false);
+    console.log('headless Host reached with CA trust');
+  `);
   const start = entrypoint.indexOf('CF_CA_SRC="/etc/cloudflare/certs/cloudflare-containers-ca.crt"');
   const end = entrypoint.indexOf('echo "[entrypoint] Starting terminal server', start);
   const launch = entrypoint.slice(start, end)
     .replaceAll('/etc/cloudflare/certs/cloudflare-containers-ca.crt', ca)
+    .replaceAll('/usr/local/share/ca-certificates/', `${trustDir}/`)
+    .replaceAll('/etc/ssl/certs/ca-certificates.crt', bundle)
     .replaceAll('cd /app/host', 'cd "$USER_HOME"');
   const script = [
     'set -euo pipefail',
-    'cp() { command cp "$1" "$USER_HOME/staged.crt"; }',
-    'update-ca-certificates() { command cp "$USER_HOME/staged.crt" "$USER_HOME/trusted.crt"; }',
-    // Stand in for the Host and verify that system trust and Node trust are both ready at its launch.
-    'exec() { cmp "$NODE_EXTRA_CA_CERTS" "$USER_HOME/trusted.crt" && test ! -e "$HOME/.bashrc" && echo "headless Host reached with CA trust"; }',
+    // Constrain copies to the fixture and simulate the system updater there.
+    'cp() { [[ "$2" = "$USER_HOME/"* ]] && command cp "$@"; }',
+    'update-ca-certificates() { command cp "$USER_HOME/system-trust/cloudflare-containers-ca.crt" "$USER_HOME/trusted.crt"; }',
     launch,
   ].join('\n');
   const result = spawnSync('bash', ['-c', script], {
