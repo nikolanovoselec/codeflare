@@ -402,7 +402,11 @@ export class container extends Container<Env> implements ContainerEnvState {
           && stored.terminationIntentId === evidence.terminationIntentId) {
         // Consume exit evidence and settle the writer atomically so interruption can replay both.
         await txn.delete(container.EXIT_OBSERVED_KEY);
-        if ((!superseded || deleted) && await this.exitEvidenceIsCurrent(evidence, txn)) {
+        // D1 already confirmed this validated exit; teardown may have cleared its operational keys.
+        const canSettle = confirmed
+          ? await txn.get<number>('lifecycleGeneration') === generation
+          : (!superseded || deleted) && await this.exitEvidenceIsCurrent(evidence, txn);
+        if (canSettle) {
           await this.writeHermesSettlement(txn, session, generation, settlementRow, evidence.terminationIntentId, deleted);
         }
       }

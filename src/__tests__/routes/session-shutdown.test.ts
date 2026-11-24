@@ -78,19 +78,21 @@ async function expectAccepted(request: Response | Promise<Response>) {
   expect((await bounded(request)).ok).toBe(true);
 }
 
-function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = false, holdRetryDestroy = false) {
+function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = false, holdRetryDestroy = false, raceMonitor = false) {
   const owner = `shutdown-${crypto.randomUUID()}`;
   const other = `shutdown-${crypto.randomUUID()}`;
   const states = new Map<string, { ready: Promise<void>; instance: SessionContainer; restoreExit: (evidence: object, withoutRetryMarker: boolean, failCleanup: boolean | 'settlement') => void }>();
   const processes = new Map<string, ReturnType<typeof processFixture>>();
   const trace: string[] = [];
   const alarms = new Set<string>();
+  const cleanup = raceMonitor ? { reached: gate<void>(undefined), resume: gate<void>(undefined) } : undefined;
 
   function processFixture(label: string, initiallyRunning: boolean, hasSnapshot: boolean, directGeneration: boolean) {
     let running = initiallyRunning;
     // Model exit confirmation independently of the running hint. The fixture
     // uses awaited native destroy as its source of positive exit evidence.
-    const monitor = new Promise<void>(() => {});
+    const monitorExit = raceMonitor ? gate<void>(undefined) : undefined;
+    const monitor = monitorExit?.promise ?? new Promise<void>(() => {});
     const save = gate<'saved' | 'failed' | 'ambiguous' | 'timed-out' | 'pi-shutdown-unconfirmed' | 'pi-shutdown-timeout'
       | 'missing-reason' | 'not-started' | 'disk-refused' | 'disk-without-dispatch-proof' | { disabledGeneration: number }>('saved');
     let firstSave = true;
@@ -181,7 +183,7 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
         return Response.json({ error: `Unexpected fixture Host path ${path}` }, { status: 404 });
       } }),
     };
-    return { native, directGeneration, get token() { return token; }, save, exit, merge, retryResult, retryDestroy, get mergeRequest() { return mergeRequest; } };
+    return { native, monitorExit, directGeneration, get token() { return token; }, save, exit, merge, retryResult, retryDestroy, get mergeRequest() { return mergeRequest; } };
   }
 
   const idFromName = (name: string) => ({ toString: () => name });
@@ -213,6 +215,10 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
           }
         },
         delete: async (key: string | string[]) => {
+          if (cleanup && Array.isArray(key) && key.includes('review:boundary-input')) {
+            cleanup.reached.release();
+            await cleanup.resume.promise;
+          }
           if (key === 'monitoredExitGeneration' && failExitCleanup === true) {
             failExitCleanup = false;
             throw new Error('Exit cleanup interrupted');
@@ -322,7 +328,7 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
     states.get(`${owner}-${id}`)!.restoreExit({ owner, session: id, generation, terminationIntentId }, withoutRetryMarker, failCleanup);
     await session(id).collectMetrics({ ownerKey: owner, sessionId: id, generation });
   };
-  return { owner, other, app, path, create, batch, stop, remove, kill, retry, trace, replayExit, wake: () => getByName(`storage:${owner}`).wakeHermesShutdownQueue(owner), session };
+  return { owner, other, app, path, create, batch, stop, remove, kill, retry, trace, replayExit, cleanup, wake: () => getByName(`storage:${owner}`).wakeHermesShutdownQueue(owner), session };
 }
 
 const a = 'sessionaaa1';
@@ -709,7 +715,7 @@ it('REQ-MEM-042 AC3: replay settles the admitted writer after interrupted exit c
   expect(await session.hermesWriterSettled(f.owner, { sessionId: a, generation: 1 })).toBe(true);
 });
 
-it('REQ-MEM-042 AC3: settlement rollback allows replay after queued Delete of a pre-rollout writer', async () => {
+it.each([true, false])('REQ-MEM-042 AC3: settlement rollback allows replay after queued Delete of a pre-rollout writer (matching intent %s)', async matchingIntent => {
   const f = rig(true, true, true);
   const A = await f.create(a);
   A.save.release('saved');
@@ -727,8 +733,45 @@ it('REQ-MEM-042 AC3: settlement rollback allows replay after queued Delete of a 
   const session = f.session(a);
   const writer = { sessionId: a, generation: 1 };
   expect(await session.hermesWriterSettled(f.owner, writer)).toBe(false);
-  await session.collectMetrics({ ownerKey: f.owner, sessionId: a, generation: 1 });
-  expect(await session.hermesWriterSettled(f.owner, writer)).toBe(true);
+  if (matchingIntent) await session.collectMetrics({ ownerKey: f.owner, sessionId: a, generation: 1 });
+  else await f.replayExit(a, 1, crypto.randomUUID());
+  expect(await session.hermesWriterSettled(f.owner, writer)).toBe(matchingIntent);
+});
+
+it('REQ-MEM-042 AC3: a monitored writer exit settles across graceful teardown cleanup', async () => {
+  const f = rig(true, true, false, false, true);
+  const A = await f.create(a);
+  const confirmReached = gate<void>(undefined);
+  const confirmResume = gate<void>(undefined);
+  const confirmStopped = D1SessionRepository.prototype.confirmStopped;
+  const spy = vi.spyOn(D1SessionRepository.prototype, 'confirmStopped').mockImplementation(async function (this: D1SessionRepository, ...args) {
+    if (args[0] === f.owner && args[1] === a) {
+      confirmReached.release();
+      await confirmResume.promise;
+    }
+    return confirmStopped.apply(this, args);
+  });
+  try {
+    A.save.release('saved');
+    await expectAccepted(f.remove(a));
+    await bounded(f.cleanup!.reached.promise.then(() => new Response()));
+    A.monitorExit!.release();
+    await bounded(confirmReached.promise.then(() => new Response()));
+    f.cleanup!.resume.release();
+    await vi.waitFor(() => expect(f.trace).toContain(`${a}:sigterm`));
+    confirmResume.release();
+    await vi.waitFor(async () => expect((await f.batch())[a]?.status).toBe('stopped'));
+    A.exit.release('failed');
+    await vi.waitFor(async () => {
+      await f.wake();
+      expect((await f.app().request(f.path(a))).status).toBe(404);
+    });
+    await vi.waitFor(async () => {
+      expect(await f.session(a).hermesWriterSettled(f.owner, { sessionId: a, generation: 1 })).toBe(true);
+    });
+  } finally {
+    spy.mockRestore();
+  }
 });
 
 it('REQ-SESSION-006: deleting an already stopped, settled row does not launch or stop a native process', async () => {
