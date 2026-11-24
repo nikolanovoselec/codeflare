@@ -387,6 +387,10 @@ export function createPiWebRuntime(options: {
         } else if (state.surface !== 'chat') {
           throw new Error('Managed Herdr writer was not confirmed at shutdown');
         }
+        // After ordinary quit the pane returns to the shell. The old Pi
+        // reporter's role can disappear on Herdr's final exit observation.
+        const lastTerminal = receipt('terminal');
+        const parkedShell = lastTerminal !== undefined && quitTerminal(lastTerminal);
         // Herdr can acknowledge a report without storing its resume argv.
         // Require the unique saved role. Allow the wrapper's bounded reporter
         // transition and Herdr 0.9.5's five-second snapshot debounce.
@@ -399,8 +403,8 @@ export function createPiWebRuntime(options: {
           const roles = saved.workspaces.flatMap(workspace => workspace.tabs.flatMap(tab => Object.values(tab.panes)))
             .filter(({ agent_resume: role, agent_session: session }) => {
               if (JSON.stringify(role?.argv) !== '["codeflare-terminal-writer","--tui-mode","fullscreen"]') return false;
-              return role?.source === 'codeflare:terminal-writer' && role.agent === 'codeflare-terminal-writer'
-                || !!binding && role?.source === 'herdr:pi' && role.agent === 'pi' && session?.source === 'herdr:pi'
+              return role?.source === 'codeflare:terminal-writer' && role.agent === 'codeflare-terminal-writer' && (!parkedShell || session == null)
+                || !parkedShell && !!binding && role?.source === 'herdr:pi' && role.agent === 'pi' && session?.source === 'herdr:pi'
                 && session.agent === 'pi' && session.kind === 'path' && session.value === binding.path;
             });
           return roles.length === 1 ? true : undefined;

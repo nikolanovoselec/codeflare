@@ -69,7 +69,7 @@ Herdr image settings manage mobile layout, mouse capture, browser-owned clipboar
 #### Quit and reopen native Pi
 
 - Quit Pi normally and run a harmless command in the same Terminal shell. Run the printed restart command there without opening Chat. The same transcript and branch reopen under a fresh writer, without replay.
-- Repeat the quit, switch to Chat after Pi exits, then switch back. When Terminal is ready for retry, run the printed command in the original pane and retry. The same conversation reopens without replay.
+- Repeat the quit, switch to Chat after Pi exits, then switch back. When **Retry switch** appears, run the printed command in the original pane, then select **Retry switch**. The same conversation reopens without replay.
 - Use the [packaged Host handoff smoke](../../scripts/ci/smoke-pi-web-host-handoff.mjs) for the rapid-return race. It keeps the retiring registration live, then checks that the grant is unchanged and the attempt remains retryable. A manual timing attempt does not replace this check.
 
 #### Check desktop and mobile layout
@@ -82,23 +82,29 @@ Herdr image settings manage mobile layout, mouse capture, browser-owned clipboar
 - Keep an old frame open during Terminal ownership. Refresh and reconnect its event socket; neither action can acquire a writer. A stale prompt cannot run. Worker tests separately exercise cross-owner and CSRF rejection.
 - Stop the session without resuming. Repeat the refresh and reconnect while stopped. No replacement starts and the generation stays unchanged. Resume Chat and repeat with the old frame while the same transcript is active in the new generation.
 - For [REQ-AGENT-274](../../sdd/spec/agents.md#req-agent-274-stock-pi-chat-controls), open a harmless file through Files, then select it with `@`. Quiet starts on and can be changed. Chat has no Git or worktree controls; ordinary Terminal and VS Code Git still work.
-- Use the synthetic confirmation fixture below. During Chat opening, choose **Yes** on **Resume the Pi handoff smoke transcript?**. The question must disappear and the same frame must become ready.
-- Once Chat is ready, submit `pi-fixture-question`. Choose **Yes** on **Continue the ready Chat fixture?**. The confirmation closes without a model turn. Then send a separate harmless prompt and verify the composer still works.
+- Use the synthetic confirmation fixture below. During Chat opening, choose **Yes** on **Resume the Pi handoff smoke transcript?**. Verify `pi-fixture-opening-yes.txt` appears and the same frame becomes ready.
+- Once Chat is ready, submit `pi-fixture-question`. Choose **Yes** on **Continue the ready Chat fixture?**. Verify `pi-fixture-ready-yes.txt` appears without a model turn. Then send a separate harmless prompt and verify the composer works.
 - Recovering an already-pending question after refresh is not required. If Chat startup fails, retry the same transcript only after the previous attempt is confirmed closed.
 
-In the disposable workspace only, load the following as `handoff-fixture.ts` in the Pi agent’s `extensions` directory before opening Chat. It uses the same startup confirmation as the [packaged stock smoke](../../scripts/ci/smoke-pi-web-handoff.mjs) and adds the ready-state trigger. Remove it afterwards.
+In the disposable workspace only, load the following as `handoff-fixture.ts` in the Pi agent’s `extensions` directory before opening Chat. It uses the same startup confirmation as the [packaged stock smoke](../../scripts/ci/smoke-pi-web-handoff.mjs) and adds the ready-state trigger. Start with both marker files absent; remove the fixture and marker files afterwards.
 
 ```ts
+import { writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
 
 export default function (pi: ExtensionAPI) {
   pi.on('session_start', async (_event, ctx) => {
     if (ctx.mode !== 'rpc') return;
-    await ctx.ui.confirm('Resume the Pi handoff smoke transcript?', 'Continue without a model turn.');
+    if (await ctx.ui.confirm('Resume the Pi handoff smoke transcript?', 'Continue without a model turn.')) {
+      await writeFile(join(ctx.cwd, 'pi-fixture-opening-yes.txt'), 'yes\n', { flag: 'wx' });
+    }
   });
   pi.on('input', async (event, ctx) => {
     if (ctx.mode !== 'rpc' || event.text !== 'pi-fixture-question') return;
-    await ctx.ui.confirm('Continue the ready Chat fixture?', 'Handle this input without a model turn.');
+    if (await ctx.ui.confirm('Continue the ready Chat fixture?', 'Handle this input without a model turn.')) {
+      await writeFile(join(ctx.cwd, 'pi-fixture-ready-yes.txt'), 'yes\n', { flag: 'wx' });
+    }
     return { action: 'handled' };
   });
 }

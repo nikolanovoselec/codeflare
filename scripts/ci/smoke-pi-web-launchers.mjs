@@ -187,6 +187,9 @@ async function qualify(mode) {
   }
 
   let binding, leaf, saved, inode, host;
+  const claimPath = ticket => join(runtimeDir, 'terminal-tickets', String(generation), ticket);
+  // Match the launcher's exclusive claim before it forks a native writer.
+  const claim = (ticket, pid) => writeFileSync(claimPath(ticket), `${pid}\n`, { flag: 'wx', mode: 0o600 });
   async function registerHeldReentry(pane, retiredTicket, pid) {
     // Controlled private-protocol fixture: the registered process is alive
     // but does not claim the ticket, like a wrapper held before its next poll.
@@ -199,7 +202,7 @@ async function qualify(mode) {
       const owner = json(ownerPath);
       return owner.phase === 'opening' && owner.terminalTicket !== retiredTicket && owner;
     });
-    assert.equal(existsSync(join(runtimeDir, 'terminal-tickets', `${generation}`, interrupted.terminalTicket)), false);
+    assert.equal(existsSync(claimPath(interrupted.terminalTicket)), false);
     return interrupted.terminalTicket;
   }
   async function openExact(pane, host) {
@@ -299,6 +302,7 @@ async function qualify(mode) {
       await pty.until('interrupted unclaimed re-entry leaves Terminal selected', () =>
         host.status().phase === 'active' && host.status().surface === 'terminal', 25_000);
       assert.equal(json(reportPath).instance, reopened.native.instance, 'no writer started during the interruption');
+      assert.throws(() => claim(revoked, process.pid), { code: 'EEXIST' }, 'a delayed claimant cannot use the revoked grant');
       pty.write('codeflare-terminal-writer\r');
       await pty.until('explicit wrapper re-entry earns a fresh one-use ticket', () =>
         json(ownerPath).terminalTicket !== reopened.grant.terminalTicket);
@@ -307,6 +311,24 @@ async function qualify(mode) {
       assert.notEqual(restarted.native.instance, reopened.native.instance);
       await pty.until('ordinary re-entry confirms Terminal without acquiring Chat', () =>
         host.status().phase === 'complete' && host.status().surface === 'terminal' && !host.status().chatUrl);
+      const wrapper = json(join(runtimeDir, 'wrapper.json'));
+      pty.write('\x04');
+      await pty.until('normal quit removes the writer and its wrapper before another registration', () => {
+        const end = json(reportPath);
+        return end.instance === restarted.native.instance && end.quit && !alive(restarted.native) && !alive(wrapper);
+      });
+      const claimed = await registerHeldReentry('classic', restarted.grant.terminalTicket, process.pid);
+      claim(claimed, process.pid); // The claim wins, but no writer receipt follows.
+      const uncertain = await pty.until('a claimed grant without a writer receipt stays unconfirmed', () => {
+        const state = host.status();
+        return state.phase === 'uncertain' && state;
+      }, 25_000);
+      await assert.rejects(host.handoff.switchTo({ generation, target: 'chat', requestId: randomUUID() }));
+      const retry = await host.handoff.switchTo({ generation, target: 'terminal', requestId: uncertain.requestId });
+      assert.equal(retry.phase, 'uncertain');
+      assert.equal(json(ownerPath).terminalTicket, claimed, 'no replacement grant can be issued');
+      assert.equal(read(claimPath(claimed)), `${process.pid}\n`, 'Host never overwrites a claimant’s receipt');
+      assert.equal(json(reportPath).instance, restarted.native.instance);
       console.log('PI_WEB_CLASSIC_LAUNCHER_OK');
       return;
     }
@@ -369,8 +391,13 @@ async function qualify(mode) {
       const end = json(reportPath);
       return end.instance === beforeStop.native.instance && end.quit && !alive(beforeStop.native) && !alive(oldWrapper);
     });
-    await registerHeldReentry(pane, beforeStop.grant.terminalTicket, process.pid);
+    await pty.until('ordinary quit parks the wrapper role independently of native Pi in the original pane', async () => {
+      const parked = await readPane(pane);
+      return parked.pane_id === pane && parked.agent === 'codeflare-terminal-writer' && !parked.agent_session;
+    });
+    const pending = await registerHeldReentry(pane, beforeStop.grant.terminalTicket, process.pid);
     await host.close();
+    assert.throws(() => claim(pending, process.pid), { code: 'EEXIST' }, 'Stop fences the revoked grant against a late claim');
     assert.equal(json(reportPath).instance, beforeStop.native.instance, 'Stop must not start a pending re-entry');
     assert.equal(host.status().chatUrl, undefined, 'Stop must not open the alternate writer');
     await stopRuntime();

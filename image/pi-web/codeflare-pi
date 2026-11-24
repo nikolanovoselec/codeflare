@@ -78,12 +78,35 @@ retired_native_path() {
     ' "$runtime/terminal.json" 2>/dev/null
 }
 
+clear_retired_pi_authority() {
+    # Herdr 0.9.5's release-agent deliberately ignores official reporters.
+    # Its local clear-authority method can relinquish this exact source.
+    /usr/local/bin/node - "$HERDR_PANE_ID" "$(date +%s%6N)" <<'NODE'
+const socket = require('node:net').createConnection(process.env.HERDR_SOCKET_PATH);
+socket.setEncoding('utf8');
+socket.setTimeout(800, () => socket.destroy());
+socket.on('error', () => { process.exitCode = 1; });
+socket.on('connect', () => socket.write(JSON.stringify({ id: 'codeflare-pi-quit', method: 'pane.clear_agent_authority',
+  params: { pane_id: process.argv[2], source: 'herdr:pi', seq: Number(process.argv[3]) } }) + '\n'));
+let reply = '';
+process.exitCode = 1;
+socket.on('data', chunk => {
+  reply += chunk;
+  if (reply.length > 4096) { socket.destroy(); return; }
+  if (!reply.includes('\n')) return;
+  const response = JSON.parse(reply.slice(0, reply.indexOf('\n')));
+  if (response.id === 'codeflare-pi-quit' && response.result?.type === 'ok') process.exitCode = 0;
+  socket.destroy();
+});
+NODE
+}
+
 report_waiting_pane() {
     [ "$mode" = herdr ] || return 0
     # Herdr requires a reporter to hold the pane before storing its resume argv.
     # This is a wrapper role, not a report that a native Pi session is open.
-    local status retired_path="" deadline=$((SECONDS + 12))
-    if [ "$#" -eq 1 ]; then
+    local status retired_path="" disposition="${2:-}" deadline=$((SECONDS + 12))
+    if [ "$#" -gt 0 ]; then
         # Only the foreground wrapper that has joined its exact child may
         # attach resume argv to that dead child's remaining Herdr registration.
         retired_path=$(retired_native_path "$1") || retired_path=""
@@ -93,10 +116,17 @@ report_waiting_pane() {
             sleep 0.25
             continue
         fi
-        if [ -n "$retired_path" ] && jq -e --arg pane "$HERDR_PANE_ID" --arg path "$retired_path" '
-            .result.pane | .pane_id == $pane and .agent == "pi"
+        if [ -n "$retired_path" ] && jq -e --arg pane "$HERDR_PANE_ID" --arg path "$retired_path" --arg disposition "$disposition" '
+            .result.pane | .pane_id == $pane and (.agent == "pi" or ($disposition == "quit" and .agent == null))
                 and .agent_session == {source:"herdr:pi", agent:"pi", kind:"path", value:$path}
         ' <<< "$status" >/dev/null; then
+            if [ "$disposition" = quit ]; then
+                # Do not leave the durable role tied to Pi process detection
+                # when the wrapper itself is about to return to the shell.
+                clear_retired_pi_authority >/dev/null 2>&1 || true
+                sleep 0.25
+                continue
+            fi
             # Herdr ignores release-agent for official reporters. Retain
             # this exact session registration and give it gated resume argv.
             # No stock Pi reporter is still live for the joined process.
@@ -182,13 +212,14 @@ while true; do
             export CODEFLARE_PI_TERMINAL_SESSION_PATH="$path"
             exec /usr/local/bin/node --import /opt/codeflare/pi-web/native-preflight.mjs /usr/local/bin/pi "${args[@]}"
         ) || printf 'Codeflare: the managed Pi process exited unsuccessfully.\n' >&2
-        report_waiting_pane "$ticket"
         if native_quit "$ticket"; then
+            report_waiting_pane "$ticket" quit
             printf 'Pi exited. To re-enable managed Terminal Pi, run: codeflare-terminal-writer'
             [ "$#" -eq 0 ] || printf ' %s' "$@"
             printf '\n'
             exit 0
         fi
+        report_waiting_pane "$ticket"
     fi
     sleep 0.25
 done
