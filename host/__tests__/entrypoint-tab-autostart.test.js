@@ -71,7 +71,7 @@ function runHarness({ tabConfig, env = {}, dir = mkdtempSync(join(tmpdir(), 'tab
   };
 }
 
-function runGeneratedBashrc(dir, command, manualTab = '') {
+function runGeneratedBashrc(dir, command, manualTab = '', terminalId = '1') {
   const bin = join(dir, 'bin');
   const log = join(dir, 'agent.log');
   mkdirSync(bin, { recursive: true });
@@ -84,7 +84,7 @@ function runGeneratedBashrc(dir, command, manualTab = '') {
       `export PATH="${bin}:/usr/local/bin:/usr/bin:/bin:$PATH"`,
     ),
   );
-  const shell = `env HOME=${dir} AGENT_LOG=${log} TERMINAL_ID=1 TERMINAL_APP_STARTED= MANUAL_TAB=${manualTab} bash --noprofile --rcfile ${bashrcPath} -ic 'printf shell-survived'`;
+  const shell = `env HOME=${dir} AGENT_LOG=${log} TERMINAL_ID=${terminalId} TERMINAL_APP_STARTED= MANUAL_TAB=${manualTab} bash --noprofile --rcfile ${bashrcPath} -ic 'printf shell-survived'`;
   const result = spawnSync('script', ['-qfec', shell, '/dev/null'], { encoding: 'utf8', timeout: 10_000 });
   return {
     result,
@@ -164,6 +164,27 @@ describe('entrypoint.sh configure_tab_autostart / REQ-AGENT-003 (Agent CLI auto-
       assert.equal(existsSync(join(dir, 'agent.log')), false, 'native Pi must not take the Chat writer slot');
       assert.equal(existsSync(join(dir, '.pi/agent/sessions')), false, 'Chat creates the first native transcript');
       assert.doesNotMatch(shell.result.stderr, /missing-session/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('REQ-AGENT-272 AC2: a configured secondary Classic Pi never receives the primary conversation', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'classic-secondary-pi-'));
+    try {
+      mkdirSync(join(dir, 'workspace'));
+      const { result } = runHarness({ dir,
+        env: { CODEFLARE_PI_SURFACE: 'terminal', CODEFLARE_PI_GENERATION: '7' },
+        tabConfig: JSON.stringify([{ id: '1', command: 'pi' }, { id: '2', command: 'pi' }]),
+      });
+      assert.equal(result.status, 0, result.stderr);
+      const primary = bindingId(dir, 'abc12345');
+      assert.equal(piSessionHeader(dir, primary).id, primary);
+      const secondary = runGeneratedBashrc(dir, 'pi', '', '2');
+      assert.equal(secondary.result.status, 0, secondary.result.stderr);
+      assert.ok(existsSync(join(dir, 'agent.log')), 'the secondary tab still launches native Pi');
+      assert.deepEqual(secondary.args, [], 'the secondary process starts its own conversation');
+      assert.equal(bindingId(dir, 'abc12345'), primary);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

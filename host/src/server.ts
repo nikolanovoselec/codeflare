@@ -567,12 +567,14 @@ server.listen(PORT, '0.0.0.0', async () => {
 
   prewarmSession.orphanTimeout = setTimeout(() => {
     if (sessionManager.sessions.has(state.prewarmSessionId)) {
-      log('warn', 'Pre-warm session expired without adoption, killing');
       const bootstrapDone = !requiresHerdrBootstrap || fs.existsSync(herdrBootstrapDone);
+      // Chat intentionally has no terminal browser to adopt the managed
+      // primary. Keep its live ticket consumer without recording activity.
+      const retainManagedPrimary = !!piWebRuntime && !piWebRuntime.legacyHerdr && prewarmSession.isPtyAlive();
       if (requiresHerdrBootstrap && !bootstrapDone) {
         log('error', 'Expired Herdr pre-warm never completed bootstrap; terminating terminal server');
       }
-      handlePrewarmOrphanExpiry(TERMINAL_MODE, bootstrapDone, {
+      const expiry = handlePrewarmOrphanExpiry(TERMINAL_MODE, bootstrapDone, {
         disposeDataListener: () => {
           if (prewarmDataListener) {
             prewarmDataListener.dispose();
@@ -586,9 +588,11 @@ server.listen(PORT, '0.0.0.0', async () => {
           }
         },
         deleteSession: () => {
+          log('warn', 'Pre-warm session expired without adoption, killing');
           sessionManager.delete(state.prewarmSessionId);
         },
-      });
+      }, retainManagedPrimary);
+      if (expiry === 'retained') log('info', 'Retained the managed Pi primary for surface handoff');
       prewarmReady = true;
     }
   }, PREWARM_ORPHAN_MS);

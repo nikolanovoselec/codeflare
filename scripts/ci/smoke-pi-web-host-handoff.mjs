@@ -23,6 +23,7 @@ const model = 'handoff-text';
 const seed = 'Keep this exact saved question.';
 const reply = 'Keep this exact saved reply.';
 const held = 'Do not wait for a normal reply to this input.';
+const nativePrompt = 'Park this Terminal turn until it is interrupted.';
 const text = (content) => typeof content === 'string' ? content : content?.map(({ text }) => text).join('');
 const json = (path) => JSON.parse(readFileSync(path, 'utf8'));
 const identity = ({ id, cwd, path }) => ({ id, cwd, path });
@@ -64,7 +65,7 @@ async function request(origin, path, expected = 200, body, headers = {}) {
   return JSON.parse(result);
 }
 
-async function reopenTerminal(cwd, owner, released, readSwitch) {
+async function reopenTerminal(cwd, owner, released, readSwitch, exercise) {
   // Consume the exact issued ticket in a real PTY, without depending on the
   // full Classic launcher or Herdr pane setup in this minimal image.
   assert.ok(existsSync('/usr/bin/script'), 'isolated image must provide the script PTY driver');
@@ -88,14 +89,13 @@ async function reopenTerminal(cwd, owner, released, readSwitch) {
     assert.deepEqual(identity(terminal), owner.binding);
     assert.equal(terminal.ticket, owner.terminalTicket);
     assert.equal(terminal.leaf, released.leaf);
+    const result = await exercise(cli.stdin, terminal);
+    assert.deepEqual(await Promise.race([done, delay(5000, undefined, { ref: false })]), [0, null], 'native TUI must quit normally');
+    return result;
   } catch (error) {
+    cli.kill(); // Failure cleanup only; the successful switch must quit Pi itself.
     throw new Error(`Native Terminal handoff failed: ${output.slice(-4000)}`, { cause: error });
-  } finally {
-    cli.stdin.write('\x04'); // Native exit on an empty editor; not used to establish Chat release.
-    try {
-      assert.deepEqual(await Promise.race([done, delay(5000, undefined, { ref: false })]), [0, null], 'native TUI must quit normally');
-    } finally { cli.stdin.end(); }
-  }
+  } finally { cli.stdin.end(); }
 }
 
 async function qualify(ambiguous) {
@@ -109,10 +109,12 @@ async function qualify(ambiguous) {
   const resume = join(home, 'resume');
   const owner = () => json(join(runtimeDir, 'owner.json'));
   const chat = () => json(join(runtimeDir, 'chat.json'));
+  const terminal = () => json(join(runtimeDir, 'terminal.json'));
   Object.assign(process.env, { HOME: home, PI_CODING_AGENT_DIR: agentDir, CODEFLARE_RUNTIME_ROOT: runtimeRoot,
     CODEFLARE_PI_GENERATION: String(generation), CODEFLARE_PI_SURFACE: 'chat', SESSION_ID: sessionId });
 
   const calls = [];
+  let nativeStream;
   const modelServer = createServer(async (req, res) => {
     try {
       let raw = '';
@@ -128,7 +130,11 @@ async function qualify(ambiguous) {
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });
       if (prompt === seed) res.end(chunk({ role: 'assistant', content: reply }, null) + chunk({}, 'stop') + 'data: [DONE]\n\n');
       else if (prompt === held) res.write(chunk({ role: 'assistant' }, null)); // Only native Abort can end this turn.
-      else res.destroy();
+      else if (prompt === nativePrompt) {
+        nativeStream = 'parked';
+        res.once('close', () => { nativeStream = 'closed'; });
+        res.write(chunk({ role: 'assistant' }, null));
+      } else res.destroy();
     } catch { res.destroy(); }
   });
   const runtime = createPiWebRuntime({ sessionId, generation, initialSurface: 'chat', terminalMode: 'classic',
@@ -182,6 +188,10 @@ export default function (pi) {
       assert.deepEqual({ id: row.id, cwd: row.cwd, archived: row.archived }, { id, cwd, archived: false });
       return row.runtime;
     };
+    // The pinned naming namespace has no disable flag. Dismiss only its bundled
+    // package from the disposable profile before the first writer can load it.
+    const naming = '/opt/codeflare/pi-web/node_modules/@jmfederico/pi-web/dist/pi-packages/session-naming';
+    assert.equal((await request(stock, '/api/pi-packages/remove', 200, { scope: 'user', source: naming })).removed, true);
     assert.equal((await snapshot()).status.sessionId, id);
     await until('image-managed Chat writer ready', () => runtime.ready);
     await boot;
@@ -190,10 +200,16 @@ export default function (pi) {
 
     let busyChecks = 0;
     let stop;
+    let nativePid, processAtChatOpen;
     const aborts = [];
     // Observe the real private control HTTP calls used by the coordinator.
     globalThis.fetch = async (input, init) => {
       const url = new URL(input instanceof Request ? input.url : input);
+      if (nativePid && processAtChatOpen === undefined && url.origin === stock && url.pathname === '/api/projects') {
+        // Sample before the Host's first target-open request, not after the deep link appears.
+        try { processAtChatOpen = readFileSync(`/proc/${nativePid}/stat`, 'utf8'); }
+        catch (error) { if (!['ENOENT', 'ESRCH'].includes(error.code)) throw error; processAtChatOpen = ''; }
+      }
       const closing = url.origin === stock && url.pathname === `${ref}/stop`;
       if (closing) stop = { beforeStop: owner() };
       const response = await nativeFetch(input, init);
@@ -296,14 +312,55 @@ export default function (pi) {
     const inode = statSync(path).ino;
     assert.ok(transcript.startsWith(saved), 'release preserves the previous transcript bytes');
 
-    await reopenTerminal(cwd, ticket, released, readSwitch);
-    assert.equal((await readSwitch()).surface, 'terminal');
+    const { leaf, expectedCalls } = await reopenTerminal(cwd, ticket, released, readSwitch, async (stdin, native) => {
+      assert.equal((await readSwitch()).surface, 'terminal');
+      assert.equal(statSync(path).ino, inode);
+      assert.ok(readFileSync(path, 'utf8').startsWith(transcript));
+      assert.deepEqual(readdirSync(dirname(path)).filter(file => file.endsWith('.jsonl')), [basename(path)]);
+      assert.ok(calls.length === 1 || calls.length === 2 && calls[1] === held, 'no new prompt or replay on Terminal');
+      await api(`${ref}/transcript-snapshot?${query}`, 409);
+      assert.equal((await health()).activeSessions, 0, 'stale Chat cannot reopen the transcript');
+
+      // REQ-AGENT-272 AC2/AC3/AC6: drive the same live TUI, with no manual Abort or quit.
+      const expectedCalls = [...calls, nativePrompt];
+      stdin.write(`\x1b[200~${nativePrompt}\x1b[201~\r`);
+      await until('native Terminal turn is parked at the model', () => nativeStream === 'parked' && terminal().idle === false);
+      nativePid = native.pid;
+      const returnId = randomUUID();
+      await api('/_switch', 202, { generation, requestId: returnId, target: 'chat' });
+      const opening = await until('Chat target opens after Terminal release', async () => {
+        const state = await readSwitch();
+        assert.ok(!['failed', 'uncertain'].includes(state.phase), `Terminal → Chat switch: ${state.phase}`);
+        return state.chatUrl && state;
+      }, 20_000);
+      assert.deepEqual([opening.phase, opening.requestId, opening.chatUrl], ['opening', returnId, chatUrl]);
+      assert.notEqual(processAtChatOpen, undefined, 'observe the first Host Chat open request');
+      const fields = processAtChatOpen.slice(processAtChatOpen.lastIndexOf(')') + 2).split(' ');
+      assert.ok(fields[0] === 'Z' || fields[19] !== native.startTime, 'the exact CLI must exit before Host opens Chat');
+      await until('native Abort disconnects the parked stream', () => nativeStream === 'closed');
+      const ended = terminal();
+      for (const key of ['pid', 'startTime', 'instance', 'ticket']) assert.equal(ended[key], native[key]);
+      assert.deepEqual([ended.released, ended.releaseReady, ended.idle], [true, returnId, true]);
+      assert.deepEqual(identity(ended), { id, cwd, path });
+      assert.ok(ended.leaf, 'the interrupted turn has a saved branch');
+      assert.equal(messages(readFileSync(path, 'utf8')).at(-1)?.stopReason, 'aborted');
+      return { leaf: ended.leaf, expectedCalls };
+    });
+    assert.equal((await health()).activeSessions, 0, 'Chat has not acquired a writer before the snapshot');
+    const returned = await snapshot();
+    assert.equal(returned.status.sessionId, id);
+    assert.equal(returned.partial, null);
+    const history = returned.page.messages.map(message => text(message.content));
+    assert.ok(history.includes(reply) && history.includes(nativePrompt), 'Chat shows the saved Terminal branch');
+    await until('return to Chat completes', async () => {
+      const state = await readSwitch();
+      return state.phase === 'complete' && state.surface === 'chat';
+    });
+    const reopened = chat();
+    assert.deepEqual({ ...identity(reopened), leaf: reopened.leaf }, { id, cwd, path, leaf });
     assert.equal(statSync(path).ino, inode);
     assert.ok(readFileSync(path, 'utf8').startsWith(transcript));
-    assert.deepEqual(readdirSync(dirname(path)).filter(file => file.endsWith('.jsonl')), [basename(path)]);
-    assert.ok(calls.length === 1 || calls.length === 2 && calls[1] === held, 'no new prompt or replay on Terminal');
-    await api(`${ref}/transcript-snapshot?${query}`, 409);
-    assert.equal((await health()).activeSessions, 0, 'stale Chat cannot reopen the transcript');
+    assert.deepEqual(calls, expectedCalls, 'Chat must not replay the interrupted Terminal turn');
     console.log('PI_WEB_HOST_HANDOFF_OK');
   } finally {
     globalThis.fetch = nativeFetch;

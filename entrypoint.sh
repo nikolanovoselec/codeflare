@@ -2732,9 +2732,13 @@ CASE_EOF
 CASE_EOF
                     ;;
                 pi)
-                    local pi_launch="${classic_agent_launch:-pi}"
-                    if [ "$key" = 1 ] && [ "$managed_pi_primary" = 1 ]; then
-                        pi_launch=/usr/local/bin/codeflare-terminal-writer
+                    local pi_launch=pi
+                    if [ "$key" = 1 ]; then
+                        if [ "$managed_pi_primary" = 1 ]; then
+                            pi_launch=/usr/local/bin/codeflare-terminal-writer
+                        else
+                            pi_launch="${classic_agent_launch:-pi}"
+                        fi
                     fi
                     cat >> "$BASHRC_FILE" << CASE_EOF
         ${key})

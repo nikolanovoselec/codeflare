@@ -329,7 +329,10 @@ export function createPiWebRuntime(options: {
     initialize() {
       boot ??= (async () => {
         bootPhase = 'opening';
-        await until(() => options.cloneRestored() ? true : undefined, undefined, 120_000);
+        // Entrypoint owns this budget (including disabled per-clone limits).
+        // A local deadline cannot authorize or permanently reject startup;
+        // wait for its real restore marker, or for this generation to close.
+        await until(() => options.cloneRestored() ? true : undefined);
         if (options.terminalMode === 'herdr') {
           const marker = join(runtimeDir, 'legacy-herdr');
           legacyHerdr = existsSync(marker) && readFileSync(marker, 'utf8').trim() === String(generation);
