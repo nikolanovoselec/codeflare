@@ -153,7 +153,6 @@ Under [REQ-AGENT-272](../../sdd/spec/agents.md#req-agent-272-pi-chat-and-termina
 `POST _switch` returns `202` with a phase snapshot, not a completion receipt. `POST _cancel` returns `200` with a phase snapshot when cancellation is accepted. <!-- @impl: host/src/pi-web-proxy.ts::control -->
 
 - A stale generation returns `409` with an `{ error }` body, not a phase snapshot. <!-- @impl: src/routes/pi-web.ts::handlePiWebRequest -->
-- Switching to Terminal while repositories restore returns `409` with `code: PI_REPOSITORY_RESTORE_PENDING` and an `error` message, not a phase snapshot. Chat retains the writer; retry after restore. <!-- @impl: host/src/pi-web-proxy.ts::control -->
 - Other in-generation switch conflicts and disallowed cancellations return `409` with the Host’s current phase snapshot. <!-- @impl: host/src/pi-web-proxy.ts::control -->
 
 `GET _switch` requires a `generation` query and accepts an optional UUID `requestId`. The UUID is validated, not used as a filter. Compare the returned `requestId` with the submitted attempt before attributing a result to it. <!-- @impl: src/routes/pi-web.ts::handlePiWebRequest --> <!-- @impl: host/src/pi-web-proxy.ts::control -->

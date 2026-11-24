@@ -119,9 +119,6 @@ export function createPiWebProxy(options: { sessionId: string; runtime: PiWebRun
     if (runtime.legacyHerdr || (status.phase === 'opening' || status.phase === 'failed') && !status.requestId) {
       send(res, 409, status); return;
     }
-    if (target === 'terminal' && !runtime.terminalAvailable) {
-      send(res, 409, { error: 'Wait for repository restore before switching to Terminal', code: 'PI_REPOSITORY_RESTORE_PENDING' }); return;
-    }
     let rejected = false;
     // The switch keeps running if the browser disconnects. Admission changes
     // synchronously; wait one microtask for an immediate validation failure.

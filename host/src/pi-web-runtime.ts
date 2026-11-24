@@ -452,7 +452,6 @@ export function createPiWebRuntime(options: {
     get generation() { return generation; },
     get legacyHerdr() { return legacyHerdr; },
     get cwd() { return cwd; },
-    get terminalAvailable() { return options.cloneRestored(); },
     beginChatAttachment() { chatAttachDeadline ??= Date.now() + 25_000; },
     markWebRequestUnconfirmed() { webRequestUnconfirmed = true; },
     status() {
@@ -465,10 +464,10 @@ export function createPiWebRuntime(options: {
     initialize() {
       boot ??= (async () => {
         bootPhase = 'opening';
-        // Chat needs the restored Pi profile and transcripts, not the later
-        // repository clone pass. Preserve the native launcher's clone gate.
+        // Classic needs the restored Pi profile and transcripts, not the
+        // background clone pass. Keep the legacy Herdr startup order.
         await until(() => options.profileRestored()
-          && (initialSurface === 'chat' && options.terminalMode === 'classic' || options.cloneRestored()) ? true : undefined);
+          && (options.terminalMode === 'classic' || options.cloneRestored()) ? true : undefined);
         if (options.terminalMode === 'herdr') {
           const marker = join(runtimeDir, 'legacy-herdr');
           legacyHerdr = existsSync(marker) && readFileSync(marker, 'utf8').trim() === String(generation);

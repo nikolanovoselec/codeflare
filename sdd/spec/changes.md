@@ -6,7 +6,7 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 ## 2026-11-24: Open Pi Chat during repository restore
 
-- [Classic Pi Chat startup](agents.md#req-agent-275-classic-pi-chat-startup) keeps the standard Ready → Open screen and lets Chat open while repositories clone. Native Terminal still waits for restore.
+- [Classic Pi Chat startup](agents.md#req-agent-275-classic-pi-chat-startup) keeps the standard Ready → Open screen. Classic Chat, Terminal, and switching stay available while repositories clone, with the restore notification visible.
 - [Stock Pi Chat controls](agents.md#req-agent-274-stock-pi-chat-controls) support workspace attachments up to 10 MB per batch and default to Graphite under the Codeflare machine name.
 
 ## 2026-11-23: Continue Pi conversations in Chat or Terminal

@@ -352,6 +352,34 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     expect(tabs).toBeInTheDocument();
   });
 
+  it('keeps the repository restore notice visible across Classic Chat and Terminal switches', async () => {
+    navigationRendering.realTerminalArea = true;
+    const sessionId = 'abcdef0123456789';
+    const prefix = `/api/pi-web/${sessionId}/`;
+    const chatUrl = `${prefix}g/7/?session=saved-pi&view=chat`;
+    let surface = 'chat';
+    mockSessions = [createMockSession({ id: sessionId, workspace: 'terminal', agentType: 'pi', generation: 7 })];
+    mockVisiblePanes = [{ sessionId, terminalId: '1' }];
+    mockRepositoryNotices = { [sessionId]: { status: 'restoring' } };
+    window.history.replaceState(null, '', `/app/session/${sessionId}`);
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      if (url !== `${prefix}_switch?generation=7` && url !== `${prefix}_switch`) return Response.json({});
+      if (init?.method === 'POST') surface = JSON.parse(String(init.body)).target;
+      return Response.json({ phase: 'complete', surface, ...(surface === 'chat' && { chatUrl }) });
+    });
+    try {
+      render(() => <Layout />);
+      await screen.findByTitle('Pi Chat');
+      const notice = screen.getByText('Restoring repositories…');
+      fireEvent.click(screen.getByRole('button', { name: 'Switch to Terminal' }));
+      await waitFor(() => expect(screen.queryByTitle('Pi Chat')).not.toBeInTheDocument());
+      expect(notice).toBeVisible();
+      fireEvent.click(screen.getByRole('button', { name: 'Switch to Chat' }));
+      await screen.findByTitle('Pi Chat');
+      expect(notice).toBeVisible();
+    } finally { cleanup(); vi.unstubAllGlobals(); }
+  });
+
   it('keeps the original native terminal reachable when a post-quit terminal switch needs a retry', async () => {
     navigationRendering.realTerminalArea = true;
     const sessionId = 'abcdef0123456789';

@@ -141,9 +141,8 @@ async function qualify(ambiguous) {
       } else res.destroy();
     } catch { res.destroy(); }
   });
-  let cloneRestored = false;
   const runtime = createPiWebRuntime({ sessionId, generation, initialSurface: 'chat', terminalMode: 'classic',
-    cwd, home, runtimeDir, profileRestored: () => true, cloneRestored: () => cloneRestored });
+    cwd, home, runtimeDir, profileRestored: () => true, cloneRestored: () => false });
   const proxy = createPiWebProxy({ sessionId, runtime, recordInput() {} });
   let refuseFirstFrame = !ambiguous;
   const server = createServer((req, res) => {
@@ -238,16 +237,7 @@ export default function (pi) {
     await boot;
     const source = chat();
     assert.deepEqual(identity(source), { id, cwd, path });
-    assert.equal(cloneRestored, false, 'Chat must open the native transcript before repository cloning finishes');
     assert.equal(owner().terminalTicket, undefined, 'Chat-first startup must not grant a native Terminal ticket');
-    if (!ambiguous) {
-      const blocked = await api('/_switch', 409, { generation, requestId: randomUUID(), target: 'terminal' });
-      assert.equal(blocked.code, 'PI_REPOSITORY_RESTORE_PENDING');
-      assert.equal((await readSwitch()).surface, 'chat', 'a premature switch leaves Chat active');
-      assert.equal(owner().terminalTicket, undefined);
-      assert.equal((await snapshot()).status.sessionId, id);
-    }
-    cloneRestored = true;
 
     let busyChecks = 0;
     let stop;

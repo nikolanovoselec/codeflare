@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -18,22 +18,20 @@ function actions(calls) {
 }
 
 describe('pre-warm orphan expiry', () => {
-  it('REQ-AGENT-272 AC1: a late clone marker permits the first native writer only after restore', async t => {
+  it('REQ-AGENT-272 AC1: Classic Terminal starts after profile restore while cloning continues', { timeout: 3000 }, async () => {
     const home = mkdtempSync(join(tmpdir(), 'pi-web-clone-ready-'));
-    const flag = join(home, 'clone-ready');
+    let profileRestored = false;
     const runtimeDir = join(home, 'runtime');
     const owner = join(runtimeDir, 'owner.json');
-    t.mock.timers.enable({ apis: ['Date'], now: 0 });
     const runtime = createPiWebRuntime({ sessionId: 'fixture123', generation: 7, initialSurface: 'terminal',
-      terminalMode: 'classic', cwd: join(home, 'workspace'), home, runtimeDir, profileRestored: () => true, cloneRestored: () => existsSync(flag) });
+      terminalMode: 'classic', cwd: join(home, 'workspace'), home, runtimeDir, profileRestored: () => profileRestored, cloneRestored: () => false });
     const boot = runtime.initialize();
     void boot.catch(() => {});
     try {
-      t.mock.timers.setTime(299_000);
-      await delay(200); // Let the managed wait check the still-missing file at the new time.
+      await delay(200);
       assert.equal(existsSync(owner), false);
       assert.equal(runtime.status().phase, 'opening');
-      writeFileSync(flag, 'complete\n');
+      profileRestored = true;
       await boot;
       const grant = JSON.parse(readFileSync(owner, 'utf8'));
       assert.equal(grant.generation, 7);

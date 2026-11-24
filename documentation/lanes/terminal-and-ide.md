@@ -50,10 +50,12 @@ Herdr image settings manage mobile layout, mouse capture, browser-owned clipboar
 
 #### Choose the starting writer
 
+[REQ-AGENT-275](../../sdd/spec/agents.md#req-agent-275-classic-pi-chat-startup) covers startup and frame recovery.
+
 - In Standard and Pro where available, start Chat-first and Terminal-first in Classic. Send a synthetic message, Stop normally, then resume in the other surface. Only the selected primary opens the saved conversation.
 - On Chat-first Start and Resume, verify the standard startup overlay remains through **Ready**. Wait over 25 seconds, then choose **Open**. Chat opens without starting native Pi.
 - Configure an authorized synthetic repository as a restore target and ensure its checkout is absent locally. Open Chat while it clones; verify the composer works and the notification reports progress and the eventual outcome.
-- During the clone, verify switching to Terminal leaves Chat active and tells you to wait for restore. After clone completion, retry and verify Terminal opens. If cloning finished before the attempted check, record concurrency as unexercised.
+- Repeat startup Terminal-first. During cloning, switch Chat → Terminal and Terminal → Chat. Confirm the restore notification stays visible through both switches. If cloning finishes before a check, record that concurrency case as unexercised.
 - In a disposable browser check, block the first Chat frame navigation before it reaches the Host. Clear the block and choose **Reload Chat**. Verify the same conversation opens without a second handoff.
 - Verify unchanged workspace defaults, manually opened panes, and independent Browser VS Code behavior.
 
@@ -95,7 +97,7 @@ Herdr image settings manage mobile layout, mouse capture, browser-owned clipboar
 
 Workspace attachments survive Stop and Resume only with [full Workspace Sync](storage-and-sync.md#rclone-sync-modes-req-stor-003) and a successful sync. For independent persistence, use **Dashboard → Storage → Uploads**, then **Sync now** to read the files in `~/Uploads` in the running session.
 
-In PR Checks, the [packaged Host handoff smoke](../../scripts/ci/smoke-pi-web-host-handoff.mjs) checks that a body above 14 MiB with small file data receives `413` without writing files. The [stock supervisor smoke](../../scripts/ci/smoke-pi-web-services.mjs) separately checks panel visibility and retained MCP package registration, not the active client’s configuration.
+In PR Checks, the [packaged Host handoff smoke](../../scripts/ci/smoke-pi-web-host-handoff.mjs) checks that a body above 14 MiB with small file data receives `413` without writing files. The [stock supervisor smoke](../../scripts/ci/smoke-pi-web-services.mjs) separately checks disabled plugin omission from the manifest and retained MCP package registration, not the active client’s configuration.
 
 In the disposable workspace only, load the following as `handoff-fixture.ts` in the Pi agent’s `extensions` directory before opening Chat. It uses the same startup confirmation as the [packaged stock smoke](../../scripts/ci/smoke-pi-web-handoff.mjs) and adds the ready-state trigger. Start with both marker files absent; remove the fixture and marker files afterwards.
 
