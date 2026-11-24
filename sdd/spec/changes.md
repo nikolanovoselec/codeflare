@@ -4,6 +4,10 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-24: Rotate Hermes stores by last content change
+
+- [REQ-MEM-042](memory.md#req-mem-042-retain-ten-recent-session-memory-stores) evicts the oldest changed session memory prefix at capacity without requiring a final-save receipt, confirmed exit, or completed merge.
+
 ## 2026-11-24: Keep dedicated outbound handlers on Resume
 
 - [REQ-ENTERPRISE-016](security.md#req-enterprise-016-strict-gateway-egress) attempts GitHub, Cloudflare API, and other hostname-specific registrations before the strict catch-all when resuming a stopped session. [Live credential refresh](security.md#req-enterprise-311-strict-r2-credential-replacement) still replaces only the catch-all.

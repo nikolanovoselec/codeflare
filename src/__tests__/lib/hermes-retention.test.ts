@@ -244,11 +244,22 @@ it('REQ-MEM-042 AC4: a superseded writer cannot reopen an admitted store', async
   });
 });
 
-it.each(['unsettled-oldest', 'incomplete-inventory', 'unconfirmed-deletion'] as const)(
-  'REQ-MEM-042 AC3/AC4: does not reuse a slot on %s', async refusal => {
+it.each([undefined, 2])('REQ-MEM-042 AC3: rotates the oldest prefix without a matching final-save receipt (%s)', async receipt => {
+  await withBucket(async f => {
+    await f.fill();
+    const oldest = oldIds[0];
+    f.settled.delete(oldest);
+    if (receipt !== undefined) f.settled.set(oldest, receipt);
+    expect(await f.admit(newIds[0])).toBe('new');
+    await f.sync(newIds[0], 'New session memory');
+    expect([...f.stores.keys()].sort()).toEqual([...oldIds.slice(1), newIds[0]].sort());
+  });
+});
+
+it.each(['incomplete-inventory', 'unconfirmed-deletion'] as const)(
+  'REQ-MEM-042 AC4: does not reuse a slot on %s', async refusal => {
     await withBucket(async f => {
       await f.fill();
-      if (refusal === 'unsettled-oldest') f.settled.set(oldIds[0], 0); // evidence for a previous writer, not this one
       if (refusal === 'incomplete-inventory') f.loseInventory();
       if (refusal === 'unconfirmed-deletion') f.loseDeleteConfirmation();
       expect(await f.admit(newIds[0])).toBe('deferred');
@@ -268,7 +279,7 @@ it('REQ-MEM-042 AC4: an incomplete non-victim observation blocks eviction', asyn
   });
 });
 
-it('REQ-MEM-041 AC2: confirmed exit after failed final sync allows reopening but not eviction', async () => {
+it('REQ-MEM-041 AC6: confirmed exit after failed final sync allows reopening', async () => {
   await withBucket(async f => {
     await f.fill();
     const oldest = oldIds[0];
@@ -276,7 +287,6 @@ it('REQ-MEM-041 AC2: confirmed exit after failed final sync allows reopening but
     f.settled.delete(oldest);
     expect(await f.admit(oldest, 2)).toBe('deferred');
     f.exited.set(oldest, 1);
-    expect(await f.admit(newIds[0])).toBe('deferred');
     expect(await f.admit(oldest, 2)).toBe('existing');
     expect(f.objects.get(`${prefix(oldest)}global/MEMORY.md`)).toBe(previous);
   });

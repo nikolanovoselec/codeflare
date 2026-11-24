@@ -92,14 +92,12 @@ export class HermesRetention {
       const oldestSaved = stores.filter(([, item]) => item.updatedAt !== undefined).sort(([a, left], [b, right]) =>
         left.updatedAt! - right.updatedAt! || (a < b ? -1 : 1))[0];
       if (!oldestSaved) return 'deferred';
-      const [oldestId, oldest] = oldestSaved;
-      if (!SESSION_ID_PATTERN.test(oldestId)
-        || !await ports.writerSettled({ sessionId: oldestId, generation: oldest.generation }) || signal?.aborted) return 'deferred';
-      // The last upload may have finished between inventory and exit proof.
-      // Don't evict a store whose contents or presence changed in that gap.
-      const settled = await ports.observe(oldestId);
-      if (signal?.aborted || settled === null
-        || JSON.stringify(settled) !== JSON.stringify(inventory.get(oldestId) ?? 'absent')) return 'deferred';
+      const [oldestId] = oldestSaved;
+      if (!SESSION_ID_PATTERN.test(oldestId) || signal?.aborted) return 'deferred';
+      // A concurrent upload can change which prefix is oldest.
+      const latest = await ports.observe(oldestId);
+      if (signal?.aborted || latest === null
+        || JSON.stringify(latest) !== JSON.stringify(inventory.get(oldestId) ?? 'absent')) return 'deferred';
       const prefix = `${HERMES_SESSION_ROOT}${oldestId}/`;
       state.eviction = { victim: oldestId, settled: false };
       await this.storage.put(STATE_KEY, state);
