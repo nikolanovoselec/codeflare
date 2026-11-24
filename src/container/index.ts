@@ -1659,8 +1659,11 @@ export class container extends Container<Env> implements ContainerEnvState {
           const receipt = await readBoundedResponse(response, 4096, 'Final save acknowledgement', request.signal);
           if (response.headers.get('Content-Type')?.includes('application/json')) {
             const result = JSON.parse(new TextDecoder().decode(receipt)) as { synced?: unknown; reason?: unknown } | null;
-            saveRefused = result?.synced === false && result.reason !== 'hermes-disabled-at-startup'
-              && ([409, 503].includes(response.status)
+            // A 503 can also mean Pi shutdown was unconfirmed after sync ran.
+            saveRefused = result?.synced === false && (
+              (response.status === 409 && (result.reason === 'disk-space-blocked' || result.reason === 'invalid-hermes-launch'))
+              || (response.status === 503 && (result.reason === 'hermes-save-not-started'
+                || result.reason === 'hermes-merge-unavailable' || result.reason === 'daemon-not-running'))
               || (response.status === 500 && result.reason === 'bisync-failed'));
           }
           return new Response(receipt, { status: response.status, headers: response.headers });

@@ -102,7 +102,7 @@ function rig(enterprise = true, workspaceSyncEnabled = true) {
     // Model exit confirmation independently of the running hint. The fixture
     // uses awaited native destroy as its source of positive exit evidence.
     const monitor = new Promise<void>(() => {});
-    const save = gate<'saved' | 'failed' | 'ambiguous' | 'timed-out' | 'not-started' | { disabledGeneration: number }>('saved');
+    const save = gate<'saved' | 'failed' | 'ambiguous' | 'timed-out' | 'pi-shutdown-unconfirmed' | 'missing-reason' | 'not-started' | { disabledGeneration: number }>('saved');
     let firstSave = true;
     let disabledAtStartup = false;
     const exit = gate<void>(undefined);
@@ -146,6 +146,10 @@ function rig(enterprise = true, workspaceSyncEnabled = true) {
             trace.push(`${label}:save-failed`);
             return result === 'timed-out' ? Response.json({ synced: false, reason: 'timeout' }, { status: 504 })
               : Response.json({ synced: false, reason: 'hermes-save-not-started' }, { status: 503 });
+          }
+          if (result === 'pi-shutdown-unconfirmed' || result === 'missing-reason') {
+            trace.push(`${label}:save-failed`);
+            return Response.json({ synced: false, ...(result !== 'missing-reason' && { reason: result }) }, { status: 503 });
           }
           if (disabledAtStartup || result === 'failed' || result === 'ambiguous') {
             if (disabledAtStartup) expect(request.headers.get('x-codeflare-hermes-merge')).toBeNull();
@@ -376,7 +380,7 @@ it('REQ-SESSION-043: an unbound Hermes startup result cannot bypass the save gat
   expect(f.trace.filter(event => event === `${a}:save`)).toEqual([`${a}:save`]);
 });
 
-it.each(['ambiguous', 'timed-out'] as const)('REQ-SESSION-043: unconfirmed final sync (%s) preserves Delete target and holds its successor until authority is revoked', async outcome => {
+it.each(['ambiguous', 'timed-out', 'pi-shutdown-unconfirmed', 'missing-reason'] as const)('REQ-SESSION-043: unconfirmed final sync (%s) preserves Delete target and holds its successor until authority is revoked', async outcome => {
   const f = rig(true, false);
   const A = await f.create(a);
   const B = await f.create(b);

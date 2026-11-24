@@ -104,6 +104,7 @@ function buildHarness({
   blockReleaseFile, // for bisyncBehavior='block-until-released'
   listingPresent = false,
   recordSleepDurations = false,
+  recordCompaction = false,
   realRecovery = false,
 }) {
   const runtimeRoot = join(dirname(logFile), 'runtime');
@@ -207,7 +208,9 @@ ${realRecovery ? extractTopLevelFunction('recover_vanished_files') : `recover_va
 }`}
 ${resyncStub}
 cleanup_old_transcripts() { : ; }
-run_vault_session_compaction_after_sync() { : ; }
+${recordCompaction ? `${extractTopLevelFunction('run_vault_session_compaction_after_sync')}
+run_daily_vault_session_compaction() { printf 'DAILY_COMPACTION\\n' >> "${logFile}"; }`
+    : 'run_vault_session_compaction_after_sync() { : ; }'}
 update_sync_status() {
   echo "STATUS status=$1 err=$2" >> "${logFile}"
 }
@@ -250,13 +253,13 @@ echo "DAEMON_EXITED" >> "${logFile}"
 
 // Spawn a harness, return { pid, scriptPath, logFile, child } so tests
 // can send signals and assert on observable behavior.
-function spawnHarness(opts) {
+function spawnHarness(opts, detached = false) {
   const dir = mkdtempSync(join(tmpdir(), 'bisync-harness-'));
   const logFile = join(dir, 'log.txt');
   const scriptPath = join(dir, 'harness.sh');
   writeFileSync(scriptPath, buildHarness({ logFile, ...opts }));
   // Run the harness; the script's first line of stdout is the daemon PID.
-  const child = spawn('bash', [scriptPath], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn('bash', [scriptPath], { stdio: ['ignore', 'pipe', 'pipe'], detached });
   return { child, logFile, scriptPath, dir };
 }
 
@@ -402,29 +405,39 @@ describe('entrypoint.sh bisync daemon behavior (real) / REQ-STOR-002 (file persi
     }
   });
 
-  it('REQ-SESSION-043: a sync signal just before the cadence wait starts a manual cycle', async () => {
-    const h = spawnHarness({ daemonBody: `
-    sleep() { exec /bin/sleep "10"; }
+  describe('REQ-SESSION-043: a sync signal just before the cadence wait starts a manual cycle', () => {
+    for (const boundary of ['before-pid', 'after-pid']) it(boundary, async t => {
+      const h = spawnHarness({ recordCompaction: true, daemonBody: `
+    sleep() { exec /bin/sleep "$((10))"; }
+    signal_at_boundary() {
+      BOUNDARY_SIGNALED=1
+      kill -USR1 "$BASHPID"
+    }
+    ${boundary === 'before-pid' ? `set -T
+    trap 'if [[ $BASH_COMMAND == "SYNC_SLEEP_PID=\\$!" && -z "\${BOUNDARY_SIGNALED:-}" ]]; then signal_at_boundary; fi' DEBUG` : ''}
     wait() {
-      if [ -n "\${SYNC_SLEEP_PID:-}" ] && [ -z "\${BOUNDARY_SIGNALED:-}" ]; then
-        BOUNDARY_SIGNALED=1
-        printf '%s\\n' "$SYNC_SLEEP_PID" > "$SYNC_RUNTIME_DIR/boundary-sleeper"
-        kill -USR1 "$BASHPID"
+      if [ -n "\${SYNC_SLEEP_PID:-}" ]; then
+        if [ "$BISYNC_CALL_COUNT" -gt 0 ]; then
+          printf 'NEXT_CADENCE\\n' >> "$HOME/../../log.txt"
+        elif [ "${boundary}" = after-pid ] && [ -z "\${BOUNDARY_SIGNALED:-}" ]; then
+          signal_at_boundary
+        fi
       fi
       builtin wait "$@"
     }
-    ${daemonBody}` });
-    const pid = await readDaemonPid(h.child);
-    try {
-      const log = await waitFor(h.logFile, s => s.includes('BISYNC_CALLED'), 2_000);
-      assert.match(log, /BISYNC_CALLED/, 'the signal must trigger sync before the ten-second cadence');
-    } finally {
-      const sleeper = join(h.dir, 'runtime/sync/boundary-sleeper');
-      if (existsSync(sleeper)) {
-        try { process.kill(Number(readFileSync(sleeper, 'utf8')), 'SIGTERM'); } catch {}
-      }
-      killHarness(h.child, pid);
-    }
+    ${daemonBody}` }, true);
+      const closed = new Promise(resolve => h.child.once('close', resolve));
+      t.after(async () => {
+        if (h.child.pid) {
+          try { process.kill(-h.child.pid, 'SIGKILL'); } catch (error) { if (error.code !== 'ESRCH') throw error; }
+        }
+        await closed;
+      });
+      await readDaemonPid(h.child);
+      const log = await waitFor(h.logFile, s => s.includes('NEXT_CADENCE'), 2_000);
+      assert.match(log, /STATUS status=success[\s\S]*NEXT_CADENCE/, 'the signal must complete sync before the ten-second cadence');
+      assert.doesNotMatch(log, /DAILY_COMPACTION/, 'a signaled sync must not run daily compaction');
+    });
   });
 
   // REQ-MEM-004 AC4: SIGUSR1 trigger (Sync-now button).
