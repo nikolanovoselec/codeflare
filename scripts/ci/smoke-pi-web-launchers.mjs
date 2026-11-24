@@ -133,9 +133,24 @@ async function qualify(mode) {
   const snapshot = async () => JSON.parse((await control('api', 'snapshot')).stdout).result.snapshot;
   const foreground = async pane => JSON.parse((await control('pane', 'process-info', '--pane', pane)).stdout)
     .result.process_info.foreground_processes ?? [];
+  async function waitForPaneProcess(pane, label, matches) {
+    // Pinned Herdr publishes the restored topology before it allocates the
+    // deferred pane PTY. process-info calls that case pane_not_found too.
+    assert.equal((await readPane(pane)).pane_id, pane, 'the original pane must exist in the restored topology');
+    return pty.until(label, async () => {
+      try { return (await foreground(pane)).some(matches); }
+      catch (error) {
+        let code;
+        try { code = JSON.parse(error.stderr)?.error?.code; } catch { /* Not a Herdr API rejection. */ }
+        if (code !== 'pane_not_found') throw error;
+        assert.equal((await readPane(pane)).pane_id, pane, 'the original pane must remain in the restored topology');
+        return false;
+      }
+    });
+  }
   const readyPane = () => pty.until('Herdr topology ready', async () => existsSync(bootDone) && (await snapshot()).focused_pane_id);
-  const waiting = pane => pty.until('managed wrapper is live in the correct Herdr pane', async () =>
-    (await foreground(pane)).some(({ argv }) => argv?.some(arg => basename(arg) === basename(writer))));
+  const waiting = pane => waitForPaneProcess(pane, 'managed wrapper is live in the correct Herdr pane',
+    ({ argv }) => argv?.some(arg => basename(arg) === basename(writer)));
   const stopHerdr = () => run(launcher, ['stop'], { cwd, env, timeout: 7000 });
   async function stopRuntime() {
     // Match Host Session.kill(): let the named server save its live panes
@@ -290,8 +305,8 @@ async function qualify(mode) {
     writeFileSync(sessionFile, JSON.stringify(legacy));
     boot();
     await readyPane();
-    await pty.until('legacy Herdr resumes the native Pi in the original pane', async () =>
-      (await foreground(pane)).some(process => isPi(process) && process.argv.includes(binding.path)));
+    await waitForPaneProcess(pane, 'legacy Herdr resumes the native Pi in the original pane',
+      process => isPi(process) && process.argv.includes(binding.path));
     assert.equal(existsSync(reportPath), false, 'legacy Pi is not a ticket-managed writer');
     const runtime = createPiWebRuntime({ sessionId, generation, initialSurface: 'chat', terminalMode: 'herdr',
       cwd, home, runtimeDir, cloneRestored: () => existsSync(bootDone) });
