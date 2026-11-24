@@ -78,10 +78,10 @@ async function expectAccepted(request: Response | Promise<Response>) {
   expect((await bounded(request)).ok).toBe(true);
 }
 
-function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = false) {
+function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = false, holdRetryDestroy = false) {
   const owner = `shutdown-${crypto.randomUUID()}`;
   const other = `shutdown-${crypto.randomUUID()}`;
-  const states = new Map<string, { ready: Promise<void>; instance: SessionContainer; restoreExit: (evidence: object) => void }>();
+  const states = new Map<string, { ready: Promise<void>; instance: SessionContainer; restoreExit: (evidence: object, withoutRetryMarker: boolean) => void }>();
   const processes = new Map<string, ReturnType<typeof processFixture>>();
   const trace: string[] = [];
   const alarms = new Set<string>();
@@ -98,6 +98,7 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
     const exit = gate<void>(undefined);
     const merge = gate<'skipped' | 'merged' | 'legacy-merged' | 'pending' | 'uncertain' | 'http-504' | 'host-lost'>('skipped');
     const retryResult = gate<'merged' | 'pending' | 'skipped'>('pending');
+    const retryDestroy = holdRetryDestroy ? gate<void>(undefined) : undefined;
     let retrying = false;
     let mergeRequest: { intent: string; snapshotId: string; deadline: number; allowPersonalPiProviders: boolean } | undefined;
     let token = `fixture-token-${label}`;
@@ -113,7 +114,15 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
         running = true;
       },
       signal: () => { trace.push(`${label}:sigterm`); running = false; },
-      destroy: async () => { await exit.promise; trace.push(`${label}:exit`); running = false; },
+      destroy: async () => {
+        if (retrying && retryDestroy) {
+          trace.push(`${label}:retry-destroy`);
+          await retryDestroy.promise;
+        }
+        await exit.promise;
+        trace.push(`${label}:exit`);
+        running = false;
+      },
       getTcpPort: () => ({ fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
         const request = new Request(input, init);
         const path = new URL(request.url).pathname;
@@ -172,7 +181,7 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
         return Response.json({ error: `Unexpected fixture Host path ${path}` }, { status: 404 });
       } }),
     };
-    return { native, directGeneration, get token() { return token; }, save, exit, merge, retryResult, get mergeRequest() { return mergeRequest; } };
+    return { native, directGeneration, get token() { return token; }, save, exit, merge, retryResult, retryDestroy, get mergeRequest() { return mergeRequest; } };
   }
 
   const idFromName = (name: string) => ({ toString: () => name });
@@ -194,7 +203,11 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
         put: async (key: string | Record<string, unknown>, value?: unknown) => {
           for (const [item, data] of Object.entries(typeof key === 'string' ? { [key]: value } : key)) {
             const retryLaunch = typeof key !== 'string' && Object.hasOwn(key, 'hermes:direct-generation');
-            if (!preRolloutRetry || !retryLaunch || item !== 'hermes:retry-generation') records.set(item, structuredClone(data));
+            if (preRolloutRetry && item === 'hermes:retry-generation') {
+              if (retryLaunch) continue;
+              if (holdRetryDestroy) throw new Error('Retry provenance storage unavailable');
+            }
+            records.set(item, structuredClone(data));
           }
         },
         delete: async (key: string | string[]) => Array.isArray(key)
@@ -212,7 +225,10 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
         blockConcurrencyWhile: (work: () => Promise<void>) => { ready = ready.then(work); return ready; },
         waitUntil: (work: Promise<unknown>) => { void work.catch(() => {}); },
       } as unknown as DurableObjectState<Env>, envOverrides as Env);
-      states.set(address, { ready, instance, restoreExit: evidence => records.set('monitoredExitGeneration', evidence) });
+      states.set(address, { ready, instance, restoreExit: (evidence, withoutRetryMarker) => {
+        if (withoutRetryMarker) records.delete('hermes:retry-generation');
+        records.set('monitoredExitGeneration', evidence);
+      } });
     }
     const { ready, instance } = states.get(address)!;
     return new Proxy(instance, { get(target, key, receiver) {
@@ -261,8 +277,8 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
   const kill = (id: string) => app().request(`${path(id)}/kill`, { method: 'POST' });
   const retry = (id: string, bucket = owner) => app(bucket).request(`${path(id)}/retry-memory-consolidation`, { method: 'POST' });
   const session = (id: string) => getByName(`${owner}-${id}`);
-  const replayExit = async (id: string, generation: number, terminationIntentId: string) => {
-    states.get(`${owner}-${id}`)!.restoreExit({ owner, session: id, generation, terminationIntentId });
+  const replayExit = async (id: string, generation: number, terminationIntentId: string, withoutRetryMarker = false) => {
+    states.get(`${owner}-${id}`)!.restoreExit({ owner, session: id, generation, terminationIntentId }, withoutRetryMarker);
     await session(id).collectMetrics({ ownerKey: owner, sessionId: id, generation });
   };
   return { owner, other, app, path, create, batch, stop, remove, kill, retry, trace, replayExit, wake: () => getByName(`storage:${owner}`).wakeHermesShutdownQueue(owner), session };
@@ -600,8 +616,8 @@ it.each([false, true])('REQ-MEM-042 AC3: headless Retry preserves settlement of 
   expect(await session.hermesWriterSettled(f.owner, { ...writer, generation: 2 })).toBe(false);
 });
 
-it('REQ-MEM-042 AC3: late exit replay after a skipped pre-rollout Retry preserves the saved writer', async () => {
-  const f = rig(true, true, true);
+it.each([false, true])('REQ-MEM-042 AC3: late exit replay after a skipped pre-rollout Retry preserves the saved writer (monitor first %s)', async monitorFirst => {
+  const f = rig(true, true, true, monitorFirst);
   const A = await f.create(a, { holdMerge: true });
   A.save.release('saved');
   A.exit.release();
@@ -611,13 +627,19 @@ it('REQ-MEM-042 AC3: late exit replay after a skipped pre-rollout Retry preserve
   const intent = (await repository.getSession(f.owner, a))!.shutdown!.intent;
   A.retryResult.release('skipped');
   await expectAccepted(f.retry(a));
+  if (monitorFirst) {
+    await vi.waitFor(() => expect(f.trace).toContain(`${a}:retry-destroy`));
+    await f.replayExit(a, 2, intent);
+    expect(await repository.getSession(f.owner, a)).toMatchObject({ lifecycleState: 'stopped', lifecycleGeneration: 2 });
+    A.retryDestroy!.release();
+  }
   await vi.waitFor(async () => {
     const row = await repository.getSession(f.owner, a);
     expect(row).toMatchObject({ lifecycleState: 'stopped', lifecycleGeneration: 2 });
     expect(row?.shutdown).toBeUndefined();
   });
-  // A positive native exit acknowledgment can be replayed after the no-op job clears.
-  await f.replayExit(a, 2, intent);
+  // Both the Retry job and the marker can be absent after an old-version teardown.
+  await f.replayExit(a, 2, intent, true);
   expect((await f.remove(a)).status).toBe(200);
   const session = f.session(a);
   expect(await session.hermesWriterSettled(f.owner, { sessionId: a, generation: 1 })).toBe(true);
