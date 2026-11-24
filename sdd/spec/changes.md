@@ -4,6 +4,10 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-25: Keep session shutdown cards live
+
+- [REQ-SESSION-006](session-lifecycle.md#req-session-006-user-can-stop-restart-and-delete-sessions) returns to the Dashboard immediately on Stop or Delete from the in-session dropdown. [REQ-SESSION-043](session-lifecycle.md#req-session-043-queued-graceful-shutdown-and-memory-recovery) keeps live metrics and shows a breathing status label on both disabled card surfaces until the session stops or is deleted. The Dashboard’s decorative sweeping light is removed.
+
 ## 2026-11-24: Rotate Hermes stores by last content change
 
 - [REQ-MEM-042](memory.md#req-mem-042-retain-ten-recent-session-memory-stores) evicts the oldest changed session memory prefix at capacity without requiring a final-save receipt, confirmed exit, or completed merge.

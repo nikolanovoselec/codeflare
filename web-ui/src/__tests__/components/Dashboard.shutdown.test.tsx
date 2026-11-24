@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@solidjs/testing-library';
 import Dashboard from '../../components/Dashboard';
+import SessionDropdown from '../../components/SessionDropdown';
+import { SESSION_POLL_TRANSITION_MS } from '../../lib/constants';
 import { createMigrationRetry } from '../../components/MigrationRetryNotice';
 import { sessionStore } from '../../stores/session';
 import { terminalStore } from '../../stores/terminal';
@@ -16,7 +18,7 @@ const stamp = '2026-11-23T10:00:00.000Z';
 type Phase = 'queued' | 'saving' | 'consolidating' | 'finishing' | 'memory-not-merged';
 type Lifecycle = 'running' | 'stopping' | 'stopped';
 type Projection = { status: Lifecycle; lifecycle: Lifecycle; generation: number; revision: number;
-  shutdownPhase?: Phase; pendingDelete?: boolean; snapshotUnavailable?: boolean };
+  shutdownPhase?: Phase; pendingDelete?: boolean; snapshotUnavailable?: boolean; metrics?: { cpu: string; mem: string; hdd: string } };
 let catalog: Projection | undefined;
 let polled: Projection | undefined;
 let operations: string[];
@@ -74,6 +76,7 @@ beforeEach(async () => {
       return retryResponse ?? accepted('queued', polled?.pendingDelete);
     }
     if (path === `${sessionPath}/kill` && method === 'POST') return Response.json({ id, success: true, stopped: true });
+    if (path === `${sessionPath}/stop` && method === 'POST') return accepted('queued');
     if (path === sessionPath && method === 'DELETE') return accepted('queued', true);
     throw new Error(`Unexpected HTTP request: ${method} ${path}`);
   });
@@ -88,6 +91,54 @@ afterEach(() => {
   sessionStore.stopAllPolling();
   sessionStore.setActiveSession(null);
   vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
+
+it.each(['Stop', 'Delete'] as const)('REQ-SESSION-043: accepted %s advances both card surfaces without reload or manual refresh', async action => {
+  project('running', 10);
+  await sessionStore.loadSessions();
+  vi.useFakeTimers();
+  renderDashboard();
+  const selectSession = vi.fn();
+  render(() => <SessionDropdown isOpen sessions={sessionStore.sessions} activeSessionId={id}
+    onSelectSession={selectSession} onStopSession={sessionStore.stopSession} onDeleteSession={sessionStore.deleteSession}
+    onCreateSession={() => {}} onClose={() => {}} isMobileView={false} />);
+  sessionStore.startSessionListPolling();
+  const cards = () => screen.getAllByTestId(`session-stat-card-${id}`).map(node => within(node));
+  const dropdown = within(screen.getByTestId('session-dropdown'));
+  fireEvent.click(dropdown.getByRole('button', { name: 'Session actions' }));
+  fireEvent.click(screen.getByRole('button', { name: action }));
+  if (action === 'Delete') fireEvent.click(screen.getByRole('button', { name: 'Are you sure?' }));
+  polled = { status: 'running', lifecycle: 'running', generation: 7, revision: 11, shutdownPhase: 'queued',
+    pendingDelete: action === 'Delete', metrics: { cpu: '2%', mem: '1.0G', hdd: '3.0G' } };
+  await vi.advanceTimersByTimeAsync(0);
+  expect(cards()).toHaveLength(2);
+  for (const view of cards()) {
+    expect(view.getByRole('status')).toHaveTextContent('Memory consolidation pending...');
+    expect(view.getByText('2%')).toBeVisible();
+    expect(view.queryByRole('button', { name: /activate session/i })).not.toBeInTheDocument();
+    expect(view.getByRole('button', { name: 'Session actions' })).toBeEnabled();
+  }
+  fireEvent.click(dropdown.getByTestId(`session-card-${id}`));
+  expect(selectSession).not.toHaveBeenCalled();
+
+  polled = { ...polled, status: 'stopping', revision: 12, shutdownPhase: 'consolidating',
+    metrics: { cpu: '7%', mem: '1.2G', hdd: '3.1G' } };
+  await vi.advanceTimersByTimeAsync(SESSION_POLL_TRANSITION_MS);
+  for (const view of cards()) {
+    expect(view.getByRole('status')).toHaveTextContent('Consolidating memory...');
+    for (const metric of ['7%', '1.2G', '3.1G']) expect(view.getByText(metric)).toBeVisible();
+    expect(view.queryByRole('button', { name: /activate session|resume session/i })).not.toBeInTheDocument();
+  }
+  if (action === 'Stop') {
+    polled = { status: 'stopped', lifecycle: 'stopped', generation: 7, revision: 13 };
+    await vi.advanceTimersByTimeAsync(SESSION_POLL_TRANSITION_MS);
+    for (const view of cards()) expect(view.getByRole('status', { name: 'STOPPED' })).toBeVisible();
+  } else {
+    catalog = polled = undefined;
+    await vi.advanceTimersByTimeAsync(SESSION_POLL_TRANSITION_MS * 3);
+    expect(screen.queryAllByTestId(`session-stat-card-${id}`)).toHaveLength(0);
+  }
 });
 
 it('REQ-SESSION-043: reports eviction after queued Retry and leaves Resume available', async () => {
@@ -108,7 +159,7 @@ it('REQ-SESSION-043: renders durable shutdown phases on the card without inventi
   project('running', 10, 'queued');
   await sessionStore.loadSessions();
   renderDashboard();
-  expect(card().getByText('Queued for shutdown.')).toBeVisible();
+  expect(card().getByText('Memory consolidation pending...')).toBeVisible();
   expect(card().queryByRole('status', { name: /^stopped$/i })).not.toBeInTheDocument();
 
   project('stopping', 11, 'saving');
@@ -117,10 +168,8 @@ it('REQ-SESSION-043: renders durable shutdown phases on the card without inventi
 
   project('stopping', 12, 'consolidating');
   await sessionStore.refreshSessionStatuses();
-  expect(card().getByText('Shutting down. Consolidating memory')).toBeVisible();
-  const progress = card().getByRole('progressbar');
-  expect(progress).not.toHaveAttribute('aria-valuenow');
-  expect(progress).not.toHaveAttribute('value');
+  expect(card().getByText('Consolidating memory...')).toBeVisible();
+  expect(card().queryByRole('progressbar')).not.toBeInTheDocument();
 
   project('stopping', 13, 'finishing');
   await sessionStore.refreshSessionStatuses();
@@ -154,11 +203,11 @@ it('REQ-SESSION-043: keeps separate Retry and Resume actions after reload and re
 
     project('stopping', revision, 'queued');
     await sessionStore.refreshSessionStatuses();
-    expect(card().getByText('Queued for shutdown.')).toBeVisible();
-    expect(retry()).toBeVisible();
+    expect(card().getByText('Memory consolidation pending...')).toBeVisible();
+    expect(card().queryByRole('button', { name: 'Resume session' })).not.toBeInTheDocument();
     project('stopping', revision + 1, 'consolidating');
     await sessionStore.refreshSessionStatuses();
-    expect(card().getByRole('progressbar')).toBeVisible();
+    expect(card().getByText('Consolidating memory...')).toBeVisible();
     project('stopped', revision + 2, 'memory-not-merged');
     dashboard.unmount();
     await sessionStore.loadSessions();
@@ -174,7 +223,7 @@ it.each([['queued', 'running'], ['queued', 'stopped'], ['consolidating', 'stoppi
   project(status, 10, phase);
   await sessionStore.loadSessions();
   const dashboard = renderDashboard();
-  expect(card().getByText(phase === 'queued' ? 'Queued for shutdown.' : 'Shutting down. Consolidating memory')).toBeVisible();
+  expect(card().getByText(phase === 'queued' ? 'Memory consolidation pending...' : 'Consolidating memory...')).toBeVisible();
   fireEvent.click(card().getByRole('button', { name: 'Session actions' }));
   fireEvent.click(screen.getByRole('button', { name: 'Kill' }));
   await waitFor(() => expect(operations).toEqual([`POST ${sessionPath}/kill`]));
@@ -182,7 +231,7 @@ it.each([['queued', 'running'], ['queued', 'stopped'], ['consolidating', 'stoppi
   project('stopped', 11);
   await sessionStore.refreshSessionStatuses();
   expect(card().getByRole('status', { name: 'STOPPED' })).toBeVisible();
-  expect(card().queryByText(/queued for shutdown|consolidating memory/i)).not.toBeInTheDocument();
+  expect(card().queryByText(/memory consolidation pending|consolidating memory/i)).not.toBeInTheDocument();
 });
 
 it('REQ-SESSION-043: an accepted Delete retains the card through merge failure and finishing until the server removes it', async () => {
@@ -195,7 +244,7 @@ it('REQ-SESSION-043: an accepted Delete retains the card through merge failure a
   await waitFor(() => expect(operations).toEqual([`DELETE ${sessionPath}`]));
   project('running', 11, 'queued', true);
   await sessionStore.refreshSessionStatuses();
-  expect(card().getByText('Queued for shutdown.')).toBeVisible();
+  expect(card().getByText('Memory consolidation pending...')).toBeVisible();
   project('stopped', 12, 'memory-not-merged', true);
   await sessionStore.refreshSessionStatuses();
   expect(card().getByText('Stopped · memory not merged')).toBeVisible();

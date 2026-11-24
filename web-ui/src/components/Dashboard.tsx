@@ -19,7 +19,6 @@ import DownloadsDisabledPopup from './DownloadsDisabledPopup';
 import CreateSessionDialog from './CreateSessionDialog';
 import SessionLimitPopup from './SessionLimitPopup';
 import ScrambleText from './ScrambleText';
-import KittScanner from './KittScanner';
 import DashboardCard from './TipsRotator';
 import { sessionStore, isAtUsageQuota } from '../stores/session';
 import { terminalWorkspaceStore } from '../stores/terminal-workspace';
@@ -330,8 +329,6 @@ const Dashboard: Component<DashboardProps> = (props) => {
     <div class="dashboard-container" data-testid="dashboard">
       <div class="dashboard-panel-wrapper">
         <div class={`dashboard-panel ${panelExpanded() ? 'dashboard-panel--expanded' : ''}`} data-testid="dashboard-floating-panel">
-          <KittScanner />
-
         {/* Integrated Header */}
         <div class="dashboard-panel-header">
           <div class="header-logo">
@@ -550,8 +547,6 @@ const Dashboard: Component<DashboardProps> = (props) => {
                         onStop={() => props.onStopSession(session.id)}
                         onDelete={() => props.onDeleteSession(session.id)}
                         onMenuClick={handleMenuClick}
-                        onRetryMemoryConsolidation={() => void sessionStore.retryMemoryConsolidation(session.id)}
-                        memoryRetryPending={session.shutdownPhase !== undefined && sessionStore.isMemoryRetryPending(session.id)}
                       />
                     )}
                   </For>

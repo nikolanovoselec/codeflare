@@ -860,8 +860,8 @@ const Layout: Component<LayoutProps> = (props) => {
           sessions={sessionStore.sessions}
           activeSessionId={sessionStore.activeSessionId}
           onSelectSession={handleSelectSession}
-          onStopSession={handleStopSession}
-          onDeleteSession={handleDeleteSession}
+          onStopSession={(id) => { keepDashboardOwnership('replace'); void handleStopSession(id); }}
+          onDeleteSession={(id) => { keepDashboardOwnership('replace'); void handleDeleteSession(id); }}
           onCreateSession={handleCreateSession}
           onOpenMultiView={handleOpenMultiView}
           onCloseMultiView={handleCloseMultiView}

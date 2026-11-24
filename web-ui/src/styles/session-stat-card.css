@@ -154,16 +154,12 @@
   }
 }
 
-/* Outside the Dashboard, keep the original card layout. */
-.session-stat-card__body {
-  display: contents;
-}
-
 .dashboard-session-list > .session-stat-card {
   flex-shrink: 0;
 }
 
-.dashboard-session-list .session-stat-card__body {
+.session-stat-card__body {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
@@ -176,12 +172,12 @@
   display: grid;
   gap: var(--space-1);
   font-size: var(--text-xs);
-  line-height: 1.25;
+  line-height: var(--leading-tight);
   color: var(--color-text-secondary);
 }
 
 .session-stat-card__phase {
-  font-weight: 600;
+  font-weight: var(--font-semibold);
   color: var(--color-text-primary);
 }
 
@@ -204,20 +200,35 @@
   margin-top: 4px;
 }
 
-.session-stat-card__progress--indeterminate .progress-bar-fill {
-  width: 40%;
-  transform: translateX(75%);
+.session-stat-card--shutting-down .stat-card__header > :not(.session-stat-card__menu-trigger),
+.session-stat-card--shutting-down .stat-card__metrics {
+  opacity: 0.6;
+}
+
+.session-stat-card__shutdown-notice {
+  position: absolute;
+  inset-block: 0;
+  inset-inline: 3rem min(37%, 5rem);
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  text-align: center;
+  font-size: var(--text-xs);
+  line-height: var(--leading-tight);
+}
+
+.session-stat-card__shutdown-notice span {
+  max-width: 100%;
+  padding: var(--space-1);
+  overflow-wrap: anywhere;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-overlay);
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .session-stat-card__progress--indeterminate .progress-bar-fill {
-    animation: session-shutdown-progress 1.5s ease-in-out infinite alternate;
+  .session-stat-card__shutdown-notice span {
+    animation: dashboard-icon-glow 3s ease-in-out infinite;
   }
-}
-
-@keyframes session-shutdown-progress {
-  from { transform: translateX(0); }
-  to { transform: translateX(150%); }
 }
 
 /* Mobile: menu trigger always visible */

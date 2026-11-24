@@ -11,6 +11,9 @@ import { isShutdownInProgress } from '../lib/session-presentation';
 import { generateSessionName } from '../lib/session-utils';
 import '../styles/session-dropdown.css';
 
+const canSelectForMultiView = (session: SessionWithStatus) => !isShutdownInProgress(session.shutdownPhase)
+  && (session.status === 'running' || session.status === 'initializing');
+
 const STATUS_ORDER: Record<SessionStatus, number> = {
   running: 0,
   unreachable: 1,
@@ -58,12 +61,13 @@ const SessionDropdown: Component<SessionDropdownProps> = (props) => {
   );
 
   const liveSessions = createMemo(() =>
-    props.sessions.filter((session) => session.status === 'running' || session.status === 'initializing')
+    props.sessions.filter(canSelectForMultiView)
   );
 
   const showMultiViewRow = createMemo(() => Boolean(props.multiView) && (props.multiView?.capacity ?? 0) >= 2 && liveSessions().length >= 2);
   const multiViewDisabled = createMemo(() => !props.multiView || props.multiView.capacity < 2);
-  const canLaunchMultiView = createMemo(() => selectedMultiViewIds().length >= 2);
+  const liveSelection = createMemo(() => selectedMultiViewIds().filter(id => liveSessions().some(s => s.id === id)));
+  const canLaunchMultiView = createMemo(() => liveSelection().length >= 2);
 
   const beginMultiViewSelection = () => {
     const activeLive = props.activeSessionId && liveSessions().some((session) => session.id === props.activeSessionId)
@@ -80,7 +84,7 @@ const SessionDropdown: Component<SessionDropdownProps> = (props) => {
 
     if (selectingMultiView()) {
       if (canLaunchMultiView()) {
-        config.onLaunch(selectedMultiViewIds());
+        config.onLaunch(liveSelection());
         setSelectingMultiView(false);
         setSelectedMultiViewIds([]);
         props.onClose();
@@ -102,7 +106,7 @@ const SessionDropdown: Component<SessionDropdownProps> = (props) => {
   };
 
   const toggleMultiViewSession = (session: SessionWithStatus) => {
-    if (session.status !== 'running' && session.status !== 'initializing') return;
+    if (!canSelectForMultiView(session)) return;
     const current = selectedMultiViewIds();
     if (current.includes(session.id)) {
       setSelectedMultiViewIds(current.filter((id) => id !== session.id));
@@ -119,6 +123,7 @@ const SessionDropdown: Component<SessionDropdownProps> = (props) => {
   };
 
   const handleCardSelect = (session: SessionWithStatus) => {
+    if (isShutdownInProgress(session.shutdownPhase)) return;
     if (selectingMultiView()) {
       toggleMultiViewSession(session);
       return;
@@ -193,7 +198,7 @@ const SessionDropdown: Component<SessionDropdownProps> = (props) => {
             {(session) => {
               const selected = createMemo(() => selectedMultiViewIds().includes(session.id));
               const disabled = createMemo(() =>
-                selectingMultiView() && session.status !== 'running' && session.status !== 'initializing'
+                selectingMultiView() && !canSelectForMultiView(session)
               );
               return (
                 <SelectableSessionCard
@@ -224,7 +229,8 @@ const SessionDropdown: Component<SessionDropdownProps> = (props) => {
         isOpen={menuState().isOpen}
         position={menuState().position}
         canStop={!isShutdownInProgress(menuSession()?.shutdownPhase)
-          && ['running', 'initializing', 'starting', 'unreachable', 'stopping'].includes(menuSession()?.status ?? '')}
+          && (['running', 'initializing', 'starting', 'unreachable', 'stopping'].includes(menuSession()?.status ?? '')
+            || (menuSession()?.workspace === 'vscode' && menuSession()?.status === 'error'))}
         canKill={isShutdownInProgress(menuSession()?.shutdownPhase)
           || ['starting', 'running', 'unreachable', 'stopping'].includes(menuSession()?.status ?? '')}
         onKill={() => { const session = menuSession(); if (session) void sessionStore.killSession(session.id); }}

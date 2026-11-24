@@ -32,9 +32,9 @@ const statusPulses: Record<SessionStatus, boolean> = {
 };
 
 const shutdownLabels: Record<ShutdownPhase, string> = {
-  queued: 'Queued for shutdown.',
+  queued: 'Memory consolidation pending...',
   saving: 'Shutting down. Saving session files',
-  consolidating: 'Shutting down. Consolidating memory',
+  consolidating: 'Consolidating memory...',
   finishing: 'Shutting down. Finishing',
   'memory-not-merged': 'Stopped · memory not merged',
 };
@@ -46,12 +46,10 @@ interface SessionStatCardProps {
   onStop: () => void;
   onDelete: () => void;
   onMenuClick?: (e: MouseEvent, session: SessionWithStatus) => void;
-  onRetryMemoryConsolidation?: () => void;
-  memoryRetryPending?: boolean;
 }
 
 const SessionStatCard: Component<SessionStatCardProps> = (props) => {
-  const phase = () => props.onRetryMemoryConsolidation ? props.session.shutdownPhase : undefined;
+  const phase = () => props.session.shutdownPhase;
   const shutdownLabel = () => {
     const current = phase();
     return current && shutdownLabels[current];
@@ -90,9 +88,9 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
     }
     return statusDotVariant[props.session.status];
   };
-  const isPulsing = () => shutdownInProgress() || (!memoryNotMerged()
+  const isPulsing = () => !phase()
     && !(props.session.workspace === 'vscode' && dotVariant() === 'error')
-    && statusPulses[props.session.status]);
+    && statusPulses[props.session.status];
   const isActionable = () => props.session.workspace !== 'vscode'
     || props.session.status === 'stopped'
     || props.session.status === 'error'
@@ -103,11 +101,9 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
     || sessionStore.managedReleaseStatus === 'upgrading';
   const isStoppedForManagedSeedUpdate = () => managedSeedUpdateActive()
     && props.session.status === 'stopped';
-  // A running session can still be used while it waits for its queue turn.
-  const waitingWhileRunning = () => phase() === 'queued' && props.session.status === 'running' && !props.memoryRetryPending;
-  const isSelectionEnabled = () => isActionable() && (!phase() || waitingWhileRunning()) && !isStoppedForManagedSeedUpdate();
+  const isSelectionEnabled = () => isActionable() && !phase() && !isStoppedForManagedSeedUpdate();
   const canRecoverMemory = () => memoryNotMerged() && props.session.status === 'stopped'
-    && !props.memoryRetryPending && !isStoppedForManagedSeedUpdate();
+    && !sessionStore.isMemoryRetryPending(props.session.id) && !isStoppedForManagedSeedUpdate();
   const select = () => {
     if (!isSelectionEnabled()) return;
     props.onSelect();
@@ -120,7 +116,7 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
 
   const timerInfo = createMemo(() => {
     timerTick(); // subscribe to tick
-    if (props.session.status !== 'running' || (phase() && !waitingWhileRunning())) return null;
+    if (props.session.status !== 'running' || phase()) return null;
     return getSleepTimerInfo(props.session.lastActiveAt, sessionStore.preferences.sleepAfter);
   });
   const [showTimerTooltip, setShowTimerTooltip] = createSignal(false);
@@ -132,10 +128,10 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
 
   return (
     <div
-      class={`stat-card session-stat-card ${props.isActive ? 'session-stat-card--active' : ''} ${isSelectionEnabled() ? '' : 'session-stat-card--selection-disabled'}`}
+      class={`stat-card session-stat-card ${props.isActive ? 'session-stat-card--active' : ''} ${isSelectionEnabled() ? '' : 'session-stat-card--selection-disabled'} ${shutdownInProgress() ? 'session-stat-card--shutting-down' : ''}`}
       data-testid={`session-stat-card-${props.session.id}`}
       data-status={props.session.status}
-      style={isStoppedForManagedSeedUpdate() ? { opacity: 0.6, 'pointer-events': 'none' } : {}}
+      style={isStoppedForManagedSeedUpdate() && !shutdownInProgress() ? { opacity: 0.6, 'pointer-events': 'none' } : {}}
     >
       <Show when={isSelectionEnabled()}>
         <button
@@ -200,8 +196,27 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
       </div>
 
       <div class="session-stat-card__body">
-        <Show when={shutdownLabel()} fallback={<>
-          <Show when={props.session.status === 'running' || metrics()}>
+        <Show when={!memoryNotMerged()} fallback={
+          <div class="session-stat-card__shutdown">
+            <div role="status">
+              <div class="session-stat-card__phase">{shutdownLabel()}</div>
+              <div>{props.session.snapshotUnavailable
+                ? (props.session.pendingDelete ? 'Saved memory unavailable. Not deleted.' : 'Saved memory unavailable.')
+                : (props.session.pendingDelete ? 'Files saved. Not deleted.' : 'Session files were saved.')}</div>
+            </div>
+            <div class="session-stat-card__actions">
+              <Button size="sm" disabled={!canRecoverMemory() || props.session.snapshotUnavailable}
+                onClick={() => void sessionStore.retryMemoryConsolidation(props.session.id)}>
+                Retry memory consolidation
+              </Button>
+              <Button size="sm" variant="secondary" disabled={!canRecoverMemory()}
+                onClick={() => { if (canRecoverMemory()) props.onSelect(); }}>
+                Resume session
+              </Button>
+            </div>
+          </div>
+        }>
+          <Show when={shutdownInProgress() || props.session.status === 'running' || metrics()}>
             <div class="stat-card__metrics">
               <div class="stat-card__metric" data-testid={`session-stat-card-${props.session.id}-metric-cpu`}>
                 <span class="stat-card__metric-label">
@@ -226,7 +241,7 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
               </div>
             </div>
           </Show>
-          <Show when={props.session.status === 'initializing'}>
+          <Show when={!shutdownInProgress() && props.session.status === 'initializing'}>
             <div class="progress-bar progress-bar-thin progress-bar-animated session-stat-card__progress">
               <div
                 class="progress-bar-fill"
@@ -235,35 +250,10 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
               />
             </div>
           </Show>
-        </>}>
-          <div class="session-stat-card__shutdown">
-            <div>
-              <div role="status">
-                <div class="session-stat-card__phase">{shutdownLabel()}</div>
-                <Show when={memoryNotMerged()}>
-                  <div>{props.session.snapshotUnavailable
-                    ? (props.session.pendingDelete ? 'Saved memory unavailable. Not deleted.' : 'Saved memory unavailable.')
-                    : (props.session.pendingDelete ? 'Files saved. Not deleted.' : 'Session files were saved.')}</div>
-                </Show>
-              </div>
-              <Show when={shutdownInProgress() && phase() !== 'queued'}>
-                <div class="progress-bar progress-bar-thin session-stat-card__progress--indeterminate"
-                  role="progressbar" aria-label={shutdownLabel()}>
-                  <div class="progress-bar-fill" />
-                </div>
-              </Show>
-            </div>
-            <Show when={memoryNotMerged() || props.memoryRetryPending}>
-              <div class="session-stat-card__actions">
-                <Button size="sm" disabled={!canRecoverMemory() || props.session.snapshotUnavailable} onClick={props.onRetryMemoryConsolidation}>
-                  Retry memory consolidation
-                </Button>
-                <Button size="sm" variant="secondary" disabled={!canRecoverMemory()}
-                  onClick={() => { if (canRecoverMemory()) props.onSelect(); }}>
-                  Resume session
-                </Button>
-              </div>
-            </Show>
+        </Show>
+        <Show when={shutdownInProgress()}>
+          <div class="session-stat-card__shutdown-notice" role="status">
+            <span class="session-stat-card__phase">{shutdownLabel()}</span>
           </div>
         </Show>
       </div>

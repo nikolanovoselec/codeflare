@@ -365,7 +365,8 @@ async function refreshSessionStatusesOnce(forceManagedReleaseCheck: boolean): Pr
 function transitioning(): boolean {
   const state = getState();
   return state.sessions.some((session) => session.status === 'initializing' || session.status === 'starting'
-    || session.status === 'unreachable' || session.status === 'stopping')
+    || session.status === 'unreachable' || session.status === 'stopping' || isShutdownInProgress(session.shutdownPhase)
+    || (session.pendingDelete && !session.shutdownPhase))
     || state.managedReleaseStatus === 'upgrading'
     || state.bucketMigrating
     || state.bucketMigrationPending;
@@ -391,6 +392,14 @@ function scheduleNextPoll(): void {
     await pollWithoutOverlap();
     scheduleNextPoll();
   }, transitioning() ? SESSION_POLL_TRANSITION_MS : SESSION_POLL_STABLE_MS);
+}
+
+/** Replace the idle timer with a fresh read ordered after the command. */
+export function refreshAfterShutdownAccepted(): void {
+  invalidateSessionStatusReads();
+  clearPollTimeout();
+  if (document.visibilityState === 'hidden') return;
+  void Promise.resolve(pollInFlight).then(() => refreshSessionStatuses()).then(scheduleNextPoll);
 }
 
 function handlePollingVisibilityChange(): void {

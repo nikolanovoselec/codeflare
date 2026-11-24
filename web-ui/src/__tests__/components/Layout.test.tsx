@@ -13,7 +13,7 @@ vi.mock('../../api/client', async importOriginal => ({
 }));
 vi.mock('../../api/mcp-portals', () => ({ getMcpPortalStatuses: async () => [] }));
 
-const navigationRendering = vi.hoisted(() => ({ realTerminalArea: false, realSettingsPanel: false, realDashboard: false }));
+const navigationRendering = vi.hoisted(() => ({ realTerminalArea: false, realHeader: false, realSettingsPanel: false, realDashboard: false }));
 const cloudflare = vi.hoisted(() => ({ getStatus: vi.fn(), selectAccount: vi.fn() }));
 vi.mock('../../api/cloudflare', () => ({
   getCloudflareStatus: cloudflare.getStatus,
@@ -47,13 +47,15 @@ vi.mock('../../components/FloatingTerminalButtons', () => ({ default: () => <div
 
 // Existing isolated tests keep their lightweight child; navigation regressions
 // opt into the actual TerminalArea to exercise its dashboard render boundary.
-vi.mock('../../components/Header', () => ({
-  default: (props: any) => {
+vi.mock('../../components/Header', async importOriginal => {
+  const ActualHeader = (await importOriginal<typeof import('../../components/Header')>()).default;
+  return { default: (props: any) => {
+    if (navigationRendering.realHeader) return <ActualHeader {...props} />;
     // Store props on window for inspection in tests (CF-075 vault gating).
     (window as any).__headerProps = props;
     return <header data-testid="header"><button onClick={props.onLogoClick}>Dashboard</button></header>;
-  }
-}));
+  } };
+});
 
 vi.mock('../../components/TerminalArea', async () => {
   const ActualTerminalArea = (await vi.importActual<typeof import('../../components/TerminalArea')>('../../components/TerminalArea')).default;
@@ -222,6 +224,7 @@ vi.mock('../../stores/terminal', () => ({
 vi.mock('../../stores/terminal-workspace', () => ({
   terminalWorkspaceStore: {
     reconcileMultiView: vi.fn(() => null),
+    getMultiViewCapacity: vi.fn(() => 2),
     getActiveWorkspace: vi.fn(() => mockActiveWorkspace),
     getVisiblePanes: vi.fn(() => {
       readSessionStoreVersion();
@@ -287,6 +290,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
   beforeEach(() => {
     vi.clearAllMocks();
     navigationRendering.realTerminalArea = false;
+    navigationRendering.realHeader = false;
     navigationRendering.realSettingsPanel = false;
     navigationRendering.realDashboard = false;
     mockMigrationHalt = null;
@@ -568,6 +572,32 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       vi.mocked(sessionStore.loadSessions).mockReset();
       Object.defineProperty(window, 'location', { configurable: true, value: originalLocation });
     }
+  });
+
+  it.each(['Stop', 'Delete'] as const)('REQ-SESSION-006: dropdown %s returns to Dashboard before the request settles', async action => {
+    navigationRendering.realHeader = true;
+    navigationRendering.realTerminalArea = true;
+    const id = 'abcdef0123456789';
+    mockSessions = [createMockSession({ id, status: 'running' })];
+    window.history.replaceState(null, '', `/app/session/${id}`);
+    const { sessionStore } = await import('../../stores/session');
+    let finish!: () => void;
+    const pending = new Promise<void>(resolve => { finish = resolve; });
+    const command = vi.mocked(action === 'Stop' ? sessionStore.stopSession : sessionStore.deleteSession);
+    command.mockReturnValueOnce(pending);
+    try {
+      render(() => <Layout />);
+      await waitFor(() => expect(mockActiveSessionId).toBe(id));
+      fireEvent.click(screen.getByTestId('session-switcher'));
+      fireEvent.click(within(screen.getByTestId('session-dropdown')).getByRole('button', { name: 'Session actions' }));
+      fireEvent.click(screen.getByRole('button', { name: action }));
+      if (action === 'Delete') fireEvent.click(screen.getByRole('button', { name: 'Are you sure?' }));
+      expect(window.location.pathname).toBe('/app/');
+      expect(screen.getByRole('region', { name: 'Session dashboard' })).toBeVisible();
+      expect(mockActiveSessionId).toBeNull();
+      expect(mockActiveWorkspace).toEqual({ kind: 'dashboard' });
+      expect(command).toHaveBeenCalledWith(id);
+    } finally { finish(); }
   });
 
   describe('REQ-TERM-027 AC3: canonical session deep links', () => {

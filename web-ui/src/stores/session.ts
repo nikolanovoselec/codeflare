@@ -50,6 +50,7 @@ import {
   sessionStatusUnavailable,
   sessionMissCounters,
   refreshSessionStatuses,
+  refreshAfterShutdownAccepted,
   refreshSessionAncillaryStatus,
   startSessionListPolling,
   stopSessionListPolling,
@@ -656,13 +657,24 @@ function removeConfirmedSession(id: string): void {
 
 async function deleteSession(id: string): Promise<void> {
   dismissRepositoryRestore(id);
+  const attempted = state.sessions.find(session => session.id === id);
+  const generation = attempted?.generation;
+  const revision = attempted?.revision;
   try {
     const startupCleanup = startupCleanups.get(id);
     if (startupCleanup) {
       startupCleanup();
       startupCleanups.delete(id);
     }
-    if (await api.deleteSession(id)) return; // Completion will come from the ordered catalog/status reads.
+    if (await api.deleteSession(id)) {
+      const index = state.sessions.findIndex(session => session.id === id);
+      const current = state.sessions[index];
+      if (current && current.generation === generation && current.revision === revision) {
+        setState('sessions', index, 'pendingDelete', true);
+      }
+      refreshAfterShutdownAccepted();
+      return;
+    }
     invalidateSessionStatusReads();
     removeConfirmedSession(id);
   } catch (err) {
@@ -862,6 +874,7 @@ async function retryMemoryConsolidation(id: string): Promise<void> {
   setState('memoryRetryAttempts', id, { token, generation: session.generation, revision: session.revision });
   try {
     await api.retryMemoryConsolidation(id);
+    refreshAfterShutdownAccepted();
   } catch (err) {
     if (state.memoryRetryAttempts[id]?.token !== token) return;
     setState('memoryRetryAttempts', id, undefined);
@@ -876,7 +889,6 @@ async function stopSession(id: string): Promise<void> {
   const attemptedSession = state.sessions.find((session) => session.id === id);
   const generation = attemptedSession?.generation;
   const revision = attemptedSession?.revision;
-  const previousStatus = attemptedSession?.status === 'initializing' ? attemptedSession.lifecycle : attemptedSession?.status;
   try {
     const startupCleanup = startupCleanups.get(id);
     if (startupCleanup) {
@@ -896,12 +908,9 @@ async function stopSession(id: string): Promise<void> {
     // KILL takes confirmation ownership even if this HTTP caller was hung.
     if (supersededStopAttempts.has(id)) return;
     if (queued) {
-      // Durable shutdowns use the existing ordered batch reads, not the legacy
-      // short confirmation deadline. The acknowledgment itself isn't a phase.
-      const current = state.sessions.find(session => session.id === id);
-      if (current && current.generation === generation && current.revision === revision && previousStatus) {
-        updateSessionStatus(id, previousStatus, current.shutdownPhase);
-      }
+      // Durable shutdowns use ordered batch reads, not the legacy confirmation
+      // deadline. Keep the local Stop intent until the first post-command read.
+      refreshAfterShutdownAccepted();
       return;
     }
 
