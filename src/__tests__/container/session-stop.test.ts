@@ -102,6 +102,7 @@ async function fixture(initial: 'stopped' | 'starting' | 'running' | 'stopping' 
   const protectedWork = new Set<Promise<unknown>>();
   const workFailures: unknown[] = [];
   const storage = new Map<string, unknown>([['lifecycleGeneration', generation]]);
+  if (enterprise && initial === 'running') storage.set('hermes:direct-layout', true);
   const schedules = new Map<string, unknown>();
   const configureStart = (bucket = ref.bucket) => {
     storage.set('bucketName', bucket);
@@ -116,7 +117,7 @@ async function fixture(initial: 'stopped' | 'starting' | 'running' | 'stopping' 
       id: { toString: () => `${ref.bucket}-${ref.sessionId}` },
       exports: Object.fromEntries(['LlmInterceptor', 'GitHubInterceptor'].map(name =>
         [name, () => ({ fetch: () => { throw new Error(`Unexpected ${name} request during startup`); } })])),
-      container: initial === 'starting' || initial === 'stopped' ? {
+      container: initial === 'starting' || initial === 'stopped' || enterprise ? {
         get running() { return running; },
         signal() { running = false; },
         interceptOutboundHttps() {},
@@ -283,9 +284,13 @@ describe('REQ-SESSION-018 AC4: pending Start cannot outlive its Stop', () => {
 });
 
 describe('REQ-SESSION-008: startup configuration uses the admitted run and bucket', () => {
-  it('REQ-SESSION-043: a started Enterprise direct Hermes generation is eligible with workspace sync off', async () => {
-    const f = await fixture('stopped', ref.generation, 200, true);
+  it('REQ-SESSION-043: relaunch enrolls a workspace-sync-off predecessor for Hermes shutdown', async () => {
+    const f = await fixture('running', ref.generation, 200, true);
     f.configureStart();
+    const predecessor = await f.coordinator();
+    expect(await predecessor.canQueueHermesShutdown(ref)).toBe(false);
+    await predecessor.stopSession(ref);
+    expect(await f.read()).toMatchObject({ lifecycleState: 'stopped', lifecycleGeneration: ref.generation });
     const instance = await f.coordinator();
     const execution = { ...ref, generation: ref.generation + 1 };
     expect((await configureLaunch(instance, ref.generation, false, 'advanced')).headers.get('X-Codeflare-Start-Claim'))

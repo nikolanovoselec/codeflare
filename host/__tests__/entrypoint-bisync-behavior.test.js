@@ -376,6 +376,32 @@ describe('entrypoint.sh bisync daemon behavior (real) / REQ-STOR-002 (file persi
     } finally { killHarness(h.child, pid); }
   });
 
+  it('REQ-SESSION-043: the published sync daemon PID accepts a final sync signal', async () => {
+    // Pause between handler installations while the parent keeps running.
+    const h = spawnHarness({ daemonBody: `trap() {
+      if [ "\${2:-}" = USR2 ]; then
+        printf 'INSTALLING_TRAPS\\n' >> "$HOME/../../log.txt"
+        while [ ! -f "$HOME/release-traps" ]; do command sleep 0.02; done
+      fi
+      builtin trap "$@"
+    }
+    ${daemonBody}` });
+    const pid = await readDaemonPid(h.child);
+    const pidFile = join(h.dir, 'runtime/sync/sync-daemon.pid');
+    try {
+      assert.match(await waitFor(h.logFile, s => s.includes('INSTALLING_TRAPS')), /INSTALLING_TRAPS/);
+      assert.equal(existsSync(pidFile), false, 'the PID must not be visible before the daemon installs both traps');
+      writeFileSync(join(h.dir, 'runtime/home/release-traps'), '');
+      const deadline = Date.now() + 2_000;
+      while (!existsSync(pidFile) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 20));
+      assert.equal(Number(readFileSync(pidFile, 'utf8')), pid);
+      process.kill(pid, 'SIGUSR1');
+      assert.match(await waitFor(h.logFile, s => s.includes('BISYNC_CALLED')), /BISYNC_CALLED/);
+    } finally {
+      killHarness(h.child, pid);
+    }
+  });
+
   // REQ-MEM-004 AC4: SIGUSR1 trigger (Sync-now button).
   it('SIGUSR1 interrupts the cadence sleep and triggers bisync immediately (REQ-STOR-003 AC2 / REQ-STOR-015 AC5 / REQ-MEM-004 AC4: SIGUSR1 trigger)', async () => {
     // REQ-STOR-003 AC2: sleep is interruptible by an external signal

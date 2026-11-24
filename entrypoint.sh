@@ -1616,6 +1616,9 @@ start_sync_daemon() {
             trap 'BISYNC_RECOVERY_REQUESTED=1; if [ -n "$BISYNC_IN_FLIGHT" ]; then BISYNC_RERUN_REQUESTED=1; else BISYNC_REQUESTED=1; fi' USR2
             CONSECUTIVE_FAILURES=0
             TRAP_INSTALLED=1
+            # Publish from the daemon only after both handlers can receive a signal.
+            printf '%s\n' "$BASHPID" > "$SYNC_RUNTIME_DIR/sync-daemon.pid.tmp"
+            mv -f "$SYNC_RUNTIME_DIR/sync-daemon.pid.tmp" "$SYNC_RUNTIME_DIR/sync-daemon.pid"
         fi
 
         # Interruptible sleep. CRITICAL: a foreground `sleep 900` does
@@ -1780,8 +1783,7 @@ start_sync_daemon() {
     done &
 
     SYNC_DAEMON_PID=$!
-    echo "$SYNC_DAEMON_PID" > $CODEFLARE_RUNTIME_ROOT/sync/sync-daemon.pid
-    echo "[entrypoint] Bisync daemon started with PID $SYNC_DAEMON_PID"
+    echo "[entrypoint] Bisync daemon starting with PID $SYNC_DAEMON_PID"
 }
 
 # ============================================================================
@@ -3105,7 +3107,8 @@ init_sync_log
 export CODEFLARE_INIT_FLAG_FILE=$CODEFLARE_RUNTIME_ROOT/services/init-complete
 export CODEFLARE_POLICY_STATUS_FILE=$CODEFLARE_RUNTIME_ROOT/services/managed-policy-status
 rm -f "$CODEFLARE_INIT_FLAG_FILE" "$CODEFLARE_POLICY_STATUS_FILE" "$SYNC_RUNTIME_DIR/hermes-ready" \
-    "$SYNC_RUNTIME_DIR/hermes-restore-verified" "$SYNC_RUNTIME_DIR/hermes-restore-synced" "$SYNC_RUNTIME_DIR/hermes-disabled-at-startup"
+    "$SYNC_RUNTIME_DIR/hermes-restore-verified" "$SYNC_RUNTIME_DIR/hermes-restore-synced" "$SYNC_RUNTIME_DIR/hermes-disabled-at-startup" \
+    "$SYNC_RUNTIME_DIR/sync-daemon.pid"
 
 # REQ-GITHUB-015 AC1: gates the /health workspace repository inventory so a
 # repository the restore below has not yet recreated is never reported as

@@ -17,7 +17,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { spawn, spawnSync } from 'node:child_process';
 import http from 'node:http';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 const runtimeFixture = mkdtempSync('/tmp/codeflare-final-sync-');
@@ -276,45 +276,62 @@ function cleanupSyncFixtures() {
 }
 
 describe('REQ-SESSION-043: authenticated final sync observes the launch outcome', () => {
-  for (const { name, marker, ready, status, reason } of [
+  for (const { name, marker, ready, runtime = true, diskBlocked, status, reason } of [
     { name: 'disabled after request', marker: 'sessionaaa1:7\n', status: 409, reason: 'hermes-disabled-at-startup' },
+    { name: 'disabled without merge runtime', marker: 'sessionaaa1:7\n', runtime: false, status: 409, reason: 'hermes-disabled-at-startup' },
+    { name: 'disabled with blocked disk', marker: 'sessionaaa1:7\n', diskBlocked: true, status: 409, reason: 'hermes-disabled-at-startup' },
     { name: 'wrong generation', marker: 'sessionaaa1:6\n', status: 504, reason: 'timeout' },
     { name: 'no startup outcome', status: 504, reason: 'timeout' },
-    { name: 'opened after request', ready: true, status: 200 },
+    { name: 'opened without merge runtime', ready: true, runtime: false, status: 503, reason: 'hermes-merge-unavailable' },
+    { name: 'opened with blocked disk', ready: true, diskBlocked: true, status: 409, reason: 'disk-space-blocked' },
+    { name: 'opened before daemon readiness', ready: true, status: 200 },
   ]) it(name, async () => {
     const settings = { CONTAINER_AUTH_TOKEN: 'final-sync-test-token', SESSION_ID: 'sessionaaa1',
-      CODEFLARE_HERMES_GENERATION: '7', CODEFLARE_HERMES_PERSISTENCE: 'new' };
+      CODEFLARE_HERMES_GENERATION: '7', CODEFLARE_HERMES_PERSISTENCE: 'new', ENTERPRISE_MODE: 'active', SESSION_MODE: 'advanced' };
     const old = Object.fromEntries(Object.keys(settings).map(key => [key, process.env[key]]));
     Object.assign(process.env, settings);
     const disabledPath = `${runtimeFixture}/sync/hermes-disabled-at-startup`;
     const readyPath = `${runtimeFixture}/sync/hermes-ready`;
+    const diskPath = `${runtimeFixture}/sync/disk-space-blocked`;
     let now = TRIGGER;
     let signalAt;
+    let drainedAt;
     try {
-      await withRouter({ hermesShutdown: { saved: async () => 'a'.repeat(64) },
+      if (diskBlocked) writeFileSync(diskPath, 'blocked');
+      await withRouter({ hermesShutdown: runtime ? { saved: async () => 'a'.repeat(64) } : undefined,
+        prepareFinalSync: async deadline => {
+          assert.equal(deadline, TRIGGER + FINAL_SYNC_INTERNAL_TIMEOUT_MS);
+          drainedAt = now;
+          return { status: 'exited', count: 0 };
+        },
         sessionManager: { quiesceForHermesMerge() {} },
         finalSync: {
           now: () => now,
-          signalDaemon: () => { signalAt = now; },
+          signalDaemon: () => {
+            if (!existsSync(PID_FILE)) throw new Error('daemon not ready');
+            signalAt = now;
+          },
           readStatus: () => ({ status: now === signalAt ? 'syncing' : 'success', ts: now + 1 }),
           poll: async () => {
             if (now === TRIGGER) {
               if (marker) writeFileSync(disabledPath, marker);
               if (ready) writeFileSync(readyPath, 'direct:sessionaaa1\n');
             }
+            if (ready && now === TRIGGER + 1_000) writeFileSync(PID_FILE, String(process.pid));
             now += 1_000;
           },
         },
       }, async port => {
         const response = await postFinalSync(port, { 'x-codeflare-hermes-merge': '1' });
         assert.equal(response.status, status);
-        if (status === 409) assert.deepEqual(response.body, { synced: false, reason, generation: 7 });
-        else if (status === 504) assert.deepEqual(response.body, { synced: false, reason });
+        if (reason === 'hermes-disabled-at-startup') assert.deepEqual(response.body, { synced: false, reason, generation: 7 });
+        else if (reason) assert.deepEqual(response.body, { synced: false, reason });
         else assert.deepEqual(response.body, { synced: true, snapshotId: 'a'.repeat(64) });
-        assert.equal(signalAt, ready ? TRIGGER + 1_000 : undefined);
+        assert.equal(drainedAt, status === 200 ? TRIGGER + 2_000 : undefined);
+        assert.equal(signalAt, drainedAt);
       });
     } finally {
-      rmSync(disabledPath, { force: true }); rmSync(readyPath, { force: true });
+      for (const file of [disabledPath, readyPath, diskPath, PID_FILE]) rmSync(file, { force: true });
       for (const [key, value] of Object.entries(old)) {
         if (value === undefined) delete process.env[key];
         else process.env[key] = value;
@@ -487,7 +504,6 @@ it('REQ-STOR-015: authenticated manual recovery uses SIGUSR2; ordinary triggers 
 // REQ-MEM-035 AC6: shutdown and final sync share the existing endpoint budget.
 // Only the documented finalSync platform-I/O seam is simulated; requests go
 // through a real HTTP server and the scan/upload artifacts are real files.
-import { existsSync } from 'node:fs';
 
 function memoryFinalSyncFixture(t) {
   const root = mkdtempSync(`${runtimeFixture}/memory-drain-`);

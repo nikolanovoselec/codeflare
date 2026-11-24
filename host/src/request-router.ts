@@ -902,15 +902,27 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
     // triggered - the daemon coalesces our SIGUSR1 into a rerun whose `syncing`
     // ts lands after our trigger.
     if (pathname === '/internal/final-sync' && method === 'POST') {
-      const mergeSave = deps.hermesShutdown && req.headers['x-codeflare-hermes-merge'] === '1';
-      if (mergeSave) sessionManager.quiesceForHermesMerge();
+      const mergeSave = req.headers['x-codeflare-hermes-merge'] === '1';
+      const { SESSION_ID: sessionId, CODEFLARE_HERMES_GENERATION: generation, CODEFLARE_HERMES_PERSISTENCE: persistence } = process.env;
+      if (mergeSave) {
+        if (process.env.ENTERPRISE_MODE !== 'active' || process.env.SESSION_MODE !== 'advanced'
+            || process.env.CODEFLARE_OPERATOR_SESSION || process.env.CODEFLARE_HERMES_RETRY_SNAPSHOT
+            || (persistence !== 'new' && persistence !== 'existing')
+            || !/^[a-z0-9]{8,24}$/.test(sessionId ?? '') || !/^[1-9][0-9]{0,15}$/.test(generation ?? '')
+            || !Number.isSafeInteger(Number(generation))) {
+          res.writeHead(409, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ synced: false, reason: 'invalid-hermes-launch' }));
+          return;
+        }
+        sessionManager.quiesceForHermesMerge();
+      }
       const reportDiskBlock = (): boolean => {
         if (!fs.existsSync(`${SYNC_RUNTIME_DIR}/disk-space-blocked`)) return false;
         res.writeHead(409, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ synced: false, reason: 'disk-space-blocked' }));
         return true;
       };
-      if (reportDiskBlock()) return;
+      if (!mergeSave && reportDiskBlock()) return;
       const finalSync = deps.finalSync ?? {
         now: () => Date.now(),
         readStatus: (): { status?: string; ts?: number } => {
@@ -926,20 +938,23 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
       };
       const deadline = finalSync.now() + FINAL_SYNC_INTERNAL_TIMEOUT_MS;
       if (mergeSave) {
-        // The Host binds before restore. Only a positive launch outcome can
-        // authorize draining Pi or falling back to ordinary teardown.
-        const { SESSION_ID: sessionId, CODEFLARE_HERMES_GENERATION: generation } = process.env;
-        const scoped = /^[a-z0-9]{8,24}$/.test(sessionId ?? '') && /^[1-9][0-9]{0,15}$/.test(generation ?? '')
-          && Number.isSafeInteger(Number(generation));
+        // The Host binds before restore, and the daemon starts after it. A
+        // disabled launch can be acknowledged even when no sync can run.
         const readStartup = (file: string) => fs.promises.readFile(`${SYNC_RUNTIME_DIR}/${file}`, 'utf8').catch(() => '');
-        let opened = false;
+        let readyToSave = false;
         while (!req.aborted && !res.destroyed && finalSync.now() < deadline) {
-          if (reportDiskBlock()) return;
-          if (scoped && await readStartup('hermes-ready') === `direct:${sessionId}\n`) {
-            opened = true;
-            break;
-          }
-          if (scoped && await readStartup('hermes-disabled-at-startup') === `${sessionId}:${generation}\n`) {
+          if (await readStartup('hermes-ready') === `direct:${sessionId}\n`) {
+            if (reportDiskBlock()) return;
+            if (!deps.hermesShutdown) {
+              res.writeHead(503, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ synced: false, reason: 'hermes-merge-unavailable' }));
+              return;
+            }
+            if (fs.existsSync(SYNC_DAEMON_PID_FILE)) {
+              readyToSave = true;
+              break;
+            }
+          } else if (await readStartup('hermes-disabled-at-startup') === `${sessionId}:${generation}\n`) {
             res.writeHead(409, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
             res.end(JSON.stringify({ synced: false, reason: 'hermes-disabled-at-startup', generation: Number(generation) }));
             return;
@@ -947,7 +962,7 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
           await finalSync.poll(FINAL_SYNC_POLL_MS);
         }
         if (req.aborted || res.destroyed) return;
-        if (!opened) {
+        if (!readyToSave) {
           res.writeHead(504, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ synced: false, reason: 'timeout' }));
           return;

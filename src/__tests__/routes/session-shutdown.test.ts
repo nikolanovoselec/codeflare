@@ -338,12 +338,18 @@ it.each(['Stop', 'Delete'] as const)('REQ-SESSION-043: %s after definitive Herme
   ]);
 });
 
-it('REQ-SESSION-043: a running predecessor without a direct generation keeps ordinary Stop', async () => {
+it.each(['Stop', 'Delete'] as const)('REQ-SESSION-043: a running predecessor without a direct generation keeps ordinary %s', async action => {
   const f = rig(true, false);
   const A = await f.create(a, { directGeneration: false });
-  A.save.release('saved'); A.exit.release();
-  expect((await f.stop(a)).status).toBe(200);
-  expect((await f.batch())[a]).toMatchObject({ status: 'stopped' });
+  A.save.release('saved');
+  const response = action === 'Delete' ? f.remove(a) : f.stop(a);
+  await vi.waitFor(() => expect(f.trace).toContain(`${a}:sigterm`));
+  expect((await f.app().request(f.path(a))).status).toBe(200);
+  A.exit.release();
+  expect((await bounded(response)).status).toBe(200);
+  const settled = (await f.batch())[a];
+  if (action === 'Delete') expect(settled).toBeUndefined();
+  else expect(settled).toMatchObject({ status: 'stopped' });
   expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`, `${a}:saved`, `${a}:sigterm`, `${a}:exit`]);
 });
 
@@ -360,7 +366,9 @@ it('REQ-SESSION-043: an unbound Hermes startup result cannot bypass the save gat
   expect(A.native.running).toBe(true);
   expect(f.trace).not.toContain(`${a}:exit`);
   expect((await f.app().request(f.path(a))).status).toBe(200);
+  expect((await bounded(f.stop(a))).status).toBe(409);
   await bounded(f.kill(a));
+  expect(f.trace.filter(event => event === `${a}:save`)).toEqual([`${a}:save`]);
 });
 
 it('REQ-SESSION-043: unconfirmed final sync preserves the running Delete target and holds its successor until authority is revoked', async () => {
