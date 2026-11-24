@@ -119,6 +119,7 @@ export { validateBucketNameInput };
 const SESSION_ID_KEY = '_sessionId';
 const TERMINAL_KEEPALIVE_MS = 15_000;
 const HERMES_DIRECT_GENERATION_KEY = 'hermes:direct-generation';
+const HERMES_WRITER_GENERATION_KEY = 'hermes:writer-generation';
 const SHUTDOWN_QUEUE_OWNER = 'shutdown:queue-owner';
 const SHUTDOWN_QUEUE_ALARM_MS = 15_000;
 const HERMES_DIRECT_LAYOUT_KEY = 'hermes:direct-layout';
@@ -397,11 +398,14 @@ export class container extends Container<Env> implements ContainerEnvState {
       const stored = await txn.get<ExitEvidence>(container.EXIT_OBSERVED_KEY);
       if (stored?.generation === generation && stored.owner === owner && stored.session === session
           && stored.terminationIntentId === evidence.terminationIntentId) {
+        // Consume exit evidence and settle the writer atomically so interruption can replay both.
         await txn.delete(container.EXIT_OBSERVED_KEY);
+        if (!superseded && await txn.get<number>('lifecycleGeneration') === generation) {
+          await this.writeHermesSettlement(txn, session, generation, settlementRow);
+        }
       }
     });
     if (superseded || await this.ctx.storage.get<number>('lifecycleGeneration') !== generation) return false;
-    await this.recordHermesSettlement(session, generation, settlementRow);
     this.monitoredGeneration = generation;
     return true;
   }
@@ -931,24 +935,28 @@ export class container extends Container<Env> implements ContainerEnvState {
   private mcpCleanupActive = false;
   private hermesRetention?: HermesRetention;
 
-  private async recordHermesSettlement(sessionId: string, generation: number, row: D1Session | null): Promise<void> {
+  private async writeHermesSettlement(txn: DurableObjectTransaction, sessionId: string, generation: number, row: D1Session | null): Promise<void> {
+    if (!await txn.get<boolean>(HERMES_DIRECT_LAYOUT_KEY)) return;
     if (isEnterpriseMode(this.env)) {
-      if (!row || row.lifecycleGeneration !== generation) return;
-      // A Retry launched before rollout may have no local generation marker.
-      const source = row.shutdown?.sourceGeneration;
-      if (source !== undefined && source < generation && !row.shutdown?.resumed) return;
+      if (row) {
+        if (row.lifecycleGeneration !== generation) return;
+        // A Retry launched before rollout may have no local generation marker.
+        const source = row.shutdown?.sourceGeneration;
+        if (source !== undefined && source < generation && !row.shutdown?.resumed) return;
+      } else if (await txn.get<number>(HERMES_WRITER_GENERATION_KEY) !== generation) return;
     }
+    // Headless Retry never writes the session store. Keep the original writer’s proof.
+    if (await txn.get<number>(HERMES_RETRY_GENERATION_KEY) === generation) return;
+    const audit = await txn.get<{ outcome: string; sessionId: string; lifecycleGeneration: number }>(FINAL_SYNC_AUDIT_KEY);
+    if (audit?.outcome === 'completed' && audit.sessionId === sessionId && audit.lifecycleGeneration === generation
+      && generation > (await txn.get<number>(HERMES_SETTLED_GENERATION_KEY) ?? 0)) {
+      await txn.put(HERMES_SETTLED_GENERATION_KEY, generation);
+    }
+  }
+
+  private async recordHermesSettlement(sessionId: string, generation: number, row: D1Session): Promise<void> {
     try {
-      await this.ctx.storage.transaction(async txn => {
-        if (!await txn.get<boolean>(HERMES_DIRECT_LAYOUT_KEY)) return;
-        // Headless Retry never writes the session store. Keep the original writer’s proof.
-        if (await txn.get<number>(HERMES_RETRY_GENERATION_KEY) === generation) return;
-        const audit = await txn.get<{ outcome: string; sessionId: string; lifecycleGeneration: number }>(FINAL_SYNC_AUDIT_KEY);
-        if (audit?.outcome === 'completed' && audit.sessionId === sessionId && audit.lifecycleGeneration === generation
-          && generation > (await txn.get<number>(HERMES_SETTLED_GENERATION_KEY) ?? 0)) {
-          await txn.put(HERMES_SETTLED_GENERATION_KEY, generation);
-        }
-      });
+      await this.ctx.storage.transaction(txn => this.writeHermesSettlement(txn, sessionId, generation, row));
     } catch { /* Lack of a receipt defers retention, never ordinary lifecycle. */ }
   }
 
@@ -1535,7 +1543,7 @@ export class container extends Container<Env> implements ContainerEnvState {
         if (disposition === 'new' || disposition === 'existing') {
           await this.ctx.storage.put(HERMES_DIRECT_LAYOUT_KEY, true);
           if (isEnterpriseMode(this.env)) {
-            await this.ctx.storage.put(HERMES_DIRECT_GENERATION_KEY, generation);
+            await this.ctx.storage.put({ [HERMES_DIRECT_GENERATION_KEY]: generation, [HERMES_WRITER_GENERATION_KEY]: generation });
             this.hermesDirectGeneration = generation;
           }
         }

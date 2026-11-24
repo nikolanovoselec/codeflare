@@ -81,7 +81,7 @@ async function expectAccepted(request: Response | Promise<Response>) {
 function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = false, holdRetryDestroy = false) {
   const owner = `shutdown-${crypto.randomUUID()}`;
   const other = `shutdown-${crypto.randomUUID()}`;
-  const states = new Map<string, { ready: Promise<void>; instance: SessionContainer; restoreExit: (evidence: object, withoutRetryMarker: boolean) => void }>();
+  const states = new Map<string, { ready: Promise<void>; instance: SessionContainer; restoreExit: (evidence: object, withoutRetryMarker: boolean, failCleanup: boolean) => void }>();
   const processes = new Map<string, ReturnType<typeof processFixture>>();
   const trace: string[] = [];
   const alarms = new Set<string>();
@@ -95,7 +95,7 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
       | 'missing-reason' | 'not-started' | 'disk-refused' | 'disk-without-dispatch-proof' | { disabledGeneration: number }>('saved');
     let firstSave = true;
     let disabledAtStartup = false;
-    const exit = gate<void>(undefined);
+    const exit = gate<void | 'failed'>(undefined);
     const merge = gate<'skipped' | 'merged' | 'legacy-merged' | 'pending' | 'uncertain' | 'http-504' | 'host-lost'>('skipped');
     const retryResult = gate<'merged' | 'pending' | 'skipped'>('pending');
     const retryDestroy = holdRetryDestroy ? gate<void>(undefined) : undefined;
@@ -119,7 +119,7 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
           trace.push(`${label}:retry-destroy`);
           await retryDestroy.promise;
         }
-        await exit.promise;
+        if (await exit.promise === 'failed') throw new Error('Native destroy acknowledgment unavailable');
         trace.push(`${label}:exit`);
         running = false;
       },
@@ -193,9 +193,10 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
         ['bucketName', address.slice(0, first)], ['_sessionId', address.slice(first + 1)],
         ['lifecycleGeneration', 1], ['containerAuthToken', process.token], ['workspaceSyncEnabled', workspaceSyncEnabled],
         ['sessionMode', 'advanced'], ['hermes:direct-layout', true],
-        ...(process.directGeneration ? [['hermes:direct-generation', 1] as const] : []),
+        ...(process.directGeneration ? [['hermes:direct-generation', 1] as const, ['hermes:writer-generation', 1] as const] : []),
         ['userEmail', 'test@example.com'], ['userGroups', ['shutdown-fixture']],
       ] : []);
+      let failExitCleanup = false;
       const storage = {
         get: async (key: string | string[]) => Array.isArray(key)
           ? new Map(key.filter(item => records.has(item)).map(item => [item, structuredClone(records.get(item))]))
@@ -210,8 +211,13 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
             records.set(item, structuredClone(data));
           }
         },
-        delete: async (key: string | string[]) => Array.isArray(key)
-          ? key.filter(item => records.delete(item)).length : records.delete(key),
+        delete: async (key: string | string[]) => {
+          if (key === 'monitoredExitGeneration' && failExitCleanup) {
+            failExitCleanup = false;
+            throw new Error('Exit cleanup interrupted');
+          }
+          return Array.isArray(key) ? key.filter(item => records.delete(item)).length : records.delete(key);
+        },
         list: async ({ prefix = '' } = {}) => new Map([...records].filter(([key]) => key.startsWith(prefix))),
         transaction: async <T>(work: (txn: unknown) => Promise<T>): Promise<T> => work(storage),
         setAlarm: async () => { alarms.add(address); }, deleteAlarm: async () => { alarms.delete(address); },
@@ -225,7 +231,8 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
         blockConcurrencyWhile: (work: () => Promise<void>) => { ready = ready.then(work); return ready; },
         waitUntil: (work: Promise<unknown>) => { void work.catch(() => {}); },
       } as unknown as DurableObjectState<Env>, envOverrides as Env);
-      states.set(address, { ready, instance, restoreExit: (evidence, withoutRetryMarker) => {
+      states.set(address, { ready, instance, restoreExit: (evidence, withoutRetryMarker, failCleanup) => {
+        failExitCleanup = failCleanup;
         if (withoutRetryMarker) records.delete('hermes:retry-generation');
         records.set('monitoredExitGeneration', evidence);
       } });
@@ -277,8 +284,8 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
   const kill = (id: string) => app().request(`${path(id)}/kill`, { method: 'POST' });
   const retry = (id: string, bucket = owner) => app(bucket).request(`${path(id)}/retry-memory-consolidation`, { method: 'POST' });
   const session = (id: string) => getByName(`${owner}-${id}`);
-  const replayExit = async (id: string, generation: number, terminationIntentId: string, withoutRetryMarker = false) => {
-    states.get(`${owner}-${id}`)!.restoreExit({ owner, session: id, generation, terminationIntentId }, withoutRetryMarker);
+  const replayExit = async (id: string, generation: number, terminationIntentId: string, withoutRetryMarker = false, failCleanup = false) => {
+    states.get(`${owner}-${id}`)!.restoreExit({ owner, session: id, generation, terminationIntentId }, withoutRetryMarker, failCleanup);
     await session(id).collectMetrics({ ownerKey: owner, sessionId: id, generation });
   };
   return { owner, other, app, path, create, batch, stop, remove, kill, retry, trace, replayExit, wake: () => getByName(`storage:${owner}`).wakeHermesShutdownQueue(owner), session };
@@ -644,6 +651,28 @@ it.each([false, true])('REQ-MEM-042 AC3: late exit replay after a skipped pre-ro
   const session = f.session(a);
   expect(await session.hermesWriterSettled(f.owner, { sessionId: a, generation: 1 })).toBe(true);
   expect(await session.hermesWriterSettled(f.owner, { sessionId: a, generation: 2 })).toBe(false);
+});
+
+it('REQ-MEM-042 AC3: replay settles the admitted writer after interrupted exit cleanup', async () => {
+  const f = rig();
+  const A = await f.create(a);
+  A.save.release('saved');
+  await expectAccepted(f.stop(a));
+  await vi.waitFor(() => expect(f.trace).toContain(`${a}:sigterm`));
+  const row = await repository.getSession(f.owner, a);
+  expect(row?.terminationIntentId).toBeTruthy();
+  await f.replayExit(a, 1, row!.terminationIntentId!, false, true);
+  expect(await repository.getSession(f.owner, a)).toMatchObject({ lifecycleState: 'stopped', lifecycleGeneration: 1 });
+  const session = f.session(a);
+  await session.collectMetrics({ ownerKey: f.owner, sessionId: a, generation: 1 });
+  // The monitor, not the outstanding destroy call, supplied exit evidence.
+  A.exit.release('failed');
+  await vi.waitFor(async () => {
+    await f.wake();
+    expect((await f.batch())[a]?.shutdownPhase).toBeUndefined();
+  });
+  expect((await f.remove(a)).status).toBe(200);
+  expect(await session.hermesWriterSettled(f.owner, { sessionId: a, generation: 1 })).toBe(true);
 });
 
 it('REQ-SESSION-006: deleting an already stopped, settled row does not launch or stop a native process', async () => {
