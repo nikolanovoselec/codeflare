@@ -52,7 +52,7 @@ Public Worker, authenticated proxy, and integration endpoint contracts for Codef
 | Worker `/api/container/*` | Authenticated edge proxy into the caller's session container; these are not direct host URLs. |
 | Host `/health`, `/activity`, `/internal/runtime-observation`, `/terminal` | Private container-server routes reached through the Durable Object or Worker proxy. Rich health and consolidated runtime observation include metrics; normal metrics collection uses the authenticated consolidated observation. There is no separate `/metrics` route. Runtime mechanics belong to [Container](container.md). |
 | Worker and host `/api/vscode/:sessionId/*` | Authenticated Worker route with private forwarding to the same host path; IDE process and proxy mechanics belong to [Terminal & IDE](terminal-and-ide.md#browser-ide-internals). |
-| Worker and host `/api/pi-web/:sessionId/…` | Same-origin Chat path for the owner's running Pi Terminal workspace; the Host binds stock web requests to the current transcript writer. |
+| Worker and host `/api/pi-web/:sessionId/…` | [Same-origin Chat path](#pi-chat-handoff) for the owner's eligible running Classic Pi Terminal workspace; the Host binds stock web requests to the current transcript writer. |
 
 Route paths in this reference are externally callable only where their row says so; a private host path is not an alternate public endpoint.
 

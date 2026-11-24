@@ -110,7 +110,7 @@ Advanced users choose Terminal or VS Code as the default for new sessions. Termi
 
 ![Codeflare Browser VS Code workspace](assets/documentation/browser-vscode.gif)
 
-For Pi in a Terminal workspace, [Chat handoff behavior and acceptance](documentation/lanes/terminal-and-ide.md#pi-chat-handoff-acceptance) describes choosing Chat or Terminal and continuing the same saved conversation independently of Browser VS Code.
+For eligible Pi in a Classic Terminal workspace, [Chat handoff behavior and acceptance](documentation/lanes/terminal-and-ide.md#pi-chat-handoff-acceptance) describes choosing Chat or Terminal and continuing the same saved conversation independently of Browser VS Code. Herdr stays on its native Terminal path.
 
 ## Architecture in one minute
 

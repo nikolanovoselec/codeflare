@@ -259,7 +259,7 @@ Persisted Herdr state and runtime lifetime are documented in [Sessions & Runtime
 1. The built image provides one verified, attributed Herdr runtime with managed non-updating terminal settings. <!-- @impl: Dockerfile::HERDR_VERSION --> <!-- @impl: image/herdr/config.toml::version_check --> <!-- @manual: The container-image workflow verifies the installed Herdr version, managed configuration, executable mode, license, provenance, SBOM, and vulnerability scan. -->
 2. Each Herdr session starts or attaches to one deterministic private runtime, including at the maximum session-ID length. <!-- @impl: image/herdr/codeflare-herdr-terminal::prepare_runtime --> <!-- @test: host/__tests__/herdr-launcher.test.js (rejects malformed session identity before invoking Herdr) --> <!-- @test: host/__tests__/herdr-launcher.test.js (keeps the maximum-length session client socket within the Linux path limit) -->
 3. Classic sessions never start or stop Herdr. <!-- @impl: host/src/server.ts::TERMINAL_MODE --> <!-- @test: host/__tests__/terminal-mode.test.js (defaults missing and invalid values to classic login Bash) -->
-4. Ordinary configured launches require bounded agent or process detection before bootstrap readiness; managed Pi requires the selected primary pane topology without requiring a native writer. <!-- @impl: image/herdr/codeflare-herdr-terminal::bootstrap --> <!-- @test: host/__tests__/herdr-launcher.test.js (submits fixed commands and waits for expected detection) --> <!-- @test: host/__tests__/herdr-launcher.test.js (REQ-AGENT-272 AC1: Chat-first prewarms Herdr without launching native Pi) -->
+4. Ordinary configured launches require bounded agent or process detection before bootstrap readiness. <!-- @impl: image/herdr/codeflare-herdr-terminal::bootstrap --> <!-- @test: host/__tests__/herdr-launcher.test.js (submits fixed commands and waits for expected detection) -->
 5. Bash or empty configuration remains a plain shell. <!-- @impl: image/herdr/codeflare-herdr-terminal::bootstrap --> <!-- @test: host/__tests__/herdr-launcher.test.js (leaves Bash untouched and maps ordinary TUI commands without shell interpolation) -->
 6. Later Herdr tabs and panes open plain Bash instead of repeating Codeflare agent autostart. <!-- @impl: image/herdr/codeflare-herdr-terminal::prepare_runtime --> <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @manual: In integration, start a configured agent, open a new Herdr tab and pane, and confirm each new shell is plain Bash. -->
 
@@ -269,8 +269,7 @@ Persisted Herdr state and runtime lifetime are documented in [Sessions & Runtime
 - The launcher validates `SESSION_ID`, derives only `cf-<SESSION_ID>`, reads only `TAB_CONFIG` entry `1`, exports `TERMINAL_APP_STARTED=1`, and uses mode-0700 state under `/run/codeflare/herdr/<SESSION_ID>`.
 - Herdr processes and runtime artifacts remain local; only [REQ-TERM-033](#req-term-033-durable-herdr-structural-session-recovery) snapshots enter R2, and no private Herdr interface reaches Worker routes.
 - Startup maps reviewed values to fixed commands and never interpolates browser or `TAB_CONFIG` text into a shell command.
-- The managed Pi primary is gated by the selected writer under [REQ-AGENT-272](agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff).
-- Herdr topology readiness does not establish Chat writer readiness.
+- Pi starts natively; ordinary Start does not configure a Chat handoff surface. <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (REQ-AGENT-272 AC1: ordinary Herdr Pi Start does not configure a handoff surface) -->
 
 **Priority:** P0
 
@@ -387,13 +386,15 @@ Persisted Herdr state and runtime lifetime are documented in [Sessions & Runtime
 
 1. Normal Stop preserves the verified managed Pi role in its original pane, independently of focus. If a saved Pi session lacks a verified managed role, use legacy native restore and refuse Chat for that generation. <!-- @impl: image/herdr/codeflare-herdr-terminal::verify_managed_restore --> <!-- @manual: documentation/lanes/terminal-and-ide.md#future-herdr-handoff-qualification -->
 
-**Constraints:** Deferred; current Pi Chat eligibility is Classic-only.
+2. Managed Chat-first bootstrap waits for the selected primary pane topology without launching a native writer. <!-- @impl: image/herdr/codeflare-herdr-terminal::bootstrap --> <!-- @test: host/__tests__/herdr-launcher.test.js (REQ-AGENT-272 AC1: Chat-first prewarms Herdr without launching native Pi) -->
+
+**Constraints:** Herdr Chat handoff is deferred. Herdr topology readiness does not establish Chat writer readiness.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-TERM-033](#req-term-033-durable-herdr-structural-session-recovery)
 
-**Verification:** Manual: [Managed and legacy Herdr writer restore](../../documentation/lanes/terminal-and-ide.md#future-herdr-handoff-qualification)
+**Verification:** Automated: [Herdr launcher fixture](../../host/__tests__/herdr-launcher.test.js); Manual: [Managed and legacy Herdr writer restore](../../documentation/lanes/terminal-and-ide.md#future-herdr-handoff-qualification)
 
 **Status:** Planned
 

@@ -203,6 +203,28 @@ function configureLaunch(instance: SessionContainer, generation: number, workspa
   }));
 }
 
+it.each([
+  { stored: 'herdr', requested: 'classic' },
+  { stored: 'classic', requested: 'herdr' },
+] as const)('REQ-AGENT-272 AC1: the DO refuses a handoff Start with $stored stored and $requested requested', async ({ stored, requested }) => {
+  const generation = 6;
+  const f = await fixture('stopped', generation);
+  f.kv._set(f.key, { ...await f.read(), id: ref.sessionId, userId: ref.bucket, status: 'stopped',
+    agentType: 'pi', workspace: 'terminal', terminalMode: stored });
+  f.configureStart();
+  const instance = await f.coordinator();
+  const response = await instance.fetch(new Request('http://container/_internal/setBucketName', {
+    method: 'POST', headers: { 'X-Codeflare-Start-Generation': String(generation) },
+    body: JSON.stringify({ bucketName: ref.bucket, sessionId: ref.sessionId, sessionWorkspace: 'terminal',
+      tabConfig: [{ id: '1', command: 'pi', label: 'Terminal 1' }], terminalMode: requested, surface: 'chat' }),
+  }));
+  await f.settleWork();
+  expect(response.status).toBe(412);
+  expect(response.headers.get('X-Codeflare-Start-Claim')).toBeNull();
+  expect(await f.read()).toMatchObject({ lifecycleState: 'stopped', lifecycleGeneration: generation, terminalMode: stored });
+  expect(f.launched()).toBe(false);
+});
+
 describe('REQ-SESSION-018 AC4: pending Start cannot outlive its Stop', () => {
   it.each(['stopSession', 'killSession'] as const)('cancels a Start delayed in preparation before %s finishes', async terminate => {
     const f = await fixture('stopped', 6);
