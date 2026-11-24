@@ -104,6 +104,11 @@ async function fixture(initial: 'stopped' | 'starting' | 'running' | 'stopping' 
   const storage = new Map<string, unknown>([['lifecycleGeneration', generation]]);
   if (enterprise && initial === 'running') storage.set('hermes:direct-layout', true);
   const schedules = new Map<string, unknown>();
+  const handlers = new Map<string, { fetch(): Promise<Response> }>();
+  const sendOutbound = async (hostname: string) => {
+    const route = [...handlers].find(([pattern]) => pattern === hostname || pattern === '*');
+    return route ? (await route[1].fetch()).text() : null;
+  };
   const configureStart = (bucket = ref.bucket) => {
     storage.set('bucketName', bucket);
     storage.set('_sessionId', ref.sessionId);
@@ -115,12 +120,12 @@ async function fixture(initial: 'stopped' | 'starting' | 'running' | 'stopping' 
     let ready: Promise<unknown> = Promise.resolve();
     const ctx = {
       id: { toString: () => `${ref.bucket}-${ref.sessionId}` },
-      exports: Object.fromEntries(['LlmInterceptor', 'GitHubInterceptor'].map(name =>
-        [name, () => ({ fetch: () => { throw new Error(`Unexpected ${name} request during startup`); } })])),
+      exports: Object.fromEntries(['LlmInterceptor', 'GitHubInterceptor', 'CloudflareBrowserInterceptor', 'EgressController'].map(name =>
+        [name, () => ({ fetch: async () => new Response(name) })])),
       container: initial === 'starting' || initial === 'stopped' || enterprise ? {
         get running() { return running; },
         signal() { running = false; },
-        interceptOutboundHttps() {},
+        interceptOutboundHttps(pattern: string, handler: { fetch(): Promise<Response> }) { handlers.set(pattern, handler); },
         getTcpPort: () => ({ fetch: async () => Response.json({ synced: hermesFinalSyncStatus === 200 },
           { status: hermesFinalSyncStatus ?? 503 }) }),
         monitor: () => new Promise<void>(() => {}),
@@ -172,7 +177,7 @@ async function fixture(initial: 'stopped' | 'starting' | 'running' | 'stopping' 
     await ready;
     return instance;
   }
-  return { env, kv, key, repository, coordinator, workFailures, configureStart, enteredStart: () => startEntered.promise,
+  return { env, kv, key, repository, coordinator, workFailures, configureStart, sendOutbound, enteredStart: () => startEntered.promise,
     launched: () => launched, launchSyncMode: () => launchEnv?.SYNC_MODE, launchEnv: () => launchEnv,
     holdStart: () => { startGate = deferred(); return startGate; },
     forbidNative: () => { nativeForbidden = true; },
@@ -205,10 +210,11 @@ async function fixture(initial: 'stopped' | 'starting' | 'running' | 'stopping' 
   };
 }
 
-function configureLaunch(instance: SessionContainer, generation: number, workspaceSyncEnabled = false, sessionMode?: 'advanced') {
+function configureLaunch(instance: SessionContainer, generation: number, workspaceSyncEnabled = false, sessionMode?: 'advanced',
+  scopedR2?: { r2AccessKeyId: string; r2SecretAccessKey: string }) {
   return instance.fetch(new Request('http://container/_internal/setBucketName', {
     method: 'POST', headers: { 'X-Codeflare-Start-Generation': String(generation) },
-    body: JSON.stringify({ bucketName: ref.bucket, sessionId: ref.sessionId, sleepAfter: '1h', workspaceSyncEnabled, sessionMode }),
+    body: JSON.stringify({ bucketName: ref.bucket, sessionId: ref.sessionId, sleepAfter: '1h', workspaceSyncEnabled, sessionMode, ...scopedR2 }),
   }));
 }
 
@@ -288,6 +294,21 @@ describe('REQ-SESSION-018 AC4: pending Start cannot outlive its Stop', () => {
 });
 
 describe('REQ-SESSION-008: startup configuration uses the admitted run and bucket', () => {
+  it('REQ-ENTERPRISE-016: Resume selects GitHub and Cloudflare handlers before strict catch-all', async () => {
+    const f = await fixture('stopped', ref.generation, undefined, true);
+    f.kv._store.set(SETUP_KEYS.STRICT_EGRESS, 'active');
+    f.configureStart();
+    const instance = await f.coordinator();
+    const execution = { ...ref, generation: ref.generation + 1 };
+    expect((await configureLaunch(instance, ref.generation, false, undefined, {
+      r2AccessKeyId: 'resumed-access', r2SecretAccessKey: 'resumed-secret',
+    })).headers.get('X-Codeflare-Start-Claim')).toBe(String(execution.generation));
+    await instance.startSession(execution);
+    expect(await f.sendOutbound('api.github.com')).toBe('GitHubInterceptor');
+    expect(await f.sendOutbound('api.cloudflare.com')).toBe('CloudflareBrowserInterceptor');
+    expect(await f.sendOutbound('example.com')).toBe('EgressController');
+  });
+
   it('REQ-SESSION-043: relaunch enrolls a workspace-sync-off predecessor for Hermes shutdown', async () => {
     const f = await fixture('running', ref.generation, 200, true);
     f.configureStart();

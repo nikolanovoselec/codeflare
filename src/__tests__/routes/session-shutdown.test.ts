@@ -85,6 +85,7 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
   const processes = new Map<string, ReturnType<typeof processFixture>>();
   const trace: string[] = [];
   const alarms = new Set<string>();
+  let lastWriterWork: Promise<unknown> | undefined;
   const cleanup = raceMonitor ? { reached: gate<void>(undefined), resume: gate<void>(undefined) } : undefined;
 
   function processFixture(label: string, initiallyRunning: boolean, hasSnapshot: boolean, directGeneration: boolean) {
@@ -269,7 +270,10 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
         exports: Object.fromEntries(['OperatorOwnerInferenceAuthority', 'LlmInterceptor'].map(name =>
           [name, () => ({ fetch: () => { throw new Error(`Unexpected ${name} call`); } })])),
         blockConcurrencyWhile: (work: () => Promise<void>) => { ready = ready.then(work); return ready; },
-        waitUntil: (work: Promise<unknown>) => { void work.catch(() => {}); },
+        waitUntil: (work: Promise<unknown>) => {
+          if (raceMonitor && process) lastWriterWork = work;
+          void work.catch(() => {});
+        },
       } as unknown as DurableObjectState<Env>, envOverrides as Env);
       states.set(address, { ready, instance, restoreExit: (evidence, withoutRetryMarker, failCleanup) => {
         failExitCleanup = failCleanup;
@@ -328,7 +332,7 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
     states.get(`${owner}-${id}`)!.restoreExit({ owner, session: id, generation, terminationIntentId }, withoutRetryMarker, failCleanup);
     await session(id).collectMetrics({ ownerKey: owner, sessionId: id, generation });
   };
-  return { owner, other, app, path, create, batch, stop, remove, kill, retry, trace, replayExit, cleanup, wake: () => getByName(`storage:${owner}`).wakeHermesShutdownQueue(owner), session };
+  return { owner, other, app, path, create, batch, stop, remove, kill, retry, trace, replayExit, cleanup, latestWriterWork: () => lastWriterWork!, wake: () => getByName(`storage:${owner}`).wakeHermesShutdownQueue(owner), session };
 }
 
 const a = 'sessionaaa1';
@@ -738,7 +742,7 @@ it.each([true, false])('REQ-MEM-042 AC3: settlement rollback allows replay after
   expect(await session.hermesWriterSettled(f.owner, writer)).toBe(matchingIntent);
 });
 
-it('REQ-MEM-042 AC3: a monitored writer exit settles across graceful teardown cleanup', async () => {
+it.each([true, false])('REQ-MEM-042 AC3: a monitored writer exit settles across graceful teardown cleanup (audit first %s)', async auditFirst => {
   const f = rig(true, true, false, false, true);
   const A = await f.create(a);
   const confirmReached = gate<void>(undefined);
@@ -757,10 +761,14 @@ it('REQ-MEM-042 AC3: a monitored writer exit settles across graceful teardown cl
     await bounded(f.cleanup!.reached.promise.then(() => new Response()));
     A.monitorExit!.release();
     await bounded(confirmReached.promise.then(() => new Response()));
-    f.cleanup!.resume.release();
-    await vi.waitFor(() => expect(f.trace).toContain(`${a}:sigterm`));
+    if (auditFirst) {
+      f.cleanup!.resume.release();
+      await vi.waitFor(() => expect(f.trace).toContain(`${a}:sigterm`));
+    }
     confirmResume.release();
-    await vi.waitFor(async () => expect((await f.batch())[a]?.status).toBe('stopped'));
+    await f.latestWriterWork();
+    expect((await f.batch())[a]?.status).toBe('stopped');
+    if (!auditFirst) f.cleanup!.resume.release();
     A.exit.release('failed');
     await vi.waitFor(async () => {
       await f.wake();

@@ -4185,7 +4185,7 @@ Placeholder credentials remain inside the strict container. Streaming request bo
 
 **Related REQs:** [REQ-SEC-003](../../sdd/spec/security.md#req-sec-003-per-user-r2-tokens-scoped-to-user-bucket), [REQ-ENTERPRISE-023](../../sdd/spec/security.md#req-enterprise-023-strict-gateway-egress-controller-transport), [REQ-ENTERPRISE-026](../../sdd/spec/security.md#req-enterprise-026-strict-r2-interception-preserves-user-bucket-authority).
 
-<!-- @impl: src/container/container-interception.ts::strictEgress -->
+<!-- @impl: src/container/container-interception.ts::resolveStrictEgress -->
 <!-- @impl: src/container/container-router.ts::handleSetBucketName -->
 <!-- @impl: src/egress-controller.ts::EgressController -->
 

@@ -145,7 +145,7 @@ const HERMES_CHECKPOINT_ADAPTER = 'd6e0420a7a73120a48a457f38bce4a941a4c658fb7799
 // each call site - the same pattern the previous metricsState getter used -
 // rather than an `implements` clause that would couple to the base class's
 // member modifiers.
-type ExitEvidence = { owner: string; session: string; generation: number; terminationIntentId?: string };
+type ExitEvidence = { owner: string; session: string; generation: number; terminationIntentId?: string; awaitingAudit?: true };
 
 export class container extends Container<Env> implements ContainerEnvState {
   #sdkCredentialQueues = new Map<string, Promise<void>>();
@@ -400,15 +400,28 @@ export class container extends Container<Env> implements ContainerEnvState {
       const stored = await txn.get<ExitEvidence>(container.EXIT_OBSERVED_KEY);
       if (stored?.generation === generation && stored.owner === owner && stored.session === session
           && stored.terminationIntentId === evidence.terminationIntentId) {
-        // Consume exit evidence and settle the writer atomically so interruption can replay both.
-        await txn.delete(container.EXIT_OBSERVED_KEY);
         // D1 already confirmed this validated exit; teardown may have cleared its operational keys.
         const canSettle = confirmed
           ? await txn.get<number>('lifecycleGeneration') === generation
           : (!superseded || deleted) && await this.exitEvidenceIsCurrent(evidence, txn);
-        if (canSettle) {
-          await this.writeHermesSettlement(txn, session, generation, settlementRow, evidence.terminationIntentId, deleted);
+        const stopped = settlementRow as D1Session | null;
+        const job = stopped?.shutdown;
+        const writerStop = confirmed && job?.teardownClaimed && job.phase.startsWith('finishing')
+          && job.sourceGeneration === undefined && job.hermesDisabledAtStartup !== true;
+        const exitIntent = evidence.terminationIntentId ?? (writerStop ? stopped?.terminationIntentId ?? undefined : undefined);
+        if (canSettle && exitIntent !== undefined) {
+          const audit = await txn.get<{ sessionId: string; lifecycleGeneration: number }>(FINAL_SYNC_AUDIT_KEY);
+          if (audit?.sessionId !== session || audit.lifecycleGeneration !== generation) {
+            // A monitor can confirm exit before teardown publishes the audit. Bind the existing proof to this Stop.
+            if (evidence.terminationIntentId === undefined) {
+              await txn.put(container.EXIT_OBSERVED_KEY, { ...evidence, terminationIntentId: exitIntent, awaitingAudit: true });
+            }
+            return;
+          }
         }
+        // Consume exit evidence and settle the writer atomically so interruption can replay both.
+        await txn.delete(container.EXIT_OBSERVED_KEY);
+        if (canSettle) await this.writeHermesSettlement(txn, session, generation, settlementRow, exitIntent, deleted);
       }
     });
     if (superseded || await this.ctx.storage.get<number>('lifecycleGeneration') !== generation) return false;
@@ -994,6 +1007,12 @@ export class container extends Container<Env> implements ContainerEnvState {
     if (await this.ctx.storage.get<number>(HERMES_SETTLED_GENERATION_KEY) === generation) return true;
     const audit = await this.ctx.storage.get<{ outcome: string; sessionId: string; lifecycleGeneration: number }>(FINAL_SYNC_AUDIT_KEY);
     if (audit?.outcome !== 'completed' || audit.sessionId !== sessionId || audit.lifecycleGeneration !== generation) return false;
+    const evidence = await this.ctx.storage.get<ExitEvidence>(container.EXIT_OBSERVED_KEY);
+    if (evidence?.awaitingAudit && evidence.owner === bucket && evidence.session === sessionId
+      && evidence.generation === generation && evidence.terminationIntentId !== undefined) {
+      await this.retryObservedExit().catch(() => false);
+      if (await this.ctx.storage.get<number>(HERMES_SETTLED_GENERATION_KEY) === generation) return true;
+    }
     return this.hermesWriterExited(bucket, writer);
   }
 
@@ -1478,7 +1497,8 @@ export class container extends Container<Env> implements ContainerEnvState {
         return conflict();
       }
       if (this.sessionStopInFlight || this.sessionKillInFlight) return conflict();
-      const response = await dispatchInternalRoute(this.host, request)!;
+      // A fresh native start wires every hostname before the catch-all. Do not install it during configuration.
+      const response = await dispatchInternalRoute(this.host, request, current.lifecycleState !== 'stopped')!;
       if (current.lifecycleState !== 'stopped' || (response.status !== 200 && response.status !== 409)) return response;
       if (this._bucketName !== bucketName || this._sessionId !== sessionId) return conflict();
       // Keep configuration and the claim under the same reservation. A second

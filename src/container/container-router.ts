@@ -120,7 +120,7 @@ interface InternalRoute {
   readonly name: 'setBucketName' | 'setSessionId' | 'getBucketName';
   readonly method: 'GET' | 'POST' | 'PUT';
   readonly path: string;
-  handle(host: ContainerHost, request: Request): Promise<Response>;
+  handle(host: ContainerHost, request: Request, refreshLiveEgress: boolean): Promise<Response>;
 }
 
 /**
@@ -159,13 +159,14 @@ export const INTERNAL_ROUTES: readonly InternalRoute[] = [
 export function dispatchInternalRoute(
   host: ContainerHost,
   request: Request,
+  refreshLiveEgress = true,
 ): Promise<Response> | null {
   const url = new URL(request.url);
   const route = INTERNAL_ROUTES.find(
     (r) => r.method === request.method && r.path === url.pathname,
   );
   if (!route) return null;
-  return route.handle(host, request);
+  return route.handle(host, request, refreshLiveEgress);
 }
 
 // ---------------------------------------------------------------------------
@@ -173,7 +174,7 @@ export function dispatchInternalRoute(
 // ---------------------------------------------------------------------------
 
 /** Handle POST /_internal/setBucketName. */
-async function handleSetBucketName(host: ContainerHost, request: Request): Promise<Response> {
+async function handleSetBucketName(host: ContainerHost, request: Request, refreshLiveEgress: boolean): Promise<Response> {
   try {
     const { bucketName, sessionId, userEmail, userGroups, routeCatalog, allowPersonalPiProviders, piDefaultSource, defaultRoute, defaultReasoning, routeContextWindows, routeReasoningLevels, modelDisplayNames, promptCacheTargets, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, syncPolicyMode, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, cloudflareOauthAccountId, encryptionKey, r2SseDisabled, remoteCurationActive, remoteCurationReleaseDigest, remoteCurationManifestDigest, managedResourcePolicy, managedResourcePathsDigest, sessionMode, sessionWorkspace, terminalMode, userTimezone, gitCloneRepo, gitCloneRef, gitCloneTargets, sleepAfter: sleepAfterPref } =
       await request.json() as SetBucketNameBody;
@@ -242,7 +243,7 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
         || (nextReleaseDigest ?? null) !== (host._remoteCurationReleaseDigest ?? null)
         || (nextPathsDigest ?? null) !== (host._managedResourcePathsDigest ?? null)
         || nextR2SseDisabled !== (host._r2SseDisabled === true);
-      if (securityChanged) await refreshStrictEgressInterception(host, securityProps);
+      if (refreshLiveEgress && securityChanged) await refreshStrictEgressInterception(host, securityProps);
       if (r2CredentialsProvided) {
         host._r2AccessKeyId = r2AccessKeyId;
         host._r2SecretAccessKey = r2SecretAccessKey;

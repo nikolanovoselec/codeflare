@@ -444,11 +444,6 @@ async function resolveStrictEgress(
   };
 }
 
-const strictEgress: InterceptorSpec = {
-  mode: 'enterprise',
-  resolve: resolveStrictEgress,
-};
-
 /** Fixed parent authority lookup for configured services in an ordinary owner Host. */
 const ownerInferenceAuthority: InterceptorSpec = {
   mode: 'enterprise',
@@ -469,7 +464,6 @@ const CONTAINER_INTERCEPTION_REGISTRY: readonly InterceptorSpec[] = [
   llm,
   github,
   browserRendering,
-  strictEgress,
 ];
 
 /** Register one resolved transport; failures log and never break container start. */
@@ -548,5 +542,8 @@ export async function wireContainerInterception(host: InterceptionHost): Promise
         operator: !!(host._operatorPolicy || host._operatorContainerProfile) },
       wiredLog: 'MCP portal interception wired', failLog: 'MCP portal interception unavailable' });
   }
+  // Cloudflare matches hostname registrations ahead of a later wildcard, not an earlier one.
+  const catchAll = enterprise ? await resolveStrictEgress(host) : null;
+  if (catchAll) registrations.push(catchAll);
   for (const reg of registrations) await applyInterception(host, reg);
 }
