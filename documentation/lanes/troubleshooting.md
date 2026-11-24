@@ -606,7 +606,7 @@ These notes hold details moved out of long table cells above; the table keeps th
 
 #### Stop and save diagnostics
 
-Check `shutdownPhase` and the underlying `lifecycle` in the [session status API](api-reference.md#queued-hermes-shutdown). A missing phase does not distinguish a definitive private save refusal from an ambiguous save. Use the authenticated Stop outcome and authorized Host or Worker diagnostics for the attempt. A conflict or missing acknowledgement proves neither exit nor permission to replay the save.
+Check `shutdownPhase` and the underlying `lifecycle` in the [session status API](api-reference.md#queued-hermes-shutdown). A missing phase does not distinguish a definitive private save refusal from an ambiguous save. Use the authenticated Stop outcome and authorized Host or Worker diagnostics for the attempt. A conflict status alone or a missing acknowledgement proves neither exit nor permission to replay the save.
 
 After resolving the cause, use **Retry Stop** for the same generation only after a definitive save failure or a confirmed refusal before sync dispatch. Do not replay an unconfirmed save. See the [private final-save API](api-reference.md#private-hermes-shutdown-host-api) for receipt details and [REQ-SESSION-042 AC4](../../sdd/spec/session-lifecycle.md#req-session-042-same-generation-stop-retry-authority) for the retry rule.
 
