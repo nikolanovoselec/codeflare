@@ -78,7 +78,7 @@ async function expectAccepted(request: Response | Promise<Response>) {
   expect((await bounded(request)).ok).toBe(true);
 }
 
-function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = false, holdRetryDestroy = false, raceMonitor = false) {
+function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = false, holdRetryDestroy = false, raceMonitor: false | 'audit first' | 'exit first' | 'stale audit' = false) {
   const owner = `shutdown-${crypto.randomUUID()}`;
   const other = `shutdown-${crypto.randomUUID()}`;
   const states = new Map<string, { ready: Promise<void>; instance: SessionContainer; restoreExit: (evidence: object, withoutRetryMarker: boolean, failCleanup: boolean | 'settlement') => void }>();
@@ -199,6 +199,9 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
         ...(process.directGeneration ? [['hermes:direct-generation', 1] as const] : []),
         ...(process.directGeneration && !preRolloutRetry ? [['hermes:writer-generation', 1] as const] : []),
         ['userEmail', 'test@example.com'], ['userGroups', ['shutdown-fixture']],
+        ...(raceMonitor === 'stale audit' ? [['finalSyncAudit', {
+          sessionId: address.slice(first + 1), lifecycleGeneration: 1, outcome: 'errored', reason: 'bisync-failed',
+        }] as const] : []),
       ] : []);
       let failExitCleanup: boolean | 'settlement' = false;
       const storage = {
@@ -742,8 +745,9 @@ it.each([true, false])('REQ-MEM-042 AC3: settlement rollback allows replay after
   expect(await session.hermesWriterSettled(f.owner, writer)).toBe(matchingIntent);
 });
 
-it.each([true, false])('REQ-MEM-042 AC3: a monitored writer exit settles across graceful teardown cleanup (audit first %s)', async auditFirst => {
-  const f = rig(true, true, false, false, true);
+it.each(['audit first', 'exit first', 'stale audit'] as const)('REQ-MEM-042 AC3: a monitored writer exit settles across graceful teardown cleanup (%s)', async order => {
+  const f = rig(true, true, false, false, order);
+  const auditFirst = order === 'audit first';
   const A = await f.create(a);
   const confirmReached = gate<void>(undefined);
   const confirmResume = gate<void>(undefined);

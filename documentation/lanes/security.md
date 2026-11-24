@@ -160,7 +160,7 @@ The shutdown merge uses the same scoped rclone configuration and R2 interceptor 
 
 Ordinary initial catch-all registration can log and swallow an interception-registration error while direct Internet remains disabled; successful registration is not universally required to complete startup. WebSocket forwarding takes an earlier branch than ordinary HTTP redirect and hop-header normalization. Multi-delete classification also uses a permissive XML declaration parser, not a full XML grammar validator.
 
-A fresh Start or Resume registers hostname-specific handlers before the strict catch-all. On a live container, validated credential rotation replaces only the strict catch-all before later traffic ([REQ-ENTERPRISE-311](../../sdd/spec/security.md#req-enterprise-311-strict-r2-credential-replacement)). <!-- @impl: src/container/container-interception.ts::refreshStrictEgressInterception -->
+With strict egress enabled, a fresh Start or Resume attempts to register hostname-specific handlers before the catch-all ([REQ-ENTERPRISE-016 AC2](../../sdd/spec/security.md#req-enterprise-016-strict-gateway-egress)). <!-- @impl: src/container/container-interception.ts::wireContainerInterception --> On a live container, validated credential rotation replaces only the strict catch-all before later traffic ([REQ-ENTERPRISE-311](../../sdd/spec/security.md#req-enterprise-311-strict-r2-credential-replacement)). <!-- @impl: src/container/container-interception.ts::refreshStrictEgressInterception -->
 
 Gateway policy remains customer-owned. Codeflare does not create or weaken external allow/deny/DLP rules. Hostname policy cannot eliminate every DNS-rebinding or allowed-provider abuse scenario; account/path interception and provider policy remain defense in depth.
 

@@ -115,17 +115,21 @@ async function fixture(initial: 'stopped' | 'starting' | 'running' | 'stopping' 
   };
   let scheduleUnavailable = false;
   let nativeForbidden = false;
+  let rejectCatchAll = false;
   async function coordinator() {
     // Lifecycle proof survives reconstruction; operational identity remains absent.
     let ready: Promise<unknown> = Promise.resolve();
     const ctx = {
       id: { toString: () => `${ref.bucket}-${ref.sessionId}` },
-      exports: Object.fromEntries(['LlmInterceptor', 'GitHubInterceptor', 'CloudflareBrowserInterceptor', 'EgressController'].map(name =>
+      exports: Object.fromEntries(['LlmInterceptor', 'GitHubInterceptor', 'CloudflareBrowserInterceptor', 'McpPortalInterceptor', 'EgressController'].map(name =>
         [name, () => ({ fetch: async () => new Response(name) })])),
       container: initial === 'starting' || initial === 'stopped' || enterprise ? {
         get running() { return running; },
         signal() { running = false; },
-        interceptOutboundHttps(pattern: string, handler: { fetch(): Promise<Response> }) { handlers.set(pattern, handler); },
+        interceptOutboundHttps(pattern: string, handler: { fetch(): Promise<Response> }) {
+          if (pattern === '*' && rejectCatchAll) throw new Error('Catch-all installation unavailable');
+          handlers.set(pattern, handler);
+        },
         getTcpPort: () => ({ fetch: async () => Response.json({ synced: hermesFinalSyncStatus === 200 },
           { status: hermesFinalSyncStatus ?? 503 }) }),
         monitor: () => new Promise<void>(() => {}),
@@ -205,6 +209,7 @@ async function fixture(initial: 'stopped' | 'starting' | 'running' | 'stopping' 
       teardownGate?.reject(Error('caller disconnected'));
       for (const io of pendingIO) io.reject(Error('caller disconnected'));
     },
+    failCatchAll: () => { rejectCatchAll = true; },
     failConfirmation: (fail: boolean) => { confirmationUnavailable = fail; },
     failDatabase: (fail: boolean) => { databaseUnavailable = fail; },
   };
@@ -294,9 +299,11 @@ describe('REQ-SESSION-018 AC4: pending Start cannot outlive its Stop', () => {
 });
 
 describe('REQ-SESSION-008: startup configuration uses the admitted run and bucket', () => {
-  it('REQ-ENTERPRISE-016: Resume selects GitHub and Cloudflare handlers before strict catch-all', async () => {
+  it.each([false, true])('REQ-ENTERPRISE-016: Resume keeps dedicated handlers with strict catch-all failure %s', async failCatchAll => {
     const f = await fixture('stopped', ref.generation, undefined, true);
     f.kv._store.set(SETUP_KEYS.STRICT_EGRESS, 'active');
+    await f.kv.put(SETUP_KEYS.MCP_PORTALS, JSON.stringify([{ name: 'test-portal', url: 'https://portal.example/mcp' }]));
+    if (failCatchAll) f.failCatchAll();
     f.configureStart();
     const instance = await f.coordinator();
     const execution = { ...ref, generation: ref.generation + 1 };
@@ -306,7 +313,10 @@ describe('REQ-SESSION-008: startup configuration uses the admitted run and bucke
     await instance.startSession(execution);
     expect(await f.sendOutbound('api.github.com')).toBe('GitHubInterceptor');
     expect(await f.sendOutbound('api.cloudflare.com')).toBe('CloudflareBrowserInterceptor');
-    expect(await f.sendOutbound('example.com')).toBe('EgressController');
+    expect(await f.sendOutbound('portal.example')).toBe('McpPortalInterceptor');
+    expect(await f.sendOutbound('example.com')).toBe(failCatchAll ? null : 'EgressController');
+    expect(instance.enableInternet).toBe(false);
+    expect(await f.read()).toMatchObject({ lifecycleState: 'running', lifecycleGeneration: execution.generation });
   });
 
   it('REQ-SESSION-043: relaunch enrolls a workspace-sync-off predecessor for Hermes shutdown', async () => {

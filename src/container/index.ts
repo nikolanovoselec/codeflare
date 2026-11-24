@@ -410,8 +410,8 @@ export class container extends Container<Env> implements ContainerEnvState {
           && job.sourceGeneration === undefined && job.hermesDisabledAtStartup !== true;
         const exitIntent = evidence.terminationIntentId ?? (writerStop ? stopped?.terminationIntentId ?? undefined : undefined);
         if (canSettle && exitIntent !== undefined) {
-          const audit = await txn.get<{ sessionId: string; lifecycleGeneration: number }>(FINAL_SYNC_AUDIT_KEY);
-          if (audit?.sessionId !== session || audit.lifecycleGeneration !== generation) {
+          const audit = await txn.get<{ sessionId: string; lifecycleGeneration: number; terminationIntentId?: string }>(FINAL_SYNC_AUDIT_KEY);
+          if (audit?.sessionId !== session || audit.lifecycleGeneration !== generation || audit.terminationIntentId !== exitIntent) {
             // A monitor can confirm exit before teardown publishes the audit. Bind the existing proof to this Stop.
             if (evidence.terminationIntentId === undefined) {
               await txn.put(container.EXIT_OBSERVED_KEY, { ...evidence, terminationIntentId: exitIntent, awaitingAudit: true });

@@ -4,6 +4,10 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-24: Keep dedicated outbound handlers on Resume
+
+- [REQ-ENTERPRISE-016](security.md#req-enterprise-016-strict-gateway-egress) attempts GitHub, Cloudflare API, and other hostname-specific registrations before the strict catch-all when resuming a stopped session. Live credential refresh still replaces only the catch-all.
+
 ## 2026-11-23: Consolidate Hermes at graceful shutdown
 
 - [REQ-SESSION-043](session-lifecycle.md#req-session-043-queued-graceful-shutdown-and-memory-recovery) orders eligible Enterprise Stop and Delete requests per owner regardless of workspace sync, leaves Kill outside the queue, and waits for sync readiness before final save. Pre-rollout generations not enrolled keep ordinary teardown until relaunched; a queued generation uses ordinary teardown only on confirmed startup disable, and [Retry Stop](session-lifecycle.md#req-session-042-same-generation-stop-retry-authority) can repeat a definitive failure or a confirmed refusal before sync dispatch, but not a disk blocker observed after dispatch or an unconfirmed timeout.
