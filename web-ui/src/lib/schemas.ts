@@ -230,6 +230,7 @@ const shutdownProjection = {
   shutdownPhase: z.enum(['queued', 'saving', 'consolidating', 'finishing', 'memory-not-merged']).optional(),
   pendingDelete: z.boolean().optional(),
   retryingMemory: z.boolean().optional(),
+  snapshotUnavailable: z.boolean().optional(),
 };
 
 // Shared base schema for session objects (used by response schemas below)

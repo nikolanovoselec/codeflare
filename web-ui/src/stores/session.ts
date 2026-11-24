@@ -325,8 +325,8 @@ function reconcileMemoryRetry(id: string, session?: SessionWithStatus): void {
 }
 
 function applyShutdownFields(index: number, incoming: BatchStatusResponse['statuses'][string]): void {
-  const { shutdownPhase, pendingDelete, retryingMemory } = incoming;
-  setState('sessions', index, { shutdownPhase, pendingDelete, retryingMemory });
+  const { shutdownPhase, pendingDelete, retryingMemory, snapshotUnavailable } = incoming;
+  setState('sessions', index, { shutdownPhase, pendingDelete, retryingMemory, snapshotUnavailable });
   const session = state.sessions[index];
   reconcileMemoryRetry(session.id, session);
 }
@@ -856,7 +856,8 @@ function startSession(id: string): Promise<void> {
 
 async function retryMemoryConsolidation(id: string): Promise<void> {
   const session = state.sessions.find(candidate => candidate.id === id);
-  if (session?.status !== 'stopped' || session.shutdownPhase !== 'memory-not-merged' || isMemoryRetryPending(id)) return;
+  if (session?.status !== 'stopped' || session.shutdownPhase !== 'memory-not-merged'
+    || session.snapshotUnavailable || isMemoryRetryPending(id)) return;
   const token = Symbol();
   setState('memoryRetryAttempts', id, { token, generation: session.generation, revision: session.revision });
   try {

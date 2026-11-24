@@ -43,10 +43,10 @@ export class HermesRetention {
 
   constructor(private readonly storage: DurableObjectStorage) {}
 
-  hasStore(sessionId: string): Promise<boolean> {
+  hasStore(sessionId: string, includeEviction = false): Promise<boolean> {
     return this.serialize(async () => {
       const state = await this.storage.get<State>(STATE_KEY);
-      return !!state && Object.hasOwn(state.stores, sessionId);
+      return !!state && (includeEviction || state.eviction?.victim !== sessionId) && Object.hasOwn(state.stores, sessionId);
     });
   }
 
@@ -54,11 +54,11 @@ export class HermesRetention {
     return this.serialize(() => this.admitOne(writer, ports, signal));
   }
 
-  withUpload<T>(writer: HermesWriter, upload: () => Promise<T>): Promise<T | undefined> {
+  withUpload<T>(writer: HermesWriter, upload: () => Promise<T>, signal?: AbortSignal): Promise<T | undefined> {
     return this.serialize(async () => {
-      if (!validWriter(writer)) return;
+      if (!validWriter(writer) || signal?.aborted) return;
       const state = await this.storage.get<State>(STATE_KEY);
-      if (state?.stores[writer.sessionId]?.generation !== writer.generation
+      if (signal?.aborted || state?.stores[writer.sessionId]?.generation !== writer.generation
         || state.eviction?.victim === writer.sessionId) return;
       return upload();
     });

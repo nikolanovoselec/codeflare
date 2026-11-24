@@ -1026,15 +1026,17 @@ export class container extends Container<Env> implements ContainerEnvState {
   async hermesStoreRetained(bucket: string, sessionId: string): Promise<boolean> {
     if (!SESSION_ID_PATTERN.test(sessionId)) throw new Error('Invalid Hermes session ID');
     await this.verifyMcpOwner(bucket);
-    return (this.hermesRetention ??= new HermesRetention(this.ctx.storage)).hasStore(sessionId);
+    const retention = this.hermesRetention ??= new HermesRetention(this.ctx.storage);
+    const retained = await raceBudget(retention.hasStore(sessionId), CONTAINER_POLL_BUDGET_MS);
+    if (retained === null) throw new Error('Hermes retention check timed out');
+    return retained;
   }
 
   async putHermesObject(bucket: string, writer: HermesWriter, request: Request): Promise<Response> {
     await this.verifyMcpOwner(bucket);
-    const { accountId } = await getR2Config(this.env);
-    const endpoint = `https://${accountId}.r2.cloudflarestorage.com`;
+    const { endpoint } = await getR2Config(this.env);
     const url = new URL(request.url);
-    const prefix = `/${bucket}/`;
+    const prefix = `${new URL(getR2Url(endpoint, bucket)).pathname}/`;
     const key = decodeURIComponent(url.pathname.slice(prefix.length));
     if (request.method !== 'PUT' || !url.pathname.startsWith(prefix) || !isHermesUploadKey(writer.sessionId, key)
       || (url.search !== '' && url.search !== '?x-id=PutObject') || request.headers.has('x-amz-copy-source')
@@ -1042,8 +1044,14 @@ export class container extends Container<Env> implements ContainerEnvState {
       return new Response(null, { status: 403 });
     }
     const retention = this.hermesRetention ??= new HermesRetention(this.ctx.storage);
-    return await retention.withUpload(writer, () => fetch(request, { redirect: 'manual' }))
-      ?? new Response(null, { status: 410 });
+    const queued = new AbortController();
+    // Expire queued work, but don't cancel a dispatched PUT or release its fence early.
+    const upload = retention.withUpload(writer, () => fetch(request, { redirect: 'manual' }), queued.signal);
+    this.ctx.waitUntil(upload.catch(() => undefined));
+    try {
+      const result = await raceBudget(upload, CONTAINER_POLL_BUDGET_MS);
+      return result ?? new Response(null, { status: result === null ? 503 : 410 });
+    } finally { queued.abort(); }
   }
 
   async admitHermesStore(bucket: string, writer: HermesWriter, remoteCuration: boolean, deadline: number,
@@ -1068,7 +1076,7 @@ export class container extends Container<Env> implements ContainerEnvState {
     if (remoteCuration) {
       const installed = await r2.adapterDigest();
       if (installed === HERMES_MASTER_ADAPTER || installed === HERMES_CHECKPOINT_ADAPTER) {
-        if (hadDirectLayout || await retention.hasStore(writer.sessionId)
+        if (hadDirectLayout || await retention.hasStore(writer.sessionId, true)
           || (installed === HERMES_MASTER_ADAPTER
             && (writer.generation !== 1 || await r2.hasCheckpoint(writer.sessionId)))) return 'deferred';
         return await canAdmit() ? 'legacy' : 'deferred';
@@ -1498,11 +1506,11 @@ export class container extends Container<Env> implements ContainerEnvState {
     await super.startAndWaitForPorts(...args);
   }
 
-  private async prepareNativeStart(hermesUpload?: HermesWriter): Promise<void> {
+  private async prepareNativeStart(hermesUpload?: HermesWriter): Promise<boolean> {
     await refreshMcpPortalConfiguration(this.host);
     this.updateEnvVars();
     this.hermesUpload = hermesUpload;
-    await wireContainerInterception(this.interceptionHost);
+    return wireContainerInterception(this.interceptionHost);
   }
 
   private async configureSessionStart(request: Request): Promise<Response> {
@@ -1568,7 +1576,7 @@ export class container extends Container<Env> implements ContainerEnvState {
   }
 
   private async launchSession(input: SessionStopRequest, mergedSnapshot?: string,
-    retry?: { snapshotId: string; sourceGeneration: number }): Promise<void> {
+    retry?: { snapshotId: string; sourceGeneration: number; beforeStart(): Promise<void> }): Promise<void> {
     const { bucket, sessionId, generation } = input;
     if (this.env.CONTAINER.idFromName(`${bucket}-${sessionId}`).toString() !== this.ctx.id.toString()) {
       throw new Error('Session start address mismatch');
@@ -1590,7 +1598,7 @@ export class container extends Container<Env> implements ContainerEnvState {
       await configure;
       await stillAdmitted();
       const upload = !retry && this._sessionMode === 'advanced' ? { sessionId, generation } : undefined;
-      await this.prepareNativeStart(upload);
+      const uploadReady = await this.prepareNativeStart(upload);
       if (retry) {
         await this.ctx.storage.put({ [HERMES_DIRECT_GENERATION_KEY]: generation, [HERMES_RETRY_GENERATION_KEY]: generation });
         this.hermesDirectGeneration = generation;
@@ -1599,12 +1607,13 @@ export class container extends Container<Env> implements ContainerEnvState {
       } else if (this._sessionMode === 'advanced') {
         const budget = CONTAINER_POLL_BUDGET_MS;
         const deadline = Date.now() + budget;
-        const disposition = await raceBudget((async () => {
+        const disposition = uploadReady ? await raceBudget((async () => {
           const hadDirectLayout = (await this.ctx.storage.get<boolean>(HERMES_DIRECT_LAYOUT_KEY)) === true;
           return getBucketOwnerStub(this.env, bucket).admitHermesStore(bucket, { sessionId, generation },
             this._remoteCurationActive, deadline, hadDirectLayout);
-        })(), budget).catch(() => null);
-        if (disposition === 'new' || disposition === 'existing') {
+        })(), budget).catch(() => null) : null;
+        const direct = disposition === 'new' || disposition === 'existing';
+        if (direct) {
           await this.ctx.storage.put(HERMES_DIRECT_LAYOUT_KEY, true);
           if (isEnterpriseMode(this.env)) {
             await this.ctx.storage.put({ [HERMES_DIRECT_GENERATION_KEY]: generation, [HERMES_WRITER_GENERATION_KEY]: generation });
@@ -1613,12 +1622,17 @@ export class container extends Container<Env> implements ContainerEnvState {
         }
         this.envVars = { ...this.envVars, CODEFLARE_HERMES_PERSISTENCE: disposition ?? 'deferred',
           CODEFLARE_HERMES_GENERATION: String(generation),
-          CODEFLARE_HERMES_UPLOAD_ENDPOINT: `https://${HERMES_UPLOAD_HOST}`,
+          ...(direct ? { CODEFLARE_HERMES_UPLOAD_ENDPOINT: `https://${HERMES_UPLOAD_HOST}` } : {}),
           ...(disposition === 'existing' && isEnterpriseMode(this.env) && mergedSnapshot && snapshotPattern.test(mergedSnapshot)
             ? { CODEFLARE_HERMES_MERGED_SNAPSHOT: mergedSnapshot } : {}),
         };
       }
       await stillAdmitted();
+      if (retry) {
+        await retry.beforeStart();
+        cancellation.signal.throwIfAborted();
+        if (this._teardownEpoch !== epoch) throw new Error('Session start superseded');
+      }
       if (this.ctx.container?.running) throw new Error('Unexpected existing session process');
       await super.startAndWaitForPorts({ cancellationOptions: { abort: cancellation.signal } });
       if (cancellation.signal.aborted || !startup.ready) throw new Error('Session start not confirmed');
@@ -1810,7 +1824,15 @@ export class container extends Container<Env> implements ContainerEnvState {
     const deadline = Date.now() + HERMES_MERGE_BUDGET_MS;
     const abort = new AbortController();
     const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(HERMES_MERGE_BUDGET_MS)]);
-    const failBeforeStart = () => transitionShutdown(repository, input, intent, 'queued', current => ({ ...current, phase: 'memory-not-merged' }));
+    let snapshotUnavailable = false;
+    const checkSnapshot = async () => {
+      const retained = await raceAbort(signal, () => getBucketOwnerStub(this.env, bucket).hermesStoreRetained(bucket, sessionId));
+      snapshotUnavailable = !retained;
+      return retained;
+    };
+    const failBeforeStart = () => transitionShutdown(repository, input, intent, 'queued', current => ({
+      ...current, phase: 'memory-not-merged', ...(snapshotUnavailable ? { snapshotUnavailable: true } : {}),
+    }));
     let active: SessionStopRequest | undefined;
     try {
       const email = this._userEmail;
@@ -1836,7 +1858,7 @@ export class container extends Container<Env> implements ContainerEnvState {
         await failBeforeStart();
         return;
       }
-      if (!await raceAbort(signal, () => getBucketOwnerStub(this.env, bucket).hermesStoreRetained(bucket, sessionId))) {
+      if (!await checkSnapshot()) {
         await failBeforeStart();
         return;
       }
@@ -1861,18 +1883,24 @@ export class container extends Container<Env> implements ContainerEnvState {
       });
       signal.throwIfAborted();
       const currentAttempt = active;
-      await raceAbort(signal, () => this.launchSession(currentAttempt, undefined, { snapshotId, sourceGeneration }));
+      await raceAbort(signal, () => this.launchSession(currentAttempt, undefined, {
+        snapshotId, sourceGeneration,
+        beforeStart: async () => { if (!await checkSnapshot()) throw new Error('Hermes snapshot unavailable'); },
+      }));
       const running = await repository.getSession(bucket, sessionId);
       signal.throwIfAborted();
       if (!running || running.lifecycleGeneration !== active.generation || running.lifecycleState !== 'running'
         || running.shutdown?.intent !== intent || running.shutdown.phase !== 'consolidating') throw new Error('Hermes retry superseded');
       const outcome = await this.#runHermesMerge(running, snapshotId, deadline, signal, abort.signal);
-      await transitionShutdown(repository, active, intent, 'consolidating', state => ({ ...state, ...outcome }));
+      if (outcome.phase === 'finishing-pending') await checkSnapshot().catch(() => {});
+      await transitionShutdown(repository, active, intent, 'consolidating', state => ({
+        ...state, ...outcome, ...(snapshotUnavailable ? { snapshotUnavailable: true } : {}),
+      }));
     } catch {
       if (!active) await failBeforeStart();
       else if (!abort.signal.aborted) {
         await transitionShutdown(repository, active, intent, 'consolidating', current => ({
-          ...current, phase: 'finishing-pending',
+          ...current, phase: 'finishing-pending', ...(snapshotUnavailable ? { snapshotUnavailable: true } : {}),
         }));
       }
     } finally {

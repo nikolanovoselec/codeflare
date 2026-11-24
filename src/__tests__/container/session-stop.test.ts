@@ -88,10 +88,18 @@ async function fixture(initial: 'stopped' | 'starting' | 'running' | 'stopping' 
     };
     return statement;
   };
+  const uploads = new Map<string, string>();
   const env = { USAGE_DB: db, KV: kv, R2_ACCOUNT_ID: 'test-account', R2_ENDPOINT: 'https://r2.test',
     ...(enterprise && { ENTERPRISE_MODE: 'active' }),
     CONTAINER: { idFromName: (name: string) => ({ toString: () => name }),
-      ...(hermesFinalSyncStatus !== undefined && { get: () => ({ admitHermesStore: async () => 'new' }) }),
+      ...(hermesFinalSyncStatus !== undefined && { get: () => ({ admitHermesStore: async () => 'new',
+        putHermesObject: async (bucket: string, writer: { sessionId: string; generation: number }, request: Request) => {
+          if (bucket !== ref.bucket || writer.sessionId !== ref.sessionId || writer.generation !== generation + 1) {
+            return new Response(null, { status: 403 });
+          }
+          uploads.set(request.url, await request.text());
+          return new Response(null, { status: 200 });
+        } }) }),
     } } as unknown as Env;
   const repository = new D1SessionRepository(db);
   let running = initial !== 'starting' && initial !== 'stopped';
@@ -120,6 +128,7 @@ async function fixture(initial: 'stopped' | 'starting' | 'running' | 'stopping' 
   let scheduleUnavailable = false;
   let nativeForbidden = false;
   let rejectCatchAll = false;
+  let rejectHermesHost = false;
   let useR2Egress = false;
   async function coordinator() {
     // Lifecycle proof survives reconstruction; operational identity remains absent.
@@ -134,7 +143,9 @@ async function fixture(initial: 'stopped' | 'starting' | 'running' | 'stopping' 
         get running() { return running; },
         signal() { running = false; },
         interceptOutboundHttps(pattern: string, handler: { fetch(request: Request): Promise<Response> }) {
-          if (pattern === '*' && rejectCatchAll) throw new Error('Catch-all installation unavailable');
+          if ((pattern === '*' && rejectCatchAll) || (pattern === 'hermes-r2.internal' && rejectHermesHost)) {
+            throw new Error('Interception unavailable');
+          }
           handlers.set(pattern, handler);
         },
         getTcpPort: () => ({ fetch: async () => Response.json({ synced: hermesFinalSyncStatus === 200 },
@@ -216,7 +227,8 @@ async function fixture(initial: 'stopped' | 'starting' | 'running' | 'stopping' 
       teardownGate?.reject(Error('caller disconnected'));
       for (const io of pendingIO) io.reject(Error('caller disconnected'));
     },
-    requestOutbound,
+    requestOutbound, uploads,
+    failHermesHost: () => { rejectHermesHost = true; },
     useR2Egress: () => { useR2Egress = true; },
     failCatchAll: () => { rejectCatchAll = true; },
     failConfirmation: (fail: boolean) => { confirmationUnavailable = fail; },
@@ -398,6 +410,36 @@ describe('REQ-SESSION-008: startup configuration uses the admitted run and bucke
     expect(f.launchEnv()).toMatchObject({ SESSION_MODE: 'advanced', SYNC_MODE: 'none', CODEFLARE_HERMES_PERSISTENCE: 'new' });
     expect(await f.read()).toMatchObject({ lifecycleState: 'running', lifecycleGeneration: execution.generation });
     expect(await (await f.coordinator()).canQueueHermesShutdown(execution)).toBe(true);
+  });
+
+  it.each([false, true])('REQ-MEM-042 AC6: a fresh Advanced launch writes through its configured R2 transport (strict %s)', async strict => {
+    const f = await fixture('stopped', ref.generation, 200, true);
+    f.configureStart(); f.useR2Egress();
+    f.kv._store.set(SETUP_KEYS.STRICT_EGRESS, strict ? 'active' : 'inactive');
+    const instance = await f.coordinator();
+    const execution = { ...ref, generation: ref.generation + 1 };
+    await configureLaunch(instance, ref.generation, false, 'advanced', { r2AccessKeyId: 'scoped', r2SecretAccessKey: 'secret' });
+    await instance.startSession(execution);
+    const key = `${ref.bucket}/Vault/Memory/Sessions/${ref.sessionId}/global/MEMORY.md`;
+    const result = await f.requestOutbound(new Request(`${f.launchEnv()?.CODEFLARE_HERMES_UPLOAD_ENDPOINT}/${key}`, {
+      method: 'PUT', body: 'session fact',
+    }));
+    expect(result?.status).toBe(200);
+    expect(f.uploads.get(`${f.env.R2_ENDPOINT}/${key}`)).toBe('session fact');
+  });
+
+  it.each([false, true])('REQ-MEM-042: unavailable upload wiring defers Hermes without stopping Advanced startup (strict %s)', async strict => {
+    const f = await fixture('stopped', ref.generation, 200, true);
+    f.configureStart();
+    f.kv._store.set(SETUP_KEYS.STRICT_EGRESS, strict ? 'active' : 'inactive');
+    if (strict) f.failCatchAll(); else f.failHermesHost();
+    const instance = await f.coordinator();
+    const execution = { ...ref, generation: ref.generation + 1 };
+    await configureLaunch(instance, ref.generation, false, 'advanced');
+    await instance.startSession(execution);
+    expect(await f.read()).toMatchObject({ lifecycleState: 'running' });
+    expect(f.launchEnv()?.CODEFLARE_HERMES_PERSISTENCE).toBe('deferred');
+    expect(f.launchEnv()?.CODEFLARE_HERMES_UPLOAD_ENDPOINT).toBeUndefined();
   });
 
   it('REQ-MEM-042 AC3: unavailable memory admission defers persistence without stopping Advanced startup', async () => {

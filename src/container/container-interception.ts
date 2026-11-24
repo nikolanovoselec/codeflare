@@ -474,7 +474,7 @@ async function applyInterception(
   host: InterceptionHost,
   reg: InterceptorRegistration,
   failClosed = false,
-): Promise<void> {
+): Promise<boolean> {
   try {
     // interceptOutbound* + ctx.exports are on by default at this worker's
     // compatibility_date (enable_ctx_exports defaulted on 2025-11-17 — see
@@ -489,7 +489,7 @@ async function applyInterception(
           ? 'Mandatory outbound HTTPS interception is unavailable'
           : 'Outbound HTTPS interception is unavailable');
       }
-      return;
+      return false;
     }
     const interceptor = cctx.exports[reg.entrypoint]({ props: reg.props });
     for (const pattern of reg.hosts) {
@@ -500,9 +500,11 @@ async function applyInterception(
     } else {
       host.logger.info(reg.wiredLog);
     }
+    return true;
   } catch (err) {
     host.logger.error(reg.failLog, toError(err));
     if (reg.mandatory || failClosed) throw err;
+    return false;
   }
 }
 
@@ -521,7 +523,7 @@ export async function refreshStrictEgressInterception(
  * platform mounts the ephemeral containers CA in time for entrypoint.sh to
  * trust it (REQ-ENTERPRISE-004 / REQ-ENTERPRISE-011 pre-start ordering).
  */
-export async function wireContainerInterception(host: InterceptionHost): Promise<void> {
+export async function wireContainerInterception(host: InterceptionHost): Promise<boolean> {
   const enterprise = isEnterpriseMode(host.env);
   const registrations: InterceptorRegistration[] = [];
   for (const spec of CONTAINER_INTERCEPTION_REGISTRY) {
@@ -556,5 +558,10 @@ export async function wireContainerInterception(host: InterceptionHost): Promise
   // Cloudflare matches hostname registrations ahead of a later wildcard, not an earlier one.
   const catchAll = enterprise ? await resolveStrictEgress(host) : null;
   if (catchAll) registrations.push(catchAll);
-  for (const reg of registrations) await applyInterception(host, reg);
+  let hermesReady = false;
+  for (const reg of registrations) {
+    const installed = await applyInterception(host, reg);
+    if (reg.props.hermesUpload) hermesReady = installed && !!host._r2AccountId && !!host._bucketName;
+  }
+  return hermesReady;
 }

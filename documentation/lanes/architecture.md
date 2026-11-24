@@ -132,7 +132,7 @@ Authorized native Bedrock dispatch has a 120-second first-byte allowance; Dynami
 
 ### EgressController (Strict Gateway Egress, Enterprise Mode)
 
-**Responsibility:** Otherwise-unclaimed direct-internet traffic crosses customer Cloudflare Gateway through the required `EGRESS` binding. DO props bind strict state, account, exact user bucket and memory-only bucket-scoped credentials. The controller owns R2 re-signing and WebSocket bridging, not customer policy or general non-R2 platform authorization. Missing binding or another bucket fails closed.
+**Responsibility:** Otherwise-unclaimed direct-internet traffic crosses customer Cloudflare Gateway through the required `EGRESS` binding. DO props bind strict state, account, exact user bucket and memory-only bucket-scoped credentials. The controller owns R2 re-signing and WebSocket bridging, not customer policy or general non-R2 platform authorization. Missing binding or another bucket fails closed. Scoped [Hermes uploads](../../sdd/spec/memory.md#req-mem-042-retain-ten-recent-session-memory-stores) use the same signing boundary even with strict egress off. This path does not require Gateway or intercept general traffic.
 
 **Inputs:** Intercepted requests, strict-egress state, account/bucket identity, scoped credentials and `EGRESS` binding.
 

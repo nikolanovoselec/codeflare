@@ -84,6 +84,7 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
   const states = new Map<string, { ready: Promise<void>; instance: SessionContainer; restoreExit: (evidence: object, withoutRetryMarker: boolean, failCleanup: boolean | 'settlement') => void }>();
   const processes = new Map<string, ReturnType<typeof processFixture>>();
   const retained = new Map<string, Record<string, { generation: number }>>();
+  const evictAtLaunch = new Set<string>();
   const trace: string[] = [];
   const alarms = new Set<string>();
   let lastWriterWork: Promise<unknown> | undefined;
@@ -221,6 +222,10 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
               throw new Error('Current teardown audit unavailable');
             }
             const retryLaunch = typeof key !== 'string' && Object.hasOwn(key, 'hermes:direct-generation');
+            if (retryLaunch && item === 'hermes:retry-generation') {
+              const sessionId = address.slice(first + 1);
+              if (evictAtLaunch.delete(sessionId)) delete retained.get(address.slice(0, first))![sessionId];
+            }
             if (preRolloutRetry && item === 'hermes:retry-generation') {
               if (retryLaunch) continue;
               if (holdRetryDestroy) throw new Error('Retry provenance storage unavailable');
@@ -335,7 +340,9 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
   async function batch(bucket = owner) {
     const response = await app(bucket).request('/api/sessions/batch-status');
     expect(response.status).toBe(200);
-    const { statuses } = await response.json() as { statuses: Record<string, { status: string; shutdownPhase?: string; pendingDelete?: boolean; generation: number }> };
+    const { statuses } = await response.json() as { statuses: Record<string, {
+      status: string; shutdownPhase?: string; pendingDelete?: boolean; snapshotUnavailable?: boolean; generation: number;
+    }> };
     return statuses;
   }
   const stop = (id: string, bucket = owner, signal?: AbortSignal) => app(bucket).request(`${path(id)}/stop`, { method: 'POST', signal });
@@ -349,7 +356,8 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
   };
   return { owner, other, app, path, create, batch, stop, remove, kill, retry, trace, replayExit, cleanup, latestWriterWork: () => lastWriterWork!,
     publishDelayedAudit: () => publishDelayedAudit!(), wake: () => getByName(`storage:${owner}`).wakeHermesShutdownQueue(owner), session,
-    evictSnapshot: (id: string) => { delete retained.get(owner)![id]; } };
+    evictSnapshot: (id: string) => { delete retained.get(owner)![id]; },
+    evictWhilePreparingRetry: (id: string) => { evictAtLaunch.add(id); } };
 }
 
 const a = 'sessionaaa1';
@@ -651,7 +659,10 @@ it.each([false, true])('REQ-SESSION-043: an evicted snapshot cannot start Retry 
     await expectAccepted(f.retry(a));
     f.evictSnapshot(a);
     B.save.release('saved'); B.exit.release();
-    await vi.waitFor(async () => expect((await f.batch())[a]).toMatchObject({ shutdownPhase: 'memory-not-merged' }));
+    await vi.waitFor(async () => expect((await f.batch())[a]).toMatchObject({
+      status: 'stopped', shutdownPhase: 'memory-not-merged', snapshotUnavailable: true, pendingDelete: true, generation: 1,
+    }));
+    expect(f.trace).not.toContain(`${a}:headless-start`);
   } else {
     f.evictSnapshot(a);
   }
@@ -659,6 +670,20 @@ it.each([false, true])('REQ-SESSION-043: an evicted snapshot cannot start Retry 
   expect(response.status).toBe(409);
   expect(await response.json()).toMatchObject({ error: 'Saved memory is no longer available for consolidation' });
   expect((await f.batch())[a]).toMatchObject({ status: 'stopped', generation: 1, pendingDelete: true });
+  expect(f.trace).not.toContain(`${a}:headless-start`);
+});
+
+it('REQ-SESSION-043: Retry refused at launch leaves the stopped row and pending Delete intact', async () => {
+  const f = rig();
+  const A = await f.create(a, { holdMerge: true });
+  A.save.release('saved'); A.exit.release(); A.merge.release('pending');
+  await expectAccepted(f.remove(a));
+  await vi.waitFor(async () => expect((await f.batch())[a]).toMatchObject({ status: 'stopped', shutdownPhase: 'memory-not-merged' }));
+  f.evictWhilePreparingRetry(a);
+  await expectAccepted(f.retry(a));
+  await vi.waitFor(async () => expect((await f.batch())[a]).toMatchObject({
+    status: 'stopped', shutdownPhase: 'memory-not-merged', snapshotUnavailable: true, pendingDelete: true,
+  }));
   expect(f.trace).not.toContain(`${a}:headless-start`);
 });
 

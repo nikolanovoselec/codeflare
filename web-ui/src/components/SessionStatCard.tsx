@@ -241,7 +241,9 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
               <div role="status">
                 <div class="session-stat-card__phase">{shutdownLabel()}</div>
                 <Show when={memoryNotMerged()}>
-                  <div>{props.session.pendingDelete ? 'Files saved. Not deleted.' : 'Session files were saved.'}</div>
+                  <div>{props.session.snapshotUnavailable
+                    ? (props.session.pendingDelete ? 'Saved memory unavailable. Not deleted.' : 'Saved memory unavailable.')
+                    : (props.session.pendingDelete ? 'Files saved. Not deleted.' : 'Session files were saved.')}</div>
                 </Show>
               </div>
               <Show when={shutdownInProgress() && phase() !== 'queued'}>
@@ -253,7 +255,7 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
             </div>
             <Show when={memoryNotMerged() || props.memoryRetryPending}>
               <div class="session-stat-card__actions">
-                <Button size="sm" disabled={!canRecoverMemory()} onClick={props.onRetryMemoryConsolidation}>
+                <Button size="sm" disabled={!canRecoverMemory() || props.session.snapshotUnavailable} onClick={props.onRetryMemoryConsolidation}>
                   Retry memory consolidation
                 </Button>
                 <Button size="sm" variant="secondary" disabled={!canRecoverMemory()}

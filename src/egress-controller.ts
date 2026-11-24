@@ -204,6 +204,7 @@ export class EgressController extends WorkerEntrypoint<Env> {
     if (!props || (!props.strict && !hermesUpload)) {
       return jsonError(503, 'EGRESS_NOT_CONFIGURED', 'Strict Gateway egress is not enabled');
     }
+    let hermesTarget: URL | undefined;
     if (dest.hostname === HERMES_UPLOAD_HOST) {
       if (!hermesUpload || !props.accountId || !props.bucket || props.operatorPolicy || dest.protocol !== 'https:') {
         return jsonError(403, 'HERMES_UPLOAD_DENIED', 'Hermes storage operation is not permitted');
@@ -218,6 +219,15 @@ export class EgressController extends WorkerEntrypoint<Env> {
           && (operation === 'read' || (operation === 'write' && (dest.search === '' || dest.search === '?x-id=PutObject'))))
       );
       if (!permitted) return jsonError(403, 'HERMES_UPLOAD_DENIED', 'Hermes storage operation is not permitted');
+      try {
+        const config = await getR2Config(this.env);
+        if (config.accountId !== props.accountId) throw new Error('R2 account mismatch');
+        hermesTarget = new URL(getR2Url(config.endpoint, props.bucket, key || undefined));
+        if (hermesTarget.protocol !== 'https:' || hermesTarget.username || hermesTarget.password) throw new Error('Invalid R2 endpoint');
+        hermesTarget.search = dest.search;
+      } catch {
+        return jsonError(503, 'EGRESS_R2_NOT_CONFIGURED', 'Scoped R2 endpoint is unavailable');
+      }
       request = new Request(dest, request);
     }
 
@@ -416,7 +426,8 @@ export class EgressController extends WorkerEntrypoint<Env> {
     // GET/HEAD carry no body; everything else streams through unbuffered. Do not
     // follow redirects to an arbitrary Location host — surface the 3xx to the caller.
     const hasBody = effectiveRequest.method !== 'GET' && effectiveRequest.method !== 'HEAD';
-    const forward = new Request(url.toString(), {
+    const upstreamUrl = (hermesTarget ?? url).toString();
+    const forward = new Request(upstreamUrl, {
       method: effectiveRequest.method,
       headers,
       body: hasBody ? effectiveRequest.body : undefined,
@@ -438,7 +449,7 @@ export class EgressController extends WorkerEntrypoint<Env> {
         const signed = await createR2Client({
           R2_ACCESS_KEY_ID: scopedR2Credentials.accessKeyId,
           R2_SECRET_ACCESS_KEY: scopedR2Credentials.secretAccessKey,
-        }).sign(url.toString(), {
+        }).sign(upstreamUrl, {
           method: forward.method,
           headers: signHeaders,
           body: hasBody ? forward.body : undefined,

@@ -101,7 +101,7 @@ it.each([false, true])('REQ-MEM-042 AC6: scoped Hermes upload uses the writer fe
   const writer = { sessionId: 'session1234', generation: 2 };
   const ownKey = `Vault/Memory/Sessions/${writer.sessionId}/global/MEMORY.md`;
   let writes = 0;
-  const { controller } = makeController({ CONTAINER: {
+  const { controller } = makeController({ R2_ACCOUNT_ID: 'acc', CONTAINER: {
     idFromName: (name: string) => name,
     get: (name: string) => ({ putHermesObject: async (_bucket: string, context: typeof writer, request: Request) => {
       expect(name).toBe(`bucket-owner:${owner}`);

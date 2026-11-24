@@ -23,7 +23,8 @@ export async function acceptShutdown(repository: D1SessionRepository, input: Shu
     if (!row || row.lifecycleGeneration !== input.generation) return { accepted: false };
     const job = row.shutdown;
     if (input.retry) {
-      if (row.lifecycleState !== 'stopped' || !job?.snapshotId || !snapshotPattern.test(job.snapshotId)) return { accepted: false };
+      if (row.lifecycleState !== 'stopped' || !job?.snapshotId || job.snapshotUnavailable
+        || !snapshotPattern.test(job.snapshotId)) return { accepted: false };
       if (job.phase === 'queued' && job.sourceGeneration !== undefined) return { accepted: true, projection: shutdownProjection(row) };
       if (!mergeNeedsRetry(job)) return { accepted: false };
       const next: SessionShutdown = { ...job, phase: 'queued', sourceGeneration: job.sourceGeneration ?? row.lifecycleGeneration,

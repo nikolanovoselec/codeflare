@@ -289,7 +289,8 @@ app.post('/:id/retry-memory-consolidation', sessionStopRateLimiter, async (c) =>
   if (!isEnterpriseMode(c.env) || session.lifecycleState !== 'stopped' || !session.shutdown?.snapshotId) {
     return c.json({ error: 'Headless memory consolidation is not available for this session' }, 409);
   }
-  if (!await getBucketOwnerStub(c.env, session.ownerKey).hermesStoreRetained(session.ownerKey, id)) {
+  if (session.shutdown.snapshotUnavailable
+    || !await getBucketOwnerStub(c.env, session.ownerKey).hermesStoreRetained(session.ownerKey, id)) {
     return c.json({ error: 'Saved memory is no longer available for consolidation' }, 409);
   }
   const accepted = await getBucketStorageOwner(c.env, session.ownerKey).enqueueHermesShutdown({

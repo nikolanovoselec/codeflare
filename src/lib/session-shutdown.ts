@@ -9,6 +9,7 @@ export interface SessionShutdown {
   phase: ShutdownPhase;
   delete: boolean;
   snapshotId?: string;
+  snapshotUnavailable?: true;
   deadline?: number;
   mergeVerified?: true;
   /** Confirmed result of an earlier deployed revision-based merge. */
@@ -43,6 +44,7 @@ export function shutdownProjection(session: D1Session) {
     status: session.lifecycleState !== 'stopped' && terminalFenced(job) ? 'stopping' as const : session.lifecycleState,
     shutdownPhase,
     pendingDelete: job.delete,
+    ...(job.snapshotUnavailable ? { snapshotUnavailable: true as const } : {}),
     ...(retryingMemory ? { retryingMemory: true as const } : {}),
   };
 }

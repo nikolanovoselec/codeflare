@@ -15,7 +15,8 @@ const name = 'Shutdown workspace';
 const stamp = '2026-11-23T10:00:00.000Z';
 type Phase = 'queued' | 'saving' | 'consolidating' | 'finishing' | 'memory-not-merged';
 type Lifecycle = 'running' | 'stopping' | 'stopped';
-type Projection = { status: Lifecycle; lifecycle: Lifecycle; generation: number; revision: number; shutdownPhase?: Phase; pendingDelete?: boolean };
+type Projection = { status: Lifecycle; lifecycle: Lifecycle; generation: number; revision: number;
+  shutdownPhase?: Phase; pendingDelete?: boolean; snapshotUnavailable?: boolean };
 let catalog: Projection | undefined;
 let polled: Projection | undefined;
 let operations: string[];
@@ -87,6 +88,20 @@ afterEach(() => {
   sessionStore.stopAllPolling();
   sessionStore.setActiveSession(null);
   vi.unstubAllGlobals();
+});
+
+it('REQ-SESSION-043: reports eviction after queued Retry and leaves Resume available', async () => {
+  project('stopped', 10, 'memory-not-merged', true);
+  await sessionStore.loadSessions();
+  renderDashboard();
+  fireEvent.click(retry());
+  await waitFor(() => expect(operations).toContain(`POST ${sessionPath}/retry-memory-consolidation`));
+  polled = { status: 'stopped', lifecycle: 'stopped', revision: 12, generation: 7,
+    shutdownPhase: 'memory-not-merged', pendingDelete: true, snapshotUnavailable: true };
+  await sessionStore.refreshSessionStatuses();
+  expect(card().getByText('Saved memory unavailable. Not deleted.')).toBeVisible();
+  expect(retry()).toBeDisabled();
+  expect(resume()).toBeEnabled();
 });
 
 it('REQ-SESSION-043: renders durable shutdown phases on the card without inventing progress or exit', async () => {

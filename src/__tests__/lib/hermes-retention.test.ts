@@ -25,6 +25,7 @@ async function fixture(storage: DurableObjectStorage) {
   const exited = new Map<string, number>();
   const objects = new Map<string, string>();
   const settled = new Map<string, number>();
+  const unmerged = new Set<string>();
   let inventoryComplete = true;
   let deletion: 'confirmed' | 'failed' | 'partial' | 'lost-reply' | 'rejected' = 'confirmed';
   let beforeDelete: (() => Promise<void>) | undefined;
@@ -36,7 +37,8 @@ async function fixture(storage: DurableObjectStorage) {
     observe: async (sessionId: string) => stores.get(sessionId)
       ?? ([...objects.keys()].some(key => key.startsWith(prefix(sessionId))) ? null : 'absent' as const),
     writerExited: async (identity: ReturnType<typeof writer>) => (exited.get(identity.sessionId) ?? settled.get(identity.sessionId)) === identity.generation,
-    writerSettled: async (identity: ReturnType<typeof writer>) => settled.get(identity.sessionId) === identity.generation,
+    writerSettled: async (identity: ReturnType<typeof writer>) => !unmerged.has(identity.sessionId)
+      && settled.get(identity.sessionId) === identity.generation,
     evict: async (objectPrefix: string) => {
       const pause = beforeDelete;
       beforeDelete = undefined;
@@ -61,12 +63,14 @@ async function fixture(storage: DurableObjectStorage) {
     stores.set(sessionId, [{ digest: await digest(content), updatedAt: now }]);
   };
   return {
-    stores, objects, admit, sync, settled, exited, incomplete,
-    upload: (id: string, content: string, beforeWrite?: () => Promise<void>) => retention.withUpload(writer(id), async () => {
-      await beforeWrite?.();
-      await sync(id, content);
-      return true;
-    }),
+    stores, objects, admit, sync, settled, exited, incomplete, unmerged,
+    retryAvailable: (id: string) => retention.hasStore(id),
+    upload: (id: string, content: string, beforeWrite?: () => Promise<void>, signal?: AbortSignal) =>
+      retention.withUpload(writer(id), async () => {
+        await beforeWrite?.();
+        await sync(id, content);
+        return true;
+      }, signal),
     advance: () => { now++; },
     loseInventory: () => { inventoryComplete = false; },
     loseDeleteConfirmation: (effect: 'failed' | 'partial' | 'lost-reply' | 'rejected' = 'failed') => { deletion = effect; },
@@ -220,6 +224,7 @@ it.each(['partial', 'lost-reply', 'rejected'] as const)('REQ-MEM-042 AC4: an unc
     const remaining = [...f.objects.keys()].filter(key => key.startsWith(prefix(oldIds[0])));
     expect(remaining).toEqual(mode === 'partial' ? [`${prefix(oldIds[0])}Projects/workspace/MEMORY.md`] : []);
     f.reopenOwner();
+    expect(await f.retryAvailable(oldIds[0])).toBe(false);
     expect(await f.admit(newIds[1])).toBe(mode === 'partial' ? 'deferred' : 'new');
     expect([...f.stores.keys()].sort()).toEqual(oldIds.slice(1));
   });
@@ -258,6 +263,35 @@ it.each([undefined, 2])('REQ-MEM-042 AC3: rotates the oldest prefix without a ma
     expect(await f.admit(newIds[0])).toBe('new');
     await f.sync(newIds[0], 'New session memory');
     expect([...f.stores.keys()].sort()).toEqual([...oldIds.slice(1), newIds[0]].sort());
+  });
+});
+
+it('REQ-MEM-042 AC3: the oldest saved unmerged prefix is evicted before a newer merged prefix', async () => {
+  await withBucket(async f => {
+    await f.fill();
+    f.unmerged.add(oldIds[0]);
+    expect(await f.admit(newIds[0])).toBe('new');
+    expect(f.stores.has(oldIds[0])).toBe(false);
+    expect(f.stores.has(oldIds[1])).toBe(true);
+  });
+});
+
+it('REQ-MEM-042: an expired queued upload does not write or release an in-flight write fence', async () => {
+  await withBucket(async f => {
+    await f.fill();
+    let began!: () => void;
+    let finish!: () => void;
+    const started = new Promise<void>(resolve => { began = resolve; });
+    const held = new Promise<void>(resolve => { finish = resolve; });
+    const first = f.upload(oldIds[0], 'New bytes', async () => { began(); await held; });
+    await started;
+    const abort = new AbortController();
+    const second = f.upload(oldIds[0], 'Expired bytes', undefined, abort.signal);
+    abort.abort();
+    finish();
+    expect(await first).toBe(true);
+    expect(await second).toBeUndefined();
+    expect(f.objects.get(`${prefix(oldIds[0])}global/MEMORY.md`)).toBe('New bytes');
   });
 });
 
