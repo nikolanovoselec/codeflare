@@ -9,8 +9,9 @@ const root = `http://127.0.0.1:${PI_WEB_PORT}`;
 const maxBody = 1024 * 1024;
 const requestIdPattern = /^[a-f0-9-]{36}$/i;
 const settlers = new Set(['abort', 'ask/submit', 'ask/cancel', 'dialogs/answer', 'dialogs/cancel', 'commands/respond']);
-const sessionMutations = new Set(['prompt', ...settlers, 'queue/message', 'queue/clear', 'unread/acknowledge',
-  'warnings/dismiss', 'notifications/dismiss', 'notifications/dismiss-all', 'model', 'thinking']);
+const sessionMutations = new Set(['prompt', ...settlers, 'queue/message', 'queue/clear', 'unread', 'unread/acknowledge',
+  'warnings/dismiss', 'notifications/dismiss', 'notifications/dismiss-all', 'model', 'model/cycle',
+  'models/enabled', 'models/scope', 'defaults', 'thinking-level', 'thinking-level/cycle', 'tree/navigate']);
 
 function send(res: ServerResponse, code: number, data: object): void {
   res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
@@ -111,7 +112,9 @@ export function createPiWebProxy(options: { sessionId: string; runtime: PiWebRun
     const endpoint = /^\/api\/sessions\/[^/]+\/(.+)$/.exec(path)?.[1];
     const preference = path === '/api/config' && req.method === 'PATCH';
     const kind = read ? 'read' : endpoint && settlers.has(endpoint) ? 'settle' : 'work';
-    if (!runtime.ready || !isScoped(path, url) || (!read && !preference && (req.method !== 'POST' || !endpoint || !sessionMutations.has(endpoint)))) {
+    const opening = runtime.opening;
+    if ((!runtime.ready && (!opening || kind === 'work')) || !isScoped(path, url)
+      || (!read && !preference && (req.method !== 'POST' || !endpoint || !sessionMutations.has(endpoint)))) {
       send(res, 409, { error: 'Request is outside the active Chat conversation' }); return;
     }
     const finish = runtime.handoff.admit('chat', kind);
@@ -134,11 +137,14 @@ export function createPiWebProxy(options: { sessionId: string; runtime: PiWebRun
       }
       dispatched = true;
       const result = await fetch(url, {
-        method: req.method, signal: AbortSignal.timeout(25_000), redirect: 'manual',
+        method: req.method, ...(opening && endpoint ? {} : { signal: AbortSignal.timeout(25_000) }), redirect: 'manual',
         headers: { Host: new URL(origin).host, ...(req.headers.origin && { Origin: req.headers.origin }),
           ...(body !== undefined && { 'Content-Type': 'application/json' }) }, body,
       });
       upstreamSettled = true;
+      // An accepted stock prompt returns before its asynchronous input hooks
+      // have finished. This pin exposes no exact per-prompt settlement proof.
+      if (endpoint === 'prompt' && (result.ok || result.status >= 500)) runtime.markWebRequestUnconfirmed();
       const headers: Record<string, string> = { 'Cache-Control': 'no-store' };
       const contentType = result.headers.get('content-type');
       if (contentType) headers['Content-Type'] = contentType;
@@ -172,7 +178,7 @@ export function createPiWebProxy(options: { sessionId: string; runtime: PiWebRun
     const url = route(req);
     const origin = publicOrigin(req);
     const path = url && browserPath(url.pathname);
-    if (!url || !origin || !path || !runtime.ready || !runtime.handoff.permits('chat', 'read') || !isScoped(path, url)
+    if (!url || !origin || !path || (!runtime.ready && !runtime.opening) || !runtime.handoff.permits('chat', 'read') || !isScoped(path, url)
       || !/^\/api\/(?:events|sessions\/(?:events|[^/]+\/events))$/.test(path)) {
       socket.end('HTTP/1.1 409 Conflict\r\nConnection: close\r\n\r\n'); return;
     }

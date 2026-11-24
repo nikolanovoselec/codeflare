@@ -63,7 +63,7 @@ async function readControlBody(request: Request): Promise<{ bytes: Uint8Array<Ar
       length += value.byteLength;
     }
     const bytes = buffer.subarray(0, length);
-    return { bytes, value: JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) };
+    return { bytes, value: JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes)) };
   } catch (error) {
     if (error instanceof AppError) throw error;
     throw new AppError('INVALID_PI_SWITCH', 400, 'Invalid Pi switch body');

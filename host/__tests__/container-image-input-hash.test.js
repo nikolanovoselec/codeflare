@@ -137,6 +137,7 @@ describe('deployment container image input hash', () => {
       'scripts/ci/prune-selected-npm-tools.sh',
       'scripts/ci/share-claude-native.mjs',
       'scripts/ci/smoke-openvscode-sidebar-image.mjs',
+      'scripts/ci/smoke-pi-web-handoff.mjs',
       'scripts/ci/validate-trivy-result.mjs',
       'scripts/ci/image-size-inventory.mjs',
       'scripts/ci/image-size-manifest.mjs',

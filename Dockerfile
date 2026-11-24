@@ -24,7 +24,7 @@ RUN npm prune --omit=dev && \
 # Stock pi-web uses Codeflare's selected Pi SDK, not a second runtime.
 ARG CODEFLARE_CODING_AGENTS=claude-code,codex,copilot,antigravity,opencode,pi
 COPY scripts/ci/coding-agent-selection-core.mjs scripts/ci/coding-agent-selection.mjs /tmp/
-COPY image/pi-web/package*.json /opt/codeflare/pi-web/
+COPY image/pi-web/package.json image/pi-web/package-lock.json /opt/codeflare/pi-web/
 RUN if node /tmp/coding-agent-selection.mjs has "$CODEFLARE_CODING_AGENTS" pi; then \
       cd /opt/codeflare/pi-web && npm ci --omit=dev --omit=peer --no-audit --no-fund && \
       node /tmp/prune-npm-platform-artifacts.mjs node_modules; \

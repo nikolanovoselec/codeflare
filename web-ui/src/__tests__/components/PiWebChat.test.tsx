@@ -56,6 +56,15 @@ describe('Pi web Chat wrapper (REQ-AGENT-272)', () => {
     expect(source).toBeVisible();
   });
 
+  it('REQ-AGENT-272 AC7: mounts the known stock row during startup without admitting another switch', () => {
+    render(() => <PiWebChat sessionId={SESSION_ID} generation={GENERATION}
+      status={{ phase: 'opening', target: 'chat', surface: null, chatUrl: CHAT_URL }}
+      onTerminal={() => { throw new Error('Cannot switch during destination startup'); }} onCancel={() => {}} />);
+    expect(chatFrame()).toBeVisible();
+    expect(new URL(chatFrame().src).searchParams.get('session')).toBe('native-pi-a');
+    expect(screen.getByRole('button', { name: /terminal/i })).toBeDisabled();
+  });
+
   it('REQ-AGENT-272 AC3: withdraws cancellation after release starts', () => {
     const [status, setStatus] = createSignal<typeof waiting | typeof opening>(waiting);
     render(() => <PiWebChat sessionId={SESSION_ID} generation={GENERATION} status={status()}

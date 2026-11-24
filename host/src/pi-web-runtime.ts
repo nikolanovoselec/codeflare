@@ -2,8 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
 import { basename, join, relative } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { pathToFileURL } from 'node:url';
 import { createPiWebHandoff, type PiSurface, type PiSwitchStatus, type PiTranscript } from './pi-web-handoff.js';
-import { createPiWebServices } from './pi-web-services.js';
+import { createPiWebServices, managedPiPackage } from './pi-web-services.js';
 
 interface NativeReceipt extends PiTranscript {
   generation: number;
@@ -62,9 +63,10 @@ export function createPiWebRuntime(options: {
   const bindingFile = join(bindingDir, 'agent-session-id');
   let binding: PiTranscript | undefined;
   let terminalTicket = initialSurface === 'terminal' ? 'initial' : undefined;
-  let readyUrl: string | undefined;
+  let chatUrl: string | undefined;
+  let chatReady = false;
   let boot: Promise<void> | undefined;
-  let bootPhase: 'opening' | 'failed' | undefined;
+  let bootPhase: 'opening' | 'failed' | undefined = 'opening';
   let legacyHerdr = false;
   let releaseReceipt: NativeReceipt | undefined;
   let webRequestUnconfirmed = false;
@@ -110,9 +112,40 @@ export function createPiWebRuntime(options: {
     }
     throw new Error('Native Pi writer could not be confirmed');
   }
-  const statusPath = (id: string) => `/api/sessions/${encodeURIComponent(id)}/status?${new URLSearchParams({ cwd })}`;
+  const cwdQuery = new URLSearchParams({ cwd });
+  const statusPath = (id: string) => `/api/sessions/${encodeURIComponent(id)}/status?${cwdQuery}`;
   const idle = (status: WebStatus) => !status.isStreaming && !status.isCompacting && !status.isBashRunning
     && status.pendingMessageCount === 0 && !status.pendingDialogs?.length;
+
+  async function webSettled(ref: PiTranscript): Promise<boolean> {
+    // Stock 1.202611.5 does not expose an exact completion receipt for an
+    // admitted prompt stalled in an async input hook. Neither status nor an
+    // omitted ID in cleanup preview proves that operation has settled.
+    if (webRequestUnconfirmed) throw new Error('A previous Chat operation has no transfer-safe settlement receipt');
+    const status = await services.request<WebStatus>(statusPath(ref.id));
+    return status.sessionId === ref.id && status.persisted && idle(status);
+  }
+
+  async function seedChat(): Promise<PiTranscript> {
+    const sdk = await import(pathToFileURL(join(managedPiPackage(), 'dist/index.js')).href) as {
+      SessionManager: { create(cwd: string, sessionDir: string): {
+        getHeader(): NativeReceipt['header'] | null; getSessionFile(): string | undefined; getSessionId(): string;
+      } };
+    };
+    const manager = sdk.SessionManager.create(cwd, sessionDir);
+    const header = manager.getHeader();
+    const path = manager.getSessionFile();
+    const id = manager.getSessionId();
+    if (!header || !path || header.id !== id || header.cwd !== cwd || header.type !== 'session') {
+      throw new Error('Managed SDK did not create an exact native session header');
+    }
+    const ref = { id, cwd, path };
+    validate(ref);
+    // Make the known row discoverable before session_start runs. Only stock
+    // pi-web will open a runtime for this file; this is not a second writer.
+    writeFileSync(path, `${JSON.stringify(header)}\n`, { mode: 0o600, flag: 'wx' });
+    return ref;
+  }
 
   async function openChat(ref?: PiTranscript): Promise<void> {
     await services.start();
@@ -123,17 +156,25 @@ export function createPiWebRuntime(options: {
       `/api/projects/${encodeURIComponent(project.id)}/workspaces`);
     const workspace = workspaces.find(row => row.isMain && row.path === cwd);
     if (!workspace) throw new Error('Stock Chat workspace is unavailable');
-    if (!ref) ref = await services.request<PiTranscript>('/api/sessions', { cwd });
-    validate(ref);
-    const status = await services.request<WebStatus>(statusPath(ref.id));
-    if (status.sessionId !== ref.id) throw new Error('Stock Chat opened a different transcript');
-    const owner = await until(() => {
-      const observed = receipt('chat');
-      return observed?.id === ref!.id && observed.path === ref!.path && !observed.released && processMatches(observed)
-        ? observed : undefined;
-    }, undefined, 15_000);
-    save(owner);
-    readyUrl = `/api/pi-web/${sessionId}/?${new URLSearchParams({ project: project.id, workspace: workspace.id, session: ref.id, view: 'chat' })}`;
+    const target = ref ?? await seedChat();
+    save(target);
+    const state = handoff.status();
+    publish({ ...state, phase: 'opening', target: 'chat' });
+    chatUrl = `/api/pi-web/${sessionId}/?${new URLSearchParams({ project: project.id, workspace: workspace.id, session: target.id, view: 'chat' })}`;
+    try {
+      // The stock client opens the known row via its normal snapshot route.
+      // Mount first: native session_start may park pending a browser answer.
+      await until(() => {
+        if (!services.running()) throw new Error('Stock Chat exited during startup');
+        const observed = receipt('chat');
+        return observed?.id === target.id && observed.path === target.path && !observed.released && processMatches(observed)
+          ? true : undefined;
+      });
+      chatReady = true;
+    } catch (error) {
+      chatUrl = undefined;
+      throw error;
+    }
   }
 
   const handoff = createPiWebHandoff({ generation, initialSurface, onChange: publish,
@@ -141,9 +182,9 @@ export function createPiWebRuntime(options: {
       releaseReceipt = await until(async () => {
         const observed = receipt(surface);
         if (!observed || observed.released || !observed.idle || !processMatches(observed)) return;
-        if (surface === 'chat') {
-          const status = await services.request<WebStatus>(statusPath(observed.id));
-          if (status.sessionId !== observed.id || !idle(status)) return;
+        if (surface === 'chat' && !await webSettled(observed)) {
+          await sleep(750, undefined, { signal });
+          return;
         }
         return observed;
       }, signal);
@@ -160,10 +201,8 @@ export function createPiWebRuntime(options: {
         && observed.startTime === source.startTime && observed.instance === source.instance
         && observed.id === source.id && observed.path === source.path && observed.releaseReady === requestId;
       if (surface === 'chat') {
-        if (webRequestUnconfirmed) throw new Error('A previous Chat operation was not confirmed');
         await until(() => releasedBy(receipt('chat')) ? true : undefined, undefined, 15_000);
-        const status = await services.request<WebStatus>(statusPath(source.id));
-        if (status.sessionId !== source.id || !idle(status) || !receipt('chat')?.idle) {
+        if (!await webSettled(source) || !receipt('chat')?.idle) {
           throw new Error('Chat writer is not settled');
         }
         const result = await services.request<{ stopped: boolean }>(`/api/sessions/${encodeURIComponent(source.id)}/stop`, { cwd });
@@ -172,6 +211,8 @@ export function createPiWebRuntime(options: {
           || (await services.request<{activeSessions: number}>('/api/sessiond/health')).activeSessions !== 0) {
           throw new Error('Chat writer did not release its transcript');
         }
+        chatReady = false;
+        chatUrl = undefined;
       } else {
         await until(() => {
           const after = receipt('terminal');
@@ -223,7 +264,8 @@ export function createPiWebRuntime(options: {
   return {
     handoff,
     get binding() { return binding; },
-    get ready() { return readyUrl !== undefined && !closed && !legacyHerdr; },
+    get ready() { return chatReady && !closed; },
+    get opening() { return chatUrl !== undefined && !chatReady && !closed; },
     get generation() { return generation; },
     get legacyHerdr() { return legacyHerdr; },
     get cwd() { return cwd; },
@@ -233,7 +275,7 @@ export function createPiWebRuntime(options: {
       if (legacyHerdr) return { ...state, phase: 'failed' as const, surface: 'terminal' as const };
       // Keep the outgoing frame visible while answering a question or draining.
       return { ...state, ...(bootPhase && { phase: bootPhase }),
-        ...(state.surface === 'chat' && readyUrl !== undefined && { chatUrl: readyUrl }) };
+        ...(chatUrl !== undefined && (state.surface === 'chat' || state.target === 'chat' && state.phase === 'opening') && { chatUrl }) };
     },
     initialize() {
       boot ??= (async () => {
@@ -247,6 +289,7 @@ export function createPiWebRuntime(options: {
         binding = restoredTranscript();
         publish(handoff.status());
         if (initialSurface === 'chat') await openChat(binding);
+        publish(handoff.status());
         bootPhase = undefined;
       })().catch(error => { bootPhase = 'failed'; throw error; });
       return boot;

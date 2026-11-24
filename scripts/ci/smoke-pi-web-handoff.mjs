@@ -5,9 +5,10 @@ import { once } from 'node:events';
 import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { createInterface } from 'node:readline';
 import { setTimeout as delay } from 'node:timers/promises';
+import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 
 const WEB_ROOT = process.env.CODEFLARE_PI_WEB_SMOKE_ROOT ?? '/opt/codeflare/pi-web';
@@ -31,6 +32,8 @@ const visible = (messages) => chatMessages(messages).map(({ role, content }) => 
 const expected = (turns) => turns.flatMap(([prompt, reply]) => [['user', prompt], ['assistant', reply]]);
 const durableChat = (entries) => entries.filter(({ type, message }) =>
   type === 'message' && (message.role === 'user' || message.role === 'assistant'));
+const looksIdle = ({ isStreaming, isCompacting, isBashRunning, pendingMessageCount, pendingDialogs }) =>
+  isStreaming === false && isCompacting === false && isBashRunning === false && pendingMessageCount === 0 && !pendingDialogs?.length;
 
 async function listen(server) {
   server.listen(0, '127.0.0.1');
@@ -45,7 +48,9 @@ async function close(server) {
 }
 
 // The only model endpoint is a loopback SSE fixture. No Pi events or session files are mocked.
+let modelRequests = 0;
 const modelServer = createServer(async (req, res) => {
+  modelRequests++;
   try {
     let raw = '';
     for await (const chunk of req) raw += chunk;
@@ -174,19 +179,54 @@ async function main() {
         apiKey: 'local-fixture-not-a-secret', models: [{ id: MODEL }] },
     } }));
 
-    const request = async (path, body) => {
+    const confirmTitle = 'Resume the Pi handoff smoke transcript?';
+    const confirmed = join(agentDir, 'startup-confirmed');
+    const inputParked = join(agentDir, 'input-parked');
+    const inputRelease = join(agentDir, 'input-release');
+    const extensions = join(agentDir, 'extensions');
+    await mkdir(extensions);
+    await writeFile(join(extensions, 'handoff-fixture.ts'), `
+import { access, writeFile } from 'node:fs/promises';
+import { setTimeout as delay } from 'node:timers/promises';
+export default function (pi) {
+  if (process.env.CODEFLARE_PI_WEB_SMOKE_FIXTURE !== '1') return;
+  pi.on('session_start', async (_event, ctx) => {
+    if (await ctx.ui.confirm(${JSON.stringify(confirmTitle)}, 'Continue without a model turn.')) {
+      await writeFile(${JSON.stringify(confirmed)}, ctx.sessionManager.getSessionId());
+    }
+  });
+  pi.on('input', async (event, ctx) => {
+    if (event.text !== ${JSON.stringify(TURNS[1][0])}) return;
+    await writeFile(${JSON.stringify(inputParked)}, ctx.sessionManager.getSessionId());
+    const deadline = Date.now() + 30_000;
+    while (Date.now() < deadline) {
+      try {
+        await access(${JSON.stringify(inputRelease)});
+        return { action: 'continue' };
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+      }
+      await delay(50);
+    }
+    return { action: 'handled' }; // Never start the turn on timeout.
+  });
+}
+`);
+
+    const request = async (path, body, signal = AbortSignal.timeout(5000)) => {
       const response = await fetch(new URL(path, origin), {
-        signal: AbortSignal.timeout(5000), redirect: 'error',
+        signal, redirect: 'error',
         ...(body === undefined ? {} : { method: 'POST', headers: { 'content-type': 'application/json', origin }, body: JSON.stringify(body) }),
       });
       if (!response.ok) throw new Error(`${path}: ${response.status} ${await response.text()}`);
       return response;
     };
-    const api = async (path, body) => (await request(path, body)).json();
+    const api = async (path, body, signal) => (await request(path, body, signal)).json();
     const health = () => api('/api/sessiond/health');
     const start = async () => {
       const pair = ['pi-web-sessiond.sh', 'pi-web-server.sh'].map((name) => {
-        const process = launch(join(WEB_DIST, 'bin', name), [], options);
+        const process = launch(join(WEB_DIST, 'bin', name), [], name === 'pi-web-sessiond.sh'
+          ? { cwd, env: { ...env, CODEFLARE_PI_WEB_SMOKE_FIXTURE: '1' } } : options);
         processes.push({ name, ...process });
         return process;
       });
@@ -215,24 +255,88 @@ async function main() {
     assert.ok(ids.includes('files') && ids.includes('pi-web.terminal'), 'keep the stock Files and required Terminal plugins');
     assert.ok(!ids.includes('git') && !ids.includes('workflows'), 'stock browser manifest must not advertise Git or Workflows');
 
-    // REQ-AGENT-272 AC2: native CLI creates the file and exits before the browser API can open it.
-    await run(PI, ['--print', TURNS[0][0]], { ...options, timeout: 15_000, killSignal: 'SIGKILL' });
-    const sessionFiles = async () => (await readdir(sessions, { recursive: true })).filter((name) => name.endsWith('.jsonl'));
-    const files = await sessionFiles();
-    assert.equal(files.length, 1, 'native Pi must create exactly one transcript');
-    const file = join(sessions, files[0]);
-    const before = await readFile(file, 'utf8');
-    const [header, ...oldEntries] = parseTranscript(before);
-    assert.equal(header.type, 'session');
-    assert.equal(header.cwd, cwd);
-    assert.ok(header.id, 'the native file must have a session identity');
-    assert.deepEqual(visible(durableChat(oldEntries).map(({ message }) => message)), expected(TURNS.slice(0, 1)));
+    const query = new URLSearchParams({ cwd });
+    const browserApi = '/api/machines/local';
+    const catalog = () => api(`${browserApi}/sessions?${query}`);
+    const sessionFiles = async () => (await readdir(sessions, { recursive: true })).filter((name) => name.endsWith('.jsonl')).sort();
+
+    // REQ-AGENT-272 AC2/AC3 prerequisite: qualify the stock API startup path for a known row, not UI rendering.
+    const resumeWithConfirm = async (id) => {
+      const ref = `${browserApi}/sessions/${encodeURIComponent(id)}`;
+      const socket = new WebSocket(`ws://127.0.0.1:${webPort}${browserApi}/events`);
+      socket.binaryType = 'arraybuffer'; // The stock WS bridge can forward JSON as binary frames.
+      const decoder = new TextDecoder();
+      let joined = false;
+      let waiting;
+      socket.addEventListener('message', ({ data }) => {
+        const event = JSON.parse(typeof data === 'string' ? data : decoder.decode(data));
+        if (event.type === 'machine.status') joined = true;
+        if (event.type === 'status.update' && event.status.sessionId === id && event.status.pendingDialogs?.length) {
+          waiting = event.status;
+        }
+      });
+      const abort = new AbortController();
+      try {
+        // Wait for the daemon's join frame, not just the web/API upgrade, before opening the row.
+        await waitFor('stock global WS joined private sessiond', () => joined, 5000);
+        const callsBefore = modelRequests;
+        let settled = false;
+        const pending = api(`${ref}/transcript-snapshot?${query}&media=reference`, undefined,
+          AbortSignal.any([abort.signal, AbortSignal.timeout(15_000)])).finally(() => { settled = true; });
+        const answer = async () => {
+          await waitFor(`startup confirm for ${id}`, () => waiting || settled, 10_000);
+          assert.equal(waiting?.persisted, true, 'stock global status must show the known persisted ref during startup');
+          const [dialog] = waiting.pendingDialogs;
+          assert.equal(waiting.pendingDialogs.length, 1);
+          assert.equal(dialog.kind, 'confirm');
+          assert.equal(dialog.title, confirmTitle);
+          assert.equal(dialog.runScoped, false);
+          assert.equal((await health()).activeSessions, 0, 'session must still be starting before the answer');
+          assert.equal(settled, false, 'transcript snapshot must still be pending when answering');
+          const { result, outcome, sessionStatus } = await api(`${ref}/dialogs/answer`, { cwd, dialogId: dialog.dialogId, value: true });
+          assert.equal(result, 'closed');
+          assert.equal(outcome.dialogId, dialog.dialogId);
+          assert.equal(outcome.reason, 'answered');
+          assert.equal(outcome.answer, true);
+          assert.equal(sessionStatus.sessionId, id);
+        };
+        const [state] = await Promise.all([pending, answer()]);
+        assert.equal(await readFile(confirmed, 'utf8'), id, 'native session_start must receive the confirmed answer');
+        assert.equal(state.status.sessionId, id);
+        assert.equal(state.status.persisted, true);
+        assert.equal(state.status.pendingDialogs?.length ?? 0, 0);
+        assert.equal((await health()).activeSessions, 1, 'the same ref must finish normal startup after answering');
+        assert.equal(modelRequests, callsBefore, 'resuming a known ref must not start a model turn');
+        return state;
+      } finally {
+        abort.abort();
+        socket.close();
+      }
+    };
+
+    // Pi defers the first write until a turn. Materialize only its own header at its own fresh path.
+    const { SessionManager, getDefaultSessionDir } = await import(pathToFileURL(join(PI_PACKAGE_DIR, 'dist/core/session-manager.js')).href);
+    const empty = SessionManager.create(cwd, getDefaultSessionDir(cwd, agentDir));
+    const emptyHeader = empty.getHeader();
+    const emptyFile = empty.getSessionFile();
+    assert.equal(emptyHeader.type, 'session');
+    assert.equal(emptyHeader.cwd, cwd);
+    assert.equal(emptyHeader.id, empty.getSessionId());
+    await writeFile(emptyFile, `${JSON.stringify(emptyHeader)}\n`, { flag: 'wx', mode: 0o600 });
+    const [emptyRow, ...otherRows] = await catalog();
+    assert.deepEqual(otherRows, []);
+    assert.ok(emptyRow, 'stock browser catalog must list the native header-only transcript before startup');
+    assert.equal(emptyRow.id, emptyHeader.id);
+    assert.equal(emptyRow.path, emptyFile);
+    assert.equal(emptyRow.cwd, cwd);
+    assert.equal(emptyRow.persisted, true);
+    assert.equal(emptyRow.messageCount, 0);
 
     const project = await api('/api/projects', { path: cwd });
     const { workspaces } = await api(`/api/projects/${encodeURIComponent(project.id)}/workspaces`);
     const workspace = workspaces.find(({ path, isMain }) => path === cwd && isMain);
     assert.ok(workspace, 'stock browser workspace catalog must resolve the canonical cwd');
-    const page = `/?${new URLSearchParams({ project: project.id, workspace: workspace.id, session: header.id, view: 'chat' })}`;
+    const page = `/?${new URLSearchParams({ project: project.id, workspace: workspace.id, session: emptyRow.id, view: 'chat' })}`;
     const html = await (await request(page)).text();
     const asset = html.match(/<script\b[^>]*\btype="module"[^>]*\bsrc="(\.\/assets\/[^" ]+)"/u)?.[1];
     assert.ok(asset, 'stock Chat entry must identify a relative browser bundle');
@@ -240,9 +344,39 @@ async function main() {
     assert.match(js.headers.get('content-type') ?? '', /javascript/);
     await js.body.cancel();
 
-    const query = new URLSearchParams({ cwd });
-    const catalog = await api(`/api/sessions?${query}`);
-    assert.deepEqual(catalog.map(({ id, path, cwd }) => ({ id, path, cwd })), [{ id: header.id, path: file, cwd }]);
+    const emptyState = await resumeWithConfirm(emptyRow.id);
+    assert.deepEqual(emptyState.page.messages, []);
+    assert.equal(emptyState.partial, null);
+    assert.deepEqual(await api(`${browserApi}/sessions/${encodeURIComponent(emptyRow.id)}/stop`, { cwd }), { stopped: true });
+    assert.equal((await health()).activeSessions, 0);
+    // Pi can append model/thinking metadata during startup, but not a conversation turn.
+    const [resumedHeader, ...emptyEntries] = parseTranscript(await readFile(emptyFile, 'utf8'));
+    assert.deepEqual(resumedHeader, JSON.parse(JSON.stringify(emptyHeader)));
+    assert.ok(emptyEntries.every(({ type }) => type !== 'message'), 'the empty resume must not write messages');
+    const emptyRelative = relative(sessions, emptyFile);
+    assert.deepEqual(await sessionFiles(), [emptyRelative], 'the empty resume must not create a replacement transcript');
+    console.log(JSON.stringify({ result: 'PI_WEB_STARTUP_CONFIRM_OK', ref: 'header-only' }));
+
+    // REQ-AGENT-272 AC2: native CLI creates the populated transcript and exits before the browser API opens it.
+    const print = run(PI, ['--print', TURNS[0][0]], { ...options, timeout: 15_000, killSignal: 'SIGKILL' });
+    print.child.stdin.end(); // Pi reads non-TTY stdin to EOF before executing --print.
+    await print;
+    const files = await sessionFiles();
+    assert.equal(files.length, 2, 'native Pi must create exactly one additional transcript');
+    assert.ok(files.includes(emptyRelative), 'native Pi must leave the empty transcript in place');
+    const file = join(sessions, files.find((name) => name !== emptyRelative));
+    const before = await readFile(file, 'utf8');
+    const [header, ...oldEntries] = parseTranscript(before);
+    assert.equal(header.type, 'session');
+    assert.equal(header.cwd, cwd);
+    assert.ok(header.id, 'the native file must have a session identity');
+    assert.notEqual(header.id, emptyRow.id);
+    assert.deepEqual(visible(durableChat(oldEntries).map(({ message }) => message)), expected(TURNS.slice(0, 1)));
+    const row = (await catalog()).find(({ id }) => id === header.id);
+    assert.equal(row?.path, file, 'stock browser catalog must list the populated native transcript');
+    assert.equal(row.cwd, cwd);
+    assert.equal(row.persisted, true);
+
     const ref = `/api/sessions/${encodeURIComponent(header.id)}`;
     const snapshot = () => api(`${ref}/transcript-snapshot?${query}`);
     const checkSnapshot = (state, entries, turns) => {
@@ -252,14 +386,32 @@ async function main() {
       assert.deepEqual(visible(state.page.messages), expected(turns));
       assert.deepEqual(chatMessages(state.page.messages).map(({ entryId }) => entryId), durableChat(entries).map(({ id }) => id));
     };
-    checkSnapshot(await snapshot(), oldEntries, TURNS.slice(0, 1));
+    checkSnapshot(await resumeWithConfirm(row.id), oldEntries, TURNS.slice(0, 1));
+    console.log(JSON.stringify({ result: 'PI_WEB_STARTUP_CONFIRM_OK', ref: 'persisted' }));
     assert.ok(!(await api(`${ref}/commands?${query}`)).some(({ name }) => name === 'worktree'), 'no /worktree in Chat');
+
+    // REQ-AGENT-272 AC3 prerequisite: accepted work can be busy before streaming starts.
+    const preview = () => api('/api/sessions/cleanup/preview', { archiveIdleDays: 0, projectCwds: [cwd] });
+    const callsBefore = modelRequests;
     assert.equal((await api(`${ref}/prompt`, { cwd, text: TURNS[1][0] })).accepted, true);
-    const settled = await waitFor('stock browser turn persisted and settled', async () => {
+    await waitFor('native input hook parked before agent_start', async () => (await readFile(inputParked, 'utf8')) === header.id, 5000);
+    const parkedStatus = await api(`${ref}/status?${query}`);
+    assert.equal(parkedStatus.sessionId, header.id);
+    assert.ok(looksIdle(parkedStatus), 'ordinary status must appear idle while the input hook is parked');
+    const parkedPreview = await preview();
+    assert.ok(parkedPreview.skippedBusySessionIds?.includes(header.id),
+      'read-only cleanup preview must classify the exact parked session as busy');
+    assert.equal(modelRequests, callsBefore, 'the held input must not reach the model before external release');
+    await writeFile(inputRelease, '', { flag: 'wx' });
+
+    const settled = await waitFor('stock browser turn persisted and qualified idle', async () => {
       const state = await snapshot();
-      const { isStreaming, isCompacting, isBashRunning, pendingMessageCount, pendingDialogs } = state.status;
-      return !isStreaming && !isCompacting && !isBashRunning && pendingMessageCount === 0 && !pendingDialogs?.length
-        && chatMessages(state.page.messages).length === 4 && state;
+      if (!looksIdle(state.status) || chatMessages(state.page.messages).length !== 4) return;
+      const ready = await preview();
+      assert.ok(!ready.skippedBusySessionIds?.includes(header.id), 'the released turn must no longer be busy');
+      assert.equal(ready.totals.archiveCount, parkedPreview.totals.archiveCount + 1,
+        'the same preview must now count the formerly held session as eligible');
+      return state;
     });
     assert.deepEqual(await api(`${ref}/stop`, { cwd }), { stopped: true });
     assert.equal((await health()).activeSessions, 0, 'stock stop must release the writer before native reopen');

@@ -976,7 +976,8 @@ const Layout: Component<LayoutProps> = (props) => {
               onCancel={cancelPiWeb} onRetry={retryPiWeb()} />
           }
           piWebPanel={
-            <Show when={piWebStatus()?.surface === 'chat' && piWebStatus()} fallback={
+            <Show when={(piWebStatus()?.surface === 'chat'
+              || (piWebStatus()?.phase === 'opening' && piWebStatus()?.target === 'chat' && !!piWebStatus()?.chatUrl)) && piWebStatus()} fallback={
               <div class="pi-web-chat">
                 <PiWebSwitchControls phase={piWebStatus()?.phase} problem={piWebProblem()} canCancel={canCancelPiWeb()}
                   onCancel={cancelPiWeb} onRetry={retryPiWeb()} />

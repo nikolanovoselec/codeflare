@@ -42,6 +42,9 @@ export function createPiWebHandoff(options: Options) {
     state = next;
   }
   function permits(surface: PiSurface, kind: PiWebAdmission): boolean {
+    // With the old writer already released, the stock Chat frame can open
+    // its exact bound transcript and answer a native startup dialog.
+    if (state.phase === 'opening') return surface === 'chat' && state.target === 'chat' && kind !== 'work';
     if (state.surface !== surface) return false;
     if (state.phase === 'waiting') return kind !== 'work';
     return state.phase === 'active' || state.phase === 'cancelled' || state.phase === 'complete' || state.phase === 'failed';

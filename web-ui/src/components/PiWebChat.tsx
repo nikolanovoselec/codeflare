@@ -37,9 +37,10 @@ export default function PiWebChat(props: PiWebChatProps) {
   });
 
   const frameUrl = createMemo(() => {
-    if (props.status.surface !== 'chat' || !props.status.chatUrl) return undefined;
+    const { surface, target, phase, chatUrl } = props.status;
+    if (!chatUrl || (surface !== 'chat' && !(phase === 'opening' && target === 'chat'))) return undefined;
     try {
-      const url = new URL(props.status.chatUrl, window.location.origin);
+      const url = new URL(chatUrl, window.location.origin);
       if (url.origin !== window.location.origin || url.pathname !== piWebPrefix(props.sessionId)
         || url.username || url.password) return undefined;
       return url.href;

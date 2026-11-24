@@ -10,8 +10,18 @@ const extension = `${installRoot}/handoff-extension.ts`;
 export const PI_WEB_PORT = 8504;
 const origin = `http://127.0.0.1:${PI_WEB_PORT}`;
 
+export function managedPiPackage(): string {
+  const piPath = realpathSync('/usr/local/bin/pi');
+  const piPackage = dirname(dirname(dirname(piPath)));
+  if (piPath !== join(piPackage, 'dist/bundle/cli.js') || !existsSync(join(piPackage, 'dist/index.js'))) {
+    throw new Error('Managed Pi SDK is unavailable');
+  }
+  return piPackage;
+}
+
 export interface PiWebServices {
   start(): Promise<void>;
+  running(): boolean;
   request<T>(path: string, body?: object): Promise<T>;
   close(): Promise<void>;
 }
@@ -69,11 +79,7 @@ export function createPiWebServices(options: { runtimeDir: string; cwd: string; 
   async function boot(): Promise<void> {
     await until(options.cloneRestored, 120_000);
     if (shuttingDown) throw new Error('Container is stopping');
-    const piPath = realpathSync('/usr/local/bin/pi');
-    const piPackage = dirname(dirname(dirname(piPath)));
-    if (piPath !== join(piPackage, 'dist/bundle/cli.js') || !existsSync(join(piPackage, 'dist/index.js'))) {
-      throw new Error('Managed Pi SDK is unavailable');
-    }
+    const piPackage = managedPiPackage();
     const home = process.env.HOME ?? '/home/user';
     const agentDir = join(home, '.pi/agent');
     const extensionLink = join(agentDir, 'extensions/codeflare-web-handoff.ts');
@@ -117,6 +123,7 @@ export function createPiWebServices(options: { runtimeDir: string; cwd: string; 
 
   return {
     request,
+    running: () => processes.length === 2 && processes.every(process => process.running),
     async start() {
       if (shuttingDown) throw new Error('Container is stopping');
       if (starting && processes.some(process => !process.running)) {
