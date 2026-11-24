@@ -6,7 +6,7 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 ## 2026-11-24: Keep dedicated outbound handlers on Resume
 
-- [REQ-ENTERPRISE-016](security.md#req-enterprise-016-strict-gateway-egress) attempts GitHub, Cloudflare API, and other hostname-specific registrations before the strict catch-all when resuming a stopped session. Live credential refresh still replaces only the catch-all.
+- [REQ-ENTERPRISE-016](security.md#req-enterprise-016-strict-gateway-egress) attempts GitHub, Cloudflare API, and other hostname-specific registrations before the strict catch-all when resuming a stopped session. [Live credential refresh](security.md#req-enterprise-311-strict-r2-credential-replacement) still replaces only the catch-all.
 
 ## 2026-11-23: Consolidate Hermes at graceful shutdown
 

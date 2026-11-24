@@ -5,6 +5,9 @@ import { CONTAINER_POLL_BUDGET_MS } from '../../container/container-metrics';
 import { createMockKV } from '../helpers/mock-kv';
 import { createMockSessionD1 } from '../helpers/mock-session-d1';
 import { D1SessionRepository } from '../../lib/session-repository';
+import type { SetBucketNameCreds } from '../../container/container-env';
+import { EgressController } from '../../egress-controller';
+import { createR2Client } from '../../lib/r2-client';
 
 const nativeDestroyByContext = vi.hoisted(() => new WeakMap<object, () => Promise<void>>());
 const nativeStartByContext = vi.hoisted(() => new WeakMap<object, (env?: Record<string, string>) => Promise<void>>());
@@ -104,11 +107,12 @@ async function fixture(initial: 'stopped' | 'starting' | 'running' | 'stopping' 
   const storage = new Map<string, unknown>([['lifecycleGeneration', generation]]);
   if (enterprise && initial === 'running') storage.set('hermes:direct-layout', true);
   const schedules = new Map<string, unknown>();
-  const handlers = new Map<string, { fetch(): Promise<Response> }>();
-  const sendOutbound = async (hostname: string) => {
-    const route = [...handlers].find(([pattern]) => pattern === hostname || pattern === '*');
-    return route ? (await route[1].fetch()).text() : null;
+  const handlers = new Map<string, { fetch(request: Request): Promise<Response> }>();
+  const requestOutbound = async (request: Request) => {
+    const hostname = new URL(request.url).hostname;
+    return [...handlers].find(([pattern]) => pattern === hostname || pattern === '*')?.[1].fetch(request) ?? null;
   };
+  const sendOutbound = async (hostname: string) => (await requestOutbound(new Request(`https://${hostname}`)))?.text() ?? null;
   const configureStart = (bucket = ref.bucket) => {
     storage.set('bucketName', bucket);
     storage.set('_sessionId', ref.sessionId);
@@ -116,17 +120,20 @@ async function fixture(initial: 'stopped' | 'starting' | 'running' | 'stopping' 
   let scheduleUnavailable = false;
   let nativeForbidden = false;
   let rejectCatchAll = false;
+  let useR2Egress = false;
   async function coordinator() {
     // Lifecycle proof survives reconstruction; operational identity remains absent.
     let ready: Promise<unknown> = Promise.resolve();
     const ctx = {
       id: { toString: () => `${ref.bucket}-${ref.sessionId}` },
       exports: Object.fromEntries(['LlmInterceptor', 'GitHubInterceptor', 'CloudflareBrowserInterceptor', 'McpPortalInterceptor', 'EgressController'].map(name =>
-        [name, () => ({ fetch: async () => new Response(name) })])),
+        [name, ({ props }: { props: object }) => name === 'EgressController' && useR2Egress
+          ? new EgressController({ props } as unknown as ExecutionContext, env)
+          : { fetch: async () => new Response(name) }])),
       container: initial === 'starting' || initial === 'stopped' || enterprise ? {
         get running() { return running; },
         signal() { running = false; },
-        interceptOutboundHttps(pattern: string, handler: { fetch(): Promise<Response> }) {
+        interceptOutboundHttps(pattern: string, handler: { fetch(request: Request): Promise<Response> }) {
           if (pattern === '*' && rejectCatchAll) throw new Error('Catch-all installation unavailable');
           handlers.set(pattern, handler);
         },
@@ -209,6 +216,8 @@ async function fixture(initial: 'stopped' | 'starting' | 'running' | 'stopping' 
       teardownGate?.reject(Error('caller disconnected'));
       for (const io of pendingIO) io.reject(Error('caller disconnected'));
     },
+    requestOutbound,
+    useR2Egress: () => { useR2Egress = true; },
     failCatchAll: () => { rejectCatchAll = true; },
     failConfirmation: (fail: boolean) => { confirmationUnavailable = fail; },
     failDatabase: (fail: boolean) => { databaseUnavailable = fail; },
@@ -216,10 +225,11 @@ async function fixture(initial: 'stopped' | 'starting' | 'running' | 'stopping' 
 }
 
 function configureLaunch(instance: SessionContainer, generation: number, workspaceSyncEnabled = false, sessionMode?: 'advanced',
-  scopedR2?: { r2AccessKeyId: string; r2SecretAccessKey: string }) {
+  r2?: Pick<SetBucketNameCreds, 'r2AccessKeyId' | 'r2SecretAccessKey' | 'remoteCurationActive'
+    | 'remoteCurationReleaseDigest' | 'managedResourcePolicy' | 'managedResourcePathsDigest'>) {
   return instance.fetch(new Request('http://container/_internal/setBucketName', {
     method: 'POST', headers: { 'X-Codeflare-Start-Generation': String(generation) },
-    body: JSON.stringify({ bucketName: ref.bucket, sessionId: ref.sessionId, sleepAfter: '1h', workspaceSyncEnabled, sessionMode, ...scopedR2 }),
+    body: JSON.stringify({ bucketName: ref.bucket, sessionId: ref.sessionId, sleepAfter: '1h', workspaceSyncEnabled, sessionMode, ...r2 }),
   }));
 }
 
@@ -317,6 +327,60 @@ describe('REQ-SESSION-008: startup configuration uses the admitted run and bucke
     expect(await f.sendOutbound('example.com')).toBe(failCatchAll ? null : 'EgressController');
     expect(instance.enableInternet).toBe(false);
     expect(await f.read()).toMatchObject({ lifecycleState: 'running', lifecycleGeneration: execution.generation });
+  });
+
+  it('REQ-ENTERPRISE-311/027: stopped Resume uses the replacement pair and protected R2 policy', async () => {
+    const f = await fixture('stopped', ref.generation, undefined, true);
+    f.kv._store.set(SETUP_KEYS.STRICT_EGRESS, 'active');
+    f.env.R2_ENDPOINT = 'https://test-account.r2.cloudflarestorage.com';
+    f.useR2Egress();
+    f.configureStart();
+    const instance = await f.coordinator();
+    await instance.setBucketName(ref.bucket, { sessionId: ref.sessionId,
+      r2AccessKeyId: 'prior-access', r2SecretAccessKey: 'prior-secret', managedResourcePolicy: 'mutable' });
+    const releaseDigest = 'a'.repeat(64);
+    const policy = new TextEncoder().encode(JSON.stringify({ schemaVersion: 1, releaseDigest, resourcePolicy: 'immutable',
+      paths: ['.codeflare/managed-extensions.json', '.codeflare/managed-paths.json'], resourceRoots: [] }));
+    const pathsDigest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', policy)),
+      byte => byte.toString(16).padStart(2, '0')).join('');
+    const r2AccessKeyId = 'resumed-access', r2SecretAccessKey = 'resumed-secret';
+    const execution = { ...ref, generation: ref.generation + 1 };
+    expect((await configureLaunch(instance, ref.generation, false, undefined, {
+      r2AccessKeyId, r2SecretAccessKey, remoteCurationActive: true, remoteCurationReleaseDigest: releaseDigest,
+      managedResourcePolicy: 'immutable', managedResourcePathsDigest: pathsDigest,
+    })).headers.get('X-Codeflare-Start-Claim')).toBe(String(execution.generation));
+    await instance.startSession(execution);
+
+    const root = `${f.env.R2_ENDPOINT}/${ref.bucket}/`;
+    const managed = `${root}.codeflare/managed-extensions.json`;
+    const personal = `${root}Vault/personal.md`;
+    const policyUrl = `${root}.codeflare/managed-paths.json`;
+    const outgoing: Request[] = [];
+    const upstream = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      const request = input as Request;
+      outgoing.push(request);
+      if (request.url === policyUrl) return new Response(policy);
+      if (request.url === personal) return new Response('personal note');
+      return new Response('Unexpected R2 destination', { status: 500 });
+    });
+    try {
+      const denied = await f.requestOutbound(new Request(managed, { method: 'DELETE' }));
+      expect(denied?.status).toBe(403);
+      expect(await denied?.text()).toContain('<Code>AccessDenied</Code>');
+      expect(await (await f.requestOutbound(new Request(personal)))?.text()).toBe('personal note');
+      expect(outgoing.some(request => request.url === policyUrl)).toBe(true);
+      expect(outgoing.some(request => request.url === managed)).toBe(false);
+      const signer = createR2Client({ R2_ACCESS_KEY_ID: r2AccessKeyId, R2_SECRET_ACCESS_KEY: r2SecretAccessKey });
+      for (const request of outgoing) {
+        const headers = new Headers(request.headers);
+        const signature = headers.get('authorization');
+        headers.delete('authorization');
+        const signed = await signer.sign(request.url, { method: request.method, headers,
+          aws: { datetime: headers.get('x-amz-date')! } });
+        expect(signature).toContain(`Credential=${r2AccessKeyId}/`);
+        expect(signature).toBe(signed.headers.get('authorization'));
+      }
+    } finally { upstream.mockRestore(); }
   });
 
   it('REQ-SESSION-043: relaunch enrolls a workspace-sync-off predecessor for Hermes shutdown', async () => {

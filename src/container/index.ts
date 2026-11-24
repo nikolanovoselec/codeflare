@@ -1011,7 +1011,8 @@ export class container extends Container<Env> implements ContainerEnvState {
     if (evidence?.awaitingAudit && evidence.owner === bucket && evidence.session === sessionId
       && evidence.generation === generation && evidence.terminationIntentId !== undefined) {
       await this.retryObservedExit().catch(() => false);
-      if (await this.ctx.storage.get<number>(HERMES_SETTLED_GENERATION_KEY) === generation) return true;
+      // Exit alone cannot authorize settlement while the matching Stop audit is outstanding.
+      return await this.ctx.storage.get<number>(HERMES_SETTLED_GENERATION_KEY) === generation;
     }
     return this.hermesWriterExited(bucket, writer);
   }

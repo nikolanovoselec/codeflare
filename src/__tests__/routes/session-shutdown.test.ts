@@ -78,7 +78,7 @@ async function expectAccepted(request: Response | Promise<Response>) {
   expect((await bounded(request)).ok).toBe(true);
 }
 
-function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = false, holdRetryDestroy = false, raceMonitor: false | 'audit first' | 'exit first' | 'stale audit' = false) {
+function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = false, holdRetryDestroy = false, raceMonitor: false | 'audit first' | 'exit first' | 'stale audit' | 'stale successful audit' = false) {
   const owner = `shutdown-${crypto.randomUUID()}`;
   const other = `shutdown-${crypto.randomUUID()}`;
   const states = new Map<string, { ready: Promise<void>; instance: SessionContainer; restoreExit: (evidence: object, withoutRetryMarker: boolean, failCleanup: boolean | 'settlement') => void }>();
@@ -86,6 +86,7 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
   const trace: string[] = [];
   const alarms = new Set<string>();
   let lastWriterWork: Promise<unknown> | undefined;
+  let publishDelayedAudit: (() => void) | undefined;
   const cleanup = raceMonitor ? { reached: gate<void>(undefined), resume: gate<void>(undefined) } : undefined;
 
   function processFixture(label: string, initiallyRunning: boolean, hasSnapshot: boolean, directGeneration: boolean) {
@@ -199,8 +200,9 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
         ...(process.directGeneration ? [['hermes:direct-generation', 1] as const] : []),
         ...(process.directGeneration && !preRolloutRetry ? [['hermes:writer-generation', 1] as const] : []),
         ['userEmail', 'test@example.com'], ['userGroups', ['shutdown-fixture']],
-        ...(raceMonitor === 'stale audit' ? [['finalSyncAudit', {
-          sessionId: address.slice(first + 1), lifecycleGeneration: 1, outcome: 'errored', reason: 'bisync-failed',
+        ...(raceMonitor === 'stale audit' || raceMonitor === 'stale successful audit' ? [['finalSyncAudit', {
+          sessionId: address.slice(first + 1), lifecycleGeneration: 1, terminationIntentId: 'prior-stop',
+          outcome: raceMonitor === 'stale successful audit' ? 'completed' : 'errored',
         }] as const] : []),
       ] : []);
       let failExitCleanup: boolean | 'settlement' = false;
@@ -210,6 +212,10 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
           : structuredClone(records.get(key)),
         put: async (key: string | Record<string, unknown>, value?: unknown) => {
           for (const [item, data] of Object.entries(typeof key === 'string' ? { [key]: value } : key)) {
+            if (raceMonitor === 'stale successful audit' && item === 'finalSyncAudit') {
+              publishDelayedAudit = () => records.set(item, structuredClone(data));
+              throw new Error('Current teardown audit unavailable');
+            }
             const retryLaunch = typeof key !== 'string' && Object.hasOwn(key, 'hermes:direct-generation');
             if (preRolloutRetry && item === 'hermes:retry-generation') {
               if (retryLaunch) continue;
@@ -335,7 +341,8 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
     states.get(`${owner}-${id}`)!.restoreExit({ owner, session: id, generation, terminationIntentId }, withoutRetryMarker, failCleanup);
     await session(id).collectMetrics({ ownerKey: owner, sessionId: id, generation });
   };
-  return { owner, other, app, path, create, batch, stop, remove, kill, retry, trace, replayExit, cleanup, latestWriterWork: () => lastWriterWork!, wake: () => getByName(`storage:${owner}`).wakeHermesShutdownQueue(owner), session };
+  return { owner, other, app, path, create, batch, stop, remove, kill, retry, trace, replayExit, cleanup, latestWriterWork: () => lastWriterWork!,
+    publishDelayedAudit: () => publishDelayedAudit!(), wake: () => getByName(`storage:${owner}`).wakeHermesShutdownQueue(owner), session };
 }
 
 const a = 'sessionaaa1';
@@ -745,9 +752,10 @@ it.each([true, false])('REQ-MEM-042 AC3: settlement rollback allows replay after
   expect(await session.hermesWriterSettled(f.owner, writer)).toBe(matchingIntent);
 });
 
-it.each(['audit first', 'exit first', 'stale audit'] as const)('REQ-MEM-042 AC3: a monitored writer exit settles across graceful teardown cleanup (%s)', async order => {
+it.each(['audit first', 'exit first', 'stale audit', 'stale successful audit'] as const)('REQ-MEM-042 AC3: a monitored writer exit settles across graceful teardown cleanup (%s)', async order => {
   const f = rig(true, true, false, false, order);
   const auditFirst = order === 'audit first';
+  const failsAudit = order === 'stale successful audit';
   const A = await f.create(a);
   const confirmReached = gate<void>(undefined);
   const confirmResume = gate<void>(undefined);
@@ -761,7 +769,8 @@ it.each(['audit first', 'exit first', 'stale audit'] as const)('REQ-MEM-042 AC3:
   });
   try {
     A.save.release('saved');
-    await expectAccepted(f.remove(a));
+    // Keep the stopped row when testing stale success so D1 exit alone could otherwise pass.
+    await expectAccepted(failsAudit ? f.stop(a) : f.remove(a));
     await bounded(f.cleanup!.reached.promise.then(() => new Response()));
     A.monitorExit!.release();
     await bounded(confirmReached.promise.then(() => new Response()));
@@ -776,11 +785,19 @@ it.each(['audit first', 'exit first', 'stale audit'] as const)('REQ-MEM-042 AC3:
     A.exit.release('failed');
     await vi.waitFor(async () => {
       await f.wake();
-      expect((await f.app().request(f.path(a))).status).toBe(404);
+      const row = await repository.getSession(f.owner, a);
+      if (failsAudit) {
+        expect(row).toMatchObject({ lifecycleState: 'stopped', lifecycleGeneration: 1 });
+        expect(row?.shutdown).toBeUndefined();
+      } else expect(row).toBeNull();
     });
-    await vi.waitFor(async () => {
-      expect(await f.session(a).hermesWriterSettled(f.owner, { sessionId: a, generation: 1 })).toBe(true);
-    });
+    const writer = { sessionId: a, generation: 1 };
+    const session = f.session(a);
+    if (failsAudit) {
+      expect(await session.hermesWriterSettled(f.owner, writer)).toBe(false);
+      f.publishDelayedAudit();
+    }
+    expect(await session.hermesWriterSettled(f.owner, writer)).toBe(true);
   } finally {
     spy.mockRestore();
   }
