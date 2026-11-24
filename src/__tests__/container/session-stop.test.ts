@@ -339,8 +339,8 @@ describe('REQ-SESSION-008: startup configuration uses the admitted run and bucke
     await instance.setBucketName(ref.bucket, { sessionId: ref.sessionId,
       r2AccessKeyId: 'prior-access', r2SecretAccessKey: 'prior-secret', managedResourcePolicy: 'mutable' });
     const releaseDigest = 'a'.repeat(64);
-    const policy = new TextEncoder().encode(JSON.stringify({ schemaVersion: 1, releaseDigest, resourcePolicy: 'immutable',
-      paths: ['.codeflare/managed-extensions.json', '.codeflare/managed-paths.json'], resourceRoots: [] }));
+    const policy = new TextEncoder().encode(`${JSON.stringify({ schemaVersion: 1, releaseDigest, resourcePolicy: 'immutable',
+      paths: ['.codeflare/managed-extensions.json', '.codeflare/managed-paths.json'], resourceRoots: [] })}\n`);
     const pathsDigest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', policy)),
       byte => byte.toString(16).padStart(2, '0')).join('');
     const r2AccessKeyId = 'resumed-access', r2SecretAccessKey = 'resumed-secret';

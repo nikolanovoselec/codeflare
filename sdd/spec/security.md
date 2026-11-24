@@ -923,7 +923,7 @@ Task #114 implementation candidate follows [21 observed RED failures](https://gi
 
 **Dependencies:** [REQ-ENTERPRISE-016](#req-enterprise-016-strict-gateway-egress), [REQ-SEC-003](#req-sec-003-per-user-r2-tokens-scoped-to-user-bucket)
 
-**Verification:** Automated: [container-router.test.ts](../../src/__tests__/container/container-router.test.ts)
+**Verification:** Automated: [container-router.test.ts](../../src/__tests__/container/container-router.test.ts), [session-stop.test.ts](../../src/__tests__/container/session-stop.test.ts)
 
 **Status:** Implemented
 
@@ -977,7 +977,7 @@ Task #114 implementation candidate follows [21 observed RED failures](https://gi
 
 **Dependencies:** [REQ-ENTERPRISE-016](#req-enterprise-016-strict-gateway-egress), [REQ-STOR-030](storage.md#req-stor-030-managed-resource-policy-loading)
 
-**Verification:** Automated: [container-r2-start.test.ts](../../src/__tests__/routes/container-r2-start.test.ts), [container-router.test.ts](../../src/__tests__/container/container-router.test.ts), [container-config-schema.test.ts](../../src/__tests__/lib/container-config-schema.test.ts), [managed-r2-policy.test.ts](../../src/__tests__/lib/managed-r2-policy.test.ts), [container-env.test.ts](../../src/__tests__/container/container-env.test.ts)
+**Verification:** Automated: [container-r2-start.test.ts](../../src/__tests__/routes/container-r2-start.test.ts), [container-router.test.ts](../../src/__tests__/container/container-router.test.ts), [container-config-schema.test.ts](../../src/__tests__/lib/container-config-schema.test.ts), [managed-r2-policy.test.ts](../../src/__tests__/lib/managed-r2-policy.test.ts), [container-env.test.ts](../../src/__tests__/container/container-env.test.ts), [session-stop.test.ts](../../src/__tests__/container/session-stop.test.ts)
 
 **Status:** Implemented
 
