@@ -1340,7 +1340,7 @@ export class container extends Container<Env> implements ContainerEnvState {
     const value = request.headers.get('X-Codeflare-Start-Generation');
     if (value === null || !/^\d+$/.test(value) || !Number.isSafeInteger(Number(value))) return conflict();
     const body = await request.clone().json().catch(() => null) as {
-      bucketName?: unknown; sessionId?: unknown; surface?: unknown; sessionWorkspace?: SessionWorkspace; tabConfig?: TabConfig[];
+      bucketName?: unknown; sessionId?: unknown; surface?: unknown; sessionWorkspace?: SessionWorkspace; tabConfig?: TabConfig[]; terminalMode?: TerminalMode;
     } | null;
     const { bucketName, sessionId } = body ?? {};
     const surface = PiSurfaceSchema.optional().safeParse(body?.surface);
@@ -1356,7 +1356,9 @@ export class container extends Container<Env> implements ContainerEnvState {
         || this.sessionStopInFlight || this.sessionKillInFlight || this._operatorContainerProfile
         || (this._bucketName && this._bucketName !== bucketName) || (this._sessionId && this._sessionId !== sessionId)) return conflict();
       if (surface.data && (current.boundaryActivityId || this._operatorPolicy || !isPiWebEligible(current)
-        || !body?.tabConfig || !isPiWebEligible({ agentType: current.agentType, workspace: body.sessionWorkspace, tabConfig: body.tabConfig }))) {
+        || !body?.tabConfig || !isPiWebEligible({
+          agentType: current.agentType, workspace: body.sessionWorkspace, tabConfig: body.tabConfig, terminalMode: body.terminalMode,
+        }))) {
         return conflict();
       }
       if (current.lifecycleState === 'stopped') {

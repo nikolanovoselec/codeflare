@@ -364,8 +364,8 @@ Persisted Herdr state and runtime lifetime are documented in [Sessions & Runtime
 - Snapshot durability follows existing 15-minute bisync, explicit Sync and final-sync boundaries; abrupt loss may discard changes since the last successful sync.
 - `session-history.json` stays excluded: terminal output may contain prompts/credentials/tokens/command output.
 - Recovery uses the pinned Herdr runtime’s official snapshot format; Codeflare defines no parallel topology schema.
-- The exact Pi binding for [REQ-AGENT-272](agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff) can sync beside the snapshot; writer tickets, receipts, and output do not.
-- [REQ-TERM-048](#req-term-048-managed-herdr-pi-writer-restore) owns the managed writer role and legacy fallback.
+- Only the current Herdr session’s Pi binding can sync beside the snapshot; writer tickets, receipts, and output do not.
+- Herdr Chat handoff and its planned [REQ-TERM-048](#req-term-048-managed-herdr-pi-writer-restore) restore path are deferred; ordinary native restore remains in scope.
 
 **Priority:** P0
 
@@ -385,15 +385,15 @@ Persisted Herdr state and runtime lifetime are documented in [Sessions & Runtime
 
 **Acceptance Criteria:**
 
-1. Normal Stop preserves the verified managed Pi role in its original pane, independently of focus. If a saved Pi session lacks a verified managed role, use legacy native restore and refuse Chat for that generation. <!-- @impl: image/herdr/codeflare-herdr-terminal::verify_managed_restore --> <!-- @manual: documentation/lanes/terminal-and-ide.md#choose-the-starting-writer -->
+1. Normal Stop preserves the verified managed Pi role in its original pane, independently of focus. If a saved Pi session lacks a verified managed role, use legacy native restore and refuse Chat for that generation. <!-- @impl: image/herdr/codeflare-herdr-terminal::verify_managed_restore --> <!-- @manual: documentation/lanes/terminal-and-ide.md#future-herdr-handoff-qualification -->
 
-**Constraints:** None.
+**Constraints:** Deferred; current Pi Chat eligibility is Classic-only.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-TERM-033](#req-term-033-durable-herdr-structural-session-recovery)
 
-**Verification:** Manual: [Managed and legacy Herdr writer restore](../../documentation/lanes/terminal-and-ide.md#choose-the-starting-writer).
+**Verification:** Manual: [Managed and legacy Herdr writer restore](../../documentation/lanes/terminal-and-ide.md#future-herdr-handoff-qualification)
 
 **Status:** Planned
 

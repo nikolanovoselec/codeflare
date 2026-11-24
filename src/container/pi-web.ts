@@ -1,5 +1,5 @@
 import { SESSION_ID_PATTERN } from '../lib/constants';
-import type { Session } from '../types';
+import { resolveTerminalMode, type Session } from '../types';
 
 export const PI_WEB_ROOT = '/api/pi-web';
 export const PI_WEB_GENERATION_HEADER = 'x-codeflare-pi-generation';
@@ -27,8 +27,8 @@ export function matchesPiWebGeneration(pathname: string, sessionId: string, gene
 }
 
 /** Match the actual managed primary, never infer from a secondary tab or custom command. */
-export function isPiWebEligible(session: Pick<Session, 'agentType' | 'workspace' | 'tabConfig'>): boolean {
-  if (session.agentType !== 'pi' || session.workspace !== 'terminal') return false;
+export function isPiWebEligible(session: Pick<Session, 'agentType' | 'workspace' | 'tabConfig' | 'terminalMode'>): boolean {
+  if (session.agentType !== 'pi' || session.workspace !== 'terminal' || resolveTerminalMode(session.terminalMode) !== 'classic') return false;
   if (session.tabConfig === undefined) return true; // Start supplies the deployment's native Pi default.
   if (!Array.isArray(session.tabConfig)) return false;
   const primary = session.tabConfig.filter(tab => tab?.id === '1');

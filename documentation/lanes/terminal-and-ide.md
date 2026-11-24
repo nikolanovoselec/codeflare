@@ -38,11 +38,11 @@ Herdr image settings manage mobile layout, mouse capture, browser-owned clipboar
 
 ### Pi Chat handoff acceptance
 
-[REQ-AGENT-272](../../sdd/spec/agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff) treats Chat and Terminal as alternate writers for one native transcript. Browser VS Code owns its own Pi and is not part of the switch. These steps require an authorized disposable workspace and the packaged feature head; a passing stock transcript interoperability check alone is not full acceptance.
+[REQ-AGENT-272](../../sdd/spec/agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff) treats Chat and Classic Terminal as alternate writers for one native transcript. Herdr stays on its native Terminal path; its Chat handoff is deferred. Browser VS Code owns its own Pi and is not part of the switch. These steps require an authorized disposable workspace and the packaged feature head; a passing stock transcript interoperability check alone is not full acceptance.
 
 | Criteria | Procedure |
 |---|---|
-| Start, Resume and exact-pane restore | [Choose the starting writer](#choose-the-starting-writer). |
+| Classic Start and Resume | [Choose the starting writer](#choose-the-starting-writer). |
 | Transcript continuity and stop | [Switch one writer at a time](#switch-one-writer-at-a-time). |
 | Native quit and re-entry | [Quit and reopen native Pi](#quit-and-reopen-native-pi). |
 | Panel geometry | [Check desktop and mobile layout](#check-desktop-and-mobile-layout). |
@@ -50,10 +50,8 @@ Herdr image settings manage mobile layout, mouse capture, browser-owned clipboar
 
 #### Choose the starting writer
 
-- In Standard and Pro where available, start Chat-first and Terminal-first in both Classic and Herdr. Send a synthetic message, Stop normally, then resume in the other surface. Only the selected primary opens the saved conversation.
+- In Standard and Pro where available, start Chat-first and Terminal-first in Classic. Send a synthetic message, Stop normally, then resume in the other surface. Only the selected primary opens the saved conversation.
 - Verify unchanged workspace defaults, manually opened panes, and independent Browser VS Code behavior.
-- For [REQ-TERM-048](../../sdd/spec/terminal.md#req-term-048-managed-herdr-pi-writer-restore), Stop a live managed Herdr writer, then repeat with one already parked. Confirm the original pane retains the wrapper role.
-- Restore with a different pane focused. The writer returns to the original pane. A legacy snapshot with no verified role restores its native Terminal and refuses Chat.
 
 #### Switch one writer at a time
 
@@ -106,6 +104,13 @@ export default function (pi: ExtensionAPI) {
   });
 }
 ```
+
+#### Future Herdr handoff qualification
+
+Herdr Chat is not part of the current delivery. These checks apply only if Herdr handoff is enabled in a future release.
+
+- For [REQ-TERM-048](../../sdd/spec/terminal.md#req-term-048-managed-herdr-pi-writer-restore), Stop a live managed Herdr writer, then repeat with one already parked. Confirm the original pane retains the wrapper role.
+- Restore with a different pane focused. The writer returns to the original pane. A legacy snapshot with no verified role restores its native Terminal and refuses Chat.
 
 ### Browser terminal link activation
 

@@ -68,6 +68,14 @@ describe('REQ-IDE-048 AC1: immutable session workspace snapshot', () => {
     expect(ordinary.session.workspace).toBe('vscode');
   });
 
+  it('REQ-AGENT-272 AC1: explicit Chat cannot override Herdr mode; ordinary Pi creation still works', async () => {
+    mockKV._set('user-prefs:test-bucket', { herdrEnabled: true });
+    expect((await createSession({ agentType: 'pi', surface: 'chat' })).response.status).toBe(400);
+    const ordinary = await createSession({ agentType: 'pi' });
+    expect(ordinary.response.status).toBe(201);
+    expect(ordinary.session).toMatchObject({ agentType: 'pi', workspace: 'terminal', terminalMode: 'herdr' });
+  });
+
   it('REQ-AGENT-272 AC1: a Chat surface cannot change a non-Pi workspace', async () => {
     const { response } = await createSession({ agentType: 'claude-code', surface: 'chat' });
     expect(response.status).toBe(400);

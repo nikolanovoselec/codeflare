@@ -1041,19 +1041,11 @@ jobs:
           CODEFLARE_PI_WEB_SMOKE_CLI: ${{ github.workspace }}/preseed/agents/pi/node_modules/.bin/pi
         run: node scripts/ci/smoke-pi-web-handoff.mjs
 
-      - name: Qualify the shipped Classic and Herdr Pi launchers
+      - name: Qualify the shipped Classic Pi launcher
         run: |
           set -euo pipefail
           node_image=$(awk '$1 == "FROM" && NF == 2 && $2 ~ /^mirror[.]gcr[.]io\/library\/node:/ { print $2 }' Dockerfile)
           [[ "$node_image" =~ ^mirror\.gcr\.io/library/node:[^@[:space:]]+@sha256:[0-9a-f]{64}$ ]]
-          version=$(jq -er '.version | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))' image/herdr/provenance.json)
-          digest=$(jq -er '.sha256 | select(test("^[0-9a-f]{64}$"))' image/herdr/provenance.json)
-          herdr="$RUNNER_TEMP/pi-web-herdr"
-          curl -fsSL --retry 2 --connect-timeout 15 --max-time 45 \
-            "https://github.com/herdrdev/herdr/releases/download/v$version/herdr-linux-x86_64" -o "$herdr"
-          printf '%s  %s\n' "$digest" "$herdr" | sha256sum -c -
-          chmod 0755 "$herdr"
-          node scripts/ci/verify-herdr-version.mjs image/herdr/provenance.json "$(HERDR_DISABLE_SOUND=1 "$herdr" --version)"
           # A disposable test image adds just the shipped launcher's jq dependency.
           fixture="pi-web-launcher-ci:$GITHUB_RUN_ID"
           trap 'docker image rm "$fixture" >/dev/null 2>&1 || true' EXIT
@@ -1069,9 +1061,6 @@ jobs:
             --format=esm --target=es2022 --outdir="$host_dist"
           docker run --rm --init --network=none --cap-drop=ALL --security-opt=no-new-privileges \
             --env PI_OFFLINE=1 --env PI_SKIP_VERSION_CHECK=1 \
-            --mount "type=bind,src=$herdr,dst=/usr/local/bin/herdr,readonly" \
-            --mount "type=bind,src=$GITHUB_WORKSPACE/image/herdr/config.toml,dst=/etc/codeflare/herdr/config.toml,readonly" \
-            --mount "type=bind,src=$GITHUB_WORKSPACE/image/herdr/codeflare-herdr-terminal,dst=/usr/local/bin/codeflare-herdr-terminal,readonly" \
             --mount "type=bind,src=$GITHUB_WORKSPACE/image/pi-web/codeflare-pi,dst=/usr/local/bin/codeflare-terminal-writer,readonly" \
             --mount "type=bind,src=$GITHUB_WORKSPACE/image/pi-web/handoff-extension.ts,dst=/opt/codeflare/pi-web/handoff-extension.ts,readonly" \
             --mount "type=bind,src=$GITHUB_WORKSPACE/image/pi-web/native-preflight.mjs,dst=/opt/codeflare/pi-web/native-preflight.mjs,readonly" \
@@ -1080,7 +1069,7 @@ jobs:
             --mount "type=bind,src=$host_dist,dst=/qualification/host/dist,readonly" \
             "$fixture" sh -euc '
               ln -s "$(readlink -f /opt/codeflare/npm-tools/node_modules/.bin/pi)" /usr/local/bin/pi
-              exec node /qualification/scripts/ci/smoke-pi-web-launchers.mjs
+              exec node /qualification/scripts/ci/smoke-pi-web-launchers.mjs classic
             '
 
       - name: Qualify the real stock MCP extension and public client

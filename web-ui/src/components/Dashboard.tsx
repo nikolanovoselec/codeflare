@@ -456,7 +456,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                       setShowCreateDialog(false);
                       props.onCreateSession(agentType, tabConfig);
                     }}
-                    onSelectPiSurface={(surface) => {
+                    onSelectPiSurface={sessionStore.preferences.herdrEnabled === true ? undefined : (surface) => {
                       setShowCreateDialog(false);
                       props.onCreateSession('pi', undefined, surface);
                     }}

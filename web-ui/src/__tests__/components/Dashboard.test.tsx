@@ -124,6 +124,7 @@ vi.mock('../../stores/session', async () => {
   let _managedReleaseProgress: { phase: 'planning' | 'writing' | 'finalizing'; completed: number; total: number } | null = null;
   let _enterpriseMode = false;
   let _sessionMode = 'advanced';
+  let _herdrEnabled = false;
   return {
     sessionStore: {
       get sessions() { return []; },
@@ -142,12 +143,14 @@ vi.mock('../../stores/session', async () => {
       get managedReleaseStatus() { return _managedReleaseStatus(); },
       get managedReleaseProgress() { return _managedReleaseProgress; },
       get enterpriseMode() { return _enterpriseMode; },
-      get preferences() { return { sessionMode: _sessionMode }; },
+      get preferences() { return { sessionMode: _sessionMode, herdrEnabled: _herdrEnabled }; },
+      allowedAgents: ['pi'],
       isAtSessionLimit: () => _isAtLimit,
       startR2Polling: vi.fn(),
       updatePreferences: vi.fn().mockResolvedValue(undefined),
       killSession: vi.fn().mockResolvedValue(undefined),
       _setSessionMode: (v: string) => { _sessionMode = v; },
+      _setHerdrEnabled: (enabled: boolean) => { _herdrEnabled = enabled; },
       _setTestLimit: (atLimit: boolean, max?: number) => {
         _isAtLimit = atLimit;
         if (max !== undefined) _maxSessions = max;
@@ -166,8 +169,11 @@ vi.mock('../../stores/session', async () => {
   };
 });
 
-vi.mock('../../components/CreateSessionDialog', () => ({
-  default: (props: any) => {
+let showRealCreateDialog = false;
+vi.mock('../../components/CreateSessionDialog', async (importOriginal) => {
+  const { default: RealDialog } = await importOriginal<typeof import('../../components/CreateSessionDialog')>();
+  return { default: (props: any) => {
+    if (showRealCreateDialog) return <RealDialog {...props} />;
     // Store props on window for inspection in tests
     (window as any).__createSessionDialogProps = props;
     return (
@@ -177,8 +183,8 @@ vi.mock('../../components/CreateSessionDialog', () => ({
         </button>
       </div>
     );
-  }
-}));
+  } };
+});
 
 vi.mock('../../stores/storage', async () => {
   const { createSignal } = await vi.importActual<typeof import('solid-js')>('solid-js');
@@ -314,6 +320,8 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     (githubStore as any)._setEnabled(false);
     (sessionStore as any)._setEnterpriseMode(false);
     (sessionStore as any)._setSessionMode('advanced');
+    (sessionStore as any)._setHerdrEnabled(false);
+    showRealCreateDialog = false;
     (sessionStore as any)._setManagedReleaseStatus(null);
     (sessionStore as any)._setManagedReleaseProgress(null);
     mockMultiView = null;
@@ -409,9 +417,9 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
 
   it.each([
     { status: 'stopped', terminalMode: 'classic', surface: 'chat', action: 'start' },
-    { status: 'stopped', terminalMode: 'herdr', surface: 'terminal', action: 'start' },
+    { status: 'stopped', terminalMode: 'classic', surface: 'terminal', action: 'start' },
     { status: 'running', terminalMode: 'classic', surface: 'terminal', action: 'open' },
-    { status: 'running', terminalMode: 'herdr', surface: 'chat', action: 'open' },
+    { status: 'running', terminalMode: 'classic', surface: 'chat', action: 'open' },
   ] as const)('REQ-AGENT-272 AC1: selects $surface for this $status $terminalMode card action only', async ({ status, terminalMode, surface, action }) => {
     const id = 'managed-pi';
     const actions: { action: string; id: string; surface?: string }[] = [];
@@ -435,12 +443,14 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
   });
 
   it.each([
-    { agentType: 'bash', workspace: 'terminal' }, { agentType: 'pi', workspace: 'vscode' },
-    { agentType: 'pi', workspace: 'terminal', tabConfig: [{ id: '1', label: 'Terminal 1', command: '' }] },
-  ] as const)('REQ-AGENT-272 AC1: omits handoff actions on an ineligible $agentType $workspace card', async ({ agentType, workspace, ...fields }) => {
+    { agentType: 'bash', workspace: 'terminal', terminalMode: 'classic' },
+    { agentType: 'pi', workspace: 'vscode', terminalMode: 'classic' },
+    { agentType: 'pi', workspace: 'terminal', terminalMode: 'herdr' },
+    { agentType: 'pi', workspace: 'terminal', terminalMode: 'classic', tabConfig: [{ id: '1', label: 'Terminal 1', command: '' }] },
+  ] as const)('REQ-AGENT-272 AC1: omits handoff actions on an ineligible $agentType $workspace card', async ({ agentType, workspace, terminalMode, ...fields }) => {
     const id = 'ordinary';
     render(() => <Dashboard {...defaultProps} sessions={[{
-      id, name: 'Ordinary session', status: 'running', workspace, agentType, terminalMode: 'herdr',
+      id, name: 'Ordinary session', status: 'running', workspace, agentType, terminalMode,
       createdAt: '2024-01-01', lastAccessedAt: '2024-01-01', editorReady: true,
       ...('tabConfig' in fields && fields.tabConfig && { tabConfig: [...fields.tabConfig] }),
     }]} />);
@@ -450,6 +460,23 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(menu.queryByRole('button', { name: /\bChat\b/i })).not.toBeInTheDocument();
     expect(menu.queryByRole('button', { name: /\bTerminal\b/i })).not.toBeInTheDocument();
     expect(menu.getByRole('button', { name: 'Rename' })).toBeVisible();
+  });
+
+  it.each([false, true])('REQ-AGENT-272 AC1: New Session offers Pi handoff choices only with Classic preference (Herdr: %s)', (enabled) => {
+    (sessionStore as any)._setHerdrEnabled(enabled);
+    showRealCreateDialog = true;
+    render(() => <Dashboard {...defaultProps} />);
+    fireEvent.click(screen.getByTestId('dashboard-new-session'));
+    const dialog = within(screen.getByRole('dialog', { name: 'Create new session' }));
+    expect(dialog.getByTestId('csd-agent-pi')).toBeVisible();
+    if (enabled) {
+      expect(dialog.queryByRole('group', { name: 'Start Pi in' })).not.toBeInTheDocument();
+      fireEvent.click(dialog.getByTestId('csd-agent-pi'));
+      expect(defaultProps.onCreateSession).toHaveBeenCalledWith('pi', undefined);
+    } else {
+      fireEvent.click(within(dialog.getByRole('group', { name: 'Start Pi in' })).getByRole('button', { name: 'Chat' }));
+      expect(defaultProps.onCreateSession).toHaveBeenCalledWith('pi', undefined, 'chat');
+    }
   });
 
   // === Initialization Tests ===

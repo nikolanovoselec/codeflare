@@ -156,8 +156,8 @@ app.post('/', sessionCreateRateLimiter, async (c) => {
     ?? (!selectableAgents.includes('claude-code')
       ? (selectableAgents.find((agent) => agent !== 'bash') ?? 'bash')
       : undefined);
-  if (body.surface && !isPiWebEligible({ agentType, workspace, tabConfig: body.tabConfig })) {
-    throw new ValidationError('Surface selection requires an ordinary Pi Terminal workspace');
+  if (body.surface && !isPiWebEligible({ agentType, workspace, tabConfig: body.tabConfig, terminalMode })) {
+    throw new ValidationError('Surface selection requires a Classic Pi Terminal workspace');
   }
 
   // Storage quota check — block session start if over quota. Enterprise users

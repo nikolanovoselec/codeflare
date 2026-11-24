@@ -506,5 +506,6 @@ async function qualify(mode) {
   }
 }
 
-await qualify('classic');
-await qualify('herdr');
+const mode = process.argv[2];
+if (mode !== 'classic' && mode !== 'herdr') throw new Error('Select a launcher mode: classic or herdr');
+await qualify(mode);

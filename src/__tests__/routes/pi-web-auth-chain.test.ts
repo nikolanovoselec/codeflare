@@ -248,7 +248,8 @@ describe('Pi web Worker proxy (REQ-AGENT-272 AC5)', () => {
 
   it.each([
     { agentType: 'bash' }, { workspace: 'vscode' },
-    { terminalMode: 'herdr', tabConfig: [{ id: '1', command: '', label: 'Terminal 1' }] },
+    { terminalMode: 'herdr' },
+    { terminalMode: 'classic', tabConfig: [{ id: '1', command: '', label: 'Terminal 1' }] },
   ] satisfies Partial<StoredSession>[])('REQ-AGENT-272 AC5: rejects ineligible workspace or primary agent %j', async fields => {
     putSession(fields);
     const result = await handlePiWebRequest(request(APP), env);

@@ -250,7 +250,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     }
     const eligible = !sessionData.boundaryActivityId && isPiWebEligible(sessionData)
       && (await allowedAgents(c.env)).includes('pi');
-    if (requestedSurface && !eligible) throw new ValidationError('Surface selection requires an ordinary Pi Terminal workspace');
+    if (requestedSurface && !eligible) throw new ValidationError('Surface selection requires a Classic Pi Terminal workspace');
     const surface = eligible ? requestedSurface ?? 'terminal' : undefined;
 
     const containerId = getContainerId(bucketName, sessionId);

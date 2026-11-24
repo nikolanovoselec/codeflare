@@ -140,7 +140,7 @@ A successful Start returns the acknowledged `generation`; `starting` means the D
 
 ## Pi Chat handoff
 
-`POST /api/sessions` and `POST /api/container/start?sessionId=…` accept optional `surface: "chat" | "terminal"` for the eligible Pi path. Explicit creation resolves the Terminal workspace server-side; the regular default still applies without the field. Start binds the surface to the launch's generation, not a stored workspace selector. Use the handoff routes for an already running session. <!-- @impl: src/routes/session/crud.ts::app.post --> <!-- @impl: src/routes/container/lifecycle.ts::app.post -->
+`POST /api/sessions` and `POST /api/container/start?sessionId=…` accept optional `surface: "chat" | "terminal"` only for eligible Classic Pi Terminal sessions. Herdr Start and creation use their ordinary paths without `surface`. Explicit creation resolves the Terminal workspace server-side; the regular default still applies without the field. Start binds the surface to the launch's generation, not a stored workspace selector. Use the handoff routes for an already running session. <!-- @impl: src/routes/session/crud.ts::app.post --> <!-- @impl: src/routes/container/lifecycle.ts::app.post -->
 
 Under [REQ-AGENT-272](../../sdd/spec/agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff), controls require the authenticated owner and current running generation. Mutations require the same origin and session CSRF protection. <!-- @impl: src/routes/pi-web.ts::handlePiWebRequest -->
 

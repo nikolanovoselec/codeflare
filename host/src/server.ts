@@ -304,7 +304,7 @@ const operatorInference = !process.env.CODEFLARE_OPERATOR_SESSION
 const initialPiSurface = process.env.CODEFLARE_PI_SURFACE;
 const piGeneration = Number(process.env.CODEFLARE_PI_GENERATION);
 const piSessionId = process.env.SESSION_ID ?? '';
-const piWebRuntime = !process.env.CODEFLARE_OPERATOR_SESSION && SESSION_WORKSPACE === 'terminal'
+const piWebRuntime = !process.env.CODEFLARE_OPERATOR_SESSION && SESSION_WORKSPACE === 'terminal' && TERMINAL_MODE === 'classic'
   && /^[a-z0-9]{8,24}$/.test(piSessionId) && Number.isSafeInteger(piGeneration) && piGeneration > 0
   && (initialPiSurface === 'chat' || initialPiSurface === 'terminal')
   ? createPiWebRuntime({
@@ -312,8 +312,7 @@ const piWebRuntime = !process.env.CODEFLARE_OPERATOR_SESSION && SESSION_WORKSPAC
     cwd: WORKSPACE_DEFAULT, home: process.env.HOME ?? '/home/user',
     runtimeDir: `${process.env.CODEFLARE_RUNTIME_ROOT ?? '/run/codeflare'}/pi-web`,
     cloneRestored: () => initFlagObserved && !!process.env.CODEFLARE_CLONE_RESTORE_FLAG_FILE
-      && fs.existsSync(process.env.CODEFLARE_CLONE_RESTORE_FLAG_FILE)
-      && (TERMINAL_MODE !== 'herdr' || fs.existsSync(`${process.env.CODEFLARE_RUNTIME_ROOT ?? '/run/codeflare'}/herdr/${piSessionId}/bootstrap.done`)),
+      && fs.existsSync(process.env.CODEFLARE_CLONE_RESTORE_FLAG_FILE),
   }) : undefined;
 const piWeb = piWebRuntime && createPiWebProxy({
   sessionId: piSessionId, runtime: piWebRuntime, recordInput: () => state.activityTracker.recordInput(),
