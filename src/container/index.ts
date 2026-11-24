@@ -378,9 +378,10 @@ export class container extends Container<Env> implements ContainerEnvState {
     // Capture the shutdown job before exit confirmation lets the queue clear it.
     let settlementRow: D1Session | null = null;
     const confirmed = await confirmMonitoredExit(this.ctx, this.env, owner, session, generation,
-      matchesExpected ? reason : 'unknown', (incidentId, row) => {
+      matchesExpected ? reason : 'unknown', async (incidentId, row) => {
         settlementRow = row;
         if (matchesExpected) onObservation?.(incidentId);
+        await this.rememberHermesRetryGeneration(row);
       }, evidence.terminationIntentId);
     let superseded = false;
     if (!confirmed) {
@@ -930,6 +931,19 @@ export class container extends Container<Env> implements ContainerEnvState {
 
   private mcpCleanupActive = false;
   private hermesRetention?: HermesRetention;
+
+  private async rememberHermesRetryGeneration(row: D1Session): Promise<void> {
+    const generation = row.lifecycleGeneration;
+    const source = row.shutdown?.sourceGeneration;
+    if (source === undefined || source >= generation || row.shutdown?.resumed) return;
+    // Record legacy headless provenance before exit lets the queue clear the job.
+    await this.ctx.storage.transaction(async txn => {
+      if (await txn.get<number>('lifecycleGeneration') === generation
+        && await txn.get<number>(HERMES_RETRY_GENERATION_KEY) !== generation) {
+        await txn.put(HERMES_RETRY_GENERATION_KEY, generation);
+      }
+    });
+  }
 
   private async recordHermesSettlement(sessionId: string, generation: number, row: D1Session | null): Promise<void> {
     if (isEnterpriseMode(this.env)) {
@@ -1905,6 +1919,7 @@ export class container extends Container<Env> implements ContainerEnvState {
             || !await transitionShutdown(repository, input, shutdownIntent, owned.shutdown.phase, job => ({ ...job, teardownClaimed: true }))
             || this.sessionKillInFlight) throw new Error('Graceful teardown superseded');
         }
+        await this.rememberHermesRetryGeneration(owned);
         await this.destroyWithContext({ sessionId: owned.sessionId, lifecycleGeneration: owned.lifecycleGeneration,
           incidentId: owned.unreachableIncidentId ?? null, terminationIntentId: owned.terminationIntentId ?? undefined, reason: 'user' }, () => this.recordNativeStopExit({
             owner: input.bucket, session: input.sessionId, generation: input.generation,

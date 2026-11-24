@@ -81,7 +81,7 @@ async function expectAccepted(request: Response | Promise<Response>) {
 function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = false) {
   const owner = `shutdown-${crypto.randomUUID()}`;
   const other = `shutdown-${crypto.randomUUID()}`;
-  const states = new Map<string, { ready: Promise<void>; instance: SessionContainer }>();
+  const states = new Map<string, { ready: Promise<void>; instance: SessionContainer; restoreExit: (evidence: object) => void }>();
   const processes = new Map<string, ReturnType<typeof processFixture>>();
   const trace: string[] = [];
   const alarms = new Set<string>();
@@ -97,7 +97,7 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
     let disabledAtStartup = false;
     const exit = gate<void>(undefined);
     const merge = gate<'skipped' | 'merged' | 'legacy-merged' | 'pending' | 'uncertain' | 'http-504' | 'host-lost'>('skipped');
-    const retryResult = gate<'merged' | 'pending'>('pending');
+    const retryResult = gate<'merged' | 'pending' | 'skipped'>('pending');
     let retrying = false;
     let mergeRequest: { intent: string; snapshotId: string; deadline: number; allowPersonalPiProviders: boolean } | undefined;
     let token = `fixture-token-${label}`;
@@ -193,7 +193,8 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
           : structuredClone(records.get(key)),
         put: async (key: string | Record<string, unknown>, value?: unknown) => {
           for (const [item, data] of Object.entries(typeof key === 'string' ? { [key]: value } : key)) {
-            if (!preRolloutRetry || item !== 'hermes:retry-generation') records.set(item, structuredClone(data));
+            const retryLaunch = typeof key !== 'string' && Object.hasOwn(key, 'hermes:direct-generation');
+            if (!preRolloutRetry || !retryLaunch || item !== 'hermes:retry-generation') records.set(item, structuredClone(data));
           }
         },
         delete: async (key: string | string[]) => Array.isArray(key)
@@ -211,7 +212,7 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
         blockConcurrencyWhile: (work: () => Promise<void>) => { ready = ready.then(work); return ready; },
         waitUntil: (work: Promise<unknown>) => { void work.catch(() => {}); },
       } as unknown as DurableObjectState<Env>, envOverrides as Env);
-      states.set(address, { ready, instance });
+      states.set(address, { ready, instance, restoreExit: evidence => records.set('monitoredExitGeneration', evidence) });
     }
     const { ready, instance } = states.get(address)!;
     return new Proxy(instance, { get(target, key, receiver) {
@@ -259,7 +260,12 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
   const remove = (id: string) => app().request(path(id), { method: 'DELETE' });
   const kill = (id: string) => app().request(`${path(id)}/kill`, { method: 'POST' });
   const retry = (id: string, bucket = owner) => app(bucket).request(`${path(id)}/retry-memory-consolidation`, { method: 'POST' });
-  return { owner, other, app, path, create, batch, stop, remove, kill, retry, trace, wake: () => getByName(`storage:${owner}`).wakeHermesShutdownQueue(owner), session: (id: string) => getByName(`${owner}-${id}`) };
+  const session = (id: string) => getByName(`${owner}-${id}`);
+  const replayExit = async (id: string, generation: number, terminationIntentId: string) => {
+    states.get(`${owner}-${id}`)!.restoreExit({ owner, session: id, generation, terminationIntentId });
+    await session(id).collectMetrics({ ownerKey: owner, sessionId: id, generation });
+  };
+  return { owner, other, app, path, create, batch, stop, remove, kill, retry, trace, replayExit, wake: () => getByName(`storage:${owner}`).wakeHermesShutdownQueue(owner), session };
 }
 
 const a = 'sessionaaa1';
@@ -592,6 +598,30 @@ it.each([false, true])('REQ-MEM-042 AC3: headless Retry preserves settlement of 
   expect((await f.app().request(f.path(a))).status).toBe(404);
   expect(await session.hermesWriterSettled(f.owner, writer)).toBe(true);
   expect(await session.hermesWriterSettled(f.owner, { ...writer, generation: 2 })).toBe(false);
+});
+
+it('REQ-MEM-042 AC3: late exit replay after a skipped pre-rollout Retry preserves the saved writer', async () => {
+  const f = rig(true, true, true);
+  const A = await f.create(a, { holdMerge: true });
+  A.save.release('saved');
+  A.exit.release();
+  A.merge.release('pending');
+  await expectAccepted(f.stop(a));
+  await vi.waitFor(async () => expect((await f.batch())[a]).toMatchObject({ status: 'stopped', shutdownPhase: 'memory-not-merged' }));
+  const intent = (await repository.getSession(f.owner, a))!.shutdown!.intent;
+  A.retryResult.release('skipped');
+  await expectAccepted(f.retry(a));
+  await vi.waitFor(async () => {
+    const row = await repository.getSession(f.owner, a);
+    expect(row).toMatchObject({ lifecycleState: 'stopped', lifecycleGeneration: 2 });
+    expect(row?.shutdown).toBeUndefined();
+  });
+  // A positive native exit acknowledgment can be replayed after the no-op job clears.
+  await f.replayExit(a, 2, intent);
+  expect((await f.remove(a)).status).toBe(200);
+  const session = f.session(a);
+  expect(await session.hermesWriterSettled(f.owner, { sessionId: a, generation: 1 })).toBe(true);
+  expect(await session.hermesWriterSettled(f.owner, { sessionId: a, generation: 2 })).toBe(false);
 });
 
 it('REQ-SESSION-006: deleting an already stopped, settled row does not launch or stop a native process', async () => {
