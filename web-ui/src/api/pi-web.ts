@@ -5,7 +5,7 @@ import type { PiSurface } from '../types';
 
 const surface = z.enum(['chat', 'terminal']);
 const statusSchema = z.object({
-  phase: z.enum(['active', 'waiting', 'releasing', 'opening', 'complete', 'failed', 'uncertain', 'cancelled']),
+  phase: z.enum(['active', 'waiting', 'stopping', 'releasing', 'opening', 'complete', 'failed', 'uncertain', 'cancelled']),
   surface: surface.nullable(),
   requestId: z.uuid().optional(),
   target: surface.optional(),

@@ -13,6 +13,7 @@ interface NativeReceipt extends PiTranscript {
   instance: string;
   ticket?: string;
   idle: boolean;
+  stopRequested?: string;
   releaseReady?: string;
   released?: boolean;
   persisted?: boolean;
@@ -65,6 +66,7 @@ export function createPiWebRuntime(options: {
   let terminalTicket = initialSurface === 'terminal' ? 'initial' : undefined;
   let chatUrl: string | undefined;
   let chatReady = false;
+  let chatCatalog: string | undefined;
   let boot: Promise<void> | undefined;
   let bootPhase: 'opening' | 'failed' | undefined = 'opening';
   let legacyHerdr = false;
@@ -117,13 +119,35 @@ export function createPiWebRuntime(options: {
   const idle = (status: WebStatus) => !status.isStreaming && !status.isCompacting && !status.isBashRunning
     && status.pendingMessageCount === 0 && !status.pendingDialogs?.length;
 
-  async function webSettled(ref: PiTranscript): Promise<boolean> {
-    // Stock 1.202611.5 does not expose an exact completion receipt for an
-    // admitted prompt stalled in an async input hook. Neither status nor an
-    // omitted ID in cleanup preview proves that operation has settled.
+  async function abortChat(ref: PiTranscript): Promise<void> {
+    try {
+      const result = await services.request<{ aborted: boolean }>(`/api/sessions/${encodeURIComponent(ref.id)}/abort`, { cwd });
+      if (result?.aborted !== true) throw new Error('Chat cancellation was not acknowledged');
+    } catch (error) {
+      webRequestUnconfirmed = true;
+      throw error;
+    }
+  }
+
+  async function webSettled(ref: PiTranscript, cancelNewActivity = false): Promise<boolean> {
     if (webRequestUnconfirmed) throw new Error('A previous Chat operation has no transfer-safe settlement receipt');
+    if (!chatCatalog || binding?.id !== ref.id || binding.path !== ref.path || !services.running()) {
+      throw new Error('Chat writer identity is unavailable');
+    }
+    const row = await services.request<{ id: string; cwd: string; archived: boolean; runtime: string }>(chatCatalog);
+    if (row?.id !== ref.id || row.cwd !== cwd || row.archived !== false || !['busy', 'idle'].includes(row.runtime)) {
+      throw new Error('Stock catalog did not confirm the exact hosted Chat writer');
+    }
     const status = await services.request<WebStatus>(statusPath(ref.id));
-    return status.sessionId === ref.id && status.persisted && idle(status);
+    if (status.sessionId !== ref.id || status.persisted !== true) throw new Error('Stock Chat status changed identity');
+    // Abort may acknowledge before an admitted input hook reaches streaming.
+    // Apply native Abort again if that work becomes cancellable, but never
+    // use the abort acknowledgment or ordinary idle status as release proof.
+    if (cancelNewActivity && (status.isStreaming || status.isCompacting || status.isBashRunning || status.pendingMessageCount > 0)) {
+      await abortChat(ref);
+      return false;
+    }
+    return row.runtime === 'idle' && idle(status);
   }
 
   async function seedChat(): Promise<PiTranscript> {
@@ -160,6 +184,7 @@ export function createPiWebRuntime(options: {
     save(target);
     const state = handoff.status();
     publish({ ...state, phase: 'opening', target: 'chat' });
+    chatCatalog = `/api/plugin-catalog/projects/${encodeURIComponent(project.id)}/workspaces/${encodeURIComponent(workspace.id)}/sessions/${encodeURIComponent(target.id)}`;
     chatUrl = `/api/pi-web/${sessionId}/?${new URLSearchParams({ project: project.id, workspace: workspace.id, session: target.id, view: 'chat' })}`;
     try {
       // The stock client opens the known row via its normal snapshot route.
@@ -177,16 +202,37 @@ export function createPiWebRuntime(options: {
     }
   }
 
-  const handoff = createPiWebHandoff({ generation, initialSurface, onChange: publish,
+  const handoff = createPiWebHandoff({ generation, initialSurface,
+    // The HTTP fence closes now, but do not tell the Chat extension to anchor
+    // its branch until all admitted answers and reads have actually drained.
+    onChange: state => publish(state.phase === 'releasing' && state.surface === 'chat' ? { ...state, phase: 'stopping' } : state),
+    async stopWork(surface) {
+      if (surface === 'chat') {
+        if (!binding || !chatReady) throw new Error('Chat writer is not ready');
+        await abortChat(binding);
+      } else {
+        // A first native conversation (or an ordinary /resume) may have
+        // assigned a new ID before the Host has read a binding from disk.
+        const source = await until(() => {
+          const observed = receipt('terminal');
+          return observed && !observed.released && processMatches(observed) ? observed : undefined;
+        }, undefined, 20_000);
+        save(source);
+        // The native extension issues Abort on this exact stopping ticket.
+        publish(handoff.status());
+      }
+    },
     async waitForIdle(surface, signal) {
+      const requestId = handoff.status().requestId;
       releaseReceipt = await until(async () => {
         const observed = receipt(surface);
-        if (!observed || observed.released || !observed.idle || !processMatches(observed)) return;
-        if (surface === 'chat' && !await webSettled(observed)) {
+        if (!observed || observed.released || !processMatches(observed)) return;
+        if (surface === 'terminal' && observed.stopRequested !== requestId) return;
+        if (surface === 'chat' && !await webSettled(observed, true)) {
           await sleep(750, undefined, { signal });
           return;
         }
-        return observed;
+        return observed.idle ? observed : undefined;
       }, signal);
       // The extension must see the exact identity when it anchors the active
       // leaf and signals release readiness for this attempt.
@@ -201,10 +247,10 @@ export function createPiWebRuntime(options: {
         && observed.startTime === source.startTime && observed.instance === source.instance
         && observed.id === source.id && observed.path === source.path && observed.releaseReady === requestId;
       if (surface === 'chat') {
+        if (!await webSettled(source)) return undefined;
+        publish(handoff.status());
         await until(() => releasedBy(receipt('chat')) ? true : undefined, undefined, 15_000);
-        if (!await webSettled(source) || !receipt('chat')?.idle) {
-          throw new Error('Chat writer is not settled');
-        }
+        if (!await webSettled(source) || !receipt('chat')?.idle) return undefined;
         const result = await services.request<{ stopped: boolean }>(`/api/sessions/${encodeURIComponent(source.id)}/stop`, { cwd });
         const after = receipt('chat');
         if (!result.stopped || !releasedBy(after) || !after?.released
@@ -213,6 +259,7 @@ export function createPiWebRuntime(options: {
         }
         chatReady = false;
         chatUrl = undefined;
+        chatCatalog = undefined;
       } else {
         await until(() => {
           const after = receipt('terminal');

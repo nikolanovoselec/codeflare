@@ -17,12 +17,22 @@ function fixture(initialSurface) {
   let openOutcome = 'started';
   let openingIdle = true;
   let confirmLateOwner = false;
+  let deferRelease = false;
+  let stopRequests = 0;
+  let parkedInput = false;
   const transcript = [];
   const maybeIdle = () => {
     if (!working && !question && openingIdle) finish?.();
   };
   const handoff = createPiWebHandoff({
     generation, initialSurface,
+    stopWork: async (surface) => {
+      assert.equal(writer, surface);
+      stopRequests++;
+      question = false;
+      if (!parkedInput) working = 0;
+      maybeIdle();
+    },
     waitForIdle: async (surface, signal) => {
       assert.equal(writer, surface);
       if (!working && !question && openingIdle) return;
@@ -35,6 +45,11 @@ function fixture(initialSurface) {
       assert.equal(writer, surface);
       assert.equal(working, 0);
       assert.equal(question, false);
+      if (deferRelease) {
+        deferRelease = false;
+        openingIdle = false;
+        return undefined;
+      }
       writer = null;
       return binding;
     },
@@ -52,6 +67,9 @@ function fixture(initialSurface) {
     handoff,
     get writer() { return writer; },
     get transcript() { return transcript; },
+    get stopRequests() { return stopRequests; },
+    parkInputHook() { parkedInput = true; },
+    settleInputHook() { parkedInput = false; working = 0; maybeIdle(); },
     startWork(text) {
       assert.equal(handoff.permits(writer, 'work'), true);
       transcript.push(text);
@@ -74,29 +92,27 @@ function fixture(initialSurface) {
     settleNativeQueue() { openingIdle = true; maybeIdle(); },
     setOpenOutcome(outcome) { openOutcome = outcome; },
     confirmLateOwner() { confirmLateOwner = true; },
+    discoverWorkAtRelease() { deferRelease = true; },
   };
 }
 
 for (const [source, target] of [['chat', 'terminal'], ['terminal', 'chat']]) {
-  test(`REQ-AGENT-272 AC2+AC3: ${source} drains questions and queued work before ${target} owns the transcript`, async () => {
+  test(`REQ-AGENT-272 AC3: ${source} requests abort before ${target} may open the saved conversation`, async () => {
     const f = fixture(source);
-    f.startWork('the original question');
-    f.startWork('already accepted follow-up');
+    f.startWork('interrupted prompt already in saved history');
     f.ask();
+    f.waitForNativeQueue();
     const done = f.handoff.switchTo({ generation, requestId: 'attempt-1', target });
-    assert.equal(f.handoff.status().phase, 'waiting');
     assert.equal(f.handoff.permits(source, 'work'), false);
-    assert.equal(f.handoff.permits(target, 'work'), false);
-    assert.equal(f.handoff.permits(target, 'read'), false);
-    f.finishWork();
-    f.answer();
+    await waitForPhase(f.handoff, 'stopping');
+    assert.equal(f.stopRequests, 1, 'no normal answer is needed to request abort');
     assert.equal(f.writer, source);
-    f.finishWork();
+    assert.equal(f.handoff.permits(target, 'read'), false);
+    f.settleNativeQueue();
     assert.equal((await done).phase, 'complete');
     assert.equal(f.writer, target);
     assert.equal(f.handoff.permits(source, 'read'), false);
-    assert.equal(f.handoff.permits(target, 'work'), true);
-    assert.deepEqual(f.transcript, ['the original question', 'already accepted follow-up']);
+    assert.deepEqual(f.transcript, ['interrupted prompt already in saved history'], 'no prompt replay');
   });
 }
 
@@ -115,6 +131,7 @@ test('REQ-AGENT-272 AC2+AC5: an admitted web request cannot outlive the writer o
   const done = f.handoff.switchTo({ generation, requestId: 'pending-http', target: 'terminal' });
   await Promise.resolve();
   assert.equal(f.writer, 'chat', 'a request can start work after its HTTP admission');
+  assert.equal(f.stopRequests, 0, 'abort must not precede dispatch of admitted work');
   assert.equal(f.handoff.admit('chat', 'work'), undefined);
   const finishRead = f.handoff.admit('chat', 'read');
   assert.ok(finishRead);
@@ -128,6 +145,20 @@ test('REQ-AGENT-272 AC2+AC5: an admitted web request cannot outlive the writer o
   assert.equal(f.writer, 'terminal');
 });
 
+test('REQ-AGENT-272 AC3: newly observed work at the final release fence keeps the same writer waiting', async () => {
+  const f = fixture('chat');
+  f.discoverWorkAtRelease();
+  const done = f.handoff.switchTo({ generation, requestId: 'held-settler', target: 'terminal' });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.handoff.status().phase, 'stopping');
+  assert.equal(f.writer, 'chat');
+  assert.equal(f.handoff.permits('chat', 'settle'), true);
+  assert.equal(f.handoff.permits('chat', 'work'), false);
+  f.settleNativeQueue();
+  assert.equal((await done).phase, 'complete');
+  assert.equal(f.writer, 'terminal');
+});
+
 test('REQ-AGENT-272 AC2: an empty conversation switches without another prompt', async () => {
   const f = fixture('chat');
   const status = await f.handoff.switchTo({ generation, requestId: 'empty', target: 'terminal' });
@@ -136,21 +167,23 @@ test('REQ-AGENT-272 AC2: an empty conversation switches without another prompt',
   assert.deepEqual(f.transcript, []);
 });
 
-test('REQ-AGENT-272 AC6: cancel switch preserves the source; native abort settles a later switch', async () => {
-  const f = fixture('terminal');
+test('REQ-AGENT-272 AC6: cancellation before abort keeps the turn; after abort it cannot undo the stop', async () => {
+  const f = fixture('chat');
   f.startWork('ongoing turn');
-  f.waitForNativeQueue();
-  const cancelled = f.handoff.switchTo({ generation, requestId: 'cancelled', target: 'chat' });
+  f.parkInputHook();
+  const cancelled = f.handoff.switchTo({ generation, requestId: 'cancelled', target: 'terminal' });
   assert.equal(f.handoff.cancel({ generation, requestId: 'cancelled' }), true);
   assert.equal((await cancelled).phase, 'cancelled');
-  assert.equal(f.writer, 'terminal');
-  assert.equal(f.handoff.permits('terminal', 'work'), true);
-  const done = f.handoff.switchTo({ generation, requestId: 'aborted-turn', target: 'chat' });
-  f.abort();
-  assert.equal(f.writer, 'terminal');
-  f.settleNativeQueue();
+  assert.equal(f.stopRequests, 0);
+  assert.equal(f.handoff.permits('chat', 'work'), true);
+  const done = f.handoff.switchTo({ generation, requestId: 'held-input', target: 'terminal' });
+  await waitForPhase(f.handoff, 'stopping');
+  assert.equal(f.stopRequests, 1);
+  assert.equal(f.handoff.cancel({ generation, requestId: 'held-input' }), false);
+  assert.equal(f.writer, 'chat', 'an acknowledged abort cannot retire a writer with a parked input hook');
+  f.settleInputHook();
   assert.equal((await done).phase, 'complete');
-  assert.equal(f.writer, 'chat');
+  assert.equal(f.writer, 'terminal');
 });
 
 test('REQ-AGENT-272 AC2+AC5: stale attempts and target startup failures never open another writer', async () => {

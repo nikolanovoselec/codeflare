@@ -6,7 +6,7 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 ## 2026-11-23: Continue Pi conversations in Chat or Terminal
 
-- [REQ-AGENT-272](agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff) specifies Dashboard-selected Pi Start and Resume in Chat or Terminal. A pending switch waits for the turn to finish or for user-initiated Abort to settle, then opens the same transcript; Browser VS Code remains independent.
+- [REQ-AGENT-272](agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff) specifies Dashboard-selected Pi Start and Resume in Chat or Terminal. A switch stops current execution and opens the same saved transcript after the outgoing writer releases it; Browser VS Code remains independent.
 
 ## 2026-11-22: Recover halted storage migrations
 

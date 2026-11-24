@@ -13,7 +13,8 @@ interface PiWebSwitchControlsProps {
 export default function PiWebSwitchControls(props: PiWebSwitchControlsProps) {
   const message = () => {
     switch (props.phase) {
-      case 'waiting': return 'Waiting for the current turn to finish';
+      case 'waiting':
+      case 'stopping': return 'Stopping the current turn…';
       case 'releasing':
       case 'opening': return 'Switching Pi surface…';
       case 'failed': return 'Could not open the selected Pi surface.';

@@ -141,14 +141,23 @@ export function createPiWebProxy(options: { sessionId: string; runtime: PiWebRun
         headers: { Host: new URL(origin).host, ...(req.headers.origin && { Origin: req.headers.origin }),
           ...(body !== undefined && { 'Content-Type': 'application/json' }) }, body,
       });
+      if (endpoint && result.status >= 500) runtime.markWebRequestUnconfirmed();
+      if (endpoint === 'prompt' && result.ok) {
+        const acknowledgment: unknown = await result.json();
+        if (!acknowledgment || typeof acknowledgment !== 'object' || !('accepted' in acknowledgment)
+          || acknowledgment.accepted !== true) throw new Error('Unconfirmed stock prompt acknowledgment');
+        // Acceptance is not settlement. The exact catalog row is checked
+        // only after all admitted requests, including this one, finish.
+        upstreamSettled = true;
+        options.recordInput();
+        send(res, result.status, acknowledgment);
+        return;
+      }
       upstreamSettled = true;
-      // An accepted stock prompt returns before its asynchronous input hooks
-      // have finished. This pin exposes no exact per-prompt settlement proof.
-      if (endpoint === 'prompt' && (result.ok || result.status >= 500)) runtime.markWebRequestUnconfirmed();
       const headers: Record<string, string> = { 'Cache-Control': 'no-store' };
       const contentType = result.headers.get('content-type');
       if (contentType) headers['Content-Type'] = contentType;
-      if (result.ok && endpoint && ['prompt', ...settlers].includes(endpoint)) options.recordInput();
+      if (result.ok && endpoint && settlers.has(endpoint)) options.recordInput();
       if (result.ok && read && path === '/api/sessions' && req.method !== 'HEAD') {
         const rows: unknown = await result.json();
         send(res, result.status, Array.isArray(rows) ? rows.filter(row => row?.id === runtime.binding?.id && row?.cwd === runtime.cwd) : []);

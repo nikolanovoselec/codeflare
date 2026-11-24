@@ -14,7 +14,7 @@ type Binding = { id: string; cwd: string; path: string };
 type Owner = {
 	generation: number;
 	surface: Surface | null;
-	phase: "active" | "waiting" | "releasing" | "opening" | "complete" | "failed" | "uncertain" | "cancelled";
+	phase: "active" | "waiting" | "stopping" | "releasing" | "opening" | "complete" | "failed" | "uncertain" | "cancelled";
 	target?: Surface;
 	requestId?: string;
 	binding?: Binding;
@@ -23,7 +23,7 @@ type Owner = {
 
 const ticketPattern = /^[A-Za-z0-9_-]{1,128}$/;
 const nativeIdPattern = /^[A-Za-z0-9](?:[A-Za-z0-9_.-]{0,126}[A-Za-z0-9])?$/;
-const phases = new Set(["active", "waiting", "releasing", "opening", "complete", "failed", "uncertain", "cancelled"]);
+const phases = new Set(["active", "waiting", "stopping", "releasing", "opening", "complete", "failed", "uncertain", "cancelled"]);
 const runtime = process.env.CODEFLARE_RUNTIME_ROOT || "/run/codeflare";
 const stateDir = join(runtime, "pi-web");
 const ownerPath = join(stateDir, "owner.json");
@@ -139,6 +139,7 @@ export default function (pi: ExtensionAPI) {
 	let everPersisted = false;
 	let uiPrompt = false;
 	let pendingPromptPreflight = false;
+	let stopRequested: string | undefined;
 	let release: { requestId: string; draft?: string } | undefined;
 
 	function accepts(owner: Owner | undefined | null): boolean {
@@ -147,12 +148,13 @@ export default function (pi: ExtensionAPI) {
 		if (owner.phase === "opening" || (terminal && owner.phase === "uncertain")) {
 			return owner.target === surface && (owner.surface === null || owner.surface === surface);
 		}
-		return owner.surface === surface && ["active", "waiting", "releasing", "complete", "cancelled", "failed"].includes(owner.phase);
+		return owner.surface === surface && ["active", "waiting", "stopping", "releasing", "complete", "cancelled", "failed"].includes(owner.phase);
 	}
 
 	function frozen(): boolean {
 		const owner = readOwner(generation);
-		return !!release || !accepts(owner) || owner?.phase === "waiting" || owner?.phase === "releasing" || owner?.phase === "opening" || owner?.phase === "uncertain";
+		return !!release || !accepts(owner) || owner?.phase === "waiting" || owner?.phase === "stopping" ||
+			owner?.phase === "releasing" || owner?.phase === "opening" || owner?.phase === "uncertain";
 	}
 
 	function identity(context: ExtensionContext) {
@@ -203,9 +205,18 @@ export default function (pi: ExtensionAPI) {
 		const { binding, persisted } = evidence;
 		const bound = matchesBinding(owner?.binding, binding);
 		if (!terminal && owner?.binding && !bound) return;
+		const stopping = terminal && owner?.phase === "stopping" && owner.target === "chat" && bound ? owner.requestId : undefined;
+		if (terminal && owner?.phase === "stopping" && (!stopping || closing)) return;
+		const promptIdle = !uiPrompt && !pendingPromptPreflight && (!terminal || closing || editorIsIdle?.() === true);
+		if (!stopping) stopRequested = undefined;
+		else if ((!ctx.isIdle() || promptIdle) && (stopRequested !== stopping || ctx.hasPendingMessages())) {
+			// TUI Abort restores native queued messages to the draft. Do not
+			// acknowledge an idle-looking input hook that has not started a run yet.
+			ctx.abort();
+			stopRequested = stopping;
+		}
 		const releasing = owner?.phase === "releasing" && owner.target !== undefined && owner.target !== surface && !!owner.requestId;
-		let idle = ctx.isIdle() && !ctx.hasPendingMessages() && !uiPrompt && !pendingPromptPreflight &&
-			(!terminal || closing || editorIsIdle?.() === true);
+		let idle = ctx.isIdle() && !ctx.hasPendingMessages() && promptIdle;
 		let leaf = ctx.sessionManager.getLeafId();
 		if (!persisted) {
 			// Pi defers the file until the first conversation message. A previously
@@ -226,12 +237,13 @@ export default function (pi: ExtensionAPI) {
 		}
 		const released = closing && releasing && idle && (!terminal || release?.requestId === owner?.requestId);
 		if (closing && !released) return;
-		if (persisted && (terminal || bound) && !releasing && owner?.phase !== "waiting" && owner?.phase !== "opening") {
+		if (persisted && (terminal || bound) && !releasing && owner?.phase !== "waiting" && owner?.phase !== "stopping" && owner?.phase !== "opening") {
 			persistBinding(binding);
 		}
 		atomicWrite(reportPath, JSON.stringify({
 			generation, pid: process.pid, startTime, instance, ...binding, leaf, idle, persisted,
 			...(terminal ? { ticket } : {}),
+			...(stopping && stopRequested === stopping ? { stopRequested } : {}),
 			...(releasing && idle ? { releaseReady: owner.requestId } : {}),
 			...(released ? { released: true, ...(release?.draft ? { draft: release.draft } : {}) } : {}),
 		}) + "\n");
@@ -326,7 +338,20 @@ export default function (pi: ExtensionAPI) {
 		// because Host changed phase before Pi finished prompt preflight.
 		if (ctx && terminal && event.source === "interactive" && context.isIdle()) pendingPromptPreflight = true;
 	});
-	pi.on("before_agent_start", () => { pendingPromptPreflight = false; });
+	pi.on("before_agent_start", () => {
+		pendingPromptPreflight = false;
+		if (terminal) {
+			// Pi 1.5.2 latches Abort once a run starts preparing. A new
+			// run has its own latch, even if the switch already stopped one.
+			stopRequested = undefined;
+			publish();
+		}
+	});
+	pi.on("agent_start", () => {
+		// A switch can land during another before_agent_start hook and
+		// that hook can unblock before the next receipt poll.
+		if (terminal) publish();
+	});
 	pi.on("session_before_switch", () => ctx && terminal && frozen() ? { cancel: true } : undefined);
 	pi.on("session_before_fork", () => ctx && terminal && frozen() ? { cancel: true } : undefined);
 	pi.on("session_before_tree", () => ctx && terminal && frozen() ? { cancel: true } : undefined);

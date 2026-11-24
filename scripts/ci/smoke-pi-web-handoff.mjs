@@ -140,96 +140,6 @@ async function waitFor(label, probe, timeout = 30_000) {
   throw new Error(`Timed out: ${label}`, { cause: lastError });
 }
 
-// Opt-in on the CI Chrome runner, using its integrity-verified locked SDK tree.
-async function probeStartupRefresh({ url, options, ref, cwd, id, title, status, answer, confirmed }) {
-  const { CHROME_SDK_ROOT: sdk, CI_CHROMIUM_EXECUTABLE: chrome } = process.env;
-  assert.ok(sdk && chrome, 'browser refresh probe needs the existing CI Chrome executable and locked SDK');
-  const { puppeteer } = await import(pathToFileURL(join(sdk, 'out/Default/gen/src/third_party/index.js')).href);
-  const browser = await puppeteer.launch({
-    executablePath: chrome, headless: true, env: options.env, timeout: 15_000, protocolTimeout: 20_000,
-    defaultViewport: { width: 1280, height: 800 },
-    args: ['--no-sandbox'], // Same disposable CI runner as browser-run-timeouts; no user profile.
-  });
-  try {
-    const page = await browser.newPage();
-    const findConfirm = async (sessionId, title, dialogId) => {
-      const chat = document.querySelector('pi-web-app')?.shadowRoot?.querySelector('chat-view');
-      if (chat?.sessionId !== sessionId) return false;
-      const card = chat.shadowRoot?.querySelector('extension-dialog-card.open-dialog-card');
-      if (!card?.dialog || (dialogId && card.dialog.dialogId !== dialogId)) return false;
-      const heading = card.shadowRoot?.querySelector('.open-card h2');
-      if (heading?.textContent !== title || !heading.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false;
-      // Include clipping by the stock transcript scroller, not just the HTML/CSS state.
-      const inView = await new Promise((resolve) => {
-        const observer = new IntersectionObserver(([{ intersectionRect }]) => {
-          observer.disconnect();
-          resolve(intersectionRect.width > 0 && intersectionRect.height > 0);
-        });
-        observer.observe(heading);
-      });
-      return inView && card.isConnected ? card : false;
-    };
-    const navigation = { waitUntil: 'domcontentloaded', timeout: 15_000 };
-    assert.ok((await page.goto(url.href, navigation))?.ok(), 'stock Chat deep link must load');
-    const before = await page.waitForFunction(findConfirm, { timeout: 12_000 }, id, title).catch((cause) => {
-      throw new Error('No refresh evidence: the original stock Chat did not show the fixture confirm', { cause });
-    });
-    const dialogId = await before.evaluate((card) => card.dialog.dialogId);
-    assert.ok(dialogId, 'the original Chat must show the native startup question');
-    const readParked = async () => {
-      const state = await status(); // Independent Node HTTP request; never feeds Chrome state.
-      assert.equal(state.sessionId, id);
-      assert.equal(state.persisted, true);
-      assert.equal(state.pendingDialogs?.length, 1);
-      const [dialog] = state.pendingDialogs;
-      assert.equal(dialog.dialogId, dialogId);
-      assert.equal(dialog.kind, 'confirm');
-      assert.equal(dialog.title, title);
-      assert.equal(dialog.runScoped, false);
-      return dialog;
-    };
-    const parked = await readParked();
-
-    const [, reloaded] = await Promise.all([
-      page.waitForRequest((request) => {
-        const target = new URL(request.url());
-        return request.method() === 'GET' && target.origin === url.origin &&
-          target.pathname === `${ref}/transcript-snapshot` && target.searchParams.get('cwd') === cwd;
-      }, { timeout: 15_000 }),
-      page.reload(navigation),
-    ]);
-    assert.ok(reloaded?.ok(), 'stock Chat must load again on refresh');
-    const requireReloadedChat = () => page.waitForFunction((id, cwd) => {
-      const chat = document.querySelector('pi-web-app')?.shadowRoot?.querySelector('chat-view');
-      return performance.getEntriesByType('navigation')[0]?.type === 'reload' &&
-        chat?.sessionId === id && chat.sessionCwd === cwd && chat.checkVisibility();
-    }, { timeout: 5000 }, id, cwd);
-    await requireReloadedChat();
-    // Cover stock pi-web's 10s transcript fetch deadline, not just first paint.
-    const observationMs = 12_000;
-    const visible = await page.waitForFunction(findConfirm, { timeout: observationMs }, id, title, dialogId).catch((error) => {
-      if (error.name !== 'TimeoutError') throw error;
-      return null;
-    });
-    await requireReloadedChat();
-    assert.deepEqual(await readParked(), parked, 'stock /status must still return the same parked confirm after refresh');
-
-    if (visible) {
-      const button = (await visible.evaluateHandle((card) => card.shadowRoot.querySelector('button.primary-action:enabled'))).asElement();
-      assert.ok(button, 'the refreshed confirm must have an enabled answer control');
-      await button.click();
-    } else {
-      // Finish the fixture only after recording absence in a loaded Chat. An API answer is not browser evidence.
-      assert.equal((await answer(dialogId)).result, 'closed');
-    }
-    await waitFor('native session_start receives the diagnostic answer', async () => (await readFile(confirmed, 'utf8')) === id, 5000);
-    return { visibleBeforeRefresh: true, visibleAfterRefresh: visible !== null, samePendingDialogViaStatus: true,
-      diagnosticAnswerVia: visible ? 'browser' : 'api', observationMs };
-  } finally {
-    await browser.close();
-  }
-}
-
 async function main() {
   const pin = (await readJson(join(WEB_ROOT, 'package.json'))).dependencies[WEB_PACKAGE];
   const installed = await readJson(join(WEB_DIST, '..', 'package.json'));
@@ -487,30 +397,34 @@ export default function (pi) {
     assert.ok(!(await api(`${ref}/commands?${query}`)).some(({ name }) => name === 'worktree'), 'no /worktree in Chat');
 
     // REQ-AGENT-272 AC3 prerequisite: accepted work can be busy before streaming starts.
-    const preview = () => api('/api/sessions/cleanup/preview', { archiveIdleDays: 0, projectCwds: [cwd] });
+    const writerState = async () => {
+      const row = await api(`/api/plugin-catalog/projects/${encodeURIComponent(project.id)}/workspaces/${encodeURIComponent(workspace.id)}/sessions/${encodeURIComponent(header.id)}`);
+      assert.equal(row.id, header.id);
+      assert.equal(row.cwd, cwd);
+      assert.equal(row.archived, false);
+      return row.runtime;
+    };
     const callsBefore = modelRequests;
     assert.equal((await api(`${ref}/prompt`, { cwd, text: TURNS[1][0] })).accepted, true);
     await waitFor('native input hook parked before agent_start', async () => (await readFile(inputParked, 'utf8')) === header.id, 5000);
     const parkedStatus = await api(`${ref}/status?${query}`);
     assert.equal(parkedStatus.sessionId, header.id);
     assert.ok(looksIdle(parkedStatus), 'ordinary status must appear idle while the input hook is parked');
-    const parkedPreview = await preview();
-    assert.ok(parkedPreview.skippedBusySessionIds?.includes(header.id),
-      'read-only cleanup preview must classify the exact parked session as busy');
+    assert.equal(await writerState(), 'busy', 'the exact hosted catalog row must report the parked input hook');
+    assert.deepEqual(await api(`${ref}/abort`, { cwd }), { aborted: true });
+    assert.equal(await writerState(), 'busy', 'an Abort acknowledgment must not be mistaken for a finished input hook');
     assert.equal(modelRequests, callsBefore, 'the held input must not reach the model before external release');
     await writeFile(inputRelease, '', { flag: 'wx' });
 
     const settled = await waitFor('stock browser turn persisted and qualified idle', async () => {
       const state = await snapshot();
       if (!looksIdle(state.status) || chatMessages(state.page.messages).length !== 4) return;
-      const ready = await preview();
-      assert.ok(!ready.skippedBusySessionIds?.includes(header.id), 'the released turn must no longer be busy');
-      assert.equal(ready.totals.archiveCount, parkedPreview.totals.archiveCount + 1,
-        'the same preview must now count the formerly held session as eligible');
+      if (await writerState() !== 'idle') return;
       return state;
     });
     assert.deepEqual(await api(`${ref}/stop`, { cwd }), { stopped: true });
     assert.equal((await health()).activeSessions, 0, 'stock stop must release the writer before native reopen');
+    assert.equal(await writerState(), 'not-hosted', 'catalog observation must not reopen a stopped writer');
     // No snapshot, commands or other implicit open after stock stop.
     const after = await readFile(file, 'utf8');
     assert.ok(after.startsWith(before), 'Chat must append to the exact native file, without rewriting its history');
@@ -525,23 +439,6 @@ export default function (pi) {
     assert.deepEqual(await sessionFiles(), files, 'handoff must not create a replacement transcript');
     assert.equal(await readFile(file, 'utf8'), after, 'native reopen must not modify the transcript');
     console.log(JSON.stringify({ result: 'PI_WEB_HANDOFF_SMOKE_OK', piWebVersion: installed.version }));
-
-    if (process.env.CODEFLARE_PI_WEB_SMOKE_BROWSER_REFRESH === '1') {
-      // Separate from the API startup control: Chrome itself reopens the stopped, known fixture row.
-      await rm(confirmed);
-      const emptyRef = `${browserApi}/sessions/${encodeURIComponent(emptyRow.id)}`;
-      const callsBeforeRefresh = modelRequests;
-      const evidence = await probeStartupRefresh({
-        url: new URL(page, origin), options, ref: emptyRef, cwd, id: emptyRow.id, title: confirmTitle, confirmed,
-        status: () => api(`${emptyRef}/status?${query}`),
-        answer: (dialogId) => api(`${emptyRef}/dialogs/answer`, { cwd, dialogId, value: true }),
-      });
-      assert.deepEqual(await api(`${emptyRef}/stop`, { cwd }), { stopped: true });
-      assert.equal((await health()).activeSessions, 0);
-      assert.equal(modelRequests, callsBeforeRefresh, 'refreshing the fixture must not start a model turn');
-      assert.deepEqual(await sessionFiles(), files, 'refreshing the fixture must not create another transcript');
-      console.log(JSON.stringify({ result: 'PI_WEB_STARTUP_REFRESH_DIAGNOSTIC', piWebVersion: installed.version, ...evidence }));
-    }
   } catch (error) {
     for (const process of processes) console.error(`${process.name}: ${process.log()}`);
     throw error;

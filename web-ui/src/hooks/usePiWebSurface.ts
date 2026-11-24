@@ -4,7 +4,7 @@ import { ApiError } from '../api/fetch-helper';
 import type { PiSurface } from '../types';
 
 export function isPiWebSwitchPending(status?: PiWebStatus): boolean {
-  return status?.phase === 'waiting' || status?.phase === 'releasing' || status?.phase === 'opening';
+  return status?.phase === 'waiting' || status?.phase === 'stopping' || status?.phase === 'releasing' || status?.phase === 'opening';
 }
 
 /** A read-only observer by default, scoped to the selected session generation. */

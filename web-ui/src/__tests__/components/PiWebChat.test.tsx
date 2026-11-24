@@ -7,9 +7,12 @@ const SESSION_ID = 'abcdef1234567890';
 const GENERATION = 7;
 const SCOPE = `/api/pi-web/${SESSION_ID}/`;
 const CHAT_URL = `${SCOPE}?project=project-a&workspace=workspace-a&session=native-pi-a&view=chat`;
-const WAITING = 'Waiting for the current turn to finish';
+const STOPPING = 'Stopping the current turn…';
 const active = { phase: 'active' as const, surface: 'chat' as const, chatUrl: CHAT_URL };
 const waiting = { ...active, phase: 'waiting' as const };
+const stopping = { ...active, phase: 'stopping' as const };
+const cancelled = { ...active, phase: 'cancelled' as const };
+const releasing = { ...active, phase: 'releasing' as const };
 const opening = { phase: 'opening' as const, surface: null };
 
 function chatFrame(): HTMLIFrameElement {
@@ -33,27 +36,29 @@ describe('Pi web Chat wrapper (REQ-AGENT-272)', () => {
     expect(screen.getByRole('button', { name: /terminal/i })).toBeVisible();
   });
 
-  it('REQ-AGENT-272 AC3: announces the busy switch and allows cancelling it without replacing the stock Chat frame', async () => {
-    const [status, setStatus] = createSignal<typeof active | typeof waiting>(active);
+  it('REQ-AGENT-272 AC3: announces automatic stop without replacing the source frame', async () => {
+    const [status, setStatus] = createSignal<typeof active | typeof waiting | typeof stopping>(active);
     render(() => <PiWebChat sessionId={SESSION_ID} generation={GENERATION} status={status()}
-      onTerminal={() => setStatus(waiting)} onCancel={() => setStatus(active)} />);
+      onTerminal={() => setStatus(waiting)} onCancel={() => {}} />);
     const source = chatFrame();
     const sourceUrl = source.src;
-    expect(screen.queryByText(WAITING, { exact: true })).not.toBeInTheDocument();
+    const switchButton = screen.getByRole('button', { name: 'Switch to Terminal' });
+    expect(screen.queryByText(STOPPING, { exact: true })).not.toBeInTheDocument();
+    expect(switchButton).toBeEnabled();
 
-    await fireEvent.click(screen.getByRole('button', { name: /terminal/i }));
-    const announced = screen.getByText(WAITING, { exact: true });
-    expect(announced.closest('[role="status"], [aria-live="polite"], [aria-live="assertive"]')).not.toBeNull();
-    expect(announced).toBeVisible();
-    expect(chatFrame()).toBe(source);
-    expect(source.src).toBe(sourceUrl);
-    expect(source).toBeVisible();
-
-    await fireEvent.click(screen.getByRole('button', { name: 'Cancel switch' }));
-    expect(screen.queryByText(WAITING, { exact: true })).not.toBeInTheDocument();
-    expect(chatFrame()).toBe(source);
-    expect(source.src).toBe(sourceUrl);
-    expect(source).toBeVisible();
+    const expectStoppingInPlace = () => {
+      const announced = screen.getByRole('status');
+      expect(announced.textContent).toBe(STOPPING);
+      expect(announced).toBeVisible();
+      expect(chatFrame()).toBe(source);
+      expect(source.src).toBe(sourceUrl);
+      expect(source).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Switch to Terminal' })).toBeDisabled();
+    };
+    await fireEvent.click(switchButton);
+    expectStoppingInPlace();
+    setStatus(stopping);
+    expectStoppingInPlace();
   });
 
   it('REQ-AGENT-272 AC7: mounts the known stock row during startup without admitting another switch', () => {
@@ -65,15 +70,28 @@ describe('Pi web Chat wrapper (REQ-AGENT-272)', () => {
     expect(screen.getByRole('button', { name: /terminal/i })).toBeDisabled();
   });
 
-  it('REQ-AGENT-272 AC3: withdraws cancellation after release starts', () => {
-    const [status, setStatus] = createSignal<typeof waiting | typeof opening>(waiting);
+  it('REQ-AGENT-272 AC6: offers Cancel switch only before Abort is committed', async () => {
+    const [status, setStatus] = createSignal<typeof waiting | typeof cancelled | typeof stopping | typeof releasing | typeof opening>(waiting);
     render(() => <PiWebChat sessionId={SESSION_ID} generation={GENERATION} status={status()}
-      onTerminal={() => {}} onCancel={() => { throw new Error('An opening handoff is not cancellable'); }} />);
-    expect(screen.getByRole('button', { name: 'Cancel switch' })).toBeEnabled();
+      onTerminal={() => setStatus(waiting)} onCancel={() => setStatus(cancelled)} />);
+    const source = chatFrame();
+    const cancel = screen.getByRole('button', { name: 'Cancel switch' });
+    expect(cancel).toBeEnabled();
 
-    setStatus(opening);
-    const cancel = screen.queryByRole('button', { name: 'Cancel switch' });
-    if (cancel) expect(cancel).toBeDisabled();
-    expect(screen.queryByText(WAITING, { exact: true })).not.toBeInTheDocument();
+    await fireEvent.click(cancel);
+    expect(screen.queryByText(STOPPING, { exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cancel switch' })).not.toBeInTheDocument();
+    expect(chatFrame()).toBe(source);
+    expect(source).toBeVisible();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Switch to Terminal' }));
+    expect(screen.getByRole('button', { name: 'Cancel switch' })).toBeEnabled();
+    setStatus(stopping);
+    expect(screen.queryByRole('button', { name: 'Cancel switch' })).not.toBeInTheDocument();
+    for (const phase of [releasing, opening]) {
+      setStatus(phase);
+      expect(screen.queryByRole('button', { name: 'Cancel switch' })).not.toBeInTheDocument();
+      expect(screen.queryByText(STOPPING, { exact: true })).not.toBeInTheDocument();
+    }
   });
 });

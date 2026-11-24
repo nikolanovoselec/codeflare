@@ -12,7 +12,7 @@ export interface PiSwitchRequest {
   requestId: string;
 }
 export interface PiSwitchStatus {
-  phase: 'active' | 'waiting' | 'releasing' | 'opening' | 'complete' | 'failed' | 'uncertain' | 'cancelled';
+  phase: 'active' | 'waiting' | 'stopping' | 'releasing' | 'opening' | 'complete' | 'failed' | 'uncertain' | 'cancelled';
   surface: PiSurface | null;
   target?: PiSurface;
   requestId?: string;
@@ -20,8 +20,10 @@ export interface PiSwitchStatus {
 interface Options {
   generation: number;
   initialSurface: PiSurface;
+  stopWork(surface: PiSurface): Promise<void>;
   waitForIdle(surface: PiSurface, signal: AbortSignal): Promise<void>;
-  release(surface: PiSurface): Promise<PiTranscript>;
+  // Undefined proves release never began and the source needs to settle again.
+  release(surface: PiSurface): Promise<PiTranscript | undefined>;
   // False proves the new writer did not start. A throw leaves ownership unknown.
   open(surface: PiSurface, transcript: PiTranscript): Promise<boolean>;
   confirmOpen?(surface: PiSurface, transcript: PiTranscript): boolean;
@@ -46,7 +48,7 @@ export function createPiWebHandoff(options: Options) {
     // its exact bound transcript and answer a native startup dialog.
     if (state.phase === 'opening') return surface === 'chat' && state.target === 'chat' && kind !== 'work';
     if (state.surface !== surface) return false;
-    if (state.phase === 'waiting') return kind !== 'work';
+    if (state.phase === 'waiting' || state.phase === 'stopping') return kind !== 'work';
     return state.phase === 'active' || state.phase === 'cancelled' || state.phase === 'complete' || state.phase === 'failed';
   }
   function admit(surface: PiSurface, kind: PiWebAdmission): (() => void) | undefined {
@@ -97,21 +99,29 @@ export function createPiWebHandoff(options: Options) {
             });
           });
           abort.signal.throwIfAborted();
-          await options.waitForIdle(source, abort.signal);
-          abort.signal.throwIfAborted();
+          set({ ...attempt, phase: 'stopping', surface: source });
+          await options.stopWork(source);
         } catch {
           set({ ...attempt, phase: abort.signal.aborted ? 'cancelled' : 'failed', surface: source });
           return status();
         }
-        set({ ...attempt, phase: 'releasing', surface: source });
-        // Read operations in stock pi-web can open the session. Block them
-        // before this wait and let all already admitted responses complete.
-        await Promise.all(requests.keys());
-        try { released = await options.release(source); }
-        catch {
-          set({ ...attempt, phase: 'uncertain', surface: null });
-          return status();
-        }
+        do {
+          try { await options.waitForIdle(source, abort.signal); }
+          catch {
+            set({ ...attempt, phase: 'failed', surface: source });
+            return status();
+          }
+          set({ ...attempt, phase: 'releasing', surface: source });
+          // Reads can open stock sessions. Drain them and any admitted answers
+          // before release; an answer might have introduced new work.
+          await Promise.all(requests.keys());
+          try { released = await options.release(source); }
+          catch {
+            set({ ...attempt, phase: 'uncertain', surface: null });
+            return status();
+          }
+          if (!released) set({ ...attempt, phase: 'stopping', surface: source });
+        } while (!released);
       }
       const transcript = released;
       if (!transcript) throw new Error('No Pi transcript was released');
