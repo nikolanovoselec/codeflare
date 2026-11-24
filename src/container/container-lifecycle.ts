@@ -71,6 +71,7 @@ export interface LifecycleLogContext {
   lifecycleGeneration: number | null;
   incidentId: string | null;
   terminationIntentId?: string;
+  hermesWriter?: true;
   reason: 'user' | 'platform' | 'unknown' | 'recovery_expiry';
 }
 
@@ -492,7 +493,7 @@ async function recordFinalSyncAudit(host: LifecycleHost, result: FinalSyncResult
   const event: {
     outcome: FinalSyncOutcome; at: number; running: boolean;
     sessionId?: string; lifecycleGeneration?: number; incidentId?: string | null;
-    terminationIntentId?: string; httpStatus?: number; reason?: string;
+    terminationIntentId?: string; httpStatus?: number; reason?: string; hermesWriter?: true;
   } = { outcome: result.outcome, at: Date.now(), running: host.ctx.container?.running ?? false };
   if (context.sessionId) event.sessionId = context.sessionId;
   if (context.lifecycleGeneration !== null) {
@@ -500,6 +501,7 @@ async function recordFinalSyncAudit(host: LifecycleHost, result: FinalSyncResult
     event.incidentId = context.incidentId;
     if (context.terminationIntentId) event.terminationIntentId = context.terminationIntentId;
   }
+  if (context.hermesWriter) event.hermesWriter = true;
   if (result.httpStatus !== undefined) event.httpStatus = result.httpStatus;
   if (result.reason) event.reason = result.reason;
   // The durable audit's reason remains an outcome code; the transition's reason is its initiator.

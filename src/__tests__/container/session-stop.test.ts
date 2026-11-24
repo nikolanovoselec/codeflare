@@ -132,7 +132,11 @@ async function fixture(initial: 'stopped' | 'starting' | 'running' | 'stopping' 
       },
       storage: {
         get: async (key: string) => storage.get(key),
-        put: async (key: string, value: unknown) => {
+        put: async (key: string | Record<string, unknown>, value?: unknown) => {
+          if (typeof key !== 'string') {
+            for (const [name, data] of Object.entries(key)) storage.set(name, data);
+            return;
+          }
           if (key === 'finalSyncAudit') await pause('audit');
           if (key === 'sleepAfter') await pause('configuration');
           storage.set(key, value);

@@ -81,7 +81,7 @@ async function expectAccepted(request: Response | Promise<Response>) {
 function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = false, holdRetryDestroy = false) {
   const owner = `shutdown-${crypto.randomUUID()}`;
   const other = `shutdown-${crypto.randomUUID()}`;
-  const states = new Map<string, { ready: Promise<void>; instance: SessionContainer; restoreExit: (evidence: object, withoutRetryMarker: boolean, failCleanup: boolean) => void }>();
+  const states = new Map<string, { ready: Promise<void>; instance: SessionContainer; restoreExit: (evidence: object, withoutRetryMarker: boolean, failCleanup: boolean | 'settlement') => void }>();
   const processes = new Map<string, ReturnType<typeof processFixture>>();
   const trace: string[] = [];
   const alarms = new Set<string>();
@@ -193,10 +193,11 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
         ['bucketName', address.slice(0, first)], ['_sessionId', address.slice(first + 1)],
         ['lifecycleGeneration', 1], ['containerAuthToken', process.token], ['workspaceSyncEnabled', workspaceSyncEnabled],
         ['sessionMode', 'advanced'], ['hermes:direct-layout', true],
-        ...(process.directGeneration ? [['hermes:direct-generation', 1] as const, ['hermes:writer-generation', 1] as const] : []),
+        ...(process.directGeneration ? [['hermes:direct-generation', 1] as const] : []),
+        ...(process.directGeneration && !preRolloutRetry ? [['hermes:writer-generation', 1] as const] : []),
         ['userEmail', 'test@example.com'], ['userGroups', ['shutdown-fixture']],
       ] : []);
-      let failExitCleanup = false;
+      let failExitCleanup: boolean | 'settlement' = false;
       const storage = {
         get: async (key: string | string[]) => Array.isArray(key)
           ? new Map(key.filter(item => records.has(item)).map(item => [item, structuredClone(records.get(item))]))
@@ -212,14 +213,47 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
           }
         },
         delete: async (key: string | string[]) => {
-          if (key === 'monitoredExitGeneration' && failExitCleanup) {
+          if (key === 'monitoredExitGeneration' && failExitCleanup === true) {
             failExitCleanup = false;
             throw new Error('Exit cleanup interrupted');
           }
           return Array.isArray(key) ? key.filter(item => records.delete(item)).length : records.delete(key);
         },
         list: async ({ prefix = '' } = {}) => new Map([...records].filter(([key]) => key.startsWith(prefix))),
-        transaction: async <T>(work: (txn: unknown) => Promise<T>): Promise<T> => work(storage),
+        transaction: async <T>(work: (txn: unknown) => Promise<T>): Promise<T> => {
+          const pending = new Map<string, unknown>();
+          const removed = new Set<string>();
+          const get = (key: string) => removed.has(key) ? undefined
+            : structuredClone(pending.has(key) ? pending.get(key) : records.get(key));
+          const result = await work({ ...storage,
+            get: async (key: string | string[]) => Array.isArray(key)
+              ? new Map(key.flatMap(name => {
+                const value = get(name);
+                return value === undefined ? [] : [[name, value] as const];
+              })) : get(key),
+            put: async (key: string | Record<string, unknown>, value?: unknown) => {
+              for (const [name, data] of Object.entries(typeof key === 'string' ? { [key]: value } : key)) {
+                if (name === 'hermes:settled-generation' && failExitCleanup === 'settlement') {
+                  failExitCleanup = false;
+                  throw new Error('Settlement interrupted');
+                }
+                removed.delete(name);
+                pending.set(name, structuredClone(data));
+              }
+            },
+            delete: async (key: string | string[]) => {
+              const keys = typeof key === 'string' ? [key] : key;
+              if (keys.includes('monitoredExitGeneration') && failExitCleanup === true) {
+                failExitCleanup = false;
+                throw new Error('Exit cleanup interrupted');
+              }
+              for (const name of keys) { pending.delete(name); removed.add(name); }
+            },
+          });
+          for (const key of removed) records.delete(key);
+          for (const [key, value] of pending) records.set(key, value);
+          return result;
+        },
         setAlarm: async () => { alarms.add(address); }, deleteAlarm: async () => { alarms.delete(address); },
       };
       let ready = Promise.resolve();
@@ -284,7 +318,7 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
   const kill = (id: string) => app().request(`${path(id)}/kill`, { method: 'POST' });
   const retry = (id: string, bucket = owner) => app(bucket).request(`${path(id)}/retry-memory-consolidation`, { method: 'POST' });
   const session = (id: string) => getByName(`${owner}-${id}`);
-  const replayExit = async (id: string, generation: number, terminationIntentId: string, withoutRetryMarker = false, failCleanup = false) => {
+  const replayExit = async (id: string, generation: number, terminationIntentId: string, withoutRetryMarker = false, failCleanup: boolean | 'settlement' = false) => {
     states.get(`${owner}-${id}`)!.restoreExit({ owner, session: id, generation, terminationIntentId }, withoutRetryMarker, failCleanup);
     await session(id).collectMetrics({ ownerKey: owner, sessionId: id, generation });
   };
@@ -673,6 +707,28 @@ it('REQ-MEM-042 AC3: replay settles the admitted writer after interrupted exit c
   });
   expect((await f.remove(a)).status).toBe(200);
   expect(await session.hermesWriterSettled(f.owner, { sessionId: a, generation: 1 })).toBe(true);
+});
+
+it('REQ-MEM-042 AC3: settlement rollback allows replay after queued Delete of a pre-rollout writer', async () => {
+  const f = rig(true, true, true);
+  const A = await f.create(a);
+  A.save.release('saved');
+  await expectAccepted(f.remove(a));
+  await vi.waitFor(() => expect(f.trace).toContain(`${a}:sigterm`));
+  const row = await repository.getSession(f.owner, a);
+  expect(row?.terminationIntentId).toBeTruthy();
+  await f.replayExit(a, 1, row!.terminationIntentId!, false, 'settlement');
+  expect(await repository.getSession(f.owner, a)).toMatchObject({ lifecycleState: 'stopped', lifecycleGeneration: 1 });
+  A.exit.release('failed');
+  await vi.waitFor(async () => {
+    await f.wake();
+    expect(await repository.getSession(f.owner, a)).toBeNull();
+  });
+  const session = f.session(a);
+  const writer = { sessionId: a, generation: 1 };
+  expect(await session.hermesWriterSettled(f.owner, writer)).toBe(false);
+  await session.collectMetrics({ ownerKey: f.owner, sessionId: a, generation: 1 });
+  expect(await session.hermesWriterSettled(f.owner, writer)).toBe(true);
 });
 
 it('REQ-SESSION-006: deleting an already stopped, settled row does not launch or stop a native process', async () => {
