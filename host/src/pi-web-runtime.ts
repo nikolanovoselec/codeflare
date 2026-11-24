@@ -73,6 +73,8 @@ export function createPiWebRuntime(options: {
   let releaseReceipt: NativeReceipt | undefined;
   let stopDeadline = 0;
   let webRequestUnconfirmed = false;
+  let closing: Promise<void> | undefined;
+  let retiring = false;
   let closed = false;
 
   function validate(ref: PiTranscript): void {
@@ -208,7 +210,7 @@ export function createPiWebRuntime(options: {
     // its branch until all admitted answers and reads have actually drained.
     onChange: state => publish(state.phase === 'releasing' && state.surface === 'chat' ? { ...state, phase: 'stopping' } : state),
     async stopWork(surface) {
-      stopDeadline = Date.now() + 45_000;
+      stopDeadline = Date.now() + (retiring ? 8_000 : 45_000);
       if (surface === 'chat') {
         if (!binding || !chatReady) throw new Error('Chat writer is not ready');
         await abortChat(binding);
@@ -218,7 +220,7 @@ export function createPiWebRuntime(options: {
         const source = await until(() => {
           const observed = receipt('terminal');
           return observed && !observed.released && processMatches(observed) ? observed : undefined;
-        }, undefined, 20_000);
+        }, undefined, retiring ? 3000 : 20_000);
         save(source);
         // The native extension issues Abort on this exact stopping ticket.
         publish(handoff.status());
@@ -266,7 +268,7 @@ export function createPiWebRuntime(options: {
         await until(() => {
           const after = receipt('terminal');
           return releasedBy(after) && after?.released && !processMatches(source) ? true : undefined;
-        }, undefined, 15_000);
+        }, undefined, retiring ? 4000 : 15_000);
       }
       validate(source);
       if (!existsSync(source.path)) {
@@ -285,7 +287,7 @@ export function createPiWebRuntime(options: {
       return !!next && next.id === ref.id && next.path === ref.path && !next.released && processMatches(next);
     },
     async open(surface, ref) {
-      if (closed) return false;
+      if (closed || retiring) return false;
       if (surface === 'chat') await openChat(ref);
       else {
         terminalTicket = randomUUID();
@@ -308,6 +310,38 @@ export function createPiWebRuntime(options: {
     const ref = { id, cwd, path: join(sessionDir, matches[0]) };
     validate(ref);
     return ref;
+  }
+
+  async function close(): Promise<void> {
+    try {
+      if (options.terminalMode === 'herdr' && !legacyHerdr && bootPhase === undefined) {
+        const state = handoff.status();
+        if (state.surface === 'terminal') {
+          // Normal Stop uses the same native Abort and exact release evidence
+          // as a switch, but never opens a replacement writer.
+          const verdict = await handoff.switchTo({ generation, requestId: randomUUID(), target: 'chat' });
+          if (verdict.surface !== null || verdict.phase !== 'failed') throw new Error('Managed Herdr Pi did not retire');
+        } else if (state.surface !== 'chat') {
+          throw new Error('Managed Herdr writer was not confirmed at shutdown');
+        }
+        // Herdr can acknowledge a report without storing its resume argv.
+        // Only the unique saved parked wrapper is sufficient for managed restore.
+        const snapshot = join(bindingDir, 'session.json');
+        await until(() => {
+          const saved = loadJson<{ version: number; workspaces: Array<{ tabs: Array<{ panes: Record<string,
+            { agent_resume?: { source?: string; agent?: string; argv?: string[] } }> }> }> }>(snapshot);
+          if (saved?.version !== 3) return;
+          const roles = saved.workspaces.flatMap(workspace => workspace.tabs.flatMap(tab => Object.values(tab.panes)))
+            .filter(({ agent_resume: role }) => role?.source === 'codeflare:terminal-writer' && role.agent === 'codeflare-terminal-writer'
+              && JSON.stringify(role.argv) === '["codeflare-terminal-writer","--tui-mode","fullscreen"]');
+          return roles.length === 1 ? true : undefined;
+        }, undefined, 4000);
+      }
+    } finally {
+      closed = true;
+      releaseReceipt = undefined;
+      await services.close();
+    }
   }
 
   return {
@@ -346,10 +380,10 @@ export function createPiWebRuntime(options: {
       })().catch(error => { bootPhase = 'failed'; throw error; });
       return boot;
     },
-    async close() {
-      closed = true;
-      releaseReceipt = undefined;
-      await services.close();
+    close() {
+      retiring = true;
+      closing ??= close();
+      return closing;
     },
   };
 }

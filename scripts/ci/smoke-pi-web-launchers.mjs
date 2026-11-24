@@ -78,6 +78,13 @@ async function qualify(mode) {
   const sessionDir = join(agent, 'sessions', `--${cwd.slice(1).replaceAll('/', '-')}--`);
   const sessionFile = join(home, '.codeflare/herdr/sessions', name, 'session.json');
   let generation = 6, runtimeRoot, runtimeDir, env, ownerPath, reportPath, bootDone, pty;
+  const managedAv = ['codeflare-terminal-writer', '--tui-mode', 'fullscreen'];
+  const savedPanes = saved => saved.workspaces.flatMap(ws => ws.tabs.flatMap(tab => Object.values(tab.panes)));
+  const savedPrimary = saved => savedPanes(saved).filter(entry => entry.agent_session?.value === binding.path);
+  const hasManagedRole = entry => entry.agent_resume?.source === 'codeflare:terminal-writer'
+    && entry.agent_resume.agent === 'codeflare-terminal-writer'
+    && JSON.stringify(entry.agent_resume.argv) === JSON.stringify(managedAv);
+  const countSavedRoles = () => existsSync(sessionFile) && savedPanes(json(sessionFile)).filter(hasManagedRole).length;
 
   function boot() {
     generation++;
@@ -104,8 +111,10 @@ async function qualify(mode) {
     (await foreground(pane)).some(({ argv }) => argv?.some(arg => basename(arg) === basename(writer))));
   const stopHerdr = () => run(launcher, ['stop'], { cwd, env, timeout: 7000 });
   async function stopRuntime() {
-    await pty.stop();
+    // Match Host Session.kill(): let the named server save its live panes
+    // before tearing down the attached client PTY.
     if (mode === 'herdr') await stopHerdr();
+    await pty.stop();
     pty = undefined;
   }
 
@@ -127,10 +136,10 @@ async function qualify(mode) {
   }
 
   let binding, leaf, saved, inode;
-  async function openExact(pane) {
-    const grant = { surface: null, phase: 'opening', target: 'terminal', requestId: randomUUID(),
+  async function openExact(pane, host) {
+    const grant = host ? json(ownerPath) : { surface: null, phase: 'opening', target: 'terminal', requestId: randomUUID(),
       terminalTicket: randomUUID(), binding };
-    publish(grant);
+    if (!host) publish(grant);
     const native = await pty.until(`${mode} opens the ticket's exact native transcript`, () => {
       const value = existsSync(reportPath) && json(reportPath);
       return value && value.ticket === grant.terminalTicket && value.idle && !value.released && alive(value) && value;
@@ -175,7 +184,16 @@ async function qualify(mode) {
     binding = { id: seed.getSessionId(), cwd, path: seed.getSessionFile() };
     saved = read(binding.path);
     inode = statSync(binding.path).ino;
-    const { grant, native } = await openExact(pane);
+    let host;
+    if (mode === 'herdr') {
+      const bindingDir = join(home, '.codeflare/herdr/sessions', name);
+      mkdirSync(bindingDir, { recursive: true });
+      writeFileSync(join(bindingDir, 'agent-session-id'), `${binding.id}\n`);
+      host = createPiWebRuntime({ sessionId, generation, initialSurface: 'terminal', terminalMode: 'herdr',
+        cwd, home, runtimeDir, cloneRestored: () => existsSync(bootDone) });
+      await host.initialize();
+    }
+    const { grant, native } = await openExact(pane, host);
 
     if (mode === 'classic') {
       const requestId = randomUUID();
@@ -198,26 +216,39 @@ async function qualify(mode) {
     await control('pane', 'split', pane, '--direction', 'right', '--focus', '--cwd', cwd);
     const secondary = (await snapshot()).focused_pane_id;
     assert.ok(secondary && secondary !== pane);
-    await stopRuntime();
-    await ptylessExit(native);
     console.log('PI_WEB_HERDR_FRESH_LAUNCHER_OK');
+    const legacy = await pty.until('Herdr saves the exact native session reference before retirement', () => {
+      if (!existsSync(sessionFile)) return false;
+      const saved = json(sessionFile);
+      return savedPrimary(saved).length === 1 && saved;
+    }, 8000);
+    await host.close();
+    await ptylessExit(native);
+    const retired = json(reportPath);
+    assert.equal(retired.instance, native.instance);
+    assert.equal(retired.released, true, 'Host Stop must gracefully release the exact writer');
+    assert.equal(host.status().chatUrl, undefined, 'normal Stop must not open Chat');
+    assert.equal(countSavedRoles(), 1, 'the parked wrapper role must be saved before named Stop');
+    await stopRuntime();
+    assert.equal(countSavedRoles(), 1, 'named Stop must preserve the exact managed resume command');
 
     boot();
     assert.equal(await readyPane(), secondary, 'restored focus must remain on the other pane');
+    assert.equal(existsSync(join(runtimeDir, 'legacy-herdr')), false, 'the saved managed role must not be classified as legacy');
     await waiting(pane);
     await noTicket(pane);
     const restored = await openExact(pane);
     assert.notEqual(restored.native.instance, native.instance);
+    publish({ ...restored.grant, surface: 'terminal', phase: 'releasing', target: 'chat', requestId: randomUUID() });
+    await pty.until('managed Herdr wrapper parks again after terminal releases', () =>
+      !alive(restored.native) && json(reportPath).released === true && countSavedRoles() === 1);
     await stopRuntime();
-    await ptylessExit(restored.native);
+    assert.equal(countSavedRoles(), 1, 'stopping an already parked wrapper preserves its role');
     console.log('PI_WEB_HERDR_MANAGED_RESTORE_OK');
 
-    // Age the real saved topology to the pre-ticket format. Keep the native
-    // path Herdr recorded; only remove the newer custom resume argv.
-    const legacy = json(sessionFile);
-    const panes = legacy.workspaces.flatMap(ws => ws.tabs.flatMap(tab => Object.values(tab.panes)));
-    assert.ok(panes.some(entry => entry.agent_session?.value === binding.path), 'Herdr did not save the native session reference');
-    for (const entry of panes) delete entry.agent_resume;
+    // Feed a genuine saved native session without the newer wrapper role to
+    // exercise the legacy launch path separately.
+    for (const entry of savedPanes(legacy)) delete entry.agent_resume;
     writeFileSync(sessionFile, JSON.stringify(legacy));
     boot();
     await readyPane();

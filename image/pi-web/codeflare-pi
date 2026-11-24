@@ -33,10 +33,18 @@ report_waiting_pane() {
     [ "$mode" = herdr ] || return 0
     # Herdr requires a reporter to hold the pane before storing its resume argv.
     # This is a wrapper role, not a report that a native Pi session is open.
-    timeout 3 /usr/local/bin/herdr pane report-agent "$HERDR_PANE_ID" \
-        --source codeflare:terminal-writer --agent codeflare-terminal-writer --state idle \
-        -- codeflare-terminal-writer --tui-mode fullscreen >/dev/null || \
-        printf 'Codeflare: Herdr could not persist the managed terminal role.\n' >&2
+    local attempt
+    for attempt in 1 2 3; do
+        if timeout 1 /usr/local/bin/herdr pane report-agent "$HERDR_PANE_ID" \
+            --source codeflare:terminal-writer --agent codeflare-terminal-writer --state idle \
+            -- codeflare-terminal-writer --tui-mode fullscreen >/dev/null; then
+            return 0
+        fi
+        # Herdr may still be clearing the exited native reporter. Only the
+        # parked process retries; it never sends a report while Pi is live.
+        sleep 0.25
+    done
+    printf 'Codeflare: Herdr could not persist the managed terminal role.\n' >&2
 }
 
 read_ticket() {

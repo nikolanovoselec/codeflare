@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
 	closeSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, rmSync, writeFileSync,
@@ -316,16 +315,7 @@ export default function (pi: ExtensionAPI) {
 	});
 	pi.on("resources_discover", () => {
 		if (!ctx || ready) return;
-		if (terminal) {
-			fenceEditor(ctx);
-			const pane = process.env.HERDR_PANE_ID;
-			if (process.env.HERDR_ENV === "1" && pane && /^[A-Za-z0-9._:-]{1,128}$/.test(pane)) {
-				const path = ctx.sessionManager.getSessionFile();
-				if (path) spawnSync("/usr/local/bin/herdr", ["pane", "report-agent-session", pane,
-					"--source", "herdr:pi", "--agent", "pi", "--seq", String(Date.now() * 1000), "--agent-session-path", path,
-					"--", "codeflare-terminal-writer", "--tui-mode", "fullscreen"], { timeout: 2000, stdio: "ignore" });
-			}
-		}
+		if (terminal) fenceEditor(ctx);
 		ready = true;
 		publish();
 		timer = setInterval(publish, 250);
