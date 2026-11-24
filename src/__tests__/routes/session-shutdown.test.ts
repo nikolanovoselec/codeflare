@@ -103,7 +103,7 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
     let disabledAtStartup = false;
     const exit = gate<void | 'failed'>(undefined);
     const merge = gate<'skipped' | 'merged' | 'legacy-merged' | 'pending' | 'uncertain' | 'http-504' | 'host-lost'>('skipped');
-    const retryResult = gate<'merged' | 'pending' | 'skipped'>('pending');
+    const retryResult = gate<'merged' | 'pending' | 'skipped' | 'http-504'>('pending');
     const retryDestroy = holdRetryDestroy ? gate<void>(undefined) : undefined;
     let retrying = false;
     let mergeRequest: { intent: string; snapshotId: string; deadline: number; allowPersonalPiProviders: boolean } | undefined;
@@ -669,7 +669,8 @@ it.each([false, true])('REQ-SESSION-043: an evicted snapshot cannot start Retry 
   const response = await f.retry(a);
   expect(response.status).toBe(409);
   expect(await response.json()).toMatchObject({ error: 'Saved memory is no longer available for consolidation' });
-  expect((await f.batch())[a]).toMatchObject({ status: 'stopped', generation: 1, pendingDelete: true });
+  expect((await f.batch())[a]).toMatchObject({ status: 'stopped', generation: 1, pendingDelete: true,
+    shutdownPhase: 'memory-not-merged', snapshotUnavailable: true });
   expect(f.trace).not.toContain(`${a}:headless-start`);
 });
 
@@ -685,6 +686,22 @@ it('REQ-SESSION-043: Retry refused at launch leaves the stopped row and pending 
     status: 'stopped', shutdownPhase: 'memory-not-merged', snapshotUnavailable: true, pendingDelete: true,
   }));
   expect(f.trace).not.toContain(`${a}:headless-start`);
+});
+
+it.each([true, false])('REQ-SESSION-043: failed headless acknowledgment reports only confirmed snapshot loss (evicted %s)', async evicted => {
+  const f = rig();
+  const A = await f.create(a, { holdMerge: true });
+  A.save.release('saved'); A.exit.release(); A.merge.release('pending');
+  await expectAccepted(f.remove(a));
+  await vi.waitFor(async () => expect((await f.batch())[a]).toMatchObject({ status: 'stopped', shutdownPhase: 'memory-not-merged' }));
+  await expectAccepted(f.retry(a));
+  await vi.waitFor(() => expect(f.trace.filter(event => event === `${a}:merge`)).toHaveLength(2));
+  if (evicted) f.evictSnapshot(a);
+  A.retryResult.release('http-504');
+  await vi.waitFor(async () => expect((await f.batch())[a]).toMatchObject({
+    status: 'stopped', generation: 2, pendingDelete: true, shutdownPhase: 'memory-not-merged',
+  }));
+  expect((await f.batch())[a]?.snapshotUnavailable).toBe(evicted ? true : undefined);
 });
 
 it('REQ-SESSION-043: Retry launches only the headless runtime with the same confirmed snapshot', async () => {

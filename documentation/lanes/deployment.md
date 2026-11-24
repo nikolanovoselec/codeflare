@@ -139,6 +139,8 @@ This procedure verifies **inactive** trust, not remote activation. Production us
 
 The enterprise GitHub Environment layout, activation variable, account overrides, AI Gateway fallback secrets, required token permissions, and deployment procedure are maintained in the [Enterprise deployment runbook](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/deployment/enterprise.md). This public lane intentionally does not duplicate non-default deployment credentials.
 
+Before rolling out [live Hermes eviction](vault.md#durable-pi-facts), confirm that no direct-layout writer started before upload fencing remains running on the target. Old containers do not switch upload endpoints in place. If an exit is unconfirmed, hold the rollout; a Stop request alone is not enough. <!-- @impl: src/container/index.ts::launchSession -->
+
 ---
 
 ## Strict Gateway Egress (Enterprise Mode)

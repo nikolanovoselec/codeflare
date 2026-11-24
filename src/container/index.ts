@@ -1825,10 +1825,16 @@ export class container extends Container<Env> implements ContainerEnvState {
     const abort = new AbortController();
     const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(HERMES_MERGE_BUDGET_MS)]);
     let snapshotUnavailable = false;
-    const checkSnapshot = async () => {
-      const retained = await raceAbort(signal, () => getBucketOwnerStub(this.env, bucket).hermesStoreRetained(bucket, sessionId));
+    const checkSnapshot = async (checkSignal = signal) => {
+      const retained = await raceAbort(checkSignal, () => getBucketOwnerStub(this.env, bucket).hermesStoreRetained(bucket, sessionId));
       snapshotUnavailable = !retained;
       return retained;
+    };
+    const checkAfterFailure = async () => {
+      if (snapshotUnavailable || abort.signal.aborted) return;
+      const checkSignal = AbortSignal.any([abort.signal, AbortSignal.timeout(CONTAINER_POLL_BUDGET_MS)]);
+      // A failed lookup does not establish eviction; the merge deadline is not the status lookup's budget.
+      await checkSnapshot(checkSignal).catch(() => {});
     };
     const failBeforeStart = () => transitionShutdown(repository, input, intent, 'queued', current => ({
       ...current, phase: 'memory-not-merged', ...(snapshotUnavailable ? { snapshotUnavailable: true } : {}),
@@ -1892,13 +1898,16 @@ export class container extends Container<Env> implements ContainerEnvState {
       if (!running || running.lifecycleGeneration !== active.generation || running.lifecycleState !== 'running'
         || running.shutdown?.intent !== intent || running.shutdown.phase !== 'consolidating') throw new Error('Hermes retry superseded');
       const outcome = await this.#runHermesMerge(running, snapshotId, deadline, signal, abort.signal);
-      if (outcome.phase === 'finishing-pending') await checkSnapshot().catch(() => {});
+      if (outcome.phase === 'finishing-pending') await checkAfterFailure();
+      abort.signal.throwIfAborted();
       await transitionShutdown(repository, active, intent, 'consolidating', state => ({
         ...state, ...outcome, ...(snapshotUnavailable ? { snapshotUnavailable: true } : {}),
       }));
     } catch {
       if (!active) await failBeforeStart();
       else if (!abort.signal.aborted) {
+        await checkAfterFailure();
+        if (abort.signal.aborted) return;
         await transitionShutdown(repository, active, intent, 'consolidating', current => ({
           ...current, phase: 'finishing-pending', ...(snapshotUnavailable ? { snapshotUnavailable: true } : {}),
         }));

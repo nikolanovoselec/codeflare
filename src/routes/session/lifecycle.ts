@@ -13,7 +13,7 @@ import { getBucketOwnerStub } from '../../lib/access';
 import { NotFoundError, ValidationError } from '../../lib/error-types';
 import { fanOutBisyncTrigger } from '../../lib/sync-fanout';
 import { D1SessionRepository } from '../../lib/session-repository';
-import { shutdownProjection } from '../../lib/session-shutdown';
+import { mergeNeedsRetry, shutdownProjection } from '../../lib/session-shutdown';
 import { maybeQueueShutdown } from './shutdown';
 import type { SessionStopRequest } from '../../container/container-lifecycle';
 import { getPreferencesKey, getTimekeeperKey, getUtcDateString, getUtcMonthString } from '../../lib/kv-keys';
@@ -280,7 +280,8 @@ app.post('/:id/kill', sessionKillRateLimiter, async (c) => {
 app.post('/:id/retry-memory-consolidation', sessionStopRateLimiter, async (c) => {
   const id = c.req.param('id');
   if (!SESSION_ID_PATTERN.test(id)) throw new ValidationError('Invalid sessionId format');
-  const session = await new D1SessionRepository(c.env.USAGE_DB).getSession(c.get('bucketName'), id);
+  const repository = new D1SessionRepository(c.env.USAGE_DB);
+  const session = await repository.getSession(c.get('bucketName'), id);
   if (!session) throw new NotFoundError('Session not found');
   if (session.lifecycleState === 'stopped' && session.shutdown?.phase === 'uncertain') {
     await getBucketStorageOwner(c.env, session.ownerKey).wakeHermesShutdownQueue(session.ownerKey);
@@ -291,6 +292,9 @@ app.post('/:id/retry-memory-consolidation', sessionStopRateLimiter, async (c) =>
   }
   if (session.shutdown.snapshotUnavailable
     || !await getBucketOwnerStub(c.env, session.ownerKey).hermesStoreRetained(session.ownerKey, id)) {
+    if (!session.shutdown.snapshotUnavailable && mergeNeedsRetry(session.shutdown)) {
+      await repository.updateShutdown(session, { ...session.shutdown, snapshotUnavailable: true });
+    }
     return c.json({ error: 'Saved memory is no longer available for consolidation' }, 409);
   }
   const accepted = await getBucketStorageOwner(c.env, session.ownerKey).enqueueHermesShutdown({
