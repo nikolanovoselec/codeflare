@@ -4,8 +4,9 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { createServer } from 'node:http';
+import http, { createServer } from 'node:http';
 import { basename, dirname, join } from 'node:path';
+import { Readable } from 'node:stream';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createPiWebProxy } from '../../host/dist/pi-web-proxy.js';
 import { createPiWebRuntime } from '../../host/dist/pi-web-runtime.js';
@@ -13,6 +14,7 @@ import { PI_WEB_PORT } from '../../host/dist/pi-web-services.js';
 
 const stock = `http://127.0.0.1:${PI_WEB_PORT}`;
 const nativeFetch = globalThis.fetch;
+const nativeHttpRequest = http.request;
 const generation = 7;
 const sessionId = 'handoffsmoke';
 const prefix = `/api/pi-web/${sessionId}`;
@@ -189,8 +191,7 @@ export default function (pi) {
     let busyChecks = 0;
     let stop;
     const aborts = [];
-    // Observe real private HTTP. For the negative case only, lose the prompt
-    // acknowledgment AFTER stock accepted it; no server or receipt is replaced.
+    // Observe the real private control HTTP calls used by the coordinator.
     globalThis.fetch = async (input, init) => {
       const url = new URL(input instanceof Request ? input.url : input);
       const closing = url.origin === stock && url.pathname === `${ref}/stop`;
@@ -201,11 +202,27 @@ export default function (pi) {
         parked: !existsSync(resume) });
       if (url.pathname === catalog && (await response.clone().json()).runtime === 'busy') busyChecks++;
       if (closing) stop.stopped = (await response.clone().json()).stopped;
-      if (ambiguous && url.pathname === `${ref}/prompt` && (await response.clone().json()).accepted === true) {
-        return new Response('{', { status: response.status, headers: { 'Content-Type': 'application/json' } });
-      }
       return response;
     };
+    if (ambiguous) {
+      // Lose only the browser proxy's prompt acknowledgment, after the
+      // genuine stock HTTP call proves it was accepted by the daemon.
+      http.request = (url, options, receive) => {
+        if (url.origin !== stock || url.pathname !== `${ref}/prompt` || options.method !== 'POST') {
+          return nativeHttpRequest(url, options, receive);
+        }
+        const upstream = nativeHttpRequest(url, options, response => {
+          void (async () => {
+            const chunks = [];
+            for await (const chunk of response) chunks.push(chunk);
+            assert.equal(response.statusCode, 200);
+            assert.equal(JSON.parse(Buffer.concat(chunks)).accepted, true);
+            receive(Object.assign(Readable.from(['{']), { statusCode: response.statusCode, headers: response.headers }));
+          })().catch(error => upstream.destroy(error));
+        });
+        return upstream;
+      };
+    }
     const prompt = (message, status = 200) => api(`${ref}/prompt`, status, { cwd, text: message });
     if (!ambiguous) {
       assert.equal((await prompt(seed)).accepted, true);
@@ -290,6 +307,7 @@ export default function (pi) {
     console.log('PI_WEB_HOST_HANDOFF_OK');
   } finally {
     globalThis.fetch = nativeFetch;
+    http.request = nativeHttpRequest;
     writeFileSync(resume, '');
     await Promise.all([proxy.close(), close(server), close(modelServer)]);
     rmSync(home, { recursive: true, force: true });

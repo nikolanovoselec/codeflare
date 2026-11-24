@@ -1,6 +1,5 @@
-import type { IncomingMessage, ServerResponse } from 'node:http';
+import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import type { Duplex } from 'node:stream';
-import { Readable } from 'node:stream';
 import { WebSocket, WebSocketServer } from 'ws';
 import { PI_WEB_PORT } from './pi-web-services.js';
 import type { PiWebRuntime } from './pi-web-runtime.js';
@@ -18,16 +17,20 @@ function send(res: ServerResponse, code: number, data: object): void {
   res.end(JSON.stringify(data));
 }
 
-async function jsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+async function readJson(stream: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
   let bytes = 0;
-  for await (const part of req) {
+  for await (const part of stream) {
     const chunk = Buffer.isBuffer(part) ? part : Buffer.from(part);
     bytes += chunk.length;
     if (bytes > maxBody) throw new Error('Pi web request is too large');
     chunks.push(chunk);
   }
-  const body: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  return JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
+}
+
+async function jsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+  const body = await readJson(req);
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('Invalid Pi web request');
   return body as Record<string, unknown>;
 }
@@ -136,43 +139,51 @@ export function createPiWebProxy(options: { sessionId: string; runtime: PiWebRun
         body = JSON.stringify(data);
       }
       dispatched = true;
-      const result = await fetch(url, {
-        method: req.method, ...(opening && endpoint ? {} : { signal: AbortSignal.timeout(25_000) }), redirect: 'manual',
-        headers: { Host: new URL(origin).host, ...(req.headers.origin && { Origin: req.headers.origin }),
-          ...(body !== undefined && { 'Content-Type': 'application/json' }) }, body,
+      // Node fetch can replace Host with the loopback authority. Stock checks
+      // Host and Origin as a pair, so use Node HTTP with the verified public Host.
+      const result = await new Promise<IncomingMessage>((resolve, reject) => {
+        const upstream = http.request(url, {
+          method: req.method, ...(opening && endpoint ? {} : { signal: AbortSignal.timeout(25_000) }),
+          headers: { Host: new URL(origin).host, ...(req.headers.origin && { Origin: req.headers.origin }),
+            ...(body !== undefined && { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }) },
+        }, resolve);
+        upstream.once('error', reject);
+        upstream.end(body);
       });
-      if (endpoint && result.status >= 500) runtime.markWebRequestUnconfirmed();
-      if (endpoint === 'prompt' && result.ok) {
-        const acknowledgment: unknown = await result.json();
+      if (!result.statusCode) throw new Error('Missing stock Chat HTTP status');
+      const status = result.statusCode;
+      const ok = status >= 200 && status < 300;
+      if (endpoint && status >= 500) runtime.markWebRequestUnconfirmed();
+      if (endpoint === 'prompt' && ok) {
+        const acknowledgment = await readJson(result);
         if (!acknowledgment || typeof acknowledgment !== 'object' || !('accepted' in acknowledgment)
           || acknowledgment.accepted !== true) throw new Error('Unconfirmed stock prompt acknowledgment');
         // Acceptance is not settlement. The exact catalog row is checked
         // only after all admitted requests, including this one, finish.
         upstreamSettled = true;
         options.recordInput();
-        send(res, result.status, acknowledgment);
+        send(res, status, acknowledgment);
         return;
       }
       upstreamSettled = true;
       const headers: Record<string, string> = { 'Cache-Control': 'no-store' };
-      const contentType = result.headers.get('content-type');
+      const contentType = result.headers['content-type'];
       if (contentType) headers['Content-Type'] = contentType;
-      if (result.ok && endpoint && settlers.has(endpoint)) options.recordInput();
-      if (result.ok && read && path === '/api/sessions' && req.method !== 'HEAD') {
-        const rows: unknown = await result.json();
-        send(res, result.status, Array.isArray(rows) ? rows.filter(row => row?.id === runtime.binding?.id && row?.cwd === runtime.cwd) : []);
+      if (ok && endpoint && settlers.has(endpoint)) options.recordInput();
+      if (ok && read && path === '/api/sessions' && req.method !== 'HEAD') {
+        const rows = await readJson(result);
+        send(res, status, Array.isArray(rows) ? rows.filter(row => row?.id === runtime.binding?.id && row?.cwd === runtime.cwd) : []);
         return;
       }
-      res.writeHead(result.status, headers);
-      if (!result.body) { res.end(); return; }
-      const stream = Readable.fromWeb(result.body as import('node:stream/web').ReadableStream<Uint8Array>);
+      res.writeHead(status, headers);
       // For a complete release, finish counts upstream I/O, not merely the
       // disconnected browser. Cancel the upstream stream before dropping it.
       await new Promise<void>((resolve, reject) => {
-        stream.once('error', reject);
-        stream.once('close', resolve);
-        res.once('close', () => stream.destroy());
-        stream.pipe(res);
+        result.once('error', reject);
+        result.once('close', resolve);
+        res.once('close', () => result.destroy());
+        if (res.destroyed) result.destroy();
+        else result.pipe(res);
       });
     } catch {
       // Cancelling fetch is not proof that sessiond cancelled getOrOpen or
