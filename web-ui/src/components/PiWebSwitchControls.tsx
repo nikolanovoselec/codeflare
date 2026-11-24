@@ -17,7 +17,7 @@ export default function PiWebSwitchControls(props: PiWebSwitchControlsProps) {
       case 'stopping': return 'Stopping the current turn…';
       case 'releasing':
       case 'opening': return 'Switching Pi surface…';
-      case 'failed': return 'Could not open the selected Pi surface.';
+      case 'failed': return 'Could not switch Pi surfaces.';
       case 'uncertain': return 'The Pi surface could not be confirmed.';
       default: return undefined;
     }

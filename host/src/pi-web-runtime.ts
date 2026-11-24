@@ -71,6 +71,7 @@ export function createPiWebRuntime(options: {
   let bootPhase: 'opening' | 'failed' | undefined = 'opening';
   let legacyHerdr = false;
   let releaseReceipt: NativeReceipt | undefined;
+  let stopDeadline = 0;
   let webRequestUnconfirmed = false;
   let closed = false;
 
@@ -207,6 +208,7 @@ export function createPiWebRuntime(options: {
     // its branch until all admitted answers and reads have actually drained.
     onChange: state => publish(state.phase === 'releasing' && state.surface === 'chat' ? { ...state, phase: 'stopping' } : state),
     async stopWork(surface) {
+      stopDeadline = Date.now() + 45_000;
       if (surface === 'chat') {
         if (!binding || !chatReady) throw new Error('Chat writer is not ready');
         await abortChat(binding);
@@ -233,7 +235,7 @@ export function createPiWebRuntime(options: {
           return;
         }
         return observed.idle ? observed : undefined;
-      }, signal);
+      }, signal, Math.max(0, stopDeadline - Date.now()));
       // The extension must see the exact identity when it anchors the active
       // leaf and signals release readiness for this attempt.
       save(releaseReceipt);

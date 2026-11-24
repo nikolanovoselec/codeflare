@@ -1008,7 +1008,7 @@ jobs:
         working-directory: image/pi-web
         run: npm ci --omit=dev --omit=peer --no-audit --no-fund
 
-      - name: Qualify the production Pi Web supervisor with the locked artifacts
+      - name: Qualify the production Pi Web supervisor and handoff with the locked artifacts
         run: |
           set -euo pipefail
           node_image=$(awk '$1 == "FROM" && NF == 2 && $2 ~ /^mirror[.]gcr[.]io\/library\/node:/ { print $2 }' Dockerfile)
@@ -1016,7 +1016,7 @@ jobs:
           # Transpile, do not bundle: production relative .js imports remain usable by other smoke modules.
           host_dist=$(mktemp -d "$RUNNER_TEMP/pi-web-host.XXXXXXXX")
           chmod 0755 "$host_dist" # Readable by the container without DAC override.
-          node_modules/.bin/esbuild host/src/pi-web-{handoff,runtime,services}.ts \
+          node_modules/.bin/esbuild host/src/pi-web-{handoff,proxy,runtime,services}.ts \
             --format=esm --target=es2022 --outdir="$host_dist"
           docker run --rm --init --network=none --cap-drop=ALL --security-opt=no-new-privileges \
             --env PI_OFFLINE=1 --env PI_SKIP_VERSION_CHECK=1 \
@@ -1024,11 +1024,13 @@ jobs:
             --mount "type=bind,src=$GITHUB_WORKSPACE/preseed/agents/pi/node_modules,dst=/opt/codeflare/npm-tools/node_modules,readonly" \
             --mount "type=bind,src=$GITHUB_WORKSPACE/preseed/npm-tools/package.json,dst=/opt/codeflare/npm-tools/package.json,readonly" \
             --mount "type=bind,src=$GITHUB_WORKSPACE/scripts/ci,dst=/qualification/scripts/ci,readonly" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/image/pi-web/node_modules/ws,dst=/qualification/host/node_modules/ws,readonly" \
             --mount "type=bind,src=$host_dist,dst=/qualification/host/dist,readonly" \
             "$node_image" sh -euc '
               ln -s "$(readlink -f /opt/codeflare/npm-tools/node_modules/.bin/pi)" /usr/local/bin/pi
-              exec node "$@"
-            ' sh /qualification/scripts/ci/smoke-pi-web-services.mjs
+              node /qualification/scripts/ci/smoke-pi-web-services.mjs
+              exec node /qualification/scripts/ci/smoke-pi-web-host-handoff.mjs
+            '
 
       - name: Verify native Pi and stock pi-web transcript interoperability
         env:
