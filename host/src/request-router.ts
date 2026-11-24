@@ -918,10 +918,12 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
         }
         sessionManager.quiesceForHermesMerge();
       }
-      const reportDiskBlock = (): boolean => {
+      const reportDiskBlock = (confirmNoDispatch = false): boolean => {
         if (!fs.existsSync(`${SYNC_RUNTIME_DIR}/disk-space-blocked`)) return false;
         res.writeHead(409, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ synced: false, reason: 'disk-space-blocked' }));
+        res.end(JSON.stringify({ synced: false, reason: 'disk-space-blocked',
+          ...(confirmNoDispatch ? { syncDispatched: false } : {}),
+        }));
         return true;
       };
       if (!mergeSave && reportDiskBlock()) return;
@@ -952,7 +954,7 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
             res.end(JSON.stringify({ synced: false, reason: 'hermes-disabled-at-startup', generation: Number(generation) }));
             return;
           }
-          if (reportDiskBlock()) return;
+          if (reportDiskBlock(true)) return;
           if (opened) {
             if (!deps.hermesShutdown) {
               res.writeHead(503, { 'Content-Type': 'application/json' });

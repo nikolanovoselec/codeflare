@@ -102,7 +102,8 @@ function rig(enterprise = true, workspaceSyncEnabled = true) {
     // Model exit confirmation independently of the running hint. The fixture
     // uses awaited native destroy as its source of positive exit evidence.
     const monitor = new Promise<void>(() => {});
-    const save = gate<'saved' | 'failed' | 'ambiguous' | 'timed-out' | 'pi-shutdown-unconfirmed' | 'missing-reason' | 'not-started' | { disabledGeneration: number }>('saved');
+    const save = gate<'saved' | 'failed' | 'ambiguous' | 'timed-out' | 'pi-shutdown-unconfirmed' | 'pi-shutdown-timeout'
+      | 'missing-reason' | 'not-started' | 'disk-refused' | 'disk-without-dispatch-proof' | { disabledGeneration: number }>('saved');
     let firstSave = true;
     let disabledAtStartup = false;
     const exit = gate<void>(undefined);
@@ -147,7 +148,13 @@ function rig(enterprise = true, workspaceSyncEnabled = true) {
             return result === 'timed-out' ? Response.json({ synced: false, reason: 'timeout' }, { status: 504 })
               : Response.json({ synced: false, reason: 'hermes-save-not-started' }, { status: 503 });
           }
-          if (result === 'pi-shutdown-unconfirmed' || result === 'missing-reason') {
+          if (result === 'disk-refused' || result === 'disk-without-dispatch-proof') {
+            trace.push(`${label}:save-failed`);
+            return Response.json({ synced: false, reason: 'disk-space-blocked',
+              ...(result === 'disk-refused' ? { syncDispatched: false } : {}),
+            }, { status: 409 });
+          }
+          if (result === 'pi-shutdown-unconfirmed' || result === 'pi-shutdown-timeout' || result === 'missing-reason') {
             trace.push(`${label}:save-failed`);
             return Response.json({ synced: false, ...(result !== 'missing-reason' && { reason: result }) }, { status: 503 });
           }
@@ -380,7 +387,7 @@ it('REQ-SESSION-043: an unbound Hermes startup result cannot bypass the save gat
   expect(f.trace.filter(event => event === `${a}:save`)).toEqual([`${a}:save`]);
 });
 
-it.each(['ambiguous', 'timed-out', 'pi-shutdown-unconfirmed', 'missing-reason'] as const)('REQ-SESSION-043: unconfirmed final sync (%s) preserves Delete target and holds its successor until authority is revoked', async outcome => {
+it.each(['ambiguous', 'timed-out', 'pi-shutdown-unconfirmed', 'pi-shutdown-timeout', 'missing-reason', 'disk-without-dispatch-proof'] as const)('REQ-SESSION-043: unconfirmed final sync (%s) preserves Delete target and holds its successor until authority is revoked', async outcome => {
   const f = rig(true, false);
   const A = await f.create(a);
   const B = await f.create(b);
@@ -412,7 +419,7 @@ it.each(['ambiguous', 'timed-out', 'pi-shutdown-unconfirmed', 'missing-reason'] 
   expect(f.trace.filter(event => event.startsWith(`${a}:`))).toEqual([`${a}:final-events`, `${a}:save`, `${a}:save-failed`, `${a}:exit`]);
 });
 
-it.each(['failed', 'not-started'] as const)('REQ-SESSION-043: Retry Stop can recover after final save was %s', async outcome => {
+it.each(['failed', 'not-started', 'disk-refused'] as const)('REQ-SESSION-043: Retry Stop can recover after final save was %s', async outcome => {
   const f = rig();
   const A = await f.create(a);
   A.save.release(outcome);
