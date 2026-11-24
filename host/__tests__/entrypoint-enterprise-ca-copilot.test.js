@@ -119,6 +119,31 @@ describe('REQ-ENTERPRISE-005 AC2: terminal server CA inheritance', () => {
   }
 });
 
+it('REQ-SESSION-043: headless Retry installs the mounted CA before starting the Host', t => {
+  const home = mkdtempSync(join(tmpdir(), 'retry-ca-'));
+  t.after(() => rmSync(home, { recursive: true, force: true }));
+  const ca = join(home, 'mounted.crt');
+  writeFileSync(ca, 'fixture CA');
+  const start = entrypoint.indexOf('CF_CA_SRC="/etc/cloudflare/certs/cloudflare-containers-ca.crt"');
+  const end = entrypoint.indexOf('echo "[entrypoint] Starting terminal server', start);
+  const launch = entrypoint.slice(start, end)
+    .replaceAll('/etc/cloudflare/certs/cloudflare-containers-ca.crt', ca)
+    .replaceAll('cd /app/host', 'cd "$USER_HOME"');
+  const script = [
+    'set -euo pipefail',
+    'cp() { command cp "$1" "$USER_HOME/staged.crt"; }',
+    'update-ca-certificates() { command cp "$USER_HOME/staged.crt" "$USER_HOME/trusted.crt"; }',
+    // Stand in for the Host and verify that system trust and Node trust are both ready at its launch.
+    'exec() { cmp "$NODE_EXTRA_CA_CERTS" "$USER_HOME/trusted.crt" && test ! -e "$HOME/.bashrc"; }',
+    launch,
+  ].join('\n');
+  const result = spawnSync('bash', ['-c', script], {
+    env: { ...process.env, ENTERPRISE_MODE: 'active', CODEFLARE_HERMES_RETRY_SNAPSHOT: 'fixture', USER_HOME: home },
+    encoding: 'utf8',
+  });
+  assert.equal(result.status, 0, result.stderr);
+});
+
 // ---------------------------------------------------------------------------
 // AC2: CA trust → .bashrc
 // ---------------------------------------------------------------------------

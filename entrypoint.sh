@@ -3127,6 +3127,11 @@ export CODEFLARE_CLONE_RESTORE_FLAG_FILE=$CODEFLARE_RUNTIME_ROOT/services/clone-
 rm -f "$CODEFLARE_CLONE_RESTORE_FLAG_FILE" "$CODEFLARE_CLONE_RESTORE_FLAG_FILE.running"
 
 CF_CA_SRC="/etc/cloudflare/certs/cloudflare-containers-ca.crt"
+install_enterprise_system_ca() {
+    cp "$CF_CA_SRC" /usr/local/share/ca-certificates/cloudflare-containers-ca.crt 2>/dev/null \
+        && update-ca-certificates >/dev/null 2>&1
+}
+
 export_enterprise_ca_environment() {
     export NODE_EXTRA_CA_CERTS="$CF_CA_SRC"
     export SSL_CERT_FILE="/etc/ssl/certs/ca-certificates.crt"
@@ -3137,7 +3142,12 @@ export_enterprise_ca_environment() {
 # restore, bisync daemon, editor or terminal is started for this runtime.
 if [ "${ENTERPRISE_MODE:-}" = active ] && [ -n "${CODEFLARE_HERMES_RETRY_SNAPSHOT:-}" ]; then
     cd /app/host || exit 1
-    if [ -f "$CF_CA_SRC" ]; then export_enterprise_ca_environment; fi
+    if [ -f "$CF_CA_SRC" ]; then
+        # Node's extra CA does not cover the rclone subprocess.
+        install_enterprise_system_ca \
+            || echo "[entrypoint] WARNING: could not install containers CA before Hermes Retry; strict-egress sync may fail TLS"
+        export_enterprise_ca_environment
+    fi
     export HOME="$USER_HOME" TERMINAL_PORT=8080
     exec node dist/server.js
 fi
@@ -3212,10 +3222,8 @@ run_initial_r2_restore() {
         # first sync ("Syncing…") fails the TLS handshake. The enterprise CA block later in
         # this script re-installs it idempotently and additionally wires the agent env/.bashrc.
         if [ "${ENTERPRISE_MODE:-}" = "active" ]; then
-            _CF_CA_SRC="/etc/cloudflare/certs/cloudflare-containers-ca.crt"
-            if [ -f "$_CF_CA_SRC" ]; then
-                cp "$_CF_CA_SRC" /usr/local/share/ca-certificates/cloudflare-containers-ca.crt 2>/dev/null \
-                    && update-ca-certificates >/dev/null 2>&1 \
+            if [ -f "$CF_CA_SRC" ]; then
+                install_enterprise_system_ca \
                     && echo "[entrypoint] Enterprise Mode: containers CA installed before R2 sync (rclone trusts intercepted TLS)" \
                     || echo "[entrypoint] WARNING: could not install containers CA before R2 sync; strict-egress sync may fail TLS"
             fi
