@@ -60,7 +60,7 @@ Node Docker major proposals are ignored; Node LTS migration is manual, not an au
 
 ### Stock pi-web pin
 
-Dependabot owns the dedicated `/image/pi-web` npm manifest and consumer lock; Shadow Pins does not update it. The locked artifact is exercised against the pinned Pi SDK in PR checks and the packaged runtime. The test establishes stock transcript interchange, not end-to-end Codeflare switching; use [Pi Chat handoff acceptance](terminal-and-ide.md#pi-chat-handoff-acceptance) for that evidence.
+Dependabot owns the dedicated `/image/pi-web` npm manifest and consumer lock; Shadow Pins does not update it. The packaged image exercises stock transcript interchange against the installed Pi SDK. PR Checks separately exercise the production supervisor, live stop-and-switch with an isolated Host and native TUI, and the shipped Classic and checksum-pinned Herdr launchers. The fixtures do not publish images or configure a hosted workspace. Use [Pi Chat handoff acceptance](terminal-and-ide.md#pi-chat-handoff-acceptance) for complete image entrypoint, UI, and workspace evidence.
 
 ### Shadow-pin ownership and mutation boundaries
 
