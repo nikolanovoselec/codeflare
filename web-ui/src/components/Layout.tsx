@@ -1,4 +1,4 @@
-import { Component, createSignal, createMemo, createEffect, onMount, onCleanup, For, Show, untrack } from 'solid-js';
+import { Component, createSignal, createMemo, createEffect, onMount, onCleanup, For, Show, untrack, batch } from 'solid-js';
 import Header from './Header';
 import TerminalArea from './TerminalArea';
 import { createMigrationRetry, MigrationRetryNotice } from './MigrationRetryNotice';
@@ -557,14 +557,14 @@ const Layout: Component<LayoutProps> = (props) => {
     }
   };
 
-  const keepDashboardOwnership = (historyMode?: 'push' | 'replace') => {
+  const keepDashboardOwnership = (historyMode?: 'push' | 'replace') => batch(() => {
     terminalWorkspaceStore.setDashboardWorkspace();
     setShowTilingOverlay(false);
     clearViewTransitionTimer();
     sessionStore.setActiveSession(null);
     setViewState('dashboard');
     if (historyMode) writeHistoryPath(dashboardPath(), historyMode);
-  };
+  });
 
   const openSessionWorkspace = (
     id: string,

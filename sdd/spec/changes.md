@@ -6,7 +6,7 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 ## 2026-11-25: Keep session shutdown cards live
 
-- [REQ-SESSION-006](session-lifecycle.md#req-session-006-user-can-stop-restart-and-delete-sessions) returns to the Dashboard immediately on Stop or Delete from the in-session dropdown. [REQ-SESSION-043](session-lifecycle.md#req-session-043-queued-graceful-shutdown-and-memory-recovery) keeps live metrics and shows a breathing status label on both disabled card surfaces until the session stops or is deleted. The Dashboard’s decorative sweeping light is removed.
+- [REQ-SESSION-006](session-lifecycle.md#req-session-006-user-can-stop-restart-and-delete-sessions) returns to the Dashboard immediately on Stop or Delete from the in-session dropdown. [REQ-SESSION-043](session-lifecycle.md#req-session-043-queued-graceful-shutdown-and-memory-recovery) keeps available metrics and a breathing status label on both disabled card surfaces until Stop or Delete completes, replacing the Dashboard’s decorative sweeping light.
 
 ## 2026-11-24: Rotate Hermes stores by last content change
 

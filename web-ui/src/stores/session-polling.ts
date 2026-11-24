@@ -139,6 +139,26 @@ export function resetStartupGuards(): void {
 
 export const sessionMissCounters = new Map<string, number>();
 const REMOVAL_THRESHOLD = 3;
+const acceptedDeletes = new Map<string, { generation?: number; fastUntil: number }>();
+
+export function noteAcceptedDelete(id: string, generation: number | undefined): void {
+  acceptedDeletes.set(id, { generation, fastUntil: Date.now() + REMOVAL_THRESHOLD * SESSION_POLL_TRANSITION_MS });
+  sessionMissCounters.delete(id);
+}
+
+function acceptedDeleteFor(session: SessionWithStatus) {
+  const accepted = acceptedDeletes.get(session.id);
+  if (accepted?.generation === session.generation) return accepted;
+  acceptedDeletes.delete(session.id);
+}
+
+export function hasAcceptedDelete(session: SessionWithStatus): boolean {
+  return acceptedDeleteFor(session) !== undefined;
+}
+
+export function clearAcceptedDelete(id: string): void {
+  acceptedDeletes.delete(id);
+}
 
 // ============================================================================
 // Recursive poll handle
@@ -148,6 +168,7 @@ let sessionListPollTimeout: ReturnType<typeof setTimeout> | null = null;
 let pollingActive = false;
 let visibilityListenerInstalled = false;
 let pollInFlight: Promise<void> | null = null;
+let pollRevision = 0;
 let catalogRevision = 0;
 let availabilityReadVersion = 0;
 const [sessionStatusUnavailable, setSessionStatusUnavailable] = createSignal(false);
@@ -221,9 +242,11 @@ export function refreshSessionAncillaryStatus({ afterCurrent = false } = {}): Pr
  */
 export function refreshSessionStatuses(forceManagedReleaseCheck = false): Promise<void> {
   if (pollInFlight) {
+    if (pollRevision !== catalogRevision) return pollInFlight.then(() => refreshSessionStatuses(forceManagedReleaseCheck));
     if (forceManagedReleaseCheck) void refreshSessionAncillaryStatus().catch(() => undefined);
     return pollInFlight;
   }
+  pollRevision = catalogRevision;
   pollInFlight = refreshSessionStatusesOnce(forceManagedReleaseCheck).finally(() => { pollInFlight = null; });
   return pollInFlight;
 }
@@ -250,7 +273,7 @@ async function refreshSessionStatusesOnce(forceManagedReleaseCheck: boolean): Pr
     const removedIds: string[] = [];
     for (const session of state.sessions) {
       if (!batchStatuses[session.id]) {
-        if (!session.pendingDelete && shouldRetainNegativeKvFn(session.id)) {
+        if (!session.pendingDelete && !hasAcceptedDelete(session) && shouldRetainNegativeKvFn(session.id)) {
           sessionMissCounters.delete(session.id);
           continue;
         }
@@ -337,6 +360,8 @@ async function refreshSessionStatusesOnce(forceManagedReleaseCheck: boolean): Pr
         if (remote.generation !== undefined) setStateRaw('sessions', idx, 'generation', remote.generation);
         if (remote.revision !== undefined) setStateRaw('sessions', idx, 'revision', remote.revision);
         if (remote.unreachableDeadlineMs !== undefined) setStateRaw('sessions', idx, 'unreachableDeadlineMs', remote.unreachableDeadlineMs);
+        // The ordered row now owns Delete, including a failed save.
+        clearAcceptedDelete(session.id);
         applyShutdownFieldsFn(idx, remote);
         if (settlingStop) {
           terminalStore.disposeSession(session.id);
@@ -366,7 +391,7 @@ function transitioning(): boolean {
   const state = getState();
   return state.sessions.some((session) => session.status === 'initializing' || session.status === 'starting'
     || session.status === 'unreachable' || session.status === 'stopping' || isShutdownInProgress(session.shutdownPhase)
-    || (session.pendingDelete && !session.shutdownPhase))
+    || ((acceptedDeleteFor(session)?.fastUntil ?? -1) >= Date.now()))
     || state.managedReleaseStatus === 'upgrading'
     || state.bucketMigrating
     || state.bucketMigrationPending;
@@ -398,8 +423,8 @@ function scheduleNextPoll(): void {
 export function refreshAfterShutdownAccepted(): void {
   invalidateSessionStatusReads();
   clearPollTimeout();
-  if (document.visibilityState === 'hidden') return;
-  void Promise.resolve(pollInFlight).then(() => refreshSessionStatuses()).then(scheduleNextPoll);
+  if (!pollingActive || document.visibilityState === 'hidden') return;
+  void refreshSessionStatuses().then(scheduleNextPoll);
 }
 
 function handlePollingVisibilityChange(): void {

@@ -645,14 +645,15 @@ None.
 
 **Constraints:**
 
-- Stopped sessions are not selectable for MultiView.
+- Sessions that are stopped or in active shutdown are not selectable. A session entering shutdown releases its slot; the user can still cancel selection. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-TERM-013: queued shutdown frees a selected slot and leaves Cancel available) -->
+- Resume for unmerged memory is unavailable while choosing MultiView panes. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.shutdown.test.tsx (REQ-TERM-013: recovery Resume is disabled while selecting MultiView panes) -->
 - Capacity decisions must come from a shared viewport-capacity helper.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-TERM-012](#req-term-012-multiview-virtual-session-workspace)
 
-**Verification:** Automated: [SessionDropdown.test.tsx](../../web-ui/src/__tests__/components/SessionDropdown.test.tsx), [SessionSwitcher.test.tsx](../../web-ui/src/__tests__/components/SessionSwitcher.test.tsx); Manual: [REQ-TERM-013 procedure](../../documentation/lanes/terminal-and-ide.md#req-term-013-manual-qualification)
+**Verification:** Automated: [SessionDropdown.test.tsx](../../web-ui/src/__tests__/components/SessionDropdown.test.tsx), [SessionSwitcher.test.tsx](../../web-ui/src/__tests__/components/SessionSwitcher.test.tsx), [MultiView recovery card](../../web-ui/src/__tests__/components/Dashboard.shutdown.test.tsx); Manual: [REQ-TERM-013 procedure](../../documentation/lanes/terminal-and-ide.md#req-term-013-manual-qualification)
 
 **Status:** Implemented
 

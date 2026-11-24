@@ -411,6 +411,31 @@ it.each([true, false])('REQ-SESSION-043: accepts overlapping Stop/Delete in owne
   ]);
 });
 
+it('REQ-SESSION-043: batch status serves new metrics during consolidation and the last sample after the Stop claim', async () => {
+  const f = rig();
+  const A = await f.create(a, { holdMerge: true });
+  A.save.release('saved');
+  await expectAccepted(f.stop(a));
+  try {
+    await vi.waitFor(() => expect(f.trace).toContain(`${a}:merge`));
+    for (const [sequence, cpu] of [[1, '7%'], [2, '18%']] as const) {
+      expect(await repository.project(f.owner, a, 1, sequence, {
+        lifecycleState: 'running', observedAt: stamp, cpu, memory: '1.2G', disk: '3.1G',
+      })).toBe(true);
+      expect((await f.batch())[a]).toMatchObject({ lifecycle: 'running', shutdownPhase: 'consolidating',
+        metrics: { cpu, mem: '1.2G', hdd: '3.1G' } });
+    }
+    A.merge.release('merged');
+    await vi.waitFor(async () => expect((await f.batch())[a]).toMatchObject({ lifecycle: 'stopping',
+      shutdownPhase: 'finishing', metrics: { cpu: '18%', mem: '1.2G', hdd: '3.1G' } }));
+    expect(await repository.project(f.owner, a, 1, 3, { lifecycleState: 'running', observedAt: stamp, cpu: '99%' })).toBe(false);
+  } finally {
+    A.merge.release('merged');
+    A.exit.release();
+  }
+  await vi.waitFor(async () => expect((await f.batch())[a]?.status).toBe('stopped'));
+});
+
 it.each(['Stop', 'Delete'] as const)('REQ-SESSION-043: %s after definitive Hermes startup disable completes ordinary teardown and releases the queue', async action => {
   const f = rig(true, false);
   const [A, B] = await Promise.all([f.create(a), f.create(b)]);

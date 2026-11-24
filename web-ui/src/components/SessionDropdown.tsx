@@ -1,4 +1,4 @@
-import { Component, Show, For, createSignal, createMemo } from 'solid-js';
+import { Component, Show, For, createSignal, createMemo, createEffect } from 'solid-js';
 import { mdiPlus } from '@mdi/js';
 import Icon from './Icon';
 import SelectableSessionCard from './SelectableSessionCard';
@@ -64,10 +64,18 @@ const SessionDropdown: Component<SessionDropdownProps> = (props) => {
     props.sessions.filter(canSelectForMultiView)
   );
 
-  const showMultiViewRow = createMemo(() => Boolean(props.multiView) && (props.multiView?.capacity ?? 0) >= 2 && liveSessions().length >= 2);
+  const showMultiViewRow = createMemo(() => selectingMultiView()
+    || (Boolean(props.multiView) && (props.multiView?.capacity ?? 0) >= 2 && liveSessions().length >= 2));
   const multiViewDisabled = createMemo(() => !props.multiView || props.multiView.capacity < 2);
   const liveSelection = createMemo(() => selectedMultiViewIds().filter(id => liveSessions().some(s => s.id === id)));
-  const canLaunchMultiView = createMemo(() => liveSelection().length >= 2);
+  const canLaunchMultiView = createMemo(() => !multiViewDisabled() && liveSelection().length >= 2);
+  createEffect(() => {
+    const selection = liveSelection();
+    if (selection.length < selectedMultiViewIds().length) {
+      setSelectedMultiViewIds(selection);
+      setLimitHit(false);
+    }
+  });
 
   const beginMultiViewSelection = () => {
     const activeLive = props.activeSessionId && liveSessions().some((session) => session.id === props.activeSessionId)
@@ -80,10 +88,8 @@ const SessionDropdown: Component<SessionDropdownProps> = (props) => {
 
   const handleMultiViewAction = () => {
     const config = props.multiView;
-    if (!config || multiViewDisabled()) return;
-
     if (selectingMultiView()) {
-      if (canLaunchMultiView()) {
+      if (config && canLaunchMultiView()) {
         config.onLaunch(liveSelection());
         setSelectingMultiView(false);
         setSelectedMultiViewIds([]);
@@ -96,6 +102,7 @@ const SessionDropdown: Component<SessionDropdownProps> = (props) => {
       return;
     }
 
+    if (!config || multiViewDisabled()) return;
     if (config.existing) {
       config.onOpen();
       props.onClose();
@@ -107,7 +114,7 @@ const SessionDropdown: Component<SessionDropdownProps> = (props) => {
 
   const toggleMultiViewSession = (session: SessionWithStatus) => {
     if (!canSelectForMultiView(session)) return;
-    const current = selectedMultiViewIds();
+    const current = liveSelection();
     if (current.includes(session.id)) {
       setSelectedMultiViewIds(current.filter((id) => id !== session.id));
       setLimitHit(false);
@@ -175,7 +182,7 @@ const SessionDropdown: Component<SessionDropdownProps> = (props) => {
           <MultiViewActionRow
             mode={selectingMultiView() ? 'selecting' : props.multiView?.existing ? 'open' : 'start'}
             canLaunch={canLaunchMultiView()}
-            disabled={multiViewDisabled()}
+            disabled={!selectingMultiView() && multiViewDisabled()}
             onClick={handleMultiViewAction}
             onClose={() => {
               props.multiView?.onClose();
@@ -196,7 +203,7 @@ const SessionDropdown: Component<SessionDropdownProps> = (props) => {
         <div class="session-dropdown__list">
           <For each={sortedSessions()}>
             {(session) => {
-              const selected = createMemo(() => selectedMultiViewIds().includes(session.id));
+              const selected = createMemo(() => liveSelection().includes(session.id));
               const disabled = createMemo(() =>
                 selectingMultiView() && !canSelectForMultiView(session)
               );

@@ -42,6 +42,7 @@ const shutdownLabels: Record<ShutdownPhase, string> = {
 interface SessionStatCardProps {
   session: SessionWithStatus;
   isActive: boolean;
+  resumeDisabled?: boolean;
   onSelect: () => void;
   onStop: () => void;
   onDelete: () => void;
@@ -56,7 +57,14 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
   };
   const shutdownInProgress = () => isShutdownInProgress(phase());
   const memoryNotMerged = () => phase() === 'memory-not-merged';
-  const metrics = createMemo(() => sessionStore.getMetricsForSession(props.session.id));
+  const metrics = createMemo(() => (phase() === 'queued' && props.session.status === 'stopped')
+    ? undefined : sessionStore.getMetricsForSession(props.session.id));
+  const metricsNotice = () => {
+    const readings = metrics();
+    if (![readings?.cpu, readings?.mem, readings?.hdd].some(value => value && value !== '...')) return 'Metrics unavailable';
+    const lifecycle = props.session.lifecycle ?? props.session.status;
+    return lifecycle !== 'running' ? 'Last known metrics' : undefined;
+  };
   const wsState = () => {
     const terminalId = resolveTerminalMode(props.session.terminalMode) === 'herdr'
       ? '1'
@@ -116,7 +124,7 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
 
   const timerInfo = createMemo(() => {
     timerTick(); // subscribe to tick
-    if (props.session.status !== 'running' || phase()) return null;
+    if (props.session.status !== 'running') return null;
     return getSleepTimerInfo(props.session.lastActiveAt, sessionStore.preferences.sleepAfter);
   });
   const [showTimerTooltip, setShowTimerTooltip] = createSignal(false);
@@ -209,8 +217,8 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
                 onClick={() => void sessionStore.retryMemoryConsolidation(props.session.id)}>
                 Retry memory consolidation
               </Button>
-              <Button size="sm" variant="secondary" disabled={!canRecoverMemory()}
-                onClick={() => { if (canRecoverMemory()) props.onSelect(); }}>
+              <Button size="sm" variant="secondary" disabled={!canRecoverMemory() || props.resumeDisabled}
+                onClick={() => { if (canRecoverMemory() && !props.resumeDisabled) props.onSelect(); }}>
                 Resume session
               </Button>
             </div>
@@ -253,7 +261,10 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
         </Show>
         <Show when={shutdownInProgress()}>
           <div class="session-stat-card__shutdown-notice" role="status">
-            <span class="session-stat-card__phase">{shutdownLabel()}</span>
+            <span class="session-stat-card__phase">
+              {shutdownLabel()}
+              <Show when={metricsNotice()}>{notice => <small class="session-stat-card__metrics-note">{notice()}</small>}</Show>
+            </span>
           </div>
         </Show>
       </div>

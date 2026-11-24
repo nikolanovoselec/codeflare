@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@solidjs/testing-library';
+import { createSignal } from 'solid-js';
 import { mdiViewCompactOutline } from '@mdi/js';
 import SessionDropdown from '../../components/SessionDropdown';
 import { sessionStore } from '../../stores/session';
@@ -508,6 +509,24 @@ describe('SessionDropdown', () => {
       expect(screen.getByTestId('session-card-s4')).toHaveAttribute('data-selected', 'true');
       expect(screen.getByTestId('session-card-s5')).toHaveAttribute('data-selected', 'false');
       expect(screen.getByTestId('session-dropdown-multiview-limit')).toHaveAttribute('data-visible', 'true');
+    });
+
+    it('REQ-TERM-013: queued shutdown frees a selected slot and leaves Cancel available', () => {
+      const a = createSession({ id: 's1', status: 'running' });
+      const b = createSession({ id: 's2', status: 'running' });
+      const c = createSession({ id: 's3', status: 'running' });
+      const [sessions, setSessions] = createSignal([a, b, c]);
+      render(() => <SessionDropdown {...defaultProps} sessions={sessions()} multiView={{ capacity: 2, existing: null,
+        onLaunch: vi.fn(), onOpen: vi.fn(), onClose: vi.fn() }} />);
+      fireEvent.click(screen.getByRole('button', { name: 'Launch MultiView' }));
+      fireEvent.click(screen.getByTestId('session-card-s2'));
+      setSessions([{ ...a, shutdownPhase: 'queued' }, b, c]);
+      expect(screen.getByTestId('session-card-s1')).toHaveAttribute('data-selected', 'false');
+      fireEvent.click(screen.getByTestId('session-card-s3'));
+      expect(screen.getByTestId('session-card-s3')).toHaveAttribute('data-selected', 'true');
+      setSessions([{ ...a, shutdownPhase: 'queued' }, { ...b, shutdownPhase: 'consolidating' }, c]);
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel MultiView' }));
+      expect(screen.getByTestId('session-card-s3')).toHaveAttribute('data-selecting', 'false');
     });
 
     it('REQ-TERM-013: hides the MultiView action on mobile', () => {

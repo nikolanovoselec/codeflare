@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@solidjs/testing-library';
 import Dashboard from '../../components/Dashboard';
 import SessionDropdown from '../../components/SessionDropdown';
-import { SESSION_POLL_TRANSITION_MS } from '../../lib/constants';
+import { SESSION_POLL_STABLE_MS, SESSION_POLL_TRANSITION_MS } from '../../lib/constants';
 import { createMigrationRetry } from '../../components/MigrationRetryNotice';
 import { sessionStore } from '../../stores/session';
 import { terminalStore } from '../../stores/terminal';
@@ -23,6 +23,8 @@ let catalog: Projection | undefined;
 let polled: Projection | undefined;
 let operations: string[];
 let retryResponse: Promise<Response> | undefined;
+let deleteResponse: Promise<Response> | undefined;
+let batchResponse: Promise<Response> | undefined;
 
 function project(status: Lifecycle, revision: number, shutdownPhase?: Phase, pendingDelete?: boolean, generation = 7) {
   catalog = polled = { status, lifecycle: status, generation, revision, shutdownPhase, pendingDelete };
@@ -56,7 +58,7 @@ beforeEach(async () => {
   sessionPath = `/api/sessions/${id}`;
   catalog = polled = undefined;
   operations = [];
-  retryResponse = undefined;
+  retryResponse = deleteResponse = batchResponse = undefined;
   vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(input instanceof Request ? input.url : String(input), location.origin);
     const method = init?.method ?? (input instanceof Request ? input.method : 'GET');
@@ -65,7 +67,7 @@ beforeEach(async () => {
       return Response.json({ sessions: catalog ? [{ id, name, createdAt: stamp, lastAccessedAt: stamp,
         agentType: 'pi', workspace: 'terminal', terminalMode: 'classic', ...catalog }] : [] });
     }
-    if (path === '/api/sessions/batch-status') return Response.json({ statuses: polled ? { [id]: polled } : {} });
+    if (path === '/api/sessions/batch-status') return batchResponse ?? Response.json({ statuses: polled ? { [id]: polled } : {} });
     if (path === '/api/sessions/ancillary-status') return Response.json({ maxSessions: 3 });
     if (path === '/api/user/ensure-r2-token' || path === '/api/user/r2-status') return Response.json({ ready: false });
     if (path === '/api/preferences') return Response.json({ userTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone });
@@ -77,7 +79,7 @@ beforeEach(async () => {
     }
     if (path === `${sessionPath}/kill` && method === 'POST') return Response.json({ id, success: true, stopped: true });
     if (path === `${sessionPath}/stop` && method === 'POST') return accepted('queued');
-    if (path === sessionPath && method === 'DELETE') return accepted('queued', true);
+    if (path === sessionPath && method === 'DELETE') return deleteResponse ?? accepted('queued', true);
     throw new Error(`Unexpected HTTP request: ${method} ${path}`);
   });
   await sessionStore.loadSessions();
@@ -139,6 +141,91 @@ it.each(['Stop', 'Delete'] as const)('REQ-SESSION-043: accepted %s advances both
     await vi.advanceTimersByTimeAsync(SESSION_POLL_TRANSITION_MS * 3);
     expect(screen.queryAllByTestId(`session-stat-card-${id}`)).toHaveLength(0);
   }
+});
+
+it('REQ-SESSION-043: an accepted Delete removes the card after a newer live read and no queued projection', async () => {
+  vi.useFakeTimers();
+  project('running', 10);
+  await sessionStore.loadSessions();
+  renderDashboard();
+  sessionStore.startSessionListPolling();
+  let accept!: (response: Response) => void;
+  deleteResponse = new Promise(resolve => { accept = resolve; });
+  const deletion = sessionStore.deleteSession(id);
+  project('running', 11);
+  await sessionStore.refreshSessionStatuses();
+  polled = undefined;
+  accept(accepted('queued', true));
+  await deletion;
+  await vi.advanceTimersByTimeAsync(2 * SESSION_POLL_TRANSITION_MS);
+  expect(screen.queryByText(name)).not.toBeInTheDocument();
+});
+
+it('REQ-SESSION-043: a failed Delete without a shutdown phase returns to idle polling', async () => {
+  vi.useFakeTimers();
+  project('running', 10);
+  await sessionStore.loadSessions();
+  renderDashboard();
+  sessionStore.startSessionListPolling();
+  project('running', 11, undefined, true);
+  await sessionStore.deleteSession(id);
+  await vi.advanceTimersByTimeAsync(0);
+  polled = { ...polled!, revision: 12, metrics: { cpu: '26%', mem: '1G', hdd: '3G' } };
+  await vi.advanceTimersByTimeAsync(SESSION_POLL_TRANSITION_MS);
+  expect(card().queryByText('26%')).not.toBeInTheDocument();
+  await vi.advanceTimersByTimeAsync(SESSION_POLL_STABLE_MS - SESSION_POLL_TRANSITION_MS);
+  expect(card().getByText('26%')).toBeVisible();
+});
+
+it('REQ-SESSION-043: refresh called after Delete acceptance does not join a pre-command read', async () => {
+  project('running', 10);
+  await sessionStore.loadSessions();
+  renderDashboard();
+  let release!: (response: Response) => void;
+  batchResponse = new Promise(resolve => { release = resolve; });
+  const stale = sessionStore.refreshSessionStatuses();
+  await sessionStore.deleteSession(id);
+  const fresh = sessionStore.refreshSessionStatuses();
+  batchResponse = undefined;
+  project('running', 11, 'queued', true);
+  release(Response.json({ statuses: {} }));
+  await Promise.all([stale, fresh]);
+  expect(card().getByText('Memory consolidation pending...')).toBeVisible();
+});
+
+it('REQ-SESSION-043: distinguishes current readings, last-known readings and unavailable shutdown metrics', async () => {
+  const metrics = { cpu: '7%', mem: '1.2G', hdd: '3.1G' };
+  project('stopping', 10, 'consolidating');
+  polled = { ...polled!, lifecycle: 'running', metrics };
+  await sessionStore.loadSessions();
+  renderDashboard();
+  expect(card().getByText('7%')).toBeVisible();
+  expect(card().queryByText('Last known metrics')).not.toBeInTheDocument();
+  polled = { ...polled, lifecycle: 'stopping', revision: 11, shutdownPhase: 'finishing' };
+  await sessionStore.refreshSessionStatuses();
+  expect(card().getByText('Last known metrics')).toBeVisible();
+  expect(card().getByText('7%')).toBeVisible();
+  polled = { ...polled, lifecycle: 'stopped', status: 'stopped', revision: 12, shutdownPhase: 'queued', metrics: undefined };
+  await sessionStore.refreshSessionStatuses();
+  expect(card().getByText('Metrics unavailable')).toBeVisible();
+  expect(card().queryByText('7%')).not.toBeInTheDocument();
+});
+
+it('REQ-TERM-013: recovery Resume is disabled while selecting MultiView panes', async () => {
+  project('stopped', 10, 'memory-not-merged');
+  await sessionStore.loadSessions();
+  const running = ['one', 'two'].map(id => ({ ...sessionStore.sessions[0]!, id, status: 'running' as const, shutdownPhase: undefined }));
+  const select = vi.fn();
+  render(() => <SessionDropdown isOpen sessions={[...sessionStore.sessions, ...running]} activeSessionId="one"
+    onSelectSession={select} onStopSession={() => {}} onDeleteSession={() => {}} onCreateSession={() => {}}
+    onClose={() => {}} isMobileView={false} multiView={{ capacity: 2, existing: null,
+      onLaunch: () => {}, onOpen: () => {}, onClose: () => {} }} />);
+  expect(resume()).toBeEnabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Launch MultiView' }));
+  expect(resume()).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel MultiView' }));
+  fireEvent.click(resume());
+  expect(select).toHaveBeenCalledWith(id);
 });
 
 it('REQ-SESSION-043: reports eviction after queued Retry and leaves Resume available', async () => {

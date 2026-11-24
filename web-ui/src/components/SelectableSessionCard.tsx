@@ -30,6 +30,7 @@ const SelectableSessionCard: Component<SelectableSessionCardProps> = (props) => 
       <SessionStatCard
         session={props.session}
         isActive={props.isActive}
+        resumeDisabled={props.selecting}
         onSelect={props.onSelect}
         onStop={props.onStop}
         onDelete={props.onDelete}

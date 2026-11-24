@@ -51,6 +51,9 @@ import {
   sessionMissCounters,
   refreshSessionStatuses,
   refreshAfterShutdownAccepted,
+  noteAcceptedDelete,
+  hasAcceptedDelete,
+  clearAcceptedDelete,
   refreshSessionAncillaryStatus,
   startSessionListPolling,
   stopSessionListPolling,
@@ -440,7 +443,7 @@ async function loadSessions(): Promise<void> {
     // KV LIST may temporarily omit a recently written record. The same negative-
     // evidence gate used by polling decides whether local lifecycle ownership wins.
     for (const existing of existingSessions.values()) {
-      if (!listedIds.has(existing.id) && !existing.pendingDelete && shouldRetainNegativeKv(existing.id)) {
+      if (!listedIds.has(existing.id) && !existing.pendingDelete && !hasAcceptedDelete(existing) && shouldRetainNegativeKv(existing.id)) {
         sessionsWithStatus.push(existing);
       }
     }
@@ -634,6 +637,7 @@ async function renameSession(id: string, name: string): Promise<void> {
 }
 
 function removeConfirmedSession(id: string): void {
+  clearAcceptedDelete(id);
   localKillAttempts.delete(id);
   reconcileMemoryRetry(id);
   sessionMissCounters.delete(id);
@@ -659,7 +663,6 @@ async function deleteSession(id: string): Promise<void> {
   dismissRepositoryRestore(id);
   const attempted = state.sessions.find(session => session.id === id);
   const generation = attempted?.generation;
-  const revision = attempted?.revision;
   try {
     const startupCleanup = startupCleanups.get(id);
     if (startupCleanup) {
@@ -667,11 +670,8 @@ async function deleteSession(id: string): Promise<void> {
       startupCleanups.delete(id);
     }
     if (await api.deleteSession(id)) {
-      const index = state.sessions.findIndex(session => session.id === id);
-      const current = state.sessions[index];
-      if (current && current.generation === generation && current.revision === revision) {
-        setState('sessions', index, 'pendingDelete', true);
-      }
+      const current = state.sessions.find(session => session.id === id);
+      if (current && current.generation === generation) noteAcceptedDelete(id, generation);
       refreshAfterShutdownAccepted();
       return;
     }
