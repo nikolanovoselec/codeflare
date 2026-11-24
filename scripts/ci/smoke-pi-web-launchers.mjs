@@ -16,7 +16,8 @@ const run = promisify(execFile);
 const piPackage = managedPiPackage();
 const { SessionManager } = await import(pathToFileURL(join(piPackage, 'dist/index.js')).href);
 const piCli = join(piPackage, 'dist/bundle/cli.js');
-const isPi = ({ argv }) => argv?.some(arg => arg === '/usr/local/bin/pi' || arg === piCli);
+// Pi replaces its process title once initialized, so the original argv can vanish.
+const isPi = ({ name, argv }) => name === 'pi' || argv?.some(arg => arg === '/usr/local/bin/pi' || arg === piCli);
 const writer = '/usr/local/bin/codeflare-terminal-writer';
 const launcher = '/usr/local/bin/codeflare-herdr-terminal';
 const herdr = '/usr/local/bin/herdr';
@@ -315,8 +316,12 @@ async function qualify(mode) {
     writeFileSync(sessionFile, JSON.stringify(legacy));
     boot();
     await readyPane();
-    await waitForPaneProcess(pane, 'legacy Herdr resumes the native Pi in the original pane',
-      process => isPi(process) && process.argv.includes(binding.path));
+    await waitForPaneProcess(pane, 'legacy Herdr runs native Pi in the original pane', isPi);
+    await pty.until('live native Pi registers the exact legacy transcript', async () => {
+      const { agents } = await snapshot();
+      return agents.some(agent => agent.pane_id === pane && agent.agent === 'pi'
+        && agent.screen_detection_skipped === true && sameNativeRegistration(agent.agent_session));
+    });
     assert.equal(existsSync(reportPath), false, 'legacy Pi is not a ticket-managed writer');
     const runtime = createPiWebRuntime({ sessionId, generation, initialSurface: 'chat', terminalMode: 'herdr',
       cwd, home, runtimeDir, cloneRestored: () => existsSync(bootDone) });
