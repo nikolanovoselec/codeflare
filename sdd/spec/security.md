@@ -243,15 +243,16 @@ Security requirements for authentication enforcement, credential isolation, encr
 **Acceptance Criteria:**
 
 1. `Strict-Transport-Security` (HSTS) is present on all responses, including redirects and OPTIONS preflight responses. <!-- @test: src/__tests__/security/security-headers.test.ts (REQ-SEC-008 AC1: HSTS survives $method $path with status $status) --> <!-- @impl: src/index.ts::withSecurityHeaders --> <!-- @test: src/__tests__/security/security-headers.test.ts (REQ-SEC-008 AC1: Strict-Transport-Security is present on all responses) -->
-2. `Content-Security-Policy` is set. Pi Chat preserves upstream content security policies and adds the same-origin framing restriction. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @test: src/__tests__/security/early-return-security.test.ts (REQ-AGENT-272: the Worker adds same-origin framing without replacing stock preview restrictions) --> <!-- @impl: src/index.ts::withSecurityHeaders --> <!-- @test: src/__tests__/security/security-headers.test.ts (REQ-SEC-008 AC2: Content-Security-Policy is set) -->
+2. `Content-Security-Policy` is set. <!-- @impl: src/index.ts::withSecurityHeaders --> <!-- @test: src/__tests__/security/security-headers.test.ts (REQ-SEC-008 AC2: Content-Security-Policy is set) -->
 3. `X-Content-Type-Options: nosniff` is set. <!-- @impl: src/index.ts::withSecurityHeaders --> <!-- @test: src/__tests__/security/security-headers.test.ts (REQ-SEC-008: Security headers on every worker response) -->
-4. Normal responses use `X-Frame-Options: DENY`; authenticated SilverBullet, Browser IDE, and Pi Chat proxy responses may use `SAMEORIGIN`. Pi Chat retains upstream denial; conflicting upstream framing restrictions default to denial. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @test: src/__tests__/security/early-return-security.test.ts (REQ-AGENT-272: the Worker adds same-origin framing without replacing stock preview restrictions) --> <!-- @impl: src/index.ts::withSecurityHeaders --> <!-- @test: src/__tests__/security/early-return-security.test.ts (CF-001: security headers on pre-Hono early-return responses) -->
+4. Normal responses use `X-Frame-Options: DENY`; authenticated SilverBullet, Browser IDE, and Pi Chat proxy responses may use `SAMEORIGIN`. <!-- @impl: src/index.ts::withSecurityHeaders --> <!-- @test: src/__tests__/security/early-return-security.test.ts (CF-001: security headers on pre-Hono early-return responses) -->
 5. `Referrer-Policy: strict-origin-when-cross-origin` is set. <!-- @impl: src/index.ts::withSecurityHeaders --> <!-- @test: src/__tests__/security/security-headers.test.ts (REQ-SEC-008: Security headers on every worker response) -->
 6. Successful HTML asset responses at `/app` or under `/app/` allow the microphone only for the same origin; other responses subject to this policy deny it. Camera and geolocation remain denied. The policy does not authenticate the user or grant browser permission. <!-- @impl: src/index.ts::withSecurityHeaders --> <!-- @impl: src/index.ts::dispatch --> <!-- @test: src/__tests__/index.test.ts (permits the SPA Vault bootstrap frame, Gravatar probe, and same-origin microphone at %s) --> <!-- @test: src/__tests__/index.test.ts (keeps microphone denied outside successful app HTML responses at %s) -->
 7. `X-Powered-By` is stripped from applicable early-return, Hono and static Assets responses without losing unrelated headers. <!-- @test: src/__tests__/security/early-return-security.test.ts (REQ-SEC-008 AC7: strips upstream disclosure on proxy and asset responses without losing other headers) --> <!-- @impl: src/index.ts::withSecurityHeaders --> <!-- @test: src/__tests__/security/security-headers.test.ts (REQ-SEC-008 AC7: X-Powered-By header is absent) -->
 
 **Constraints:**
 
+- [REQ-SEC-025](#req-sec-025-pi-chat-response-restrictions) owns the Pi Chat proxy exception.
 - Headers are applied in owning response paths; 101 upgrades retain the protocol no-op exception.
 - The MCP OAuth callback retains `Referrer-Policy: no-referrer`.
 - Preflight (OPTIONS) responses receive HSTS directly in the CORS middleware.
@@ -266,6 +267,30 @@ Security requirements for authentication enforcement, credential isolation, encr
 **Verification:** Automated: [index.test.ts](../../src/__tests__/index.test.ts), [early-return-security.test.ts](../../src/__tests__/security/early-return-security.test.ts), [security-headers.test.ts](../../src/__tests__/security/security-headers.test.ts)
 
 **Status:** Implemented
+
+---
+
+### REQ-SEC-025: Pi Chat response restrictions
+
+**Intent:** Keep stock Pi response restrictions effective through the Codeflare proxy.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Proxied Pi Chat responses preserve all upstream content security policies, including on non-success responses. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @impl: src/index.ts::dispatch --> <!-- @test: src/__tests__/security/early-return-security.test.ts (Pi Chat retains upstream policies and enforces $frame on HTTP $status after Host normalization) -->
+2. Successful Pi Chat responses permit framing only by the same origin and never override upstream denial. Conflicting upstream frame options deny framing. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @impl: src/index.ts::withSecurityHeaders --> <!-- @test: src/__tests__/security/early-return-security.test.ts (Pi Chat retains upstream policies and enforces $frame on HTTP $status after Host normalization) -->
+3. Non-success Pi Chat responses deny framing. Worker-generated errors keep the default security headers. <!-- @impl: src/index.ts::dispatch --> <!-- @test: src/__tests__/security/early-return-security.test.ts (Pi Chat Worker-generated errors retain the standard deny policy) -->
+
+**Constraints:** None.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SEC-008](#req-sec-008-security-headers-on-every-response)
+
+**Verification:** Automated: [Worker response policy](../../src/__tests__/security/early-return-security.test.ts).
+
+**Status:** Planned
 
 ---
 

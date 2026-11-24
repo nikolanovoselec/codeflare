@@ -71,6 +71,7 @@ Herdr image settings manage mobile layout, mouse capture, browser-owned clipboar
 - Quit Pi normally and run a harmless command in the same Terminal shell. Run the printed restart command there without opening Chat. The same transcript and branch reopen under a fresh writer, without replay.
 - Repeat the quit, switch to Chat after Pi exits, then switch back. When **Retry switch** appears, run the printed command in the original pane, then select **Retry switch**. The same conversation reopens without replay.
 - Use the [packaged Host handoff smoke](../../scripts/ci/smoke-pi-web-host-handoff.mjs) for the rapid-return race. It keeps the retiring registration live, then checks that the grant is unchanged and the attempt remains retryable. A manual timing attempt does not replace this check.
+- The [packaged launcher smoke](../../scripts/ci/smoke-pi-web-launchers.mjs) interrupts a pending launch, verifies a late claim cannot use the revoked grant, and reopens the transcript with a fresh invocation. It also verifies that a claim which won first prevents replacement.
 
 #### Check desktop and mobile layout
 
@@ -90,21 +91,17 @@ In the disposable workspace only, load the following as `handoff-fixture.ts` in 
 
 ```ts
 import { writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
-
 export default function (pi: ExtensionAPI) {
+  const mark = (cwd: string, name: string) => writeFile(`${cwd}/${name}`, 'yes\n', { flag: 'wx' });
   pi.on('session_start', async (_event, ctx) => {
-    if (ctx.mode !== 'rpc') return;
-    if (await ctx.ui.confirm('Resume the Pi handoff smoke transcript?', 'Continue without a model turn.')) {
-      await writeFile(join(ctx.cwd, 'pi-fixture-opening-yes.txt'), 'yes\n', { flag: 'wx' });
-    }
+    if (ctx.mode === 'rpc' && await ctx.ui.confirm('Resume the Pi handoff smoke transcript?', 'Continue without a model turn.'))
+      await mark(ctx.cwd, 'pi-fixture-opening-yes.txt');
   });
   pi.on('input', async (event, ctx) => {
     if (ctx.mode !== 'rpc' || event.text !== 'pi-fixture-question') return;
-    if (await ctx.ui.confirm('Continue the ready Chat fixture?', 'Handle this input without a model turn.')) {
-      await writeFile(join(ctx.cwd, 'pi-fixture-ready-yes.txt'), 'yes\n', { flag: 'wx' });
-    }
+    if (await ctx.ui.confirm('Continue the ready Chat fixture?', 'Handle this input without a model turn.'))
+      await mark(ctx.cwd, 'pi-fixture-ready-yes.txt');
     return { action: 'handled' };
   });
 }

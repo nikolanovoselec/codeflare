@@ -118,7 +118,8 @@ async function qualify(mode) {
       exactNativeIdentity: sameNativeRegistration(owner?.agent_session),
       foreground: processes.map(({ pid, name }) => ({ pid, name })),
       roles: roles.map(entry => ({ source: entry.agent_resume.source, agent: entry.agent_resume.agent, managed: hasManagedRole(entry) })),
-      report: pty.output().match(/Codeflare: Herdr [^\r\n\x1b]*/g)?.slice(-4),
+      report: (existsSync(join(runtimeDir, 'herdr-park.log')) ? read(join(runtimeDir, 'herdr-park.log')) : pty.output())
+        .match(/Codeflare: Herdr [^\r\n\x1b]*/g)?.slice(-4),
     };
   }
 
@@ -237,9 +238,11 @@ async function qualify(mode) {
     // same live primary still consumes an exact ticket after orphan expiry.
     boot();
     const pane = mode === 'herdr' ? await readyPane() : undefined;
+    let oldShellSnapshot;
     if (pane) {
       await waiting(pane);
       await pty.until('fresh parked wrapper is saved before any native ticket', () => countSavedRoles() === 1);
+      oldShellSnapshot = read(sessionFile);
     } else await pty.until('Classic prewarm PTY emitted its startup byte', () => pty.output().includes('\r'));
     await noTicket(pane);
     assert.ok(!existsSync(sessionDir) || !readdirSync(sessionDir).some(file => file.endsWith('.jsonl')),
@@ -391,12 +394,35 @@ async function qualify(mode) {
       const end = json(reportPath);
       return end.instance === beforeStop.native.instance && end.quit && !alive(beforeStop.native) && !alive(oldWrapper);
     });
-    await pty.until('ordinary quit parks the wrapper role independently of native Pi in the original pane', async () => {
-      const parked = await readPane(pane);
-      return parked.pane_id === pane && parked.agent === 'codeflare-terminal-writer' && !parked.agent_session;
-    });
+    const parkedReceipt = join(runtimeDir, 'herdr-parked.json');
+    try {
+      await pty.until('current quit confirms and saves the original pane’s shell role', async () => {
+        const parked = await readPane(pane);
+        return parked.pane_id === pane && parked.agent === 'codeflare-terminal-writer' && !parked.agent_session
+          && existsSync(parkedReceipt) && json(parkedReceipt).instance === beforeStop.native.instance
+          && statSync(sessionFile).mtimeMs >= statSync(reportPath).mtimeMs
+          && savedPanes(json(sessionFile)).some(entry => hasManagedRole(entry) && entry.agent_session == null);
+      }, 22_000);
+    } catch (error) {
+      throw new Error(`Herdr quit park evidence: ${JSON.stringify(await parkEvidence(pane, beforeStop.native))}`, { cause: error });
+    }
     const pending = await registerHeldReentry(pane, beforeStop.grant.terminalTicket, process.pid);
-    await host.close();
+    // Hold delivery of the real park receipt and present bytes saved before
+    // Pi started. Shape alone must never unblock Stop during this overlap.
+    const currentSnapshot = read(sessionFile);
+    renameSync(parkedReceipt, `${parkedReceipt}.held`);
+    writeFileSync(sessionFile, oldShellSnapshot);
+    const closing = host.close();
+    void closing.catch(() => {});
+    try {
+      await pty.until('Stop fences the unused grant before waiting for current park evidence', () => existsSync(claimPath(pending)));
+      assert.equal(await Promise.race([closing.then(() => true), delay(400, false)]), false,
+        'the old parked snapshot must not satisfy Stop without the current quit receipt');
+    } finally {
+      writeFileSync(sessionFile, currentSnapshot);
+      renameSync(`${parkedReceipt}.held`, parkedReceipt);
+    }
+    await closing;
     assert.throws(() => claim(pending, process.pid), { code: 'EEXIST' }, 'Stop fences the revoked grant against a late claim');
     assert.equal(json(reportPath).instance, beforeStop.native.instance, 'Stop must not start a pending re-entry');
     assert.equal(host.status().chatUrl, undefined, 'Stop must not open the alternate writer');

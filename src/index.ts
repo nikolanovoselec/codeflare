@@ -98,7 +98,7 @@ export function withSecurityHeaders(
     // to this origin via X-Frame-Options plus a narrow frame-ancestors CSP.
     if (key === 'Content-Security-Policy' && opts?.csp === 'preserve') {
       // Keep restrictive stock policies on previews and other app responses.
-      if (frameMode === 'sameorigin') secured.headers.append(key, "frame-ancestors 'self'");
+      secured.headers.append(key, frameMode === 'sameorigin' ? "frame-ancestors 'self'" : "frame-ancestors 'none'");
       continue;
     }
     if (key === 'Content-Security-Policy' && opts?.csp === false) {
@@ -457,7 +457,10 @@ const requestRouter = {
 
     if (isPiWebPath(url.pathname)) {
       const response = await handlePiWebRequest(request, env);
-      return withSecurityHeaders(response, response.ok ? { csp: 'preserve', frame: 'sameorigin' } : undefined);
+      if (!response.ok && !response.headers.has('Content-Security-Policy')) return withSecurityHeaders(response);
+      // Enforced CSP frame-ancestors supersedes X-Frame-Options in modern browsers.
+      const deny = !response.ok || response.headers.get('X-Frame-Options') === 'DENY';
+      return withSecurityHeaders(response, { csp: 'preserve', frame: deny ? 'deny' : 'sameorigin' });
     }
 
     // Route API and the fixed public webhook family through Hono.

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, watch, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, statSync, watch, writeFileSync } from 'node:fs';
 import { basename, join, relative } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
@@ -390,12 +390,21 @@ export function createPiWebRuntime(options: {
         // After ordinary quit the pane returns to the shell. The old Pi
         // reporter's role can disappear on Herdr's final exit observation.
         const lastTerminal = receipt('terminal');
-        const parkedShell = lastTerminal !== undefined && quitTerminal(lastTerminal);
+        const parkedShell = lastTerminal && quitTerminal(lastTerminal) ? lastTerminal : undefined;
+        const quitTime = parkedShell ? statSync(join(runtimeDir, 'terminal.json')).mtimeMs : undefined;
         // Herdr can acknowledge a report without storing its resume argv.
         // Require the unique saved role. Allow the wrapper's bounded reporter
         // transition and Herdr 0.9.5's five-second snapshot debounce.
         const snapshot = join(bindingDir, 'session.json');
         await until(() => {
+          if (parkedShell && quitTime !== undefined) {
+            const wrapper = loadJson<{ generation: number; pane: string }>(join(runtimeDir, 'wrapper.json'));
+            const parked = loadJson<NativeReceipt & { pane: string }>(join(runtimeDir, 'herdr-parked.json'));
+            if (!parked || wrapper?.generation !== generation || parked.pane !== wrapper.pane
+              || parked.generation !== generation || parked.ticket !== parkedShell.ticket || parked.pid !== parkedShell.pid
+              || parked.startTime !== parkedShell.startTime || parked.instance !== parkedShell.instance || parked.path !== parkedShell.path
+              || (statSync(snapshot, { throwIfNoEntry: false })?.mtimeMs ?? -1) < quitTime) return;
+          }
           const saved = loadJson<{ version: number; workspaces: Array<{ tabs: Array<{ panes: Record<string,
             { agent_resume?: { source?: string; agent?: string; argv?: string[] };
               agent_session?: { source?: string; agent?: string; kind?: string; value?: string } }> }> }> }>(snapshot);

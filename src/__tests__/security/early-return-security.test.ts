@@ -26,6 +26,8 @@ const vscodeRouteState = vi.hoisted(() => ({
   validate: undefined as unknown,
   request: undefined as unknown,
 }));
+const piWebResponse = vi.hoisted(() => ({ respond: () => new Response('denied', { status: 403 }) }));
+vi.mock('../../routes/pi-web', () => ({ handlePiWebRequest: () => piWebResponse.respond() }));
 
 vi.mock('../../routes/terminal', () => ({
   default: new Hono(),
@@ -101,6 +103,7 @@ describe('CF-001: security headers on pre-Hono early-return responses', () => {
     wsRouteState.upgrade = undefined;
     vaultRouteState.validate = undefined;
     vaultRouteState.request = undefined;
+    piWebResponse.respond = () => new Response('denied', { status: 403 });
   });
 
   it('REQ-SEC-008 AC7: strips upstream disclosure on proxy and asset responses without losing other headers', async () => {
@@ -210,13 +213,29 @@ describe('CF-001: security headers on pre-Hono early-return responses', () => {
     expect(out.headers.get('Strict-Transport-Security')).toBeNull();
   });
 
-  it('REQ-AGENT-272: the Worker adds same-origin framing without replacing stock preview restrictions', () => {
-    const upstream = new Response('preview', {
-      headers: { 'Content-Security-Policy': "default-src 'none'; sandbox", 'X-Frame-Options': 'DENY' },
-    });
-    const result = withSecurityHeaders(upstream, { csp: 'preserve', frame: 'sameorigin' });
+  it.each([
+    { status: 200, upstream: 'SAMEORIGIN', frame: 'SAMEORIGIN', ancestors: 'self' },
+    { status: 200, upstream: 'DENY', frame: 'DENY', ancestors: 'none' },
+    { status: 422, upstream: 'SAMEORIGIN', frame: 'DENY', ancestors: 'none' },
+  ])('Pi Chat retains upstream policies and enforces $frame on HTTP $status after Host normalization', async (testCase) => {
+    const { status, upstream, frame, ancestors } = testCase;
+    piWebResponse.respond = () => new Response('preview', { status, headers: {
+      'Content-Security-Policy': "default-src 'none'; sandbox, img-src 'self'",
+      'X-Frame-Options': upstream,
+    } });
+    const { env, ctx } = createBaseEnv();
+    const result = await worker.fetch(new Request('https://example.com/api/pi-web/abcdef0123456789/g/7/preview'), env, ctx);
+    expect(result.status).toBe(status);
     expect(result.headers.get('Content-Security-Policy')?.split(',').map(value => value.trim()))
-      .toEqual(["default-src 'none'; sandbox", "frame-ancestors 'self'"]);
+      .toEqual(["default-src 'none'; sandbox", "img-src 'self'", `frame-ancestors '${ancestors}'`]);
+    expect(result.headers.get('X-Frame-Options')).toBe(frame);
+  });
+
+  it('Pi Chat Worker-generated errors retain the standard deny policy', async () => {
+    const { env, ctx } = createBaseEnv();
+    const result = await worker.fetch(new Request('https://example.com/api/pi-web/abcdef0123456789/g/7/'), env, ctx);
+    expect(result.status).toBe(403);
+    expect(result.headers.get('Content-Security-Policy')).toBe("default-src 'none'");
     expect(result.headers.get('X-Frame-Options')).toBe('DENY');
   });
 

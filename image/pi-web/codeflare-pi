@@ -28,7 +28,15 @@ export PI_CODING_AGENT_DIR="$HOME/.pi/agent"
 session_dir="$PI_CODING_AGENT_DIR/sessions/--${workspace_slug}--"
 (umask 077; mkdir -p -- "$tickets")
 exec 9> "$runtime/terminal-wrapper.lock"
-flock -n 9 || exit 1
+if [ "$mode" = herdr ] && jq -e --argjson generation "$CODEFLARE_PI_GENERATION" '
+    .generation == $generation and .quit == true
+' "$runtime/terminal.json" >/dev/null 2>&1; then
+    # A post-quit park may still hold the lock while the same pane's shell
+    # has already returned. Let an explicit re-entry wait for that park.
+    flock -w 15 9 || exit 1
+else
+    flock -n 9 || exit 1
+fi
 # Host must not issue a ticket to an ordinary shell after a deliberate quit.
 # A manually restarted wrapper must still be in the generation's original pane.
 pane=classic
@@ -112,6 +120,15 @@ report_waiting_pane() {
         retired_path=$(retired_native_path "$1") || retired_path=""
     fi
     while (( SECONDS < deadline )); do
+        if [ "$disposition" = quit ] && ! {
+            status=$(timeout 1 /usr/local/bin/herdr pane process-info --pane "$HERDR_PANE_ID" 2>/dev/null) &&
+                jq -e --arg pane "$HERDR_PANE_ID" '.result.process_info
+                    | .pane_id == $pane and .shell_pid != null and (.foreground_processes | length == 1)
+                    and .foreground_processes[0].pid == .shell_pid' <<< "$status" >/dev/null 2>&1
+        }; then
+            sleep 0.25
+            continue
+        fi
         if ! status=$(timeout 1 /usr/local/bin/herdr pane get "$HERDR_PANE_ID" 2>/dev/null); then
             sleep 0.25
             continue
@@ -154,6 +171,23 @@ report_waiting_pane() {
         sleep 0.25
     done
     printf 'Codeflare: Herdr did not confirm the parked terminal role.\n' >&2
+    [ "$disposition" != quit ]
+}
+
+park_after_shell_return() {
+    local retired_ticket="$1" deadline=$((SECONDS + 3))
+    # Herdr reports Pi exit when the pane's own shell returns to the foreground.
+    # This bounded helper retains the wrapper lock, not ownership of the PTY.
+    while kill -0 "$$" 2>/dev/null; do
+        (( SECONDS < deadline )) || return 1
+        sleep 0.1
+    done
+    report_waiting_pane "$retired_ticket" quit || return 1
+    (umask 077; jq -ce --arg pane "$pane" --arg ticket "$retired_ticket" --argjson generation "$CODEFLARE_PI_GENERATION" '
+        select(.generation == $generation and .ticket == $ticket and .quit == true and .idle == true)
+        | {generation, ticket, pid, startTime, instance, path, pane: $pane}
+    ' "$runtime/terminal.json" > "$runtime/herdr-parked.$$") || return 1
+    mv -f -- "$runtime/herdr-parked.$$" "$runtime/herdr-parked.json"
 }
 
 read_ticket() {
@@ -213,7 +247,9 @@ while true; do
             exec /usr/local/bin/node --import /opt/codeflare/pi-web/native-preflight.mjs /usr/local/bin/pi "${args[@]}"
         ) || printf 'Codeflare: the managed Pi process exited unsuccessfully.\n' >&2
         if native_quit "$ticket"; then
-            report_waiting_pane "$ticket" quit
+            if [ "$mode" = herdr ]; then
+                (umask 077; park_after_shell_return "$ticket") </dev/null >"$runtime/herdr-park.log" 2>&1 &
+            fi
             printf 'Pi exited. To re-enable managed Terminal Pi, run: codeflare-terminal-writer'
             [ "$#" -eq 0 ] || printf ' %s' "$@"
             printf '\n'
