@@ -587,7 +587,7 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 - The authoritative sync runs while the container is alive; post-SIGTERM grace is not its completion mechanism. [Queued Hermes shutdown](#req-session-043-queued-graceful-shutdown-and-memory-recovery) performs the bounded save before teardown instead of repeating it, and retains the session if that save fails.
 - The final-sync endpoint timeout exceeds the DO's 120-second drain budget.
 - Successful completion requires this run's `syncing` state before its terminal state.
-- A [persisted disk blocker](storage.md#req-stor-044-disk-space-failure-visibility) is reported without starting a new run; an in-memory-only block may time out.
+- A [persisted disk blocker](storage.md#req-stor-044-disk-space-failure-visibility) detected before dispatch prevents a new run. A blocker reported after dispatch does not confirm the run's outcome. An in-memory-only block may time out. <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (REQ-SESSION-043: authenticated final sync observes the launch outcome) -->
 - The container image retains a trappable stop signal.
 
 **Priority:** P0

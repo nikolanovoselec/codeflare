@@ -275,7 +275,8 @@ function cleanupSyncFixtures() {
 }
 
 describe('REQ-SESSION-043: authenticated final sync observes the launch outcome', () => {
-  for (const { name, marker, ready, daemon = ready, runtime = true, diskBlocked, diskBlockedAfterDispatch, pendingSync, status, reason } of [
+  for (const { name, marker, ready, daemon = ready, runtime = true, diskBlocked, diskBlockedDuringDrain,
+    diskBlockedAfterDispatch, pendingSync, status, reason } of [
     { name: 'disabled after request', marker: 'sessionaaa1:7\n', status: 409, reason: 'hermes-disabled-at-startup' },
     { name: 'disabled without merge runtime', marker: 'sessionaaa1:7\n', runtime: false, status: 409, reason: 'hermes-disabled-at-startup' },
     { name: 'disabled with blocked disk', marker: 'sessionaaa1:7\n', diskBlocked: true, status: 409, reason: 'hermes-disabled-at-startup' },
@@ -283,6 +284,7 @@ describe('REQ-SESSION-043: authenticated final sync observes the launch outcome'
     { name: 'no startup outcome', status: 503, reason: 'hermes-save-not-started' },
     { name: 'opened without a ready daemon', ready: true, daemon: false, status: 503, reason: 'hermes-save-not-started' },
     { name: 'pending startup with blocked disk', diskBlocked: true, status: 409, reason: 'disk-space-blocked' },
+    { name: 'disk blocked during Pi drain', ready: true, diskBlockedDuringDrain: true, status: 409, reason: 'disk-space-blocked' },
     { name: 'disk blocked after sync dispatch', ready: true, diskBlockedAfterDispatch: true, status: 409, reason: 'disk-space-blocked' },
     { name: 'sync dispatched but outcome unknown', ready: true, pendingSync: true, status: 504, reason: 'timeout' },
     { name: 'opened without merge runtime', ready: true, runtime: false, status: 503, reason: 'hermes-merge-unavailable' },
@@ -309,6 +311,10 @@ describe('REQ-SESSION-043: authenticated final sync observes the launch outcome'
         prepareFinalSync: async deadline => {
           assert.equal(deadline, TRIGGER + FINAL_SYNC_INTERNAL_TIMEOUT_MS);
           drainedAt = now;
+          if (diskBlockedDuringDrain) {
+            writeFileSync(diskPath, 'blocked');
+            return { status: 'unconfirmed' };
+          }
           return { status: 'exited', count: 0 };
         },
         sessionManager: { quiesceForHermesMerge() {} },
@@ -334,11 +340,11 @@ describe('REQ-SESSION-043: authenticated final sync observes the launch outcome'
         assert.equal(response.status, status);
         if (reason === 'hermes-disabled-at-startup') assert.deepEqual(response.body, { synced: false, reason, generation: 7 });
         else if (reason) assert.deepEqual(response.body, { synced: false, reason,
-          ...(reason === 'disk-space-blocked' && diskBlocked ? { syncDispatched: false } : {}),
+          ...(reason === 'disk-space-blocked' && (diskBlocked || diskBlockedDuringDrain) ? { syncDispatched: false } : {}),
         });
         else assert.deepEqual(response.body, { synced: true, snapshotId: 'a'.repeat(64) });
-        assert.equal(drainedAt, status === 200 || pendingSync || diskBlockedAfterDispatch ? TRIGGER + 2_000 : undefined);
-        assert.equal(signalAt, drainedAt);
+        assert.equal(drainedAt, status === 200 || pendingSync || diskBlockedDuringDrain || diskBlockedAfterDispatch ? TRIGGER + 2_000 : undefined);
+        assert.equal(signalAt, diskBlockedDuringDrain ? undefined : drainedAt);
         if (diskBlocked) assert.equal(now, TRIGGER, 'known disk blockers must not wait for startup');
         if (reason === 'hermes-save-not-started') assert.ok(now < TRIGGER + 120_000, 'refuse before the Worker aborts');
       });

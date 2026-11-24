@@ -982,6 +982,7 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
         memoryShutdown = { status: 'unconfirmed' };
       }
       if (memoryShutdown.status !== 'exited') log('warn', 'Foreground Pi shutdown incomplete', { status: memoryShutdown.status });
+      if (mergeSave && reportDiskBlock(true)) return;
       // A periodic scan that ran while Pi was draining cannot satisfy this request.
       const triggerTs = finalSync.now();
       try {
