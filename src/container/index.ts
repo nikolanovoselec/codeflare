@@ -1849,7 +1849,11 @@ export class container extends Container<Env> implements ContainerEnvState {
         || job.phase === 'memory-not-merged' || job.phase === 'uncertain') return false;
       if (job.phase.startsWith('killing')) return true;
       const uncertain = job.phase === 'consolidating' || job.phase === 'finishing-uncertain';
-      if (await repository.updateShutdown(row, { ...job, delete: false, phase: uncertain ? 'killing-uncertain' : 'killing' })) {
+      // A confirmed no-op has no outstanding merge to retry after Kill.
+      const skipped = job.phase === 'finishing' && !job.mergeVerified && job.revision === undefined;
+      if (await repository.updateShutdown(row, { ...job, delete: false, phase: uncertain ? 'killing-uncertain' : 'killing',
+        ...(skipped && { snapshotId: undefined }),
+      })) {
         if (this.hermesAttempt?.generation === input.generation) this.hermesAttempt.abort.abort();
         return true;
       }

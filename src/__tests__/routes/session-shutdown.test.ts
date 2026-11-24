@@ -489,6 +489,17 @@ it('REQ-MEM-044: Resume after an unconfirmed master transfer keeps the saved sna
   expect(await repository.shutdownHead(f.owner)).toBeNull();
 });
 
+it('REQ-MEM-044: a carried-forward legacy receipt cannot authorize reseeding', async () => {
+  const f = rig();
+  await f.create(a, { running: false });
+  // The predecessor promoted a bare snapshot into this column and cleared shutdown_json.
+  await db.prepare('UPDATE runtime_sessions SET hermes_merged_snapshot=?3 WHERE owner_key=?1 AND session_id=?2')
+    .bind(f.owner, a, snapshotId).run();
+  const started = await repository.start(f.owner, a, stamp);
+  expect(started?.lifecycleState).toBe('starting');
+  expect(started?.mergedSnapshotId).toBeUndefined();
+});
+
 it('REQ-MEM-044: a failed restore does not consume the saved merge receipt', async () => {
   const f = rig();
   const A = await f.create(a, { holdMerge: true });
@@ -690,6 +701,24 @@ it('REQ-SESSION-043: Kill during pending teardown preserves the saved merge retr
   }));
   expect((await repository.getSession(f.owner, a))?.shutdown?.snapshotId).toBe(snapshotId);
   await expectAccepted(f.retry(a));
+});
+
+it('REQ-SESSION-043: Kill after a verified no-op does not offer a merge retry', async () => {
+  const f = rig();
+  const A = await f.create(a);
+  const intent = 'skipped-merge';
+  expect(await repository.updateShutdown((await repository.getSession(f.owner, a))!, { intent, phase: 'queued', delete: true })).toBe(true);
+  const row = (await repository.getSession(f.owner, a))!;
+  expect(await repository.updateShutdown(row, { intent, phase: 'finishing', delete: true, snapshotId })).toBe(true);
+  A.exit.release();
+  expect((await f.kill(a)).status).toBe(200);
+  await vi.waitFor(async () => {
+    const stopped = (await f.batch())[a];
+    expect(stopped?.status).toBe('stopped');
+    expect(stopped?.shutdownPhase).toBeUndefined();
+  });
+  expect((await f.app().request(f.path(a))).status).toBe(200);
+  expect((await f.retry(a)).status).toBe(409);
 });
 
 it.each(['finishing', 'merged'] as const)('REQ-MEM-044: persisted legacy result (%s) cannot authorize Delete or reseed', async phase => {

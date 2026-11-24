@@ -1,6 +1,6 @@
 import type { AgentType, SessionWorkspace, TabConfig, TerminalMode } from '../types';
 import { normalizeTrackedClones, type TrackedClone } from './clone-targets';
-import { mergeNeedsRetry, type SessionShutdown } from './session-shutdown';
+import { mergeNeedsRetry, snapshotPattern, type SessionShutdown } from './session-shutdown';
 import type { SessionAuthority, AuthoritySession } from './session-authority';
 
 type SessionLifecycleState = 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping';
@@ -45,7 +45,13 @@ type SessionRow = Record<string, string | number | null>;
 const json = <T>(value: string | null): T | undefined => value ? JSON.parse(value) as T : undefined;
 const optional = (value: string | null): string | undefined => value ?? undefined;
 
+// Bare snapshot IDs were issued by the versioned predecessor and cannot authorize fixed-master reseeding.
+const fixedMasterReceiptPrefix = 'fixed:';
+
 function fromRow(row: SessionRow): D1Session {
+  const stored = row.hermes_merged_snapshot;
+  const mergedSnapshotId = typeof stored === 'string' && stored.startsWith(fixedMasterReceiptPrefix)
+    ? stored.slice(fixedMasterReceiptPrefix.length) : '';
   return {
     ownerKey: String(row.owner_key), sessionId: String(row.session_id), name: String(row.name),
     createdAt: String(row.created_at), lastAccessedAt: String(row.last_accessed_at),
@@ -68,7 +74,7 @@ function fromRow(row: SessionRow): D1Session {
     terminationClaimedAt: optional(row.termination_claimed_at as string | null),
     terminationSignalAcceptedAt: optional(row.termination_signal_accepted_at as string | null),
     boundaryActivityId: optional(row.boundary_activity_id as string | null),
-    ...(row.hermes_merged_snapshot ? { mergedSnapshotId: String(row.hermes_merged_snapshot) } : {}),
+    ...(snapshotPattern.test(mergedSnapshotId) ? { mergedSnapshotId } : {}),
     ...(row.shutdown_json ? { shutdown: json<SessionShutdown>(row.shutdown_json as string | null) } : {}),
   };
 }
@@ -114,7 +120,7 @@ export class D1SessionRepository implements SessionAuthority {
   }
 
   async start(ownerKey: string, sessionId: string, transitionedAt: string, expectedGeneration?: number, resume?: SessionShutdown): Promise<D1Session | null> {
-    const mergedSnapshot = resume?.phase === 'merged' && !mergeNeedsRetry(resume) ? resume.snapshotId : undefined;
+    const mergedSnapshot = resume?.phase === 'merged' && resume.mergeVerified && !mergeNeedsRetry(resume) ? resume.snapshotId : undefined;
     const uncertain = resume?.phase === 'uncertain' ? { ...resume, resumed: true, delete: false } : null;
     const row = await this.db.prepare(`UPDATE runtime_sessions SET lifecycle_state='starting',
       lifecycle_generation=lifecycle_generation+1, response_revision=response_revision+1,
@@ -126,7 +132,7 @@ export class D1SessionRepository implements SessionAuthority {
         AND EXISTS (SELECT 1 FROM session_cutover WHERE id=1 AND state='complete')
         ${resume ? 'AND shutdown_json=?5' : ''}
       RETURNING *`).bind(ownerKey, sessionId, transitionedAt, expectedGeneration ?? null,
-        ...(resume ? [JSON.stringify(resume)] : []), ...(uncertain ? [JSON.stringify(uncertain)] : mergedSnapshot ? [mergedSnapshot] : [])).first<SessionRow>();
+        ...(resume ? [JSON.stringify(resume)] : []), ...(uncertain ? [JSON.stringify(uncertain)] : mergedSnapshot ? [fixedMasterReceiptPrefix + mergedSnapshot] : [])).first<SessionRow>();
     return row ? fromRow(row) : null;
   }
 
@@ -354,7 +360,7 @@ export class D1SessionRepository implements SessionAuthority {
       .bind(ownerKey, sessionId, generation, sequence, projection.lifecycleState ?? null,
         projection.lastInputAt ?? null, projection.cpu ?? null, projection.memory ?? null, projection.disk ?? null,
         projection.syncStatus ?? null, projection.editorReady ? 1 : 0, projection.editorReadyError ? 1 : 0,
-        projection.observedAt, ...(projection.hermesRestoredSnapshot ? [projection.hermesRestoredSnapshot] : [])).run();
+        projection.observedAt, ...(projection.hermesRestoredSnapshot ? [fixedMasterReceiptPrefix + projection.hermesRestoredSnapshot] : [])).run();
     return result.meta.changes === 1;
   }
 
