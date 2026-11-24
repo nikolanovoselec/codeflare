@@ -96,17 +96,19 @@ async function qualify(mode) {
     || owner.agent === 'pi' && sameNativeRegistration(owner.agent_session));
   const countSavedRoles = () => existsSync(sessionFile) && savedPanes(json(sessionFile)).filter(hasManagedRole).length;
   const readPane = async pane => JSON.parse((await control('pane', 'get', pane)).stdout).result.pane;
-  async function parkEvidence(pane, native) {
+  async function parkEvidence(pane, native, requestId) {
     const current = existsSync(reportPath) && json(reportPath);
     const owner = await readPane(pane).catch(() => undefined);
     const processes = await foreground(pane).catch(() => []);
     const roles = existsSync(sessionFile) ? savedPanes(json(sessionFile)).filter(entry => entry.agent_resume) : [];
     return {
       released: current?.instance === native?.instance && current?.released === true,
+      matchingRelease: !!requestId && current?.releaseReady === requestId,
       nativeAlive: native && alive(native),
       pane: owner?.pane_id,
       paneAgent: owner?.agent,
       hasNativeIdentity: !!owner?.agent_session,
+      exactNativeIdentity: sameNativeRegistration(owner?.agent_session),
       foreground: processes.map(({ pid, name }) => ({ pid, name })),
       roles: roles.map(entry => ({ source: entry.agent_resume.source, agent: entry.agent_resume.agent, managed: hasManagedRole(entry) })),
       report: pty.output().match(/Codeflare: Herdr [^\r\n\x1b]*/g)?.slice(-4),
@@ -290,11 +292,19 @@ async function qualify(mode) {
     await noTicket(pane);
     const restored = await openExact(pane);
     assert.notEqual(restored.native.instance, native.instance);
-    publish({ ...restored.grant, surface: 'terminal', phase: 'releasing', target: 'chat', requestId: randomUUID() });
-    await pty.until('managed Herdr wrapper parks again after terminal releases', async () => {
-      if (alive(restored.native) || json(reportPath).released !== true || countSavedRoles() !== 1) return false;
-      return paneCanPark(await readPane(pane), pane);
-    }, 20_000);
+    const requestId = randomUUID();
+    publish({ ...restored.grant, surface: 'terminal', phase: 'releasing', target: 'chat', requestId });
+    try {
+      await pty.until('restored native writer releases and exits', () => {
+        const retired = json(reportPath);
+        return retired.instance === restored.native.instance && retired.releaseReady === requestId
+          && retired.released === true && !alive(restored.native);
+      });
+      await pty.until('restored Herdr retains the managed role after writer exit', async () =>
+        countSavedRoles() === 1 && paneCanPark(await readPane(pane), pane), 20_000);
+    } catch (error) {
+      throw new Error(`Herdr repark evidence: ${JSON.stringify(await parkEvidence(pane, restored.native, requestId))}`, { cause: error });
+    }
     await stopRuntime();
     assert.equal(countSavedRoles(), 1, 'stopping an already parked wrapper preserves its role');
     console.log('PI_WEB_HERDR_MANAGED_RESTORE_OK');
