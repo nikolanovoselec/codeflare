@@ -78,7 +78,7 @@ async function expectAccepted(request: Response | Promise<Response>) {
   expect((await bounded(request)).ok).toBe(true);
 }
 
-function rig(enterprise = true, workspaceSyncEnabled = true) {
+function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = false) {
   const owner = `shutdown-${crypto.randomUUID()}`;
   const other = `shutdown-${crypto.randomUUID()}`;
   const states = new Map<string, { ready: Promise<void>; instance: SessionContainer }>();
@@ -192,7 +192,9 @@ function rig(enterprise = true, workspaceSyncEnabled = true) {
           ? new Map(key.filter(item => records.has(item)).map(item => [item, structuredClone(records.get(item))]))
           : structuredClone(records.get(key)),
         put: async (key: string | Record<string, unknown>, value?: unknown) => {
-          for (const [item, data] of Object.entries(typeof key === 'string' ? { [key]: value } : key)) records.set(item, structuredClone(data));
+          for (const [item, data] of Object.entries(typeof key === 'string' ? { [key]: value } : key)) {
+            if (!preRolloutRetry || item !== 'hermes:retry-generation') records.set(item, structuredClone(data));
+          }
         },
         delete: async (key: string | string[]) => Array.isArray(key)
           ? key.filter(item => records.delete(item)).length : records.delete(key),
@@ -569,8 +571,8 @@ it('REQ-SESSION-043: Retry launches only the headless runtime with the same conf
   expect(f.trace.filter(event => event === `${a}:save`)).toHaveLength(1);
 });
 
-it('REQ-MEM-042 AC3: headless Retry preserves settlement of the saved writer after Delete', async () => {
-  const f = rig();
+it.each([false, true])('REQ-MEM-042 AC3: headless Retry preserves settlement of the saved writer after Delete (pre-rollout %s)', async preRolloutRetry => {
+  const f = rig(true, true, preRolloutRetry);
   const A = await f.create(a, { holdMerge: true });
   const writer = { sessionId: a, generation: 1 };
   const session = f.session(a);

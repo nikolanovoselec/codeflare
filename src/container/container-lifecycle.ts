@@ -728,7 +728,7 @@ export async function confirmMonitoredExit(
   sessionId: string,
   generation: number,
   reason: 'platform' | 'unknown' = 'unknown',
-  onObservation?: (incidentId: string | null) => void,
+  onObservation?: (incidentId: string | null, current: D1Session) => void,
   expectedIntentId?: string,
 ): Promise<boolean> {
   const repository = new D1SessionRepository(env.USAGE_DB);
@@ -736,7 +736,7 @@ export async function confirmMonitoredExit(
   if (!current || current.lifecycleGeneration !== generation || current.lifecycleState === 'stopped') return false;
   if (expectedIntentId !== undefined && (current.lifecycleState !== 'stopping'
       || current.terminationGeneration !== generation || current.terminationIntentId !== expectedIntentId)) return false;
-  onObservation?.(current.unreachableIncidentId ?? null);
+  onObservation?.(current.unreachableIncidentId ?? null, current);
   const intentId = current.lifecycleState === 'stopping'
     ? current.terminationIntentId
     : `monitored-exit-${generation}`;

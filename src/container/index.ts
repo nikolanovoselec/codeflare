@@ -375,11 +375,17 @@ export class container extends Container<Env> implements ContainerEnvState {
     }
     const matchesExpected = !expected || (expected.ownerKey === owner
       && expected.sessionId === session && expected.generation === generation);
+    // Capture the shutdown job before exit confirmation lets the queue clear it.
+    let settlementRow: D1Session | null = null;
     const confirmed = await confirmMonitoredExit(this.ctx, this.env, owner, session, generation,
-      matchesExpected ? reason : 'unknown', matchesExpected ? onObservation : undefined, evidence.terminationIntentId);
+      matchesExpected ? reason : 'unknown', (incidentId, row) => {
+        settlementRow = row;
+        if (matchesExpected) onObservation?.(incidentId);
+      }, evidence.terminationIntentId);
     let superseded = false;
     if (!confirmed) {
       const current = await new D1SessionRepository(this.env.USAGE_DB).getSession(owner, session);
+      settlementRow ??= current;
       if (current?.lifecycleState !== 'stopped' || current.lifecycleGeneration !== generation) {
         superseded = evidence.terminationIntentId !== undefined && (!current
           || current.lifecycleGeneration !== generation || current.lifecycleState !== 'stopping'
@@ -395,7 +401,7 @@ export class container extends Container<Env> implements ContainerEnvState {
       }
     });
     if (superseded || await this.ctx.storage.get<number>('lifecycleGeneration') !== generation) return false;
-    await this.recordHermesSettlement(session, generation);
+    await this.recordHermesSettlement(session, generation, settlementRow);
     this.monitoredGeneration = generation;
     return true;
   }
@@ -925,7 +931,13 @@ export class container extends Container<Env> implements ContainerEnvState {
   private mcpCleanupActive = false;
   private hermesRetention?: HermesRetention;
 
-  private async recordHermesSettlement(sessionId: string, generation: number): Promise<void> {
+  private async recordHermesSettlement(sessionId: string, generation: number, row: D1Session | null): Promise<void> {
+    if (isEnterpriseMode(this.env)) {
+      if (!row || row.lifecycleGeneration !== generation) return;
+      // A Retry launched before rollout may have no local generation marker.
+      const source = row.shutdown?.sourceGeneration;
+      if (source !== undefined && source < generation && !row.shutdown?.resumed) return;
+    }
     try {
       await this.ctx.storage.transaction(async txn => {
         if (!await txn.get<boolean>(HERMES_DIRECT_LAYOUT_KEY)) return;
@@ -1899,7 +1911,7 @@ export class container extends Container<Env> implements ContainerEnvState {
             terminationIntentId: owned.terminationIntentId!,
           }), shutdownIntent !== undefined && owned.shutdown?.hermesDisabledAtStartup !== true,
           shutdownIntent !== undefined && owned.shutdown?.finalEventsAttempted === true);
-        await this.recordHermesSettlement(input.sessionId, input.generation);
+        await this.recordHermesSettlement(input.sessionId, input.generation, owned);
       }, shutdownIntent)
     ).finally(() => {
       if (this.sessionStopInFlight?.completion === completion) this.sessionStopInFlight = undefined;
