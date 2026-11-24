@@ -161,7 +161,7 @@ Status has `phase` and `surface`, optionally `target`, `requestId`, and `chatUrl
 
 The stock app and event WebSockets use the generation in `/api/pi-web/:sessionId/g/:generation/`. An old frame is rejected rather than routed to the next writer, even when both generations use the same transcript. The scope never wakes a replacement container. <!-- @impl: src/routes/pi-web.ts::handlePiWebRequest --> <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy -->
 
-Within that prefix, `POST api/sessions/:piSessionId/attachments` saves composer attachments only for the active Chat conversation and workspace. New uploads are refused during handoff. The limit is 10 MB decoded per request across all files and 14 MiB for the JSON body; excess returns `413` before the batch reaches the stock writer. Other Chat request limits are unchanged. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy -->
+Within that prefix, `POST api/sessions/:piSessionId/attachments` saves composer attachments only for the active Chat conversation and workspace. New uploads are refused during handoff. The limit is 10 MB decoded per request across all files and 14 MiB for the JSON body; excess returns `413` before the batch reaches the stock writer. More than 16 attachments returns `400` without saving files. Other Chat request limits are unchanged. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy -->
 
 ## Operator Activities
 

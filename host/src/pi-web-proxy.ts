@@ -119,6 +119,9 @@ export function createPiWebProxy(options: { sessionId: string; runtime: PiWebRun
     if (runtime.legacyHerdr || (status.phase === 'opening' || status.phase === 'failed') && !status.requestId) {
       send(res, 409, status); return;
     }
+    if (target === 'terminal' && !runtime.terminalAvailable) {
+      send(res, 409, { error: 'Wait for repository restore before switching to Terminal' }); return;
+    }
     let rejected = false;
     // The switch keeps running if the browser disconnects. Admission changes
     // synchronously; wait one microtask for an immediate validation failure.
@@ -183,6 +186,10 @@ export function createPiWebProxy(options: { sessionId: string; runtime: PiWebRun
         body = JSON.stringify(data);
       }
       startup?.throwIfAborted();
+      if (opening && req.method === 'GET' && runtime.binding && (
+        path === '/' && url.searchParams.get('session') === runtime.binding.id
+        || path === `/api/sessions/${runtime.binding.id}/transcript-snapshot` && url.searchParams.get('cwd') === runtime.cwd
+      )) runtime.beginChatAttachment();
       dispatched = true;
       // Node fetch can replace Host with the loopback authority. Stock checks
       // Host and Origin as a pair, so use Node HTTP with the verified public Host.

@@ -67,6 +67,7 @@ export function createPiWebRuntime(options: {
   let terminalTicket = initialSurface === 'terminal' ? 'initial' : undefined;
   let chatUrl: string | undefined;
   let chatStartup: AbortController | undefined;
+  let chatAttachDeadline: number | undefined;
   let chatReady = false;
   let chatCatalog: string | undefined;
   let boot: Promise<void> | undefined;
@@ -181,6 +182,7 @@ export function createPiWebRuntime(options: {
 
   async function openChat(ref: PiTranscript): Promise<boolean> {
     chatStartup = new AbortController();
+    chatAttachDeadline = undefined;
     try {
       await services.start();
       let project = (await services.request<Array<{ path: string; id: string }>>('/api/projects')).find(row => row.path === cwd);
@@ -193,13 +195,17 @@ export function createPiWebRuntime(options: {
       save(ref);
       chatCatalog = `/api/plugin-catalog/projects/${encodeURIComponent(project.id)}/workspaces/${encodeURIComponent(workspace.id)}/sessions/${encodeURIComponent(ref.id)}`;
       chatUrl = `/api/pi-web/${sessionId}/g/${generation}/?${new URLSearchParams({ project: project.id, workspace: workspace.id, session: ref.id, view: 'chat' })}`;
-      // Mount first: the stock client may need to answer a native startup question.
+      // The Ready screen may wait indefinitely for Open. Start the writer
+      // confirmation budget only when the scoped browser frame attaches.
       await until(() => {
         if (!services.running()) throw new Error('Stock Chat exited during startup');
+        if (chatAttachDeadline !== undefined && Date.now() >= chatAttachDeadline) {
+          throw new Error('Native Chat writer could not be confirmed');
+        }
         const observed = receipt('chat');
         return observed?.id === ref.id && observed.path === ref.path && !observed.released && processMatches(observed)
           ? true : undefined;
-      }, undefined, 25_000);
+      }, chatStartup.signal);
       chatReady = true;
       return true;
     } catch {
@@ -446,6 +452,8 @@ export function createPiWebRuntime(options: {
     get generation() { return generation; },
     get legacyHerdr() { return legacyHerdr; },
     get cwd() { return cwd; },
+    get terminalAvailable() { return options.cloneRestored(); },
+    beginChatAttachment() { chatAttachDeadline ??= Date.now() + 25_000; },
     markWebRequestUnconfirmed() { webRequestUnconfirmed = true; },
     status() {
       const state = handoff.status();
@@ -487,6 +495,7 @@ export function createPiWebRuntime(options: {
     },
     close() {
       retiring = true;
+      if (!chatReady) chatStartup?.abort();
       wrapperWatch?.close();
       closing ??= close();
       return closing;

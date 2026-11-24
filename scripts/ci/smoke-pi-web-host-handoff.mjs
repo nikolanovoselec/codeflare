@@ -190,6 +190,13 @@ export default function (pi) {
     assert.equal(deepLink.pathname, `${appPrefix}/`);
     const params = deepLink.searchParams;
     assert.equal(params.get('session'), id);
+    if (!ambiguous) {
+      // The dashboard can remain on Ready beyond the writer-confirmation budget.
+      await delay(26_000);
+      const stillWaiting = await readSwitch();
+      assert.equal(stillWaiting.chatUrl, chatUrl);
+      assert.equal((await request(stock, '/api/sessiond/health')).activeSessions, 0);
+    }
     const browserHeaders = {
       'x-forwarded-host': new URL(origin).host, 'x-forwarded-proto': 'http', 'x-codeflare-pi-generation': String(generation),
     };
@@ -222,6 +229,12 @@ export default function (pi) {
     assert.deepEqual(identity(source), { id, cwd, path });
     assert.equal(cloneRestored, false, 'Chat must open the native transcript before repository cloning finishes');
     assert.equal(owner().terminalTicket, undefined, 'Chat-first startup must not grant a native Terminal ticket');
+    if (!ambiguous) {
+      await api('/_switch', 409, { generation, requestId: randomUUID(), target: 'terminal' });
+      assert.equal((await readSwitch()).surface, 'chat', 'a premature switch leaves Chat active');
+      assert.equal(owner().terminalTicket, undefined);
+      assert.equal((await snapshot()).status.sessionId, id);
+    }
     cloneRestored = true;
 
     let busyChecks = 0;
@@ -455,7 +468,11 @@ export default function (pi) {
       writeFileSync(nativeResume, '');
       await until('handled input allows the original switch to open Chat', async () => (await readSwitch()).chatUrl);
     });
-    // Do not load the iframe: a live service will not produce a native writer receipt.
+    // Load the frame document but not its client: attachment starts the
+    // deadline, yet no transcript request produces a writer receipt.
+    const retryFrame = await nativeFetch(deepLink, { headers: browserHeaders });
+    assert.equal(retryFrame.status, 200);
+    await retryFrame.arrayBuffer();
     await until('missing startup receipt reaches a retry-safe outcome', async () => {
       const state = await readSwitch();
       return state.phase === 'failed' && state.requestId === retryId && state.surface === null;
