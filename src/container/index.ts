@@ -123,6 +123,7 @@ const SHUTDOWN_QUEUE_OWNER = 'shutdown:queue-owner';
 const SHUTDOWN_QUEUE_ALARM_MS = 15_000;
 const HERMES_DIRECT_LAYOUT_KEY = 'hermes:direct-layout';
 const HERMES_SETTLED_GENERATION_KEY = 'hermes:settled-generation';
+const HERMES_RETRY_GENERATION_KEY = 'hermes:retry-generation';
 const HERMES_MASTER_ADAPTER = '022e0ccae29f5235e4931829802e5656432111efe83f4c0c07b2cf22f1ca6a75'; // v196
 const HERMES_CHECKPOINT_ADAPTER = 'd6e0420a7a73120a48a457f38bce4a941a4c658fb7799ed89f8785f875735395'; // v197 and v198
 
@@ -928,6 +929,8 @@ export class container extends Container<Env> implements ContainerEnvState {
     try {
       await this.ctx.storage.transaction(async txn => {
         if (!await txn.get<boolean>(HERMES_DIRECT_LAYOUT_KEY)) return;
+        // Headless Retry never writes the session store. Keep the original writer’s proof.
+        if (await txn.get<number>(HERMES_RETRY_GENERATION_KEY) === generation) return;
         const audit = await txn.get<{ outcome: string; sessionId: string; lifecycleGeneration: number }>(FINAL_SYNC_AUDIT_KEY);
         if (audit?.outcome === 'completed' && audit.sessionId === sessionId && audit.lifecycleGeneration === generation
           && generation > (await txn.get<number>(HERMES_SETTLED_GENERATION_KEY) ?? 0)) {
@@ -1505,7 +1508,7 @@ export class container extends Container<Env> implements ContainerEnvState {
       await stillAdmitted();
       await this.prepareNativeStart();
       if (retry) {
-        await this.ctx.storage.put(HERMES_DIRECT_GENERATION_KEY, generation);
+        await this.ctx.storage.put({ [HERMES_DIRECT_GENERATION_KEY]: generation, [HERMES_RETRY_GENERATION_KEY]: generation });
         this.hermesDirectGeneration = generation;
         this.envVars = { ...this.envVars, CODEFLARE_HERMES_RETRY_SNAPSHOT: retry.snapshotId,
           CODEFLARE_HERMES_RETRY_SOURCE_GENERATION: String(retry.sourceGeneration) };

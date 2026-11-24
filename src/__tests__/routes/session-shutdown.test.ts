@@ -569,6 +569,29 @@ it('REQ-SESSION-043: Retry launches only the headless runtime with the same conf
   expect(f.trace.filter(event => event === `${a}:save`)).toHaveLength(1);
 });
 
+it('REQ-MEM-042 AC3: headless Retry preserves settlement of the saved writer after Delete', async () => {
+  const f = rig();
+  const A = await f.create(a, { holdMerge: true });
+  const writer = { sessionId: a, generation: 1 };
+  const session = f.session(a);
+  A.save.release('saved');
+  A.exit.release();
+  A.merge.release('pending');
+  await expectAccepted(f.stop(a));
+  await vi.waitFor(async () => expect((await f.batch())[a]).toMatchObject({ status: 'stopped', shutdownPhase: 'memory-not-merged' }));
+  expect(await session.hermesWriterSettled(f.owner, writer)).toBe(false);
+  A.retryResult.release('merged');
+  await expectAccepted(f.retry(a));
+  await vi.waitFor(async () => {
+    expect((await f.batch())[a]).toMatchObject({ status: 'stopped', generation: 2 });
+    expect((await f.batch())[a]?.shutdownPhase).toBeUndefined();
+  });
+  expect((await f.remove(a)).status).toBe(200);
+  expect((await f.app().request(f.path(a))).status).toBe(404);
+  expect(await session.hermesWriterSettled(f.owner, writer)).toBe(true);
+  expect(await session.hermesWriterSettled(f.owner, { ...writer, generation: 2 })).toBe(false);
+});
+
 it('REQ-SESSION-006: deleting an already stopped, settled row does not launch or stop a native process', async () => {
   const f = rig(false);
   await f.create(a, { running: false });
