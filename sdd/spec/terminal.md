@@ -385,7 +385,7 @@ Persisted Herdr state and runtime lifetime are documented in [Sessions & Runtime
 **Acceptance Criteria:**
 
 1. Normal Stop preserves the verified managed Pi role in its original pane, independently of focus. If a saved Pi session lacks a verified managed role, use legacy native restore and refuse Chat for that generation. <!-- @impl: image/herdr/codeflare-herdr-terminal::verify_managed_restore --> <!-- @manual: documentation/lanes/terminal-and-ide.md#future-herdr-handoff-qualification -->
-2. Managed Chat-first bootstrap waits for the selected primary pane topology without launching a native writer. <!-- @impl: image/herdr/codeflare-herdr-terminal::bootstrap --> <!-- @manual: documentation/lanes/terminal-and-ide.md#future-herdr-handoff-qualification -->
+2. Managed Chat-first bootstrap waits for the selected primary pane topology without launching a native writer. <!-- @impl: image/herdr/codeflare-herdr-terminal::bootstrap -->
 
 **Constraints:**
 
@@ -396,7 +396,7 @@ Persisted Herdr state and runtime lifetime are documented in [Sessions & Runtime
 
 **Dependencies:** [REQ-TERM-033](#req-term-033-durable-herdr-structural-session-recovery)
 
-**Verification:** Manual: [Deferred Herdr handoff qualification](../../documentation/lanes/terminal-and-ide.md#future-herdr-handoff-qualification)
+**Verification:** Manual: [Deferred Herdr restore checks (AC1)](../../documentation/lanes/terminal-and-ide.md#future-herdr-handoff-qualification). AC2 has no verification method yet.
 
 **Status:** Planned
 

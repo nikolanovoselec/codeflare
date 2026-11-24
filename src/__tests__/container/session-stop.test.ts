@@ -206,6 +206,7 @@ function configureLaunch(instance: SessionContainer, generation: number, workspa
 it.each([
   { stored: 'herdr', requested: 'classic' },
   { stored: 'classic', requested: 'herdr' },
+  { stored: 'herdr', requested: 'herdr' },
 ] as const)('REQ-AGENT-272 AC1: the DO refuses a handoff Start with $stored stored and $requested requested', async ({ stored, requested }) => {
   const generation = 6;
   const f = await fixture('stopped', generation);
