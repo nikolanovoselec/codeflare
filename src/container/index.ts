@@ -1822,7 +1822,7 @@ export class container extends Container<Env> implements ContainerEnvState {
     cancel.throwIfAborted();
     const mergeVerified = result?.status === 'merged' && verifiedHermesMerge(result.receipt, row, snapshotId);
     const phase = mergeVerified || result?.status === 'skipped' ? 'finishing' : 'finishing-pending';
-    return { phase, ...(mergeVerified ? { mergeVerified: true } : {}) } as const;
+    return { phase, ...(mergeVerified ? { mergeVerified: true as const } : {}) } as const;
   }
 
   private requireShutdownSession(input: SessionStopRequest): void {

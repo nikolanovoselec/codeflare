@@ -95,7 +95,7 @@ function rig(enterprise = true, workspaceSyncEnabled = true) {
     let firstSave = true;
     let disabledAtStartup = false;
     const exit = gate<void>(undefined);
-    const merge = gate<'skipped' | 'merged' | 'pending' | 'uncertain'>('skipped');
+    const merge = gate<'skipped' | 'merged' | 'legacy-merged' | 'pending' | 'uncertain' | 'timeout' | 'host-lost'>('skipped');
     const retryResult = gate<'merged' | 'pending'>('pending');
     let retrying = false;
     let mergeRequest: { intent: string; snapshotId: string; deadline: number; allowPersonalPiProviders: boolean } | undefined;
@@ -159,10 +159,14 @@ function rig(enterprise = true, workspaceSyncEnabled = true) {
           const body = mergeRequest = await request.json() as typeof mergeRequest & {};
           trace.push(`${label}:merge`);
           const status = await (retrying ? retryResult.promise : merge.promise);
+          if (status === 'timeout') return new Response(null, { status: 504 });
+          if (status === 'host-lost') throw new Error('Host disconnected during consolidation');
           const sessionId = label.split(':').at(-1)!;
-          return Response.json({ status, ...(status === 'merged' && { receipt: { source: {
-            owner: label.startsWith('other:') ? other : owner, sessionId, generation: 1, intent: body.intent, snapshotId: body.snapshotId,
-          } } }) });
+          const legacy = status === 'legacy-merged';
+          return Response.json({ status: legacy ? 'merged' : status, ...((legacy || status === 'merged') && { receipt: {
+            ...(legacy && { revision: 'old-master-revision' }),
+            source: { owner: label.startsWith('other:') ? other : owner, sessionId, generation: 1, intent: body.intent, snapshotId: body.snapshotId },
+          } }) });
         }
         return Response.json({ error: `Unexpected fixture Host path ${path}` }, { status: 404 });
       } }),
@@ -418,6 +422,19 @@ it.each(['failed', 'not-started', 'disk-refused'] as const)('REQ-SESSION-043: Re
   expect(f.trace.filter(event => event === `${a}:save`)).toHaveLength(2);
 });
 
+it('REQ-MEM-044: a legacy Host receipt cannot authorize fixed-master success or Delete', async () => {
+  const f = rig();
+  const A = await f.create(a, { holdMerge: true });
+  await expectAccepted(f.remove(a));
+  A.save.release('saved');
+  A.merge.release('legacy-merged');
+  A.exit.release();
+  await vi.waitFor(async () => expect((await f.batch())[a]).toMatchObject({
+    status: 'stopped', shutdownPhase: 'memory-not-merged', pendingDelete: true,
+  }));
+  expect((await f.app().request(f.path(a))).status).toBe(200);
+});
+
 it('REQ-SESSION-043: retains an accepted Delete through finishing and removes the row only after confirmed exit', async () => {
   const f = rig();
   const A = await f.create(a);
@@ -610,9 +627,13 @@ it('REQ-SESSION-043: Kill during inference retains the session, rejects a late r
   A.exit.release();
   expect((await bounded(killed)).status).toBe(200);
   A.merge.release('merged');
-  await vi.waitFor(async () => expect((await f.batch())[a]).toMatchObject({ status: 'stopped', pendingDelete: false }));
+  await vi.waitFor(async () => expect((await f.batch())[a]).toMatchObject({
+    status: 'stopped', shutdownPhase: 'memory-not-merged', pendingDelete: false,
+  }));
   expect((await f.app().request(f.path(a))).status).toBe(200);
-  expect((await repository.getSession(f.owner, a))?.mergedSnapshotId).toBeUndefined();
+  const stopped = await repository.getSession(f.owner, a);
+  expect(stopped?.shutdown?.snapshotId).toBe(snapshotId);
+  expect(stopped?.mergedSnapshotId).toBeUndefined();
   B.save.release('saved'); B.exit.release();
   await vi.waitFor(async () => expect((await f.batch())[b]?.status).toBe('stopped'));
   expect(f.trace.indexOf(`${a}:exit`)).toBeLessThan(f.trace.indexOf(`${b}:save`));
@@ -631,14 +652,14 @@ it('REQ-SESSION-043: stops a confirmed save without a trustworthy baseline but n
   expect((await f.app().request(f.path(a))).status).toBe(200);
 });
 
-it('REQ-SESSION-043: unconfirmed master transfer retains Delete and releases the queue only after exit', async () => {
+it.each(['uncertain', 'timeout', 'host-lost'] as const)('REQ-SESSION-043: unconfirmed master transfer (%s) retains Delete and releases the queue only after exit', async outcome => {
   const f = rig();
   const [A, B] = await Promise.all([f.create(a, { holdMerge: true }), f.create(b)]);
   await expectAccepted(f.remove(a));
   await expectAccepted(f.stop(b));
   A.save.release('saved');
   await vi.waitFor(() => expect(f.trace).toContain(`${a}:merge`));
-  A.merge.release('uncertain');
+  A.merge.release(outcome);
   expect((await f.batch())[b]?.shutdownPhase).toBe('queued');
   expect(f.trace).not.toContain(`${b}:save`);
   A.exit.release(); B.save.release('saved'); B.exit.release();
@@ -649,6 +670,9 @@ it('REQ-SESSION-043: unconfirmed master transfer retains Delete and releases the
   });
   expect(f.trace.indexOf(`${a}:exit`)).toBeLessThan(f.trace.indexOf(`${b}:save`));
   expect(f.trace.filter(event => event === `${a}:merge`)).toEqual([`${a}:merge`]);
+  const stopped = await repository.getSession(f.owner, a);
+  expect(stopped?.shutdown?.snapshotId).toBe(snapshotId);
+  expect(stopped?.mergedSnapshotId).toBeUndefined();
 });
 
 it('REQ-SESSION-011: non-Enterprise Stop retains the ordinary final-sync and exit lane', async () => {

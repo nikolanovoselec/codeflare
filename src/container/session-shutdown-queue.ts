@@ -82,7 +82,8 @@ export async function advanceShutdownQueue(env: Env, bucket: string): Promise<vo
         await transition(current => ({ ...current, phase: 'merged' }));
       } else if (job.phase === 'consolidating' || job.phase.endsWith('-uncertain')
         || job.phase === 'uncertain' || job.phase === 'finishing-pending') {
-        // Confirmed exit fences the old writer. Unconfirmed transfers grant no receipt.
+        // Exit stops the old process, not an R2 write already sent. Keep the
+        // saved snapshot retryable without granting a merge receipt.
         await transition(current => ({ ...current, phase: 'memory-not-merged' }));
       } else {
         // Exit outside the graceful path or an acknowledged Kill. No inferred save or Delete.

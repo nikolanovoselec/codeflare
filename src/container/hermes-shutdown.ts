@@ -39,7 +39,8 @@ export async function mergeAfterFinalSave<T>(input: {
 }
 
 export function verifiedHermesMerge(value: unknown, row: D1Session, snapshotId: string): boolean {
-  if (!value || typeof value !== 'object') return false;
+  // An old Host can acknowledge a versioned merge without writing the fixed masters.
+  if (!value || typeof value !== 'object' || 'revision' in value) return false;
   const { source } = value as { source?: Record<string, unknown> };
   return source?.owner === row.ownerKey && source.sessionId === row.sessionId
     && source.generation === (row.shutdown?.sourceGeneration ?? row.lifecycleGeneration)
