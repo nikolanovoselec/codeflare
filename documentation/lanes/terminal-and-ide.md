@@ -57,7 +57,8 @@ Herdr image settings manage mobile layout, mouse capture, browser-owned clipboar
 - For each run below, configure an authorized synthetic repository as a restore target and ensure its checkout is absent locally.
 - Start Chat-first and choose **Open**. While **Restoring repositories…** is visible, verify the Chat composer works, then switch **Chat → Terminal** before waiting for the clone outcome.
 - In a separate Terminal-first run, choose **Open**. While **Restoring repositories…** is visible, verify native Pi accepts a harmless prompt, then switch **Terminal → Chat**.
-- For each direction, confirm the destination answers a harmless prompt and the restore notice stays visible through the switch. If cloning finishes before the destination replies, mark only that direction unexercised. Check the restore outcome afterward.
+- For each direction, record notice transitions as they happen; a success notice clears after five seconds. Confirm the destination answers a harmless prompt while the restore notice remains visible through the switch.
+- Mark only that direction unexercised if you observe a restore outcome before the reply. A notice disappearing while restore is still active is a failure, not evidence of completion.
 - In a disposable browser check, block the first Chat frame navigation before it reaches the Host. Clear the block and choose **Reload Chat**. Verify the same conversation opens without a second handoff.
 - Verify unchanged workspace defaults, manually opened panes, and independent Browser VS Code behavior.
 
