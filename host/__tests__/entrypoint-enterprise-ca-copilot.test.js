@@ -134,7 +134,7 @@ it('REQ-SESSION-043: headless Retry installs the mounted CA before starting the 
     'cp() { command cp "$1" "$USER_HOME/staged.crt"; }',
     'update-ca-certificates() { command cp "$USER_HOME/staged.crt" "$USER_HOME/trusted.crt"; }',
     // Stand in for the Host and verify that system trust and Node trust are both ready at its launch.
-    'exec() { cmp "$NODE_EXTRA_CA_CERTS" "$USER_HOME/trusted.crt" && test ! -e "$HOME/.bashrc"; }',
+    'exec() { cmp "$NODE_EXTRA_CA_CERTS" "$USER_HOME/trusted.crt" && test ! -e "$HOME/.bashrc" && echo "headless Host reached with CA trust"; }',
     launch,
   ].join('\n');
   const result = spawnSync('bash', ['-c', script], {
@@ -142,6 +142,7 @@ it('REQ-SESSION-043: headless Retry installs the mounted CA before starting the 
     encoding: 'utf8',
   });
   assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /^headless Host reached with CA trust$/m);
 });
 
 // ---------------------------------------------------------------------------
