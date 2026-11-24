@@ -62,6 +62,11 @@ async function fixture(storage: DurableObjectStorage) {
   };
   return {
     stores, objects, admit, sync, settled, exited, incomplete,
+    upload: (id: string, content: string, beforeWrite?: () => Promise<void>) => retention.withUpload(writer(id), async () => {
+      await beforeWrite?.();
+      await sync(id, content);
+      return true;
+    }),
     advance: () => { now++; },
     loseInventory: () => { inventoryComplete = false; },
     loseDeleteConfirmation: (effect: 'failed' | 'partial' | 'lost-reply' | 'rejected' = 'failed') => { deletion = effect; },
@@ -253,6 +258,41 @@ it.each([undefined, 2])('REQ-MEM-042 AC3: rotates the oldest prefix without a ma
     expect(await f.admit(newIds[0])).toBe('new');
     await f.sync(newIds[0], 'New session memory');
     expect([...f.stores.keys()].sort()).toEqual([...oldIds.slice(1), newIds[0]].sort());
+  });
+});
+
+it('REQ-MEM-042 AC6: a retired writer cannot recreate its prefix or block the next admission', async () => {
+  await withBucket(async f => {
+    await f.fill();
+    const oldest = oldIds[0];
+    expect(await f.admit(newIds[0])).toBe('new');
+    expect(await f.upload(newIds[0], 'Replacement')).toBe(true);
+    f.reopenOwner();
+    expect(await f.upload(oldest, 'Late edit')).toBeUndefined();
+    expect(f.stores.has(oldest)).toBe(false);
+    expect(await f.admit(newIds[1])).toBe('new');
+    expect(await f.upload(newIds[1], 'Next replacement')).toBe(true);
+    expect([...f.stores.keys()].sort()).toEqual([...oldIds.slice(2), ...newIds].sort());
+  });
+});
+
+it('REQ-MEM-042 AC6: an upload already underway counts toward eviction rank', async () => {
+  await withBucket(async f => {
+    await f.fill();
+    const [oldest, nextOldest] = oldIds;
+    let began!: () => void;
+    let finish!: () => void;
+    const uploading = new Promise<void>(resolve => { began = resolve; });
+    const held = new Promise<void>(resolve => { finish = resolve; });
+    f.advance();
+    const write = f.upload(oldest, 'New edit', async () => { began(); await held; });
+    expect(await Promise.race([uploading.then(() => 'uploading'), write])).toBe('uploading');
+    const admission = f.admit(newIds[0]);
+    finish();
+    expect(await write).toBe(true);
+    expect(await admission).toBe('new');
+    expect(f.stores.has(oldest)).toBe(true);
+    expect(f.stores.has(nextOldest)).toBe(false);
   });
 });
 

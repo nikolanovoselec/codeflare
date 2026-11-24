@@ -9,6 +9,7 @@ import { getMaxSessions, SESSION_ID_PATTERN } from '../../lib/constants';
 import { AuthVariables } from '../../middleware/auth';
 import { createRateLimiter } from '../../middleware/rate-limit';
 import { getContainerId } from '../../lib/container-helpers';
+import { getBucketOwnerStub } from '../../lib/access';
 import { NotFoundError, ValidationError } from '../../lib/error-types';
 import { fanOutBisyncTrigger } from '../../lib/sync-fanout';
 import { D1SessionRepository } from '../../lib/session-repository';
@@ -287,6 +288,9 @@ app.post('/:id/retry-memory-consolidation', sessionStopRateLimiter, async (c) =>
   }
   if (!isEnterpriseMode(c.env) || session.lifecycleState !== 'stopped' || !session.shutdown?.snapshotId) {
     return c.json({ error: 'Headless memory consolidation is not available for this session' }, 409);
+  }
+  if (!await getBucketOwnerStub(c.env, session.ownerKey).hermesStoreRetained(session.ownerKey, id)) {
+    return c.json({ error: 'Saved memory is no longer available for consolidation' }, 409);
   }
   const accepted = await getBucketStorageOwner(c.env, session.ownerKey).enqueueHermesShutdown({
     bucket: session.ownerKey, sessionId: id, generation: session.lifecycleGeneration, delete: session.shutdown.delete, retry: true,

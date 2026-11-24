@@ -950,6 +950,9 @@ transfer_pi_hermes_memory() {
             timeout "$((deadline - SECONDS))" rclone copy "$source" "$target" "${args[@]}"
             return $?
         fi
+        if [ "$direction" = upload ] && [ -n "${CODEFLARE_HERMES_UPLOAD_ENDPOINT:-}" ]; then
+            args+=(--s3-endpoint "$CODEFLARE_HERMES_UPLOAD_ENDPOINT" --s3-force-path-style)
+        fi
         # The source may change after inventory (e.g. a foreground atomic
         # rewrite). A successful copy that skipped a missing file is incomplete.
         local copied
@@ -3221,10 +3224,10 @@ run_initial_r2_restore() {
         # the system bundle at handshake) trusts the intercepted connection. Without this the
         # first sync ("Syncing…") fails the TLS handshake. The enterprise CA block later in
         # this script re-installs it idempotently and additionally wires the agent env/.bashrc.
-        if [ "${ENTERPRISE_MODE:-}" = "active" ]; then
+        if [ "${ENTERPRISE_MODE:-}" = "active" ] || [ -n "${CODEFLARE_HERMES_UPLOAD_ENDPOINT:-}" ]; then
             if [ -f "$CF_CA_SRC" ]; then
                 install_enterprise_system_ca \
-                    && echo "[entrypoint] Enterprise Mode: containers CA installed before R2 sync (rclone trusts intercepted TLS)" \
+                    && echo "[entrypoint] Containers CA installed before R2 sync (rclone trusts intercepted TLS)" \
                     || echo "[entrypoint] WARNING: could not install containers CA before R2 sync; strict-egress sync may fail TLS"
             fi
         fi

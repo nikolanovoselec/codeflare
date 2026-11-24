@@ -83,6 +83,7 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
   const other = `shutdown-${crypto.randomUUID()}`;
   const states = new Map<string, { ready: Promise<void>; instance: SessionContainer; restoreExit: (evidence: object, withoutRetryMarker: boolean, failCleanup: boolean | 'settlement') => void }>();
   const processes = new Map<string, ReturnType<typeof processFixture>>();
+  const retained = new Map<string, Record<string, { generation: number }>>();
   const trace: string[] = [];
   const alarms = new Set<string>();
   let lastWriterWork: Promise<unknown> | undefined;
@@ -188,7 +189,7 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
     return { native, monitorExit, directGeneration, get token() { return token; }, save, exit, merge, retryResult, retryDestroy, get mergeRequest() { return mergeRequest; } };
   }
 
-  const idFromName = (name: string) => ({ toString: () => name });
+  const idFromName = (name: string) => ({ toString: () => name, equals: (id: DurableObjectId) => id.toString() === name });
   function getByName(address: string) {
     if (!states.has(address)) {
       const process = processes.get(address);
@@ -206,10 +207,13 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
         }] as const] : []),
       ] : []);
       let failExitCleanup: boolean | 'settlement' = false;
+      const retentionOwner = address.startsWith('bucket-owner:') ? address.slice('bucket-owner:'.length) : undefined;
+      if (retentionOwner) records.set('bucketOwnerEmail', 'test@example.com');
       const storage = {
         get: async (key: string | string[]) => Array.isArray(key)
           ? new Map(key.filter(item => records.has(item)).map(item => [item, structuredClone(records.get(item))]))
-          : structuredClone(records.get(key)),
+          : structuredClone(retentionOwner && key === 'hermes:retention'
+            ? { stores: retained.get(retentionOwner) ?? {} } : records.get(key)),
         put: async (key: string | Record<string, unknown>, value?: unknown) => {
           for (const [item, data] of Object.entries(typeof key === 'string' ? { [key]: value } : key)) {
             if (raceMonitor === 'stale successful audit' && item === 'finalSyncAudit') {
@@ -324,6 +328,8 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
     const process = processFixture(bucket === owner ? id : `other:${id}`, running, hasSnapshot, directGeneration);
     if (!holdMerge) process.merge.release('skipped');
     processes.set(`${bucket}-${id}`, process);
+    if (!retained.has(bucket)) retained.set(bucket, {});
+    if (directGeneration) retained.get(bucket)![id] = { generation: 1 };
     return process;
   }
   async function batch(bucket = owner) {
@@ -342,7 +348,8 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
     await session(id).collectMetrics({ ownerKey: owner, sessionId: id, generation });
   };
   return { owner, other, app, path, create, batch, stop, remove, kill, retry, trace, replayExit, cleanup, latestWriterWork: () => lastWriterWork!,
-    publishDelayedAudit: () => publishDelayedAudit!(), wake: () => getByName(`storage:${owner}`).wakeHermesShutdownQueue(owner), session };
+    publishDelayedAudit: () => publishDelayedAudit!(), wake: () => getByName(`storage:${owner}`).wakeHermesShutdownQueue(owner), session,
+    evictSnapshot: (id: string) => { delete retained.get(owner)![id]; } };
 }
 
 const a = 'sessionaaa1';
@@ -629,6 +636,30 @@ it('REQ-SESSION-043: rejects headless Retry for an active session or a different
   expect((await f.retry(a, f.other)).status).toBe(404);
   expect((await f.batch())[a]).toMatchObject({ status: 'running', generation: 1 });
   expect(f.trace).toEqual([]);
+});
+
+it.each([false, true])('REQ-SESSION-043: an evicted snapshot cannot start Retry (already queued %s)', async queued => {
+  const f = rig();
+  const A = await f.create(a, { holdMerge: true });
+  A.save.release('saved'); A.exit.release(); A.merge.release('pending');
+  await expectAccepted(f.remove(a));
+  await vi.waitFor(async () => expect((await f.batch())[a]).toMatchObject({ status: 'stopped', shutdownPhase: 'memory-not-merged' }));
+  if (queued) {
+    const B = await f.create(b);
+    await expectAccepted(f.stop(b));
+    await vi.waitFor(() => expect(f.trace).toContain(`${b}:save`));
+    await expectAccepted(f.retry(a));
+    f.evictSnapshot(a);
+    B.save.release('saved'); B.exit.release();
+    await vi.waitFor(async () => expect((await f.batch())[a]).toMatchObject({ shutdownPhase: 'memory-not-merged' }));
+  } else {
+    f.evictSnapshot(a);
+  }
+  const response = await f.retry(a);
+  expect(response.status).toBe(409);
+  expect(await response.json()).toMatchObject({ error: 'Saved memory is no longer available for consolidation' });
+  expect((await f.batch())[a]).toMatchObject({ status: 'stopped', generation: 1, pendingDelete: true });
+  expect(f.trace).not.toContain(`${a}:headless-start`);
 });
 
 it('REQ-SESSION-043: Retry launches only the headless runtime with the same confirmed snapshot', async () => {

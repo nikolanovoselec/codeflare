@@ -3,6 +3,14 @@ import { SESSION_ID_PATTERN } from './constants';
 export const HERMES_SESSION_ROOT = 'Vault/Memory/Sessions/';
 export const HERMES_MARKDOWN = ['global/USER.md', 'global/MEMORY.md', 'global/failures.md', 'Projects/workspace/MEMORY.md'] as const;
 export const HERMES_STORE_MARKER = 'session-id';
+export const HERMES_UPLOAD_HOST = 'hermes-r2.internal';
+
+export function isHermesUploadKey(sessionId: string, key: string): boolean {
+  const prefix = `${HERMES_SESSION_ROOT}${sessionId}/`;
+  return SESSION_ID_PATTERN.test(sessionId) && key.startsWith(prefix)
+    && [...HERMES_MARKDOWN, HERMES_STORE_MARKER, 'baseline.json'].some(file => key === prefix + file);
+}
+
 const STATE_KEY = 'hermes:retention';
 const LIMIT = 10;
 
@@ -35,13 +43,29 @@ export class HermesRetention {
 
   constructor(private readonly storage: DurableObjectStorage) {}
 
-  async hasStore(sessionId: string): Promise<boolean> {
-    const state = await this.storage.get<State>(STATE_KEY);
-    return !!state && Object.hasOwn(state.stores, sessionId);
+  hasStore(sessionId: string): Promise<boolean> {
+    return this.serialize(async () => {
+      const state = await this.storage.get<State>(STATE_KEY);
+      return !!state && Object.hasOwn(state.stores, sessionId);
+    });
   }
 
   admit(writer: HermesWriter, ports: Ports, signal?: AbortSignal): Promise<HermesAdmission> {
-    const next = this.tail.then(() => this.admitOne(writer, ports, signal));
+    return this.serialize(() => this.admitOne(writer, ports, signal));
+  }
+
+  withUpload<T>(writer: HermesWriter, upload: () => Promise<T>): Promise<T | undefined> {
+    return this.serialize(async () => {
+      if (!validWriter(writer)) return;
+      const state = await this.storage.get<State>(STATE_KEY);
+      if (state?.stores[writer.sessionId]?.generation !== writer.generation
+        || state.eviction?.victim === writer.sessionId) return;
+      return upload();
+    });
+  }
+
+  private serialize<T>(operation: () => Promise<T>): Promise<T> {
+    const next = this.tail.then(operation);
     this.tail = next.catch(() => undefined);
     return next;
   }

@@ -33,8 +33,8 @@
  * any send) precede the forward, which itself returns 503 EGRESS_UNAVAILABLE with no
  * global-fetch fallback when the binding is unbound.
  *
- * Dormant on non-enterprise deploys / when the toggle is OFF: the DO only wires the
- * catch-all when strict is true, so this class is otherwise unreached.
+ * When strict egress is off, only the exact Hermes upload host reaches this
+ * controller; general traffic is not intercepted here.
  */
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import type { Env, ManagedResourcePolicy } from './types';
@@ -50,7 +50,8 @@ import {
 import { createR2Client, getR2Url } from './lib/r2-client';
 import { getR2Config } from './lib/r2-config';
 import { getSseHeaders } from './lib/r2-sse';
-import { HERMES_MARKDOWN } from './lib/hermes-retention';
+import { HERMES_MARKDOWN, HERMES_SESSION_ROOT, HERMES_UPLOAD_HOST, isHermesUploadKey, type HermesWriter } from './lib/hermes-retention';
+import { getBucketOwnerStub } from './lib/access';
 import {
   classifyManagedR2Request,
   MANAGED_R2_POLICY_KEY,
@@ -91,6 +92,7 @@ interface EgressProps extends PersonalPiProps {
   releaseDigest?: string;
   pathsDigest?: string;
   r2SseDisabled?: boolean;
+  hermesUpload?: HermesWriter;
   /** Strict Gateway egress toggle, read once at wiring (the DO only wires when true). */
   strict?: boolean;
   /** Parent-bound narrowing profile. Absence preserves ordinary human behavior. */
@@ -197,11 +199,26 @@ export class EgressController extends WorkerEntrypoint<Env> {
   override async fetch(request: Request): Promise<Response> {
     const props = (this.ctx as unknown as { props?: EgressProps }).props;
 
-    // Defense-in-depth: the DO only wires this catch-all when strict is ON and passes
-    // strict:true via props (read once at wiring — REQ-016 AC2, no per-request KV). A
-    // missing/false prop means a stale or misconfigured wiring: fail closed.
-    if (!props?.strict) {
+    const dest = new URL(request.url);
+    const hermesUpload = dest.hostname === HERMES_UPLOAD_HOST ? props?.hermesUpload : undefined;
+    if (!props || (!props.strict && !hermesUpload)) {
       return jsonError(503, 'EGRESS_NOT_CONFIGURED', 'Strict Gateway egress is not enabled');
+    }
+    if (dest.hostname === HERMES_UPLOAD_HOST) {
+      if (!hermesUpload || !props.accountId || !props.bucket || props.operatorPolicy || dest.protocol !== 'https:') {
+        return jsonError(403, 'HERMES_UPLOAD_DENIED', 'Hermes storage operation is not permitted');
+      }
+      dest.host = `${props.accountId}.r2.cloudflarestorage.com`;
+      const key = operatorR2Path(dest, props.accountId, props.bucket);
+      const operation = operatorR2Operation(request, dest);
+      const permitted = requestedR2Bucket(dest, props.accountId) === props.bucket && (
+        (operation === 'list' && request.method === 'GET'
+          && (dest.searchParams.get('prefix') ?? '').startsWith(`${HERMES_SESSION_ROOT}${hermesUpload.sessionId}/`))
+        || (key !== null && isHermesUploadKey(hermesUpload.sessionId, key)
+          && (operation === 'read' || (operation === 'write' && (dest.search === '' || dest.search === '?x-id=PutObject'))))
+      );
+      if (!permitted) return jsonError(403, 'HERMES_UPLOAD_DENIED', 'Hermes storage operation is not permitted');
+      request = new Request(dest, request);
     }
 
     const personal = await forwardPersonalPi(request, this.env, props);
@@ -427,7 +444,9 @@ export class EgressController extends WorkerEntrypoint<Env> {
           body: hasBody ? forward.body : undefined,
           redirect: 'manual',
         });
-        upstream = await fetch(signed);
+        upstream = hermesUpload && props.bucket && request.method === 'PUT'
+          ? await getBucketOwnerStub(this.env, props.bucket).putHermesObject(props.bucket, hermesUpload, signed)
+          : await fetch(signed);
         if (emptyHermesRead && upstream.ok) {
           const reader = upstream.body?.getReader();
           try {

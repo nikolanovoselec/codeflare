@@ -55,6 +55,7 @@ function makeController(
     pathsDigest?: string;
     r2SseDisabled?: boolean;
     strict?: boolean;
+    hermesUpload?: { sessionId: string; generation: number };
     operatorPolicy?: OperatorPolicy;
     operatorDispatcherNative?: { activityId: string; generation: number; profileDigest: string };
     operatorNative?: PersonalPiProps['operatorNative'];
@@ -94,6 +95,33 @@ function makeController(
   } as unknown as ExecutionContext;
   return { controller: new EgressController(ctx, env), egressFetch };
 }
+
+it.each([false, true])('REQ-MEM-042 AC6: scoped Hermes upload uses the writer fence (strict %s)', async strict => {
+  const owner = 'bucket';
+  const writer = { sessionId: 'session1234', generation: 2 };
+  const ownKey = `Vault/Memory/Sessions/${writer.sessionId}/global/MEMORY.md`;
+  let writes = 0;
+  const { controller } = makeController({ CONTAINER: {
+    idFromName: (name: string) => name,
+    get: (name: string) => ({ putHermesObject: async (_bucket: string, context: typeof writer, request: Request) => {
+      expect(name).toBe(`bucket-owner:${owner}`);
+      expect(context).toEqual(writer);
+      expect(request.url).toBe(`https://acc.r2.cloudflarestorage.com/${owner}/${ownKey}`);
+      expect(request.headers.get('authorization')).toContain('Credential=user-r2-key/');
+      expect(await request.text()).toBe('Late local edit');
+      writes++;
+      return new Response(null, { status: 410 });
+    } }),
+  } as unknown as Env['CONTAINER'] }, { accountId: 'acc', strict, hermesUpload: writer });
+  const put = (key: string, query = '') => controller.fetch(new Request(`https://hermes-r2.internal/${owner}/${key}${query}`, {
+    method: 'PUT', body: 'Late local edit',
+  }));
+  expect((await put(ownKey)).status).toBe(410);
+  expect((await put('Vault/Memory/MEMORY.md')).status).toBe(403);
+  expect((await put(ownKey.replace(writer.sessionId, 'session5678'))).status).toBe(403);
+  expect((await put(ownKey, '?partNumber=1&uploadId=other')).status).toBe(403);
+  expect(writes).toBe(1);
+});
 
 beforeEach(() => {
   policyLogs.debug.mockClear();

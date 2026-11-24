@@ -19,6 +19,7 @@
  */
 import type { Env, ManagedResourcePolicy } from '../types';
 import { getConfiguredMcpPortals } from '../lib/mcp-portals';
+import { HERMES_UPLOAD_HOST, type HermesWriter } from '../lib/hermes-retention';
 import { ForbiddenError, toError } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import { isEnterpriseMode } from '../lib/subscription';
@@ -61,6 +62,7 @@ export interface InterceptionHost {
   _managedResourcePolicy?: ManagedResourcePolicy;
   _managedResourcePathsDigest?: string | null;
   _r2SseDisabled?: boolean;
+  hermesUpload?: HermesWriter;
   /** REQ-ENTERPRISE-016 AC1: resolved once in the DO constructor — never re-read per start. */
   _strictEgress?: boolean;
   /** Present only for a parent-bound operator session; never read from requests. */
@@ -424,6 +426,7 @@ async function resolveStrictEgress(
       ...await personalPiProps(host),
       accountId: host._r2AccountId ?? undefined,
       ...security,
+      ...(host.hermesUpload ? { hermesUpload: host.hermesUpload } : {}),
       // Keep portal ownership tied to the parent, not a refreshed R2 bucket.
       // Resolve only at wiring/refresh; generic catch-all requests need no MCP KV read.
       ...(portals.length ? { mcpPortal: { bucket: host._bucketName ?? '', portals,
@@ -526,6 +529,14 @@ export async function wireContainerInterception(host: InterceptionHost): Promise
     const reg = await spec.resolve(host);
     if (reg) registrations.push(reg);
   }
+  if (!host._strictEgress && host.hermesUpload && host._r2AccountId && host._bucketName) {
+    registrations.push({ entrypoint: 'EgressController', hosts: [HERMES_UPLOAD_HOST], mandatory: false,
+      props: { hermesUpload: host.hermesUpload, accountId: host._r2AccountId, bucket: host._bucketName,
+        r2AccessKeyId: host._r2AccessKeyId, r2SecretAccessKey: host._r2SecretAccessKey,
+        r2SseDisabled: host._r2SseDisabled, resourcePolicy: host._managedResourcePolicy,
+        releaseDigest: host._remoteCurationReleaseDigest, pathsDigest: host._managedResourcePathsDigest },
+      wiredLog: 'Hermes upload transport wired', failLog: 'Hermes upload transport unavailable' });
+  }
   // Every deployment/session mode uses the same Worker-owned portal boundary.
   // Operators never inherit personal grants. Reject host collisions, rather than
   // silently replacing an existing credential transport or its wildcard authority.
@@ -533,7 +544,7 @@ export async function wireContainerInterception(host: InterceptionHost): Promise
   if (portals.length) {
     const hosts = [...new Set(portals.map(p => new URL(p.url).hostname))];
     const claimed = registrations.flatMap(reg => reg.hosts).filter(pattern => pattern !== '*');
-    if (hosts.some(name => claimed.some(pattern => pattern === name
+    if (hosts.some(name => name === HERMES_UPLOAD_HOST || claimed.some(pattern => pattern === name
       || (pattern.startsWith('*.') && name.endsWith(pattern.slice(1)))))) {
       throw new ForbiddenError('MCP portal host collides with an existing outbound transport');
     }

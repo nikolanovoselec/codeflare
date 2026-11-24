@@ -47,7 +47,8 @@ import { getBucketOwnerStub, loadEnterpriseRouteConfig } from '../lib/access';
 import { isEnterpriseMode } from '../lib/subscription';
 import { mergeNeedsRetry, snapshotPattern, terminalFenced } from '../lib/session-shutdown';
 import { DEFAULT_ROUTE_CONTEXT_WINDOW, SESSION_ID_PATTERN } from '../lib/constants';
-import { HermesRetention, type HermesAdmission, type HermesWriter } from '../lib/hermes-retention';
+import { HERMES_UPLOAD_HOST, HermesRetention, isHermesUploadKey, type HermesAdmission, type HermesWriter } from '../lib/hermes-retention';
+import { getR2Url } from '../lib/r2-client';
 import { HERMES_ADAPTER_KEY, hermesRetentionR2 } from '../lib/hermes-retention-r2';
 import { canonicalJson } from '../lib/reasoning-profiles';
 import { runSetupConfiguration, type SetupConfigurationInput } from '../routes/setup/index';
@@ -158,6 +159,7 @@ export class container extends Container<Env> implements ContainerEnvState {
   private sessionKillInFlight?: SessionStopRequest & { completion: Promise<void> };
 
   private hermesDirectGeneration?: number;
+  hermesUpload?: HermesWriter;
   private hermesAttempt?: { generation: number; abort: AbortController };
   private shutdownQueueInFlight?: Promise<void>;
   private shutdownQueueDirty = false;
@@ -756,6 +758,10 @@ export class container extends Container<Env> implements ContainerEnvState {
       this._sessionId = await this.ctx.storage.get<string>(SESSION_ID_KEY) || null;
       const restoredGeneration = await this.ctx.storage.get<number>('lifecycleGeneration');
       this.hermesDirectGeneration = await this.ctx.storage.get<number>(HERMES_DIRECT_GENERATION_KEY);
+      const writerGeneration = await this.ctx.storage.get<number>(HERMES_WRITER_GENERATION_KEY);
+      if (this._sessionId && writerGeneration !== undefined && writerGeneration === this.hermesDirectGeneration) {
+        this.hermesUpload = { sessionId: this._sessionId, generation: writerGeneration };
+      }
       this._observedLifecycleGeneration = restoredGeneration !== undefined && Number.isSafeInteger(restoredGeneration) && restoredGeneration >= 0
         ? restoredGeneration : null;
       const restoredPin = this._bucketName && this._sessionId && Number.isSafeInteger(restoredGeneration)
@@ -1015,6 +1021,29 @@ export class container extends Container<Env> implements ContainerEnvState {
       return await this.ctx.storage.get<number>(HERMES_SETTLED_GENERATION_KEY) === generation;
     }
     return this.hermesWriterExited(bucket, writer);
+  }
+
+  async hermesStoreRetained(bucket: string, sessionId: string): Promise<boolean> {
+    if (!SESSION_ID_PATTERN.test(sessionId)) throw new Error('Invalid Hermes session ID');
+    await this.verifyMcpOwner(bucket);
+    return (this.hermesRetention ??= new HermesRetention(this.ctx.storage)).hasStore(sessionId);
+  }
+
+  async putHermesObject(bucket: string, writer: HermesWriter, request: Request): Promise<Response> {
+    await this.verifyMcpOwner(bucket);
+    const { accountId } = await getR2Config(this.env);
+    const endpoint = `https://${accountId}.r2.cloudflarestorage.com`;
+    const url = new URL(request.url);
+    const prefix = `/${bucket}/`;
+    const key = decodeURIComponent(url.pathname.slice(prefix.length));
+    if (request.method !== 'PUT' || !url.pathname.startsWith(prefix) || !isHermesUploadKey(writer.sessionId, key)
+      || (url.search !== '' && url.search !== '?x-id=PutObject') || request.headers.has('x-amz-copy-source')
+      || request.url !== getR2Url(endpoint, bucket, key) + url.search) {
+      return new Response(null, { status: 403 });
+    }
+    const retention = this.hermesRetention ??= new HermesRetention(this.ctx.storage);
+    return await retention.withUpload(writer, () => fetch(request, { redirect: 'manual' }))
+      ?? new Response(null, { status: 410 });
   }
 
   async admitHermesStore(bucket: string, writer: HermesWriter, remoteCuration: boolean, deadline: number,
@@ -1469,9 +1498,10 @@ export class container extends Container<Env> implements ContainerEnvState {
     await super.startAndWaitForPorts(...args);
   }
 
-  private async prepareNativeStart(): Promise<void> {
+  private async prepareNativeStart(hermesUpload?: HermesWriter): Promise<void> {
     await refreshMcpPortalConfiguration(this.host);
     this.updateEnvVars();
+    this.hermesUpload = hermesUpload;
     await wireContainerInterception(this.interceptionHost);
   }
 
@@ -1559,7 +1589,8 @@ export class container extends Container<Env> implements ContainerEnvState {
     const completion = Promise.resolve().then(async () => {
       await configure;
       await stillAdmitted();
-      await this.prepareNativeStart();
+      const upload = !retry && this._sessionMode === 'advanced' ? { sessionId, generation } : undefined;
+      await this.prepareNativeStart(upload);
       if (retry) {
         await this.ctx.storage.put({ [HERMES_DIRECT_GENERATION_KEY]: generation, [HERMES_RETRY_GENERATION_KEY]: generation });
         this.hermesDirectGeneration = generation;
@@ -1582,6 +1613,7 @@ export class container extends Container<Env> implements ContainerEnvState {
         }
         this.envVars = { ...this.envVars, CODEFLARE_HERMES_PERSISTENCE: disposition ?? 'deferred',
           CODEFLARE_HERMES_GENERATION: String(generation),
+          CODEFLARE_HERMES_UPLOAD_ENDPOINT: `https://${HERMES_UPLOAD_HOST}`,
           ...(disposition === 'existing' && isEnterpriseMode(this.env) && mergedSnapshot && snapshotPattern.test(mergedSnapshot)
             ? { CODEFLARE_HERMES_MERGED_SNAPSHOT: mergedSnapshot } : {}),
         };
@@ -1801,6 +1833,10 @@ export class container extends Container<Env> implements ContainerEnvState {
         || regime.keyMd5 && computeKeyMd5(this.env.ENCRYPTION_KEY) !== regime.keyMd5))
         || (resourcePolicy !== 'mutable' && (!strictEgress || !this.env.EGRESS
           || applied?.digest !== release?.digest || !/^[0-9a-f]{64}$/.test(pathsDigest ?? '')))) {
+        await failBeforeStart();
+        return;
+      }
+      if (!await raceAbort(signal, () => getBucketOwnerStub(this.env, bucket).hermesStoreRetained(bucket, sessionId))) {
         await failBeforeStart();
         return;
       }
