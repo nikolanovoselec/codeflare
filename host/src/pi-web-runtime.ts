@@ -325,7 +325,8 @@ export function createPiWebRuntime(options: {
           throw new Error('Managed Herdr writer was not confirmed at shutdown');
         }
         // Herdr can acknowledge a report without storing its resume argv.
-        // Only the unique saved parked wrapper is sufficient for managed restore.
+        // Require the unique saved role. Allow the wrapper's bounded reporter
+        // transition and Herdr 0.9.5's five-second snapshot debounce.
         const snapshot = join(bindingDir, 'session.json');
         await until(() => {
           const saved = loadJson<{ version: number; workspaces: Array<{ tabs: Array<{ panes: Record<string,
@@ -335,7 +336,7 @@ export function createPiWebRuntime(options: {
             .filter(({ agent_resume: role }) => role?.source === 'codeflare:terminal-writer' && role.agent === 'codeflare-terminal-writer'
               && JSON.stringify(role.argv) === '["codeflare-terminal-writer","--tui-mode","fullscreen"]');
           return roles.length === 1 ? true : undefined;
-        }, undefined, 4000);
+        }, undefined, 20_000).catch(() => { throw new Error('Herdr did not save the managed terminal role'); });
       }
     } finally {
       closed = true;

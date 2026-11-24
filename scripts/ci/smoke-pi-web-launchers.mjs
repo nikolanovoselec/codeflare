@@ -85,6 +85,23 @@ async function qualify(mode) {
     && entry.agent_resume.agent === 'codeflare-terminal-writer'
     && JSON.stringify(entry.agent_resume.argv) === JSON.stringify(managedAv);
   const countSavedRoles = () => existsSync(sessionFile) && savedPanes(json(sessionFile)).filter(hasManagedRole).length;
+  const readPane = async pane => JSON.parse((await control('pane', 'get', pane)).stdout).result.pane;
+  async function parkEvidence(pane, native) {
+    const current = existsSync(reportPath) && json(reportPath);
+    const owner = await readPane(pane).catch(() => undefined);
+    const processes = await foreground(pane).catch(() => []);
+    const roles = existsSync(sessionFile) ? savedPanes(json(sessionFile)).map(entry => entry.agent_resume).filter(Boolean) : [];
+    return {
+      released: current?.instance === native?.instance && current?.released === true,
+      nativeAlive: native && alive(native),
+      pane: owner?.pane_id,
+      paneAgent: owner?.agent,
+      hasNativeIdentity: !!owner?.agent_session,
+      foreground: processes.map(({ pid, name }) => ({ pid, name })),
+      roles: roles.map(role => ({ source: role.source, agent: role.agent, managed: hasManagedRole({ agent_resume: role }) })),
+      report: pty.output().match(/Codeflare: Herdr [^\r\n\x1b]*/g)?.slice(-4),
+    };
+  }
 
   function boot() {
     generation++;
@@ -168,8 +185,10 @@ async function qualify(mode) {
     // same live primary still consumes an exact ticket after orphan expiry.
     boot();
     const pane = mode === 'herdr' ? await readyPane() : undefined;
-    if (pane) await waiting(pane);
-    else await pty.until('Classic prewarm PTY emitted its startup byte', () => pty.output().includes('\r'));
+    if (pane) {
+      await waiting(pane);
+      await pty.until('fresh parked wrapper is saved before any native ticket', () => countSavedRoles() === 1);
+    } else await pty.until('Classic prewarm PTY emitted its startup byte', () => pty.output().includes('\r'));
     await noTicket(pane);
     assert.ok(!existsSync(sessionDir) || !readdirSync(sessionDir).some(file => file.endsWith('.jsonl')),
       'Chat-first must not create a Terminal conversation');
@@ -222,7 +241,10 @@ async function qualify(mode) {
       const saved = json(sessionFile);
       return savedPrimary(saved).length === 1 && saved;
     }, 8000);
-    await host.close();
+    try { await host.close(); }
+    catch (error) {
+      throw new Error(`Herdr Stop parked-role evidence: ${JSON.stringify(await parkEvidence(pane, native))}`, { cause: error });
+    }
     await ptylessExit(native);
     const retired = json(reportPath);
     assert.equal(retired.instance, native.instance);
@@ -241,7 +263,7 @@ async function qualify(mode) {
     assert.notEqual(restored.native.instance, native.instance);
     publish({ ...restored.grant, surface: 'terminal', phase: 'releasing', target: 'chat', requestId: randomUUID() });
     await pty.until('managed Herdr wrapper parks again after terminal releases', () =>
-      !alive(restored.native) && json(reportPath).released === true && countSavedRoles() === 1);
+      !alive(restored.native) && json(reportPath).released === true && countSavedRoles() === 1, 20_000);
     await stopRuntime();
     assert.equal(countSavedRoles(), 1, 'stopping an already parked wrapper preserves its role');
     console.log('PI_WEB_HERDR_MANAGED_RESTORE_OK');
