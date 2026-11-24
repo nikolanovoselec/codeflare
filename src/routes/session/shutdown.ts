@@ -3,6 +3,7 @@ import type { Env } from '../../types';
 import { getContainerId } from '../../lib/container-helpers';
 import { getBucketStorageOwner } from '../../lib/r2-migration';
 import { isEnterpriseMode } from '../../lib/subscription';
+import { mergeNeedsRetry } from '../../lib/session-shutdown';
 import type { D1Session } from '../../lib/session-repository';
 import type { SessionStopRequest } from '../../container/container-lifecycle';
 
@@ -16,7 +17,7 @@ export async function maybeQueueShutdown(env: Env, session: D1Session, remove: b
     return Response.json({ error: 'Previous memory publication is not yet confirmed' }, { status: 409 });
   }
   if (session.lifecycleState === 'stopped' || shutdown?.phase.startsWith('killing')) {
-    if (shutdown && shutdown.phase !== 'merged') return Response.json({ error: 'Session shutdown has not settled' }, { status: 409 });
+    if (shutdown && (shutdown.phase !== 'merged' || mergeNeedsRetry(shutdown))) return Response.json({ error: 'Session shutdown has not settled' }, { status: 409 });
     return null;
   }
   const addressed = getContainer(env.CONTAINER, getContainerId(bucket, sessionId)) as unknown as {

@@ -1,6 +1,6 @@
 import type { AgentType, SessionWorkspace, TabConfig, TerminalMode } from '../types';
 import { normalizeTrackedClones, type TrackedClone } from './clone-targets';
-import type { SessionShutdown } from './session-shutdown';
+import { mergeNeedsRetry, type SessionShutdown } from './session-shutdown';
 import type { SessionAuthority, AuthoritySession } from './session-authority';
 
 type SessionLifecycleState = 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping';
@@ -114,7 +114,7 @@ export class D1SessionRepository implements SessionAuthority {
   }
 
   async start(ownerKey: string, sessionId: string, transitionedAt: string, expectedGeneration?: number, resume?: SessionShutdown): Promise<D1Session | null> {
-    const mergedSnapshot = resume?.phase === 'merged' ? resume.snapshotId : undefined;
+    const mergedSnapshot = resume?.phase === 'merged' && !mergeNeedsRetry(resume) ? resume.snapshotId : undefined;
     const uncertain = resume?.phase === 'uncertain' ? { ...resume, resumed: true, delete: false } : null;
     const row = await this.db.prepare(`UPDATE runtime_sessions SET lifecycle_state='starting',
       lifecycle_generation=lifecycle_generation+1, response_revision=response_revision+1,
@@ -152,7 +152,7 @@ export class D1SessionRepository implements SessionAuthority {
 
   /** One CAS owns both FIFO placement and the public phase revision. */
   async updateShutdown(session: D1Session, next: SessionShutdown | undefined): Promise<boolean> {
-    const place = next?.phase === 'queued' && (!session.shutdown || session.shutdown.phase === 'memory-not-merged');
+    const place = next?.phase === 'queued' && (!session.shutdown || mergeNeedsRetry(session.shutdown));
     const retry = place && next?.sourceGeneration !== undefined;
     const hold = next && !['memory-not-merged', 'merged'].includes(next.phase);
     const result = await this.db.prepare(`UPDATE runtime_sessions SET shutdown_json=?5,

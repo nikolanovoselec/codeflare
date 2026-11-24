@@ -45,7 +45,7 @@ import { createHash } from 'node:crypto';
 import { AGENTS_SEEDED_CONFIGS } from '../lib/agent-seed.generated';
 import { getBucketOwnerStub, loadEnterpriseRouteConfig } from '../lib/access';
 import { isEnterpriseMode } from '../lib/subscription';
-import { snapshotPattern, terminalFenced } from '../lib/session-shutdown';
+import { mergeNeedsRetry, snapshotPattern, terminalFenced } from '../lib/session-shutdown';
 import { DEFAULT_ROUTE_CONTEXT_WINDOW, SESSION_ID_PATTERN } from '../lib/constants';
 import { HermesRetention, type HermesAdmission, type HermesWriter } from '../lib/hermes-retention';
 import { HERMES_ADAPTER_KEY, hermesRetentionR2 } from '../lib/hermes-retention-r2';
@@ -953,7 +953,7 @@ export class container extends Container<Env> implements ContainerEnvState {
       || this.env.CONTAINER.idFromName(`${bucket}-${sessionId}`).toString() !== this.ctx.id.toString()) return false;
     if (isEnterpriseMode(this.env)) {
       const row = await new D1SessionRepository(this.env.USAGE_DB).getSession(bucket, sessionId);
-      if (row?.shutdown && row.shutdown.phase !== 'merged'
+      if (row?.shutdown && (row.shutdown.phase !== 'merged' || mergeNeedsRetry(row.shutdown))
         && (row.lifecycleGeneration === generation || row.shutdown.sourceGeneration === generation)) return false;
     }
     if (await this.ctx.storage.get<number>(HERMES_SETTLED_GENERATION_KEY) === generation) return true;

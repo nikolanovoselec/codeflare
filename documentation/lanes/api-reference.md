@@ -444,7 +444,7 @@ A `503` alone is not retry authority. `503 daemon-not-running` means the daemon 
 
 For the merge request, send `{ intent, snapshotId, deadline, allowPersonalPiProviders, gateway? }`. The snapshot must match the confirmed save. The deadline is a future Unix time in milliseconds within the 20-minute budget. `allowPersonalPiProviders` is a boolean. Optional `gateway` includes `model`, `contextWindow`, and optional `reasoning` and `reasoningLevels`.
 
-For `200`, inspect the JSON `status` field: `merged` includes a source-snapshot receipt after verifying all four masters, `skipped` is a verified no-op, and `pending` does not confirm a merge. <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @impl: host/src/hermes-shutdown-service.ts::createHermesShutdownService -->
+For a current Host’s `200`, inspect the JSON `status` field: `merged` includes a source-snapshot receipt after verifying all four masters, `skipped` is a verified no-op, and `pending` does not confirm a merge. The owning Durable Object treats a legacy receipt with a `revision` as unconfirmed even if the Host returns `200` and `merged`. <!-- @impl: src/container/hermes-shutdown.ts::verifiedHermesMerge --> <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @impl: host/src/hermes-shutdown-service.ts::createHermesShutdownService -->
 
 ## Internal Operator Host APIs
 
@@ -1259,7 +1259,7 @@ Anonymous GET `/health` returns only `{ "status": "healthy" }` before protected 
 | `inventory=defer` | Runtime metrics and readiness plus `workspaceInventoryReady`; omits `workspaceRepos`. |
 | `inventory=only` | `workspaceRepos` when available, otherwise `{}`. No metrics or `observedAt`. |
 
-An ordinary or `inventory=defer` observation may include private `hermesRestoredSnapshot`. It is the exact launch receipt after verified reseed and successful scoped upload, or after restart verifies the restored baseline and all four files against the receipt’s saved replacement proof. It is omitted for inventory-only observations or when that proof is absent or mismatched. The Worker consumes the matching receipt in its generation-fenced projection; it is not a public session-status field. See [REQ-MEM-044 AC6](../../sdd/spec/memory.md#req-mem-044-consolidate-hermes-on-graceful-shutdown). <!-- @impl: entrypoint.sh::persist_pi_hermes_memory --> <!-- @impl: entrypoint.sh::restored_replacement_matches --> <!-- @impl: src/lib/session-repository.ts::project -->
+An ordinary or `inventory=defer` observation may include private `hermesRestoredSnapshot`. It is the exact launch receipt after verified reseed and successful scoped upload, or after restart verifies the restored baseline and all four files against the receipt’s saved replacement proof. It is omitted for inventory-only observations or when that proof is absent or mismatched. The Worker consumes the matching receipt in its generation-fenced projection; it is not a public session-status field. See [REQ-MEM-044 AC6–7](../../sdd/spec/memory.md#req-mem-044-consolidate-hermes-on-graceful-shutdown). <!-- @impl: entrypoint.sh::persist_pi_hermes_memory --> <!-- @impl: entrypoint.sh::restored_replacement_matches --> <!-- @impl: src/lib/session-repository.ts::project -->
 
 **Errors:** `401` for a missing or invalid bearer; `503` if the host auth token is not configured. <!-- @impl: host/src/auth-check.ts::checkContainerAuth -->
 

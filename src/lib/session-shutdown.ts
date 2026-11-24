@@ -26,15 +26,19 @@ export function terminalFenced(job?: SessionShutdown): boolean {
   return !!job && job.phase !== 'queued' && job.phase !== 'memory-not-merged' && job.phase !== 'merged' && job.phase !== 'uncertain';
 }
 
+export function mergeNeedsRetry(job?: SessionShutdown): boolean {
+  return job?.phase === 'memory-not-merged' || (job?.phase === 'merged' && job.revision !== undefined);
+}
+
 export function shutdownProjection(session: D1Session) {
   const job = session.shutdown;
-  if (!job || job.phase === 'merged' || (job.phase === 'uncertain' && job.resumed && session.lifecycleState !== 'stopped')) {
+  if (!job || (job.phase === 'merged' && !mergeNeedsRetry(job)) || (job.phase === 'uncertain' && job.resumed && session.lifecycleState !== 'stopped')) {
     return { status: session.lifecycleState };
   }
   const shutdownPhase = job.phase === 'save-failed' ? undefined
-    : job.phase === 'retry-save' ? 'saving' : job.phase === 'uncertain' ? 'memory-not-merged'
+    : job.phase === 'retry-save' ? 'saving' : job.phase === 'uncertain' || mergeNeedsRetry(job) ? 'memory-not-merged'
     : job.phase.startsWith('finishing') || job.phase.startsWith('killing') ? 'finishing' : job.phase;
-  const retryingMemory = job.sourceGeneration !== undefined && job.phase !== 'memory-not-merged' && job.phase !== 'uncertain';
+  const retryingMemory = job.sourceGeneration !== undefined && !mergeNeedsRetry(job) && job.phase !== 'uncertain';
   return {
     status: session.lifecycleState !== 'stopped' && terminalFenced(job) ? 'stopping' as const : session.lifecycleState,
     shutdownPhase,

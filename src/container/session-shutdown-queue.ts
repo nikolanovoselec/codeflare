@@ -1,7 +1,7 @@
 import type { Env } from '../types';
 import { getContainerId } from '../lib/container-helpers';
 import { D1SessionRepository } from '../lib/session-repository';
-import { shutdownProjection, snapshotPattern, type SessionShutdown, type ShutdownPhase } from '../lib/session-shutdown';
+import { mergeNeedsRetry, shutdownProjection, snapshotPattern, type SessionShutdown, type ShutdownPhase } from '../lib/session-shutdown';
 import type { SessionStopRequest } from './container-lifecycle';
 
 export type ShutdownRequest = SessionStopRequest & { delete: boolean; retry?: true };
@@ -25,9 +25,9 @@ export async function acceptShutdown(repository: D1SessionRepository, input: Shu
     if (input.retry) {
       if (row.lifecycleState !== 'stopped' || !job?.snapshotId || !snapshotPattern.test(job.snapshotId)) return { accepted: false };
       if (job.phase === 'queued' && job.sourceGeneration !== undefined) return { accepted: true, projection: shutdownProjection(row) };
-      if (job.phase !== 'memory-not-merged') return { accepted: false };
+      if (!mergeNeedsRetry(job)) return { accepted: false };
       const next: SessionShutdown = { ...job, phase: 'queued', sourceGeneration: job.sourceGeneration ?? row.lifecycleGeneration,
-        deadline: undefined, teardownClaimed: undefined };
+        deadline: undefined, teardownClaimed: undefined, revision: undefined, mergeVerified: undefined };
       if (await repository.updateShutdown(row, next)) return { accepted: true, projection: shutdownProjection({ ...row, shutdown: next }) };
       continue;
     }
@@ -75,13 +75,17 @@ export async function advanceShutdownQueue(env: Env, bucket: string): Promise<vo
         await session.retrySavedHermes(input, job.intent);
         continue;
       }
-      if (job.phase === 'finishing') {
+      if (job.revision !== undefined) {
+        // A versioned result does not verify the fixed master files.
+        await transition(current => ({ ...current, phase: 'memory-not-merged', revision: undefined, mergeVerified: undefined }));
+      } else if (job.phase === 'finishing') {
         if (job.delete && job.teardownClaimed) await repository.deleteAfterShutdown(row);
-        else await transition(current => (current.mergeVerified || current.revision) ? { ...current, phase: 'merged' } : undefined);
-      } else if (job.phase === 'killing' && (job.mergeVerified || job.revision)) {
+        else await transition(current => current.mergeVerified ? { ...current, phase: 'merged' } : undefined);
+      } else if (job.phase === 'killing' && job.mergeVerified) {
         await transition(current => ({ ...current, phase: 'merged' }));
       } else if (job.phase === 'consolidating' || job.phase.endsWith('-uncertain')
-        || job.phase === 'uncertain' || job.phase === 'finishing-pending') {
+        || job.phase === 'uncertain' || job.phase === 'finishing-pending'
+        || (job.phase === 'killing' && job.snapshotId && snapshotPattern.test(job.snapshotId))) {
         // Exit stops the old process, not an R2 write already sent. Keep the
         // saved snapshot retryable without granting a merge receipt.
         await transition(current => ({ ...current, phase: 'memory-not-merged' }));

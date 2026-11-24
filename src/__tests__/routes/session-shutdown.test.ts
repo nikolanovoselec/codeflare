@@ -33,6 +33,7 @@ vi.mock('@cloudflare/containers', () => ({
   },
 }));
 
+import { HERMES_MERGE_BUDGET_MS } from '../../container/hermes-shutdown';
 import { container as SessionContainer } from '../../container/index';
 import lifecycle from '../../routes/session/lifecycle';
 import crud from '../../routes/session/crud';
@@ -95,7 +96,7 @@ function rig(enterprise = true, workspaceSyncEnabled = true) {
     let firstSave = true;
     let disabledAtStartup = false;
     const exit = gate<void>(undefined);
-    const merge = gate<'skipped' | 'merged' | 'legacy-merged' | 'pending' | 'uncertain' | 'timeout' | 'host-lost'>('skipped');
+    const merge = gate<'skipped' | 'merged' | 'legacy-merged' | 'pending' | 'uncertain' | 'http-504' | 'host-lost'>('skipped');
     const retryResult = gate<'merged' | 'pending'>('pending');
     let retrying = false;
     let mergeRequest: { intent: string; snapshotId: string; deadline: number; allowPersonalPiProviders: boolean } | undefined;
@@ -159,7 +160,7 @@ function rig(enterprise = true, workspaceSyncEnabled = true) {
           const body = mergeRequest = await request.json() as typeof mergeRequest & {};
           trace.push(`${label}:merge`);
           const status = await (retrying ? retryResult.promise : merge.promise);
-          if (status === 'timeout') return new Response(null, { status: 504 });
+          if (status === 'http-504') return new Response(null, { status: 504 });
           if (status === 'host-lost') throw new Error('Host disconnected during consolidation');
           const sessionId = label.split(':').at(-1)!;
           const legacy = status === 'legacy-merged';
@@ -256,7 +257,7 @@ function rig(enterprise = true, workspaceSyncEnabled = true) {
   const remove = (id: string) => app().request(path(id), { method: 'DELETE' });
   const kill = (id: string) => app().request(`${path(id)}/kill`, { method: 'POST' });
   const retry = (id: string, bucket = owner) => app(bucket).request(`${path(id)}/retry-memory-consolidation`, { method: 'POST' });
-  return { owner, other, app, path, create, batch, stop, remove, kill, retry, trace, session: (id: string) => getByName(`${owner}-${id}`) };
+  return { owner, other, app, path, create, batch, stop, remove, kill, retry, trace, wake: () => getByName(`storage:${owner}`).wakeHermesShutdownQueue(owner), session: (id: string) => getByName(`${owner}-${id}`) };
 }
 
 const a = 'sessionaaa1';
@@ -652,7 +653,7 @@ it('REQ-SESSION-043: stops a confirmed save without a trustworthy baseline but n
   expect((await f.app().request(f.path(a))).status).toBe(200);
 });
 
-it.each(['uncertain', 'timeout', 'host-lost'] as const)('REQ-SESSION-043: unconfirmed master transfer (%s) retains Delete and releases the queue only after exit', async outcome => {
+it.each(['uncertain', 'http-504', 'host-lost'] as const)('REQ-SESSION-043: unconfirmed master transfer (%s) retains Delete and releases the queue only after exit', async outcome => {
   const f = rig();
   const [A, B] = await Promise.all([f.create(a, { holdMerge: true }), f.create(b)]);
   await expectAccepted(f.remove(a));
@@ -673,6 +674,66 @@ it.each(['uncertain', 'timeout', 'host-lost'] as const)('REQ-SESSION-043: unconf
   const stopped = await repository.getSession(f.owner, a);
   expect(stopped?.shutdown?.snapshotId).toBe(snapshotId);
   expect(stopped?.mergedSnapshotId).toBeUndefined();
+});
+
+it('REQ-SESSION-043: Kill during pending teardown preserves the saved merge retry', async () => {
+  const f = rig();
+  const A = await f.create(a);
+  const intent = 'pending-merge';
+  expect(await repository.updateShutdown((await repository.getSession(f.owner, a))!, { intent, phase: 'queued', delete: true })).toBe(true);
+  const row = (await repository.getSession(f.owner, a))!;
+  expect(await repository.updateShutdown(row, { intent, phase: 'finishing-pending', delete: true, snapshotId })).toBe(true);
+  A.exit.release();
+  expect((await f.kill(a)).status).toBe(200);
+  await vi.waitFor(async () => expect((await f.batch())[a]).toMatchObject({
+    status: 'stopped', shutdownPhase: 'memory-not-merged', pendingDelete: false,
+  }));
+  expect((await repository.getSession(f.owner, a))?.shutdown?.snapshotId).toBe(snapshotId);
+  await expectAccepted(f.retry(a));
+});
+
+it.each(['finishing', 'merged'] as const)('REQ-MEM-044: persisted legacy result (%s) cannot authorize Delete or reseed', async phase => {
+  const f = rig();
+  await f.create(a);
+  const intent = 'old-merge';
+  expect(await repository.updateShutdown((await repository.getSession(f.owner, a))!, { intent, phase: 'queued', delete: true })).toBe(true);
+  const row = (await repository.getSession(f.owner, a))!;
+  expect(await repository.updateShutdown(row, { intent, phase, delete: true, snapshotId, revision: 'old-masters', teardownClaimed: true })).toBe(true);
+  expect(await repository.claimStop(f.owner, a, intent, stamp, row.lifecycleGeneration)).not.toBeNull();
+  expect(await repository.confirmStopped(f.owner, a, row.lifecycleGeneration, intent, stamp)).toBe(true);
+  if (phase === 'finishing') await f.wake();
+  await vi.waitFor(async () => expect((await f.batch())[a]).toMatchObject({ status: 'stopped', shutdownPhase: 'memory-not-merged' }));
+  expect((await f.remove(a)).status).toBe(409);
+  const stopped = (await repository.getSession(f.owner, a))!;
+  const started = await repository.start(f.owner, a, stamp, stopped.lifecycleGeneration, stopped.shutdown);
+  expect(started?.lifecycleState).toBe('starting');
+  expect(started?.mergedSnapshotId).toBeUndefined();
+});
+
+it('REQ-SESSION-043: a Host that never responds reaches the merge observation deadline', async () => {
+  const f = rig();
+  const [A, B] = await Promise.all([f.create(a, { holdMerge: true }), f.create(b)]);
+  const clock = new AbortController();
+  const nativeTimeout = AbortSignal.timeout.bind(AbortSignal);
+  const timeouts = vi.spyOn(AbortSignal, 'timeout').mockImplementation(ms =>
+    ms > HERMES_MERGE_BUDGET_MS ? clock.signal : nativeTimeout(ms));
+  try {
+    await expectAccepted(f.remove(a));
+    await expectAccepted(f.stop(b));
+    A.save.release('saved');
+    await vi.waitFor(() => expect(f.trace).toContain(`${a}:merge`));
+    clock.abort(new DOMException('Merge deadline expired', 'TimeoutError'));
+    await vi.waitFor(async () => expect((await f.batch())[a]?.shutdownPhase).toBe('finishing'));
+    expect((await f.batch())[b]?.shutdownPhase).toBe('queued');
+    A.exit.release(); B.save.release('saved'); B.exit.release();
+    await vi.waitFor(async () => {
+      const settled = await f.batch();
+      expect(settled[a]).toMatchObject({ status: 'stopped', shutdownPhase: 'memory-not-merged', pendingDelete: true });
+      expect(settled[b]?.status).toBe('stopped');
+    });
+    expect(f.trace.indexOf(`${a}:exit`)).toBeLessThan(f.trace.indexOf(`${b}:save`));
+    expect((await repository.getSession(f.owner, a))?.shutdown?.snapshotId).toBe(snapshotId);
+  } finally { timeouts.mockRestore(); }
 });
 
 it('REQ-SESSION-011: non-Enterprise Stop retains the ordinary final-sync and exit lane', async () => {

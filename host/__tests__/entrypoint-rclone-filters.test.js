@@ -799,6 +799,17 @@ describe('REQ-MEM-035 AC2 / REQ-MEM-041 AC2: session Markdown sync', () => {
     for (const [key, value] of Object.entries(entries)) assert.equal(readFileSync(join(root, key), 'utf8'), value);
   });
 
+  it('REQ-MEM-044: new sessions seed both copies from the fixed masters visible after a partial upload', t => {
+    const fx = persistenceFixture(t, { policy: 'mutable', hermes: 'new', enterprise: true });
+    const visible = { 'global/USER.md': 'New preference', 'global/MEMORY.md': 'Old fact',
+      'global/failures.md': 'Old lesson', 'Projects/workspace/MEMORY.md': 'Old project fact' };
+    for (const [key, contents] of Object.entries(visible)) fx.put(fx.remote, `Vault/Memory/${key.replace(/^global\//, '')}`, contents);
+    fx.run('restore_hermes');
+    const store = join(fx.home, 'Vault/Memory/Sessions/abc12345');
+    assert.deepEqual(JSON.parse(readFileSync(join(store, 'baseline.json'), 'utf8')), visible);
+    for (const [key, contents] of Object.entries(visible)) assert.equal(readFileSync(join(store, key), 'utf8'), contents);
+  });
+
   it('REQ-MEM-044: an interrupted reseed upload cannot acknowledge a mixed restored snapshot', t => {
     const fx = persistenceFixture(t, { policy: 'mutable', hermes: 'new', enterprise: true });
     const store = 'Vault/Memory/Sessions/abc12345';
