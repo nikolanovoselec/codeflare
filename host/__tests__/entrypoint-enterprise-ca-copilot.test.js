@@ -132,6 +132,8 @@ it('REQ-SESSION-043: headless Retry installs the mounted CA before starting the 
     const assert = require('node:assert/strict');
     const fs = require('node:fs');
     const path = require('node:path');
+    assert.equal(process.env.NODE_EXTRA_CA_CERTS, ${JSON.stringify(ca)});
+    assert.equal(process.env.SSL_CERT_FILE, ${JSON.stringify(bundle)});
     assert.equal(fs.readFileSync(process.env.NODE_EXTRA_CA_CERTS, 'utf8'), 'fixture CA');
     assert.equal(fs.readFileSync(process.env.SSL_CERT_FILE, 'utf8'), 'fixture CA');
     assert.equal(fs.existsSync(path.join(process.env.HOME, '.bashrc')), false);
