@@ -210,6 +210,16 @@ describe('CF-001: security headers on pre-Hono early-return responses', () => {
     expect(out.headers.get('Strict-Transport-Security')).toBeNull();
   });
 
+  it('REQ-AGENT-272: the Worker adds same-origin framing without replacing stock preview restrictions', () => {
+    const upstream = new Response('preview', {
+      headers: { 'Content-Security-Policy': "default-src 'none'; sandbox", 'X-Frame-Options': 'DENY' },
+    });
+    const result = withSecurityHeaders(upstream, { csp: 'preserve', frame: 'sameorigin' });
+    expect(result.headers.get('Content-Security-Policy')?.split(',').map(value => value.trim()))
+      .toEqual(["default-src 'none'; sandbox", "frame-ancestors 'self'"]);
+    expect(result.headers.get('X-Frame-Options')).toBe('DENY');
+  });
+
   it('CF-001: vault frame policy is applied even if upstream already set a security header', () => {
     const upstream = new Response('vault shell', {
       headers: { 'X-Content-Type-Options': 'nosniff' },

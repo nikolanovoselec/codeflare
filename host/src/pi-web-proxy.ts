@@ -4,7 +4,8 @@ import { WebSocket, WebSocketServer } from 'ws';
 import { PI_WEB_PORT } from './pi-web-services.js';
 import type { PiWebRuntime } from './pi-web-runtime.js';
 
-const root = `http://127.0.0.1:${PI_WEB_PORT}`;
+const hostname = '127.0.0.1';
+const root = `http://${hostname}:${PI_WEB_PORT}`;
 const maxBody = 1024 * 1024;
 const requestIdPattern = /^[a-f0-9-]{36}$/i;
 const settlers = new Set(['abort', 'ask/submit', 'ask/cancel', 'dialogs/answer', 'dialogs/cancel', 'commands/respond']);
@@ -12,8 +13,8 @@ const sessionMutations = new Set(['prompt', ...settlers, 'queue/message', 'queue
   'warnings/dismiss', 'notifications/dismiss', 'notifications/dismiss-all', 'model', 'model/cycle',
   'models/enabled', 'models/scope', 'defaults', 'thinking-level', 'thinking-level/cycle', 'tree/navigate']);
 
-function send(res: ServerResponse, code: number, data: object): void {
-  res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+function send(res: ServerResponse, code: number, data: object, headers: http.OutgoingHttpHeaders = {}): void {
+  res.writeHead(code, { ...headers, 'content-type': 'application/json', 'Cache-Control': 'no-store' });
   res.end(JSON.stringify(data));
 }
 
@@ -39,15 +40,21 @@ async function jsonBody(req: IncomingMessage): Promise<Record<string, unknown>> 
 export function createPiWebProxy(options: { sessionId: string; runtime: PiWebRuntime; recordInput(): void }) {
   const { sessionId, runtime } = options;
   const prefix = `/api/pi-web/${sessionId}/`;
+  const appPrefix = `${prefix}g/${runtime.generation}/`;
   const wss = new WebSocketServer({ noServer: true, maxPayload: maxBody });
   let closed = false;
 
   function route(req: IncomingMessage): URL | undefined {
     const raw = req.url;
     if (closed || req.headers['x-codeflare-pi-generation'] !== String(runtime.generation) || !raw?.startsWith(prefix)) return;
-    const target = raw.slice(prefix.length);
+    const control = raw.slice(prefix.length).split('?')[0];
+    const target = control === '_switch' || control === '_cancel' ? raw.slice(prefix.length)
+      : raw.startsWith(appPrefix) ? raw.slice(appPrefix.length) : undefined;
+    if (target === undefined) return;
     const path = target.split('?')[0];
-    if (path.startsWith('/') || /%2f|%5c|%2e|\\|(?:^|\/)\.{1,2}(?:\/|$)/i.test(path)) return;
+    if (path.startsWith('/') || /%2f|%5c|%2e|[\\\x00-\x20\x7f]|(?:^|\/)\.{1,2}(?:\/|$)/i.test(path)) return;
+    // URL parsing is only for route and query matching. Downstream dials use
+    // a fixed authority, never a request-derived URL.
     return new URL(`/${target}`, root);
   }
 
@@ -107,6 +114,7 @@ export function createPiWebProxy(options: { sessionId: string; runtime: PiWebRun
     if (!url || !origin) { send(res, 409, { error: 'Pi workspace unavailable' }); return; }
     const path = browserPath(url.pathname);
     if (path === '/_switch' || path === '/_cancel') {
+      if (req.url?.startsWith(appPrefix)) { send(res, 409, { error: 'Pi workspace unavailable' }); return; }
       try { await control(req, res, path, url); }
       catch { send(res, 400, { error: 'Invalid Pi handoff request' }); }
       return;
@@ -116,6 +124,7 @@ export function createPiWebProxy(options: { sessionId: string; runtime: PiWebRun
     const preference = path === '/api/config' && req.method === 'PATCH';
     const kind = read ? 'read' : endpoint && settlers.has(endpoint) ? 'settle' : 'work';
     const opening = runtime.opening;
+    const startup = runtime.chatStartupSignal;
     if ((!runtime.ready && (!opening || kind === 'work')) || !isScoped(path, url)
       || (!read && !preference && (req.method !== 'POST' || !endpoint || !sessionMutations.has(endpoint)))) {
       send(res, 409, { error: 'Request is outside the active Chat conversation' }); return;
@@ -138,12 +147,14 @@ export function createPiWebProxy(options: { sessionId: string; runtime: PiWebRun
         }
         body = JSON.stringify(data);
       }
+      startup?.throwIfAborted();
       dispatched = true;
       // Node fetch can replace Host with the loopback authority. Stock checks
       // Host and Origin as a pair, so use Node HTTP with the verified public Host.
       const result = await new Promise<IncomingMessage>((resolve, reject) => {
-        const upstream = http.request(url, {
-          method: req.method, ...(opening && endpoint ? {} : { signal: AbortSignal.timeout(25_000) }),
+        const upstream = http.request({ hostname, port: PI_WEB_PORT, path: `${url.pathname}${url.search}`,
+          method: req.method,
+          signal: opening && endpoint ? startup : AbortSignal.any([AbortSignal.timeout(25_000), ...(startup ? [startup] : [])]),
           headers: { Host: new URL(origin).host, ...(req.headers.origin && { Origin: req.headers.origin }),
             ...(body !== undefined && { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }) },
         }, resolve);
@@ -151,9 +162,14 @@ export function createPiWebProxy(options: { sessionId: string; runtime: PiWebRun
         upstream.end(body);
       });
       if (!result.statusCode) throw new Error('Missing stock Chat HTTP status');
+      const headers: http.OutgoingHttpHeaders = { 'Cache-Control': 'no-store' };
+      for (const name of ['content-type', 'content-security-policy', 'x-frame-options'] as const) {
+        const value = result.headers[name];
+        if (value) headers[name] = value;
+      }
       const status = result.statusCode;
       const ok = status >= 200 && status < 300;
-      if (endpoint && status >= 500) runtime.markWebRequestUnconfirmed();
+      if (endpoint && status >= 500 && !startup?.aborted) runtime.markWebRequestUnconfirmed();
       if (endpoint === 'prompt' && ok) {
         const acknowledgment = await readJson(result);
         if (!acknowledgment || typeof acknowledgment !== 'object' || !('accepted' in acknowledgment)
@@ -162,17 +178,14 @@ export function createPiWebProxy(options: { sessionId: string; runtime: PiWebRun
         // only after all admitted requests, including this one, finish.
         upstreamSettled = true;
         options.recordInput();
-        send(res, status, acknowledgment);
+        send(res, status, acknowledgment, headers);
         return;
       }
       upstreamSettled = true;
-      const headers: Record<string, string> = { 'Cache-Control': 'no-store' };
-      const contentType = result.headers['content-type'];
-      if (contentType) headers['Content-Type'] = contentType;
       if (ok && endpoint && settlers.has(endpoint)) options.recordInput();
       if (ok && read && path === '/api/sessions' && req.method !== 'HEAD') {
         const rows = await readJson(result);
-        send(res, status, Array.isArray(rows) ? rows.filter(row => row?.id === runtime.binding?.id && row?.cwd === runtime.cwd) : []);
+        send(res, status, Array.isArray(rows) ? rows.filter(row => row?.id === runtime.binding?.id && row?.cwd === runtime.cwd) : [], headers);
         return;
       }
       res.writeHead(status, headers);
@@ -188,7 +201,7 @@ export function createPiWebProxy(options: { sessionId: string; runtime: PiWebRun
     } catch {
       // Cancelling fetch is not proof that sessiond cancelled getOrOpen or
       // accepted work. Preserve exclusivity even if the private hop timed out.
-      if (dispatched && !upstreamSettled && path.startsWith('/api/')) runtime.markWebRequestUnconfirmed();
+      if (dispatched && !upstreamSettled && !startup?.aborted && path.startsWith('/api/')) runtime.markWebRequestUnconfirmed();
       if (!res.headersSent) send(res, 503, { error: 'Chat service unavailable' });
       else res.destroy();
     } finally { finish(); }
@@ -202,18 +215,21 @@ export function createPiWebProxy(options: { sessionId: string; runtime: PiWebRun
       || !/^\/api\/(?:events|sessions\/(?:events|[^/]+\/events))$/.test(path)) {
       socket.end('HTTP/1.1 409 Conflict\r\nConnection: close\r\n\r\n'); return;
     }
-    url.protocol = 'ws:';
-    const ws = new WebSocket(url, { headers: { Host: new URL(origin).host, Origin: origin }, handshakeTimeout: 5000, maxPayload: 8 * maxBody });
+    const startup = runtime.chatStartupSignal;
+    const upstream = new URL(`ws://${hostname}:${PI_WEB_PORT}`);
+    upstream.pathname = url.pathname;
+    upstream.search = url.search;
+    const ws = new WebSocket(upstream, { headers: { Host: new URL(origin).host, Origin: origin }, handshakeTimeout: 5000, maxPayload: 8 * maxBody });
     socket.once('close', () => ws.terminate());
     ws.once('error', () => socket.destroy());
     ws.once('open', () => {
-      if (socket.destroyed || !runtime.handoff.permits('chat', 'read')) { ws.terminate(); socket.destroy(); return; }
+      if (socket.destroyed || startup?.aborted || !runtime.handoff.permits('chat', 'read')) { ws.terminate(); socket.destroy(); return; }
       wss.handleUpgrade(req, socket, head, client => {
         client.on('error', () => ws.terminate());
         client.on('close', () => ws.terminate());
         ws.on('close', () => client.close());
         ws.on('message', (frame, binary) => {
-          if (!runtime.handoff.permits('chat', 'read') || client.bufferedAmount > 8 * maxBody) {
+          if (startup?.aborted || !runtime.handoff.permits('chat', 'read') || client.bufferedAmount > 8 * maxBody) {
             client.close(); ws.close(); return;
           }
           client.send(frame, { binary });

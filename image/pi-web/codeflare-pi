@@ -7,7 +7,8 @@ case "${CODEFLARE_PI_SURFACE:-}" in chat|terminal) ;; *) exit 1 ;; esac
 [[ "${CODEFLARE_PI_GENERATION:-}" =~ ^[1-9][0-9]*$ ]] || exit 1
 [[ "${SESSION_ID:-}" =~ ^[a-z0-9]{8,24}$ ]] || exit 1
 
-if [ "$#" -eq 0 ]; then
+if [ "$#" -eq 0 ] && [ "${TERMINAL_ID:-1}" = 1 ] && [ -z "${MANUAL_TAB:-}" ] \
+    && [ "${HERDR_ENV:-}" != 1 ]; then
     mode=classic
 elif [ "$#" -eq 2 ] && [ "$1" = --tui-mode ] && [ "$2" = fullscreen ] \
     && [ "${HERDR_ENV:-}" = 1 ] && [[ "${HERDR_PANE_ID:-}" =~ ^[A-Za-z0-9._:-]{1,128}$ ]]; then
@@ -28,6 +29,30 @@ session_dir="$PI_CODING_AGENT_DIR/sessions/--${workspace_slug}--"
 (umask 077; mkdir -p -- "$tickets")
 exec 9> "$runtime/terminal-wrapper.lock"
 flock -n 9 || exit 1
+# Host must not issue a ticket to an ordinary shell after a deliberate quit.
+# A manually restarted wrapper must still be in the generation's original pane.
+pane=classic
+[ "$mode" != herdr ] || pane=$HERDR_PANE_ID
+if [ -f "$runtime/wrapper.json" ] && ! jq -e --arg pane "$pane" --argjson generation "$CODEFLARE_PI_GENERATION" '
+    .generation != $generation or .pane == $pane
+' "$runtime/wrapper.json" >/dev/null; then
+    printf 'Codeflare: run the managed writer in its original terminal pane.\n' >&2
+    exit 1
+fi
+stat=$(cat "/proc/$$/stat")
+read -ra fields <<< "${stat##*) }"
+(umask 077; printf '{"generation":%s,"pid":%s,"startTime":"%s","pane":"%s"}\n' \
+    "$CODEFLARE_PI_GENERATION" "$$" "${fields[19]}" "$pane" > "$runtime/wrapper.$$")
+mv -f -- "$runtime/wrapper.$$" "$runtime/wrapper.json"
+
+native_quit() {
+    local pid
+    IFS= read -r pid < "$tickets/$1" || return 1
+    jq -e --arg generation "$CODEFLARE_PI_GENERATION" --arg ticket "$1" --arg pid "$pid" '
+        .generation == ($generation | tonumber) and .ticket == $ticket and .pid == ($pid | tonumber)
+        and .quit == true and .idle == true
+    ' "$runtime/terminal.json" >/dev/null 2>&1
+}
 
 retired_native_path() {
     local retired_ticket="$1" pid
@@ -36,10 +61,10 @@ retired_native_path() {
     jq -er --arg generation "$CODEFLARE_PI_GENERATION" --arg ticket "$retired_ticket" --arg pid "$pid" \
         --arg cwd "$workspace" --arg root "$session_dir/" --slurpfile owner "$owner" '
         select(.generation == ($generation | tonumber) and .ticket == $ticket and .pid == ($pid | tonumber)
-            and .released == true and .idle == true and .cwd == $cwd
-            and (.path | startswith($root)) and (.releaseReady | type == "string"))
-        | select($owner[0].generation == .generation and $owner[0].terminalTicket == .ticket
-            and $owner[0].requestId == .releaseReady and $owner[0].binding.path == .path)
+            and .idle == true and .cwd == $cwd and (.path | startswith($root)))
+        | select($owner[0].generation == .generation and $owner[0].terminalTicket == .ticket)
+        | select(.quit == true or (.released == true and (.releaseReady | type == "string")
+            and $owner[0].requestId == .releaseReady and $owner[0].binding.path == .path))
         | .path
     ' "$runtime/terminal.json" 2>/dev/null
 }
@@ -145,9 +170,15 @@ while true; do
             printf '%s\n' "$BASHPID" > "$tickets/$ticket" || exit 1
             export CODEFLARE_PI_TERMINAL_PID="$BASHPID" CODEFLARE_PI_TERMINAL_TICKET="$ticket"
             export CODEFLARE_PI_TERMINAL_SESSION_PATH="$path"
-            exec /usr/local/bin/pi "${args[@]}"
+            exec /usr/local/bin/node --import /opt/codeflare/pi-web/native-preflight.mjs /usr/local/bin/pi "${args[@]}"
         ) || printf 'Codeflare: the managed Pi process exited unsuccessfully.\n' >&2
         report_waiting_pane "$ticket"
+        if native_quit "$ticket"; then
+            printf 'Pi exited. To re-enable managed Terminal Pi, run: codeflare-terminal-writer'
+            [ "$#" -eq 0 ] || printf ' %s' "$@"
+            printf '\n'
+            exit 0
+        fi
     fi
     sleep 0.25
 done

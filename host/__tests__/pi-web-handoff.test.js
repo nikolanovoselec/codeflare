@@ -215,3 +215,35 @@ test('REQ-AGENT-272 AC2: an ambiguous launch rejects new owners until the origin
   assert.equal(f.handoff.permits('terminal', 'work'), true);
   assert.equal(f.handoff.permits('chat', 'read'), false);
 });
+
+test('REQ-AGENT-272: timeout of the initial Chat writer exposes only the verified same-transcript retry', async () => {
+  const opened = [];
+  const handoff = createPiWebHandoff({
+    generation, initialSurface: 'chat',
+    stopWork: async () => { assert.fail('initial Chat has no outgoing writer'); },
+    waitForIdle: async () => { assert.fail('initial Chat has no outgoing writer'); },
+    release: async () => { assert.fail('initial Chat has no outgoing writer'); },
+    open: async (surface, transcript) => {
+      opened.push({ surface, transcript });
+      return opened.length > 1;
+    },
+  });
+  const requestId = 'first-chat';
+  assert.equal((await handoff.openInitialChat(requestId, binding)).phase, 'failed');
+  assert.equal(handoff.admit('chat', 'work'), undefined);
+  await assert.rejects(handoff.switchTo({ generation, requestId: 'other', target: 'terminal' }));
+  assert.equal((await handoff.switchTo({ generation, requestId, target: 'chat' })).phase, 'complete');
+  assert.deepEqual(opened, [{ surface: 'chat', transcript: binding }, { surface: 'chat', transcript: binding }]);
+});
+
+test('REQ-AGENT-272: an unconfirmed Chat startup retirement cannot dispatch another writer', async () => {
+  const f = fixture('terminal');
+  f.setOpenOutcome('unknown');
+  const attempt = { generation, requestId: 'unknown-chat', target: 'chat' };
+  assert.equal((await f.handoff.switchTo(attempt)).phase, 'uncertain');
+  assert.equal(f.writer, 'chat');
+  assert.equal(f.handoff.admit('chat', 'read'), undefined);
+  await assert.rejects(f.handoff.switchTo({ generation, requestId: 'different', target: 'terminal' }));
+  assert.equal((await f.handoff.switchTo(attempt)).phase, 'uncertain');
+  assert.equal(f.writer, 'chat');
+});

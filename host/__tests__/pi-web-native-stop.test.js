@@ -57,6 +57,12 @@ async function fixture(t) {
   let closed = false;
   let editor;
   const submitted = [];
+  let submission;
+  let pending = 0;
+  const preflightKey = Symbol.for('codeflare.pi.nativePromptPending');
+  globalThis[preflightKey] = () => pending > 0;
+  t.after(() => { delete globalThis[preflightKey]; });
+  let handleSubmission = () => {};
   let factory = () => ({});
   const handlers = new Map();
   const emit = (name, details) => handlers.get(name)?.(details, context);
@@ -70,7 +76,12 @@ async function fixture(t) {
       setEditorComponent(next) {
         factory = next;
         editor = factory({ getFocusedComponent: () => editor, hasOverlay: () => false }, {}, {});
-        editor.onSubmit = (value) => { submitted.push(value); };
+        editor.onSubmit = (value) => {
+          submitted.push(value);
+          // Native editor dispatch returns synchronously; Pi awaits the actual input separately.
+          pending++;
+          submission = Promise.resolve(handleSubmission(value)).finally(() => { pending--; });
+        };
       },
       onTerminalInput: () => () => {},
       setEditorText: (value) => { draft = value; },
@@ -95,7 +106,12 @@ async function fixture(t) {
   return {
     owner, receipt, binding, emit,
     tick: () => t.mock.timers.tick(250),
-    submit: (text) => editor.onSubmit(text),
+    async submit(text) {
+      const previous = submission;
+      await editor.onSubmit(text);
+      if (submission !== previous) await submission;
+    },
+    handleSubmission: handler => { handleSubmission = handler; },
     get submitted() { return submitted; },
     get draft() { return draft; },
     get closed() { return closed; },
@@ -109,17 +125,24 @@ async function fixture(t) {
 test('REQ-AGENT-272 AC3+AC6: stopping fences the terminal and aborts the admitted pre-stream turn before release', async (t) => {
   const f = await fixture(t);
   const source = f.receipt();
-  f.emit('input', { source: 'interactive', text: 'already admitted' });
+  let start;
+  f.handleSubmission(async () => {
+    f.emit('input', { source: 'interactive', text: 'already admitted' });
+    await new Promise(resolve => { start = resolve; });
+    f.begin();
+  });
+  const admitted = f.submit('already admitted');
   f.owner('stopping');
   f.tick();
   assert.equal(f.receipt().idle, false, 'an admitted input hook can look idle to Pi');
   assert.equal(f.receipt().stopRequested, undefined, 'an abort before the run exists would not stop it');
   await f.submit('not admitted');
-  assert.deepEqual(f.submitted, []);
+  assert.deepEqual(f.submitted, ['already admitted']);
   assert.equal(f.draft, 'not admitted');
 
   f.queue('queued follow-up');
-  f.begin();
+  start();
+  await admitted;
   assert.equal(f.finish(), 'aborted');
   f.tick();
   const settled = f.receipt();
@@ -160,4 +183,43 @@ test('REQ-AGENT-272 AC3: agent_start catches the exact switch between polls when
   f.tick();
   assert.equal(f.receipt().idle, true);
   assert.equal(f.draft, 'queued follow-up\n\nunsent draft');
+});
+
+test('REQ-AGENT-272: a consumed interactive input blocks release only until its hook returns', async (t) => {
+  const f = await fixture(t);
+  let finishInput;
+  f.handleSubmission(async () => {
+    f.emit('input', { source: 'interactive', text: 'handled locally' });
+    await new Promise(resolve => { finishInput = resolve; });
+    // The extension consumes this input; no before_agent_start is emitted.
+  });
+  const submitted = f.submit('handled locally');
+  f.owner('stopping');
+  f.tick();
+  assert.equal(f.receipt().idle, false);
+  assert.equal(f.receipt().stopRequested, undefined);
+  finishInput();
+  await submitted;
+  f.tick();
+  assert.equal(f.receipt().idle, true);
+  assert.equal(f.receipt().stopRequested, 'switch-7');
+  f.owner('releasing');
+  f.tick();
+  assert.equal(f.closed, true);
+  assert.equal(f.receipt().released, true);
+  assert.equal(f.readTranscript(), f.transcript);
+});
+
+test('REQ-AGENT-272: normal native quit records exact retirement without forging a switch receipt', async (t) => {
+  const f = await fixture(t);
+  const source = f.receipt();
+  f.emit('session_shutdown', { reason: 'quit' });
+  const retired = f.receipt();
+  assert.equal(retired.quit, true);
+  assert.equal(retired.released, undefined);
+  assert.equal(retired.releaseReady, undefined);
+  for (const key of ['pid', 'startTime', 'generation', 'instance', 'ticket', 'id', 'cwd', 'path', 'leaf']) {
+    assert.equal(retired[key], source[key], `native quit identifies the exact writer and branch: ${key}`);
+  }
+  assert.equal(f.readTranscript(), f.transcript);
 });

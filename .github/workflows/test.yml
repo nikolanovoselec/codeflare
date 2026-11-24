@@ -1074,6 +1074,7 @@ jobs:
             --mount "type=bind,src=$GITHUB_WORKSPACE/image/herdr/codeflare-herdr-terminal,dst=/usr/local/bin/codeflare-herdr-terminal,readonly" \
             --mount "type=bind,src=$GITHUB_WORKSPACE/image/pi-web/codeflare-pi,dst=/usr/local/bin/codeflare-terminal-writer,readonly" \
             --mount "type=bind,src=$GITHUB_WORKSPACE/image/pi-web/handoff-extension.ts,dst=/opt/codeflare/pi-web/handoff-extension.ts,readonly" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/image/pi-web/native-preflight.mjs,dst=/opt/codeflare/pi-web/native-preflight.mjs,readonly" \
             --mount "type=bind,src=$GITHUB_WORKSPACE/preseed/agents/pi/node_modules,dst=/opt/codeflare/npm-tools/node_modules,readonly" \
             --mount "type=bind,src=$GITHUB_WORKSPACE/scripts/ci,dst=/qualification/scripts/ci,readonly" \
             --mount "type=bind,src=$host_dist,dst=/qualification/host/dist,readonly" \

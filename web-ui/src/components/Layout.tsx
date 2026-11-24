@@ -110,7 +110,7 @@ const Layout: Component<LayoutProps> = (props) => {
   const awaitingChatStart = () => !!chatStartSid() && chatStartSid() === sessionStore.activeSessionId;
   const showPiWebPanel = createMemo(() => {
     const status = piWebStatus();
-    if (status) return status.surface !== 'terminal';
+    if (status) return status.surface !== 'terminal' && !(status.phase === 'failed' && status.target === 'terminal' && status.surface === null);
     return awaitingChatStart() || (!!piWeb() && piWebSession()?.status === 'running'
       && (!piWeb()?.unavailable() || !!piWeb()?.mutation() || !!piWeb()?.canRetry()));
   });

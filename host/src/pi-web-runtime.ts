@@ -16,6 +16,7 @@ interface NativeReceipt extends PiTranscript {
   stopRequested?: string;
   releaseReady?: string;
   released?: boolean;
+  quit?: boolean;
   persisted?: boolean;
   header: { type: 'session'; id: string; cwd: string; timestamp: string; version: number };
 }
@@ -42,7 +43,7 @@ function atomicWrite(path: string, data: string): void {
   writeFileSync(temp, data, { mode: 0o600, flag: 'wx' });
   renameSync(temp, path);
 }
-function processMatches(receipt: NativeReceipt): boolean {
+function processMatches(receipt: Pick<NativeReceipt, 'pid' | 'startTime'>): boolean {
   try {
     const stat = readFileSync(`/proc/${receipt.pid}/stat`, 'utf8');
     const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
@@ -65,6 +66,7 @@ export function createPiWebRuntime(options: {
   let binding: PiTranscript | undefined;
   let terminalTicket = initialSurface === 'terminal' ? 'initial' : undefined;
   let chatUrl: string | undefined;
+  let chatStartup: AbortController | undefined;
   let chatReady = false;
   let chatCatalog: string | undefined;
   let boot: Promise<void> | undefined;
@@ -174,35 +176,44 @@ export function createPiWebRuntime(options: {
     return ref;
   }
 
-  async function openChat(ref?: PiTranscript): Promise<void> {
-    await services.start();
-    let project = (await services.request<Array<{ path: string; id: string }>>('/api/projects')).find(row => row.path === cwd);
-    project ??= await services.request('/api/projects', { path: cwd });
-    if (!project || project.path !== cwd) throw new Error('Stock Chat project is unavailable');
-    const { workspaces } = await services.request<{ workspaces: Array<{ path: string; id: string; isMain: boolean }> }>(
-      `/api/projects/${encodeURIComponent(project.id)}/workspaces`);
-    const workspace = workspaces.find(row => row.isMain && row.path === cwd);
-    if (!workspace) throw new Error('Stock Chat workspace is unavailable');
-    const target = ref ?? await seedChat();
-    save(target);
-    const state = handoff.status();
-    publish({ ...state, phase: 'opening', target: 'chat' });
-    chatCatalog = `/api/plugin-catalog/projects/${encodeURIComponent(project.id)}/workspaces/${encodeURIComponent(workspace.id)}/sessions/${encodeURIComponent(target.id)}`;
-    chatUrl = `/api/pi-web/${sessionId}/?${new URLSearchParams({ project: project.id, workspace: workspace.id, session: target.id, view: 'chat' })}`;
+  async function openChat(ref: PiTranscript): Promise<boolean> {
+    chatStartup = new AbortController();
     try {
-      // The stock client opens the known row via its normal snapshot route.
-      // Mount first: native session_start may park pending a browser answer.
+      await services.start();
+      let project = (await services.request<Array<{ path: string; id: string }>>('/api/projects')).find(row => row.path === cwd);
+      project ??= await services.request('/api/projects', { path: cwd });
+      if (!project || project.path !== cwd) throw new Error('Stock Chat project is unavailable');
+      const { workspaces } = await services.request<{ workspaces: Array<{ path: string; id: string; isMain: boolean }> }>(
+        `/api/projects/${encodeURIComponent(project.id)}/workspaces`);
+      const workspace = workspaces.find(row => row.isMain && row.path === cwd);
+      if (!workspace) throw new Error('Stock Chat workspace is unavailable');
+      save(ref);
+      chatCatalog = `/api/plugin-catalog/projects/${encodeURIComponent(project.id)}/workspaces/${encodeURIComponent(workspace.id)}/sessions/${encodeURIComponent(ref.id)}`;
+      chatUrl = `/api/pi-web/${sessionId}/g/${generation}/?${new URLSearchParams({ project: project.id, workspace: workspace.id, session: ref.id, view: 'chat' })}`;
+      // Mount first: the stock client may need to answer a native startup question.
       await until(() => {
         if (!services.running()) throw new Error('Stock Chat exited during startup');
         const observed = receipt('chat');
-        return observed?.id === target.id && observed.path === target.path && !observed.released && processMatches(observed)
+        return observed?.id === ref.id && observed.path === ref.path && !observed.released && processMatches(observed)
           ? true : undefined;
-      });
+      }, undefined, 25_000);
       chatReady = true;
-    } catch (error) {
+      return true;
+    } catch {
+      chatStartup.abort();
+      // Close browser admission before joining both owned processes. No active
+      // writer or pending startup dialog can survive a confirmed daemon exit.
       chatUrl = undefined;
-      throw error;
+      chatReady = false;
+      chatCatalog = undefined;
+      await services.reset(); // Throws into the coordinator's uncertain state if not confirmed.
+      webRequestUnconfirmed = false;
+      return false;
     }
+  }
+
+  function quitTerminal(observed: NativeReceipt): boolean {
+    return observed.quit === true && observed.idle === true && !observed.released && !processMatches(observed);
   }
 
   const handoff = createPiWebHandoff({ generation, initialSurface,
@@ -219,7 +230,7 @@ export function createPiWebRuntime(options: {
         // assigned a new ID before the Host has read a binding from disk.
         const source = await until(() => {
           const observed = receipt('terminal');
-          return observed && !observed.released && processMatches(observed) ? observed : undefined;
+          return observed && (quitTerminal(observed) || !observed.quit && !observed.released && processMatches(observed)) ? observed : undefined;
         }, undefined, retiring ? 3000 : 20_000);
         save(source);
         // The native extension issues Abort on this exact stopping ticket.
@@ -230,7 +241,9 @@ export function createPiWebRuntime(options: {
       const requestId = handoff.status().requestId;
       releaseReceipt = await until(async () => {
         const observed = receipt(surface);
-        if (!observed || observed.released || !processMatches(observed)) return;
+        if (!observed) return;
+        if (surface === 'terminal' && quitTerminal(observed)) return observed;
+        if (observed.quit || observed.released || !processMatches(observed)) return;
         if (surface === 'terminal' && observed.stopRequested !== requestId) return;
         if (surface === 'chat' && !await webSettled(observed, true)) {
           await sleep(750, undefined, { signal });
@@ -264,7 +277,7 @@ export function createPiWebRuntime(options: {
         chatReady = false;
         chatUrl = undefined;
         chatCatalog = undefined;
-      } else {
+      } else if (!quitTerminal(source)) {
         await until(() => {
           const after = receipt('terminal');
           return releasedBy(after) && after?.released && !processMatches(source) ? true : undefined;
@@ -288,8 +301,13 @@ export function createPiWebRuntime(options: {
     },
     async open(surface, ref) {
       if (closed || retiring) return false;
-      if (surface === 'chat') await openChat(ref);
+      if (surface === 'chat') return openChat(ref);
       else {
+        if (receipt('terminal')?.quit === true) {
+          const wrapper = loadJson<Pick<NativeReceipt, 'generation' | 'pid' | 'startTime'>>(join(runtimeDir, 'wrapper.json'));
+          if (!wrapper || wrapper.generation !== generation || !Number.isSafeInteger(wrapper.pid) || wrapper.pid <= 1
+            || typeof wrapper.startTime !== 'string' || !processMatches(wrapper)) return false;
+        }
         terminalTicket = randomUUID();
         publish(handoff.status());
         await until(() => {
@@ -355,6 +373,7 @@ export function createPiWebRuntime(options: {
     get binding() { return binding; },
     get ready() { return chatReady && !closed; },
     get opening() { return chatUrl !== undefined && !chatReady && !closed; },
+    get chatStartupSignal() { return chatStartup?.signal; },
     get generation() { return generation; },
     get legacyHerdr() { return legacyHerdr; },
     get cwd() { return cwd; },
@@ -379,10 +398,14 @@ export function createPiWebRuntime(options: {
           if (legacyHerdr) return;
         }
         binding = restoredTranscript();
-        publish(handoff.status());
-        if (initialSurface === 'chat') await openChat(binding);
-        publish(handoff.status());
-        bootPhase = undefined;
+        if (initialSurface === 'chat') {
+          save(binding ?? await seedChat());
+          bootPhase = undefined;
+          await handoff.openInitialChat(randomUUID(), binding!);
+        } else {
+          publish(handoff.status());
+          bootPhase = undefined;
+        }
       })().catch(error => { bootPhase = 'failed'; throw error; });
       return boot;
     },

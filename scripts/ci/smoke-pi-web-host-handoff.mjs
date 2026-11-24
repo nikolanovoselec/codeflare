@@ -18,12 +18,14 @@ const nativeHttpRequest = http.request;
 const generation = 7;
 const sessionId = 'handoffsmoke';
 const prefix = `/api/pi-web/${sessionId}`;
+const appPrefix = `${prefix}/g/${generation}`;
 const provider = 'handoff-fixture';
 const model = 'handoff-text';
 const seed = 'Keep this exact saved question.';
 const reply = 'Keep this exact saved reply.';
 const held = 'Do not wait for a normal reply to this input.';
 const nativePrompt = 'Park this Terminal turn until it is interrupted.';
+const handled = 'Hold and consume this native input.';
 const text = (content) => typeof content === 'string' ? content : content?.map(({ text }) => text).join('');
 const json = (path) => JSON.parse(readFileSync(path, 'utf8'));
 const identity = ({ id, cwd, path }) => ({ id, cwd, path });
@@ -71,7 +73,7 @@ async function reopenTerminal(cwd, owner, released, readSwitch, exercise) {
   assert.ok(existsSync('/usr/bin/script'), 'isolated image must provide the script PTY driver');
   const terminalPath = join(process.env.CODEFLARE_RUNTIME_ROOT, 'pi-web/terminal.json');
   const cli = spawn('/usr/bin/script', ['-q', '-e', '-c',
-    'export CODEFLARE_PI_TERMINAL_PID=$$; exec /usr/local/bin/pi --extension /opt/codeflare/pi-web/handoff-extension.ts --session "$CODEFLARE_PI_TERMINAL_SESSION_PATH"',
+    'export CODEFLARE_PI_TERMINAL_PID=$$; exec node --import /opt/codeflare/pi-web/native-preflight.mjs /usr/local/bin/pi --extension /opt/codeflare/pi-web/handoff-extension.ts --session "$CODEFLARE_PI_TERMINAL_SESSION_PATH"',
     '/dev/null'], { cwd, env: { ...process.env, TERM: 'xterm-256color', SHELL: '/bin/sh',
     CODEFLARE_PI_TERMINAL_TICKET: owner.terminalTicket, CODEFLARE_PI_TERMINAL_SESSION_PATH: owner.binding.path,
   }, stdio: ['pipe', 'pipe', 'pipe'] });
@@ -107,6 +109,8 @@ async function qualify(ambiguous) {
   const extensions = join(agentDir, 'extensions');
   const parked = join(home, 'parked');
   const resume = join(home, 'resume');
+  const nativeParked = join(home, 'native-parked');
+  const nativeResume = join(home, 'native-resume');
   const owner = () => json(join(runtimeDir, 'owner.json'));
   const chat = () => json(join(runtimeDir, 'chat.json'));
   const terminal = () => json(join(runtimeDir, 'terminal.json'));
@@ -156,6 +160,11 @@ import { existsSync, writeFileSync } from 'node:fs';
 import { setTimeout as delay } from 'node:timers/promises';
 export default function (pi) {
   pi.on('input', async (event, ctx) => {
+    if (ctx.mode === 'tui' && event.text === ${JSON.stringify(handled)}) {
+      writeFileSync(${JSON.stringify(nativeParked)}, 'held');
+      while (!existsSync(${JSON.stringify(nativeResume)})) await delay(25);
+      return { action: 'handled' };
+    }
     if (ctx.mode !== 'rpc' || event.text !== ${JSON.stringify(held)}) return;
     writeFileSync(${JSON.stringify(parked)}, ctx.sessionManager.getSessionId());
     while (!existsSync(${JSON.stringify(resume)})) await delay(25);
@@ -164,7 +173,7 @@ export default function (pi) {
 }
 `);
     const origin = await listen(server);
-    const api = (path, expected, body) => request(origin, prefix + path, expected, body, {
+    const api = (path, expected, body) => request(origin, (path.startsWith('/_') ? prefix : appPrefix) + path, expected, body, {
       'x-forwarded-host': new URL(origin).host, 'x-forwarded-proto': 'http', 'x-codeflare-pi-generation': String(generation),
     });
     const boot = runtime.initialize();
@@ -176,8 +185,21 @@ export default function (pi) {
       return state.chatUrl;
     }, 35_000);
     const { id, path } = runtime.binding;
-    const params = new URL(chatUrl, origin).searchParams;
+    const deepLink = new URL(chatUrl, origin);
+    assert.equal(deepLink.pathname, `${appPrefix}/`);
+    const params = deepLink.searchParams;
     assert.equal(params.get('session'), id);
+    const browserHeaders = {
+      'x-forwarded-host': new URL(origin).host, 'x-forwarded-proto': 'http', 'x-codeflare-pi-generation': String(generation),
+    };
+    const app = await nativeFetch(deepLink, { headers: browserHeaders });
+    assert.equal(app.status, 200);
+    const entry = (await app.text()).match(/<script[^>]+src="(\.\/assets\/[^"]+\.js)"/);
+    assert.ok(entry, 'stock HTML must retain its relative client entry');
+    const asset = await nativeFetch(new URL(entry[1], deepLink), { headers: browserHeaders });
+    assert.equal(asset.status, 200);
+    assert.match(asset.headers.get('Content-Type') ?? '', /javascript/);
+    await asset.arrayBuffer();
     const catalog = `/api/plugin-catalog/projects/${encodeURIComponent(params.get('project'))}/workspaces/${encodeURIComponent(params.get('workspace'))}/sessions/${encodeURIComponent(id)}`;
     const ref = `/api/sessions/${encodeURIComponent(id)}`;
     const query = new URLSearchParams({ cwd });
@@ -220,14 +242,22 @@ export default function (pi) {
       if (closing) stop.stopped = (await response.clone().json()).stopped;
       return response;
     };
-    if (ambiguous) {
-      // Lose only the browser proxy's prompt acknowledgment, after the
-      // genuine stock HTTP call proves it was accepted by the daemon.
-      http.request = (url, options, receive) => {
-        if (url.origin !== stock || url.pathname !== `${ref}/prompt` || options.method !== 'POST') {
-          return nativeHttpRequest(url, options, receive);
+    {
+      // Decorate a real response at the local transport boundary, as the
+      // fixture must not change the pinned stock artifact or its policies.
+      http.request = (options, receive) => {
+        if (options.hostname === '127.0.0.1' && options.port === PI_WEB_PORT && options.path === '/api/projects') {
+          return nativeHttpRequest(options, response => {
+            response.headers['content-security-policy'] = "default-src 'none'";
+            response.headers['x-frame-options'] = 'DENY';
+            receive(response);
+          });
         }
-        const upstream = nativeHttpRequest(url, options, response => {
+        if (!ambiguous || options.path !== `${ref}/prompt` || options.method !== 'POST') {
+          return nativeHttpRequest(options, receive);
+        }
+        // Lose only the browser proxy's prompt acknowledgment, after the genuine stock call accepts it.
+        const upstream = nativeHttpRequest(options, response => {
           void (async () => {
             const chunks = [];
             for await (const chunk of response) chunks.push(chunk);
@@ -239,6 +269,11 @@ export default function (pi) {
         return upstream;
       };
     }
+    const preview = await nativeFetch(`${origin}${appPrefix}/api/projects`, { headers: browserHeaders });
+    assert.equal(preview.status, 200);
+    assert.equal(preview.headers.get('Content-Security-Policy'), "default-src 'none'");
+    assert.equal(preview.headers.get('X-Frame-Options'), 'DENY');
+    await preview.arrayBuffer();
     const prompt = (message, status = 200) => api(`${ref}/prompt`, status, { cwd, text: message });
     if (!ambiguous) {
       assert.equal((await prompt(seed)).accepted, true);
@@ -362,10 +397,67 @@ export default function (pi) {
     assert.ok(readFileSync(path, 'utf8').startsWith(transcript));
     assert.deepEqual(calls, expectedCalls, 'Chat must not replay the interrupted Terminal turn');
     console.log('PI_WEB_HOST_HANDOFF_OK');
+
+    await api('/_switch', 202, { generation, requestId: randomUUID(), target: 'terminal' });
+    const nextTicket = await until('second native opening', () => {
+      const current = owner();
+      return current.phase === 'opening' && current.target === 'terminal' && current.terminalTicket !== ticket.terminalTicket && current;
+    });
+    const retryId = randomUUID();
+    await reopenTerminal(cwd, nextTicket, reopened, readSwitch, async stdin => {
+      stdin.write(`\x1b[200~${handled}\x1b[201~\r`);
+      await until('native input hook entered', () => existsSync(nativeParked));
+      await api('/_switch', 202, { generation, requestId: retryId, target: 'chat' });
+      await until('native preflight is fenced', async () => (await readSwitch()).phase === 'stopping');
+      await delay(600);
+      assert.equal((await readSwitch()).phase, 'stopping', 'a held native input cannot pass for idle');
+      assert.notEqual(terminal().released, true);
+      writeFileSync(nativeResume, '');
+      await until('handled input allows the original switch to open Chat', async () => (await readSwitch()).chatUrl);
+    });
+    // Do not load the iframe: a live service will not produce a native writer receipt.
+    await until('missing startup receipt reaches a retry-safe outcome', async () => {
+      const state = await readSwitch();
+      return state.phase === 'failed' && state.requestId === retryId && state.surface === null;
+    }, 40_000);
+    await assert.rejects(() => nativeFetch(`${stock}/api/sessiond/health`, { signal: AbortSignal.timeout(2000) }),
+      'the previous stock service must be gone before retry');
+    await api('/_switch', 202, { generation, requestId: retryId, target: 'chat' });
+    await until('same attempt offers Chat again', async () => (await readSwitch()).chatUrl);
+    assert.equal((await snapshot()).status.sessionId, id);
+    await until('same attempt confirms a single recovered Chat writer', async () => {
+      const state = await readSwitch();
+      return state.phase === 'complete' && state.requestId === retryId && state.surface === 'chat';
+    });
+    assert.equal((await health()).activeSessions, 1);
+    assert.deepEqual(calls, expectedCalls, 'handled input and startup retry never reach the model');
+    console.log('PI_WEB_HOST_CHAT_STARTUP_RETRY_OK');
+
+    const resumeReceipt = chat();
+    await api('/_switch', 202, { generation, requestId: randomUUID(), target: 'terminal' });
+    const quitTicket = await until('native ticket before ordinary quit', () => {
+      const current = owner();
+      return current.phase === 'opening' && current.target === 'terminal' && current.terminalTicket !== nextTicket.terminalTicket && current;
+    });
+    await reopenTerminal(cwd, quitTicket, resumeReceipt, readSwitch, async (stdin, native) => {
+      stdin.write('\x04');
+      await until('ordinary quit carries exact native evidence', () => {
+        const ended = terminal();
+        return ended.instance === native.instance && ended.ticket === native.ticket && ended.quit === true;
+      });
+    });
+    assert.equal((await readSwitch()).surface, 'terminal', 'ordinary quit does not open Chat by itself');
+    await api('/_switch', 202, { generation, requestId: randomUUID(), target: 'chat' });
+    await until('verified ordinary quit permits Chat to open the exact transcript', async () => (await readSwitch()).chatUrl);
+    assert.equal((await snapshot()).status.sessionId, id);
+    await until('post-quit Chat is the confirmed writer', async () => (await readSwitch()).surface === 'chat');
+    assert.deepEqual(calls, expectedCalls);
+    console.log('PI_WEB_HOST_NATIVE_QUIT_OK');
   } finally {
     globalThis.fetch = nativeFetch;
     http.request = nativeHttpRequest;
     writeFileSync(resume, '');
+    writeFileSync(nativeResume, '');
     await Promise.all([proxy.close(), close(server), close(modelServer)]);
     rmSync(home, { recursive: true, force: true });
   }

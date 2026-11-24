@@ -18,6 +18,7 @@ const GENERATION = 7;
 const ATTEMPT = 'd00c2f0c-c268-44ad-a23a-384e27941ad1';
 const ORIGIN = 'https://codeflare.example:8443';
 const PREFIX = `/api/pi-web/${SID}/`;
+const APP = `${PREFIX}g/${GENERATION}/`;
 const OWNER_EMAIL = 'owner@example.com';
 const OWNER = 'codeflare-owner-example-com';
 const OTHER_EMAIL = 'other@example.com';
@@ -120,7 +121,7 @@ describe('Pi web Worker proxy (REQ-AGENT-272 AC5)', () => {
   }
 
   it('REQ-AGENT-272 AC5: keeps an owned app fetch passive while preserving the exact scoped path, query, and canonical browser origin', async () => {
-    const path = `${PREFIX}assets/main.js${QUERY}`;
+    const path = `${APP}assets/main.js${QUERY}`;
     const response = await handlePiWebRequest(request(path, {
       headers: {
         Authorization: 'Bearer browser-only', 'Cf-Access-Jwt-Assertion': 'browser-only',
@@ -182,8 +183,29 @@ describe('Pi web Worker proxy (REQ-AGENT-272 AC5)', () => {
     },
   );
 
+  it('REQ-AGENT-272 AC5: stale stock prompts and reconnects cannot attach to a replacement writer', async () => {
+    const previous = `${PREFIX}g/${GENERATION - 1}/`;
+    const transcript = 'same-native-transcript';
+    for (const scope of [previous, PREFIX]) {
+      const result = await handlePiWebRequest(request(`${scope}api/sessions/${transcript}/prompt`, {
+        body: { cwd: '/home/user/workspace', text: 'stale input' },
+        headers: { 'X-Codeflare-Pi-Generation': String(GENERATION) },
+      }), env);
+      const events = await handlePiWebRequest(request(`${scope}api/sessions/${transcript}/events`, { upgrade: true }), env);
+      expect(result.status).toBe(409);
+      expect(events.status).toBe(409);
+      expect(events.webSocket).toBeNull();
+    }
+    expect(ingress).toEqual([]);
+    const current = await handlePiWebRequest(request(`${APP}api/sessions/${transcript}/prompt`, {
+      body: { cwd: '/home/user/workspace', text: 'current input' },
+    }), env);
+    expect(current.status).toBe(200);
+    expect(await ingress[0].request.json()).toMatchObject({ text: 'current input' });
+  });
+
   it.each([false, true])('REQ-AGENT-272 AC5: unauthenticated and other-owner requests (upgrade=%s) never reach the private port', async upgrade => {
-    const path = `${PREFIX}${upgrade ? 'ws' : 'assets/main.js'}`;
+    const path = `${APP}${upgrade ? 'ws' : 'assets/main.js'}`;
     const unauthenticated = await handlePiWebRequest(request(path, { upgrade, headers: { Cookie: '' } }), env);
     const other = await handlePiWebRequest(request(path, { upgrade, headers: { Cookie: await loginCookie(OTHER_EMAIL) } }), env);
     expect(unauthenticated.status).toBe(401);
@@ -197,7 +219,7 @@ describe('Pi web Worker proxy (REQ-AGENT-272 AC5)', () => {
     const crossOrigin = { Origin: 'https://untrusted.example', 'Sec-Fetch-Site': 'cross-site' };
     for (const input of [
       request(`${PREFIX}_switch`, { body, headers: crossOrigin }),
-      request(`${PREFIX}ws`, { upgrade: true, headers: crossOrigin }),
+      request(`${APP}ws`, { upgrade: true, headers: crossOrigin }),
       request(`${PREFIX}_switch`, {
         body, headers: { Cookie: `${cookie}; ${CSRF_COOKIE_NAME}=real-token`, [CSRF_HEADER_NAME]: 'wrong-token' },
       }),
@@ -212,7 +234,7 @@ describe('Pi web Worker proxy (REQ-AGENT-272 AC5)', () => {
   ] satisfies Partial<StoredSession>[])('REQ-AGENT-272 AC5: $status traffic and switch polling cannot wake the session', async fields => {
     putSession(fields);
     for (const input of [
-      request(PREFIX), request(`${PREFIX}ws`, { upgrade: true }),
+      request(APP), request(`${APP}ws`, { upgrade: true }),
       request(`${PREFIX}_switch?generation=${GENERATION}&requestId=${ATTEMPT}`),
       request(`${PREFIX}_switch`, { body: { generation: GENERATION, target: 'chat', requestId: ATTEMPT } }),
     ]) {
@@ -229,7 +251,7 @@ describe('Pi web Worker proxy (REQ-AGENT-272 AC5)', () => {
     { terminalMode: 'herdr', tabConfig: [{ id: '1', command: '', label: 'Terminal 1' }] },
   ] satisfies Partial<StoredSession>[])('REQ-AGENT-272 AC5: rejects ineligible workspace or primary agent %j', async fields => {
     putSession(fields);
-    const result = await handlePiWebRequest(request(PREFIX), env);
+    const result = await handlePiWebRequest(request(APP), env);
     expect(result.status).toBeGreaterThanOrEqual(400);
     expect(ingress).toEqual([]);
   });
@@ -237,11 +259,11 @@ describe('Pi web Worker proxy (REQ-AGENT-272 AC5)', () => {
   it('REQ-AGENT-272 AC5: refuses non-ordinary Pi sessions and inactive SaaS users', async () => {
     ordinary = false;
     putSession({ boundaryActivityId: 'boundary-activity-fixture' });
-    expect((await handlePiWebRequest(request(PREFIX), env)).status).toBeGreaterThanOrEqual(400);
+    expect((await handlePiWebRequest(request(APP), env)).status).toBeGreaterThanOrEqual(400);
     ordinary = true;
     putSession();
     kv._set(`user:${OWNER_EMAIL}`, { addedBy: 'test', role: 'user', accessTier: 'pending', subscriptionTier: 'pending' });
-    expect((await handlePiWebRequest(request(PREFIX), env)).status).toBe(403);
+    expect((await handlePiWebRequest(request(APP), env)).status).toBe(403);
     expect(ingress).toEqual([]);
   });
 
@@ -255,11 +277,11 @@ describe('Pi web Worker proxy (REQ-AGENT-272 AC5)', () => {
 
   it('REQ-AGENT-272 AC5: applies the existing WebSocket limit per authenticated user but leaves HTTP usable', async () => {
     kv._set(`ws-connect:${OWNER_EMAIL}`, { count: WS_RATE_LIMIT_MAX_CONNECTIONS, windowStart: Date.now() });
-    const result = await handlePiWebRequest(request(`${PREFIX}ws`, { upgrade: true }), env);
+    const result = await handlePiWebRequest(request(`${APP}ws`, { upgrade: true }), env);
     expect(result.status).toBe(429);
     expect(Number(result.headers.get('Retry-After'))).toBeGreaterThan(0);
     expect(ingress).toEqual([]);
-    expect((await handlePiWebRequest(request(PREFIX), env)).status).toBe(200);
+    expect((await handlePiWebRequest(request(APP), env)).status).toBe(200);
   });
 
   it('REQ-AGENT-272 AC5: a current owner’s WebSocket reaches the native DO fetch with the exact session scope', async () => {
@@ -268,7 +290,7 @@ describe('Pi web Worker proxy (REQ-AGENT-272 AC5)', () => {
     await runInDurableObject<NativeDurableObject, void>(liveNativeStub as DurableObjectStub<NativeDurableObject>, async instance => {
       instance.fetch = async (forwarded: Request) => {
         const url = new URL(forwarded.url);
-        if (`${url.pathname}${url.search}` !== `${PREFIX}ws${QUERY}` || forwarded.headers.get('Origin') !== ORIGIN
+        if (`${url.pathname}${url.search}` !== `${APP}ws${QUERY}` || forwarded.headers.get('Origin') !== ORIGIN
           || forwarded.headers.has('Cookie') || forwarded.headers.get('Upgrade')?.toLowerCase() !== 'websocket') {
           return new Response('Invalid forwarded handshake', { status: 400 });
         }
@@ -279,7 +301,7 @@ describe('Pi web Worker proxy (REQ-AGENT-272 AC5)', () => {
       };
     });
 
-    const response = await handlePiWebRequest(request(`${PREFIX}ws${QUERY}`, { upgrade: true }), env);
+    const response = await handlePiWebRequest(request(`${APP}ws${QUERY}`, { upgrade: true }), env);
     expect(response.status).toBe(101);
     const socket = response.webSocket;
     if (!socket) throw new Error('Native DO did not return an upgraded socket');

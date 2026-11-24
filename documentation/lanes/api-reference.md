@@ -11,6 +11,7 @@ Public Worker, authenticated proxy, and integration endpoint contracts for Codef
 - [Conventions](#conventions)
 - [Session Management](#session-management)
 - [Container Lifecycle](#container-lifecycle)
+- [Pi Chat handoff](#pi-chat-handoff)
 - [Operator Activities](#operator-activities)
 - [Internal Review enrollment](#internal-review-enrollment)
 - [Internal Operator Host APIs](#internal-operator-host-apis)
@@ -82,7 +83,7 @@ A `SetupError` handled outside the stream uses `{ success: false, steps, error, 
 | Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
 | GET | `/api/sessions` | Session cookie | [REQ-SESSION-028](../../sdd/spec/session-lifecycle.md#req-session-028-session-authority-has-no-kv-compatibility-path) AC1 | List the authenticated owner’s D1 sessions. |
-| POST | `/api/sessions` | Session cookie | [REQ-SESSION-001](../../sdd/spec/session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type), [REQ-ENTERPRISE-003](../../sdd/spec/agents.md#req-enterprise-003-agent-allowlist-in-enterprise-mode), [REQ-IDE-048](../../sdd/spec/browser-ide.md#req-ide-048-default-workspace-and-dashboard-owned-vs-code-sessions) | Create session record (10 requests/user/minute; snapshots the server-owned entitled default workspace; strict body validation rejects client-supplied `workspace`; does not consume a concurrent-running slot; under enterprise mode `agentType` outside the wizard-governed allowlist is rejected 400) |
+| POST | `/api/sessions` | Session cookie | [REQ-SESSION-001](../../sdd/spec/session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type), [REQ-ENTERPRISE-003](../../sdd/spec/agents.md#req-enterprise-003-agent-allowlist-in-enterprise-mode), [REQ-IDE-048](../../sdd/spec/browser-ide.md#req-ide-048-default-workspace-and-dashboard-owned-vs-code-sessions) | Create session record (10 requests/user/minute; snapshots the server-owned entitled default workspace unless [an eligible Pi surface overrides it](#pi-chat-handoff); strict body validation rejects client-supplied `workspace`; does not consume a concurrent-running slot; under enterprise mode `agentType` outside the wizard-governed allowlist is rejected 400) |
 | GET | `/api/sessions/:id` | Session cookie | [REQ-SESSION-028](../../sdd/spec/session-lifecycle.md#req-session-028-session-authority-has-no-kv-compatibility-path) AC1 | Read one owner-scoped D1 session. |
 | PATCH | `/api/sessions/:id` | Session cookie | [REQ-SESSION-027](../../sdd/spec/session-lifecycle.md#req-session-027-user-can-rename-sessions) | Update session (rename or `tabConfig`); the accepted `name` is sanitized and returned. <!-- @impl: src/routes/session/crud.ts::app.patch --> |
 | DELETE | `/api/sessions/:id` | Session cookie | [REQ-SESSION-006](../../sdd/spec/session-lifecycle.md#req-session-006-user-can-stop-restart-and-delete-sessions) AC5–AC6; [REQ-SESSION-009](../../sdd/spec/session-lifecycle.md#req-session-009-container-destroy-wipes-session-state) AC5 | Gracefully stop the captured generation if needed and delete only that confirmed-stopped D1 row. Ambiguity or a newer generation prevents deletion. |
@@ -141,13 +142,21 @@ A successful Start returns the acknowledged `generation`; `starting` means the D
 
 `POST /api/sessions` and `POST /api/container/start?sessionId=…` accept optional `surface: "chat" | "terminal"` for the eligible Pi path. Explicit creation resolves the Terminal workspace server-side; the regular default still applies without the field. Start binds the surface to the launch's generation, not a stored workspace selector. Use the handoff routes for an already running session. <!-- @impl: src/routes/session/crud.ts::app.post --> <!-- @impl: src/routes/container/lifecycle.ts::app.post -->
 
-| Method | Path (under `/api/pi-web/:sessionId/`) | Request |
-|---|---|---|
-| POST | `_switch` | `{ generation, requestId, target }`: begin or reconcile the same UUID attempt toward `chat` or `terminal`. |
-| GET | `_switch` | `generation` and optional `requestId` query: observe the current attempt without starting or switching anything. |
-| POST | `_cancel` | `{ generation, requestId }`: cancel a still-waiting switch, without aborting Pi. |
+Controls under `/api/pi-web/:sessionId/` require the authenticated owner and the current running generation. Mutations require the same origin and session CSRF protection.
 
-Responses carry `phase` and `surface`, optionally `target`, `requestId`, and the scoped `chatUrl`. `waiting` drains admitted dispatches before Abort; only this phase permits cancel. `stopping` commits native Abort and awaits settlement. Both keep the source available for native answers and refuse new prompts. `releasing` and `opening` are not writer readiness. Only `complete` confirms destination ownership. `failed` or `uncertain` is not authorization to open a different transcript; writer uncertainty blocks another open. An authenticated request for a stale generation is refused. Browser app HTTP and event WebSockets use the same session prefix and never launch a replacement container. <!-- @impl: src/routes/pi-web.ts::handlePiWebRequest --> <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @impl: host/src/pi-web-handoff.ts::createPiWebHandoff --> [REQ-AGENT-272](../../sdd/spec/agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff)
+| Method | Path | Auth | Implements | Description |
+|---|---|---|---|---|
+| POST | `/api/pi-web/:sessionId/_switch` | Owner session | [REQ-AGENT-272](../../sdd/spec/agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff) | Begin or reconcile a switch with `{ generation, requestId, target }`. |
+| GET | `/api/pi-web/:sessionId/_switch` | Owner session | [REQ-AGENT-272](../../sdd/spec/agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff) | Observe current status without acquiring a writer. |
+| POST | `/api/pi-web/:sessionId/_cancel` | Owner session | [REQ-AGENT-272](../../sdd/spec/agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff) | Cancel before Abort is committed with `{ generation, requestId }`. |
+
+`POST _switch` returns `202` with a status snapshot, not a completion receipt. A stale generation or conflicting attempt returns `409`. `POST _cancel` returns `200` when cancellation is accepted, or `409` when it is no longer allowed. Validation and authorization errors are not phase snapshots.
+
+`GET _switch` requires a `generation` query and accepts an optional UUID `requestId`. The UUID is validated, not used as a filter. Compare the returned `requestId` with the submitted attempt before attributing a result to it.
+
+Status has `phase` and `surface`, optionally `target`, `requestId`, and `chatUrl`. `waiting` drains admitted dispatches and permits cancel; `stopping` commits native Abort and awaits settlement. Both retain the source surface and block new prompts. `releasing` and `opening` do not confirm the destination; `complete` does. A failed Chat open can be retried with the same request only after the attempted writer has exited; `uncertain` is not release. <!-- @impl: host/src/pi-web-handoff.ts::createPiWebHandoff -->
+
+The stock app and event WebSockets use the generation in `/api/pi-web/:sessionId/g/:generation/`. An old frame is rejected rather than routed to the next writer, even when both generations use the same transcript. The scope never wakes a replacement container. <!-- @impl: src/routes/pi-web.ts::handlePiWebRequest --> <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy -->
 
 ## Operator Activities
 

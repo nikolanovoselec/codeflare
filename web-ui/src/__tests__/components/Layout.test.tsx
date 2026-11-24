@@ -352,6 +352,31 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     expect(tabs).toBeInTheDocument();
   });
 
+  it('keeps the original native terminal reachable when a post-quit terminal switch needs a retry', async () => {
+    navigationRendering.realTerminalArea = true;
+    const sessionId = 'abcdef0123456789';
+    mockSessions = [createMockSession({ id: sessionId, workspace: 'terminal', agentType: 'pi', generation: 7 })];
+    mockVisiblePanes = [{ sessionId, terminalId: '1' }];
+    window.history.replaceState(null, '', `/app/session/${sessionId}`);
+    const requestId = 'd00c2f0c-c268-44ad-a23a-384e27941ad1';
+    const requests: Array<Record<string, unknown>> = [];
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      if (url !== `/api/pi-web/${sessionId}/_switch?generation=7` && url !== `/api/pi-web/${sessionId}/_switch`) {
+        return Response.json({});
+      }
+      if (init?.method === 'POST') requests.push(JSON.parse(String(init.body)));
+      return Response.json({ phase: 'failed', target: 'terminal', surface: null, requestId });
+    });
+    try {
+      render(() => <Layout />);
+      const retry = await screen.findByRole('button', { name: 'Retry switch' });
+      expect(screen.getByTestId('workspace-content')).toBeVisible();
+      expect(screen.queryByTitle('Pi Chat')).not.toBeInTheDocument();
+      fireEvent.click(retry);
+      await waitFor(() => expect(requests).toEqual([{ generation: 7, requestId, target: 'terminal' }]));
+    } finally { cleanup(); vi.unstubAllGlobals(); }
+  });
+
   it('REQ-ENTERPRISE-323: shares clone notices and preserves retry acknowledgment when returning to Dashboard', async () => {
     navigationRendering.realDashboard = true;
     navigationRendering.realTerminalArea = true;

@@ -39,7 +39,7 @@ function alive({ pid, startTime }) {
 }
 
 function startPty(command, cwd, env) {
-  const child = spawn('/usr/bin/script', ['-q', '-e', '-c', `stty rows 40 cols 120; exec ${command}`, '/dev/null'], {
+  const child = spawn('/usr/bin/script', ['-q', '-e', '-c', `stty rows 40 cols 120; ${command}`, '/dev/null'], {
     cwd, env: { ...env, TERM: 'xterm-256color', SHELL: '/bin/bash' }, stdio: ['pipe', 'pipe', 'pipe'],
   });
   let log = '', closed = false;
@@ -50,6 +50,7 @@ function startPty(command, cwd, env) {
   const done = new Promise(resolve => child.once('close', () => { closed = true; resolve(); }));
   return {
     output: () => log,
+    write: text => child.stdin.write(text),
     live: () => !closed && child.exitCode === null && child.signalCode === null,
     async stop() {
       child.kill('SIGTERM');
@@ -126,7 +127,7 @@ async function qualify(mode) {
     mkdirSync(runtimeDir, { recursive: true });
     env = { ...process.env, HOME: home, CODEFLARE_RUNTIME_ROOT: runtimeRoot, CODEFLARE_PI_SURFACE: 'chat',
       CODEFLARE_PI_GENERATION: String(generation), SESSION_ID: sessionId, TAB_CONFIG: '[{"id":"1","command":"pi"}]' };
-    pty = startPty(mode === 'herdr' ? launcher : writer, cwd, env);
+    pty = startPty(mode === 'herdr' ? `exec ${launcher}` : `${writer}; exec /bin/bash --noprofile --norc -i`, cwd, env);
   }
 
   const control = (...args) => run(herdr, args, { cwd, timeout: 2000, env: { ...env,
@@ -254,6 +255,15 @@ async function qualify(mode) {
       assert.equal(json(reportPath).released, true);
       const reopened = await openExact(pane);
       assert.notEqual(reopened.native.instance, native.instance);
+      pty.write('\x04'); // Native Ctrl+D on the empty editor, not a switch command.
+      await pty.until('ordinary Pi quit leaves the same Classic PTY usable', () => {
+        const end = json(reportPath);
+        return end.instance === reopened.native.instance && end.quit && !alive(reopened.native);
+      });
+      const shellProbe = join(home, 'shell-cwd');
+      pty.write(`printf '%s\\n' "$PWD" > '${shellProbe}'\r`);
+      await pty.until('Classic shell executes a command after ordinary Pi quit', () =>
+        existsSync(shellProbe) && read(shellProbe).trim() === cwd);
       console.log('PI_WEB_CLASSIC_LAUNCHER_OK');
       return;
     }

@@ -16,6 +16,16 @@ export function piWebSessionId(pathname: string): string | undefined {
   return SESSION_ID_PATTERN.test(id) ? id : undefined;
 }
 
+export function piWebAppPrefix(sessionId: string, generation: number): string {
+  return `${PI_WEB_ROOT}/${sessionId}/g/${generation}/`;
+}
+
+export function matchesPiWebGeneration(pathname: string, sessionId: string, generation: number): boolean {
+  const control = `${PI_WEB_ROOT}/${sessionId}/`;
+  return pathname === `${control}_switch` || pathname === `${control}_cancel`
+    || pathname.startsWith(piWebAppPrefix(sessionId, generation));
+}
+
 /** Match the actual managed primary, never infer from a secondary tab or custom command. */
 export function isPiWebEligible(session: Pick<Session, 'agentType' | 'workspace' | 'tabConfig'>): boolean {
   if (session.agentType !== 'pi' || session.workspace !== 'terminal') return false;

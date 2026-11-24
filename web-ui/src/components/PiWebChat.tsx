@@ -41,7 +41,7 @@ export default function PiWebChat(props: PiWebChatProps) {
     if (!chatUrl || (surface !== 'chat' && !(phase === 'opening' && target === 'chat'))) return undefined;
     try {
       const url = new URL(chatUrl, window.location.origin);
-      if (url.origin !== window.location.origin || url.pathname !== piWebPrefix(props.sessionId)
+      if (url.origin !== window.location.origin || url.pathname !== `${piWebPrefix(props.sessionId)}g/${props.generation}/`
         || url.username || url.password) return undefined;
       return url.href;
     } catch {

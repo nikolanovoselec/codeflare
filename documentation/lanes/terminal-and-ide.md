@@ -34,20 +34,41 @@ At `mounting` the visible pane initiates one attachment lifecycle; it does not b
 
 Browser Back or Dashboard during terminal startup selects a usable dashboard independently of any session's initialization latch. Startup and its progress/OPEN ownership continue in the background; returning restores the progress/ready surface without another Start or Stop. Background completion/failure cannot hide Dashboard or steal selection. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> [REQ-SESSION-037](../../sdd/spec/session-lifecycle.md#req-session-037-dashboard-navigation-remains-available-during-startup).
 
-Herdr image settings manage mobile layout, mouse capture, browser-owned clipboard, 10 MB pane scrollback, palette, labels and static status symbols. Updates, remote manifests, sound, pane history persistence, nested launches and Kitty graphics stay disabled. Named runtime lifetime/readiness/recovery belongs to [Sessions & Runtime](container.md#runtime-lifecycle); only official structural `session.json` beneath the private `~/.codeflare` home root is durable through normal R2 sync, never prior pane output or arbitrary process survival. Fresh Herdr Pi runs fullscreen and owns its transcript.
+Herdr image settings manage mobile layout, mouse capture, browser-owned clipboard, 10 MB pane scrollback, palette, labels and static status symbols. Updates, remote manifests, sound, pane history persistence, nested launches and Kitty graphics stay disabled. Named runtime lifetime/readiness/recovery belongs to [Sessions & Runtime](container.md#runtime-lifecycle); normal [Storage & Sync](storage-and-sync.md) retains the structural `session.json` and the current Herdr session’s exact Pi `agent-session-id` under private home metadata. Pane output and arbitrary processes do not survive. Fresh Herdr Pi runs fullscreen and owns its transcript.
 
 ### Pi Chat handoff acceptance
 
 [REQ-AGENT-272](../../sdd/spec/agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff) treats Chat and Terminal as alternate writers for one native transcript. Browser VS Code owns its own Pi and is not part of the switch. These steps require an authorized disposable workspace and the packaged feature head; a passing stock transcript interoperability check alone is not full acceptance.
 
-| Criteria | Procedure and passing observation |
+| Criteria | Procedure |
 |---|---|
-| AC1: Start and Resume | In Standard and Pro where available, choose Chat first and Terminal first in each of Classic and Herdr. Send a synthetic message, Stop normally, then Start in the other surface. Only the requested primary opens the saved native conversation. An unchanged workspace preference, VS Code's independent Pi, and manually opened panes retain their default behavior. On normal Herdr Stop, the managed Terminal writer releases and the original pane saves the parked ticket wrapper before the named server stops. Verify fresh and parked scenarios; restoring the managed pane must not redirect it to whichever pane is focused. A legacy Herdr restore with no verified primary must keep its original Terminal and must not start a competing Chat writer. |
-| AC2: Exclusive transcript continuity | Switch in both directions in an empty session and again after sending a prompt. Observe the same native ID and active branch, including after navigating to an earlier tree leaf. Confirm the old writer closed before the second opened; a failed destination leaves the same binding and never starts a new conversation. Repeat Chat-first → Terminal after prewarm orphan expiry without ever opening Terminal in the browser; the healthy primary remains available without counting as activity. A secondary Classic Pi tab starts its own conversation. Record matching identifiers as equality outcomes, not actual transcript text or filesystem paths. |
-| AC3 and AC6: Stop and switch | Switch during a controlled long turn, with a queued follow-up and then with a pending question. Expect **Stopping the current turn…**, refusal of new prompts, and a native abort request without waiting for the normal reply. Hold a prompt inside an input hook before streaming starts: neither an idle-looking status nor an abort acknowledgment can let Terminal acquire the transcript while the hook still owns work. Verify writer release precedes destination launch, saved history remains, and nothing automatically runs on the target. Recovered Terminal editor text remains a draft on return. |
-| AC4: Panel geometry | With 1440 × 900 CSS px of available wrapper space after Codeflare controls, expect an 800 × 720 px centered frame. On a narrow or short display expect 12 px gutters, accounting for device safe areas. At mobile keyboard open and browser zoom, the composer and Codeflare switch controls stay reachable without a second page scrollbar. |
-| AC5: Passive and stale clients | Keep another Chat frame open when Terminal takes over. Its HTTP refresh and WebSocket reconnect must neither reopen the transcript nor start a container. Repeat after stopping; compare the unchanged generation. The Worker tests separately exercise cross-owner, CSRF, and stale-generation rejection. |
-| AC7: Stock UI | Open a harmless workspace file through Files and select the same file via `@`. Verify Quiet starts on and can be changed. Use a fixture startup question and confirm the stock answer control works in the original Chat page before Start finishes. Recovering a pending startup question after a browser refresh is not part of this check; the passive-client ownership fence still applies. Verify no Git or worktree UI/actions in Chat, and ordinary Terminal and VS Code Git remain available. |
+| Start, Resume and exact-pane restore | [Choose the starting writer](#choose-the-starting-writer). |
+| Transcript continuity and stop | [Switch one writer at a time](#switch-one-writer-at-a-time). |
+| Panel geometry | [Check desktop and mobile layout](#check-desktop-and-mobile-layout). |
+| Passive clients and stock controls | [Check stale frames and native questions](#check-stale-frames-and-native-questions). |
+
+#### Choose the starting writer
+
+- In Standard and Pro where available, start Chat-first and Terminal-first in both Classic and Herdr. Send a synthetic message, Stop normally and resume in the other surface. Only the selected primary opens the saved conversation. Verify unchanged workspace defaults, manual panes and Browser VS Code separately.
+- Stop a live managed Herdr writer and repeat with one already parked. Confirm its original pane retains the wrapper role. Restore with a different pane focused; the restored writer must not follow focus. A legacy snapshot without a verified role keeps its native Terminal and refuses Chat.
+
+#### Switch one writer at a time
+
+- Switch both directions in an empty and a populated conversation. Repeat from an earlier tree leaf. The native ID and branch match, and the old writer exits before the new one acquires the transcript. Record equality rather than actual IDs, filenames or content. A failed open cannot replace the conversation.
+- Start Chat-first and switch after prewarm orphan expiry without previously opening Terminal. The healthy primary is still available without counting as user activity. A secondary Classic Pi tab owns a different conversation.
+- Switch during streaming, a queued follow-up, a pending question, and an input hook held before streaming. Expect **Stopping the current turn…**, automatic native Abort and rejection of fresh prompts. An Abort acknowledgment cannot transfer ownership while a hook is still active. Cancel can preserve a running turn only before Abort is committed.
+- Verify saved history appears with no automatic prompt or queue replay. Abort-recovered Terminal text returns as an editable, unsent draft. Quit managed Pi normally and confirm the same pane returns to its shell. Chat can reopen after the exact exit is verified. To enable another managed Terminal start after quit, run the command printed in the original pane and retry the pending switch.
+
+#### Check desktop and mobile layout
+
+- With 1440 × 900 CSS px available after the controls, expect a centered 800 × 720 frame. With 900 × 1600 available, expect 720 × 1200. Together these exercise the percentage and both caps.
+- In narrow or short views, expect 12 px gutters plus safe-area insets. Open the mobile keyboard and try browser zoom. The composer and Codeflare controls stay reachable without a second page scrollbar.
+
+#### Check stale frames and native questions
+
+- Keep an older frame open during Terminal ownership and across a Stop and Resume to Chat. Its refresh, prompt and event reconnect cannot acquire a writer or wake a container. After Resume, repeat while the same transcript is active in a new generation. Worker tests separately exercise cross-owner and CSRF rejection.
+- Open a harmless file through Files, then select it with `@`. Quiet starts on and can be changed. Chat has no Git or worktree controls; ordinary Terminal and VS Code Git still work.
+- Use a fixture startup question and answer it in the original stock Chat page. Recovery of a pending question after refresh is not required. When Chat startup does not settle, retry the same transcript only after the previous attempt is confirmed closed.
 
 ### Browser terminal link activation
 

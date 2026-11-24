@@ -1518,7 +1518,8 @@ A full code-server browser editor for an advanced running session. The editor op
 
 - Historical sessions and absent workspace fields resolve to Terminal.
 - New complete D1 session records persist an explicit `terminal` or `vscode` workspace snapshot; historical missing fields normalize to Terminal. [REQ-SESSION-001](session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type) AC4 owns existing-session immutability.
-- A caller cannot supply a workspace stamp. The server resolves the explicit eligible Pi surface choice under [REQ-AGENT-272](agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff); this does not alter a VS Code workspace.
+- A caller cannot supply a workspace stamp.
+- The server resolves eligible Pi surface choices under [REQ-AGENT-272](agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff) without altering an existing VS Code workspace.
 
 **Priority:** P1
 

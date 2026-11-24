@@ -5,7 +5,7 @@ import PiWebChat from '../../components/PiWebChat';
 
 const SESSION_ID = 'abcdef1234567890';
 const GENERATION = 7;
-const SCOPE = `/api/pi-web/${SESSION_ID}/`;
+const SCOPE = `/api/pi-web/${SESSION_ID}/g/${GENERATION}/`;
 const CHAT_URL = `${SCOPE}?project=project-a&workspace=workspace-a&session=native-pi-a&view=chat`;
 const STOPPING = 'Stopping the current turn…';
 const active = { phase: 'active' as const, surface: 'chat' as const, chatUrl: CHAT_URL };
@@ -94,4 +94,35 @@ describe('Pi web Chat wrapper (REQ-AGENT-272)', () => {
       expect(screen.queryByText(STOPPING, { exact: true })).not.toBeInTheDocument();
     }
   });
+});
+
+it('REQ-AGENT-272 AC5: never mounts an old, foreign, or malformed Chat frame for the current generation', () => {
+  const [status, setStatus] = createSignal(active);
+  const [generation, setGeneration] = createSignal(GENERATION);
+  render(() => <PiWebChat sessionId={SESSION_ID} generation={generation()} status={status()}
+    onTerminal={() => {}} onCancel={() => {}} />);
+  expect(chatFrame()).toBeVisible();
+  setGeneration(GENERATION + 1);
+  expect(screen.queryByTitle('Pi Chat')).not.toBeInTheDocument();
+  expect(screen.getByText('Chat could not be opened.')).toBeVisible();
+  const matching = CHAT_URL.replace('/g/7/', '/g/8/');
+  for (const chatUrl of [`https://other.example${matching}`, `/unrelated${matching}`, 'http://[invalid']) {
+    setStatus({ ...active, chatUrl });
+    expect(screen.queryByTitle('Pi Chat')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Switch to Terminal' })).toBeDisabled();
+  }
+  setStatus({ ...active, chatUrl: matching });
+  expect(new URL(chatFrame().src).pathname).toBe(`/api/pi-web/${SESSION_ID}/g/8/`);
+});
+
+it('offers the existing retry action without presenting an unconfirmed Chat writer', async () => {
+  const [retried, setRetried] = createSignal(false);
+  render(() => <><PiWebChat sessionId={SESSION_ID} generation={GENERATION}
+    status={{ phase: 'failed', surface: null, target: 'chat', chatUrl: CHAT_URL }}
+    problem="Chat startup did not settle." onTerminal={() => {}} onCancel={() => {}} onRetry={() => setRetried(true)} />
+    {retried() && <output>Retry requested</output>}</>);
+  expect(screen.queryByTitle('Pi Chat')).not.toBeInTheDocument();
+  expect(screen.getByText('Chat startup did not settle.')).toBeVisible();
+  await fireEvent.click(screen.getByRole('button', { name: 'Retry switch' }));
+  expect(screen.getByText('Retry requested')).toBeVisible();
 });

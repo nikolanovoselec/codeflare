@@ -1,6 +1,6 @@
 import { getContainer } from '@cloudflare/containers';
 import { z } from 'zod';
-import { isPiWebEligible, PI_WEB_GENERATION_HEADER, PI_WEB_ROOT, piWebSessionId } from '../container/pi-web';
+import { isPiWebEligible, matchesPiWebGeneration, PI_WEB_GENERATION_HEADER, PI_WEB_ROOT, piWebAppPrefix, piWebSessionId } from '../container/pi-web';
 import { authenticateRequest } from '../lib/access';
 import { allowedAgents } from '../lib/agent-allowlist';
 import { WS_RATE_LIMIT_MAX_CONNECTIONS, WS_RATE_LIMIT_TTL_SECONDS, WS_RATE_LIMIT_WINDOW_MS } from '../lib/constants';
@@ -128,8 +128,12 @@ export async function handlePiWebRequest(request: Request, env: Env): Promise<Re
       return Response.json({ error: 'Pi web session is not running' }, { status: 409 });
     }
 
+    if (!matchesPiWebGeneration(url.pathname, sessionId, generation)) {
+      return Response.json({ error: 'Pi web generation changed' }, { status: 409 });
+    }
     let controlBody: Uint8Array<ArrayBuffer> | undefined;
-    if (path === '_switch' || path === '_cancel') {
+    const control = path === '_switch' || path === '_cancel';
+    if (control) {
       if (upgrade || (request.method !== 'POST' && !(request.method === 'GET' && path === '_switch'))) {
         return Response.json({ error: 'Unsupported Pi switch method' }, { status: 405 });
       }
@@ -168,7 +172,7 @@ export async function handlePiWebRequest(request: Request, env: Env): Promise<Re
       : new Request(authenticatedRequest, { headers, redirect: 'manual' });
     // 101 responses require native Stub.fetch rather than DO RPC serialization.
     const response = upgrade ? await container.fetch(forwarded) : await forwardExisting(container, forwarded);
-    return scopedResponse(response, url, prefix);
+    return scopedResponse(response, url, control ? prefix : piWebAppPrefix(sessionId, generation));
   } catch (error) {
     if (error instanceof AppError) return Response.json(error.toJSON(), { status: error.statusCode });
     logger.warn('Pi web proxy unavailable');

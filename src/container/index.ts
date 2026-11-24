@@ -33,7 +33,7 @@ import { Container } from '@cloudflare/containers';
 import { captureRawValue } from '../../host/src/operator-raw-logging';
 import { DispatcherSdkStorageError, handleDispatcherSdkCredentials, type DispatcherSdkCredentialResult, type SdkStorageScope, type SdkCredentialAuthority } from '../operators/dispatcher-sdk-storage';
 import { PiSurfaceSchema, type Env, type ManagedResourcePolicy, type PiSurface, type SessionWorkspace, type TabConfig, type TerminalMode } from '../types';
-import { isPiWebEligible, isPiWebPath, PI_WEB_GENERATION_HEADER, piWebSessionId } from './pi-web';
+import { isPiWebEligible, isPiWebPath, matchesPiWebGeneration, PI_WEB_GENERATION_HEADER, piWebSessionId } from './pi-web';
 import type { PiDefaultSource } from '../lib/personal-pi-policy';
 import type { OperatorLoggingContext } from '../lib/container-helpers';
 import { getR2Config } from '../lib/r2-config';
@@ -1095,6 +1095,7 @@ export class container extends Container<Env> implements ContainerEnvState {
       && !this._shutdownStartedAt && !this.sessionStopInFlight && !this.sessionKillInFlight;
     if (!bucket || !sessionId || !stillOwned() || !Number.isSafeInteger(generation) || generation < 1
       || headers.get(PI_WEB_GENERATION_HEADER) !== String(generation)
+      || !matchesPiWebGeneration(url.pathname, sessionId, generation)
       || headers.get('X-Forwarded-Host') !== url.host
       || headers.get('X-Forwarded-Proto') !== url.protocol.slice(0, -1)) return false;
     const session = await new D1SessionRepository(this.env.USAGE_DB).getSession(bucket, sessionId);

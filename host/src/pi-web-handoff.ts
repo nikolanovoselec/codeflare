@@ -24,7 +24,7 @@ interface Options {
   waitForIdle(surface: PiSurface, signal: AbortSignal): Promise<void>;
   // Undefined proves release never began and the source needs to settle again.
   release(surface: PiSurface): Promise<PiTranscript | undefined>;
-  // False proves the new writer did not start. A throw leaves ownership unknown.
+  // False proves no destination writer remains. A throw leaves ownership unknown.
   open(surface: PiSurface, transcript: PiTranscript): Promise<boolean>;
   confirmOpen?(surface: PiSurface, transcript: PiTranscript): boolean;
   onChange?(status: PiSwitchStatus): void;
@@ -145,5 +145,11 @@ export function createPiWebHandoff(options: Options) {
     current.abort.abort();
     return true;
   }
-  return { status, switchTo, cancel, permits, admit };
+  function openInitialChat(requestId: string, transcript: PiTranscript): Promise<PiSwitchStatus> {
+    if (state.phase !== 'active' || state.surface !== 'chat' || current) throw new Error('Pi workspace already initialized');
+    released = transcript;
+    set({ phase: 'opening', surface: null, target: 'chat', requestId });
+    return switchTo({ generation: options.generation, target: 'chat', requestId });
+  }
+  return { status, switchTo, openInitialChat, cancel, permits, admit };
 }

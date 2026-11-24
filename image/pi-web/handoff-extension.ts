@@ -137,7 +137,12 @@ export default function (pi: ExtensionAPI) {
 	let ready = false;
 	let everPersisted = false;
 	let uiPrompt = false;
-	let pendingPromptPreflight = false;
+	// Pi 1.5.2's editor returns before the native prompt promise. A missing
+	// managed probe must never turn an in-flight request into idle evidence.
+	const promptPending = () => {
+		const probe = Reflect.get(globalThis, Symbol.for("codeflare.pi.nativePromptPending"));
+		return typeof probe !== "function" || probe() !== false;
+	};
 	let stopRequested: string | undefined;
 	let release: { requestId: string; draft?: string } | undefined;
 
@@ -205,9 +210,9 @@ export default function (pi: ExtensionAPI) {
 		const bound = matchesBinding(owner?.binding, binding);
 		if (!terminal && owner?.binding && !bound) return;
 		const stopping = terminal && owner?.phase === "stopping" && owner.target === "chat" && bound ? owner.requestId : undefined;
-		if (terminal && owner?.phase === "stopping" && (!stopping || closing)) return;
-		const promptIdle = !uiPrompt && !pendingPromptPreflight && (!terminal || closing || editorIsIdle?.() === true);
-		if (!stopping) stopRequested = undefined;
+		if (terminal && owner?.phase === "stopping" && !stopping) return;
+		const promptIdle = !uiPrompt && (!terminal || !promptPending() && (closing || editorIsIdle?.() === true));
+		if (!stopping || closing) stopRequested = undefined;
 		else if ((!ctx.isIdle() || promptIdle) && (stopRequested !== stopping || ctx.hasPendingMessages())) {
 			// TUI Abort restores native queued messages to the draft. Do not
 			// acknowledge an idle-looking input hook that has not started a run yet.
@@ -223,10 +228,11 @@ export default function (pi: ExtensionAPI) {
 			idle &&= !ctx.sessionManager.getEntries().some((entry) => entry.type === "message" || entry.type === "custom_message");
 			if (idle) leaf = null;
 		}
-		if (releasing) {
-			idle &&= bound;
+		const quitting = terminal && closing && !release && !releasing;
+		if (releasing || quitting) {
+			if (releasing) idle &&= bound;
 			if (idle && persisted && diskLeaf(binding) !== leaf) {
-				if (closing) idle = false;
+				if (closing && !quitting) idle = false;
 				else {
 					pi.appendEntry("codeflare-handoff-branch", { leaf });
 					leaf = ctx.sessionManager.getLeafId();
@@ -235,7 +241,7 @@ export default function (pi: ExtensionAPI) {
 			}
 		}
 		const released = closing && releasing && idle && (!terminal || release?.requestId === owner?.requestId);
-		if (closing && !released) return;
+		if (closing && !released && !(quitting && idle)) return;
 		if (persisted && (terminal || bound) && !releasing && owner?.phase !== "waiting" && owner?.phase !== "stopping" && owner?.phase !== "opening") {
 			persistBinding(binding);
 		}
@@ -245,6 +251,7 @@ export default function (pi: ExtensionAPI) {
 			...(stopping && stopRequested === stopping ? { stopRequested } : {}),
 			...(releasing && idle ? { releaseReady: owner.requestId } : {}),
 			...(released ? { released: true, ...(release?.draft ? { draft: release.draft } : {}) } : {}),
+			...(quitting && idle ? { quit: true } : {}),
 		}) + "\n");
 		if (terminal && !closing && !release && releasing && idle && owner?.requestId) {
 			const draft = ctx.ui.getEditorText();
@@ -323,13 +330,7 @@ export default function (pi: ExtensionAPI) {
 	});
 	pi.on("ui_prompt_start", () => { uiPrompt = true; });
 	pi.on("ui_prompt_end", () => { uiPrompt = false; });
-	pi.on("input", (event, context) => {
-		// The editor already admitted this input. Do not discard it merely
-		// because Host changed phase before Pi finished prompt preflight.
-		if (ctx && terminal && event.source === "interactive" && context.isIdle()) pendingPromptPreflight = true;
-	});
 	pi.on("before_agent_start", () => {
-		pendingPromptPreflight = false;
 		if (terminal) {
 			// Pi 1.5.2 latches Abort once a run starts preparing. A new
 			// run has its own latch, even if the switch already stopped one.

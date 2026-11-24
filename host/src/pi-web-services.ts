@@ -23,6 +23,7 @@ export interface PiWebServices {
   start(): Promise<void>;
   running(): boolean;
   request<T>(path: string, body?: object): Promise<T>;
+  reset(): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -59,9 +60,8 @@ export function createPiWebServices(options: { runtimeDir: string; cwd: string; 
     const child = spawn(`${dist}/bin/${name}`, [], { env, cwd: options.cwd, stdio: 'ignore' });
     let resolve!: () => void;
     const state = { child, running: true, stopped: new Promise<void>(done => { resolve = done; }) };
-    const done = () => { state.running = false; resolve(); };
-    child.once('error', done);
-    child.once('close', done);
+    child.on('error', () => { /* An error is not exit; close also follows failed spawn. */ });
+    child.once('close', () => { state.running = false; resolve(); });
     processes.push(state);
   }
 
@@ -71,7 +71,9 @@ export function createPiWebServices(options: { runtimeDir: string; cwd: string; 
     const joined = Promise.all(retiring.map(({ stopped }) => stopped));
     if (!await Promise.race([joined.then(() => true), sleep(4000, false, { ref: false })])) {
       for (const { child, running } of retiring) if (running) child.kill('SIGKILL');
-      await joined;
+      if (!await Promise.race([joined.then(() => true), sleep(4000, false, { ref: false })])) {
+        throw new Error('Stock pi-web process exit is unconfirmed');
+      }
     }
     if (processes === retiring) processes = [];
   }
@@ -137,6 +139,10 @@ export function createPiWebServices(options: { runtimeDir: string; cwd: string; 
         throw error;
       });
       return starting;
+    },
+    async reset() {
+      await stopProcesses();
+      starting = undefined;
     },
     close() {
       shuttingDown = true;

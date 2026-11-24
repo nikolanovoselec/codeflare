@@ -49,7 +49,7 @@ import { createMockSessionD1 } from '../helpers/mock-session-d1';
 
 const CONTAINER_TOKEN = 'existing-token';
 const PI_WEB_SESSION = 'abcdef1234567890';
-const PI_WEB_WS = `/api/pi-web/${PI_WEB_SESSION}/ws`;
+const PI_WEB_WS = `/api/pi-web/${PI_WEB_SESSION}/g/7/ws`;
 
 type PortBehaviour = 'answers-with-socket' | 'throws';
 
@@ -437,7 +437,7 @@ describe('terminal and IDE WebSocket relay owned by the Container Durable Object
     }));
 
   it('REQ-AGENT-272 AC5: returns Pi web HTTP responses from the authenticated existing process without starting it', async () => {
-    const path = '/api/pi-web/abcdef1234567890/assets/main.js';
+    const path = '/api/pi-web/abcdef1234567890/g/7/assets/main.js';
     const { response, fixture } = await upgrade({ path, sdkRunning: true, port: 'answers-with-socket', http: true });
     expect(response.status).toBe(200);
     expect(await response.text()).toBe('private app asset');
