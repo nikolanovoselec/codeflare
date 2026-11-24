@@ -33,7 +33,7 @@ if [ "$mode" = herdr ] && jq -e --argjson generation "$CODEFLARE_PI_GENERATION" 
 ' "$runtime/terminal.json" >/dev/null 2>&1; then
     # A post-quit park may still hold the lock while the same pane's shell
     # has already returned. Let an explicit re-entry wait for that park.
-    flock -w 15 9 || exit 1
+    flock -w 18 9 || exit 1
 else
     flock -n 9 || exit 1
 fi
@@ -119,28 +119,33 @@ report_waiting_pane() {
         # attach resume argv to that dead child's remaining Herdr registration.
         retired_path=$(retired_native_path "$1") || retired_path=""
     fi
+    local reason="pane lookup failed"
     while (( SECONDS < deadline )); do
         if [ "$disposition" = quit ] && ! {
             status=$(timeout 1 /usr/local/bin/herdr pane process-info --pane "$HERDR_PANE_ID" 2>/dev/null) &&
-                jq -e --arg pane "$HERDR_PANE_ID" '.result.process_info
-                    | .pane_id == $pane and .shell_pid != null and (.foreground_processes | length == 1)
-                    and .foreground_processes[0].pid == .shell_pid' <<< "$status" >/dev/null 2>&1
+                jq -e --arg pane "$HERDR_PANE_ID" --argjson retired "$$" '.result.process_info
+                    | .pane_id == $pane and .shell_pid > 1 and .shell_pid != $retired' <<< "$status" >/dev/null 2>&1
         }; then
+            # A restored wrapper can be the pane's initial process. Herdr
+            # clears its old reporter when replacing it with the new shell.
+            reason="the pane has not replaced the retired wrapper"
             sleep 0.25
             continue
         fi
         if ! status=$(timeout 1 /usr/local/bin/herdr pane get "$HERDR_PANE_ID" 2>/dev/null); then
+            reason="pane lookup failed"
             sleep 0.25
             continue
         fi
+        reason="pane reporter was not ready"
         if [ -n "$retired_path" ] && jq -e --arg pane "$HERDR_PANE_ID" --arg path "$retired_path" --arg disposition "$disposition" '
             .result.pane | .pane_id == $pane and (.agent == "pi" or ($disposition == "quit" and .agent == null))
                 and .agent_session == {source:"herdr:pi", agent:"pi", kind:"path", value:$path}
         ' <<< "$status" >/dev/null; then
             if [ "$disposition" = quit ]; then
-                # Do not leave the durable role tied to Pi process detection
-                # when the wrapper itself is about to return to the shell.
-                clear_retired_pi_authority >/dev/null 2>&1 || true
+                # Persist the shell's role independently of the retired Pi.
+                reason="retired Pi authority has not settled"
+                clear_retired_pi_authority >/dev/null 2>&1 || reason="retired Pi authority clear failed"
                 sleep 0.25
                 continue
             fi
@@ -159,27 +164,36 @@ report_waiting_pane() {
         fi
         if jq -e --arg pane "$HERDR_PANE_ID" '.result.pane | .pane_id == $pane
                 and .agent_session == null and (.agent == null or .agent == "codeflare-terminal-writer")' \
-                <<< "$status" >/dev/null \
-            && timeout 1 /usr/local/bin/herdr pane report-agent "$HERDR_PANE_ID" \
-                --source codeflare:terminal-writer --agent codeflare-terminal-writer --state idle \
-                -- codeflare-terminal-writer --tui-mode fullscreen >/dev/null \
-            && status=$(timeout 1 /usr/local/bin/herdr pane get "$HERDR_PANE_ID" 2>/dev/null) \
-            && jq -e --arg pane "$HERDR_PANE_ID" '.result.pane | .pane_id == $pane and .agent == "codeflare-terminal-writer"' \
                 <<< "$status" >/dev/null; then
-            return 0
+            reason="parked role report failed"
+            if timeout 1 /usr/local/bin/herdr pane report-agent "$HERDR_PANE_ID" \
+                    --source codeflare:terminal-writer --agent codeflare-terminal-writer --state idle \
+                    -- codeflare-terminal-writer --tui-mode fullscreen >/dev/null; then
+                reason="parked role report was not applied"
+                if status=$(timeout 1 /usr/local/bin/herdr pane get "$HERDR_PANE_ID" 2>/dev/null) \
+                    && jq -e --arg pane "$HERDR_PANE_ID" '.result.pane | .pane_id == $pane
+                        and .agent == "codeflare-terminal-writer" and .agent_session == null' <<< "$status" >/dev/null; then
+                    return 0
+                fi
+            fi
         fi
         sleep 0.25
     done
-    printf 'Codeflare: Herdr did not confirm the parked terminal role.\n' >&2
+    printf 'Codeflare: Herdr did not confirm the parked terminal role (%s).\n' "$reason" >&2
     [ "$disposition" != quit ]
 }
 
 park_after_shell_return() {
-    local retired_ticket="$1" deadline=$((SECONDS + 3))
-    # Herdr reports Pi exit when the pane's own shell returns to the foreground.
-    # This bounded helper retains the wrapper lock, not ownership of the PTY.
-    while kill -0 "$$" 2>/dev/null; do
-        (( SECONDS < deadline )) || return 1
+    local retired_ticket="$1" wrapper_start="$2" stat fields deadline=$((SECONDS + 3))
+    # The old wrapper has joined Pi. Wait for that wrapper to exit, not for
+    # the shell to become idle: immediate re-entry may already be foreground.
+    while { IFS= read -r stat <"/proc/$$/stat"; } 2>/dev/null; do
+        read -ra fields <<< "${stat##*) }"
+        [[ "${fields[0]}" != Z && "${fields[19]}" == "$wrapper_start" ]] || break
+        if (( SECONDS >= deadline )); then
+            printf 'Codeflare: Herdr retiring wrapper did not exit.\n' >&2
+            return 1
+        fi
         sleep 0.1
     done
     report_waiting_pane "$retired_ticket" quit || return 1
@@ -248,7 +262,9 @@ while true; do
         ) || printf 'Codeflare: the managed Pi process exited unsuccessfully.\n' >&2
         if native_quit "$ticket"; then
             if [ "$mode" = herdr ]; then
-                (umask 077; park_after_shell_return "$ticket") </dev/null >"$runtime/herdr-park.log" 2>&1 &
+                wrapper_start=$(jq -er '.startTime' "$runtime/wrapper.json")
+                (trap '' HUP; umask 077; park_after_shell_return "$ticket" "$wrapper_start") \
+                    </dev/null >"$runtime/herdr-park.log" 2>&1 &
             fi
             printf 'Pi exited. To re-enable managed Terminal Pi, run: codeflare-terminal-writer'
             [ "$#" -eq 0 ] || printf ' %s' "$@"

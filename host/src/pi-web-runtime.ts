@@ -397,27 +397,38 @@ export function createPiWebRuntime(options: {
         // transition and Herdr 0.9.5's five-second snapshot debounce.
         const snapshot = join(bindingDir, 'session.json');
         await until(() => {
+          const wrapper = loadJson<{ generation: number; pane: string }>(join(runtimeDir, 'wrapper.json'));
+          const original = wrapper?.generation === generation && typeof wrapper.pane === 'string'
+            ? /^(.+):p([123456789ABCDEFGHJKMNPQRSTVWXYZ0]+)$/.exec(wrapper.pane) : null;
+          if (!original) return;
+          const [, workspaceId, encodedPane] = original;
+          // Herdr 0.9.5 stores raw pane keys and a separate bijective base-32 public number map.
+          const alphabet = '123456789ABCDEFGHJKMNPQRSTVWXYZ0';
+          const paneNumber = [...encodedPane].reduce((number, char) => number * alphabet.length + alphabet.indexOf(char) + 1, 0);
+          if (!Number.isSafeInteger(paneNumber)) return;
           if (parkedShell && quitTime !== undefined) {
-            const wrapper = loadJson<{ generation: number; pane: string }>(join(runtimeDir, 'wrapper.json'));
             const parked = loadJson<NativeReceipt & { pane: string }>(join(runtimeDir, 'herdr-parked.json'));
-            if (!parked || wrapper?.generation !== generation || parked.pane !== wrapper.pane
+            if (!parked || parked.pane !== wrapper?.pane
               || parked.generation !== generation || parked.ticket !== parkedShell.ticket || parked.pid !== parkedShell.pid
               || parked.startTime !== parkedShell.startTime || parked.instance !== parkedShell.instance || parked.path !== parkedShell.path
               || (statSync(snapshot, { throwIfNoEntry: false })?.mtimeMs ?? -1) < quitTime) return;
           }
-          const saved = loadJson<{ version: number; workspaces: Array<{ tabs: Array<{ panes: Record<string,
-            { agent_resume?: { source?: string; agent?: string; argv?: string[] };
+          const saved = loadJson<{ version: number; workspaces: Array<{ id: string; public_pane_numbers: Record<string, number>;
+            tabs: Array<{ panes: Record<string, { agent_resume?: { source?: string; agent?: string; argv?: string[] };
               agent_session?: { source?: string; agent?: string; kind?: string; value?: string } }> }> }> }>(snapshot);
           if (saved?.version !== 3) return;
-          const roles = saved.workspaces.flatMap(workspace => workspace.tabs.flatMap(tab => Object.values(tab.panes)))
+          const roles = saved.workspaces.flatMap(workspace => workspace.tabs.flatMap(tab => Object.entries(tab.panes)
+            .map(([raw, pane]) => ({ ...pane, original: workspace.id === workspaceId && workspace.public_pane_numbers?.[raw] === paneNumber }))))
             .filter(({ agent_resume: role, agent_session: session }) => {
               if (JSON.stringify(role?.argv) !== '["codeflare-terminal-writer","--tui-mode","fullscreen"]') return false;
-              return role?.source === 'codeflare:terminal-writer' && role.agent === 'codeflare-terminal-writer' && (!parkedShell || session == null)
-                || !parkedShell && !!binding && role?.source === 'herdr:pi' && role.agent === 'pi' && session?.source === 'herdr:pi'
+              return role?.source === 'codeflare:terminal-writer' && role.agent === 'codeflare-terminal-writer'
+                || !!binding && role?.source === 'herdr:pi' && role.agent === 'pi' && session?.source === 'herdr:pi'
                 && session.agent === 'pi' && session.kind === 'path' && session.value === binding.path;
             });
-          return roles.length === 1 ? true : undefined;
-        }, undefined, 20_000).catch(() => { throw new Error('Herdr did not save the managed terminal role'); });
+          const [role] = roles;
+          return roles.length === 1 && role.original && (!parkedShell
+            || role.agent_resume?.source === 'codeflare:terminal-writer' && role.agent_session == null) ? true : undefined;
+        }, undefined, 20_000).catch(() => { throw new Error('Herdr did not save the managed role in the original terminal pane'); });
       }
     } finally {
       closed = true;

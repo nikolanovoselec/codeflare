@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
@@ -82,6 +82,13 @@ async function qualify(mode) {
   let generation = 6, runtimeRoot, runtimeDir, env, ownerPath, reportPath, bootDone, pty;
   const managedAv = ['codeflare-terminal-writer', '--tui-mode', 'fullscreen'];
   const savedPanes = saved => saved.workspaces.flatMap(ws => ws.tabs.flatMap(tab => Object.values(tab.panes)));
+  const savedPane = (saved, id) => {
+    const [workspace, pane] = id.split(':p');
+    // These fixtures use the first two public pane numbers in one workspace.
+    const ws = saved.workspaces.find(entry => entry.id === workspace);
+    const raw = Object.keys(ws.public_pane_numbers).find(key => ws.public_pane_numbers[key] === Number(pane));
+    return ws.tabs.find(tab => tab.panes[raw])?.panes[raw];
+  };
   const savedPrimary = saved => savedPanes(saved).filter(entry => entry.agent_session?.value === binding.path);
   function sameNativeRegistration(session) {
     return !!binding && session?.source === 'herdr:pi' && session.agent === 'pi'
@@ -242,7 +249,7 @@ async function qualify(mode) {
     if (pane) {
       await waiting(pane);
       await pty.until('fresh parked wrapper is saved before any native ticket', () => countSavedRoles() === 1);
-      oldShellSnapshot = read(sessionFile);
+      oldShellSnapshot = { data: read(sessionFile), mtime: statSync(sessionFile).mtime };
     } else await pty.until('Classic prewarm PTY emitted its startup byte', () => pty.output().includes('\r'));
     await noTicket(pane);
     assert.ok(!existsSync(sessionDir) || !readdirSync(sessionDir).some(file => file.endsWith('.jsonl')),
@@ -384,50 +391,78 @@ async function qualify(mode) {
     } catch (error) {
       throw new Error(`Herdr repark evidence: ${JSON.stringify(await parkEvidence(pane, restored.native, requestId))}`, { cause: error });
     }
-    host = createPiWebRuntime({ sessionId, generation, initialSurface: 'terminal', terminalMode: 'herdr',
-      cwd, home, runtimeDir, cloneRestored: () => existsSync(bootDone) });
-    await host.initialize();
-    const beforeStop = await openExact(pane, host);
+    const parkedWrapper = json(join(runtimeDir, 'wrapper.json'));
+    await control('pane', 'send-keys', pane, 'ctrl+c');
+    await pty.until('parked launcher returns to its original shell', () => !alive(parkedWrapper));
+    // Queue real re-entry in the pane's shell so it runs as soon as the
+    // retiring wrapper returns, without waiting for the park receipt.
+    const nativeCommand = 'codeflare-terminal-writer --tui-mode fullscreen';
+    await control('pane', 'run', pane, `${nativeCommand}; ${nativeCommand}`);
+    publish({ surface: 'terminal', phase: 'active', terminalTicket: 'initial', binding });
+    const beforeStop = await openExact(pane, true);
     const oldWrapper = json(join(runtimeDir, 'wrapper.json'));
     await control('pane', 'send-keys', pane, 'ctrl+d');
-    await pty.until('Herdr ordinary quit retires the child and its wrapper', () => {
-      const end = json(reportPath);
-      return end.instance === beforeStop.native.instance && end.quit && !alive(beforeStop.native) && !alive(oldWrapper);
-    });
     const parkedReceipt = join(runtimeDir, 'herdr-parked.json');
+    let freshWrapper;
     try {
-      await pty.until('current quit confirms and saves the original pane’s shell role', async () => {
+      freshWrapper = await pty.until('immediate re-entry waits in the original pane without blocking the current park', async () => {
+        const end = json(reportPath);
+        const wrapper = json(join(runtimeDir, 'wrapper.json'));
         const parked = await readPane(pane);
-        return parked.pane_id === pane && parked.agent === 'codeflare-terminal-writer' && !parked.agent_session
+        const saved = savedPane(json(sessionFile), pane);
+        return end.instance === beforeStop.native.instance && end.quit && !alive(beforeStop.native) && !alive(oldWrapper)
+          && wrapper.rearmTicket === beforeStop.grant.terminalTicket && wrapper.pane === pane && alive(wrapper)
+          && parked.pane_id === pane && parked.agent === 'codeflare-terminal-writer' && !parked.agent_session
           && existsSync(parkedReceipt) && json(parkedReceipt).instance === beforeStop.native.instance
           && statSync(sessionFile).mtimeMs >= statSync(reportPath).mtimeMs
-          && savedPanes(json(sessionFile)).some(entry => hasManagedRole(entry) && entry.agent_session == null);
+          && saved && hasManagedRole(saved) && saved.agent_session == null && wrapper;
       }, 22_000);
     } catch (error) {
       throw new Error(`Herdr quit park evidence: ${JSON.stringify(await parkEvidence(pane, beforeStop.native))}`, { cause: error });
     }
-    const pending = await registerHeldReentry(pane, beforeStop.grant.terminalTicket, process.pid);
-    // Hold delivery of the real park receipt and present bytes saved before
-    // Pi started. Shape alone must never unblock Stop during this overlap.
     const currentSnapshot = read(sessionFile);
+    const wrongPaneSnapshot = JSON.parse(currentSnapshot);
+    const original = savedPane(wrongPaneSnapshot, pane);
+    savedPane(wrongPaneSnapshot, secondary).agent_resume = original.agent_resume;
+    delete original.agent_resume;
     renameSync(parkedReceipt, `${parkedReceipt}.held`);
-    writeFileSync(sessionFile, oldShellSnapshot);
-    const closing = host.close();
-    void closing.catch(() => {});
+    let pending, closing, initialized;
+    // Hold the real same-pane re-entry before it can consume the new grant.
+    process.kill(freshWrapper.pid, 'SIGSTOP');
     try {
+      host = createPiWebRuntime({ sessionId, generation, initialSurface: 'terminal', terminalMode: 'herdr',
+        cwd, home, runtimeDir, cloneRestored: () => existsSync(bootDone) });
+      initialized = host.initialize();
+      void initialized.catch(() => {});
+      pending = await pty.until('the held re-entry receives a new grant', () => {
+        const owner = json(ownerPath);
+        return owner.phase === 'opening' && owner.terminalTicket !== beforeStop.grant.terminalTicket && owner.terminalTicket;
+      });
+      assert.equal(existsSync(claimPath(pending)), false);
+      closing = host.close();
+      void closing.catch(() => {});
+      const assertPending = async label => assert.equal(await Promise.race([closing.then(() => true), delay(400, false)]), false, label);
       await pty.until('Stop fences the unused grant before waiting for current park evidence', () => existsSync(claimPath(pending)));
-      assert.equal(await Promise.race([closing.then(() => true), delay(400, false)]), false,
-        'the old parked snapshot must not satisfy Stop without the current quit receipt');
-    } finally {
-      writeFileSync(sessionFile, currentSnapshot);
+      await assertPending('a fresh snapshot cannot satisfy Stop without the current quit receipt');
+      writeFileSync(sessionFile, oldShellSnapshot.data);
+      utimesSync(sessionFile, oldShellSnapshot.mtime, oldShellSnapshot.mtime);
+      assert.ok(statSync(sessionFile).mtimeMs < statSync(reportPath).mtimeMs);
       renameSync(`${parkedReceipt}.held`, parkedReceipt);
+      await assertPending('a current quit receipt cannot make a pre-quit snapshot fresh');
+      writeFileSync(sessionFile, JSON.stringify(wrongPaneSnapshot));
+      await assertPending('a fresh snapshot cannot satisfy Stop with the role in the wrong pane');
+    } finally {
+      if (existsSync(`${parkedReceipt}.held`)) renameSync(`${parkedReceipt}.held`, parkedReceipt);
+      writeFileSync(sessionFile, currentSnapshot);
+      if (alive(freshWrapper)) process.kill(freshWrapper.pid, 'SIGCONT');
     }
-    await closing;
+    await Promise.all([closing, initialized]);
     assert.throws(() => claim(pending, process.pid), { code: 'EEXIST' }, 'Stop fences the revoked grant against a late claim');
     assert.equal(json(reportPath).instance, beforeStop.native.instance, 'Stop must not start a pending re-entry');
     assert.equal(host.status().chatUrl, undefined, 'Stop must not open the alternate writer');
     await stopRuntime();
-    assert.equal(countSavedRoles(), 1, 'Stop during re-entry preserves the original saved role');
+    assert.equal(countSavedRoles(), 1, 'Stop during re-entry preserves the unique saved role');
+    assert.ok(hasManagedRole(savedPane(json(sessionFile), pane)), 'named Stop preserves the role in the original pane');
     console.log('PI_WEB_HERDR_MANAGED_RESTORE_OK');
 
     // Feed a genuine saved native session without the newer wrapper role to

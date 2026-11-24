@@ -280,7 +280,8 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 1. Proxied Pi Chat responses preserve all upstream content security policies, including on non-success responses. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @impl: src/index.ts::dispatch --> <!-- @test: src/__tests__/security/early-return-security.test.ts (Pi Chat retains upstream policies and enforces $frame on HTTP $status after Host normalization) -->
 2. Successful Pi Chat responses permit framing only by the same origin and never override upstream denial. Conflicting upstream frame options deny framing. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @impl: src/index.ts::withSecurityHeaders --> <!-- @test: src/__tests__/security/early-return-security.test.ts (Pi Chat retains upstream policies and enforces $frame on HTTP $status after Host normalization) -->
-3. Non-success Pi Chat responses deny framing. Worker-generated errors keep the default security headers. <!-- @impl: src/index.ts::dispatch --> <!-- @test: src/__tests__/security/early-return-security.test.ts (Pi Chat Worker-generated errors retain the standard deny policy) -->
+3. Proxied non-success Pi Chat responses deny framing. <!-- @impl: src/index.ts::dispatch --> <!-- @test: src/__tests__/security/early-return-security.test.ts (Pi Chat retains upstream policies and enforces $frame on HTTP $status after Host normalization) -->
+4. Worker-generated Pi Chat errors keep the default security headers. <!-- @impl: src/index.ts::dispatch --> <!-- @test: src/__tests__/security/early-return-security.test.ts (Pi Chat Worker-generated errors retain the standard deny policy) -->
 
 **Constraints:** None.
 
@@ -288,7 +289,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-008](#req-sec-008-security-headers-on-every-response)
 
-**Verification:** Automated: [Worker response policy](../../src/__tests__/security/early-return-security.test.ts).
+**Verification:** Automated: [Worker response policy](../../src/__tests__/security/early-return-security.test.ts)
 
 **Status:** Planned
 
