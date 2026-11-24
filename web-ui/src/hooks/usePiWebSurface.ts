@@ -77,7 +77,8 @@ export function createPiWebSurface(sessionId: string, generation: number) {
         if (rejected && kind === 'switch') setAttempt(undefined);
         setMutationError(kind === 'cancel'
           ? 'Could not cancel the switch.'
-          : rejected ? 'The Pi switch was not accepted.' : 'Could not confirm the switch.');
+          : rejected && error.code === 'PI_REPOSITORY_RESTORE_PENDING' ? 'Wait for repository restore, then try again.'
+            : rejected ? 'The Pi switch was not accepted.' : 'Could not confirm the switch.');
       }
     } finally {
       if (stillCurrent()) {

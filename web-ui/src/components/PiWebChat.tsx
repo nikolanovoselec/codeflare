@@ -18,6 +18,7 @@ interface PiWebChatProps {
 
 export default function PiWebChat(props: PiWebChatProps) {
   const [keyboardInset, setKeyboardInset] = createSignal(0);
+  const [frameRevision, setFrameRevision] = createSignal(0);
   onMount(() => {
     disableVirtualKeyboardOverlay();
     const viewport = window.visualViewport;
@@ -52,7 +53,7 @@ export default function PiWebChat(props: PiWebChatProps) {
   const frame = createMemo(() => {
     const src = frameUrl();
     // A generation change always remounts the frame, even for the same deep link.
-    return src ? { src, generation: props.generation } : undefined;
+    return src ? { src, generation: props.generation, revision: frameRevision() } : undefined;
   });
 
   return (
@@ -60,6 +61,9 @@ export default function PiWebChat(props: PiWebChatProps) {
       <div class="pi-web-controls">
         <button type="button" class="pi-web-action" disabled={!frameUrl() || props.switching || isPiWebSwitchPending(props.status)}
           onClick={() => props.onTerminal()}>Switch to Terminal</button>
+        <Show when={props.status.phase === 'opening' && frameUrl()}>
+          <button type="button" class="pi-web-action" onClick={() => setFrameRevision(value => value + 1)}>Reload Chat</button>
+        </Show>
       </div>
       <PiWebSwitchControls phase={props.status.phase} problem={props.problem}
         canCancel={props.canCancel} onCancel={props.onCancel} onRetry={props.onRetry} />

@@ -36,6 +36,22 @@ describe('Pi web Chat wrapper (REQ-AGENT-272)', () => {
     expect(screen.getByRole('button', { name: /terminal/i })).toBeVisible();
   });
 
+  it('reloads the same opening Chat frame without switching writers', async () => {
+    const onTerminal = () => { throw new Error('Reload must not switch surfaces'); };
+    const onRetry = () => { throw new Error('Reload must not dispatch a handoff'); };
+    const [status, setStatus] = createSignal<typeof active | (typeof opening & { target: 'chat'; chatUrl: string })>(
+      { ...opening, target: 'chat', chatUrl: CHAT_URL });
+    render(() => <PiWebChat sessionId={SESSION_ID} generation={GENERATION} status={status()}
+      onTerminal={onTerminal} onCancel={() => {}} onRetry={onRetry} />);
+    const failedFrame = chatFrame();
+    await fireEvent.click(screen.getByRole('button', { name: 'Reload Chat' }));
+    expect(failedFrame).not.toBeInTheDocument();
+    expect(chatFrame().src).toBe(failedFrame.src);
+    expect(chatFrame()).toBeVisible();
+    setStatus(active);
+    expect(screen.queryByRole('button', { name: 'Reload Chat' })).not.toBeInTheDocument();
+  });
+
   it('REQ-AGENT-272 AC3: announces automatic stop without replacing the source frame', async () => {
     const [status, setStatus] = createSignal<typeof active | typeof waiting | typeof stopping>(active);
     render(() => <PiWebChat sessionId={SESSION_ID} generation={GENERATION} status={status()}

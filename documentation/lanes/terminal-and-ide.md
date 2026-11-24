@@ -53,7 +53,8 @@ Herdr image settings manage mobile layout, mouse capture, browser-owned clipboar
 - In Standard and Pro where available, start Chat-first and Terminal-first in Classic. Send a synthetic message, Stop normally, then resume in the other surface. Only the selected primary opens the saved conversation.
 - On Chat-first Start and Resume, verify the standard startup overlay remains through **Ready**. Wait over 25 seconds, then choose **Open**. Chat opens without starting native Pi.
 - Configure an authorized synthetic repository as a restore target and ensure its checkout is absent locally. Open Chat while it clones; verify the composer works and the notification reports progress and the eventual outcome.
-- During the clone, verify switching to Terminal leaves Chat active. After clone completion, retry and verify Terminal opens. If cloning finished before the attempted check, record concurrency as unexercised.
+- During the clone, verify switching to Terminal leaves Chat active and tells you to wait for restore. After clone completion, retry and verify Terminal opens. If cloning finished before the attempted check, record concurrency as unexercised.
+- In a disposable browser check, block the first Chat frame navigation before it reaches the Host. Clear the block and choose **Reload Chat**. Verify the same conversation opens without a second handoff.
 - Verify unchanged workspace defaults, manually opened panes, and independent Browser VS Code behavior.
 
 #### Switch one writer at a time
@@ -89,10 +90,12 @@ Herdr image settings manage mobile layout, mouse capture, browser-owned clipboar
 - Once Chat is ready, submit `pi-fixture-question`. Choose **Yes** on **Continue the ready Chat fixture?**. Verify `pi-fixture-ready-yes.txt` appears without a model turn. Then send a separate harmless prompt and verify the composer works.
 - In the ready Chat composer, use **Save to …** with synthetic attachments totaling 10 MB (10,000,000 bytes). Verify that the files land in the selected workspace folder.
 - Repeat with a batch one byte larger, then with 17 small attachments. Confirm that neither rejected batch saves any files.
-- In Settings, verify Info, Updates, and MCP Manager are disabled. Hiding the MCP Manager panel does not change the active Pi MCP client.
+- In Settings, verify Info, Updates, and MCP Manager are disabled. This checks panel visibility, not MCP configuration.
 - Recovering an already-pending question after refresh is not required. If Chat startup fails, retry the same transcript only after the previous attempt is confirmed closed.
 
-Workspace attachments survive Stop and Resume only with [full Workspace Sync](storage-and-sync.md#rclone-sync-modes-req-stor-003) and a successful sync. For independent persistence, use **Dashboard → Storage → Uploads**, then **Sync now** for access in the running session.
+Workspace attachments survive Stop and Resume only with [full Workspace Sync](storage-and-sync.md#rclone-sync-modes-req-stor-003) and a successful sync. For independent persistence, use **Dashboard → Storage → Uploads**, then **Sync now** to read the files in `~/Uploads` in the running session.
+
+In PR Checks, the [packaged Host handoff smoke](../../scripts/ci/smoke-pi-web-host-handoff.mjs) checks that a body above 14 MiB with small file data receives `413` without writing files. The [stock supervisor smoke](../../scripts/ci/smoke-pi-web-services.mjs) separately checks panel visibility and retained MCP package registration, not the active client’s configuration.
 
 In the disposable workspace only, load the following as `handoff-fixture.ts` in the Pi agent’s `extensions` directory before opening Chat. It uses the same startup confirmation as the [packaged stock smoke](../../scripts/ci/smoke-pi-web-handoff.mjs) and adds the ready-state trigger. Start with both marker files absent; remove the fixture and marker files afterwards.
 

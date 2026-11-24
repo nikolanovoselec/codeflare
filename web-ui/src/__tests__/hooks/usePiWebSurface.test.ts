@@ -79,3 +79,15 @@ it.each([[409, 'The Pi switch was not accepted.', false], [503, 'Could not confi
     } finally { f.dispose(); }
   },
 );
+
+it('explains restore-blocked Terminal switching and keeps Chat active', async () => {
+  const f = fixture(() => Response.json({ error: 'blocked', code: 'PI_REPOSITORY_RESTORE_PENDING' }, { status: 409 }));
+  try {
+    f.status({ phase: 'complete', surface: 'chat' });
+    await vi.waitFor(() => expect(f.observer.status()?.surface).toBe('chat'));
+    f.observer.select('terminal');
+    await vi.waitFor(() => expect(f.observer.mutationError()).toBe('Wait for repository restore, then try again.'));
+    expect(f.observer.status()?.surface).toBe('chat');
+    expect(f.observer.canRetry()).toBe(false);
+  } finally { f.dispose(); }
+});

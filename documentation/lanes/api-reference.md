@@ -153,7 +153,8 @@ Under [REQ-AGENT-272](../../sdd/spec/agents.md#req-agent-272-pi-chat-and-termina
 `POST _switch` returns `202` with a phase snapshot, not a completion receipt. `POST _cancel` returns `200` with a phase snapshot when cancellation is accepted. <!-- @impl: host/src/pi-web-proxy.ts::control -->
 
 - A stale generation returns `409` with an `{ error }` body, not a phase snapshot. <!-- @impl: src/routes/pi-web.ts::handlePiWebRequest -->
-- An in-generation switch conflict or disallowed cancellation returns `409` with the Host’s current phase snapshot. <!-- @impl: host/src/pi-web-proxy.ts::control -->
+- Switching to Terminal while repositories restore returns `409` with `code: PI_REPOSITORY_RESTORE_PENDING` and an `error` message, not a phase snapshot. Chat retains the writer; retry after restore. <!-- @impl: host/src/pi-web-proxy.ts::control -->
+- Other in-generation switch conflicts and disallowed cancellations return `409` with the Host’s current phase snapshot. <!-- @impl: host/src/pi-web-proxy.ts::control -->
 
 `GET _switch` requires a `generation` query and accepts an optional UUID `requestId`. The UUID is validated, not used as a filter. Compare the returned `requestId` with the submitted attempt before attributing a result to it. <!-- @impl: src/routes/pi-web.ts::handlePiWebRequest --> <!-- @impl: host/src/pi-web-proxy.ts::control -->
 
@@ -161,7 +162,7 @@ Status has `phase` and `surface`, optionally `target`, `requestId`, and `chatUrl
 
 The stock app and event WebSockets use the generation in `/api/pi-web/:sessionId/g/:generation/`. An old frame is rejected rather than routed to the next writer, even when both generations use the same transcript. The scope never wakes a replacement container. <!-- @impl: src/routes/pi-web.ts::handlePiWebRequest --> <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy -->
 
-Within that prefix, `POST api/sessions/:piSessionId/attachments` saves composer attachments only for the active Chat conversation and workspace. New uploads are refused during handoff. The limit is 10 MB decoded per request across all files and 14 MiB for the JSON body; excess returns `413` before the batch reaches the stock writer. More than 16 attachments returns `400` without saving files. Other Chat request limits are unchanged. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy -->
+Within that prefix, `POST api/sessions/:piSessionId/attachments` saves composer attachments only for the active Chat conversation and workspace. New uploads are refused during handoff. Under [REQ-AGENT-274 AC4](../../sdd/spec/agents.md#req-agent-274-stock-pi-chat-controls), the Host checks the 14 MiB JSON body limit first (`413`), then the 16-attachment limit (`400`), then the 10 MB aggregate decoded limit (`413`). None of these rejections saves files. Other Chat request limits are unchanged. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy -->
 
 ## Operator Activities
 

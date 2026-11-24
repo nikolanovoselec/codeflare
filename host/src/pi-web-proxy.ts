@@ -120,7 +120,7 @@ export function createPiWebProxy(options: { sessionId: string; runtime: PiWebRun
       send(res, 409, status); return;
     }
     if (target === 'terminal' && !runtime.terminalAvailable) {
-      send(res, 409, { error: 'Wait for repository restore before switching to Terminal' }); return;
+      send(res, 409, { error: 'Wait for repository restore before switching to Terminal', code: 'PI_REPOSITORY_RESTORE_PENDING' }); return;
     }
     let rejected = false;
     // The switch keeps running if the browser disconnects. Admission changes

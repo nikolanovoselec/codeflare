@@ -145,7 +145,15 @@ async function qualify(ambiguous) {
   const runtime = createPiWebRuntime({ sessionId, generation, initialSurface: 'chat', terminalMode: 'classic',
     cwd, home, runtimeDir, profileRestored: () => true, cloneRestored: () => cloneRestored });
   const proxy = createPiWebProxy({ sessionId, runtime, recordInput() {} });
-  const server = createServer((req, res) => { void proxy.handle(req, res); });
+  let refuseFirstFrame = !ambiguous;
+  const server = createServer((req, res) => {
+    if (refuseFirstFrame && req.method === 'GET' && req.url?.startsWith(`${appPrefix}/?`)) {
+      refuseFirstFrame = false;
+      res.writeHead(503).end();
+      return;
+    }
+    void proxy.handle(req, res);
+  });
   try {
     mkdirSync(cwd);
     mkdirSync(extensions, { recursive: true });
@@ -190,16 +198,19 @@ export default function (pi) {
     assert.equal(deepLink.pathname, `${appPrefix}/`);
     const params = deepLink.searchParams;
     assert.equal(params.get('session'), id);
-    if (!ambiguous) {
-      // The dashboard can remain on Ready beyond the writer-confirmation budget.
-      await delay(26_000);
-      const stillWaiting = await readSwitch();
-      assert.equal(stillWaiting.chatUrl, chatUrl);
-      assert.equal((await request(stock, '/api/sessiond/health')).activeSessions, 0);
-    }
     const browserHeaders = {
       'x-forwarded-host': new URL(origin).host, 'x-forwarded-proto': 'http', 'x-codeflare-pi-generation': String(generation),
     };
+    if (!ambiguous) {
+      // The dashboard can remain on Ready beyond the writer-confirmation budget.
+      await delay(26_000);
+      const firstFrame = await nativeFetch(deepLink, { headers: browserHeaders });
+      assert.equal(firstFrame.status, 503, 'first navigation fails before reaching the Host proxy');
+      await firstFrame.arrayBuffer();
+      const stillWaiting = await readSwitch();
+      assert.equal(stillWaiting.chatUrl, chatUrl, 'reload can use the same deep link');
+      assert.equal((await request(stock, '/api/sessiond/health')).activeSessions, 0);
+    }
     const app = await nativeFetch(deepLink, { headers: browserHeaders });
     assert.equal(app.status, 200);
     const entry = (await app.text()).match(/<script[^>]+src="(\.\/assets\/[^"]+\.js)"/);
@@ -230,7 +241,8 @@ export default function (pi) {
     assert.equal(cloneRestored, false, 'Chat must open the native transcript before repository cloning finishes');
     assert.equal(owner().terminalTicket, undefined, 'Chat-first startup must not grant a native Terminal ticket');
     if (!ambiguous) {
-      await api('/_switch', 409, { generation, requestId: randomUUID(), target: 'terminal' });
+      const blocked = await api('/_switch', 409, { generation, requestId: randomUUID(), target: 'terminal' });
+      assert.equal(blocked.code, 'PI_REPOSITORY_RESTORE_PENDING');
       assert.equal((await readSwitch()).surface, 'chat', 'a premature switch leaves Chat active');
       assert.equal(owner().terminalTicket, undefined);
       assert.equal((await snapshot()).status.sessionId, id);
