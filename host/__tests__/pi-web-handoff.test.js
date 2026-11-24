@@ -247,3 +247,13 @@ test('REQ-AGENT-272: an unconfirmed Chat startup retirement cannot dispatch anot
   assert.equal((await f.handoff.switchTo(attempt)).phase, 'uncertain');
   assert.equal(f.writer, 'chat');
 });
+
+test('REQ-AGENT-273: only an explicit native re-entry can request a new Terminal grant', async () => {
+  const f = fixture('terminal');
+  const request = { generation, target: 'terminal', requestId: 'native-reentry' };
+  assert.equal((await f.handoff.switchTo(request)).phase, 'active');
+  assert.equal(f.stopRequests, 0, 'an ordinary same-surface switch does not relaunch Pi');
+  assert.equal((await f.handoff.switchTo(request, true)).phase, 'complete');
+  assert.equal(f.stopRequests, 1, 'explicit restart goes through the existing release fence');
+  assert.equal(f.writer, 'terminal');
+});

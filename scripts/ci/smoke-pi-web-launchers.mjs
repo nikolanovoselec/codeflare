@@ -93,9 +93,14 @@ async function qualify(mode) {
     return role.source === 'codeflare:terminal-writer' && role.agent === 'codeflare-terminal-writer'
       || role.source === 'herdr:pi' && role.agent === 'pi' && sameNativeRegistration(entry.agent_session);
   }
-  const paneCanPark = (owner, pane) => owner.pane_id === pane && (
-    owner.agent === 'codeflare-terminal-writer' && !owner.agent_session
-    || owner.agent === 'pi' && sameNativeRegistration(owner.agent_session));
+  async function parkedOnOriginalPane(pane) {
+    const owner = await readPane(pane);
+    if (owner.pane_id !== pane || !(owner.agent === 'codeflare-terminal-writer' && !owner.agent_session
+      || (owner.agent === 'pi' || owner.agent == null) && sameNativeRegistration(owner.agent_session))) return false;
+    const wrapper = json(join(runtimeDir, 'wrapper.json'));
+    return wrapper.generation === generation && wrapper.pane === pane && alive(wrapper)
+      && (await foreground(pane)).some(({ pid }) => pid === wrapper.pid);
+  }
   const countSavedRoles = () => existsSync(sessionFile) && savedPanes(json(sessionFile)).filter(hasManagedRole).length;
   const readPane = async pane => JSON.parse((await control('pane', 'get', pane)).stdout).result.pane;
   async function parkEvidence(pane, native, requestId) {
@@ -181,7 +186,7 @@ async function qualify(mode) {
     }
   }
 
-  let binding, leaf, saved, inode;
+  let binding, leaf, saved, inode, host;
   async function openExact(pane, host) {
     const grant = host ? json(ownerPath) : { surface: null, phase: 'opening', target: 'terminal', requestId: randomUUID(),
       terminalTicket: randomUUID(), binding };
@@ -232,7 +237,6 @@ async function qualify(mode) {
     binding = { id: seed.getSessionId(), cwd, path: seed.getSessionFile() };
     saved = read(binding.path);
     inode = statSync(binding.path).ino;
-    let host;
     if (mode === 'herdr') {
       const bindingDir = join(home, '.codeflare/herdr/sessions', name);
       mkdirSync(bindingDir, { recursive: true });
@@ -253,7 +257,13 @@ async function qualify(mode) {
       publish(grant); // A consumed ticket must not reopen Pi, even after the previous child exited.
       await delay(700);
       assert.equal(json(reportPath).released, true);
-      const reopened = await openExact(pane);
+      const bindingDir = join(home, '.codeflare/classic/sessions', name);
+      mkdirSync(bindingDir, { recursive: true });
+      writeFileSync(join(bindingDir, 'agent-session-id'), `${binding.id}\n`);
+      host = createPiWebRuntime({ sessionId, generation, initialSurface: 'terminal', terminalMode: 'classic',
+        cwd, home, runtimeDir, cloneRestored: () => true });
+      await host.initialize();
+      const reopened = await openExact(pane, host);
       assert.notEqual(reopened.native.instance, native.instance);
       pty.write('\x04'); // Native Ctrl+D on the empty editor, not a switch command.
       await pty.until('ordinary Pi quit leaves the same Classic PTY usable', () => {
@@ -264,6 +274,15 @@ async function qualify(mode) {
       pty.write(`printf '%s\\n' "$PWD" > '${shellProbe}'\r`);
       await pty.until('Classic shell executes a command after ordinary Pi quit', () =>
         existsSync(shellProbe) && read(shellProbe).trim() === cwd);
+      assert.equal(host.status().surface, 'terminal');
+      assert.equal(json(ownerPath).terminalTicket, reopened.grant.terminalTicket, 'observing status does not relaunch Pi');
+      pty.write('codeflare-terminal-writer\r');
+      await pty.until('explicit wrapper re-entry earns a fresh one-use ticket', () =>
+        json(ownerPath).terminalTicket !== reopened.grant.terminalTicket);
+      const restarted = await openExact(pane, host);
+      assert.notEqual(restarted.native.instance, reopened.native.instance);
+      await pty.until('ordinary re-entry confirms Terminal without acquiring Chat', () =>
+        host.status().phase === 'complete' && host.status().surface === 'terminal' && !host.status().chatUrl);
       console.log('PI_WEB_CLASSIC_LAUNCHER_OK');
       return;
     }
@@ -287,7 +306,7 @@ async function qualify(mode) {
         return retired.instance === native.instance && retired.released === true && !alive(native);
       });
       await stopping;
-      assert.ok(paneCanPark(await readPane(pane), pane), 'the saved role belongs to the exact retired or parked pane');
+      await pty.until('the saved role belongs to the parked wrapper in the original pane', () => parkedOnOriginalPane(pane));
     } catch (error) {
       throw new Error(`Herdr Stop parked-role evidence: ${JSON.stringify(await parkEvidence(pane, native))}`, { cause: error });
     }
@@ -312,7 +331,7 @@ async function qualify(mode) {
           && retired.released === true && !alive(restored.native);
       });
       await pty.until('restored Herdr retains the managed role after writer exit', async () =>
-        countSavedRoles() === 1 && paneCanPark(await readPane(pane), pane), 20_000);
+        countSavedRoles() === 1 && await parkedOnOriginalPane(pane), 20_000);
     } catch (error) {
       throw new Error(`Herdr repark evidence: ${JSON.stringify(await parkEvidence(pane, restored.native, requestId))}`, { cause: error });
     }
@@ -352,6 +371,7 @@ async function qualify(mode) {
     await stopRuntime();
     console.log('PI_WEB_HERDR_LEGACY_RESTORE_OK');
   } finally {
+    if (mode === 'classic') await host?.close();
     if (pty) {
       await pty.stop();
       if (mode === 'herdr') await stopHerdr().catch(error => console.error(`Herdr cleanup: ${error.message}`));

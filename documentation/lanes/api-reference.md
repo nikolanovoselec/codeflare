@@ -142,7 +142,7 @@ A successful Start returns the acknowledged `generation`; `starting` means the D
 
 `POST /api/sessions` and `POST /api/container/start?sessionId=…` accept optional `surface: "chat" | "terminal"` for the eligible Pi path. Explicit creation resolves the Terminal workspace server-side; the regular default still applies without the field. Start binds the surface to the launch's generation, not a stored workspace selector. Use the handoff routes for an already running session. <!-- @impl: src/routes/session/crud.ts::app.post --> <!-- @impl: src/routes/container/lifecycle.ts::app.post -->
 
-Controls under `/api/pi-web/:sessionId/` require the authenticated owner and the current running generation. Mutations require the same origin and session CSRF protection.
+Under [REQ-AGENT-272](../../sdd/spec/agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff), controls require the authenticated owner and current running generation. Mutations require the same origin and session CSRF protection. <!-- @impl: src/routes/pi-web.ts::handlePiWebRequest -->
 
 | Method | Path | Auth | Implements | Description |
 |---|---|---|---|---|
@@ -150,9 +150,12 @@ Controls under `/api/pi-web/:sessionId/` require the authenticated owner and the
 | GET | `/api/pi-web/:sessionId/_switch` | Owner session | [REQ-AGENT-272](../../sdd/spec/agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff) | Observe current status without acquiring a writer. |
 | POST | `/api/pi-web/:sessionId/_cancel` | Owner session | [REQ-AGENT-272](../../sdd/spec/agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff) | Cancel before Abort is committed with `{ generation, requestId }`. |
 
-`POST _switch` returns `202` with a status snapshot, not a completion receipt. A stale generation or conflicting attempt returns `409`. `POST _cancel` returns `200` when cancellation is accepted, or `409` when it is no longer allowed. Validation and authorization errors are not phase snapshots.
+`POST _switch` returns `202` with a phase snapshot, not a completion receipt. `POST _cancel` returns `200` with a phase snapshot when cancellation is accepted. <!-- @impl: host/src/pi-web-proxy.ts::control -->
 
-`GET _switch` requires a `generation` query and accepts an optional UUID `requestId`. The UUID is validated, not used as a filter. Compare the returned `requestId` with the submitted attempt before attributing a result to it.
+- A stale generation returns `409` with an `{ error }` body, not a phase snapshot. <!-- @impl: src/routes/pi-web.ts::handlePiWebRequest -->
+- An in-generation switch conflict or disallowed cancellation returns `409` with the Host’s current phase snapshot. <!-- @impl: host/src/pi-web-proxy.ts::control -->
+
+`GET _switch` requires a `generation` query and accepts an optional UUID `requestId`. The UUID is validated, not used as a filter. Compare the returned `requestId` with the submitted attempt before attributing a result to it. <!-- @impl: src/routes/pi-web.ts::handlePiWebRequest --> <!-- @impl: host/src/pi-web-proxy.ts::control -->
 
 Status has `phase` and `surface`, optionally `target`, `requestId`, and `chatUrl`. `waiting` drains admitted dispatches and permits cancel; `stopping` commits native Abort and awaits settlement. Both retain the source surface and block new prompts. `releasing` and `opening` do not confirm the destination; `complete` does. A failed Chat open can be retried with the same request only after the attempted writer has exited; `uncertain` is not release. <!-- @impl: host/src/pi-web-handoff.ts::createPiWebHandoff -->
 

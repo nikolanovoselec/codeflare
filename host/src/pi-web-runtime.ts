@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, watch, writeFileSync } from 'node:fs';
 import { basename, join, relative } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
@@ -76,6 +76,8 @@ export function createPiWebRuntime(options: {
   let stopDeadline = 0;
   let webRequestUnconfirmed = false;
   let closing: Promise<void> | undefined;
+  let wrapperWatch: ReturnType<typeof watch> | undefined;
+  let rearmAttemptedFor: string | undefined;
   let retiring = false;
   let closed = false;
 
@@ -216,6 +218,24 @@ export function createPiWebRuntime(options: {
     return observed.quit === true && observed.idle === true && !observed.released && !processMatches(observed);
   }
 
+  function canRearmTerminal(previous: NativeReceipt): boolean {
+    if (!previous.ticket || !quitTerminal(previous)) return false;
+    const wrapper = loadJson<Pick<NativeReceipt, 'generation' | 'pid' | 'startTime'> & { rearmTicket?: string }>(
+      join(runtimeDir, 'wrapper.json'));
+    return !!wrapper && wrapper.generation === generation && wrapper.rearmTicket === previous.ticket
+      && Number.isSafeInteger(wrapper.pid) && wrapper.pid > 1 && typeof wrapper.startTime === 'string' && processMatches(wrapper);
+  }
+
+  async function rearmSelectedTerminal(): Promise<void> {
+    if (retiring || closed || bootPhase !== undefined) return;
+    const state = handoff.status();
+    if (state.surface !== 'terminal' || !['active', 'complete', 'cancelled', 'failed'].includes(state.phase)) return;
+    const previous = receipt('terminal');
+    if (!previous?.ticket || rearmAttemptedFor === previous.ticket || !canRearmTerminal(previous)) return;
+    rearmAttemptedFor = previous.ticket;
+    await handoff.switchTo({ generation, requestId: randomUUID(), target: 'terminal' }, true);
+  }
+
   const handoff = createPiWebHandoff({ generation, initialSurface,
     // The HTTP fence closes now, but do not tell the Chat extension to anchor
     // its branch until all admitted answers and reads have actually drained.
@@ -303,11 +323,8 @@ export function createPiWebRuntime(options: {
       if (closed || retiring) return false;
       if (surface === 'chat') return openChat(ref);
       else {
-        if (receipt('terminal')?.quit === true) {
-          const wrapper = loadJson<Pick<NativeReceipt, 'generation' | 'pid' | 'startTime'>>(join(runtimeDir, 'wrapper.json'));
-          if (!wrapper || wrapper.generation !== generation || !Number.isSafeInteger(wrapper.pid) || wrapper.pid <= 1
-            || typeof wrapper.startTime !== 'string' || !processMatches(wrapper)) return false;
-        }
+        const previous = receipt('terminal');
+        if (previous?.quit === true && !canRearmTerminal(previous)) return false;
         terminalTicket = randomUUID();
         publish(handoff.status());
         await until(() => {
@@ -406,11 +423,19 @@ export function createPiWebRuntime(options: {
           publish(handoff.status());
           bootPhase = undefined;
         }
+        if (retiring || closed) return;
+        // Watch the private atomic registration, not browser status reads.
+        wrapperWatch = watch(runtimeDir, { persistent: false }, (_, file) => {
+          if (file === 'wrapper.json' || file === 'owner.json') void rearmSelectedTerminal().catch(() => {});
+        });
+        wrapperWatch.on('error', () => wrapperWatch?.close());
+        await rearmSelectedTerminal();
       })().catch(error => { bootPhase = 'failed'; throw error; });
       return boot;
     },
     close() {
       retiring = true;
+      wrapperWatch?.close();
       closing ??= close();
       return closing;
     },

@@ -34,7 +34,7 @@ At `mounting` the visible pane initiates one attachment lifecycle; it does not b
 
 Browser Back or Dashboard during terminal startup selects a usable dashboard independently of any session's initialization latch. Startup and its progress/OPEN ownership continue in the background; returning restores the progress/ready surface without another Start or Stop. Background completion/failure cannot hide Dashboard or steal selection. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> [REQ-SESSION-037](../../sdd/spec/session-lifecycle.md#req-session-037-dashboard-navigation-remains-available-during-startup).
 
-Herdr image settings manage mobile layout, mouse capture, browser-owned clipboard, 10 MB pane scrollback, palette, labels and static status symbols. Updates, remote manifests, sound, pane history persistence, nested launches and Kitty graphics stay disabled. Named runtime lifetime/readiness/recovery belongs to [Sessions & Runtime](container.md#runtime-lifecycle); normal [Storage & Sync](storage-and-sync.md) retains the structural `session.json` and the current Herdr session’s exact Pi `agent-session-id` under private home metadata. Pane output and arbitrary processes do not survive. Fresh Herdr Pi runs fullscreen and owns its transcript.
+Herdr image settings manage mobile layout, mouse capture, browser-owned clipboard, 10 MB pane scrollback, palette, labels and static status symbols. Updates, remote manifests, sound, pane history persistence, nested launches and Kitty graphics stay disabled. Named runtime lifetime/readiness/recovery belongs to [Sessions & Runtime](container.md#runtime-lifecycle); normal [Storage & Sync](storage-and-sync.md) retains the structural `session.json` and the current Herdr session’s exact Pi `agent-session-id` under private home metadata ([REQ-TERM-033](../../sdd/spec/terminal.md#req-term-033-durable-herdr-structural-session-recovery)). Pane output and arbitrary processes do not survive. Fresh Herdr Pi runs fullscreen and owns its transcript.
 
 ### Pi Chat handoff acceptance
 
@@ -44,20 +44,33 @@ Herdr image settings manage mobile layout, mouse capture, browser-owned clipboar
 |---|---|
 | Start, Resume and exact-pane restore | [Choose the starting writer](#choose-the-starting-writer). |
 | Transcript continuity and stop | [Switch one writer at a time](#switch-one-writer-at-a-time). |
+| Native quit and re-entry | [Quit and reopen native Pi](#quit-and-reopen-native-pi). |
 | Panel geometry | [Check desktop and mobile layout](#check-desktop-and-mobile-layout). |
 | Passive clients and stock controls | [Check stale frames and native questions](#check-stale-frames-and-native-questions). |
 
 #### Choose the starting writer
 
-- In Standard and Pro where available, start Chat-first and Terminal-first in both Classic and Herdr. Send a synthetic message, Stop normally and resume in the other surface. Only the selected primary opens the saved conversation. Verify unchanged workspace defaults, manual panes and Browser VS Code separately.
-- Stop a live managed Herdr writer and repeat with one already parked. Confirm its original pane retains the wrapper role. Restore with a different pane focused; the restored writer must not follow focus. A legacy snapshot without a verified role keeps its native Terminal and refuses Chat.
+- In Standard and Pro where available, start Chat-first and Terminal-first in both Classic and Herdr. Send a synthetic message, Stop normally, then resume in the other surface. Only the selected primary opens the saved conversation.
+- Verify unchanged workspace defaults, manually opened panes, and independent Browser VS Code behavior.
+- For [REQ-TERM-048](../../sdd/spec/terminal.md#req-term-048-managed-herdr-pi-writer-restore), Stop a live managed Herdr writer, then repeat with one already parked. Confirm the original pane retains the wrapper role.
+- Restore with a different pane focused. The writer returns to the original pane. A legacy snapshot with no verified role restores its native Terminal and refuses Chat.
 
 #### Switch one writer at a time
 
-- Switch both directions in an empty and a populated conversation. Repeat from an earlier tree leaf. The native ID and branch match, and the old writer exits before the new one acquires the transcript. Record equality rather than actual IDs, filenames or content. A failed open cannot replace the conversation.
+[REQ-AGENT-273](../../sdd/spec/agents.md#req-agent-273-pi-handoff-continuity) covers stopping feedback, no replay, and draft recovery.
+
+- Switch both ways in an empty and a populated conversation, then repeat from an earlier tree leaf. The native ID and branch match; the previous writer exits first. A failed open cannot replace the conversation.
+- Record matching identities as equality results. Do not record actual transcript IDs, paths, or content.
 - Start Chat-first and switch after prewarm orphan expiry without previously opening Terminal. The healthy primary is still available without counting as user activity. A secondary Classic Pi tab owns a different conversation.
-- Switch during streaming, a queued follow-up, a pending question, and an input hook held before streaming. Expect **Stopping the current turn…**, automatic native Abort and rejection of fresh prompts. An Abort acknowledgment cannot transfer ownership while a hook is still active. Cancel can preserve a running turn only before Abort is committed.
-- Verify saved history appears with no automatic prompt or queue replay. Abort-recovered Terminal text returns as an editable, unsent draft. Quit managed Pi normally and confirm the same pane returns to its shell. Chat can reopen after the exact exit is verified. To enable another managed Terminal start after quit, run the command printed in the original pane and retry the pending switch.
+- Switch during streaming, a queued follow-up, and a pending question. Expect **Stopping the current turn…**, automatic native Abort, and rejection of fresh prompts. Cancel can preserve a running turn only before Abort is committed.
+- Repeat with an input hook held before streaming. Neither an idle-looking status nor an Abort acknowledgment can transfer ownership while the hook is active.
+- Verify saved history appears without automatic prompt or queue replay. Text recovered by Abort returns to Terminal as an editable, unsent draft.
+
+#### Quit and reopen native Pi
+
+- Quit Pi normally and run a harmless command in the same Terminal shell. Run the printed restart command there without opening Chat. The same transcript and branch reopen under a fresh writer, without replay.
+- Repeat the quit, then switch to Chat after the exact exit is verified. Switch back while the old wrapper is still retiring. No new writer is granted until the original pane has a fresh waiting wrapper.
+- Run the printed command in the original pane, then retry the pending switch. The Terminal remains accessible while the switch is retryable.
 
 #### Check desktop and mobile layout
 
@@ -66,9 +79,11 @@ Herdr image settings manage mobile layout, mouse capture, browser-owned clipboar
 
 #### Check stale frames and native questions
 
-- Keep an older frame open during Terminal ownership and across a Stop and Resume to Chat. Its refresh, prompt and event reconnect cannot acquire a writer or wake a container. After Resume, repeat while the same transcript is active in a new generation. Worker tests separately exercise cross-owner and CSRF rejection.
-- Open a harmless file through Files, then select it with `@`. Quiet starts on and can be changed. Chat has no Git or worktree controls; ordinary Terminal and VS Code Git still work.
-- Use a fixture startup question and answer it in the original stock Chat page. Recovery of a pending question after refresh is not required. When Chat startup does not settle, retry the same transcript only after the previous attempt is confirmed closed.
+- Keep an old frame open during Terminal ownership. Refresh and reconnect its event socket; neither action can acquire a writer. A stale prompt cannot run. Worker tests separately exercise cross-owner and CSRF rejection.
+- Stop the session without resuming. Repeat the refresh and reconnect while stopped. No replacement starts and the generation stays unchanged. Resume Chat and repeat with the old frame while the same transcript is active in the new generation.
+- For [REQ-AGENT-274](../../sdd/spec/agents.md#req-agent-274-stock-pi-chat-controls), open a harmless file through Files, then select it with `@`. Quiet starts on and can be changed. Chat has no Git or worktree controls; ordinary Terminal and VS Code Git still work.
+- Use a fixture startup question. While Chat is still opening, confirm the question is visible and answer it in the original stock frame. That same frame must then become ready.
+- Recovering an already-pending question after refresh is not required. If Chat startup fails, retry the same transcript only after the previous attempt is confirmed closed.
 
 ### Browser terminal link activation
 

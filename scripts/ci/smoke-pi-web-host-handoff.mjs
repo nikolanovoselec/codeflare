@@ -434,6 +434,12 @@ export default function (pi) {
     console.log('PI_WEB_HOST_CHAT_STARTUP_RETRY_OK');
 
     const resumeReceipt = chat();
+    // Model the retiring Herdr wrapper independently of its Pi child. The
+    // qualification process keeps this registration live across the rapid return.
+    const wrapperPath = join(runtimeDir, 'wrapper.json');
+    const wrapperStat = readFileSync(`/proc/${process.pid}/stat`, 'utf8');
+    writeFileSync(wrapperPath, JSON.stringify({ generation, pid: process.pid,
+      startTime: wrapperStat.slice(wrapperStat.lastIndexOf(')') + 2).split(' ')[19], pane: 'classic' }));
     await api('/_switch', 202, { generation, requestId: randomUUID(), target: 'terminal' });
     const quitTicket = await until('native ticket before ordinary quit', () => {
       const current = owner();
@@ -452,6 +458,14 @@ export default function (pi) {
     assert.equal((await snapshot()).status.sessionId, id);
     await until('post-quit Chat is the confirmed writer', async () => (await readSwitch()).surface === 'chat');
     assert.deepEqual(calls, expectedCalls);
+    const rapidReturn = randomUUID();
+    await api('/_switch', 202, { generation, requestId: rapidReturn, target: 'terminal' });
+    await until('rapid return stays retryable while the old wrapper is retiring', async () => {
+      const state = await readSwitch();
+      assert.equal(owner().terminalTicket, quitTicket.terminalTicket, 'retiring wrapper must never receive a grant');
+      return state.phase === 'failed' && state.requestId === rapidReturn;
+    });
+    assert.equal((await health()).activeSessions, 0);
     console.log('PI_WEB_HOST_NATIVE_QUIT_OK');
   } finally {
     globalThis.fetch = nativeFetch;

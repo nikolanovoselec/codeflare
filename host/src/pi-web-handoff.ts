@@ -58,7 +58,7 @@ export function createPiWebHandoff(options: Options) {
     requests.set(pending, kind);
     return () => { requests.delete(pending); done(); };
   }
-  async function switchTo(input: PiSwitchRequest): Promise<PiSwitchStatus> {
+  async function switchTo(input: PiSwitchRequest, restartTerminal = false): Promise<PiSwitchStatus> {
     if (input.generation !== options.generation) throw new Error('Pi workspace generation changed');
     const { requestId, target } = input;
     if (current) {
@@ -78,7 +78,7 @@ export function createPiWebHandoff(options: Options) {
       }
       return status();
     }
-    if (state.surface === target) return status();
+    if (state.surface === target && !(restartTerminal && target === 'terminal')) return status();
     if (!state.surface && (state.requestId !== requestId || !released)) throw new Error('Retry the previous Pi switch');
     const source = state.surface;
     const abort = new AbortController();

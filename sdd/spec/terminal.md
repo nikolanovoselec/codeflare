@@ -259,7 +259,7 @@ Persisted Herdr state and runtime lifetime are documented in [Sessions & Runtime
 1. The built image provides one verified, attributed Herdr runtime with managed non-updating terminal settings. <!-- @impl: Dockerfile::HERDR_VERSION --> <!-- @impl: image/herdr/config.toml::version_check --> <!-- @manual: The container-image workflow verifies the installed Herdr version, managed configuration, executable mode, license, provenance, SBOM, and vulnerability scan. -->
 2. Each Herdr session starts or attaches to one deterministic private runtime, including at the maximum session-ID length. <!-- @impl: image/herdr/codeflare-herdr-terminal::prepare_runtime --> <!-- @test: host/__tests__/herdr-launcher.test.js (rejects malformed session identity before invoking Herdr) --> <!-- @test: host/__tests__/herdr-launcher.test.js (keeps the maximum-length session client socket within the Linux path limit) -->
 3. Classic sessions never start or stop Herdr. <!-- @impl: host/src/server.ts::TERMINAL_MODE --> <!-- @test: host/__tests__/terminal-mode.test.js (defaults missing and invalid values to classic login Bash) -->
-4. Ordinary configured launches require bounded agent or process detection before bootstrap readiness; managed Pi requires the selected primary pane topology without requiring a native writer. <!-- @impl: image/herdr/codeflare-herdr-terminal::bootstrap --> <!-- @test: host/__tests__/herdr-launcher.test.js (submits fixed commands and waits for expected detection) -->
+4. Ordinary configured launches require bounded agent or process detection before bootstrap readiness; managed Pi requires the selected primary pane topology without requiring a native writer. <!-- @impl: image/herdr/codeflare-herdr-terminal::bootstrap --> <!-- @test: host/__tests__/herdr-launcher.test.js (submits fixed commands and waits for expected detection) --> <!-- @test: host/__tests__/herdr-launcher.test.js (REQ-AGENT-272 AC1: Chat-first prewarms Herdr without launching native Pi) -->
 5. Bash or empty configuration remains a plain shell. <!-- @impl: image/herdr/codeflare-herdr-terminal::bootstrap --> <!-- @test: host/__tests__/herdr-launcher.test.js (leaves Bash untouched and maps ordinary TUI commands without shell interpolation) -->
 6. Later Herdr tabs and panes open plain Bash instead of repeating Codeflare agent autostart. <!-- @impl: image/herdr/codeflare-herdr-terminal::prepare_runtime --> <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @manual: In integration, start a configured agent, open a new Herdr tab and pane, and confirm each new shell is plain Bash. -->
 
@@ -353,7 +353,7 @@ Persisted Herdr state and runtime lifetime are documented in [Sessions & Runtime
 
 1. Herdr writes its official structural session snapshot beneath R2-synced private home metadata, while sockets, locks, logs and other runtime state remain under the ephemeral runtime root. <!-- @impl: image/herdr/codeflare-herdr-terminal::prepare_runtime --> <!-- @test: host/__tests__/herdr-launcher.test.js (keeps the maximum-length session client socket within the Linux path limit) -->
 2. Normal home restore makes the snapshot available before Herdr prewarm. <!-- @test: host/__tests__/entrypoint-managed-curation.test.js (REQ-TERM-033 AC2: production release follows restored snapshot bytes and failed policy never releases) --> <!-- @impl: host/src/server.ts::waitForInitFlag --> <!-- @test: host/__tests__/repository-restore-order.test.js (REQ-TERM-033 AC2: real host prewarm waits for restored snapshot bytes and the init flag) -->
-3. Structural restore may recover workspaces, tabs, panes, layout, cwd, focus and supported agent references, not live processes or output. A verified managed Pi role survives normal Stop and restores in its original pane; otherwise Pi restores natively and refuses Chat. <!-- @impl: image/herdr/codeflare-herdr-terminal::verify_managed_restore --> <!-- @manual: documentation/lanes/terminal-and-ide.md#choose-the-starting-writer --> <!-- @impl: image/herdr/codeflare-herdr-terminal::wait_for_restored_agent --> <!-- @test: host/__tests__/herdr-launcher.test.js (falls back to persisted agent metadata when Pi lifecycle readiness is unavailable) --> <!-- @manual: Replace a stopped Herdr container after a successful sync and confirm structural topology restores without prior pane output. -->
+3. Structural restore may recover workspaces, tabs, panes, layout, cwd, focus and supported agent references, not live processes or output. <!-- @impl: image/herdr/codeflare-herdr-terminal::wait_for_restored_agent --> <!-- @test: host/__tests__/herdr-launcher.test.js (falls back to persisted agent metadata when Pi lifecycle readiness is unavailable) --> <!-- @manual: Replace a stopped Herdr container after a successful sync and confirm structural topology restores without prior pane output. -->
 4. Pane history, client and API sockets, updater state, logs, and user-edited Herdr configuration remain excluded from R2. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (persists only Herdr structural session snapshots under .codeflare) -->
 5. For ordinary native Pi restore, readiness waits for resumed Pi sessions to load their transcripts and establish live lifecycle authority. <!-- @impl: image/herdr/codeflare-herdr-terminal::wait_for_live_pi --> <!-- @test: host/__tests__/herdr-launcher.test.js (waits for live Pi integration before completing restored bootstrap) -->
 6. Restored metadata retains the compatibility path to readiness when the versioned Pi signal is unavailable or live Pi readiness fails within the bounded wait. <!-- @impl: image/herdr/codeflare-herdr-terminal::wait_for_restored_agent --> <!-- @test: host/__tests__/herdr-launcher.test.js (falls back to persisted agent metadata when Pi lifecycle readiness is unavailable) --> <!-- @test: host/__tests__/herdr-launcher.test.js (falls back to persisted metadata when pinned Pi live readiness fails) -->
@@ -365,14 +365,37 @@ Persisted Herdr state and runtime lifetime are documented in [Sessions & Runtime
 - `session-history.json` stays excluded: terminal output may contain prompts/credentials/tokens/command output.
 - Recovery uses the pinned Herdr runtime’s official snapshot format; Codeflare defines no parallel topology schema.
 - The exact Pi binding for [REQ-AGENT-272](agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff) can sync beside the snapshot; writer tickets, receipts, and output do not.
+- [REQ-TERM-048](#req-term-048-managed-herdr-pi-writer-restore) owns the managed writer role and legacy fallback.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-TERM-005](#req-term-005-herdr-runtime-and-configured-agent-startup), [REQ-STOR-002](storage.md#req-stor-002-file-persistence-across-sessions), [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start)
 
-**Verification:** Automated: [entrypoint-rclone-filters.test.js](../../host/__tests__/entrypoint-rclone-filters.test.js), [herdr-launcher.test.js](../../host/__tests__/herdr-launcher.test.js), [repository-restore-order.test.js](../../host/__tests__/repository-restore-order.test.js), [entrypoint-managed-curation.test.js](../../host/__tests__/entrypoint-managed-curation.test.js); Manual: [REQ-TERM-033 procedure](../../documentation/lanes/terminal-and-ide.md#req-term-033-manual-qualification)
+**Verification:** Automated: [entrypoint-rclone-filters.test.js](../../host/__tests__/entrypoint-rclone-filters.test.js), [herdr-launcher.test.js](../../host/__tests__/herdr-launcher.test.js), [repository-restore-order.test.js](../../host/__tests__/repository-restore-order.test.js), [entrypoint-managed-curation.test.js](../../host/__tests__/entrypoint-managed-curation.test.js); Manual: [REQ-TERM-033 procedure](../../documentation/lanes/terminal-and-ide.md#req-term-033-manual-qualification), [managed writer restore](../../documentation/lanes/terminal-and-ide.md#choose-the-starting-writer)
 
 **Status:** Implemented
+
+---
+
+### REQ-TERM-048: Managed Herdr Pi writer restore
+
+**Intent:** Preserve the configured managed Pi pane and prevent a competing writer during legacy restore.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Normal Stop preserves the verified managed Pi role in its original pane, independently of focus. If a saved Pi session lacks a verified managed role, use legacy native restore and refuse Chat for that generation. <!-- @impl: image/herdr/codeflare-herdr-terminal::verify_managed_restore --> <!-- @manual: documentation/lanes/terminal-and-ide.md#choose-the-starting-writer -->
+
+**Constraints:** None.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-TERM-033](#req-term-033-durable-herdr-structural-session-recovery)
+
+**Verification:** Manual: [Managed and legacy Herdr writer restore](../../documentation/lanes/terminal-and-ide.md#choose-the-starting-writer).
+
+**Status:** Planned
 
 ---
 

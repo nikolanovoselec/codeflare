@@ -883,7 +883,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Acceptance Criteria:**
 
-1. Explicit surface choice determines which writer starts or resumes eligible Pi, subject to the managed and legacy Herdr restore boundaries in [REQ-TERM-033](terminal.md#req-term-033-durable-herdr-structural-session-recovery). <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: src/routes/container/lifecycle.ts::app --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-272 AC1: selects $surface for this $status $terminalMode card action only) --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-272 AC1: a fresh Chat-first Classic boot does not create a CLI conversation) --> <!-- @test: host/__tests__/herdr-launcher.test.js (REQ-AGENT-272 AC1: Chat-first prewarms Herdr without launching native Pi) --> <!-- @test: host/__tests__/prewarm-orphan-expiry.test.js (REQ-AGENT-272 AC1: a late clone marker permits the first native writer only after restore) -->
+1. Explicit surface choice determines which writer starts or resumes eligible Pi, subject to the managed and legacy Herdr restore rules in [REQ-TERM-048](terminal.md#req-term-048-managed-herdr-pi-writer-restore). <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: src/routes/container/lifecycle.ts::app --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-272 AC1: selects $surface for this $status $terminalMode card action only) --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-272 AC1: a fresh Chat-first Classic boot does not create a CLI conversation) --> <!-- @test: host/__tests__/herdr-launcher.test.js (REQ-AGENT-272 AC1: Chat-first prewarms Herdr without launching native Pi) --> <!-- @test: host/__tests__/prewarm-orphan-expiry.test.js (REQ-AGENT-272 AC1: a late clone marker permits the first native writer only after restore) -->
 2. Classic and Herdr switch to the same conversation and branch, including an empty conversation, only after the previous writer closes. A failed transfer keeps the same binding without granting an unconfirmed writer. <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-272: an unconfirmed Chat startup retirement cannot dispatch another writer) --> <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime --> <!-- @impl: host/src/pi-web-handoff.ts::createPiWebHandoff --> <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-272 AC2: an empty conversation switches without another prompt) --> <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-272 AC2: an ambiguous launch rejects new owners until the original launch is resolved) --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-AGENT-272 AC2: syncs only the current Herdr transcript binding, not live ownership) --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-272 AC2: a configured secondary Classic Pi never receives the primary conversation) --> <!-- @test: host/__tests__/prewarm-orphan-expiry.test.js (REQ-AGENT-272 AC2: idle ${mode} primary remains available for a Chat-to-Terminal switch after orphan expiry) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time -->
 3. Switching surfaces blocks new prompts and automatically stops current execution without waiting for a normal reply. <!-- @impl: host/src/pi-web-handoff.ts::createPiWebHandoff --> <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-272 AC3: ${source} requests abort before ${target} may open the saved conversation) -->
 4. Chat is centered and occupies 80% of its available desktop area on each axis, capped at 800px wide and 1200px tall. Narrow or short views retain gutters and an operable composer. <!-- @manual: documentation/lanes/terminal-and-ide.md#pi-chat-handoff-acceptance -->
@@ -897,7 +897,8 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 - A live turn does not move between processes.
 - Surface choice is per action, not a global preference or a new workspace kind.
 - Default open paths, independently opened panes and VS Code retain their behavior and Git capabilities.
-- [REQ-AGENT-273](#req-agent-273-pi-chat-continuity-and-controls) owns observable handoff feedback and retained stock controls.
+- [REQ-AGENT-273](#req-agent-273-pi-handoff-continuity) owns handoff feedback and native re-entry.
+- [REQ-AGENT-274](#req-agent-274-stock-pi-chat-controls) owns retained stock controls.
 
 **Priority:** P1
 
@@ -909,7 +910,8 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 ---
 
-### REQ-AGENT-273: Pi Chat continuity and controls
+<a id="req-agent-273-pi-chat-continuity-and-controls"></a>
+### REQ-AGENT-273: Pi handoff continuity
 
 **Intent:** Present accessible handoff feedback and preserve native user interaction while resuming a managed Pi conversation.
 
@@ -918,18 +920,42 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 **Acceptance Criteria:**
 
 1. While stopping the current turn, show “Stopping the current turn…” without replacing the source frame. <!-- @impl: web-ui/src/components/PiWebSwitchControls.tsx::PiWebSwitchControls --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (REQ-AGENT-272 AC3: announces automatic stop without replacing the source frame) -->
-2. Passive refresh or reconnect cannot acquire a writer or wake a stopped container. <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-272 AC2+AC5: an admitted web request cannot outlive the writer or let a stale tab reopen it) --> <!-- @test: src/__tests__/container/terminal-ws-relay.test.ts (REQ-AGENT-272 AC5: reconnect after Pi web’s private process exits cannot start a new generation) -->
+2. Passive refresh or reconnect cannot acquire a writer or wake a stopped container. <!-- @impl: src/routes/pi-web.ts::handlePiWebRequest --> <!-- @impl: host/src/pi-web-handoff.ts::createPiWebHandoff --> <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-272 AC2+AC5: an admitted web request cannot outlive the writer or let a stale tab reopen it) --> <!-- @test: src/__tests__/container/terminal-ws-relay.test.ts (REQ-AGENT-272 AC5: reconnect after Pi web’s private process exits cannot start a new generation) -->
 3. The destination opens the saved history without replaying the interrupted prompt or queue. <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-272 AC3: ${source} requests abort before ${target} may open the saved conversation) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time -->
 4. Terminal text recovered by Abort returns as an editable, unsent draft. <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time -->
-5. Chat retains Files and `@` references for workspace files. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
-6. Chat starts in Quiet mode and allows the user to change it. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
-7. The live Chat frame can answer a native Pi question, including during startup. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
+5. Ordinary quit returns to the same Terminal shell. An explicit re-entry reopens the exact transcript only after the previous writer exits; returning from Chat must not grant a ticket to a retiring wrapper. <!-- @impl: host/src/pi-web-runtime.ts::rearmSelectedTerminal --> <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-273: only an explicit native re-entry can request a new Terminal grant) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#quit-and-reopen-native-pi -->
+
+**Constraints:** None.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-272](#req-agent-272-pi-chat-and-terminal-transcript-handoff)
 
-**Verification:** Automated: [Chat panel](../../web-ui/src/__tests__/components/PiWebChat.test.tsx), [Host handoff](../../scripts/ci/smoke-pi-web-host-handoff.mjs); Manual: [Packaged Chat handoff acceptance](../../documentation/lanes/terminal-and-ide.md#pi-chat-handoff-acceptance).
+**Verification:** Automated: [Chat panel](../../web-ui/src/__tests__/components/PiWebChat.test.tsx), [Host handoff](../../host/__tests__/pi-web-handoff.test.js), [DO relay](../../src/__tests__/container/terminal-ws-relay.test.ts); Manual: [Packaged Chat handoff acceptance](../../documentation/lanes/terminal-and-ide.md#pi-chat-handoff-acceptance).
+
+**Status:** Planned
+
+---
+
+### REQ-AGENT-274: Stock Pi Chat controls
+
+**Intent:** Retain native Pi interactions in the stock browser app.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Chat retains Files and `@` references for workspace files. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
+2. Chat starts in Quiet mode and allows the user to change it. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
+3. The live Chat frame can answer a native Pi question, including during startup. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
+
+**Constraints:** None.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-272](#req-agent-272-pi-chat-and-terminal-transcript-handoff)
+
+**Verification:** Manual: [Stock controls and native questions](../../documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions).
 
 **Status:** Planned
 

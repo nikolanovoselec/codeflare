@@ -163,7 +163,8 @@ export function createPiWebProxy(options: { sessionId: string; runtime: PiWebRun
       });
       if (!result.statusCode) throw new Error('Missing stock Chat HTTP status');
       const headers: http.OutgoingHttpHeaders = { 'Cache-Control': 'no-store' };
-      for (const name of ['content-type', 'content-security-policy', 'x-frame-options'] as const) {
+      if (result.headers['content-type']) headers['content-type'] = result.headers['content-type'];
+      for (const name of ['content-security-policy', 'x-frame-options'] as const) {
         const value = result.headers[name];
         if (value) headers[name] = value;
       }

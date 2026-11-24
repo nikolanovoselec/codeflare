@@ -39,11 +39,20 @@ if [ -f "$runtime/wrapper.json" ] && ! jq -e --arg pane "$pane" --argjson genera
     printf 'Codeflare: run the managed writer in its original terminal pane.\n' >&2
     exit 1
 fi
-stat=$(cat "/proc/$$/stat")
-read -ra fields <<< "${stat##*) }"
-(umask 077; printf '{"generation":%s,"pid":%s,"startTime":"%s","pane":"%s"}\n' \
-    "$CODEFLARE_PI_GENERATION" "$$" "${fields[19]}" "$pane" > "$runtime/wrapper.$$")
-mv -f -- "$runtime/wrapper.$$" "$runtime/wrapper.json"
+register_waiting_wrapper() {
+    local stat rearm_ticket fields
+    stat=$(cat "/proc/$$/stat")
+    read -ra fields <<< "${stat##*) }"
+    # The old wrapper had the lock until exit. This field can only be
+    # published by a new invocation, never by the wrapper retiring Pi.
+    rearm_ticket=$(jq -er --argjson generation "$CODEFLARE_PI_GENERATION" '
+        select(.generation == $generation and .quit == true and .idle == true)
+        | .ticket | select(type == "string" and test("^[A-Za-z0-9_-]{1,128}$"))
+    ' "$runtime/terminal.json" 2>/dev/null) || rearm_ticket=""
+    (umask 077; printf '{"generation":%s,"pid":%s,"startTime":"%s","pane":"%s","rearmTicket":"%s"}\n' \
+        "$CODEFLARE_PI_GENERATION" "$$" "${fields[19]}" "$pane" "$rearm_ticket" > "$runtime/wrapper.$$")
+    mv -f -- "$runtime/wrapper.$$" "$runtime/wrapper.json"
+}
 
 native_quit() {
     local pid
@@ -161,6 +170,7 @@ cd -- "$workspace"
 # Classic prewarm observes PTY output even when the first ticket is for Chat.
 printf '\r'
 report_waiting_pane
+register_waiting_wrapper
 while true; do
     if read_ticket && (umask 077; set -o noclobber; : > "$tickets/$ticket") 2>/dev/null; then
         args=("$@" --extension /opt/codeflare/pi-web/handoff-extension.ts)
