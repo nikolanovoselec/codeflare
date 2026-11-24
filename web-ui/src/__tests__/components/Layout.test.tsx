@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor, within } from '@solidjs/testing-library';
-import { createSignal, For } from 'solid-js';
+import { createSignal, For, Show } from 'solid-js';
 import type { SessionWithStatus } from '../../types';
 
 const retryMigration = vi.hoisted(() => vi.fn());
@@ -51,7 +51,14 @@ vi.mock('../../components/Header', () => ({
   default: (props: any) => {
     // Store props on window for inspection in tests (CF-075 vault gating).
     (window as any).__headerProps = props;
-    return <header data-testid="header"><button onClick={props.onLogoClick}>Dashboard</button></header>;
+    return (
+      <header data-testid="header">
+        <button onClick={props.onLogoClick}>Dashboard</button>
+        <Show when={props.onChatOpen}>
+          <button onClick={() => props.onChatOpen()}>Switch to Chat</button>
+        </Show>
+      </header>
+    );
   }
 }));
 
@@ -374,7 +381,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       fireEvent.click(screen.getByRole('button', { name: 'Switch to Terminal' }));
       await waitFor(() => expect(screen.queryByTitle('Pi Chat')).not.toBeInTheDocument());
       expect(notice).toBeVisible();
-      fireEvent.click(screen.getByRole('button', { name: 'Switch to Chat' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Switch to Chat' }));
       await screen.findByTitle('Pi Chat');
       expect(notice).toBeVisible();
     } finally { cleanup(); vi.unstubAllGlobals(); }

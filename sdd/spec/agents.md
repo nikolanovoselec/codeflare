@@ -953,10 +953,10 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 2. Waiting to click Open does not expire Chat startup. <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime --> <!-- @manual: documentation/lanes/terminal-and-ide.md#choose-the-starting-writer -->
 3. Once the Pi profile and transcript are restored, either Classic surface can open while repositories still clone. <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime --> <!-- @manual: documentation/lanes/terminal-and-ide.md#choose-the-starting-writer -->
 4. Classic Chat and Terminal can switch in either direction while repositories clone. <!-- @manual: documentation/lanes/terminal-and-ide.md#choose-the-starting-writer -->
-5. The existing repository restore notification remains visible during surface switches and reports the eventual outcome. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps the repository restore notice visible across Classic Chat and Terminal switches) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#choose-the-starting-writer -->
+5. Switching between Classic Chat and Terminal does not dismiss the active repository restore notice. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps the repository restore notice visible across Classic Chat and Terminal switches) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#choose-the-starting-writer -->
 6. Reload Chat during opening retries the same scoped frame without starting another handoff. <!-- @impl: web-ui/src/components/PiWebChat.tsx::PiWebChat --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (reloads the same opening Chat frame without switching writers) -->
 
-**Constraints:** None.
+**Constraints:** [REQ-GITHUB-320](github.md#req-github-320-nonblocking-terminal-repository-restore-notice) owns restore outcome reporting and notice lifecycle.
 
 **Priority:** P1
 

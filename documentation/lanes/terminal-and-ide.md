@@ -55,7 +55,9 @@ Herdr image settings manage mobile layout, mouse capture, browser-owned clipboar
 - In Standard and Pro where available, start Chat-first and Terminal-first in Classic. Send a synthetic message, Stop normally, then resume in the other surface. Only the selected primary opens the saved conversation.
 - On Chat-first Start and Resume, verify the standard startup overlay remains through **Ready**. Wait over 25 seconds, then choose **Open**. Chat opens without starting native Pi.
 - Configure an authorized synthetic repository as a restore target and ensure its checkout is absent locally. Open Chat while it clones; verify the composer works and the notification reports progress and the eventual outcome.
-- Repeat startup Terminal-first. During cloning, switch Chat → Terminal and Terminal → Chat. Confirm the restore notification stays visible through both switches. If cloning finishes before a check, record that concurrency case as unexercised.
+- Repeat startup Terminal-first with the synthetic checkout absent. Choose **Open** and verify native Pi accepts a harmless prompt while **Restoring repositories…** is still visible.
+- While the notice still says **Restoring repositories…**, switch Chat → Terminal and Terminal → Chat. In each direction, send a harmless prompt from the destination and confirm its reply. Verify the notice survives both switches.
+- If cloning finishes before the destination responds, record that concurrency case as unexercised.
 - In a disposable browser check, block the first Chat frame navigation before it reaches the Host. Clear the block and choose **Reload Chat**. Verify the same conversation opens without a second handoff.
 - Verify unchanged workspace defaults, manually opened panes, and independent Browser VS Code behavior.
 
