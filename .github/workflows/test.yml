@@ -1005,12 +1005,44 @@ jobs:
         working-directory: image/pi-web
         run: npm ci --omit=dev --omit=peer --no-audit --no-fund
 
+      - name: Prepare locked Chrome SDK for the Pi Web branch diagnostic
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/pi-web'
+        run: |
+          set -euo pipefail
+          version=$(node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const version = JSON.parse(fs.readFileSync('preseed/npm-tools/package.json', 'utf8')).dependencies['chrome-devtools-mcp'];
+          if (!/^\d+\.\d+\.\d+$/.test(version)) throw Error('Chrome SDK must have an exact stable pin');
+          console.log(version);
+          NODE
+          )
+          npm pack --ignore-scripts --json --pack-destination "$RUNNER_TEMP" "chrome-devtools-mcp@${version}" > "$RUNNER_TEMP/pi-web-chrome-sdk-pack.json"
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import { createHash } from 'node:crypto';
+          import { join } from 'node:path';
+          const version = JSON.parse(fs.readFileSync('preseed/npm-tools/package.json', 'utf8')).dependencies['chrome-devtools-mcp'];
+          const locked = JSON.parse(fs.readFileSync('preseed/npm-tools/package-lock.json', 'utf8')).packages['node_modules/chrome-devtools-mcp'];
+          if (locked.version !== version) throw Error('Chrome SDK pin and lock disagree');
+          const archive = fs.readFileSync(join(process.env.RUNNER_TEMP, `chrome-devtools-mcp-${version}.tgz`));
+          const integrity = 'sha512-' + createHash('sha512').update(archive).digest('base64');
+          if (integrity !== locked.integrity) throw Error('Chrome SDK archive integrity mismatch');
+          NODE
+          mkdir "$RUNNER_TEMP/pi-web-chrome-sdk"
+          tar -xzf "$RUNNER_TEMP/chrome-devtools-mcp-${version}.tgz" -C "$RUNNER_TEMP/pi-web-chrome-sdk"
       - name: Verify native Pi and stock pi-web transcript interoperability
         env:
           CODEFLARE_PI_WEB_SMOKE_ROOT: ${{ github.workspace }}/image/pi-web
           CODEFLARE_PI_WEB_SMOKE_PI_PACKAGE: ${{ github.workspace }}/preseed/agents/pi/node_modules/@earendil-works/pi-coding-agent
           CODEFLARE_PI_WEB_SMOKE_CLI: ${{ github.workspace }}/preseed/agents/pi/node_modules/.bin/pi
-        run: node scripts/ci/smoke-pi-web-handoff.mjs
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && [ "$GITHUB_REF" = refs/heads/pi-web ]; then
+            export CHROME_SDK_ROOT="$RUNNER_TEMP/pi-web-chrome-sdk/package"
+            export CI_CHROMIUM_EXECUTABLE="$(command -v google-chrome)"
+            export CODEFLARE_PI_WEB_SMOKE_BROWSER_REFRESH=1
+          fi
+          node scripts/ci/smoke-pi-web-handoff.mjs
 
       - name: Qualify the real stock MCP extension and public client
         run: node scripts/qualify-pi-mcp.mjs
