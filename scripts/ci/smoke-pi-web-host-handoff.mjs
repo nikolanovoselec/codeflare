@@ -214,6 +214,12 @@ export default function (pi) {
     const preRestoreHealth = await nativeFetch(`${stock}/api/sessiond/health`, { signal: AbortSignal.timeout(1000) }).catch(() => null);
     assert.ok(!preRestoreHealth?.ok, 'stock services must not become ready before profile restore');
     await preRestoreHealth?.body?.cancel();
+    const readProfile = () => ({
+      settings: readFileSync(join(agentDir, 'settings.json'), 'utf8'),
+      models: readFileSync(join(agentDir, 'models.json'), 'utf8'),
+      extensions: readdirSync(extensions).sort(),
+    });
+    const restoredProfile = ambiguous ? readProfile() : undefined;
     if (ambiguous) {
       occupiedGateway.listen(PI_WEB_PORT, '127.0.0.1');
       await once(occupiedGateway, 'listening');
@@ -230,6 +236,7 @@ export default function (pi) {
       failedBinding = identity(runtime.binding);
       assert.equal(existsSync(join(runtimeDir, 'defaults.json')), false,
         'a known gateway port conflict must fail before preparing the stock services');
+      assert.deepEqual(readProfile(), restoredProfile, 'an occupied gateway must not change restored Pi settings or extensions');
       await close(occupiedGateway);
       await api('/_switch', 202, { generation, requestId: failed.requestId, target: 'chat' });
     }

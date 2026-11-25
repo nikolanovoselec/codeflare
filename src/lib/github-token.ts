@@ -390,7 +390,9 @@ export async function getValidGithubToken(
       return null;
     }
   })();
-  retainRefresh?.(refresh);
+  // Dashboard and egress callers may join only work retained by its owner.
+  if (!retainRefresh) return refresh;
+  retainRefresh(refresh);
   flights.set(key, refresh);
   try { return await refresh; }
   finally { flights.delete(key); }

@@ -163,7 +163,7 @@ describe('GitHub Details owned repository counts', () => {
     const app = createTestApp(ENT);
     const counts = initiator === 'counts'
       ? app.request('/api/github/owned-repo-counts', { signal: client.signal }, undefined, context)
-      : getValidGithubToken({ KV: mockKV, ...ENT } as Env, 'test-bucket');
+      : getValidGithubToken({ KV: mockKV, ...ENT } as Env, 'test-bucket', work => context.waitUntil(work));
     await exchangeStarted;
     const repositories = app.request('/api/github/repos', undefined, undefined, context);
     await new Promise(resolve => setTimeout(resolve, 0));
