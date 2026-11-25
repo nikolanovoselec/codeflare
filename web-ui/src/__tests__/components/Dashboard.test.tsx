@@ -479,21 +479,16 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(menu.getByRole('button', { name: 'Rename' })).toBeVisible();
   });
 
-  it.each([false, true])('REQ-AGENT-272 AC1: New Session offers Pi handoff choices only with Classic preference (Herdr: %s)', (enabled) => {
+  it.each([false, true])('starts Pi from the agent picker without surface override buttons (Herdr: %s)', (enabled) => {
     (sessionStore as any)._setHerdrEnabled(enabled);
     showRealCreateDialog = true;
-    render(() => <Dashboard {...defaultProps} />);
+    render(() => <Dashboard {...defaultProps} workspaceMode={enabled ? undefined : { value: 'terminal', onSelect: () => {} }} />);
     fireEvent.click(screen.getByTestId('dashboard-new-session'));
     const dialog = within(screen.getByRole('dialog', { name: 'Create new session' }));
-    expect(dialog.getByTestId('csd-agent-pi')).toBeVisible();
-    if (enabled) {
-      expect(dialog.queryByRole('group', { name: 'Start Pi in' })).not.toBeInTheDocument();
-      fireEvent.click(dialog.getByTestId('csd-agent-pi'));
-      expect(defaultProps.onCreateSession).toHaveBeenCalledWith('pi', undefined);
-    } else {
-      fireEvent.click(within(dialog.getByRole('group', { name: 'Start Pi in' })).getByRole('button', { name: 'Chat' }));
-      expect(defaultProps.onCreateSession).toHaveBeenCalledWith('pi', undefined, 'chat');
-    }
+    expect(dialog.queryByRole('button', { name: 'Chat', exact: true })).not.toBeInTheDocument();
+    expect(dialog.queryByRole('button', { name: 'Terminal', exact: true })).not.toBeInTheDocument();
+    fireEvent.click(dialog.getByTestId('csd-agent-pi'));
+    expect(defaultProps.onCreateSession).toHaveBeenCalledWith('pi', undefined);
   });
 
   it('places the labeled desktop mode dropdown immediately before Profile', () => {
@@ -567,6 +562,43 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(browsers).toHaveAttribute('inert');
     expect(github).not.toBeVisible();
     expect(storage).not.toBeVisible();
+  });
+
+  it.each(['mobile', 'desktop'] as const)('only lets mobile Vibe pull the browsers open and closed (%s)', viewport => {
+    viewportMock.setViewport?.(viewport);
+    (githubStore as any)._setEnabled(true);
+    render(() => <Dashboard {...defaultProps} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
+    const page = screen.getByTestId('dashboard');
+    page.style.overflowY = 'auto';
+    Object.defineProperties(page, { clientHeight: { value: 250 }, scrollHeight: { value: 500 } });
+    page.scrollTop = 100;
+    const start = (x: number, y: number) => fireEvent.touchStart(page, { touches: [{ identifier: 1, clientX: x, clientY: y }] });
+    const finish = (x: number, y: number) => {
+      const point = { identifier: 1, clientX: x, clientY: y };
+      fireEvent.touchMove(page, { touches: [point] });
+      fireEvent.touchEnd(page, { changedTouches: [point] });
+    };
+    const closed = () => screen.getByRole('button', { name: 'Show GitHub & Storage' });
+    start(100, 220);
+    finish(100, 140);
+    expect(closed()).toHaveAttribute('aria-expanded', 'false');
+    page.scrollTop = 250;
+    start(100, 220);
+    finish(200, 190);
+    expect(closed()).toHaveAttribute('aria-expanded', 'false');
+    start(100, 220);
+    finish(100, 140);
+    if (viewport === 'mobile') {
+      const open = () => screen.getByRole('button', { name: 'Hide GitHub & Storage' });
+      expect(open()).toHaveAttribute('aria-expanded', 'true');
+      start(100, 140);
+      finish(100, 220);
+      expect(open()).toHaveAttribute('aria-expanded', 'true');
+      page.scrollTop = 0;
+      start(100, 140);
+      finish(100, 220);
+    }
+    expect(closed()).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('uses the existing single-face GitHub and Storage controls in the mobile Vibe drawer', async () => {
@@ -688,6 +720,20 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
       render(() => <Dashboard {...defaultProps} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
       const details = within(screen.getByRole('region', { name: 'GitHub Details' }));
       expect(await details.findByText('11', { exact: true })).toBeVisible();
+    } finally { counts.mockRestore(); }
+  });
+
+  it('shows the public count and marks missing private and total counts unavailable', async () => {
+    (githubStore as any)._setEnabled(true);
+    (githubStore as any)._setLogin('octocat');
+    (githubStore as any)._setSource('app');
+    const counts = vi.spyOn(githubApi, 'getGithubOwnedRepoCounts')
+      .mockResolvedValue({ login: 'octocat', counts: { public: 0, private: null, total: null } });
+    try {
+      render(() => <Dashboard {...defaultProps} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
+      const details = within(screen.getByRole('region', { name: 'GitHub Details' }));
+      expect(await details.findByText('0', { exact: true })).toBeVisible();
+      expect(details.getAllByText('Unavailable', { exact: true })).toHaveLength(2);
     } finally { counts.mockRestore(); }
   });
 

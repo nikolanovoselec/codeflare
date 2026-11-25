@@ -61,6 +61,7 @@ interface LayoutProps {
   userSubscriptionTier?: import('../types').SubscriptionTier;
   onboardingActive?: boolean;
   enterpriseMode?: boolean;
+  usageOpen?: boolean;
   mcpReturnOutcome?: import('../lib/mcp-portal-recovery').McpReturnOutcome;
 }
 
@@ -336,7 +337,7 @@ const Layout: Component<LayoutProps> = (props) => {
   const sessionWorkspaceMode = () => modeAvailable() && piWebSession()
     ? { value: displayedPi().surface ?? sessionStore.preferences.defaultPiSurface ?? 'terminal' as const,
       pendingTarget: handoffTarget(),
-      onCancelPending: piWebStatus()?.phase === 'waiting' && canCancelPiWeb() ? cancelPiWeb : undefined, disabled: !canSwitchMode(), onSelect: (target: PiSurface) => {
+      disabled: !canSwitchMode(), onSelect: (target: PiSurface) => {
         if (!modeAvailable() || !canSwitchMode()) return;
         piWeb()?.select(target);
         saveMode(target);
@@ -816,6 +817,10 @@ const Layout: Component<LayoutProps> = (props) => {
     if (historyMode) writeHistoryPath(dashboardPath(), historyMode);
   };
 
+  createEffect(() => {
+    if (props.usageOpen) untrack(keepDashboardOwnership);
+  });
+
   const openSessionWorkspace = (
     id: string,
     options: { shouldStart?: boolean; updateHistory?: boolean; explicitVscodeOpen?: boolean; surface?: PiSurface } = {},
@@ -993,6 +998,8 @@ const Layout: Component<LayoutProps> = (props) => {
   };
 
   const reconcileLocation = (fromHistory: boolean) => {
+    const path = window.location.pathname;
+    if (path === '/app/usage' || path === '/app/usage/') return;
     const hasExactUrl = !window.location.search && !window.location.hash;
     if (hasExactUrl && window.location.pathname === dashboardPath()) {
       if (fromHistory) setDashboardWorkspaceFromLocation();

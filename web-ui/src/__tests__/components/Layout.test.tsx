@@ -648,7 +648,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     } finally { vi.mocked(terminalStore.getConnectionState).mockReturnValue('disconnected'); }
   });
 
-  it.each(['generation replacement', 'page exit'])('reuses the open Chat frame on Dashboard return and discards it on %s', async invalidation => {
+  it.each(['generation replacement', 'page exit', 'Usage then generation replacement'])('reuses the open Chat frame on Dashboard return and discards it on %s', async invalidation => {
     navigationRendering.realTerminalArea = true;
     const id = 'abcdef0123456789';
     mockSessions = [createMockSession({ id, workspace: 'terminal', agentType: 'pi', generation: 7 })];
@@ -660,9 +660,18 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       return generation ? Response.json({ phase: 'active', surface: 'chat', chatUrl: `/api/pi-web/${id}/g/${generation}/?view=chat` }) : Response.json({});
     });
     try {
-      render(() => <Layout />);
+      const [usageOpen, setUsageOpen] = createSignal(false);
+      render(() => <Layout usageOpen={usageOpen()} />);
       const frame = await screen.findByTitle('Pi Chat');
-      fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
+      if (invalidation.startsWith('Usage')) {
+        window.history.pushState(null, '', '/app/usage');
+        setUsageOpen(true);
+        expect(window.location.pathname).toBe('/app/usage');
+        expect(frame).toBeInTheDocument();
+        expect(frame).not.toBeVisible();
+        window.history.pushState(null, '', '/app/');
+        setUsageOpen(false);
+      } else fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
       expect(frame).toBeInTheDocument();
       expect(frame).not.toBeVisible();
       mockPreferences = { defaultPiSurface: 'terminal' };
@@ -682,7 +691,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     } finally { cleanup(); vi.unstubAllGlobals(); }
   });
 
-  it('cancels a waiting switch from the mode menu without replacing the Chat frame', async () => {
+  it('keeps the source Chat during a waiting switch without a cancel button', async () => {
     navigationRendering.realTerminalArea = true;
     const id = 'abcdef0123456789';
     const prefix = `/api/pi-web/${id}/`;
@@ -695,9 +704,6 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       if (url === `${prefix}_switch` && init?.method === 'POST') {
         requestId = JSON.parse(String(init.body)).requestId;
         phase = 'waiting';
-      } else if (url === `${prefix}_cancel` && init?.method === 'POST') {
-        expect(JSON.parse(String(init.body)).requestId).toBe(requestId);
-        phase = 'cancelled';
       } else if (url !== `${prefix}_switch?generation=7`) return Response.json({});
       return Response.json({ phase, surface: 'chat', chatUrl, ...(requestId && { requestId, target: 'terminal' }) });
     });
@@ -706,12 +712,9 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       const frame = await screen.findByTitle('Pi Chat');
       fireEvent.click(screen.getByRole('button', { name: 'Workspace mode: Vibe Mode' }));
       fireEvent.click(screen.getByRole('button', { name: 'Code Mode' }));
-      const cancel = await screen.findByRole('button', { name: 'Cancel switch' });
-      expect(screen.getByRole('group', { name: 'Workspace mode options' })).toContainElement(cancel);
-      fireEvent.click(cancel);
-      await waitFor(() => expect(frame.closest('[inert]')).toBeNull());
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Code Mode' })).toBeDisabled());
+      expect(screen.queryByRole('button', { name: 'Cancel switch' })).not.toBeInTheDocument();
       expect(screen.getByTitle('Pi Chat')).toBe(frame);
-      expect(screen.queryByText('Entering Code mode...')).not.toBeInTheDocument();
     } finally { cleanup(); vi.unstubAllGlobals(); }
   });
 
@@ -757,7 +760,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect(pane).not.toBeVisible();
       expect(pane).toHaveAttribute('data-focused', 'false');
       expect(source).toBeVisible();
-      expect(screen.getByRole('button', { name: 'Code Mode' })).toContainElement(screen.getByText('Entering Code mode...'));
+      expect(screen.getByRole('button', { name: 'Code Mode' })).toBeDisabled();
       setConnection('connected');
       await waitFor(() => expect(pane).toBeVisible());
       expect(pane).toHaveAttribute('data-focused', 'true');

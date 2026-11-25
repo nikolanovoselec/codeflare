@@ -186,7 +186,7 @@ describe('GitHub Details owned repository counts', () => {
   });
 
   it.each([
-    { login: 'octocat', public_repos: 3, total_private_repos: 90 },
+    { login: 'octocat', total_private_repos: 90 },
     { login: 'another-account', public_repos: 3, owned_private_repos: 2 },
     { login: 'octocat', public_repos: 3, owned_private_repos: -1 },
   ])('leaves owned counts unavailable for an incomplete or mismatched profile', async profile => {
@@ -198,8 +198,8 @@ describe('GitHub Details owned repository counts', () => {
 
   it.each([
     [{ login: 'octocat', public_repos: 3, owned_private_repos: 2 }, { login: 'octocat', counts: { public: 3, private: 2, total: 5 } }],
-    [{ login: 'octocat', public_repos: 3, total_private_repos: 90 }, { counts: null }],
-  ])('uses only complete owned counts from the connected GitHub App user profile', async (profile, expected) => {
+    [{ login: 'octocat', public_repos: 3, total_private_repos: 90 }, { login: 'octocat', counts: { public: 3, private: null, total: null } }],
+  ])('returns public counts without inventing private totals for GitHub App profiles', async (profile, expected) => {
     mockKV._set(KEY, { githubToken: 'test-token', githubTokenSource: 'app', githubLogin: 'octocat' } satisfies DeployKeys);
     mockFetch.mockResolvedValueOnce(ok(profile));
     const response = await createTestApp(ENT).request('/api/github/owned-repo-counts');

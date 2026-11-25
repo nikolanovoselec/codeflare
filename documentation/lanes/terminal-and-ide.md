@@ -90,12 +90,12 @@ In **Vibe**, Dashboard **New Session** starts Pi Chat directly. Returning to Das
 - Switch both ways in an empty and a populated conversation, then repeat from an earlier tree leaf. The native ID and branch match; the previous writer exits first. A failed open cannot replace the conversation.
 - Record matching identities as equality results. Do not record actual transcript IDs, paths, or content.
 - Start Chat-first and switch after prewarm orphan expiry without previously opening Terminal. The healthy primary is still available without counting as user activity. A secondary Classic Pi tab owns a different conversation.
-- Switch during streaming, a queued follow-up, and a pending question. Expect **Entering Vibe mode...** or **Entering Code mode...** in the destination option. Verify automatic native Abort and rejection of fresh prompts.
+- Switch during streaming, a queued follow-up, and a pending question. Expect the destination label to shuffle without extra text, a spinner, or **Cancel switch** in the mode menu. With reduced motion, the label stays static. Verify automatic native Abort and rejection of fresh prompts.
 - For [REQ-AGENT-280](../../sdd/spec/agents.md#req-agent-280-attachment-gated-workspace-reveal), keep the outgoing view until Code connects or Vibe clears the stock loader. A native startup question can appear early.
 - During Code-to-Vibe handoff, fail the first destination frame navigation. Verify Vibe reveals **Reload Chat** before normal readiness, then clear the failure and reload the same conversation without a new handoff.
-- Browser cancellation before Abort is unexercised: no supported browser fixture holds the switch in `waiting`.
+- The workspace mode menu does not offer browser cancellation.
 - The [Host test](../../host/__tests__/pi-web-handoff.test.js) holds the request before Abort and verifies whether the turn survives ([REQ-AGENT-272](../../sdd/spec/agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff) AC6).
-- The [Layout test](../../web-ui/src/__tests__/components/Layout.test.tsx) simulates `waiting` and checks **Cancel switch** in the mode menu ([REQ-AGENT-280](../../sdd/spec/agents.md#req-agent-280-attachment-gated-workspace-reveal) AC3).
+- The [Layout test](../../web-ui/src/__tests__/components/Layout.test.tsx) simulates `waiting` and verifies the source remains mounted without **Cancel switch** in the mode menu ([REQ-AGENT-280](../../sdd/spec/agents.md#req-agent-280-attachment-gated-workspace-reveal) AC3).
 - Repeat with an input hook held before streaming. Neither an idle-looking status nor an Abort acknowledgment can transfer ownership while the hook is active.
 - Verify saved history appears without automatic prompt or queue replay. Text recovered by Abort returns to Terminal as an editable, unsent draft.
 
@@ -109,7 +109,8 @@ In **Vibe**, Dashboard **New Session** starts Pi Chat directly. Returning to Das
 #### Check desktop and mobile layout
 
 - With 1440 × 900 CSS px available after the controls, expect a centered 800 × 720 frame. With 900 × 1600 available, expect 720 × 1200. Together these exercise the percentage and both caps.
-- In narrow or short views, expect 12 px gutters plus safe-area insets. Open the mobile keyboard and try browser zoom. The composer and Codeflare controls stay reachable without a second page scrollbar.
+- On phones, verify the Chat frame fills the available area with no outer gutter, border, or rounding. In other narrow or short views, expect 12 px gutters plus safe-area insets.
+- Open the mobile keyboard and try browser zoom. The composer and Codeflare controls stay reachable without a second page scrollbar.
 - For [REQ-AGENT-282 AC3](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults), verify token and context usage remain visible without a USD amount.
 - On a disposable session, queue a harmless message during a turn and verify the nonzero queued count remains visible. Repeat the footer check with a different stock theme.
 - In a fresh browser context, verify the machine name defaults to **Codeflare** and the theme is **Pi Web Classic**. Save a different theme, then reopen Chat in that browser and verify the choice was preserved.
@@ -238,6 +239,8 @@ At 375px, verify Settings is reachable and the groups retain the one-slot gap. C
 
 ### Vibe drawer acceptance
 
+With GitHub Details present, measure the **+ New Session** button and verify its wrapper adds twice that height as bottom padding. Repeat after resizing the viewport.
+
 Use an authorized account with GitHub enabled and select **Vibe**. Check [drawer disclosure](../../sdd/spec/github.md#req-github-321-vibe-dashboard-browser-disclosure) and [responsive layout](../../sdd/spec/github.md#req-github-323-responsive-vibe-dashboard-layout). On desktop and tablet, open the drawer and verify GitHub stacks above Storage beside the summary. Close it and verify that, with room to spare, the card is 390 CSS px wide, the full Codeflare label is readable, and GitHub Details sits directly above Storage Usage when present.
 
 On mobile, test below 600 CSS px and again from 600 through 640 CSS px. Verify only one browser is visible. Flip in each direction using the keyboard. Verify the incoming face animates, focus moves to its flip control, and Tab cannot enter the inactive face. Escape closes the drawer and returns focus to its grip. Verify the closed browsers cannot receive focus.
@@ -246,9 +249,13 @@ Repeat with `prefers-reduced-motion: reduce`: the drawer opens and closes withou
 
 With the browsers open and closed, verify Profile stays icon-only and the email appears at the top of its open menu. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard -->
 
-On desktop and tablet, only the grip protrudes. It moves from the summary’s right edge to the browsers’ far right edge. On mobile, it moves from below the summary to below the active browser. Check that it follows the changing height when flipping faces and returns below the summary on close. The chevrons point outward to open and inward to close.
+On desktop and tablet, only the grip protrudes. It moves from the summary’s right edge to the browsers’ far right edge. The desktop and tablet chevrons point outward to open and inward to close.
 
-Measure the visible grip at 150px along the edge, vertical on desktop and tablet and horizontal on mobile. Separately, verify the transparent hit area extends to 44px across the grip and that clicking outside the painted grip but inside the hit area still toggles the drawer. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-pull -->
+Measure the visible grip at 150px along the desktop and tablet edge. Separately, verify the transparent hit area extends to 44px across the grip and that clicking outside the painted grip but inside the hit area still toggles the drawer. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-pull -->
+
+For [mobile Vibe disclosure](../../sdd/spec/github.md#req-github-325-mobile-vibe-browser-disclosure-gestures), verify only a title-sized white chevron shows below the Dashboard column, with no visible background or peeking trim. It breathes, points down when closed, and points up when open. Tap it in both states and repeat with reduced motion; the animation stops.
+
+In the installed mobile app, pull up at the bottom to open and down at the top to close. Verify scrolling away from those edges, horizontal swipes, and a closed-panel pull down do not toggle the panel or intercept ordinary refresh.
 
 ### GitHub workspace manual acceptance
 

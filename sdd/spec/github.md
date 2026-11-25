@@ -560,12 +560,12 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 1. Vibe starts with the GitHub and Storage browsers hidden and unavailable to keyboard navigation. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (discloses the existing GitHub and Storage browsers together in Vibe on %s) -->
 2. One labeled grip opens and closes the browsers. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (discloses the existing GitHub and Storage browsers together in Vibe on %s) -->
 3. Escape from within the drawer closes it and returns focus to its control. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (closes the Vibe drawer from a focused browser and returns focus to the pull) -->
-4. Vibe GitHub Details reports only account-owned public, private and total repository counts from an authenticated profile that supplies them. <!-- @impl: src/routes/github.ts::app --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: src/__tests__/routes/github.test.ts (returns only account-owned totals from the authenticated profile) --> <!-- @test: src/__tests__/routes/github.test.ts (uses only complete owned counts from the connected GitHub App user profile) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (shows authoritative owned totals for a connected GitHub App account) -->
+4. Vibe GitHub Details reports account-owned counts from the matching authenticated profile. When the profile omits the private count, show the public count and mark private and total unavailable. <!-- @impl: src/routes/github.ts::app --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: src/__tests__/routes/github.test.ts (returns only account-owned totals from the authenticated profile) --> <!-- @test: src/__tests__/routes/github.test.ts (returns public counts without inventing private totals for GitHub App profiles) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (shows authoritative owned totals for a connected GitHub App account) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (shows the public count and marks missing private and total counts unavailable) -->
 5. When counts are unavailable, GitHub Details still identifies the connected account. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (keeps the connected GitHub account visible when owned totals are unavailable in Vibe) -->
 6. Opening or closing the Vibe browsers leaves Profile icon-only and the email inside its menu. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (shows the Profile email only at the top of the open Dashboard menu in %s) -->
-7. On desktop and tablet, only the grip protrudes: it sits on the summary’s right edge when closed and the browsers’ far right edge when open. On mobile, the same horizontal grip protrudes below the summary when closed and below the active browser when open. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-pull --> <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
+7. On desktop and tablet, only the grip protrudes: it sits on the summary’s right edge when closed and the browsers’ far right edge when open. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-pull --> <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
 
-**Constraints:** The slim grip is 150px long with a 44px cross-axis hit target. <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance --> Code mode retains standard panel allocation. <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (keeps the existing browser controls without a drawer pull in Code mode) -->
+**Constraints:** The desktop and tablet grip is 150px long with a 44px cross-axis hit target. <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance --> Code mode retains standard panel allocation. <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (keeps the existing browser controls without a drawer pull in Code mode) -->
 
 **Priority:** P1
 
@@ -591,6 +591,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 4. Mobile face changes use the existing flip animation, except with reduced motion enabled. <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
 5. The closed desktop and tablet card is capped at 390 CSS px. <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
 6. GitHub Details, when present, sits directly above Storage Usage in the closed desktop and tablet summary. <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
+7. When the Vibe summary includes GitHub Details, the padding below New Session is twice the button's rendered height. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
 
 **Constraints:** None.
 
@@ -621,6 +622,29 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 **Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage)
 
 **Verification:** Automated: [GitHub route tests](../../src/__tests__/routes/github.test.ts)
+
+**Status:** Planned
+
+---
+
+### REQ-GITHUB-325: Mobile Vibe browser disclosure gestures
+
+**Intent:** Open GitHub and Storage on phones without the desktop drawer trim.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A title-sized white chevron alone toggles the mobile browsers from below the Dashboard column. It has no visible button background, points down when closed and up when open, and breathes unless reduced motion is enabled. <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
+2. An upward pull from the bottom opens the browsers. A downward pull from the top closes them. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (only lets mobile Vibe pull the browsers open and closed (%s)) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
+
+**Constraints:** Ordinary scroll and horizontal or multi-touch gestures must not toggle the browsers.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-GITHUB-321](#req-github-321-vibe-dashboard-browser-disclosure)
+
+**Verification:** Automated: [Dashboard component tests](../../web-ui/src/__tests__/components/Dashboard.test.tsx); Manual: [Vibe drawer acceptance](../../documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance)
 
 **Status:** Planned
 

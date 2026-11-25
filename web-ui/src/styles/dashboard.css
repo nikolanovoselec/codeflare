@@ -490,7 +490,7 @@
   }
 }
 @media (max-width: 640px) {
-  .dashboard-panel-wrapper--disclosure { padding-block-end: 44px; }
+  .dashboard-panel-wrapper--disclosure { padding-block-end: calc(44px + var(--space-2)); }
   .dashboard-panel-wrapper--disclosure > .dashboard-panel:not(.dashboard-panel--expanded) {
     height: auto;
     overflow: visible;
@@ -501,29 +501,31 @@
     border-inline-end: 0;
   }
   .dashboard-panel-body--disclosure > .dashboard-panel-pull {
-    /* Anchor to the card, not the scrolling body or either browser face. */
     position: absolute;
-    inset-block-end: -44px;
+    inset-block-end: calc(-44px - var(--space-2));
     inset-inline: 0;
     margin-inline: auto;
-    inline-size: 150px;
+    inline-size: 64px;
     block-size: 44px;
     max-block-size: none;
     justify-content: center;
-    align-items: flex-start;
-    padding: 3px 0 0;
+    align-items: center;
+    padding: 0;
+    background: transparent;
+    color: #fff;
   }
-  .dashboard-panel-body--disclosure > .dashboard-panel-pull::before {
-    inset: 0 0 auto;
-    inline-size: auto;
-    block-size: 18px;
-    background: var(--glass-bg);
-    border: 1px solid var(--color-border-subtle);
-    border-block-start: 0;
-    border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  .dashboard-panel-body--disclosure > .dashboard-panel-pull:hover:not(:disabled) {
+    color: #fff;
   }
-  .dashboard-panel-body--disclosure > .dashboard-panel-pull:is(:hover, :focus-visible)::before {
-    background: var(--color-bg-muted);
+  .dashboard-panel-body--disclosure > .dashboard-panel-pull::before { content: none; }
+  .dashboard-panel-body--disclosure > .dashboard-panel-pull > svg {
+    inline-size: var(--text-lg);
+    block-size: var(--text-lg);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .dashboard-panel-body--disclosure > .dashboard-panel-pull > svg {
+      animation: dashboard-multiview-breathe 1.8s ease-in-out infinite;
+    }
   }
   .dashboard-panel-body--disclosure > .dashboard-panel-right {
     --disclosure-offset: 0 var(--space-4);

@@ -115,8 +115,10 @@ describe('Pi workspace mode selector', () => {
     expect(destination).toBeDisabled();
     expect(screen.getByRole('button', { name })).toHaveTextContent(/^Vibe Mode$/);
     expect(destination).not.toHaveTextContent('Current');
-    expect(destination).toContainElement(screen.getByRole('status'));
-    expect(screen.getByRole('status')).toHaveTextContent('Entering Code mode...');
+    expect(destination).not.toHaveTextContent('Entering Code mode...');
+    expect(destination).not.toContainElement(screen.getByRole('status'));
+    expect(screen.getByRole('status')).toHaveTextContent('Switching to Code Mode');
+    expect(screen.queryByRole('button', { name: 'Cancel switch' })).not.toBeInTheDocument();
     setActive('terminal');
     setTarget(undefined);
     expect(screen.queryByRole('group', { name: 'Workspace mode options' })).not.toBeInTheDocument();

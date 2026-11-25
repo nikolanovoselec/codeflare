@@ -1,6 +1,6 @@
 import { Component, For, Show, createSignal, createEffect, onMount, onCleanup } from 'solid-js';
 import Icon from './Icon';
-import type { AgentType, TabConfig, PiSurface } from '../types';
+import type { AgentType, TabConfig } from '../types';
 import { sessionStore } from '../stores/session';
 import { AGENT_OPTIONS } from '../lib/agent-catalog';
 import '../styles/create-session-dialog.css';
@@ -9,7 +9,6 @@ interface CreateSessionDialogProps {
   isOpen: boolean;
   onClose: () => void;
   onSelect: (agentType: AgentType, tabConfig?: TabConfig[]) => void;
-  onSelectPiSurface?: (surface: PiSurface) => void;
   anchorRef?: HTMLElement;
 }
 
@@ -36,7 +35,7 @@ const CreateSessionDialog: Component<CreateSessionDialogProps> = (props) => {
     const rect = props.anchorRef.getBoundingClientRect();
     const viewportHeight = window.innerHeight;
 
-    const dialogHeight = DIALOG_ESTIMATED_HEIGHT + (props.onSelectPiSurface && agentOptions().some(agent => agent.type === 'pi') ? 44 : 0);
+    const dialogHeight = DIALOG_ESTIMATED_HEIGHT;
     const spaceBelow = viewportHeight - rect.bottom - GAP;
     const spaceAbove = rect.top - GAP;
 
@@ -139,12 +138,6 @@ const CreateSessionDialog: Component<CreateSessionDialogProps> = (props) => {
                     <span class="csd-agent-desc">{agent.description}</span>
                   </div>
                 </button>
-                <Show when={agent.type === 'pi' && props.onSelectPiSurface}>
-                  <div class="csd-agent-surfaces" role="group" aria-label="Start Pi in">
-                    <button type="button" class="pi-web-action" onClick={() => props.onSelectPiSurface?.('chat')}>Chat</button>
-                    <button type="button" class="pi-web-action" onClick={() => props.onSelectPiSurface?.('terminal')}>Terminal</button>
-                  </div>
-                </Show>
               </>)}
             </For>
           </div>

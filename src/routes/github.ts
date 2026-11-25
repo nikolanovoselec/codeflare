@@ -110,7 +110,7 @@ app.get('/status', async (c) => {
 const OwnedRepoProfile = z.object({
   login: z.string().min(1),
   public_repos: z.int().nonnegative(),
-  owned_private_repos: z.int().nonnegative(),
+  owned_private_repos: z.int().nonnegative().optional(),
 });
 
 // Use account-level profile counters only, never a partial installation inventory.
@@ -135,9 +135,9 @@ app.get('/owned-repo-counts', reposRateLimiter, async (c) => {
     const profile = OwnedRepoProfile.safeParse(await upstream.json());
     if (!profile.success || profile.data.login.toLowerCase() !== connection.login.toLowerCase()) return unavailable();
     const { login, public_repos: publicCount, owned_private_repos: privateCount } = profile.data;
-    const total = publicCount + privateCount;
-    if (!Number.isSafeInteger(total)) return unavailable();
-    return c.json({ login, counts: { public: publicCount, private: privateCount, total } });
+    const total = privateCount === undefined ? null : publicCount + privateCount;
+    if (total !== null && !Number.isSafeInteger(total)) return unavailable();
+    return c.json({ login, counts: { public: publicCount, private: privateCount ?? null, total } });
   } catch {
     return unavailable();
   }

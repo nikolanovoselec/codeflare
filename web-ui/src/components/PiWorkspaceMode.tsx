@@ -1,8 +1,9 @@
 import { For, Show, createEffect, createSignal, onCleanup, onMount } from 'solid-js';
-import { mdiCheck, mdiChevronDown, mdiFormDropdown, mdiLoading } from '@mdi/js';
+import { mdiCheck, mdiChevronDown, mdiFormDropdown } from '@mdi/js';
 import { Portal } from 'solid-js/web';
 import type { PiSurface } from '../types';
 import Icon from './Icon';
+import ScrambleText from './ScrambleText';
 import { createTerminalViewportClass } from '../lib/mobile';
 import { HEADER_ICON_SLOT } from '../lib/header-fit';
 import '../styles/header.css';
@@ -20,7 +21,6 @@ export interface PiWorkspaceModeBinding {
   value: PiSurface;
   disabled?: boolean;
   pendingTarget?: PiSurface;
-  onCancelPending?: () => void;
   onSelect: (value: PiSurface) => void;
 }
 
@@ -115,6 +115,9 @@ export default function PiWorkspaceMode(props: PiWorkspaceModeBinding & { presen
           {triggerLabel()}
         </Show>
       </button>
+      <span class="workspace-mode-announcement" role="status">
+        {props.pendingTarget ? `Switching to ${label(props.pendingTarget === 'chat' ? choices[0] : choices[1])}` : ''}
+      </span>
       <Show when={open()}>
         <Portal>
           <div class="header-user-dropdown-overlay" data-testid="workspace-mode-overlay"
@@ -134,22 +137,16 @@ export default function PiWorkspaceMode(props: PiWorkspaceModeBinding & { presen
               <For each={choices}>{choice => (
                 <button type="button" class="header-user-dropdown-item header-workspace-mode-choice" aria-label={label(choice)}
                   aria-pressed={props.value === choice.value} disabled={props.disabled || !!props.pendingTarget} onClick={() => select(choice.value)}>
-                  <span>{label(choice)}</span>
+                  <span aria-hidden="true" class="workspace-mode-choice-label" data-label={label(choice)}>
+                    <Show when={props.pendingTarget === choice.value} fallback={<span>{label(choice)}</span>}>
+                      <ScrambleText text={label(choice)} skipInitialHold />
+                    </Show>
+                  </span>
                   <Show when={props.value === choice.value}>
                     <Icon path={mdiCheck} size={16} aria-hidden="true" />
                   </Show>
-                  <Show when={props.pendingTarget === choice.value}>
-                    <span class="type-hint" role="status">
-                      <Icon path={mdiLoading} size={14} class="animate-spin" aria-hidden="true" /> Entering {choice.name} mode...
-                    </span>
-                  </Show>
                 </button>
               )}</For>
-              <Show when={props.onCancelPending}>{cancel => (
-                <button type="button" class="header-user-dropdown-item" onClick={() => { close(); cancel()(); }}>
-                  Cancel switch
-                </button>
-              )}</Show>
             </div>
           </div>
         </Portal>

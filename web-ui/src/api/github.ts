@@ -45,7 +45,7 @@ export async function getGithubStatus(): Promise<GithubStatus> {
 
 const OwnedRepoCountsSchema = z.union([
   z.object({ counts: z.null() }),
-  z.object({ login: z.string(), counts: z.object({ public: z.int().nonnegative(), private: z.int().nonnegative(), total: z.int().nonnegative() }) }),
+  z.object({ login: z.string(), counts: z.object({ public: z.int().nonnegative(), private: z.int().nonnegative().nullable(), total: z.int().nonnegative().nullable() }) }),
 ]);
 
 export function getGithubOwnedRepoCounts() {

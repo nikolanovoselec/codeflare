@@ -1,6 +1,6 @@
 import { Component, onMount, onCleanup, createSignal, Show, ErrorBoundary, lazy, type JSX } from 'solid-js';
 import type { SubscriptionTier } from './types';
-import { Router, Route, Navigate, useNavigate } from '@solidjs/router';
+import { Router, Route, Navigate, useLocation, useNavigate } from '@solidjs/router';
 import Layout from './components/Layout';
 import SetupWizard from './components/setup/SetupWizard';
 import { getUser, getSetupStatus, getAuthProviders, getOnboardingConfig, getAuthStatus } from './api/client';
@@ -47,6 +47,8 @@ async function checkSetupStatus(): Promise<boolean | null> {
 
 // Main app content after setup check
 const AppContent: Component = () => {
+  const location = useLocation();
+  const usageOpen = () => location.pathname === '/app/usage' || location.pathname === '/app/usage/';
   const [userName, setUserName] = createSignal<string | undefined>();
   const [userRole, setUserRole] = createSignal<'admin' | 'user' | undefined>();
   const [userSubscriptionTier, setUserSubscriptionTier] = createSignal<SubscriptionTier | undefined>();
@@ -236,7 +238,10 @@ const AppContent: Component = () => {
             </div>
           }
         >
-          <Layout userName={userName()} userRole={userRole()} userSubscriptionTier={userSubscriptionTier()} onboardingActive={onboardingActive()} enterpriseMode={enterpriseMode()} mcpReturnOutcome={mcpReturnOutcome()} />
+          <div style={{ display: usageOpen() ? 'none' : 'contents' }} inert={usageOpen()}>
+            <Layout userName={userName()} userRole={userRole()} userSubscriptionTier={userSubscriptionTier()} onboardingActive={onboardingActive()} enterpriseMode={enterpriseMode()} mcpReturnOutcome={mcpReturnOutcome()} usageOpen={usageOpen()} />
+          </div>
+          <Show when={usageOpen()}><UsagePage /></Show>
         </Show>
       </Show>
     </Show>
@@ -449,7 +454,6 @@ const App: Component = () => {
       <Route path="/login" component={LoginPage} />
       <Route path="/app/subscribe" component={SubscribeGuard} />
       <Route path="/app/onboarding" component={OnboardingPage} />
-      <Route path="/app/usage" component={UsagePage} />
       <Route path="/operators" component={() => <SetupGuard><OperatorManagementRoute /></SetupGuard>} />
       <Route path="/admin/operators" component={() => <Navigate href="/operators" />} />
       <Route path="/admin" component={AdministrationShell}>

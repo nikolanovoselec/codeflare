@@ -589,6 +589,31 @@
   }
 }
 
+.workspace-mode-announcement {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.workspace-mode-choice-label {
+  position: relative;
+  white-space: nowrap;
+}
+
+.workspace-mode-choice-label::before {
+  content: attr(data-label);
+  visibility: hidden;
+}
+
+.workspace-mode-choice-label > span {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
 .header-user-dropdown-item.header-workspace-mode-choice[aria-pressed="true"] {
   background: var(--color-accent);
   color: var(--color-accent-contrast);

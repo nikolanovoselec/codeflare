@@ -3,7 +3,7 @@ import PiWorkspaceMode, { type PiWorkspaceModeBinding } from './PiWorkspaceMode'
 import ConnectCard from './github/ConnectCard';
 import '../styles/github-panel.css';
 import { Portal } from 'solid-js/web';
-import { mdiXml, mdiCogOutline, mdiShieldAccount, mdiAccountOutline, mdiRocketLaunchOutline, mdiChartBar, mdiLogout, mdiFlipVertical, mdiReflectHorizontal, mdiGithub, mdiChevronDoubleRight, mdiChevronDoubleLeft, mdiChevronDoubleUp, mdiChevronDoubleDown } from '@mdi/js';
+import { mdiXml, mdiCogOutline, mdiShieldAccount, mdiAccountOutline, mdiRocketLaunchOutline, mdiChartBar, mdiLogout, mdiFlipVertical, mdiReflectHorizontal, mdiGithub, mdiChevronDoubleRight, mdiChevronDoubleLeft, mdiChevronUp, mdiChevronDown } from '@mdi/js';
 import Icon from './Icon';
 import IconButton from './ui/IconButton';
 import type { SessionWithStatus, AgentType, TabConfig, PiSurface } from '../types';
@@ -84,13 +84,71 @@ const Dashboard: Component<DashboardProps> = (props) => {
   };
   const [browsersOpen, setBrowsersOpen] = createSignal(false);
   let browserPull: HTMLButtonElement | undefined;
+  let dashboard: HTMLDivElement | undefined;
   const browsersClosed = () => vibe() && !browsersOpen();
   const browsersId = createUniqueId();
   const browserLabel = () => githubStore.enabled ? 'GitHub & Storage' : 'Storage';
   const pullIcon = () => viewport() === 'mobile'
-    ? browsersOpen() ? mdiChevronDoubleUp : mdiChevronDoubleDown
+    ? browsersOpen() ? mdiChevronUp : mdiChevronDown
     : browsersOpen() ? mdiChevronDoubleLeft : mdiChevronDoubleRight;
   createEffect(() => { if (!vibe()) setBrowsersOpen(false); });
+
+  onMount(() => createEffect(() => {
+    const page = dashboard;
+    if (!page || !vibe() || viewport() !== 'mobile') return;
+    let pull: { id: number; x: number; y: number; close: boolean; claimed: boolean } | undefined;
+    const reset = () => { pull = undefined; };
+    const start = (event: TouchEvent) => {
+      reset();
+      const target = event.target;
+      if (event.touches.length !== 1 || !(target instanceof Element) || target.closest('input, textarea, select, [contenteditable]')) return;
+      const close = browsersOpen();
+      const atEdge = (element: Element) => close
+        ? element.scrollTop <= 1
+        : element.scrollHeight - element.clientHeight - element.scrollTop <= 1;
+      for (let element: Element | null = target; element; element = element.parentElement) {
+        if (/^(auto|scroll|overlay)$/.test(getComputedStyle(element).overflowY)
+          && element.scrollHeight > element.clientHeight && !atEdge(element)) return;
+      }
+      if (document.scrollingElement && !atEdge(document.scrollingElement)) return;
+      const { identifier, clientX, clientY } = event.touches[0];
+      pull = { id: identifier, x: clientX, y: clientY, close, claimed: false };
+    };
+    const move = (event: TouchEvent) => {
+      if (!pull) return;
+      const point = event.touches[0];
+      if (event.touches.length !== 1 || point.identifier !== pull.id || browsersOpen() !== pull.close) return reset();
+      if (!pull.claimed) {
+        const dx = Math.abs(point.clientX - pull.x);
+        const dy = (point.clientY - pull.y) * (pull.close ? 1 : -1);
+        if (Math.max(dx, Math.abs(dy)) < 8) return;
+        if (dy <= dx || !event.cancelable) return reset();
+        pull.claimed = true;
+      }
+      if (event.cancelable) event.preventDefault();
+    };
+    const end = (event: TouchEvent) => {
+      const gesture = pull;
+      reset();
+      if (!gesture?.claimed || browsersOpen() !== gesture.close) return;
+      const point = Array.from(event.changedTouches).find(touch => touch.identifier === gesture.id);
+      if (!point) return;
+      const dy = (point.clientY - gesture.y) * (gesture.close ? 1 : -1);
+      if (dy < 48 || dy <= Math.abs(point.clientX - gesture.x)) return;
+      if (gesture.close && document.getElementById(browsersId)?.contains(document.activeElement)) browserPull?.focus();
+      setBrowsersOpen(!gesture.close);
+    };
+    page.addEventListener('touchstart', start, { passive: true });
+    page.addEventListener('touchmove', move, { passive: false });
+    page.addEventListener('touchend', end);
+    page.addEventListener('touchcancel', reset);
+    onCleanup(() => {
+      page.removeEventListener('touchstart', start);
+      page.removeEventListener('touchmove', move);
+      page.removeEventListener('touchend', end);
+      page.removeEventListener('touchcancel', reset);
+    });
+  }));
 
   const effectiveFace = () => (githubStore.enabled ? panelFace() : 'storage');
   const [showCreateDialog, setShowCreateDialog] = createSignal(false);
@@ -162,6 +220,17 @@ const Dashboard: Component<DashboardProps> = (props) => {
   });
 
   const [newSessionBtnRef, setNewSessionBtnRef] = createSignal<HTMLButtonElement>();
+  const [newSessionPadding, setNewSessionPadding] = createSignal(0);
+  createEffect(() => {
+    const button = newSessionBtnRef();
+    if (!button || !vibe() || !githubStore.enabled) return;
+    const measure = () => setNewSessionPadding(button.getBoundingClientRect().height * 2);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(button, { box: 'border-box' });
+    onCleanup(() => observer.disconnect());
+  });
   const managedUpgradePercent = createMemo(() => {
     const progress = sessionStore.managedReleaseProgress;
     if (!progress) return 0;
@@ -396,7 +465,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
   };
 
   return (
-    <div class="dashboard-container" data-testid="dashboard">
+    <div ref={dashboard} class="dashboard-container" data-testid="dashboard">
       <div class="dashboard-panel-wrapper" classList={{
         'dashboard-panel-wrapper--disclosure': vibe() && !panelExpanded(),
         'dashboard-panel-wrapper--summary': browsersClosed() && !panelExpanded(),
@@ -514,7 +583,8 @@ const Dashboard: Component<DashboardProps> = (props) => {
           <div class="dashboard-panel-left" data-testid="dashboard-panel-left">
             <DashboardCard sessions={props.sessions} />
 
-            <div class={`dashboard-new-session-wrapper ${multiViewWorkspace() ? 'dashboard-new-session-wrapper--with-multiview' : ''}`}>
+            <div class={`dashboard-new-session-wrapper ${multiViewWorkspace() ? 'dashboard-new-session-wrapper--with-multiview' : ''}`}
+              style={vibe() && githubStore.enabled ? { 'padding-block-end': `${newSessionPadding()}px` } : undefined}>
                 <Portal>
                   <CreateSessionDialog
                     isOpen={showCreateDialog() && props.workspaceMode?.value !== 'chat'}
@@ -522,10 +592,6 @@ const Dashboard: Component<DashboardProps> = (props) => {
                     onSelect={(agentType, tabConfig) => {
                       setShowCreateDialog(false);
                       props.onCreateSession(agentType, tabConfig);
-                    }}
-                    onSelectPiSurface={sessionStore.preferences.herdrEnabled === true ? undefined : (surface) => {
-                      setShowCreateDialog(false);
-                      props.onCreateSession('pi', undefined, surface);
                     }}
                     anchorRef={newSessionBtnRef()}
                   />
@@ -684,7 +750,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                           ]}>{row => (
                             <div class="stat-card__metric">
                               <span class="stat-card__metric-label">{row.label}</span>
-                              <span class="stat-card__metric-value">{row.value}</span>
+                              <span class="stat-card__metric-value">{row.value ?? 'Unavailable'}</span>
                             </div>
                           )}</For>
                         </div>
