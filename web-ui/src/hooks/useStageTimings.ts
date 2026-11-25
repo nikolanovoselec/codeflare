@@ -12,6 +12,7 @@ const stageKeys: InitStage[] = ['creating', 'starting', 'syncing', 'verifying', 
 export function useStageTimings(
   stage: () => InitStage | undefined,
   progress: () => { stage: string; startedAt?: number } | null,
+  preparingChat: () => boolean = () => false,
 ) {
   const [stageTimes, setStageTimes] = createSignal<Record<string, StageTime>>({});
   const [currentTime, setCurrentTime] = createSignal(Date.now());
@@ -22,7 +23,7 @@ export function useStageTimings(
   let timerInterval: number | undefined;
   createEffect(() => {
     const currentStage = stage();
-    if (!currentStage || currentStage === 'ready' || currentStage === 'error') {
+    if (!currentStage || (currentStage === 'ready' && !preparingChat()) || currentStage === 'error') {
       if (timerInterval) {
         clearInterval(timerInterval);
         timerInterval = undefined;
@@ -85,7 +86,7 @@ export function useStageTimings(
   });
 
   const getElapsedTime = (stageKey: InitStage, getStatus: (key: InitStage) => string): string => {
-    if (stageKey === 'ready') return '';
+    if (stageKey === 'ready' && !preparingChat()) return '';
 
     const times = stageTimes();
     const stageTime = times[stageKey];
@@ -97,6 +98,7 @@ export function useStageTimings(
     }
     if (status === 'active') {
       const elapsed = (currentTime() - stageTime.start) / 1000;
+      if (stageKey === 'ready') return `${Math.floor(Math.max(0, elapsed))}s`;
       return `${elapsed.toFixed(1)}s`;
     }
     return '';

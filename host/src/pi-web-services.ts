@@ -99,8 +99,12 @@ export function createPiWebServices(options: { runtimeDir: string; cwd: string; 
     const before = Array.isArray(settings.packages) ? settings.packages : [];
     const sourceOf = (item: unknown) => typeof item === 'object' && item !== null && 'source' in item ? item.source : item;
     const workflowsRegistered = before.some(item => sourceOf(item) === workflows);
-    const managedExclusions = ['-builtin:mcp', ...['review-enforcement.ts', 'operator-review-remote.ts']
-      .map(name => `-${join(agentDir, 'extensions', name)}`)];
+    // These exact companion exclusions do not disable either MCP client.
+    const managedExclusions = ['-builtin:mcp', ...['review-enforcement.ts', 'operator-review-remote.ts',
+      'mcp-portal-oauth.ts', 'hermes-memory-runtime.ts'].flatMap(name => {
+      const relative = `extensions/${name}`;
+      return [`-${join(agentDir, relative)}`, `-${relative}`, `-./${relative}`];
+    })];
     const adapterSelected = Array.isArray(settings.extensions) && settings.extensions.includes('-builtin:mcp')
       && settings.extensions.every(item => typeof item === 'string' && managedExclusions.includes(item))
       && before.every(item => typeof sourceOf(item) === 'string')
@@ -124,6 +128,8 @@ export function createPiWebServices(options: { runtimeDir: string; cwd: string; 
         info: { enabled: false },
         updates: { enabled: false },
         'mcp-manager': { enabled: false },
+        'workspace-tasks': { enabled: false },
+        relays: { enabled: false },
       }),
     };
     // No private container credential or parent authority in agent child env.

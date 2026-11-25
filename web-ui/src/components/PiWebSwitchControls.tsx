@@ -8,6 +8,7 @@ interface PiWebSwitchControlsProps {
   phase?: PiWebStatus['phase'];
   target?: PiWebStatus['target'];
   switching?: boolean;
+  progressInMenu?: boolean;
   problem?: string;
   canCancel?: boolean;
   onCancel: () => void;
@@ -16,6 +17,7 @@ interface PiWebSwitchControlsProps {
 
 export default function PiWebSwitchControls(props: PiWebSwitchControlsProps) {
   const entering = () => {
+    if (props.progressInMenu) return undefined;
     if (!props.switching && !['waiting', 'stopping', 'releasing', 'opening'].includes(props.phase ?? '')) return;
     return props.target === 'chat' ? 'Entering Vibe mode...' : props.target === 'terminal' ? 'Entering Code mode...' : undefined;
   };

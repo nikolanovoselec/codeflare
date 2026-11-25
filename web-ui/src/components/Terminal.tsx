@@ -1,5 +1,6 @@
 import { Component, For, Show, createSignal, createEffect } from 'solid-js';
 import '@xterm/xterm/css/xterm.css';
+import { terminalStore } from '../stores/terminal';
 import { useTerminal } from '../hooks/useTerminal';
 import InitProgress from './InitProgress';
 import { isTouchDevice, getKeyboardHeight } from '../lib/mobile';
@@ -23,6 +24,7 @@ interface TerminalProps {
   onActivate?: () => void;
   onError?: (error: string) => void;
   onInitComplete?: () => void;
+  onHandoffAttached?: () => void;
 }
 
 const TerminalInstance: Component<TerminalProps> = (props) => {
@@ -36,19 +38,22 @@ const TerminalInstance: Component<TerminalProps> = (props) => {
     initProgress,
   } = useTerminal(props);
 
-  const startupProgress = () => {
-    const progress = initProgress();
-    if (progress?.stage !== 'ready' || connectionState() === 'connected') return progress;
-    // The Host can finish PTY prewarm before this browser attaches. Do not
-    // offer Open until the pane being revealed has an active attachment.
-    return { ...progress, stage: 'mounting' as const, message: retryMessage() || 'Connecting terminal...' };
-  };
+  // Host prewarm may finish before this browser has attached to the PTY.
+  const connectingTerminal = () => initProgress()?.stage === 'ready' && connectionState() !== 'connected'
+    ? retryMessage() || 'Connecting Terminal' : undefined;
 
   // Once connected the first time, never show the overlay again.
   // This enables transparent reconnection without a flash of "Connecting...".
   const [hasConnected, setHasConnected] = createSignal(false);
   createEffect(() => {
     if (connectionState() === 'connected') setHasConnected(true);
+  });
+
+  createEffect(() => {
+    const report = props.onHandoffAttached;
+    const instance = terminal();
+    if (report && instance && connectionState() === 'connected'
+      && terminalStore.getTerminal(props.sessionId, props.terminalId) === instance) report();
   });
 
   let _containerEl: HTMLDivElement | undefined;
@@ -73,7 +78,8 @@ const TerminalInstance: Component<TerminalProps> = (props) => {
         <div class="terminal-init-overlay">
           <InitProgress
             sessionName={props.sessionName || 'Terminal'}
-            progress={startupProgress()}
+            progress={initProgress()}
+            connectingTerminal={connectingTerminal()}
             onOpen={props.onInitComplete}
           />
         </div>

@@ -447,6 +447,9 @@
 }
 .dashboard-panel-pull:is(:hover, :focus-visible)::before { background: var(--color-bg-muted); }
 .dashboard-panel-pull > svg { position: relative; }
+.dashboard-panel-wrapper--summary .header-actions > .session-switcher-wrapper + .header-user-wrapper {
+  margin-inline-start: calc(-1 * var(--space-1));
+}
 @media (min-width: 641px) {
   .dashboard-panel-wrapper--disclosure { transition: max-inline-size var(--transition-base); }
   .dashboard-panel-wrapper--summary {

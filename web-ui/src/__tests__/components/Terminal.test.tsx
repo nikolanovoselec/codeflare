@@ -115,11 +115,11 @@ vi.mock('../../stores/session', () => ({
 // detail rows. Tests that depend on InitProgress internals should use the real
 // component or a more detailed mock.
 vi.mock('../../components/InitProgress', () => ({
-  default: (props: { sessionName: string; progress?: { stage: string; message?: string }; onOpen?: () => void }) => (
+  default: (props: { sessionName: string; progress?: { stage: string; message?: string }; connectingTerminal?: string; onOpen?: () => void }) => (
     <div data-testid="init-progress">
       Init Progress: {props.sessionName}
-      <Show when={props.progress?.message}><p>{props.progress?.message}</p></Show>
-      <Show when={props.progress?.stage === 'ready'}>
+      <Show when={props.connectingTerminal || props.progress?.message}><p>{props.connectingTerminal || props.progress?.message}</p></Show>
+      <Show when={props.progress?.stage === 'ready' && !props.connectingTerminal}>
         <button type="button" data-testid="init-progress-open-btn" onClick={props.onOpen}>Open</button>
       </Show>
     </div>
@@ -286,6 +286,20 @@ describe('Terminal Component', () => {
       expect(wrapper).toHaveStyle({ position: 'relative' });
     });
 
+    it('reports a hidden handoff pane only when it owns the connected terminal', () => {
+      const attached = vi.fn();
+      const [connection, setConnection] = createSignal<TerminalConnectionState>('connected');
+      vi.mocked(terminalStore.getConnectionState).mockImplementation(connection);
+      vi.mocked(terminalStore.getTerminal).mockReturnValue(undefined);
+      render(() => <Terminal {...defaultProps} active={false} visible={false} connect onHandoffAttached={attached} />);
+      expect(attached).not.toHaveBeenCalled();
+      setConnection('connecting');
+      vi.mocked(terminalStore.getTerminal).mockReturnValue(mockTerminalInstance as unknown as NonNullable<ReturnType<typeof terminalStore.getTerminal>>);
+      setConnection('connected');
+      expect(attached).toHaveBeenCalled();
+      vi.mocked(terminalStore.getTerminal).mockReturnValue(undefined);
+    });
+
     it('REQ-TERM-043 AC4; REQ-TERM-044 AC2: OPEN reveals and focuses the already-mounted terminal', () => {
       const [initializing, setInitializing] = createSignal(true);
       vi.mocked(sessionStore.isSessionInitializing).mockImplementation(() => initializing());
@@ -306,7 +320,7 @@ describe('Terminal Component', () => {
       expect(startupContainer).not.toBeVisible();
       expect(startupContainer).not.toHaveFocus();
       expect(screen.queryByRole('button', { name: 'Open' })).not.toBeInTheDocument();
-      expect(screen.getByText('Connecting terminal...')).toBeVisible();
+      expect(screen.getByText('Connecting Terminal')).toBeVisible();
 
       setConnection('connected');
       fireEvent.click(screen.getByRole('button', { name: 'Open' }));

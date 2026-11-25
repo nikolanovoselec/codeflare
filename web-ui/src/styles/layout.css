@@ -119,6 +119,12 @@ html, body {
   min-height: 0;
 }
 
+.layout-hidden-handoff-pane {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
 .layout-tiling-button-wrapper {
   position: absolute;
   top: var(--space-2);

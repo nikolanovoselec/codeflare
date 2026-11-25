@@ -1,6 +1,5 @@
 import { Component, Show, createSignal, createEffect } from 'solid-js';
-import { mdiPencilOutline, mdiStop, mdiTrashCanOutline, mdiFileExcelBox, mdiMessageTextOutline, mdiConsole } from '@mdi/js';
-import type { PiSurface } from '../types';
+import { mdiPencilOutline, mdiStop, mdiTrashCanOutline, mdiFileExcelBox } from '@mdi/js';
 import Icon from './Icon';
 import '../styles/session-context-menu.css';
 
@@ -8,8 +7,6 @@ interface SessionContextMenuProps {
   isOpen: boolean;
   position: { x: number; y: number };
   canStop: boolean;
-  onSelectPiSurface?: (surface: PiSurface) => void;
-  surfaceAction?: 'Start' | 'Open';
   canKill?: boolean;
   onKill?: () => void;
   stopLabel?: string;
@@ -46,18 +43,12 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
 
   const clampedPosition = () => {
     const menuWidth = 160;
-    const menuHeight = (props.canKill && props.onKill ? 160 : 120) + (props.onSelectPiSurface ? 72 : 0);
+    const menuHeight = props.canKill && props.onKill ? 160 : 120;
     const pad = 8;
     return {
       x: Math.max(pad, Math.min(props.position.x, window.innerWidth - menuWidth - pad)),
       y: Math.max(pad, Math.min(props.position.y, window.innerHeight - menuHeight - pad)),
     };
-  };
-
-  const handleSurface = (surface: PiSurface) => {
-    props.onSelectPiSurface?.(surface);
-    resetTransient();
-    props.onClose();
   };
 
   const handleStop = () => {
@@ -116,16 +107,6 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
         data-testid="session-context-menu"
         style={{ top: `${clampedPosition().y}px`, left: `${clampedPosition().x}px` }}
       >
-        <Show when={props.onSelectPiSurface && !renaming()}>
-          <button type="button" class="session-context-menu__item" onClick={() => handleSurface('chat')}>
-            <Icon path={mdiMessageTextOutline} size={16} />
-            {props.surfaceAction} Chat
-          </button>
-          <button type="button" class="session-context-menu__item" onClick={() => handleSurface('terminal')}>
-            <Icon path={mdiConsole} size={16} />
-            {props.surfaceAction} Terminal
-          </button>
-        </Show>
         <Show when={!renaming()}>
           <button
             type="button"

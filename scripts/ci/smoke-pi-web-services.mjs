@@ -83,7 +83,7 @@ async function checkReady({ preexistingManager = false } = {}) {
   const ids = plugins.map(({ id }) => id);
   assert.ok(ids.includes('files') && ids.includes('pi-web.terminal'), 'retain stock Files and required Terminal');
   assert.ok(!ids.includes('git') && !ids.includes('workflows'), 'stock browser manifest must not advertise Git or Workflows');
-  for (const id of ['info', 'updates', 'mcp-manager']) {
+  for (const id of ['info', 'updates', 'mcp-manager', 'workspace-tasks', 'relays']) {
     assert.ok(!ids.includes(id), `stock browser manifest must not load disabled panel: ${id}`);
   }
 
@@ -114,7 +114,10 @@ try {
   for (const dir of [cwd, runtimeDir, agentDir, localWorkflows]) mkdirSync(dir, { recursive: true, mode: 0o700 });
   writeFileSync(join(localWorkflows, 'package.json'), JSON.stringify({ name: 'smoke-user-workflows', version: '1.0.0' }));
   const settingsPath = join(agentDir, 'settings.json');
-  writeFileSync(settingsPath, JSON.stringify({ packages: [localWorkflows, managedAdapter], extensions: ['-builtin:mcp'] }));
+  // Restored managed profiles can retain exact exclusions of retired non-client extensions.
+  const managedExtensions = ['-builtin:mcp', '-extensions/mcp-portal-oauth.ts',
+    `-${join(agentDir, 'extensions/hermes-memory-runtime.ts')}`];
+  writeFileSync(settingsPath, JSON.stringify({ packages: [localWorkflows, managedAdapter], extensions: managedExtensions }));
 
   const start = () => services.start().then(() => assert.ok(restored, 'start cannot resolve before profile restore'));
   await Promise.all([start(), start(), (async () => {
@@ -127,6 +130,7 @@ try {
     restored = true;
   })()]);
   const firstSources = await checkReady();
+  assert.deepEqual(json(settingsPath).extensions, managedExtensions, 'preserve the restored non-client exclusions');
   await closeAndCheckReaping();
 
   // Reboot the supervisor with the same profile and stock data directory.

@@ -564,6 +564,7 @@ None.
 2. Ready for the current Start makes OPEN available; the single-pane Terminal waits for its browser attachment to connect as well. OPEN displays the already-mounted selected pane without replacing its attachment. <!-- @impl: web-ui/src/stores/session.ts::startSession --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-TERM-043: matching Ready keeps Open available for surface %s) --> <!-- @impl: web-ui/src/components/Terminal.tsx::Terminal --> <!-- @test: web-ui/src/__tests__/components/Terminal.test.tsx (REQ-TERM-043 AC4; REQ-TERM-044 AC2: OPEN reveals and focuses the already-mounted terminal) -->
 3. OPEN leaves terminal panes belonging to other sessions unchanged. <!-- @impl: web-ui/src/components/Layout.tsx::handleOpenSessionById --> <!-- @impl: web-ui/src/components/Terminal.tsx::Terminal --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-TERM-043 AC6: OPEN dismisses readiness without directly manipulating transport) --> <!-- @test: web-ui/src/__tests__/components/Terminal.test.tsx (REQ-TERM-043 AC6: OPEN leaves foreign-session terminal instances unchanged) -->
 4. After OPEN, the selected terminal pane receives focus. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/components/Terminal.test.tsx (REQ-TERM-043 AC4; REQ-TERM-044 AC2: OPEN reveals and focuses the already-mounted terminal) -->
+5. Single-pane startup shows Connecting Terminal until the browser attaches, then Ready to open. <!-- @impl: web-ui/src/components/InitProgress.tsx::InitProgressComponent --> <!-- @test: web-ui/src/__tests__/components/InitProgress.test.tsx (shows Connecting Terminal before the attachment is ready to open) --> <!-- @test: web-ui/src/__tests__/components/Terminal.test.tsx (REQ-TERM-043 AC4; REQ-TERM-044 AC2: OPEN reveals and focuses the already-mounted terminal) -->
 
 **Constraints:** OPEN does not transfer transport ownership from [REQ-TERM-046](#req-term-046-visible-terminal-startup-connection).
 
@@ -571,7 +572,7 @@ None.
 
 **Dependencies:** [REQ-TERM-046](#req-term-046-visible-terminal-startup-connection)
 
-**Verification:** Automated: [useTerminal.test.ts](../../web-ui/src/__tests__/hooks/useTerminal.test.ts), [Terminal.test.tsx](../../web-ui/src/__tests__/components/Terminal.test.tsx), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts)
+**Verification:** Automated: [Startup status](../../web-ui/src/__tests__/components/InitProgress.test.tsx), [useTerminal.test.ts](../../web-ui/src/__tests__/hooks/useTerminal.test.ts), [Terminal.test.tsx](../../web-ui/src/__tests__/components/Terminal.test.tsx), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts)
 
 **Status:** Implemented
 

@@ -424,31 +424,20 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(screen.getByTestId('context-menu-delete')).toBeInTheDocument();
   });
 
-  it.each([
-    { status: 'stopped', terminalMode: 'classic', surface: 'chat', action: 'start' },
-    { status: 'stopped', terminalMode: 'classic', surface: 'terminal', action: 'start' },
-    { status: 'running', terminalMode: 'classic', surface: 'terminal', action: 'open' },
-    { status: 'running', terminalMode: 'classic', surface: 'chat', action: 'open' },
-  ] as const)('REQ-AGENT-272 AC1: selects $surface for this $status $terminalMode card action only', async ({ status, terminalMode, surface, action }) => {
+  it.each(['stopped', 'running'] as const)('keeps lifecycle actions but no mode actions in a %s Pi card menu', async status => {
     const id = 'managed-pi';
-    const actions: { action: string; id: string; surface?: string }[] = [];
-    render(() => <Dashboard {...defaultProps} sessions={[{
-      id, name: 'Managed Pi', status, workspace: 'terminal', agentType: 'pi', terminalMode,
+    render(() => <Dashboard {...defaultProps} workspaceMode={{ value: 'terminal', onSelect: () => {} }} sessions={[{
+      id, name: 'Managed Pi', status, workspace: 'terminal', agentType: 'pi', terminalMode: 'classic',
       createdAt: '2024-01-01', lastAccessedAt: '2024-01-01',
-    }]}
-      onStartSession={(id: string, surface?: string) => actions.push({ action: 'start', id, surface })}
-      onOpenSessionById={(id: string, surface?: string) => actions.push({ action: 'open', id, surface })} />);
-
+    }]} />);
     await fireEvent.click(screen.getByTestId(`menu-${id}`));
     const menu = within(screen.getByTestId('session-context-menu'));
-    const chat = menu.getByRole('button', { name: /\bChat\b/i });
-    const terminal = menu.getByRole('button', { name: /\bTerminal\b/i });
-    await fireEvent.click(surface === 'chat' ? chat : terminal);
-
-    expect(actions).toEqual([{ action, id, surface }]);
-    expect(screen.queryByTestId('session-context-menu')).not.toBeInTheDocument();
+    expect(menu.queryByRole('button', { name: /^(Start|Open) (Chat|Terminal)$/ })).not.toBeInTheDocument();
+    expect(menu.getByRole('button', { name: 'Rename' })).toBeVisible();
+    expect(menu.getByRole('button', { name: 'Delete' })).toBeVisible();
+    if (status === 'running') expect(menu.getByRole('button', { name: 'Stop' })).toBeVisible();
     await fireEvent.click(screen.getByTestId(`select-${id}`));
-    expect(actions).toEqual([{ action, id, surface }, { action: 'open', id, surface: undefined }]);
+    expect(defaultProps.onOpenSessionById).toHaveBeenCalledWith(id);
   });
 
   it.each(['Herdr', 'VS Code'])('keeps Classic Pi sessions reachable without offering mode actions under %s', async setting => {

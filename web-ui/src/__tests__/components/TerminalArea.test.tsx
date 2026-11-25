@@ -197,6 +197,42 @@ describe('TerminalArea', () => {
     expect(screen.queryByTestId(`terminal-${id}-1`)).not.toBeInTheDocument();
   });
 
+  it('attaches Code behind Vibe and reveals the same prepared pane', () => {
+    const id = 'abcdefgh1234';
+    mockSessions = [{ id, status: 'running', workspace: 'terminal' }];
+    mockActiveSessionId = id;
+    mockVisiblePanes = [{ id: `${id}:1`, source: 'session', sessionId: id, terminalId: '1' }];
+    const [chat, showChat] = createSignal(true);
+    render(() => <TerminalArea {...defaultProps} showTerminal showPiWebPanel={chat()} prepareNativeTerminal={chat()}
+      viewState="terminal" piWebPanel={<div>Pi Chat frame</div>} />);
+    const terminal = screen.getByTestId(`terminal-${id}-1`);
+    expect(screen.getByText('Pi Chat frame')).toBeVisible();
+    expect(terminal).not.toBeVisible();
+    expect(terminal).toHaveAttribute('data-connect', 'true');
+    expect(terminal).toHaveAttribute('data-focused', 'false');
+    showChat(false);
+    expect(screen.getByTestId(`terminal-${id}-1`)).toBe(terminal);
+    expect(terminal).toBeVisible();
+    expect(screen.queryByText('Pi Chat frame')).not.toBeInTheDocument();
+  });
+
+  it('prepares Vibe invisibly until the stock view is ready to replace Code', () => {
+    const id = 'abcdefgh1234';
+    mockSessions = [{ id, status: 'running', workspace: 'terminal' }];
+    mockActiveSessionId = id;
+    mockVisiblePanes = [{ id: `${id}:1`, source: 'session', sessionId: id, terminalId: '1' }];
+    const [chat, showChat] = createSignal(false);
+    render(() => <TerminalArea {...defaultProps} showTerminal showPiWebPanel={chat()} preparePiWebPanel={!chat()}
+      viewState="terminal" piWebPanel={<div>Pi Chat frame</div>} />);
+    const frame = screen.getByText('Pi Chat frame');
+    expect(frame).not.toBeVisible();
+    expect(screen.getByTestId(`terminal-${id}-1`)).toBeVisible();
+    showChat(true);
+    expect(screen.getByText('Pi Chat frame')).toBe(frame);
+    expect(frame).toBeVisible();
+    expect(screen.queryByTestId(`terminal-${id}-1`)).not.toBeInTheDocument();
+  });
+
   it('shows Dashboard when showTerminal is false', () => {
     render(() => <TerminalArea {...defaultProps} showTerminal={false} />);
 

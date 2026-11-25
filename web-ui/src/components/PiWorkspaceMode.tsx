@@ -1,5 +1,5 @@
 import { For, Show, createEffect, createSignal, onCleanup, onMount } from 'solid-js';
-import { mdiChevronDown, mdiFormDropdown } from '@mdi/js';
+import { mdiChevronDown, mdiFormDropdown, mdiLoading } from '@mdi/js';
 import { Portal } from 'solid-js/web';
 import type { PiSurface } from '../types';
 import Icon from './Icon';
@@ -19,6 +19,8 @@ const label = (choice: Choice) => `${choice.name} — ${choice.surface}`;
 export interface PiWorkspaceModeBinding {
   value: PiSurface;
   disabled?: boolean;
+  pendingTarget?: PiSurface;
+  onCancelPending?: () => void;
   onSelect: (value: PiSurface) => void;
 }
 
@@ -67,8 +69,9 @@ export default function PiWorkspaceMode(props: PiWorkspaceModeBinding & { presen
     onCleanup(() => observer.disconnect());
   });
 
+  const triggerDisabled = () => props.disabled && !props.pendingTarget;
   createEffect(() => {
-    if (open() && props.disabled) setOpen(false);
+    if (open() && triggerDisabled()) setOpen(false);
   });
 
   const close = () => {
@@ -82,8 +85,9 @@ export default function PiWorkspaceMode(props: PiWorkspaceModeBinding & { presen
     setOpen(true);
   };
   const select = (value: PiSurface) => {
-    if (open()) close();
     if (value !== props.value) props.onSelect(value);
+    if (props.pendingTarget) trigger?.focus();
+    else if (open()) close();
   };
 
   const triggerLabel = () => <>
@@ -100,7 +104,7 @@ export default function PiWorkspaceMode(props: PiWorkspaceModeBinding & { presen
       <button ref={trigger} type="button"
         classList={{ 'session-switcher': true, 'session-switcher--mobile': presentation() === 'icon' }}
         aria-label={`Workspace mode: ${label(current())}`} aria-expanded={open()}
-        disabled={props.disabled} onClick={toggle}
+        disabled={triggerDisabled()} onClick={toggle}
         onKeyDown={event => { if (event.key === 'Escape' && open()) { event.stopPropagation(); close(); } }}>
         <Show when={presentation() === 'text'} fallback={<Icon path={mdiFormDropdown} size={22} aria-hidden="true" />}>
           {triggerLabel()}
@@ -124,8 +128,13 @@ export default function PiWorkspaceMode(props: PiWorkspaceModeBinding & { presen
               }}>
               <For each={choices}>{choice => (
                 <button type="button" class="header-user-dropdown-item" aria-label={label(choice)}
-                  aria-pressed={props.value === choice.value} disabled={props.disabled} onClick={() => select(choice.value)}>
-                  <span>{choice.name}</span><span class="type-hint">{choice.surface}</span>
+                  aria-pressed={props.value === choice.value} disabled={props.disabled || !!props.pendingTarget} onClick={() => select(choice.value)}>
+                  <span>{choice.name}</span>
+                  <Show when={props.pendingTarget === choice.value} fallback={<span class="type-hint">{choice.surface}</span>}>
+                    <span class="type-hint" role="status">
+                      <Icon path={mdiLoading} size={14} class="animate-spin" aria-hidden="true" /> Entering {choice.name} mode...
+                    </span>
+                  </Show>
                 </button>
               )}</For>
             </div>

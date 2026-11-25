@@ -1,3 +1,4 @@
+import { createSignal } from 'solid-js';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@solidjs/testing-library';
 import InitProgressComponent from '../../components/InitProgress';
@@ -156,27 +157,18 @@ describe('InitProgress Component', () => {
   });
 
   describe('Steps', () => {
-    it('should render all initialization steps', () => {
-      const progress: InitProgress = {
-        stage: 'syncing',
-        progress: 40,
-        message: 'Syncing...',
-      };
-
-      render(() => (
-        <InitProgressComponent
-          sessionName="Test Session"
-          progress={progress}
-        />
-      ));
-
-      // Check all 6 steps are rendered
-      expect(screen.getByTestId('init-progress-step-0')).toBeInTheDocument();
-      expect(screen.getByTestId('init-progress-step-1')).toBeInTheDocument();
-      expect(screen.getByTestId('init-progress-step-2')).toBeInTheDocument();
-      expect(screen.getByTestId('init-progress-step-3')).toBeInTheDocument();
-      expect(screen.getByTestId('init-progress-step-4')).toBeInTheDocument();
-      expect(screen.getByTestId('init-progress-step-5')).toBeInTheDocument();
+    it('keeps a single workspace sync row active through verification', () => {
+      const [progress, setProgress] = createSignal<InitProgress>({ stage: 'syncing', progress: 40, message: 'Syncing workspace' });
+      render(() => <InitProgressComponent sessionName="Pi" progress={progress()} />);
+      const row = screen.getByText('Syncing workspace', { selector: '.init-progress-stage-label' }).closest('li');
+      expect(row).toHaveClass('init-progress-stage--active');
+      setProgress({ stage: 'verifying', progress: 60, message: 'Verifying workspace' });
+      expect(screen.queryByText('Verifying workspace')).not.toBeInTheDocument();
+      expect(row).toHaveClass('init-progress-stage--active');
+      setProgress({ stage: 'mounting', progress: 80, message: 'Preparing terminal...' });
+      expect(row).toHaveClass('init-progress-stage--completed');
+      expect(screen.queryByText(/Preparing terminal/i)).not.toBeInTheDocument();
+      expect(screen.getAllByText('Preparing environment')).toHaveLength(2);
     });
 
     it('should render step time elements', () => {
@@ -237,11 +229,9 @@ describe('InitProgress Component', () => {
 
       const step3 = screen.getByTestId('init-progress-step-3');
       const step4 = screen.getByTestId('init-progress-step-4');
-      const step5 = screen.getByTestId('init-progress-step-5');
 
       expect(step3).toHaveClass('init-progress-stage--pending');
       expect(step4).toHaveClass('init-progress-stage--pending');
-      expect(step5).toHaveClass('init-progress-stage--pending');
     });
   });
 
@@ -288,6 +278,36 @@ describe('InitProgress Component', () => {
   });
 
   describe('Ready State', () => {
+    it('counts elapsed Chat preparation without showing Ready or Open prematurely', () => {
+      vi.useFakeTimers();
+      try {
+        const [openReady, setOpenReady] = createSignal(false);
+        render(() => <InitProgressComponent sessionName="Pi" openReady={openReady()}
+          progress={{ stage: 'ready', progress: 100, message: 'Container ready' }} />);
+        expect(screen.queryByText('Ready to open', { selector: '.init-progress-stage-label' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Open' })).not.toBeInTheDocument();
+        expect(screen.getAllByText('Loading Chat')).toHaveLength(2);
+        expect(screen.getByText('0s')).toBeVisible();
+        vi.advanceTimersByTime(3000);
+        expect(screen.getByText('3s')).toBeVisible();
+        setOpenReady(true);
+        expect(screen.getByText('Ready to open', { selector: '.init-progress-stage-label' })).toBeVisible();
+        expect(screen.getByRole('button', { name: 'Open' })).toBeVisible();
+        expect(screen.queryByText('3s')).not.toBeInTheDocument();
+      } finally { cleanup(); vi.useRealTimers(); }
+    });
+
+    it('shows Connecting Terminal before the attachment is ready to open', () => {
+      const [connection, setConnection] = createSignal<string | undefined>('Connecting Terminal');
+      render(() => <InitProgressComponent sessionName="Pi" connectingTerminal={connection()}
+        progress={{ stage: 'ready', progress: 100, message: 'Container ready' }} />);
+      expect(screen.getByText('Connecting Terminal', { selector: '.init-progress-stage-label' })).toBeVisible();
+      expect(screen.queryByRole('button', { name: 'Open' })).not.toBeInTheDocument();
+      setConnection(undefined);
+      expect(screen.getByText('Ready to open', { selector: '.init-progress-stage-label' })).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Open' })).toBeVisible();
+    });
+
     it('should show open button when ready', () => {
       const progress: InitProgress = {
         stage: 'ready',

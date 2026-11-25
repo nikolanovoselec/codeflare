@@ -11,6 +11,7 @@ interface PiWebChatProps {
   onRetry?: () => void;
   problem?: string;
   canCancel?: boolean;
+  progressInMenu?: boolean;
   switchingTarget?: PiWebStatus['target'];
   onStartupReady?: (ready: boolean) => void;
   onStartupFailure?: (failed: boolean) => void;
@@ -101,7 +102,7 @@ export default function PiWebChat(props: PiWebChatProps) {
           <button type="button" class="pi-web-action" onClick={() => setFrameRevision(value => value + 1)}>Reload Chat</button>
         </div>
       </Show>
-      <PiWebSwitchControls phase={props.status.phase} target={props.switchingTarget ?? props.status.target}
+      <PiWebSwitchControls progressInMenu={props.progressInMenu} phase={props.status.phase} target={props.switchingTarget ?? props.status.target}
         switching={!!props.switchingTarget} problem={props.problem}
         canCancel={props.canCancel} onCancel={props.onCancel} onRetry={props.onRetry} />
       <div class="pi-web-chat__space">

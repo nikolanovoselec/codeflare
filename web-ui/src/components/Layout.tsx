@@ -86,8 +86,6 @@ const Layout: Component<LayoutProps> = (props) => {
   const [showTilingOverlay, setShowTilingOverlay] = createSignal(false);
   const [viewState, setViewState] = createSignal<ViewState>('dashboard');
   const [chatStartSid, setChatStartSid] = createSignal<string>();
-  const [chatStartupReady, setChatStartupReady] = createSignal(false);
-  const [chatStartupFailed, setChatStartupFailed] = createSignal(false);
   const [retainedChat, setRetainedChat] = createSignal<{ id: string; generation: number }>();
   const [retainedTerminal, setRetainedTerminal] = createSignal<{ pane: VisibleTerminalPane; generation: number }>();
   const clearRetainedTerminal = () => {
@@ -190,8 +188,87 @@ const Layout: Component<LayoutProps> = (props) => {
     }
   });
   const awaitingChatStart = () => !!chatStartSid() && chatStartSid() === sessionStore.activeSessionId;
+  const terminalIdForSession = (session: Pick<SessionWithStatus, 'id' | 'terminalMode'>) =>
+    resolveTerminalMode(session.terminalMode) === 'herdr'
+      ? '1'
+      : sessionStore.getTerminalsForSession(session.id)?.activeTabId || '1';
+
+  type ChatFrame = { scope: NonNullable<ReturnType<typeof piWeb>>; url: string; requestId?: string };
+  const [chatLoad, setChatLoad] = createSignal<{ frame: ChatFrame; state: 'ready' | 'failed' }>();
+  const chatLoadFor = (state: 'ready' | 'failed', requestId?: string) => {
+    const load = chatLoad();
+    return load?.frame.scope === piWeb() && load?.state === state
+      && (requestId === undefined || load.frame.requestId === requestId);
+  };
+  const codeAttachment = createMemo((previous?: { scope: ReturnType<typeof piWeb>; requestId: string; terminalId: string }) => {
+    const scope = piWeb();
+    const session = piWebSession();
+    const status = scope?.status();
+    if (!session || status?.phase !== 'complete' || status.target !== 'terminal' || status.surface !== 'terminal' || !status.requestId) return;
+    const terminalId = terminalIdForSession(session);
+    return previous?.scope === scope && previous?.requestId === status.requestId && previous.terminalId === terminalId
+      ? previous : { scope, requestId: status.requestId, terminalId };
+  });
+  const [attachedCode, setAttachedCode] = createSignal<NonNullable<ReturnType<typeof codeAttachment>>>();
+  const prepareCodeAttachment = createMemo(() => {
+    const attempt = codeAttachment();
+    return attempt && {
+      terminalId: attempt.terminalId,
+      onAttached: () => { if (codeAttachment() === attempt) setAttachedCode(attempt); },
+    };
+  });
+  // Rendering and writer admission are separate: keep the previous view until
+  // the confirmed destination has finished preparing its browser attachment.
+  const displayedPi = createMemo((previous?: { scope: ReturnType<typeof piWeb>; surface?: PiSurface }) => {
+    const scope = piWeb();
+    const status = scope?.status();
+    const last = previous?.scope === scope ? previous?.surface : undefined;
+    if (!scope || !status) return { scope, surface: last };
+    if (isPiWebSwitchPending(status) && last) return { scope, surface: last };
+    if (status.phase === 'complete' && status.requestId && last && status.surface && last !== status.surface) {
+      const ready = status.surface === 'chat'
+        ? chatLoadFor('ready', status.requestId)
+        : attachedCode() !== undefined && attachedCode() === codeAttachment();
+      if (!ready) return { scope, surface: last };
+    }
+    return { scope, surface: status.surface ?? undefined };
+  });
+  const handoffTarget = () => {
+    const status = piWebStatus();
+    const shown = displayedPi().surface;
+    if (!shown || status?.phase === 'failed' || status?.phase === 'uncertain') return undefined;
+    return piWebSwitchingTarget() ?? (isPiWebSwitchPending(status) ? status?.target :
+      status?.phase === 'complete' && status.surface !== shown ? status.surface ?? undefined : undefined);
+  };
+  const prepareNativeTerminal = () => (handoffTarget() === 'terminal' && piWebStatus()?.surface === 'terminal')
+    || (handoffTarget() === 'chat' && displayedPi().surface === 'terminal' && !!(piWebStatus()?.startupQuestion || chatStartupFailed()));
+  const preparePiWebPanel = () => handoffTarget() === 'chat';
+  const shownChatStatus = createMemo((previous?: { frame?: ChatFrame; status?: NonNullable<ReturnType<typeof piWebStatus>> }) => {
+    const scope = piWeb();
+    const status = piWebStatus();
+    if (scope && status?.chatUrl && (status.surface === 'chat' || status.target === 'chat' && status.phase === 'opening')) {
+      const requestId = status.target === 'chat' && (status.phase === 'opening' || status.phase === 'complete')
+        ? status.requestId : undefined;
+      const old = previous?.frame;
+      const frame = old?.scope === scope && old.url === status.chatUrl && (!requestId || requestId === old.requestId)
+        ? old : { scope, url: status.chatUrl, requestId };
+      return { frame, status };
+    }
+    if (previous?.frame?.scope === scope && displayedPi().surface === 'chat' && handoffTarget() === 'terminal') {
+      return { frame: previous?.frame, status: previous?.status };
+    }
+    return {};
+  });
+  const reportChatLoad = (frame: ChatFrame, state: 'ready' | 'failed', value: boolean) => {
+    if (shownChatStatus().frame !== frame) return;
+    setChatLoad(previous => value ? { frame, state } : previous?.frame === frame && previous.state === state ? undefined : previous);
+  };
+  const chatStartupReady = () => chatLoad()?.frame === shownChatStatus().frame && chatLoad()?.state === 'ready';
+  const chatStartupFailed = () => chatLoad()?.frame === shownChatStatus().frame && chatLoad()?.state === 'failed';
   const showPiWebPanel = createMemo(() => {
     const status = piWebStatus();
+    const displayed = displayedPi().surface;
+    if (displayed) return displayed === 'chat' || !!status?.startupQuestion || (preparePiWebPanel() && chatStartupFailed());
     if (status) return status.surface !== 'terminal' && !(status.phase === 'failed' && status.target === 'terminal' && status.surface === null);
     return awaitingChatStart() || (!!piWeb() && piWebSession()?.status === 'running'
       && (!piWeb()?.unavailable() || !!piWeb()?.mutation() || !!piWeb()?.canRetry()));
@@ -212,13 +289,14 @@ const Layout: Component<LayoutProps> = (props) => {
     if (modeAvailable()) void sessionStore.updatePreferences({ defaultPiSurface: target });
   };
   const canSwitchMode = () => piWebSession()?.status === 'running' && !!piWebStatus()?.surface
-    && !isPiWebSwitchPending(piWebStatus()) && !piWeb()?.mutation() && !retryPiWeb();
+    && !handoffTarget() && !isPiWebSwitchPending(piWebStatus()) && !piWeb()?.mutation() && !retryPiWeb();
   const dashboardWorkspaceMode = () => modeAvailable()
     ? { value: sessionStore.preferences.defaultPiSurface ?? 'terminal' as const, onSelect: saveMode }
     : undefined;
   const sessionWorkspaceMode = () => modeAvailable() && piWebSession()
-    ? { value: piWebStatus()?.surface ?? sessionStore.preferences.defaultPiSurface ?? 'terminal' as const,
-      disabled: !canSwitchMode(), onSelect: (target: PiSurface) => {
+    ? { value: displayedPi().surface ?? sessionStore.preferences.defaultPiSurface ?? 'terminal' as const,
+      pendingTarget: handoffTarget(),
+      onCancelPending: piWebStatus()?.phase === 'waiting' && canCancelPiWeb() ? cancelPiWeb : undefined, disabled: !canSwitchMode(), onSelect: (target: PiSurface) => {
         if (!modeAvailable() || !canSwitchMode()) return;
         piWeb()?.select(target);
         saveMode(target);
@@ -560,11 +638,6 @@ const Layout: Component<LayoutProps> = (props) => {
     return layout === '2-split' ? 2 : 1;
   };
 
-  const terminalIdForSession = (session: Pick<SessionWithStatus, 'id' | 'terminalMode'>) =>
-    resolveTerminalMode(session.terminalMode) === 'herdr'
-      ? '1'
-      : sessionStore.getTerminalsForSession(session.id)?.activeTabId || '1';
-
   const visibleTerminalKeys = createMemo(() => {
     const activeWorkspace = terminalWorkspaceStore.getActiveWorkspace();
     const sessionId = activeWorkspace && activeWorkspace.kind === 'session' ? activeWorkspace.sessionId : null;
@@ -604,7 +677,9 @@ const Layout: Component<LayoutProps> = (props) => {
   createEffect(() => {
     const foreground = showTerminal();
     if (foreground) untrack(clearRetainedTerminal);
-    if (!foreground || showPiWebPanel()) {
+    if (foreground && prepareCodeAttachment() && prepareNativeTerminal()) {
+      cancelScheduledDisconnect();
+    } else if (!foreground || showPiWebPanel()) {
       scheduleDisconnect(DASHBOARD_WS_DISCONNECT_DELAY_MS);
     } else {
       cancelScheduledDisconnect();
@@ -1105,21 +1180,25 @@ const Layout: Component<LayoutProps> = (props) => {
           }
           showTerminal={showTerminal()}
           showPiWebPanel={showPiWebPanel()}
+          preparePiWebPanel={preparePiWebPanel()}
+          prepareNativeTerminal={prepareNativeTerminal()}
+          codeAttachment={prepareNativeTerminal() ? prepareCodeAttachment() : undefined}
+          handoffPending={!!handoffTarget()}
+          piWebTerminalConnect={handoffTarget() ? piWebStatus()?.surface === 'terminal' : undefined}
           piWebOpenReady={chatStartupReady() && piWebStatus()?.surface === 'chat' && !piWebStatus()?.startupQuestion}
           piWebShowDuringStartup={chatStartupFailed() || !!piWebStatus()?.startupQuestion
             || piWebStatus()?.phase === 'failed' || piWebStatus()?.phase === 'uncertain'}
           retainPiWebPanel={!showTerminal() && !!retainedChat() && piWebStatus()?.surface === 'chat'}
           parkedTerminalPane={!showTerminal() ? parkedTerminalPane() : undefined}
           piWebTerminalStatus={
-            <PiWebSwitchControls phase={piWebStatus()?.phase} target={piWebSwitchingTarget() ?? piWebStatus()?.target}
+            <PiWebSwitchControls progressInMenu={modeAvailable()} phase={piWebStatus()?.phase} target={piWebSwitchingTarget() ?? piWebStatus()?.target}
               switching={!!piWebSwitchingTarget()} problem={piWebProblem()} canCancel={canCancelPiWeb()}
               onCancel={cancelPiWeb} onRetry={retryPiWeb()} />
           }
           piWebPanel={
-            <Show when={(piWebStatus()?.surface === 'chat'
-              || (piWebStatus()?.phase === 'opening' && piWebStatus()?.target === 'chat' && !!piWebStatus()?.chatUrl)) && piWebStatus()} fallback={
+            <Show when={shownChatStatus().frame} keyed fallback={
               <div class="pi-web-chat">
-                <PiWebSwitchControls phase={piWebStatus()?.phase} target={piWebSwitchingTarget() ?? piWebStatus()?.target}
+                <PiWebSwitchControls progressInMenu={modeAvailable()} phase={piWebStatus()?.phase} target={piWebSwitchingTarget() ?? piWebStatus()?.target}
                   switching={!!piWebSwitchingTarget()} problem={piWebProblem()} canCancel={canCancelPiWeb()}
                   onCancel={cancelPiWeb} onRetry={retryPiWeb()} />
                 <Show when={!piWebStatus() && !piWebProblem()}>
@@ -1127,10 +1206,10 @@ const Layout: Component<LayoutProps> = (props) => {
                 </Show>
               </div>
             }>
-              {status => <PiWebChat sessionId={piWebSid()!} generation={piWebGeneration()!} status={status()}
-                onCancel={cancelPiWeb} onRetry={retryPiWeb()}
-                onStartupReady={setChatStartupReady}
-                onStartupFailure={setChatStartupFailed}
+              {frame => <PiWebChat sessionId={piWebSid()!} generation={piWebGeneration()!} status={shownChatStatus().status!}
+                progressInMenu={modeAvailable()} onCancel={cancelPiWeb} onRetry={retryPiWeb()}
+                onStartupReady={ready => reportChatLoad(frame, 'ready', ready)}
+                onStartupFailure={failed => reportChatLoad(frame, 'failed', failed)}
                 problem={piWebProblem()} canCancel={canCancelPiWeb()} switchingTarget={piWebSwitchingTarget()} />}
             </Show>
           }
