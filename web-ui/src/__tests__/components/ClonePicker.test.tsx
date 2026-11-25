@@ -188,7 +188,7 @@ describe('ClonePicker', () => {
     expect(screen.queryByRole('dialog', { name: 'Clone repository' })).not.toBeInTheDocument();
   });
 
-  it('disables the confirm controls while new-session creation is in flight', async () => {
+  it('disables controls while launching and keeps the picker open after a cancelled repository launch', async () => {
     sessionStoreState.sessions = [{ id: 's1', name: 'Pi #1', status: 'running' }];
     let resolveCreate!: (value: unknown) => void;
     mockCreateSessionWithClone.mockReturnValueOnce(new Promise(resolve => { resolveCreate = resolve; }));
@@ -199,8 +199,11 @@ describe('ClonePicker', () => {
 
     expect(agentBtn.disabled).toBe(true);
     expect((screen.getByTestId('clone-picker-session-row') as HTMLButtonElement).disabled).toBe(true);
+    // The session store returns no successful launch after Stop cancels Start.
     resolveCreate(null);
-    await screen.findByText('Clone failed. Please try again.');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Clone failed. Please try again.');
+    expect(screen.getByRole('dialog', { name: 'Clone repository' })).toBeVisible();
+    expect(agentBtn).toBeEnabled();
   });
 
   it('withholds new-session agent choices until /api/user hydrates', () => {

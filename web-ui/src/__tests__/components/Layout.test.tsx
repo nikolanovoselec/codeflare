@@ -32,9 +32,7 @@ vi.mock('../../components/Dashboard', async importOriginal => {
     <For each={props.sessions}>{session => <span>{session.name}</span>}</For>
     <button onClick={() => props.onStartSession('abcdef0123456789')}>Start session</button>
     <button onClick={() => props.onOpenSessionById('abcdef0123456789')}>Return to session</button>
-    <button onClick={() => props.onOpenSessionById('abcdef0123456789', 'terminal')}>
-      {props.sessions[0]?.status === 'stopped' ? 'Start in Terminal' : 'Open in Terminal'}
-    </button>
+    <button onClick={() => props.onOpenSessionById('abcdef0123456789', 'terminal')}>Open in Terminal</button>
     <button onClick={() => props.onStopSession('abcdef0123456789')}>Stop retained session</button>
     <button onClick={() => props.onOpenSessionById('fedcba9876543210')}>Open another session</button>
   </section> };
@@ -427,6 +425,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
 
   it.each(['Start', 'Open'])('keeps saved preferences and workspace kind after an explicit one-off %s', async action => {
     navigationRendering.realTerminalArea = true;
+    navigationRendering.realDashboard = true;
     mockPreferences = { defaultPiSurface: 'chat', defaultWorkspace: 'terminal' };
     const id = 'abcdef0123456789';
     mockSessions = [createMockSession({ id, agentType: 'pi', workspace: 'terminal', generation: 7,
@@ -464,12 +463,14 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     });
     try {
       render(() => <Layout />);
-      fireEvent.click(await screen.findByRole('button', { name: `${action} in Terminal` }));
+      fireEvent.click(await screen.findByTestId(`session-stat-card-${id}-menu`));
+      fireEvent.click(await screen.findByRole('button', { name: `${action} Terminal` }));
       if (action === 'Open') await waitFor(() => expect(handoffs).toEqual(['terminal']));
       else expect(sessionStore.startSession).toHaveBeenCalledWith(id, 'terminal');
       expect(await screen.findByTestId('workspace-content')).toBeVisible();
       fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
-      expect(await screen.findByRole('button', { name: 'Vibe — Chat', pressed: true })).toBeVisible();
+      expect(await screen.findByRole('button', { name: /^Show (GitHub & )?Storage$/ })).toBeVisible();
+      expect(sessionStore.sessions.find(row => row.id === id)?.workspace).toBe('terminal');
       expect(sessionStore.preferences.defaultWorkspace).toBe('terminal');
       expect(unexpectedWrites).toEqual([]);
     } finally { cleanup(); vi.unstubAllGlobals(); vi.mocked(sessionStore.updatePreferences).mockReset(); }

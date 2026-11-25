@@ -71,7 +71,7 @@ it('REQ-IDE-049 AC3: retry renders pending editor initialization before the read
     retryRequested = options?.retryEditorTimeout === true;
     return () => {};
   });
-  let starting: Promise<void> | undefined;
+  let starting: ReturnType<typeof sessionStore.startSession> | undefined;
   renderCard(() => { starting = sessionStore.startSession(id); });
   expect(screen.getByRole('status', { name: 'Session running' })).toHaveClass('session-stat-card__dot--error');
 
