@@ -472,6 +472,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect(await screen.findByRole('button', { name: /^Show (GitHub & )?Storage$/ })).toBeVisible();
       expect(sessionStore.sessions.find(row => row.id === id)?.workspace).toBe('terminal');
       expect(sessionStore.preferences.defaultWorkspace).toBe('terminal');
+      expect(sessionStore.preferences.defaultPiSurface).toBe('chat');
       expect(unexpectedWrites).toEqual([]);
     } finally { cleanup(); vi.unstubAllGlobals(); vi.mocked(sessionStore.updatePreferences).mockReset(); }
   });
