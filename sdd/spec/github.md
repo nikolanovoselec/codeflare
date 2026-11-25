@@ -135,7 +135,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 4. Both live-session and new-session clone actions omit a ref and clone the repository's default branch. <!-- @test: web-ui/src/__tests__/components/GitHubCloneFlow.test.tsx (REQ-GITHUB-004 AC4: choosing a new-session agent sends the eventual creation request without a ref) --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-004 AC4: ${owner} clone checks out the local remote default branch without an explicit ref) --> <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (selecting a running session clones with {repo, sessionId} and NO ref) --> <!-- @impl: host/src/git-clone.ts::buildCloneArgs -->
 5. The cloned working tree is ephemeral by default and participates in workspace sync when the user has it enabled. <!-- @impl: host/src/git-clone.ts::resolveGitClone --> <!-- @manual -->
 6. The clone panel displays the repository's default branch without offering a branch picker. <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @manual -->
-7. If Stop cancels a new-session Start before readiness, the launch does not report success. If the clone picker is still open when cancellation settles, it shows failure without closing. <!-- @impl: web-ui/src/stores/session.ts::createSessionWithClone --> <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (does not report a successful repository launch when Stop cancels Start) --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (disables controls while launching and keeps the picker open after a cancelled repository launch) -->
+7. If Stop cancels a new-session Start before readiness, the launch does not report success. <!-- @impl: web-ui/src/stores/session.ts::createSessionWithClone --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (does not report a successful repository launch when Stop cancels Start) -->
 
 **Constraints:**
 
@@ -148,6 +148,28 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 **Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [REQ-SESSION-001](session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type)
 
 **Verification:** Automated: [git-clone.test.js](../../host/__tests__/git-clone.test.js), [github.test.ts](../../src/__tests__/routes/github.test.ts), [ClonePicker.test.tsx](../../web-ui/src/__tests__/components/ClonePicker.test.tsx), [GitHubCloneFlow.test.tsx](../../web-ui/src/__tests__/components/GitHubCloneFlow.test.tsx), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts); Manual: [GitHub clone acceptance](../../documentation/lanes/architecture.md#github-clone-acceptance)
+
+**Status:** Implemented
+
+---
+
+### REQ-GITHUB-322: Cancelled clone launch feedback
+
+**Intent:** Explain a cancelled new-session launch in the open clone picker.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. When a new-session Start cancelled by Stop settles, the clone picker shows failure without closing if it is still open. <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (disables controls while launching and keeps the picker open after a cancelled repository launch) -->
+
+**Constraints:** None.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-GITHUB-004](#req-github-004-clone-a-repository-into-a-session)
+
+**Verification:** Automated: [ClonePicker.test.tsx](../../web-ui/src/__tests__/components/ClonePicker.test.tsx)
 
 **Status:** Implemented
 
