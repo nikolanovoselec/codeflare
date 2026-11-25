@@ -138,7 +138,7 @@ export interface SessionState {
   activeSessionId: string | null;
   loading: boolean;
   error: string | null;
-  initializingSessionIds: Record<string, boolean>;
+  initializingSessionIds: Record<string, true | 'ready-withdrawn'>;
   initProgressBySession: Record<string, SessionInitProgress>;
   terminalsPerSession: Record<string, SessionTerminals>;
   sessionMetrics: Record<string, SessionMetrics>;
@@ -247,6 +247,10 @@ function updateSessionStatus(id: string, status: SessionStatus, shutdownPhase?: 
 
 function isSessionInitializing(sessionId: string): boolean {
   return state.initializingSessionIds[sessionId] === true;
+}
+
+function hasStartupTerminalInstance(sessionId: string): boolean {
+  return state.initializingSessionIds[sessionId] !== undefined;
 }
 
 /** One gate for every stopped/missing observation from eventually-consistent KV. */
@@ -361,7 +365,11 @@ function supersedesReady(id: string, incoming: Pick<Partial<SessionWithStatus>, 
 }
 
 function releaseCompletedReady(id: string): void {
-  dismissInitProgressForSession(id);
+  // Withdraw Open without switching the mounted pane to the post-Open instance.
+  setState(produce(s => {
+    s.initializingSessionIds[id] = 'ready-withdrawn';
+    delete s.initProgressBySession[id];
+  }));
   clearSessionStartedGuard(id);
 }
 
@@ -713,7 +721,7 @@ function removeConfirmedSession(id: string): void {
       if (s.activeSessionId === id) {
         s.activeSessionId = null;
       }
-      if (s.initProgressBySession[id]?.readyGeneration !== undefined) {
+      if (s.initializingSessionIds[id] === 'ready-withdrawn' || s.initProgressBySession[id]?.readyGeneration !== undefined) {
         clearSessionStartedGuard(id);
         delete s.initializingSessionIds[id];
         delete s.initProgressBySession[id];
@@ -1170,6 +1178,7 @@ export const sessionStore = {
   get completedStatusReadVersion() { return completedStatusReadVersion(); },
   getActiveSession,
   isSessionInitializing,
+  hasStartupTerminalInstance,
   getInitProgressForSession,
   getMetricsForSession,
   stopAllPolling,

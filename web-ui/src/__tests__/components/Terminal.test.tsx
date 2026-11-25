@@ -105,6 +105,7 @@ vi.mock('../../stores/terminal', () => ({
 vi.mock('../../stores/session', () => ({
   sessionStore: {
     isSessionInitializing: vi.fn(),
+    hasStartupTerminalInstance: (id: string) => sessionStore.isSessionInitializing(id),
     getInitProgressForSession: vi.fn(),
     getTerminalsForSession: vi.fn(() => ({ tabs: [{ id: '1', label: 'Terminal', manual: false }], activeTabId: '1' })),
   },

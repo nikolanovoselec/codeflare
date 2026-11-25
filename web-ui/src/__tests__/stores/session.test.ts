@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@solidjs/testing-library';
 import { createComponent, createSignal, Show } from 'solid-js';
 import InitProgress from '../../components/InitProgress';
+import Terminal from '../../components/Terminal';
 import ClonePicker from '../../components/github/ClonePicker';
 
 const terminalLifecycle = vi.hoisted(() => ({
@@ -25,6 +26,18 @@ vi.mock('../../stores/terminal', () => ({
   },
   sendInputToTerminal: vi.fn(() => false),
   registerProcessNameCallback: vi.fn(),
+}));
+
+// Keep the real terminal component and readiness overlay; replace xterm and its transport.
+vi.mock('../../hooks/useTerminal', () => ({
+  useTerminal: (props: { sessionId: string }) => ({
+    containerRef: () => {},
+    terminal: () => undefined,
+    retryMessage: () => null,
+    connectionState: () => 'connected',
+    isInitializing: () => sessionStore.isSessionInitializing(props.sessionId),
+    initProgress: () => sessionStore.getInitProgressForSession(props.sessionId),
+  }),
 }));
 
 // MOCK-DRIFT RISK: Overrides polling/timing constants to speed up tests.
@@ -1993,7 +2006,7 @@ describe('Session Store', () => {
       } finally { cleanup(); }
     });
 
-    it.each(['phase-less poll', 'queued poll', 'catalog', 'omissions'] as const)('REQ-TERM-043: ordered %s shutdown releases a pending Ready screen', async read => {
+    it.each(['phase-less poll', 'queued poll', 'catalog', 'newer-generation catalog', 'omissions'] as const)('REQ-TERM-043: ordered %s shutdown releases a pending Ready screen', async read => {
       const session = { id: `ready-shutdown-${read}`, name: 'Ready shutdown', workspace: 'terminal' as const,
         createdAt: '2026-01-01', lastAccessedAt: '2026-01-01',
         lifecycle: 'stopped' as const, status: 'stopped' as const, generation: 6, revision: 1 };
@@ -2027,29 +2040,51 @@ describe('Session Store', () => {
         }
         await sessionStore.refreshSessionStatuses();
         expect(current()).toBeUndefined();
-      } else if (read === 'catalog') {
+      } else if (read === 'catalog' || read === 'newer-generation catalog') {
+        const generation = read === 'newer-generation catalog' ? 8 : 7;
         let reply!: (value: Awaited<ReturnType<typeof api.getBatchSessionStatus>>) => void;
         mockGetBatchSessionStatus.mockReturnValueOnce(new Promise(resolve => { reply = resolve; }));
-        mockGetSessions.mockResolvedValue([{ ...session, generation: 7, revision: 4 }]);
+        mockGetSessions.mockResolvedValue([{ ...session, generation, revision: 4 }]);
         const loading = sessionStore.loadSessions();
         try {
           await vi.advanceTimersByTimeAsync(0);
-          expect(current()).toMatchObject({ status: 'stopped', generation: 7, revision: 4 });
+          expect(current()).toMatchObject({ status: 'stopped', generation, revision: 4 });
           expect(sessionStore.getInitProgressForSession(session.id)).toBeNull();
         } finally {
           reply({ statuses: { [session.id]: stale } });
           await loading;
         }
-        expect(current()).toMatchObject({ status: 'stopped', generation: 7, revision: 4 });
+        expect(current()).toMatchObject({ status: 'stopped', generation, revision: 4 });
       } else {
-        const shutdown = read === 'phase-less poll'
-          ? { status: 'stopping' as const }
-          : { status: 'running' as const, shutdownPhase: 'queued' as const };
-        await observe({ ...shutdown, lifecycle: 'running', generation: 7, revision: 3 });
-        expect(current()).toMatchObject(shutdown);
-        expect(sessionStore.getInitProgressForSession(session.id)).toBeNull();
-        await observe({ status: 'stopped', lifecycle: 'stopped', generation: 7, revision: 4 });
-        expect(current()).toMatchObject({ status: 'stopped', lifecycle: 'stopped' });
+        if (read === 'phase-less poll') {
+          terminalLifecycle.ownedSessionIds.add(session.id);
+          const view = render(() => createComponent(Show, {
+            get when() { return current()?.status === 'running' || current()?.status === 'stopping'; },
+            get children() {
+              return createComponent(Terminal, { sessionId: session.id, terminalId: '1', active: true });
+            },
+          }));
+          try {
+            expect(screen.getByRole('button', { name: 'Open' })).toBeVisible();
+            const pane = view.container.querySelector('.terminal-container');
+            expect(pane).toBeInTheDocument();
+            await observe({ status: 'stopping', lifecycle: 'stopping', generation: 7, revision: 3 });
+            expect(current()).toMatchObject({ status: 'stopping' });
+            expect(screen.queryByRole('button', { name: 'Open' })).not.toBeInTheDocument();
+            expect(view.container.querySelector('.terminal-container')).toBe(pane);
+            expect(terminalLifecycle.ownedSessionIds.has(session.id)).toBe(true);
+            await observe({ status: 'stopped', lifecycle: 'stopped', generation: 7, revision: 4 });
+            expect(pane).not.toBeInTheDocument();
+            expect(terminalLifecycle.ownedSessionIds.has(session.id)).toBe(false);
+          } finally { view.unmount(); }
+        } else {
+          const shutdown = { status: 'running' as const, shutdownPhase: 'queued' as const };
+          await observe({ ...shutdown, lifecycle: 'running', generation: 7, revision: 3 });
+          expect(current()).toMatchObject(shutdown);
+          expect(sessionStore.getInitProgressForSession(session.id)).toBeNull();
+          await observe({ status: 'stopped', lifecycle: 'stopped', generation: 7, revision: 4 });
+          expect(current()).toMatchObject({ status: 'stopped', lifecycle: 'stopped' });
+        }
       }
       expect(sessionStore.getInitProgressForSession(session.id)).toBeNull();
     });

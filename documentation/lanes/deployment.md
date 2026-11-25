@@ -108,7 +108,7 @@ For OPS-061 use the private [persistent SSH runbook](https://github.com/nikolano
 - Verify Reports disabled state, schedule presentation, current-month test email, provider failure and delivery history.
 - Verify Activity empty and retained-run states. Confirm records contain no submitted secrets.
 - Leave Analytics, Reports and Activity idle through a stable polling interval: their data requests must not recur. Then exercise navigation, filters, explicit refresh and an applicable run reconnect; only those actions should request their data.
-- Verify five-second transition polling, 60-second stable polling, hidden cancellation, immediate visible refresh and no overlapping requests in browser network tools.
+- In browser network tools, verify five-second transition polling, hidden cancellation, immediate refresh on visibility return and no overlapping status reads. With sessions stable and the observer page visible, verify 60-second polling with the dropdown closed; then open it and check for an immediate refresh and a five-second delay from each settled read to the next.
 - Verify desktop and mobile hierarchy against the approved Administration and Analytics design catalog.
 - In full-fidelity logs, distinguish routine successful pings, which emit no custom success log, from the billing event emitted after a SaaS ping ends a trial at its compute cap and records the transition.
   - Inspect existing observations only; do not end a trial or trigger a charge for this check. No existing trial-ending record means that exception was not observed.

@@ -491,7 +491,7 @@ Mostly reads, with occasional `PATCH /api/preferences` writes. `sustained_load`:
 | `health_duration` p95 | <1s |
 | `session_list_duration` p95 | <5s |
 
-The scripted approximately-five-second dashboard pattern is not the current product polling contract: stable visible session status now uses sixty-second polling, transitions five seconds, hidden pages stop (REQ-OPS-057). Individual check failures are not universally aggregated into a `checks` threshold in this suite.
+The scripted approximately-five-second dashboard pattern does not model the [product polling contract](../../sdd/spec/operations.md#req-ops-057-bounded-administration-operation-envelope) in REQ-OPS-057 AC1. Individual check failures are not universally aggregated into a `checks` threshold in this suite.
 
 #### Session Lifecycle (`session-lifecycle.js`) <!-- @impl: stress/session-lifecycle.js::options --> <!-- @impl: stress/session-lifecycle.js::default -->
 

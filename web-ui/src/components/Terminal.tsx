@@ -113,7 +113,7 @@ const TerminalInstance: Component<TerminalProps> = (props) => {
 };
 
 const Terminal: Component<TerminalProps> = (props) => {
-  const instanceKey = () => `${props.sessionId}:${sessionStore.isSessionInitializing(props.sessionId) ? 'startup' : 'open'}`;
+  const instanceKey = () => `${props.sessionId}:${sessionStore.hasStartupTerminalInstance(props.sessionId) ? 'startup' : 'open'}`;
 
   return (
     <For each={[instanceKey()]}>
