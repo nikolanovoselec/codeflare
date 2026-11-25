@@ -158,19 +158,22 @@ it.each(['Stop', 'Delete'] as const)('REQ-SESSION-043: accepted %s advances both
   }
   polled = { ...polled, revision: 13, shutdownPhase: 'finishing' };
   await vi.advanceTimersByTimeAsync(SESSION_POLL_TRANSITION_MS);
+  expect(cards()).toHaveLength(2);
   for (const view of cards()) {
-    const label = within(view.getByRole('status', { name: 'Consolidating memory' }));
-    expect(label.getByText('Consolidating')).toBeVisible();
-    expect(label.getByText('memory')).toBeVisible();
-    expect(view.getByText('7%')).toBeVisible();
+    expect(view.getByRole('status', { name: 'Shutting down' })).toHaveTextContent(/^Shutting down$/);
+    expect(view.queryByRole('status', { name: /consolidat/i })).not.toBeInTheDocument();
+    expect(view.queryByText(/Last known metrics|Metrics unavailable/)).not.toBeInTheDocument();
+    for (const metric of ['7%', '1.2G', '3.1G']) expect(view.getByText(metric)).toBeVisible();
     expect(view.queryByRole('button', { name: /activate session|resume session/i })).not.toBeInTheDocument();
   }
   if (action === 'Stop') {
     polled = { status: 'stopped', lifecycle: 'stopped', generation: 7, revision: 14 };
     await vi.advanceTimersByTimeAsync(SESSION_POLL_TRANSITION_MS);
+    expect(cards()).toHaveLength(2);
     for (const view of cards()) {
       expect(view.getByRole('status', { name: 'STOPPED' })).toBeVisible();
-      expect(view.queryByRole('status', { name: 'Consolidating memory' })).not.toBeInTheDocument();
+      expect(view.queryByRole('status', { name: /consolidat/i })).not.toBeInTheDocument();
+      expect(view.queryByText(/Last known metrics|Metrics unavailable/)).not.toBeInTheDocument();
     }
   } else {
     catalog = polled = undefined;
@@ -479,7 +482,7 @@ it('REQ-SESSION-043: distinguishes current readings, last-known readings and una
   expect(card().queryByText('Last known metrics')).not.toBeInTheDocument();
   polled = { ...polled, lifecycle: 'stopping', revision: 12, shutdownPhase: 'finishing' };
   await sessionStore.refreshSessionStatuses();
-  expect(card().getByText('Last known metrics')).toBeVisible();
+  expect(card().queryByText('Last known metrics')).not.toBeInTheDocument();
   expect(card().getByText('7%')).toBeVisible();
   polled = { ...polled, lifecycle: 'stopped', status: 'stopped', revision: 13, shutdownPhase: 'queued', metrics: undefined };
   await sessionStore.refreshSessionStatuses();
@@ -671,7 +674,8 @@ it('REQ-SESSION-043: renders durable shutdown phases on the card without inventi
 
   project('stopped', 13, 'finishing');
   await sessionStore.refreshSessionStatuses();
-  expect(card().getByRole('status', { name: 'Consolidating memory' })).toBeVisible();
+  expect(card().getByRole('status', { name: 'Shutting down' })).toHaveTextContent(/^Shutting down$/);
+  expect(card().queryByText(/Last known metrics|Metrics unavailable/)).not.toBeInTheDocument();
   expect(card().queryByRole('button', { name: /activate session/i })).not.toBeInTheDocument();
   expect(card().queryByRole('status', { name: /^stopped$/i })).not.toBeInTheDocument();
 });

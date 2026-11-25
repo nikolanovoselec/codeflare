@@ -38,7 +38,7 @@ const shutdownLabels: Record<ShutdownPhase, string> = {
   queued: 'Memory consolidation pending',
   saving: 'Memory consolidation pending',
   consolidating: 'Consolidating memory',
-  finishing: 'Consolidating memory',
+  finishing: '',
   'memory-not-merged': 'Stopped · memory not merged',
 };
 
@@ -59,6 +59,7 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
     return current && shutdownLabels[current];
   };
   const shutdownInProgress = () => isShutdownInProgress(phase());
+  const showsShutdownSubtitle = () => shutdownInProgress() && !!shutdownLabel();
   const memoryNotMerged = () => phase() === 'memory-not-merged';
   const cardStatus = () => sessionCardStatus(props.session);
   const metrics = createMemo(() => {
@@ -148,7 +149,7 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
 
   return (
     <div
-      class={`stat-card session-stat-card ${props.isActive ? 'session-stat-card--active' : ''} ${isSelectionEnabled() ? '' : 'session-stat-card--selection-disabled'} ${shutdownInProgress() ? 'session-stat-card--shutting-down' : ''}`}
+      class={`stat-card session-stat-card ${props.isActive ? 'session-stat-card--active' : ''} ${isSelectionEnabled() ? '' : 'session-stat-card--selection-disabled'} ${showsShutdownSubtitle() ? 'session-stat-card--shutting-down' : ''}`}
       data-testid={`session-stat-card-${props.session.id}`}
       data-status={cardStatus()}
       style={isStoppedForManagedSeedUpdate() && !shutdownInProgress() ? { opacity: 0.6, 'pointer-events': 'none' } : {}}
@@ -283,7 +284,7 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
         </Show>
       </div>
       <div class="session-stat-card__metrics-note">
-        {shutdownInProgress() ? metricsNotice() : undefined}
+        {showsShutdownSubtitle() ? metricsNotice() : undefined}
       </div>
     </div>
   );
