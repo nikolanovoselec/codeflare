@@ -231,7 +231,7 @@ The [adapter fixture](../../host/__tests__/operator-pi.test.js#L114-L133) proves
 
 ### Stock pi-web and the native Pi writer
 
-Pi-enabled images [prewarm stock Pi Web](../../sdd/spec/agents.md#req-agent-284-pi-web-image-prewarm) offline using the installed package and a disposable profile. Both stock services must accept their entrypoints from the final read-only cache without opening a conversation. <!-- @impl: image/pi-web/warm-compile-cache.mjs::verifyBakedCache -->
+Pi-enabled images [prewarm stock Pi Web](../../sdd/spec/agents.md#req-agent-284-pi-web-image-prewarm) offline using the installed package and a disposable profile. During build verification, both stock services restart with cache writes disabled. The build checks that Node accepts both cached entrypoints and that no conversation opens. Normal runtime launches do not disable cache writes. <!-- @impl: image/pi-web/warm-compile-cache.mjs::verifyBakedCache -->
 
 The `PI_WEB_COMPILE_CACHE_WARMED` build log reports Host service startup with an initially empty cache and with the populated image cache under cache tracing. These samples are diagnostics, not a latency guarantee or a measure of time to **Open**. <!-- @impl: image/pi-web/warm-compile-cache.mjs::bakeCompileCache -->
 
