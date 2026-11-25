@@ -65,7 +65,7 @@ In **Vibe**, Dashboard **New Session** starts Pi Chat directly. Returning to Das
 - While waiting for Open, Vibe shows **Loading Chat** with elapsed seconds and Code shows **Connecting Terminal**. Only when Open is available does the final step say **Ready to open**.
 - In Standard and Pro where available, start Chat-first and Terminal-first in Classic. Send a synthetic message, Stop normally, then resume in the other surface. Only the selected primary opens the saved conversation.
 - On a disposable account with no saved surface preference, start a stopped Classic Pi session from its card without choosing a mode.
-- Repeat with **VS Code** as the default workspace. Confirm the mode picker is hidden and restart the same stopped Classic Pi session, not a new VS Code session.
+- Save **Vibe**, then set **VS Code** as the default workspace. Confirm the mode picker is hidden and restart the same stopped Classic Pi session, not a new VS Code session.
 - In both runs, verify **Loading Chat** never appears and **Open** reveals the already-mounted Terminal.
 - The [Layout regression](../../web-ui/src/__tests__/components/Layout.test.tsx) delays the first Host status to check pane identity for [REQ-TERM-043 AC6](../../sdd/spec/terminal.md#req-term-043-visible-terminal-readiness-gating).
 - On Chat-first Start and Resume, verify the stock frame loads behind the startup overlay. Once the Host confirms Chat and five seconds have passed since the stock loader disappeared, **Open** becomes available on a best-effort basis.

@@ -365,7 +365,8 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     const startSession = vi.mocked(sessionStore.startSession);
     const originalCreate = createSession.getMockImplementation();
     const originalStart = startSession.getMockImplementation();
-    if (creating) createSession.mockImplementation(async () => {
+    if (creating) createSession.mockImplementation(async (_name, agentType) => {
+      if (agentType !== 'pi') return null;
       mockSessions = [session];
       bumpSessionStoreVersion();
       return session;
