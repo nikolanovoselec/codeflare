@@ -984,13 +984,40 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 **Constraints:**
 
 - Chat-first service preparation follows profile restore and never opens a writer.
-- The stock-loader gate is best effort, not proof of live synchronization. [REQ-TERM-049](terminal.md#req-term-049-shared-workspace-startup-progress) owns startup status copy. [REQ-GITHUB-320](github.md#req-github-320-nonblocking-terminal-repository-restore-notice) owns restore outcome reporting and notice lifecycle.
+- The stock-loader gate is best effort, not proof of live synchronization.
+
+**Notes:**
+
+- [REQ-TERM-049](terminal.md#req-term-049-shared-workspace-startup-progress) owns startup status copy.
+- [REQ-GITHUB-320](github.md#req-github-320-nonblocking-terminal-repository-restore-notice) owns restore outcome reporting and notice lifecycle.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-272](#req-agent-272-pi-chat-and-terminal-transcript-handoff)
 
 **Verification:** Automated: [Ready and Open](../../web-ui/src/__tests__/components/TerminalArea.test.tsx), [Chat frame](../../web-ui/src/__tests__/components/PiWebChat.test.tsx), [Restore notification](../../web-ui/src/__tests__/components/Layout.test.tsx), [Packaged Host handoff](../../scripts/ci/smoke-pi-web-host-handoff.mjs); Manual: [Choose the starting writer](../../documentation/lanes/terminal-and-ide.md#choose-the-starting-writer), [Held startup question](../../documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions)
+
+**Status:** Planned
+
+---
+
+### REQ-AGENT-283: Initial Chat service recovery
+
+**Intent:** Recover an interrupted Chat-first start without replacing the conversation.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. After a recoverable initial Chat service failure, explicit retry opens the same bound transcript without starting a second writer. <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime -->
+
+**Constraints:** The previous attempt must be confirmed closed before retry.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-275](#req-agent-275-classic-pi-chat-startup)
+
+**Verification:** Automated: [Packaged Host handoff](../../scripts/ci/smoke-pi-web-host-handoff.mjs)
 
 **Status:** Planned
 
@@ -1116,7 +1143,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Dependencies:** [REQ-AGENT-274](#req-agent-274-stock-pi-chat-controls)
 
-**Verification:** Automated: [Stock Chat frame](../../web-ui/src/__tests__/components/PiWebChat.test.tsx); Manual: [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout), [Stock controls](../../documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions)
+**Verification:** Manual: [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout), [Stock controls](../../documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions)
 
 **Status:** Planned
 

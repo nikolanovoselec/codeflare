@@ -598,7 +598,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Dependencies:** [REQ-GITHUB-321](#req-github-321-vibe-dashboard-browser-disclosure)
 
-**Verification:** Automated: [Dashboard component tests](../../web-ui/src/__tests__/components/Dashboard.test.tsx); Manual: [Vibe drawer acceptance](../../documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance).
+**Verification:** Automated: [Dashboard component tests](../../web-ui/src/__tests__/components/Dashboard.test.tsx); Manual: [Vibe drawer acceptance](../../documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance)
 
 **Status:** Planned
 

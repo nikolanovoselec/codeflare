@@ -229,7 +229,7 @@ export default function (pi) {
       assert.ok(failed.requestId, 'failed startup must have a retryable handoff identity');
       failedBinding = identity(runtime.binding);
       await close(occupiedGateway);
-      await api('/_switch', 202, { generation, requestId: randomUUID(), target: 'chat' });
+      await api('/_switch', 202, { generation, requestId: failed.requestId, target: 'chat' });
     }
     const chatUrl = await until('Chat deep link', async () => {
       const state = await readSwitch();

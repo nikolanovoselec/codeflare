@@ -62,7 +62,9 @@ In **Vibe**, Dashboard **New Session** starts Pi Chat directly. Returning to Das
 
 - When the picker is available, choose Vibe or Code in the header before using a Dashboard card. The card menu retains lifecycle actions but has no Chat or Terminal override ([REQ-AGENT-276](../../sdd/spec/agents.md#req-agent-276-vibe-and-code-workspace-preference), AC5).
 - For [REQ-TERM-049](../../sdd/spec/terminal.md#req-term-049-shared-workspace-startup-progress), check that **Syncing workspace** stays active through verification, then advances to **Preparing environment**.
-- While waiting for Open, Vibe shows **Loading Chat** with the same one-decimal elapsed timer as the other startup steps and a loading icon that spins with default motion. Repeat with reduced motion enabled: the timer still advances, but the icon does not spin. Code shows **Connecting Terminal**. Only when Open is available does the final step say **Ready to open**.
+- While waiting for Open, Vibe shows **Loading Chat** with the same one-decimal elapsed timer as the other startup steps and a loading icon that spins with default motion.
+- Repeat with reduced motion enabled: the timer still advances, but the icon does not spin.
+- Code shows **Connecting Terminal**. Only when Open is available does the final step say **Ready to open**.
 - In Standard and Pro where available, start Chat-first and Terminal-first in Classic. Send a synthetic message, Stop normally, then resume in the other surface. Only the selected primary opens the saved conversation.
 - On a disposable account with no saved surface preference, start a stopped Classic Pi session from its card without choosing a mode.
 - Save **Vibe**, then set **VS Code** as the default workspace. Confirm the mode picker is hidden and restart the same stopped Classic Pi session, not a new VS Code session.
@@ -106,7 +108,8 @@ In **Vibe**, Dashboard **New Session** starts Pi Chat directly. Returning to Das
 
 - With 1440 × 900 CSS px available after the controls, expect a centered 800 × 720 frame. With 900 × 1600 available, expect 720 × 1200. Together these exercise the percentage and both caps.
 - In narrow or short views, expect 12 px gutters plus safe-area insets. Open the mobile keyboard and try browser zoom. The composer and Codeflare controls stay reachable without a second page scrollbar.
-- For [REQ-AGENT-282 AC3](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults), verify token and context usage remain visible without a USD amount. On a disposable session, queue a harmless message during a turn and verify the nonzero queued count remains visible. Repeat the footer check with a different stock theme.
+- For [REQ-AGENT-282 AC3](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults), verify token and context usage remain visible without a USD amount.
+- On a disposable session, queue a harmless message during a turn and verify the nonzero queued count remains visible. Repeat the footer check with a different stock theme.
 - In a fresh browser context, verify the machine name defaults to **Codeflare** and the theme is **Pi Web Classic**. Save a different theme, then reopen Chat in that browser and verify the choice was preserved.
 
 #### Check stale frames and native questions
@@ -120,7 +123,8 @@ In **Vibe**, Dashboard **New Session** starts Pi Chat directly. Returning to Das
 - In the ready Chat composer, use **Save to …** with synthetic attachments totaling 10 MB (10,000,000 bytes). Verify that the files land in the selected workspace folder.
 - Repeat with a batch one byte larger, then with 17 small attachments. Confirm that neither rejected batch saves any files.
 - Verify Chat and Files remain available and Info, Updates, MCP Manager, Tasks, and Relays are absent from stock navigation. This does not verify MCP configuration.
-- For [REQ-AGENT-282 AC1–2](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults), use a fresh browser and verify only Chat and Files are pinned on desktop and phone. Change the pins and reopen Chat in the same browser to verify the saved choices win. Stock Navigation can re-pin Terminal or mobile Sessions; the default does not disable the required Terminal plugin.
+- For [REQ-AGENT-282 AC1–2](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults), use a fresh browser and verify only Chat and Files are pinned on desktop and phone.
+- Change the pins and reopen Chat in the same browser to verify the saved choices win. Stock Navigation can re-pin Terminal or mobile Sessions; the default does not disable the required Terminal plugin.
 - Recovering an already-pending question after refresh is not required. If Chat startup fails, retry the same transcript only after the previous attempt is confirmed closed.
 
 Workspace attachments survive Stop and Resume only with [full Workspace Sync](storage-and-sync.md#rclone-sync-modes-req-stor-003) and a successful sync. For independent persistence, use **Dashboard → Storage → Uploads**, then **Sync now** to read the files in `~/Uploads` in the running session.
@@ -212,7 +216,9 @@ In Vibe, the [GitHub and Storage drawer](../../sdd/spec/github.md#req-github-321
 
 Try a tablet viewport such as 960px. In Vibe, open and close the Dashboard drawer to vary the header width without changing the viewport. Verify the label appears when it fits and the icon replaces it when it does not.
 
-Open the dropdown and verify **Vibe Mode** and **Code Mode**, with an accent-filled background only on the active choice and no “(Current)” suffix. With forced colors active, confirm the checkmark still distinguishes the active choice. In a running Pi workspace, switch modes and confirm the menu shows pending progress. When the destination activates, the menu closes and focus returns to its trigger. On Dashboard, the selection saves the default without switching a running workspace.
+Open the dropdown and verify **Vibe Mode** and **Code Mode**, with an accent-filled background only on the active choice and no “(Current)” suffix. With forced colors active, confirm the checkmark still distinguishes the active choice. In a running Pi workspace, switch modes and confirm the menu shows pending progress. When the destination activates, the menu closes and focus returns to its trigger.
+
+For [REQ-AGENT-276 AC2](../../sdd/spec/agents.md#req-agent-276-vibe-and-code-workspace-preference), select the other mode on Dashboard. Confirm Dashboard stays open and no session starts. Reload Dashboard and confirm the selected default persists.
 
 At 390px verify the icon-only dropdown sits before Profile and opens the same choices. Separately, on desktop, narrow the Dashboard card until the text no longer fits; the icon should replace it, and the label should return when it fits again.
 

@@ -348,7 +348,9 @@ const appRefreshes = new WeakMap<Env['KV'], Map<string, Promise<string | null>>>
  * that is at/near expiry. Returns null when not connected or when an expired App token
  * cannot be refreshed — fail closed: never returns a stale token.
  */
-export async function getValidGithubToken(env: Env, bucketName: string): Promise<string | null> {
+export async function getValidGithubToken(
+  env: Env, bucketName: string, retainRefresh?: (work: Promise<string | null>) => void,
+): Promise<string | null> {
   const conn = readConnection(await readDeployKeys(env, bucketName));
   if (!conn) return null;
 
@@ -364,7 +366,14 @@ export async function getValidGithubToken(env: Env, bucketName: string): Promise
   if (!flights) appRefreshes.set(env.KV, flights = new Map());
   const key = JSON.stringify([bucketName, refreshToken]);
   const pending = flights.get(key);
-  if (pending) return pending;
+  if (pending) {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([pending, new Promise<null>(resolve => {
+        timeout = setTimeout(() => resolve(null), 15_000);
+      })]);
+    } finally { clearTimeout(timeout); }
+  }
 
   const refresh = (async () => {
     try {
@@ -381,6 +390,9 @@ export async function getValidGithubToken(env: Env, bucketName: string): Promise
       return null;
     }
   })();
+  // Only publish refreshes whose owning request keeps its I/O alive.
+  if (!retainRefresh) return refresh;
+  retainRefresh(refresh);
   flights.set(key, refresh);
   try { return await refresh; }
   finally { flights.delete(key); }
