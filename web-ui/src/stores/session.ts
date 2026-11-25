@@ -95,6 +95,7 @@ export interface SessionMetrics {
 }
 
 type BatchStatusResponse = Awaited<ReturnType<typeof api.getBatchSessionStatus>>;
+type SessionInitProgress = InitProgress & { readyGeneration?: number };
 type MemoryRetryAttempt = { token: symbol; generation?: number; revision?: number };
 
 /**
@@ -138,7 +139,7 @@ export interface SessionState {
   loading: boolean;
   error: string | null;
   initializingSessionIds: Record<string, boolean>;
-  initProgressBySession: Record<string, InitProgress>;
+  initProgressBySession: Record<string, SessionInitProgress>;
   terminalsPerSession: Record<string, SessionTerminals>;
   sessionMetrics: Record<string, SessionMetrics>;
   memoryRetryAttempts: Partial<Record<string, MemoryRetryAttempt>>;
@@ -349,6 +350,15 @@ function reconcileMemoryRetry(id: string, session?: SessionWithStatus): void {
   }
 }
 
+/** An ordered shutdown may supersede a completed Start whose Open screen is still shown. */
+function releaseReadyForShutdown(id: string, incoming: BatchStatusResponse['statuses'][string]): void {
+  const readyGeneration = state.initProgressBySession[id]?.readyGeneration;
+  if (readyGeneration === undefined || incoming.generation === undefined || incoming.revision === undefined
+    || incoming.generation < readyGeneration || (!incoming.shutdownPhase && incoming.status !== 'stopped')) return;
+  dismissInitProgressForSession(id);
+  clearSessionStartedGuard(id);
+}
+
 function applyShutdownFields(index: number, incoming: BatchStatusResponse['statuses'][string]): void {
   const { shutdownPhase, pendingDelete, retryingMemory, snapshotUnavailable } = incoming;
   setState('sessions', index, { shutdownPhase, pendingDelete, retryingMemory, snapshotUnavailable });
@@ -386,6 +396,7 @@ registerPollingDeps({
   },
   updateSessionStatus,
   applyShutdownFields,
+  releaseReadyForShutdown,
   removeConfirmedSession,
   isSessionInitializing,
   isLocallyStopping,
@@ -556,6 +567,7 @@ async function loadSessions(): Promise<void> {
 
       const currentStatus = state.sessions.find((candidate) => candidate.id === session.id)?.status;
       if (isLocallyStopping(session.id)) continue;
+      releaseReadyForShutdown(session.id, batchStatus);
       if (currentStatus === 'initializing' || isSessionInitializing(session.id)) {
         if (batchStatus.generation !== undefined && batchStatus.revision !== undefined) {
           setState('sessions', idx, { lifecycle: batchStatus.lifecycle ?? batchStatus.status,
@@ -859,7 +871,7 @@ function startSession(id: string): Promise<void> {
           }));
         } else {
           initializeTerminalsForSession(id);
-          if (readyProgress) setState('initProgressBySession', id, readyProgress);
+          if (readyProgress) setState('initProgressBySession', id, { ...readyProgress, readyGeneration: generation });
         }
         resolve();
       },

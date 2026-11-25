@@ -1993,6 +1993,34 @@ describe('Session Store', () => {
       } finally { cleanup(); }
     });
 
+    it.each(['poll', 'catalog'] as const)('REQ-SESSION-043: ordered %s shutdown releases a pending Ready screen', async read => {
+      const session = { id: `ready-shutdown-${read}`, name: 'Ready shutdown', workspace: 'terminal' as const,
+        createdAt: '2026-01-01', lastAccessedAt: '2026-01-01',
+        lifecycle: 'stopped' as const, status: 'stopped' as const, generation: 6, revision: 1 };
+      mockGetSessions.mockResolvedValue([session]);
+      await sessionStore.loadSessions();
+      vi.mocked(api.startSession).mockImplementation((_id, onProgress, onComplete) => {
+        queueMicrotask(() => {
+          onProgress({ stage: 'ready', progress: 100, message: 'Container ready' });
+          onComplete(7);
+        });
+        return () => {};
+      });
+      await sessionStore.startSession(session.id);
+      const observe = async (remote: Awaited<ReturnType<typeof api.getBatchSessionStatus>>['statuses'][string]) => {
+        mockGetBatchSessionStatus.mockResolvedValue({ statuses: { [session.id]: remote } });
+        if (read === 'poll') await sessionStore.refreshSessionStatuses();
+        else await sessionStore.loadSessions();
+      };
+      await observe({ status: 'stopped', lifecycle: 'stopped', generation: 6, revision: 2 });
+      expect(sessionStore.getInitProgressForSession(session.id)?.stage).toBe('ready');
+      await observe({ status: 'stopping', lifecycle: 'running', generation: 7, revision: 3, shutdownPhase: 'consolidating' });
+      expect(sessionStore.sessions.find(s => s.id === session.id)).toMatchObject({ status: 'stopping', shutdownPhase: 'consolidating' });
+      expect(sessionStore.getInitProgressForSession(session.id)).toBeNull();
+      await observe({ status: 'stopped', lifecycle: 'stopped', generation: 7, revision: 4 });
+      expect(sessionStore.sessions.find(s => s.id === session.id)).toMatchObject({ status: 'stopped', lifecycle: 'stopped' });
+    });
+
     it('REQ-GITHUB-320: enables Open while restoration runs and shows its later partial outcome', async () => {
       vi.useFakeTimers();
       const id = 'terminal-repository-restore';

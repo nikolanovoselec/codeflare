@@ -46,6 +46,7 @@ type ProduceSetter = (fn: (s: SessionState) => void) => void;
 type RawSetter = (...args: any[]) => void;
 type StatusUpdater = (id: string, status: SessionStatus, shutdownPhase?: ShutdownPhase) => void;
 type ShutdownUpdater = (index: number, incoming: Awaited<ReturnType<typeof api.getBatchSessionStatus>>['statuses'][string]) => void;
+type ReadyShutdownRelease = (id: string, incoming: Awaited<ReturnType<typeof api.getBatchSessionStatus>>['statuses'][string]) => void;
 type InitChecker = (id: string) => boolean;
 type NegativeKvGuard = (id: string) => boolean;
 type AuthExpiredSetter = (expired: boolean) => void;
@@ -62,6 +63,7 @@ let setStateProduce: ProduceSetter;
 let setStateRaw: RawSetter;
 let updateSessionStatusFn: StatusUpdater;
 let applyShutdownFieldsFn: ShutdownUpdater;
+let releaseReadyForShutdownFn: ReadyShutdownRelease;
 let removeConfirmedSession: (id: string) => void;
 let isSessionInitializingFn: InitChecker;
 let isLocallyStoppingFn: InitChecker;
@@ -76,6 +78,7 @@ export function registerPollingDeps(deps: {
   setStateRaw: RawSetter;
   updateSessionStatus: StatusUpdater;
   applyShutdownFields: ShutdownUpdater;
+  releaseReadyForShutdown: ReadyShutdownRelease;
   removeConfirmedSession: (id: string) => void;
   isSessionInitializing: InitChecker;
   isLocallyStopping: InitChecker;
@@ -89,6 +92,7 @@ export function registerPollingDeps(deps: {
   setStateRaw = deps.setStateRaw;
   updateSessionStatusFn = deps.updateSessionStatus;
   applyShutdownFieldsFn = deps.applyShutdownFields;
+  releaseReadyForShutdownFn = deps.releaseReadyForShutdown;
   removeConfirmedSession = deps.removeConfirmedSession;
   isSessionInitializingFn = deps.isSessionInitializing;
   isLocallyStoppingFn = deps.isLocallyStopping;
@@ -166,6 +170,7 @@ export function clearAcceptedDelete(id: string): void {
 
 let sessionListPollTimeout: ReturnType<typeof setTimeout> | null = null;
 let pollingActive = false;
+let sessionDropdownOpen = false;
 let visibilityListenerInstalled = false;
 let pollInFlight: Promise<void> | null = null;
 let pollRevision = 0;
@@ -333,6 +338,7 @@ async function refreshSessionStatusesOnce(forceManagedReleaseCheck: boolean): Pr
       // Guard 1: Only the local Stop poll owns termination; persisted stopping
       // can accept a newer D1 stopped projection.
       if (isLocallyStoppingFn(session.id)) continue;
+      releaseReadyForShutdownFn(session.id, remote);
 
       // Keep startup's local presentation, but record accepted D1 authority so
       // a delayed Ready cannot override a stop or a replacement already seen.
@@ -394,7 +400,7 @@ async function refreshSessionStatusesOnce(forceManagedReleaseCheck: boolean): Pr
 
 function transitioning(): boolean {
   const state = getState();
-  return state.sessions.some((session) => session.status === 'initializing' || session.status === 'starting'
+  return sessionDropdownOpen || state.sessions.some((session) => session.status === 'initializing' || session.status === 'starting'
     || session.status === 'unreachable' || session.status === 'stopping' || isShutdownInProgress(session.shutdownPhase)
     || (hasAcceptedDelete(session) && !sessionStatusUnavailable()))
     || state.managedReleaseStatus === 'upgrading'
@@ -436,6 +442,14 @@ function handlePollingVisibilityChange(): void {
   clearPollTimeout();
   if (!pollingActive || document.visibilityState === 'hidden') return;
   void pollWithoutOverlap().then(scheduleNextPoll);
+}
+
+/** An open session list observes other runtimes, which can shut down between idle reads. */
+export function setSessionDropdownPolling(open: boolean): void {
+  if (open === sessionDropdownOpen) return;
+  sessionDropdownOpen = open;
+  if (open) handlePollingVisibilityChange();
+  else scheduleNextPoll();
 }
 
 export function startSessionListPolling(): void {

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@solidjs/testing-library';
 import Dashboard from '../../components/Dashboard';
 import SessionDropdown from '../../components/SessionDropdown';
+import SessionSwitcher from '../../components/SessionSwitcher';
 import { SESSION_POLL_STABLE_MS, SESSION_POLL_TRANSITION_MS } from '../../lib/constants';
 import { createMigrationRetry } from '../../components/MigrationRetryNotice';
 import { sessionStore } from '../../stores/session';
@@ -155,6 +156,44 @@ it.each(['Stop', 'Delete'] as const)('REQ-SESSION-043: accepted %s advances both
     catalog = polled = undefined;
     await vi.advanceTimersByTimeAsync(SESSION_POLL_TRANSITION_MS * 3);
     expect(screen.queryAllByTestId(`session-stat-card-${id}`)).toHaveLength(0);
+  }
+});
+
+it.each(['Stop', 'Delete'] as const)('REQ-SESSION-043: an open observer dropdown follows remote %s without a reload', async action => {
+  vi.useFakeTimers();
+  project('running', 10);
+  await sessionStore.loadSessions();
+  const observer = { ...sessionStore.sessions[0]!, id: 'observer', name: 'Observer' };
+  render(() => <SessionSwitcher sessions={[observer, ...sessionStore.sessions]} activeSessionId={observer.id}
+    onSelectSession={() => {}} onStopSession={() => {}} onDeleteSession={() => {}} onCreateSession={() => {}} />);
+  sessionStore.startSessionListPolling();
+  fireEvent.click(screen.getByTestId('session-switcher'));
+  expect(card().getByRole('status', { name: 'IDLE' })).toBeVisible();
+  await vi.advanceTimersByTimeAsync(0);
+
+  project('running', 11, 'queued', action === 'Delete');
+  await vi.advanceTimersByTimeAsync(SESSION_POLL_TRANSITION_MS);
+  expect(card().getByText('Memory consolidation pending...')).toBeVisible();
+  project('stopping', 12, 'consolidating', action === 'Delete');
+  await vi.advanceTimersByTimeAsync(SESSION_POLL_TRANSITION_MS);
+  expect(card().getByText('Consolidating memory...')).toBeVisible();
+  expect(card().queryByRole('button', { name: /activate session|resume session/i })).not.toBeInTheDocument();
+
+  if (action === 'Stop') {
+    project('stopped', 13);
+    await vi.advanceTimersByTimeAsync(SESSION_POLL_TRANSITION_MS);
+    expect(card().getByRole('status', { name: 'STOPPED' })).toBeVisible();
+    fireEvent.click(screen.getByTestId('session-switcher'));
+    project('running', 14, undefined, undefined, 8);
+    await vi.advanceTimersByTimeAsync(SESSION_POLL_TRANSITION_MS);
+    expect(sessionStore.sessions.find(s => s.id === id)?.status).toBe('stopped');
+    fireEvent.click(screen.getByTestId('session-switcher'));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(card().getByRole('status', { name: 'IDLE' })).toBeVisible();
+  } else {
+    catalog = polled = undefined;
+    await vi.advanceTimersByTimeAsync(3 * SESSION_POLL_TRANSITION_MS);
+    expect(screen.queryByTestId(`session-stat-card-${id}`)).not.toBeInTheDocument();
   }
 });
 
