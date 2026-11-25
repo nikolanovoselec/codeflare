@@ -221,7 +221,7 @@ Narrow the viewport and verify VS Code, then Operators, then Vault enter Profile
 
 For [REQ-AUTH-016 AC4](../../sdd/spec/authentication.md#req-auth-016-header-user-dropdown), open Profile in both headers at a width above 640 CSS px. Resize with the menu open. Measure from the bottom edge of the Profile button, not the avatar. With 60px to the viewport bottom, the menu stays anchored below the button (8px gap, 44px available, 8px bottom margin). With 59px, the sheet reaches the viewport bottom, stays on-screen, and is dismissible.
 
-Repeat both the 60px and 59px checks in both headers at a confirmed CSS viewport width strictly between 640px and 641px, using browser zoom if needed. Check the rendered menu position, not just its class.
+Repeat both the 60px and 59px checks in both headers at a CSS viewport width strictly between 640px and 641px, using browser zoom if needed. Before counting each case, confirm `matchMedia('(640px < width < 641px)').matches` returns `true`. Check the rendered menu position, not just its class.
 
 For [REQ-AUTH-016 AC5](../../sdd/spec/authentication.md#req-auth-016-header-user-dropdown), reduce height on desktop and mobile in both headers until the last action starts below the visible menu area. Verify the menu stays inside the viewport and scrolling it reveals the last action fully without scrolling the page. Mark any placement or scrolling case that cannot be reproduced as unverified.
 

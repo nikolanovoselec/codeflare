@@ -371,7 +371,7 @@ For REQ-AUTH-002 AC6, use owner-approved existing GitHub identities with a verif
 
 ### Account dropdown layout acceptance
 
-For [REQ-AUTH-016 AC3/AC4](../../sdd/spec/authentication.md#req-auth-016-header-user-dropdown), use an approved, already signed-in workspace and open the Header account menu at a narrow mobile viewport. It must appear as a sheet anchored to the bottom of the viewport. Close it, switch to a desktop viewport, and reopen it; when there is room, it must appear below the avatar. For the short-viewport fallback, see [Workspace header acceptance](terminal-and-ide.md#workspace-header-acceptance). Do not select a menu action. The component tests separately cover opening and the mode-specific action set, not the rendered position.
+For [REQ-AUTH-016 AC3](../../sdd/spec/authentication.md#req-auth-016-header-user-dropdown), use an approved, already signed-in workspace and open the Header account menu at a narrow mobile viewport. It must appear as a sheet anchored to the bottom of the viewport. Do not select a menu action. For desktop placement and fallback (AC4), follow [Workspace header acceptance](terminal-and-ide.md#workspace-header-acceptance). The component tests separately cover opening and the mode-specific action set, not the rendered position.
 
 ### Access redirect acceptance
 
