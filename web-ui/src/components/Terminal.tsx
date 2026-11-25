@@ -28,6 +28,7 @@ interface TerminalProps {
 
 const TerminalInstance: Component<TerminalProps> = (props) => {
   const isVisible = () => props.visible ?? props.active;
+  const openUnacknowledged = () => sessionStore.hasStartupTerminalInstance(props.sessionId);
   const {
     containerRef,
     terminal,
@@ -74,7 +75,7 @@ const TerminalInstance: Component<TerminalProps> = (props) => {
 
       {/* Connection status overlay - show until actually connected (not just during retries) */}
       {/* This fixes ghost cursor bug on page reload: covers terminal before WebSocket connects */}
-      <Show when={!isInitializing() && !hasConnected()}>
+      <Show when={!openUnacknowledged() && !hasConnected()}>
         <div class="terminal-connection-status">
           <div class="terminal-connection-spinner" />
           <span>{retryMessage() || 'Connecting...'}</span>
@@ -88,7 +89,7 @@ const TerminalInstance: Component<TerminalProps> = (props) => {
         class="terminal-container"
         on:click={() => {
           const term = terminal();
-          if (isTouchDevice() && term) focusMobileTerminal(term);
+          if (!openUnacknowledged() && isTouchDevice() && term) focusMobileTerminal(term);
         }}
         style={{
           width: '100%',
@@ -99,8 +100,8 @@ const TerminalInstance: Component<TerminalProps> = (props) => {
           // signal update (which shrinks this container via padding on the wrapper)
           // and the fit() call that resizes the canvas to match.
           overflow: 'hidden',
-          'background-color': isInitializing() ? 'transparent' : 'var(--color-terminal-theme-bg)',
-          visibility: isInitializing() ? 'hidden' : 'visible',
+          'background-color': openUnacknowledged() ? 'transparent' : 'var(--color-terminal-theme-bg)',
+          visibility: openUnacknowledged() ? 'hidden' : 'visible',
           'overflow-anchor': 'none',
           '-webkit-user-select': isTouchDevice() ? 'none' : undefined,
           'user-select': isTouchDevice() ? 'none' : undefined,

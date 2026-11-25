@@ -67,6 +67,7 @@ vi.mock('../../api/client', () => ({
   getStartupStatus: vi.fn(),
   startSession: vi.fn(),
   stopSession: vi.fn(),
+  killSession: vi.fn(),
   getPreferences: vi.fn().mockResolvedValue({}),
   updatePreferences: vi.fn().mockResolvedValue({}),
   getR2Status: vi.fn().mockResolvedValue({ ready: false }),
@@ -2006,7 +2007,7 @@ describe('Session Store', () => {
       } finally { cleanup(); }
     });
 
-    it.each(['phase-less poll', 'queued poll', 'catalog', 'newer-generation catalog', 'omissions'] as const)('REQ-TERM-043: ordered %s shutdown releases a pending Ready screen', async read => {
+    it.each(['phase-less poll', 'queued poll', 'newer-generation queued poll', 'catalog', 'newer-generation catalog', 'omissions'] as const)('REQ-TERM-043: ordered %s shutdown releases a pending Ready screen', async read => {
       const session = { id: `ready-shutdown-${read}`, name: 'Ready shutdown', workspace: 'terminal' as const,
         createdAt: '2026-01-01', lastAccessedAt: '2026-01-01',
         lifecycle: 'stopped' as const, status: 'stopped' as const, generation: 6, revision: 1 };
@@ -2056,35 +2057,51 @@ describe('Session Store', () => {
         }
         expect(current()).toMatchObject({ status: 'stopped', generation, revision: 4 });
       } else {
-        if (read === 'phase-less poll') {
-          terminalLifecycle.ownedSessionIds.add(session.id);
-          const view = render(() => createComponent(Show, {
-            get when() { return current()?.status === 'running' || current()?.status === 'stopping'; },
-            get children() {
-              return createComponent(Terminal, { sessionId: session.id, terminalId: '1', active: true });
-            },
-          }));
-          try {
-            expect(screen.getByRole('button', { name: 'Open' })).toBeVisible();
-            const pane = view.container.querySelector('.terminal-container');
-            expect(pane).toBeInTheDocument();
-            await observe({ status: 'stopping', lifecycle: 'stopping', generation: 7, revision: 3 });
-            expect(current()).toMatchObject({ status: 'stopping' });
+        const generation = read === 'newer-generation queued poll' ? 8 : 7;
+        const shutdown = read === 'phase-less poll'
+          ? { status: 'stopping' as const, lifecycle: 'stopping' as const }
+          : { status: 'running' as const, lifecycle: 'running' as const, shutdownPhase: 'queued' as const };
+        terminalLifecycle.ownedSessionIds.add(session.id);
+        const view = render(() => createComponent(Show, {
+          keyed: true,
+          get when() { return current()?.status === 'running' || current()?.status === 'stopping'; },
+          get children() {
+            return createComponent(Terminal, { sessionId: session.id, terminalId: '1', active: true });
+          },
+        }));
+        try {
+          expect(screen.getByRole('button', { name: 'Open' })).toBeVisible();
+          const pane = view.container.querySelector('.terminal-container');
+          expect(pane).toHaveStyle({ visibility: 'hidden' });
+          const expectPreserved = () => {
             expect(screen.queryByRole('button', { name: 'Open' })).not.toBeInTheDocument();
             expect(view.container.querySelector('.terminal-container')).toBe(pane);
+            expect(pane).toHaveStyle({ visibility: 'hidden' });
             expect(terminalLifecycle.ownedSessionIds.has(session.id)).toBe(true);
-            await observe({ status: 'stopped', lifecycle: 'stopped', generation: 7, revision: 4 });
-            expect(pane).not.toBeInTheDocument();
-            expect(terminalLifecycle.ownedSessionIds.has(session.id)).toBe(false);
-          } finally { view.unmount(); }
-        } else {
-          const shutdown = { status: 'running' as const, shutdownPhase: 'queued' as const };
-          await observe({ ...shutdown, lifecycle: 'running', generation: 7, revision: 3 });
-          expect(current()).toMatchObject(shutdown);
-          expect(sessionStore.getInitProgressForSession(session.id)).toBeNull();
-          await observe({ status: 'stopped', lifecycle: 'stopped', generation: 7, revision: 4 });
+          };
+          await observe({ ...shutdown, generation, revision: 3 });
+          expect(current()).toMatchObject({ ...shutdown, generation });
+          expectPreserved();
+
+          if (read === 'phase-less poll') {
+            let rejectKill!: (err: Error) => void;
+            vi.mocked(api.killSession).mockReturnValueOnce(new Promise((_resolve, reject) => { rejectKill = reject; }));
+            const killing = sessionStore.killSession(session.id);
+            try {
+              expectPreserved();
+            } finally {
+              rejectKill(new Error('Kill request failed'));
+              await killing;
+            }
+            expect(sessionStore.error).toBe('Kill request failed');
+            expectPreserved();
+          }
+
+          await observe({ status: 'stopped', lifecycle: 'stopped', generation, revision: 4 });
           expect(current()).toMatchObject({ status: 'stopped', lifecycle: 'stopped' });
-        }
+          expect(pane).not.toBeInTheDocument();
+          expect(terminalLifecycle.ownedSessionIds.has(session.id)).toBe(false);
+        } finally { view.unmount(); }
       }
       expect(sessionStore.getInitProgressForSession(session.id)).toBeNull();
     });

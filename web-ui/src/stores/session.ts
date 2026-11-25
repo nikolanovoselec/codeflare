@@ -1087,7 +1087,7 @@ function killSession(id: string): Promise<void> {
   startupCleanups.get(id)?.();
   startupCleanups.delete(id);
   setState(produce((s) => {
-    delete s.initializingSessionIds[id];
+    if (s.initializingSessionIds[id] !== 'ready-withdrawn') delete s.initializingSessionIds[id];
     delete s.initProgressBySession[id];
   }));
   // This is local command intent, not exit evidence. Existing ordered status
