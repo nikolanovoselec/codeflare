@@ -83,6 +83,12 @@ async function checkReady({ preexistingManager = false, adapterRegistration = ma
     'the stock gateway must still serve a browser-selected alternative');
 
   const { plugins } = await services.request('/pi-web-plugins/manifest.json');
+  const chrome = plugins.find(({ id }) => id === 'codeflare-chrome');
+  assert.ok(chrome, 'stock browser manifest advertises the Codeflare presentation plugin');
+  const browserModule = await fetch(new URL(chrome.module, `http://127.0.0.1:${PI_WEB_PORT}`));
+  assert.equal(browserModule.status, 200, 'stock gateway serves the browser plugin module');
+  const footerSheet = await fetch(new URL('./footer.css', browserModule.url));
+  assert.equal(footerSheet.status, 200, 'stock gateway serves the plugin stylesheet');
   const ids = plugins.map(({ id }) => id);
   assert.ok(ids.includes('files') && ids.includes('pi-web.terminal'), 'retain stock Files and required Terminal');
   assert.ok(!ids.includes('git') && !ids.includes('workflows'), 'stock browser manifest must not advertise Git or Workflows');

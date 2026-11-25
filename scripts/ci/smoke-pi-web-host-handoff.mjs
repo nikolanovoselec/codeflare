@@ -146,8 +146,9 @@ async function qualify(ambiguous) {
       } else res.destroy();
     } catch { res.destroy(); }
   });
+  let profileRestored = false;
   const runtime = createPiWebRuntime({ sessionId, generation, initialSurface: 'chat', terminalMode: 'classic',
-    cwd, home, runtimeDir, profileRestored: () => true, cloneRestored: () => false });
+    cwd, home, runtimeDir, profileRestored: () => profileRestored, cloneRestored: () => false });
   const proxy = createPiWebProxy({ sessionId, runtime, recordInput() {} });
   let refuseFirstFrame = !ambiguous;
   const server = createServer((req, res) => {
@@ -207,12 +208,18 @@ export default function (pi) {
     const boot = runtime.initialize();
     void boot.catch(() => {});
     const readSwitch = () => api(`/_switch?generation=${generation}`);
+    assert.equal((await readSwitch()).chatUrl, undefined, 'do not expose Chat before profile restore');
+    assert.equal(runtime.binding, undefined, 'do not bind a transcript before profile restore');
+    const restoreTime = performance.now();
+    profileRestored = true;
     const chatUrl = await until('Chat deep link', async () => {
       const state = await readSwitch();
       if (state.phase === 'failed') await boot;
       return state.chatUrl;
     }, 35_000);
     const { id, path } = runtime.binding;
+    assert.equal((await request(stock, '/api/sessiond/health')).activeSessions, 0, 'service preparation must not acquire a writer');
+    console.log(`Chat-first profile release to deep link: ${Math.round(performance.now() - restoreTime)} ms`);
     const deepLink = new URL(chatUrl, origin);
     assert.equal(deepLink.pathname, `${appPrefix}/`);
     const params = deepLink.searchParams;
@@ -238,6 +245,17 @@ export default function (pi) {
     assert.equal(asset.status, 200);
     assert.match(asset.headers.get('Content-Type') ?? '', /javascript/);
     await asset.arrayBuffer();
+    const manifest = await api('/pi-web-plugins/manifest.json');
+    const chromePlugin = manifest.plugins.find(({ id }) => id === 'codeflare-chrome');
+    assert.ok(chromePlugin, 'scoped Chat exposes the presentation plugin');
+    const pluginUrl = new URL(`${appPrefix}${chromePlugin.module}`, origin);
+    const pluginModule = await nativeFetch(pluginUrl, { headers: browserHeaders });
+    assert.equal(pluginModule.status, 200);
+    await pluginModule.arrayBuffer();
+    const footerSheet = await nativeFetch(new URL('./footer.css', pluginUrl), { headers: browserHeaders });
+    assert.equal(footerSheet.status, 200, 'module-relative stylesheet is served through the generation scope');
+    assert.match(footerSheet.headers.get('Content-Type') ?? '', /text\/css/);
+    await footerSheet.arrayBuffer();
     const catalog = `/api/plugin-catalog/projects/${encodeURIComponent(params.get('project'))}/workspaces/${encodeURIComponent(params.get('workspace'))}/sessions/${encodeURIComponent(id)}`;
     const ref = `/api/sessions/${encodeURIComponent(id)}`;
     const query = new URLSearchParams({ cwd });

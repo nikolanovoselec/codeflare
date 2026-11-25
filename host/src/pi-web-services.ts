@@ -116,11 +116,21 @@ export function createPiWebServices(options: { runtimeDir: string; cwd: string; 
       quietMode: true,
       defaultTheme: { themeId: 'themes:classic', auto: false },
     }), { mode: 0o600 });
+    const dataDir = join(options.runtimeDir, 'data');
+    const pluginDir = join(dataDir, 'plugins');
+    const chromePlugin = join(installRoot, 'codeflare-chrome');
+    const chromeLink = join(pluginDir, 'codeflare-chrome');
+    mkdirSync(pluginDir, { recursive: true, mode: 0o700 });
+    try { symlinkSync(chromePlugin, chromeLink); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST' || !lstatSync(chromeLink).isSymbolicLink()
+        || readlinkSync(chromeLink) !== chromePlugin) throw error;
+    }
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       CODEFLARE_PI_WEB_DAEMON: '1', PI_CODING_AGENT_DIR: agentDir,
       PI_WEB_PI_PACKAGE_DIR: piPackage, PI_WEB_RUNTIME: 'node', PI_WEB_HOST: '127.0.0.1', PI_WEB_PORT: String(PI_WEB_PORT),
-      PI_WEB_HOST_ACCESS: '{"mode":"any"}', PI_WEB_DATA_DIR: join(options.runtimeDir, 'data'),
+      PI_WEB_HOST_ACCESS: '{"mode":"any"}', PI_WEB_DATA_DIR: dataDir,
       PI_WEB_SESSIOND_SOCKET: join(options.runtimeDir, 'daemon.sock'), PI_WEB_SKIP_VERSION_CHECK: '1',
       PI_WEB_SPAWN_SESSIONS: 'false', PI_WEB_DEFAULTS_CONFIG: defaultsPath,
       PI_WEB_PLUGINS: JSON.stringify({

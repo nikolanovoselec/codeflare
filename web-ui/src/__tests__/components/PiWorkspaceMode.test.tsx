@@ -103,7 +103,8 @@ describe('Pi workspace mode selector', () => {
 
   it('shows pending feedback in the destination option while retaining the current mode', async () => {
     const [target, setTarget] = createSignal<PiSurface>();
-    render(() => <PiWorkspaceMode presentation="text" value="chat" disabled={!!target()}
+    const [active, setActive] = createSignal<PiSurface>('chat');
+    render(() => <PiWorkspaceMode presentation="text" value={active()} disabled={!!target()}
       pendingTarget={target()} onSelect={setTarget} />);
     const trigger = screen.getByRole('button', { name: `Workspace mode: ${name}` });
     await fireEvent.click(trigger);
@@ -116,6 +117,10 @@ describe('Pi workspace mode selector', () => {
     expect(destination).not.toHaveTextContent('Current');
     expect(destination).toContainElement(screen.getByRole('status'));
     expect(screen.getByRole('status')).toHaveTextContent('Entering Code mode...');
+    setActive('terminal');
+    setTarget(undefined);
+    expect(screen.queryByRole('group', { name: 'Workspace mode options' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: `Workspace mode: ${code}` })).toHaveFocus();
   });
 
   it('dismisses the compact picker on Escape and restores the trigger focus', async () => {

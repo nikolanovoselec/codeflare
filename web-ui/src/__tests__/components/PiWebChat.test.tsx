@@ -37,6 +37,18 @@ describe('Pi web Chat wrapper (REQ-AGENT-272)', () => {
     expect(screen.queryByRole('button', { name: /terminal/i })).not.toBeInTheDocument();
   });
 
+  it.each([null, '{"pinnedIds":["chat"],"mobileCollapsed":true}'])('seeds stock navigation only when no browser preference exists (%s)', saved => {
+    // Stock Pi Web 1.202611.5 reads this browser-storage contract on mount.
+    const key = 'pi-web:navigation-preferences';
+    localStorage.removeItem(key);
+    if (saved !== null) localStorage.setItem(key, saved);
+    try {
+      render(() => <PiWebChat sessionId={SESSION_ID} generation={GENERATION} status={active} onCancel={() => {}} />);
+      expect(chatFrame()).toBeVisible();
+      expect(localStorage.getItem(key)).toBe(saved ?? '{"pinnedIds":["chat","files:workspace.files"],"mobileCollapsed":false}');
+    } finally { localStorage.removeItem(key); }
+  });
+
   it('waits five seconds after the stock loader disappears, not after iframe load', async () => {
     vi.useFakeTimers();
     try {

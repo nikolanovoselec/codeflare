@@ -505,9 +505,17 @@ export function createPiWebRuntime(options: {
           legacyHerdr = existsSync(marker) && readFileSync(marker, 'utf8').trim() === String(generation);
           if (legacyHerdr) return;
         }
+        if (retiring || closed) return;
         binding = restoredTranscript();
         if (initialSurface === 'chat') {
-          save(binding ?? await seedChat());
+          // Stock services start with session spawning disabled. Overlap their
+          // boot with fresh header creation, but bind before exposing a writer.
+          const [, ref] = await Promise.all([services.start(), binding ?? seedChat()]).catch(async error => {
+            await services.close();
+            throw error;
+          });
+          if (retiring || closed) return;
+          save(ref);
           bootPhase = undefined;
           await handoff.openInitialChat(randomUUID(), binding!);
         } else {

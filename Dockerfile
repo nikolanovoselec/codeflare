@@ -1052,6 +1052,7 @@ COPY --from=builder /app/host/node_modules /app/host/node_modules
 COPY --from=builder /app/host/dist /app/host/dist
 COPY host/package.json /app/host/
 COPY --from=builder /opt/codeflare/pi-web /opt/codeflare/pi-web
+COPY --chmod=0555 image/pi-web/codeflare-chrome/ /opt/codeflare/pi-web/codeflare-chrome/
 COPY --chmod=0555 image/pi-web/codeflare-pi /usr/local/bin/codeflare-terminal-writer
 COPY --chmod=0444 image/pi-web/handoff-extension.ts image/pi-web/native-preflight.mjs scripts/ci/smoke-pi-web-handoff.mjs /opt/codeflare/pi-web/
 

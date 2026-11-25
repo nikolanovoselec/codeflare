@@ -120,7 +120,7 @@ app.get('/owned-repo-counts', reposRateLimiter, async (c) => {
   if (!githubFeatureEnabled(c.env)) return unavailable();
   const bucketName = c.get('bucketName');
   const connection = await getGithubConnectionStatus(c.env, bucketName);
-  if (connection.source !== 'oauth' || !connection.login) return unavailable();
+  if ((connection.source !== 'oauth' && connection.source !== 'app') || !connection.login) return unavailable();
   const token = await getValidGithubToken(c.env, bucketName);
   if (!token) return unavailable();
   const apiHost = c.env.GITHUB_API_HOST?.trim() || 'api.github.com';

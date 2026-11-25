@@ -152,11 +152,15 @@ describe('GitHub Details owned repository counts', () => {
     expect(await response.json()).toEqual({ counts: null });
   });
 
-  it('does not treat a GitHub App installation inventory as account totals', async () => {
+  it.each([
+    [{ login: 'octocat', public_repos: 3, owned_private_repos: 2 }, { login: 'octocat', counts: { public: 3, private: 2, total: 5 } }],
+    [{ login: 'octocat', public_repos: 3, total_private_repos: 90 }, { counts: null }],
+  ])('uses only complete owned counts from the connected GitHub App user profile', async (profile, expected) => {
     mockKV._set(KEY, { githubToken: 'test-token', githubTokenSource: 'app', githubLogin: 'octocat' } satisfies DeployKeys);
+    mockFetch.mockResolvedValueOnce(ok(profile));
     const response = await createTestApp(ENT).request('/api/github/owned-repo-counts');
-    expect(await response.json()).toEqual({ counts: null });
-    expect(mockFetch).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(expected);
   });
 });
 

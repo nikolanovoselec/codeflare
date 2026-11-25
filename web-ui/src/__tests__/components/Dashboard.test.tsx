@@ -59,7 +59,7 @@ vi.mock('../../components/github/GitHubPanel', () => ({
   default: (props: any) => (
     <div data-testid="github-panel-stub">
       <button data-testid="gh-stub-repo">Example repository</button>
-      {props.onFlip && <button data-testid="gh-stub-flip" onClick={() => props.onFlip()}>Show storage</button>}
+      {props.onFlip && <button class="github-flip-btn" data-testid="gh-stub-flip" onClick={() => props.onFlip()}>Show storage</button>}
     </div>
   )
 }));
@@ -71,13 +71,15 @@ vi.mock('../../stores/github', async () => {
   const { createSignal } = await vi.importActual<typeof import('solid-js')>('solid-js');
   const [enabled, setEnabled] = createSignal(false);
   const [login, setLogin] = createSignal<string>();
+  const [source, setSource] = createSignal<'app' | 'oauth'>('oauth');
   return {
     githubStore: {
       get enabled() { return enabled(); },
       get connected() { return !!login(); },
       get login() { return login(); },
-      get source() { return login() ? 'oauth' : undefined; },
-      _setEnabled: (v: boolean) => { setEnabled(v); if (!v) setLogin(undefined); },
+      get source() { return login() ? source() : undefined; },
+      _setEnabled: (v: boolean) => { setEnabled(v); if (!v) { setLogin(undefined); setSource('oauth'); } },
+      _setSource: setSource,
       _setLogin: setLogin,
       // Dashboard kicks this off on mount to break the enabled-gates-the-panel
       // deadlock (status is loaded outside the gated GitHub panel).
@@ -567,7 +569,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(storage).not.toBeVisible();
   });
 
-  it('uses the existing single-face GitHub and Storage controls in the mobile Vibe drawer', () => {
+  it('uses the existing single-face GitHub and Storage controls in the mobile Vibe drawer', async () => {
     viewportMock.setViewport?.('mobile');
     (githubStore as any)._setEnabled(true);
     render(() => <Dashboard {...defaultProps} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
@@ -575,12 +577,19 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Show GitHub & Storage' }));
     const storageHeading = () => screen.queryByRole('heading', { name: 'Storage Browser' });
     expect(storageHeading()).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Show storage' }));
+    const showStorage = screen.getByRole('button', { name: 'Show storage' });
+    showStorage.focus();
+    fireEvent.click(showStorage, { detail: 0 });
     expect(screen.queryByRole('button', { name: 'Example repository' })).not.toBeInTheDocument();
     expect(storageHeading()).toBeVisible();
-    fireEvent.click(screen.getByRole('button', { name: 'Show GitHub' }));
+    const showGitHub = screen.getByRole('button', { name: 'Show GitHub' });
+    await waitFor(() => expect(showGitHub).toHaveFocus());
+    fireEvent.click(showGitHub, { detail: 0 });
     expect(screen.getByRole('button', { name: 'Example repository' })).toBeVisible();
     expect(storageHeading()).not.toBeInTheDocument();
+    await waitFor(() => expect(showStorage).toHaveFocus());
+    fireEvent.keyDown(showStorage, { key: 'Escape' });
+    expect(screen.getByRole('button', { name: 'Show GitHub & Storage' })).toHaveFocus();
   });
 
   it.each(['chat', 'terminal'] as const)('shows the Profile email only at the top of the open Dashboard menu in %s', mode => {
@@ -667,6 +676,19 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
       expect(window.location.search).toBe('');
       expect(window.location.hash).toBe('#dashboard');
     } finally { window.history.replaceState(window.history.state, '', previous); }
+  });
+
+  it('shows authoritative owned totals for a connected GitHub App account', async () => {
+    (githubStore as any)._setEnabled(true);
+    (githubStore as any)._setLogin('octocat');
+    (githubStore as any)._setSource('app');
+    const counts = vi.spyOn(githubApi, 'getGithubOwnedRepoCounts')
+      .mockResolvedValue({ login: 'octocat', counts: { private: 8, public: 3, total: 11 } });
+    try {
+      render(() => <Dashboard {...defaultProps} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
+      const details = within(screen.getByRole('region', { name: 'GitHub Details' }));
+      expect(await details.findByText('11', { exact: true })).toBeVisible();
+    } finally { counts.mockRestore(); }
   });
 
   it('clears previous repo counts while a different connected account loads', async () => {

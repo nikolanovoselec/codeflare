@@ -1,0 +1,4 @@
+/* Pi Web v1.202611.5 renders cost immediately after context and before queued count. */
+:host(status-bar[slot="status"]) .bar > span.context + span:nth-child(4) {
+  display: none;
+}

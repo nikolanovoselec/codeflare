@@ -97,8 +97,7 @@ export function useStageTimings(
       return `${stageTime.elapsed.toFixed(1)}s`;
     }
     if (status === 'active') {
-      const elapsed = (currentTime() - stageTime.start) / 1000;
-      if (stageKey === 'ready') return `${Math.floor(Math.max(0, elapsed))}s`;
+      const elapsed = Math.max(0, currentTime() - stageTime.start) / 1000;
       return `${elapsed.toFixed(1)}s`;
     }
     return '';

@@ -18,6 +18,15 @@ interface PiWebChatProps {
 }
 
 function StockChatFrame(props: { src: string; onStartupReady?: (ready: boolean) => void; onStartupFailure?: (failed: boolean) => void }) {
+  // Seed the pinned stock release's browser preference before its same-origin frame starts.
+  // Existing browser choices always win, and storage denial must not block Chat.
+  try {
+    const key = 'pi-web:navigation-preferences';
+    if (localStorage.getItem(key) === null) {
+      localStorage.setItem(key, JSON.stringify({ pinnedIds: ['chat', 'files:workspace.files'], mobileCollapsed: false }));
+    }
+  } catch { /* Stock also tolerates unavailable browser storage. */ }
+
   let observer: MutationObserver | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const cancel = () => { observer?.disconnect(); clearTimeout(timer); };

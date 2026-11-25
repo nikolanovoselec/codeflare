@@ -981,7 +981,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 6. Reload Chat is offered only when the scoped frame fails to load the stock document. It retries the same frame URL without starting another handoff. <!-- @impl: web-ui/src/components/PiWebChat.tsx::PiWebChat --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (reloads the same Chat frame only after a failed navigation, without switching writers) -->
 7. Verified native question evidence for the same opening attempt pauses attachment timeout within the stock question-time allowance. Writer confirmation and the single-writer fence still apply. <!-- @impl: image/pi-web/handoff-extension.ts::publishStartupQuestion --> <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
 
-**Constraints:** The stock-loader gate is best effort, not proof of live synchronization. [REQ-TERM-049](terminal.md#req-term-049-shared-workspace-startup-progress) owns startup status copy. [REQ-GITHUB-320](github.md#req-github-320-nonblocking-terminal-repository-restore-notice) owns restore outcome reporting and notice lifecycle.
+**Constraints:** Chat-first service preparation follows profile restore and never opens a writer. <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs --> The stock-loader gate is best effort, not proof of live synchronization. [REQ-TERM-049](terminal.md#req-term-049-shared-workspace-startup-progress) owns startup status copy. [REQ-GITHUB-320](github.md#req-github-320-nonblocking-terminal-repository-restore-notice) owns restore outcome reporting and notice lifecycle.
 
 **Priority:** P1
 
@@ -1034,6 +1034,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 3. The dropdown labels the current mode when it fits on desktop or tablet. Phones and cramped headers use an icon instead. <!-- @impl: web-ui/src/components/PiWorkspaceMode.tsx::PiWorkspaceMode --> <!-- @test: web-ui/src/__tests__/components/PiWorkspaceMode.test.tsx (compacts a desktop selector when Profile leaves too little room and restores it when the header expands) --> <!-- @test: web-ui/src/__tests__/components/PiWorkspaceMode.test.tsx (restores the shorter Vibe label after switching modes without resizing the header) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#workspace-header-acceptance -->
 4. The open dropdown offers **Vibe Mode** and **Code Mode** and visibly marks only the current mode, even during a pending switch. <!-- @impl: web-ui/src/components/PiWorkspaceMode.tsx::PiWorkspaceMode --> <!-- @test: web-ui/src/__tests__/components/PiWorkspaceMode.test.tsx (offers the same exclusive choices in %s form) --> <!-- @test: web-ui/src/__tests__/components/PiWorkspaceMode.test.tsx (shows pending feedback in the destination option while retaining the current mode) -->
 5. Profile is icon-only on Dashboard and workspace headers. The account email appears at the top of the open Profile menu. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (shows the Profile email only at the top of the open workspace menu) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (shows the Profile email only at the top of the open Dashboard menu in %s) -->
+6. An open mode dropdown dismisses and returns focus to its trigger when the destination activates, not when the switch is requested. <!-- @impl: web-ui/src/components/PiWorkspaceMode.tsx::PiWorkspaceMode --> <!-- @test: web-ui/src/__tests__/components/PiWorkspaceMode.test.tsx (shows pending feedback in the destination option while retaining the current mode) -->
 
 **Constraints:** None.
 
@@ -1089,6 +1090,30 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 **Dependencies:** [REQ-AGENT-276](#req-agent-276-vibe-and-code-workspace-preference)
 
 **Verification:** Automated: [Dashboard](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [Layout](../../web-ui/src/__tests__/components/Layout.test.tsx), [Session store](../../web-ui/src/__tests__/stores/session.test.ts)
+
+**Status:** Planned
+
+---
+
+### REQ-AGENT-282: Stock Pi Chat navigation and footer defaults
+
+**Intent:** Keep the embedded stock Chat focused on conversation and files.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. In a fresh browser, the stock navigation pins Chat and Files only on both desktop and phone. <!-- @impl: web-ui/src/components/PiWebChat.tsx::StockChatFrame --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (seeds stock navigation only when no browser preference exists (%s)) -->
+2. Reopening Chat preserves previously saved browser navigation choices. <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (seeds stock navigation only when no browser preference exists (%s)) -->
+3. The stock Chat footer shows token and context usage without the USD display. <!-- @impl: image/pi-web/codeflare-chrome/browser/footer.css -->
+
+**Constraints:** No stock Pi Web patch or change to the required Terminal plugin.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-274](#req-agent-274-stock-pi-chat-controls)
+
+**Verification:** Automated: [Stock Chat frame](../../web-ui/src/__tests__/components/PiWebChat.test.tsx) for the stored preference; Manual: [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout) and [Stock controls](../../documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions) for rendered navigation and footer.
 
 **Status:** Planned
 

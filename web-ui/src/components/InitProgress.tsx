@@ -138,7 +138,7 @@ const InitProgressComponent: Component<InitProgressProps> = (props) => {
           <Icon
             path={heroIcon()}
             size={48}
-            class={isComplete() ? '' : isError() ? '' : 'animate-pulse'}
+            class={isComplete() || isError() ? '' : preparingChat() ? 'animate-spin' : 'animate-pulse'}
           />
         </div>
       </div>

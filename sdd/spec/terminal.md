@@ -562,7 +562,8 @@ None.
 **Acceptance Criteria:**
 
 1. One Syncing workspace row stays active through verification, then progresses to Preparing environment. <!-- @impl: web-ui/src/components/InitProgress.tsx::InitProgressComponent --> <!-- @test: web-ui/src/__tests__/components/InitProgress.test.tsx (keeps a single workspace sync row active through verification) -->
-2. Vibe shows Loading Chat with elapsed seconds while it waits for its Open gate, then shows Ready to open. <!-- @impl: web-ui/src/components/InitProgress.tsx::InitProgressComponent --> <!-- @test: web-ui/src/__tests__/components/InitProgress.test.tsx (counts elapsed Chat preparation without showing Ready or Open prematurely) -->
+2. Vibe shows Loading Chat with the standard one-decimal elapsed counter while it waits for its Open gate, then shows Ready to open. <!-- @impl: web-ui/src/components/InitProgress.tsx::InitProgressComponent --> <!-- @test: web-ui/src/__tests__/components/InitProgress.test.tsx (counts elapsed Chat preparation without showing Ready or Open prematurely) -->
+3. The loading hero spins during Loading Chat unless reduced motion is requested. <!-- @impl: web-ui/src/components/InitProgress.tsx::InitProgressComponent --> <!-- @manual: documentation/lanes/terminal-and-ide.md#choose-the-starting-writer -->
 
 **Constraints:** None.
 
@@ -570,7 +571,7 @@ None.
 
 **Dependencies:** None.
 
-**Verification:** Automated: [Startup progress](../../web-ui/src/__tests__/components/InitProgress.test.tsx)
+**Verification:** Automated: [Startup progress](../../web-ui/src/__tests__/components/InitProgress.test.tsx); Manual: [Choose the starting writer](../../documentation/lanes/terminal-and-ide.md#choose-the-starting-writer)
 
 **Status:** Planned
 

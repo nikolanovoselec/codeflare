@@ -70,8 +70,8 @@ const Dashboard: Component<DashboardProps> = (props) => {
   const [panelFace, setPanelFace] = createSignal<'github' | 'storage'>('github');
   const vibe = () => props.workspaceMode?.value === 'chat';
   const [githubReturnError, setGithubReturnError] = createSignal<string | null>(null);
-  const countAccount = () => vibe() && githubStore.enabled && githubStore.connected && githubStore.source === 'oauth'
-    ? githubStore.login : undefined;
+  const countAccount = () => vibe() && githubStore.enabled && githubStore.connected
+    && (githubStore.source === 'oauth' || githubStore.source === 'app') ? githubStore.login : undefined;
   const [ownedRepoCounts] = createResource(countAccount, async login => {
     try {
       const result = await getGithubOwnedRepoCounts();
@@ -205,6 +205,15 @@ const Dashboard: Component<DashboardProps> = (props) => {
   const [githubMaxH, setGithubMaxH] = createSignal<number | null>(null);
   const [storageMaxH, setStorageMaxH] = createSignal<number | null>(null);
   const flipBrowsers = () => vibe() ? viewport() === 'mobile' : layoutMode() === 'flip';
+  const flipTo = (face: 'github' | 'storage') => {
+    setPanelFace(face);
+    if (!vibe() || !flipBrowsers()) return;
+    queueMicrotask(() => {
+      if (browsersClosed() || !vibe() || !flipBrowsers() || effectiveFace() !== face) return;
+      const destination = face === 'github' ? githubFaceRef : storageFaceRef;
+      destination?.querySelector<HTMLButtonElement>('.github-flip-btn, .panel-flip-back-btn')?.focus();
+    });
+  };
   const useMeasuredSplit = () => !flipBrowsers();
   const [flipViewportCap, setFlipViewportCap] = createSignal<number | null>(null);
   const activeFlipHeight = () => {
@@ -729,7 +738,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                 style={useMeasuredSplit() && githubMaxH() != null ? { 'max-height': `${githubMaxH()}px` } : undefined}
               >
                 <GitHubPanel connectReturnError={vibe() ? null : githubReturnError()}
-                  onFlip={!vibe() || flipBrowsers() ? () => setPanelFace('storage') : undefined} />
+                  onFlip={!vibe() || flipBrowsers() ? () => flipTo('storage') : undefined} />
               </div>
             </Show>
             <div
@@ -746,7 +755,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                     <IconButton
                       icon={mdiFlipVertical}
                       label="Show GitHub"
-                      onClick={() => setPanelFace('github')}
+                      onClick={() => flipTo('github')}
                       class="panel-flip-back-btn"
                       testId="storage-flip-btn"
                     />

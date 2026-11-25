@@ -287,13 +287,13 @@ describe('InitProgress Component', () => {
         expect(screen.queryByText('Ready to open', { selector: '.init-progress-stage-label' })).not.toBeInTheDocument();
         expect(screen.queryByRole('button', { name: 'Open' })).not.toBeInTheDocument();
         expect(screen.getAllByText('Loading Chat')).toHaveLength(2);
-        expect(screen.getByText('0s')).toBeVisible();
-        vi.advanceTimersByTime(3000);
-        expect(screen.getByText('3s')).toBeVisible();
+        expect(screen.getByText('0.0s')).toBeVisible();
+        vi.advanceTimersByTime(3100);
+        expect(screen.getByText('3.1s')).toBeVisible();
         setOpenReady(true);
         expect(screen.getByText('Ready to open', { selector: '.init-progress-stage-label' })).toBeVisible();
         expect(screen.getByRole('button', { name: 'Open' })).toBeVisible();
-        expect(screen.queryByText('3s')).not.toBeInTheDocument();
+        expect(screen.queryByText('3.1s')).not.toBeInTheDocument();
       } finally { cleanup(); vi.useRealTimers(); }
     });
 

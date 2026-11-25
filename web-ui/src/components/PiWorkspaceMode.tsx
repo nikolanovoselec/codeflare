@@ -1,5 +1,5 @@
 import { For, Show, createEffect, createSignal, onCleanup, onMount } from 'solid-js';
-import { mdiChevronDown, mdiFormDropdown, mdiLoading } from '@mdi/js';
+import { mdiCheck, mdiChevronDown, mdiFormDropdown, mdiLoading } from '@mdi/js';
 import { Portal } from 'solid-js/web';
 import type { PiSurface } from '../types';
 import Icon from './Icon';
@@ -78,6 +78,11 @@ export default function PiWorkspaceMode(props: PiWorkspaceModeBinding & { presen
     setOpen(false);
     trigger?.focus();
   };
+  createEffect((previous: PiSurface) => {
+    const active = props.value;
+    if (active !== previous && open()) close();
+    return active;
+  }, props.value);
   const toggle = () => {
     if (open()) { close(); return; }
     const rect = trigger?.getBoundingClientRect();
@@ -130,6 +135,9 @@ export default function PiWorkspaceMode(props: PiWorkspaceModeBinding & { presen
                 <button type="button" class="header-user-dropdown-item header-workspace-mode-choice" aria-label={label(choice)}
                   aria-pressed={props.value === choice.value} disabled={props.disabled || !!props.pendingTarget} onClick={() => select(choice.value)}>
                   <span>{label(choice)}</span>
+                  <Show when={props.value === choice.value}>
+                    <Icon path={mdiCheck} size={16} aria-hidden="true" />
+                  </Show>
                   <Show when={props.pendingTarget === choice.value}>
                     <span class="type-hint" role="status">
                       <Icon path={mdiLoading} size={14} class="animate-spin" aria-hidden="true" /> Entering {choice.name} mode...
