@@ -8,6 +8,7 @@ import { createMigrationRetry } from '../../components/MigrationRetryNotice';
 import { sessionStore } from '../../stores/session';
 import { terminalStore } from '../../stores/terminal';
 import type { Terminal } from '@xterm/xterm';
+import type { SessionWithStatus } from '../../types';
 
 // Keep the Dashboard, SessionStatCard, session store, and HTTP client real.
 // jsdom can check accessible content and commands, not card dimensions or tap targets.
@@ -33,11 +34,11 @@ function project(status: Lifecycle, revision: number, shutdownPhase?: Phase, pen
   catalog = polled = { status, lifecycle: status, generation, revision, shutdownPhase, pendingDelete };
 }
 
-function renderDashboard() {
+function renderDashboard(extra?: SessionWithStatus, onDelete = sessionStore.deleteSession) {
   const openTerminal = vi.fn();
   const start = vi.fn();
   const view = render(() => <Dashboard
-    sessions={sessionStore.sessions}
+    sessions={extra ? [...sessionStore.sessions, extra] : sessionStore.sessions}
     migrationRetry={createMigrationRetry()}
     viewState="dashboard"
     onCreateSession={() => {}}
@@ -45,7 +46,7 @@ function renderDashboard() {
     onOpenVscodeSession={() => {}}
     onOpenSessionById={openTerminal}
     onStopSession={sessionStore.stopSession}
-    onDeleteSession={sessionStore.deleteSession}
+    onDeleteSession={onDelete}
   />);
   return { ...view, openTerminal, start };
 }
@@ -212,9 +213,10 @@ it.each(['stopped', 'memory-not-merged'] as const)('REQ-SESSION-043: both cards 
   await sessionStore.loadSessions();
   await sessionStore.startSession(id);
   try {
-    renderDashboard();
+    const { openTerminal } = renderDashboard();
+    const select = vi.fn();
     render(() => <SessionDropdown isOpen sessions={sessionStore.sessions} activeSessionId="observer"
-      onSelectSession={() => {}} onStopSession={() => {}} onDeleteSession={() => {}}
+      onSelectSession={select} onStopSession={() => {}} onDeleteSession={() => {}}
       onCreateSession={() => {}} onClose={() => {}} isMobileView={false} />);
     const cards = () => screen.getAllByTestId(`session-stat-card-${id}`).map(node => within(node));
     expect(cards()).toHaveLength(2);
@@ -237,17 +239,20 @@ it.each(['stopped', 'memory-not-merged'] as const)('REQ-SESSION-043: both cards 
     }
 
     if (outcome === 'stopped') {
+      for (const view of cards()) fireEvent.click(view.getByRole('button', { name: `Activate session ${name}` }));
+      expect(openTerminal).toHaveBeenCalledWith(id);
+      expect(select).toHaveBeenCalledWith(id);
       sessionStore.dismissInitProgressForSession(id);
       for (const view of cards()) expect(view.getByRole('status', { name: 'STOPPED' })).toBeVisible();
       return;
     }
     project('stopped', 14, 'memory-not-merged');
     await sessionStore.refreshSessionStatuses();
-    for (const view of cards()) expect(view.getByRole('button', { name: 'Resume session' })).toBeEnabled();
+    for (const view of cards()) fireEvent.click(view.getByRole('button', { name: 'Resume session' }));
+    expect(openTerminal).toHaveBeenCalledWith(id);
+    expect(select).toHaveBeenCalledWith(id);
     await awaitCommand('retryMemoryConsolidation', () => fireEvent.click(cards()[0].getByRole('button', { name: 'Retry memory consolidation' })));
     expect(operations).toContain(`POST ${sessionPath}/retry-memory-consolidation`);
-
-
   } finally {
     sessionStore.dismissInitProgressForSession(id);
     await sessionStore.refreshSessionStatuses();
@@ -278,6 +283,38 @@ it('REQ-SESSION-043: repeated omissions hide both cards without changing termina
     expect(cards()).toHaveLength(0);
     expect(sessionStore.getInitProgressForSession(id)?.stage).toBe('ready');
     expect(sessionStore.sessions.some(session => session.id === id)).toBe(true);
+  } finally {
+    sessionStore.dismissInitProgressForSession(id);
+    await sessionStore.loadSessions();
+  }
+});
+
+it.each(['Dashboard', 'dropdown'] as const)('REQ-SESSION-244: %s discards Delete confirmation when its card is hidden', async surface => {
+  project('stopped', 10, undefined, undefined, 6);
+  await sessionStore.loadSessions();
+  await sessionStore.startSession(id);
+  const other = { ...sessionStore.sessions[0]!, id: 'other-session', name: 'Other workspace' };
+  const remove = vi.fn(async (_id: string) => {});
+  try {
+    if (surface === 'Dashboard') renderDashboard(other, remove);
+    else render(() => <SessionDropdown isOpen sessions={[...sessionStore.sessions, other]} activeSessionId="observer"
+      onSelectSession={() => {}} onStopSession={() => {}} onDeleteSession={remove}
+      onCreateSession={() => {}} onClose={() => {}} isMobileView={false} />);
+
+    fireEvent.click(card().getByRole('button', { name: 'Session actions' }));
+    fireEvent.click(screen.getByTestId('context-menu-delete'));
+    expect(screen.getByTestId('context-menu-delete-confirm')).toBeVisible();
+    catalog = polled = undefined;
+    for (let miss = 0; miss < 3; miss++) await sessionStore.refreshSessionStatuses();
+    expect(screen.queryByTestId(`session-stat-card-${id}`)).not.toBeInTheDocument();
+    expect(screen.queryByTestId('context-menu-delete-confirm')).not.toBeInTheDocument();
+
+    fireEvent.click(within(screen.getByTestId(`session-stat-card-${other.id}`)).getByRole('button', { name: 'Session actions' }));
+    expect(screen.queryByTestId('context-menu-delete-confirm')).not.toBeInTheDocument();
+    expect(remove).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('context-menu-delete'));
+    fireEvent.click(screen.getByTestId('context-menu-delete-confirm'));
+    expect(remove.mock.calls).toEqual([[other.id]]);
   } finally {
     sessionStore.dismissInitProgressForSession(id);
     await sessionStore.loadSessions();

@@ -327,6 +327,10 @@ const Dashboard: Component<DashboardProps> = (props) => {
     setMenuState({ isOpen: false, position: { x: 0, y: 0 }, session: null });
   };
 
+  createEffect(() => {
+    if (menuState().isOpen && !menuSession()) handleMenuClose();
+  });
+
   return (
     <div class="dashboard-container" data-testid="dashboard">
       <div class="dashboard-panel-wrapper">
@@ -554,22 +558,26 @@ const Dashboard: Component<DashboardProps> = (props) => {
                   </For>
                 </div>
                 <Portal>
-                  <SessionContextMenu
-                    isOpen={menuState().isOpen && !!menuSession()}
-                    position={menuState().position}
-                    canStop={!isShutdownInProgress(menuSession()?.shutdownPhase)
-                      && (['running', 'initializing', 'starting', 'unreachable', 'stopping'].includes(menuStatus() ?? '')
-                        || (menuSession()?.workspace === 'vscode' && menuStatus() === 'error'))}
-                    canKill={isShutdownInProgress(menuSession()?.shutdownPhase)
-                      || ['starting', 'running', 'unreachable', 'stopping'].includes(menuStatus() ?? '')}
-                    onKill={() => { const session = menuSession(); if (session) void sessionStore.killSession(session.id); }}
-                    stopLabel={menuStatus() === 'stopping' ? 'Retry Stop' : 'Stop'}
-                    sessionName={menuState().session?.name || ''}
-                    onStop={() => { if (menuState().session) props.onStopSession(menuState().session!.id); }}
-                    onDelete={() => { if (menuState().session) props.onDeleteSession(menuState().session!.id); }}
-                    onRename={(name) => { if (menuState().session) void sessionStore.renameSession(menuState().session!.id, name); }}
-                    onClose={handleMenuClose}
-                  />
+                  <Show when={menuState().isOpen && menuSession()?.id} keyed>
+                    {id => (
+                      <SessionContextMenu
+                        isOpen
+                        position={menuState().position}
+                        canStop={!isShutdownInProgress(menuSession()?.shutdownPhase)
+                          && (['running', 'initializing', 'starting', 'unreachable', 'stopping'].includes(menuStatus() ?? '')
+                            || (menuSession()?.workspace === 'vscode' && menuStatus() === 'error'))}
+                        canKill={isShutdownInProgress(menuSession()?.shutdownPhase)
+                          || ['starting', 'running', 'unreachable', 'stopping'].includes(menuStatus() ?? '')}
+                        onKill={() => { const session = menuSession(); if (session) void sessionStore.killSession(session.id); }}
+                        stopLabel={menuStatus() === 'stopping' ? 'Retry Stop' : 'Stop'}
+                        sessionName={menuState().session?.name || ''}
+                        onStop={() => { if (menuState().session) props.onStopSession(menuState().session!.id); }}
+                        onDelete={() => { if (menuSession()?.id === id) props.onDeleteSession(id); }}
+                        onRename={(name) => { if (menuState().session) void sessionStore.renameSession(menuState().session!.id, name); }}
+                        onClose={handleMenuClose}
+                      />
+                    )}
+                  </Show>
                 </Portal>
               </div>
             </Show>
