@@ -1054,7 +1054,11 @@ COPY host/package.json /app/host/
 COPY --from=builder /opt/codeflare/pi-web /opt/codeflare/pi-web
 COPY --chmod=0555 image/pi-web/codeflare-chrome/ /opt/codeflare/pi-web/codeflare-chrome/
 COPY --chmod=0555 image/pi-web/codeflare-pi /usr/local/bin/codeflare-terminal-writer
-COPY --chmod=0444 image/pi-web/handoff-extension.ts image/pi-web/native-preflight.mjs scripts/ci/smoke-pi-web-handoff.mjs /opt/codeflare/pi-web/
+COPY --chmod=0444 image/pi-web/handoff-extension.ts image/pi-web/native-preflight.mjs image/pi-web/warm-compile-cache.mjs scripts/ci/smoke-pi-web-handoff.mjs /opt/codeflare/pi-web/
+# Bake the installed stock services at their runtime paths, without a user profile or writer.
+RUN --network=none if node /opt/codeflare/scripts/coding-agent-selection.mjs has "$CODEFLARE_CODING_AGENTS" pi; then \
+      node /opt/codeflare/pi-web/warm-compile-cache.mjs; \
+    fi
 
 # Copy entrypoint script and its phase-oriented Vault compaction helper.
 COPY entrypoint.sh /entrypoint.sh

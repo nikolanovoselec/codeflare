@@ -999,6 +999,29 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 ---
 
+### REQ-AGENT-284: Pi Web image prewarm
+
+**Intent:** Reduce cold stock Chat service startup work without opening a conversation.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Pi-enabled image builds bake Node compile-cache entries from the installed Pi Web services for the runtime launchers to reuse. <!-- @impl: Dockerfile::image/pi-web/warm-compile-cache.mjs --> <!-- @test: image/pi-web/warm-compile-cache.mjs (bakeCompileCache) -->
+2. Image prewarming starts no Pi conversation. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @test: image/pi-web/warm-compile-cache.mjs (measureStartup) -->
+
+**Constraints:** Use an empty disposable profile and the installed package; no separate Pi Web version pin.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-275](#req-agent-275-classic-pi-chat-startup)
+
+**Verification:** Automated: [Image cache bake](../../image/pi-web/warm-compile-cache.mjs)
+
+**Status:** Planned
+
+---
+
 ### REQ-AGENT-283: Initial Chat service recovery
 
 **Intent:** Recover an interrupted Chat-first start without replacing the conversation.

@@ -54,6 +54,8 @@ Herdr image settings manage mobile layout, mouse capture, browser-owned clipboar
 | Panel geometry | [Check desktop and mobile layout](#check-desktop-and-mobile-layout). |
 | Passive clients and stock controls | [Check stale frames and native questions](#check-stale-frames-and-native-questions). |
 
+Pi-enabled images [prewarm stock Pi Web](../../sdd/spec/agents.md#req-agent-284-pi-web-image-prewarm) using the installed package, the runtime launchers, and a disposable profile. Image build logs report service startup with empty and populated Node caches. These timings do not measure browser readiness or the time until Open.
+
 #### Choose the starting writer
 
 [REQ-AGENT-275](../../sdd/spec/agents.md#req-agent-275-classic-pi-chat-startup) covers startup and frame recovery.
