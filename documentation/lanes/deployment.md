@@ -108,10 +108,11 @@ For OPS-061 use the private [persistent SSH runbook](https://github.com/nikolano
 - Verify Reports disabled state, schedule presentation, current-month test email, provider failure and delivery history.
 - Verify Activity empty and retained-run states. Confirm records contain no submitted secrets.
 - Leave Analytics, Reports and Activity idle through a stable polling interval: their data requests must not recur. Then exercise navigation, filters, explicit refresh and an applicable run reconnect; only those actions should request their data.
-- In browser network tools, verify five-second transition polling and cancellation of scheduled polls when hidden.
+- In browser Network, filter to `/api/sessions/batch-status`. Verify five-second transition polling and cancellation of scheduled polls when hidden.
 - With sessions stable and the observer page visible, verify 60-second polling with the dropdown closed.
 - With stable sessions and the dropdown open, verify a five-second delay from each settled read to the next.
-- On dropdown open or visibility return, expect an immediate new read only if none is pending. Otherwise check that reads do not overlap and polling resumes after settlement.
+- Test both dropdown open and visibility return without a pending read; each should trigger an immediate read.
+- Repeat both actions while a lifecycle read is visibly pending. Throttle the authorized Integration observer if needed. Verify no overlap and that polling resumes after settlement. If this case cannot be observed, record it as unverified.
 - Verify desktop and mobile hierarchy against the approved Administration and Analytics design catalog.
 - In full-fidelity logs, distinguish routine successful pings, which emit no custom success log, from the billing event emitted after a SaaS ping ends a trial at its compute cap and records the transition.
   - Inspect existing observations only; do not end a trial or trigger a charge for this check. No existing trial-ending record means that exception was not observed.

@@ -46,6 +46,7 @@ type ProduceSetter = (fn: (s: SessionState) => void) => void;
 type RawSetter = (...args: any[]) => void;
 type StatusUpdater = (id: string, status: SessionStatus, shutdownPhase?: ShutdownPhase) => void;
 type ShutdownUpdater = (index: number, incoming: Awaited<ReturnType<typeof api.getBatchSessionStatus>>['statuses'][string]) => void;
+type ReadyProjectionGuard = (id: string, incoming: Awaited<ReturnType<typeof api.getBatchSessionStatus>>['statuses'][string]) => boolean;
 type ReadyShutdownRelease = (id: string, incoming: Awaited<ReturnType<typeof api.getBatchSessionStatus>>['statuses'][string]) => void;
 type InitChecker = (id: string) => boolean;
 type NegativeKvGuard = (id: string, batchOmission?: boolean) => boolean;
@@ -64,6 +65,7 @@ let setStateRaw: RawSetter;
 let updateSessionStatusFn: StatusUpdater;
 let applyShutdownFieldsFn: ShutdownUpdater;
 let releaseReadyForShutdownFn: ReadyShutdownRelease;
+let canApplyReadyProjectionFn: ReadyProjectionGuard;
 let removeConfirmedSession: (id: string) => void;
 let isSessionInitializingFn: InitChecker;
 let isLocallyStoppingFn: InitChecker;
@@ -79,6 +81,7 @@ export function registerPollingDeps(deps: {
   updateSessionStatus: StatusUpdater;
   applyShutdownFields: ShutdownUpdater;
   releaseReadyForShutdown: ReadyShutdownRelease;
+  canApplyReadyProjection: ReadyProjectionGuard;
   removeConfirmedSession: (id: string) => void;
   isSessionInitializing: InitChecker;
   isLocallyStopping: InitChecker;
@@ -93,6 +96,7 @@ export function registerPollingDeps(deps: {
   updateSessionStatusFn = deps.updateSessionStatus;
   applyShutdownFieldsFn = deps.applyShutdownFields;
   releaseReadyForShutdownFn = deps.releaseReadyForShutdown;
+  canApplyReadyProjectionFn = deps.canApplyReadyProjection;
   removeConfirmedSession = deps.removeConfirmedSession;
   isSessionInitializingFn = deps.isSessionInitializing;
   isLocallyStoppingFn = deps.isLocallyStopping;
@@ -316,7 +320,7 @@ async function refreshSessionStatusesOnce(forceManagedReleaseCheck: boolean): Pr
         revision: remote.revision,
       };
       const ordered = applyOrderedProjection(currentProjection, incomingProjection);
-      if (ordered !== incomingProjection) continue;
+      if (ordered !== incomingProjection || !canApplyReadyProjectionFn(session.id, remote)) continue;
 
       // Propagate durable fields from batch-status. Terminal connectivity is
       // device-local and is never overwritten by a backend projection.
@@ -337,8 +341,8 @@ async function refreshSessionStatusesOnce(forceManagedReleaseCheck: boolean): Pr
 
       // Guard 1: Only the local Stop poll owns termination; persisted stopping
       // can accept a newer D1 stopped projection.
-      if (isLocallyStoppingFn(session.id)) continue;
       releaseReadyForShutdownFn(session.id, remote);
+      if (isLocallyStoppingFn(session.id)) continue;
 
       // Keep startup's local presentation, but record accepted D1 authority so
       // a delayed Ready cannot override a stop or a replacement already seen.

@@ -2007,7 +2007,7 @@ describe('Session Store', () => {
       } finally { cleanup(); }
     });
 
-    it.each(['phase-less poll', 'queued poll', 'newer-generation queued poll', 'Kill before withdrawal', 'Retry Stop after withdrawal', 'replacement poll', 'replacement catalog', 'catalog', 'newer-generation catalog', 'omissions'] as const)('REQ-TERM-043: ordered %s shutdown releases a pending Ready screen', async read => {
+    it.each(['phase-less poll', 'queued poll', 'newer-generation queued poll', 'Kill before withdrawal', 'legacy Stop after Ready', 'rate-limited initial Stop', 'superseded rate-limited Stop', 'ambiguous initial Stop', 'Retry Stop after withdrawal', 'replacement poll', 'replacement catalog', 'catalog', 'newer-generation catalog', 'omissions'] as const)('REQ-TERM-043: ordered %s shutdown releases a pending Ready screen', async read => {
       const session = { id: `ready-shutdown-${read}`, name: 'Ready shutdown', workspace: 'terminal' as const,
         createdAt: '2026-01-01', lastAccessedAt: '2026-01-01',
         lifecycle: 'stopped' as const, status: 'stopped' as const, generation: 6, revision: 1 };
@@ -2079,10 +2079,54 @@ describe('Session Store', () => {
             expect(pane).toHaveStyle({ visibility: 'hidden' });
             expect(terminalLifecycle.ownedSessionIds.has(session.id)).toBe(true);
           };
-          if (read !== 'Kill before withdrawal') {
+          const initialStopFailure = read === 'rate-limited initial Stop' || read === 'superseded rate-limited Stop' || read === 'ambiguous initial Stop';
+          if (read !== 'Kill before withdrawal' && read !== 'legacy Stop after Ready' && !initialStopFailure) {
             await observe({ ...shutdown, generation, revision: 3 });
             expect(current()).toMatchObject({ ...shutdown, generation });
             expectPreserved();
+          }
+
+          if (read === 'legacy Stop after Ready') {
+            vi.mocked(api.stopSession).mockResolvedValueOnce(undefined);
+            const stopping = sessionStore.stopSession(session.id);
+            mockGetBatchSessionStatus.mockResolvedValue({ statuses: { [session.id]: { ...stale, revision: 99 } } });
+            await vi.advanceTimersByTimeAsync(STOP_POLL_INTERVAL_MS);
+            expect(current()?.status).toBe('stopping');
+            expectPreserved();
+            mockGetBatchSessionStatus.mockResolvedValue({ statuses: {
+              [session.id]: { status: 'stopped', lifecycle: 'stopped', generation, revision: 4 },
+            } });
+            await vi.advanceTimersByTimeAsync(STOP_POLL_INTERVAL_MS);
+            expect(current()?.status).toBe('stopped');
+            await stopping;
+          }
+
+          if (initialStopFailure) {
+            const { ApiError } = await import('../../api/fetch-helper');
+            const refused = new ApiError('Slow down', 429, 'Too Many Requests');
+            refused.code = 'RATE_LIMIT_ERROR';
+            let rejectStop!: (err: Error) => void;
+            vi.mocked(api.stopSession).mockImplementationOnce(() => new Promise<never>((_, reject) => { rejectStop = reject; }));
+            const stopping = sessionStore.stopSession(session.id);
+            try {
+              expectPreserved();
+              if (read === 'superseded rate-limited Stop') {
+                await observe({ status: 'stopping', lifecycle: 'stopping', generation, revision: 3 });
+              }
+            } finally {
+              rejectStop(read === 'ambiguous initial Stop' ? new Error('Connection lost') : refused);
+              await stopping;
+            }
+            await observe({ status: 'running', lifecycle: 'running', generation, revision: 4 });
+            if (read === 'rate-limited initial Stop') {
+              expect(screen.getByRole('button', { name: 'Open' })).toBeVisible();
+              expect(view.container.querySelector('.terminal-container')).toBe(pane);
+              expect(pane).toHaveStyle({ visibility: 'hidden' });
+              sessionStore.dismissInitProgressForSession(session.id);
+              return;
+            }
+            expectPreserved();
+            await observe({ status: 'stopping', lifecycle: 'stopping', generation, revision: 5 });
           }
 
           if (read === 'phase-less poll' || read === 'Kill before withdrawal' || read === 'Retry Stop after withdrawal') {
@@ -2092,6 +2136,16 @@ describe('Session Store', () => {
             const pending = sessionStore[command](session.id);
             try {
               expectPreserved();
+              if (read === 'Kill before withdrawal') {
+                await observe({ ...stale, revision: 99 });
+                expect(current()?.status).toBe('stopping');
+                expectPreserved();
+                // The catalog and its enrichment can only report the older runtime too.
+                mockGetSessions.mockResolvedValue([{ ...session, revision: 99 }]);
+                await sessionStore.loadSessions();
+                expect(current()?.status).toBe('stopping');
+                expectPreserved();
+              }
             } finally {
               rejectCommand(new Error('Shutdown command failed'));
               await pending;
@@ -2120,7 +2174,7 @@ describe('Session Store', () => {
             return;
           }
 
-          await observe({ status: 'stopped', lifecycle: 'stopped', generation, revision: 4 });
+          await observe({ status: 'stopped', lifecycle: 'stopped', generation, revision: 6 });
           expect(current()).toMatchObject({ status: 'stopped', lifecycle: 'stopped' });
           expect(pane).not.toBeInTheDocument();
           expect(terminalLifecycle.ownedSessionIds.has(session.id)).toBe(false);
