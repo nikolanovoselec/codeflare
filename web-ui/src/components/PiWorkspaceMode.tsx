@@ -30,6 +30,7 @@ export default function PiWorkspaceMode(props: PiWorkspaceModeBinding & { presen
   const [open, setOpen] = createSignal(false);
   const current = () => props.value === 'chat' ? choices[0] : choices[1];
   let root: HTMLDivElement | undefined;
+  let labelMeasure: HTMLSpanElement | undefined;
   let trigger: HTMLButtonElement | undefined;
   let popup: HTMLDivElement | undefined;
   const [position, setPosition] = createSignal<{ top: number; right: number }>();
@@ -39,11 +40,12 @@ export default function PiWorkspaceMode(props: PiWorkspaceModeBinding & { presen
     const header = actions?.parentElement;
     if (!props.fitContainer || !header || !actions || !root || typeof ResizeObserver === 'undefined') return;
     const slot = root;
-    let textWidth = 0;
+    if (!labelMeasure) return;
+    const labelBox = labelMeasure;
     const pixels = (value: string) => Number.parseFloat(value) || 0;
     const measure = () => {
       if (!header.clientWidth || preferred() === 'icon') { setCompact(false); return; }
-      if (presentation() === 'text') textWidth = slot.scrollWidth || textWidth;
+      const textWidth = labelBox.getBoundingClientRect().width;
       const headerStyle = getComputedStyle(header);
       const room = header.clientWidth - pixels(headerStyle.paddingLeft) - pixels(headerStyle.paddingRight);
       const siblings = [...actions.children].filter(child => child !== slot && child.getClientRects().length);
@@ -56,9 +58,12 @@ export default function PiWorkspaceMode(props: PiWorkspaceModeBinding & { presen
     const observer = new ResizeObserver(measure);
     observer.observe(header);
     observer.observe(actions);
-    observer.observe(slot);
+    observer.observe(labelBox);
     for (const child of header.children) if (child !== actions) observer.observe(child);
-    measure();
+    createEffect(() => {
+      current();
+      measure();
+    });
     onCleanup(() => observer.disconnect());
   });
 
@@ -81,15 +86,24 @@ export default function PiWorkspaceMode(props: PiWorkspaceModeBinding & { presen
     if (value !== props.value) props.onSelect(value);
   };
 
+  const triggerLabel = () => <>
+    <span>{current().name} · {current().surface}</span><Icon path={mdiChevronDown} size={18} aria-hidden="true" />
+  </>;
+
   return (
     <div class="session-switcher-wrapper" ref={root}>
+      <Show when={props.fitContainer}>
+        <span class="session-switcher workspace-mode-label-measure" ref={labelMeasure} aria-hidden="true">
+          {triggerLabel()}
+        </span>
+      </Show>
       <button ref={trigger} type="button"
         classList={{ 'session-switcher': true, 'session-switcher--mobile': presentation() === 'icon' }}
         aria-label={`Workspace mode: ${label(current())}`} aria-expanded={open()}
         disabled={props.disabled} onClick={toggle}
         onKeyDown={event => { if (event.key === 'Escape' && open()) { event.stopPropagation(); close(); } }}>
         <Show when={presentation() === 'text'} fallback={<Icon path={mdiFormDropdown} size={22} aria-hidden="true" />}>
-          <span>{current().name} · {current().surface}</span><Icon path={mdiChevronDown} size={18} aria-hidden="true" />
+          {triggerLabel()}
         </Show>
       </button>
       <Show when={open()}>

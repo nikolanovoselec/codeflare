@@ -7,6 +7,44 @@ import type { PiSurface } from '../../types';
 const name = 'Vibe — Chat';
 const code = 'Code — Terminal';
 
+async function withMeasuredHeader(check: (fixture: {
+  narrow: (width: number) => void;
+  trigger: (mode: string) => HTMLElement;
+}) => Promise<void>) {
+  let width = 800;
+  let resize = () => {};
+  const clientWidth = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(() => width);
+  const bounds = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    return { width: this.textContent === 'Code · Terminal' ? 160 : this.textContent === 'Vibe · Chat' ? 132 : 120 } as DOMRect;
+  });
+  const rects = vi.spyOn(HTMLElement.prototype, 'getClientRects').mockImplementation(function (this: HTMLElement) {
+    const rect = this.getBoundingClientRect();
+    return { 0: rect, length: 1, item: () => rect };
+  });
+  vi.stubGlobal('ResizeObserver', class {
+    constructor(callback: () => void) { resize = callback; }
+    observe() {}
+    disconnect() {}
+  });
+  const [value, change] = createSignal<PiSurface>('terminal');
+  try {
+    render(() => <header><span>Codeflare</span><div class="header-spacer" />
+      <div class="header-actions" style={{ 'column-gap': '8px' }}>
+        <PiWorkspaceMode fitContainer value={value()} onSelect={change} /><button>Profile</button>
+      </div>
+    </header>);
+    // Both the labeled trigger and its measurement use the mode's real text.
+    await check({ narrow: next => { width = next; resize(); },
+      trigger: mode => screen.getByRole('button', { name: `Workspace mode: ${mode}` }) });
+  } finally {
+    cleanup();
+    clientWidth.mockRestore();
+    bounds.mockRestore();
+    rects.mockRestore();
+    vi.unstubAllGlobals();
+  }
+}
+
 describe('Pi workspace mode selector', () => {
   it.each(['text', 'icon'] as const)('offers the same exclusive choices in %s form', async presentation => {
     const [value, change] = createSignal<PiSurface>('chat');
@@ -19,35 +57,25 @@ describe('Pi workspace mode selector', () => {
     expect(trigger).toHaveFocus();
   });
 
-  it('compacts a desktop selector when its header narrows and restores the labeled dropdown when it expands', () => {
-    let width = 800;
-    let resize: () => void = () => {};
-    const clientWidth = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(() => width);
-    const scrollWidth = vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockReturnValue(160);
-    const bounds = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 120 } as DOMRect);
-    vi.stubGlobal('ResizeObserver', class {
-      constructor(callback: () => void) { resize = callback; }
-      observe() {}
-      disconnect() {}
+  it('compacts a desktop selector when Profile leaves too little room and restores it when the header expands', async () => {
+    await withMeasuredHeader(async ({ narrow, trigger }) => {
+      expect(trigger(code)).toHaveTextContent('Code · Terminal');
+      narrow(448); // Profile and its gap leave 156px; without the gap Code would fit.
+      expect(trigger(code)).not.toHaveTextContent('Code · Terminal');
+      narrow(800);
+      expect(trigger(code)).toHaveTextContent('Code · Terminal');
     });
-    try {
-      render(() => <header><span>Codeflare</span><div class="header-spacer" />
-        <div class="header-actions"><PiWorkspaceMode fitContainer value="chat" onSelect={() => {}} /><span>Profile</span></div>
-      </header>);
-      expect(screen.getByRole('button', { name: `Workspace mode: ${name}` })).toHaveTextContent('Vibe · Chat');
-      width = 320;
-      resize();
-      expect(screen.getByRole('button', { name: `Workspace mode: ${name}` })).not.toHaveTextContent('Vibe · Chat');
-      width = 800;
-      resize();
-      expect(screen.getByRole('button', { name: `Workspace mode: ${name}` })).toHaveTextContent('Vibe · Chat');
-    } finally {
-      cleanup();
-      clientWidth.mockRestore();
-      scrollWidth.mockRestore();
-      bounds.mockRestore();
-      vi.unstubAllGlobals();
-    }
+  });
+
+  it('restores the shorter Vibe label after switching modes without resizing the header', async () => {
+    await withMeasuredHeader(async ({ narrow, trigger }) => {
+      narrow(440); // 148px fits Vibe (132px), not Code (160px).
+      expect(trigger(code)).not.toHaveTextContent('Code · Terminal');
+      await fireEvent.click(trigger(code));
+      await fireEvent.click(screen.getByRole('button', { name }));
+      expect(trigger(name)).toHaveTextContent('Vibe · Chat');
+      expect(trigger(name)).toHaveFocus();
+    });
   });
 
   it('opens outside the header clipping boundary, focuses the current choice and restores focus on overlay dismissal', async () => {
