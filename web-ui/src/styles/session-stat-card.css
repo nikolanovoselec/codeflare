@@ -206,23 +206,10 @@
 }
 
 .session-stat-card__shutdown-notice {
-  position: absolute;
-  inset-block: 0;
-  inset-inline: 3rem min(37%, 5rem);
-  display: grid;
-  place-items: center;
-  pointer-events: none;
-  text-align: center;
+  /* Reserve space for the phase text and its metrics note. */
+  min-block-size: 2lh;
   font-size: var(--text-xs);
   line-height: var(--leading-tight);
-}
-
-.session-stat-card__shutdown-notice span {
-  max-width: 100%;
-  padding: var(--space-1);
-  overflow-wrap: anywhere;
-  border-radius: var(--radius-sm);
-  background: var(--color-bg-overlay);
 }
 
 .session-stat-card__metrics-note {
@@ -233,7 +220,7 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .session-stat-card__shutdown-notice span {
+  .session-stat-card__shutdown-notice .session-stat-card__phase {
     animation: dashboard-icon-glow 3s ease-in-out infinite;
   }
 }

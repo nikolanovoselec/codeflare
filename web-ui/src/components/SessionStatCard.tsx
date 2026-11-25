@@ -36,9 +36,9 @@ const METRICS_FRESHNESS_MS = 75_000;
 
 const shutdownLabels: Record<ShutdownPhase, string> = {
   queued: 'Memory consolidation pending...',
-  saving: 'Shutting down. Saving session files',
+  saving: 'Memory consolidation pending...',
   consolidating: 'Consolidating memory...',
-  finishing: 'Shutting down. Finishing',
+  finishing: '',
   'memory-not-merged': 'Stopped · memory not merged',
 };
 
@@ -271,12 +271,12 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
             </div>
           </Show>
         </Show>
+      </div>
+      <div class="session-stat-card__shutdown-notice">
         <Show when={shutdownInProgress()}>
-          <div class="session-stat-card__shutdown-notice" role="status">
-            <span class="session-stat-card__phase">
-              {shutdownLabel()}
-              <Show when={metricsNotice()}>{notice => <small class="session-stat-card__metrics-note">{notice()}</small>}</Show>
-            </span>
+          <div role="status">
+            <Show when={shutdownLabel()}>{label => <span class="session-stat-card__phase">{label()}</span>}</Show>
+            <Show when={metricsNotice()}>{notice => <small class="session-stat-card__metrics-note">{notice()}</small>}</Show>
           </div>
         </Show>
       </div>

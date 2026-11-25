@@ -154,8 +154,15 @@ it.each(['Stop', 'Delete'] as const)('REQ-SESSION-043: accepted %s advances both
     for (const metric of ['7%', '1.2G', '3.1G']) expect(view.getByText(metric)).toBeVisible();
     expect(view.queryByRole('button', { name: /activate session|resume session/i })).not.toBeInTheDocument();
   }
+  polled = { ...polled, revision: 13, shutdownPhase: 'finishing' };
+  await vi.advanceTimersByTimeAsync(SESSION_POLL_TRANSITION_MS);
+  for (const view of cards()) {
+    expect(view.queryByText(/shutting down|consolidating memory|memory consolidation pending/i)).not.toBeInTheDocument();
+    expect(view.getByText('7%')).toBeVisible();
+    expect(view.queryByRole('button', { name: /activate session|resume session/i })).not.toBeInTheDocument();
+  }
   if (action === 'Stop') {
-    polled = { status: 'stopped', lifecycle: 'stopped', generation: 7, revision: 13 };
+    polled = { status: 'stopped', lifecycle: 'stopped', generation: 7, revision: 14 };
     await vi.advanceTimersByTimeAsync(SESSION_POLL_TRANSITION_MS);
     for (const view of cards()) expect(view.getByRole('status', { name: 'STOPPED' })).toBeVisible();
   } else {
@@ -647,7 +654,8 @@ it('REQ-SESSION-043: renders durable shutdown phases on the card without inventi
 
   project('stopping', 11, 'saving');
   await sessionStore.refreshSessionStatuses();
-  expect(card().getByText(/saving/i)).toBeVisible();
+  expect(card().getByText('Memory consolidation pending...')).toBeVisible();
+  expect(card().queryByText(/saving session files/i)).not.toBeInTheDocument();
 
   project('stopping', 12, 'consolidating');
   await sessionStore.refreshSessionStatuses();
@@ -656,7 +664,8 @@ it('REQ-SESSION-043: renders durable shutdown phases on the card without inventi
 
   project('stopping', 13, 'finishing');
   await sessionStore.refreshSessionStatuses();
-  expect(card().getByText(/finishing/i)).toBeVisible();
+  expect(card().queryByText(/shutting down|consolidating memory|memory consolidation pending/i)).not.toBeInTheDocument();
+  expect(card().queryByRole('button', { name: /activate session/i })).not.toBeInTheDocument();
   expect(card().queryByRole('status', { name: /^stopped$/i })).not.toBeInTheDocument();
 });
 
@@ -737,7 +746,7 @@ it('REQ-SESSION-043: an accepted Delete retains the card through merge failure a
   expect(operations).toEqual([`DELETE ${sessionPath}`, `POST ${sessionPath}/retry-memory-consolidation`]);
   project('stopping', 13, 'finishing', true);
   await sessionStore.refreshSessionStatuses();
-  expect(card().getByText(/finishing/i)).toBeVisible();
+  expect(card().queryByRole('button', { name: /activate session/i })).not.toBeInTheDocument();
   sessionStore.setActiveSession(id);
   catalog = polled = undefined;
   // Each observation comes from a distinct successful HTTP read, not another
@@ -747,7 +756,7 @@ it('REQ-SESSION-043: an accepted Delete retains the card through merge failure a
     await Promise.all([served, sessionStore.refreshSessionStatuses()]);
     onBatchRequest = undefined;
     expect(sessionStore.statusUnavailable).toBe(false);
-    if (misses < 3) expect(card().getByText(/finishing/i)).toBeVisible();
+    if (misses < 3) expect(card().queryByRole('button', { name: /activate session/i })).not.toBeInTheDocument();
   }
   expect(sessionStore.sessions.some(session => session.id === id)).toBe(false);
   expect(sessionStore.activeSessionId).toBeNull();
@@ -762,7 +771,7 @@ it('REQ-SESSION-043: a settled Stop clears recovery controls and rejects older m
   expect(operations).toEqual([`POST ${sessionPath}/retry-memory-consolidation`]);
   project('stopping', 11, 'finishing');
   await sessionStore.refreshSessionStatuses();
-  expect(card().getByText(/finishing/i)).toBeVisible();
+  expect(card().queryByRole('button', { name: /activate session/i })).not.toBeInTheDocument();
   project('stopped', 12);
   await sessionStore.refreshSessionStatuses();
   const stale: Projection = { status: 'stopped', lifecycle: 'stopped', generation: 7, revision: 10, shutdownPhase: 'memory-not-merged' };
