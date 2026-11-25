@@ -5,6 +5,7 @@ import { once } from 'node:events';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import { join } from 'node:path';
+import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createPiWebServices, PI_WEB_PORT } from '../../host/dist/pi-web-services.js';
@@ -176,7 +177,7 @@ try {
   const inventoryStart = entrypoint.indexOf('\nconfigure_pi_packages_and_review_inventory() {');
   const inventoryEnd = entrypoint.indexOf('\nwarm_pi_npm_dependencies() {', inventoryStart);
   assert.ok(inventoryStart >= 0 && inventoryEnd > inventoryStart, 'find the production package inventory function');
-  function verifyBundledManagerFilePreservation() {
+  await test('preserves bundled MCP Manager files during registration retirement', () => {
     const managerEntries = readdirSync(bundledMcpManager, { recursive: true }).sort();
     const managerFiles = managerEntries.filter(entry => statSync(join(bundledMcpManager, entry)).isFile())
       .map(entry => [entry, readFileSync(join(bundledMcpManager, entry))]);
@@ -188,8 +189,7 @@ try {
     for (const [entry, bytes] of managerFiles) {
       assert.deepEqual(readFileSync(join(bundledMcpManager, entry)), bytes, `preserve shipped Manager file: ${entry}`);
     }
-  }
-  verifyBundledManagerFilePreservation();
+  });
   const migration = readFileSync(new URL('../../00-mcp-adapter-config.ts', import.meta.url));
   writeFileSync(join(agentDir, 'extensions/00-mcp-adapter-config.ts'), migration);
   const adapterRegistration = json(settingsPath).packages.find(source => typeof source === 'string' && /^npm:pi-mcp-adapter@/.test(source));
