@@ -395,15 +395,25 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
     });
   });
 
+  it('shows the Profile email only at the top of the open workspace menu', () => {
+    const email = 'fixture@example.com';
+    render(() => <Header {...defaultSessionProps} userName={email} />);
+    expect(screen.queryByText(email)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'User menu' }));
+    const menu = screen.getByTestId('header-user-dropdown');
+    expect(within(menu).getByText(email)).toBeVisible();
+    expect(menu.firstElementChild).toHaveTextContent(email);
+  });
+
   it('places the labeled desktop mode dropdown immediately before Profile', () => {
     render(() => <Header {...defaultSessionProps} workspaceMode={{ value: 'terminal', onSelect: () => {} }} />);
-    const trigger = screen.getByRole('button', { name: 'Workspace mode: Code — Terminal' });
-    expect(trigger).toHaveTextContent('Code · Terminal');
+    const trigger = screen.getByRole('button', { name: 'Workspace mode: Code Mode' });
+    expect(trigger).toHaveTextContent('Code Mode');
     const profile = screen.getByTestId('header-user-menu');
     const toolbarButtons = within(profile.closest('.header-actions') as HTMLElement).getAllByRole('button');
     expect(toolbarButtons[toolbarButtons.indexOf(profile) - 1]).toBe(trigger);
     fireEvent.click(trigger);
-    expect(screen.getByRole('button', { name: 'Vibe — Chat' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Vibe Mode' })).toBeVisible();
   });
 
   it('moves VS Code, Operators, then Vault into Profile and restores them in reverse order', async () => {

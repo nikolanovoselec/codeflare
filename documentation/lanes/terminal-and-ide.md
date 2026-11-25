@@ -211,6 +211,8 @@ In Vibe, the [GitHub and Storage drawer](../../sdd/spec/github.md#req-github-321
 
 Try a tablet viewport such as 960px. In Vibe, open and close the Dashboard drawer to vary the header width without changing the viewport. Verify the label appears when it fits and the icon replaces it when it does not.
 
+Open the dropdown and verify **Vibe Mode** and **Code Mode**, with **(Current)** only on the active choice.
+
 At 390px verify the icon-only dropdown sits before Profile and opens the same choices. Separately, on desktop, narrow the Dashboard card until the text no longer fits; the icon should replace it, and the label should return when it fits again.
 
 Use an authorized running Enterprise workspace with the mode selector, VS Code, Vault, and the sleep countdown visible.
@@ -223,9 +225,11 @@ At 375px, verify Settings is reachable and the groups retain the one-slot gap. C
 
 Select **Vibe** and use an authorized account with GitHub enabled. Verify both browsers open beside the summary column on desktop and tablet, and below it on mobile. Close them and confirm keyboard focus cannot enter the hidden panels. In the delivered build, repeat with `prefers-reduced-motion: reduce` and verify the same behavior without the slide. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-body--disclosure -->
 
-With the browsers closed, check that Profile shows only an icon and its menu still opens. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard -->
+With the browsers open and closed, verify Profile stays icon-only and the email appears at the top of its open menu. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard -->
 
-Measure the grip at 150px along the edge, vertical on desktop/tablet and horizontal on mobile. Verify that only the slim grip is outlined and its 44px cross-axis hit target remains clickable. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-pull -->
+On desktop and tablet, verify that the grip is the only part protruding beyond the summary’s right edge when closed. Open the browsers and verify that the same grip moves to their far right edge. Check that the chevrons point outward to open and inward to close.
+
+Measure the grip at 150px along the edge, vertical on desktop/tablet and horizontal on mobile. Verify its 44px cross-axis hit target remains clickable. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-pull -->
 
 ### GitHub workspace manual acceptance
 

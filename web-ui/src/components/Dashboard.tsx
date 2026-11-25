@@ -85,7 +85,6 @@ const Dashboard: Component<DashboardProps> = (props) => {
   const [browsersOpen, setBrowsersOpen] = createSignal(false);
   let browserPull: HTMLButtonElement | undefined;
   const browsersClosed = () => vibe() && !browsersOpen();
-  const compactProfile = () => viewport() === 'mobile' || browsersClosed();
   const browsersId = createUniqueId();
   const browserLabel = () => githubStore.enabled ? 'GitHub & Storage' : 'Storage';
   const pullIcon = () => viewport() === 'mobile'
@@ -198,6 +197,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
   const [layoutMode, setLayoutMode] = createSignal<'split' | 'flip' | null>(null);
   const [githubMaxH, setGithubMaxH] = createSignal<number | null>(null);
   const [storageMaxH, setStorageMaxH] = createSignal<number | null>(null);
+  const useMeasuredSplit = () => vibe() ? viewport() !== 'mobile' : layoutMode() !== 'flip';
   const [flipViewportCap, setFlipViewportCap] = createSignal<number | null>(null);
   const activeFlipHeight = () => {
     const natural = effectiveFace() === 'github' ? githubMaxH() : storageMaxH();
@@ -242,7 +242,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
 
   const measureLayout = () => {
     const right = rightColRef;
-    if (!right) return;
+    if (!right || browsersClosed()) return;
     // width = VIEWPORT (mobile breakpoint, matches the CSS flip); height = the
     // column's own box (too-short check). Never the column's measured WIDTH — the
     // layout caps that small, so it would wrongly flip every tablet/laptop.
@@ -403,9 +403,9 @@ const Dashboard: Component<DashboardProps> = (props) => {
               <button
                 type="button"
                 ref={userBtnRef}
-                class="header-user-menu" classList={{ 'session-switcher--mobile': compactProfile() }}
+                class="header-user-menu"
                 data-testid="header-user-menu"
-                aria-label={compactProfile() ? 'User menu' : undefined}
+                aria-label="User menu"
                 title="User menu"
                 onClick={() => {
                   if (!showUserMenu() && userBtnRef) {
@@ -417,9 +417,6 @@ const Dashboard: Component<DashboardProps> = (props) => {
               >
                 <Show when={props.userName && gravatarOk()} fallback={<Icon path={mdiShieldAccount} size={24} class="header-user-avatar" />}>
                   <img src={getGravatarUrl(props.userName!, 48)} alt="Avatar" class="header-user-avatar-img" width={24} height={24} />
-                </Show>
-                <Show when={props.userName && !compactProfile()}>
-                  <span class="header-user-name">{props.userName}</span>
                 </Show>
               </button>
             </div>
@@ -437,6 +434,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                     onClick={(e) => e.stopPropagation()}
                     style={window.innerWidth > 640 ? { top: `${userMenuPos().top}px`, right: `${userMenuPos().right}px` } : undefined}
                   >
+                    <Show when={props.userName}><div class="header-user-email">{props.userName}</div></Show>
                     <Show when={operatorInProfile()}><div ref={setOperatorProfileMount} /></Show>
                     <Show when={sessionStore.saasMode}>
                       <a
@@ -722,7 +720,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                 class="panel-flip-face panel-flip-face--github"
                 data-active={vibe() || effectiveFace() === 'github'}
                 ref={githubFaceRef}
-                style={!vibe() && layoutMode() !== 'flip' && githubMaxH() != null ? { 'max-height': `${githubMaxH()}px` } : undefined}
+                style={useMeasuredSplit() && githubMaxH() != null ? { 'max-height': `${githubMaxH()}px` } : undefined}
               >
                 <GitHubPanel connectReturnError={vibe() ? null : githubReturnError()}
                   onFlip={vibe() ? undefined : () => setPanelFace('storage')} />
@@ -732,7 +730,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
               class="panel-flip-face panel-flip-face--storage"
               data-active={vibe() || effectiveFace() === 'storage'}
               ref={storageFaceRef}
-              style={!vibe() && layoutMode() !== 'flip' && githubStore.enabled && storageMaxH() != null ? { 'max-height': `${storageMaxH()}px` } : undefined}
+              style={useMeasuredSplit() && githubStore.enabled && storageMaxH() != null ? { 'max-height': `${storageMaxH()}px` } : undefined}
             >
               <Show when={githubStore.enabled}>
                 <div class="files-panel-header" data-testid="files-panel-header">

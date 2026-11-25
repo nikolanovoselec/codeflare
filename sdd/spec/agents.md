@@ -1032,6 +1032,8 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 1. If the narrow workspace-mode header still cannot fit after optional actions overflow into Profile, the remaining utilities wrap to a second row without shrinking 44px touch targets. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @impl: web-ui/src/styles/header.css::.header-with-workspace-mode --> <!-- @manual: documentation/lanes/terminal-and-ide.md#workspace-header-acceptance -->
 2. The Dashboard and workspace mode dropdown sits immediately before Profile. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (places the labeled desktop mode dropdown immediately before Profile) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (places the labeled desktop mode dropdown immediately before Profile) -->
 3. The dropdown labels the current mode when it fits on desktop or tablet. Phones and cramped headers use an icon instead. <!-- @impl: web-ui/src/components/PiWorkspaceMode.tsx::PiWorkspaceMode --> <!-- @test: web-ui/src/__tests__/components/PiWorkspaceMode.test.tsx (compacts a desktop selector when Profile leaves too little room and restores it when the header expands) --> <!-- @test: web-ui/src/__tests__/components/PiWorkspaceMode.test.tsx (restores the shorter Vibe label after switching modes without resizing the header) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#workspace-header-acceptance -->
+4. The open dropdown offers **Vibe Mode** and **Code Mode** and visibly marks only the current mode, even during a pending switch. <!-- @impl: web-ui/src/components/PiWorkspaceMode.tsx::PiWorkspaceMode --> <!-- @test: web-ui/src/__tests__/components/PiWorkspaceMode.test.tsx (offers the same exclusive choices in %s form) --> <!-- @test: web-ui/src/__tests__/components/PiWorkspaceMode.test.tsx (shows pending feedback in the destination option while retaining the current mode) -->
+5. Profile is icon-only on Dashboard and workspace headers. The account email appears at the top of the open Profile menu. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (shows the Profile email only at the top of the open workspace menu) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (shows the Profile email only at the top of the open Dashboard menu in %s) -->
 
 **Constraints:** None.
 
@@ -1039,7 +1041,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Dependencies:** [REQ-AGENT-276](#req-agent-276-vibe-and-code-workspace-preference)
 
-**Verification:** Automated: [Header](../../web-ui/src/__tests__/components/Header.test.tsx), [Dashboard](../../web-ui/src/__tests__/components/Dashboard.test.tsx); Manual: [Workspace header acceptance](../../documentation/lanes/terminal-and-ide.md#workspace-header-acceptance)
+**Verification:** Automated: [Header](../../web-ui/src/__tests__/components/Header.test.tsx), [Dashboard](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [Mode dropdown](../../web-ui/src/__tests__/components/PiWorkspaceMode.test.tsx); Manual: [Workspace header acceptance](../../documentation/lanes/terminal-and-ide.md#workspace-header-acceptance)
 
 **Status:** Planned
 

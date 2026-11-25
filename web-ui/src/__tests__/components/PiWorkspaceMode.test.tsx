@@ -4,8 +4,8 @@ import { describe, expect, it, vi } from 'vitest';
 import PiWorkspaceMode from '../../components/PiWorkspaceMode';
 import type { PiSurface } from '../../types';
 
-const name = 'Vibe — Chat';
-const code = 'Code — Terminal';
+const name = 'Vibe Mode';
+const code = 'Code Mode';
 
 async function withMeasuredHeader(check: (fixture: {
   narrow: (width: number) => void;
@@ -15,7 +15,7 @@ async function withMeasuredHeader(check: (fixture: {
   let resize = () => {};
   const clientWidth = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(() => width);
   const bounds = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
-    return { width: this.textContent === 'Code · Terminal' ? 160 : this.textContent === 'Vibe · Chat' ? 132 : 120 } as DOMRect;
+    return { width: this.textContent === 'Code Mode' ? 160 : this.textContent === 'Vibe Mode' ? 132 : 120 } as DOMRect;
   });
   const rects = vi.spyOn(HTMLElement.prototype, 'getClientRects').mockImplementation(function (this: HTMLElement) {
     const rect = this.getBoundingClientRect();
@@ -51,33 +51,38 @@ describe('Pi workspace mode selector', () => {
     render(() => <PiWorkspaceMode presentation={presentation} value={value()} onSelect={change} />);
     await fireEvent.click(screen.getByRole('button', { name: `Workspace mode: ${name}` }));
     expect(screen.getByRole('button', { name })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name })).toHaveTextContent('Vibe Mode (Current)');
+    expect(screen.getByRole('button', { name: code })).not.toHaveTextContent('Current');
     await fireEvent.click(screen.getByRole('button', { name: code }));
     const trigger = screen.getByRole('button', { name: `Workspace mode: ${code}` });
     expect(trigger).toHaveAttribute('aria-expanded', 'false');
     expect(trigger).toHaveFocus();
+    await fireEvent.click(trigger);
+    expect(screen.getByRole('button', { name: code })).toHaveTextContent('Code Mode (Current)');
+    expect(screen.getByRole('button', { name })).not.toHaveTextContent('Current');
   });
 
   it('compacts a desktop selector when Profile leaves too little room and restores it when the header expands', async () => {
     await withMeasuredHeader(async ({ narrow, trigger }) => {
-      expect(trigger(code)).toHaveTextContent('Code · Terminal');
+      expect(trigger(code)).toHaveTextContent('Code Mode');
       narrow(448); // Profile and its gap leave 156px; without the gap Code would fit.
-      expect(trigger(code)).not.toHaveTextContent('Code · Terminal');
+      expect(trigger(code)).not.toHaveTextContent('Code Mode');
       narrow(800);
-      expect(trigger(code)).toHaveTextContent('Code · Terminal');
+      expect(trigger(code)).toHaveTextContent('Code Mode');
     });
   });
 
   it('restores the shorter Vibe label after switching modes without resizing the header', async () => {
     await withMeasuredHeader(async ({ narrow, trigger }) => {
       narrow(440); // 148px fits Vibe (132px), not Code (160px).
-      expect(trigger(code)).not.toHaveTextContent('Code · Terminal');
+      expect(trigger(code)).not.toHaveTextContent('Code Mode');
       await fireEvent.click(trigger(code));
       await fireEvent.click(screen.getByRole('button', { name }));
-      expect(trigger(name)).toHaveTextContent('Vibe · Chat');
+      expect(trigger(name)).toHaveTextContent('Vibe Mode');
       expect(trigger(name)).toHaveFocus();
       await fireEvent.click(trigger(name));
       await fireEvent.click(screen.getByRole('button', { name: code }));
-      expect(trigger(code)).not.toHaveTextContent('Code · Terminal');
+      expect(trigger(code)).not.toHaveTextContent('Code Mode');
       expect(trigger(code)).toHaveFocus();
     });
   });
@@ -107,6 +112,8 @@ describe('Pi workspace mode selector', () => {
     expect(screen.getByRole('button', { name })).toHaveAttribute('aria-pressed', 'true');
     const destination = screen.getByRole('button', { name: code });
     expect(destination).toBeDisabled();
+    expect(screen.getByRole('button', { name })).toHaveTextContent('Vibe Mode (Current)');
+    expect(destination).not.toHaveTextContent('Current');
     expect(destination).toContainElement(screen.getByRole('status'));
     expect(screen.getByRole('status')).toHaveTextContent('Entering Code mode...');
   });

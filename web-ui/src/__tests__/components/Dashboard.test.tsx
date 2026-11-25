@@ -495,13 +495,13 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
 
   it('places the labeled desktop mode dropdown immediately before Profile', () => {
     render(() => <Dashboard {...defaultProps} workspaceMode={{ value: 'terminal', onSelect: () => {} }} />);
-    const trigger = screen.getByRole('button', { name: 'Workspace mode: Code — Terminal' });
-    expect(trigger).toHaveTextContent('Code · Terminal');
+    const trigger = screen.getByRole('button', { name: 'Workspace mode: Code Mode' });
+    expect(trigger).toHaveTextContent('Code Mode');
     const profile = screen.getByTestId('header-user-menu');
     const toolbarButtons = within(profile.closest('.header-actions') as HTMLElement).getAllByRole('button');
     expect(toolbarButtons[toolbarButtons.indexOf(profile) - 1]).toBe(trigger);
     fireEvent.click(trigger);
-    expect(screen.getByRole('button', { name: 'Vibe — Chat' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Vibe Mode' })).toBeVisible();
   });
 
   it('moves Dashboard Operators into Profile when its measured header is compact', async () => {
@@ -568,19 +568,23 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(storage).not.toBeVisible();
   });
 
-  it('hides the desktop Profile email while the Vibe columns are collapsed', () => {
+  it.each(['chat', 'terminal'] as const)('shows the Profile email only at the top of the open Dashboard menu in %s', mode => {
     const email = 'fixture@example.com';
-    render(() => <Dashboard {...defaultProps} userName={email} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
+    render(() => <Dashboard {...defaultProps} userName={email} workspaceMode={{ value: mode, onSelect: () => {} }} />);
     const profile = screen.getByRole('button', { name: 'User menu' });
-    const pull = screen.getByRole('button', { name: 'Show Storage' });
-    expect(within(profile).queryByText(email)).not.toBeInTheDocument();
-    fireEvent.click(profile);
-    expect(screen.getByTestId('header-user-dropdown')).toBeVisible();
-    fireEvent.click(screen.getByTestId('header-user-dropdown-overlay'));
-    fireEvent.click(pull);
-    expect(within(profile).getByText(email)).toBeVisible();
-    fireEvent.click(pull);
-    expect(within(profile).queryByText(email)).not.toBeInTheDocument();
+    const verifyMenu = () => {
+      expect(screen.queryByText(email)).not.toBeInTheDocument();
+      fireEvent.click(profile);
+      const menu = screen.getByTestId('header-user-dropdown');
+      expect(within(menu).getByText(email)).toBeVisible();
+      expect(menu.firstElementChild).toHaveTextContent(email);
+      fireEvent.click(screen.getByTestId('header-user-dropdown-overlay'));
+    };
+    verifyMenu();
+    if (mode === 'chat') {
+      fireEvent.click(screen.getByRole('button', { name: 'Show Storage' }));
+      verifyMenu();
+    }
   });
 
   it('closes the Vibe drawer from a focused browser and returns focus to the pull', () => {
@@ -1302,6 +1306,46 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
       (globalThis as any).ResizeObserver = RealRO;
       (globalThis as any).requestAnimationFrame = RealRAF;
       (globalThis as any).cancelAnimationFrame = RealCAF;
+    }
+  });
+
+  it.each(['desktop', 'tablet'] as const)('updates the open Vibe browser split as content changes on %s', viewport => {
+    viewportMock.setViewport?.(viewport);
+    (githubStore as any)._setEnabled(true);
+    let githubHeight = 180;
+    let storageHeight = 580;
+    const callbacks: Array<() => void> = [];
+    const measure = () => callbacks.forEach(callback => callback());
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(callback: () => void) { callbacks.push(callback); }
+      observe() {}
+      disconnect() {}
+    });
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callback(0); return 0; });
+    vi.stubGlobal('cancelAnimationFrame', () => {});
+    const bounds = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      const height = this.matches('.panel-flip-face--github') ? githubHeight
+        : this.matches('.panel-flip-face--storage') ? storageHeight : 0;
+      return { height } as DOMRect;
+    });
+    try {
+      render(() => <Dashboard {...defaultProps} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
+      fireEvent.click(screen.getByRole('button', { name: 'Show GitHub & Storage' }));
+      const browsers = screen.getByTestId('dashboard-panel-right');
+      const github = browsers.querySelector<HTMLElement>('.panel-flip-face--github');
+      const storage = browsers.querySelector<HTMLElement>('.panel-flip-face--storage');
+      measure();
+      expect(github).toHaveStyle({ maxHeight: '180px' });
+      expect(storage).toHaveStyle({ maxHeight: '580px' });
+      githubHeight = 560;
+      storageHeight = 150;
+      measure();
+      expect(github).toHaveStyle({ maxHeight: '560px' });
+      expect(storage).toHaveStyle({ maxHeight: '150px' });
+    } finally {
+      cleanup();
+      bounds.mockRestore();
+      vi.unstubAllGlobals();
     }
   });
 

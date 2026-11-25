@@ -9,12 +9,12 @@ import '../styles/header.css';
 import '../styles/session-switcher.css';
 
 const choices = [
-  { value: 'chat', name: 'Vibe', surface: 'Chat' },
-  { value: 'terminal', name: 'Code', surface: 'Terminal' },
+  { value: 'chat', name: 'Vibe' },
+  { value: 'terminal', name: 'Code' },
 ] as const;
 
 type Choice = typeof choices[number];
-const label = (choice: Choice) => `${choice.name} — ${choice.surface}`;
+const label = (choice: Choice) => `${choice.name} Mode`;
 
 export interface PiWorkspaceModeBinding {
   value: PiSurface;
@@ -91,7 +91,7 @@ export default function PiWorkspaceMode(props: PiWorkspaceModeBinding & { presen
   };
 
   const triggerLabel = () => <>
-    <span>{current().name} · {current().surface}</span><Icon path={mdiChevronDown} size={18} aria-hidden="true" />
+    <span>{label(current())}</span><Icon path={mdiChevronDown} size={18} aria-hidden="true" />
   </>;
 
   return (
@@ -129,8 +129,8 @@ export default function PiWorkspaceMode(props: PiWorkspaceModeBinding & { presen
               <For each={choices}>{choice => (
                 <button type="button" class="header-user-dropdown-item" aria-label={label(choice)}
                   aria-pressed={props.value === choice.value} disabled={props.disabled || !!props.pendingTarget} onClick={() => select(choice.value)}>
-                  <span>{choice.name}</span>
-                  <Show when={props.pendingTarget === choice.value} fallback={<span class="type-hint">{choice.surface}</span>}>
+                  <span>{label(choice)}{props.value === choice.value ? ' (Current)' : ''}</span>
+                  <Show when={props.pendingTarget === choice.value}>
                     <span class="type-hint" role="status">
                       <Icon path={mdiLoading} size={14} class="animate-spin" aria-hidden="true" /> Entering {choice.name} mode...
                     </span>

@@ -413,7 +413,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
         mockPreferences = { defaultPiSurface };
         bumpSessionStoreVersion();
       }
-      await waitFor(() => expect(screen.getByRole('button', { name: 'Workspace mode: Code — Terminal' })).toBeEnabled());
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Workspace mode: Code Mode' })).toBeEnabled());
       expect(screen.getByTestId('startup-progress')).toBe(pane);
     } finally {
       cleanup();
@@ -577,9 +577,9 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       mockPreferences = { ...mockPreferences, ...preferences };
       bumpSessionStoreVersion();
     });
-    fireEvent.click(await screen.findByRole('button', { name: 'Workspace mode: Code — Terminal' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Vibe — Chat' }));
-    expect(await screen.findByRole('button', { name: 'Workspace mode: Vibe — Chat' })).toBeVisible();
+    fireEvent.click(await screen.findByRole('button', { name: 'Workspace mode: Code Mode' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Vibe Mode' }));
+    expect(await screen.findByRole('button', { name: 'Workspace mode: Vibe Mode' })).toBeVisible();
     expect(screen.getByRole('region', { name: 'Session dashboard' })).toBeVisible();
     expect(sessionStore.startSession).not.toHaveBeenCalled();
   });
@@ -704,8 +704,8 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     try {
       render(() => <Layout />);
       const frame = await screen.findByTitle('Pi Chat');
-      fireEvent.click(screen.getByRole('button', { name: 'Workspace mode: Vibe — Chat' }));
-      fireEvent.click(screen.getByRole('button', { name: 'Code — Terminal' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Workspace mode: Vibe Mode' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Code Mode' }));
       const cancel = await screen.findByRole('button', { name: 'Cancel switch' });
       expect(screen.getByRole('group', { name: 'Workspace mode options' })).toContainElement(cancel);
       fireEvent.click(cancel);
@@ -743,10 +743,10 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     try {
       render(() => <Layout />);
       const source = await screen.findByTitle('Pi Chat');
-      const vibe = screen.getByRole('button', { name: 'Workspace mode: Vibe — Chat' });
+      const vibe = screen.getByRole('button', { name: 'Workspace mode: Vibe Mode' });
       await waitFor(() => expect(vibe).toBeEnabled());
       fireEvent.click(vibe);
-      fireEvent.click(screen.getByRole('button', { name: 'Code — Terminal' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Code Mode' }));
       const pane = await screen.findByTestId('workspace-content-1');
       expect(screen.getByTestId('workspace-content-2')).toHaveAttribute('data-connect', 'false');
       expect(pane).toHaveAttribute('data-connect', 'true');
@@ -757,12 +757,12 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect(pane).not.toBeVisible();
       expect(pane).toHaveAttribute('data-focused', 'false');
       expect(source).toBeVisible();
-      expect(screen.getByRole('button', { name: 'Code — Terminal' })).toContainElement(screen.getByText('Entering Code mode...'));
+      expect(screen.getByRole('button', { name: 'Code Mode' })).toContainElement(screen.getByText('Entering Code mode...'));
       setConnection('connected');
       await waitFor(() => expect(pane).toBeVisible());
       expect(pane).toHaveAttribute('data-focused', 'true');
       expect(screen.queryByTitle('Pi Chat')).not.toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Workspace mode: Code — Terminal' })).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Workspace mode: Code Mode' })).toBeVisible();
     } finally {
       cleanup();
       vi.mocked(sessionStore.setActiveTerminalTab).mockReset();
@@ -795,16 +795,16 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       const original = await screen.findByTitle('Pi Chat');
       if (!(original instanceof HTMLIFrameElement)) throw new Error('Expected the original stock Chat frame');
       const notice = screen.getByText('Restoring repositories…');
-      const vibe = screen.getByRole('button', { name: 'Workspace mode: Vibe — Chat' });
+      const vibe = screen.getByRole('button', { name: 'Workspace mode: Vibe Mode' });
       await waitFor(() => expect(vibe).toBeEnabled());
       fireEvent.click(vibe);
-      fireEvent.click(screen.getByRole('button', { name: 'Code — Terminal' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Code Mode' }));
       await waitFor(() => expect(screen.queryByTitle('Pi Chat')).not.toBeInTheDocument());
       expect(notice).toBeVisible();
-      const code = await screen.findByRole('button', { name: 'Workspace mode: Code — Terminal' });
+      const code = await screen.findByRole('button', { name: 'Workspace mode: Code Mode' });
       await waitFor(() => expect(code).toBeEnabled());
       if (code.getAttribute('aria-expanded') === 'false') fireEvent.click(code);
-      fireEvent.click(screen.getByRole('button', { name: 'Vibe — Chat' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Vibe Mode' }));
       const waiting = await screen.findByTitle('Pi Chat');
       if (!(waiting instanceof HTMLIFrameElement)) throw new Error('Expected the replacement stock Chat frame');
       expect(waiting).not.toBe(original);

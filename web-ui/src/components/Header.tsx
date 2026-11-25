@@ -223,8 +223,9 @@ const Header: Component<HeaderProps> = (props) => {
           <button
             type="button"
             ref={userButtonRef}
-            class="header-user-menu" classList={{ 'session-switcher--mobile': isMobile() }}
+            class="header-user-menu"
             data-testid="header-user-menu"
+            aria-label="User menu"
             title="User menu"
             onClick={() => setShowUserMenu(!showUserMenu())}
           >
@@ -236,15 +237,13 @@ const Header: Component<HeaderProps> = (props) => {
                 width={24} height={24}
               />
             </Show>
-            <Show when={props.userName}>
-              <span class="header-user-name">{props.userName}</span>
-            </Show>
           </button>
           {/* Profile and Guided Setup use plain <a> tags — SolidJS Router's
               top-level DOM listener intercepts clicks for client-side navigation.
               No onClick handlers = no touch event race conditions on mobile. */}
           <Show when={showUserMenu()}>
             <div class="header-user-dropdown" data-testid="header-user-dropdown">
+              <Show when={props.userName}><div class="header-user-email">{props.userName}</div></Show>
               <Show when={inProfile('vscode') && props.onVscodeOpen}>{onOpen =>
                 <button type="button" class="header-user-dropdown-item" onClick={() => { setShowUserMenu(false); onOpen()(); }}>
                   <Icon path={mdiMicrosoftVisualStudioCode} size={20} /><span>Open editor (VS Code)</span>
