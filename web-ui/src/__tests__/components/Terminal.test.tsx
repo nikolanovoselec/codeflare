@@ -294,7 +294,7 @@ describe('Terminal Component', () => {
       render(() => <Terminal {...defaultProps} active={false} visible={false} connect onHandoffAttached={attached} />);
       expect(attached).not.toHaveBeenCalled();
       setConnection('connecting');
-      vi.mocked(terminalStore.getTerminal).mockReturnValue(mockTerminalInstance as unknown as NonNullable<ReturnType<typeof terminalStore.getTerminal>>);
+      vi.mocked(terminalStore.getTerminal).mockReturnValue(vi.mocked(terminalStore.connect).mock.calls.at(-1)?.[2]);
       setConnection('connected');
       expect(attached).toHaveBeenCalled();
       vi.mocked(terminalStore.getTerminal).mockReturnValue(undefined);

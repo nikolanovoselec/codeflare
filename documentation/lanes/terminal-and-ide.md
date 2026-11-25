@@ -58,8 +58,9 @@ Herdr image settings manage mobile layout, mouse capture, browser-owned clipboar
 
 In **Vibe**, Dashboard **New Session** starts Pi Chat directly. Returning to Dashboard does not unlock another direct launch until the first Start settles or you stop it. Existing creation limits still apply. See [REQ-AGENT-279](../../sdd/spec/agents.md#req-agent-279-direct-vibe-session-launch).
 
-- Choose Vibe or Code in the header before starting or opening from a Dashboard card. The card menu retains lifecycle actions but has no Chat or Terminal override.
-- Check that **Syncing workspace** stays active through verification, then advances to **Preparing environment**. While waiting for Open, Vibe shows **Loading Chat** with elapsed seconds and Code shows **Connecting Terminal**. Only when Open is available does the final step say **Ready to open**.
+- Choose Vibe or Code in the header before starting or opening from a Dashboard card. The card menu retains lifecycle actions but has no Chat or Terminal override ([REQ-AGENT-276](../../sdd/spec/agents.md#req-agent-276-vibe-and-code-workspace-preference), AC5).
+- For [REQ-TERM-049](../../sdd/spec/terminal.md#req-term-049-shared-workspace-startup-progress), check that **Syncing workspace** stays active through verification, then advances to **Preparing environment**.
+- While waiting for Open, Vibe shows **Loading Chat** with elapsed seconds and Code shows **Connecting Terminal**. Only when Open is available does the final step say **Ready to open**.
 - In Standard and Pro where available, start Chat-first and Terminal-first in Classic. Send a synthetic message, Stop normally, then resume in the other surface. Only the selected primary opens the saved conversation.
 - On Chat-first Start and Resume, verify the stock frame loads behind the startup overlay. Once the Host confirms Chat and five seconds have passed since the stock loader disappeared, **Open** becomes available on a best-effort basis.
 - After **Open** appears, wait over 25 seconds before clicking it. Verify it reveals the same frame without starting native Pi.
@@ -79,7 +80,9 @@ In **Vibe**, Dashboard **New Session** starts Pi Chat directly. Returning to Das
 - Switch both ways in an empty and a populated conversation, then repeat from an earlier tree leaf. The native ID and branch match; the previous writer exits first. A failed open cannot replace the conversation.
 - Record matching identities as equality results. Do not record actual transcript IDs, paths, or content.
 - Start Chat-first and switch after prewarm orphan expiry without previously opening Terminal. The healthy primary is still available without counting as user activity. A secondary Classic Pi tab owns a different conversation.
-- Switch during streaming, a queued follow-up, and a pending question. Expect **Entering Vibe mode...** or **Entering Code mode...** in the destination option, automatic native Abort, and rejection of fresh prompts. The outgoing view stays visible while the new surface prepares. Verify Code appears connected and Vibe appears without showing the stock loader. A native startup question may reveal Vibe early. Cancel in the mode menu preserves a running turn only before Abort is committed.
+- Switch during streaming, a queued follow-up, and a pending question. Expect **Entering Vibe mode...** or **Entering Code mode...** in the destination option. Verify automatic native Abort and rejection of fresh prompts.
+- For [REQ-AGENT-280](../../sdd/spec/agents.md#req-agent-280-attachment-gated-workspace-reveal), keep the outgoing view until Code connects or Vibe clears the stock loader. A native startup question can appear early. For a failed frame, use **Reload Chat** as described above.
+- Verify **Cancel switch** in the mode menu only before Abort is committed.
 - Repeat with an input hook held before streaming. Neither an idle-looking status nor an Abort acknowledgment can transfer ownership while the hook is active.
 - Verify saved history appears without automatic prompt or queue replay. Text recovered by Abort returns to Terminal as an editable, unsent draft.
 
@@ -106,7 +109,8 @@ In **Vibe**, Dashboard **New Session** starts Pi Chat directly. Returning to Das
 - Once Chat is ready, submit `pi-fixture-question`. Choose **Yes** on **Continue the ready Chat fixture?**. Verify `pi-fixture-ready-yes.txt` appears without a model turn. Then send a separate harmless prompt and verify the composer works.
 - In the ready Chat composer, use **Save to …** with synthetic attachments totaling 10 MB (10,000,000 bytes). Verify that the files land in the selected workspace folder.
 - Repeat with a batch one byte larger, then with 17 small attachments. Confirm that neither rejected batch saves any files.
-- Verify Chat and Files remain available and Info, Updates, MCP Manager, Tasks, and Relays are absent from stock navigation. The pinned stock app requires its Terminal plugin and adds Sessions on phones; managed plugin settings do not hide those entries. This checks navigation, not MCP configuration.
+- Verify Chat and Files remain available and Info, Updates, MCP Manager, Tasks, and Relays are absent from stock navigation. This does not verify MCP configuration.
+- The pinned stock app requires its Terminal plugin and adds Sessions on phones; managed plugin settings do not hide those entries.
 - Recovering an already-pending question after refresh is not required. If Chat startup fails, retry the same transcript only after the previous attempt is confirmed closed.
 
 Workspace attachments survive Stop and Resume only with [full Workspace Sync](storage-and-sync.md#rclone-sync-modes-req-stor-003) and a successful sync. For independent persistence, use **Dashboard → Storage → Uploads**, then **Sync now** to read the files in `~/Uploads` in the running session.

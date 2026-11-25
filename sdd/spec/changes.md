@@ -10,6 +10,7 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 - [Direct Vibe launch](agents.md#req-agent-279-direct-vibe-session-launch) prevents repeat Dashboard launches until the pending Start settles or is stopped.
 - The [Vibe drawer](github.md#req-github-321-vibe-dashboard-browser-disclosure) keeps browsers behind one control and shows account-owned repository counts when available.
 - The [mode dropdown](agents.md#req-agent-278-narrow-workspace-header-fallback) sits beside Profile; the [collapsed Vibe Dashboard](github.md#req-github-321-vibe-dashboard-browser-disclosure) shows icon-only Profile and a slimmer 150px drawer grip.
+- The [session menu](agents.md#req-agent-276-vibe-and-code-workspace-preference) keeps lifecycle actions but leaves mode choice to the header. [Handoffs](agents.md#req-agent-280-attachment-gated-workspace-reveal) prepare the destination before revealing it.
 - [Stock Chat](agents.md#req-agent-274-stock-pi-chat-controls) defaults to Pi Web Classic without overriding saved themes.
 
 ## 2026-11-24: Open Pi Chat during repository restore

@@ -927,15 +927,36 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 5. Ordinary quit returns to a usable shell in the same Terminal pane. <!-- @manual: documentation/lanes/terminal-and-ide.md#quit-and-reopen-native-pi -->
 6. Explicit Terminal re-entry opens the exact saved transcript after the previous writer exits. If interrupted, the shell stays selected and re-entry is retryable only after the unused launch is safely revoked. <!-- @impl: host/src/pi-web-runtime.ts::rearmSelectedTerminal --> <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-273: a safely revoked native re-entry leaves Terminal selected) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#quit-and-reopen-native-pi -->
 7. Returning from Chat after an ordinary quit resumes the exact transcript only when a fresh launcher is ready in the original Terminal pane. <!-- @impl: host/src/pi-web-runtime.ts::waitingWrapper --> <!-- @manual: documentation/lanes/terminal-and-ide.md#quit-and-reopen-native-pi -->
-8. Keep the outgoing view visible while the destination prepares. Reveal Code after its browser attachment connects, or reveal Vibe after its stock loading gate clears. A native startup question may reveal Vibe early so the user can answer. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps Vibe visible after Host confirms Code until its terminal attaches) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps the repository restore notice visible across Classic Chat and Terminal switches) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time -->
 
-**Constraints:** None.
+**Constraints:** [REQ-AGENT-280](#req-agent-280-attachment-gated-workspace-reveal) owns destination display readiness.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-272](#req-agent-272-pi-chat-and-terminal-transcript-handoff)
 
 **Verification:** Automated: [Mode dropdown](../../web-ui/src/__tests__/components/PiWorkspaceMode.test.tsx), [Workspace panes](../../web-ui/src/__tests__/components/Layout.test.tsx), [Chat panel](../../web-ui/src/__tests__/components/PiWebChat.test.tsx), [Host handoff coordinator](../../host/__tests__/pi-web-handoff.test.js), [DO relay](../../src/__tests__/container/terminal-ws-relay.test.ts); Manual: [Switch one writer at a time](../../documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time), [Quit and reopen native Pi](../../documentation/lanes/terminal-and-ide.md#quit-and-reopen-native-pi).
+
+**Status:** Planned
+
+---
+
+### REQ-AGENT-280: Attachment-gated workspace reveal
+
+**Intent:** Keep the outgoing view visible until the destination can be used.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. During a successful handoff, retain the outgoing view until Code connects or Vibe clears the stock loading gate. Native startup questions and Chat load recovery can reveal Vibe early. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps Vibe visible after Host confirms Code until its terminal attaches) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps the repository restore notice visible across Classic Chat and Terminal switches) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time -->
+
+**Constraints:** [REQ-TERM-011](terminal.md#req-term-011-visible-terminal-panes-own-websocket-connections) limits hidden terminal attachment.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-273](#req-agent-273-pi-handoff-continuity)
+
+**Verification:** Manual: [Switch one writer at a time](../../documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time)
 
 **Status:** Planned
 
@@ -949,7 +970,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Acceptance Criteria:**
 
-1. Chat Start and Resume preload the stock frame behind the standard startup screen. Once the Host confirms Chat and five seconds have elapsed since the stock loading screen disappeared, Open reveals the same frame. This is a best-effort display gate, not proof of live synchronization. The overlay shows Loading Chat with elapsed seconds until Ready to open. <!-- @impl: web-ui/src/components/InitProgress.tsx::InitProgressComponent --> <!-- @test: web-ui/src/__tests__/components/InitProgress.test.tsx (keeps a single workspace sync row active through verification) --> <!-- @test: web-ui/src/__tests__/components/InitProgress.test.tsx (counts elapsed Chat preparation without showing Ready or Open prematurely) --> <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (waits five seconds after the stock loader disappears, not after iframe load) --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (keeps the standard startup screen until Open reveals Chat, without mounting a native terminal) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#choose-the-starting-writer -->
+1. Chat Start and Resume preload the stock frame behind the standard startup screen. Once the Host confirms Chat and five seconds have elapsed since the stock loading screen disappeared, Open reveals the same frame. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (waits five seconds after the stock loader disappears, not after iframe load) --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (keeps the standard startup screen until Open reveals Chat, without mounting a native terminal) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#choose-the-starting-writer -->
 2. Waiting to click Open does not expire Chat startup. <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime --> <!-- @manual: documentation/lanes/terminal-and-ide.md#choose-the-starting-writer -->
 3. Once the Pi profile and transcript are restored, either Classic surface can open while repositories still clone. <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime --> <!-- @manual: documentation/lanes/terminal-and-ide.md#choose-the-starting-writer -->
 4. Classic Chat and Terminal can switch in either direction while repositories clone. <!-- @manual: documentation/lanes/terminal-and-ide.md#choose-the-starting-writer -->
@@ -957,13 +978,13 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 6. Reload Chat is offered only when the scoped frame fails to load the stock document. It retries the same frame URL without starting another handoff. <!-- @impl: web-ui/src/components/PiWebChat.tsx::PiWebChat --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (reloads the same Chat frame only after a failed navigation, without switching writers) -->
 7. Verified native question evidence for the same opening attempt pauses attachment timeout within the stock question-time allowance. Writer confirmation and the single-writer fence still apply. <!-- @impl: image/pi-web/handoff-extension.ts::publishStartupQuestion --> <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
 
-**Constraints:** [REQ-GITHUB-320](github.md#req-github-320-nonblocking-terminal-repository-restore-notice) owns restore outcome reporting and notice lifecycle.
+**Constraints:** The stock-loader gate is best effort, not proof of live synchronization. [REQ-TERM-049](terminal.md#req-term-049-shared-workspace-startup-progress) owns startup status copy. [REQ-GITHUB-320](github.md#req-github-320-nonblocking-terminal-repository-restore-notice) owns restore outcome reporting and notice lifecycle.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-272](#req-agent-272-pi-chat-and-terminal-transcript-handoff)
 
-**Verification:** Automated: [Chat preparation counter](../../web-ui/src/__tests__/components/InitProgress.test.tsx), [Ready and Open](../../web-ui/src/__tests__/components/TerminalArea.test.tsx), [Chat frame](../../web-ui/src/__tests__/components/PiWebChat.test.tsx), [Restore notification](../../web-ui/src/__tests__/components/Layout.test.tsx); Manual: [Choose the starting writer](../../documentation/lanes/terminal-and-ide.md#choose-the-starting-writer), [Held startup question](../../documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions)
+**Verification:** Automated: [Ready and Open](../../web-ui/src/__tests__/components/TerminalArea.test.tsx), [Chat frame](../../web-ui/src/__tests__/components/PiWebChat.test.tsx), [Restore notification](../../web-ui/src/__tests__/components/Layout.test.tsx); Manual: [Choose the starting writer](../../documentation/lanes/terminal-and-ide.md#choose-the-starting-writer), [Held startup question](../../documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions)
 
 **Status:** Planned
 
@@ -981,11 +1002,11 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 2. Dashboard mode selection saves the default without opening a session. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (saves the mode from Dashboard without selecting a session) -->
 3. In an eligible running workspace, header mode selection saves the default and switches the current conversation through the existing handoff. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps the repository restore notice visible across Classic Chat and Terminal switches) -->
 4. The header omits mode selection while Herdr or the VS Code default is active. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (hides Dashboard mode navigation with settings %j) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (hides the running workspace mode selector with settings %j) -->
-5. The session card menu retains lifecycle actions but offers no Chat or Terminal override. Opening or starting from the card preserves the saved preference and workspace kind. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (keeps lifecycle actions but no mode actions in a %s Pi card menu) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps saved preferences and workspace kind after a Dashboard card %s) -->
+5. The session card menu retains lifecycle actions but offers no Chat or Terminal override. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (keeps lifecycle actions but no mode actions in a %s Pi card menu) -->
 6. With no explicit choice, starting an eligible saved or newly created session uses the saved preference unless Herdr or the VS Code default workspace is active. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (applies the eligible Pi surface at Dashboard Start: %s) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (uses the saved Vibe default only when the newly created %s workspace (%s) is eligible) -->
 7. Cold Dashboard Open of an eligible running session uses the saved preference when Herdr and the VS Code default are inactive. A different confirmed surface uses the existing handoff; a matching surface stays open without a switch. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (opens a running Pi workspace using preference %s from %s with settings %j) -->
 
-**Constraints:** A refresh never requests a switch. Same-generation warm return follows [REQ-AGENT-277](#req-agent-277-retained-chat-on-dashboard-return).
+**Constraints:** Starting or opening from a card preserves the saved preference and workspace kind. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps saved preferences and workspace kind after a Dashboard card %s) --> A refresh never requests a switch. Same-generation warm return follows [REQ-AGENT-277](#req-agent-277-retained-chat-on-dashboard-return).
 
 **Priority:** P1
 

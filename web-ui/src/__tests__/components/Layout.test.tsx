@@ -48,7 +48,7 @@ vi.mock('../../components/Terminal', async () => {
       }
     });
     return <Show when={sessionStore.isSessionInitializing(props.sessionId)}
-      fallback={<div data-testid="workspace-content">Workspace</div>}>
+      fallback={<div data-testid={mockTilingForSession?.enabled ? `workspace-content-${props.terminalId}` : "workspace-content"} data-connect={String(props.connect)}>Workspace</div>}>
       <div data-testid="startup-progress">
         {sessionStore.sessions.find(session => session.id === props.sessionId)?.status === 'running' ? 'Ready to open' : 'Starting'}
         <button onClick={props.onInitComplete}>Open workspace</button>
@@ -635,11 +635,14 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     const id = 'abcdef0123456789';
     const prefix = `/api/pi-web/${id}/`;
     const chatUrl = `${prefix}g/7/?session=saved-pi&view=chat`;
-    const { terminalStore } = await import('../../stores/terminal');
+    const { terminalStore, reconnectOnVisibilityReturn } = await import('../../stores/terminal');
     const [connection, setConnection] = createSignal<'connected' | 'disconnected'>('disconnected');
     vi.mocked(terminalStore.getConnectionState).mockImplementation(connection);
     mockSessions = [createMockSession({ id, workspace: 'terminal', agentType: 'pi', generation: 7 })];
-    mockVisiblePanes = [{ sessionId: id, terminalId: '1' }];
+    mockVisiblePanes = [{ sessionId: id, terminalId: '3' }];
+    mockTerminalsForSession = { tabs: [{ id: '1' }, { id: '2' }, { id: '3' }], activeTabId: '3' };
+    mockTilingForSession = { enabled: true, layout: '2-split' };
+    mockTabOrder = ['1', '2', '3'];
     window.history.replaceState(null, '', `/app/session/${id}`);
     let requestId: string | undefined;
     vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
@@ -655,7 +658,13 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       await waitFor(() => expect(vibe).toBeEnabled());
       fireEvent.click(vibe);
       fireEvent.click(screen.getByRole('button', { name: 'Code — Terminal' }));
-      const pane = await screen.findByTestId('workspace-content');
+      const pane = await screen.findByTestId('workspace-content-1');
+      expect(screen.getByTestId('workspace-content-2')).toHaveAttribute('data-connect', 'false');
+      expect(pane).toHaveAttribute('data-connect', 'true');
+      expect(screen.queryByTestId('workspace-content-3')).not.toBeInTheDocument();
+      const visible = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+      try { document.dispatchEvent(new Event('visibilitychange')); } finally { visible.mockRestore(); }
+      expect(reconnectOnVisibilityReturn).toHaveBeenCalledWith(undefined, [`${id}:1`]);
       expect(pane).not.toBeVisible();
       expect(source).toBeVisible();
       expect(screen.getByRole('button', { name: 'Code — Terminal' })).toContainElement(screen.getByText('Entering Code mode...'));
@@ -702,7 +711,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect(notice).toBeVisible();
       const code = await screen.findByRole('button', { name: 'Workspace mode: Code — Terminal' });
       await waitFor(() => expect(code).toBeEnabled());
-      fireEvent.click(code);
+      if (code.getAttribute('aria-expanded') === 'false') fireEvent.click(code);
       fireEvent.click(screen.getByRole('button', { name: 'Vibe — Chat' }));
       const waiting = await screen.findByTitle('Pi Chat');
       if (!(waiting instanceof HTMLIFrameElement)) throw new Error('Expected the replacement stock Chat frame');

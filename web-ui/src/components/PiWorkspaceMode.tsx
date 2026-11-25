@@ -137,6 +137,11 @@ export default function PiWorkspaceMode(props: PiWorkspaceModeBinding & { presen
                   </Show>
                 </button>
               )}</For>
+              <Show when={props.onCancelPending}>{cancel => (
+                <button type="button" class="header-user-dropdown-item" onClick={() => { close(); cancel()(); }}>
+                  Cancel switch
+                </button>
+              )}</Show>
             </div>
           </div>
         </Portal>

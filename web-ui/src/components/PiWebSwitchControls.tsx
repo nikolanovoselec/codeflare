@@ -35,7 +35,7 @@ export default function PiWebSwitchControls(props: PiWebSwitchControlsProps) {
         <Show when={entering()}><Icon path={mdiLoading} size={16} class="animate-spin" aria-hidden="true" /></Show>
         <span role="status" aria-live="polite">{message()}</span>
         <Show when={props.problem}><span role="status">{props.problem}</span></Show>
-        <Show when={props.phase === 'waiting' && props.canCancel !== false}>
+        <Show when={!props.progressInMenu && props.phase === 'waiting' && props.canCancel !== false}>
           <button type="button" class="pi-web-action" onClick={() => props.onCancel()}>Cancel switch</button>
         </Show>
         <Show when={props.onRetry}>

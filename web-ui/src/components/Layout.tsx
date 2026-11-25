@@ -193,6 +193,21 @@ const Layout: Component<LayoutProps> = (props) => {
       ? '1'
       : sessionStore.getTerminalsForSession(session.id)?.activeTabId || '1';
 
+  const tiledSlotCount = (layout: TileLayout) => {
+    if (layout === '4-grid') return 4;
+    if (layout === '3-split') return 3;
+    return layout === '2-split' ? 2 : 1;
+  };
+
+  const renderedClassicTabIds = (session: Pick<SessionWithStatus, 'id' | 'terminalMode'>) => {
+    if (resolveTerminalMode(session.terminalMode) !== 'classic') return;
+    const terminals = sessionStore.getTerminalsForSession(session.id);
+    const tiling = sessionStore.getTilingForSession(session.id);
+    if (!terminals || !tiling?.enabled) return;
+    const ids = new Set(terminals.tabs.map(tab => tab.id));
+    return (sessionStore.getTabOrder(session.id) ?? []).filter(id => ids.has(id)).slice(0, tiledSlotCount(tiling.layout));
+  };
+
   type ChatFrame = { scope: NonNullable<ReturnType<typeof piWeb>>; url: string; requestId?: string };
   const [chatLoad, setChatLoad] = createSignal<{ frame: ChatFrame; state: 'ready' | 'failed' }>();
   const chatLoadFor = (state: 'ready' | 'failed', requestId?: string) => {
@@ -205,7 +220,10 @@ const Layout: Component<LayoutProps> = (props) => {
     const session = piWebSession();
     const status = scope?.status();
     if (!session || status?.phase !== 'complete' || status.target !== 'terminal' || status.surface !== 'terminal' || !status.requestId) return;
-    const terminalId = terminalIdForSession(session);
+    const selected = terminalIdForSession(session);
+    const rendered = renderedClassicTabIds(session);
+    const terminalId = rendered ? (rendered.includes(selected) ? selected : rendered[0]) : selected;
+    if (!terminalId) return;
     return previous?.scope === scope && previous?.requestId === status.requestId && previous.terminalId === terminalId
       ? previous : { scope, requestId: status.requestId, terminalId };
   });
@@ -632,28 +650,12 @@ const Layout: Component<LayoutProps> = (props) => {
     storageStore.fetchStats();
   });
 
-  const tiledSlotCount = (layout: TileLayout) => {
-    if (layout === '4-grid') return 4;
-    if (layout === '3-split') return 3;
-    return layout === '2-split' ? 2 : 1;
-  };
-
   const visibleTerminalKeys = createMemo(() => {
     const activeWorkspace = terminalWorkspaceStore.getActiveWorkspace();
     const sessionId = activeWorkspace && activeWorkspace.kind === 'session' ? activeWorkspace.sessionId : null;
     const session = sessionId ? sessionStore.sessions.find((candidate) => candidate.id === sessionId) : null;
-    const terminals = sessionId ? sessionStore.getTerminalsForSession(sessionId) : null;
-    const tiling = sessionId ? sessionStore.getTilingForSession(sessionId) : null;
-    if (sessionId && resolveTerminalMode(session?.terminalMode) === 'classic' && terminals && tiling && tiling.enabled) {
-      const activeSessionId = sessionId;
-      const layout = tiling.layout;
-      const tabOrder = sessionStore.getTabOrder(activeSessionId) ?? [];
-      const terminalIds = new Set(terminals.tabs.map((tab) => tab.id));
-      return tabOrder
-        .filter((tabId) => terminalIds.has(tabId))
-        .slice(0, tiledSlotCount(layout))
-        .map((tabId) => `${activeSessionId}:${tabId}`);
-    }
+    const rendered = session && renderedClassicTabIds(session);
+    if (rendered) return rendered.map(id => `${sessionId}:${id}`);
     return terminalWorkspaceStore.getVisiblePanes().map((pane) => `${pane.sessionId}:${pane.terminalId}`);
   });
 
@@ -692,7 +694,13 @@ const Layout: Component<LayoutProps> = (props) => {
   // a stuck "Reconnecting..." overlay that only clears on full page refresh.
   {
     const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && viewState() !== 'dashboard' && !showPiWebPanel()) {
+      if (document.visibilityState !== 'visible' || !showTerminal()) return;
+      const preparing = prepareNativeTerminal() && codeAttachment();
+      if (preparing && showPiWebPanel()) {
+        reconnectOnVisibilityReturn(undefined, [`${piWebSid()}:${preparing.terminalId}`]);
+        return;
+      }
+      if (!showPiWebPanel()) {
         forceResetKeyboardState();
 
         if (isSamsungBrowser) {

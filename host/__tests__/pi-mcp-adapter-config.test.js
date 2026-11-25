@@ -138,10 +138,16 @@ test('REQ-AGENT-217: entrypoint profile selects managed MCP on fresh and restore
       encoding: 'utf8', env: { ...process.env, USER_HOME: f.home, PI_SETTINGS_FILE: settings, SESSION_MODE: 'advanced' },
     });
     assert.equal(result.status, 0, result.stderr);
+    assert.ok(JSON.parse(readFileSync(settings, 'utf8')).extensions.includes('-builtin:mcp'));
+    rmSync(f.legacy, { force: true });
+    rmSync(f.target, { force: true });
     const warnings = [];
     f.load({ on: (event, handler) => {
       if (event === 'session_start') handler({}, { ui: { notify: message => warnings.push(message) } });
     } });
+    assert.deepEqual(JSON.parse(readFileSync(f.legacy, 'utf8')),
+      { settings: { requestTimeoutMs: 360000, deferWithMissingMetadata: true } });
+    assert.equal(existsSync(f.target), false);
     assert.deepEqual(warnings, [], restored ? 'restored profile' : 'fresh profile');
   }
 });

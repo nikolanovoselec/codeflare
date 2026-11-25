@@ -204,7 +204,7 @@ describe('TerminalArea', () => {
     mockVisiblePanes = [{ id: `${id}:1`, source: 'session', sessionId: id, terminalId: '1' }];
     const [chat, showChat] = createSignal(true);
     render(() => <TerminalArea {...defaultProps} showTerminal showPiWebPanel={chat()} prepareNativeTerminal={chat()}
-      viewState="terminal" piWebPanel={<div>Pi Chat frame</div>} />);
+      codeAttachment={{ terminalId: '1', onAttached: () => {} }} viewState="terminal" piWebPanel={<div>Pi Chat frame</div>} />);
     const terminal = screen.getByTestId(`terminal-${id}-1`);
     expect(screen.getByText('Pi Chat frame')).toBeVisible();
     expect(terminal).not.toBeVisible();

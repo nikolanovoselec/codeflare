@@ -524,7 +524,7 @@ None.
 
 ### REQ-TERM-011: Visible terminal panes own WebSocket connections
 
-**Intent:** Terminal WebSockets are opened only for terminal panes that are visible in the current browser workspace, preventing hidden sessions from attaching to PTYs and sending stale resize or input traffic.
+**Intent:** Restrict terminal attachments to the current browser workspace so hidden sessions cannot send stale resize or input traffic.
 
 **Applies To:** User
 
@@ -536,10 +536,11 @@ None.
 4. Leaving the visible set disposes local panes without stopping their PTYs, except one connected untiled Classic or single Herdr pane retained by Dashboard. <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (retains one mounted Terminal pane on Dashboard and discards it on %s) --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::canConnect --> <!-- @impl: web-ui/src/stores/terminal.ts::disposeLocalTerminal --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (reconnectBackoffMs)) / REQ-TERM-004 (WebSocket lifecycle: connect, attach, detach, close-codes 4503/1013) / REQ-TERM-008 (flushWriteBuffer batches xterm writes for performance)) -->
 5. Changing session or generation, stopping the session, or leaving the document discards the retained pane. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (retains one mounted Terminal pane on Dashboard and discards it on %s) -->
 6. Session indicators distinguish container-running state from visible-terminal-connected state. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::dotVariant --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (SessionStatCard) -->
+7. A Host-confirmed Code handoff may attach one rendered destination pane in the current session and generation before reveal, without hidden input or resize. Other hidden panes do not attach. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps Vibe visible after Host confirms Code until its terminal attaches) -->
 
 **Constraints:**
 
-- Hidden terminal preservation cannot be used as an instant-switching optimization if it opens a WebSocket.
+- Do not open sockets for hidden panes except the single destination pane during a confirmed Code handoff.
 - Dashboard status must remain a polling/storage concern and must not depend on terminal component side effects.
 
 **Priority:** P0
@@ -549,6 +550,29 @@ None.
 **Verification:** Automated: [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx), [SessionStatCard.test.tsx](../../web-ui/src/__tests__/components/SessionStatCard.test.tsx), [TerminalArea.test.tsx](../../web-ui/src/__tests__/components/TerminalArea.test.tsx), [useTerminal.test.ts](../../web-ui/src/__tests__/hooks/useTerminal.test.ts), [terminal-workspace.test.ts](../../web-ui/src/__tests__/stores/terminal-workspace.test.ts), [terminal.test.ts](../../web-ui/src/__tests__/stores/terminal.test.ts)
 
 **Status:** Implemented
+
+---
+
+### REQ-TERM-049: Shared workspace startup progress
+
+**Intent:** Distinguish environment preparation and surface loading from a workspace ready to open.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. One Syncing workspace row stays active through verification, then progresses to Preparing environment. <!-- @impl: web-ui/src/components/InitProgress.tsx::InitProgressComponent --> <!-- @test: web-ui/src/__tests__/components/InitProgress.test.tsx (keeps a single workspace sync row active through verification) -->
+2. Vibe shows Loading Chat with elapsed seconds while it waits for its Open gate, then shows Ready to open. <!-- @impl: web-ui/src/components/InitProgress.tsx::InitProgressComponent --> <!-- @test: web-ui/src/__tests__/components/InitProgress.test.tsx (counts elapsed Chat preparation without showing Ready or Open prematurely) -->
+
+**Constraints:** None.
+
+**Priority:** P1
+
+**Dependencies:** None.
+
+**Verification:** Automated: [Startup progress](../../web-ui/src/__tests__/components/InitProgress.test.tsx)
+
+**Status:** Planned
 
 ---
 

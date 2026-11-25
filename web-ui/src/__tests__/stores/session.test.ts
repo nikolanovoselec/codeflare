@@ -2018,7 +2018,7 @@ describe('Session Store', () => {
         expect(screen.queryByRole('button', { name: 'Open' })).not.toBeInTheDocument();
         deliverReady();
         await starting;
-        expect(screen.getByText('Container ready')).toBeInTheDocument();
+        expect(screen.getByText('Ready to open', { selector: '.init-progress-stage-label' })).toBeInTheDocument();
         fireEvent.click(screen.getByRole('button', { name: 'Open' }));
         expect(screen.queryByTestId('init-progress')).not.toBeInTheDocument();
         expect(sessionStore.sessions.find(session => session.id === id)?.status).toBe('running');
@@ -2677,6 +2677,7 @@ describe('Session Store', () => {
         { id: 's1', name: 'S1', createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString() },
         { id: 's2', name: 'S2', createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString() },
       ];
+      mockGetSessionAncillaryStatus.mockResolvedValue({ maxSessions: 3 });
       mockGetSessions.mockResolvedValue(sessions);
       mockGetBatchSessionStatus.mockResolvedValue({
         statuses: {
@@ -2687,7 +2688,10 @@ describe('Session Store', () => {
       });
 
       await sessionStore.loadSessions();
+      await sessionStore.refreshSessionAncillaryStatus({ afterCurrent: true });
       sessionStore.updateSessionStatus('s1', 'running');
+      sessionStore.updateSessionStatus('s2', 'stopped');
+      expect(sessionStore.maxSessions).toBe(3);
 
       expect(sessionStore.isAtSessionLimit()).toBe(false);
     });

@@ -59,7 +59,10 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
   const showNativeTerminal = () => props.showTerminal && !props.showPiWebPanel;
   const mountNativeTerminal = () => showNativeTerminal() || (props.showTerminal && props.prepareNativeTerminal);
   const nativeInteractive = () => showNativeTerminal() && !props.handoffPending;
-  const nativeConnect = () => props.piWebTerminalConnect ?? true;
+  const nativeConnect = (terminalId: string) => {
+    if (props.prepareNativeTerminal && !showNativeTerminal()) return props.codeAttachment?.terminalId === terminalId;
+    return props.piWebTerminalConnect ?? true;
+  };
 
   // Derive session state from store directly (avoids prop drilling from Layout)
   const activeSession = createMemo(() => sessionStore.getActiveSession() ?? null);
@@ -262,7 +265,7 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
                   active={nativeInteractive()}
                   visible={showNativeTerminal()}
                   focused={nativeInteractive() && tabId === activeTerminals()!.activeTabId}
-                  connect={nativeConnect()}
+                  connect={nativeConnect(tabId)}
                   onHandoffAttached={props.codeAttachment?.terminalId === tabId ? props.codeAttachment.onAttached : undefined}
                   alwaysObserveResize={nativeInteractive()}
                   hideInitProgress={true}
@@ -311,7 +314,7 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
             <Terminal sessionId={pane.sessionId} terminalId={pane.terminalId}
               sessionName={session()?.name || 'Terminal'} terminalMode={resolveTerminalMode(session()?.terminalMode)}
               active={nativeInteractive()} visible={showNativeTerminal()}
-              focused={nativeInteractive() && pane.id === focusedPaneId()} connect={nativeConnect()}
+              focused={nativeInteractive() && pane.id === focusedPaneId()} connect={nativeConnect(pane.terminalId)}
               onHandoffAttached={props.codeAttachment?.terminalId === pane.terminalId ? props.codeAttachment.onAttached : undefined}
               onError={props.onTerminalError} onInitComplete={() => props.onOpenSessionById(pane.sessionId)} />
           );
