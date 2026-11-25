@@ -479,7 +479,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. The visible account identity opens an account-action dropdown. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Subscription/Usage gating) -->
+1. The icon-only Profile control opens the account-action dropdown described in [REQ-AGENT-278](agents.md#req-agent-278-narrow-workspace-header-fallback). <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Subscription/Usage gating) -->
 2. The available account actions follow the deployment-mode contract in [REQ-SUB-023](subscription.md#req-sub-023-deployment-mode-account-actions). <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Subscription/Usage gating) --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (opens a Usage-only dropdown in enterprise mode) -->
 3. Mobile renders as bottom sheet. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @manual -->
 4. Desktop positioned below avatar. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @manual -->

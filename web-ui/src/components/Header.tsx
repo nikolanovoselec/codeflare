@@ -59,6 +59,7 @@ interface HeaderProps {
  */
 const Header: Component<HeaderProps> = (props) => {
   const [showUserMenu, setShowUserMenu] = createSignal(false);
+  const [userMenuTop, setUserMenuTop] = createSignal(0);
   const [gravatarOk, setGravatarOk] = createSignal(false);
   // Probe Gravatar existence once via fetch (no <img onError> console noise).
   createEffect(() => {
@@ -227,7 +228,10 @@ const Header: Component<HeaderProps> = (props) => {
             data-testid="header-user-menu"
             aria-label="User menu"
             title="User menu"
-            onClick={() => setShowUserMenu(!showUserMenu())}
+            onClick={() => {
+              if (!showUserMenu() && userMenuRef) setUserMenuTop(userMenuRef.getBoundingClientRect().bottom + 8);
+              setShowUserMenu(!showUserMenu());
+            }}
           >
             <Show when={props.userName && gravatarOk()} fallback={<Icon path={mdiShieldAccount} size={24} class="header-user-avatar" />}>
               <img
@@ -242,7 +246,8 @@ const Header: Component<HeaderProps> = (props) => {
               top-level DOM listener intercepts clicks for client-side navigation.
               No onClick handlers = no touch event race conditions on mobile. */}
           <Show when={showUserMenu()}>
-            <div class="header-user-dropdown" data-testid="header-user-dropdown">
+            <div class="header-user-dropdown header-user-dropdown--profile" data-testid="header-user-dropdown"
+              style={{ '--profile-menu-top': `${userMenuTop()}px` }}>
               <Show when={props.userName}><div class="header-user-email">{props.userName}</div></Show>
               <Show when={inProfile('vscode') && props.onVscodeOpen}>{onOpen =>
                 <button type="button" class="header-user-dropdown-item" onClick={() => { setShowUserMenu(false); onOpen()(); }}>

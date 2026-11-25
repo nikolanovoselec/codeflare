@@ -871,12 +871,6 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(screen.getByText('Codeflare')).toBeInTheDocument();
   });
 
-  it('renders integrated header with user name when provided', () => {
-    render(() => <Dashboard {...defaultProps} />);
-
-    expect(screen.getByText('nikola@novoselec.ch')).toBeInTheDocument();
-  });
-
   it('REQ-AUTH-017 AC1: renders the Gravatar belonging to the dashboard user', async () => {
     const probe = vi.spyOn(gravatar, 'gravatarExists').mockResolvedValue(true);
     try {
@@ -884,7 +878,8 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
       expect(await screen.findByRole('img', { name: 'Avatar' })).toHaveAttribute(
         'src', 'https://www.gravatar.com/avatar/b58996c504c5638798eb6b511e6f49af?s=48&d=404',
       );
-      expect(screen.getByText('user@example.com')).toBeVisible();
+      fireEvent.click(screen.getByRole('button', { name: 'User menu' }));
+      expect(within(screen.getByTestId('header-user-dropdown')).getByText('user@example.com')).toBeVisible();
     } finally { probe.mockRestore(); }
   });
 
@@ -1309,20 +1304,11 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     }
   });
 
-  it.each(['desktop', 'tablet'] as const)('updates the open Vibe browser split as content changes on %s', viewport => {
+  it.each(['desktop', 'tablet'] as const)('updates the open Vibe browser split as content changes on %s', async viewport => {
     viewportMock.setViewport?.(viewport);
     (githubStore as any)._setEnabled(true);
     let githubHeight = 180;
     let storageHeight = 580;
-    const callbacks: Array<() => void> = [];
-    const measure = () => callbacks.forEach(callback => callback());
-    vi.stubGlobal('ResizeObserver', class {
-      constructor(callback: () => void) { callbacks.push(callback); }
-      observe() {}
-      disconnect() {}
-    });
-    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callback(0); return 0; });
-    vi.stubGlobal('cancelAnimationFrame', () => {});
     const bounds = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
       const height = this.matches('.panel-flip-face--github') ? githubHeight
         : this.matches('.panel-flip-face--storage') ? storageHeight : 0;
@@ -1334,18 +1320,25 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
       const browsers = screen.getByTestId('dashboard-panel-right');
       const github = browsers.querySelector<HTMLElement>('.panel-flip-face--github');
       const storage = browsers.querySelector<HTMLElement>('.panel-flip-face--storage');
-      measure();
-      expect(github).toHaveStyle({ maxHeight: '180px' });
-      expect(storage).toHaveStyle({ maxHeight: '580px' });
+      const repo = document.createElement('div');
+      repo.textContent = 'Sample repository';
+      screen.getByTestId('github-panel-stub').append(repo);
+      await waitFor(() => {
+        expect(github).toHaveStyle({ maxHeight: '180px' });
+        expect(storage).toHaveStyle({ maxHeight: '580px' });
+      });
       githubHeight = 560;
       storageHeight = 150;
-      measure();
-      expect(github).toHaveStyle({ maxHeight: '560px' });
-      expect(storage).toHaveStyle({ maxHeight: '150px' });
+      const nextRepo = document.createElement('div');
+      nextRepo.textContent = 'Another repository';
+      repo.after(nextRepo);
+      await waitFor(() => {
+        expect(github).toHaveStyle({ maxHeight: '560px' });
+        expect(storage).toHaveStyle({ maxHeight: '150px' });
+      });
     } finally {
       cleanup();
       bounds.mockRestore();
-      vi.unstubAllGlobals();
     }
   });
 

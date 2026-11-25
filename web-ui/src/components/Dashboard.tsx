@@ -429,10 +429,12 @@ const Dashboard: Component<DashboardProps> = (props) => {
               <Show when={showUserMenu()}>
                 <div class="header-user-dropdown-overlay" data-testid="header-user-dropdown-overlay" onClick={() => setShowUserMenu(false)}>
                   <div
-                    class="header-user-dropdown header-user-dropdown--portal"
+                    class="header-user-dropdown header-user-dropdown--portal header-user-dropdown--profile"
                     data-testid="header-user-dropdown"
                     onClick={(e) => e.stopPropagation()}
-                    style={window.innerWidth > 640 ? { top: `${userMenuPos().top}px`, right: `${userMenuPos().right}px` } : undefined}
+                    style={window.innerWidth > 640 ? {
+                      top: `${userMenuPos().top}px`, right: `${userMenuPos().right}px`, '--profile-menu-top': `${userMenuPos().top}px`,
+                    } : undefined}
                   >
                     <Show when={props.userName}><div class="header-user-email">{props.userName}</div></Show>
                     <Show when={operatorInProfile()}><div ref={setOperatorProfileMount} /></Show>

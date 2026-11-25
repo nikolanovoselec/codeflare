@@ -217,7 +217,7 @@ At 390px verify the icon-only dropdown sits before Profile and opens the same ch
 
 Use an authorized running Enterprise workspace with the mode selector, VS Code, Vault, and the sleep countdown visible.
 
-Narrow the viewport and verify VS Code, then Operators, then Vault enter Profile as needed. Open Profile and check each moved action remains reachable. See [Operators](../../sdd/spec/operators.md#req-operator-040-owned-activity-control-presentation) and [Vault](../../sdd/spec/vault.md#req-vault-033-vault-button-availability-and-opening).
+Narrow the viewport and verify VS Code, then Operators, then Vault enter Profile as needed. Open Profile and check each moved action remains reachable. On short desktop and mobile viewports, open Profile in both headers and verify every available action remains reachable by scrolling within the menu. See [Operators](../../sdd/spec/operators.md#req-operator-040-owned-activity-control-presentation) and [Vault](../../sdd/spec/vault.md#req-vault-033-vault-button-availability-and-opening).
 
 At 375px, verify Settings is reachable and the groups retain the one-slot gap. Continue narrowing after overflow is exhausted until the utilities move to a second row. Verify every remaining action is reachable and each icon target measures 44 × 44 CSS px. Mark wrapping unverified if the fallback never appears.
 
@@ -227,9 +227,9 @@ Select **Vibe** and use an authorized account with GitHub enabled. Verify both b
 
 With the browsers open and closed, verify Profile stays icon-only and the email appears at the top of its open menu. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard -->
 
-On desktop and tablet, verify that the grip is the only part protruding beyond the summary’s right edge when closed. Open the browsers and verify that the same grip moves to their far right edge. Check that the chevrons point outward to open and inward to close.
+On desktop and tablet, verify that only the grip protrudes and no full-height strip appears in either state. The grip sits on the summary’s right edge when closed and on the browsers’ far right edge when open. Check that the chevrons point outward to open and inward to close.
 
-Measure the grip at 150px along the edge, vertical on desktop/tablet and horizontal on mobile. Verify its 44px cross-axis hit target remains clickable. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-pull -->
+Measure the visible grip at 150px along the edge, vertical on desktop and tablet and horizontal on mobile. Separately, verify the transparent hit area extends to 44px across the grip and that clicking outside the painted grip but inside the hit area still toggles the drawer. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-pull -->
 
 ### GitHub workspace manual acceptance
 
@@ -562,6 +562,8 @@ For REQ-GITHUB-002 AC6, use an approved connected account with an existing repos
 ### GitHub panel geometry acceptance
 
 For REQ-GITHUB-012 AC1/AC6/AC7, use browser-e2e against protected Integration after access/authentication approval. Select **Code**. At tablet and desktop breakpoints, verify the stacked column anchors GitHub at the top and Storage at the bottom. At mobile width, verify existing short content centers the active face; existing long repository/storage lists must scroll internally within the viewport cap. Pass only if all outcomes hold without page overflow. Missing content is unverified, not permission to upload files or create repositories.
+
+At desktop and tablet sizes, select **Vibe** and open the drawer with unequal lists. Verify that GitHub stays top-anchored and Storage bottom-anchored, the shorter panel takes only the height it needs, and the longer panel can use spare height and scroll internally. Use existing filters to reverse which list is shorter and verify the split adjusts without resizing the viewport.
 
 <a id="specification-coverage"></a>
 ## Requirement and Source Map

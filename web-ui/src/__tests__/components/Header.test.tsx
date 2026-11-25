@@ -505,13 +505,6 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
   });
 
   describe('User Name Display', () => {
-    it('should show user name when provided', () => {
-      render(() => <Header {...defaultSessionProps} userName="test@example.com" />);
-      const userMenu = screen.getByTestId('header-user-menu');
-
-      expect(userMenu).toHaveTextContent('test@example.com');
-    });
-
     it('should show default avatar when no user name', () => {
       render(() => <Header {...defaultSessionProps} />);
       const userMenu = screen.getByTestId('header-user-menu');

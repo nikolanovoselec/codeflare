@@ -196,6 +196,11 @@
           animation: header-bookmark-slide-in 150ms ease-out;
         }
 
+        .header-user-dropdown--profile {
+          max-block-size: calc(100dvh - var(--profile-menu-top, 0px) - 8px);
+          overflow-y: auto;
+        }
+
         .header-user-dropdown-item {
           display: flex;
           align-items: center;
@@ -482,6 +487,10 @@
           .header-user-dropdown--portal {
             position: relative;
             width: 100%;
+          }
+
+          .header-user-dropdown--profile {
+            max-block-size: calc(100dvh - 8px);
           }
 
           .header-user-dropdown-item,
