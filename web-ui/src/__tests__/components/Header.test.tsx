@@ -398,8 +398,11 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
   it('shows the Profile email only at the top of the open workspace menu', () => {
     const email = 'fixture@example.com';
     render(() => <Header {...defaultSessionProps} userName={email} />);
+    const profile = screen.getByRole('button', { name: 'User menu' });
+    expect(profile.querySelector('svg, img')).toBeVisible();
+    expect(profile).toHaveTextContent(/^$/);
     expect(screen.queryByText(email)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'User menu' }));
+    fireEvent.click(profile);
     const menu = screen.getByTestId('header-user-dropdown');
     expect(within(menu).getByText(email)).toBeVisible();
     expect(menu.firstElementChild).toHaveTextContent(email);

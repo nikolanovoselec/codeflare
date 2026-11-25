@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor, within } from '@solidjs/testing-library';
-import { createRoot } from 'solid-js';
+import { createRoot, createSignal } from 'solid-js';
 import { mdiReflectHorizontal, mdiViewCompactOutline, mdiXml } from '@mdi/js';
 import Dashboard from '../../components/Dashboard';
 import { createMigrationRetry, MigrationRetryNotice } from '../../components/MigrationRetryNotice';
@@ -1000,7 +1000,8 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     try {
       viewportMock.setViewport?.('mobile');
       (githubStore as any)._setEnabled(true);
-      render(() => <Dashboard {...defaultProps} />);
+      const [mode, setMode] = createSignal<'terminal' | 'chat'>('terminal');
+      render(() => <Dashboard {...defaultProps} workspaceMode={{ value: mode(), onSelect: setMode }} />);
 
       const right = screen.getByTestId('dashboard-panel-right') as HTMLElement;
       const githubFace = right.querySelector('.panel-flip-face--github')!;
@@ -1016,6 +1017,14 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
       fireEvent.click(screen.getByTestId('storage-flip-btn'));
       expect(githubFace.getAttribute('data-active')).toBe('true');
       expect(storageFace.getAttribute('data-active')).toBe('false');
+
+      setMode('chat');
+      fireEvent.click(screen.getByRole('button', { name: 'Show GitHub & Storage' }));
+      expect(screen.queryByRole('button', { name: 'Show GitHub', exact: true })).not.toBeInTheDocument();
+      expect(screen.getByTestId('github-panel-stub')).toBeVisible();
+      expect(screen.getByTestId('storage-browser')).toBeVisible();
+      expect(githubFace).toHaveAttribute('data-active', 'true');
+      expect(storageFace).toHaveAttribute('data-active', 'true');
     } finally {
       (globalThis as any).ResizeObserver = RealRO;
       (globalThis as any).requestAnimationFrame = RealRAF;
