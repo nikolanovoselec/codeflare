@@ -190,6 +190,11 @@ it.each(['Stop', 'Delete'] as const)('REQ-SESSION-043: an open observer dropdown
     fireEvent.click(screen.getByTestId('session-switcher'));
     await vi.advanceTimersByTimeAsync(0);
     expect(card().getByRole('status', { name: 'IDLE' })).toBeVisible();
+    project('stopping', 15, undefined, undefined, 8);
+    await sessionStore.refreshSessionStatuses();
+    project('stopped', 16, undefined, undefined, 8);
+    await sessionStore.refreshSessionStatuses();
+    expect(card().getByRole('status', { name: 'STOPPED' })).toBeVisible();
   } else {
     catalog = polled = undefined;
     await vi.advanceTimersByTimeAsync(3 * SESSION_POLL_TRANSITION_MS);
@@ -212,7 +217,7 @@ it('REQ-SESSION-043: an accepted Delete removes the card after a newer live read
   accept(accepted('queued', true));
   await deletion;
   await vi.advanceTimersByTimeAsync(2 * SESSION_POLL_TRANSITION_MS);
-  expect(screen.queryByText(name)).not.toBeInTheDocument();
+  expect(screen.queryByTestId(`session-stat-card-${id}`)).not.toBeInTheDocument();
 });
 
 it('REQ-SESSION-043: accepted Delete resumes fast confirmation after the tab was hidden', async () => {
@@ -235,7 +240,7 @@ it('REQ-SESSION-043: accepted Delete resumes fast confirmation after the tab was
     await vi.advanceTimersByTimeAsync(0);
     expect(card().getByText(name)).toBeVisible();
     await vi.advanceTimersByTimeAsync(2 * SESSION_POLL_TRANSITION_MS);
-    expect(screen.queryByText(name)).not.toBeInTheDocument();
+    expect(screen.queryByTestId(`session-stat-card-${id}`)).not.toBeInTheDocument();
   } finally {
     visibility.mockRestore();
   }

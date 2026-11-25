@@ -1993,7 +1993,7 @@ describe('Session Store', () => {
       } finally { cleanup(); }
     });
 
-    it.each(['poll', 'catalog'] as const)('REQ-SESSION-043: ordered %s shutdown releases a pending Ready screen', async read => {
+    it.each(['phase-less poll', 'queued poll', 'catalog', 'omissions'] as const)('REQ-TERM-043: ordered %s shutdown releases a pending Ready screen', async read => {
       const session = { id: `ready-shutdown-${read}`, name: 'Ready shutdown', workspace: 'terminal' as const,
         createdAt: '2026-01-01', lastAccessedAt: '2026-01-01',
         lifecycle: 'stopped' as const, status: 'stopped' as const, generation: 6, revision: 1 };
@@ -2007,18 +2007,51 @@ describe('Session Store', () => {
         return () => {};
       });
       await sessionStore.startSession(session.id);
+      const current = () => sessionStore.sessions.find(s => s.id === session.id);
       const observe = async (remote: Awaited<ReturnType<typeof api.getBatchSessionStatus>>['statuses'][string]) => {
         mockGetBatchSessionStatus.mockResolvedValue({ statuses: { [session.id]: remote } });
-        if (read === 'poll') await sessionStore.refreshSessionStatuses();
-        else await sessionStore.loadSessions();
+        await sessionStore.refreshSessionStatuses();
       };
-      await observe({ status: 'stopped', lifecycle: 'stopped', generation: 6, revision: 2 });
+      const stale = { status: 'stopped', lifecycle: 'stopped', generation: 6, revision: 2 } as const;
+      await observe(stale);
       expect(sessionStore.getInitProgressForSession(session.id)?.stage).toBe('ready');
-      await observe({ status: 'stopping', lifecycle: 'running', generation: 7, revision: 3, shutdownPhase: 'consolidating' });
-      expect(sessionStore.sessions.find(s => s.id === session.id)).toMatchObject({ status: 'stopping', shutdownPhase: 'consolidating' });
+
+      if (read === 'omissions') {
+        await observe({ status: 'running', lifecycle: 'running', generation: 7, revision: 3 });
+        terminalLifecycle.ownedSessionIds.add(session.id);
+        mockGetBatchSessionStatus.mockResolvedValue({ statuses: {} });
+        for (let miss = 0; miss < 2; miss++) {
+          await sessionStore.refreshSessionStatuses();
+          expect(current()?.status).toBe('running');
+          expect(sessionStore.getInitProgressForSession(session.id)?.stage).toBe('ready');
+        }
+        await sessionStore.refreshSessionStatuses();
+        expect(current()).toBeUndefined();
+      } else if (read === 'catalog') {
+        let reply!: (value: Awaited<ReturnType<typeof api.getBatchSessionStatus>>) => void;
+        mockGetBatchSessionStatus.mockReturnValueOnce(new Promise(resolve => { reply = resolve; }));
+        mockGetSessions.mockResolvedValue([{ ...session, generation: 7, revision: 4 }]);
+        const loading = sessionStore.loadSessions();
+        try {
+          await vi.advanceTimersByTimeAsync(0);
+          expect(current()).toMatchObject({ status: 'stopped', generation: 7, revision: 4 });
+          expect(sessionStore.getInitProgressForSession(session.id)).toBeNull();
+        } finally {
+          reply({ statuses: { [session.id]: stale } });
+          await loading;
+        }
+        expect(current()).toMatchObject({ status: 'stopped', generation: 7, revision: 4 });
+      } else {
+        const shutdown = read === 'phase-less poll'
+          ? { status: 'stopping' as const }
+          : { status: 'running' as const, shutdownPhase: 'queued' as const };
+        await observe({ ...shutdown, lifecycle: 'running', generation: 7, revision: 3 });
+        expect(current()).toMatchObject(shutdown);
+        expect(sessionStore.getInitProgressForSession(session.id)).toBeNull();
+        await observe({ status: 'stopped', lifecycle: 'stopped', generation: 7, revision: 4 });
+        expect(current()).toMatchObject({ status: 'stopped', lifecycle: 'stopped' });
+      }
       expect(sessionStore.getInitProgressForSession(session.id)).toBeNull();
-      await observe({ status: 'stopped', lifecycle: 'stopped', generation: 7, revision: 4 });
-      expect(sessionStore.sessions.find(s => s.id === session.id)).toMatchObject({ status: 'stopped', lifecycle: 'stopped' });
     });
 
     it('REQ-GITHUB-320: enables Open while restoration runs and shows its later partial outcome', async () => {

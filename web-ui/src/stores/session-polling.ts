@@ -48,7 +48,7 @@ type StatusUpdater = (id: string, status: SessionStatus, shutdownPhase?: Shutdow
 type ShutdownUpdater = (index: number, incoming: Awaited<ReturnType<typeof api.getBatchSessionStatus>>['statuses'][string]) => void;
 type ReadyShutdownRelease = (id: string, incoming: Awaited<ReturnType<typeof api.getBatchSessionStatus>>['statuses'][string]) => void;
 type InitChecker = (id: string) => boolean;
-type NegativeKvGuard = (id: string) => boolean;
+type NegativeKvGuard = (id: string, batchOmission?: boolean) => boolean;
 type AuthExpiredSetter = (expired: boolean) => void;
 type MetricsUpdater = (
   sessionMetrics: Record<string, SessionMetrics>,
@@ -284,7 +284,7 @@ async function refreshSessionStatusesOnce(forceManagedReleaseCheck: boolean): Pr
     const removedIds: string[] = [];
     for (const session of state.sessions) {
       if (!batchStatuses[session.id]) {
-        if (!session.pendingDelete && !hasAcceptedDelete(session) && shouldRetainNegativeKvFn(session.id)) {
+        if (!session.pendingDelete && !hasAcceptedDelete(session) && shouldRetainNegativeKvFn(session.id, true)) {
           sessionMissCounters.delete(session.id);
           continue;
         }

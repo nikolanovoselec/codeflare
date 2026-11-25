@@ -1,5 +1,5 @@
 import { createStore, produce } from 'solid-js/store';
-import { createSignal } from 'solid-js';
+import { batch, createSignal } from 'solid-js';
 import type { SessionWithStatus, SessionStatus, ShutdownPhase, InitProgress, RepositoryRestoreStatus, SessionTerminals, AgentType, TabConfig, UserPreferences } from '../types';
 import * as api from '../api/client';
 import { ApiError } from '../api/fetch-helper';
@@ -250,10 +250,12 @@ function isSessionInitializing(sessionId: string): boolean {
 }
 
 /** One gate for every stopped/missing observation from eventually-consistent KV. */
-function shouldRetainNegativeKv(sessionId: string): boolean {
-  return localKillAttempts.has(sessionId)
-    || isSessionInitializing(sessionId)
-    || isWithinStartupGuard(sessionId)
+function shouldRetainNegativeKv(sessionId: string, batchOmission = false): boolean {
+  if (localKillAttempts.has(sessionId)) return true;
+  // A completed Start awaiting Open is not an in-flight Start. Fresh D1
+  // omissions can count toward removal even if the startup socket still exists.
+  if (batchOmission && state.initProgressBySession[sessionId]?.readyGeneration !== undefined) return false;
+  return isSessionInitializing(sessionId) || isWithinStartupGuard(sessionId)
     || terminalStore.ownsSession?.(sessionId) === true;
 }
 
@@ -350,13 +352,21 @@ function reconcileMemoryRetry(id: string, session?: SessionWithStatus): void {
   }
 }
 
-/** An ordered shutdown may supersede a completed Start whose Open screen is still shown. */
-function releaseReadyForShutdown(id: string, incoming: BatchStatusResponse['statuses'][string]): void {
+/** Call only with a projection that has passed lifecycle ordering. */
+function supersedesReady(id: string, incoming: Pick<Partial<SessionWithStatus>, 'generation' | 'revision' | 'status' | 'shutdownPhase'>): boolean {
   const readyGeneration = state.initProgressBySession[id]?.readyGeneration;
-  if (readyGeneration === undefined || incoming.generation === undefined || incoming.revision === undefined
-    || incoming.generation < readyGeneration || (!incoming.shutdownPhase && incoming.status !== 'stopped')) return;
+  return readyGeneration !== undefined && incoming.generation !== undefined && incoming.revision !== undefined
+    && incoming.generation >= readyGeneration
+    && (incoming.status === 'stopping' || incoming.status === 'stopped' || incoming.shutdownPhase !== undefined);
+}
+
+function releaseCompletedReady(id: string): void {
   dismissInitProgressForSession(id);
   clearSessionStartedGuard(id);
+}
+
+function releaseReadyForShutdown(id: string, incoming: BatchStatusResponse['statuses'][string]): void {
+  if (supersedesReady(id, incoming)) releaseCompletedReady(id);
 }
 
 function applyShutdownFields(index: number, incoming: BatchStatusResponse['statuses'][string]): void {
@@ -447,6 +457,7 @@ async function loadSessions(): Promise<void> {
     const previouslyShuttingDown = new Set(state.sessions.filter(s => isShutdownInProgress(s.shutdownPhase)).map(s => s.id));
     const oldIds = new Set(state.sessions.map(s => s.id));
     const listedIds = new Set(sessions.map(s => s.id));
+    const supersededReadyIds: string[] = [];
 
     const sessionsWithStatus: SessionWithStatus[] = sessions.map((s) => {
       const local = existingSessions.get(s.id);
@@ -464,9 +475,12 @@ async function loadSessions(): Promise<void> {
       }, listed) !== listed;
       if (local && localNewer) return local;
       const kill = localKillAttempts.get(s.id);
+      const locallyStopping = isLocallyStopping(s.id);
+      const releaseReady = !locallyStopping && supersedesReady(s.id, s);
+      if (releaseReady) supersededReadyIds.push(s.id);
       const keepLocalStatus = local && (local.status === 'initializing'
         || (kill && kill.generation === s.generation && (listedStatus !== 'stopped' || isShutdownInProgress(s.shutdownPhase)))
-        || isLocallyStopping(s.id) || isSessionInitializing(s.id));
+        || locallyStopping || (isSessionInitializing(s.id) && !releaseReady));
       return {
         ...s,
         status: keepLocalStatus && local ? local.status : listedStatus,
@@ -482,17 +496,20 @@ async function loadSessions(): Promise<void> {
     invalidateSessionStatusReads();
     acceptedCatalogRevision = getSessionCatalogRevision();
     sessionMissCounters.clear();
-    setState(s => {
-      // Publish the replacement and its cache together before the status batch arrives.
-      let sessionMetrics = s.sessionMetrics;
-      for (const { id, generation } of sessionsWithStatus) {
-        const cached = sessionMetrics[id];
-        if (cached && generation !== undefined && cached.generation !== generation) {
-          if (sessionMetrics === s.sessionMetrics) sessionMetrics = { ...sessionMetrics };
-          delete sessionMetrics[id];
+    batch(() => {
+      for (const id of supersededReadyIds) releaseCompletedReady(id);
+      setState(s => {
+        // Publish the replacement and its cache together before the status batch arrives.
+        let sessionMetrics = s.sessionMetrics;
+        for (const { id, generation } of sessionsWithStatus) {
+          const cached = sessionMetrics[id];
+          if (cached && generation !== undefined && cached.generation !== generation) {
+            if (sessionMetrics === s.sessionMetrics) sessionMetrics = { ...sessionMetrics };
+            delete sessionMetrics[id];
+          }
         }
-      }
-      return { sessions: sessionsWithStatus, sessionMetrics, loading: false };
+        return { sessions: sessionsWithStatus, sessionMetrics, loading: false };
+      });
     });
     for (const session of state.sessions) {
       reconcileKillGeneration(session.id);
@@ -695,6 +712,11 @@ function removeConfirmedSession(id: string): void {
       s.sessions = s.sessions.filter((session) => session.id !== id);
       if (s.activeSessionId === id) {
         s.activeSessionId = null;
+      }
+      if (s.initProgressBySession[id]?.readyGeneration !== undefined) {
+        clearSessionStartedGuard(id);
+        delete s.initializingSessionIds[id];
+        delete s.initProgressBySession[id];
       }
       delete s.sessionMetrics[id];
     })
