@@ -339,7 +339,7 @@ function applyManagedReleaseBatch(
 }
 
 // A local Stop owns its own confirmation poll; persisted stopping does not.
-const localStopAttempts = new Set<string>();
+const localStopAttempts = new Map<string, number | undefined>();
 const supersededStopAttempts = new Set<string>();
 // Keep successful commands deduplicated until authoritative polling confirms exit.
 const localKillAttempts = new Map<string, { request: Promise<void> | null; generation?: number }>();
@@ -457,6 +457,34 @@ function isLocallyStopping(id: string): boolean {
   return localStopAttempts.has(id) && !supersededStopAttempts.has(id);
 }
 
+// Only the old local Stop owns its presentation. It cannot hide a live replacement.
+function keepLocalStopPresentation(id: string, incoming: ReadyProjection): boolean {
+  if (!isLocallyStopping(id)) return false;
+  const startup = state.initializingSessionIds[id];
+  const stoppingGeneration = localStopAttempts.get(id);
+  if (typeof startup === 'object' && stoppingGeneration !== undefined
+    && incoming.generation !== undefined && incoming.revision !== undefined
+    && incoming.generation > stoppingGeneration && incoming.status === 'running' && incoming.shutdownPhase === undefined) {
+    supersededStopAttempts.add(id);
+    return false;
+  }
+  return true;
+}
+
+function retainLocalStopProjection(id: string, incoming: BatchStatusResponse['statuses'][string]): boolean {
+  if (!keepLocalStopPresentation(id, incoming)) return false;
+  // Keep ordered evidence for Ready recovery without giving up local Stop's status.
+  if (typeof state.initializingSessionIds[id] === 'object' && incoming.generation !== undefined && incoming.revision !== undefined) {
+    const index = state.sessions.findIndex(session => session.id === id);
+    if (index !== -1) setState('sessions', index, {
+      lifecycle: incoming.lifecycle ?? incoming.status,
+      generation: incoming.generation,
+      revision: incoming.revision,
+    });
+  }
+  return true;
+}
+
 // Register polling dependencies (extracted to session-polling.ts)
 registerPollingDeps({
   getState: () => state,
@@ -474,7 +502,7 @@ registerPollingDeps({
   canApplyReadyProjection,
   removeConfirmedSession,
   isSessionInitializing,
-  isLocallyStopping,
+  retainLocalStopProjection,
   shouldRetainNegativeKv,
   setAuthExpired,
   applyMetricsUpdate,
@@ -540,7 +568,7 @@ async function loadSessions(): Promise<void> {
       }, listed) !== listed;
       if (local && (localNewer || !canApplyReadyProjection(s.id, s))) return local;
       const kill = localKillAttempts.get(s.id);
-      const locallyStopping = isLocallyStopping(s.id);
+      const locallyStopping = keepLocalStopPresentation(s.id, s);
       const releaseReady = !locallyStopping && supersedesReady(s.id, s);
       if (releaseReady || typeof state.initializingSessionIds[s.id] === 'object') readyProjections.push(s);
       const keepLocalStatus = local && (local.status === 'initializing'
@@ -652,7 +680,7 @@ async function loadSessions(): Promise<void> {
 
       const currentStatus = state.sessions.find((candidate) => candidate.id === session.id)?.status;
       releaseReadyForShutdown(session.id, batchStatus);
-      if (isLocallyStopping(session.id)) continue;
+      if (retainLocalStopProjection(session.id, batchStatus)) continue;
       if (currentStatus === 'initializing' || isSessionInitializing(session.id)) {
         if (batchStatus.generation !== undefined && batchStatus.revision !== undefined) {
           setState('sessions', idx, { lifecycle: batchStatus.lifecycle ?? batchStatus.status,
@@ -1025,7 +1053,7 @@ async function stopSession(id: string): Promise<void> {
   const readyGeneration = typeof startup === 'object' ? startup.withdrawnGeneration : state.initProgressBySession[id]?.readyGeneration;
   const readyAhead = readyGeneration !== undefined && (listedGeneration === undefined || readyGeneration > listedGeneration);
   const generation = readyAhead ? readyGeneration : listedGeneration;
-  const revision = readyAhead ? undefined : attemptedSession?.revision;
+  let revision = readyAhead ? undefined : attemptedSession?.revision;
   try {
     const startupCleanup = startupCleanups.get(id);
     if (startupCleanup) {
@@ -1033,7 +1061,7 @@ async function stopSession(id: string): Promise<void> {
       startupCleanups.delete(id);
     }
     withdrawReadyForShutdownCommand(id, true);
-    localStopAttempts.add(id);
+    localStopAttempts.set(id, generation);
     if (localKillAttempts.has(id)) supersededStopAttempts.add(id);
     updateSessionStatus(id, 'stopping');
     const queued = await api.stopSession(id);
@@ -1107,10 +1135,20 @@ async function stopSession(id: string): Promise<void> {
               generation: current.generation,
               revision: current.revision,
             }, incoming);
-            // Catalog refresh may already have accepted this exit revision.
-            // Ordering rejects stale evidence; only the original Stop needs a newer revision.
-            if (ordered === incoming && incoming.lifecycle === 'stopped'
-              && (revision === undefined || incoming.revision > revision)) {
+            if (ordered !== incoming) return;
+            if (revision === undefined) {
+              // Ready can arrive before the catalog publishes its revision. Only
+              // a non-exit observation of that runtime can establish the fence.
+              if (current.generation === generation && current.lifecycle !== undefined && current.lifecycle !== 'stopped') {
+                revision = current.revision;
+              }
+              if (revision === undefined && incoming.lifecycle !== 'stopped') revision = incoming.revision;
+            }
+            if (incoming.lifecycle !== 'stopped') {
+              retainLocalStopProjection(id, sessionStatus);
+              return;
+            }
+            if (revision !== undefined && incoming.revision > revision) {
               const index = state.sessions.findIndex((session) => session.id === id);
               setState('sessions', index, { lifecycle: incoming.lifecycle, generation, revision: incoming.revision });
               finishStopPolling(true);

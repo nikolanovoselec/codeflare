@@ -8,6 +8,7 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 - [REQ-SESSION-006](session-lifecycle.md#req-session-006-user-can-stop-restart-and-delete-sessions) returns to the Dashboard immediately on Stop or Delete from the in-session dropdown. [REQ-SESSION-043](session-lifecycle.md#req-session-043-queued-graceful-shutdown-and-memory-recovery) keeps available metrics and a breathing status label on both disabled card surfaces until Stop or Delete completes, replacing the Dashboard’s decorative sweeping light.
 - [REQ-SESSION-244](session-lifecycle.md#req-session-244-lifecycle-polling-and-ancillary-scheduling) refreshes an open session dropdown more frequently so observers see shutdown progress without reloading.
+- [REQ-TERM-043](terminal.md#req-term-043-visible-terminal-readiness-gating) withdraws Open without remounting on Stop or Kill, restores it after a rate-limited Stop only when the same runtime is confirmed running, and lets a newer running runtime take over.
 
 ## 2026-11-24: Rotate Hermes stores by last content change
 

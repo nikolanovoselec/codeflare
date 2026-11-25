@@ -68,7 +68,7 @@ let releaseReadyForShutdownFn: ReadyShutdownRelease;
 let canApplyReadyProjectionFn: ReadyProjectionGuard;
 let removeConfirmedSession: (id: string) => void;
 let isSessionInitializingFn: InitChecker;
-let isLocallyStoppingFn: InitChecker;
+let retainLocalStopProjectionFn: ReadyProjectionGuard;
 let shouldRetainNegativeKvFn: NegativeKvGuard;
 let setAuthExpiredFn: AuthExpiredSetter;
 let applyMetricsUpdateFn: MetricsUpdater;
@@ -84,7 +84,7 @@ export function registerPollingDeps(deps: {
   canApplyReadyProjection: ReadyProjectionGuard;
   removeConfirmedSession: (id: string) => void;
   isSessionInitializing: InitChecker;
-  isLocallyStopping: InitChecker;
+  retainLocalStopProjection: ReadyProjectionGuard;
   shouldRetainNegativeKv: NegativeKvGuard;
   setAuthExpired: AuthExpiredSetter;
   applyMetricsUpdate: MetricsUpdater;
@@ -99,7 +99,7 @@ export function registerPollingDeps(deps: {
   canApplyReadyProjectionFn = deps.canApplyReadyProjection;
   removeConfirmedSession = deps.removeConfirmedSession;
   isSessionInitializingFn = deps.isSessionInitializing;
-  isLocallyStoppingFn = deps.isLocallyStopping;
+  retainLocalStopProjectionFn = deps.retainLocalStopProjection;
   shouldRetainNegativeKvFn = deps.shouldRetainNegativeKv;
   setAuthExpiredFn = deps.setAuthExpired;
   applyMetricsUpdateFn = deps.applyMetricsUpdate;
@@ -342,7 +342,7 @@ async function refreshSessionStatusesOnce(forceManagedReleaseCheck: boolean): Pr
       // Guard 1: Only the local Stop poll owns termination; persisted stopping
       // can accept a newer D1 stopped projection.
       releaseReadyForShutdownFn(session.id, remote);
-      if (isLocallyStoppingFn(session.id)) continue;
+      if (retainLocalStopProjectionFn(session.id, remote)) continue;
 
       // Keep startup's local presentation, but record accepted D1 authority so
       // a delayed Ready cannot override a stop or a replacement already seen.
