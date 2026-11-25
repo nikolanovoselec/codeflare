@@ -39,7 +39,7 @@ interface TerminalAreaProps {
   onOpenVscodeSession: (id: string) => void;
   onStopSession: (id: string) => void;
   onDeleteSession: (id: string) => void;
-  onCreateSession: (name: string, agentType?: AgentType, tabConfig?: TabConfig[], surface?: PiSurface) => void;
+  onCreateSession: (name: string, agentType?: AgentType, tabConfig?: TabConfig[], surface?: PiSurface, implicitAgent?: boolean) => void | Promise<void>;
   onTerminalError: Setter<string | null>;
   error: string | null;
   onDismissError: () => void;
@@ -312,10 +312,11 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
           workspaceMode={props.workspaceMode}
           migrationRetry={props.migrationRetry}
           sessions={sessionStore.sessions}
-          onCreateSession={(agentType, tabConfig, surface) => {
+          onCreateSession={(agentType, tabConfig, surface, implicitAgent) => {
             const name = generateSessionName(agentType, sessionStore.sessions);
-            if (surface) props.onCreateSession(name, agentType, tabConfig, surface);
-            else props.onCreateSession(name, agentType, tabConfig);
+            if (implicitAgent) return props.onCreateSession(name, agentType, tabConfig, surface, true);
+            if (surface) return props.onCreateSession(name, agentType, tabConfig, surface);
+            return props.onCreateSession(name, agentType, tabConfig);
           }}
           onStartSession={props.onStartSession}
           onOpenVscodeSession={props.onOpenVscodeSession}

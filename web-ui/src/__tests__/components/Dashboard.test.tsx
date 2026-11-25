@@ -559,7 +559,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(browsers).not.toHaveAttribute('inert');
     expect(github).toBeVisible();
     expect(storage).toBeVisible();
-    expect(screen.queryByRole('button', { name: 'Show GitHub', exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Show GitHub$/ })).not.toBeInTheDocument();
 
     fireEvent.click(pull);
     expect(pull).toHaveAttribute('aria-expanded', 'false');
@@ -668,10 +668,24 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
       fireEvent.click(screen.getByTestId('dashboard-new-session'));
       expect(screen.queryByRole('dialog', { name: 'Create new session' })).not.toBeInTheDocument();
       if (atLimit) expect(defaultProps.onCreateSession).not.toHaveBeenCalled();
-      else expect(defaultProps.onCreateSession).toHaveBeenCalledWith('pi', undefined, 'chat');
+      else expect(defaultProps.onCreateSession).toHaveBeenCalledWith('pi', undefined, 'chat', true);
     } finally {
       (sessionStore as any)._setTestLimit(false);
     }
+  });
+
+  it('blocks another Vibe launch while the first launch is pending', async () => {
+    let finish!: () => void;
+    const pending = new Promise<void>(resolve => { finish = resolve; });
+    const launch = vi.fn(() => pending);
+    render(() => <Dashboard {...defaultProps} onCreateSession={launch} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
+    const button = screen.getByRole('button', { name: 'Create new session' });
+    fireEvent.click(button);
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    expect(launch).toHaveBeenCalledOnce();
+    finish();
+    await waitFor(() => expect(button).toBeEnabled());
   });
 
   // === Initialization Tests ===

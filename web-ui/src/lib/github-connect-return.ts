@@ -6,10 +6,12 @@ const returnErrors = new Map([
 ]);
 
 export function consumeGithubConnectReturn(): string | null {
-  const url = new URL(window.location.href);
-  const outcome = url.searchParams.get('github');
+  const { search, pathname, hash } = window.location;
+  const params = new URLSearchParams(search);
+  const outcome = params.get('github');
   if (!outcome) return null;
-  url.searchParams.delete('github');
-  window.history.replaceState(window.history.state, '', url);
+  params.delete('github');
+  const query = params.toString();
+  window.history.replaceState(window.history.state, '', `${pathname}${query ? `?${query}` : ''}${hash}`);
   return returnErrors.get(outcome) ?? null;
 }

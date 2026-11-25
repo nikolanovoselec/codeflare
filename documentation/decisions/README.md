@@ -2586,7 +2586,7 @@ Short-lived GitHub App tokens cap the exfiltration value there.
 **Consequences:**
 
 - Dashboard status and storage polling are no longer coupled to terminal side effects.
-- Hidden running sessions do not mount terminals, reconnect, resize, forward input, or run URL detection. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea -->
+- Hidden running sessions do not mount new terminals, reconnect, resize, forward input, or run URL detection. The no-hidden-mount consequence is superseded only for the one previously connected, inert pane retained for same-generation Dashboard return under [REQ-TERM-011](../../sdd/spec/terminal.md#req-term-011-visible-terminal-panes-own-websocket-connections). <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea -->
 - Browser visibility return reconnects only the current workspace's visible pane keys. <!-- @impl: web-ui/src/components/Layout.tsx::visibleTerminalKeys -->
 - `MultiView #1` can compose existing running or initializing sessions without quota, storage, lifecycle, or terminal-route changes. <!-- @impl: web-ui/src/stores/terminal-workspace.ts::createOrUpdateMultiView -->
 - A shared `TerminalGrid` renders tiled terminal surfaces for both per-session tab tiling and MultiView, so repeated layout structure stays centralized. <!-- @impl: web-ui/src/components/TerminalGrid.tsx::TerminalGrid -->

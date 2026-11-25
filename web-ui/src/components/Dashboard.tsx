@@ -43,7 +43,7 @@ interface DashboardProps {
   workspaceMode?: PiWorkspaceModeBinding;
   migrationRetry: MigrationRetry;
   sessions: SessionWithStatus[];
-  onCreateSession: (agentType?: AgentType, tabConfig?: TabConfig[], surface?: PiSurface) => void;
+  onCreateSession: (agentType?: AgentType, tabConfig?: TabConfig[], surface?: PiSurface, implicitAgent?: boolean) => void | Promise<void>;
   onStartSession: (id: string, surface?: PiSurface) => void;
   onOpenVscodeSession: (id: string) => void;
   onOpenSessionById: (id: string, surface?: PiSurface) => void;
@@ -94,6 +94,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
 
   const effectiveFace = () => (githubStore.enabled ? panelFace() : 'storage');
   const [showCreateDialog, setShowCreateDialog] = createSignal(false);
+  const [launchingVibe, setLaunchingVibe] = createSignal(false);
   const [showLimitPopup, setShowLimitPopup] = createSignal(false);
   const [recreateLoading, setRecreateLoading] = createSignal(false);
   const [recreateError, setRecreateError] = createSignal<string | null>(null);
@@ -543,9 +544,10 @@ const Dashboard: Component<DashboardProps> = (props) => {
                   class={`dashboard-new-session-btn ${sessionStore.isAtSessionLimit() ? 'dashboard-new-session-btn--limited' : ''}`}
                   data-testid="dashboard-new-session"
                   style={managedUpgradeStyle()}
-                  disabled={!sessionStore.r2Ready || isAtUsageQuota() || sessionStore.preseedUpgrading || (sessionStore.managedReleaseStatus === 'upgrading' && !sessionStore.preseedUpgradeFailed) || sessionStore.managedReleaseStatus === 'update_pending' || Boolean(migrationStatus())}
+                  disabled={launchingVibe() || !sessionStore.r2Ready || isAtUsageQuota() || sessionStore.preseedUpgrading || (sessionStore.managedReleaseStatus === 'upgrading' && !sessionStore.preseedUpgradeFailed) || sessionStore.managedReleaseStatus === 'update_pending' || Boolean(migrationStatus())}
                   aria-label={migrationStatus() ?? (sessionStore.managedReleaseStatus === 'update_pending' ? 'Session environment update pending until session stops' : sessionStore.preseedUpgradeFailed && !sessionStore.preseedUpgrading ? 'Retry upgrade' : managedUpgradeAriaLabel() ?? (sessionStore.preseedUpgrading ? 'Updating session environment' : !sessionStore.r2Ready ? 'Waiting for storage setup' : isAtUsageQuota() ? 'Monthly compute quota exceeded' : sessionStore.isAtSessionLimit() ? 'Session limit reached' : 'Create new session'))}
-                  onClick={() => {
+                  onClick={async () => {
+                    if (launchingVibe()) return;
                     if (sessionStore.preseedUpgradeFailed) {
                       void sessionStore.retryPreseedUpgrade();
                       return;
@@ -554,7 +556,10 @@ const Dashboard: Component<DashboardProps> = (props) => {
                       setShowLimitPopup(!showLimitPopup());
                     } else if (props.workspaceMode?.value === 'chat') {
                       setShowCreateDialog(false);
-                      props.onCreateSession('pi', undefined, 'chat');
+                      setLaunchingVibe(true);
+                      try { await props.onCreateSession('pi', undefined, 'chat', true); }
+                      catch { /* The session store already reports launch errors. */ }
+                      finally { setLaunchingVibe(false); }
                     } else {
                       setShowCreateDialog(!showCreateDialog());
                     }

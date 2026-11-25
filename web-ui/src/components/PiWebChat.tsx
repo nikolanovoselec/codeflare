@@ -26,7 +26,7 @@ function StockChatFrame(props: { src: string; onStartupReady?: (ready: boolean) 
     cancel();
     props.onStartupReady?.(false);
     const doc = frame.contentDocument;
-    if (!doc || new URL(doc.URL).pathname !== new URL(props.src).pathname || !doc.getElementById('pi-web-startup')) {
+    if (!doc || new URL(doc.URL).pathname !== new URL(props.src).pathname || !doc.querySelector('pi-web-app')) {
       props.onStartupFailure?.(true);
       return;
     }

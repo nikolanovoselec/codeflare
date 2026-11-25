@@ -46,7 +46,7 @@ describe('Pi web Chat wrapper (REQ-AGENT-272)', () => {
       const frame = chatFrame();
       const doc = document.implementation.createHTMLDocument();
       Object.defineProperty(doc, 'URL', { value: frame.src });
-      doc.body.innerHTML = '<div id="pi-web-startup"></div>';
+      doc.body.innerHTML = '<div id="pi-web-startup"></div><pi-web-app></pi-web-app>';
       doc.documentElement.setAttribute('data-pi-web-loading', '');
       Object.defineProperty(frame, 'contentDocument', { value: doc });
       fireEvent.load(frame);
@@ -59,6 +59,24 @@ describe('Pi web Chat wrapper (REQ-AGENT-272)', () => {
       await vi.advanceTimersByTimeAsync(1);
       expect(loaded).toHaveBeenLastCalledWith(true);
       expect(chatFrame()).toBe(frame);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('starts the grace period when stock Chat already removed the loader before load', async () => {
+    vi.useFakeTimers();
+    try {
+      const ready = vi.fn();
+      render(() => <PiWebChat sessionId={SESSION_ID} generation={GENERATION} status={active}
+        onCancel={() => {}} onStartupReady={ready} />);
+      const frame = chatFrame();
+      const doc = document.implementation.createHTMLDocument();
+      Object.defineProperty(doc, 'URL', { value: frame.src });
+      doc.body.innerHTML = '<pi-web-app></pi-web-app>';
+      Object.defineProperty(frame, 'contentDocument', { value: doc });
+      fireEvent.load(frame);
+      expect(screen.queryByRole('button', { name: 'Reload Chat' })).not.toBeInTheDocument();
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(ready).toHaveBeenLastCalledWith(true);
     } finally { vi.useRealTimers(); }
   });
 
@@ -168,7 +186,7 @@ it('REQ-AGENT-272 AC5: never mounts an old, foreign, or malformed Chat frame for
   for (const chatUrl of [`https://other.example${matching}`, `/unrelated${matching}`, 'http://[invalid']) {
     setStatus({ ...active, chatUrl });
     expect(screen.queryByTitle('Pi Chat')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Switch to Terminal' })).toBeDisabled();
+    expect(screen.getByText('Chat could not be opened.')).toBeVisible();
   }
   setStatus({ ...active, chatUrl: matching });
   expect(new URL(chatFrame().src).pathname).toBe(`/api/pi-web/${SESSION_ID}/g/8/`);

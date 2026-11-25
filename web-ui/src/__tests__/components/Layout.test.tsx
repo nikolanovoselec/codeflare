@@ -368,7 +368,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     ['terminal', 'chat', { defaultWorkspace: 'vscode' }, undefined],
     ['terminal', 'chat', { herdrEnabled: true }, undefined, true],
     ['terminal', 'chat', { defaultWorkspace: 'vscode' }, undefined, true],
-  ] as const)('opens a running Pi workspace using preference %s from %s with settings %j', async (preferred, initial, settings, target, explicit = false) => {
+  ] as const)('opens a running Pi workspace using preference %s from %s with settings %j', async (preferred, initial, settings, target, explicit?: boolean) => {
     navigationRendering.realTerminalArea = true;
     const id = 'abcdef0123456789';
     const prefix = `/api/pi-web/${id}/`;
@@ -388,7 +388,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     });
     try {
       render(() => <Layout />);
-      fireEvent.click(await screen.findByRole('button', { name: explicit ? 'Open in Terminal' : 'Return to session' }));
+      fireEvent.click(await screen.findByRole('button', { name: explicit === true ? 'Open in Terminal' : 'Return to session' }));
       if ((target ?? initial) === 'chat') await screen.findByTitle('Pi Chat');
       else await screen.findByTestId('workspace-content');
       expect(requested).toEqual(target ? [target] : []);
@@ -406,8 +406,12 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     const { sessionStore } = await import('../../stores/session');
     navigationRendering.realTerminalArea = true;
     render(() => <Layout />);
+    vi.mocked(sessionStore.updatePreferences).mockImplementationOnce(async preferences => {
+      mockPreferences = { ...mockPreferences, ...preferences };
+      bumpSessionStoreVersion();
+    });
     fireEvent.click(await screen.findByRole('button', { name: 'Vibe — Chat' }));
-    expect(sessionStore.updatePreferences).toHaveBeenCalledWith({ defaultPiSurface: 'chat' });
+    expect(await screen.findByRole('button', { name: 'Vibe — Chat', pressed: true })).toBeVisible();
     expect(screen.getByRole('region', { name: 'Session dashboard' })).toBeVisible();
     expect(sessionStore.startSession).not.toHaveBeenCalled();
   });
@@ -2028,6 +2032,18 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       await (window as any).__terminalAreaProps.onCreateSession('New Session', agentType);
       expect(sessionStore.createSession).toHaveBeenCalledWith('New Session', agentType, undefined);
       expect(sessionStore.startSession).toHaveBeenCalledWith(id, ...startArgs);
+    });
+
+    it('preserves the last explicitly chosen agent when Vibe launches Pi', async () => {
+      mockPreferences = { lastAgentType: 'bash', defaultPiSurface: 'chat' };
+      const id = 'abcdef0123456789';
+      vi.mocked(sessionStore.createSession).mockResolvedValue(createMockSession({ id, status: 'stopped', agentType: 'pi', workspace: 'terminal' }) as SessionWithStatus);
+      vi.mocked(sessionStore.startSession).mockResolvedValue(undefined);
+      render(() => <Layout />);
+      await (window as any).__terminalAreaProps.onCreateSession('New Session', 'pi', undefined, 'chat', true);
+      expect(sessionStore.startSession).toHaveBeenCalledWith(id, 'chat');
+      expect(mockPreferences.lastAgentType).toBe('bash');
+      expect(vi.mocked(sessionStore.updatePreferences).mock.calls.some(([prefs]) => prefs.lastAgentType !== undefined)).toBe(false);
     });
 
     it('REQ-TERM-014: creating a session from terminal view keeps the starting surface visible', async () => {

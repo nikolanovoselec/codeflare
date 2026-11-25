@@ -4,10 +4,16 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-25: Vibe and Code workspace modes
+
+- [Workspace modes](agents.md#req-agent-276-vibe-and-code-workspace-preference) persist the surface choice. [Chat preload](agents.md#req-agent-275-classic-pi-chat-startup) and [warm return](agents.md#req-agent-277-retained-chat-on-dashboard-return) reveal the already-mounted surface.
+- The [Vibe drawer](github.md#req-github-321-vibe-dashboard-browser-disclosure) keeps browsers behind one control and shows account-owned repository counts when available.
+- [Stock Chat](agents.md#req-agent-274-stock-pi-chat-controls) defaults to Pi Web Classic without overriding saved themes.
+
 ## 2026-11-24: Open Pi Chat during repository restore
 
 - [Classic Pi Chat startup](agents.md#req-agent-275-classic-pi-chat-startup) keeps the standard Ready → Open screen. Classic Chat, Terminal, and switching stay available while repositories clone, with the restore notification visible.
-- [Stock Pi Chat controls](agents.md#req-agent-274-stock-pi-chat-controls) support workspace attachments up to 10 MB per batch and default to Pi Web Classic under the Codeflare machine name.
+- [Stock Pi Chat controls](agents.md#req-agent-274-stock-pi-chat-controls) support workspace attachments up to 10 MB per batch and default to Graphite under the Codeflare machine name.
 
 ## 2026-11-23: Continue Pi conversations in Chat or Terminal
 

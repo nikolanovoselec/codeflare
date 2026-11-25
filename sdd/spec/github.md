@@ -70,7 +70,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 2. The server fetches repository pages with the stored token, including accessible personal and organization repositories. The client filters loaded pages only; clear a zero-match filter to reveal Load more. The token never reaches the browser. <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-002 AC2: lists accessible organization repositories across provider pages) --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (REQ-GITHUB-002 AC2: clearing zero matches restores Load more and appends organization rows inside the same panel) --> <!-- @impl: src/routes/github.ts::REPOS_PER_PAGE --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-002: proxies the user repos with the stored token and never returns the token) -->
 3. GitHub and Storage share the dashboard's right-column panel area under [REQ-GITHUB-012](#req-github-012-responsive-github-and-storage-panel-allocation). The backend and no-tier dashboard gates belong to [REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise). <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-002 AC5: flips one GitHub/storage face at a time on mobile) -->
 4. Not-connected shows a Connect GitHub action; connected shows the account, refresh, Disconnect, and searchable repo list. Controls must follow the [shared primitive contract](../../documentation/lanes/terminal-and-ide.md#github-and-storage-workspace). <!-- @impl: web-ui/src/components/github/ConnectedHeader.tsx::ConnectedHeader --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (GitHubPanel Component) -->
-5. On narrow/mobile layouts, the panel shows one flippable GitHub or storage face at a time. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-002 AC5: flips one GitHub/storage face at a time on mobile) -->
+5. In the narrow Code Dashboard, the panel shows one flippable GitHub or storage face at a time. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-002 AC5: flips one GitHub/storage face at a time on mobile) -->
 6. The owner/login label and each repo name link to GitHub in a new tab; repo-name clicks do not trigger clone. <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (repo name links to the repo on GitHub in a new tab) --> <!-- @manual -->
 7. Dashboard returns reuse loaded repositories and search. The first page refreshes quietly at most once per five minutes on return, never replacing accumulated pages. Manual reload and connection changes bypass the window. <!-- @impl: web-ui/src/stores/github.ts::loadStatus --> <!-- @test: web-ui/src/__tests__/stores/github.test.ts (REQ-GITHUB-002 AC7: reuses fresh repositories and quietly refreshes stale results without clearing search) --> <!-- @test: web-ui/src/__tests__/stores/github.test.ts (REQ-GITHUB-002 AC7: preserves loaded pages until manual reload or account change) -->
 
@@ -371,8 +371,8 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 **Acceptance Criteria:**
 
 1. The panel backend is available in every mode. <!-- @impl: src/routes/github.ts::githubFeatureEnabled --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-007: reports enabled outside enterprise too (panel available in every mode)) --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-002: reports enabled + not connected in enterprise with no token) --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-007: is reachable in non-enterprise (panel no longer enterprise-gated) — 401 when not connected) -->
-2. The frontend dashboard renders the GitHub panel face whenever GitHub is enabled with **no session-tier entitlement** — GitHub is the default right-column face on every session, connected or not. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 (session limit popup in frontend)) --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (renders nothing when status.enabled is false) -->
-3. Onboarding, default, SaaS, and enterprise dashboards share panel labels and flip behavior; enabled GitHub leads regardless of session mode, while disabled GitHub leaves Storage alone. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 (session limit popup in frontend)) -->
+2. GitHub has **no session-tier entitlement**. When enabled it leads the Code Dashboard, connected or not. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 (session limit popup in frontend)) --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (renders nothing when status.enabled is false) -->
+3. Code uses panel flipping across deployment modes. Vibe follows [REQ-GITHUB-321](#req-github-321-vibe-dashboard-browser-disclosure); disabled GitHub leaves Storage alone. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 (session limit popup in frontend)) -->
 
 **Constraints:** None.
 
@@ -507,10 +507,10 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Acceptance Criteria:**
 
-1. On mobile, GitHub is the default right-column face and the header flip control swaps to the R2 storage browser (and back) in place whenever GitHub is enabled. <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel --> <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-010: flips GitHub <-> storage when enabled and the flip controls are used) -->
+1. In mobile Code, GitHub is the default right-column face and the header flip control swaps to the R2 storage browser (and back) in place whenever GitHub is enabled. <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel --> <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-010: flips GitHub <-> storage when enabled and the flip controls are used) -->
 2. The single-panel flip control is hidden while the column is in split mode and appears only when the column collapses to one panel. <!-- @manual: GitHub workspace manual acceptance in documentation/lanes/terminal-and-ide.md; observe control visibility across split and single-face layouts. --> <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (GitHubPanel Component) -->
 3. If GitHub is disabled, R2 storage is the sole right-column face. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-010: forces the storage face active when GitHub is disabled so the empty GitHub panel cannot cover R2) -->
-4. When GitHub is enabled, the storage face carries a matching header and flip-back control. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-010: defaults to the GitHub face and offers the storage back-button when GitHub is enabled) -->
+4. In Code, when GitHub is enabled, the storage face carries a matching header and flip-back control. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-010: defaults to the GitHub face and offers the storage back-button when GitHub is enabled) -->
 
 **Constraints:**
 
@@ -535,9 +535,10 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 **Acceptance Criteria:**
 
 1. Vibe starts with the GitHub and Storage browsers hidden and unavailable to keyboard navigation. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (discloses the existing GitHub and Storage browsers together in Vibe on %s) -->
-2. One labeled control opens and closes the same browser panels together, without requiring the legacy flip controls. Escape from within the drawer closes it and returns focus to its control. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (discloses the existing GitHub and Storage browsers together in Vibe on %s) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (closes the Vibe drawer from a focused browser and returns focus to the pull) -->
-
-3. Vibe GitHub Details reports only account-owned public, private and total repository counts from an authenticated profile that supplies them. A connected account with unavailable counts remains identified as connected. <!-- @impl: src/routes/github.ts::app --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: src/__tests__/routes/github.test.ts (returns only account-owned totals from the authenticated profile) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (keeps the connected GitHub account visible when owned totals are unavailable in Vibe) -->
+2. One labeled control opens and closes the same browser panels together, without requiring legacy flip controls. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (discloses the existing GitHub and Storage browsers together in Vibe on %s) -->
+3. Escape closes the drawer and returns focus to its control. <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (closes the Vibe drawer from a focused browser and returns focus to the pull) -->
+4. Vibe GitHub Details reports only account-owned public, private and total repository counts from an authenticated profile that supplies them. <!-- @impl: src/routes/github.ts::app --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: src/__tests__/routes/github.test.ts (returns only account-owned totals from the authenticated profile) -->
+5. When counts are unavailable, GitHub Details still identifies the connected account. <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (keeps the connected GitHub account visible when owned totals are unavailable in Vibe) -->
 
 **Constraints:** Code mode retains standard panel allocation. <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (keeps the existing browser controls without a drawer pull in Code mode) -->
 
@@ -545,7 +546,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Dependencies:** [REQ-GITHUB-012](#req-github-012-responsive-github-and-storage-panel-allocation)
 
-**Verification:** Automated: [Dashboard component tests](../../web-ui/src/__tests__/components/Dashboard.test.tsx)
+**Verification:** Automated: [Dashboard component tests](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [GitHub route tests](../../src/__tests__/routes/github.test.ts)
 
 **Status:** Planned
 
@@ -628,7 +629,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Constraints:**
 
-- The existing tier-specific repository, organization, workflow, and hook scopes remain unchanged; `read:user` applies to all tiers under REQ-GITHUB-317 AC5.
+- The existing tier-specific repository, organization, workflow, and hook scopes remain unchanged; `read:user` applies to all tiers under [REQ-GITHUB-317](#req-github-317-additive-github-connection-and-scope-contract) AC5.
 - GitHub App permissions remain fixed at registration and do not receive an OAuth `scope` parameter.
 - Direct GitHub login remains an identity-only flow and does not own connection capabilities.
 

@@ -556,7 +556,7 @@ export default function (pi) {
     refuseSessionEvents = true;
     const rejectedEvents = connectEvents();
     await assert.rejects(once(rejectedEvents, 'open', { signal: AbortSignal.timeout(6000) }), /503/);
-    const readBrowserSnapshot = () => api(`/api/machines/local${ref}/transcript-snapshot?${query}`);
+    const readBrowserSnapshot = () => api(`/api/machines/local/sessions/${encodeURIComponent(id)}/transcript-snapshot?${query}`);
     const offlineSnapshot = await readBrowserSnapshot();
     assert.equal(offlineSnapshot.status.sessionId, id);
     refuseSessionEvents = false;

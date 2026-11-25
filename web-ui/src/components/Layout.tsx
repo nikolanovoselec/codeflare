@@ -810,7 +810,7 @@ const Layout: Component<LayoutProps> = (props) => {
     await sessionStore.deleteSession(id);
   };
 
-  const handleCreateSession = async (name: string, agentType?: AgentType, tabConfig?: TabConfig[], selectedSurface?: PiSurface) => {
+  const handleCreateSession = async (name: string, agentType?: AgentType, tabConfig?: TabConfig[], selectedSurface?: PiSurface, implicitAgent = false) => {
     const surface = modeAvailable() ? selectedSurface : undefined;
     const session = surface
       ? await sessionStore.createSession(name, agentType, tabConfig, undefined, surface)
@@ -829,7 +829,7 @@ const Layout: Component<LayoutProps> = (props) => {
       writeSessionHistoryPath(session.id, 'push');
     }
     // Update preferences with last-used agent type
-    if (agentType) {
+    if (agentType && !implicitAgent) {
       sessionStore.updatePreferences({ lastAgentType: agentType });
     }
     try {

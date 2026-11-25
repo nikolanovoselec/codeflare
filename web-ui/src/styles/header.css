@@ -554,3 +554,19 @@
   .header .session-switcher--mobile,
   .dashboard-panel-header .session-switcher--mobile { flex-shrink: 0; padding: 0; }
 }
+
+@media (max-width: 440px) {
+  .header.header-with-center-slot { padding-inline: var(--space-1); column-gap: 2px; }
+  .header.header-with-center-slot > .header-navigation,
+  .header.header-with-center-slot > .header-actions { column-gap: 2px; }
+  .header.header-with-center-slot > .header-spacer { min-width: calc(44px - 2 * 2px); }
+  .header.header-with-center-slot[data-header-fits="false"] {
+    flex-wrap: wrap;
+    height: auto;
+    row-gap: var(--space-1);
+  }
+  .header.header-with-center-slot[data-header-fits="false"] > .header-actions {
+    flex-basis: 100%;
+    justify-content: flex-end;
+  }
+}
