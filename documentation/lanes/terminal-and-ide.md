@@ -219,7 +219,9 @@ Use an authorized running Enterprise workspace with the mode selector, VS Code, 
 
 Narrow the viewport and verify VS Code, then Operators, then Vault enter Profile as needed. Open Profile and check each moved action remains reachable. See [Operators](../../sdd/spec/operators.md#req-operator-040-owned-activity-control-presentation) and [Vault](../../sdd/spec/vault.md#req-vault-033-vault-button-availability-and-opening).
 
-In both Dashboard and workspace headers, repeat on short desktop and mobile viewports. Reduce height until the last Profile action starts below the visible menu area. Verify the menu stays inside the viewport and scrolling it brings that action fully into view without scrolling the page. If the menu never overflows, record the case as unverified.
+For [REQ-AUTH-016 AC5](../../sdd/spec/authentication.md#req-auth-016-header-user-dropdown), test both headers on short desktop and mobile viewports. With the trigger still visible, reduce desktop height until fewer than 44px remain below the menu’s usual top and its bottom margin. Verify the menu opens as a bottom sheet.
+
+Reduce height until the last action starts below the visible menu area. Verify the menu stays inside the viewport and scrolling it reveals the last action fully without scrolling the page. Mark any case that cannot be reproduced as unverified.
 
 At 375px, verify Settings is reachable and the groups retain the one-slot gap. Continue narrowing after overflow is exhausted until the utilities move to a second row. Verify every remaining action is reachable and each icon target measures 44 × 44 CSS px. Mark wrapping unverified if the fallback never appears.
 
@@ -563,11 +565,11 @@ For REQ-GITHUB-002 AC6, use an approved connected account with an existing repos
 
 ### GitHub panel geometry acceptance
 
-For REQ-GITHUB-012 AC1/AC6/AC7, use browser-e2e against protected Integration after access approval. At desktop and tablet sizes, check both the **Code** split and the open **Vibe** drawer. GitHub stays at the top and Storage at the bottom. The shorter panel takes only the height it needs; the longer panel uses spare height and scrolls internally when needed.
+For REQ-GITHUB-012 AC1/AC6/AC7, use browser-e2e against protected Integration after access and authentication approval. At desktop and tablet sizes, check both the **Code** split and the open **Vibe** drawer. GitHub stays at the top and Storage at the bottom. The shorter panel takes only the height it needs; the longer panel uses spare height and scrolls internally when needed.
 
 Use existing content where Storage is shorter than unfiltered GitHub but taller than GitHub after a repository search. Apply and clear GitHub search without resizing and verify that the larger allocation swaps between panels. Mark the reversal unverified if suitable content is unavailable; do not upload files or create repositories for the check.
 
-At mobile width in **Code**, verify short content centers the active face and long lists scroll internally within the viewport cap. Check that none of these layouts introduces page overflow.
+At mobile width in **Code**, switch to each face. Verify short content centers the active face. With an overflowing repository list and an overflowing Storage list, scroll each face to its last item and confirm that the list, not the page, scrolls within the viewport cap. Use existing content and mark unavailable short or overflowing cases unverified. Check that none of these layouts introduces page overflow.
 
 <a id="specification-coverage"></a>
 ## Requirement and Source Map

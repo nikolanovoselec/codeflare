@@ -27,7 +27,7 @@ import DashboardCard from './TipsRotator';
 import { sessionStore, isAtUsageQuota } from '../stores/session';
 import { terminalWorkspaceStore } from '../stores/terminal-workspace';
 import { createTerminalViewportClass } from '../lib/mobile';
-import { measureHeaderActions } from '../lib/header-fit';
+import { measureHeaderActions, measureProfileMenu } from '../lib/header-fit';
 import { decidePanelLayoutMode } from '../lib/panel-allocation';
 import { githubStore } from '../stores/github';
 import { getGithubOwnedRepoCounts } from '../api/github';
@@ -131,8 +131,15 @@ const Dashboard: Component<DashboardProps> = (props) => {
     if (!email) { setGravatarOk(false); return; }
     gravatarExists(email, 48).then(setGravatarOk);
   });
-  const [userMenuPos, setUserMenuPos] = createSignal<{ top: number; right: number }>({ top: 0, right: 0 });
+  const [userMenuPos, setUserMenuPos] = createSignal({ top: 0, right: 0, sheet: false });
   let userBtnRef: HTMLButtonElement | undefined;
+  createEffect(() => {
+    if (!showUserMenu()) return;
+    const update = () => { if (userBtnRef) setUserMenuPos(measureProfileMenu(userBtnRef)); };
+    update();
+    window.addEventListener('resize', update);
+    onCleanup(() => window.removeEventListener('resize', update));
+  });
   let dashboardHeader!: HTMLDivElement;
   let headerActions!: HTMLDivElement;
   const [operatorInProfile, setOperatorInProfile] = createSignal(false);
@@ -407,13 +414,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                 data-testid="header-user-menu"
                 aria-label="User menu"
                 title="User menu"
-                onClick={() => {
-                  if (!showUserMenu() && userBtnRef) {
-                    const rect = userBtnRef.getBoundingClientRect();
-                    setUserMenuPos({ top: rect.bottom + 8, right: window.innerWidth - rect.right });
-                  }
-                  setShowUserMenu(!showUserMenu());
-                }}
+                onClick={() => setShowUserMenu(!showUserMenu())}
               >
                 <Show when={props.userName && gravatarOk()} fallback={<Icon path={mdiShieldAccount} size={24} class="header-user-avatar" />}>
                   <img src={getGravatarUrl(props.userName!, 48)} alt="Avatar" class="header-user-avatar-img" width={24} height={24} />
@@ -432,7 +433,8 @@ const Dashboard: Component<DashboardProps> = (props) => {
                     class="header-user-dropdown header-user-dropdown--portal header-user-dropdown--profile"
                     data-testid="header-user-dropdown"
                     onClick={(e) => e.stopPropagation()}
-                    style={window.innerWidth > 640 ? {
+                    classList={{ 'header-user-dropdown--sheet': userMenuPos().sheet }}
+                    style={!userMenuPos().sheet ? {
                       top: `${userMenuPos().top}px`, right: `${userMenuPos().right}px`, '--profile-menu-top': `${userMenuPos().top}px`,
                     } : undefined}
                   >

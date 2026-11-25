@@ -58,7 +58,8 @@ vi.mock('../../components/StorageBrowser', () => ({
 vi.mock('../../components/github/GitHubPanel', () => ({
   default: (props: any) => (
     <div data-testid="github-panel-stub">
-      <button data-testid="gh-stub-flip" onClick={() => props.onFlip?.()}>flip</button>
+      <button data-testid="gh-stub-repo">Example repository</button>
+      {props.onFlip && <button data-testid="gh-stub-flip" onClick={() => props.onFlip()}>Show storage</button>}
     </div>
   )
 }));
@@ -592,7 +593,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     render(() => <Dashboard {...defaultProps} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
     const pull = screen.getByRole('button', { name: 'Show GitHub & Storage' });
     fireEvent.click(pull);
-    const browserControl = screen.getByTestId('gh-stub-flip');
+    const browserControl = screen.getByTestId('gh-stub-repo');
     browserControl.focus();
     expect(browserControl).toHaveFocus();
     fireEvent.keyDown(browserControl, { key: 'Escape' });
@@ -997,6 +998,9 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     (globalThis as any).requestAnimationFrame = (cb: FrameRequestCallback) => { cb(0); return 0; };
     (globalThis as any).cancelAnimationFrame = () => {};
     (window as any).innerWidth = 500;
+    const bounds = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      return { height: this.matches('.panel-flip-face') ? 180 : 0 } as DOMRect;
+    });
     try {
       viewportMock.setViewport?.('mobile');
       (githubStore as any)._setEnabled(true);
@@ -1007,6 +1011,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
       const githubFace = right.querySelector('.panel-flip-face--github')!;
       const storageFace = right.querySelector('.panel-flip-face--storage')!;
       expect(right.getAttribute('data-layout')).toBe('flip');
+      expect(right.style.height).toBe('180px');
       expect(githubFace.getAttribute('data-active')).toBe('true');
       expect(storageFace.getAttribute('data-active')).toBe('false');
 
@@ -1020,12 +1025,15 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
 
       setMode('chat');
       fireEvent.click(screen.getByRole('button', { name: 'Show GitHub & Storage' }));
-      expect(screen.queryByRole('button', { name: 'Show GitHub', exact: true })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Show GitHub' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Show storage' })).not.toBeInTheDocument();
+      expect(right.style.height).toBe('');
       expect(screen.getByTestId('github-panel-stub')).toBeVisible();
       expect(screen.getByTestId('storage-browser')).toBeVisible();
       expect(githubFace).toHaveAttribute('data-active', 'true');
       expect(storageFace).toHaveAttribute('data-active', 'true');
     } finally {
+      bounds.mockRestore();
       (globalThis as any).ResizeObserver = RealRO;
       (globalThis as any).requestAnimationFrame = RealRAF;
       (globalThis as any).cancelAnimationFrame = RealCAF;

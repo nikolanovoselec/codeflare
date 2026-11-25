@@ -24,7 +24,7 @@ import OperatorActivityButton from './OperatorActivityButton';
 import { terminalStore } from '../stores/terminal';
 import { getGravatarUrl, gravatarExists } from '../lib/gravatar';
 import { isMobile, isTouchDevice } from '../lib/mobile';
-import { measureHeaderActions, type OverflowHeaderAction } from '../lib/header-fit';
+import { measureHeaderActions, measureProfileMenu, type OverflowHeaderAction } from '../lib/header-fit';
 import type { SessionWithStatus, AgentType, TabConfig } from '../types';
 import '../styles/header.css';
 
@@ -59,7 +59,7 @@ interface HeaderProps {
  */
 const Header: Component<HeaderProps> = (props) => {
   const [showUserMenu, setShowUserMenu] = createSignal(false);
-  const [userMenuTop, setUserMenuTop] = createSignal(0);
+  const [userMenuPos, setUserMenuPos] = createSignal({ top: 0, sheet: false });
   const [gravatarOk, setGravatarOk] = createSignal(false);
   // Probe Gravatar existence once via fetch (no <img onError> console noise).
   createEffect(() => {
@@ -70,6 +70,13 @@ const Header: Component<HeaderProps> = (props) => {
   const [showTimerDropdown, setShowTimerDropdown] = createSignal(false);
   let userMenuRef: HTMLDivElement | undefined;
   let userButtonRef: HTMLButtonElement | undefined;
+  createEffect(() => {
+    if (!showUserMenu()) return;
+    const update = () => { if (userMenuRef) setUserMenuPos(measureProfileMenu(userMenuRef)); };
+    update();
+    window.addEventListener('resize', update);
+    onCleanup(() => window.removeEventListener('resize', update));
+  });
   const [operatorProfileMount, setOperatorProfileMount] = createSignal<HTMLDivElement>();
   let timerMenuRef: HTMLDivElement | undefined;
   let headerRef!: HTMLElement;
@@ -228,10 +235,7 @@ const Header: Component<HeaderProps> = (props) => {
             data-testid="header-user-menu"
             aria-label="User menu"
             title="User menu"
-            onClick={() => {
-              if (!showUserMenu() && userMenuRef) setUserMenuTop(userMenuRef.getBoundingClientRect().bottom + 8);
-              setShowUserMenu(!showUserMenu());
-            }}
+            onClick={() => setShowUserMenu(!showUserMenu())}
           >
             <Show when={props.userName && gravatarOk()} fallback={<Icon path={mdiShieldAccount} size={24} class="header-user-avatar" />}>
               <img
@@ -247,7 +251,8 @@ const Header: Component<HeaderProps> = (props) => {
               No onClick handlers = no touch event race conditions on mobile. */}
           <Show when={showUserMenu()}>
             <div class="header-user-dropdown header-user-dropdown--profile" data-testid="header-user-dropdown"
-              style={{ '--profile-menu-top': `${userMenuTop()}px` }}>
+              classList={{ 'header-user-dropdown--sheet': userMenuPos().sheet }}
+              style={{ '--profile-menu-top': `${userMenuPos().top}px` }}>
               <Show when={props.userName}><div class="header-user-email">{props.userName}</div></Show>
               <Show when={inProfile('vscode') && props.onVscodeOpen}>{onOpen =>
                 <button type="button" class="header-user-dropdown-item" onClick={() => { setShowUserMenu(false); onOpen()(); }}>

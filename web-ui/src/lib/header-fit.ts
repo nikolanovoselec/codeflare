@@ -2,6 +2,16 @@ const overflowOrder = ['vscode', 'operators', 'vault'] as const;
 export type OverflowHeaderAction = typeof overflowOrder[number];
 export const HEADER_ICON_SLOT = 44;
 
+export function measureProfileMenu(anchor: HTMLElement) {
+  const rect = anchor.getBoundingClientRect();
+  const top = rect.bottom + 8;
+  return {
+    top,
+    right: window.innerWidth - rect.right,
+    sheet: window.innerWidth <= 640 || window.innerHeight - top - 8 < HEADER_ICON_SLOT,
+  };
+}
+
 /** Widths are CSS pixels. Action widths include the spacing their removal saves. */
 export function fitHeaderActions(
   width: number,
