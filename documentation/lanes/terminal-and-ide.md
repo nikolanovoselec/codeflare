@@ -91,6 +91,7 @@ In **Vibe**, Dashboard **New Session** starts Pi Chat directly. Returning to Das
 - Record matching identities as equality results. Do not record actual transcript IDs, paths, or content.
 - Start Chat-first and switch after prewarm orphan expiry without previously opening Terminal. The healthy primary is still available without counting as user activity. A secondary Classic Pi tab owns a different conversation.
 - Switch during streaming, a queued follow-up, and a pending question. Expect the destination label to shuffle without extra text, a spinner, or **Cancel switch** in the mode menu. With reduced motion, the label stays static.
+- With a screen reader, verify the pending destination is announced once without reading the scrambled characters.
 - During the switch, verify automatic native Abort and rejection of fresh prompts.
 - For [REQ-AGENT-280](../../sdd/spec/agents.md#req-agent-280-attachment-gated-workspace-reveal), keep the outgoing view until Code connects or Vibe clears the stock loader. A native startup question can appear early.
 - During Code-to-Vibe handoff, fail the first destination frame navigation. Verify Vibe reveals **Reload Chat** before normal readiness, then clear the failure and reload the same conversation without a new handoff.
@@ -102,9 +103,10 @@ In **Vibe**, Dashboard **New Session** starts Pi Chat directly. Returning to Das
 
 #### Return from Profile Usage
 
-With Chat open, return to Dashboard and choose **Profile → Usage**. Verify the menu overlay disappears and **Back to Dashboard** is usable. Return to the same running session.
-
-With Chrome DevTools, verify the original frame and generation are retained and no writer switch is requested ([REQ-AGENT-277 AC3](../../sdd/spec/agents.md#req-agent-277-retained-chat-on-dashboard-return)).
+1. With Chat visible, identify its iframe in Chrome DevTools and note its node and generation for comparison. Start recording Network requests.
+2. From the workspace header, choose **Profile → Usage** without going through Dashboard. Verify the original frame stays mounted but hidden. Click **Back to Dashboard** and verify the frame is still parked.
+3. Open the same running session. Verify it reveals the original node and generation, with no `POST` to `/_switch` during the round trip. Read-only status requests are allowed. Record only equality and whether the POST occurred ([REQ-AGENT-277 AC3](../../sdd/spec/agents.md#req-agent-277-retained-chat-on-dashboard-return)).
+4. Separately open **Profile → Usage** from Dashboard. Verify the Profile overlay disappears and **Back to Dashboard** remains usable.
 
 #### Quit and reopen native Pi
 
@@ -117,7 +119,7 @@ With Chrome DevTools, verify the original frame and generation are retained and 
 
 - With 1440 × 900 CSS px available after the controls, expect a centered 800 × 720 frame. With 900 × 1600 available, expect 720 × 1200. Together these exercise the percentage and both caps.
 - On phones, verify the Chat frame fills the available area with no outer gutter, border, or rounding. In other narrow or short views, expect 12 px gutters plus safe-area insets.
-- Open the mobile keyboard and try browser zoom. The composer and Codeflare controls stay reachable without a second page scrollbar.
+- Verify the composer and Codeflare controls stay reachable without a second page scrollbar at rest, with the mobile keyboard open, and with browser zoom.
 - For [REQ-AGENT-282 AC3](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults), verify token and context usage remain visible without a USD amount.
 - On a disposable session, queue a harmless message during a turn and verify the nonzero queued count remains visible. Repeat the footer check with a different stock theme.
 - In a fresh browser context, verify the machine name defaults to **Codeflare** and the theme is **Pi Web Classic**. Save a different theme, then reopen Chat in that browser and verify the choice was preserved.
@@ -246,7 +248,7 @@ At 375px, verify Settings is reachable and the groups retain the one-slot gap. C
 
 ### Vibe drawer acceptance
 
-With GitHub Details present, measure the **+ New Session** button and verify its wrapper adds twice that height as bottom padding. Repeat after resizing the viewport and when Details only shows a GitHub authorization error.
+With GitHub Details present, measure the **+ New Session** button and verify its wrapper adds twice that height as bottom padding. Repeat after resizing the viewport. For the error-only case, use an authorized test setup with GitHub disabled and simulate a denied callback by opening `/app/?github=denied` in Vibe. Verify the denial is visible and the normal GitHub card is absent before measuring. If that setup is unavailable, record the case as unexercised.
 
 Use an authorized account with GitHub enabled and select **Vibe**. Check [drawer disclosure](../../sdd/spec/github.md#req-github-321-vibe-dashboard-browser-disclosure) and [responsive layout](../../sdd/spec/github.md#req-github-323-responsive-vibe-dashboard-layout). On desktop and tablet, open the drawer and verify GitHub stacks above Storage beside the summary. Close it and verify that, with room to spare, the card is 390 CSS px wide, the full Codeflare label is readable, and GitHub Details sits directly above Storage Usage when present.
 

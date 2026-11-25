@@ -10,7 +10,7 @@ const appAuth = vi.hoisted(() => ({ getUser: vi.fn() }));
 vi.mock('../../api/client', async importOriginal => ({
   ...await importOriginal<typeof import('../../api/client')>(),
   retryBucketMigration: retryMigration,
-  getUsage: async () => ({ dailySeconds: 0, monthlySeconds: 0, monthlyQuotaSeconds: null, mode: 'basic', tier: 'Test' }),
+  getUsage: async () => ({ dailySeconds: 0, monthlySeconds: 0, monthlyQuotaSeconds: null, mode: 'default', tier: 'Test' }),
   getSetupStatus: async () => ({ configured: true }),
   getUser: (...args: unknown[]) => appAuth.getUser(...args),
 }));
@@ -683,9 +683,10 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     } finally { cleanup(); vi.unstubAllGlobals(); }
   });
 
-  it('returns from Profile Usage to the same Chat without another writer request', async () => {
+  it.each(['workspace', 'Dashboard'] as const)('returns from %s Profile Usage to the same Chat without another writer request', async origin => {
     navigationRendering.realTerminalArea = true;
     navigationRendering.realDashboard = true;
+    navigationRendering.realHeader = true;
     const id = 'abcdef0123456789';
     appAuth.getUser.mockResolvedValue({ email: 'owner@example.com', role: 'user', authenticated: true });
     mockSessions = [createMockSession({ id, workspace: 'terminal', agentType: 'pi', generation: 7 })];
@@ -700,18 +701,33 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     try {
       render(() => <App />);
       const frame = await screen.findByTitle('Pi Chat');
-      fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
-      fireEvent.click(await screen.findByRole('button', { name: 'User menu' }));
-      expect(screen.getByTestId('header-user-dropdown-overlay')).toBeVisible();
-      fireEvent.click(screen.getByRole('link', { name: /^Usage/ }));
+      await waitFor(() => expect(frame).toBeVisible());
+      const src = frame.getAttribute('src');
+      if (origin === 'Dashboard') {
+        fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
+        const dashboard = await screen.findByTestId('dashboard');
+        await waitFor(() => expect(dashboard).toBeVisible());
+        fireEvent.click(within(dashboard).getByRole('button', { name: 'User menu' }));
+        expect(await screen.findByTestId('header-user-dropdown-overlay')).toBeVisible();
+      } else {
+        fireEvent.click(screen.getByRole('button', { name: 'User menu' }));
+        expect(frame).toBeVisible();
+      }
+      const menu = within(await screen.findByTestId('header-user-dropdown'));
+      fireEvent.click(menu.getByRole('link', { name: /^Usage/ }));
       const back = await screen.findByRole('link', { name: 'Back to Dashboard' });
+      expect(window.location.pathname).toBe('/app/usage');
       expect(screen.queryByTestId('header-user-dropdown-overlay')).not.toBeInTheDocument();
       expect(frame).toBeInTheDocument();
       expect(frame).not.toBeVisible();
       fireEvent.click(back);
-      fireEvent.click(await screen.findByRole('button', { name: 'Activate session Test Session' }));
+      const session = await screen.findByRole('button', { name: 'Activate session Test Session' });
+      expect(window.location.pathname).toBe('/app/');
+      expect(frame).not.toBeVisible();
+      fireEvent.click(session);
       await waitFor(() => expect(frame).toBeVisible());
       expect(screen.getByTitle('Pi Chat')).toBe(frame);
+      expect(frame).toHaveAttribute('src', src);
       expect(switches).toEqual([]);
     } finally { cleanup(); vi.unstubAllGlobals(); }
   });

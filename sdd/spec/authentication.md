@@ -485,6 +485,8 @@ None.
 4. At widths above 640 CSS px, Profile opens 8px below the bottom edge of the Profile control when at least 44px fit above the 8px viewport-bottom margin. Otherwise it opens as a bottom sheet. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @impl: web-ui/src/lib/header-fit.ts::measureProfileMenu = max-width: 640px --> <!-- @impl: web-ui/src/lib/header-fit.ts::measureProfileMenu = rect.bottom + 8 --> <!-- @impl: web-ui/src/lib/header-fit.ts::measureProfileMenu = window.innerHeight - top - 8 < HEADER_ICON_SLOT --> <!-- @impl: web-ui/src/lib/header-fit.ts::HEADER_ICON_SLOT = 44 --> <!-- @test: web-ui/src/__tests__/lib/header-fit.test.ts (chooses Profile placement at viewport %s × %s) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#workspace-header-acceptance -->
 5. In Dashboard and workspace headers, a Profile menu that exceeds the available viewport height scrolls internally so every action remains reachable. <!-- @impl: web-ui/src/styles/header.css::.header-user-dropdown--profile --> <!-- @manual: documentation/lanes/terminal-and-ide.md#workspace-header-acceptance -->
 
+6. Selecting Usage from Dashboard Profile dismisses the menu so it cannot obstruct Usage. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (returns from %s Profile Usage to the same Chat without another writer request) -->
+
 **Constraints:**
 
 - Deployment mode controls only the action set; the dropdown interaction and responsive presentation remain shared.
@@ -493,7 +495,7 @@ None.
 
 **Dependencies:** None.
 
-**Verification:** Automated: [Header.test.tsx](../../web-ui/src/__tests__/components/Header.test.tsx); Manual: [Account dropdown layout acceptance](../../documentation/lanes/authentication.md#account-dropdown-layout-acceptance), [short-viewport Profile acceptance](../../documentation/lanes/terminal-and-ide.md#workspace-header-acceptance)
+**Verification:** Automated: [Header.test.tsx](../../web-ui/src/__tests__/components/Header.test.tsx), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx); Manual: [Account dropdown layout acceptance](../../documentation/lanes/authentication.md#account-dropdown-layout-acceptance), [short-viewport Profile acceptance](../../documentation/lanes/terminal-and-ide.md#workspace-header-acceptance)
 
 **Status:** Implemented
 

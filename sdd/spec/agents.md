@@ -893,8 +893,9 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Constraints:**
 
-- Outside phones, narrow or short views retain gutters. On phones, Chat fills its available area without a border or rounding. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
-- The composer remains operable with the mobile keyboard or browser zoom. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+- Outside phones, narrow or short views retain gutters. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+- On phones, Chat fills its available area without a border or rounding. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+- The composer stays operable, including with the mobile keyboard or browser zoom. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 - Pi Chat handoff is available only in Classic Terminal workspaces. <!-- @impl: src/container/pi-web.ts::isPiWebEligible --> <!-- @test: src/__tests__/container/session-stop.test.ts (REQ-AGENT-272 AC1: the DO refuses a handoff Start with $stored stored and $requested requested) --> <!-- @test: host/__tests__/repository-restore-order.test.js (REQ-TERM-033 AC2: real host prewarm waits for restored snapshot bytes and the init flag) -->
 - Malformed nonempty JSON is rejected before Start claims the session. <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (rejects malformed nonempty Start JSON before claiming the session) -->
 - Use unmodified pi-web and the installed Pi runtime.
@@ -1118,7 +1119,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 1. Dashboard can hide and retain one already-open Chat frame for the same running session and generation. Returning reveals the same frame without requesting a new writer. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (reuses the open Chat frame on Dashboard return and discards it on %s) -->
 2. Page exit, Stop, a different session or generation, or confirmed loss of Chat ownership discards the retained frame. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (reuses the open Chat frame on Dashboard return and discards it on %s) -->
 
-3. Opening Usage from Profile parks an already-open Chat just like Dashboard. Returning to its running session in the same generation reveals the same frame without requesting a writer. <!-- @impl: web-ui/src/App.tsx::AppContent --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (returns from Profile Usage to the same Chat without another writer request) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#return-from-profile-usage -->
+3. Opening Usage from Profile parks an already-open Chat just like Dashboard. Returning to its running session in the same generation reveals the same frame without requesting a writer. <!-- @impl: web-ui/src/App.tsx::AppContent --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (returns from %s Profile Usage to the same Chat without another writer request) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#return-from-profile-usage -->
 
 **Constraints:** Keep at most one retained Chat frame.
 
@@ -1126,7 +1127,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Dependencies:** [REQ-AGENT-273](#req-agent-273-pi-handoff-continuity)
 
-**Verification:** Automated: [Layout](../../web-ui/src/__tests__/components/Layout.test.tsx).
+**Verification:** Automated: [Layout](../../web-ui/src/__tests__/components/Layout.test.tsx); Manual: [Return from Profile Usage](../../documentation/lanes/terminal-and-ide.md#return-from-profile-usage).
 
 **Status:** Planned
 
