@@ -148,7 +148,12 @@ app.post('/start', containerStartRateLimiter, async (c) => {
   try {
     const bucketName = c.get('bucketName');
     const sessionId = getSessionIdFromQuery(c);
-    const requestedSurface = c.req.raw.body === null ? undefined : (await parseJsonBody(c, StartBody)).surface;
+    // The transport can expose an empty Start body as a non-null stream.
+    // Hono caches the bytes for JSON parsing when a body is present.
+    const startBody = await c.req.arrayBuffer().catch(() => {
+      throw new ValidationError('Invalid JSON body');
+    });
+    const requestedSurface = startBody.byteLength === 0 ? undefined : (await parseJsonBody(c, StartBody)).surface;
     const user = c.get('user');
     const preferencesKey = getPreferencesKey(bucketName);
     const preferences = await runStartStage(

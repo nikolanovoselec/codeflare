@@ -267,8 +267,10 @@ describe('Container Lifecycle Routes', () => {
   // =========================================================================
   describe('POST /container/start', () => {
     it.each([
-      { terminalMode: 'classic', surface: 'chat' }, { terminalMode: 'classic', surface: 'terminal' },
-    ] as const)('REQ-AGENT-272 AC1: forwards $terminalMode $surface only with the exact Start claim', async ({ terminalMode, surface }) => {
+      { terminalMode: 'classic', surface: 'chat', body: '{"surface":"chat"}' },
+      { terminalMode: 'classic', surface: 'terminal', body: '{"surface":"terminal"}' },
+      { terminalMode: 'classic', surface: 'terminal', body: '' },
+    ] as const)('REQ-AGENT-272 AC1: forwards $terminalMode $surface with Start body $body', async ({ terminalMode, surface, body }) => {
       const id = 'abcdef1234567890abcdef12';
       const key = `session:test-bucket:${id}`;
       const session = await mockKV.get(key, 'json') as Session;
@@ -284,7 +286,7 @@ describe('Container Lifecycle Routes', () => {
       });
 
       const response = await createLifecycleApp()(`/container/start?sessionId=${id}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ surface }),
+        method: 'POST', ...(body && { headers: { 'Content-Type': 'application/json' } }), body,
       });
 
       expect(response.status).toBe(200);
@@ -319,6 +321,17 @@ describe('Container Lifecycle Routes', () => {
 
       expect(response.status).toBeGreaterThanOrEqual(400);
       expect(response.status).toBeLessThan(500);
+      expect(await new D1SessionRepository(createMockSessionD1(mockKV)).getSession('test-bucket', id))
+        .toMatchObject({ lifecycleState: 'stopped', lifecycleGeneration: 0 });
+    });
+
+    it('rejects malformed nonempty Start JSON before claiming the session', async () => {
+      const id = 'abcdef1234567890abcdef12';
+      const response = await createLifecycleApp()(`/container/start?sessionId=${id}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{',
+      });
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
       expect(await new D1SessionRepository(createMockSessionD1(mockKV)).getSession('test-bucket', id))
         .toMatchObject({ lifecycleState: 'stopped', lifecycleGeneration: 0 });
     });
