@@ -201,10 +201,12 @@ export function createPiWebRuntime(options: {
     const requestId = handoff.status().requestId;
     let questionPauseStarted: number | undefined;
     let questionAllowance = STARTUP_QUESTION_ALLOWANCE_MS;
+    let startupStage = 'service preparation';
     try {
       const preparation = preparedChatServices;
       preparedChatServices = undefined;
       await (preparation ?? services.start());
+      startupStage = 'project and workspace setup';
       let project = (await services.request<Array<{ path: string; id: string }>>('/api/projects')).find(row => row.path === cwd);
       project ??= await services.request('/api/projects', { path: cwd });
       if (!project || project.path !== cwd) throw new Error('Stock Chat project is unavailable');
@@ -215,6 +217,7 @@ export function createPiWebRuntime(options: {
       save(ref);
       chatCatalog = `/api/plugin-catalog/projects/${encodeURIComponent(project.id)}/workspaces/${encodeURIComponent(workspace.id)}/sessions/${encodeURIComponent(ref.id)}`;
       chatUrl = `/api/pi-web/${sessionId}/g/${generation}/?${new URLSearchParams({ project: project.id, workspace: workspace.id, session: ref.id, view: 'chat' })}`;
+      startupStage = 'writer attachment';
       // The Ready screen may wait indefinitely for Open. Start the writer
       // confirmation budget only when the scoped browser frame attaches.
       await until(() => {
@@ -241,7 +244,11 @@ export function createPiWebRuntime(options: {
       }, chatStartup.signal);
       chatReady = true;
       return true;
-    } catch {
+    } catch (error) {
+      if (!chatStartup.signal.aborted) {
+        const portConflict = (error as NodeJS.ErrnoException | undefined)?.code === 'EADDRINUSE';
+        console.warn(`[pi-web] Chat startup failed during ${startupStage}${portConflict ? ': gateway port occupied' : ''}`);
+      }
       chatStartup.abort();
       // Close browser admission before joining both owned processes. No active
       // writer or pending startup dialog can survive a confirmed daemon exit.

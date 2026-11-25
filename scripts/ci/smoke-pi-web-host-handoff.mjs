@@ -228,12 +228,17 @@ export default function (pi) {
       }, 35_000);
       assert.ok(failed.requestId, 'failed startup must have a retryable handoff identity');
       failedBinding = identity(runtime.binding);
+      assert.equal(existsSync(join(runtimeDir, 'defaults.json')), false,
+        'a known gateway port conflict must fail before preparing the stock services');
       await close(occupiedGateway);
       await api('/_switch', 202, { generation, requestId: failed.requestId, target: 'chat' });
     }
     const chatUrl = await until('Chat deep link', async () => {
       const state = await readSwitch();
-      if (state.phase === 'failed') await boot;
+      if (state.phase === 'failed' || state.phase === 'uncertain') {
+        await boot;
+        throw new Error(`Chat failed to publish its deep link (${state.phase})`);
+      }
       return state.chatUrl;
     }, 35_000);
     const { id, path } = runtime.binding;

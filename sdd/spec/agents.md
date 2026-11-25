@@ -900,7 +900,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 - Default open paths, independently opened panes and VS Code retain their behavior and Git capabilities.
 - [REQ-AGENT-273](#req-agent-273-pi-handoff-continuity) owns handoff feedback and native re-entry.
 - [REQ-AGENT-274](#req-agent-274-stock-pi-chat-controls) owns retained stock controls.
-- [REQ-AGENT-275](#req-agent-275-classic-pi-chat-startup) owns startup and attachment recovery.
+- [REQ-AGENT-275](#req-agent-275-classic-pi-chat-startup) owns startup readiness and frame reload. [REQ-AGENT-283](#req-agent-283-initial-chat-service-recovery) owns retry after an initial service failure.
 
 **Priority:** P1
 
@@ -981,15 +981,15 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 6. Reload Chat is offered only when the scoped frame fails to load the stock document. It retries the same frame URL without starting another handoff. <!-- @impl: web-ui/src/components/PiWebChat.tsx::PiWebChat --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (reloads the same Chat frame only after a failed navigation, without switching writers) -->
 7. Verified native question evidence for the same opening attempt pauses attachment timeout within the stock question-time allowance. Writer confirmation and the single-writer fence still apply. <!-- @impl: image/pi-web/handoff-extension.ts::publishStartupQuestion --> <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
 
-**Constraints:**
-
-- Chat-first service preparation follows profile restore and never opens a writer.
-- The stock-loader gate is best effort, not proof of live synchronization.
-
 **Notes:**
 
 - [REQ-TERM-049](terminal.md#req-term-049-shared-workspace-startup-progress) owns startup status copy.
 - [REQ-GITHUB-320](github.md#req-github-320-nonblocking-terminal-repository-restore-notice) owns restore outcome reporting and notice lifecycle.
+
+**Constraints:**
+
+- Chat-first service preparation follows profile restore and never opens a writer.
+- The stock-loader gate is best effort, not proof of live synchronization.
 
 **Priority:** P1
 
@@ -1009,7 +1009,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Acceptance Criteria:**
 
-1. After a recoverable initial Chat service failure, explicit retry opens the same bound transcript without starting a second writer. <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime -->
+1. After a recoverable initial Chat service failure, explicit retry opens the same bound transcript without starting a second writer. <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime --> <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-272: timeout of the initial Chat writer exposes only the verified same-transcript retry) -->
 
 **Constraints:** The previous attempt must be confirmed closed before retry.
 
@@ -1017,7 +1017,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Dependencies:** [REQ-AGENT-275](#req-agent-275-classic-pi-chat-startup)
 
-**Verification:** Automated: [Packaged Host handoff](../../scripts/ci/smoke-pi-web-host-handoff.mjs)
+**Verification:** Automated: [Handoff coordinator](../../host/__tests__/pi-web-handoff.test.js), [Packaged Host handoff](../../scripts/ci/smoke-pi-web-host-handoff.mjs)
 
 **Status:** Planned
 

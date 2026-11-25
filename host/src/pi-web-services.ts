@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:net';
 import { dirname, join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { isDeepStrictEqual } from 'node:util';
@@ -82,6 +83,16 @@ export function createPiWebServices(options: { runtimeDir: string; cwd: string; 
 
   async function boot(): Promise<void> {
     await until(options.profileRestored, 120_000);
+    if (shuttingDown) throw new Error('Container is stopping');
+    // The stock daemon provisions packages before the gateway becomes healthy.
+    // Reject a known port conflict before that startup can modify the profile.
+    await new Promise<void>((resolve, reject) => {
+      const probe = createServer();
+      probe.once('error', reject);
+      probe.listen(PI_WEB_PORT, '127.0.0.1', () => {
+        probe.close(error => error ? reject(error) : resolve());
+      });
+    });
     if (shuttingDown) throw new Error('Container is stopping');
     const piPackage = managedPiPackage();
     const home = process.env.HOME ?? '/home/user';

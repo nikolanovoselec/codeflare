@@ -390,9 +390,7 @@ export async function getValidGithubToken(
       return null;
     }
   })();
-  // Only publish refreshes whose owning request keeps its I/O alive.
-  if (!retainRefresh) return refresh;
-  retainRefresh(refresh);
+  retainRefresh?.(refresh);
   flights.set(key, refresh);
   try { return await refresh; }
   finally { flights.delete(key); }

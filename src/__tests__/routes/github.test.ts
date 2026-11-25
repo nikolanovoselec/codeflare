@@ -134,7 +134,7 @@ describe('REQ-GITHUB-002 / REQ-GITHUB-007: GET /api/github/status', () => {
 });
 
 describe('GitHub Details owned repository counts', () => {
-  it('serves concurrent App counts and repos through one redeemable refresh after the counts client disconnects', async () => {
+  it.each(['counts', 'token helper'] as const)('serves a waiting App repository request after a refresh starts in %s', async initiator => {
     mockKV._set(KEY, { githubToken: 'expired', githubTokenSource: 'app', githubLogin: 'octocat',
       githubRefreshToken: 'one-use', githubTokenExpiresAt: Date.now() - 1000 } satisfies DeployKeys);
     const client = new AbortController();
@@ -161,15 +161,19 @@ describe('GitHub Details owned repository counts', () => {
       throw new Error(`Unexpected fixture path ${path}`);
     });
     const app = createTestApp(ENT);
-    const counts = app.request('/api/github/owned-repo-counts', { signal: client.signal }, undefined, context);
+    const counts = initiator === 'counts'
+      ? app.request('/api/github/owned-repo-counts', { signal: client.signal }, undefined, context)
+      : getValidGithubToken({ KV: mockKV, ...ENT } as Env, 'test-bucket');
     await exchangeStarted;
     const repositories = app.request('/api/github/repos', undefined, undefined, context);
     await new Promise(resolve => setTimeout(resolve, 0));
-    client.abort();
+    if (initiator === 'counts') client.abort();
     finishExchange();
     const [countResponse, repos] = await Promise.all([counts, repositories]);
     await Promise.all(retained);
-    expect(await countResponse.json()).toEqual({ login: 'octocat', counts: { public: 3, private: 2, total: 5 } });
+    if (countResponse instanceof Response) {
+      expect(await countResponse.json()).toEqual({ login: 'octocat', counts: { public: 3, private: 2, total: 5 } });
+    } else expect(countResponse).toBe('fresh');
     expect(repos.status).toBe(200);
     expect(await repos.json()).toMatchObject({ repos: [] });
   });

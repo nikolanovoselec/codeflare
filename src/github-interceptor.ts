@@ -217,7 +217,7 @@ export class GitHubInterceptor extends WorkerEntrypoint<Env> {
 
     let token: string | null;
     try {
-      token = await getValidGithubToken(this.env, bucket);
+      token = await getValidGithubToken(this.env, bucket, work => this.ctx.waitUntil(work));
     } catch (err) {
       console.error('GitHubInterceptor: token lookup failed', {
         error: err instanceof Error ? err.message : String(err),

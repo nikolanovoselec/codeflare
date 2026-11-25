@@ -604,6 +604,28 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 ---
 
+### REQ-GITHUB-324: Dashboard repository loading during GitHub App renewal
+
+**Intent:** Keep a repository request usable when its concurrent counts request ends.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A Dashboard repository request waiting on the same App renewal in the same Worker isolate succeeds if the refresh completes in time, even if the initiating counts request disconnects. <!-- @impl: src/lib/github-token.ts::getValidGithubToken --> <!-- @test: src/__tests__/routes/github.test.ts (serves a waiting App repository request after a refresh starts in %s) -->
+
+**Constraints:** If the wait expires, the request fails closed rather than using an expired token.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage)
+
+**Verification:** Automated: [GitHub route tests](../../src/__tests__/routes/github.test.ts)
+
+**Status:** Planned
+
+---
+
 ### REQ-GITHUB-012: Responsive GitHub and storage panel allocation
 
 **Intent:** In the standard Dashboard layout, GitHub and storage share the right column as an anchored split when space permits and collapse to one independently content-sized face when the viewport is narrow or short. The Vibe drawer has a separate disclosure contract.
