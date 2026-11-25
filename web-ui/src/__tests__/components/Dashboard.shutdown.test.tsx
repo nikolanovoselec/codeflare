@@ -18,7 +18,8 @@ const stamp = '2026-11-23T10:00:00.000Z';
 type Phase = 'queued' | 'saving' | 'consolidating' | 'finishing' | 'memory-not-merged';
 type Lifecycle = 'running' | 'stopping' | 'stopped';
 type Projection = { status: Lifecycle; lifecycle: Lifecycle; generation: number; revision: number;
-  shutdownPhase?: Phase; pendingDelete?: boolean; snapshotUnavailable?: boolean; metrics?: { cpu?: string; mem?: string; hdd?: string; updatedAt?: string } };
+  shutdownPhase?: Phase; pendingDelete?: boolean; snapshotUnavailable?: boolean;
+  metrics?: { cpu?: string; mem?: string; hdd?: string; updatedAt?: string; syncStatus?: string } };
 let catalog: Projection | undefined;
 let polled: Projection | undefined;
 let operations: string[];
@@ -289,9 +290,10 @@ it('REQ-SESSION-043: distinguishes current readings, last-known readings and una
 it.each(['poll', 'catalog'] as const)('REQ-SESSION-043: both cards hide the previous runtime readings after restart via %s', async source => {
   project('running', 10);
   const updatedAt = new Date().toISOString();
-  const previous = { cpu: '7%', mem: '1.2G', hdd: '3.1G', updatedAt };
+  const previous = { cpu: '7%', mem: '1.2G', hdd: '3.1G', updatedAt, syncStatus: 'syncing' };
   polled = { ...polled!, metrics: previous };
   await sessionStore.loadSessions();
+  expect(sessionStore.getMetricsForSession(id)?.syncStatus).toBe('syncing');
   renderDashboard();
   render(() => <SessionDropdown isOpen sessions={sessionStore.sessions} activeSessionId={id}
     onSelectSession={() => {}} onStopSession={() => {}} onDeleteSession={() => {}}
@@ -321,7 +323,10 @@ it.each(['poll', 'catalog'] as const)('REQ-SESSION-043: both cards hide the prev
     batchResponse = new Promise(resolve => { reply = resolve; });
     const loading = sessionStore.loadSessions();
     try {
-      await waitFor(() => expect(screen.getAllByRole('status', { name: 'IDLE' })).toHaveLength(2));
+      await waitFor(() => expect(sessionStore.sessions.find(session => session.id === id))
+        .toMatchObject({ generation: 8, revision: 13, status: 'running' }));
+      expect(sessionStore.getMetricsForSession(id)?.syncStatus).toBeUndefined();
+      for (const view of cards()) expect(view.getByRole('status', { name: 'IDLE' })).toBeVisible();
       expectPlaceholders();
     } finally {
       reply(Response.json({ statuses: { [id]: polled } }));
