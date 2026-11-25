@@ -477,7 +477,7 @@ After restarting the disposable session, check both cards for placeholders if th
 
 Without reloading either surface, a successful Stop leaves a stopped card with no shutdown label or metrics notice and restores normal selection. A successful Delete removes the card from both surfaces. [REQ-SESSION-043 AC5](../../sdd/spec/session-lifecycle.md#req-session-043-queued-graceful-shutdown-and-memory-recovery). <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard -->
 
-On a saved-but-unmerged fixture, check the failure subtitle over dimmed metrics and the full-width **Retry** button. Retry must not open a terminal. Selecting the card resumes the saved workspace without restarting the old retry. Verify neither action is available during headless Retry or a managed update. On a separate disposable recovery card, use **⋯ → Delete** and confirm discarding unconsolidated memory; the card should disappear. Record the build and viewport or device.
+On a saved-but-unmerged fixture, check the failure subtitle over dimmed metrics and the full-width **Retry** button. Retry must not open a terminal. Selecting the card resumes the saved workspace without restarting the old retry. Verify neither action is available during headless Retry or a managed update. Verify the **⋯** menu does not offer Delete while memory remains unmerged. Record the build and viewport or device.
 
 ## Lifecycle evidence boundaries
 

@@ -360,10 +360,10 @@ function stoppedCardGeneration(id: string, incoming: Pick<SessionWithStatus, 'st
 }
 
 function applyShutdownFields(index: number, incoming: BatchStatusResponse['statuses'][string]): void {
-  const { shutdownPhase, pendingDelete, retryingMemory, snapshotUnavailable, canDiscardMemory } = incoming;
+  const { shutdownPhase, pendingDelete, retryingMemory, snapshotUnavailable } = incoming;
   const session = state.sessions[index];
   const cardStoppedGeneration = stoppedCardGeneration(session.id, incoming, session.cardStoppedGeneration);
-  setState('sessions', index, { shutdownPhase, pendingDelete, retryingMemory, snapshotUnavailable, canDiscardMemory, cardStoppedGeneration });
+  setState('sessions', index, { shutdownPhase, pendingDelete, retryingMemory, snapshotUnavailable, cardStoppedGeneration });
   reconcileMemoryRetry(session.id, session);
 }
 
@@ -703,7 +703,7 @@ function removeConfirmedSession(id: string): void {
   );
 }
 
-async function deleteSession(id: string, discardMemory?: string): Promise<void> {
+async function deleteSession(id: string): Promise<void> {
   dismissRepositoryRestore(id);
   const attempted = state.sessions.find(session => session.id === id);
   const generation = attempted?.generation;
@@ -713,7 +713,7 @@ async function deleteSession(id: string, discardMemory?: string): Promise<void> 
       startupCleanup();
       startupCleanups.delete(id);
     }
-    if (await (discardMemory ? api.deleteSession(id, discardMemory) : api.deleteSession(id))) {
+    if (await api.deleteSession(id)) {
       const current = state.sessions.find(session => session.id === id);
       if (current && current.generation === generation) noteAcceptedDelete(id, generation);
       refreshAfterShutdownAccepted();

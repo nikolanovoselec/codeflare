@@ -8,7 +8,7 @@ import { getContainer } from '@cloudflare/containers';
 import { AgentTypeSchema, resolveSessionWorkspace, resolveTerminalMode, type Env, type Session, type TerminalMode, type UserPreferences } from '../../types';
 import { getPreferencesKey, generateSessionId, sanitizeSessionName } from '../../lib/kv-keys';
 import { D1SessionRepository, type D1Session } from '../../lib/session-repository';
-import { canDiscardMemory, shutdownProjection } from '../../lib/session-shutdown';
+import { shutdownProjection } from '../../lib/session-shutdown';
 import { maybeQueueShutdown } from './shutdown';
 import type { SessionStopRequest } from '../../container/container-lifecycle';
 import { fencePendingBoundaryStart } from './boundary-stop';
@@ -252,15 +252,6 @@ app.delete('/:id', sessionDeleteRateLimiter, async (c) => {
   if (!session) throw new NotFoundError('Session not found');
 
   const generation = session.lifecycleGeneration;
-  const discardMemory = c.req.query('discardMemory');
-  if (discardMemory !== undefined) {
-    if (!canDiscardMemory(session)
-      || discardMemory !== `${generation}:${session.responseRevision}`
-      || !await repository.deleteAfterShutdown(session, session.responseRevision)) {
-      return c.json({ error: 'Session recovery state changed; reopen the menu and confirm again' }, 409);
-    }
-    return c.json({ success: true, deleted: true, id: sessionId });
-  }
   const queued = await maybeQueueShutdown(c.env, session, true);
   if (queued) return queued;
   if (session.lifecycleState === 'stopped') {

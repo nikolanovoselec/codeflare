@@ -396,12 +396,11 @@ async function requestGracefulShutdown(endpoint: string, method: 'POST' | 'DELET
   if (accepted) return true;
 }
 
-export async function deleteSession(id: string, discardMemory?: string): Promise<true | void> {
+export async function deleteSession(id: string): Promise<true | void> {
   if (!SESSION_ID_RE.test(id)) {
     throw new ApiError('Invalid session ID format', 400, 'Bad Request');
   }
-  const query = discardMemory ? `?${new URLSearchParams({ discardMemory })}` : '';
-  return requestGracefulShutdown(`/sessions/${id}${query}`, 'DELETE');
+  return requestGracefulShutdown(`/sessions/${id}`, 'DELETE');
 }
 
 export interface ManagedReleaseProgress {

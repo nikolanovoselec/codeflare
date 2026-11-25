@@ -634,9 +634,8 @@ const Layout: Component<LayoutProps> = (props) => {
     await sessionStore.stopSession(id);
   };
 
-  const handleDeleteSession = async (id: string, discardMemory?: string) => {
-    if (discardMemory) await sessionStore.deleteSession(id, discardMemory);
-    else await sessionStore.deleteSession(id);
+  const handleDeleteSession = async (id: string) => {
+    await sessionStore.deleteSession(id);
   };
 
   const handleCreateSession = async (name: string, agentType?: AgentType, tabConfig?: TabConfig[]) => {
@@ -851,7 +850,7 @@ const Layout: Component<LayoutProps> = (props) => {
           activeSessionId={sessionStore.activeSessionId}
           onSelectSession={handleSelectSession}
           onStopSession={(id) => { keepDashboardOwnership('replace'); void handleStopSession(id); }}
-          onDeleteSession={(id, discard) => { keepDashboardOwnership('replace'); void handleDeleteSession(id, discard); }}
+          onDeleteSession={(id) => { keepDashboardOwnership('replace'); void handleDeleteSession(id); }}
           onCreateSession={handleCreateSession}
           onOpenMultiView={handleOpenMultiView}
           onCloseMultiView={handleCloseMultiView}

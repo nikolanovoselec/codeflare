@@ -30,7 +30,7 @@ interface SessionDropdownProps {
   activeSessionId: string | null;
   onSelectSession: (id: string) => void;
   onStopSession: (id: string) => void;
-  onDeleteSession: (id: string, discardMemory?: string) => void;
+  onDeleteSession: (id: string) => void;
   onCreateSession: (name: string, agentType?: AgentType, tabConfig?: TabConfig[]) => void;
   onClose: () => void;
   isMobileView: boolean;
@@ -257,12 +257,8 @@ const SessionDropdown: Component<SessionDropdownProps> = (props) => {
             stopLabel={menuStatus() === 'stopping' ? 'Retry Stop' : 'Stop'}
             sessionName={menuState().session?.name || ''}
             onStop={() => { if (menuState().session) props.onStopSession(menuState().session!.id); }}
-            session={menuSession()}
-            onDelete={discard => {
-              if (menuSession()?.id !== id) return;
-              if (discard) props.onDeleteSession(id, discard);
-              else props.onDeleteSession(id);
-            }}
+            canDelete={menuSession()?.shutdownPhase !== 'memory-not-merged'}
+            onDelete={() => { if (menuSession()?.id === id) props.onDeleteSession(id); }}
             onRename={(name) => { if (menuState().session) void sessionStore.renameSession(menuState().session!.id, name); }}
             onClose={handleMenuClose}
           />

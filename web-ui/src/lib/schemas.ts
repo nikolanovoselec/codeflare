@@ -231,7 +231,6 @@ const shutdownProjection = {
   pendingDelete: z.boolean().optional(),
   retryingMemory: z.boolean().optional(),
   snapshotUnavailable: z.boolean().optional(),
-  canDiscardMemory: z.boolean().optional(),
 };
 
 // Shared base schema for session objects (used by response schemas below)

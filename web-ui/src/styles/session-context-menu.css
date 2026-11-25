@@ -63,12 +63,6 @@
   z-index: 99;
 }
 
-@media (width > 640px) {
-  .session-context-menu--discard-confirmation {
-    width: 280px;
-  }
-}
-
 /* Mobile: bottom-sheet override */
 @media (max-width: 640px) {
   .session-context-menu {

@@ -1,7 +1,6 @@
 import { Component, Show, createSignal, createEffect } from 'solid-js';
 import { mdiPencilOutline, mdiStop, mdiTrashCanOutline, mdiFileExcelBox } from '@mdi/js';
 import Icon from './Icon';
-import type { SessionWithStatus } from '../types';
 import '../styles/session-context-menu.css';
 
 interface SessionContextMenuProps {
@@ -13,8 +12,8 @@ interface SessionContextMenuProps {
   stopLabel?: string;
   sessionName: string;
   onStop: () => void;
-  session?: SessionWithStatus;
-  onDelete: (discardMemory?: string) => void;
+  canDelete?: boolean;
+  onDelete: () => void;
   /** REQ-SESSION-027 AC1: rename the session this menu was opened for. */
   onRename: (name: string) => void;
   onClose: () => void;
@@ -22,16 +21,7 @@ interface SessionContextMenuProps {
 
 const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
   const [confirmingDelete, setConfirmingDelete] = createSignal(false);
-  const [discardMemory, setDiscardMemory] = createSignal<string>();
-  const recoveryTarget = () => {
-    const session = props.session;
-    if (session?.canDiscardMemory && session.shutdownPhase === 'memory-not-merged' && session.status === 'stopped'
-      && session.generation !== undefined && session.revision !== undefined) {
-      return `${session.generation}:${session.revision}`;
-    }
-  };
-  const canDelete = () => props.session?.shutdownPhase !== 'memory-not-merged' || !!recoveryTarget();
-  const confirmingDiscard = () => confirmingDelete() && !!discardMemory();
+  createEffect(() => { if (props.canDelete === false) setConfirmingDelete(false); });
   const [renaming, setRenaming] = createSignal(false);
   const [draftName, setDraftName] = createSignal('');
 
@@ -51,7 +41,7 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
   });
 
   const clampedPosition = () => {
-    const menuWidth = confirmingDiscard() ? 280 : 160;
+    const menuWidth = 160;
     const menuHeight = props.canKill && props.onKill ? 160 : 120;
     const pad = 8;
     return {
@@ -76,7 +66,6 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
     if (confirmingDelete()) {
       return;
     }
-    setDiscardMemory(recoveryTarget());
     setConfirmingDelete(true);
   };
 
@@ -104,11 +93,7 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
   };
 
   const handleDeleteConfirm = () => {
-    const discard = discardMemory();
-    if (canDelete() && discard === recoveryTarget()) {
-      if (discard) props.onDelete(discard);
-      else props.onDelete();
-    }
+    if (props.canDelete !== false) props.onDelete();
     resetTransient();
     props.onClose();
   };
@@ -118,7 +103,6 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
       <div class="session-context-menu__backdrop" onClick={() => { resetTransient(); props.onClose(); }} />
       <div
         class="session-context-menu"
-        classList={{ 'session-context-menu--discard-confirmation': confirmingDiscard() }}
         data-testid="session-context-menu"
         style={{ top: `${clampedPosition().y}px`, left: `${clampedPosition().x}px` }}
       >
@@ -173,7 +157,7 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
             Kill
           </button>
         </Show>
-        <Show when={canDelete() && !confirmingDelete()}>
+        <Show when={props.canDelete !== false && !confirmingDelete()}>
           <button
             type="button"
             class="session-context-menu__item session-context-menu__item--danger"
@@ -184,7 +168,7 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
             Delete
           </button>
         </Show>
-        <Show when={canDelete() && confirmingDelete()}>
+        <Show when={props.canDelete !== false && confirmingDelete()}>
           <button
             type="button"
             class="session-context-menu__item session-context-menu__item--danger"
@@ -192,7 +176,7 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
             onClick={handleDeleteConfirm}
           >
             <Icon path={mdiTrashCanOutline} size={16} />
-            {discardMemory() ? 'Delete and discard unconsolidated memory?' : 'Are you sure?'}
+            Are you sure?
           </button>
         </Show>
       </div>

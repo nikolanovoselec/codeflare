@@ -20,7 +20,7 @@ const stamp = '2026-11-23T10:00:00.000Z';
 type Phase = 'queued' | 'saving' | 'consolidating' | 'finishing' | 'memory-not-merged';
 type Lifecycle = 'running' | 'stopping' | 'stopped';
 type Projection = { status: Lifecycle; lifecycle: Lifecycle; generation: number; revision: number;
-  shutdownPhase?: Phase; pendingDelete?: boolean; snapshotUnavailable?: boolean; canDiscardMemory?: boolean;
+  shutdownPhase?: Phase; pendingDelete?: boolean; snapshotUnavailable?: boolean;
   metrics?: { cpu?: string; mem?: string; hdd?: string; updatedAt?: string; syncStatus?: string } };
 let catalog: (Projection & { name?: string }) | undefined;
 let polled: Projection | undefined;
@@ -34,7 +34,7 @@ function project(status: Lifecycle, revision: number, shutdownPhase?: Phase, pen
   catalog = polled = { status, lifecycle: status, generation, revision, shutdownPhase, pendingDelete };
 }
 
-function renderDashboard(extra?: SessionWithStatus, onDelete = (id: string, discard?: string) => sessionStore.deleteSession(id, discard)) {
+function renderDashboard(extra?: SessionWithStatus, onDelete = (id: string) => sessionStore.deleteSession(id)) {
   const openTerminal = vi.fn();
   const start = vi.fn();
   const view = render(() => <Dashboard
@@ -95,16 +95,13 @@ beforeEach(async () => {
     if (path === '/api/preferences') return Response.json({ userTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone });
     if (path === '/api/github/status') return Response.json({ enabled: false, connected: false });
     if (path === '/api/storage/stats') return Response.json({ totalFiles: 0, totalFolders: 0, totalSizeBytes: 0 });
-    operations.push(`${method} ${path}${url.search}`);
+    operations.push(`${method} ${path}`);
     if (path === `${sessionPath}/retry-memory-consolidation` && method === 'POST') {
       return retryResponse ?? accepted('queued', polled?.pendingDelete);
     }
     if (path === `${sessionPath}/kill` && method === 'POST') return Response.json({ id, success: true, stopped: true });
     if (path === `${sessionPath}/stop` && method === 'POST') return accepted('queued');
-    if (path === sessionPath && method === 'DELETE') {
-      if (url.searchParams.has('discardMemory')) return Response.json({ id, success: true, deleted: true });
-      return deleteResponse ?? accepted('queued', true);
-    }
+    if (path === sessionPath && method === 'DELETE') return deleteResponse ?? accepted('queued', true);
     throw new Error(`Unexpected HTTP request: ${method} ${path}`);
   });
   await sessionStore.loadSessions();
@@ -743,21 +740,22 @@ it('REQ-SESSION-043: an accepted Delete retains the card through merge failure a
   expect(screen.queryByTestId(`session-stat-card-${id}`)).not.toBeInTheDocument();
 });
 
-it('REQ-SESSION-043: confirms discarding unconsolidated memory from the recovery card menu', async () => {
+it('REQ-SESSION-043: both recovery menus preserve the card without offering Delete', async () => {
   project('stopped', 12, 'memory-not-merged');
   await sessionStore.loadSessions();
   renderDashboard();
-  fireEvent.click(card().getByRole('button', { name: 'Session actions' }));
-  expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument();
-  fireEvent.click(document.querySelector('.session-context-menu__backdrop')!);
-  polled = { ...polled!, revision: 13, canDiscardMemory: true };
-  await sessionStore.refreshSessionStatuses();
-  fireEvent.click(card().getByRole('button', { name: 'Session actions' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
-  expect(operations).toEqual([]);
-  await awaitCommand('deleteSession', () => fireEvent.click(screen.getByRole('button', { name: 'Delete and discard unconsolidated memory?' })));
-  expect(operations).toEqual([`DELETE ${sessionPath}?discardMemory=7%3A13`]);
-  expect(screen.queryByTestId(`session-stat-card-${id}`)).not.toBeInTheDocument();
+  render(() => <SessionDropdown isOpen sessions={sessionStore.sessions} activeSessionId={id}
+    onSelectSession={() => {}} onStopSession={() => {}} onDeleteSession={sessionStore.deleteSession}
+    onCreateSession={() => {}} onClose={() => {}} isMobileView={false} />);
+  const cards = screen.getAllByTestId(`session-stat-card-${id}`);
+  expect(cards).toHaveLength(2);
+  for (const node of cards) {
+    fireEvent.click(within(node).getByRole('button', { name: 'Session actions' }));
+    const menu = within(screen.getByTestId('session-context-menu'));
+    expect(menu.getByRole('button', { name: 'Rename' })).toBeVisible();
+    expect(menu.queryByRole('button', { name: /delete/i })).not.toBeInTheDocument();
+    fireEvent.click(document.querySelector('.session-context-menu__backdrop')!);
+  }
 });
 
 it('REQ-SESSION-043: a settled Stop clears recovery controls and rejects older merge-failure evidence', async () => {

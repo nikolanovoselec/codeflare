@@ -955,33 +955,10 @@ it('REQ-SESSION-043: retains a saved failed Delete after exit and advances the q
   });
   expect(await f.session(a).hermesWriterSettled(f.owner, { sessionId: a, generation: 1 })).toBe(false);
   expect((await f.remove(a)).status).toBe(409);
+  const observed = (await repository.getSession(f.owner, a))!;
+  const attempt = await f.app().request(`${f.path(a)}?discardMemory=${observed.lifecycleGeneration}:${observed.responseRevision}`, { method: 'DELETE' });
+  expect(attempt.status).toBe(409);
   expect((await f.app().request(f.path(a))).status).toBe(200);
-});
-
-it('REQ-SESSION-043: explicit discard deletes only the observed settled recovery card', async () => {
-  const f = rig();
-  const A = await f.create(a, { holdMerge: true });
-  await expectAccepted(f.stop(a));
-  A.save.release('saved'); A.merge.release('pending'); A.exit.release();
-  await vi.waitFor(async () => expect((await f.batch())[a]).toMatchObject({ status: 'stopped', shutdownPhase: 'memory-not-merged' }));
-  let row = (await repository.getSession(f.owner, a))!;
-  const discard = (revision: number) => f.app().request(`${f.path(a)}?discardMemory=${row.lifecycleGeneration}:${revision}`, { method: 'DELETE' });
-  expect((await discard(row.responseRevision - 1)).status).toBe(409);
-  expect((await f.remove(a)).status).toBe(409);
-  const observed = row;
-  await repository.updateMutable(f.owner, a, { name: 'Renamed recovery', lastAccessedAt: stamp });
-  expect(await repository.deleteAfterShutdown(observed, observed.responseRevision)).toBe(false);
-  row = (await repository.getSession(f.owner, a))!;
-  expect(row.name).toBe('Renamed recovery');
-  expect(await repository.updateShutdown(row, { ...row.shutdown!, phase: 'uncertain' })).toBe(true);
-  row = (await repository.getSession(f.owner, a))!;
-  expect((await f.batch())[a]).not.toHaveProperty('canDiscardMemory');
-  expect((await discard(row.responseRevision)).status).toBe(409);
-  expect(await repository.updateShutdown(row, { ...row.shutdown!, phase: 'merged', revision: 'legacy' })).toBe(true);
-  row = (await repository.getSession(f.owner, a))!;
-  expect((await f.batch())[a]).toMatchObject({ shutdownPhase: 'memory-not-merged', canDiscardMemory: true });
-  expect((await discard(row.responseRevision)).status).toBe(200);
-  expect((await f.batch())[a]).toBeUndefined();
 });
 
 it('REQ-SESSION-043: Kill during inference retains the session, rejects a late receipt and allows the next writer only after exit', async () => {
