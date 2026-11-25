@@ -1,10 +1,22 @@
-import type { ShutdownPhase } from '../types';
+import type { SessionWithStatus, ShutdownPhase } from '../types';
 
 export type BackendLifecycle = 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping';
 
 export function isShutdownInProgress(phase: ShutdownPhase | undefined): boolean {
   return phase !== undefined && phase !== 'memory-not-merged';
 }
+export const SESSION_REMOVAL_MISSES = 3;
+
+export function isSessionCardVisible(session: SessionWithStatus): boolean {
+  return (session.cardMisses ?? 0) < SESSION_REMOVAL_MISSES;
+}
+
+export function sessionCardStatus(session: SessionWithStatus): SessionWithStatus['status'] {
+  return session.status === 'running' && session.cardStoppedGeneration !== undefined
+    && session.cardStoppedGeneration === session.generation && !isShutdownInProgress(session.shutdownPhase)
+    ? 'stopped' : session.status;
+}
+
 export interface OrderedProjection {
   lifecycle: BackendLifecycle;
   generation?: number;

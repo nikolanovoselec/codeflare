@@ -325,6 +325,9 @@ export type SessionStatus = 'stopped' | 'starting' | 'running' | 'unreachable' |
 
 export interface SessionWithStatus extends Omit<Session, 'status'> {
   status: SessionStatus;
+  /** Card-only state; never used to release a terminal workspace. */
+  cardStoppedGeneration?: number;
+  cardMisses?: number;
   /** Whether the session PTY is currently active (derived from batch-status; frontend-only) */
   ptyActive?: boolean;
   /** Container init stage (derived from batch-status; 'ready' means daemons are up) */

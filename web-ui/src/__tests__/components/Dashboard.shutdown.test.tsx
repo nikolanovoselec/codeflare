@@ -207,7 +207,7 @@ it.each(['Stop', 'Delete'] as const)('REQ-SESSION-043: an open observer dropdown
   }
 });
 
-it('REQ-SESSION-043: both cards show a confirmed stop without dismissing terminal Ready', async () => {
+it.each(['stopped', 'memory-not-merged'] as const)('REQ-SESSION-043: both cards show %s without dismissing terminal Ready', async outcome => {
   project('stopped', 10, undefined, undefined, 6);
   await sessionStore.loadSessions();
   await sessionStore.startSession(id);
@@ -228,9 +228,59 @@ it('REQ-SESSION-043: both cards show a confirmed stop without dismissing termina
     await sessionStore.refreshSessionStatuses();
     for (const view of cards()) expect(view.getByRole('status', { name: 'STOPPED' })).toBeVisible();
     expect(sessionStore.getInitProgressForSession(id)?.stage).toBe('ready');
+    for (const view of cards()) {
+      fireEvent.click(view.getByRole('button', { name: 'Session actions' }));
+      expect(screen.getByTestId('context-menu-delete')).toBeVisible();
+      expect(screen.queryByTestId('context-menu-stop')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Kill' })).not.toBeInTheDocument();
+      fireEvent.click(document.querySelector('.session-context-menu__backdrop')!);
+    }
+
+    if (outcome === 'stopped') {
+      sessionStore.dismissInitProgressForSession(id);
+      for (const view of cards()) expect(view.getByRole('status', { name: 'STOPPED' })).toBeVisible();
+      return;
+    }
+    project('stopped', 14, 'memory-not-merged');
+    await sessionStore.refreshSessionStatuses();
+    for (const view of cards()) expect(view.getByRole('button', { name: 'Resume session' })).toBeEnabled();
+    await awaitCommand('retryMemoryConsolidation', () => fireEvent.click(cards()[0].getByRole('button', { name: 'Retry memory consolidation' })));
+    expect(operations).toContain(`POST ${sessionPath}/retry-memory-consolidation`);
+
+
   } finally {
     sessionStore.dismissInitProgressForSession(id);
     await sessionStore.refreshSessionStatuses();
+  }
+});
+
+it('REQ-SESSION-043: repeated omissions hide both cards without changing terminal Ready', async () => {
+  project('stopped', 10, undefined, undefined, 6);
+  await sessionStore.loadSessions();
+  await sessionStore.startSession(id);
+  try {
+    renderDashboard();
+    render(() => <SessionDropdown isOpen sessions={sessionStore.sessions} activeSessionId="observer"
+      onSelectSession={() => {}} onStopSession={() => {}} onDeleteSession={() => {}}
+      onCreateSession={() => {}} onClose={() => {}} isMobileView={false} />);
+    const cards = () => screen.queryAllByTestId(`session-stat-card-${id}`);
+    expect(cards()).toHaveLength(2);
+    catalog = polled = undefined;
+    await sessionStore.refreshSessionStatuses();
+    expect(cards()).toHaveLength(2);
+    batchResponse = Promise.resolve(new Response(null, { status: 503 }));
+    await sessionStore.refreshSessionStatuses();
+    expect(cards()).toHaveLength(2);
+    batchResponse = undefined;
+    await sessionStore.refreshSessionStatuses();
+    expect(cards()).toHaveLength(2);
+    await sessionStore.refreshSessionStatuses();
+    expect(cards()).toHaveLength(0);
+    expect(sessionStore.getInitProgressForSession(id)?.stage).toBe('ready');
+    expect(sessionStore.sessions.some(session => session.id === id)).toBe(true);
+  } finally {
+    sessionStore.dismissInitProgressForSession(id);
+    await sessionStore.loadSessions();
   }
 });
 

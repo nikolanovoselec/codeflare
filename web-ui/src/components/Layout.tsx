@@ -22,7 +22,7 @@ import type { VaultButtonStatus } from './VaultButton';
 import { requestBrowserStoragePersistence } from '../lib/browser-storage-persistence';
 import { dashboardPath, parseSessionPath, sessionPath } from '../lib/session-path';
 import { createBrowserIdeWindowOpener } from '../lib/browser-ide-window';
-import { isMountedLifecycle } from '../lib/session-presentation';
+import { isMountedLifecycle, sessionCardStatus } from '../lib/session-presentation';
 import { parseCloudflareReturn, type CloudflareReturnOutcome } from '../lib/cloudflare-oauth-return';
 
 type ViewState = 'dashboard' | 'expanding' | 'terminal' | 'collapsing';
@@ -601,11 +601,13 @@ const Layout: Component<LayoutProps> = (props) => {
 
   const handleSelectSession = (id: string) => {
     const session = sessionStore.sessions.find((s) => s.id === id);
-    if (session && (session.status === 'initializing'
-      || (session.status !== 'error' && isMountedLifecycle(session.status as 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping')))) {
-      openSessionWorkspace(id);
-    } else if (session?.status === 'stopped') {
+    if (!session) return;
+    const status = sessionCardStatus(session);
+    if (status === 'stopped') {
+      // A stopped workspace needs a full Start to restore saved files.
       openSessionWorkspace(id, { shouldStart: true });
+    } else if (status === 'initializing' || (status !== 'error' && isMountedLifecycle(status))) {
+      openSessionWorkspace(id);
     }
   };
 
@@ -741,19 +743,6 @@ const Layout: Component<LayoutProps> = (props) => {
       viewTransitionTimer = undefined;
       setViewState('dashboard');
     }, VIEW_TRANSITION_DURATION_MS);
-  };
-
-  const handleDashboardSessionSelect = (sessionId: string) => {
-    const session = sessionStore.sessions.find(s => s.id === sessionId);
-    if (session && (session.status === 'initializing'
-      || (session.status !== 'error' && isMountedLifecycle(session.status as 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping')))) {
-      openSessionWorkspace(sessionId);
-    } else if (session?.status === 'stopped') {
-      // Always do a full start — even if the container could auto-wake via SDK,
-      // the filesystem is empty after sleep (no R2 sync). startSession() runs
-      // entrypoint.sh, restoring files before the selected workspace becomes ready.
-      openSessionWorkspace(sessionId, { shouldStart: true });
-    }
   };
 
   const handleSettingsClick = () => {
@@ -914,7 +903,7 @@ const Layout: Component<LayoutProps> = (props) => {
           onTileClick={handleTileClick}
           onOpenSessionById={handleOpenSessionById}
           onOpenMultiView={handleOpenMultiView}
-          onDashboardSessionSelect={handleDashboardSessionSelect}
+          onDashboardSessionSelect={handleSelectSession}
           onCreateSession={handleCreateSession}
           onStartSession={handleStartSession}
           onOpenVscodeSession={openVscodeSession}

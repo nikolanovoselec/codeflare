@@ -22,7 +22,7 @@ import ScrambleText from './ScrambleText';
 import DashboardCard from './TipsRotator';
 import { sessionStore, isAtUsageQuota } from '../stores/session';
 import { terminalWorkspaceStore } from '../stores/terminal-workspace';
-import { isShutdownInProgress } from '../lib/session-presentation';
+import { isSessionCardVisible, isShutdownInProgress, sessionCardStatus } from '../lib/session-presentation';
 import { createTerminalViewportClass } from '../lib/mobile';
 import { decidePanelLayoutMode } from '../lib/panel-allocation';
 import { githubStore } from '../stores/github';
@@ -132,7 +132,9 @@ const Dashboard: Component<DashboardProps> = (props) => {
     position: { x: 0, y: 0 },
     session: null,
   });
-  const menuSession = createMemo(() => props.sessions.find(session => session.id === menuState().session?.id));
+  const visibleSessions = createMemo(() => props.sessions.filter(isSessionCardVisible));
+  const menuSession = createMemo(() => visibleSessions().find(session => session.id === menuState().session?.id));
+  const menuStatus = () => { const session = menuSession(); return session && sessionCardStatus(session); };
 
   // ── Adaptive right-column split (bug #21) ──────────────────────────────
   // GitHub (top) + Storage (bottom) share the column. The flex engine does the
@@ -534,11 +536,11 @@ const Dashboard: Component<DashboardProps> = (props) => {
               </div>
             </Show>
 
-            <Show when={props.sessions.length > 0}>
+            <Show when={visibleSessions().length > 0}>
               <div class="dashboard-sessions-section">
                 <div class="dashboard-section-divider"><span>Recent Sessions</span></div>
                 <div class="dashboard-session-list">
-                  <For each={props.sessions}>
+                  <For each={visibleSessions()}>
                     {(session) => (
                       <SessionStatCard
                         session={session}
@@ -553,15 +555,15 @@ const Dashboard: Component<DashboardProps> = (props) => {
                 </div>
                 <Portal>
                   <SessionContextMenu
-                    isOpen={menuState().isOpen}
+                    isOpen={menuState().isOpen && !!menuSession()}
                     position={menuState().position}
                     canStop={!isShutdownInProgress(menuSession()?.shutdownPhase)
-                      && (['running', 'initializing', 'starting', 'unreachable', 'stopping'].includes(menuSession()?.status ?? '')
-                        || (menuSession()?.workspace === 'vscode' && menuSession()?.status === 'error'))}
+                      && (['running', 'initializing', 'starting', 'unreachable', 'stopping'].includes(menuStatus() ?? '')
+                        || (menuSession()?.workspace === 'vscode' && menuStatus() === 'error'))}
                     canKill={isShutdownInProgress(menuSession()?.shutdownPhase)
-                      || ['starting', 'running', 'unreachable', 'stopping'].includes(menuSession()?.status ?? '')}
+                      || ['starting', 'running', 'unreachable', 'stopping'].includes(menuStatus() ?? '')}
                     onKill={() => { const session = menuSession(); if (session) void sessionStore.killSession(session.id); }}
-                    stopLabel={menuSession()?.status === 'stopping' ? 'Retry Stop' : 'Stop'}
+                    stopLabel={menuStatus() === 'stopping' ? 'Retry Stop' : 'Stop'}
                     sessionName={menuState().session?.name || ''}
                     onStop={() => { if (menuState().session) props.onStopSession(menuState().session!.id); }}
                     onDelete={() => { if (menuState().session) props.onDeleteSession(menuState().session!.id); }}

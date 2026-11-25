@@ -8,7 +8,7 @@ import { cloneIntoSession, type CloneIntoSessionResult } from '../api/github';
 import type { ManagedReleaseProgress } from '../api/client';
 import { terminalStore } from './terminal';
 import { logger } from '../lib/logger';
-import { applyOrderedProjection, isShutdownInProgress, type BackendLifecycle } from '../lib/session-presentation';
+import { applyOrderedProjection, isShutdownInProgress, sessionCardStatus, type BackendLifecycle } from '../lib/session-presentation';
 import { cleanupSessionVaultCache, sweepOrphanVaultCaches } from '../lib/vault-cache';
 import { MAX_STOP_POLL_ATTEMPTS, STOP_POLL_INTERVAL_MS, MAX_STOP_POLL_ERRORS, MAX_STARTUP_POLL_ERRORS, SESSION_POLL_TRANSITION_MS, CONTEXT_EXPIRY_MS } from '../lib/constants';
 import {
@@ -240,6 +240,7 @@ function updateSessionStatus(id: string, status: SessionStatus, shutdownPhase?: 
       status = 'stopping';
     }
     setState('sessions', index, 'status', status);
+    if (status === 'initializing') setState('sessions', index, 'cardStoppedGeneration', undefined);
     if (status === 'running') markSessionStarted(id);
     if (status === 'stopped' || status === 'stopping') clearSessionStartedGuard(id);
   }
@@ -350,10 +351,19 @@ function reconcileMemoryRetry(id: string, session?: SessionWithStatus): void {
   }
 }
 
+function stoppedCardGeneration(id: string, incoming: Pick<SessionWithStatus, 'status' | 'generation' | 'revision'>,
+  previous?: number): number | undefined {
+  if (incoming.status !== 'stopped' || incoming.generation === undefined || incoming.revision === undefined) return undefined;
+  const ready = state.initProgressBySession[id]?.readyGeneration;
+  return incoming.generation === previous || (ready !== undefined && incoming.generation >= ready)
+    ? incoming.generation : undefined;
+}
+
 function applyShutdownFields(index: number, incoming: BatchStatusResponse['statuses'][string]): void {
   const { shutdownPhase, pendingDelete, retryingMemory, snapshotUnavailable } = incoming;
-  setState('sessions', index, { shutdownPhase, pendingDelete, retryingMemory, snapshotUnavailable });
   const session = state.sessions[index];
+  const cardStoppedGeneration = stoppedCardGeneration(session.id, incoming, session.cardStoppedGeneration);
+  setState('sessions', index, { shutdownPhase, pendingDelete, retryingMemory, snapshotUnavailable, cardStoppedGeneration });
   reconcileMemoryRetry(session.id, session);
 }
 
@@ -389,6 +399,7 @@ registerPollingDeps({
   applyShutdownFields,
   removeConfirmedSession,
   isSessionInitializing,
+  hasCompletedReady: (id) => state.initProgressBySession[id]?.readyGeneration !== undefined,
   isLocallyStopping,
   shouldRetainNegativeKv,
   setAuthExpired,
@@ -459,6 +470,7 @@ async function loadSessions(): Promise<void> {
         || isLocallyStopping(s.id) || isSessionInitializing(s.id));
       return {
         ...s,
+        cardStoppedGeneration: stoppedCardGeneration(s.id, { ...s, status: listedStatus }, local?.cardStoppedGeneration),
         status: keepLocalStatus && local ? local.status : listedStatus,
       };
     });
@@ -543,6 +555,7 @@ async function loadSessions(): Promise<void> {
       // device-local and is never overwritten by a backend projection.
       const idx = state.sessions.findIndex(s => s.id === session.id);
       if (idx === -1) continue;
+      if (current?.cardMisses) setState('sessions', idx, 'cardMisses', undefined);
       if (batchStatus.lastActiveAt) setState('sessions', idx, 'lastActiveAt', batchStatus.lastActiveAt);
       if (batchStatus.lastStartedAt) setState('sessions', idx, 'lastStartedAt', batchStatus.lastStartedAt);
       setState('sessions', idx, 'startupStage', batchStatus.startupStage);
@@ -899,7 +912,7 @@ function startSession(id: string): Promise<void> {
 
 async function retryMemoryConsolidation(id: string): Promise<void> {
   const session = state.sessions.find(candidate => candidate.id === id);
-  if (session?.status !== 'stopped' || session.shutdownPhase !== 'memory-not-merged'
+  if (!session || sessionCardStatus(session) !== 'stopped' || session.shutdownPhase !== 'memory-not-merged'
     || session.snapshotUnavailable || isMemoryRetryPending(id)) return;
   const token = Symbol();
   setState('memoryRetryAttempts', id, { token, generation: session.generation, revision: session.revision });

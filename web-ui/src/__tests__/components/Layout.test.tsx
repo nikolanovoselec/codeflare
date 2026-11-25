@@ -1725,6 +1725,26 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect((window as any).__terminalAreaProps.viewState).toBe('collapsing');
     });
 
+    it.each(['Dashboard', 'dropdown'] as const)('REQ-SESSION-043: %s selection starts the runtime shown as stopped', async surface => {
+      const { sessionStore } = await import('../../stores/session');
+      mockSessions = [
+        createMockSession({ id: 'sess1', status: 'running' }),
+        createMockSession({ id: 'sess2', status: 'running', lifecycle: 'stopped', generation: 7, cardStoppedGeneration: 7 }),
+      ];
+      if (surface === 'dropdown') {
+        mockActiveSessionId = 'sess1';
+        mockActiveWorkspace = { kind: 'session', sessionId: 'sess1' };
+        mockVisiblePanes = [{ sessionId: 'sess1', terminalId: '1' }];
+      }
+      vi.mocked(sessionStore.startSession).mockResolvedValue(undefined);
+      render(() => <Layout />);
+      const select = () => surface === 'dropdown' ? (window as any).__headerProps?.onSelectSession
+        : (window as any).__terminalAreaProps?.onDashboardSessionSelect;
+      await waitFor(() => expect(select()).toBeTypeOf('function'));
+      select()('sess2');
+      expect(sessionStore.startSession).toHaveBeenCalledWith('sess2');
+    });
+
     it('REQ-TERM-011: selecting a stopped session from the header switcher opens the starting terminal surface', async () => {
       const { sessionStore } = await import('../../stores/session');
       mockSessions = [

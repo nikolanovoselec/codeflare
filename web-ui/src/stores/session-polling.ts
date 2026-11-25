@@ -6,7 +6,7 @@ import { logger } from '../lib/logger';
 import { SESSION_POLL_STABLE_MS, SESSION_POLL_TRANSITION_MS } from '../lib/constants';
 import { updateStatsFromBatch } from './storage';
 import { setUsageState } from './session-usage';
-import { applyOrderedProjection, isShutdownInProgress, type BackendLifecycle } from '../lib/session-presentation';
+import { applyOrderedProjection, isShutdownInProgress, SESSION_REMOVAL_MISSES, type BackendLifecycle } from '../lib/session-presentation';
 import type { SessionWithStatus, SessionStatus, ShutdownPhase } from '../types';
 // Type-only imports - erased at runtime, so they do NOT reintroduce the
 // circular dependency that the registerPollingDeps DI pattern guards against.
@@ -64,6 +64,7 @@ let updateSessionStatusFn: StatusUpdater;
 let applyShutdownFieldsFn: ShutdownUpdater;
 let removeConfirmedSession: (id: string) => void;
 let isSessionInitializingFn: InitChecker;
+let hasCompletedReadyFn: InitChecker;
 let isLocallyStoppingFn: InitChecker;
 let shouldRetainNegativeKvFn: NegativeKvGuard;
 let setAuthExpiredFn: AuthExpiredSetter;
@@ -78,6 +79,7 @@ export function registerPollingDeps(deps: {
   applyShutdownFields: ShutdownUpdater;
   removeConfirmedSession: (id: string) => void;
   isSessionInitializing: InitChecker;
+  hasCompletedReady: InitChecker;
   isLocallyStopping: InitChecker;
   shouldRetainNegativeKv: NegativeKvGuard;
   setAuthExpired: AuthExpiredSetter;
@@ -91,6 +93,7 @@ export function registerPollingDeps(deps: {
   applyShutdownFieldsFn = deps.applyShutdownFields;
   removeConfirmedSession = deps.removeConfirmedSession;
   isSessionInitializingFn = deps.isSessionInitializing;
+  hasCompletedReadyFn = deps.hasCompletedReady;
   isLocallyStoppingFn = deps.isLocallyStopping;
   shouldRetainNegativeKvFn = deps.shouldRetainNegativeKv;
   setAuthExpiredFn = deps.setAuthExpired;
@@ -140,7 +143,6 @@ export function resetStartupGuards(): void {
 // ============================================================================
 
 export const sessionMissCounters = new Map<string, number>();
-const REMOVAL_THRESHOLD = 3;
 const acceptedDeletes = new Map<string, { generation?: number }>();
 
 export function noteAcceptedDelete(id: string, generation: number | undefined): void {
@@ -275,20 +277,23 @@ async function refreshSessionStatusesOnce(forceManagedReleaseCheck: boolean): Pr
     if (requestedCatalogRevision !== catalogRevision) return;
     reportAvailability(false);
 
-    // Consecutive-miss tracking: only remove sessions after REMOVAL_THRESHOLD misses.
-    // Skip initializing sessions - they may not appear in batch status yet.
+    // Consecutive-miss tracking: only remove sessions after SESSION_REMOVAL_MISSES misses.
+    // A completed Ready may still retain workspace ownership. Count its
+    // omissions separately so hiding its card cannot accelerate disposal.
     const removedIds: string[] = [];
-    for (const session of state.sessions) {
+    for (const [index, session] of state.sessions.entries()) {
       if (!batchStatuses[session.id]) {
-        if (!session.pendingDelete && !hasAcceptedDelete(session) && shouldRetainNegativeKvFn(session.id)) {
+        const retainWorkspace = !session.pendingDelete && !hasAcceptedDelete(session) && shouldRetainNegativeKvFn(session.id);
+        if (retainWorkspace) {
           sessionMissCounters.delete(session.id);
+          if (hasCompletedReadyFn(session.id) && (session.cardMisses ?? 0) < SESSION_REMOVAL_MISSES) {
+            setStateRaw('sessions', index, 'cardMisses', (session.cardMisses ?? 0) + 1);
+          }
           continue;
         }
         const count = (sessionMissCounters.get(session.id) || 0) + 1;
         sessionMissCounters.set(session.id, count);
-        if (count >= REMOVAL_THRESHOLD) {
-          removedIds.push(session.id);
-        }
+        if (count >= SESSION_REMOVAL_MISSES) removedIds.push(session.id);
       } else {
         sessionMissCounters.delete(session.id);
       }
@@ -318,6 +323,7 @@ async function refreshSessionStatusesOnce(forceManagedReleaseCheck: boolean): Pr
       // device-local and is never overwritten by a backend projection.
       const idx = getState().sessions.findIndex(s => s.id === session.id);
       if (idx !== -1) {
+        if (session.cardMisses) setStateRaw('sessions', idx, 'cardMisses', undefined);
         if (remote.lastActiveAt) setStateRaw('sessions', idx, 'lastActiveAt', remote.lastActiveAt);
         if (remote.lastStartedAt) setStateRaw('sessions', idx, 'lastStartedAt', remote.lastStartedAt);
         setStateRaw('sessions', idx, 'startupStage', remote.startupStage);

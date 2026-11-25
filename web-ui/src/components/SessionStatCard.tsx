@@ -7,7 +7,7 @@ import { sessionStore } from '../stores/session';
 import { terminalStore } from '../stores/terminal';
 import { AGENT_ICON_MAP } from '../lib/terminal-config';
 import { getSleepTimerInfo } from '../lib/sleep-timer';
-import { isShutdownInProgress, terminalPresentation, vscodePresentation, type BackendLifecycle } from '../lib/session-presentation';
+import { isShutdownInProgress, sessionCardStatus, terminalPresentation, vscodePresentation, type BackendLifecycle } from '../lib/session-presentation';
 import '../styles/stat-cards.css';
 import '../styles/session-stat-card.css';
 
@@ -60,14 +60,7 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
   };
   const shutdownInProgress = () => isShutdownInProgress(phase());
   const memoryNotMerged = () => phase() === 'memory-not-merged';
-  const cardStatus = createMemo(() => {
-    const { id, status, lifecycle, generation, revision } = props.session;
-    if (status !== 'running' || lifecycle !== 'stopped' || generation === undefined || revision === undefined
-      || shutdownInProgress()) return status;
-    // Ready can retain the local terminal status; the card can show the ordered stop independently.
-    const readyGeneration = sessionStore.getInitProgressForSession(id)?.readyGeneration;
-    return readyGeneration !== undefined && generation >= readyGeneration ? 'stopped' : status;
-  });
+  const cardStatus = () => sessionCardStatus(props.session);
   const metrics = createMemo(() => {
     if (phase() === 'queued' && props.session.status === 'stopped') return undefined;
     const sample = sessionStore.getMetricsForSession(props.session.id);
@@ -115,9 +108,9 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
     || sessionStore.managedReleaseStatus === 'update_pending'
     || sessionStore.managedReleaseStatus === 'upgrading';
   const isStoppedForManagedSeedUpdate = () => managedSeedUpdateActive()
-    && props.session.status === 'stopped';
+    && cardStatus() === 'stopped';
   const isSelectionEnabled = () => isActionable() && !phase() && !isStoppedForManagedSeedUpdate();
-  const canRecoverMemory = () => memoryNotMerged() && props.session.status === 'stopped'
+  const canRecoverMemory = () => memoryNotMerged() && cardStatus() === 'stopped'
     && !sessionStore.isMemoryRetryPending(props.session.id) && !isStoppedForManagedSeedUpdate();
   const select = () => {
     if (!isSelectionEnabled()) return;
