@@ -588,3 +588,8 @@
     justify-content: flex-end;
   }
 }
+
+.header-user-dropdown-item.header-workspace-mode-choice[aria-pressed="true"] {
+  background: var(--color-accent);
+  color: var(--color-accent-contrast);
+}

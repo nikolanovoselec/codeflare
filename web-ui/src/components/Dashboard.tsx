@@ -204,7 +204,8 @@ const Dashboard: Component<DashboardProps> = (props) => {
   const [layoutMode, setLayoutMode] = createSignal<'split' | 'flip' | null>(null);
   const [githubMaxH, setGithubMaxH] = createSignal<number | null>(null);
   const [storageMaxH, setStorageMaxH] = createSignal<number | null>(null);
-  const useMeasuredSplit = () => vibe() ? viewport() !== 'mobile' : layoutMode() !== 'flip';
+  const flipBrowsers = () => vibe() ? viewport() === 'mobile' : layoutMode() === 'flip';
+  const useMeasuredSplit = () => !flipBrowsers();
   const [flipViewportCap, setFlipViewportCap] = createSignal<number | null>(null);
   const activeFlipHeight = () => {
     const natural = effectiveFace() === 'github' ? githubMaxH() : storageMaxH();
@@ -705,7 +706,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
             hidden={browsersClosed()}
             data-testid="dashboard-panel-right"
             data-face={effectiveFace()}
-            data-layout={!vibe() && layoutMode() === 'flip' ? 'flip' : undefined}
+            data-layout={flipBrowsers() ? 'flip' : undefined}
             onKeyDown={event => {
               if (event.key !== 'Escape' || event.defaultPrevented || !vibe() || !browsersOpen()
                 || !(event.target instanceof Node) || !event.currentTarget.contains(event.target)) return;
@@ -717,29 +718,31 @@ const Dashboard: Component<DashboardProps> = (props) => {
               rightColRef = el;
               createRenderEffect(() => el.toggleAttribute('inert', browsersClosed()));
             }}
-            style={!vibe() && layoutMode() === 'flip' && activeFlipHeight() != null ? { height: `${activeFlipHeight()}px` } : undefined}
+            style={flipBrowsers() && activeFlipHeight() != null ? { height: `${activeFlipHeight()}px` } : undefined}
           >
             <Show when={githubStore.enabled}>
               <div
                 class="panel-flip-face panel-flip-face--github"
-                data-active={vibe() || effectiveFace() === 'github'}
+                data-active={effectiveFace() === 'github'}
+                aria-hidden={vibe() && flipBrowsers() && effectiveFace() !== 'github' ? true : undefined}
                 ref={githubFaceRef}
                 style={useMeasuredSplit() && githubMaxH() != null ? { 'max-height': `${githubMaxH()}px` } : undefined}
               >
                 <GitHubPanel connectReturnError={vibe() ? null : githubReturnError()}
-                  onFlip={vibe() ? undefined : () => setPanelFace('storage')} />
+                  onFlip={!vibe() || flipBrowsers() ? () => setPanelFace('storage') : undefined} />
               </div>
             </Show>
             <div
               class="panel-flip-face panel-flip-face--storage"
-              data-active={vibe() || effectiveFace() === 'storage'}
+              data-active={effectiveFace() === 'storage'}
+              aria-hidden={vibe() && flipBrowsers() && effectiveFace() !== 'storage' ? true : undefined}
               ref={storageFaceRef}
               style={useMeasuredSplit() && githubStore.enabled && storageMaxH() != null ? { 'max-height': `${storageMaxH()}px` } : undefined}
             >
               <Show when={githubStore.enabled}>
                 <div class="files-panel-header" data-testid="files-panel-header">
                   <h2 class="files-panel-title" data-testid="files-panel-title">Storage Browser</h2>
-                  <Show when={!vibe()}>
+                  <Show when={!vibe() || flipBrowsers()}>
                     <IconButton
                       icon={mdiFlipVertical}
                       label="Show GitHub"

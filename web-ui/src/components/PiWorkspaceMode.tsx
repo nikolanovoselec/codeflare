@@ -127,9 +127,9 @@ export default function PiWorkspaceMode(props: PiWorkspaceModeBinding & { presen
                 if (event.relatedTarget instanceof Node && !popup?.contains(event.relatedTarget) && !root?.contains(event.relatedTarget)) setOpen(false);
               }}>
               <For each={choices}>{choice => (
-                <button type="button" class="header-user-dropdown-item" aria-label={label(choice)}
+                <button type="button" class="header-user-dropdown-item header-workspace-mode-choice" aria-label={label(choice)}
                   aria-pressed={props.value === choice.value} disabled={props.disabled || !!props.pendingTarget} onClick={() => select(choice.value)}>
-                  <span>{label(choice)}{props.value === choice.value ? ' (Current)' : ''}</span>
+                  <span>{label(choice)}</span>
                   <Show when={props.pendingTarget === choice.value}>
                     <span class="type-hint" role="status">
                       <Icon path={mdiLoading} size={14} class="animate-spin" aria-hidden="true" /> Entering {choice.name} mode...

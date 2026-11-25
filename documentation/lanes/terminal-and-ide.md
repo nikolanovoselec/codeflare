@@ -211,7 +211,7 @@ In Vibe, the [GitHub and Storage drawer](../../sdd/spec/github.md#req-github-321
 
 Try a tablet viewport such as 960px. In Vibe, open and close the Dashboard drawer to vary the header width without changing the viewport. Verify the label appears when it fits and the icon replaces it when it does not.
 
-Open the dropdown and verify **Vibe Mode** and **Code Mode**, with **(Current)** only on the active choice.
+Open the dropdown and verify **Vibe Mode** and **Code Mode**, with an accent-filled background only on the active choice and no “(Current)” suffix.
 
 At 390px verify the icon-only dropdown sits before Profile and opens the same choices. Separately, on desktop, narrow the Dashboard card until the text no longer fits; the icon should replace it, and the label should return when it fits again.
 
@@ -229,11 +229,11 @@ At 375px, verify Settings is reachable and the groups retain the one-slot gap. C
 
 ### Vibe drawer acceptance
 
-Select **Vibe** and use an authorized account with GitHub enabled. Verify both browsers open beside the summary column on desktop and tablet, and below it on mobile. Close them and confirm keyboard focus cannot enter the hidden panels. In the delivered build, repeat with `prefers-reduced-motion: reduce` and verify the same behavior without the slide. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-body--disclosure -->
+Select **Vibe** and use an authorized account with GitHub enabled. Verify both browsers open beside the summary column on desktop and tablet. On mobile the open drawer shows one browser below the summary and the standard flip control animates between GitHub and Storage. Close them and confirm keyboard focus cannot enter the hidden panels. In the delivered build, repeat with `prefers-reduced-motion: reduce` and verify the same behavior without the slide. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-body--disclosure -->
 
 With the browsers open and closed, verify Profile stays icon-only and the email appears at the top of its open menu. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard -->
 
-On desktop and tablet, verify that only the grip protrudes and no full-height strip appears in either state. The grip sits on the summary’s right edge when closed and on the browsers’ far right edge when open. Check that the chevrons point outward to open and inward to close.
+On desktop and tablet, verify that only the grip protrudes and no full-height strip appears in either state. The grip sits on the summary’s right edge when closed and on the browsers’ far right edge when open. On mobile, verify the grip protrudes below the summary when closed. Open the drawer and confirm the same grip moves below the active browser. Flip between GitHub and Storage and verify the grip remains attached to the bottom as the active browser height changes. Tap the grip to close the drawer and confirm it returns below the summary. Check that the chevrons point outward to open and inward to close. In the closed desktop/tablet card, verify the full Codeflare label is readable and GitHub Details sits directly above Storage Usage.
 
 Measure the visible grip at 150px along the edge, vertical on desktop and tablet and horizontal on mobile. Separately, verify the transparent hit area extends to 44px across the grip and that clicking outside the painted grip but inside the hit area still toggles the drawer. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-pull -->
 

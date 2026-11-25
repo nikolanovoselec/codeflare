@@ -406,7 +406,7 @@
 .dashboard-panel-body--disclosure > .dashboard-panel-left { flex-shrink: 0; }
 .dashboard-panel-body--disclosure > .dashboard-panel-right { --disclosure-offset: var(--space-4) 0; }
 .dashboard-panel-body--disclosure > .dashboard-panel-right[hidden] { display: none; }
-.dashboard-panel-body--disclosure .panel-flip-face[data-active="true"] { animation: none; }
+.dashboard-panel-body--disclosure .dashboard-stats-section + .dashboard-stats-section { margin-block-start: 0; }
 
 @supports (transition-behavior: allow-discrete) {
   .dashboard-panel-body--disclosure > .dashboard-panel-right {
@@ -450,10 +450,13 @@
 .dashboard-panel-wrapper--summary .header-actions > .session-switcher-wrapper + .header-user-wrapper {
   margin-inline-start: calc(-1 * var(--space-1));
 }
-@media (min-width: 641px) {
+@media (width > 640px) {
   .dashboard-panel-wrapper--disclosure { transition: max-inline-size var(--transition-base); }
   .dashboard-panel-wrapper--summary {
-    max-inline-size: calc(var(--dashboard-left-width) + 2px); /* panel borders */
+    max-inline-size: 390px;
+  }
+  .dashboard-panel-wrapper--summary .dashboard-panel-left {
+    inline-size: 100%;
   }
   .dashboard-panel-wrapper--disclosure > .dashboard-panel,
   .dashboard-panel-wrapper--disclosure .dashboard-panel-body--disclosure { overflow: visible; }
@@ -487,26 +490,52 @@
   }
 }
 @media (max-width: 640px) {
+  .dashboard-panel-wrapper--disclosure { padding-block-end: 44px; }
+  .dashboard-panel-wrapper--disclosure > .dashboard-panel:not(.dashboard-panel--expanded) {
+    height: auto;
+    overflow: visible;
+  }
   .dashboard-panel-body--disclosure { flex-direction: column; overflow-y: auto; }
-  .dashboard-panel-body--disclosure > .dashboard-panel-left { inline-size: 100%; }
+  .dashboard-panel-body--disclosure > .dashboard-panel-left {
+    inline-size: 100%;
+    border-inline-end: 0;
+  }
   .dashboard-panel-body--disclosure > .dashboard-panel-pull {
+    /* Anchor to the card, not the scrolling body or either browser face. */
+    position: absolute;
+    inset-block-end: -44px;
+    inset-inline: 0;
+    margin-inline: auto;
     inline-size: 150px;
     block-size: 44px;
+    max-block-size: none;
     justify-content: center;
-    align-items: flex-end;
-    padding: 0 0 var(--space-1);
+    align-items: flex-start;
+    padding: 3px 0 0;
   }
-  .dashboard-panel-pull::before {
-    inset: auto 0 0;
+  .dashboard-panel-body--disclosure > .dashboard-panel-pull::before {
+    inset: 0 0 auto;
     inline-size: auto;
-    block-size: 20px;
+    block-size: 18px;
+    background: var(--glass-bg);
     border: 1px solid var(--color-border-subtle);
-    border-block-end: 0;
-    border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+    border-block-start: 0;
+    border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  }
+  .dashboard-panel-body--disclosure > .dashboard-panel-pull:is(:hover, :focus-visible)::before {
+    background: var(--color-bg-muted);
   }
   .dashboard-panel-body--disclosure > .dashboard-panel-right {
     --disclosure-offset: 0 var(--space-4);
     flex: 0 0 auto;
     max-block-size: 75vh;
+  }
+}
+
+/* Through 599px the existing mobile browser rule already animates the flip. */
+@media (599px < width <= 640px) and (prefers-reduced-motion: no-preference) {
+  .dashboard-panel-body--disclosure .dashboard-panel-right[data-layout="flip"] .panel-flip-face[data-active="true"] {
+    transform-origin: top center;
+    animation: panel-flip-in 260ms ease;
   }
 }

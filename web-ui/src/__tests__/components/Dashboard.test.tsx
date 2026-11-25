@@ -539,7 +539,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     }
   });
 
-  it.each(['desktop', 'tablet', 'mobile'] as const)('discloses the existing GitHub and Storage browsers together in Vibe on %s', viewport => {
+  it.each(['desktop', 'tablet'] as const)('discloses the existing GitHub and Storage browsers together in Vibe on %s', viewport => {
     viewportMock.setViewport?.(viewport);
     (githubStore as any)._setEnabled(true);
     render(() => <Dashboard {...defaultProps} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
@@ -560,13 +560,27 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(browsers).not.toHaveAttribute('inert');
     expect(github).toBeVisible();
     expect(storage).toBeVisible();
-    expect(screen.queryByRole('button', { name: /^Show GitHub$/ })).not.toBeInTheDocument();
-
     fireEvent.click(pull);
     expect(pull).toHaveAttribute('aria-expanded', 'false');
     expect(browsers).toHaveAttribute('inert');
     expect(github).not.toBeVisible();
     expect(storage).not.toBeVisible();
+  });
+
+  it('uses the existing single-face GitHub and Storage controls in the mobile Vibe drawer', () => {
+    viewportMock.setViewport?.('mobile');
+    (githubStore as any)._setEnabled(true);
+    render(() => <Dashboard {...defaultProps} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show GitHub & Storage' }));
+    const storageHeading = () => screen.queryByRole('heading', { name: 'Storage Browser' });
+    expect(storageHeading()).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Show storage' }));
+    expect(screen.queryByRole('button', { name: 'Example repository' })).not.toBeInTheDocument();
+    expect(storageHeading()).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Show GitHub' }));
+    expect(screen.getByRole('button', { name: 'Example repository' })).toBeVisible();
+    expect(storageHeading()).not.toBeInTheDocument();
   });
 
   it.each(['chat', 'terminal'] as const)('shows the Profile email only at the top of the open Dashboard menu in %s', mode => {
@@ -1025,13 +1039,11 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
 
       setMode('chat');
       fireEvent.click(screen.getByRole('button', { name: 'Show GitHub & Storage' }));
-      expect(screen.queryByRole('button', { name: 'Show GitHub' })).not.toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: 'Show storage' })).not.toBeInTheDocument();
-      expect(right.style.height).toBe('');
-      expect(screen.getByTestId('github-panel-stub')).toBeVisible();
-      expect(screen.getByTestId('storage-browser')).toBeVisible();
-      expect(githubFace).toHaveAttribute('data-active', 'true');
-      expect(storageFace).toHaveAttribute('data-active', 'true');
+      expect(right.style.height).toBe('180px');
+      expect(screen.getByRole('button', { name: 'Example repository' })).toBeVisible();
+      fireEvent.click(screen.getByRole('button', { name: 'Show storage' }));
+      expect(screen.queryByRole('button', { name: 'Example repository' })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Show GitHub' })).toBeVisible();
     } finally {
       bounds.mockRestore();
       (globalThis as any).ResizeObserver = RealRO;

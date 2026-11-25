@@ -51,14 +51,14 @@ describe('Pi workspace mode selector', () => {
     render(() => <PiWorkspaceMode presentation={presentation} value={value()} onSelect={change} />);
     await fireEvent.click(screen.getByRole('button', { name: `Workspace mode: ${name}` }));
     expect(screen.getByRole('button', { name })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name })).toHaveTextContent('Vibe Mode (Current)');
+    expect(screen.getByRole('button', { name })).toHaveTextContent(/^Vibe Mode$/);
     expect(screen.getByRole('button', { name: code })).not.toHaveTextContent('Current');
     await fireEvent.click(screen.getByRole('button', { name: code }));
     const trigger = screen.getByRole('button', { name: `Workspace mode: ${code}` });
     expect(trigger).toHaveAttribute('aria-expanded', 'false');
     expect(trigger).toHaveFocus();
     await fireEvent.click(trigger);
-    expect(screen.getByRole('button', { name: code })).toHaveTextContent('Code Mode (Current)');
+    expect(screen.getByRole('button', { name: code })).toHaveTextContent(/^Code Mode$/);
     expect(screen.getByRole('button', { name })).not.toHaveTextContent('Current');
   });
 
@@ -112,7 +112,7 @@ describe('Pi workspace mode selector', () => {
     expect(screen.getByRole('button', { name })).toHaveAttribute('aria-pressed', 'true');
     const destination = screen.getByRole('button', { name: code });
     expect(destination).toBeDisabled();
-    expect(screen.getByRole('button', { name })).toHaveTextContent('Vibe Mode (Current)');
+    expect(screen.getByRole('button', { name })).toHaveTextContent(/^Vibe Mode$/);
     expect(destination).not.toHaveTextContent('Current');
     expect(destination).toContainElement(screen.getByRole('status'));
     expect(screen.getByRole('status')).toHaveTextContent('Entering Code mode...');
