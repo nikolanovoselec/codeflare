@@ -283,9 +283,9 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
           </Show>
         </Show>
       </div>
-      <div class="session-stat-card__metrics-note">
-        {showsShutdownSubtitle() ? metricsNotice() : undefined}
-      </div>
+      <Show when={showsShutdownSubtitle() ? metricsNotice() : undefined}>
+        {notice => <div class="session-stat-card__metrics-note">{notice()}</div>}
+      </Show>
     </div>
   );
 };

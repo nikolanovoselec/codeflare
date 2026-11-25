@@ -255,10 +255,12 @@
 }
 
 .session-stat-card__metrics-note {
-  min-block-size: 1lh;
+  position: absolute;
+  inset-inline: var(--space-3);
+  inset-block-end: 0;
   color: var(--color-text-secondary);
   font-size: var(--text-xs);
-  line-height: var(--leading-tight);
+  line-height: 1;
   font-weight: var(--font-medium);
 }
 
