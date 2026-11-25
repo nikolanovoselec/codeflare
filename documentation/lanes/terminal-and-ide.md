@@ -188,7 +188,9 @@ In Vibe, the [GitHub and Storage drawer](../../sdd/spec/github.md#req-github-321
 
 ### Workspace header acceptance
 
-[REQ-AGENT-278](../../sdd/spec/agents.md#req-agent-278-narrow-workspace-header-fallback) covers dropdown placement and the second-row fallback. On both Dashboard and workspace, check that the labeled dropdown sits immediately before Profile on a roomy desktop and at a tablet width such as 960px.
+[REQ-AGENT-278](../../sdd/spec/agents.md#req-agent-278-narrow-workspace-header-fallback) covers dropdown placement and the second-row fallback. On both Dashboard and workspace, check that the dropdown sits immediately before Profile on desktop and tablet, whether it shows text or an icon.
+
+Try a tablet viewport such as 960px. In Vibe, open and close the Dashboard drawer to vary the header width without changing the viewport. Verify the label appears when it fits and the icon replaces it when it does not.
 
 At 390px verify the icon-only dropdown sits before Profile and opens the same choices. Separately, on desktop, narrow the Dashboard card until the text no longer fits; the icon should replace it, and the label should return when it fits again.
 

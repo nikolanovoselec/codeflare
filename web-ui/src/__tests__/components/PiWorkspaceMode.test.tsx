@@ -19,7 +19,7 @@ async function withMeasuredHeader(check: (fixture: {
   });
   const rects = vi.spyOn(HTMLElement.prototype, 'getClientRects').mockImplementation(function (this: HTMLElement) {
     const rect = this.getBoundingClientRect();
-    return { 0: rect, length: 1, item: () => rect };
+    return Object.assign([rect], { item: (index: number) => index === 0 ? rect : null });
   });
   vi.stubGlobal('ResizeObserver', class {
     constructor(callback: () => void) { resize = callback; }
@@ -75,6 +75,10 @@ describe('Pi workspace mode selector', () => {
       await fireEvent.click(screen.getByRole('button', { name }));
       expect(trigger(name)).toHaveTextContent('Vibe · Chat');
       expect(trigger(name)).toHaveFocus();
+      await fireEvent.click(trigger(name));
+      await fireEvent.click(screen.getByRole('button', { name: code }));
+      expect(trigger(code)).not.toHaveTextContent('Code · Terminal');
+      expect(trigger(code)).toHaveFocus();
     });
   });
 
