@@ -22,7 +22,7 @@ type Lifecycle = 'running' | 'stopping' | 'stopped';
 type Projection = { status: Lifecycle; lifecycle: Lifecycle; generation: number; revision: number;
   shutdownPhase?: Phase; pendingDelete?: boolean; snapshotUnavailable?: boolean;
   metrics?: { cpu?: string; mem?: string; hdd?: string; updatedAt?: string; syncStatus?: string } };
-let catalog: Projection | undefined;
+let catalog: (Projection & { name?: string }) | undefined;
 let polled: Projection | undefined;
 let operations: string[];
 let retryResponse: Promise<Response> | undefined;
@@ -159,7 +159,7 @@ it.each(['Stop', 'Delete'] as const)('REQ-SESSION-043: accepted %s advances both
   polled = { ...polled, revision: 13, shutdownPhase: 'finishing' };
   await vi.advanceTimersByTimeAsync(SESSION_POLL_TRANSITION_MS);
   for (const view of cards()) {
-    expect(view.getByRole('status', { name: 'Shutting down' })).toBeEmptyDOMElement();
+    expect(view.getByRole('status', { name: 'Shutting down' })).toHaveTextContent(/^Shutting down$/);
     expect(view.queryByText(/^(consolidating|pending\.\.\.)$/i)).not.toBeInTheDocument();
     expect(view.getByText('7%')).toBeVisible();
     expect(view.queryByRole('button', { name: /activate session|resume session/i })).not.toBeInTheDocument();
@@ -555,13 +555,13 @@ it.each(['confirmed', 'omitted row', 'omitted metrics', 'failed', 'partial fallb
     const current = { ...polled!, lifecycle: 'running' as const,
       metrics: { cpu: '21%', mem: '1.2G', hdd: '3.1G', updatedAt: new Date().toISOString() } };
     // In the outage case the earlier request carries a higher lifecycle revision than the published catalog.
-    catalog = outcome === 'failed' ? { ...current, shutdownPhase: 'saving', revision: 9 } : current;
+    catalog = outcome === 'failed' ? { ...current, name: 'Saving workspace', shutdownPhase: 'saving', revision: 9 } : current;
     let release!: (response: Response) => void;
     batchResponse = new Promise(resolve => { release = resolve; });
     const loading = sessionStore.loadSessions();
     const unavailable = 'Session status unavailable. Displayed state may be outdated.';
     try {
-      if (outcome === 'failed') await within(observer.container).findByRole('status', { name: 'Memory consolidation pending...' });
+      if (outcome === 'failed') await within(observer.container).findByText('Saving workspace');
       else await within(observer.container).findByRole('status', { name: 'Consolidating memory...' });
       if (outcome === 'partial fallback') {
         for (const view of cards()) {
@@ -667,7 +667,7 @@ it('REQ-SESSION-043: renders durable shutdown phases on the card without inventi
 
   project('stopping', 13, 'finishing');
   await sessionStore.refreshSessionStatuses();
-  expect(card().getByRole('status', { name: 'Shutting down' })).toBeEmptyDOMElement();
+  expect(card().getByRole('status', { name: 'Shutting down' })).toHaveTextContent(/^Shutting down$/);
   expect(card().queryByRole('button', { name: /activate session/i })).not.toBeInTheDocument();
   expect(card().queryByRole('status', { name: /^stopped$/i })).not.toBeInTheDocument();
 });

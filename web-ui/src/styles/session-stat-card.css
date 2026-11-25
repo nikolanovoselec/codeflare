@@ -205,6 +205,10 @@
   opacity: 0.6;
 }
 
+.session-stat-card--shutting-down {
+  container-type: inline-size;
+}
+
 .session-stat-card__shutdown-notice {
   position: absolute;
   inset: 0;
@@ -213,6 +217,7 @@
   align-items: center;
   justify-content: center;
   gap: 1px;
+  padding-inline: var(--space-2);
   pointer-events: none;
   font-family: var(--font-mono);
   font-size: var(--text-xl);
@@ -223,8 +228,29 @@
 }
 
 .session-stat-card__subtitle-word {
+  box-sizing: border-box;
+  max-inline-size: 100%;
+  overflow-wrap: anywhere;
+  text-align: center;
   background: #000;
   padding: var(--space-1) var(--space-2);
+}
+
+/* At enlarged text sizes or narrow widths, let the words take space above the metrics. */
+@container (max-width: 13rem) {
+  .session-stat-card__shutdown-notice:has(.session-stat-card__subtitle-word) {
+    position: static;
+    padding-inline: 0;
+  }
+}
+
+.session-stat-card__announcement {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .session-stat-card__metrics-note {

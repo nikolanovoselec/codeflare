@@ -215,6 +215,16 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
         </button>
       </div>
 
+      <Show when={shutdownInProgress()}>
+        <div class="session-stat-card__shutdown-notice" role="status" aria-label={shutdownLabel() || 'Shutting down'}>
+          <Show when={shutdownLabel()} fallback={<span class="session-stat-card__announcement">Shutting down</span>}>
+            {label => <For each={label().split(' ')}>{word => (
+              <span class="session-stat-card__subtitle-word"><span>{word}</span></span>
+            )}</For>}
+          </Show>
+        </div>
+      </Show>
+
       <div class="session-stat-card__body">
         <Show when={!memoryNotMerged()} fallback={
           <div class="session-stat-card__shutdown">
@@ -272,15 +282,8 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
           </Show>
         </Show>
       </div>
-      <Show when={shutdownInProgress()}>
-        <div class="session-stat-card__shutdown-notice" role="status" aria-label={shutdownLabel() || 'Shutting down'}>
-          <For each={shutdownLabel()?.split(' ').filter(Boolean)}>{word => (
-            <span class="session-stat-card__subtitle-word"><span>{word}</span></span>
-          )}</For>
-        </div>
-      </Show>
       <div class="session-stat-card__metrics-note">
-        <Show when={shutdownInProgress() && metricsNotice()}>{notice => notice()}</Show>
+        {shutdownInProgress() ? metricsNotice() : undefined}
       </div>
     </div>
   );
