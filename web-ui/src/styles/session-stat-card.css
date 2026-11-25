@@ -206,21 +206,37 @@
 }
 
 .session-stat-card__shutdown-notice {
-  /* Reserve space for the phase text and its metrics note. */
-  min-block-size: 2lh;
-  font-size: var(--text-xs);
-  line-height: var(--leading-tight);
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  pointer-events: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-xl);
+  line-height: 1.125;
+  font-weight: var(--font-semibold);
+  text-transform: uppercase;
+  color: var(--color-text-primary);
+}
+
+.session-stat-card__subtitle-word {
+  background: #000;
+  padding: var(--space-1) var(--space-2);
 }
 
 .session-stat-card__metrics-note {
-  display: block;
+  min-block-size: 1lh;
   color: var(--color-text-secondary);
-  font-size: inherit;
+  font-size: var(--text-xs);
+  line-height: var(--leading-tight);
   font-weight: var(--font-medium);
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .session-stat-card__shutdown-notice .session-stat-card__phase {
+  .session-stat-card__subtitle-word > span {
     animation: dashboard-icon-glow 3s ease-in-out infinite;
   }
 }

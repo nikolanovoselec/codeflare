@@ -138,7 +138,8 @@ it.each(['Stop', 'Delete'] as const)('REQ-SESSION-043: accepted %s advances both
   await vi.advanceTimersByTimeAsync(0);
   expect(cards()).toHaveLength(2);
   for (const view of cards()) {
-    expect(view.getByRole('status')).toHaveTextContent('Memory consolidation pending...');
+    const label = within(view.getByRole('status', { name: 'Memory consolidation pending...' }));
+    for (const word of ['Memory', 'consolidation', 'pending...']) expect(label.getByText(word)).toBeVisible();
     expect(view.getByText('2%')).toBeVisible();
     expect(view.queryByRole('button', { name: /activate session/i })).not.toBeInTheDocument();
     expect(view.getByRole('button', { name: 'Session actions' })).toBeEnabled();
@@ -150,14 +151,16 @@ it.each(['Stop', 'Delete'] as const)('REQ-SESSION-043: accepted %s advances both
     metrics: { cpu: '7%', mem: '1.2G', hdd: '3.1G' } };
   await vi.advanceTimersByTimeAsync(SESSION_POLL_TRANSITION_MS);
   for (const view of cards()) {
-    expect(view.getByRole('status')).toHaveTextContent('Consolidating memory...');
+    const label = within(view.getByRole('status', { name: 'Consolidating memory...' }));
+    for (const word of ['Consolidating', 'memory...']) expect(label.getByText(word)).toBeVisible();
     for (const metric of ['7%', '1.2G', '3.1G']) expect(view.getByText(metric)).toBeVisible();
     expect(view.queryByRole('button', { name: /activate session|resume session/i })).not.toBeInTheDocument();
   }
   polled = { ...polled, revision: 13, shutdownPhase: 'finishing' };
   await vi.advanceTimersByTimeAsync(SESSION_POLL_TRANSITION_MS);
   for (const view of cards()) {
-    expect(view.queryByText(/shutting down|consolidating memory|memory consolidation pending/i)).not.toBeInTheDocument();
+    expect(view.getByRole('status', { name: 'Shutting down' })).toBeEmptyDOMElement();
+    expect(view.queryByText(/^(consolidating|pending\.\.\.)$/i)).not.toBeInTheDocument();
     expect(view.getByText('7%')).toBeVisible();
     expect(view.queryByRole('button', { name: /activate session|resume session/i })).not.toBeInTheDocument();
   }
@@ -186,10 +189,10 @@ it.each(['Stop', 'Delete'] as const)('REQ-SESSION-043: an open observer dropdown
 
   project('running', 11, 'queued', action === 'Delete');
   await vi.advanceTimersByTimeAsync(SESSION_POLL_TRANSITION_MS);
-  expect(card().getByText('Memory consolidation pending...')).toBeVisible();
+  expect(card().getByRole('status', { name: 'Memory consolidation pending...' })).toBeVisible();
   project('stopping', 12, 'consolidating', action === 'Delete');
   await vi.advanceTimersByTimeAsync(SESSION_POLL_TRANSITION_MS);
-  expect(card().getByText('Consolidating memory...')).toBeVisible();
+  expect(card().getByRole('status', { name: 'Consolidating memory...' })).toBeVisible();
   expect(card().queryByRole('button', { name: /activate session|resume session/i })).not.toBeInTheDocument();
 
   if (action === 'Stop') {
@@ -231,7 +234,7 @@ it.each(['stopped', 'memory-not-merged'] as const)('REQ-SESSION-043: both cards 
 
     project('stopping', 12, 'consolidating');
     await sessionStore.refreshSessionStatuses();
-    for (const view of cards()) expect(view.getByText('Consolidating memory...')).toBeVisible();
+    for (const view of cards()) expect(view.getByRole('status', { name: 'Consolidating memory...' })).toBeVisible();
 
     project('stopped', 13);
     await sessionStore.refreshSessionStatuses();
@@ -424,7 +427,7 @@ it('REQ-SESSION-043: refresh called after Delete acceptance does not join a pre-
   project('running', 11, 'queued', true);
   release(Response.json({ statuses: {} }));
   await Promise.all([stale, fresh]);
-  expect(card().getByText('Memory consolidation pending...')).toBeVisible();
+  expect(card().getByRole('status', { name: 'Memory consolidation pending...' })).toBeVisible();
 });
 
 it('REQ-SESSION-043: distinguishes current readings, last-known readings and unavailable shutdown metrics', async () => {
@@ -444,7 +447,7 @@ it('REQ-SESSION-043: distinguishes current readings, last-known readings and una
   await sessionStore.refreshSessionStatuses();
   expect(cards()).toHaveLength(2);
   for (const view of cards()) {
-    expect(view.getByText('Consolidating memory...')).toBeVisible();
+    expect(view.getByRole('status', { name: 'Consolidating memory...' })).toBeVisible();
     expect(view.getByText('7%')).toBeVisible();
     expect(view.getByText('Last known metrics')).toBeVisible();
   }
@@ -558,8 +561,8 @@ it.each(['confirmed', 'omitted row', 'omitted metrics', 'failed', 'partial fallb
     const loading = sessionStore.loadSessions();
     const unavailable = 'Session status unavailable. Displayed state may be outdated.';
     try {
-      if (outcome === 'failed') await within(observer.container).findByText(/Saving session files/);
-      else await within(observer.container).findByText('Consolidating memory...');
+      if (outcome === 'failed') await within(observer.container).findByRole('status', { name: 'Memory consolidation pending...' });
+      else await within(observer.container).findByRole('status', { name: 'Consolidating memory...' });
       if (outcome === 'partial fallback') {
         for (const view of cards()) {
           for (const value of ['15%', '1.2G', '3.1G']) expect(view.getByText(value)).toBeVisible();
@@ -580,7 +583,7 @@ it.each(['confirmed', 'omitted row', 'omitted metrics', 'failed', 'partial fallb
     expect(cards()).toHaveLength(2);
     if (outcome === 'failed') expect(screen.getByText(unavailable)).toBeVisible();
     for (const view of cards()) {
-      if (outcome === 'failed') expect(view.getByText('Consolidating memory...')).toBeVisible();
+      if (outcome === 'failed') expect(view.getByRole('status', { name: 'Consolidating memory...' })).toBeVisible();
       if (outcome === 'confirmed') {
         expect(view.getByText('21%')).toBeVisible();
         expect(view.queryByText('7%')).not.toBeInTheDocument();
@@ -649,22 +652,22 @@ it('REQ-SESSION-043: renders durable shutdown phases on the card without inventi
   project('running', 10, 'queued');
   await sessionStore.loadSessions();
   renderDashboard();
-  expect(card().getByText('Memory consolidation pending...')).toBeVisible();
+  expect(card().getByRole('status', { name: 'Memory consolidation pending...' })).toBeVisible();
   expect(card().queryByRole('status', { name: /^stopped$/i })).not.toBeInTheDocument();
 
   project('stopping', 11, 'saving');
   await sessionStore.refreshSessionStatuses();
-  expect(card().getByText('Memory consolidation pending...')).toBeVisible();
+  expect(card().getByRole('status', { name: 'Memory consolidation pending...' })).toBeVisible();
   expect(card().queryByText(/saving session files/i)).not.toBeInTheDocument();
 
   project('stopping', 12, 'consolidating');
   await sessionStore.refreshSessionStatuses();
-  expect(card().getByText('Consolidating memory...')).toBeVisible();
+  expect(card().getByRole('status', { name: 'Consolidating memory...' })).toBeVisible();
   expect(card().queryByRole('progressbar')).not.toBeInTheDocument();
 
   project('stopping', 13, 'finishing');
   await sessionStore.refreshSessionStatuses();
-  expect(card().queryByText(/shutting down|consolidating memory|memory consolidation pending/i)).not.toBeInTheDocument();
+  expect(card().getByRole('status', { name: 'Shutting down' })).toBeEmptyDOMElement();
   expect(card().queryByRole('button', { name: /activate session/i })).not.toBeInTheDocument();
   expect(card().queryByRole('status', { name: /^stopped$/i })).not.toBeInTheDocument();
 });
@@ -695,11 +698,11 @@ it('REQ-SESSION-043: keeps separate Retry and Resume actions after reload and re
 
     project('stopping', revision, 'queued');
     await sessionStore.refreshSessionStatuses();
-    expect(card().getByText('Memory consolidation pending...')).toBeVisible();
+    expect(card().getByRole('status', { name: 'Memory consolidation pending...' })).toBeVisible();
     expect(card().queryByRole('button', { name: 'Resume session' })).not.toBeInTheDocument();
     project('stopping', revision + 1, 'consolidating');
     await sessionStore.refreshSessionStatuses();
-    expect(card().getByText('Consolidating memory...')).toBeVisible();
+    expect(card().getByRole('status', { name: 'Consolidating memory...' })).toBeVisible();
     project('stopped', revision + 2, 'memory-not-merged');
     dashboard.unmount();
     await sessionStore.loadSessions();
@@ -715,7 +718,7 @@ it.each([['queued', 'running'], ['queued', 'stopped'], ['consolidating', 'stoppi
   project(status, 10, phase);
   await sessionStore.loadSessions();
   const dashboard = renderDashboard();
-  expect(card().getByText(phase === 'queued' ? 'Memory consolidation pending...' : 'Consolidating memory...')).toBeVisible();
+  expect(card().getByRole('status', { name: phase === 'queued' ? 'Memory consolidation pending...' : 'Consolidating memory...' })).toBeVisible();
   fireEvent.click(card().getByRole('button', { name: 'Session actions' }));
   fireEvent.click(screen.getByRole('button', { name: 'Kill' }));
   await waitFor(() => expect(operations).toEqual([`POST ${sessionPath}/kill`]));
@@ -723,7 +726,7 @@ it.each([['queued', 'running'], ['queued', 'stopped'], ['consolidating', 'stoppi
   project('stopped', 11);
   await sessionStore.refreshSessionStatuses();
   expect(card().getByRole('status', { name: 'STOPPED' })).toBeVisible();
-  expect(card().queryByText(/memory consolidation pending|consolidating memory/i)).not.toBeInTheDocument();
+  expect(card().queryByRole('status', { name: /memory consolidation pending|consolidating memory/i })).not.toBeInTheDocument();
 });
 
 it('REQ-SESSION-043: an accepted Delete retains the card through merge failure and finishing until the server removes it', async () => {
@@ -737,7 +740,7 @@ it('REQ-SESSION-043: an accepted Delete retains the card through merge failure a
   expect(operations).toEqual([`DELETE ${sessionPath}`]);
   project('running', 11, 'queued', true);
   await sessionStore.refreshSessionStatuses();
-  expect(card().getByText('Memory consolidation pending...')).toBeVisible();
+  expect(card().getByRole('status', { name: 'Memory consolidation pending...' })).toBeVisible();
   project('stopped', 12, 'memory-not-merged', true);
   await sessionStore.refreshSessionStatuses();
   expect(card().getByText('Stopped · memory not merged')).toBeVisible();

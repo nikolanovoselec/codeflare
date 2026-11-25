@@ -1,4 +1,4 @@
-import { Component, Show, createMemo, createSignal, onCleanup } from 'solid-js';
+import { Component, For, Show, createMemo, createSignal, onCleanup } from 'solid-js';
 import { mdiConsole, mdiChip, mdiMemory, mdiHarddisk, mdiDotsVertical, mdiClockTimeEightOutline } from '@mdi/js';
 import Icon from './Icon';
 import Button from './ui/Button';
@@ -272,13 +272,15 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
           </Show>
         </Show>
       </div>
-      <div class="session-stat-card__shutdown-notice">
-        <Show when={shutdownInProgress()}>
-          <div role="status">
-            <Show when={shutdownLabel()}>{label => <span class="session-stat-card__phase">{label()}</span>}</Show>
-            <Show when={metricsNotice()}>{notice => <small class="session-stat-card__metrics-note">{notice()}</small>}</Show>
-          </div>
-        </Show>
+      <Show when={shutdownInProgress()}>
+        <div class="session-stat-card__shutdown-notice" role="status" aria-label={shutdownLabel() || 'Shutting down'}>
+          <For each={shutdownLabel()?.split(' ').filter(Boolean)}>{word => (
+            <span class="session-stat-card__subtitle-word"><span>{word}</span></span>
+          )}</For>
+        </div>
+      </Show>
+      <div class="session-stat-card__metrics-note">
+        <Show when={shutdownInProgress() && metricsNotice()}>{notice => notice()}</Show>
       </div>
     </div>
   );
