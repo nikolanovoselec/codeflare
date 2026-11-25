@@ -612,7 +612,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Acceptance Criteria:**
 
-1. A Dashboard repository request that joins an in-progress App renewal can use the renewed token if it arrives in time, even if the initiating counts request disconnects. <!-- @impl: src/lib/github-token.ts::getValidGithubToken --> <!-- @test: src/__tests__/routes/github.test.ts (serves a waiting App repository request after a refresh starts in %s) -->
+1. A Dashboard repository request joins an eligible retained App renewal for the same connection and uses the renewed token if it arrives before the wait expires, even if the initiating counts request disconnects. <!-- @impl: src/lib/github-token.ts::getValidGithubToken --> <!-- @test: src/__tests__/routes/github.test.ts (serves a waiting App repository request after a refresh starts in %s) -->
 
 **Constraints:** If the wait expires, the request fails closed rather than using an expired token.
 

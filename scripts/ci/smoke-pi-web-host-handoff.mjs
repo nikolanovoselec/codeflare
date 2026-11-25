@@ -218,6 +218,7 @@ export default function (pi) {
       settings: readFileSync(join(agentDir, 'settings.json'), 'utf8'),
       models: readFileSync(join(agentDir, 'models.json'), 'utf8'),
       extensions: readdirSync(extensions).sort(),
+      fixtureExtension: readFileSync(join(extensions, 'held-input.ts'), 'utf8'),
     });
     const restoredProfile = ambiguous ? readProfile() : undefined;
     if (ambiguous) {
@@ -227,18 +228,22 @@ export default function (pi) {
     const restoreTime = performance.now();
     profileRestored = true;
     let failedBinding;
-    if (ambiguous) {
+    async function verifyOccupiedGatewayPreservesProfile() {
       const failed = await until('failed initial service boot', async () => {
         const state = await readSwitch();
         return state.phase === 'failed' ? state : undefined;
       }, 35_000);
       assert.ok(failed.requestId, 'failed startup must have a retryable handoff identity');
-      failedBinding = identity(runtime.binding);
       assert.equal(existsSync(join(runtimeDir, 'defaults.json')), false,
         'a known gateway port conflict must fail before preparing the stock services');
-      assert.deepEqual(readProfile(), restoredProfile, 'an occupied gateway must not change restored Pi settings or extensions');
+      assert.deepEqual(readProfile(), restoredProfile, 'an occupied gateway must not change restored Pi settings, models or extensions');
+      return failed.requestId;
+    }
+    if (ambiguous) {
+      const requestId = await verifyOccupiedGatewayPreservesProfile();
+      failedBinding = identity(runtime.binding);
       await close(occupiedGateway);
-      await api('/_switch', 202, { generation, requestId: failed.requestId, target: 'chat' });
+      await api('/_switch', 202, { generation, requestId, target: 'chat' });
     }
     const chatUrl = await until('Chat deep link', async () => {
       const state = await readSwitch();

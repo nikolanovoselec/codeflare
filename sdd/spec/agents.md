@@ -1008,7 +1008,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 **Acceptance Criteria:**
 
 1. After a recoverable initial Chat service failure, explicit retry opens the same bound transcript without starting a second writer. <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime --> <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-272: timeout of the initial Chat writer exposes only the verified same-transcript retry) -->
-2. An already-occupied Chat gateway rejects startup without changing the restored Pi profile. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices -->
+2. An already-occupied Chat gateway rejects startup without changing the restored Pi profile. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (verifyOccupiedGatewayPreservesProfile) -->
 
 **Constraints:** The previous attempt must be confirmed closed before retry.
 
