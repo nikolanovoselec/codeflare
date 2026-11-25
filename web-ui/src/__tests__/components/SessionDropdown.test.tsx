@@ -515,21 +515,17 @@ describe('SessionDropdown', () => {
       const a = createSession({ id: 's1', status: 'running' });
       const b = createSession({ id: 's2', status: 'running' });
       const c = createSession({ id: 's3', status: 'running' });
-      const stopped = createSession({ id: 's4', status: 'stopped' });
-      const [sessions, setSessions] = createSignal([a, b, c, stopped]);
+      const [sessions, setSessions] = createSignal([a, b, c]);
       render(() => <SessionDropdown {...defaultProps} sessions={sessions()} multiView={{ capacity: 2, existing: null,
         onLaunch: vi.fn(), onOpen: vi.fn(), onClose: vi.fn() }} />);
       fireEvent.click(screen.getByRole('button', { name: 'Launch MultiView' }));
       fireEvent.click(screen.getByTestId('session-card-s2'));
       const queued = { ...a, shutdownPhase: 'queued' as const };
-      setSessions([queued, b, c, stopped]);
-      for (const unavailable of [queued, stopped]) {
-        fireEvent.click(screen.getByTestId(`session-stat-card-${unavailable.id}`));
-        expect(screen.getByTestId(`session-card-${unavailable.id}`)).toHaveAttribute('data-selected', 'false');
-      }
+      setSessions([queued, b, c]);
+      expect(screen.getByTestId('session-card-s1')).toHaveAttribute('data-selected', 'false');
       fireEvent.click(screen.getByTestId('session-card-s3'));
       expect(screen.getByTestId('session-card-s3')).toHaveAttribute('data-selected', 'true');
-      setSessions([queued, { ...b, shutdownPhase: 'consolidating' }, c, stopped]);
+      setSessions([queued, { ...b, shutdownPhase: 'consolidating' }, c]);
       fireEvent.click(screen.getByRole('button', { name: 'Cancel MultiView' }));
       expect(screen.getByTestId('session-card-s3')).toHaveAttribute('data-selecting', 'false');
     });

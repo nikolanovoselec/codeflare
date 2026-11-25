@@ -250,6 +250,13 @@ it('REQ-SESSION-043: distinguishes current readings, last-known readings and una
     expect(view.getByText('7%')).toBeVisible();
     expect(view.getByText('Last known metrics')).toBeVisible();
   }
+  batchResponse = Promise.resolve(Response.json({ statuses: {} }));
+  await sessionStore.refreshSessionStatuses();
+  expect(cards()).toHaveLength(2);
+  for (const view of cards()) {
+    expect(view.getByText('7%')).toBeVisible();
+    expect(view.getByText('Last known metrics')).toBeVisible();
+  }
   batchResponse = undefined;
   await sessionStore.refreshSessionStatuses();
   for (const view of cards()) expect(view.queryByText('Last known metrics')).not.toBeInTheDocument();
@@ -267,6 +274,26 @@ it('REQ-SESSION-043: distinguishes current readings, last-known readings and una
   await sessionStore.refreshSessionStatuses();
   expect(card().getByText('Metrics unavailable')).toBeVisible();
   expect(card().queryByText('7%')).not.toBeInTheDocument();
+});
+
+it('REQ-TERM-013: queued and stopped cards cannot take a MultiView slot', async () => {
+  project('running', 10, 'queued');
+  await sessionStore.loadSessions();
+  const queued = sessionStore.sessions[0]!;
+  const running = ['one', 'two'].map(id => ({ ...queued, id, name: id, shutdownPhase: undefined }));
+  const stopped = { ...queued, id: 'stopped', name: 'stopped', status: 'stopped' as const, shutdownPhase: undefined };
+  const launch = vi.fn();
+  render(() => <SessionDropdown isOpen sessions={[queued, stopped, ...running]} activeSessionId="one"
+    onSelectSession={() => {}} onStopSession={() => {}} onDeleteSession={() => {}}
+    onCreateSession={() => {}} onClose={() => {}} isMobileView={false}
+    multiView={{ capacity: 2, existing: null, onLaunch: launch, onOpen: () => {}, onClose: () => {} }} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Launch MultiView' }));
+  expect(card().queryByRole('button', { name: /activate session/i })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Activate session stopped' }));
+  expect(screen.getByRole('button', { name: 'Cancel MultiView' })).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Activate session two' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Launch MultiView' }));
+  expect(launch).toHaveBeenCalledWith(['one', 'two']);
 });
 
 it('REQ-TERM-013: recovery Resume is disabled while selecting MultiView panes', async () => {

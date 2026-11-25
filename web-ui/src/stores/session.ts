@@ -48,6 +48,7 @@ import {
   getSessionCatalogRevision,
   beginSessionStatusRead,
   sessionStatusUnavailable,
+  completedStatusReadVersion,
   sessionMissCounters,
   refreshSessionStatuses,
   refreshAfterShutdownAccepted,
@@ -89,6 +90,7 @@ export interface SessionMetrics {
   mem?: string;
   hdd?: string;
   updatedAt?: string;
+  statusReadVersion?: number;
 }
 
 type BatchStatusResponse = Awaited<ReturnType<typeof api.getBatchSessionStatus>>;
@@ -102,6 +104,7 @@ export function applyMetricsUpdate(
   sessionMetrics: Record<string, SessionMetrics>,
   sessionId: string,
   metrics: NonNullable<BatchStatusResponse['statuses'][string]['metrics']>,
+  statusReadVersion?: number,
 ): void {
   sessionMetrics[sessionId] = {
     bucketName: sessionMetrics[sessionId]?.bucketName || '...',
@@ -110,6 +113,7 @@ export function applyMetricsUpdate(
     mem: metrics.mem || '...',
     hdd: metrics.hdd || '...',
     updatedAt: metrics.updatedAt,
+    statusReadVersion,
   };
 }
 
@@ -391,7 +395,7 @@ async function loadSessions(): Promise<void> {
   const thisGen = ++loadSessionsGeneration;
   const requestedCatalogRevision = getSessionCatalogRevision();
   let acceptedCatalogRevision = requestedCatalogRevision;
-  const reportAvailability = beginSessionStatusRead();
+  const { version, reportAvailability } = beginSessionStatusRead();
 
   setState('loading', true);
   setState('error', null);
@@ -522,7 +526,7 @@ async function loadSessions(): Promise<void> {
       // Populate sessionMetrics from batch-status metrics
       if (batchStatus.metrics) {
         setState(produce(s => {
-          applyMetricsUpdate(s.sessionMetrics, session.id, batchStatus.metrics!);
+          applyMetricsUpdate(s.sessionMetrics, session.id, batchStatus.metrics!, version);
         }));
       }
 
@@ -1105,6 +1109,7 @@ export const sessionStore = {
   get loading() { return state.loading; },
   get error() { return state.error; },
   get statusUnavailable() { return sessionStatusUnavailable(); },
+  get completedStatusReadVersion() { return completedStatusReadVersion(); },
   getActiveSession,
   isSessionInitializing,
   getInitProgressForSession,

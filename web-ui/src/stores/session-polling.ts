@@ -53,6 +53,7 @@ type MetricsUpdater = (
   sessionMetrics: Record<string, SessionMetrics>,
   sessionId: string,
   metrics: NonNullable<Awaited<ReturnType<typeof api.getBatchSessionStatus>>['statuses'][string]['metrics']>,
+  statusReadVersion: number,
 ) => void;
 
 let getState: StateGetter;
@@ -170,15 +171,21 @@ let pollRevision = 0;
 let catalogRevision = 0;
 let availabilityReadVersion = 0;
 const [sessionStatusUnavailable, setSessionStatusUnavailable] = createSignal(false);
-export { sessionStatusUnavailable };
+// A successful batch confirms only the samples it actually supplied and we accepted.
+const [completedStatusReadVersion, setCompletedStatusReadVersion] = createSignal(0);
+export { sessionStatusUnavailable, completedStatusReadVersion };
 
 /** Catalog and status reads share availability ordering, not lifecycle authority. */
-export function beginSessionStatusRead(): (unavailable: boolean) => boolean {
+export function beginSessionStatusRead() {
   const version = ++availabilityReadVersion;
-  return unavailable => {
-    if (version !== availabilityReadVersion) return false;
-    setSessionStatusUnavailable(unavailable);
-    return true;
+  return {
+    version,
+    reportAvailability(unavailable: boolean): boolean {
+      if (version !== availabilityReadVersion) return false;
+      setSessionStatusUnavailable(unavailable);
+      setCompletedStatusReadVersion(version);
+      return true;
+    },
   };
 }
 
@@ -251,7 +258,7 @@ export function refreshSessionStatuses(forceManagedReleaseCheck = false): Promis
 
 async function refreshSessionStatusesOnce(forceManagedReleaseCheck: boolean): Promise<void> {
   const requestedCatalogRevision = catalogRevision;
-  const reportAvailability = beginSessionStatusRead();
+  const { version, reportAvailability } = beginSessionStatusRead();
   try {
     const state = getState();
     const batchResponse = await api.getBatchSessionStatus();
@@ -319,7 +326,7 @@ async function refreshSessionStatusesOnce(forceManagedReleaseCheck: boolean): Pr
       // Populate sessionMetrics from batch-status metrics
       if (remote.metrics) {
         setStateProduce((s: SessionState) => {
-          applyMetricsUpdateFn(s.sessionMetrics, session.id, remote.metrics!);
+          applyMetricsUpdateFn(s.sessionMetrics, session.id, remote.metrics!, version);
         });
       }
 
