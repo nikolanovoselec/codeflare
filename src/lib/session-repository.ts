@@ -125,6 +125,7 @@ export class D1SessionRepository implements SessionAuthority {
     const row = await this.db.prepare(`UPDATE runtime_sessions SET lifecycle_state='starting',
       lifecycle_generation=lifecycle_generation+1, response_revision=response_revision+1,
       observation_sequence=-1, editor_ready=0, editor_ready_error=0,
+      cpu=NULL, memory=NULL, disk=NULL, metrics_observed_at=NULL,
       transitioned_at=?3, lifecycle_reason=NULL${uncertain ? ', shutdown_json=?6' : resume ? ', shutdown_json=NULL, shutdown_order=NULL' : ''}${mergedSnapshot ? ', hermes_merged_snapshot=?6' : ''}
       WHERE owner_key=?1 AND session_id=?2 AND lifecycle_state='stopped'
         AND (?4 IS NULL OR lifecycle_generation=?4)
@@ -140,6 +141,7 @@ export class D1SessionRepository implements SessionAuthority {
     const row = await this.db.prepare(`UPDATE runtime_sessions SET lifecycle_state='starting',
       lifecycle_generation=lifecycle_generation+1, response_revision=response_revision+1,
       observation_sequence=-1, editor_ready=0, editor_ready_error=0,
+      cpu=NULL, memory=NULL, disk=NULL, metrics_observed_at=NULL,
       transitioned_at=?5, lifecycle_reason=NULL, shutdown_json=?6
       WHERE owner_key=?1 AND session_id=?2 AND lifecycle_generation=?3 AND shutdown_json=?4
         AND lifecycle_state='stopped' AND shutdown_order IS NOT NULL

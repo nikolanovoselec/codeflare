@@ -60,8 +60,11 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
   };
   const shutdownInProgress = () => isShutdownInProgress(phase());
   const memoryNotMerged = () => phase() === 'memory-not-merged';
-  const metrics = createMemo(() => (phase() === 'queued' && props.session.status === 'stopped')
-    ? undefined : sessionStore.getMetricsForSession(props.session.id));
+  const metrics = createMemo(() => {
+    if (phase() === 'queued' && props.session.status === 'stopped') return undefined;
+    const sample = sessionStore.getMetricsForSession(props.session.id);
+    return sample && sample.generation === props.session.generation ? sample : undefined;
+  });
   const wsState = () => {
     const terminalId = resolveTerminalMode(props.session.terminalMode) === 'herdr'
       ? '1'

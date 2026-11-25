@@ -54,6 +54,7 @@ type MetricsUpdater = (
   sessionId: string,
   metrics: NonNullable<Awaited<ReturnType<typeof api.getBatchSessionStatus>>['statuses'][string]['metrics']>,
   statusReadVersion: number,
+  generation?: number,
 ) => void;
 
 let getState: StateGetter;
@@ -325,7 +326,7 @@ async function refreshSessionStatusesOnce(forceManagedReleaseCheck: boolean): Pr
 
       if (remote.metrics) {
         setStateProduce((s: SessionState) => {
-          applyMetricsUpdateFn(s.sessionMetrics, session.id, remote.metrics!, version);
+          applyMetricsUpdateFn(s.sessionMetrics, session.id, remote.metrics!, version, remote.generation);
         });
       }
 

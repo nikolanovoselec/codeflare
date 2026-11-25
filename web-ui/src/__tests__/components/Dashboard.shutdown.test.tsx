@@ -18,7 +18,7 @@ const stamp = '2026-11-23T10:00:00.000Z';
 type Phase = 'queued' | 'saving' | 'consolidating' | 'finishing' | 'memory-not-merged';
 type Lifecycle = 'running' | 'stopping' | 'stopped';
 type Projection = { status: Lifecycle; lifecycle: Lifecycle; generation: number; revision: number;
-  shutdownPhase?: Phase; pendingDelete?: boolean; snapshotUnavailable?: boolean; metrics?: { cpu: string; mem: string; hdd: string; updatedAt?: string } };
+  shutdownPhase?: Phase; pendingDelete?: boolean; snapshotUnavailable?: boolean; metrics?: { cpu?: string; mem?: string; hdd?: string; updatedAt?: string } };
 let catalog: Projection | undefined;
 let polled: Projection | undefined;
 let operations: string[];
@@ -286,9 +286,51 @@ it('REQ-SESSION-043: distinguishes current readings, last-known readings and una
   expect(card().queryByText('7%')).not.toBeInTheDocument();
 });
 
-it.each(['confirmed', 'omitted row', 'omitted metrics', 'failed'] as const)(
+it.each(['poll', 'catalog'] as const)('REQ-SESSION-043: both cards hide the previous runtime readings after restart via %s', async source => {
+  project('running', 10);
+  const updatedAt = new Date().toISOString();
+  const previous = { cpu: '7%', mem: '1.2G', hdd: '3.1G', updatedAt };
+  polled = { ...polled!, metrics: previous };
+  await sessionStore.loadSessions();
+  renderDashboard();
+  render(() => <SessionDropdown isOpen sessions={sessionStore.sessions} activeSessionId={id}
+    onSelectSession={() => {}} onStopSession={() => {}} onDeleteSession={() => {}}
+    onCreateSession={() => {}} onClose={() => {}} isMobileView={false} />);
+  const cards = () => screen.getAllByTestId(`session-stat-card-${id}`).map(node => within(node));
+  expect(cards()).toHaveLength(2);
+  for (const view of cards()) expect(view.getByText('7%')).toBeVisible();
+
+  project('stopping', 11);
+  await sessionStore.refreshSessionStatuses();
+  project('stopped', 12);
+  await sessionStore.refreshSessionStatuses();
+  for (const view of cards()) expect(view.getByRole('status', { name: 'STOPPED' })).toBeVisible();
+
+  project('running', 13, undefined, undefined, 8);
+  if (source === 'poll') await sessionStore.refreshSessionStatuses();
+  else {
+    polled = { ...polled!, metrics: { updatedAt } };
+    await sessionStore.loadSessions();
+  }
+  expect(cards()).toHaveLength(2);
+  for (const view of cards()) {
+    for (const value of ['7%', '1.2G', '3.1G']) expect(view.queryByText(value)).not.toBeInTheDocument();
+    expect(view.getAllByText('...', { exact: true })).toHaveLength(3);
+  }
+
+  polled = { ...polled, revision: 14, metrics: { cpu: '21%', mem: '2.1G', hdd: '4.2G', updatedAt } };
+  await sessionStore.refreshSessionStatuses();
+  for (const view of cards()) {
+    for (const value of ['21%', '2.1G', '4.2G']) expect(view.getByText(value)).toBeVisible();
+  }
+});
+
+it.each(['confirmed', 'omitted row', 'omitted metrics', 'failed', 'partial fallback'] as const)(
   'REQ-SESSION-043: retains readings on both cards when a catalog batch follows a %s poll', async outcome => {
     project('running', 9, 'queued');
+    if (outcome === 'partial fallback') {
+      polled = { ...polled!, metrics: { cpu: '15%', mem: '1.2G', hdd: '3.1G', updatedAt: new Date().toISOString() } };
+    }
     await sessionStore.loadSessions();
     renderDashboard();
     const observer = render(() => <SessionDropdown isOpen sessions={sessionStore.sessions} activeSessionId={id}
@@ -304,13 +346,20 @@ it.each(['confirmed', 'omitted row', 'omitted metrics', 'failed'] as const)(
     const loading = sessionStore.loadSessions();
     try {
       await within(observer.container).findByText('Consolidating memory...');
+      if (outcome === 'partial fallback') {
+        for (const view of cards()) {
+          for (const value of ['15%', '1.2G', '3.1G']) expect(view.getByText(value)).toBeVisible();
+        }
+      }
       batchResponse = outcome === 'failed'
         ? Promise.resolve(Response.json({ error: 'Status unavailable' }, { status: 503 })) : undefined;
-      polled = outcome === 'omitted row' ? undefined
+      polled = outcome === 'omitted row' || outcome === 'partial fallback' ? undefined
         : outcome === 'omitted metrics' ? { ...current, metrics: undefined } : current;
       await sessionStore.refreshSessionStatuses();
     } finally {
-      release(Response.json({ statuses: { [id]: { ...current, metrics: { ...current.metrics, cpu: '7%' } } } }));
+      const metrics = outcome === 'partial fallback' ? { cpu: '7%', updatedAt: current.metrics.updatedAt }
+        : { ...current.metrics, cpu: '7%' };
+      release(Response.json({ statuses: { [id]: { ...current, metrics } } }));
       await loading;
     }
     expect(cards()).toHaveLength(2);

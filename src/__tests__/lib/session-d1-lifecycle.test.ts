@@ -98,6 +98,35 @@ describe('REQ-SESSION-031: complete D1 session authority', () => {
     expect(await repository.getSession('owner-a', 'session01')).toMatchObject({ lifecycleState: 'stopped' });
   });
 
+  it.each(['restart', 'headless Retry'] as const)('REQ-SESSION-043: %s does not carry readings into the replacement generation', async action => {
+    const owner = 'owner-a';
+    const id = 'session01';
+    const at = '2027-01-01T00:00:01.000Z';
+    const repository = new D1SessionRepository(db);
+    await createSession(owner, id);
+    await repository.start(owner, id, at);
+    await repository.project(owner, id, 1, 0, { lifecycleState: 'running', cpu: '7%', memory: '1.2G', disk: '3.1G', observedAt: at });
+    await repository.claimStop(owner, id, 'stop', at, 1);
+    await repository.confirmStopped(owner, id, 1, 'stop', at);
+    const stopped = (await repository.getSession(owner, id))!;
+    expect(stopped).toMatchObject({ cpu: '7%', memory: '1.2G', disk: '3.1G' });
+
+    if (action === 'restart') {
+      await repository.start(owner, id, at, 1);
+    } else {
+      const job = { intent: 'retry', phase: 'queued' as const, delete: false, sourceGeneration: 1 };
+      expect(await repository.updateShutdown(stopped, job)).toBe(true);
+      const queued = (await repository.getSession(owner, id))!;
+      await repository.beginShutdownRetry(queued, { ...job, phase: 'consolidating' });
+    }
+    const replacement = await repository.getSession(owner, id);
+    expect(replacement).toMatchObject({ lifecycleGeneration: 2, lifecycleState: 'starting' });
+    expect(replacement?.cpu).toBeUndefined();
+    expect(replacement?.memory).toBeUndefined();
+    expect(replacement?.disk).toBeUndefined();
+    expect(replacement?.metricsObservedAt).toBeUndefined();
+  });
+
   it('rejects an old monitor generation before claiming Stop on a replacement', async () => {
     await createSession();
     const repository = new D1SessionRepository(db);

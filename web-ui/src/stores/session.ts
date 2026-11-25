@@ -91,6 +91,7 @@ export interface SessionMetrics {
   hdd?: string;
   updatedAt?: string;
   statusReadVersion?: number;
+  generation?: number;
 }
 
 type BatchStatusResponse = Awaited<ReturnType<typeof api.getBatchSessionStatus>>;
@@ -105,21 +106,29 @@ export function applyMetricsUpdate(
   sessionId: string,
   metrics: NonNullable<BatchStatusResponse['statuses'][string]['metrics']>,
   statusReadVersion?: number,
+  generation?: number,
 ): void {
-  const previous = sessionMetrics[sessionId];
+  const cached = sessionMetrics[sessionId];
+  if (cached?.generation !== undefined && (generation === undefined || generation < cached.generation)) return;
+  const previous = cached?.generation === generation ? cached : undefined;
+  const usable = (value: string | undefined) => !!value && value !== '...';
   // Availability determines confirmation, not whether a reported sample is worth retaining.
-  const useSample = [metrics.cpu, metrics.mem, metrics.hdd].some(value => value && value !== '...')
+  const useSample = [metrics.cpu, metrics.mem, metrics.hdd].some(usable)
     && (statusReadVersion ?? 0) >= (previous?.statusReadVersion ?? 0);
-  const syncStatus = statusReadVersion === undefined || statusReadVersion === completedStatusReadVersion()
-    ? metrics.syncStatus as SessionMetrics['syncStatus'] | undefined : undefined;
+  const confirmed = statusReadVersion === undefined || statusReadVersion === completedStatusReadVersion();
+  const retainMissing = !useSample || !confirmed;
+  const reading = (value: string | undefined, lastKnown: string | undefined) =>
+    useSample && usable(value) ? value : (retainMissing && lastKnown) || '...';
+  const syncStatus = confirmed ? metrics.syncStatus as SessionMetrics['syncStatus'] | undefined : undefined;
   sessionMetrics[sessionId] = {
-    bucketName: previous?.bucketName || '...',
-    syncStatus: syncStatus || previous?.syncStatus || 'pending',
-    cpu: (useSample ? metrics.cpu : previous?.cpu) || '...',
-    mem: (useSample ? metrics.mem : previous?.mem) || '...',
-    hdd: (useSample ? metrics.hdd : previous?.hdd) || '...',
+    bucketName: cached?.bucketName || '...',
+    syncStatus: syncStatus || cached?.syncStatus || 'pending',
+    cpu: reading(metrics.cpu, previous?.cpu),
+    mem: reading(metrics.mem, previous?.mem),
+    hdd: reading(metrics.hdd, previous?.hdd),
     updatedAt: useSample ? metrics.updatedAt : previous?.updatedAt,
     statusReadVersion: useSample ? statusReadVersion : previous?.statusReadVersion,
+    generation,
   };
 }
 
@@ -531,7 +540,7 @@ async function loadSessions(): Promise<void> {
 
       if (batchStatus.metrics) {
         setState(produce(s => {
-          applyMetricsUpdate(s.sessionMetrics, session.id, batchStatus.metrics!, version);
+          applyMetricsUpdate(s.sessionMetrics, session.id, batchStatus.metrics!, version, batchStatus.generation);
         }));
       }
 
