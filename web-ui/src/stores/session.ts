@@ -106,14 +106,20 @@ export function applyMetricsUpdate(
   metrics: NonNullable<BatchStatusResponse['statuses'][string]['metrics']>,
   statusReadVersion?: number,
 ): void {
+  const previous = sessionMetrics[sessionId];
+  // Availability determines confirmation, not whether a reported sample is worth retaining.
+  const useSample = [metrics.cpu, metrics.mem, metrics.hdd].some(value => value && value !== '...')
+    && (statusReadVersion ?? 0) >= (previous?.statusReadVersion ?? 0);
+  const syncStatus = statusReadVersion === undefined || statusReadVersion === completedStatusReadVersion()
+    ? metrics.syncStatus as SessionMetrics['syncStatus'] | undefined : undefined;
   sessionMetrics[sessionId] = {
-    bucketName: sessionMetrics[sessionId]?.bucketName || '...',
-    syncStatus: (metrics.syncStatus as SessionMetrics['syncStatus']) || sessionMetrics[sessionId]?.syncStatus || 'pending',
-    cpu: metrics.cpu || '...',
-    mem: metrics.mem || '...',
-    hdd: metrics.hdd || '...',
-    updatedAt: metrics.updatedAt,
-    statusReadVersion,
+    bucketName: previous?.bucketName || '...',
+    syncStatus: syncStatus || previous?.syncStatus || 'pending',
+    cpu: (useSample ? metrics.cpu : previous?.cpu) || '...',
+    mem: (useSample ? metrics.mem : previous?.mem) || '...',
+    hdd: (useSample ? metrics.hdd : previous?.hdd) || '...',
+    updatedAt: useSample ? metrics.updatedAt : previous?.updatedAt,
+    statusReadVersion: useSample ? statusReadVersion : previous?.statusReadVersion,
   };
 }
 
@@ -478,9 +484,10 @@ async function loadSessions(): Promise<void> {
     // Publish the authoritative catalog before optional status enrichment.
     const batchResponse = await batchRequest;
     if (thisGen !== loadSessionsGeneration || acceptedCatalogRevision !== getSessionCatalogRevision()) return;
-    const confirmsMetrics = batchError === null && reportAvailability(false);
-    if (batchError !== null && reportAvailability(batchAuthFailure ? sessionStatusUnavailable() : true)) {
-      setState('error', batchError);
+    if (batchError !== null) {
+      if (reportAvailability(batchAuthFailure ? sessionStatusUnavailable() : true)) setState('error', batchError);
+    } else {
+      reportAvailability(false);
     }
     const batchStatuses = batchResponse.statuses;
 
@@ -522,8 +529,7 @@ async function loadSessions(): Promise<void> {
       if (batchStatus.editorReady !== undefined) setState('sessions', idx, 'editorReady', batchStatus.editorReady);
       setState('sessions', idx, 'editorReadyError', batchStatus.editorReadyError === true);
 
-      // Do not overwrite samples from a more recent status read.
-      if (confirmsMetrics && batchStatus.metrics) {
+      if (batchStatus.metrics) {
         setState(produce(s => {
           applyMetricsUpdate(s.sessionMetrics, session.id, batchStatus.metrics!, version);
         }));

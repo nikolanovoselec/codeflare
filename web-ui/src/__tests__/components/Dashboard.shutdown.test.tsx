@@ -261,6 +261,12 @@ it('REQ-SESSION-043: distinguishes current readings, last-known readings and una
     expect(view.getByText('7%')).toBeVisible();
     expect(view.getByText('Last known metrics')).toBeVisible();
   }
+  batchResponse = Promise.resolve(Response.json({ statuses: { [id]: { ...polled, metrics: {} } } }));
+  await sessionStore.refreshSessionStatuses();
+  for (const view of cards()) {
+    expect(view.getByText('7%')).toBeVisible();
+    expect(view.getByText('Last known metrics')).toBeVisible();
+  }
   batchResponse = undefined;
   await sessionStore.refreshSessionStatuses();
   for (const view of cards()) expect(view.queryByText('Last known metrics')).not.toBeInTheDocument();
@@ -280,39 +286,45 @@ it('REQ-SESSION-043: distinguishes current readings, last-known readings and una
   expect(card().queryByText('7%')).not.toBeInTheDocument();
 });
 
-it('REQ-SESSION-043: a late catalog batch cannot replace confirmed metrics on either card surface', async () => {
-  project('running', 9, 'queued');
-  await sessionStore.loadSessions();
-  renderDashboard();
-  const observer = render(() => <SessionDropdown isOpen sessions={sessionStore.sessions} activeSessionId={id}
-    onSelectSession={() => {}} onStopSession={() => {}} onDeleteSession={() => {}}
-    onCreateSession={() => {}} onClose={() => {}} isMobileView={false} />);
-  const cards = () => screen.getAllByTestId(`session-stat-card-${id}`).map(node => within(node));
-  project('stopping', 10, 'consolidating');
-  const current = { ...polled!, lifecycle: 'running' as const,
-    metrics: { cpu: '21%', mem: '1.2G', hdd: '3.1G', updatedAt: new Date().toISOString() } };
-  catalog = current;
-  let release!: (response: Response) => void;
-  batchResponse = new Promise(resolve => { release = resolve; });
-  const loading = sessionStore.loadSessions();
-  try {
-    await within(observer.container).findByText('Consolidating memory...');
-    batchResponse = undefined;
-    polled = current;
-    await sessionStore.refreshSessionStatuses();
+it.each(['confirmed', 'omitted row', 'omitted metrics', 'failed'] as const)(
+  'REQ-SESSION-043: retains readings on both cards when a catalog batch follows a %s poll', async outcome => {
+    project('running', 9, 'queued');
+    await sessionStore.loadSessions();
+    renderDashboard();
+    const observer = render(() => <SessionDropdown isOpen sessions={sessionStore.sessions} activeSessionId={id}
+      onSelectSession={() => {}} onStopSession={() => {}} onDeleteSession={() => {}}
+      onCreateSession={() => {}} onClose={() => {}} isMobileView={false} />);
+    const cards = () => screen.getAllByTestId(`session-stat-card-${id}`).map(node => within(node));
+    project('stopping', 10, 'consolidating');
+    const current = { ...polled!, lifecycle: 'running' as const,
+      metrics: { cpu: '21%', mem: '1.2G', hdd: '3.1G', updatedAt: new Date().toISOString() } };
+    catalog = current;
+    let release!: (response: Response) => void;
+    batchResponse = new Promise(resolve => { release = resolve; });
+    const loading = sessionStore.loadSessions();
+    try {
+      await within(observer.container).findByText('Consolidating memory...');
+      batchResponse = outcome === 'failed'
+        ? Promise.resolve(Response.json({ error: 'Status unavailable' }, { status: 503 })) : undefined;
+      polled = outcome === 'omitted row' ? undefined
+        : outcome === 'omitted metrics' ? { ...current, metrics: undefined } : current;
+      await sessionStore.refreshSessionStatuses();
+    } finally {
+      release(Response.json({ statuses: { [id]: { ...current, metrics: { ...current.metrics, cpu: '7%' } } } }));
+      await loading;
+    }
     expect(cards()).toHaveLength(2);
-    for (const view of cards()) expect(view.getByText('21%')).toBeVisible();
-  } finally {
-    release(Response.json({ statuses: { [id]: { ...current, metrics: { ...current.metrics, cpu: '7%' } } } }));
-    await loading;
-  }
-  expect(cards()).toHaveLength(2);
-  for (const view of cards()) {
-    expect(view.getByText('21%')).toBeVisible();
-    expect(view.queryByText('7%')).not.toBeInTheDocument();
-    expect(view.queryByText('Last known metrics')).not.toBeInTheDocument();
-  }
-});
+    for (const view of cards()) {
+      if (outcome === 'confirmed') {
+        expect(view.getByText('21%')).toBeVisible();
+        expect(view.queryByText('7%')).not.toBeInTheDocument();
+        expect(view.queryByText('Last known metrics')).not.toBeInTheDocument();
+      } else {
+        for (const value of ['7%', '1.2G', '3.1G']) expect(view.getByText(value)).toBeVisible();
+        expect(view.getByText('Last known metrics')).toBeVisible();
+      }
+    }
+  });
 
 it.each(['queued', 'consolidating'] as const)('REQ-TERM-013: an active %s session and a stopped card cannot take MultiView slots', async phase => {
   project(phase === 'queued' ? 'running' : 'stopping', 10, phase);
@@ -473,13 +485,14 @@ it('REQ-SESSION-043: an accepted Delete retains the card through merge failure a
   // caller joining a prior refresh or a confirmation timer racing the fixture.
   for (let misses = 1; misses <= 3; misses++) {
     const served = new Promise<void>(resolve => { onBatchRequest = resolve; });
-    batchResponse = Promise.resolve(Response.json({ statuses: {} }));
     await Promise.all([served, sessionStore.refreshSessionStatuses()]);
     onBatchRequest = undefined;
+    expect(sessionStore.statusUnavailable).toBe(false);
     if (misses < 3) expect(card().getByText(/finishing/i)).toBeVisible();
   }
-  expect(screen.queryByText(name)).not.toBeInTheDocument();
+  expect(sessionStore.sessions.some(session => session.id === id)).toBe(false);
   expect(sessionStore.activeSessionId).toBeNull();
+  expect(screen.queryByTestId(`session-stat-card-${id}`)).not.toBeInTheDocument();
 });
 
 it('REQ-SESSION-043: a settled Stop clears recovery controls and rejects older merge-failure evidence', async () => {
