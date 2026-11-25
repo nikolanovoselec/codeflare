@@ -8,6 +8,8 @@ import { TRANSPORT_FAILURE_STREAK_KEY, TRANSPORT_RECOVERY_KEY } from '../../cont
 import migration from '../../../migrations/usage/0002_runtime_sessions.sql?raw';
 // @ts-expect-error Vite raw-loader module used only by the Workers test runtime.
 import boundaryMigration from '../../../migrations/usage/0004_boundary_activity.sql?raw';
+// @ts-expect-error Vite raw-loader module used only by the Workers test runtime.
+import shutdownMigration from '../../../migrations/usage/0005_session_shutdown.sql?raw';
 
 const db = (env as unknown as { USAGE_DB: D1Database }).USAGE_DB;
 
@@ -30,11 +32,10 @@ async function createSession(owner = 'owner-a', sessionId = 'session01') {
 }
 
 beforeAll(async () => {
-  for (const statement of migration.split(';').map((part: string) => part.trim()).filter(Boolean)) {
-    await db.prepare(statement).run();
-  }
-  for (const statement of boundaryMigration.split(';').map((part: string) => part.trim()).filter(Boolean)) {
-    await db.prepare(statement).run();
+  for (const sql of [migration, boundaryMigration, shutdownMigration]) {
+    for (const statement of sql.split(';').map((part: string) => part.trim()).filter(Boolean)) {
+      await db.prepare(statement).run();
+    }
   }
 });
 
@@ -71,8 +72,9 @@ describe('REQ-SESSION-031: complete D1 session authority', () => {
     await db.prepare("UPDATE session_cutover SET state = 'pending', completed_at = NULL WHERE id = 1").run();
     expect(await db.prepare('SELECT id, state FROM session_cutover').first()).toEqual({ id: 1, state: 'pending' });
 
-    const indexes = await db.prepare("PRAGMA index_list('runtime_sessions')").all<{ name: string }>();
-    const named = indexes.results.filter(({ name }) => !name.startsWith('sqlite_autoindex'));
+    const indexes = await db.prepare("PRAGMA index_list('runtime_sessions')").all<{ name: string; partial: number }>();
+    const named = indexes.results.filter(({ name, partial }) =>
+      !name.startsWith('sqlite_autoindex') && !(name === 'runtime_sessions_shutdown_order' && partial === 1));
     expect(named).toHaveLength(1);
     const columns = await db.prepare(`PRAGMA index_info('${named[0]?.name}')`).all<{ name: string }>();
     expect(columns.results.map(({ name }) => name)).toEqual(['owner_key', 'last_accessed_at', 'session_id']);

@@ -306,17 +306,30 @@ it.each(['poll', 'catalog'] as const)('REQ-SESSION-043: both cards hide the prev
   await sessionStore.refreshSessionStatuses();
   for (const view of cards()) expect(view.getByRole('status', { name: 'STOPPED' })).toBeVisible();
 
+  const expectPlaceholders = () => {
+    expect(cards()).toHaveLength(2);
+    for (const view of cards()) {
+      for (const value of ['7%', '1.2G', '3.1G']) expect(view.queryByText(value)).not.toBeInTheDocument();
+      expect(view.getAllByText('...', { exact: true })).toHaveLength(3);
+    }
+  };
   project('running', 13, undefined, undefined, 8);
   if (source === 'poll') await sessionStore.refreshSessionStatuses();
   else {
     polled = { ...polled!, metrics: { updatedAt } };
-    await sessionStore.loadSessions();
+    let reply!: (response: Response) => void;
+    batchResponse = new Promise(resolve => { reply = resolve; });
+    const loading = sessionStore.loadSessions();
+    try {
+      await waitFor(() => expect(screen.getAllByRole('status', { name: 'IDLE' })).toHaveLength(2));
+      expectPlaceholders();
+    } finally {
+      reply(Response.json({ statuses: { [id]: polled } }));
+      batchResponse = undefined;
+      await loading;
+    }
   }
-  expect(cards()).toHaveLength(2);
-  for (const view of cards()) {
-    for (const value of ['7%', '1.2G', '3.1G']) expect(view.queryByText(value)).not.toBeInTheDocument();
-    expect(view.getAllByText('...', { exact: true })).toHaveLength(3);
-  }
+  expectPlaceholders();
 
   polled = { ...polled, revision: 14, metrics: { cpu: '21%', mem: '2.1G', hdd: '4.2G', updatedAt } };
   await sessionStore.refreshSessionStatuses();
@@ -340,12 +353,15 @@ it.each(['confirmed', 'omitted row', 'omitted metrics', 'failed', 'partial fallb
     project('stopping', 10, 'consolidating');
     const current = { ...polled!, lifecycle: 'running' as const,
       metrics: { cpu: '21%', mem: '1.2G', hdd: '3.1G', updatedAt: new Date().toISOString() } };
-    catalog = current;
+    // In the outage case the earlier request carries a higher lifecycle revision than the published catalog.
+    catalog = outcome === 'failed' ? { ...current, shutdownPhase: 'saving', revision: 9 } : current;
     let release!: (response: Response) => void;
     batchResponse = new Promise(resolve => { release = resolve; });
     const loading = sessionStore.loadSessions();
+    const unavailable = 'Session status unavailable. Displayed state may be outdated.';
     try {
-      await within(observer.container).findByText('Consolidating memory...');
+      if (outcome === 'failed') await within(observer.container).findByText(/Saving session files/);
+      else await within(observer.container).findByText('Consolidating memory...');
       if (outcome === 'partial fallback') {
         for (const view of cards()) {
           for (const value of ['15%', '1.2G', '3.1G']) expect(view.getByText(value)).toBeVisible();
@@ -356,6 +372,7 @@ it.each(['confirmed', 'omitted row', 'omitted metrics', 'failed', 'partial fallb
       polled = outcome === 'omitted row' || outcome === 'partial fallback' ? undefined
         : outcome === 'omitted metrics' ? { ...current, metrics: undefined } : current;
       await sessionStore.refreshSessionStatuses();
+      if (outcome === 'failed') expect(screen.getByText(unavailable)).toBeVisible();
     } finally {
       const metrics = outcome === 'partial fallback' ? { cpu: '7%', updatedAt: current.metrics.updatedAt }
         : { ...current.metrics, cpu: '7%' };
@@ -363,7 +380,9 @@ it.each(['confirmed', 'omitted row', 'omitted metrics', 'failed', 'partial fallb
       await loading;
     }
     expect(cards()).toHaveLength(2);
+    if (outcome === 'failed') expect(screen.getByText(unavailable)).toBeVisible();
     for (const view of cards()) {
+      if (outcome === 'failed') expect(view.getByText('Consolidating memory...')).toBeVisible();
       if (outcome === 'confirmed') {
         expect(view.getByText('21%')).toBeVisible();
         expect(view.queryByText('7%')).not.toBeInTheDocument();
