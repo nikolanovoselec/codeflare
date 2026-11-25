@@ -674,20 +674,6 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     }
   });
 
-  it('blocks another Vibe launch while the first launch is pending', async () => {
-    let finish!: () => void;
-    const pending = new Promise<void>(resolve => { finish = resolve; });
-    const launch = vi.fn(() => pending);
-    render(() => <Dashboard {...defaultProps} onCreateSession={launch} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
-    const button = screen.getByRole('button', { name: 'Create new session' });
-    fireEvent.click(button);
-    expect(button).toBeDisabled();
-    fireEvent.click(button);
-    expect(launch).toHaveBeenCalledOnce();
-    finish();
-    await waitFor(() => expect(button).toBeEnabled());
-  });
-
   // === Initialization Tests ===
 
   it('REQ-IDE-049 AC1 / REQ-IDE-054 AC1: starts a stopped VS Code session from the whole card', () => {

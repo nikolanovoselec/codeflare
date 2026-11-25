@@ -30,9 +30,11 @@ The persisted per-session terminal stamp is immutable. Classic owns Codeflare ta
 
 Dashboard opens no terminal sockets, but can retain one already-connected tabbed pane without allowing hidden input, resize, or reconnect. Single-session Classic exposes its active tabs or tiles, Herdr one surface, and MultiView one outer surface per member. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> Leaving the visible set disposes non-retained panes without killing their PTYs. Focus handoff does not remount/reconnect; focused visible pane claims resize authority before publishing fitted dimensions. Stale cleanup cannot close a newer owner; losing focus before open clears pending resize authority. Herdr visibility return forces current-pane repaint with same-size resize even if dimensions did not change. [REQ-TERM-011](../../sdd/spec/terminal.md#req-term-011-visible-terminal-panes-own-websocket-connections), [REQ-TERM-016](../../sdd/spec/terminal.md#req-term-016-terminal-pane-reconnect-and-resize-authority), [REQ-TERM-017](../../sdd/spec/terminal.md#req-term-017-multiview-pane-focus-and-input-routing).
 
-At `mounting` the visible pane initiates one attachment lifecycle; it does not bypass public endpoint readiness. The endpoint returns retryable 1013 before the terminal service is ready and does not assign a PTY. The store publishes Ready only after confirming the completion still belongs to the current Start. The single-pane Terminal keeps showing startup progress until that pane’s browser socket is connected. Focus and display await OPEN, which reveals and focuses the same mounted pane without reconnecting it. Foreign panes are unchanged, even if viewport dimensions are not yet initialized.
+At `mounting` the visible pane initiates one attachment lifecycle; it does not bypass public endpoint readiness. The endpoint returns retryable 1013 before the terminal service is ready and does not assign a PTY. See [REQ-TERM-046](../../sdd/spec/terminal.md#req-term-046-visible-terminal-startup-connection) for mounting behavior; it does not establish endpoint authority.
 
-<!-- @impl: web-ui/src/stores/session.ts::startSession --> Genuine PTY reattachment first restores the host serialized screen. [REQ-TERM-043](../../sdd/spec/terminal.md#req-term-043-visible-terminal-readiness-gating) owns OPEN display and focus. The original mounting-stage obligations in [REQ-TERM-046](../../sdd/spec/terminal.md#req-term-046-visible-terminal-startup-connection) remain intact and do not establish current endpoint authority. [REQ-TERM-044](../../sdd/spec/terminal.md#req-term-044-terminal-restore-and-readiness-rendering) owns restore/rendering obligations.
+The store publishes Ready only after confirming the completion still belongs to the current Start. <!-- @impl: web-ui/src/stores/session.ts::startSession --> The single-pane Terminal keeps showing startup progress until that pane’s browser socket is connected. Focus and display await OPEN, which reveals and focuses the same mounted pane without reconnecting it. Foreign panes are unchanged, even if viewport dimensions are not yet initialized. [REQ-TERM-043](../../sdd/spec/terminal.md#req-term-043-visible-terminal-readiness-gating) owns OPEN display and focus.
+
+Genuine PTY reattachment first restores the host serialized screen. [REQ-TERM-044](../../sdd/spec/terminal.md#req-term-044-terminal-restore-and-readiness-rendering) owns restore/rendering obligations.
 
 Browser Back or Dashboard during terminal startup selects a usable dashboard independently of any session's initialization latch. Startup and its progress/OPEN ownership continue in the background; returning restores the progress/ready surface without another Start or Stop. Background completion/failure cannot hide Dashboard or steal selection. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> [REQ-SESSION-037](../../sdd/spec/session-lifecycle.md#req-session-037-dashboard-navigation-remains-available-during-startup).
 
@@ -96,6 +98,7 @@ Herdr image settings manage mobile layout, mouse capture, browser-owned clipboar
 - Stop the session without resuming. Repeat the refresh and reconnect while stopped. No replacement starts and the generation stays unchanged. Resume Chat and repeat with the old frame while the same transcript is active in the new generation.
 - For [REQ-AGENT-274](../../sdd/spec/agents.md#req-agent-274-stock-pi-chat-controls), open a harmless file through Files, then select it with `@`. Quiet starts on and can be changed. Chat has no Git or worktree controls; ordinary Terminal and VS Code Git still work.
 - Use the synthetic confirmation fixture below. During Chat opening, leave **Resume the Pi handoff smoke transcript?** unanswered for over 25 seconds. Verify it remains answerable and **Open** is absent. Choose **Yes** and verify `pi-fixture-opening-yes.txt` appears and the same frame reaches **Open**.
+- The [packaged Host smoke](../../scripts/ci/smoke-pi-web-host-handoff.mjs) separately checks the timeout exception, original answer delivery, and writer fence. It does not exercise browser visibility.
 - Once Chat is ready, submit `pi-fixture-question`. Choose **Yes** on **Continue the ready Chat fixture?**. Verify `pi-fixture-ready-yes.txt` appears without a model turn. Then send a separate harmless prompt and verify the composer works.
 - In the ready Chat composer, use **Save to …** with synthetic attachments totaling 10 MB (10,000,000 bytes). Verify that the files land in the selected workspace folder.
 - Repeat with a batch one byte larger, then with 17 small attachments. Confirm that neither rejected batch saves any files.
@@ -183,7 +186,11 @@ In Vibe, the [GitHub and Storage drawer](../../sdd/spec/github.md#req-github-321
 
 ### Workspace header acceptance
 
-At 375px with the sleep countdown visible, verify Settings remains reachable after VS Code, Operators, then Vault move into Profile. Check 44px touch targets and the one-slot gap; if the row cannot fit, verify the second row keeps every action reachable.
+Use an authorized running Enterprise workspace with the mode selector, VS Code, Vault, and the sleep countdown visible.
+
+Narrow the viewport and verify VS Code, then Operators, then Vault enter Profile as needed. Open Profile and check each moved action remains reachable. See [Operators](../../sdd/spec/operators.md#req-operator-040-owned-activity-control-presentation) and [Vault](../../sdd/spec/vault.md#req-vault-033-vault-button-availability-and-opening).
+
+At 375px, verify Settings is reachable with 44px touch targets and the one-slot gap. If actions cannot fit in one row, verify the second row keeps them reachable.
 
 ### Vibe drawer acceptance
 

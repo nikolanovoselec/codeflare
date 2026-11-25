@@ -962,7 +962,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Dependencies:** [REQ-AGENT-272](#req-agent-272-pi-chat-and-terminal-transcript-handoff)
 
-**Verification:** Automated: [Ready and Open](../../web-ui/src/__tests__/components/TerminalArea.test.tsx), [Chat frame](../../web-ui/src/__tests__/components/PiWebChat.test.tsx), [Restore notification](../../web-ui/src/__tests__/components/Layout.test.tsx); Manual: [Choose the starting writer](../../documentation/lanes/terminal-and-ide.md#choose-the-starting-writer), [Held startup question](../../documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions). Packaged CI: [Host handoff smoke](../../scripts/ci/smoke-pi-web-host-handoff.mjs).
+**Verification:** Automated: [Ready and Open](../../web-ui/src/__tests__/components/TerminalArea.test.tsx), [Chat frame](../../web-ui/src/__tests__/components/PiWebChat.test.tsx), [Restore notification](../../web-ui/src/__tests__/components/Layout.test.tsx); Manual: [Choose the starting writer](../../documentation/lanes/terminal-and-ide.md#choose-the-starting-writer), [Held startup question](../../documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions).
 
 **Status:** Planned
 
@@ -977,12 +977,11 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 **Acceptance Criteria:**
 
 1. The authenticated user can save and read a Chat or Terminal Pi surface preference independently of the default workspace and Herdr preferences. <!-- @impl: src/routes/preferences.ts::mergePreferences --> <!-- @test: src/__tests__/routes/preferences.test.ts (persists the Pi surface default %s independently of workspace and Herdr settings) --> <!-- @test: web-ui/src/__tests__/api/client.test.ts (retains the persisted Pi surface %s in GET and PATCH responses) -->
-2. Dashboard mode selection saves the default without opening a session. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (saves the mode from Dashboard without selecting a session) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (hides Dashboard mode navigation with settings %j) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps the repository restore notice visible across Classic Chat and Terminal switches) -->
-3. In Vibe, New Session starts an eligible Pi Chat without showing the agent picker. Existing creation limits and the last explicitly chosen agent are preserved. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (starts Pi Chat directly in Vibe unless the session limit is reached (%s)) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (preserves the last explicitly chosen agent when Vibe launches Pi) -->
-4. In an eligible running workspace, header mode selection saves the default and switches the current conversation through the existing handoff. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps the repository restore notice visible across Classic Chat and Terminal switches) -->
-5. The header omits mode selection while Herdr or the VS Code default is active. <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (hides Dashboard mode navigation with settings %j) -->
-6. A one-off Start or Open choice does not overwrite the global Pi surface preference or change the workspace kind. With no explicit choice, starting an eligible saved or newly created session uses the saved preference unless Herdr or the VS Code default workspace is active. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (applies the eligible Pi surface at Dashboard Start: %s) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (uses the saved Vibe default only when the newly created %s workspace (%s) is eligible) -->
-7. Cold Dashboard Open of an eligible running session uses the saved preference when Herdr and the VS Code default are inactive. A different confirmed surface uses the existing handoff; a matching surface stays open without a switch. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (opens a running Pi workspace using preference %s from %s with settings %j) -->
+2. Dashboard mode selection saves the default without opening a session. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (saves the mode from Dashboard without selecting a session) -->
+3. In an eligible running workspace, header mode selection saves the default and switches the current conversation through the existing handoff. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps the repository restore notice visible across Classic Chat and Terminal switches) -->
+4. The header omits mode selection while Herdr or the VS Code default is active. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (hides Dashboard mode navigation with settings %j) -->
+5. A one-off Start or Open choice does not overwrite the global Pi surface preference or change the workspace kind. With no explicit choice, starting an eligible saved or newly created session uses the saved preference unless Herdr or the VS Code default workspace is active. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (applies the eligible Pi surface at Dashboard Start: %s) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (uses the saved Vibe default only when the newly created %s workspace (%s) is eligible) -->
+6. Cold Dashboard Open of an eligible running session uses the saved preference when Herdr and the VS Code default are inactive. A different confirmed surface uses the existing handoff; a matching surface stays open without a switch. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (opens a running Pi workspace using preference %s from %s with settings %j) -->
 
 **Constraints:** A refresh never requests a switch. Same-generation warm return follows [REQ-AGENT-277](#req-agent-277-retained-chat-on-dashboard-return).
 
@@ -991,6 +990,28 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 **Dependencies:** [REQ-AGENT-272](#req-agent-272-pi-chat-and-terminal-transcript-handoff)
 
 **Verification:** Automated: [Dashboard](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [Layout](../../web-ui/src/__tests__/components/Layout.test.tsx), [Preferences API](../../src/__tests__/routes/preferences.test.ts), [API client](../../web-ui/src/__tests__/api/client.test.ts).
+
+**Status:** Planned
+
+---
+
+### REQ-AGENT-278: Narrow workspace header fallback
+
+**Intent:** Keep essential workspace actions reachable when optional actions no longer fit.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. If the narrow workspace-mode header still cannot fit after optional actions overflow into Profile, the remaining utilities wrap to a second row without shrinking 44px touch targets. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @impl: web-ui/src/styles/header.css::.header-with-center-slot --> <!-- @manual: documentation/lanes/terminal-and-ide.md#workspace-header-acceptance -->
+
+**Constraints:** None.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-276](#req-agent-276-vibe-and-code-workspace-preference)
+
+**Verification:** Manual: [Workspace header acceptance](../../documentation/lanes/terminal-and-ide.md#workspace-header-acceptance)
 
 **Status:** Planned
 
@@ -1019,6 +1040,29 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 ---
 
+### REQ-AGENT-279: Direct Vibe session launch
+
+**Intent:** Start Pi Chat directly without duplicating a pending launch or changing the last explicitly chosen agent.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. In Vibe, New Session starts an eligible Pi Chat without showing the agent picker. Existing creation limits and the last explicitly chosen agent are preserved. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (starts Pi Chat directly in Vibe unless the session limit is reached (%s)) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (preserves the last explicitly chosen agent when Vibe launches Pi) -->
+2. New Session cannot launch again while a Vibe launch is pending, even after returning to Dashboard. It becomes available again when that launch settles, subject to existing limits. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps New Session locked after returning to Dashboard during a Vibe launch) -->
+
+**Constraints:** None.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-276](#req-agent-276-vibe-and-code-workspace-preference)
+
+**Verification:** Automated: [Dashboard](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [Layout](../../web-ui/src/__tests__/components/Layout.test.tsx).
+
+**Status:** Planned
+
+---
+
 ### REQ-AGENT-274: Stock Pi Chat controls
 
 **Intent:** Retain native Pi interactions in the stock browser app.
@@ -1029,7 +1073,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 1. Chat retains Files and `@` references for workspace files. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
 2. Chat starts in Quiet mode and allows the user to change it. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
-3. The original Chat frame shows a native startup question and accepts its answer before Open appears. <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (keeps the standard startup screen until Open reveals Chat, without mounting a native terminal) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
+3. Native questions are answerable in the live Chat frame. During startup, the original frame shows the question before Open appears. <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (keeps the standard startup screen until Open reveals Chat, without mounting a native terminal) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
 4. The Chat composer saves attachments to the active conversation’s workspace, up to 16 attachments, 10,000,000 decoded bytes total, and a 14 MiB request body. An over-limit batch writes no files. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
 5. Chat defaults to Pi Web Classic without overriding a saved theme. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 

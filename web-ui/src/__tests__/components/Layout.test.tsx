@@ -3,6 +3,7 @@ import { render, screen, fireEvent, cleanup, waitFor, within } from '@solidjs/te
 import { createSignal, For, Show } from 'solid-js';
 import type { SessionWithStatus } from '../../types';
 import PiWorkspaceMode from '../../components/PiWorkspaceMode';
+import CreateSessionDialog from '../../components/CreateSessionDialog';
 
 const retryMigration = vi.hoisted(() => vi.fn());
 const appAuth = vi.hoisted(() => ({ getUser: vi.fn() }));
@@ -32,6 +33,8 @@ vi.mock('../../components/Dashboard', async importOriginal => {
     <button onClick={() => props.onStartSession('abcdef0123456789')}>Start session</button>
     <button onClick={() => props.onOpenSessionById('abcdef0123456789')}>Return to session</button>
     <button onClick={() => props.onOpenSessionById('abcdef0123456789', 'terminal')}>Open in Terminal</button>
+    <button onClick={() => props.onStopSession('abcdef0123456789')}>Stop retained session</button>
+    <button onClick={() => props.onOpenSessionById('fedcba9876543210')}>Open another session</button>
   </section> };
 });
 vi.mock('../../components/Terminal', async () => {
@@ -176,6 +179,8 @@ vi.mock('../../stores/session', () => ({
     get saasMode() { readSessionStoreVersion(); return mockSaasMode; },
     get error() { return null; },
     get loading() { return false; },
+    r2Ready: true,
+    allowedAgents: ['bash', 'pi'],
     loadSessions: vi.fn(),
     setActiveSession: vi.fn((id: string | null) => { mockActiveSessionId = id; bumpSessionStoreVersion(); }),
     getActiveSession: vi.fn(() => {
@@ -452,10 +457,11 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     }
   });
 
-  it.each(['generation replacement', 'page exit'])('retains one mounted Terminal pane on Dashboard and discards it on %s', async invalidation => {
+  it.each(['generation replacement', 'page exit', 'Stop', 'different session'])('retains one mounted Terminal pane on Dashboard and discards it on %s', async invalidation => {
     navigationRendering.realTerminalArea = true;
     const id = 'abcdef0123456789';
-    mockSessions = [createMockSession({ id, workspace: 'terminal', agentType: 'bash', generation: 7 })];
+    mockSessions = [createMockSession({ id, workspace: 'terminal', agentType: 'bash', generation: 7 }),
+      createMockSession({ id: 'fedcba9876543210', workspace: 'terminal', agentType: 'bash', generation: 7 })];
     window.history.replaceState(null, '', `/app/session/${id}`);
     vi.mocked(terminalStore.getConnectionState).mockReturnValue('connected');
     try {
@@ -469,6 +475,8 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect(pane).toBeVisible();
       fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
       if (invalidation === 'page exit') window.dispatchEvent(new Event('pagehide'));
+      else if (invalidation === 'Stop') fireEvent.click(await screen.findByRole('button', { name: 'Stop retained session' }));
+      else if (invalidation === 'different session') fireEvent.click(await screen.findByRole('button', { name: 'Open another session' }));
       else {
         mockSessions = [{ ...mockSessions[0], generation: 8 }];
         bumpSessionStoreVersion();
@@ -2034,16 +2042,48 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect(sessionStore.startSession).toHaveBeenCalledWith(id, ...startArgs);
     });
 
+    it('keeps New Session locked after returning to Dashboard during a Vibe launch', async () => {
+      navigationRendering.realTerminalArea = true;
+      navigationRendering.realDashboard = true;
+      mockPreferences = { defaultPiSurface: 'chat' };
+      const id = 'abcdef0123456789';
+      const session = createMockSession({ id, status: 'initializing', workspace: 'terminal', agentType: 'pi' });
+      vi.mocked(sessionStore.createSession).mockImplementationOnce(async () => {
+        mockSessions = [session];
+        bumpSessionStoreVersion();
+        return session;
+      });
+      let finish!: () => void;
+      const starting = new Promise<void>(resolve => { finish = resolve; });
+      vi.mocked(sessionStore.startSession).mockReturnValueOnce(starting);
+      render(() => <Layout />);
+      const initial = await screen.findByRole('button', { name: 'Create new session' });
+      fireEvent.click(initial);
+      await waitFor(() => expect(initial).not.toBeInTheDocument());
+      fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
+      const returned = await screen.findByRole('button', { name: 'Create new session' });
+      expect(returned).toBeDisabled();
+      fireEvent.click(returned);
+      expect(returned).toBeVisible();
+      finish();
+      await waitFor(() => expect(returned).toBeEnabled());
+    });
+
     it('preserves the last explicitly chosen agent when Vibe launches Pi', async () => {
       mockPreferences = { lastAgentType: 'bash', defaultPiSurface: 'chat' };
       const id = 'abcdef0123456789';
       vi.mocked(sessionStore.createSession).mockResolvedValue(createMockSession({ id, status: 'stopped', agentType: 'pi', workspace: 'terminal' }) as SessionWithStatus);
       vi.mocked(sessionStore.startSession).mockResolvedValue(undefined);
+      vi.mocked(sessionStore.updatePreferences).mockImplementationOnce(async preferences => {
+        mockPreferences = { ...mockPreferences, ...preferences };
+        bumpSessionStoreVersion();
+      });
       render(() => <Layout />);
       await (window as any).__terminalAreaProps.onCreateSession('New Session', 'pi', undefined, 'chat', true);
       expect(sessionStore.startSession).toHaveBeenCalledWith(id, 'chat');
-      expect(mockPreferences.lastAgentType).toBe('bash');
-      expect(vi.mocked(sessionStore.updatePreferences).mock.calls.some(([prefs]) => prefs.lastAgentType !== undefined)).toBe(false);
+      render(() => <CreateSessionDialog isOpen onSelect={() => {}} onClose={() => {}} />);
+      expect(screen.getByTestId('csd-agent-bash')).toHaveClass('csd-agent-btn--last-used');
+      expect(screen.getByTestId('csd-agent-pi')).not.toHaveClass('csd-agent-btn--last-used');
     });
 
     it('REQ-TERM-014: creating a session from terminal view keeps the starting surface visible', async () => {

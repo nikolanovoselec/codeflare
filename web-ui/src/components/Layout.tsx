@@ -810,7 +810,8 @@ const Layout: Component<LayoutProps> = (props) => {
     await sessionStore.deleteSession(id);
   };
 
-  const handleCreateSession = async (name: string, agentType?: AgentType, tabConfig?: TabConfig[], selectedSurface?: PiSurface, implicitAgent = false) => {
+  const [launchingVibe, setLaunchingVibe] = createSignal(false);
+  const createAndStartSession = async (name: string, agentType?: AgentType, tabConfig?: TabConfig[], selectedSurface?: PiSurface, implicitAgent = false) => {
     const surface = modeAvailable() ? selectedSurface : undefined;
     const session = surface
       ? await sessionStore.createSession(name, agentType, tabConfig, undefined, surface)
@@ -839,6 +840,13 @@ const Layout: Component<LayoutProps> = (props) => {
       if (initialSurface === 'chat') setChatStartSid(current => current === session.id ? undefined : current);
       throw error;
     }
+  };
+
+  const handleCreateSession: typeof createAndStartSession = async (name, agent, tabs, surface, implicitAgent) => {
+    if (launchingVibe()) return;
+    if (implicitAgent) setLaunchingVibe(true);
+    try { await createAndStartSession(name, agent, tabs, surface, implicitAgent); }
+    finally { if (implicitAgent) setLaunchingVibe(false); }
   };
 
   const handleOpenMultiView = () => {
@@ -1060,6 +1068,7 @@ const Layout: Component<LayoutProps> = (props) => {
         {/* Main content */}
         <TerminalArea
           workspaceMode={dashboardWorkspaceMode()}
+          launchingVibe={launchingVibe()}
           migrationRetry={migrationRetry}
           repositoryRestoreNotices={
             <section class="repository-restore-notices" aria-label="Activity notifications">

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@solidjs/testing-library';
+import { render, screen, fireEvent, cleanup, within } from '@solidjs/testing-library';
 import { mdiViewDashboardOutline, mdiMicrosoftVisualStudioCode } from '@mdi/js';
 import Header from '../../components/Header';
 import { createSignal } from 'solid-js';
@@ -411,8 +411,9 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
     });
     try {
       const openEditor = vi.fn();
+      const openVault = vi.fn();
       render(() => <Header {...defaultSessionProps} workspaceMode={{ value: 'chat', onSelect: () => {} }}
-        onVscodeOpen={openEditor} onVaultOpen={() => {}} vaultStatus="ready" />);
+        onVscodeOpen={openEditor} onVaultOpen={openVault} vaultStatus="prewarming" />);
       // Isolate placement from CSS: five fixed slots, a reserved gap, and three
       // removable slots. Real padding, spacing, and hitboxes are a browser check.
       const header = screen.getByRole('banner');
@@ -435,6 +436,9 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
       await fireEvent.click(screen.getByTestId('header-user-menu'));
       const menu = screen.getByTestId('header-user-dropdown');
       expect(menu).toHaveTextContent(/VS Code.*Operators.*Vault/);
+      await fireEvent.click(within(menu).getByTestId('header-vault-button'));
+      expect(within(menu).getByRole('status')).toHaveTextContent('Preparing Vault on this device');
+      expect(openVault).not.toHaveBeenCalled();
       await fireEvent.click(screen.getByRole('button', { name: 'Open editor (VS Code)' }));
       expect(openEditor).toHaveBeenCalledOnce();
       for (const [nextWidth, vscode, operators, vault] of [

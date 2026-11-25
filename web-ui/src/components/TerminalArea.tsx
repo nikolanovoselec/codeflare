@@ -17,6 +17,7 @@ import { generateSessionName } from '../lib/session-utils';
 
 interface TerminalAreaProps {
   workspaceMode?: PiWorkspaceModeBinding;
+  launchingVibe?: boolean;
   migrationRetry: MigrationRetry;
   repositoryRestoreNotices?: JSX.Element;
   showTerminal: boolean;
@@ -310,6 +311,7 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
       <Show when={!props.showTerminal}>
         <Dashboard
           workspaceMode={props.workspaceMode}
+          launchingVibe={props.launchingVibe}
           migrationRetry={props.migrationRetry}
           sessions={sessionStore.sessions}
           onCreateSession={(agentType, tabConfig, surface, implicitAgent) => {
