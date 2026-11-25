@@ -345,14 +345,24 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
   });
 
   it.each([
-    ['terminal', 'Return to session'],
-    [undefined, 'Return to session'],
-    ['chat', 'Open in Terminal'],
-  ] as const)('keeps the Code startup pane mounted while the first surface status is pending (default: %s, action: %s)', async (defaultPiSurface, action) => {
+    ['terminal', 'Return to session', {}],
+    [undefined, 'Return to session', {}],
+    ['chat', 'Open in Terminal', {}],
+    ['chat', 'Return to session', { defaultWorkspace: 'vscode' }],
+    [undefined, 'Create session', {}],
+  ] as const)('keeps the Code startup pane mounted while the first surface status is pending (default: %s, action: %s, settings: %j)', async (defaultPiSurface, action, settings) => {
     navigationRendering.realTerminalArea = true;
     const id = 'abcdef0123456789';
-    mockPreferences = { defaultPiSurface };
-    mockSessions = [createMockSession({ id, agentType: 'pi', workspace: 'terminal', terminalMode: 'classic', status: 'stopped', generation: 1 })];
+    mockPreferences = { defaultPiSurface, ...settings };
+    const hiddenPicker = 'defaultWorkspace' in settings;
+    const creating = action === 'Create session';
+    const session = createMockSession({ id, agentType: 'pi', workspace: 'terminal', terminalMode: 'classic', status: 'stopped', generation: creating ? 0 : 1 }) as SessionWithStatus;
+    mockSessions = creating ? [] : [session];
+    if (creating) vi.mocked(sessionStore.createSession).mockImplementationOnce(async () => {
+      mockSessions = [session];
+      bumpSessionStoreVersion();
+      return session;
+    });
     const [running, setRunning] = createSignal(false);
     let confirmSurface!: (response: Response) => void;
     const hostStatus = new Promise<Response>(resolve => { confirmSurface = resolve; });
@@ -373,7 +383,8 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     });
     try {
       render(() => <Layout />);
-      fireEvent.click(await screen.findByRole('button', { name: action }));
+      if (creating) await (window as any).__headerProps.onCreateSession('New Session', 'pi');
+      else fireEvent.click(await screen.findByRole('button', { name: action }));
       expect(await screen.findByTestId('startup-progress')).toBeVisible();
       expect(screen.queryByTitle('Pi Chat')).not.toBeInTheDocument();
       expect(fetchStatus.mock.calls.map(([url]) => url)).not.toContain(`/api/pi-web/${id}/_switch?generation=1`);
@@ -384,8 +395,14 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       bumpSessionStoreVersion();
       expect(screen.getByTestId('startup-progress')).toBe(pane);
       expect(screen.queryByText('Loading Chat')).not.toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /^Workspace mode:/ })).toBeDisabled();
+      if (hiddenPicker) expect(screen.queryByRole('button', { name: /^Workspace mode:/ })).not.toBeInTheDocument();
+      else expect(screen.getByRole('button', { name: /^Workspace mode:/ })).toBeDisabled();
       confirmSurface(Response.json({ phase: 'active', surface: 'terminal' }));
+      if (hiddenPicker) {
+        // The existing workspace can display its confirmed mode once the picker is enabled again.
+        mockPreferences = { defaultPiSurface };
+        bumpSessionStoreVersion();
+      }
       await waitFor(() => expect(screen.getByRole('button', { name: 'Workspace mode: Code — Terminal' })).toBeEnabled());
       expect(screen.getByTestId('startup-progress')).toBe(pane);
     } finally {
