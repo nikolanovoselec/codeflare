@@ -229,6 +229,7 @@ vi.mock('../../stores/session', () => ({
     stopSessionListPolling: vi.fn(),
     get preferences() { readSessionStoreVersion(); return mockPreferences; },
   },
+  getUsageState: () => ({ monthlySeconds: 0, monthlyQuotaSeconds: null }),
   getUsageWarningLevel: vi.fn(() => 'none'),
   isAtUsageQuota: vi.fn(() => false),
   getDismissedQuotaLevel: vi.fn(() => null),

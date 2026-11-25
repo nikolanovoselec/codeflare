@@ -1127,7 +1127,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Dependencies:** [REQ-AGENT-273](#req-agent-273-pi-handoff-continuity)
 
-**Verification:** Automated: [Layout](../../web-ui/src/__tests__/components/Layout.test.tsx); Manual: [Return from Profile Usage](../../documentation/lanes/terminal-and-ide.md#return-from-profile-usage).
+**Verification:** Automated: [Layout](../../web-ui/src/__tests__/components/Layout.test.tsx); Manual: [Return from Profile Usage](../../documentation/lanes/terminal-and-ide.md#return-from-profile-usage)
 
 **Status:** Planned
 

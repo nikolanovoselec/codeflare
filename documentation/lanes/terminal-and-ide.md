@@ -106,7 +106,7 @@ In **Vibe**, Dashboard **New Session** starts Pi Chat directly. Returning to Das
 1. With Chat visible, identify its iframe in Chrome DevTools and note its node and generation for comparison. Start recording Network requests.
 2. From the workspace header, choose **Profile → Usage** without going through Dashboard. Verify the original frame stays mounted but hidden. Click **Back to Dashboard** and verify the frame is still parked.
 3. Open the same running session. Verify it reveals the original node and generation, with no `POST` to `/_switch` during the round trip. Read-only status requests are allowed. Record only equality and whether the POST occurred ([REQ-AGENT-277 AC3](../../sdd/spec/agents.md#req-agent-277-retained-chat-on-dashboard-return)).
-4. Separately open **Profile → Usage** from Dashboard. Verify the Profile overlay disappears and **Back to Dashboard** remains usable.
+4. Separately open **Profile → Usage** from Dashboard. Verify the Profile overlay disappears and **Back to Dashboard** remains usable ([REQ-AUTH-016 AC6](../../sdd/spec/authentication.md#req-auth-016-header-user-dropdown)).
 
 #### Quit and reopen native Pi
 
