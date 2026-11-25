@@ -11,13 +11,17 @@ it.each([
   [900, 459, true],
   [900, 412, true],
   [390, 800, true],
+  [640.5, 460, false],
+  [640.5, 459, true],
 ] as const)('chooses Profile placement at viewport %s × %s', (width, height, sheet) => {
   const anchor = document.createElement('button');
   anchor.getBoundingClientRect = () => new DOMRect(160, 356, 44, 44);
-  vi.stubGlobal('innerWidth', width);
+  const innerWidth = Math.floor(width);
+  vi.stubGlobal('innerWidth', innerWidth);
   vi.stubGlobal('innerHeight', height);
+  vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(max-width: 640px)' && width <= 640 }));
   try {
-    expect(measureProfileMenu(anchor)).toEqual({ top: 408, right: width - 204, sheet });
+    expect(measureProfileMenu(anchor)).toEqual({ top: 408, right: innerWidth - 204, sheet });
   } finally {
     vi.unstubAllGlobals();
   }

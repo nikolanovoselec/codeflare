@@ -219,9 +219,9 @@ Use an authorized running Enterprise workspace with the mode selector, VS Code, 
 
 Narrow the viewport and verify VS Code, then Operators, then Vault enter Profile as needed. Open Profile and check each moved action remains reachable. See [Operators](../../sdd/spec/operators.md#req-operator-040-owned-activity-control-presentation) and [Vault](../../sdd/spec/vault.md#req-vault-033-vault-button-availability-and-opening).
 
-For [REQ-AUTH-016 AC5](../../sdd/spec/authentication.md#req-auth-016-header-user-dropdown), test both headers on short desktop and mobile viewports. With the trigger still visible, reduce desktop height until fewer than 44px remain below the menu’s usual top and its bottom margin. Verify the menu opens as a bottom sheet.
+For [REQ-AUTH-016 AC4](../../sdd/spec/authentication.md#req-auth-016-header-user-dropdown), open Profile in both headers at a width above 640 CSS px. Resize with the menu open: when the viewport bottom is 60px below the visible trigger, the menu stays below the trigger (8px gap, 44px available, 8px bottom margin). At 59px it becomes a bottom sheet. Repeat below the height cutoff at a fractional viewport width between 640px and 641px, using browser zoom if needed. Confirm the sheet stays on-screen and dismissible.
 
-Reduce height until the last action starts below the visible menu area. Verify the menu stays inside the viewport and scrolling it reveals the last action fully without scrolling the page. Mark any case that cannot be reproduced as unverified.
+For [REQ-AUTH-016 AC5](../../sdd/spec/authentication.md#req-auth-016-header-user-dropdown), reduce height on desktop and mobile in both headers until the last action starts below the visible menu area. Verify the menu stays inside the viewport and scrolling it reveals the last action fully without scrolling the page. Mark any placement or scrolling case that cannot be reproduced as unverified.
 
 At 375px, verify Settings is reachable and the groups retain the one-slot gap. Continue narrowing after overflow is exhausted until the utilities move to a second row. Verify every remaining action is reachable and each icon target measures 44 × 44 CSS px. Mark wrapping unverified if the fallback never appears.
 

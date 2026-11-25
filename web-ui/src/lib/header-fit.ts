@@ -5,10 +5,11 @@ export const HEADER_ICON_SLOT = 44;
 export function measureProfileMenu(anchor: HTMLElement) {
   const rect = anchor.getBoundingClientRect();
   const top = rect.bottom + 8;
+  const narrow = window.matchMedia?.('(max-width: 640px)').matches ?? window.innerWidth <= 640;
   return {
     top,
     right: window.innerWidth - rect.right,
-    sheet: window.innerWidth <= 640 || window.innerHeight - top - 8 < HEADER_ICON_SLOT,
+    sheet: narrow || window.innerHeight - top - 8 < HEADER_ICON_SLOT,
   };
 }
 
