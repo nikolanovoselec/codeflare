@@ -308,6 +308,7 @@ export interface Session {
   /** A headless memory retry is queued or in progress. */
   retryingMemory?: boolean;
   snapshotUnavailable?: boolean;
+  canDiscardMemory?: boolean;
   agentType?: AgentType;
   workspace?: SessionWorkspace;
   terminalMode?: TerminalMode;

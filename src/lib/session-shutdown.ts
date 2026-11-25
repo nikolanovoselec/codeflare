@@ -31,6 +31,10 @@ export function mergeNeedsRetry(job?: SessionShutdown): boolean {
   return job?.phase === 'memory-not-merged' || (job?.phase === 'merged' && job.revision !== undefined);
 }
 
+export function canDiscardMemory(session: D1Session): boolean {
+  return session.lifecycleState === 'stopped' && !session.boundaryActivityId && mergeNeedsRetry(session.shutdown);
+}
+
 export function shutdownProjection(session: D1Session) {
   const job = session.shutdown;
   if (!job || (job.phase === 'merged' && !mergeNeedsRetry(job)) || (job.phase === 'uncertain' && job.resumed && session.lifecycleState !== 'stopped')) {
@@ -44,6 +48,7 @@ export function shutdownProjection(session: D1Session) {
     status: session.lifecycleState !== 'stopped' && terminalFenced(job) ? 'stopping' as const : session.lifecycleState,
     shutdownPhase,
     pendingDelete: job.delete,
+    ...(canDiscardMemory(session) ? { canDiscardMemory: true as const } : {}),
     ...(job.snapshotUnavailable ? { snapshotUnavailable: true as const } : {}),
     ...(retryingMemory ? { retryingMemory: true as const } : {}),
   };

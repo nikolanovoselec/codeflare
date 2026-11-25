@@ -25,11 +25,13 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
   const [discardMemory, setDiscardMemory] = createSignal<string>();
   const recoveryTarget = () => {
     const session = props.session;
-    if (session?.shutdownPhase === 'memory-not-merged' && session.status === 'stopped'
+    if (session?.canDiscardMemory && session.shutdownPhase === 'memory-not-merged' && session.status === 'stopped'
       && session.generation !== undefined && session.revision !== undefined) {
       return `${session.generation}:${session.revision}`;
     }
   };
+  const canDelete = () => props.session?.shutdownPhase !== 'memory-not-merged' || !!recoveryTarget();
+  const confirmingDiscard = () => confirmingDelete() && !!discardMemory();
   const [renaming, setRenaming] = createSignal(false);
   const [draftName, setDraftName] = createSignal('');
 
@@ -49,7 +51,7 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
   });
 
   const clampedPosition = () => {
-    const menuWidth = confirmingDelete() && discardMemory() ? 280 : 160;
+    const menuWidth = confirmingDiscard() ? 280 : 160;
     const menuHeight = props.canKill && props.onKill ? 160 : 120;
     const pad = 8;
     return {
@@ -103,7 +105,7 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
 
   const handleDeleteConfirm = () => {
     const discard = discardMemory();
-    if (discard === recoveryTarget()) {
+    if (canDelete() && discard === recoveryTarget()) {
       if (discard) props.onDelete(discard);
       else props.onDelete();
     }
@@ -116,10 +118,9 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
       <div class="session-context-menu__backdrop" onClick={() => { resetTransient(); props.onClose(); }} />
       <div
         class="session-context-menu"
+        classList={{ 'session-context-menu--discard-confirmation': confirmingDiscard() }}
         data-testid="session-context-menu"
-        style={{ top: `${clampedPosition().y}px`, left: `${clampedPosition().x}px`,
-          ...(confirmingDelete() && discardMemory() ? { width: 'min(280px, calc(100vw - 16px))' } : {}),
-        }}
+        style={{ top: `${clampedPosition().y}px`, left: `${clampedPosition().x}px` }}
       >
         <Show when={!renaming()}>
           <button
@@ -172,7 +173,7 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
             Kill
           </button>
         </Show>
-        <Show when={!confirmingDelete()}>
+        <Show when={canDelete() && !confirmingDelete()}>
           <button
             type="button"
             class="session-context-menu__item session-context-menu__item--danger"
@@ -183,7 +184,7 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
             Delete
           </button>
         </Show>
-        <Show when={confirmingDelete()}>
+        <Show when={canDelete() && confirmingDelete()}>
           <button
             type="button"
             class="session-context-menu__item session-context-menu__item--danger"

@@ -360,10 +360,10 @@ function stoppedCardGeneration(id: string, incoming: Pick<SessionWithStatus, 'st
 }
 
 function applyShutdownFields(index: number, incoming: BatchStatusResponse['statuses'][string]): void {
-  const { shutdownPhase, pendingDelete, retryingMemory, snapshotUnavailable } = incoming;
+  const { shutdownPhase, pendingDelete, retryingMemory, snapshotUnavailable, canDiscardMemory } = incoming;
   const session = state.sessions[index];
   const cardStoppedGeneration = stoppedCardGeneration(session.id, incoming, session.cardStoppedGeneration);
-  setState('sessions', index, { shutdownPhase, pendingDelete, retryingMemory, snapshotUnavailable, cardStoppedGeneration });
+  setState('sessions', index, { shutdownPhase, pendingDelete, retryingMemory, snapshotUnavailable, canDiscardMemory, cardStoppedGeneration });
   reconcileMemoryRetry(session.id, session);
 }
 

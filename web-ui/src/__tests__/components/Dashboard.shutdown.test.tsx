@@ -20,7 +20,7 @@ const stamp = '2026-11-23T10:00:00.000Z';
 type Phase = 'queued' | 'saving' | 'consolidating' | 'finishing' | 'memory-not-merged';
 type Lifecycle = 'running' | 'stopping' | 'stopped';
 type Projection = { status: Lifecycle; lifecycle: Lifecycle; generation: number; revision: number;
-  shutdownPhase?: Phase; pendingDelete?: boolean; snapshotUnavailable?: boolean;
+  shutdownPhase?: Phase; pendingDelete?: boolean; snapshotUnavailable?: boolean; canDiscardMemory?: boolean;
   metrics?: { cpu?: string; mem?: string; hdd?: string; updatedAt?: string; syncStatus?: string } };
 let catalog: (Projection & { name?: string }) | undefined;
 let polled: Projection | undefined;
@@ -445,8 +445,8 @@ it('REQ-SESSION-043: refresh called after Delete acceptance does not join a pre-
   expect(card().getByRole('status', { name: 'Memory consolidation pending' })).toBeVisible();
 });
 
-it('REQ-SESSION-043: both cards use ordinary placeholders for unavailable shutdown metrics', async () => {
-  project('stopping', 10, 'consolidating');
+it.each(['consolidating', 'memory-not-merged'] as const)('REQ-SESSION-043: both cards use ordinary placeholders during %s', async phase => {
+  project(phase === 'consolidating' ? 'stopping' : 'stopped', 10, phase);
   await sessionStore.loadSessions();
   renderDashboard();
   render(() => <SessionDropdown isOpen sessions={sessionStore.sessions} activeSessionId={id}
@@ -455,7 +455,7 @@ it('REQ-SESSION-043: both cards use ordinary placeholders for unavailable shutdo
   const cards = screen.getAllByTestId(`session-stat-card-${id}`).map(node => within(node));
   expect(cards).toHaveLength(2);
   for (const view of cards) {
-    expect(view.getByRole('status', { name: 'Consolidating memory' })).toBeVisible();
+    expect(view.getByRole('status', { name: phase === 'consolidating' ? 'Consolidating memory' : 'Memory consolidation failed' })).toBeVisible();
     expect(view.getAllByText('...')).toHaveLength(3);
     expect(view.queryByText(/Last known metrics|Metrics unavailable/)).not.toBeInTheDocument();
   }
@@ -612,7 +612,7 @@ it('REQ-TERM-013: recovery Resume is disabled while selecting MultiView panes', 
   expect(select).toHaveBeenCalledWith(id);
 });
 
-it('REQ-SESSION-043: reports eviction after queued Retry and leaves Resume available', async () => {
+it('REQ-SESSION-043: confirmed eviction after queued Retry disables Retry and leaves Resume available', async () => {
   project('stopped', 10, 'memory-not-merged', true);
   await sessionStore.loadSessions();
   renderDashboard();
@@ -748,10 +748,15 @@ it('REQ-SESSION-043: confirms discarding unconsolidated memory from the recovery
   await sessionStore.loadSessions();
   renderDashboard();
   fireEvent.click(card().getByRole('button', { name: 'Session actions' }));
+  expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument();
+  fireEvent.click(document.querySelector('.session-context-menu__backdrop')!);
+  polled = { ...polled!, revision: 13, canDiscardMemory: true };
+  await sessionStore.refreshSessionStatuses();
+  fireEvent.click(card().getByRole('button', { name: 'Session actions' }));
   fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
   expect(operations).toEqual([]);
   await awaitCommand('deleteSession', () => fireEvent.click(screen.getByRole('button', { name: 'Delete and discard unconsolidated memory?' })));
-  expect(operations).toEqual([`DELETE ${sessionPath}?discardMemory=7%3A12`]);
+  expect(operations).toEqual([`DELETE ${sessionPath}?discardMemory=7%3A13`]);
   expect(screen.queryByTestId(`session-stat-card-${id}`)).not.toBeInTheDocument();
 });
 

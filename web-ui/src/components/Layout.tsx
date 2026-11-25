@@ -635,7 +635,8 @@ const Layout: Component<LayoutProps> = (props) => {
   };
 
   const handleDeleteSession = async (id: string, discardMemory?: string) => {
-    await sessionStore.deleteSession(id, discardMemory);
+    if (discardMemory) await sessionStore.deleteSession(id, discardMemory);
+    else await sessionStore.deleteSession(id);
   };
 
   const handleCreateSession = async (name: string, agentType?: AgentType, tabConfig?: TabConfig[]) => {
