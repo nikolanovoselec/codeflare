@@ -72,6 +72,7 @@ export function createPiWebRuntime(options: {
   let chatAttachDeadline: number | undefined;
   let chatReady = false;
   let chatCatalog: string | undefined;
+  let preparedChatServices: Promise<void> | undefined;
   let boot: Promise<void> | undefined;
   let bootPhase: 'opening' | 'failed' | undefined = 'opening';
   let legacyHerdr = false;
@@ -201,7 +202,9 @@ export function createPiWebRuntime(options: {
     let questionPauseStarted: number | undefined;
     let questionAllowance = STARTUP_QUESTION_ALLOWANCE_MS;
     try {
-      await services.start();
+      const preparation = preparedChatServices;
+      preparedChatServices = undefined;
+      await (preparation ?? services.start());
       let project = (await services.request<Array<{ path: string; id: string }>>('/api/projects')).find(row => row.path === cwd);
       project ??= await services.request('/api/projects', { path: cwd });
       if (!project || project.path !== cwd) throw new Error('Stock Chat project is unavailable');
@@ -510,7 +513,10 @@ export function createPiWebRuntime(options: {
         if (initialSurface === 'chat') {
           // Stock services start with session spawning disabled. Overlap their
           // boot with fresh header creation, but bind before exposing a writer.
-          const [, ref] = await Promise.all([services.start(), binding ?? seedChat()]).catch(async error => {
+          preparedChatServices = services.start();
+          // The bound handoff handles boot failures through its normal retry path.
+          void preparedChatServices.catch(() => {});
+          const ref = binding ?? await seedChat().catch(async error => {
             await services.close();
             throw error;
           });

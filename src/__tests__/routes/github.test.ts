@@ -68,6 +68,7 @@ function ok(json: unknown) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockFetch.mockReset();
   mockKV = createMockKV();
   mockD1 = createMockSessionD1(mockKV);
   mockKV._set('session:test-bucket:sid12345678', {
@@ -133,6 +134,31 @@ describe('REQ-GITHUB-002 / REQ-GITHUB-007: GET /api/github/status', () => {
 });
 
 describe('GitHub Details owned repository counts', () => {
+  it('serves concurrent App counts and repos through one redeemable refresh', async () => {
+    mockKV._set(KEY, { githubToken: 'expired', githubTokenSource: 'app', githubLogin: 'octocat',
+      githubRefreshToken: 'one-use', githubTokenExpiresAt: Date.now() - 1000 } satisfies DeployKeys);
+    let redeemed = false;
+    mockFetch.mockImplementation(async (input: string, init: RequestInit) => {
+      const path = new URL(input).pathname;
+      if (path === '/login/oauth/access_token') {
+        if (redeemed) return ok({ error: 'bad_refresh_token' });
+        redeemed = true;
+        await new Promise(resolve => setTimeout(resolve, 25));
+        return ok({ access_token: 'fresh', refresh_token: 'next', expires_in: 3600 });
+      }
+      if (new Headers(init.headers).get('Authorization') !== 'Bearer fresh') return new Response(null, { status: 401 });
+      if (path === '/user') return ok({ login: 'octocat', public_repos: 3, owned_private_repos: 2 });
+      if (path === '/user/repos') return ok([]);
+      throw new Error(`Unexpected fixture path ${path}`);
+    });
+    const app = createTestApp(ENT);
+    const [counts, repos] = await Promise.all([
+      app.request('/api/github/owned-repo-counts'), app.request('/api/github/repos'),
+    ]);
+    expect(await counts.json()).toEqual({ login: 'octocat', counts: { public: 3, private: 2, total: 5 } });
+    expect(repos.status).toBe(200);
+    expect(await repos.json()).toMatchObject({ repos: [] });
+  });
   it('returns only account-owned totals from the authenticated profile', async () => {
     mockKV._set(KEY, { githubToken: 'test-token', githubTokenSource: 'oauth', githubLogin: 'octocat' } satisfies DeployKeys);
     mockFetch.mockResolvedValueOnce(ok({ login: 'Octocat', public_repos: 3, owned_private_repos: 2, total_private_repos: 90 }));

@@ -981,13 +981,16 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 6. Reload Chat is offered only when the scoped frame fails to load the stock document. It retries the same frame URL without starting another handoff. <!-- @impl: web-ui/src/components/PiWebChat.tsx::PiWebChat --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (reloads the same Chat frame only after a failed navigation, without switching writers) -->
 7. Verified native question evidence for the same opening attempt pauses attachment timeout within the stock question-time allowance. Writer confirmation and the single-writer fence still apply. <!-- @impl: image/pi-web/handoff-extension.ts::publishStartupQuestion --> <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
 
-**Constraints:** Chat-first service preparation follows profile restore and never opens a writer. <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs --> The stock-loader gate is best effort, not proof of live synchronization. [REQ-TERM-049](terminal.md#req-term-049-shared-workspace-startup-progress) owns startup status copy. [REQ-GITHUB-320](github.md#req-github-320-nonblocking-terminal-repository-restore-notice) owns restore outcome reporting and notice lifecycle.
+**Constraints:**
+
+- Chat-first service preparation follows profile restore and never opens a writer.
+- The stock-loader gate is best effort, not proof of live synchronization. [REQ-TERM-049](terminal.md#req-term-049-shared-workspace-startup-progress) owns startup status copy. [REQ-GITHUB-320](github.md#req-github-320-nonblocking-terminal-repository-restore-notice) owns restore outcome reporting and notice lifecycle.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-272](#req-agent-272-pi-chat-and-terminal-transcript-handoff)
 
-**Verification:** Automated: [Ready and Open](../../web-ui/src/__tests__/components/TerminalArea.test.tsx), [Chat frame](../../web-ui/src/__tests__/components/PiWebChat.test.tsx), [Restore notification](../../web-ui/src/__tests__/components/Layout.test.tsx); Manual: [Choose the starting writer](../../documentation/lanes/terminal-and-ide.md#choose-the-starting-writer), [Held startup question](../../documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions)
+**Verification:** Automated: [Ready and Open](../../web-ui/src/__tests__/components/TerminalArea.test.tsx), [Chat frame](../../web-ui/src/__tests__/components/PiWebChat.test.tsx), [Restore notification](../../web-ui/src/__tests__/components/Layout.test.tsx), [Packaged Host handoff](../../scripts/ci/smoke-pi-web-host-handoff.mjs); Manual: [Choose the starting writer](../../documentation/lanes/terminal-and-ide.md#choose-the-starting-writer), [Held startup question](../../documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions)
 
 **Status:** Planned
 
@@ -1103,9 +1106,9 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Acceptance Criteria:**
 
-1. In a fresh browser, the stock navigation pins Chat and Files only on both desktop and phone. <!-- @impl: web-ui/src/components/PiWebChat.tsx::StockChatFrame --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (seeds stock navigation only when no browser preference exists (%s)) -->
-2. Reopening Chat preserves previously saved browser navigation choices. <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (seeds stock navigation only when no browser preference exists (%s)) -->
-3. The stock Chat footer shows token and context usage without the USD display. <!-- @impl: image/pi-web/codeflare-chrome/browser/footer.css -->
+1. In a fresh browser, the stock navigation pins Chat and Files only on both desktop and phone. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
+2. Reopening Chat preserves previously saved browser navigation choices. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions --> <!-- @impl: web-ui/src/components/PiWebChat.tsx::StockChatFrame --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (seeds stock navigation only when no browser preference exists (%s)) -->
+3. The stock Chat footer shows token and context usage without the USD display. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 
 **Constraints:** No stock Pi Web patch or change to the required Terminal plugin.
 
@@ -1113,7 +1116,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Dependencies:** [REQ-AGENT-274](#req-agent-274-stock-pi-chat-controls)
 
-**Verification:** Automated: [Stock Chat frame](../../web-ui/src/__tests__/components/PiWebChat.test.tsx) for the stored preference; Manual: [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout) and [Stock controls](../../documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions) for rendered navigation and footer.
+**Verification:** Automated: [Stock Chat frame](../../web-ui/src/__tests__/components/PiWebChat.test.tsx); Manual: [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout), [Stock controls](../../documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions)
 
 **Status:** Planned
 

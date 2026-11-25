@@ -168,6 +168,7 @@ async function qualify(ambiguous) {
     proxy.upgrade(req, socket, head);
   });
   let startupEvents;
+  const occupiedGateway = createServer((_req, res) => res.writeHead(503).end());
   try {
     mkdirSync(cwd);
     mkdirSync(extensions, { recursive: true });
@@ -210,8 +211,26 @@ export default function (pi) {
     const readSwitch = () => api(`/_switch?generation=${generation}`);
     assert.equal((await readSwitch()).chatUrl, undefined, 'do not expose Chat before profile restore');
     assert.equal(runtime.binding, undefined, 'do not bind a transcript before profile restore');
+    const preRestoreHealth = await nativeFetch(`${stock}/api/sessiond/health`, { signal: AbortSignal.timeout(1000) }).catch(() => null);
+    assert.ok(!preRestoreHealth?.ok, 'stock services must not become ready before profile restore');
+    await preRestoreHealth?.body?.cancel();
+    if (ambiguous) {
+      occupiedGateway.listen(PI_WEB_PORT, '127.0.0.1');
+      await once(occupiedGateway, 'listening');
+    }
     const restoreTime = performance.now();
     profileRestored = true;
+    let failedBinding;
+    if (ambiguous) {
+      const failed = await until('failed initial service boot', async () => {
+        const state = await readSwitch();
+        return state.phase === 'failed' ? state : undefined;
+      }, 35_000);
+      assert.ok(failed.requestId, 'failed startup must have a retryable handoff identity');
+      failedBinding = identity(runtime.binding);
+      await close(occupiedGateway);
+      await api('/_switch', 202, { generation, requestId: randomUUID(), target: 'chat' });
+    }
     const chatUrl = await until('Chat deep link', async () => {
       const state = await readSwitch();
       if (state.phase === 'failed') await boot;
@@ -219,7 +238,8 @@ export default function (pi) {
     }, 35_000);
     const { id, path } = runtime.binding;
     assert.equal((await request(stock, '/api/sessiond/health')).activeSessions, 0, 'service preparation must not acquire a writer');
-    console.log(`Chat-first profile release to deep link: ${Math.round(performance.now() - restoreTime)} ms`);
+    if (failedBinding) assert.deepEqual(identity(runtime.binding), failedBinding, 'retry preserves the original transcript');
+    else console.log(`Chat-first profile release to deep link: ${Math.round(performance.now() - restoreTime)} ms`);
     const deepLink = new URL(chatUrl, origin);
     assert.equal(deepLink.pathname, `${appPrefix}/`);
     const params = deepLink.searchParams;
@@ -634,7 +654,7 @@ export default function (pi) {
     http.request = nativeHttpRequest;
     writeFileSync(resume, '');
     writeFileSync(nativeResume, '');
-    await Promise.all([proxy.close(), close(server), close(modelServer)]);
+    await Promise.all([proxy.close(), close(server), close(modelServer), close(occupiedGateway)]);
     rmSync(home, { recursive: true, force: true });
   }
 }

@@ -110,6 +110,7 @@ export function createPiWebServices(options: { runtimeDir: string; cwd: string; 
       && before.every(item => typeof sourceOf(item) === 'string')
       && before.some(item => typeof item === 'string' && (
         /^npm:pi-mcp-adapter@\d+\.\d+\.\d+$/.test(item) || item === join(piPackage, '..', '..', 'pi-mcp-adapter')));
+    mkdirSync(options.runtimeDir, { recursive: true, mode: 0o700 });
     const defaultsPath = join(options.runtimeDir, 'defaults.json');
     writeFileSync(defaultsPath, JSON.stringify({
       installationName: 'Codeflare',

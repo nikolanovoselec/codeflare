@@ -340,6 +340,9 @@ export async function getGithubProvider(env: Env): Promise<GithubOAuthProvider |
 
 // --- orchestration ---------------------------------------------------------
 
+// Coalesce requests for the same connection within this Worker isolate.
+const appRefreshes = new WeakMap<Env['KV'], Map<string, Promise<string | null>>>();
+
 /**
  * Return a currently-valid GitHub access token for the user, refreshing an App token
  * that is at/near expiry. Returns null when not connected or when an expired App token
@@ -355,18 +358,32 @@ export async function getValidGithubToken(env: Env, bucketName: string): Promise
   if (Date.now() < conn.expiresAt - REFRESH_SKEW_MS) return conn.accessToken;
 
   // Expiring/expired App token — refresh, or fail closed.
-  if (!conn.refreshToken) return null;
-  const provider = await getGithubProvider(env);
-  if (!provider || provider.source !== 'app') return null;
-  try {
-    const refreshed = await provider.refresh(conn.refreshToken);
-    if (!refreshed.login) refreshed.login = conn.login;
-    await storeGithubConnection(env, bucketName, refreshed);
-    return refreshed.accessToken;
-  } catch (err) {
-    logger.warn('GitHub App token refresh failed; failing closed', { err: String(err) });
-    return null;
-  }
+  const refreshToken = conn.refreshToken;
+  if (!refreshToken) return null;
+  let flights = appRefreshes.get(env.KV);
+  if (!flights) appRefreshes.set(env.KV, flights = new Map());
+  const key = JSON.stringify([bucketName, refreshToken]);
+  const pending = flights.get(key);
+  if (pending) return pending;
+
+  const refresh = (async () => {
+    try {
+      const provider = await getGithubProvider(env);
+      if (!provider || provider.source !== 'app') return null;
+      const refreshed = await provider.refresh(refreshToken);
+      const current = readConnection(await readDeployKeys(env, bucketName));
+      if (current?.source !== 'app' || current.refreshToken !== refreshToken) return null;
+      refreshed.login ??= conn.login;
+      await storeGithubConnection(env, bucketName, refreshed);
+      return refreshed.accessToken;
+    } catch (err) {
+      logger.warn('GitHub App token refresh failed; failing closed', { err: String(err) });
+      return null;
+    }
+  })();
+  flights.set(key, refresh);
+  try { return await refresh; }
+  finally { flights.delete(key); }
 }
 
 /** Exchange an OAuth/App authorization code and persist the connection. */
