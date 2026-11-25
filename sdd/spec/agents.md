@@ -1111,7 +1111,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Constraints:**
 
-- Existing MCP package selections and configuration are preserved. Before Chat attaches, startup dismisses only a newly provisioned bundled MCP Manager when the managed adapter selection is unambiguous and preexisting package entries and filters are unchanged. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices -->
+- Managed profile startup retires the exact image-bundled Pi Web MCP Manager registration, not its files or unrelated package selections. Before Chat attaches, the supervisor dismisses newly provisioned Manager only when the managed adapter selection is unambiguous and preexisting entries and filters are unchanged. <!-- @impl: entrypoint.sh::configure_pi_packages_and_review_inventory --> <!-- @impl: host/src/pi-web-services.ts::createPiWebServices -->
 
 **Priority:** P1
 

@@ -227,6 +227,7 @@ Operational guidance remains in [Configuration](../../documentation/lanes/config
 
 - No bucket deletion/sync redesign; only successful native handoff excludes obsolete root `.pi/agent/mcp.json` from subsequent baseline/bisync; initial restore/failed preparation remain eligible. <!-- @impl: entrypoint.sh::configure_pi_mcp_adapter --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: active native configuration and recovery objects remain baseline-sync eligible) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: failed native preparation blocks Pi shell merge without excluding restored files from baseline) -->
 - Packages do not prove selection.
+- Managed profile startup retires only the exact image-bundled Pi Web MCP Manager registration, preserving unrelated package entries. <!-- @impl: entrypoint.sh::configure_pi_packages_and_review_inventory --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-217: startup retires the exact bundled Pi Web MCP Manager registration) -->
 - Exact managed exclusions `mcp-portal-oauth.ts`, `review-enforcement.ts`, `operator-review-remote.ts`, `hermes-memory-runtime.ts` are selection-neutral; other unsupported filters fail closed before preparation.
 - Registration chooses no settings winner and disables neither client; managed startup selects the native adapter, explicit stock-only retains guarded handoff.
 - Preserve transformed custom originals before replacement.

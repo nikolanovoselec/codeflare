@@ -166,10 +166,10 @@ try {
   await services.start();
   await checkReady({ preexistingManager: true });
   await closeAndCheckReaping();
-  // Replay the actual production package-inventory function for a fresh profile.
-  // Do not use a sourced entrypoint: its top-level actions belong to container startup.
+  // Replay production inventory on a restored profile before stock starts.
+  // Do not source the entrypoint: its top-level actions belong to container startup.
   rmSync(join(runtimeDir, 'data'), { recursive: true, force: true });
-  writeFileSync(settingsPath, JSON.stringify({ packages: [localWorkflows] }));
+  writeFileSync(settingsPath, JSON.stringify({ packages: [localWorkflows, bundledMcpManager] }));
   mkdirSync(join(agentDir, 'npm'), { recursive: true });
   symlinkSync(join(toolsRoot, 'node_modules'), join(agentDir, 'npm/node_modules'));
   const entrypoint = readFileSync(new URL('../../entrypoint.sh', import.meta.url), 'utf8');
@@ -211,7 +211,8 @@ try {
   assert.ok(listedTools(), 'the selected adapter must query tools from the synthetic MCP server');
   await closeAndCheckReaping();
 
-  // A restored registration at the exact bundled path could be a user choice.
+  // If inventory reconciliation has not run, the supervisor alone still
+  // preserves a preexisting registration and the adapter warns on ambiguity.
   const productionSettings = json(settingsPath);
   writeFileSync(settingsPath, JSON.stringify({ ...productionSettings, packages: [...productionSettings.packages, bundledMcpManager] }));
   rmSync(join(runtimeDir, 'data'), { recursive: true, force: true });

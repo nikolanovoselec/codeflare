@@ -445,6 +445,20 @@ it('REQ-AGENT-069 / REQ-AGENT-217: restored managed MCP registrations converge t
   assert.deepEqual(first.customPreference, initial.customPreference);
 });
 
+it('REQ-AGENT-217: startup retires the exact bundled Pi Web MCP Manager registration', () => {
+  const bundled = '/opt/codeflare/pi-web/node_modules/@jmfederico/pi-web/dist/pi-packages/mcp-manager';
+  const custom = { source: './tools/mcp-manager', extensions: ['keep.ts'] };
+  for (const registration of [bundled, { source: bundled, extensions: ['index.ts'] }]) {
+    const similarPath = `${bundled}@custom`;
+    const settings = runAssembly(JSON.stringify({ packages: [registration, custom, similarPath] }), 2);
+    assert.ok(!settings.packages.some(entry => sourceOf(entry) === bundled));
+    assert.ok(settings.packages.includes(similarPath));
+    assert.deepEqual(settings.packages.find(entry => sourceOf(entry) === custom.source), custom);
+    assert.deepEqual(settings.packages.map(sourceOf).filter(source => /^npm:pi-mcp-adapter(?:@|$)/.test(source)),
+      [`npm:pi-mcp-adapter@${piPackage.dependencies['pi-mcp-adapter']}`]);
+  }
+});
+
 for (const form of ['absolute', 'relative']) {
   it(`REQ-AGENT-217: startup retires duplicated managed stock runtime aliases (${form})`, () => {
     const settings = runAssembly(directory => {

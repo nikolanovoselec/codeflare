@@ -3703,6 +3703,8 @@ const defaultPackages = [
 // Retire managed registrations without deleting user files.
 // Unlike disabled packages these are dropped and never re-added, so upgrades load cleanly.
 const removedPackageIds = new Set(['npm:@gaodes/pi-graphify', 'npm:pi-goal-list-loop-audit', 'npm:@narumitw/pi-goal', 'npm:pi-caveman', 'npm:@narumitw/pi-usage', 'npm:pi-mcp-extension']);
+// Stock Pi Web can leave this exact image-owned registration in a restored profile.
+const bundledMcpManager = '/opt/codeflare/pi-web/node_modules/@jmfederico/pi-web/dist/pi-packages/mcp-manager';
 function sourceOf(entry) {
   if (typeof entry === 'string') return entry;
   return entry && typeof entry.source === 'string' ? entry.source : undefined;
@@ -3742,7 +3744,7 @@ const existing = Array.isArray(settings.packages) ? settings.packages : [];
 const byName = new Map();
 for (const spec of existing) {
   const source = sourceOf(spec);
-  if (!source) continue;
+  if (!source || source === bundledMcpManager) continue;
   const id = identity(source);
   if (defaultPackageIds.has(id) || removedPackageIds.has(id)) continue;
   byName.set(id, spec);
