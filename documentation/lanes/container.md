@@ -461,9 +461,11 @@ For [REQ-SESSION-006](../../sdd/spec/session-lifecycle.md#req-session-006-user-c
 
 For dropdown observation, open a different authorized disposable terminal in a second tab. After initiating Stop or Delete, foreground that tab, or use a separate visible window. Open its dropdown and watch the target without reloading. Record missed transient phases as unobserved. Separately reload the Dashboard during an active phase to verify the label; on the observer, reload and reopen the dropdown for the equivalent check.
 
-At desktop, tablet, and phone widths, compare bounds in the same slot across running, queued, saving, consolidating, finishing, and stopped states. During active shutdown, check blocked selection, readable metrics, and the white breathing label. Check that new samples update the card and that stale or missing samples show the corresponding notice. With reduced motion, the label remains static. The Dashboard has no sweeping light. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard -->
+At desktop, tablet, and phone widths, measure the same Dashboard slot while running, queued, saving, consolidating, finishing, and stopped. Pass if the card bounds do not change. During active shutdown, verify both surfaces block selection, keep metrics readable, and show a white breathing phase label that stays static under reduced motion. The Dashboard has no sweeping light. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard -->
 
-After a successful Stop, the shutdown label and metrics notice clear and the card is selectable under the usual rules. A successful Delete removes the card.
+On both surfaces, new samples replace older values. Current readings show no notice, retained stale or unconfirmed readings show **Last known metrics**, and no usable readings show **Metrics unavailable**. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard -->
+
+Without reloading either surface, a successful Stop leaves a stopped card with no shutdown label or metrics notice and restores normal selection. A successful Delete removes the card from both surfaces.
 
 On a saved-but-unmerged fixture, compare the failed, headless retry, and settled card bounds with the running card. Check both recovery actions by touch where available. Retry does not open a terminal; a separate Resume opens the saved workspace without restarting the old retry. Verify recovery actions cannot be used during a headless retry or during a managed update. Record the build and viewport or device; DOM fixtures do not establish rendered bounds.
 

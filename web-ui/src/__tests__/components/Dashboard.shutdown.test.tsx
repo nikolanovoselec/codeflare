@@ -238,6 +238,22 @@ it('REQ-SESSION-043: distinguishes current readings, last-known readings and una
   renderDashboard();
   expect(card().getByText('7%')).toBeVisible();
   expect(card().queryByText('Last known metrics')).not.toBeInTheDocument();
+  const dropdown = render(() => <SessionDropdown isOpen sessions={sessionStore.sessions} activeSessionId={id}
+    onSelectSession={() => {}} onStopSession={() => {}} onDeleteSession={() => {}}
+    onCreateSession={() => {}} onClose={() => {}} isMobileView={false} />);
+  const cards = () => screen.getAllByTestId(`session-stat-card-${id}`).map(node => within(node));
+  batchResponse = Promise.resolve(Response.json({ error: 'Status unavailable' }, { status: 503 }));
+  await sessionStore.refreshSessionStatuses();
+  expect(cards()).toHaveLength(2);
+  for (const view of cards()) {
+    expect(view.getByText('Consolidating memory...')).toBeVisible();
+    expect(view.getByText('7%')).toBeVisible();
+    expect(view.getByText('Last known metrics')).toBeVisible();
+  }
+  batchResponse = undefined;
+  await sessionStore.refreshSessionStatuses();
+  for (const view of cards()) expect(view.queryByText('Last known metrics')).not.toBeInTheDocument();
+  dropdown.unmount();
   await vi.advanceTimersByTimeAsync(2 * SESSION_POLL_STABLE_MS);
   expect(card().getByText('Last known metrics')).toBeVisible();
   polled = { ...polled, revision: 11, metrics: { ...metrics, updatedAt: new Date().toISOString() } };

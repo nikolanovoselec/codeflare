@@ -125,7 +125,8 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
     if (![readings?.cpu, readings?.mem, readings?.hdd].some(value => value && value !== '...')) return 'Metrics unavailable';
     const lifecycle = props.session.lifecycle ?? props.session.status;
     const age = Date.now() - Date.parse(readings?.updatedAt ?? '');
-    return lifecycle === 'running' && age >= 0 && age <= METRICS_FRESHNESS_MS ? undefined : 'Last known metrics';
+    return !sessionStore.statusUnavailable && lifecycle === 'running' && age >= 0 && age <= METRICS_FRESHNESS_MS
+      ? undefined : 'Last known metrics';
   };
 
   const timerInfo = createMemo(() => {
