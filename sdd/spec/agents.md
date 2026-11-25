@@ -949,7 +949,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 **Acceptance Criteria:**
 
 1. During a successful handoff, retain the outgoing view until Code connects or Vibe clears the stock loading gate. Native startup questions and Chat load recovery can reveal Vibe early. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps Vibe visible after Host confirms Code until its terminal attaches) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps the repository restore notice visible across Classic Chat and Terminal switches) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time -->
-2. On Code reveal, focus moves to the prepared destination pane, including when that pane replaces an off-grid selection. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps Vibe visible after Host confirms Code until its terminal attaches) -->
+2. Code reveal focuses the already-connected destination, including an off-grid fallback, without remounting or reconnecting within the same session generation. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps Vibe visible after Host confirms Code until its terminal attaches) --> <!-- @test: web-ui/src/__tests__/components/Terminal.test.tsx (keeps the prepared tiled socket through Code reveal and retires it on workspace change) -->
 3. During an eligible waiting switch, the workspace mode menu offers Cancel switch. <!-- @impl: web-ui/src/components/PiWorkspaceMode.tsx::PiWorkspaceMode --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (cancels a waiting switch from the mode menu without replacing the Chat frame) -->
 
 **Constraints:** [REQ-TERM-011](terminal.md#req-term-011-visible-terminal-panes-own-websocket-connections) limits hidden terminal attachment.
@@ -958,7 +958,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Dependencies:** [REQ-AGENT-273](#req-agent-273-pi-handoff-continuity)
 
-**Verification:** Automated: [Workspace handoff](../../web-ui/src/__tests__/components/Layout.test.tsx); Manual: [Switch one writer at a time](../../documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time)
+**Verification:** Automated: [Workspace handoff](../../web-ui/src/__tests__/components/Layout.test.tsx), [Tiled socket lifetime](../../web-ui/src/__tests__/components/Terminal.test.tsx); Manual: [Switch one writer at a time](../../documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time)
 
 **Status:** Planned
 

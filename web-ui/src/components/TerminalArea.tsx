@@ -237,7 +237,7 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
         {/* Tiled terminal view - when tiling is enabled */}
         <Show when={mountNativeTerminal() && !isMultiViewWorkspace() && !isHerdrSession() && activeTiling()?.enabled && activeTerminals() && activeTerminalSession()
           && `${activeTerminalSession()!.id}:${activeTerminalSession()!.generation ?? ''}`} keyed>
-          {() => <>
+          {(_workspaceKey) => <>
             {/* Single InitProgress overlay for tiled mode (instead of per-terminal) */}
             <Show when={isActiveSessionInitializing()}>
               <div class="terminal-init-overlay">

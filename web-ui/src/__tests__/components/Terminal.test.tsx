@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, cleanup, fireEvent } from '@solidjs/testing-library';
-import { createSignal, Show } from 'solid-js';
+import { batch, createSignal, Show } from 'solid-js';
 import Terminal from '../../components/Terminal';
+import TerminalArea from '../../components/TerminalArea';
+import { createMigrationRetry } from '../../components/MigrationRetryNotice';
 import { terminalStore } from '../../stores/terminal';
 import { sessionStore } from '../../stores/session';
-import type { TerminalConnectionState } from '../../types';
+import type { SessionWithStatus, TerminalConnectionState } from '../../types';
 import { isTouchDevice } from '../../lib/mobile';
 import { focusMobileTerminal } from '../../lib/terminal-mobile-input';
 
@@ -110,6 +112,19 @@ vi.mock('../../stores/session', () => ({
   },
 }));
 
+vi.mock('../../stores/terminal-workspace', () => ({
+  terminalWorkspaceStore: {
+    isTerminalSession: (session: SessionWithStatus | null) => session?.workspace === 'terminal',
+    getVisiblePanes: () => [],
+    getFocusedPaneId: () => null,
+    setSingleSessionWorkspace: () => {},
+  },
+}));
+vi.mock('../../components/Dashboard', () => ({ default: () => null }));
+vi.mock('../../components/TerminalTabs', () => ({ default: () => null }));
+vi.mock('../../components/TilingButton', () => ({ default: () => null }));
+vi.mock('../../components/FloatingTerminalButtons', () => ({ default: () => null }));
+
 // MOCK-DRIFT RISK: InitProgress is replaced with a trivial div. Real component
 // renders a multi-stage progress overlay with animations, stage timings, and
 // detail rows. Tests that depend on InitProgress internals should use the real
@@ -173,6 +188,83 @@ describe('Terminal Component', () => {
 
   afterEach(() => {
     cleanup();
+  });
+
+  it('keeps the prepared tiled socket through Code reveal and retires it on workspace change', async () => {
+    const { terminalStore: transport } = await vi.importActual<typeof import('../../stores/terminal')>('../../stores/terminal');
+    const store = { ...terminalStore };
+    const sessions = ['abcdef0123456789', 'fedcba9876543210'].map(id => ({
+      id, name: id, generation: 1, status: 'running', workspace: 'terminal',
+      createdAt: '2026-01-01', lastAccessedAt: '2026-01-01',
+    } satisfies SessionWithStatus));
+    const [session, setSession] = createSignal(sessions[0]);
+    const [revealed, reveal] = createSignal(false);
+    const [activeTabId, setTab] = createSignal('3');
+    const [error, setError] = createSignal<string | null>(null);
+    const sessionProps = {
+      sessions,
+      getActiveSession: session,
+      get activeSessionId() { return session().id; },
+      getTilingForSession: () => ({ enabled: true, layout: '2-split' as const }),
+      getTabOrder: () => ['1', '2', '3'],
+      getTerminalsForSession: () => ({
+        activeTabId: activeTabId(), tabs: ['1', '2', '3'].map(id => ({ id, createdAt: '2026-01-01' })),
+      }),
+    };
+    const OriginalWebSocket = globalThis.WebSocket;
+    class Socket extends OriginalWebSocket {
+      readonly sent: string[] = [];
+      constructor(readonly url: string) { super(url); sockets.push(this); }
+      send(data: string) { this.sent.push(data); }
+    }
+    const sockets: Socket[] = [];
+    const forTab = (id: string, tab: string) => sockets.filter(socket => new URL(socket.url).pathname === `/api/terminal/${id}-${tab}/ws`);
+    const noop = () => {};
+    Object.assign(terminalStore, Object.fromEntries(Object.keys(store).filter(key => key !== 'layoutChangeCounter')
+      .map(key => [key, transport[key as keyof typeof transport]])));
+    const originalSessionProps = Object.getOwnPropertyDescriptors(sessionStore);
+    Object.defineProperties(sessionStore, Object.getOwnPropertyDescriptors(sessionProps));
+    vi.useFakeTimers();
+    vi.stubGlobal('WebSocket', Socket);
+    try {
+      render(() => <TerminalArea migrationRetry={createMigrationRetry()} showTerminal viewState="terminal"
+        showPiWebPanel={!revealed()} prepareNativeTerminal={!revealed()} handoffPending={!revealed()}
+        codeAttachment={!revealed() ? { terminalId: '1', onAttached: () => batch(() => { setTab('1'); reveal(true); }) } : undefined}
+        piWebPanel={<span>Vibe source</span>} showTilingOverlay={false} onTilingButtonClick={noop}
+        onSelectTilingLayout={noop} onCloseTilingOverlay={noop} onTileClick={setTab}
+        onOpenSessionById={noop} onStartSession={noop} onOpenVscodeSession={noop} onStopSession={noop}
+        onDeleteSession={noop} onCreateSession={noop} onTerminalError={setError} error={error()} onDismissError={noop} />);
+      const pane = screen.getByTestId('tiled-slot-1');
+      const [prepared] = forTab(sessions[0].id, '1');
+      expect(prepared).toBeDefined();
+      expect(sockets).toEqual([prepared]);
+      expect(pane).not.toBeVisible();
+      expect(screen.getByText('Vibe source')).toBeVisible();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(pane).toBeVisible();
+      expect(pane).toHaveAttribute('data-active', 'true');
+      expect(forTab(sessions[0].id, '1')).toEqual([prepared]);
+      expect(prepared.readyState).toBe(WebSocket.OPEN);
+      expect(prepared.sent).toContain(JSON.stringify({ type: 'focus' }));
+
+      setSession(sessions[1]);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(pane).not.toBeInTheDocument();
+      expect(prepared.readyState).toBe(WebSocket.CLOSED);
+      expect(forTab(sessions[1].id, '1')).toHaveLength(1);
+      expect(forTab(sessions[1].id, '1')[0].readyState).toBe(WebSocket.OPEN);
+    } finally {
+      cleanup();
+      transport.disposeAll();
+      Object.assign(terminalStore, store);
+      for (const key of Object.keys(sessionProps)) {
+        const original = originalSessionProps[key as keyof typeof sessionStore];
+        if (original) Object.defineProperty(sessionStore, key, original);
+        else Reflect.deleteProperty(sessionStore, key);
+      }
+      vi.stubGlobal('WebSocket', OriginalWebSocket);
+      vi.useRealTimers();
+    }
   });
 
   describe('Init Progress Overlay', () => {
