@@ -929,6 +929,7 @@ COPY scripts/merge-pi-mcp-portals.mjs /opt/codeflare/merge-pi-mcp-portals.mjs
 #   misses (including dependencies) in a second fresh Pi process. Native JS uses
 #   Node's compile cache; require its native-import trace, not a JITI artifact.
 #   Verify exact local path hashes before deleting the temporary warm home.
+COPY --chmod=0444 image/pi-web/handoff-extension.ts /opt/codeflare/pi-web/
 RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
     ln -s /opt/codeflare/pi-agent/npm /home/user/.pi/agent/npm && \
     cp -r /opt/codeflare/pi-agent/extensions /home/user/.pi/agent/extensions && \
@@ -951,10 +952,11 @@ RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
       node /opt/codeflare/scripts/verify-pi-lockstep.mjs --warm-jiti-entrypoints \
       /opt/codeflare/pi-agent/npm/node_modules/.bin/pi /opt/codeflare/jiti-warm-tmp/jiti "$todo_loop_source" "$plan_source" "$open_tui_source" "$evaluate_source" "$codex_fast_source" "$subagents_source" "$mcp_source" \
       "$advisor_source" "$ask_user_source" "$todo_source" "$web_source" "$smart_compact_source" "$context_source" /home/user/.pi/agent/extensions/*.ts \
+      /opt/codeflare/pi-web/handoff-extension.ts \
       --dependencies /home/user/.pi/agent/extensions/transcript-trim/engine.mjs && \
     mv /opt/codeflare/jiti-warm-tmp/jiti /opt/codeflare/jiti-cache && \
     test -n "$(ls -A /opt/codeflare/jiti-cache)" && \
-    for ext in /home/user/.pi/agent/extensions/*.ts; do \
+    for ext in /home/user/.pi/agent/extensions/*.ts /opt/codeflare/pi-web/handoff-extension.ts; do \
         node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$ext" /opt/codeflare/jiti-cache || exit 1; \
     done && \
     todo_loop_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$todo_loop_source" /opt/codeflare/jiti-cache)" && \
@@ -1054,7 +1056,7 @@ COPY host/package.json /app/host/
 COPY --from=builder /opt/codeflare/pi-web /opt/codeflare/pi-web
 COPY --chmod=0555 image/pi-web/codeflare-chrome/ /opt/codeflare/pi-web/codeflare-chrome/
 COPY --chmod=0555 image/pi-web/codeflare-pi /usr/local/bin/codeflare-terminal-writer
-COPY --chmod=0444 image/pi-web/handoff-extension.ts image/pi-web/native-preflight.mjs image/pi-web/warm-compile-cache.mjs scripts/ci/smoke-pi-web-handoff.mjs /opt/codeflare/pi-web/
+COPY --chmod=0444 image/pi-web/native-preflight.mjs image/pi-web/warm-compile-cache.mjs scripts/ci/smoke-pi-web-handoff.mjs /opt/codeflare/pi-web/
 # Bake the installed stock services at their runtime paths, without a user profile or writer.
 RUN --network=none if node /opt/codeflare/scripts/coding-agent-selection.mjs has "$CODEFLARE_CODING_AGENTS" pi; then \
       node /opt/codeflare/pi-web/warm-compile-cache.mjs; \
