@@ -271,7 +271,7 @@ async function refreshSessionStatusesOnce(forceManagedReleaseCheck: boolean): Pr
       || Date.now() - lastAncillaryCheckAt >= ANCILLARY_CHECK_INTERVAL_MS;
     if (ancillaryDue) void refreshSessionAncillaryStatus().catch(() => undefined);
     if (requestedCatalogRevision !== catalogRevision) return;
-    reportAvailability(false);
+    const confirmsMetrics = reportAvailability(false);
 
     // Consecutive-miss tracking: only remove sessions after REMOVAL_THRESHOLD misses.
     // Skip initializing sessions - they may not appear in batch status yet.
@@ -323,8 +323,8 @@ async function refreshSessionStatusesOnce(forceManagedReleaseCheck: boolean): Pr
         setStateRaw('sessions', idx, 'editorReadyError', remote.editorReadyError === true);
       }
 
-      // Populate sessionMetrics from batch-status metrics
-      if (remote.metrics) {
+      // Superseded reads can still carry ordered lifecycle evidence, not metrics confirmation.
+      if (confirmsMetrics && remote.metrics) {
         setStateProduce((s: SessionState) => {
           applyMetricsUpdateFn(s.sessionMetrics, session.id, remote.metrics!, version);
         });

@@ -478,10 +478,9 @@ async function loadSessions(): Promise<void> {
     // Publish the authoritative catalog before optional status enrichment.
     const batchResponse = await batchRequest;
     if (thisGen !== loadSessionsGeneration || acceptedCatalogRevision !== getSessionCatalogRevision()) return;
-    if (batchError) {
-      if (reportAvailability(batchAuthFailure ? sessionStatusUnavailable() : true)) setState('error', batchError);
-    } else {
-      reportAvailability(false);
+    const confirmsMetrics = batchError === null && reportAvailability(false);
+    if (batchError !== null && reportAvailability(batchAuthFailure ? sessionStatusUnavailable() : true)) {
+      setState('error', batchError);
     }
     const batchStatuses = batchResponse.statuses;
 
@@ -523,8 +522,8 @@ async function loadSessions(): Promise<void> {
       if (batchStatus.editorReady !== undefined) setState('sessions', idx, 'editorReady', batchStatus.editorReady);
       setState('sessions', idx, 'editorReadyError', batchStatus.editorReadyError === true);
 
-      // Populate sessionMetrics from batch-status metrics
-      if (batchStatus.metrics) {
+      // Do not overwrite samples from a more recent status read.
+      if (confirmsMetrics && batchStatus.metrics) {
         setState(produce(s => {
           applyMetricsUpdate(s.sessionMetrics, session.id, batchStatus.metrics!, version);
         }));

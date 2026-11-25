@@ -25,6 +25,7 @@ let operations: string[];
 let retryResponse: Promise<Response> | undefined;
 let deleteResponse: Promise<Response> | undefined;
 let batchResponse: Promise<Response> | undefined;
+let onBatchRequest: (() => void) | undefined;
 
 function project(status: Lifecycle, revision: number, shutdownPhase?: Phase, pendingDelete?: boolean, generation = 7) {
   catalog = polled = { status, lifecycle: status, generation, revision, shutdownPhase, pendingDelete };
@@ -68,7 +69,7 @@ beforeEach(async () => {
   sessionPath = `/api/sessions/${id}`;
   catalog = polled = undefined;
   operations = [];
-  retryResponse = deleteResponse = batchResponse = undefined;
+  retryResponse = deleteResponse = batchResponse = onBatchRequest = undefined;
   vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(input instanceof Request ? input.url : String(input), location.origin);
     const method = init?.method ?? (input instanceof Request ? input.method : 'GET');
@@ -77,7 +78,10 @@ beforeEach(async () => {
       return Response.json({ sessions: catalog ? [{ id, name, createdAt: stamp, lastAccessedAt: stamp,
         agentType: 'pi', workspace: 'terminal', terminalMode: 'classic', ...catalog }] : [] });
     }
-    if (path === '/api/sessions/batch-status') return batchResponse ?? Response.json({ statuses: polled ? { [id]: polled } : {} });
+    if (path === '/api/sessions/batch-status') {
+      onBatchRequest?.();
+      return batchResponse ?? Response.json({ statuses: polled ? { [id]: polled } : {} });
+    }
     if (path === '/api/sessions/ancillary-status') return Response.json({ maxSessions: 3 });
     if (path === '/api/user/ensure-r2-token' || path === '/api/user/r2-status') return Response.json({ ready: false });
     if (path === '/api/preferences') return Response.json({ userTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone });
@@ -276,20 +280,56 @@ it('REQ-SESSION-043: distinguishes current readings, last-known readings and una
   expect(card().queryByText('7%')).not.toBeInTheDocument();
 });
 
-it('REQ-TERM-013: queued and stopped cards cannot take a MultiView slot', async () => {
-  project('running', 10, 'queued');
+it('REQ-SESSION-043: a late catalog batch cannot replace confirmed metrics on either card surface', async () => {
+  project('running', 9, 'queued');
   await sessionStore.loadSessions();
-  const queued = sessionStore.sessions[0]!;
-  const running = ['one', 'two'].map(id => ({ ...queued, id, name: id, shutdownPhase: undefined }));
-  const stopped = { ...queued, id: 'stopped', name: 'stopped', status: 'stopped' as const, shutdownPhase: undefined };
+  renderDashboard();
+  const observer = render(() => <SessionDropdown isOpen sessions={sessionStore.sessions} activeSessionId={id}
+    onSelectSession={() => {}} onStopSession={() => {}} onDeleteSession={() => {}}
+    onCreateSession={() => {}} onClose={() => {}} isMobileView={false} />);
+  const cards = () => screen.getAllByTestId(`session-stat-card-${id}`).map(node => within(node));
+  project('stopping', 10, 'consolidating');
+  const current = { ...polled!, lifecycle: 'running' as const,
+    metrics: { cpu: '21%', mem: '1.2G', hdd: '3.1G', updatedAt: new Date().toISOString() } };
+  catalog = current;
+  let release!: (response: Response) => void;
+  batchResponse = new Promise(resolve => { release = resolve; });
+  const loading = sessionStore.loadSessions();
+  try {
+    await within(observer.container).findByText('Consolidating memory...');
+    batchResponse = undefined;
+    polled = current;
+    await sessionStore.refreshSessionStatuses();
+    expect(cards()).toHaveLength(2);
+    for (const view of cards()) expect(view.getByText('21%')).toBeVisible();
+  } finally {
+    release(Response.json({ statuses: { [id]: { ...current, metrics: { ...current.metrics, cpu: '7%' } } } }));
+    await loading;
+  }
+  expect(cards()).toHaveLength(2);
+  for (const view of cards()) {
+    expect(view.getByText('21%')).toBeVisible();
+    expect(view.queryByText('7%')).not.toBeInTheDocument();
+    expect(view.queryByText('Last known metrics')).not.toBeInTheDocument();
+  }
+});
+
+it.each(['queued', 'consolidating'] as const)('REQ-TERM-013: an active %s session and a stopped card cannot take MultiView slots', async phase => {
+  project(phase === 'queued' ? 'running' : 'stopping', 10, phase);
+  await sessionStore.loadSessions();
+  const shuttingDown = sessionStore.sessions[0]!;
+  const running = ['one', 'two'].map(id => ({ ...shuttingDown, id, name: id, status: 'running' as const, shutdownPhase: undefined }));
+  const stopped = { ...shuttingDown, id: 'stopped', name: 'stopped', status: 'stopped' as const, shutdownPhase: undefined };
   const launch = vi.fn();
-  render(() => <SessionDropdown isOpen sessions={[queued, stopped, ...running]} activeSessionId="one"
+  render(() => <SessionDropdown isOpen sessions={[shuttingDown, stopped, ...running]} activeSessionId={id}
     onSelectSession={() => {}} onStopSession={() => {}} onDeleteSession={() => {}}
     onCreateSession={() => {}} onClose={() => {}} isMobileView={false}
     multiView={{ capacity: 2, existing: null, onLaunch: launch, onOpen: () => {}, onClose: () => {} }} />);
   fireEvent.click(screen.getByRole('button', { name: 'Launch MultiView' }));
   expect(card().queryByRole('button', { name: /activate session/i })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Activate session stopped' }));
+  expect(screen.getByRole('button', { name: 'Cancel MultiView' })).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Activate session one' }));
   expect(screen.getByRole('button', { name: 'Cancel MultiView' })).toBeVisible();
   fireEvent.click(screen.getByRole('button', { name: 'Activate session two' }));
   fireEvent.click(screen.getByRole('button', { name: 'Launch MultiView' }));
@@ -407,6 +447,7 @@ it.each([['queued', 'running'], ['queued', 'stopped'], ['consolidating', 'stoppi
 });
 
 it('REQ-SESSION-043: an accepted Delete retains the card through merge failure and finishing until the server removes it', async () => {
+  vi.useFakeTimers();
   project('running', 10);
   await sessionStore.loadSessions();
   renderDashboard();
@@ -428,10 +469,15 @@ it('REQ-SESSION-043: an accepted Delete retains the card through merge failure a
   expect(card().getByText(/finishing/i)).toBeVisible();
   sessionStore.setActiveSession(id);
   catalog = polled = undefined;
-  await sessionStore.refreshSessionStatuses();
-  expect(card().getByText(/finishing/i)).toBeVisible();
-  await sessionStore.refreshSessionStatuses();
-  await sessionStore.refreshSessionStatuses();
+  // Each observation comes from a distinct successful HTTP read, not another
+  // caller joining a prior refresh or a confirmation timer racing the fixture.
+  for (let misses = 1; misses <= 3; misses++) {
+    const served = new Promise<void>(resolve => { onBatchRequest = resolve; });
+    batchResponse = Promise.resolve(Response.json({ statuses: {} }));
+    await Promise.all([served, sessionStore.refreshSessionStatuses()]);
+    onBatchRequest = undefined;
+    if (misses < 3) expect(card().getByText(/finishing/i)).toBeVisible();
+  }
   expect(screen.queryByText(name)).not.toBeInTheDocument();
   expect(sessionStore.activeSessionId).toBeNull();
 });

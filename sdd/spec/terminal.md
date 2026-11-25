@@ -645,7 +645,7 @@ None.
 
 **Constraints:**
 
-- Sessions that are stopped or in active shutdown are not selectable. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/Dashboard.shutdown.test.tsx (REQ-TERM-013: queued and stopped cards cannot take a MultiView slot) -->
+- Sessions that are stopped or in active shutdown are not selectable. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/Dashboard.shutdown.test.tsx (REQ-TERM-013: an active %s session and a stopped card cannot take MultiView slots) -->
 - A selected session entering shutdown releases its slot. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-TERM-013: queued shutdown frees a selected slot and leaves Cancel available) -->
 - The user can cancel selection if fewer than two eligible sessions remain. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-TERM-013: queued shutdown frees a selected slot and leaves Cancel available) -->
 - If the viewport can no longer support MultiView, exit selection without launching. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-TERM-013: resizing to phone exits selection without launching) -->
