@@ -35,10 +35,10 @@ const statusPulses: Record<SessionStatus, boolean> = {
 const METRICS_FRESHNESS_MS = 75_000;
 
 const shutdownLabels: Record<ShutdownPhase, string> = {
-  queued: 'Memory consolidation pending...',
-  saving: 'Memory consolidation pending...',
-  consolidating: 'Consolidating memory...',
-  finishing: '',
+  queued: 'Memory consolidation pending',
+  saving: 'Memory consolidation pending',
+  consolidating: 'Consolidating memory',
+  finishing: 'Consolidating memory',
   'memory-not-merged': 'Stopped · memory not merged',
 };
 
