@@ -1186,6 +1186,26 @@ describe('useTerminal hook', () => {
       dispose();
     });
 
+    it('consumes Herdr clipboard output without writing while the retained pane is hidden', async () => {
+      const [visible, setVisible] = createSignal(true);
+      const dispose = createRoot(dispose => {
+        const result = useTerminal({ ...defaultProps, terminalMode: 'herdr', get visible() { return visible(); }, connect: true });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+      try {
+        const copy = mockRegisterOscHandler.mock.calls.find(([identifier]) => identifier === 52)![1];
+        setVisible(false);
+        expect(copy('c;Y29waWVkIGZyb20gSGVyZHI=')).toBe(true);
+        expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
+        setVisible(true);
+        expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
+        expect(copy('c;Y29waWVkIGZyb20gSGVyZHI=')).toBe(true);
+        expect(navigator.clipboard.writeText).toHaveBeenCalledWith('copied from Herdr');
+        await Promise.resolve();
+      } finally { dispose(); }
+    });
+
     it('retains a rejected OSC 52 write for the next Ctrl+V', async () => {
       vi.mocked(navigator.clipboard.writeText).mockRejectedValueOnce(new Error('denied'));
       vi.mocked(navigator.clipboard.readText).mockRejectedValueOnce(new Error('denied'));

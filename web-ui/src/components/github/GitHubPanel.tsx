@@ -1,6 +1,7 @@
 import { Component, Show, onMount, createSignal } from 'solid-js';
 import { mdiFlipVertical } from '@mdi/js';
 import { githubStore } from '../../stores/github';
+import { consumeGithubConnectReturn } from '../../lib/github-connect-return';
 import { isTouchDevice, scrollFieldAboveKeyboard } from '../../lib/mobile';
 import ConnectCard from './ConnectCard';
 import ConnectedHeader from './ConnectedHeader';
@@ -13,16 +14,9 @@ interface GitHubPanelProps {
   /** When provided, renders a mobile-only flip control in the header that
       swaps this panel for the R2 storage panel. */
   onFlip?: () => void;
+  /** When supplied, the embedding Dashboard owns OAuth callback feedback. */
+  connectReturnError?: string | null;
 }
-
-// Maps the ?github= return values (other than `connected`) to a
-// non-blocking error message.
-const RETURN_ERRORS: Record<string, string> = {
-  denied: 'GitHub authorization was denied.',
-  expired: 'The GitHub authorization request expired. Please try again.',
-  error: 'Something went wrong connecting to GitHub. Please try again.',
-  unavailable: 'GitHub connect is temporarily unavailable. Please try again later.',
-};
 
 // Container for the GitHub panel. Renders nothing when GitHub is not
 // enabled (or status has not yet loaded). When connected, composes the
@@ -55,16 +49,7 @@ const GitHubPanel: Component<GitHubPanelProps> = (props) => {
   };
 
   onMount(() => {
-    // Handle the OAuth return: ?github=connected|denied|expired|error|unavailable.
-    const params = new URLSearchParams(window.location.search);
-    const github = params.get('github');
-    if (github) {
-      // Strip the query param without a reload (mirrors SubscribePage).
-      window.history.replaceState({}, '', window.location.pathname);
-      if (github !== 'connected' && RETURN_ERRORS[github]) {
-        setReturnError(RETURN_ERRORS[github]);
-      }
-    }
+    if (props.connectReturnError === undefined) setReturnError(consumeGithubConnectReturn());
     // Only load status if it has not already been loaded. The Dashboard now kicks
     // off loadStatus() on its own mount (to break the enabled-gates-the-panel
     // deadlock), so by the time this panel mounts status is already loaded; loading
@@ -90,11 +75,11 @@ const GitHubPanel: Component<GitHubPanelProps> = (props) => {
           </Show>
         </div>
 
-        <Show when={returnError()}>
+        <Show when={props.connectReturnError === undefined ? returnError() : props.connectReturnError}>{message => (
           <div class="github-return-error" data-testid="github-return-error" role="status" aria-live="polite">
-            {returnError()}
+            {message()}
           </div>
-        </Show>
+        )}</Show>
 
         <Show
           when={githubStore.connected}

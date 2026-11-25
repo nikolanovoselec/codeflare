@@ -14,7 +14,7 @@ import { sessionStore } from '../../stores/session';
 // pattern); picking a level connects with ?tier=. Enterprise uses an admin-
 // configured GitHub App whose fixed permissions ignore the tier, so the button
 // connects directly with a bare URL and no dialog.
-const ConnectCard: Component = () => {
+const ConnectCard: Component<{ compact?: boolean }> = props => {
   const [dialogOpen, setDialogOpen] = createSignal(false);
   const [tier, setTier] = createSignal<ScopeTier>('recommended');
   const [btnRef, setBtnRef] = createSignal<HTMLButtonElement>();
@@ -44,19 +44,21 @@ const ConnectCard: Component = () => {
   };
 
   return (
-    <div class="github-connect-card" data-testid="github-connect-card">
-      <Icon path={mdiGithub} size={32} class="github-connect-icon" />
-      <p class="github-connect-text">Connect your GitHub account to browse your repositories.</p>
+    <div class={props.compact ? undefined : 'github-connect-card'} data-testid={props.compact ? undefined : 'github-connect-card'}>
+      <Show when={!props.compact}>
+        <Icon path={mdiGithub} size={32} class="github-connect-icon" />
+        <p class="github-connect-text">Connect your GitHub account to browse your repositories.</p>
+      </Show>
       <button
         type="button"
         ref={setBtnRef}
         class="github-connect-btn"
-        data-testid="github-connect-btn"
+        data-testid={props.compact ? undefined : 'github-connect-btn'}
         data-href={githubConnectUrl()}
         onClick={onButtonClick}
       >
         <Icon path={mdiGithub} size={16} />
-        <span>Connect GitHub</span>
+        <span>{props.compact ? 'Click here to login with GitHub' : 'Connect GitHub'}</span>
       </button>
       {/* Portal escapes .dashboard-panel's backdrop-filter, which otherwise
           becomes the containing block for the dialog's position:fixed (mirrors

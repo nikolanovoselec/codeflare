@@ -8,6 +8,7 @@ import { sessionStore } from '../../stores/session';
 import { storageStore } from '../../stores/storage';
 import { githubStore } from '../../stores/github';
 import * as storageApi from '../../api/storage';
+import * as githubApi from '../../api/github';
 import { ApiError } from '../../api/fetch-helper';
 import * as vaultCache from '../../lib/vault-cache';
 import * as gravatar from '../../lib/gravatar';
@@ -68,10 +69,15 @@ vi.mock('../../components/github/GitHubPanel', () => ({
 vi.mock('../../stores/github', async () => {
   const { createSignal } = await vi.importActual<typeof import('solid-js')>('solid-js');
   const [enabled, setEnabled] = createSignal(false);
+  const [login, setLogin] = createSignal<string>();
   return {
     githubStore: {
       get enabled() { return enabled(); },
-      _setEnabled: (v: boolean) => setEnabled(v),
+      get connected() { return !!login(); },
+      get login() { return login(); },
+      get source() { return login() ? 'oauth' : undefined; },
+      _setEnabled: (v: boolean) => { setEnabled(v); if (!v) setLogin(undefined); },
+      _setLogin: setLogin,
       // Dashboard kicks this off on mount to break the enabled-gates-the-panel
       // deadlock (status is loaded outside the gated GitHub panel).
       loadStatus: vi.fn(),
@@ -125,6 +131,7 @@ vi.mock('../../stores/session', async () => {
   let _enterpriseMode = false;
   let _sessionMode = 'advanced';
   let _herdrEnabled = false;
+  let defaultWorkspace: 'terminal' | 'vscode' | undefined;
   return {
     sessionStore: {
       get sessions() { return []; },
@@ -143,7 +150,7 @@ vi.mock('../../stores/session', async () => {
       get managedReleaseStatus() { return _managedReleaseStatus(); },
       get managedReleaseProgress() { return _managedReleaseProgress; },
       get enterpriseMode() { return _enterpriseMode; },
-      get preferences() { return { sessionMode: _sessionMode, herdrEnabled: _herdrEnabled }; },
+      get preferences() { return { sessionMode: _sessionMode, herdrEnabled: _herdrEnabled, defaultWorkspace }; },
       allowedAgents: ['pi'],
       isAtSessionLimit: () => _isAtLimit,
       startR2Polling: vi.fn(),
@@ -151,6 +158,7 @@ vi.mock('../../stores/session', async () => {
       killSession: vi.fn().mockResolvedValue(undefined),
       _setSessionMode: (v: string) => { _sessionMode = v; },
       _setHerdrEnabled: (enabled: boolean) => { _herdrEnabled = enabled; },
+      _setDefaultWorkspace: (workspace?: 'terminal' | 'vscode') => { defaultWorkspace = workspace; },
       _setTestLimit: (atLimit: boolean, max?: number) => {
         _isAtLimit = atLimit;
         if (max !== undefined) _maxSessions = max;
@@ -321,6 +329,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     (sessionStore as any)._setEnterpriseMode(false);
     (sessionStore as any)._setSessionMode('advanced');
     (sessionStore as any)._setHerdrEnabled(false);
+    (sessionStore as any)._setDefaultWorkspace();
     showRealCreateDialog = false;
     (sessionStore as any)._setManagedReleaseStatus(null);
     (sessionStore as any)._setManagedReleaseProgress(null);
@@ -442,6 +451,22 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(actions).toEqual([{ action, id, surface }, { action: 'open', id, surface: undefined }]);
   });
 
+  it.each(['Herdr', 'VS Code'])('keeps Classic Pi sessions reachable without offering mode actions under %s', async setting => {
+    if (setting === 'Herdr') (sessionStore as any)._setHerdrEnabled(true);
+    else (sessionStore as any)._setDefaultWorkspace('vscode');
+    const id = 'managed-pi';
+    render(() => <Dashboard {...defaultProps} sessions={[{
+      id, name: 'Managed Pi', status: 'running', workspace: 'terminal', agentType: 'pi', terminalMode: 'classic',
+      createdAt: '2024-01-01', lastAccessedAt: '2024-01-01',
+    }]} />);
+    await fireEvent.click(screen.getByTestId(`menu-${id}`));
+    const menu = within(screen.getByTestId('session-context-menu'));
+    expect(menu.queryByRole('button', { name: /\b(Chat|Terminal)\b/ })).not.toBeInTheDocument();
+    expect(menu.getByRole('button', { name: 'Rename' })).toBeVisible();
+    await fireEvent.click(screen.getByTestId(`select-${id}`));
+    expect(defaultProps.onOpenSessionById).toHaveBeenCalledWith(id);
+  });
+
   it.each([
     { agentType: 'bash', workspace: 'terminal', terminalMode: 'classic' },
     { agentType: 'pi', workspace: 'vscode', terminalMode: 'classic' },
@@ -476,6 +501,176 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     } else {
       fireEvent.click(within(dialog.getByRole('group', { name: 'Start Pi in' })).getByRole('button', { name: 'Chat' }));
       expect(defaultProps.onCreateSession).toHaveBeenCalledWith('pi', undefined, 'chat');
+    }
+  });
+
+  it('moves Dashboard Operators into Profile when its measured header is compact', async () => {
+    (sessionStore as any)._setEnterpriseMode(true);
+    let width = 300;
+    const measurements: Array<() => void> = [];
+    const layout = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(() => width);
+    const bounds = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 80 } as DOMRect);
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(callback: () => void) { measurements.push(callback); }
+      observe() {}
+      disconnect() {}
+    });
+    try {
+      render(() => <Dashboard {...defaultProps} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
+      expect(screen.queryByRole('button', { name: 'Operator activity' })).not.toBeInTheDocument();
+      const profile = screen.getByTestId('header-user-menu');
+      fireEvent.click(profile);
+      const action = await within(screen.getByTestId('header-user-dropdown')).findByRole('button', { name: 'Operator activity' });
+      fireEvent.click(action);
+      const dialog = await screen.findByRole('dialog', { name: 'Operator activity' });
+      expect(screen.queryByTestId('header-user-dropdown')).not.toBeInTheDocument();
+      await waitFor(() => expect(dialog).toHaveFocus());
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Close operators' }));
+      expect(profile).toHaveFocus();
+      width = 800;
+      measurements.forEach(measure => measure());
+      expect(screen.getByRole('button', { name: 'Operator activity' })).toBeVisible();
+    } finally {
+      cleanup();
+      layout.mockRestore();
+      bounds.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it.each(['desktop', 'tablet', 'mobile'] as const)('discloses the existing GitHub and Storage browsers together in Vibe on %s', viewport => {
+    viewportMock.setViewport?.(viewport);
+    (githubStore as any)._setEnabled(true);
+    render(() => <Dashboard {...defaultProps} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
+
+    const pull = screen.getByRole('button', { name: 'Show GitHub & Storage' });
+    const browsers = screen.getByTestId('dashboard-panel-right');
+    const github = screen.getByTestId('github-panel-stub');
+    const storage = screen.getByTestId('storage-browser');
+    expect(pull).toHaveAttribute('aria-expanded', 'false');
+    expect(pull).toHaveAttribute('aria-controls', browsers.id);
+    expect(browsers).toHaveAttribute('inert');
+    expect(github).not.toBeVisible();
+    expect(storage).not.toBeVisible();
+
+    fireEvent.click(pull);
+    expect(screen.getByRole('button', { name: 'Hide GitHub & Storage' })).toBe(pull);
+    expect(pull).toHaveAttribute('aria-expanded', 'true');
+    expect(browsers).not.toHaveAttribute('inert');
+    expect(github).toBeVisible();
+    expect(storage).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Show GitHub', exact: true })).not.toBeInTheDocument();
+
+    fireEvent.click(pull);
+    expect(pull).toHaveAttribute('aria-expanded', 'false');
+    expect(browsers).toHaveAttribute('inert');
+    expect(github).not.toBeVisible();
+    expect(storage).not.toBeVisible();
+  });
+
+  it('closes the Vibe drawer from a focused browser and returns focus to the pull', () => {
+    (githubStore as any)._setEnabled(true);
+    render(() => <Dashboard {...defaultProps} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
+    const pull = screen.getByRole('button', { name: 'Show GitHub & Storage' });
+    fireEvent.click(pull);
+    const browserControl = screen.getByTestId('gh-stub-flip');
+    browserControl.focus();
+    expect(browserControl).toHaveFocus();
+    fireEvent.keyDown(browserControl, { key: 'Escape' });
+    expect(pull).toHaveFocus();
+    expect(pull).toHaveAttribute('aria-expanded', 'false');
+    expect(browserControl).not.toBeVisible();
+  });
+
+  it('keeps the existing browser controls without a drawer pull in Code mode', () => {
+    (githubStore as any)._setEnabled(true);
+    render(() => <Dashboard {...defaultProps} workspaceMode={{ value: 'terminal', onSelect: () => {} }} />);
+    expect(screen.queryByRole('button', { name: 'Show GitHub & Storage' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('dashboard-panel-right')).not.toHaveAttribute('inert');
+    expect(screen.getByTestId('github-panel-stub')).toBeInTheDocument();
+    expect(screen.getByTestId('storage-browser')).toBeInTheDocument();
+  });
+
+  it('shows the authenticated account’s private, public and total repository counts in Vibe', async () => {
+    (githubStore as any)._setEnabled(true);
+    (githubStore as any)._setLogin('octocat');
+    const counts = vi.spyOn(githubApi, 'getGithubOwnedRepoCounts').mockResolvedValue({
+      login: 'Octocat', counts: { private: 8, public: 3, total: 11 },
+    });
+    try {
+      render(() => <Dashboard {...defaultProps} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
+      const details = within(screen.getByRole('region', { name: 'GitHub Details' }));
+      for (const [label, value] of [['Private repos', '8'], ['Public repos', '3'], ['Repos', '11']]) {
+        const name = await details.findByText(label, { exact: true });
+        expect(within(name.parentElement!).getByText(value, { exact: true })).toBeVisible();
+      }
+    } finally { counts.mockRestore(); }
+  });
+
+  it('keeps the connected GitHub account visible when owned totals are unavailable in Vibe', async () => {
+    (githubStore as any)._setEnabled(true);
+    (githubStore as any)._setLogin('octocat');
+    const counts = vi.spyOn(githubApi, 'getGithubOwnedRepoCounts').mockResolvedValue({ counts: null });
+    try {
+      render(() => <Dashboard {...defaultProps} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
+      const details = within(screen.getByRole('region', { name: 'GitHub Details' }));
+      expect(details.getByText('octocat')).toBeVisible();
+      expect(await details.findByText('Owned repository counts unavailable')).toBeVisible();
+      expect(details.queryByRole('button', { name: 'Click here to login with GitHub' })).not.toBeInTheDocument();
+      expect(details.queryByText('0')).not.toBeInTheDocument();
+    } finally { counts.mockRestore(); }
+  });
+
+  it('announces a GitHub authorization failure while the Vibe drawer stays closed', async () => {
+    (githubStore as any)._setEnabled(true);
+    const previous = window.location.href;
+    window.history.replaceState(window.history.state, '', '/app/?github=denied#dashboard');
+    try {
+      render(() => <Dashboard {...defaultProps} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
+      const details = within(screen.getByRole('region', { name: 'GitHub Details' }));
+      expect(await details.findByRole('status')).toHaveTextContent('GitHub authorization was denied.');
+      expect(screen.getByRole('button', { name: 'Show GitHub & Storage' })).toHaveAttribute('aria-expanded', 'false');
+      expect(window.location.search).toBe('');
+      expect(window.location.hash).toBe('#dashboard');
+    } finally { window.history.replaceState(window.history.state, '', previous); }
+  });
+
+  it('clears previous repo counts while a different connected account loads', async () => {
+    (githubStore as any)._setEnabled(true);
+    (githubStore as any)._setLogin('octocat');
+    const counts = vi.spyOn(githubApi, 'getGithubOwnedRepoCounts')
+      .mockResolvedValueOnce({ login: 'octocat', counts: { private: 8, public: 3, total: 11 } })
+      .mockImplementationOnce(() => new Promise(() => {}));
+    try {
+      render(() => <Dashboard {...defaultProps} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
+      const details = within(screen.getByRole('region', { name: 'GitHub Details' }));
+      expect(await details.findByText('11', { exact: true })).toBeVisible();
+      (githubStore as any)._setLogin('hubot');
+      expect(details.getByText('hubot')).toBeVisible();
+      expect(details.getByRole('status')).toHaveTextContent('Loading owned repository counts');
+      expect(details.queryByText('11', { exact: true })).not.toBeInTheDocument();
+    } finally { counts.mockRestore(); }
+  });
+
+  it('offers the existing GitHub connection flow from Vibe GitHub Details', async () => {
+    (githubStore as any)._setEnabled(true);
+    render(() => <Dashboard {...defaultProps} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
+    const details = screen.getByRole('region', { name: 'GitHub Details' });
+    fireEvent.click(within(details).getByRole('button', { name: 'Click here to login with GitHub' }));
+    expect(await screen.findByTestId('github-tier-dialog')).toBeVisible();
+  });
+
+  it.each([false, true])('starts Pi Chat directly in Vibe unless the session limit is reached (%s)', atLimit => {
+    showRealCreateDialog = true;
+    (sessionStore as any)._setTestLimit(atLimit, 3);
+    try {
+      render(() => <Dashboard {...defaultProps} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
+      fireEvent.click(screen.getByTestId('dashboard-new-session'));
+      expect(screen.queryByRole('dialog', { name: 'Create new session' })).not.toBeInTheDocument();
+      if (atLimit) expect(defaultProps.onCreateSession).not.toHaveBeenCalled();
+      else expect(defaultProps.onCreateSession).toHaveBeenCalledWith('pi', undefined, 'chat');
+    } finally {
+      (sessionStore as any)._setTestLimit(false);
     }
   });
 

@@ -1,4 +1,13 @@
-import { resolveTerminalMode, type Session } from '../types';
+import { resolveTerminalMode, type AgentType, type Session, type UserPreferences } from '../types';
+
+/** Whether to offer a new mode choice; existing surfaces remain observable. */
+export function canChoosePiSurface(
+  preferences: Pick<UserPreferences, 'herdrEnabled' | 'defaultWorkspace'>,
+  allowedAgents: readonly AgentType[] | null,
+): boolean {
+  return !preferences.herdrEnabled && preferences.defaultWorkspace !== 'vscode'
+    && (allowedAgents?.includes('pi') ?? true);
+}
 
 export function isPiWebSession(session: Pick<Session, 'agentType' | 'workspace' | 'tabConfig' | 'terminalMode'> | null | undefined): boolean {
   if (session?.agentType !== 'pi' || session.workspace === 'vscode' || resolveTerminalMode(session.terminalMode) !== 'classic') return false;

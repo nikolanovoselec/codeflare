@@ -11,6 +11,19 @@ describe('VaultButton', () => {
 
   const btn = () => screen.getByTestId('header-vault-button');
 
+  it('preserves guarded Vault feedback and activation as a labeled Profile action', () => {
+    const [status, setStatus] = createSignal<VaultButtonStatus>('prewarming');
+    const onOpen = vi.fn();
+    render(() => <VaultButton status={status()} onOpen={onOpen} inProfile />);
+    expect(btn()).toHaveTextContent('Vault');
+    fireEvent.click(btn());
+    expect(screen.getByRole('status')).toHaveTextContent('Preparing Vault on this device');
+    expect(onOpen).not.toHaveBeenCalled();
+    setStatus('ready');
+    fireEvent.click(btn());
+    expect(onOpen).toHaveBeenCalledOnce();
+  });
+
   it.each([
     { status: 'idle' as const, feedback: 'Vault is waiting for the session to be ready.' },
     { status: 'prewarming' as const, feedback: 'Preparing Vault on this device. First use in a browser can take a few minutes.' },

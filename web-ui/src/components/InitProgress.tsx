@@ -23,6 +23,7 @@ interface InitProgressProps {
   sessionId?: string;
   progress: InitProgress | null;
   onOpen?: () => void;
+  openReady?: boolean;
 }
 
 // Define the 6 initialization stages with their labels
@@ -85,10 +86,11 @@ const InitProgressComponent: Component<InitProgressProps> = (props) => {
     return enrichedDetails;
   };
 
-  const isComplete = () => props.progress?.stage === 'ready';
+  const isComplete = () => props.progress?.stage === 'ready' && props.openReady !== false;
   const isError = () => props.progress?.stage === 'error';
   const progressPercent = () => props.progress?.progress ?? 0;
-  const statusMessage = () => props.progress?.message ?? 'Initializing...';
+  const statusMessage = () => props.progress?.stage === 'ready' && props.openReady === false
+    ? 'Preparing Chat…' : props.progress?.message ?? 'Initializing...';
 
   // Hero icon based on current stage
   const heroIcon = () => {

@@ -81,7 +81,7 @@ it('REQ-GITHUB-007: unauthenticated GitHub requests preserve credentials and nev
   const stored = [...mockKV._store];
   const app = createTestApp(ENT);
   for (const [path, method] of [
-    ['status', 'GET'], ['repos', 'GET'], ['connect', 'GET'], ['disconnect', 'POST'], ['clone', 'POST'],
+    ['status', 'GET'], ['repos', 'GET'], ['owned-repo-counts', 'GET'], ['connect', 'GET'], ['disconnect', 'POST'], ['clone', 'POST'],
   ] as const) {
     vi.mocked(authenticateRequest).mockRejectedValueOnce(new AuthError('Authentication required'));
     const response = await app.request(`/api/github/${path}`, {
@@ -129,6 +129,34 @@ describe('REQ-GITHUB-002 / REQ-GITHUB-007: GET /api/github/status', () => {
       expect(JSON.stringify([...res.headers])).not.toContain(secret);
       expect(JSON.stringify(body)).not.toContain(secret);
     }
+  });
+});
+
+describe('GitHub Details owned repository counts', () => {
+  it('returns only account-owned totals from the authenticated profile', async () => {
+    mockKV._set(KEY, { githubToken: 'test-token', githubTokenSource: 'oauth', githubLogin: 'octocat' } satisfies DeployKeys);
+    mockFetch.mockResolvedValueOnce(ok({ login: 'Octocat', public_repos: 3, owned_private_repos: 2, total_private_repos: 90 }));
+    const response = await createTestApp({}).request('/api/github/owned-repo-counts');
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ login: 'Octocat', counts: { public: 3, private: 2, total: 5 } });
+  });
+
+  it.each([
+    { login: 'octocat', public_repos: 3, total_private_repos: 90 },
+    { login: 'another-account', public_repos: 3, owned_private_repos: 2 },
+    { login: 'octocat', public_repos: 3, owned_private_repos: -1 },
+  ])('leaves owned counts unavailable for an incomplete or mismatched profile', async profile => {
+    mockKV._set(KEY, { githubToken: 'test-token', githubTokenSource: 'oauth', githubLogin: 'octocat' } satisfies DeployKeys);
+    mockFetch.mockResolvedValueOnce(ok(profile));
+    const response = await createTestApp({}).request('/api/github/owned-repo-counts');
+    expect(await response.json()).toEqual({ counts: null });
+  });
+
+  it('does not treat a GitHub App installation inventory as account totals', async () => {
+    mockKV._set(KEY, { githubToken: 'test-token', githubTokenSource: 'app', githubLogin: 'octocat' } satisfies DeployKeys);
+    const response = await createTestApp(ENT).request('/api/github/owned-repo-counts');
+    expect(await response.json()).toEqual({ counts: null });
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 });
 
@@ -213,6 +241,14 @@ describe('GET /api/github/connect', () => {
       (await createTestApp(env).request('/api/github/connect?tier=minimal')).headers.get('location')!,
     );
     expect(minimal.searchParams.get('scope')).not.toContain('admin:repo_hook');
+  });
+
+  it.each(['minimal', 'recommended', 'advanced', 'default'])('REQ-GITHUB-317 AC5: requests read:user for the %s OAuth-App connection', async tier => {
+    const env = { OAUTH_CLIENT_ID: 'oauth-cid', OAUTH_CLIENT_SECRET: 'oauth-sec', OAUTH_JWT_SECRET: 'state-secret' };
+    const response = await createTestApp(env).request(`/api/github/connect${tier === 'default' ? '' : `?tier=${tier}`}`);
+    expect(response.status).toBe(302);
+    const redirect = new URL(response.headers.get('location')!);
+    expect(redirect.searchParams.get('scope')?.split(' ')).toContain('read:user');
   });
 
   it('REQ-GITHUB-013: requests gist access for every OAuth-App connection tier', async () => {

@@ -10,6 +10,7 @@ const statusSchema = z.object({
   requestId: z.uuid().optional(),
   target: surface.optional(),
   chatUrl: z.string().optional(),
+  startupQuestion: z.boolean().optional(),
 });
 
 export type PiWebStatus = z.infer<typeof statusSchema>;

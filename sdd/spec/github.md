@@ -43,7 +43,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Constraints:**
 
-- Scopes: the OAuth App's `scope` is derived per connect from the requested tier (default `repo gist read:org workflow`; see [REQ-GITHUB-317](#req-github-317-additive-github-connection-and-scope-contract) AC4 and [REQ-GITHUB-013](#req-github-013-connected-github-tokens-grant-gist-access)); the GitHub App's equivalent permissions are fixed at registration and ignore the tier.
+- Scopes: the OAuth App's `scope` is derived per connect from the requested tier (default `repo gist read:org workflow read:user`; see [REQ-GITHUB-317](#req-github-317-additive-github-connection-and-scope-contract) AC4 and [REQ-GITHUB-013](#req-github-013-connected-github-tokens-grant-gist-access)); the GitHub App's equivalent permissions are fixed at registration and ignore the tier.
 - Enterprise GitHub Apps must be **internal** to the customer's enterprise.
 - GitHub connection controls use OAuth without manual token paste on the dashboard ([REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise)); Settings → Integrations manages owner Cloudflare connections independently of administrator Browser Run credentials ([REQ-BROWSER-007](browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)).
 - Keep non-Enterprise deploy-key PAT behavior; Enterprise direct-credential denial changes neither provider resolution nor legacy handling.
@@ -398,6 +398,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 2. Dashboard, Guided Setup, and Settings use the same OAuth connect/disconnect interaction contract while retaining surface-specific visual chrome; the reusable card accepts surface styling without changing navigation or disconnect behavior. <!-- @impl: web-ui/src/components/connect/OAuthConnectCard.tsx::OAuthConnectCard --> <!-- @test: web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx (OAuthConnectCard) --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (GitHubPanel Component) -->
 3. GitHub uses additive OAuth and existing per-user token transport; enterprise retains egress injection ([REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [REQ-GITHUB-003](#req-github-003-enterprise-egress-injected-github-credentials), [REQ-GITHUB-006](#req-github-006-other-mode-container-transport)). <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-317 AC1+AC3: %s nonadvanced connection is additive and authentication guards every connection action) --> <!-- @test: src/__tests__/github-interceptor.test.ts (REQ-GITHUB-317 AC3: restricted Operator keeps GitHub credentials mediated in enterprise=%s) --> <!-- @impl: src/lib/github-token.ts::connectGithub --> <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE feeds capture pipeline) / REQ-AGENT-031 (LLM API keys + agent-specific keys propagated to container env)) -->
 4. The connect URL carries a scope `tier` (minimal/recommended/advanced); the server maps the tier to the OAuth-App `scope` parameter from a backend scope catalog (the GitHub App path's fixed permissions ignore it). <!-- @impl: src/lib/oauth-scopes.ts::githubScopeForTier --> <!-- @test: src/__tests__/routes/github.test.ts (feeds the scope tier into the OAuth-App authorize scope param) -->
+5. Every OAuth App connection tier requests `read:user` so GitHub can return account-owned repository counters. Existing grants are not modified automatically. <!-- @impl: src/lib/oauth-scopes.ts::githubScopeForTier --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-317 AC5: requests read:user for the %s OAuth-App connection) -->
 
 **Constraints:**
 
@@ -525,9 +526,34 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 ---
 
+### REQ-GITHUB-321: Vibe Dashboard browser disclosure
+
+**Intent:** Keep the Vibe Dashboard focused on sessions until the user asks to browse GitHub or Storage.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Vibe starts with the GitHub and Storage browsers hidden and unavailable to keyboard navigation. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (discloses the existing GitHub and Storage browsers together in Vibe on %s) -->
+2. One labeled control opens and closes the same browser panels together, without requiring the legacy flip controls. Escape from within the drawer closes it and returns focus to its control. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (discloses the existing GitHub and Storage browsers together in Vibe on %s) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (closes the Vibe drawer from a focused browser and returns focus to the pull) -->
+
+3. Vibe GitHub Details reports only account-owned public, private and total repository counts from an authenticated profile that supplies them. A connected account with unavailable counts remains identified as connected. <!-- @impl: src/routes/github.ts::app --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: src/__tests__/routes/github.test.ts (returns only account-owned totals from the authenticated profile) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (keeps the connected GitHub account visible when owned totals are unavailable in Vibe) -->
+
+**Constraints:** Code mode retains standard panel allocation. <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (keeps the existing browser controls without a drawer pull in Code mode) -->
+
+**Priority:** P1
+
+**Dependencies:** [REQ-GITHUB-012](#req-github-012-responsive-github-and-storage-panel-allocation)
+
+**Verification:** Automated: [Dashboard component tests](../../web-ui/src/__tests__/components/Dashboard.test.tsx)
+
+**Status:** Planned
+
+---
+
 ### REQ-GITHUB-012: Responsive GitHub and storage panel allocation
 
-**Intent:** GitHub and storage share the dashboard's right column as an anchored split when space permits and collapse to one independently content-sized face when the viewport is narrow or short.
+**Intent:** In the standard Dashboard layout, GitHub and storage share the right column as an anchored split when space permits and collapse to one independently content-sized face when the viewport is narrow or short. The Vibe drawer has a separate disclosure contract.
 
 **Applies To:** User
 
@@ -602,7 +628,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Constraints:**
 
-- The existing tier-specific repository, organization, workflow, hook, and user scopes remain unchanged.
+- The existing tier-specific repository, organization, workflow, and hook scopes remain unchanged; `read:user` applies to all tiers under REQ-GITHUB-317 AC5.
 - GitHub App permissions remain fixed at registration and do not receive an OAuth `scope` parameter.
 - Direct GitHub login remains an identity-only flow and does not own connection capabilities.
 

@@ -328,8 +328,29 @@ export default function (pi: ExtensionAPI) {
 		timer = setInterval(publish, 250);
 		timer.unref();
 	});
-	pi.on("ui_prompt_start", () => { uiPrompt = true; });
-	pi.on("ui_prompt_end", () => { uiPrompt = false; });
+	// This evidence only pauses the Host's attachment timeout. It must never
+	// substitute for the normal writer receipt published after resources load.
+	function publishStartupQuestion(context: ExtensionContext, waiting: boolean) {
+		if (terminal || ready || context.mode !== "rpc") return;
+		try {
+			const owner = readOwner(generation);
+			if (owner?.phase !== "opening" || owner.target !== "chat" || !owner.requestId) return;
+			const binding = identity(context);
+			if (!binding || !matchesBinding(owner.binding, binding)) return;
+			const { id, cwd, path } = binding;
+			atomicWrite(join(stateDir, "chat-startup-question.json"), JSON.stringify({
+				generation, pid: process.pid, startTime, requestId: owner.requestId, id, cwd, path, waiting,
+			}));
+		} catch { /* Withhold waiting evidence if the identity cannot be verified. */ }
+	}
+	pi.on("ui_prompt_start", (event, context) => {
+		uiPrompt = true;
+		if (event.kind === "confirm" || event.kind === "select" || event.kind === "input") publishStartupQuestion(context, true);
+	});
+	pi.on("ui_prompt_end", (_event, context) => {
+		uiPrompt = false;
+		publishStartupQuestion(context, false);
+	});
 	pi.on("before_agent_start", () => {
 		if (terminal) {
 			// Pi 1.5.2 latches Abort once a run starts preparing. A new

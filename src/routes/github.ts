@@ -107,6 +107,42 @@ app.get('/status', async (c) => {
   return c.json({ enabled: true, configured: provider !== null, ...status });
 });
 
+const OwnedRepoProfile = z.object({
+  login: z.string().min(1),
+  public_repos: z.int().nonnegative(),
+  owned_private_repos: z.int().nonnegative(),
+});
+
+// Use account-level profile counters only, never a partial installation inventory.
+app.get('/owned-repo-counts', reposRateLimiter, async (c) => {
+  c.header('Cache-Control', 'no-store');
+  const unavailable = () => c.json({ counts: null });
+  if (!githubFeatureEnabled(c.env)) return unavailable();
+  const bucketName = c.get('bucketName');
+  const connection = await getGithubConnectionStatus(c.env, bucketName);
+  if (connection.source !== 'oauth' || !connection.login) return unavailable();
+  const token = await getValidGithubToken(c.env, bucketName);
+  if (!token) return unavailable();
+  const apiHost = c.env.GITHUB_API_HOST?.trim() || 'api.github.com';
+  try {
+    const upstream = await fetch(`https://${apiHost}/user`, {
+      headers: {
+        Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'User-Agent': 'Codeflare',
+      },
+      redirect: 'error', signal: AbortSignal.timeout(8_000),
+    });
+    if (!upstream.ok) return unavailable();
+    const profile = OwnedRepoProfile.safeParse(await upstream.json());
+    if (!profile.success || profile.data.login.toLowerCase() !== connection.login.toLowerCase()) return unavailable();
+    const { login, public_repos: publicCount, owned_private_repos: privateCount } = profile.data;
+    const total = publicCount + privateCount;
+    if (!Number.isSafeInteger(total)) return unavailable();
+    return c.json({ login, counts: { public: publicCount, private: privateCount, total } });
+  } catch {
+    return unavailable();
+  }
+});
+
 // GET /api/github/repos?page= — the user's accessible repos (server-side proxy).
 app.get('/repos', reposRateLimiter, async (c) => {
   if (!githubFeatureEnabled(c.env)) return c.json({ error: 'GitHub integration disabled', code: 'GITHUB_DISABLED' }, 403);

@@ -30,6 +30,8 @@ interface WebStatus {
   persisted: boolean;
 }
 const nativeId = /^[a-zA-Z0-9](?:[a-zA-Z0-9_.-]{0,126}[a-zA-Z0-9])?$/;
+const CHAT_ATTACH_TIMEOUT_MS = 25_000;
+const STARTUP_QUESTION_ALLOWANCE_MS = 5 * 60_000; // Stock extension-dialog timeout.
 
 function loadJson<T>(path: string): T | undefined {
   try { return JSON.parse(readFileSync(path, 'utf8')) as T; }
@@ -180,9 +182,24 @@ export function createPiWebRuntime(options: {
     return ref;
   }
 
+  function waitingOnStartupQuestion(ref: PiTranscript, requestId: string | undefined): boolean {
+    if (!requestId) return false;
+    try {
+      const evidence = loadJson<PiTranscript & Pick<NativeReceipt, 'generation' | 'pid' | 'startTime'> & {
+        requestId: string; waiting: boolean;
+      }>(join(runtimeDir, 'chat-startup-question.json'));
+      return evidence?.waiting === true && evidence.generation === generation && evidence.requestId === requestId
+        && evidence.id === ref.id && evidence.path === ref.path && evidence.cwd === ref.cwd
+        && Number.isSafeInteger(evidence.pid) && evidence.pid > 1 && processMatches(evidence);
+    } catch { return false; }
+  }
+
   async function openChat(ref: PiTranscript): Promise<boolean> {
     chatStartup = new AbortController();
     chatAttachDeadline = undefined;
+    const requestId = handoff.status().requestId;
+    let questionPauseStarted: number | undefined;
+    let questionAllowance = STARTUP_QUESTION_ALLOWANCE_MS;
     try {
       await services.start();
       let project = (await services.request<Array<{ path: string; id: string }>>('/api/projects')).find(row => row.path === cwd);
@@ -199,12 +216,25 @@ export function createPiWebRuntime(options: {
       // confirmation budget only when the scoped browser frame attaches.
       await until(() => {
         if (!services.running()) throw new Error('Stock Chat exited during startup');
-        if (chatAttachDeadline !== undefined && Date.now() >= chatAttachDeadline) {
-          throw new Error('Native Chat writer could not be confirmed');
-        }
         const observed = receipt('chat');
-        return observed?.id === ref.id && observed.path === ref.path && !observed.released && processMatches(observed)
-          ? true : undefined;
+        const writerConfirmed = observed?.id === ref.id && observed.path === ref.path && !observed.released && processMatches(observed);
+        if (chatAttachDeadline !== undefined) {
+          const now = Date.now();
+          // Pi's UI notifications are best-effort. A real writer receipt
+          // ends the pause even if the question-end notification was missed.
+          const waiting = !writerConfirmed && questionAllowance > 0 && waitingOnStartupQuestion(ref, requestId);
+          if (waiting && questionPauseStarted === undefined && now < chatAttachDeadline) questionPauseStarted = now;
+          if (questionPauseStarted !== undefined) {
+            const elapsed = now - questionPauseStarted;
+            if (waiting && elapsed < questionAllowance) return undefined;
+            const pause = Math.min(elapsed, questionAllowance);
+            chatAttachDeadline += pause;
+            questionAllowance -= pause;
+            questionPauseStarted = undefined;
+          }
+          if (now >= chatAttachDeadline) throw new Error('Native Chat writer could not be confirmed');
+        }
+        return writerConfirmed ? true : undefined;
       }, chatStartup.signal);
       chatReady = true;
       return true;
@@ -452,13 +482,15 @@ export function createPiWebRuntime(options: {
     get generation() { return generation; },
     get legacyHerdr() { return legacyHerdr; },
     get cwd() { return cwd; },
-    beginChatAttachment() { chatAttachDeadline ??= Date.now() + 25_000; },
+    beginChatAttachment() { chatAttachDeadline ??= Date.now() + CHAT_ATTACH_TIMEOUT_MS; },
     markWebRequestUnconfirmed() { webRequestUnconfirmed = true; },
     status() {
       const state = handoff.status();
       if (legacyHerdr) return { ...state, phase: 'failed' as const, surface: 'terminal' as const };
       // Keep the outgoing frame visible while answering a question or draining.
       return { ...state, ...(bootPhase && { phase: bootPhase }),
+        ...(binding && state.phase === 'opening' && state.target === 'chat'
+          && waitingOnStartupQuestion(binding, state.requestId) && { startupQuestion: true }),
         ...(chatUrl !== undefined && (state.surface === 'chat' || state.target === 'chat' && state.phase === 'opening') && { chatUrl }) };
     },
     initialize() {

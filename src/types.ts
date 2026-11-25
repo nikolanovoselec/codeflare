@@ -338,6 +338,7 @@ export interface UserPreferences {
   fastStartEnabled?: boolean;
   sessionMode?: SessionMode;
   defaultWorkspace?: SessionWorkspace;
+  defaultPiSurface?: PiSurface;
   sleepAfter?: SleepAfterOption;
   /** REQ-MEM-001 AC4: user's IANA timezone, captured from the browser. */
   userTimezone?: string;

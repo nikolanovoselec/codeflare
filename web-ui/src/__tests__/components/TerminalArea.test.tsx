@@ -54,7 +54,9 @@ vi.mock('../../components/FloatingTerminalButtons', () => ({
 }));
 
 vi.mock('../../components/InitProgress', () => ({
-  default: (props: { onOpen: () => void }) => <div data-testid="init-progress"><button onClick={props.onOpen}>Open</button></div>
+  default: (props: { onOpen: () => void; openReady?: boolean }) => <div data-testid="init-progress">
+    {props.openReady !== false && <button onClick={props.onOpen}>Open</button>}
+  </div>
 }));
 
 vi.mock('../../components/Dashboard', () => ({
@@ -171,15 +173,27 @@ describe('TerminalArea', () => {
     const [initializing, setInitializing] = createSignal(true);
     vi.mocked(sessionStore.isSessionInitializing).mockImplementation(initializing);
     const open = vi.fn(() => setInitializing(false));
+    const [ready, setReady] = createSignal(false);
+    const [question, setQuestion] = createSignal(false);
     render(() => <TerminalArea {...defaultProps} showTerminal showPiWebPanel viewState="terminal"
+      piWebOpenReady={ready()} piWebShowDuringStartup={question()}
       piWebPanel={<div>Pi Chat frame</div>} onOpenSessionById={open} />);
 
+    const frame = screen.getByText('Pi Chat frame');
     expect(screen.getByTestId('init-progress')).toBeVisible();
-    expect(screen.queryByText('Pi Chat frame')).not.toBeInTheDocument();
+    expect(frame).not.toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Open' })).not.toBeInTheDocument();
     expect(screen.queryByTestId(`terminal-${id}-1`)).not.toBeInTheDocument();
+    setQuestion(true);
+    expect(frame).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Open' })).not.toBeInTheDocument();
+    setQuestion(false);
+    expect(frame).not.toBeVisible();
+    setReady(true);
     await fireEvent.click(screen.getByRole('button', { name: 'Open' }));
     expect(open).toHaveBeenCalledWith(id);
-    expect(screen.getByText('Pi Chat frame')).toBeVisible();
+    expect(screen.getByText('Pi Chat frame')).toBe(frame);
+    expect(frame).toBeVisible();
     expect(screen.queryByTestId(`terminal-${id}-1`)).not.toBeInTheDocument();
   });
 

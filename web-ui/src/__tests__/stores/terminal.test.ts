@@ -28,7 +28,7 @@ vi.mock('../../api/client', () => ({
 }));
 
 // Import after mocks
-import { terminalStore, sendInputToTerminal, reconnectDisconnectedTerminals, reconnectOnVisibilityReturn, cleanupMapByPrefix, READ_HOLD_MAX_CHARS, RELEASE_SLICE_MAX_CHARS } from '../../stores/terminal';
+import { terminalStore, sendInputToTerminal, reconnectDisconnectedTerminals, reconnectOnVisibilityReturn, scheduleDisconnect, cancelScheduledDisconnect, cleanupMapByPrefix, READ_HOLD_MAX_CHARS, RELEASE_SLICE_MAX_CHARS } from '../../stores/terminal';
 
 // Get mock WebSocket class from global
 const _MockWebSocket = globalThis.WebSocket as unknown as {
@@ -867,6 +867,69 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
       expect(terminal1.dispose).toHaveBeenCalled();
       expect(terminal2.dispose).toHaveBeenCalled();
     });
+  });
+
+  it('keeps only the parked socket past Dashboard disconnect and suppresses its input and resize', async () => {
+    const terminal = createMockTerminal();
+    let input: ((data: string) => void) | undefined;
+    vi.mocked(terminal.onData).mockImplementation(listener => {
+      input = listener;
+      return { dispose: () => {} };
+    });
+    const send = vi.spyOn(WebSocket.prototype, 'send');
+    const dispose = terminalStore.connect(sessionId, terminalId, terminal);
+    terminalStore.connect('other-session', terminalId, createMockTerminal());
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      send.mockClear();
+      terminalStore.setParked(sessionId, terminalId, true);
+      scheduleDisconnect(60_000);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(terminalStore.getConnectionState(sessionId, terminalId)).toBe('connected');
+      expect(terminalStore.getConnectionState('other-session', terminalId)).toBe('disconnected');
+      input?.('hidden input');
+      expect(sendInputToTerminal(sessionId, terminalId, 'hidden paste')).toBe(false);
+      terminalStore.claimResizeAuthority(sessionId, terminalId);
+      terminalStore.resize(sessionId, terminalId, 100, 40);
+      expect(send).not.toHaveBeenCalled();
+      terminalStore.setParked(sessionId, terminalId, false);
+      input?.('foreground input');
+      expect(send).toHaveBeenCalledWith('foreground input');
+    } finally {
+      cancelScheduledDisconnect();
+      dispose();
+    }
+  });
+
+  it('defers reconnect when a parked Terminal loses its socket', async () => {
+    const sockets: FakeSocket[] = [];
+    class FakeSocket {
+      static CONNECTING = 0;
+      static OPEN = 1;
+      static CLOSING = 2;
+      static CLOSED = 3;
+      readyState = FakeSocket.CONNECTING;
+      onopen?: (event: Event) => void;
+      onclose?: (event: CloseEvent) => void;
+      send() {}
+      close() { this.readyState = FakeSocket.CLOSED; }
+      constructor(_url: string) { sockets.push(this); }
+    }
+    vi.stubGlobal('WebSocket', FakeSocket);
+    const dispose = terminalStore.connect(sessionId, terminalId, createMockTerminal());
+    try {
+      const socket = sockets[0];
+      socket.readyState = FakeSocket.OPEN;
+      socket.onopen?.(new Event('open'));
+      terminalStore.setParked(sessionId, terminalId, true);
+      socket.close();
+      socket.onclose?.(new CloseEvent('close', { code: 1006 }));
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(sockets).toEqual([socket]);
+      terminalStore.setParked(sessionId, terminalId, false);
+      reconnectDisconnectedTerminals(sessionId, [`${sessionId}:${terminalId}`]);
+      expect(sockets).toHaveLength(2);
+    } finally { dispose(); }
   });
 
   describe('reconnect', () => {

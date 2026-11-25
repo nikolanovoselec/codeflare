@@ -538,3 +538,19 @@
   .operator-activity-panel--active { height: min(60vh, calc(100vh - 84px)); max-height: min(60vh, calc(100vh - 84px)); }
 }
 @media (prefers-reduced-motion: reduce) { .operator-activity-panel { animation: none; } }
+
+/* Shared header slots: use balanced wings only when the center control fits. */
+.header-navigation--contents { display: contents; }
+.header-navigation { display: flex; align-items: center; gap: var(--space-4); width: max-content; }
+.header-with-center-slot:has(> [data-header-center="centered"]) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+}
+.header-with-center-slot:has(> [data-header-center="centered"]) > .header-spacer { display: none; }
+.header-with-center-slot:has(> [data-header-center="centered"]) > .header-actions { justify-self: end; }
+@media (max-width: 640px) {
+  .header-with-center-slot > .header-spacer { min-width: calc(44px - 2 * var(--space-4)); }
+  .header-with-center-slot .header-logo--clickable { margin-inline: 0; }
+  .header .session-switcher--mobile,
+  .dashboard-panel-header .session-switcher--mobile { flex-shrink: 0; padding: 0; }
+}

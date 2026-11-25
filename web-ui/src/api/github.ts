@@ -43,6 +43,15 @@ export async function getGithubStatus(): Promise<GithubStatus> {
   return githubFetch('/github/status', {}, GithubStatusResponseSchema);
 }
 
+const OwnedRepoCountsSchema = z.union([
+  z.object({ counts: z.null() }),
+  z.object({ login: z.string(), counts: z.object({ public: z.int().nonnegative(), private: z.int().nonnegative(), total: z.int().nonnegative() }) }),
+]);
+
+export function getGithubOwnedRepoCounts() {
+  return githubFetch('/github/owned-repo-counts', {}, OwnedRepoCountsSchema);
+}
+
 // GET /api/github/repos?page=N — 401 NOT_CONNECTED / 403 GITHUB_DISABLED
 // surface as ApiError (with .code) via baseFetch.
 export async function getGithubRepos(page: number): Promise<GithubReposResponse> {

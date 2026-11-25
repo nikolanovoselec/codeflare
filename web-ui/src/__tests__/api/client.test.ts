@@ -397,6 +397,14 @@ describe('API Client', () => {
       });
   });
 
+  it.each(['chat', 'terminal'] as const)('retains the persisted Pi surface %s in GET and PATCH responses', async defaultPiSurface => {
+    const reply = { defaultPiSurface, defaultWorkspace: 'vscode' };
+    mockFetch.mockResolvedValueOnce(Response.json(reply));
+    expect(await getPreferences()).toEqual(reply);
+    mockFetch.mockResolvedValueOnce(Response.json(reply));
+    expect(await updatePreferences({ defaultPiSurface })).toEqual(reply);
+  });
+
   describe('REQ-SUB-014: canonical mode availability wire', () => {
     it.each([{ modes: ['default'] }, { modes: ['default', 'advanced'] }, { modes: [] }])(
       'retains the server-authorized mode list $modes', async ({ modes }) => {

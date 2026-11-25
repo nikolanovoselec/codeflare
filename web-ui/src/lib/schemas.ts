@@ -215,6 +215,7 @@ export const UserPreferencesSchema = z.object({
   fastStartEnabled: z.boolean().optional(),
   sessionMode: SessionModeSchema.optional(),
   defaultWorkspace: SessionWorkspaceSchema.optional(),
+  defaultPiSurface: z.enum(['chat', 'terminal']).optional(),
   sleepAfter: z.enum(['5m', '15m', '30m', '1h', '2h', '4h', '8h', '12h']).optional(),
   userTimezone: z.string().optional(),
   managedEnvironmentApplied: z.object({

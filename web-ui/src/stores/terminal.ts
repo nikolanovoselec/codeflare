@@ -108,6 +108,18 @@ const [state, setState] = createStore<{
 
 // External storage for WebSocket and Terminal instances (keyed by sessionId:terminalId)
 const connections = new Map<string, WebSocket>();
+let parkedKey: string | undefined;
+
+/** Keep one already-open socket for Dashboard return without foreground interaction. */
+function setParked(sessionId: string, terminalId: string, parked: boolean): void {
+  const key = makeKey(sessionId, terminalId);
+  if (parked) {
+    parkedKey = key;
+    clearPendingResizeAuthority(sessionId, terminalId);
+  } else if (parkedKey === key) {
+    parkedKey = undefined;
+  }
+}
 const terminals = new Map<string, Terminal>();
 const retryTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
 const connectTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -241,7 +253,7 @@ function connect(
   let attemptGeneration = 0;
 
   function attemptConnection(attemptNumber: number): void {
-    if (signal.aborted || !ownsConnection()) return;
+    if (signal.aborted || !ownsConnection() || parkedKey === key) return;
 
     const generation = ++attemptGeneration;
     const ownsAttempt = () => ownsConnection() && generation === attemptGeneration;
@@ -310,7 +322,7 @@ function connect(
       // Set up terminal input handler on successful connection
       // Send RAW data directly to PTY (no JSON wrapping)
       const inputDisposable = terminal.onData((data) => {
-        if (ws.readyState === WebSocket.OPEN) {
+        if (ws.readyState === WebSocket.OPEN && parkedKey !== key) {
           ws.send(data);  // Raw terminal input
         }
       });
@@ -319,7 +331,7 @@ function connect(
       inputDisposables.set(key, inputDisposable);
       logger.debug(`[Terminal ${key}] Created new input handler`);
 
-      if (pendingFocusClaims.has(key)) {
+      if (parkedKey !== key && pendingFocusClaims.has(key)) {
         ws.send(JSON.stringify({ type: 'focus' }));
         pendingFocusClaims.delete(key);
       }
@@ -329,7 +341,7 @@ function connect(
       // causing garbled/duplicated text until user manually resizes window
       const cols = terminal.cols;
       const rows = terminal.rows;
-      if (cols > 0 && rows > 0) {
+      if (parkedKey !== key && cols > 0 && rows > 0) {
         ws.send(JSON.stringify({ type: 'resize', cols, rows }));
         logger.debug(`[Terminal ${key}] Sent initial resize: ${cols}x${rows}`);
       }
@@ -492,6 +504,10 @@ function connect(
       clearTimeout(existing);
       retryTimeouts.delete(key);
     }
+    if (parkedKey === key) {
+      setConnectionState(sessionId, terminalId, 'disconnected');
+      return;
+    }
     // A drop AFTER a successful open leaves the state at 'connected'. Mark it 'connecting'
     // before we (possibly) defer, so a tab-hidden reconnect is still rescued on return:
     // reconnectOnVisibilityReturn only revives 'disconnected'/'connecting' panes, so without
@@ -539,6 +555,7 @@ function connect(
 // Disconnect from terminal
 function disconnect(sessionId: string, terminalId: string): void {
   const key = makeKey(sessionId, terminalId);
+  if (parkedKey === key) parkedKey = undefined;
 
   // Cancel any buffered writes.
   cancelPendingFlush(key);
@@ -613,6 +630,7 @@ function confirmAgentEventDisplay(
 
 function claimResizeAuthority(sessionId: string, terminalId: string): void {
   const key = makeKey(sessionId, terminalId);
+  if (parkedKey === key) return;
   desiredFocusClaims.add(key);
   const ws = connections.get(key);
   if (ws?.readyState === WebSocket.OPEN) {
@@ -632,6 +650,7 @@ function clearPendingResizeAuthority(sessionId: string, terminalId: string): voi
 // Send resize event to terminal
 function resize(sessionId: string, terminalId: string, cols: number, rows: number): void {
   const key = makeKey(sessionId, terminalId);
+  if (parkedKey === key) return;
   const ws = connections.get(key);
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: 'resize', cols, rows }));
@@ -691,6 +710,7 @@ function dispose(sessionId: string, terminalId: string): void {
 // Dispose ALL terminals for a session (called when session stops/deletes)
 function disposeSession(sessionId: string): void {
   const prefix = `${sessionId}:`;
+  if (parkedKey?.startsWith(prefix)) parkedKey = undefined;
 
   // Disconnect all WebSocket connections for this session (handles abort + input disposable cleanup)
   for (const key of [...connections.keys()]) {
@@ -737,6 +757,7 @@ function disposeSession(sessionId: string): void {
 
 // Dispose all terminals and connections
 function disposeAll(): void {
+  parkedKey = undefined;
   for (const key of connections.keys()) {
     const [sessionId, terminalId] = key.split(':');
     disconnect(sessionId, terminalId);
@@ -777,6 +798,7 @@ function disposeAll(): void {
 // Reconnect to terminal WebSocket
 function reconnect(sessionId: string, terminalId: string, onError?: (error: string) => void): (() => void) | null {
   const key = makeKey(sessionId, terminalId);
+  if (parkedKey === key) return null;
   const terminal = terminals.get(key);
   if (!terminal) {
     logger.error(`Cannot reconnect: no terminal for ${key}`);
@@ -800,6 +822,7 @@ function reconnect(sessionId: string, terminalId: string, onError?: (error: stri
 // Send input text to a terminal's WebSocket connection
 export function sendInputToTerminal(sessionId: string, terminalId: string, text: string): boolean {
   const key = makeKey(sessionId, terminalId);
+  if (parkedKey === key) return false;
   const ws = connections.get(key);
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(text);
@@ -822,10 +845,9 @@ registerUrlDetectionDeps(
 
 // ─── Scheduled Disconnect & Reconnection (Dashboard Sleep Support) ───────────
 //
-// When the user navigates to the dashboard we schedule a full WebSocket
-// disconnect after a grace period.  If the user returns to the terminal view
-// before the timer fires, the disconnect is cancelled.  If the timer fires,
-// all WS connections are closed so the Container DO can go fully idle.
+// Dashboard schedules a WebSocket disconnect after a grace period. The one
+// already-connected parked pane is exempt and cannot send input or reconnect.
+// Returning to an active terminal cancels the timer.
 // The existing reconnect logic (SerializeAddon state restore) handles
 // reconnection when the user eventually returns.
 //
@@ -886,6 +908,14 @@ export function reconnectOnVisibilityReturn(activeSessionId?: string, visibleKey
  * reconnect later.
  */
 function disconnectAll(): void {
+  if (parkedKey) {
+    for (const key of connectionOwners.keys()) {
+      if (key === parkedKey) continue;
+      const [sessionId, terminalId] = key.split(':');
+      disconnect(sessionId, terminalId);
+    }
+    return;
+  }
   for (const [key, ws] of connections) {
     // Dispose input handler before closing
     const disposable = inputDisposables.get(key);
@@ -981,6 +1011,7 @@ export const terminalStore = {
   connect,
   disconnect,
   reconnect,
+  setParked,
   disposeLocalTerminal,
   claimResizeAuthority,
   registerAgentEventCallback,

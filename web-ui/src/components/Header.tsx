@@ -1,4 +1,5 @@
 import { Component, Show, createMemo, createSignal, createEffect, onMount, onCleanup } from 'solid-js';
+import PiWorkspaceMode, { type PiWorkspaceModeBinding } from './PiWorkspaceMode';
 import {
   mdiCogOutline,
   mdiShieldAccount,
@@ -11,10 +12,8 @@ import {
   mdiMicrosoftVisualStudioCode,
   mdiOpenInNew,
   mdiClockTimeEightOutline,
-  mdiMessageTextOutline,
 } from '@mdi/js';
 import Icon from './Icon';
-import IconButton from './ui/IconButton';
 import SessionSwitcher from './SessionSwitcher';
 import VaultButton, { type VaultButtonStatus } from './VaultButton';
 import { sessionStore } from '../stores/session';
@@ -24,11 +23,13 @@ import OperatorActivityButton from './OperatorActivityButton';
 
 import { terminalStore } from '../stores/terminal';
 import { getGravatarUrl, gravatarExists } from '../lib/gravatar';
-import { isTouchDevice } from '../lib/mobile';
+import { isMobile, isTouchDevice } from '../lib/mobile';
+import { measureHeaderActions, type OverflowHeaderAction } from '../lib/header-fit';
 import type { SessionWithStatus, AgentType, TabConfig } from '../types';
 import '../styles/header.css';
 
 interface HeaderProps {
+  workspaceMode?: PiWorkspaceModeBinding;
   userName?: string;
   onSettingsClick?: () => void;
   onStoragePanelToggle?: () => void;
@@ -36,7 +37,6 @@ interface HeaderProps {
   vaultReady?: boolean;
   vaultStatus?: VaultButtonStatus;
   onVscodeOpen?: () => void;
-  onChatOpen?: () => void;
   onLogoClick?: () => void;
   sessions: SessionWithStatus[];
   activeSessionId: string | null;
@@ -68,7 +68,30 @@ const Header: Component<HeaderProps> = (props) => {
   });
   const [showTimerDropdown, setShowTimerDropdown] = createSignal(false);
   let userMenuRef: HTMLDivElement | undefined;
+  let userButtonRef: HTMLButtonElement | undefined;
+  const [operatorProfileMount, setOperatorProfileMount] = createSignal<HTMLDivElement>();
   let timerMenuRef: HTMLDivElement | undefined;
+  let headerRef!: HTMLElement;
+  let actionsRef!: HTMLDivElement;
+  const [overflow, setOverflow] = createSignal<OverflowHeaderAction[]>([]);
+  const [headerFits, setHeaderFits] = createSignal(true);
+  const inProfile = (action: OverflowHeaderAction) => overflow().includes(action);
+
+  const measureHeader = () => {
+    if (!isMobile() || !headerRef.clientWidth) {
+      setOverflow(previous => previous.length ? [] : previous);
+      setHeaderFits(true);
+      return;
+    }
+    const eligible: OverflowHeaderAction[] = [];
+    if (props.onVscodeOpen) eligible.push('vscode');
+    if (sessionStore.enterpriseMode) eligible.push('operators');
+    if (props.onVaultOpen) eligible.push('vault');
+    const next = measureHeaderActions(headerRef, actionsRef, eligible);
+    setOverflow(previous => previous.join() === next.overflow.join() ? previous : next.overflow);
+    setHeaderFits(next.fits);
+  };
+
 
   const activeSession = createMemo(() =>
     props.sessions.find(s => s.id === props.activeSessionId)
@@ -98,6 +121,11 @@ const Header: Component<HeaderProps> = (props) => {
 
   onMount(() => {
     document.addEventListener('mousedown', handleClickOutside);
+    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measureHeader);
+    observer?.observe(headerRef);
+    observer?.observe(actionsRef);
+    measureHeader();
+    onCleanup(() => observer?.disconnect());
   });
 
   onCleanup(() => {
@@ -105,15 +133,24 @@ const Header: Component<HeaderProps> = (props) => {
   });
 
   return (
-    <header class="header animate-fadeInUp">
+    <header ref={headerRef} class="header animate-fadeInUp" classList={{ 'header-with-center-slot': !!props.workspaceMode }} data-header-fits={headerFits()}>
+      <div classList={{ 'header-navigation': !!props.workspaceMode, 'header-navigation--contents': !props.workspaceMode }}>
       {/* Logo */}
       <div
         class={`header-logo ${props.onLogoClick ? 'header-logo--clickable' : ''}`}
+        classList={{ 'session-switcher--mobile': isMobile() }}
         data-testid="header-logo"
         onClick={() => props.onLogoClick?.()}
         role={props.onLogoClick ? 'button' : undefined}
+        aria-label={props.onLogoClick ? 'Dashboard' : undefined}
+        tabIndex={props.onLogoClick ? 0 : undefined}
+        onKeyDown={event => {
+          if (!props.onLogoClick || event.repeat || (event.key !== 'Enter' && event.key !== ' ')) return;
+          event.preventDefault();
+          props.onLogoClick();
+        }}
       >
-        <Icon path={mdiViewDashboardOutline} size={22} class="header-logo-icon" />
+        <Icon path={mdiViewDashboardOutline} size={22} class="header-logo-icon" aria-hidden="true" />
       </div>
 
       {/* Session Switcher */}
@@ -128,11 +165,15 @@ const Header: Component<HeaderProps> = (props) => {
         onCloseMultiView={props.onCloseMultiView}
       />
 
+      </div>
+
       {/* Spacer for flex layout */}
       <div class="header-spacer" />
 
+      <Show when={props.workspaceMode}>{mode => <PiWorkspaceMode {...mode()} fitContainer />}</Show>
+
       {/* Right side - User menu, settings, and dashboard */}
-      <div class="header-actions">
+      <div class="header-actions" ref={actionsRef}>
         {/* Auth URL button (shown when auth URL detected in terminal) */}
         <Show when={!isTouchDevice() && terminalStore.authUrl}>
           <button
@@ -149,13 +190,40 @@ const Header: Component<HeaderProps> = (props) => {
           </button>
         </Show>
 
+        {/* Sleep timer dropdown */}
+        <Show when={timerInfo()}>
+          {(info) => (
+            <div class="header-timer-wrapper" ref={timerMenuRef}>
+              <button
+                type="button"
+                class={`header-timer-button header-timer-button--${info().severity}`}
+                classList={{ 'session-switcher--mobile': isMobile() }}
+                data-testid="header-timer-button"
+                title={info().bucket}
+                onClick={() => setShowTimerDropdown(!showTimerDropdown())}
+              >
+                <Icon path={mdiClockTimeEightOutline} size={20} />
+              </button>
+              <Show when={showTimerDropdown()}>
+                <div class="header-timer-dropdown" data-testid="header-timer-dropdown">
+                  <div class="header-timer-bucket">{info().bucket}</div>
+                  <p class="header-timer-explanation">
+                    When this timer expires, your session will stop. Tracks time since last terminal input and the session idle timeout. Configurable in settings.
+                  </p>
+                </div>
+              </Show>
+            </div>
+          )}
+        </Show>
+
         {/* The account menu is available in every mode. Enterprise keeps the
             read-only Usage action while self-service billing, onboarding, and
             logout remain suppressed. */}
         <div class="header-user-wrapper" ref={userMenuRef}>
           <button
             type="button"
-            class="header-user-menu"
+            ref={userButtonRef}
+            class="header-user-menu" classList={{ 'session-switcher--mobile': isMobile() }}
             data-testid="header-user-menu"
             title="User menu"
             onClick={() => setShowUserMenu(!showUserMenu())}
@@ -177,6 +245,15 @@ const Header: Component<HeaderProps> = (props) => {
               No onClick handlers = no touch event race conditions on mobile. */}
           <Show when={showUserMenu()}>
             <div class="header-user-dropdown" data-testid="header-user-dropdown">
+              <Show when={inProfile('vscode') && props.onVscodeOpen}>{onOpen =>
+                <button type="button" class="header-user-dropdown-item" onClick={() => { setShowUserMenu(false); onOpen()(); }}>
+                  <Icon path={mdiMicrosoftVisualStudioCode} size={20} /><span>Open editor (VS Code)</span>
+                </button>}
+              </Show>
+              <Show when={inProfile('operators')}><div ref={setOperatorProfileMount} /></Show>
+              <Show when={inProfile('vault') && props.onVaultOpen}>{onOpen =>
+                <VaultButton status={props.vaultStatus ?? (props.vaultReady ? 'ready' : 'prewarming')} onOpen={onOpen()} inProfile />}
+              </Show>
               <Show when={sessionStore.saasMode}>
                 <a
                   href="/app/subscribe"
@@ -219,48 +296,15 @@ const Header: Component<HeaderProps> = (props) => {
           </Show>
         </div>
 
-        {/* Dashboard: enterprise operator activity stays adjacent to account identity. */}
-        <Show when={!props.onVscodeOpen}>
-          <OperatorActivityButton enabled={sessionStore.enterpriseMode} />
-        </Show>
-
-        {/* Sleep timer dropdown */}
-        <Show when={timerInfo()}>
-          {(info) => (
-            <div class="header-timer-wrapper" ref={timerMenuRef}>
-              <button
-                type="button"
-                class={`header-timer-button header-timer-button--${info().severity}`}
-                data-testid="header-timer-button"
-                title={info().bucket}
-                onClick={() => setShowTimerDropdown(!showTimerDropdown())}
-              >
-                <Icon path={mdiClockTimeEightOutline} size={20} />
-              </button>
-              <Show when={showTimerDropdown()}>
-                <div class="header-timer-dropdown" data-testid="header-timer-dropdown">
-                  <div class="header-timer-bucket">{info().bucket}</div>
-                  <p class="header-timer-explanation">
-                    When this timer expires, your session will stop. Tracks time since last terminal input and the session idle timeout. Configurable in settings.
-                  </p>
-                </div>
-              </Show>
-            </div>
-          )}
-        </Show>
-
         {/* Vault button — opens the persistent SilverBullet vault in a new tab.
             Rendered only when the parent passes onVaultOpen (terminal-view +
             active advanced session present). The button remains disabled until
             browser-side prewarm has completed the real SilverBullet boot and
             object-index readiness, not just server reachability. */}
-        <Show when={props.onVaultOpen}>
-          {(onOpen) => (
-            <VaultButton
-              status={props.vaultStatus ?? (props.vaultReady ? 'ready' : 'prewarming')}
-              onOpen={onOpen()}
-            />
-          )}
+        <Show when={!inProfile('vault') && props.onVaultOpen}>
+          {(onOpen) => <div data-overflow-action="vault">
+            <VaultButton status={props.vaultStatus ?? (props.vaultReady ? 'ready' : 'prewarming')} onOpen={onOpen()} />
+          </div>}
         </Show>
 
         {/* Browser IDE button — opens the per-session OpenVSCode editor in a new
@@ -269,10 +313,10 @@ const Header: Component<HeaderProps> = (props) => {
             session's editor is isolated (REQ-IDE-001, REQ-IDE-002); no client-side
             readiness gate is needed — the host lazily starts the server and
             returns a warming state until it is up. */}
-        <Show when={props.onVscodeOpen}>
+        <Show when={!inProfile('vscode') && props.onVscodeOpen}>
           {(onOpen) => (
             <button
-              class="header-vscode-button"
+              data-overflow-action="vscode" class="header-vscode-button"
               data-testid="header-vscode-button"
               title="Open editor (VS Code)"
               type="button"
@@ -283,13 +327,12 @@ const Header: Component<HeaderProps> = (props) => {
           )}
         </Show>
 
-        {/* Terminal: keep operator activity with the session tools, between VS Code and Storage. */}
-        <Show when={props.onVscodeOpen}>
-          <OperatorActivityButton enabled={sessionStore.enterpriseMode} />
-        </Show>
-
-        <Show when={props.onChatOpen}>
-          {open => <IconButton icon={mdiMessageTextOutline} size={20} label="Switch to Chat" onClick={open()} />}
+        <Show when={sessionStore.enterpriseMode}>
+          <div data-overflow-action="operators" hidden={inProfile('operators')}>
+            <OperatorActivityButton enabled compact={isMobile()} inProfile={inProfile('operators')}
+              profileMount={() => showUserMenu() ? operatorProfileMount() : undefined}
+              onOpenFromProfile={() => setShowUserMenu(false)} returnFocus={() => userButtonRef?.focus()} />
+          </div>
         </Show>
 
         {/* Storage button */}

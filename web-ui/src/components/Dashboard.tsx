@@ -1,10 +1,13 @@
-import { Component, Show, For, onMount, onCleanup, createSignal, createMemo, createEffect } from 'solid-js';
+import { Component, Show, For, onMount, onCleanup, createSignal, createMemo, createEffect, createRenderEffect, createUniqueId, createResource } from 'solid-js';
+import PiWorkspaceMode, { type PiWorkspaceModeBinding } from './PiWorkspaceMode';
+import ConnectCard from './github/ConnectCard';
+import '../styles/github-panel.css';
 import { Portal } from 'solid-js/web';
-import { mdiXml, mdiCogOutline, mdiShieldAccount, mdiAccountOutline, mdiRocketLaunchOutline, mdiChartBar, mdiLogout, mdiFlipVertical, mdiReflectHorizontal } from '@mdi/js';
+import { mdiXml, mdiCogOutline, mdiShieldAccount, mdiAccountOutline, mdiRocketLaunchOutline, mdiChartBar, mdiLogout, mdiFlipVertical, mdiReflectHorizontal, mdiGithub, mdiChevronDoubleRight, mdiChevronDoubleLeft, mdiChevronDoubleUp, mdiChevronDoubleDown } from '@mdi/js';
 import Icon from './Icon';
 import IconButton from './ui/IconButton';
 import type { SessionWithStatus, AgentType, TabConfig, PiSurface } from '../types';
-import { isPiWebSession } from '../lib/pi-web-session';
+import { canChoosePiSurface, isPiWebSession } from '../lib/pi-web-session';
 import { storageStore } from '../stores/storage';
 import { recreateAgentConfigs } from '../api/storage';
 import type { MigrationRetry } from './MigrationRetryNotice';
@@ -25,8 +28,11 @@ import DashboardCard from './TipsRotator';
 import { sessionStore, isAtUsageQuota } from '../stores/session';
 import { terminalWorkspaceStore } from '../stores/terminal-workspace';
 import { createTerminalViewportClass } from '../lib/mobile';
+import { measureHeaderActions } from '../lib/header-fit';
 import { decidePanelLayoutMode } from '../lib/panel-allocation';
 import { githubStore } from '../stores/github';
+import { getGithubOwnedRepoCounts } from '../api/github';
+import { consumeGithubConnectReturn } from '../lib/github-connect-return';
 import { getBrowserTimezone, syncBrowserTimezone } from '../lib/timezone-sync';
 import { MULTIVIEW_ICON } from '../lib/terminal-config';
 import UsageInlineBadge from './UsageInlineBadge';
@@ -34,6 +40,7 @@ import OperatorActivityButton from './OperatorActivityButton';
 import '../styles/dashboard.css';
 
 interface DashboardProps {
+  workspaceMode?: PiWorkspaceModeBinding;
   migrationRetry: MigrationRetry;
   sessions: SessionWithStatus[];
   onCreateSession: (agentType?: AgentType, tabConfig?: TabConfig[], surface?: PiSurface) => void;
@@ -61,6 +68,30 @@ const Dashboard: Component<DashboardProps> = (props) => {
   // both faces stack as a split (more vertical room) and the flip controls are hidden
   // by CSS, so there is nothing to flip. (REQ-GITHUB-007/010)
   const [panelFace, setPanelFace] = createSignal<'github' | 'storage'>('github');
+  const vibe = () => props.workspaceMode?.value === 'chat';
+  const [githubReturnError, setGithubReturnError] = createSignal<string | null>(null);
+  const countAccount = () => vibe() && githubStore.enabled && githubStore.connected && githubStore.source === 'oauth'
+    ? githubStore.login : undefined;
+  const [ownedRepoCounts] = createResource(countAccount, async login => {
+    try {
+      const result = await getGithubOwnedRepoCounts();
+      return result.counts && result.login.toLowerCase() === login.toLowerCase() ? { login, counts: result.counts } : undefined;
+    } catch { return undefined; }
+  });
+  const countsForAccount = () => {
+    const result = ownedRepoCounts();
+    return result && result.login === countAccount() && !ownedRepoCounts.loading ? result.counts : undefined;
+  };
+  const [browsersOpen, setBrowsersOpen] = createSignal(false);
+  let browserPull: HTMLButtonElement | undefined;
+  const browsersClosed = () => vibe() && !browsersOpen();
+  const browsersId = createUniqueId();
+  const browserLabel = () => githubStore.enabled ? 'GitHub & Storage' : 'Storage';
+  const pullIcon = () => viewport() === 'mobile'
+    ? browsersOpen() ? mdiChevronDoubleUp : mdiChevronDoubleDown
+    : browsersOpen() ? mdiChevronDoubleLeft : mdiChevronDoubleRight;
+  createEffect(() => { if (!vibe()) setBrowsersOpen(false); });
+
   const effectiveFace = () => (githubStore.enabled ? panelFace() : 'storage');
   const [showCreateDialog, setShowCreateDialog] = createSignal(false);
   const [showLimitPopup, setShowLimitPopup] = createSignal(false);
@@ -102,6 +133,27 @@ const Dashboard: Component<DashboardProps> = (props) => {
   });
   const [userMenuPos, setUserMenuPos] = createSignal<{ top: number; right: number }>({ top: 0, right: 0 });
   let userBtnRef: HTMLButtonElement | undefined;
+  let dashboardHeader!: HTMLDivElement;
+  let headerActions!: HTMLDivElement;
+  const [operatorInProfile, setOperatorInProfile] = createSignal(false);
+  const [operatorProfileMount, setOperatorProfileMount] = createSignal<HTMLDivElement>();
+  createEffect(() => {
+    if (!props.workspaceMode || !sessionStore.enterpriseMode || typeof ResizeObserver === 'undefined') {
+      setOperatorInProfile(false);
+      return;
+    }
+    const measure = () => {
+      if (dashboardHeader.clientWidth > 0) {
+        setOperatorInProfile(measureHeaderActions(dashboardHeader, headerActions, ['operators']).overflow.includes('operators'));
+      }
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(dashboardHeader);
+    observer.observe(headerActions);
+    measure();
+    onCleanup(() => observer.disconnect());
+  });
+
   const [newSessionBtnRef, setNewSessionBtnRef] = createSignal<HTMLButtonElement>();
   const managedUpgradePercent = createMemo(() => {
     const progress = sessionStore.managedReleaseProgress;
@@ -136,7 +188,8 @@ const Dashboard: Component<DashboardProps> = (props) => {
   const menuSession = createMemo(() => props.sessions.find(session => session.id === menuState().session?.id));
   const canSelectPiSurface = () => {
     const session = menuSession();
-    return (session?.status === 'stopped' || session?.status === 'running') && isPiWebSession(session);
+    return canChoosePiSurface(sessionStore.preferences, sessionStore.allowedAgents)
+      && (session?.status === 'stopped' || session?.status === 'running') && isPiWebSession(session);
   };
   const selectPiSurface = (surface: PiSurface) => {
     const session = menuSession();
@@ -252,6 +305,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
   });
 
   onMount(() => {
+    setGithubReturnError(consumeGithubConnectReturn());
     sessionStore.startR2Polling();
     storageStore.fetchStats();
 
@@ -337,18 +391,22 @@ const Dashboard: Component<DashboardProps> = (props) => {
 
   return (
     <div class="dashboard-container" data-testid="dashboard">
-      <div class="dashboard-panel-wrapper">
+      <div class="dashboard-panel-wrapper" classList={{
+        'dashboard-panel-wrapper--disclosure': vibe() && !panelExpanded(),
+        'dashboard-panel-wrapper--summary': browsersClosed() && !panelExpanded(),
+      }}>
         <div class={`dashboard-panel ${panelExpanded() ? 'dashboard-panel--expanded' : ''}`} data-testid="dashboard-floating-panel">
           <KittScanner />
 
         {/* Integrated Header */}
-        <div class="dashboard-panel-header">
-          <div class="header-logo">
+        <div class="dashboard-panel-header" classList={{ 'header-with-center-slot': !!props.workspaceMode }} ref={dashboardHeader}>
+          <div class="header-logo" classList={{ 'header-navigation': !!props.workspaceMode }}>
             <Icon path={mdiXml} size={22} class="header-logo-icon" />
             <ScrambleText text="Codeflare" class="header-logo-text header-logo-text--scramble" />
           </div>
           <div class="header-spacer" />
-          <div class="header-actions">
+          <Show when={props.workspaceMode}>{mode => <PiWorkspaceMode {...mode()} fitContainer />}</Show>
+          <div class="header-actions" ref={headerActions}>
             {/* The account menu is available in every mode. Enterprise keeps the
                 read-only Usage action while self-service billing, onboarding, and
                 logout remain suppressed. */}
@@ -356,7 +414,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
               <button
                 type="button"
                 ref={userBtnRef}
-                class="header-user-menu"
+                class="header-user-menu" classList={{ 'session-switcher--mobile': viewport() === 'mobile' }}
                 data-testid="header-user-menu"
                 title="User menu"
                 onClick={() => {
@@ -389,6 +447,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                     onClick={(e) => e.stopPropagation()}
                     style={window.innerWidth > 640 ? { top: `${userMenuPos().top}px`, right: `${userMenuPos().right}px` } : undefined}
                   >
+                    <Show when={operatorInProfile()}><div ref={setOperatorProfileMount} /></Show>
                     <Show when={sessionStore.saasMode}>
                       <a
                         href="/app/subscribe"
@@ -434,7 +493,13 @@ const Dashboard: Component<DashboardProps> = (props) => {
             {/* Dashboard: enterprise operator activity stays adjacent to account identity,
                 before Settings (REQ-OPERATOR-040 AC1). The dashboard draws its own header,
                 so Header.tsx's dashboard branch never renders here. */}
-            <OperatorActivityButton enabled={sessionStore.enterpriseMode} />
+            <Show when={sessionStore.enterpriseMode}>
+              <div data-overflow-action="operators" hidden={operatorInProfile()}>
+                <OperatorActivityButton enabled compact={viewport() === 'mobile'} inProfile={operatorInProfile()}
+                  profileMount={() => showUserMenu() ? operatorProfileMount() : undefined}
+                  onOpenFromProfile={() => setShowUserMenu(false)} returnFocus={() => userBtnRef?.focus()} />
+              </div>
+            </Show>
             <button type="button" class="header-settings-button" data-testid="dashboard-settings-button" title="Settings" onClick={() => props.onSettingsClick?.()}>
               <Icon path={mdiCogOutline} size={20} />
             </button>
@@ -442,7 +507,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
         </div>
 
         {/* Body */}
-        <div class="dashboard-panel-body">
+        <div class="dashboard-panel-body" classList={{ 'dashboard-panel-body--disclosure': vibe() }}>
           {/* Left Column */}
           <div class="dashboard-panel-left" data-testid="dashboard-panel-left">
             <DashboardCard sessions={props.sessions} />
@@ -450,7 +515,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
             <div class={`dashboard-new-session-wrapper ${multiViewWorkspace() ? 'dashboard-new-session-wrapper--with-multiview' : ''}`}>
                 <Portal>
                   <CreateSessionDialog
-                    isOpen={showCreateDialog()}
+                    isOpen={showCreateDialog() && props.workspaceMode?.value !== 'chat'}
                     onClose={() => setShowCreateDialog(false)}
                     onSelect={(agentType, tabConfig) => {
                       setShowCreateDialog(false);
@@ -487,6 +552,9 @@ const Dashboard: Component<DashboardProps> = (props) => {
                     }
                     if (sessionStore.isAtSessionLimit()) {
                       setShowLimitPopup(!showLimitPopup());
+                    } else if (props.workspaceMode?.value === 'chat') {
+                      setShowCreateDialog(false);
+                      props.onCreateSession('pi', undefined, 'chat');
                     } else {
                       setShowCreateDialog(!showCreateDialog());
                     }
@@ -589,47 +657,105 @@ const Dashboard: Component<DashboardProps> = (props) => {
             </Show>
 
 
+            <Show when={vibe() && (githubStore.enabled || githubReturnError())}>
+              <section class="dashboard-stats-section" aria-label="GitHub Details">
+                <div class="dashboard-section-divider"><span>GitHub Details</span></div>
+                <Show when={githubReturnError()}>{message => (
+                  <div class="github-return-error" role="status">{message()}</div>
+                )}</Show>
+                <Show when={githubStore.enabled}>
+                  <div class="stat-card">
+                    <Show when={githubStore.connected} fallback={<ConnectCard compact />}>
+                      <div class="stat-card__header">
+                        <Icon path={mdiGithub} size={14} class="stat-card__icon" aria-hidden="true" />
+                        <span class="stat-card__title type-section-header">{githubStore.login ?? 'GitHub connected'}</span>
+                      </div>
+                      <Show when={countsForAccount()} fallback={
+                        <span class="type-hint" role="status">{countAccount() && ownedRepoCounts.loading
+                          ? 'Loading owned repository counts…' : 'Owned repository counts unavailable'}</span>
+                      }>{counts => (
+                        <div class="stat-card__metrics">
+                          <For each={[
+                            { label: 'Private repos', value: counts().private },
+                            { label: 'Public repos', value: counts().public },
+                            { label: 'Repos', value: counts().total },
+                          ]}>{row => (
+                            <div class="stat-card__metric">
+                              <span class="stat-card__metric-label">{row.label}</span>
+                              <span class="stat-card__metric-value">{row.value}</span>
+                            </div>
+                          )}</For>
+                        </div>
+                      )}</Show>
+                    </Show>
+                  </div>
+                </Show>
+              </section>
+            </Show>
             <div class="dashboard-stats-section">
               <div class="dashboard-section-divider"><span>Storage Usage</span></div>
               <StatCards stats={storageStore.stats} />
             </div>
           </div>
 
-          {/* Right Column — on mobile the two panels flip; on desktop they stack. */}
+          <Show when={vibe()}>
+            <button ref={browserPull} type="button" class="icon-button dashboard-panel-pull" aria-expanded={browsersOpen()} aria-controls={browsersId}
+              aria-label={`${browsersOpen() ? 'Hide' : 'Show'} ${browserLabel()}`}
+              onClick={() => setBrowsersOpen(value => !value)}>
+              <Icon path={pullIcon()} size={18} aria-hidden="true" />
+            </button>
+          </Show>
+
+          {/* Keep the same browser subtree in both layouts, even when the Vibe drawer is closed. */}
           <div
+            id={browsersId}
             class="dashboard-panel-right"
+            hidden={browsersClosed()}
             data-testid="dashboard-panel-right"
             data-face={effectiveFace()}
-            data-layout={layoutMode() === 'flip' ? 'flip' : undefined}
-            ref={rightColRef}
-            style={layoutMode() === 'flip' && activeFlipHeight() != null ? { height: `${activeFlipHeight()}px` } : undefined}
+            data-layout={!vibe() && layoutMode() === 'flip' ? 'flip' : undefined}
+            onKeyDown={event => {
+              if (event.key !== 'Escape' || event.defaultPrevented || !vibe() || !browsersOpen()
+                || !(event.target instanceof Node) || !event.currentTarget.contains(event.target)) return;
+              event.preventDefault();
+              browserPull?.focus();
+              setBrowsersOpen(false);
+            }}
+            ref={el => {
+              rightColRef = el;
+              createRenderEffect(() => el.toggleAttribute('inert', browsersClosed()));
+            }}
+            style={!vibe() && layoutMode() === 'flip' && activeFlipHeight() != null ? { height: `${activeFlipHeight()}px` } : undefined}
           >
             <Show when={githubStore.enabled}>
               <div
                 class="panel-flip-face panel-flip-face--github"
-                data-active={effectiveFace() === 'github'}
+                data-active={vibe() || effectiveFace() === 'github'}
                 ref={githubFaceRef}
-                style={layoutMode() !== 'flip' && githubMaxH() != null ? { 'max-height': `${githubMaxH()}px` } : undefined}
+                style={!vibe() && layoutMode() !== 'flip' && githubMaxH() != null ? { 'max-height': `${githubMaxH()}px` } : undefined}
               >
-                <GitHubPanel onFlip={() => setPanelFace('storage')} />
+                <GitHubPanel connectReturnError={vibe() ? null : githubReturnError()}
+                  onFlip={vibe() ? undefined : () => setPanelFace('storage')} />
               </div>
             </Show>
             <div
               class="panel-flip-face panel-flip-face--storage"
-              data-active={effectiveFace() === 'storage'}
+              data-active={vibe() || effectiveFace() === 'storage'}
               ref={storageFaceRef}
-              style={layoutMode() !== 'flip' && githubStore.enabled && storageMaxH() != null ? { 'max-height': `${storageMaxH()}px` } : undefined}
+              style={!vibe() && layoutMode() !== 'flip' && githubStore.enabled && storageMaxH() != null ? { 'max-height': `${storageMaxH()}px` } : undefined}
             >
               <Show when={githubStore.enabled}>
                 <div class="files-panel-header" data-testid="files-panel-header">
                   <h2 class="files-panel-title" data-testid="files-panel-title">Storage Browser</h2>
-                  <IconButton
-                    icon={mdiFlipVertical}
-                    label="Show GitHub"
-                    onClick={() => setPanelFace('github')}
-                    class="panel-flip-back-btn"
-                    testId="storage-flip-btn"
-                  />
+                  <Show when={!vibe()}>
+                    <IconButton
+                      icon={mdiFlipVertical}
+                      label="Show GitHub"
+                      onClick={() => setPanelFace('github')}
+                      class="panel-flip-back-btn"
+                      testId="storage-flip-btn"
+                    />
+                  </Show>
                 </div>
               </Show>
             <Show when={sessionStore.r2Ready} fallback={

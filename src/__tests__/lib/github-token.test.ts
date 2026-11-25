@@ -330,7 +330,7 @@ describe('authorizeUrl', () => {
     const url = new URL(
       (await getGithubProvider(env(OAUTH_ENV)))!.authorizeUrl({ state: 's', redirectUri: 'https://cf/cb' }),
     );
-    expect(url.searchParams.get('scope')).toBe('repo gist read:org workflow');
+    expect(url.searchParams.get('scope')).toBe('repo gist read:org workflow read:user');
   });
 
   it('honours the GITHUB_HOST override for data-residency tenants', async () => {

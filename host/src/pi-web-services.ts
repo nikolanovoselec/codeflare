@@ -2,10 +2,12 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { isDeepStrictEqual } from 'node:util';
 
 const installRoot = '/opt/codeflare/pi-web';
 const dist = `${installRoot}/node_modules/@jmfederico/pi-web/dist`;
 const workflows = `${dist}/pi-packages/workflows`;
+const mcpManager = `${dist}/pi-packages/mcp-manager`;
 const extension = `${installRoot}/handoff-extension.ts`;
 export const PI_WEB_PORT = 8504;
 const origin = `http://127.0.0.1:${PI_WEB_PORT}`;
@@ -92,15 +94,23 @@ export function createPiWebServices(options: { runtimeDir: string; cwd: string; 
         || readlinkSync(extensionLink) !== extension) throw error;
     }
     const settingsPath = join(agentDir, 'settings.json');
-    const settings = existsSync(settingsPath) ? JSON.parse(readFileSync(settingsPath, 'utf8')) as { packages?: unknown } : {};
-    // Do not remove this package by name or touch an unrelated user source.
-    const alreadyRegistered = Array.isArray(settings.packages) && settings.packages.some((item: unknown) =>
-      item === workflows || (typeof item === 'object' && item !== null && 'source' in item && item.source === workflows));
+    const readSettings = () => JSON.parse(readFileSync(settingsPath, 'utf8')) as { packages?: unknown[]; extensions?: unknown[] };
+    const settings = existsSync(settingsPath) ? readSettings() : {};
+    const before = Array.isArray(settings.packages) ? settings.packages : [];
+    const sourceOf = (item: unknown) => typeof item === 'object' && item !== null && 'source' in item ? item.source : item;
+    const workflowsRegistered = before.some(item => sourceOf(item) === workflows);
+    const managedExclusions = ['-builtin:mcp', ...['review-enforcement.ts', 'operator-review-remote.ts']
+      .map(name => `-${join(agentDir, 'extensions', name)}`)];
+    const adapterSelected = Array.isArray(settings.extensions) && settings.extensions.includes('-builtin:mcp')
+      && settings.extensions.every(item => typeof item === 'string' && managedExclusions.includes(item))
+      && before.every(item => typeof sourceOf(item) === 'string')
+      && before.some(item => typeof item === 'string' && (
+        /^npm:pi-mcp-adapter@\d+\.\d+\.\d+$/.test(item) || item === join(piPackage, '..', '..', 'pi-mcp-adapter')));
     const defaultsPath = join(options.runtimeDir, 'defaults.json');
     writeFileSync(defaultsPath, JSON.stringify({
       installationName: 'Codeflare',
       quietMode: true,
-      defaultTheme: { themeId: 'themes:graphite', auto: false },
+      defaultTheme: { themeId: 'themes:classic', auto: false },
     }), { mode: 0o600 });
     const env: NodeJS.ProcessEnv = {
       ...process.env,
@@ -126,10 +136,29 @@ export function createPiWebServices(options: { runtimeDir: string; cwd: string; 
       catch { return false; }
     }, 30_000);
     const packages = await request<{ packages: { source: string; scope: string }[] }>('/api/pi-packages');
-    if (packages.packages.some(row => row.scope === 'user' && row.source === workflows)) {
-      if (alreadyRegistered) throw new Error('Existing Workflows registration prevents Git-free Chat');
+    const userSources = new Set(packages.packages.filter(row => row.scope === 'user').map(row => row.source));
+    if (userSources.has(workflows)) {
+      if (workflowsRegistered) throw new Error('Existing Workflows registration prevents Git-free Chat');
       const removed = await request<{ removed: boolean }>('/api/pi-packages/remove', { scope: 'user', source: workflows });
       if (!removed.removed) throw new Error('Bundled Workflows could not be dismissed');
+    }
+    // Disabling the panel doesn't disable the bundled Pi extension. Dismiss
+    // only the newly provisioned source when the managed adapter is registered.
+    if (adapterSelected && !before.some(item => sourceOf(item) === mcpManager) && userSources.has(mcpManager)) {
+      const after = readSettings();
+      // Stock can normalize any configured copy to the bundled path. If any
+      // prior entry (including filters) changed, absence before boot is not proof.
+      const remaining = Array.isArray(after.packages) ? after.packages.filter(item => sourceOf(item) !== mcpManager) : [];
+      const preserved = before.every(item => {
+        const index = remaining.findIndex(candidate => isDeepStrictEqual(candidate, item));
+        if (index === -1) return false;
+        remaining.splice(index, 1);
+        return true;
+      });
+      if (preserved && isDeepStrictEqual(after.extensions, settings.extensions)) {
+        const removed = await request<{ removed: boolean }>('/api/pi-packages/remove', { scope: 'user', source: mcpManager });
+        if (!removed.removed) throw new Error('Bundled MCP Manager could not be dismissed');
+      }
     }
   }
 

@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import http, { createServer } from 'node:http';
+import { createRequire } from 'node:module';
 import { basename, dirname, join } from 'node:path';
 import { Readable } from 'node:stream';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -12,6 +13,7 @@ import { createPiWebProxy } from '../../host/dist/pi-web-proxy.js';
 import { createPiWebRuntime } from '../../host/dist/pi-web-runtime.js';
 import { PI_WEB_PORT } from '../../host/dist/pi-web-services.js';
 
+const WebSocket = createRequire(new URL('../../host/dist/pi-web-proxy.js', import.meta.url))('ws');
 const stock = `http://127.0.0.1:${PI_WEB_PORT}`;
 const nativeFetch = globalThis.fetch;
 const nativeHttpRequest = http.request;
@@ -56,9 +58,9 @@ async function close(server) {
   await closed;
 }
 
-async function request(origin, path, expected = 200, body, headers = {}) {
+async function request(origin, path, expected = 200, body, headers = {}, timeoutMs = 8000) {
   const response = await nativeFetch(origin + path, {
-    signal: AbortSignal.timeout(8000), redirect: 'error', headers: { ...headers,
+    signal: AbortSignal.timeout(timeoutMs), redirect: 'error', headers: { ...headers,
       ...(body !== undefined && { 'Content-Type': 'application/json', Origin: origin }) },
     ...(body !== undefined && { method: 'POST', body: JSON.stringify(body) }),
   });
@@ -111,6 +113,9 @@ async function qualify(ambiguous) {
   const resume = join(home, 'resume');
   const nativeParked = join(home, 'native-parked');
   const nativeResume = join(home, 'native-resume');
+  const startupQuestionSeen = join(home, 'startup-question');
+  const startupAnswer = join(home, 'startup-answer');
+  const startupQuestion = 'Continue the original startup?';
   const owner = () => json(join(runtimeDir, 'owner.json'));
   const chat = () => json(join(runtimeDir, 'chat.json'));
   const terminal = () => json(join(runtimeDir, 'terminal.json'));
@@ -153,6 +158,15 @@ async function qualify(ambiguous) {
     }
     void proxy.handle(req, res);
   });
+  let refuseSessionEvents = false;
+  server.on('upgrade', (req, socket, head) => {
+    if (refuseSessionEvents && req.url?.startsWith(`${appPrefix}/api/machines/local/sessions/`)) {
+      socket.end('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+      return;
+    }
+    proxy.upgrade(req, socket, head);
+  });
+  let startupEvents;
   try {
     mkdirSync(cwd);
     mkdirSync(extensions, { recursive: true });
@@ -161,12 +175,18 @@ async function qualify(ambiguous) {
     writeFileSync(join(agentDir, 'models.json'), JSON.stringify({ providers: { [provider]: {
       api: 'openai-completions', baseUrl: `${modelOrigin}/v1`, apiKey: 'local-fixture-not-a-secret', models: [{ id: model }],
     } } }));
-    // Only a public input hook is added; the image-owned handoff extension
+    // Only public Pi hooks are added; the image-owned handoff extension
     // still registers and writes all native ownership evidence itself.
     writeFileSync(join(extensions, 'held-input.ts'), `
 import { existsSync, writeFileSync } from 'node:fs';
 import { setTimeout as delay } from 'node:timers/promises';
 export default function (pi) {
+  pi.on('session_start', async (_event, ctx) => {
+    if (${ambiguous} || ctx.mode !== 'rpc' || existsSync(${JSON.stringify(startupQuestionSeen)})) return;
+    writeFileSync(${JSON.stringify(startupQuestionSeen)}, 'waiting');
+    const answer = await ctx.ui.confirm(${JSON.stringify(startupQuestion)}, 'Packaged startup fixture');
+    writeFileSync(${JSON.stringify(startupAnswer)}, answer ? 'yes' : 'no');
+  });
   pi.on('input', async (event, ctx) => {
     if (ctx.mode === 'tui' && event.text === ${JSON.stringify(handled)}) {
       writeFileSync(${JSON.stringify(nativeParked)}, 'held');
@@ -181,9 +201,9 @@ export default function (pi) {
 }
 `);
     const origin = await listen(server);
-    const api = (path, expected, body) => request(origin, (path.startsWith('/_') ? prefix : appPrefix) + path, expected, body, {
+    const api = (path, expected, body, timeoutMs) => request(origin, (path.startsWith('/_') ? prefix : appPrefix) + path, expected, body, {
       'x-forwarded-host': new URL(origin).host, 'x-forwarded-proto': 'http', 'x-codeflare-pi-generation': String(generation),
-    });
+    }, timeoutMs);
     const boot = runtime.initialize();
     void boot.catch(() => {});
     const readSwitch = () => api(`/_switch?generation=${generation}`);
@@ -221,7 +241,7 @@ export default function (pi) {
     const catalog = `/api/plugin-catalog/projects/${encodeURIComponent(params.get('project'))}/workspaces/${encodeURIComponent(params.get('workspace'))}/sessions/${encodeURIComponent(id)}`;
     const ref = `/api/sessions/${encodeURIComponent(id)}`;
     const query = new URLSearchParams({ cwd });
-    const snapshot = () => api(`${ref}/transcript-snapshot?${query}`);
+    const snapshot = (timeoutMs) => api(`${ref}/transcript-snapshot?${query}`, 200, undefined, timeoutMs);
     const health = () => request(stock, '/api/sessiond/health');
     const writer = async () => {
       const row = await request(stock, catalog);
@@ -232,9 +252,57 @@ export default function (pi) {
     // package from the disposable profile before the first writer can load it.
     const naming = '/opt/codeflare/pi-web/node_modules/@jmfederico/pi-web/dist/pi-packages/session-naming';
     assert.equal((await request(stock, '/api/pi-packages/remove', 200, { scope: 'user', source: naming })).removed, true);
-    assert.equal((await snapshot()).status.sessionId, id);
+    const connectEvents = () => {
+      const eventsUrl = new URL(`${appPrefix}/api/machines/local/sessions/${encodeURIComponent(id)}/events?${query}`, origin);
+      eventsUrl.protocol = 'ws:';
+      return new WebSocket(eventsUrl, { headers: browserHeaders, handshakeTimeout: 5000 });
+    };
+    const startupDialogIds = new Set();
+    if (!ambiguous) {
+      startupEvents = connectEvents();
+      startupEvents.on('message', data => {
+        const event = JSON.parse(data.toString());
+        if (event.type === 'dialog.opened' && event.dialog.title === startupQuestion) {
+          startupDialogIds.add(event.dialog.dialogId);
+        }
+      });
+      await once(startupEvents, 'open', { signal: AbortSignal.timeout(5000) });
+    }
+    const firstSnapshot = snapshot(60_000);
+    void firstSnapshot.catch(() => {});
+    if (!ambiguous) {
+      await until('original Pi startup question entered', () => existsSync(startupQuestionSeen));
+      const question = await until('stock startup status exposes the original question', async () => {
+        const status = await api(`${ref}/status?${query}`);
+        assert.equal(status.sessionId, id);
+        return status.pendingDialogs?.find(dialog => dialog.title === startupQuestion);
+      });
+      await until('scoped Chat stream delivers the original startup question', () => startupDialogIds.has(question.dialogId));
+      const waiting = await until('Host exposes the native startup question to the browser', async () => {
+        const state = await readSwitch();
+        return state.startupQuestion === true && state;
+      });
+      assert.equal(waiting.phase, 'opening', 'a live startup question is not composer readiness');
+      // Exceed the ordinary attachment deadline. A human answer is not a stalled launch.
+      await delay(26_000);
+      const stillWaiting = await readSwitch();
+      assert.equal(stillWaiting.phase, 'opening');
+      assert.equal(stillWaiting.requestId, waiting.requestId);
+      assert.equal(stillWaiting.chatUrl, chatUrl);
+      assert.equal(runtime.ready, false);
+      await api(`${ref}/prompt`, 409, { cwd, text: 'Do not admit new work during the startup question.' });
+      assert.deepEqual(calls, [], 'waiting for a startup answer must not admit a turn');
+      assert.equal(owner().terminalTicket, undefined, 'settling a startup question cannot grant a Terminal writer');
+      const closed = await api(`${ref}/dialogs/answer`, 200, { cwd, dialogId: question.dialogId, value: true });
+      assert.equal(closed.result, 'closed');
+      await until('original Pi extension receives the answer', () => existsSync(startupAnswer));
+      assert.equal(readFileSync(startupAnswer, 'utf8'), 'yes');
+      startupEvents.close();
+    }
+    assert.equal((await firstSnapshot).status.sessionId, id);
     await until('image-managed Chat writer ready', () => runtime.ready);
     await boot;
+    assert.notEqual((await readSwitch()).startupQuestion, true);
     const source = chat();
     assert.deepEqual(identity(source), { id, cwd, path });
     assert.equal(owner().terminalTicket, undefined, 'Chat-first startup must not grant a native Terminal ticket');
@@ -483,7 +551,22 @@ export default function (pi) {
       'the previous stock service must be gone before retry');
     await api('/_switch', 202, { generation, requestId: retryId, target: 'chat' });
     await until('same attempt offers Chat again', async () => (await readSwitch()).chatUrl);
-    assert.equal((await snapshot()).status.sessionId, id);
+    // An HTTP snapshot does not imply live delivery. Fail just the event
+    // upgrade, then verify that a new snapshot can follow a successful join.
+    refuseSessionEvents = true;
+    const rejectedEvents = connectEvents();
+    await assert.rejects(once(rejectedEvents, 'open', { signal: AbortSignal.timeout(6000) }), /503/);
+    const readBrowserSnapshot = () => api(`/api/machines/local${ref}/transcript-snapshot?${query}`);
+    const offlineSnapshot = await readBrowserSnapshot();
+    assert.equal(offlineSnapshot.status.sessionId, id);
+    refuseSessionEvents = false;
+    const liveEvents = connectEvents();
+    try {
+      await once(liveEvents, 'open', { signal: AbortSignal.timeout(6000) });
+      const catchUp = await readBrowserSnapshot();
+      assert.equal(catchUp.status.sessionId, id);
+      assert.ok(catchUp.seq >= offlineSnapshot.seq, 'catch-up must not regress the transcript watermark');
+    } finally { liveEvents.terminate(); }
     await until('same attempt confirms a single recovered Chat writer', async () => {
       const state = await readSwitch();
       return state.phase === 'complete' && state.requestId === retryId && state.surface === 'chat';
@@ -527,6 +610,7 @@ export default function (pi) {
     assert.equal((await health()).activeSessions, 0);
     console.log('PI_WEB_HOST_NATIVE_QUIT_OK');
   } finally {
+    startupEvents?.terminate();
     globalThis.fetch = nativeFetch;
     http.request = nativeHttpRequest;
     writeFileSync(resume, '');

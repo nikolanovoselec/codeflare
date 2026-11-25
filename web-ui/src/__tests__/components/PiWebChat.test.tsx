@@ -1,16 +1,17 @@
 import { fireEvent, render, screen } from '@solidjs/testing-library';
 import { createSignal } from 'solid-js';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import PiWebChat from '../../components/PiWebChat';
+import PiWebSwitchControls from '../../components/PiWebSwitchControls';
 
 const SESSION_ID = 'abcdef1234567890';
 const GENERATION = 7;
 const SCOPE = `/api/pi-web/${SESSION_ID}/g/${GENERATION}/`;
 const CHAT_URL = `${SCOPE}?project=project-a&workspace=workspace-a&session=native-pi-a&view=chat`;
-const STOPPING = 'Stopping the current turn…';
+const ENTERING_CODE = 'Entering Code mode...';
 const active = { phase: 'active' as const, surface: 'chat' as const, chatUrl: CHAT_URL };
-const waiting = { ...active, phase: 'waiting' as const };
-const stopping = { ...active, phase: 'stopping' as const };
+const waiting = { ...active, phase: 'waiting' as const, target: 'terminal' as const };
+const stopping = { ...waiting, phase: 'stopping' as const };
 const cancelled = { ...active, phase: 'cancelled' as const };
 const releasing = { ...active, phase: 'releasing' as const };
 const opening = { phase: 'opening' as const, surface: null };
@@ -23,7 +24,7 @@ function chatFrame(): HTMLIFrameElement {
 
 describe('Pi web Chat wrapper (REQ-AGENT-272)', () => {
   it('REQ-AGENT-272 AC4: embeds the bound stock Chat deep link in the same-origin Codeflare session scope', () => {
-    render(() => <PiWebChat sessionId={SESSION_ID} generation={GENERATION} status={active} onTerminal={() => {}} onCancel={() => {}} />);
+    render(() => <PiWebChat sessionId={SESSION_ID} generation={GENERATION} status={active} onCancel={() => {}} />);
 
     const frame = chatFrame();
     const location = new URL(frame.src);
@@ -33,17 +34,46 @@ describe('Pi web Chat wrapper (REQ-AGENT-272)', () => {
       project: 'project-a', workspace: 'workspace-a', session: 'native-pi-a', view: 'chat',
     });
     expect(frame).toBeVisible();
-    expect(screen.getByRole('button', { name: /terminal/i })).toBeVisible();
+    expect(screen.queryByRole('button', { name: /terminal/i })).not.toBeInTheDocument();
   });
 
-  it('reloads the same opening Chat frame without switching writers', async () => {
-    const onTerminal = () => { throw new Error('Reload must not switch surfaces'); };
+  it('waits five seconds after the stock loader disappears, not after iframe load', async () => {
+    vi.useFakeTimers();
+    try {
+      const loaded = vi.fn();
+      render(() => <PiWebChat sessionId={SESSION_ID} generation={GENERATION} status={active}
+        onCancel={() => {}} onStartupReady={loaded} />);
+      const frame = chatFrame();
+      const doc = document.implementation.createHTMLDocument();
+      Object.defineProperty(doc, 'URL', { value: frame.src });
+      doc.body.innerHTML = '<div id="pi-web-startup"></div>';
+      doc.documentElement.setAttribute('data-pi-web-loading', '');
+      Object.defineProperty(frame, 'contentDocument', { value: doc });
+      fireEvent.load(frame);
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(loaded).not.toHaveBeenCalledWith(true);
+      doc.documentElement.removeAttribute('data-pi-web-loading');
+      await Promise.resolve(); // Deliver the document's mutation before advancing the grace period.
+      await vi.advanceTimersByTimeAsync(4999);
+      expect(loaded).not.toHaveBeenCalledWith(true);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(loaded).toHaveBeenLastCalledWith(true);
+      expect(chatFrame()).toBe(frame);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('reloads the same Chat frame only after a failed navigation, without switching writers', async () => {
     const onRetry = () => { throw new Error('Reload must not dispatch a handoff'); };
     const [status, setStatus] = createSignal<typeof active | (typeof opening & { target: 'chat'; chatUrl: string })>(
       { ...opening, target: 'chat', chatUrl: CHAT_URL });
     render(() => <PiWebChat sessionId={SESSION_ID} generation={GENERATION} status={status()}
-      onTerminal={onTerminal} onCancel={() => {}} onRetry={onRetry} />);
+      onCancel={() => {}} onRetry={onRetry} />);
     const failedFrame = chatFrame();
+    expect(screen.queryByRole('button', { name: 'Reload Chat' })).not.toBeInTheDocument();
+    const errorDocument = document.implementation.createHTMLDocument();
+    Object.defineProperty(errorDocument, 'URL', { value: failedFrame.src });
+    Object.defineProperty(failedFrame, 'contentDocument', { value: errorDocument });
+    fireEvent.load(failedFrame);
     await fireEvent.click(screen.getByRole('button', { name: 'Reload Chat' }));
     expect(failedFrame).not.toBeInTheDocument();
     expect(chatFrame().src).toBe(failedFrame.src);
@@ -52,26 +82,23 @@ describe('Pi web Chat wrapper (REQ-AGENT-272)', () => {
     expect(screen.queryByRole('button', { name: 'Reload Chat' })).not.toBeInTheDocument();
   });
 
-  it('REQ-AGENT-272 AC3: announces automatic stop without replacing the source frame', async () => {
+  it('REQ-AGENT-273 AC1: announces the destination without replacing the source frame', async () => {
     const [status, setStatus] = createSignal<typeof active | typeof waiting | typeof stopping>(active);
     render(() => <PiWebChat sessionId={SESSION_ID} generation={GENERATION} status={status()}
-      onTerminal={() => setStatus(waiting)} onCancel={() => {}} />);
+      onCancel={() => {}} />);
     const source = chatFrame();
     const sourceUrl = source.src;
-    const switchButton = screen.getByRole('button', { name: 'Switch to Terminal' });
-    expect(screen.queryByText(STOPPING, { exact: true })).not.toBeInTheDocument();
-    expect(switchButton).toBeEnabled();
+    expect(screen.queryByText(ENTERING_CODE, { exact: true })).not.toBeInTheDocument();
 
     const expectStoppingInPlace = () => {
       const announced = screen.getByRole('status');
-      expect(announced.textContent).toBe(STOPPING);
+      expect(announced.textContent).toBe(ENTERING_CODE);
       expect(announced).toBeVisible();
       expect(chatFrame()).toBe(source);
       expect(source.src).toBe(sourceUrl);
       expect(source).toBeVisible();
-      expect(screen.getByRole('button', { name: 'Switch to Terminal' })).toBeDisabled();
     };
-    await fireEvent.click(switchButton);
+    setStatus(waiting);
     expectStoppingInPlace();
     setStatus(stopping);
     expectStoppingInPlace();
@@ -80,43 +107,59 @@ describe('Pi web Chat wrapper (REQ-AGENT-272)', () => {
   it('REQ-AGENT-272 AC7: mounts the known stock row during startup without admitting another switch', () => {
     render(() => <PiWebChat sessionId={SESSION_ID} generation={GENERATION}
       status={{ phase: 'opening', target: 'chat', surface: null, chatUrl: CHAT_URL }}
-      onTerminal={() => { throw new Error('Cannot switch during destination startup'); }} onCancel={() => {}} />);
+      onCancel={() => {}} />);
     expect(chatFrame()).toBeVisible();
     expect(new URL(chatFrame().src).searchParams.get('session')).toBe('native-pi-a');
-    expect(screen.getByRole('button', { name: /terminal/i })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /terminal/i })).not.toBeInTheDocument();
   });
 
   it('REQ-AGENT-272 AC6: offers Cancel switch only before Abort is committed', async () => {
     const [status, setStatus] = createSignal<typeof waiting | typeof cancelled | typeof stopping | typeof releasing | typeof opening>(waiting);
     render(() => <PiWebChat sessionId={SESSION_ID} generation={GENERATION} status={status()}
-      onTerminal={() => setStatus(waiting)} onCancel={() => setStatus(cancelled)} />);
+      onCancel={() => setStatus(cancelled)} />);
     const source = chatFrame();
     const cancel = screen.getByRole('button', { name: 'Cancel switch' });
     expect(cancel).toBeEnabled();
 
     await fireEvent.click(cancel);
-    expect(screen.queryByText(STOPPING, { exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByText(ENTERING_CODE, { exact: true })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Cancel switch' })).not.toBeInTheDocument();
     expect(chatFrame()).toBe(source);
     expect(source).toBeVisible();
 
-    await fireEvent.click(screen.getByRole('button', { name: 'Switch to Terminal' }));
+    setStatus(waiting);
     expect(screen.getByRole('button', { name: 'Cancel switch' })).toBeEnabled();
     setStatus(stopping);
     expect(screen.queryByRole('button', { name: 'Cancel switch' })).not.toBeInTheDocument();
     for (const phase of [releasing, opening]) {
       setStatus(phase);
       expect(screen.queryByRole('button', { name: 'Cancel switch' })).not.toBeInTheDocument();
-      expect(screen.queryByText(STOPPING, { exact: true })).not.toBeInTheDocument();
+      expect(screen.queryByText(ENTERING_CODE, { exact: true })).not.toBeInTheDocument();
     }
   });
 });
+
+it.each([['chat', 'Entering Vibe mode...'], ['terminal', 'Entering Code mode...']] as const)(
+  'announces %s immediately and keeps the same status through the handoff phases', (target, announcement) => {
+    const [switching, setSwitching] = createSignal(true);
+    const [phase, setPhase] = createSignal<'active' | 'waiting' | 'stopping' | 'releasing' | 'opening' | 'complete'>('active');
+    render(() => <PiWebSwitchControls phase={phase()} target={target} switching={switching()} onCancel={() => {}} />);
+    expect(screen.getByRole('status')).toHaveTextContent(announcement);
+    setSwitching(false);
+    for (const pending of ['waiting', 'stopping', 'releasing', 'opening'] as const) {
+      setPhase(pending);
+      expect(screen.getByRole('status')).toHaveTextContent(announcement);
+    }
+    setPhase('complete');
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  },
+);
 
 it('REQ-AGENT-272 AC5: never mounts an old, foreign, or malformed Chat frame for the current generation', () => {
   const [status, setStatus] = createSignal(active);
   const [generation, setGeneration] = createSignal(GENERATION);
   render(() => <PiWebChat sessionId={SESSION_ID} generation={generation()} status={status()}
-    onTerminal={() => {}} onCancel={() => {}} />);
+    onCancel={() => {}} />);
   expect(chatFrame()).toBeVisible();
   setGeneration(GENERATION + 1);
   expect(screen.queryByTitle('Pi Chat')).not.toBeInTheDocument();
@@ -135,7 +178,7 @@ it('offers the existing retry action without presenting an unconfirmed Chat writ
   const [retried, setRetried] = createSignal(false);
   render(() => <><PiWebChat sessionId={SESSION_ID} generation={GENERATION}
     status={{ phase: 'failed', surface: null, target: 'chat', chatUrl: CHAT_URL }}
-    problem="Chat startup did not settle." onTerminal={() => {}} onCancel={() => {}} onRetry={() => setRetried(true)} />
+    problem="Chat startup did not settle." onCancel={() => {}} onRetry={() => setRetried(true)} />
     {retried() && <output>Retry requested</output>}</>);
   expect(screen.queryByTitle('Pi Chat')).not.toBeInTheDocument();
   expect(screen.getByText('Chat startup did not settle.')).toBeVisible();

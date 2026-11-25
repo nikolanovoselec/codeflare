@@ -450,6 +450,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     notificationDisposable = t.parser.registerOscHandler(777, () => true);
     if (isHerdr()) {
       clipboardDisposable = t.parser.registerOscHandler(52, (data) => {
+        if (!isVisible()) return true;
         const text = parseOsc52ClipboardWrite(data);
         const terminal = term;
         if (text === null || !terminal) return true;
@@ -645,10 +646,8 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     });
   });
 
-  // The terminal server is available at mounting. Attach once there so tab 1
-  // adopts the prewarmed PTY before its bounded orphan window expires. OPEN
-  // remounts TerminalInstance; this hook cleans up the startup attachment and
-  // the new instance receives authoritative host replay.
+  // Attach at mounting so tab 1 adopts the prewarmed PTY before its orphan
+  // window expires. OPEN lifts the focus/display gate on this same attachment.
   createEffect(() => {
     const initializing = isInitializing();
     const stage = initProgress()?.stage;

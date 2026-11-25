@@ -283,7 +283,7 @@ The Cloudflare container credential slot is `CLOUDFLARE_API_TOKEN`, paired with 
 
 OAuth agent TLS trust uses the platform-mounted `/etc/cloudflare/certs/cloudflare-containers-ca.crt` (`CF_OAUTH_CA_SRC`), including the intercepted API and Gateway hosts. It does not disable certificate validation; `SELF_SIGNED_CERT_IN_CHAIN` is the failure this trust preparation avoids ([REQ-AGENT-078](../../sdd/spec/agents.md#req-agent-078-cloudflare-oauth-token-refreshed-at-the-apicloudflarecom-boundary) AC6).
 
-**Provider registration permissions** (set at app registration, not via config). Every OAuth App connection tier includes `gist`; its remaining `scope` values are derived from the selected tier (default `repo gist read:org workflow`; see [REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise) and [REQ-GITHUB-013](../../sdd/spec/github.md#req-github-013-connected-github-tokens-grant-gist-access)). GitHub OAuth App and GitHub App registration, including the internal-App requirement for EMU, are maintained in [GitHub Connect provider registration](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/integrations/github-provider.md).
+**Provider registration permissions** (set at app registration, not via config). Every OAuth App connection tier includes `gist` and `read:user`; its remaining `scope` values are derived from the selected tier (default `repo gist read:org workflow read:user`; see [REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise) and [REQ-GITHUB-013](../../sdd/spec/github.md#req-github-013-connected-github-tokens-grant-gist-access)). GitHub OAuth App and GitHub App registration, including the internal-App requirement for EMU, are maintained in [GitHub Connect provider registration](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/integrations/github-provider.md).
 
 ### GitHub provider credential acceptance
 
@@ -547,7 +547,7 @@ Users connect GitHub through the dashboard; Guided Setup retains its existing OA
 - **Recommended** -- repository/PR/CI/deploy workflow and gists
 - **Advanced** -- additional advertised workflow capabilities; actual authority still depends on the server scope catalog and provider registration, not the tier label
 
-For the OAuth App path, reconnect with the required tier to request its server-owned scopes (`repo gist`; Recommended adds `read:org workflow`; Advanced also adds `admin:repo_hook read:user`). Legacy fine-grained PAT backend support and masked API reads remain separate. Insufficient Copilot scope can surface as agent authentication failure without a useful error. The permission tables below are legacy PAT guidance, not the current Connect request or a GitHub App permission expansion.
+For the OAuth App path, reconnect with the required tier to request its server-owned scopes (`repo gist read:user`; Recommended adds `read:org workflow`; Advanced also adds `admin:repo_hook`). Existing OAuth grants need a new authorization to add a missing `read:user` scope. Legacy fine-grained PAT backend support and masked API reads remain separate. Insufficient Copilot scope can surface as agent authentication failure without a useful error. The permission tables below are legacy PAT guidance, not the current Connect request or a GitHub App permission expansion.
 
 #### Repository Permissions
 

@@ -37,6 +37,7 @@ const isMobileMock = vi.hoisted(() => ({ value: false }));
 vi.mock('../../lib/mobile', () => ({
   isMobile: () => isMobileMock.value,
   isTouchDevice: () => isMobileMock.value,
+  createTerminalViewportClass: () => () => isMobileMock.value ? 'mobile' : 'desktop',
 }));
 
 // Mock SessionSwitcher
@@ -175,6 +176,16 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
 
       if (visible) expect(screen.getByTestId('header-timer-button')).toBeVisible();
       else expect(screen.queryByTestId('header-timer-button')).not.toBeInTheDocument();
+    });
+
+    it('keeps Profile immediately before Vault when the sleep countdown is visible', () => {
+      const session = runningSession();
+      render(() => <Header {...defaultSessionProps} sessions={[session]} activeSessionId={session.id}
+        workspaceMode={{ value: 'terminal', onSelect: () => {} }} onVaultOpen={() => {}} vaultStatus="ready" />);
+      expect(screen.getByTestId('header-timer-button')).toBeVisible();
+      const buttons = screen.getAllByRole('button');
+      const profileIndex = buttons.indexOf(screen.getByTestId('header-user-menu'));
+      expect(buttons[profileIndex + 1]).toBe(screen.getByTestId('header-vault-button'));
     });
 
     it('REQ-SESSION-036 AC1: opens the active running session countdown and explains idle stopping', () => {
@@ -384,6 +395,63 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
     });
   });
 
+  it('moves VS Code, Operators, then Vault into Profile and restores them in reverse order', async () => {
+    isMobileMock.value = true;
+    sessionStoreState.enterpriseMode = true;
+    let width = 800;
+    const measurements: Array<() => void> = [];
+    const measure = () => measurements.forEach(callback => callback());
+    const layoutWidth = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(() => width);
+    const actionWidth = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(() =>
+      ({ width: 44 } as DOMRect));
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(callback: () => void) { measurements.push(callback); }
+      observe() {}
+      disconnect() {}
+    });
+    try {
+      const openEditor = vi.fn();
+      render(() => <Header {...defaultSessionProps} workspaceMode={{ value: 'chat', onSelect: () => {} }}
+        onVscodeOpen={openEditor} onVaultOpen={() => {}} vaultStatus="ready" />);
+      // Isolate placement from CSS: five fixed slots, a reserved gap, and three
+      // removable slots. Real padding, spacing, and hitboxes are a browser check.
+      const header = screen.getByRole('banner');
+      header.style.padding = '0px';
+      header.style.columnGap = '0px';
+      header.querySelector<HTMLElement>('.header-actions')!.style.columnGap = '0px';
+      const expectToolbar = (vscode: boolean, operators: boolean, vault: boolean) => {
+        expect(!!screen.queryByTestId('header-vscode-button')).toBe(vscode);
+        expect(!!screen.queryByRole('button', { name: 'Operator activity' })).toBe(operators);
+        expect(!!screen.queryByTestId('header-vault-button')).toBe(vault);
+      };
+      expectToolbar(true, true, true);
+      for (const [nextWidth, vscode, operators, vault] of [
+        [395, false, true, true], [351, false, false, true], [307, false, false, false],
+      ] as const) {
+        width = nextWidth;
+        measure();
+        expectToolbar(vscode, operators, vault);
+      }
+      await fireEvent.click(screen.getByTestId('header-user-menu'));
+      const menu = screen.getByTestId('header-user-dropdown');
+      expect(menu).toHaveTextContent(/VS Code.*Operators.*Vault/);
+      await fireEvent.click(screen.getByRole('button', { name: 'Open editor (VS Code)' }));
+      expect(openEditor).toHaveBeenCalledOnce();
+      for (const [nextWidth, vscode, operators, vault] of [
+        [308, false, false, true], [352, false, true, true], [396, true, true, true],
+      ] as const) {
+        width = nextWidth;
+        measure();
+        expectToolbar(vscode, operators, vault);
+      }
+    } finally {
+      cleanup();
+      layoutWidth.mockRestore();
+      actionWidth.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
   describe('REQ-OPERATOR-040: Enterprise operator placement', () => {
     it('places the operator control between VS Code and Storage in a terminal header', () => {
       sessionStoreState.enterpriseMode = true;
@@ -507,6 +575,16 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
 
       fireEvent.click(screen.getByTestId('header-logo'));
       expect(handleLogoClick).toHaveBeenCalledTimes(1);
+    });
+
+    it('lets keyboard users return to Dashboard from the icon-only header', () => {
+      isMobileMock.value = true;
+      const onLogoClick = vi.fn();
+      render(() => <Header {...defaultSessionProps} onLogoClick={onLogoClick} />);
+      const dashboard = screen.getByRole('button', { name: 'Dashboard' });
+      expect(dashboard.tabIndex).toBe(0);
+      fireEvent.keyDown(dashboard, { key: 'Enter' });
+      expect(onLogoClick).toHaveBeenCalledOnce();
     });
 
     it('should always use mdiViewDashboardOutline icon (never mdiMenu), even on mobile', () => {
