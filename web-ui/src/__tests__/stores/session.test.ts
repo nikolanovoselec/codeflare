@@ -1598,6 +1598,28 @@ describe('Session Store', () => {
       sessionStore.initializeTerminalsForSession('session-1');
     });
 
+    it('settles a cancelled Start without publishing Ready when Stop takes over', async () => {
+      let lateReady!: (generation: number) => void;
+      vi.mocked(api.startSession).mockImplementationOnce((_id, _progress, ready) => {
+        lateReady = ready;
+        return () => {};
+      });
+      mockStopSession.mockResolvedValue(undefined);
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {
+        'session-1': { status: 'stopped', generation: stopGeneration, revision: 11 },
+      }, maxSessions: 3 });
+      let settled = false;
+      const starting = sessionStore.startSession('session-1', 'chat').then(() => { settled = true; });
+      const stopping = sessionStore.stopSession('session-1');
+      await vi.advanceTimersByTimeAsync(STOP_POLL_INTERVAL_MS);
+      await stopping;
+      expect(settled).toBe(true);
+      await starting;
+      lateReady(stopGeneration);
+      expect(sessionStore.sessions[0]).toMatchObject({ status: 'stopped' });
+      expect(sessionStore.getInitProgressForSession('session-1')).toBeNull();
+    });
+
     it.each([
       ['missing row', undefined],
       ['unordered stopped', { status: 'stopped' }],

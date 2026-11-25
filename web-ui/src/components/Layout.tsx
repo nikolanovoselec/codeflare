@@ -843,7 +843,7 @@ const Layout: Component<LayoutProps> = (props) => {
   };
 
   const handleCreateSession: typeof createAndStartSession = async (name, agent, tabs, surface, implicitAgent) => {
-    if (launchingVibe()) return;
+    if (implicitAgent && launchingVibe()) return;
     if (implicitAgent) setLaunchingVibe(true);
     try { await createAndStartSession(name, agent, tabs, surface, implicitAgent); }
     finally { if (implicitAgent) setLaunchingVibe(false); }

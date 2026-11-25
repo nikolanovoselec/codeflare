@@ -739,7 +739,10 @@ function startSession(id: string, surface?: PiSurface): Promise<void> {
   const session = state.sessions.find((candidate) => candidate.id === id);
   const retryEditorTimeout = session?.workspace === 'vscode' && session.editorReadyError === true;
 
+  startupCleanups.get(id)?.();
+  startupCleanups.delete(id);
   return new Promise((resolve, reject) => {
+    let pending = true;
     setState(
       produce((s) => {
         s.initializingSessionIds[id] = true;
@@ -764,6 +767,7 @@ function startSession(id: string, surface?: PiSurface): Promise<void> {
     const cleanup = api.startSession(
       id,
       (progress) => {
+        if (!pending) return;
         if (progress.stage === 'ready') {
           readyProgress = progress; // Publish only after checking generation ownership below.
           return;
@@ -775,6 +779,8 @@ function startSession(id: string, surface?: PiSurface): Promise<void> {
         );
       },
       (generation) => {
+        if (!pending) return;
+        pending = false;
         const index = state.sessions.findIndex((session) => session.id === id);
         const current = state.sessions[index];
         if (!current || isLocallyStopping(id) || localKillAttempts.has(id)
@@ -801,6 +807,8 @@ function startSession(id: string, surface?: PiSurface): Promise<void> {
         resolve();
       },
       (error, code) => {
+        if (!pending) return;
+        pending = false;
         if (code === 'SESSION_START_UNCONFIRMED') {
           releaseUnconfirmedStart(error);
           return;
@@ -828,8 +836,12 @@ function startSession(id: string, surface?: PiSurface): Promise<void> {
       { retryEditorTimeout, ...(surface && { surface }) },
     );
 
-    startupCleanups.get(id)?.();
-    startupCleanups.set(id, cleanup);
+    if (pending) startupCleanups.set(id, () => {
+      pending = false;
+      cleanup();
+      // Cancellation settles the caller without publishing Ready or a startup error.
+      resolve();
+    });
   });
 }
 

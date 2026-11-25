@@ -441,6 +441,11 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
       expect(openVault).not.toHaveBeenCalled();
       await fireEvent.click(screen.getByRole('button', { name: 'Open editor (VS Code)' }));
       expect(openEditor).toHaveBeenCalledOnce();
+      fireEvent.click(screen.getByTestId('header-user-menu'));
+      fireEvent.click(within(screen.getByTestId('header-user-dropdown')).getByRole('button', { name: 'Operator activity' }));
+      const operatorsPanel = await screen.findByRole('dialog', { name: 'Operator activity' });
+      expect(operatorsPanel).toBeVisible();
+      fireEvent.click(within(operatorsPanel).getByRole('button', { name: 'Close operators' }));
       for (const [nextWidth, vscode, operators, vault] of [
         [308, false, false, true], [352, false, true, true], [396, true, true, true],
       ] as const) {

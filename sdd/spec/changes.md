@@ -7,6 +7,7 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 ## 2026-11-25: Vibe and Code workspace modes
 
 - [Workspace modes](agents.md#req-agent-276-vibe-and-code-workspace-preference) persist the surface choice. [Chat preload](agents.md#req-agent-275-classic-pi-chat-startup) and [warm return](agents.md#req-agent-277-retained-chat-on-dashboard-return) reveal the already-mounted surface.
+- [Direct Vibe launch](agents.md#req-agent-279-direct-vibe-session-launch) prevents repeat Dashboard launches until the pending Start settles or is stopped.
 - The [Vibe drawer](github.md#req-github-321-vibe-dashboard-browser-disclosure) keeps browsers behind one control and shows account-owned repository counts when available.
 - [Stock Chat](agents.md#req-agent-274-stock-pi-chat-controls) defaults to Pi Web Classic without overriding saved themes.
 

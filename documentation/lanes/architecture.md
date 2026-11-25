@@ -253,7 +253,7 @@ The prerendered Astro package emits `/landing` assets into the web asset tree. R
 **Contracts:** [REQ-TERM-011](../../sdd/spec/terminal.md#req-term-011-visible-terminal-panes-own-websocket-connections), [REQ-TERM-012](../../sdd/spec/terminal.md#req-term-012-multiview-virtual-session-workspace), [REQ-TERM-013](../../sdd/spec/terminal.md#req-term-013-multiview-selection-flow), [REQ-TERM-015](../../sdd/spec/terminal.md#req-term-015-focused-pane-owns-url-detection), [AD82](../decisions/README.md#ad82-visible-terminal-panes-own-websockets-and-multiview-is-virtual), [AD105](../decisions/README.md#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input).
 
 <a id="visible-terminal-workspace-and-multiview"></a>
-Visible panes own terminal sockets/resize; hidden running sessions mount neither. MultiView is never sent to lifecycle, quota, storage or terminal APIs. [Terminal & IDE](terminal-and-ide.md) owns desktop/tablet/mobile composition.
+Visible panes open terminal sockets and own resize. Dashboard may retain one previously connected inert pane, but opens no new sockets. MultiView is never sent to lifecycle, quota, storage or terminal APIs. [Terminal & IDE](terminal-and-ide.md) owns desktop/tablet/mobile composition.
 
 ### KV
 
