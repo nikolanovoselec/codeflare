@@ -211,6 +211,7 @@
 
 .session-stat-card__shutdown-notice {
   position: absolute;
+  z-index: 1;
   inset: 0;
   display: flex;
   flex-direction: column;
@@ -236,8 +237,8 @@
   padding: var(--space-1) var(--space-2);
 }
 
-/* At enlarged text sizes or narrow widths, let the words take space above the metrics. */
-@container (max-width: 13rem) {
+/* Reflow when the content box is too narrow for the longest padded word. */
+@container (max-width: 11rem) {
   .session-stat-card__shutdown-notice:has(.session-stat-card__subtitle-word) {
     position: static;
     padding-inline: 0;
