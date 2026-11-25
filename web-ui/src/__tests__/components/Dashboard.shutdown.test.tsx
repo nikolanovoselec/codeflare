@@ -34,7 +34,7 @@ function project(status: Lifecycle, revision: number, shutdownPhase?: Phase, pen
   catalog = polled = { status, lifecycle: status, generation, revision, shutdownPhase, pendingDelete };
 }
 
-function renderDashboard(extra?: SessionWithStatus, onDelete = sessionStore.deleteSession) {
+function renderDashboard(extra?: SessionWithStatus, onDelete = (id: string) => sessionStore.deleteSession(id)) {
   const openTerminal = vi.fn();
   const start = vi.fn();
   const view = render(() => <Dashboard
@@ -270,16 +270,27 @@ it('REQ-SESSION-043: repeated omissions hide both cards without changing termina
       onCreateSession={() => {}} onClose={() => {}} isMobileView={false} />);
     const cards = () => screen.queryAllByTestId(`session-stat-card-${id}`);
     expect(cards()).toHaveLength(2);
-    catalog = polled = undefined;
+    const miss = async () => {
+      catalog = polled = undefined;
+      await sessionStore.refreshSessionStatuses();
+    };
+    project('running', 11);
     await sessionStore.refreshSessionStatuses();
+    await miss();
+    await miss();
+    project('running', 12);
+    await sessionStore.refreshSessionStatuses();
+    await miss();
     expect(cards()).toHaveLength(2);
     batchResponse = Promise.resolve(new Response(null, { status: 503 }));
     await sessionStore.refreshSessionStatuses();
     expect(cards()).toHaveLength(2);
     batchResponse = undefined;
-    await sessionStore.refreshSessionStatuses();
+    await miss();
     expect(cards()).toHaveLength(2);
+    project('running', 11);
     await sessionStore.refreshSessionStatuses();
+    await miss();
     expect(cards()).toHaveLength(0);
     expect(sessionStore.getInitProgressForSession(id)?.stage).toBe('ready');
     expect(sessionStore.sessions.some(session => session.id === id)).toBe(true);
@@ -309,6 +320,15 @@ it.each(['Dashboard', 'dropdown'] as const)('REQ-SESSION-244: %s discards Delete
     expect(screen.queryByTestId(`session-stat-card-${id}`)).not.toBeInTheDocument();
     expect(screen.queryByTestId('context-menu-delete-confirm')).not.toBeInTheDocument();
 
+    project('running', 11);
+    await sessionStore.refreshSessionStatuses();
+    expect(card().getByRole('button', { name: 'Session actions' })).toBeVisible();
+    expect(screen.queryByTestId('session-context-menu')).not.toBeInTheDocument();
+    fireEvent.click(card().getByRole('button', { name: 'Session actions' }));
+    expect(screen.getByTestId('context-menu-delete')).toBeVisible();
+    expect(screen.queryByTestId('context-menu-delete-confirm')).not.toBeInTheDocument();
+    fireEvent.click(document.querySelector('.session-context-menu__backdrop')!);
+
     fireEvent.click(within(screen.getByTestId(`session-stat-card-${other.id}`)).getByRole('button', { name: 'Session actions' }));
     expect(screen.queryByTestId('context-menu-delete-confirm')).not.toBeInTheDocument();
     expect(remove).not.toHaveBeenCalled();
@@ -317,7 +337,10 @@ it.each(['Dashboard', 'dropdown'] as const)('REQ-SESSION-244: %s discards Delete
     expect(remove.mock.calls).toEqual([[other.id]]);
   } finally {
     sessionStore.dismissInitProgressForSession(id);
-    await sessionStore.loadSessions();
+    project('stopping', 12);
+    await sessionStore.refreshSessionStatuses();
+    project('stopped', 13);
+    await sessionStore.refreshSessionStatuses();
   }
 });
 
