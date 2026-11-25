@@ -177,6 +177,7 @@ try {
   const inventoryStart = entrypoint.indexOf('\nconfigure_pi_packages_and_review_inventory() {');
   const inventoryEnd = entrypoint.indexOf('\nwarm_pi_npm_dependencies() {', inventoryStart);
   assert.ok(inventoryStart >= 0 && inventoryEnd > inventoryStart, 'find the production package inventory function');
+  let managerFilesPreserved = false;
   await test('preserves bundled MCP Manager files during registration retirement', () => {
     const managerEntries = readdirSync(bundledMcpManager, { recursive: true }).sort();
     const managerFiles = managerEntries.filter(entry => statSync(join(bundledMcpManager, entry)).isFile())
@@ -189,7 +190,10 @@ try {
     for (const [entry, bytes] of managerFiles) {
       assert.deepEqual(readFileSync(join(bundledMcpManager, entry)), bytes, `preserve shipped Manager file: ${entry}`);
     }
+    managerFilesPreserved = true;
   });
+  // node:test reports failures without rejecting the awaited test promise.
+  if (!managerFilesPreserved) throw new Error('Bundled MCP Manager file preservation check failed');
   const migration = readFileSync(new URL('../../00-mcp-adapter-config.ts', import.meta.url));
   writeFileSync(join(agentDir, 'extensions/00-mcp-adapter-config.ts'), migration);
   const adapterRegistration = json(settingsPath).packages.find(source => typeof source === 'string' && /^npm:pi-mcp-adapter@/.test(source));
