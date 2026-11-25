@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@solidjs/testing-library';
 import { createComponent, createSignal, Show } from 'solid-js';
 import InitProgress from '../../components/InitProgress';
-import Terminal from '../../components/Terminal';
 import ClonePicker from '../../components/github/ClonePicker';
 
 const terminalLifecycle = vi.hoisted(() => ({
@@ -26,18 +25,6 @@ vi.mock('../../stores/terminal', () => ({
   },
   sendInputToTerminal: vi.fn(() => false),
   registerProcessNameCallback: vi.fn(),
-}));
-
-// Keep the real terminal component and readiness overlay; replace xterm and its transport.
-vi.mock('../../hooks/useTerminal', () => ({
-  useTerminal: (props: { sessionId: string }) => ({
-    containerRef: () => {},
-    terminal: () => undefined,
-    retryMessage: () => null,
-    connectionState: () => 'connected',
-    isInitializing: () => sessionStore.isSessionInitializing(props.sessionId),
-    initProgress: () => sessionStore.getInitProgressForSession(props.sessionId),
-  }),
 }));
 
 // MOCK-DRIFT RISK: Overrides polling/timing constants to speed up tests.
@@ -67,7 +54,6 @@ vi.mock('../../api/client', () => ({
   getStartupStatus: vi.fn(),
   startSession: vi.fn(),
   stopSession: vi.fn(),
-  killSession: vi.fn(),
   getPreferences: vi.fn().mockResolvedValue({}),
   updatePreferences: vi.fn().mockResolvedValue({}),
   getR2Status: vi.fn().mockResolvedValue({ ready: false }),
@@ -2005,231 +1991,6 @@ describe('Session Store', () => {
         expect(screen.queryByTestId('init-progress')).not.toBeInTheDocument();
         expect(sessionStore.sessions.find(session => session.id === id)?.status).toBe('running');
       } finally { cleanup(); }
-    });
-
-    it.each(['phase-less poll', 'queued poll', 'newer-generation queued poll', 'Kill before withdrawal', 'legacy Stop after Ready', 'rate-limited initial Stop', 'superseded rate-limited Stop', 'reordered rate-limited Stop', 'ambiguous initial Stop', 'Retry Stop after withdrawal', 'replacement poll', 'replacement catalog', 'pending Stop poll', 'pending Stop catalog', 'catalog', 'newer-generation catalog', 'omissions'] as const)('REQ-TERM-043: ordered %s shutdown releases a pending Ready screen', async read => {
-      const session = { id: `ready-shutdown-${read}`, name: 'Ready shutdown', workspace: 'terminal' as const,
-        createdAt: '2026-01-01', lastAccessedAt: '2026-01-01',
-        lifecycle: 'stopped' as const, status: 'stopped' as const, generation: 6, revision: 1 };
-      mockGetSessions.mockResolvedValue([session]);
-      await sessionStore.loadSessions();
-      vi.mocked(api.startSession).mockImplementation((_id, onProgress, onComplete) => {
-        queueMicrotask(() => {
-          onProgress({ stage: 'ready', progress: 100, message: 'Container ready' });
-          onComplete(7);
-        });
-        return () => {};
-      });
-      await sessionStore.startSession(session.id);
-      const current = () => sessionStore.sessions.find(s => s.id === session.id);
-      const observe = async (remote: Awaited<ReturnType<typeof api.getBatchSessionStatus>>['statuses'][string]) => {
-        mockGetBatchSessionStatus.mockResolvedValue({ statuses: { [session.id]: remote } });
-        await sessionStore.refreshSessionStatuses();
-      };
-      const stale = { status: 'stopped', lifecycle: 'stopped', generation: 6, revision: 2 } as const;
-      await observe(stale);
-      expect(sessionStore.getInitProgressForSession(session.id)?.stage).toBe('ready');
-
-      if (read === 'omissions') {
-        await observe({ status: 'running', lifecycle: 'running', generation: 7, revision: 3 });
-        terminalLifecycle.ownedSessionIds.add(session.id);
-        mockGetBatchSessionStatus.mockResolvedValue({ statuses: {} });
-        for (let miss = 0; miss < 2; miss++) {
-          await sessionStore.refreshSessionStatuses();
-          expect(current()?.status).toBe('running');
-          expect(sessionStore.getInitProgressForSession(session.id)?.stage).toBe('ready');
-        }
-        await sessionStore.refreshSessionStatuses();
-        expect(current()).toBeUndefined();
-      } else if (read === 'catalog' || read === 'newer-generation catalog') {
-        const generation = read === 'newer-generation catalog' ? 8 : 7;
-        let reply!: (value: Awaited<ReturnType<typeof api.getBatchSessionStatus>>) => void;
-        mockGetBatchSessionStatus.mockReturnValueOnce(new Promise(resolve => { reply = resolve; }));
-        mockGetSessions.mockResolvedValue([{ ...session, generation, revision: 4 }]);
-        const loading = sessionStore.loadSessions();
-        try {
-          await vi.advanceTimersByTimeAsync(0);
-          expect(current()).toMatchObject({ status: 'stopped', generation, revision: 4 });
-          expect(sessionStore.getInitProgressForSession(session.id)).toBeNull();
-        } finally {
-          reply({ statuses: { [session.id]: stale } });
-          await loading;
-        }
-        expect(current()).toMatchObject({ status: 'stopped', generation, revision: 4 });
-      } else {
-        const generation = read === 'newer-generation queued poll' ? 8 : 7;
-        const shutdown = read === 'phase-less poll' || read === 'Retry Stop after withdrawal'
-          ? { status: 'stopping' as const, lifecycle: 'stopping' as const }
-          : { status: 'running' as const, lifecycle: 'running' as const, shutdownPhase: 'queued' as const };
-        terminalLifecycle.ownedSessionIds.add(session.id);
-        const view = render(() => createComponent(Show, {
-          keyed: true,
-          get when() { return current()?.status === 'running' || current()?.status === 'stopping'; },
-          get children() {
-            return createComponent(Terminal, { sessionId: session.id, terminalId: '1', active: true });
-          },
-        }));
-        try {
-          expect(screen.getByRole('button', { name: 'Open' })).toBeVisible();
-          const pane = view.container.querySelector('.terminal-container');
-          expect(pane).toHaveStyle({ visibility: 'hidden' });
-          const expectPreserved = () => {
-            expect(screen.queryByRole('button', { name: 'Open' })).not.toBeInTheDocument();
-            expect(view.container.querySelector('.terminal-container')).toBe(pane);
-            expect(pane).toHaveStyle({ visibility: 'hidden' });
-            expect(terminalLifecycle.ownedSessionIds.has(session.id)).toBe(true);
-          };
-          const initialStopFailure = read === 'rate-limited initial Stop' || read === 'superseded rate-limited Stop'
-            || read === 'reordered rate-limited Stop' || read === 'ambiguous initial Stop';
-          const pendingReplacement = read === 'pending Stop poll' || read === 'pending Stop catalog';
-          if (read !== 'Kill before withdrawal' && read !== 'legacy Stop after Ready' && !initialStopFailure && !pendingReplacement) {
-            await observe({ ...shutdown, generation, revision: 3 });
-            expect(current()).toMatchObject({ ...shutdown, generation });
-            expectPreserved();
-          }
-
-          if (read === 'legacy Stop after Ready') {
-            vi.mocked(api.stopSession).mockResolvedValueOnce(undefined);
-            const stopping = sessionStore.stopSession(session.id);
-            mockGetBatchSessionStatus.mockResolvedValue({ statuses: { [session.id]: { ...stale, revision: 99 } } });
-            await vi.advanceTimersByTimeAsync(STOP_POLL_INTERVAL_MS);
-            expect(current()?.status).toBe('stopping');
-            expectPreserved();
-            const legacyRead = async (status: 'stopped' | 'stopping', revision: number) => {
-              mockGetBatchSessionStatus.mockResolvedValue({ statuses: {
-                [session.id]: { status, lifecycle: status, generation, revision },
-              } });
-              await vi.advanceTimersByTimeAsync(STOP_POLL_INTERVAL_MS);
-            };
-            await legacyRead('stopped', 4); // No matching baseline yet.
-            expectPreserved();
-            await legacyRead('stopping', 5);
-            await legacyRead('stopped', 5);
-            expectPreserved();
-            await legacyRead('stopped', 6);
-            expect(current()?.status).toBe('stopped');
-            await stopping;
-          }
-
-          if (pendingReplacement) {
-            let finishStop!: () => void;
-            vi.mocked(api.stopSession).mockImplementationOnce(() => new Promise<void>(resolve => { finishStop = resolve; }));
-            const pending = sessionStore.stopSession(session.id);
-            const replacement = { status: 'running', lifecycle: 'running', generation: 8, revision: 4 } as const;
-            try {
-              expectPreserved();
-              if (read === 'pending Stop catalog') {
-                mockGetSessions.mockResolvedValue([{ ...session, ...replacement }]);
-                await sessionStore.loadSessions();
-              } else {
-                await observe(replacement);
-              }
-              expect(current()).toMatchObject(replacement);
-              expect(view.container.querySelector('.terminal-container')).toBeVisible();
-            } finally {
-              finishStop();
-            }
-            const replacementPane = view.container.querySelector('.terminal-container');
-            await vi.advanceTimersByTimeAsync(STOP_POLL_INTERVAL_MS);
-            await pending;
-            expect(current()).toMatchObject(replacement);
-            expect(view.container.querySelector('.terminal-container')).toBe(replacementPane);
-            expect(replacementPane).toBeVisible();
-            return;
-          }
-
-          if (initialStopFailure) {
-            const { ApiError } = await import('../../api/fetch-helper');
-            const refused = new ApiError('Slow down', 429, 'Too Many Requests');
-            refused.code = 'RATE_LIMIT_ERROR';
-            let rejectStop!: (err: Error) => void;
-            vi.mocked(api.stopSession).mockImplementationOnce(() => new Promise<never>((_, reject) => { rejectStop = reject; }));
-            const stopping = sessionStore.stopSession(session.id);
-            let loading: Promise<void> | undefined;
-            let reply!: (value: Awaited<ReturnType<typeof api.getBatchSessionStatus>>) => void;
-            try {
-              expectPreserved();
-              if (read === 'superseded rate-limited Stop') {
-                await observe({ status: 'stopping', lifecycle: 'stopping', generation, revision: 3 });
-              } else if (read === 'reordered rate-limited Stop') {
-                mockGetBatchSessionStatus.mockReturnValueOnce(new Promise(resolve => { reply = resolve; }));
-                loading = sessionStore.loadSessions();
-                await vi.advanceTimersByTimeAsync(0);
-                await observe({ status: 'unreachable', lifecycle: 'unreachable', generation, revision: 4 });
-              }
-            } finally {
-              rejectStop(read === 'ambiguous initial Stop' ? new Error('Connection lost') : refused);
-              await stopping;
-            }
-            if (loading) {
-              reply({ statuses: { [session.id]: { status: 'running', lifecycle: 'running', generation, revision: 3 } } });
-              await loading;
-              expectPreserved();
-            }
-            await observe({ status: 'running', lifecycle: 'running', generation, revision: 5 });
-            if (read === 'rate-limited initial Stop' || read === 'reordered rate-limited Stop') {
-              expect(screen.getByRole('button', { name: 'Open' })).toBeVisible();
-              expect(view.container.querySelector('.terminal-container')).toBe(pane);
-              expect(pane).toHaveStyle({ visibility: 'hidden' });
-              sessionStore.dismissInitProgressForSession(session.id);
-              return;
-            }
-            expectPreserved();
-            await observe({ status: 'stopping', lifecycle: 'stopping', generation, revision: 6 });
-          }
-
-          if (read === 'phase-less poll' || read === 'Kill before withdrawal' || read === 'Retry Stop after withdrawal') {
-            const command = read === 'Retry Stop after withdrawal' ? 'stopSession' : 'killSession';
-            let rejectCommand!: (err: Error) => void;
-            vi.mocked(api[command]).mockImplementationOnce(() => new Promise<never>((_, reject) => { rejectCommand = reject; }));
-            const pending = sessionStore[command](session.id);
-            try {
-              expectPreserved();
-              if (read === 'Kill before withdrawal') {
-                await observe({ ...stale, revision: 99 });
-                expect(current()?.status).toBe('stopping');
-                expectPreserved();
-                // The catalog and its enrichment can only report the older runtime too.
-                mockGetSessions.mockResolvedValue([{ ...session, revision: 99 }]);
-                await sessionStore.loadSessions();
-                expect(current()?.status).toBe('stopping');
-                expectPreserved();
-              }
-            } finally {
-              rejectCommand(new Error('Shutdown command failed'));
-              await pending;
-            }
-            expect(sessionStore.error).toBe('Shutdown command failed');
-            expectPreserved();
-          }
-
-          if (read === 'replacement poll' || read === 'replacement catalog') {
-            // The observer can miss confirmed exit altogether. A newer shutdown
-            // is still hidden, and live evidence must be newer than that shutdown.
-            await observe({ ...shutdown, generation: 8, revision: 4 });
-            expectPreserved();
-            const replacement = { status: 'running', lifecycle: 'running', generation: 9, revision: 5 } as const;
-            if (read === 'replacement catalog') {
-              mockGetSessions.mockResolvedValue([{ ...session, ...replacement }]);
-              await sessionStore.loadSessions(); // Companion batch still reports generation 8.
-            } else {
-              await observe(replacement);
-            }
-            expect(current()).toMatchObject(replacement);
-            const visiblePane = view.container.querySelector('.terminal-container');
-            expect(visiblePane).not.toBe(pane);
-            expect(visiblePane).toBeVisible();
-            expect(screen.queryByRole('button', { name: 'Open' })).not.toBeInTheDocument();
-            return;
-          }
-
-          await observe({ status: 'stopped', lifecycle: 'stopped', generation, revision: 7 });
-          expect(current()).toMatchObject({ status: 'stopped', lifecycle: 'stopped' });
-          expect(pane).not.toBeInTheDocument();
-          expect(terminalLifecycle.ownedSessionIds.has(session.id)).toBe(false);
-        } finally { view.unmount(); }
-      }
-      expect(sessionStore.getInitProgressForSession(session.id)).toBeNull();
     });
 
     it('REQ-GITHUB-320: enables Open while restoration runs and shows its later partial outcome', async () => {

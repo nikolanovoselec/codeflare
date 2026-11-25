@@ -1,5 +1,5 @@
 import { createStore, produce } from 'solid-js/store';
-import { batch, createSignal } from 'solid-js';
+import { createSignal } from 'solid-js';
 import type { SessionWithStatus, SessionStatus, ShutdownPhase, InitProgress, RepositoryRestoreStatus, SessionTerminals, AgentType, TabConfig, UserPreferences } from '../types';
 import * as api from '../api/client';
 import { ApiError } from '../api/fetch-helper';
@@ -96,10 +96,6 @@ export interface SessionMetrics {
 
 type BatchStatusResponse = Awaited<ReturnType<typeof api.getBatchSessionStatus>>;
 type SessionInitProgress = InitProgress & { readyGeneration?: number };
-type WithdrawnReady = {
-  withdrawnGeneration: number;
-  stopRecovery?: { progress: SessionInitProgress; refused: boolean };
-};
 type MemoryRetryAttempt = { token: symbol; generation?: number; revision?: number };
 
 /**
@@ -142,7 +138,7 @@ export interface SessionState {
   activeSessionId: string | null;
   loading: boolean;
   error: string | null;
-  initializingSessionIds: Record<string, true | WithdrawnReady>;
+  initializingSessionIds: Record<string, boolean>;
   initProgressBySession: Record<string, SessionInitProgress>;
   terminalsPerSession: Record<string, SessionTerminals>;
   sessionMetrics: Record<string, SessionMetrics>;
@@ -253,17 +249,11 @@ function isSessionInitializing(sessionId: string): boolean {
   return state.initializingSessionIds[sessionId] === true;
 }
 
-function hasStartupTerminalInstance(sessionId: string): boolean {
-  return state.initializingSessionIds[sessionId] !== undefined;
-}
-
 /** One gate for every stopped/missing observation from eventually-consistent KV. */
-function shouldRetainNegativeKv(sessionId: string, batchOmission = false): boolean {
-  if (localKillAttempts.has(sessionId)) return true;
-  // A completed Start awaiting Open is not an in-flight Start. Fresh D1
-  // omissions can count toward removal even if the startup socket still exists.
-  if (batchOmission && state.initProgressBySession[sessionId]?.readyGeneration !== undefined) return false;
-  return isSessionInitializing(sessionId) || isWithinStartupGuard(sessionId)
+function shouldRetainNegativeKv(sessionId: string): boolean {
+  return localKillAttempts.has(sessionId)
+    || isSessionInitializing(sessionId)
+    || isWithinStartupGuard(sessionId)
     || terminalStore.ownsSession?.(sessionId) === true;
 }
 
@@ -339,7 +329,7 @@ function applyManagedReleaseBatch(
 }
 
 // A local Stop owns its own confirmation poll; persisted stopping does not.
-const localStopAttempts = new Map<string, number | undefined>();
+const localStopAttempts = new Set<string>();
 const supersededStopAttempts = new Set<string>();
 // Keep successful commands deduplicated until authoritative polling confirms exit.
 const localKillAttempts = new Map<string, { request: Promise<void> | null; generation?: number }>();
@@ -360,83 +350,10 @@ function reconcileMemoryRetry(id: string, session?: SessionWithStatus): void {
   }
 }
 
-type ReadyProjection = Pick<Partial<SessionWithStatus>, 'generation' | 'revision' | 'status' | 'shutdownPhase'>;
-
-/** Call only with a projection that has passed lifecycle ordering. */
-function supersedesReady(id: string, incoming: ReadyProjection): incoming is ReadyProjection & { generation: number } {
-  const readyGeneration = state.initProgressBySession[id]?.readyGeneration;
-  return readyGeneration !== undefined && incoming.generation !== undefined && incoming.revision !== undefined
-    && incoming.generation >= readyGeneration
-    && (incoming.status === 'stopping' || incoming.status === 'stopped' || incoming.shutdownPhase !== undefined);
-}
-
-function canApplyReadyProjection(id: string, incoming: ReadyProjection): boolean {
-  const startup = state.initializingSessionIds[id];
-  return typeof startup !== 'object' || (incoming.generation !== undefined && incoming.revision !== undefined
-    && incoming.generation >= startup.withdrawnGeneration);
-}
-
-function discardStopRecovery(id: string): void {
-  setState(produce(s => {
-    const startup = s.initializingSessionIds[id];
-    if (typeof startup === 'object' && startup.stopRecovery) delete startup.stopRecovery;
-  }));
-}
-
-function releaseCompletedReady(id: string, generation: number, stopRecovery?: WithdrawnReady['stopRecovery']): void {
-  // Withdraw Open without switching the mounted pane to the post-Open instance.
-  setState(produce(s => {
-    s.initializingSessionIds[id] = { withdrawnGeneration: generation, stopRecovery };
-    delete s.initProgressBySession[id];
-  }));
-  clearSessionStartedGuard(id);
-}
-
-function releaseReadyForShutdown(id: string, incoming: ReadyProjection): void {
-  if (supersedesReady(id, incoming)) releaseCompletedReady(id, incoming.generation);
-  const startup = state.initializingSessionIds[id];
-  if (typeof startup === 'object' && startup.stopRecovery && (incoming.generation !== startup.withdrawnGeneration
-    || incoming.status === 'stopping' || incoming.status === 'stopped' || incoming.shutdownPhase !== undefined)) {
-    discardStopRecovery(id);
-  }
-}
-
-function withdrawReadyForShutdownCommand(id: string, recoverOnRefusal = false): void {
-  const progress = state.initProgressBySession[id];
-  if (progress?.readyGeneration !== undefined) {
-    releaseCompletedReady(id, progress.readyGeneration, recoverOnRefusal ? { progress, refused: false } : undefined);
-  } else if (typeof state.initializingSessionIds[id] === 'object') {
-    discardStopRecovery(id);
-  } else {
-    dismissInitProgressForSession(id);
-  }
-}
-
-/** Reconcile only after the ordered status is published, so a confirmed exit can unmount the pane. */
-function reconcileWithdrawnReady(id: string, incoming: ReadyProjection): void {
-  const startup = state.initializingSessionIds[id];
-  if (typeof startup !== 'object' || incoming.generation === undefined || incoming.revision === undefined
-    || incoming.generation < startup.withdrawnGeneration) return;
-  const newer = incoming.generation > startup.withdrawnGeneration;
-  if ((incoming.status === 'stopped' && !isShutdownInProgress(incoming.shutdownPhase))
-    || (newer && incoming.status === 'running' && incoming.shutdownPhase === undefined)) {
-    dismissInitProgressForSession(id);
-  } else if (!newer && incoming.status === 'running' && incoming.shutdownPhase === undefined && startup.stopRecovery?.refused) {
-    const { progress } = startup.stopRecovery;
-    setState(produce(s => {
-      s.initializingSessionIds[id] = true;
-      s.initProgressBySession[id] = progress;
-    }));
-  } else if (newer && (incoming.status === 'stopping' || isShutdownInProgress(incoming.shutdownPhase))) {
-    setState('initializingSessionIds', id, { withdrawnGeneration: incoming.generation });
-  }
-}
-
 function applyShutdownFields(index: number, incoming: BatchStatusResponse['statuses'][string]): void {
   const { shutdownPhase, pendingDelete, retryingMemory, snapshotUnavailable } = incoming;
   setState('sessions', index, { shutdownPhase, pendingDelete, retryingMemory, snapshotUnavailable });
   const session = state.sessions[index];
-  reconcileWithdrawnReady(session.id, incoming);
   reconcileMemoryRetry(session.id, session);
 }
 
@@ -457,34 +374,6 @@ function isLocallyStopping(id: string): boolean {
   return localStopAttempts.has(id) && !supersededStopAttempts.has(id);
 }
 
-// Only the old local Stop owns its presentation. It cannot hide a live replacement.
-function keepLocalStopPresentation(id: string, incoming: ReadyProjection): boolean {
-  if (!isLocallyStopping(id)) return false;
-  const startup = state.initializingSessionIds[id];
-  const stoppingGeneration = localStopAttempts.get(id);
-  if (typeof startup === 'object' && stoppingGeneration !== undefined
-    && incoming.generation !== undefined && incoming.revision !== undefined
-    && incoming.generation > stoppingGeneration && incoming.status === 'running' && incoming.shutdownPhase === undefined) {
-    supersededStopAttempts.add(id);
-    return false;
-  }
-  return true;
-}
-
-function retainLocalStopProjection(id: string, incoming: BatchStatusResponse['statuses'][string]): boolean {
-  if (!keepLocalStopPresentation(id, incoming)) return false;
-  // Keep ordered evidence for Ready recovery without giving up local Stop's status.
-  if (typeof state.initializingSessionIds[id] === 'object' && incoming.generation !== undefined && incoming.revision !== undefined) {
-    const index = state.sessions.findIndex(session => session.id === id);
-    if (index !== -1) setState('sessions', index, {
-      lifecycle: incoming.lifecycle ?? incoming.status,
-      generation: incoming.generation,
-      revision: incoming.revision,
-    });
-  }
-  return true;
-}
-
 // Register polling dependencies (extracted to session-polling.ts)
 registerPollingDeps({
   getState: () => state,
@@ -498,11 +387,9 @@ registerPollingDeps({
   },
   updateSessionStatus,
   applyShutdownFields,
-  releaseReadyForShutdown,
-  canApplyReadyProjection,
   removeConfirmedSession,
   isSessionInitializing,
-  retainLocalStopProjection,
+  isLocallyStopping,
   shouldRetainNegativeKv,
   setAuthExpired,
   applyMetricsUpdate,
@@ -550,7 +437,6 @@ async function loadSessions(): Promise<void> {
     const previouslyShuttingDown = new Set(state.sessions.filter(s => isShutdownInProgress(s.shutdownPhase)).map(s => s.id));
     const oldIds = new Set(state.sessions.map(s => s.id));
     const listedIds = new Set(sessions.map(s => s.id));
-    const readyProjections: typeof sessions = [];
 
     const sessionsWithStatus: SessionWithStatus[] = sessions.map((s) => {
       const local = existingSessions.get(s.id);
@@ -566,14 +452,11 @@ async function loadSessions(): Promise<void> {
         generation: local.generation,
         revision: local.revision,
       }, listed) !== listed;
-      if (local && (localNewer || !canApplyReadyProjection(s.id, s))) return local;
+      if (local && localNewer) return local;
       const kill = localKillAttempts.get(s.id);
-      const locallyStopping = keepLocalStopPresentation(s.id, s);
-      const releaseReady = !locallyStopping && supersedesReady(s.id, s);
-      if (releaseReady || typeof state.initializingSessionIds[s.id] === 'object') readyProjections.push(s);
       const keepLocalStatus = local && (local.status === 'initializing'
         || (kill && kill.generation === s.generation && (listedStatus !== 'stopped' || isShutdownInProgress(s.shutdownPhase)))
-        || locallyStopping || (isSessionInitializing(s.id) && !releaseReady));
+        || isLocallyStopping(s.id) || isSessionInitializing(s.id));
       return {
         ...s,
         status: keepLocalStatus && local ? local.status : listedStatus,
@@ -589,23 +472,17 @@ async function loadSessions(): Promise<void> {
     invalidateSessionStatusReads();
     acceptedCatalogRevision = getSessionCatalogRevision();
     sessionMissCounters.clear();
-    batch(() => {
-      setState(s => {
-        // Publish the replacement and its cache together before the status batch arrives.
-        let sessionMetrics = s.sessionMetrics;
-        for (const { id, generation } of sessionsWithStatus) {
-          const cached = sessionMetrics[id];
-          if (cached && generation !== undefined && cached.generation !== generation) {
-            if (sessionMetrics === s.sessionMetrics) sessionMetrics = { ...sessionMetrics };
-            delete sessionMetrics[id];
-          }
+    setState(s => {
+      // Publish the replacement and its cache together before the status batch arrives.
+      let sessionMetrics = s.sessionMetrics;
+      for (const { id, generation } of sessionsWithStatus) {
+        const cached = sessionMetrics[id];
+        if (cached && generation !== undefined && cached.generation !== generation) {
+          if (sessionMetrics === s.sessionMetrics) sessionMetrics = { ...sessionMetrics };
+          delete sessionMetrics[id];
         }
-        return { sessions: sessionsWithStatus, sessionMetrics, loading: false };
-      });
-      for (const s of readyProjections) {
-        releaseReadyForShutdown(s.id, s);
-        if (!isLocallyStopping(s.id)) reconcileWithdrawnReady(s.id, s);
       }
+      return { sessions: sessionsWithStatus, sessionMetrics, loading: false };
     });
     for (const session of state.sessions) {
       reconcileKillGeneration(session.id);
@@ -660,7 +537,7 @@ async function loadSessions(): Promise<void> {
         },
         incomingProjection,
       );
-      if (ordered !== incomingProjection || !canApplyReadyProjection(session.id, batchStatus)) continue;
+      if (ordered !== incomingProjection) continue;
 
       // Propagate durable fields from batch-status. Terminal connectivity is
       // device-local and is never overwritten by a backend projection.
@@ -679,8 +556,7 @@ async function loadSessions(): Promise<void> {
       }
 
       const currentStatus = state.sessions.find((candidate) => candidate.id === session.id)?.status;
-      releaseReadyForShutdown(session.id, batchStatus);
-      if (retainLocalStopProjection(session.id, batchStatus)) continue;
+      if (isLocallyStopping(session.id)) continue;
       if (currentStatus === 'initializing' || isSessionInitializing(session.id)) {
         if (batchStatus.generation !== undefined && batchStatus.revision !== undefined) {
           setState('sessions', idx, { lifecycle: batchStatus.lifecycle ?? batchStatus.status,
@@ -809,11 +685,6 @@ function removeConfirmedSession(id: string): void {
       if (s.activeSessionId === id) {
         s.activeSessionId = null;
       }
-      if (typeof s.initializingSessionIds[id] === 'object' || s.initProgressBySession[id]?.readyGeneration !== undefined) {
-        clearSessionStartedGuard(id);
-        delete s.initializingSessionIds[id];
-        delete s.initProgressBySession[id];
-      }
       delete s.sessionMetrics[id];
     })
   );
@@ -821,7 +692,6 @@ function removeConfirmedSession(id: string): void {
 
 async function deleteSession(id: string): Promise<void> {
   dismissRepositoryRestore(id);
-  discardStopRecovery(id);
   const attempted = state.sessions.find(session => session.id === id);
   const generation = attempted?.generation;
   try {
@@ -1048,26 +918,26 @@ async function stopSession(id: string): Promise<void> {
   if (localStopAttempts.has(id)) return;
   // A delayed Stop response can only confirm exit for its original runtime.
   const attemptedSession = state.sessions.find((session) => session.id === id);
-  const listedGeneration = attemptedSession?.generation;
-  const startup = state.initializingSessionIds[id];
-  const readyGeneration = typeof startup === 'object' ? startup.withdrawnGeneration : state.initProgressBySession[id]?.readyGeneration;
-  const readyAhead = readyGeneration !== undefined && (listedGeneration === undefined || readyGeneration > listedGeneration);
-  const generation = readyAhead ? readyGeneration : listedGeneration;
-  let revision = readyAhead ? undefined : attemptedSession?.revision;
+  const generation = attemptedSession?.generation;
+  const revision = attemptedSession?.revision;
   try {
     const startupCleanup = startupCleanups.get(id);
     if (startupCleanup) {
       startupCleanup();
       startupCleanups.delete(id);
     }
-    withdrawReadyForShutdownCommand(id, true);
-    localStopAttempts.set(id, generation);
+    setState(
+      produce((s) => {
+        delete s.initializingSessionIds[id];
+        delete s.initProgressBySession[id];
+      })
+    );
+    localStopAttempts.add(id);
     if (localKillAttempts.has(id)) supersededStopAttempts.add(id);
     updateSessionStatus(id, 'stopping');
     const queued = await api.stopSession(id);
     // KILL takes confirmation ownership even if this HTTP caller was hung.
     if (supersededStopAttempts.has(id)) return;
-    discardStopRecovery(id);
     if (queued) {
       // Durable shutdowns use ordered batch reads, not the legacy confirmation
       // deadline. Keep the local Stop intent until the first post-command read.
@@ -1092,7 +962,6 @@ async function stopSession(id: string): Promise<void> {
           if (confirmed) {
             updateSessionStatus(id, 'stopped');
             terminalStore.disposeSession(id);
-            if (typeof state.initializingSessionIds[id] === 'object') dismissInitProgressForSession(id);
           } else if (confirmed === false) {
             setState('error', 'Stop could not be confirmed. Refresh status or retry stopping.');
           }
@@ -1117,14 +986,13 @@ async function stopSession(id: string): Promise<void> {
             const sessionStatus = batchResp.statuses[id];
             if (finished) return;
             const current = state.sessions.find((session) => session.id === id);
-            if (!current || (current.generation !== generation && (!readyAhead || current.generation !== listedGeneration))) {
+            if (!current || current.generation !== generation) {
               finishStopPolling();
               return;
             }
             // Missing/unordered evidence is uncertainty, never positive exit.
-            if (!sessionStatus || generation === undefined || (!readyAhead && revision === undefined)
-              || sessionStatus.generation !== generation || !canApplyReadyProjection(id, sessionStatus)
-              || sessionStatus.revision === undefined) return;
+            if (!sessionStatus || generation === undefined || revision === undefined
+              || sessionStatus.generation !== generation || sessionStatus.revision === undefined) return;
             const incoming = {
               lifecycle: sessionStatus.status as BackendLifecycle,
               generation: sessionStatus.generation,
@@ -1135,22 +1003,13 @@ async function stopSession(id: string): Promise<void> {
               generation: current.generation,
               revision: current.revision,
             }, incoming);
-            if (ordered !== incoming) return;
-            if (revision === undefined) {
-              // Ready can arrive before the catalog publishes its revision. Only
-              // a non-exit observation of that runtime can establish the fence.
-              if (current.generation === generation && current.lifecycle !== undefined && current.lifecycle !== 'stopped') {
-                revision = current.revision;
-              }
-              if (revision === undefined && incoming.lifecycle !== 'stopped') revision = incoming.revision;
-            }
-            if (incoming.lifecycle !== 'stopped') {
-              retainLocalStopProjection(id, sessionStatus);
-              return;
-            }
-            if (revision !== undefined && incoming.revision > revision) {
+            // Catalog refresh may already have accepted this exit revision.
+            // Ordering rejects stale evidence; only the original Stop needs a newer revision.
+            if (ordered === incoming && incoming.lifecycle === 'stopped'
+              && incoming.revision > revision) {
               const index = state.sessions.findIndex((session) => session.id === id);
-              setState('sessions', index, { lifecycle: incoming.lifecycle, generation, revision: incoming.revision });
+              setState('sessions', index, 'lifecycle', incoming.lifecycle);
+              setState('sessions', index, 'revision', incoming.revision);
               finishStopPolling(true);
             }
           } catch {
@@ -1169,15 +1028,6 @@ async function stopSession(id: string): Promise<void> {
     await pollForStopped();
   } catch (err) {
     if (!supersededStopAttempts.has(id)) {
-      if (err instanceof ApiError && err.status === 429 && err.code === 'RATE_LIMIT_ERROR') {
-        // This limiter runs before the Stop handler; restore only on a later ordered running row.
-        setState(produce(s => {
-          const startup = s.initializingSessionIds[id];
-          if (typeof startup === 'object' && startup.stopRecovery) startup.stopRecovery.refused = true;
-        }));
-      } else {
-        discardStopRecovery(id);
-      }
       setState('error', err instanceof Error ? err.message : 'Failed to stop session');
     }
   } finally {
@@ -1195,7 +1045,10 @@ function killSession(id: string): Promise<void> {
   if (localStopAttempts.has(id)) supersededStopAttempts.add(id);
   startupCleanups.get(id)?.();
   startupCleanups.delete(id);
-  withdrawReadyForShutdownCommand(id);
+  setState(produce((s) => {
+    delete s.initializingSessionIds[id];
+    delete s.initProgressBySession[id];
+  }));
   // This is local command intent, not exit evidence. Existing ordered status
   // polling remains responsible for confirming stopped and disposing transport.
   updateSessionStatus(id, 'stopping');
@@ -1236,7 +1089,7 @@ function dismissInitProgressForSession(sessionId: string): void {
   );
 }
 
-function getInitProgressForSession(sessionId: string): InitProgress | null {
+function getInitProgressForSession(sessionId: string): SessionInitProgress | null {
   return state.initProgressBySession[sessionId] || null;
 }
 
@@ -1284,7 +1137,6 @@ export const sessionStore = {
   get completedStatusReadVersion() { return completedStatusReadVersion(); },
   getActiveSession,
   isSessionInitializing,
-  hasStartupTerminalInstance,
   getInitProgressForSession,
   getMetricsForSession,
   stopAllPolling,

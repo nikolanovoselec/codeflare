@@ -130,7 +130,6 @@ vi.mock('../../stores/session', () => ({
   sessionStore: {
     get sessions() { return sessionState.sessions; },
     isSessionInitializing: vi.fn(() => false),
-    hasStartupTerminalInstance: vi.fn((id: string) => sessionStore.isSessionInitializing(id)),
     getInitProgressForSession: vi.fn(() => null),
     getTerminalsForSession: vi.fn(() => ({ tabs: [{ id: '1', label: 'Terminal', manual: false }], activeTabId: '1' })),
   },
@@ -725,33 +724,6 @@ describe('useTerminal hook', () => {
       expect(mockFocus).not.toHaveBeenCalled();
 
       dispose();
-    });
-
-    it('REQ-TERM-043: withdrawing Ready does not focus an unacknowledged pane', () => {
-      const [state, setState] = createSignal<'ready' | 'withdrawn' | 'open'>('ready');
-      vi.mocked(sessionStore.isSessionInitializing).mockImplementation(() => state() === 'ready');
-      vi.mocked(sessionStore.hasStartupTerminalInstance).mockImplementation(() => state() !== 'open');
-      vi.mocked(sessionStore.getInitProgressForSession).mockImplementation(() => state() === 'ready'
-        ? { stage: 'ready', progress: 100, message: 'Ready' } : null);
-      containerEl.tabIndex = -1;
-      mockFocus.mockImplementation(() => containerEl.focus());
-      const dispose = createRoot((dispose) => {
-        useTerminal(defaultProps).containerRef(containerEl);
-        return dispose;
-      });
-      try {
-        expect(containerEl).not.toHaveFocus();
-        setState('withdrawn');
-        expect(containerEl).not.toHaveFocus();
-        setState('open');
-        expect(containerEl).toHaveFocus();
-      } finally {
-        dispose();
-        mockFocus.mockReset();
-        vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
-        vi.mocked(sessionStore.hasStartupTerminalInstance).mockImplementation(id => sessionStore.isSessionInitializing(id));
-        vi.mocked(sessionStore.getInitProgressForSession).mockReturnValue(null);
-      }
     });
 
     it('REQ-TERM-011: does not connect when the pane is not allowed to own a WebSocket', () => {

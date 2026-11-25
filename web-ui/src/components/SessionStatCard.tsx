@@ -60,6 +60,14 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
   };
   const shutdownInProgress = () => isShutdownInProgress(phase());
   const memoryNotMerged = () => phase() === 'memory-not-merged';
+  const cardStatus = createMemo(() => {
+    const { id, status, lifecycle, generation, revision } = props.session;
+    if (status !== 'running' || lifecycle !== 'stopped' || generation === undefined || revision === undefined
+      || shutdownInProgress()) return status;
+    // Ready can retain the local terminal status; the card can show the ordered stop independently.
+    const readyGeneration = sessionStore.getInitProgressForSession(id)?.readyGeneration;
+    return readyGeneration !== undefined && generation >= readyGeneration ? 'stopped' : status;
+  });
   const metrics = createMemo(() => {
     if (phase() === 'queued' && props.session.status === 'stopped') return undefined;
     const sample = sessionStore.getMetricsForSession(props.session.id);
@@ -72,16 +80,15 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
     return terminalStore.getConnectionState(props.session.id, terminalId);
   };
   const lifecyclePresentation = createMemo(() => {
-    const lifecycle = (props.session.status === 'initializing' || props.session.status === 'error'
-      ? 'running'
-      : props.session.status) as BackendLifecycle;
+    const status = cardStatus();
+    const lifecycle = (status === 'initializing' || status === 'error' ? 'running' : status) as BackendLifecycle;
     return props.session.workspace === 'vscode'
       ? vscodePresentation({ lifecycle, editorReady: props.session.editorReady }, { transportReachable: true })
       : terminalPresentation({ lifecycle, editorReady: props.session.editorReady }, { terminalConnected: wsState() === 'connected' });
   });
   const lifecycleLabel = () => {
     const presentation = lifecyclePresentation();
-    return 'label' in presentation ? presentation.label : `Session ${props.session.status}`;
+    return 'label' in presentation ? presentation.label : `Session ${cardStatus()}`;
   };
   const dotVariant = () => {
     if (shutdownInProgress()) return 'warning';
@@ -91,14 +98,14 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
       if (props.session.status === 'running' || props.session.status === 'unreachable') return props.session.editorReady === true ? 'success' : 'default';
       return statusDotVariant[props.session.status];
     }
-    if (props.session.status === 'running' && wsState() !== 'connected') {
+    if (cardStatus() === 'running' && wsState() !== 'connected') {
       return 'idle'; // Blue IDLE is local to this device's terminal socket.
     }
-    return statusDotVariant[props.session.status];
+    return statusDotVariant[cardStatus()];
   };
   const isPulsing = () => !phase()
     && !(props.session.workspace === 'vscode' && dotVariant() === 'error')
-    && statusPulses[props.session.status];
+    && statusPulses[cardStatus()];
   const isActionable = () => props.session.workspace !== 'vscode'
     || props.session.status === 'stopped'
     || props.session.status === 'error'
@@ -136,7 +143,7 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
 
   const timerInfo = createMemo(() => {
     timerTick(); // subscribe to tick
-    if (props.session.status !== 'running') return null;
+    if (cardStatus() !== 'running') return null;
     return getSleepTimerInfo(props.session.lastActiveAt, sessionStore.preferences.sleepAfter);
   });
   const [showTimerTooltip, setShowTimerTooltip] = createSignal(false);
@@ -150,7 +157,7 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
     <div
       class={`stat-card session-stat-card ${props.isActive ? 'session-stat-card--active' : ''} ${isSelectionEnabled() ? '' : 'session-stat-card--selection-disabled'} ${shutdownInProgress() ? 'session-stat-card--shutting-down' : ''}`}
       data-testid={`session-stat-card-${props.session.id}`}
-      data-status={props.session.status}
+      data-status={cardStatus()}
       style={isStoppedForManagedSeedUpdate() && !shutdownInProgress() ? { opacity: 0.6, 'pointer-events': 'none' } : {}}
     >
       <Show when={isSelectionEnabled()}>
@@ -236,7 +243,7 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
             </div>
           </div>
         }>
-          <Show when={shutdownInProgress() || props.session.status === 'running' || metrics()}>
+          <Show when={shutdownInProgress() || cardStatus() === 'running' || metrics()}>
             <div class="stat-card__metrics">
               <div class="stat-card__metric" data-testid={`session-stat-card-${props.session.id}-metric-cpu`}>
                 <span class="stat-card__metric-label">

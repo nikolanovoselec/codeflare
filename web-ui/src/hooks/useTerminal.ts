@@ -679,8 +679,8 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
 
   createEffect(() => {
     const focusedTerm = terminalInstance();
-    const openUnacknowledged = sessionStore.hasStartupTerminalInstance(props.sessionId);
-    if (!isFocused() || !canConnect() || openUnacknowledged || !focusedTerm) {
+    const initializing = isInitializing();
+    if (!isFocused() || !canConnect() || initializing || !focusedTerm) {
       terminalStore.clearPendingResizeAuthority(props.sessionId, props.terminalId);
       return;
     }

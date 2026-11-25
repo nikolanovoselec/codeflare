@@ -46,10 +46,8 @@ type ProduceSetter = (fn: (s: SessionState) => void) => void;
 type RawSetter = (...args: any[]) => void;
 type StatusUpdater = (id: string, status: SessionStatus, shutdownPhase?: ShutdownPhase) => void;
 type ShutdownUpdater = (index: number, incoming: Awaited<ReturnType<typeof api.getBatchSessionStatus>>['statuses'][string]) => void;
-type ReadyProjectionGuard = (id: string, incoming: Awaited<ReturnType<typeof api.getBatchSessionStatus>>['statuses'][string]) => boolean;
-type ReadyShutdownRelease = (id: string, incoming: Awaited<ReturnType<typeof api.getBatchSessionStatus>>['statuses'][string]) => void;
 type InitChecker = (id: string) => boolean;
-type NegativeKvGuard = (id: string, batchOmission?: boolean) => boolean;
+type NegativeKvGuard = (id: string) => boolean;
 type AuthExpiredSetter = (expired: boolean) => void;
 type MetricsUpdater = (
   sessionMetrics: Record<string, SessionMetrics>,
@@ -64,11 +62,9 @@ let setStateProduce: ProduceSetter;
 let setStateRaw: RawSetter;
 let updateSessionStatusFn: StatusUpdater;
 let applyShutdownFieldsFn: ShutdownUpdater;
-let releaseReadyForShutdownFn: ReadyShutdownRelease;
-let canApplyReadyProjectionFn: ReadyProjectionGuard;
 let removeConfirmedSession: (id: string) => void;
 let isSessionInitializingFn: InitChecker;
-let retainLocalStopProjectionFn: ReadyProjectionGuard;
+let isLocallyStoppingFn: InitChecker;
 let shouldRetainNegativeKvFn: NegativeKvGuard;
 let setAuthExpiredFn: AuthExpiredSetter;
 let applyMetricsUpdateFn: MetricsUpdater;
@@ -80,11 +76,9 @@ export function registerPollingDeps(deps: {
   setStateRaw: RawSetter;
   updateSessionStatus: StatusUpdater;
   applyShutdownFields: ShutdownUpdater;
-  releaseReadyForShutdown: ReadyShutdownRelease;
-  canApplyReadyProjection: ReadyProjectionGuard;
   removeConfirmedSession: (id: string) => void;
   isSessionInitializing: InitChecker;
-  retainLocalStopProjection: ReadyProjectionGuard;
+  isLocallyStopping: InitChecker;
   shouldRetainNegativeKv: NegativeKvGuard;
   setAuthExpired: AuthExpiredSetter;
   applyMetricsUpdate: MetricsUpdater;
@@ -95,11 +89,9 @@ export function registerPollingDeps(deps: {
   setStateRaw = deps.setStateRaw;
   updateSessionStatusFn = deps.updateSessionStatus;
   applyShutdownFieldsFn = deps.applyShutdownFields;
-  releaseReadyForShutdownFn = deps.releaseReadyForShutdown;
-  canApplyReadyProjectionFn = deps.canApplyReadyProjection;
   removeConfirmedSession = deps.removeConfirmedSession;
   isSessionInitializingFn = deps.isSessionInitializing;
-  retainLocalStopProjectionFn = deps.retainLocalStopProjection;
+  isLocallyStoppingFn = deps.isLocallyStopping;
   shouldRetainNegativeKvFn = deps.shouldRetainNegativeKv;
   setAuthExpiredFn = deps.setAuthExpired;
   applyMetricsUpdateFn = deps.applyMetricsUpdate;
@@ -288,7 +280,7 @@ async function refreshSessionStatusesOnce(forceManagedReleaseCheck: boolean): Pr
     const removedIds: string[] = [];
     for (const session of state.sessions) {
       if (!batchStatuses[session.id]) {
-        if (!session.pendingDelete && !hasAcceptedDelete(session) && shouldRetainNegativeKvFn(session.id, true)) {
+        if (!session.pendingDelete && !hasAcceptedDelete(session) && shouldRetainNegativeKvFn(session.id)) {
           sessionMissCounters.delete(session.id);
           continue;
         }
@@ -320,7 +312,7 @@ async function refreshSessionStatusesOnce(forceManagedReleaseCheck: boolean): Pr
         revision: remote.revision,
       };
       const ordered = applyOrderedProjection(currentProjection, incomingProjection);
-      if (ordered !== incomingProjection || !canApplyReadyProjectionFn(session.id, remote)) continue;
+      if (ordered !== incomingProjection) continue;
 
       // Propagate durable fields from batch-status. Terminal connectivity is
       // device-local and is never overwritten by a backend projection.
@@ -341,8 +333,7 @@ async function refreshSessionStatusesOnce(forceManagedReleaseCheck: boolean): Pr
 
       // Guard 1: Only the local Stop poll owns termination; persisted stopping
       // can accept a newer D1 stopped projection.
-      releaseReadyForShutdownFn(session.id, remote);
-      if (retainLocalStopProjectionFn(session.id, remote)) continue;
+      if (isLocallyStoppingFn(session.id)) continue;
 
       // Keep startup's local presentation, but record accepted D1 authority so
       // a delayed Ready cannot override a stop or a replacement already seen.

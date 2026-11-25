@@ -84,6 +84,11 @@ beforeEach(async () => {
       onBatchRequest?.();
       return batchResponse ?? Response.json({ statuses: polled ? { [id]: polled } : {} });
     }
+    if (url.searchParams.get('sessionId') === id) {
+      if (path === '/api/container/start' && method === 'POST') return Response.json({ generation: 7 });
+      if (path === '/api/container/startup-status') return Response.json({ stage: 'ready', generation: 7,
+        progress: 100, message: 'Ready', details: { bucketName: 'test-bucket', container: 'container', path: '/workspace' } });
+    }
     if (path === '/api/sessions/ancillary-status') return Response.json({ maxSessions: 3 });
     if (path === '/api/user/ensure-r2-token' || path === '/api/user/r2-status') return Response.json({ ready: false });
     if (path === '/api/preferences') return Response.json({ userTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone });
@@ -199,6 +204,33 @@ it.each(['Stop', 'Delete'] as const)('REQ-SESSION-043: an open observer dropdown
     catalog = polled = undefined;
     await vi.advanceTimersByTimeAsync(3 * SESSION_POLL_TRANSITION_MS);
     expect(screen.queryByTestId(`session-stat-card-${id}`)).not.toBeInTheDocument();
+  }
+});
+
+it('REQ-SESSION-043: both cards show a confirmed stop without dismissing terminal Ready', async () => {
+  project('stopped', 10, undefined, undefined, 6);
+  await sessionStore.loadSessions();
+  await sessionStore.startSession(id);
+  try {
+    renderDashboard();
+    render(() => <SessionDropdown isOpen sessions={sessionStore.sessions} activeSessionId="observer"
+      onSelectSession={() => {}} onStopSession={() => {}} onDeleteSession={() => {}}
+      onCreateSession={() => {}} onClose={() => {}} isMobileView={false} />);
+    const cards = () => screen.getAllByTestId(`session-stat-card-${id}`).map(node => within(node));
+    expect(cards()).toHaveLength(2);
+    for (const view of cards()) expect(view.getByRole('status', { name: 'IDLE' })).toBeVisible();
+
+    project('stopping', 12, 'consolidating');
+    await sessionStore.refreshSessionStatuses();
+    for (const view of cards()) expect(view.getByText('Consolidating memory...')).toBeVisible();
+
+    project('stopped', 13);
+    await sessionStore.refreshSessionStatuses();
+    for (const view of cards()) expect(view.getByRole('status', { name: 'STOPPED' })).toBeVisible();
+    expect(sessionStore.getInitProgressForSession(id)?.stage).toBe('ready');
+  } finally {
+    sessionStore.dismissInitProgressForSession(id);
+    await sessionStore.refreshSessionStatuses();
   }
 });
 
