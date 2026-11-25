@@ -237,14 +237,6 @@
   padding: var(--space-1) var(--space-2);
 }
 
-/* Reflow when the content box is too narrow for the longest padded word. */
-@container (max-width: 11rem) {
-  .session-stat-card__shutdown-notice:has(.session-stat-card__subtitle-word) {
-    position: static;
-    padding-inline: 0;
-  }
-}
-
 .session-stat-card__announcement {
   position: absolute;
   width: 1px;
@@ -262,6 +254,20 @@
   font-size: var(--text-xs);
   line-height: 1;
   font-weight: var(--font-medium);
+}
+
+/* Let subtitles and wrapped metrics notices take space on narrow cards. */
+@container (max-width: 11rem) {
+  .session-stat-card__shutdown-notice:has(.session-stat-card__subtitle-word) {
+    position: static;
+    padding-inline: 0;
+  }
+
+  .session-stat-card__metrics-note {
+    position: static;
+    line-height: var(--leading-tight);
+    overflow-wrap: anywhere;
+  }
 }
 
 @media (prefers-reduced-motion: no-preference) {
