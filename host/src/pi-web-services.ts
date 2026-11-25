@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { dirname, join } from 'node:path';
+import type { Readable } from 'node:stream';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { isDeepStrictEqual } from 'node:util';
 
@@ -31,7 +32,10 @@ export interface PiWebServices {
 }
 
 /** Host-supervised stock processes; never expose their private API or socket directly. */
-export function createPiWebServices(options: { runtimeDir: string; cwd: string; profileRestored: () => boolean }): PiWebServices {
+export function createPiWebServices(options: {
+  runtimeDir: string; cwd: string; profileRestored: () => boolean;
+  observeBuildStderr?: (launcher: string, stderr: Readable) => void;
+}): PiWebServices {
   let starting: Promise<void> | undefined;
   let closing: Promise<void> | undefined;
   let processes: Array<{ child: ChildProcess; stopped: Promise<void>; running: boolean }> = [];
@@ -60,7 +64,10 @@ export function createPiWebServices(options: { runtimeDir: string; cwd: string; 
   }
 
   function launch(name: string, env: NodeJS.ProcessEnv): void {
-    const child = spawn(`${dist}/bin/${name}`, [], { env, cwd: options.cwd, stdio: 'ignore' });
+    const child = spawn(`${dist}/bin/${name}`, [], {
+      env, cwd: options.cwd, stdio: ['ignore', 'ignore', options.observeBuildStderr ? 'pipe' : 'ignore'],
+    });
+    if (child.stderr) options.observeBuildStderr?.(name, child.stderr);
     let resolve!: () => void;
     const state = { child, running: true, stopped: new Promise<void>(done => { resolve = done; }) };
     child.on('error', () => { /* An error is not exit; close also follows failed spawn. */ });

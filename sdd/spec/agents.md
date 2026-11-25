@@ -1007,14 +1007,14 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Acceptance Criteria:**
 
-1. Pi-enabled image builds bake Node compile-cache entries from the installed Pi Web services for the runtime launchers to reuse. <!-- @impl: Dockerfile::image/pi-web/warm-compile-cache.mjs --> <!-- @test: image/pi-web/warm-compile-cache.mjs (bakeCompileCache) -->
+1. In Pi-enabled images, fresh launches of both the stock gateway and session daemon accept their entrypoints from the baked Node compile cache. <!-- @impl: Dockerfile::image/pi-web/warm-compile-cache.mjs --> <!-- @test: image/pi-web/warm-compile-cache.mjs (verifyBakedCache) -->
 2. Image prewarming starts no Pi conversation. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @test: image/pi-web/warm-compile-cache.mjs (measureStartup) -->
 
 **Constraints:** Use an empty disposable profile and the installed package; no separate Pi Web version pin.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-275](#req-agent-275-classic-pi-chat-startup)
+**Dependencies:** None.
 
 **Verification:** Automated: [Image cache bake](../../image/pi-web/warm-compile-cache.mjs)
 

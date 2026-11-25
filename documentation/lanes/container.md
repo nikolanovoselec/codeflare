@@ -231,6 +231,10 @@ The [adapter fixture](../../host/__tests__/operator-pi.test.js#L114-L133) proves
 
 ### Stock pi-web and the native Pi writer
 
+Pi-enabled images [prewarm stock Pi Web](../../sdd/spec/agents.md#req-agent-284-pi-web-image-prewarm) offline using the installed package and a disposable profile. Both stock services must accept their entrypoints from the final read-only cache without opening a conversation. <!-- @impl: image/pi-web/warm-compile-cache.mjs::verifyBakedCache -->
+
+The `PI_WEB_COMPILE_CACHE_WARMED` build log reports Host service startup with an initially empty cache and with the populated image cache under cache tracing. These samples are diagnostics, not a latency guarantee or a measure of time to **Open**. <!-- @impl: image/pi-web/warm-compile-cache.mjs::bakeCompileCache -->
+
 The image's pi-web consumer lock pins the stock package independently of the managed Pi SDK. Host starts the web listener on loopback and uses a private daemon socket after the managed Pi profile and transcripts are restored. Terminal-only use does not require those processes; the configured Classic tab uses the launcher's private ticket and native CLI. Only the managed primary can consume that ticket or resume the primary binding. A healthy, unadopted managed primary is retained as a switch destination without changing inactivity accounting; ordinary orphan cleanup and failed Herdr bootstrap handling are unchanged. The browser and VS Code do not select native paths. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @impl: entrypoint.sh::configure_tab_autostart -->
 
 Classic Chat and Terminal can open after profile restore and switch in either direction without waiting for repository cloning. <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime --> <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> Switching does not dismiss the active restore notice; see [Choose the starting writer](terminal-and-ide.md#choose-the-starting-writer). <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
