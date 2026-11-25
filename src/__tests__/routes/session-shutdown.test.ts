@@ -961,13 +961,20 @@ it('REQ-SESSION-043: retains a saved failed Delete after exit and advances the q
   const resumed = await repository.start(f.owner, a, stamp, observed.lifecycleGeneration, observed.shutdown);
   const generation = observed.lifecycleGeneration + 1;
   expect(resumed).toMatchObject({ lifecycleGeneration: generation, lifecycleState: 'starting' });
+  expect(await repository.project(f.owner, a, generation, 0, { lifecycleState: 'running', observedAt: stamp })).toBe(true);
+  const discard = () => f.app().request(`${f.path(a)}?discardMemory=${observed.lifecycleGeneration}:${observed.responseRevision}`, { method: 'DELETE' });
+  expect((await discard()).status).toBe(409);
+  const running = (await f.batch())[a];
+  expect(running).toMatchObject({ status: 'running', generation });
+  expect(running?.shutdownPhase).toBeUndefined();
+  expect(running?.pendingDelete).toBeUndefined();
+
   expect(await repository.claimStop(f.owner, a, 'resumed-stop', stamp, generation)).not.toBeNull();
   expect(await repository.confirmStopped(f.owner, a, generation, 'resumed-stop', stamp)).toBe(true);
   expect((await f.batch())[a]).toMatchObject({ status: 'stopped', generation });
   expect((await f.batch())[a]?.shutdownPhase).toBeUndefined();
 
-  const attempt = await f.app().request(`${f.path(a)}?discardMemory=${observed.lifecycleGeneration}:${observed.responseRevision}`, { method: 'DELETE' });
-  expect(attempt.status).toBe(409);
+  expect((await discard()).status).toBe(409);
   expect((await f.batch())[a]).toMatchObject({ status: 'stopped', generation });
   expect((await f.remove(a)).status).toBe(200);
   expect((await f.batch())[a]).toBeUndefined();
