@@ -70,6 +70,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
   const [panelFace, setPanelFace] = createSignal<'github' | 'storage'>('github');
   const vibe = () => props.workspaceMode?.value === 'chat';
   const [githubReturnError, setGithubReturnError] = createSignal<string | null>(null);
+  const showGithubDetails = () => vibe() && (githubStore.enabled || !!githubReturnError());
   const countAccount = () => vibe() && githubStore.enabled && githubStore.connected
     && (githubStore.source === 'oauth' || githubStore.source === 'app') ? githubStore.login : undefined;
   const [ownedRepoCounts] = createResource(countAccount, async login => {
@@ -223,7 +224,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
   const [newSessionPadding, setNewSessionPadding] = createSignal(0);
   createEffect(() => {
     const button = newSessionBtnRef();
-    if (!button || !vibe() || !githubStore.enabled) return;
+    if (!button || !showGithubDetails()) return;
     const measure = () => setNewSessionPadding(button.getBoundingClientRect().height * 2);
     measure();
     if (typeof ResizeObserver === 'undefined') return;
@@ -533,6 +534,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                       href="/app/usage"
                       class="header-user-dropdown-item"
                       data-testid="header-user-dropdown-usage"
+                      onClick={() => setShowUserMenu(false)}
                     >
                       <Icon path={mdiChartBar} size={16} />
                       <span>Usage</span>
@@ -584,7 +586,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
             <DashboardCard sessions={props.sessions} />
 
             <div class={`dashboard-new-session-wrapper ${multiViewWorkspace() ? 'dashboard-new-session-wrapper--with-multiview' : ''}`}
-              style={vibe() && githubStore.enabled ? { 'padding-block-end': `${newSessionPadding()}px` } : undefined}>
+              style={showGithubDetails() ? { 'padding-block-end': `${newSessionPadding()}px` } : undefined}>
                 <Portal>
                   <CreateSessionDialog
                     isOpen={showCreateDialog() && props.workspaceMode?.value !== 'chat'}
@@ -725,7 +727,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
             </Show>
 
 
-            <Show when={vibe() && (githubStore.enabled || githubReturnError())}>
+            <Show when={showGithubDetails()}>
               <section class="dashboard-stats-section" aria-label="GitHub Details">
                 <div class="dashboard-section-divider"><span>GitHub Details</span></div>
                 <Show when={githubReturnError()}>{message => (

@@ -591,7 +591,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 4. Mobile face changes use the existing flip animation, except with reduced motion enabled. <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
 5. The closed desktop and tablet card is capped at 390 CSS px. <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
 6. GitHub Details, when present, sits directly above Storage Usage in the closed desktop and tablet summary. <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
-7. When the Vibe summary includes GitHub Details, the padding below New Session is twice the button's rendered height. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
+7. When the Vibe summary includes GitHub Details, the padding below New Session is twice the button's rendered height. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (adds twice the New Session height when GitHub Details only shows a connection error) -->
 
 **Constraints:** None.
 
@@ -644,7 +644,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Dependencies:** [REQ-GITHUB-321](#req-github-321-vibe-dashboard-browser-disclosure)
 
-**Verification:** Automated: [Dashboard component tests](../../web-ui/src/__tests__/components/Dashboard.test.tsx); Manual: [Vibe drawer acceptance](../../documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance)
+**Verification:** Manual: [Vibe drawer acceptance](../../documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance)
 
 **Status:** Planned
 

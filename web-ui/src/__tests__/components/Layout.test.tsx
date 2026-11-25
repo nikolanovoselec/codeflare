@@ -10,6 +10,7 @@ const appAuth = vi.hoisted(() => ({ getUser: vi.fn() }));
 vi.mock('../../api/client', async importOriginal => ({
   ...await importOriginal<typeof import('../../api/client')>(),
   retryBucketMigration: retryMigration,
+  getUsage: async () => ({ dailySeconds: 0, monthlySeconds: 0, monthlyQuotaSeconds: null, mode: 'basic', tier: 'Test' }),
   getSetupStatus: async () => ({ configured: true }),
   getUser: (...args: unknown[]) => appAuth.getUser(...args),
 }));
@@ -648,7 +649,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     } finally { vi.mocked(terminalStore.getConnectionState).mockReturnValue('disconnected'); }
   });
 
-  it.each(['generation replacement', 'page exit', 'Usage then generation replacement'])('reuses the open Chat frame on Dashboard return and discards it on %s', async invalidation => {
+  it.each(['generation replacement', 'page exit'])('reuses the open Chat frame on Dashboard return and discards it on %s', async invalidation => {
     navigationRendering.realTerminalArea = true;
     const id = 'abcdef0123456789';
     mockSessions = [createMockSession({ id, workspace: 'terminal', agentType: 'pi', generation: 7 })];
@@ -660,18 +661,9 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       return generation ? Response.json({ phase: 'active', surface: 'chat', chatUrl: `/api/pi-web/${id}/g/${generation}/?view=chat` }) : Response.json({});
     });
     try {
-      const [usageOpen, setUsageOpen] = createSignal(false);
-      render(() => <Layout usageOpen={usageOpen()} />);
+      render(() => <Layout />);
       const frame = await screen.findByTitle('Pi Chat');
-      if (invalidation.startsWith('Usage')) {
-        window.history.pushState(null, '', '/app/usage');
-        setUsageOpen(true);
-        expect(window.location.pathname).toBe('/app/usage');
-        expect(frame).toBeInTheDocument();
-        expect(frame).not.toBeVisible();
-        window.history.pushState(null, '', '/app/');
-        setUsageOpen(false);
-      } else fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
       expect(frame).toBeInTheDocument();
       expect(frame).not.toBeVisible();
       mockPreferences = { defaultPiSurface: 'terminal' };
@@ -688,6 +680,39 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       }
       expect(frame).not.toBeInTheDocument();
       expect(screen.queryByTitle('Pi Chat')).not.toBeInTheDocument();
+    } finally { cleanup(); vi.unstubAllGlobals(); }
+  });
+
+  it('returns from Profile Usage to the same Chat without another writer request', async () => {
+    navigationRendering.realTerminalArea = true;
+    navigationRendering.realDashboard = true;
+    const id = 'abcdef0123456789';
+    appAuth.getUser.mockResolvedValue({ email: 'owner@example.com', role: 'user', authenticated: true });
+    mockSessions = [createMockSession({ id, workspace: 'terminal', agentType: 'pi', generation: 7 })];
+    window.history.replaceState(null, '', `/app/session/${id}`);
+    const switches: string[] = [];
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST' && url.includes('/_switch')) switches.push(url);
+      return url.endsWith('/_switch?generation=7')
+        ? Response.json({ phase: 'active', surface: 'chat', chatUrl: `/api/pi-web/${id}/g/7/?view=chat` })
+        : Response.json({});
+    });
+    try {
+      render(() => <App />);
+      const frame = await screen.findByTitle('Pi Chat');
+      fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'User menu' }));
+      expect(screen.getByTestId('header-user-dropdown-overlay')).toBeVisible();
+      fireEvent.click(screen.getByRole('link', { name: /^Usage/ }));
+      const back = await screen.findByRole('link', { name: 'Back to Dashboard' });
+      expect(screen.queryByTestId('header-user-dropdown-overlay')).not.toBeInTheDocument();
+      expect(frame).toBeInTheDocument();
+      expect(frame).not.toBeVisible();
+      fireEvent.click(back);
+      fireEvent.click(await screen.findByRole('button', { name: 'Activate session Test Session' }));
+      await waitFor(() => expect(frame).toBeVisible());
+      expect(screen.getByTitle('Pi Chat')).toBe(frame);
+      expect(switches).toEqual([]);
     } finally { cleanup(); vi.unstubAllGlobals(); }
   });
 

@@ -485,8 +485,8 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     render(() => <Dashboard {...defaultProps} workspaceMode={enabled ? undefined : { value: 'terminal', onSelect: () => {} }} />);
     fireEvent.click(screen.getByTestId('dashboard-new-session'));
     const dialog = within(screen.getByRole('dialog', { name: 'Create new session' }));
-    expect(dialog.queryByRole('button', { name: 'Chat', exact: true })).not.toBeInTheDocument();
-    expect(dialog.queryByRole('button', { name: 'Terminal', exact: true })).not.toBeInTheDocument();
+    expect(dialog.queryByRole('button', { name: 'Chat' })).not.toBeInTheDocument();
+    expect(dialog.queryByRole('button', { name: 'Terminal' })).not.toBeInTheDocument();
     fireEvent.click(dialog.getByTestId('csd-agent-pi'));
     expect(defaultProps.onCreateSession).toHaveBeenCalledWith('pi', undefined);
   });
@@ -708,6 +708,26 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
       expect(window.location.search).toBe('');
       expect(window.location.hash).toBe('#dashboard');
     } finally { window.history.replaceState(window.history.state, '', previous); }
+  });
+
+  it('adds twice the New Session height when GitHub Details only shows a connection error', async () => {
+    (githubStore as any)._setEnabled(false);
+    const previous = window.location.href;
+    window.history.replaceState(window.history.state, '', '/app/?github=denied');
+    const original = HTMLElement.prototype.getBoundingClientRect;
+    const measure = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      return this.dataset.testid === 'dashboard-new-session' ? new DOMRect(0, 0, 100, 40) : original.call(this);
+    });
+    try {
+      render(() => <Dashboard {...defaultProps} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
+      const details = await screen.findByRole('region', { name: 'GitHub Details' });
+      expect(within(details).getByRole('status')).toHaveTextContent('GitHub authorization was denied.');
+      const button = screen.getByTestId('dashboard-new-session');
+      expect(getComputedStyle(button.parentElement!).paddingBlockEnd).toBe('80px');
+    } finally {
+      measure.mockRestore();
+      window.history.replaceState(window.history.state, '', previous);
+    }
   });
 
   it('shows authoritative owned totals for a connected GitHub App account', async () => {
