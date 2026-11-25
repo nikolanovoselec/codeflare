@@ -958,6 +958,20 @@ it('REQ-SESSION-043: retains a saved failed Delete after exit and advances the q
   expect((await f.app().request(f.path(a))).status).toBe(200);
 });
 
+it('REQ-SESSION-043: explicit discard deletes only the observed settled recovery card', async () => {
+  const f = rig();
+  const A = await f.create(a, { holdMerge: true });
+  await expectAccepted(f.stop(a));
+  A.save.release('saved'); A.merge.release('pending'); A.exit.release();
+  await vi.waitFor(async () => expect((await f.batch())[a]).toMatchObject({ status: 'stopped', shutdownPhase: 'memory-not-merged' }));
+  const row = (await repository.getSession(f.owner, a))!;
+  const discard = (revision: number) => f.app().request(`${f.path(a)}?discardMemory=${row.lifecycleGeneration}:${revision}`, { method: 'DELETE' });
+  expect((await discard(row.responseRevision - 1)).status).toBe(409);
+  expect((await f.remove(a)).status).toBe(409);
+  expect((await discard(row.responseRevision)).status).toBe(200);
+  expect((await f.batch())[a]).toBeUndefined();
+});
+
 it('REQ-SESSION-043: Kill during inference retains the session, rejects a late receipt and allows the next writer only after exit', async () => {
   const f = rig();
   const [A, B] = await Promise.all([f.create(a, { holdMerge: true }), f.create(b)]);

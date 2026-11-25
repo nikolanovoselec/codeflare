@@ -31,15 +31,12 @@ const statusPulses: Record<SessionStatus, boolean> = {
   error: false,
 };
 
-// The runtime normally samples once per minute. Allow one card clock tick for delivery.
-const METRICS_FRESHNESS_MS = 75_000;
-
 const shutdownLabels: Record<ShutdownPhase, string> = {
   queued: 'Memory consolidation pending',
   saving: 'Memory consolidation pending',
   consolidating: 'Consolidating memory',
   finishing: '',
-  'memory-not-merged': 'Stopped · memory not merged',
+  'memory-not-merged': 'Memory consolidation failed',
 };
 
 interface SessionStatCardProps {
@@ -59,7 +56,7 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
     return current && shutdownLabels[current];
   };
   const shutdownInProgress = () => isShutdownInProgress(phase());
-  const showsShutdownSubtitle = () => shutdownInProgress() && !!shutdownLabel();
+  const showsShutdownSubtitle = () => !!shutdownLabel();
   const memoryNotMerged = () => phase() === 'memory-not-merged';
   const cardStatus = () => sessionCardStatus(props.session);
   const metrics = createMemo(() => {
@@ -110,9 +107,11 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
     || sessionStore.managedReleaseStatus === 'upgrading';
   const isStoppedForManagedSeedUpdate = () => managedSeedUpdateActive()
     && cardStatus() === 'stopped';
-  const isSelectionEnabled = () => isActionable() && !phase() && !isStoppedForManagedSeedUpdate();
   const canRecoverMemory = () => memoryNotMerged() && cardStatus() === 'stopped'
     && !sessionStore.isMemoryRetryPending(props.session.id) && !isStoppedForManagedSeedUpdate();
+  const isSelectionEnabled = () => memoryNotMerged()
+    ? canRecoverMemory() && !props.resumeDisabled
+    : isActionable() && !phase() && !isStoppedForManagedSeedUpdate();
   const select = () => {
     if (!isSelectionEnabled()) return;
     props.onSelect();
@@ -122,18 +121,6 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
   const [timerTick, setTimerTick] = createSignal(0);
   const timerInterval = setInterval(() => setTimerTick(t => t + 1), 15_000);
   onCleanup(() => clearInterval(timerInterval));
-
-  const metricsNotice = () => {
-    timerTick();
-    const readings = metrics();
-    if (![readings?.cpu, readings?.mem, readings?.hdd].some(value => value && value !== '...')) return 'Metrics unavailable';
-    const lifecycle = props.session.lifecycle ?? props.session.status;
-    const age = Date.now() - Date.parse(readings?.updatedAt ?? '');
-    const confirmed = readings?.statusReadVersion !== undefined
-      && readings.statusReadVersion === sessionStore.completedStatusReadVersion;
-    return confirmed && lifecycle === 'running' && age >= 0 && age <= METRICS_FRESHNESS_MS
-      ? undefined : 'Last known metrics';
-  };
 
   const timerInfo = createMemo(() => {
     timerTick(); // subscribe to tick
@@ -149,7 +136,7 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
 
   return (
     <div
-      class={`stat-card session-stat-card ${props.isActive ? 'session-stat-card--active' : ''} ${isSelectionEnabled() ? '' : 'session-stat-card--selection-disabled'} ${showsShutdownSubtitle() ? 'session-stat-card--shutting-down' : ''}`}
+      class={`stat-card session-stat-card ${props.isActive ? 'session-stat-card--active' : ''} ${isSelectionEnabled() ? '' : 'session-stat-card--selection-disabled'} ${showsShutdownSubtitle() ? 'session-stat-card--shutting-down' : ''} ${memoryNotMerged() ? 'session-stat-card--recovery' : ''}`}
       data-testid={`session-stat-card-${props.session.id}`}
       data-status={cardStatus()}
       style={isStoppedForManagedSeedUpdate() && !shutdownInProgress() ? { opacity: 0.6, 'pointer-events': 'none' } : {}}
@@ -159,7 +146,7 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
           type="button"
           class="session-stat-card__selector"
           data-testid={`session-stat-card-${props.session.id}-select`}
-          aria-label={`Activate session ${props.session.name}`}
+          aria-label={`${memoryNotMerged() ? 'Resume' : 'Activate'} session ${props.session.name}`}
           onClick={select}
         />
       </Show>
@@ -216,7 +203,7 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
         </button>
       </div>
 
-      <Show when={shutdownInProgress()}>
+      <Show when={shutdownInProgress() || memoryNotMerged()}>
         <div class="session-stat-card__shutdown-notice" role="status" aria-label={shutdownLabel() || 'Shutting down'}>
           <Show when={shutdownLabel()} fallback={<span class="session-stat-card__announcement">Shutting down</span>}>
             {label => <For each={label().split(' ')}>{word => (
@@ -227,64 +214,48 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
       </Show>
 
       <div class="session-stat-card__body">
-        <Show when={!memoryNotMerged()} fallback={
-          <div class="session-stat-card__shutdown">
-            <div role="status">
-              <div class="session-stat-card__phase">{shutdownLabel()}</div>
-              <div>{props.session.snapshotUnavailable
-                ? (props.session.pendingDelete ? 'Saved memory unavailable. Not deleted.' : 'Saved memory unavailable.')
-                : (props.session.pendingDelete ? 'Files saved. Not deleted.' : 'Session files were saved.')}</div>
+        <Show when={shutdownInProgress() || memoryNotMerged() || cardStatus() === 'running' || metrics()}>
+          <div class="stat-card__metrics">
+            <div class="stat-card__metric" data-testid={`session-stat-card-${props.session.id}-metric-cpu`}>
+              <span class="stat-card__metric-label">
+                <Icon path={mdiChip} size={12} />
+                CPU
+              </span>
+              <span class="stat-card__metric-value">{metrics()?.cpu || '...'}</span>
             </div>
-            <div class="session-stat-card__actions">
-              <Button size="sm" disabled={!canRecoverMemory() || props.session.snapshotUnavailable}
-                onClick={() => void sessionStore.retryMemoryConsolidation(props.session.id)}>
-                Retry memory consolidation
-              </Button>
-              <Button size="sm" variant="secondary" disabled={!canRecoverMemory() || props.resumeDisabled}
-                onClick={() => { if (canRecoverMemory() && !props.resumeDisabled) props.onSelect(); }}>
-                Resume session
-              </Button>
+            <div class="stat-card__metric" data-testid={`session-stat-card-${props.session.id}-metric-mem`}>
+              <span class="stat-card__metric-label">
+                <Icon path={mdiMemory} size={12} />
+                MEM
+              </span>
+              <span class="stat-card__metric-value">{metrics()?.mem || '...'}</span>
+            </div>
+            <div class="stat-card__metric" data-testid={`session-stat-card-${props.session.id}-metric-hdd`}>
+              <span class="stat-card__metric-label">
+                <Icon path={mdiHarddisk} size={12} />
+                HDD
+              </span>
+              <span class="stat-card__metric-value">{metrics()?.hdd || '...'}</span>
             </div>
           </div>
-        }>
-          <Show when={shutdownInProgress() || cardStatus() === 'running' || metrics()}>
-            <div class="stat-card__metrics">
-              <div class="stat-card__metric" data-testid={`session-stat-card-${props.session.id}-metric-cpu`}>
-                <span class="stat-card__metric-label">
-                  <Icon path={mdiChip} size={12} />
-                  CPU
-                </span>
-                <span class="stat-card__metric-value">{metrics()?.cpu || '...'}</span>
-              </div>
-              <div class="stat-card__metric" data-testid={`session-stat-card-${props.session.id}-metric-mem`}>
-                <span class="stat-card__metric-label">
-                  <Icon path={mdiMemory} size={12} />
-                  MEM
-                </span>
-                <span class="stat-card__metric-value">{metrics()?.mem || '...'}</span>
-              </div>
-              <div class="stat-card__metric" data-testid={`session-stat-card-${props.session.id}-metric-hdd`}>
-                <span class="stat-card__metric-label">
-                  <Icon path={mdiHarddisk} size={12} />
-                  HDD
-                </span>
-                <span class="stat-card__metric-value">{metrics()?.hdd || '...'}</span>
-              </div>
-            </div>
-          </Show>
-          <Show when={!shutdownInProgress() && props.session.status === 'initializing'}>
-            <div class="progress-bar progress-bar-thin progress-bar-animated session-stat-card__progress">
-              <div
-                class="progress-bar-fill"
-                style={{ width: `${getProgress()}%` }}
-                data-testid={`session-stat-card-${props.session.id}-progress`}
-              />
-            </div>
-          </Show>
+        </Show>
+        <Show when={!shutdownInProgress() && props.session.status === 'initializing'}>
+          <div class="progress-bar progress-bar-thin progress-bar-animated session-stat-card__progress">
+            <div
+              class="progress-bar-fill"
+              style={{ width: `${getProgress()}%` }}
+              data-testid={`session-stat-card-${props.session.id}-progress`}
+            />
+          </div>
         </Show>
       </div>
-      <Show when={showsShutdownSubtitle() ? metricsNotice() : undefined}>
-        {notice => <div class="session-stat-card__metrics-note">{notice()}</div>}
+      <Show when={memoryNotMerged()}>
+        <div class="session-stat-card__retry">
+          <Button size="sm" disabled={!canRecoverMemory() || props.session.snapshotUnavailable}
+            onClick={() => void sessionStore.retryMemoryConsolidation(props.session.id)}>
+            Retry
+          </Button>
+        </div>
       </Show>
     </div>
   );

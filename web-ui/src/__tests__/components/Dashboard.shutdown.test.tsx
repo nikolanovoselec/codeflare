@@ -34,7 +34,7 @@ function project(status: Lifecycle, revision: number, shutdownPhase?: Phase, pen
   catalog = polled = { status, lifecycle: status, generation, revision, shutdownPhase, pendingDelete };
 }
 
-function renderDashboard(extra?: SessionWithStatus, onDelete = (id: string) => sessionStore.deleteSession(id)) {
+function renderDashboard(extra?: SessionWithStatus, onDelete = (id: string, discard?: string) => sessionStore.deleteSession(id, discard)) {
   const openTerminal = vi.fn();
   const start = vi.fn();
   const view = render(() => <Dashboard
@@ -52,8 +52,8 @@ function renderDashboard(extra?: SessionWithStatus, onDelete = (id: string) => s
 }
 
 const card = () => within(screen.getByTestId(`session-stat-card-${id}`));
-const retry = () => card().getByRole('button', { name: 'Retry memory consolidation' });
-const resume = () => card().getByRole('button', { name: 'Resume session' });
+const retry = () => card().getByRole('button', { name: 'Retry' });
+const resume = () => card().getByRole('button', { name: `Resume session ${name}` });
 
 async function awaitCommand(name: 'deleteSession' | 'retryMemoryConsolidation', submit: () => void) {
   const command = vi.spyOn(sessionStore, name);
@@ -95,13 +95,16 @@ beforeEach(async () => {
     if (path === '/api/preferences') return Response.json({ userTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone });
     if (path === '/api/github/status') return Response.json({ enabled: false, connected: false });
     if (path === '/api/storage/stats') return Response.json({ totalFiles: 0, totalFolders: 0, totalSizeBytes: 0 });
-    operations.push(`${method} ${path}`);
+    operations.push(`${method} ${path}${url.search}`);
     if (path === `${sessionPath}/retry-memory-consolidation` && method === 'POST') {
       return retryResponse ?? accepted('queued', polled?.pendingDelete);
     }
     if (path === `${sessionPath}/kill` && method === 'POST') return Response.json({ id, success: true, stopped: true });
     if (path === `${sessionPath}/stop` && method === 'POST') return accepted('queued');
-    if (path === sessionPath && method === 'DELETE') return deleteResponse ?? accepted('queued', true);
+    if (path === sessionPath && method === 'DELETE') {
+      if (url.searchParams.has('discardMemory')) return Response.json({ id, success: true, deleted: true });
+      return deleteResponse ?? accepted('queued', true);
+    }
     throw new Error(`Unexpected HTTP request: ${method} ${path}`);
   });
   await sessionStore.loadSessions();
@@ -265,10 +268,15 @@ it.each(['stopped', 'memory-not-merged'] as const)('REQ-SESSION-043: both cards 
     }
     project('stopped', 14, 'memory-not-merged');
     await sessionStore.refreshSessionStatuses();
-    for (const view of cards()) fireEvent.click(view.getByRole('button', { name: 'Resume session' }));
+    for (const view of cards()) {
+      expect(view.getByRole('status', { name: 'Memory consolidation failed' })).toBeVisible();
+      for (const metric of ['CPU', 'MEM', 'HDD']) expect(view.getByText(metric)).toBeVisible();
+      expect(view.getByRole('button', { name: 'Retry' })).toBeEnabled();
+      fireEvent.click(view.getByRole('button', { name: `Resume session ${name}` }));
+    }
     expect(openTerminal).toHaveBeenCalledWith(id);
     expect(select).toHaveBeenCalledWith(id);
-    await awaitCommand('retryMemoryConsolidation', () => fireEvent.click(cards()[0].getByRole('button', { name: 'Retry memory consolidation' })));
+    await awaitCommand('retryMemoryConsolidation', () => fireEvent.click(cards()[0].getByRole('button', { name: 'Retry' })));
     expect(operations).toContain(`POST ${sessionPath}/retry-memory-consolidation`);
   } finally {
     sessionStore.dismissInitProgressForSession(id);
@@ -437,57 +445,20 @@ it('REQ-SESSION-043: refresh called after Delete acceptance does not join a pre-
   expect(card().getByRole('status', { name: 'Memory consolidation pending' })).toBeVisible();
 });
 
-it('REQ-SESSION-043: distinguishes current readings, last-known readings and unavailable shutdown metrics', async () => {
-  vi.useFakeTimers();
-  const metrics = { cpu: '7%', mem: '1.2G', hdd: '3.1G', updatedAt: new Date().toISOString() };
+it('REQ-SESSION-043: both cards use ordinary placeholders for unavailable shutdown metrics', async () => {
   project('stopping', 10, 'consolidating');
-  polled = { ...polled!, lifecycle: 'running', metrics };
   await sessionStore.loadSessions();
   renderDashboard();
-  expect(card().getByText('7%')).toBeVisible();
-  expect(card().queryByText('Last known metrics')).not.toBeInTheDocument();
-  const dropdown = render(() => <SessionDropdown isOpen sessions={sessionStore.sessions} activeSessionId={id}
+  render(() => <SessionDropdown isOpen sessions={sessionStore.sessions} activeSessionId={id}
     onSelectSession={() => {}} onStopSession={() => {}} onDeleteSession={() => {}}
     onCreateSession={() => {}} onClose={() => {}} isMobileView={false} />);
-  const cards = () => screen.getAllByTestId(`session-stat-card-${id}`).map(node => within(node));
-  batchResponse = Promise.resolve(Response.json({ error: 'Status unavailable' }, { status: 503 }));
-  await sessionStore.refreshSessionStatuses();
-  expect(cards()).toHaveLength(2);
-  for (const view of cards()) {
+  const cards = screen.getAllByTestId(`session-stat-card-${id}`).map(node => within(node));
+  expect(cards).toHaveLength(2);
+  for (const view of cards) {
     expect(view.getByRole('status', { name: 'Consolidating memory' })).toBeVisible();
-    expect(view.getByText('7%')).toBeVisible();
-    expect(view.getByText('Last known metrics')).toBeVisible();
+    expect(view.getAllByText('...')).toHaveLength(3);
+    expect(view.queryByText(/Last known metrics|Metrics unavailable/)).not.toBeInTheDocument();
   }
-  batchResponse = Promise.resolve(Response.json({ statuses: {} }));
-  await sessionStore.refreshSessionStatuses();
-  expect(cards()).toHaveLength(2);
-  for (const view of cards()) {
-    expect(view.getByText('7%')).toBeVisible();
-    expect(view.getByText('Last known metrics')).toBeVisible();
-  }
-  batchResponse = Promise.resolve(Response.json({ statuses: { [id]: { ...polled, metrics: {} } } }));
-  await sessionStore.refreshSessionStatuses();
-  for (const view of cards()) {
-    expect(view.getByText('7%')).toBeVisible();
-    expect(view.getByText('Last known metrics')).toBeVisible();
-  }
-  batchResponse = undefined;
-  await sessionStore.refreshSessionStatuses();
-  for (const view of cards()) expect(view.queryByText('Last known metrics')).not.toBeInTheDocument();
-  dropdown.unmount();
-  await vi.advanceTimersByTimeAsync(2 * SESSION_POLL_STABLE_MS);
-  expect(card().getByText('Last known metrics')).toBeVisible();
-  polled = { ...polled, revision: 11, metrics: { ...metrics, updatedAt: new Date().toISOString() } };
-  await sessionStore.refreshSessionStatuses();
-  expect(card().queryByText('Last known metrics')).not.toBeInTheDocument();
-  polled = { ...polled, lifecycle: 'stopping', revision: 12, shutdownPhase: 'finishing' };
-  await sessionStore.refreshSessionStatuses();
-  expect(card().queryByText('Last known metrics')).not.toBeInTheDocument();
-  expect(card().getByText('7%')).toBeVisible();
-  polled = { ...polled, lifecycle: 'stopped', status: 'stopped', revision: 13, shutdownPhase: 'queued', metrics: undefined };
-  await sessionStore.refreshSessionStatuses();
-  expect(card().getByText('Metrics unavailable')).toBeVisible();
-  expect(card().queryByText('7%')).not.toBeInTheDocument();
 });
 
 it.each(['poll', 'catalog'] as const)('REQ-SESSION-043: both cards hide the previous runtime readings after restart via %s', async source => {
@@ -597,7 +568,7 @@ it.each(['confirmed', 'omitted row', 'omitted metrics', 'failed', 'partial fallb
         expect(view.queryByText('Last known metrics')).not.toBeInTheDocument();
       } else {
         for (const value of ['7%', '1.2G', '3.1G']) expect(view.getByText(value)).toBeVisible();
-        expect(view.getByText('Last known metrics')).toBeVisible();
+        expect(view.queryByText('Last known metrics')).not.toBeInTheDocument();
       }
     }
   });
@@ -635,7 +606,7 @@ it('REQ-TERM-013: recovery Resume is disabled while selecting MultiView panes', 
       onLaunch: () => {}, onOpen: () => {}, onClose: () => {} }} />);
   expect(resume()).toBeEnabled();
   fireEvent.click(screen.getByRole('button', { name: 'Launch MultiView' }));
-  expect(resume()).toBeDisabled();
+  expect(card().queryByRole('button', { name: `Resume session ${name}` })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Cancel MultiView' }));
   fireEvent.click(resume());
   expect(select).toHaveBeenCalledWith(id);
@@ -650,7 +621,7 @@ it('REQ-SESSION-043: reports eviction after queued Retry and leaves Resume avail
   polled = { status: 'stopped', lifecycle: 'stopped', revision: 12, generation: 7,
     shutdownPhase: 'memory-not-merged', pendingDelete: true, snapshotUnavailable: true };
   await sessionStore.refreshSessionStatuses();
-  expect(card().getByText('Saved memory unavailable. Not deleted.')).toBeVisible();
+  expect(card().getByRole('status', { name: 'Memory consolidation failed' })).toBeVisible();
   expect(retry()).toBeDisabled();
   expect(resume()).toBeEnabled();
 });
@@ -685,8 +656,7 @@ it('REQ-SESSION-043: keeps separate Retry and Resume actions after reload and re
   await sessionStore.loadSessions();
   let dashboard = renderDashboard();
   for (const revision of [21, 24]) {
-    expect(card().getByText('Stopped · memory not merged')).toBeVisible();
-    expect(card().getByText(/files (?:were |are )?saved/i)).toBeVisible();
+    expect(card().getByRole('status', { name: 'Memory consolidation failed' })).toBeVisible();
     expect(resume()).toBeEnabled();
     let accept!: (response: Response) => void;
     retryResponse = new Promise<Response>(resolve => { accept = resolve; });
@@ -694,7 +664,7 @@ it('REQ-SESSION-043: keeps separate Retry and Resume actions after reload and re
     try {
       fireEvent.click(retry());
       fireEvent.click(retry());
-      const busyResume = card().queryByRole('button', { name: 'Resume session' });
+      const busyResume = card().queryByRole('button', { name: `Resume session ${name}` });
       if (busyResume) fireEvent.click(busyResume);
       await waitFor(() => expect(operations.slice(previous)).toEqual([`POST ${sessionPath}/retry-memory-consolidation`]));
       expect(dashboard.openTerminal).not.toHaveBeenCalled();
@@ -707,7 +677,7 @@ it('REQ-SESSION-043: keeps separate Retry and Resume actions after reload and re
     project('stopping', revision, 'queued');
     await sessionStore.refreshSessionStatuses();
     expect(card().getByRole('status', { name: 'Memory consolidation pending' })).toBeVisible();
-    expect(card().queryByRole('button', { name: 'Resume session' })).not.toBeInTheDocument();
+    expect(card().queryByRole('button', { name: `Resume session ${name}` })).not.toBeInTheDocument();
     project('stopping', revision + 1, 'consolidating');
     await sessionStore.refreshSessionStatuses();
     expect(card().getByRole('status', { name: 'Consolidating memory' })).toBeVisible();
@@ -751,8 +721,7 @@ it('REQ-SESSION-043: an accepted Delete retains the card through merge failure a
   expect(card().getByRole('status', { name: 'Memory consolidation pending' })).toBeVisible();
   project('stopped', 12, 'memory-not-merged', true);
   await sessionStore.refreshSessionStatuses();
-  expect(card().getByText('Stopped · memory not merged')).toBeVisible();
-  expect(card().getByText(/deletion (?:did not complete|is pending)|not deleted/i)).toBeVisible();
+  expect(card().getByRole('status', { name: 'Memory consolidation failed' })).toBeVisible();
   await awaitCommand('retryMemoryConsolidation', () => fireEvent.click(retry()));
   expect(operations).toEqual([`DELETE ${sessionPath}`, `POST ${sessionPath}/retry-memory-consolidation`]);
   project('stopping', 13, 'finishing', true);
@@ -774,6 +743,18 @@ it('REQ-SESSION-043: an accepted Delete retains the card through merge failure a
   expect(screen.queryByTestId(`session-stat-card-${id}`)).not.toBeInTheDocument();
 });
 
+it('REQ-SESSION-043: confirms discarding unconsolidated memory from the recovery card menu', async () => {
+  project('stopped', 12, 'memory-not-merged');
+  await sessionStore.loadSessions();
+  renderDashboard();
+  fireEvent.click(card().getByRole('button', { name: 'Session actions' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+  expect(operations).toEqual([]);
+  await awaitCommand('deleteSession', () => fireEvent.click(screen.getByRole('button', { name: 'Delete and discard unconsolidated memory?' })));
+  expect(operations).toEqual([`DELETE ${sessionPath}?discardMemory=7%3A12`]);
+  expect(screen.queryByTestId(`session-stat-card-${id}`)).not.toBeInTheDocument();
+});
+
 it('REQ-SESSION-043: a settled Stop clears recovery controls and rejects older merge-failure evidence', async () => {
   project('stopped', 10, 'memory-not-merged');
   await sessionStore.loadSessions();
@@ -789,7 +770,7 @@ it('REQ-SESSION-043: a settled Stop clears recovery controls and rejects older m
   polled = stale;
   await sessionStore.refreshSessionStatuses();
   expect(card().getByRole('status', { name: 'STOPPED' })).toBeVisible();
-  expect(card().queryByRole('button', { name: 'Retry memory consolidation' })).not.toBeInTheDocument();
+  expect(card().queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
 });
 
 it('REQ-SESSION-043: a stale status from the prior generation does not overwrite a resumed session', async () => {
@@ -803,7 +784,7 @@ it('REQ-SESSION-043: a stale status from the prior generation does not overwrite
   polled = { status: 'stopped', lifecycle: 'stopped', generation: 7, revision: 99, shutdownPhase: 'memory-not-merged' };
   await sessionStore.refreshSessionStatuses();
   expect(card().getByRole('status', { name: 'IDLE' })).toBeVisible();
-  expect(card().queryByRole('button', { name: 'Retry memory consolidation' })).not.toBeInTheDocument();
+  expect(card().queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
   expect(operations).toEqual([]);
 });
 

@@ -168,33 +168,6 @@
   min-block-size: calc(4.2 * var(--text-xs) + 6 * var(--space-1) + 6px);
 }
 
-.session-stat-card__shutdown {
-  display: grid;
-  gap: var(--space-1);
-  font-size: var(--text-xs);
-  line-height: var(--leading-tight);
-  color: var(--color-text-secondary);
-}
-
-.session-stat-card__phase {
-  font-weight: var(--font-semibold);
-  color: var(--color-text-primary);
-}
-
-.session-stat-card__actions {
-  display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
-  gap: var(--space-1);
-}
-
-.session-stat-card__actions .button[data-size="sm"] {
-  min-height: 44px;
-  padding-inline: var(--space-1);
-  line-height: inherit;
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-
 /* Progress bar for initializing */
 .session-stat-card__progress {
   margin-top: 4px;
@@ -246,32 +219,33 @@
   white-space: nowrap;
 }
 
-.session-stat-card__metrics-note {
-  position: absolute;
-  inset-inline: var(--space-3);
-  inset-block-end: 0;
-  color: var(--color-text-secondary);
-  font-size: var(--text-xs);
-  line-height: 1;
-  font-weight: var(--font-medium);
+.session-stat-card--recovery .session-stat-card__shutdown-notice {
+  inset-block: var(--space-6) 44px;
 }
 
-/* Let subtitles and wrapped metrics notices take space on narrow cards. */
+.session-stat-card__retry {
+  position: relative;
+  z-index: 2;
+  margin: 0 calc(-1 * var(--space-3)) calc(-1 * var(--space-3));
+}
+
+.session-stat-card__retry .button {
+  width: 100%;
+  min-height: 44px;
+  border-radius: 0 0 calc(var(--radius-lg) - 1px) calc(var(--radius-lg) - 1px);
+  text-transform: uppercase;
+}
+
+/* Let subtitles reflow on narrow cards. */
 @container (max-width: 11rem) {
   .session-stat-card__shutdown-notice:has(.session-stat-card__subtitle-word) {
     position: static;
     padding-inline: 0;
   }
-
-  .session-stat-card__metrics-note {
-    position: static;
-    line-height: var(--leading-tight);
-    overflow-wrap: anywhere;
-  }
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .session-stat-card__subtitle-word > span {
+  .session-stat-card:not(.session-stat-card--recovery) .session-stat-card__subtitle-word > span {
     animation: dashboard-icon-glow 3s ease-in-out infinite;
   }
 }

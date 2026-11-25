@@ -39,7 +39,7 @@ interface HeaderProps {
   activeSessionId: string | null;
   onSelectSession: (id: string) => void;
   onStopSession: (id: string) => void;
-  onDeleteSession: (id: string) => void;
+  onDeleteSession: (id: string, discardMemory?: string) => void;
   onCreateSession: (name: string, agentType?: AgentType, tabConfig?: TabConfig[]) => void;
   onOpenMultiView?: () => void;
   onCloseMultiView?: () => void;

@@ -174,10 +174,10 @@ export class D1SessionRepository implements SessionAuthority {
     return result.meta.changes === 1;
   }
 
-  async deleteAfterShutdown(session: D1Session): Promise<boolean> {
+  async deleteAfterShutdown(session: D1Session, expectedRevision?: number): Promise<boolean> {
     const result = await this.db.prepare(`DELETE FROM runtime_sessions WHERE owner_key=?1 AND session_id=?2
-      AND lifecycle_generation=?3 AND lifecycle_state='stopped' AND boundary_activity_id IS NULL AND shutdown_json=?4`)
-      .bind(session.ownerKey, session.sessionId, session.lifecycleGeneration, JSON.stringify(session.shutdown)).run();
+      AND lifecycle_generation=?3 AND lifecycle_state='stopped' AND boundary_activity_id IS NULL AND shutdown_json=?4 AND (?5 IS NULL OR response_revision=?5)`)
+      .bind(session.ownerKey, session.sessionId, session.lifecycleGeneration, JSON.stringify(session.shutdown), expectedRevision ?? null).run();
     return result.meta.changes === 1;
   }
 

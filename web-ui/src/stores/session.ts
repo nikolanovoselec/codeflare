@@ -703,7 +703,7 @@ function removeConfirmedSession(id: string): void {
   );
 }
 
-async function deleteSession(id: string): Promise<void> {
+async function deleteSession(id: string, discardMemory?: string): Promise<void> {
   dismissRepositoryRestore(id);
   const attempted = state.sessions.find(session => session.id === id);
   const generation = attempted?.generation;
@@ -713,7 +713,7 @@ async function deleteSession(id: string): Promise<void> {
       startupCleanup();
       startupCleanups.delete(id);
     }
-    if (await api.deleteSession(id)) {
+    if (await (discardMemory ? api.deleteSession(id, discardMemory) : api.deleteSession(id))) {
       const current = state.sessions.find(session => session.id === id);
       if (current && current.generation === generation) noteAcceptedDelete(id, generation);
       refreshAfterShutdownAccepted();

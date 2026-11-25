@@ -1,6 +1,7 @@
 import { Component, Show, createSignal, createEffect } from 'solid-js';
 import { mdiPencilOutline, mdiStop, mdiTrashCanOutline, mdiFileExcelBox } from '@mdi/js';
 import Icon from './Icon';
+import type { SessionWithStatus } from '../types';
 import '../styles/session-context-menu.css';
 
 interface SessionContextMenuProps {
@@ -12,7 +13,8 @@ interface SessionContextMenuProps {
   stopLabel?: string;
   sessionName: string;
   onStop: () => void;
-  onDelete: () => void;
+  session?: SessionWithStatus;
+  onDelete: (discardMemory?: string) => void;
   /** REQ-SESSION-027 AC1: rename the session this menu was opened for. */
   onRename: (name: string) => void;
   onClose: () => void;
@@ -20,6 +22,14 @@ interface SessionContextMenuProps {
 
 const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
   const [confirmingDelete, setConfirmingDelete] = createSignal(false);
+  const [discardMemory, setDiscardMemory] = createSignal<string>();
+  const recoveryTarget = () => {
+    const session = props.session;
+    if (session?.shutdownPhase === 'memory-not-merged' && session.status === 'stopped'
+      && session.generation !== undefined && session.revision !== undefined) {
+      return `${session.generation}:${session.revision}`;
+    }
+  };
   const [renaming, setRenaming] = createSignal(false);
   const [draftName, setDraftName] = createSignal('');
 
@@ -39,7 +49,7 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
   });
 
   const clampedPosition = () => {
-    const menuWidth = 160;
+    const menuWidth = confirmingDelete() && discardMemory() ? 280 : 160;
     const menuHeight = props.canKill && props.onKill ? 160 : 120;
     const pad = 8;
     return {
@@ -64,6 +74,7 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
     if (confirmingDelete()) {
       return;
     }
+    setDiscardMemory(recoveryTarget());
     setConfirmingDelete(true);
   };
 
@@ -91,7 +102,11 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
   };
 
   const handleDeleteConfirm = () => {
-    props.onDelete();
+    const discard = discardMemory();
+    if (discard === recoveryTarget()) {
+      if (discard) props.onDelete(discard);
+      else props.onDelete();
+    }
     resetTransient();
     props.onClose();
   };
@@ -102,7 +117,9 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
       <div
         class="session-context-menu"
         data-testid="session-context-menu"
-        style={{ top: `${clampedPosition().y}px`, left: `${clampedPosition().x}px` }}
+        style={{ top: `${clampedPosition().y}px`, left: `${clampedPosition().x}px`,
+          ...(confirmingDelete() && discardMemory() ? { width: 'min(280px, calc(100vw - 16px))' } : {}),
+        }}
       >
         <Show when={!renaming()}>
           <button
@@ -174,7 +191,7 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
             onClick={handleDeleteConfirm}
           >
             <Icon path={mdiTrashCanOutline} size={16} />
-            Are you sure?
+            {discardMemory() ? 'Delete and discard unconsolidated memory?' : 'Are you sure?'}
           </button>
         </Show>
       </div>
