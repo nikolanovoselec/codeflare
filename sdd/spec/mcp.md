@@ -254,7 +254,9 @@ Operational guidance remains in [Configuration](../../documentation/lanes/config
 
 **Acceptance Criteria:**
 
-1. Successful managed package reconciliation retires the exact image-bundled Pi Web MCP Manager registration from restored settings without deleting package files or removing unrelated entries as part of that retirement. <!-- @impl: entrypoint.sh::configure_pi_packages_and_review_inventory --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-281: startup retires the exact bundled Pi Web MCP Manager registration) -->
+1. Successful managed package reconciliation retires the exact image-bundled Pi Web MCP Manager registration from restored settings without deleting package files or removing unrelated entries as part of that retirement. <!-- @impl: entrypoint.sh::configure_pi_packages_and_review_inventory --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-281: startup retires the exact bundled Pi Web MCP Manager registration) --> <!-- @test: scripts/ci/smoke-pi-web-services.mjs (verifyBundledManagerFilePreservation) -->
+
+**Constraints:** None.
 
 **Priority:** P1
 

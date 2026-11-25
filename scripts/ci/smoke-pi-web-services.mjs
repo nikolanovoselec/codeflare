@@ -176,17 +176,20 @@ try {
   const inventoryStart = entrypoint.indexOf('\nconfigure_pi_packages_and_review_inventory() {');
   const inventoryEnd = entrypoint.indexOf('\nwarm_pi_npm_dependencies() {', inventoryStart);
   assert.ok(inventoryStart >= 0 && inventoryEnd > inventoryStart, 'find the production package inventory function');
-  const managerEntries = readdirSync(bundledMcpManager, { recursive: true }).sort();
-  const managerFiles = managerEntries.filter(entry => statSync(join(bundledMcpManager, entry)).isFile())
-    .map(entry => [entry, readFileSync(join(bundledMcpManager, entry))]);
-  assert.ok(managerFiles.length > 0, 'the shipped Manager contains package files');
-  execFileSync('bash', ['-e', '-c', `${entrypoint.slice(inventoryStart, inventoryEnd)}\nconfigure_pi_packages_and_review_inventory`], {
-    env: { ...process.env, USER_HOME: home, PI_SETTINGS_FILE: settingsPath, SESSION_MODE: 'advanced' },
-  });
-  assert.deepEqual(readdirSync(bundledMcpManager, { recursive: true }).sort(), managerEntries);
-  for (const [entry, bytes] of managerFiles) {
-    assert.deepEqual(readFileSync(join(bundledMcpManager, entry)), bytes, `preserve shipped Manager file: ${entry}`);
+  function verifyBundledManagerFilePreservation() {
+    const managerEntries = readdirSync(bundledMcpManager, { recursive: true }).sort();
+    const managerFiles = managerEntries.filter(entry => statSync(join(bundledMcpManager, entry)).isFile())
+      .map(entry => [entry, readFileSync(join(bundledMcpManager, entry))]);
+    assert.ok(managerFiles.length > 0, 'the shipped Manager contains package files');
+    execFileSync('bash', ['-e', '-c', `${entrypoint.slice(inventoryStart, inventoryEnd)}\nconfigure_pi_packages_and_review_inventory`], {
+      env: { ...process.env, USER_HOME: home, PI_SETTINGS_FILE: settingsPath, SESSION_MODE: 'advanced' },
+    });
+    assert.deepEqual(readdirSync(bundledMcpManager, { recursive: true }).sort(), managerEntries);
+    for (const [entry, bytes] of managerFiles) {
+      assert.deepEqual(readFileSync(join(bundledMcpManager, entry)), bytes, `preserve shipped Manager file: ${entry}`);
+    }
   }
+  verifyBundledManagerFilePreservation();
   const migration = readFileSync(new URL('../../00-mcp-adapter-config.ts', import.meta.url));
   writeFileSync(join(agentDir, 'extensions/00-mcp-adapter-config.ts'), migration);
   const adapterRegistration = json(settingsPath).packages.find(source => typeof source === 'string' && /^npm:pi-mcp-adapter@/.test(source));
