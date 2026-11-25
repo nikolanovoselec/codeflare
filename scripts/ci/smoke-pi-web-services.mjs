@@ -1,9 +1,11 @@
 // Non-deploy CI only: this requires the isolated Node image and locked mounts in test.yml.
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { once } from 'node:events';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createPiWebServices, PI_WEB_PORT } from '../../host/dist/pi-web-services.js';
 
@@ -53,7 +55,7 @@ let restored = false;
 const options = { runtimeDir, cwd, profileRestored: () => restored };
 let services = createPiWebServices(options);
 
-async function checkReady({ preexistingManager = false } = {}) {
+async function checkReady({ preexistingManager = false, adapterRegistration = managedAdapter } = {}) {
   assert.ok(services.running());
   assert.deepEqual(listeners(), [`0100007F:${PI_WEB_PORT.toString(16).toUpperCase().padStart(4, '0')}`], 'only the loopback web/API may listen on TCP');
   assert.ok(statSync(daemonSocket).isSocket(), 'sessiond must bind the private runtime socket');
@@ -92,7 +94,7 @@ async function checkReady({ preexistingManager = false } = {}) {
   assert.ok(!sources.includes(join(bundled, 'workflows')), 'dismiss the exact bundled Workflows source');
   assert.equal(sources.includes(bundledMcpManager), preexistingManager,
     'do not add a competing MCP client to a managed profile or remove a preexisting registration');
-  for (const source of [managedAdapter, localWorkflows, ...['relays', 'session-naming'].map((name) => join(bundled, name))]) {
+  for (const source of [adapterRegistration, localWorkflows, ...['relays', 'session-naming'].map((name) => join(bundled, name))]) {
     assert.ok(sources.includes(source), `preserve unrelated registration: ${source}`);
   }
   return sources;
@@ -163,6 +165,65 @@ try {
   services = createPiWebServices(options);
   await services.start();
   await checkReady({ preexistingManager: true });
+  await closeAndCheckReaping();
+  // Replay the actual production package-inventory function for a fresh profile.
+  // Do not use a sourced entrypoint: its top-level actions belong to container startup.
+  rmSync(join(runtimeDir, 'data'), { recursive: true, force: true });
+  writeFileSync(settingsPath, JSON.stringify({ packages: [localWorkflows] }));
+  mkdirSync(join(agentDir, 'npm'), { recursive: true });
+  symlinkSync(join(toolsRoot, 'node_modules'), join(agentDir, 'npm/node_modules'));
+  const entrypoint = readFileSync(new URL('../../entrypoint.sh', import.meta.url), 'utf8');
+  const inventoryStart = entrypoint.indexOf('\nconfigure_pi_packages_and_review_inventory() {');
+  const inventoryEnd = entrypoint.indexOf('\nwarm_pi_npm_dependencies() {', inventoryStart);
+  assert.ok(inventoryStart >= 0 && inventoryEnd > inventoryStart, 'find the production package inventory function');
+  execFileSync('bash', ['-e', '-c', `${entrypoint.slice(inventoryStart, inventoryEnd)}\nconfigure_pi_packages_and_review_inventory`], {
+    env: { ...process.env, USER_HOME: home, PI_SETTINGS_FILE: settingsPath, SESSION_MODE: 'advanced' },
+  });
+  const migration = readFileSync(new URL('../../00-mcp-adapter-config.ts', import.meta.url));
+  writeFileSync(join(agentDir, 'extensions/00-mcp-adapter-config.ts'), migration);
+  const adapterRegistration = json(settingsPath).packages.find(source => typeof source === 'string' && /^npm:pi-mcp-adapter@/.test(source));
+  assert.ok(adapterRegistration, 'the production profile must select the managed adapter');
+  const startAndReadNotifications = async () => {
+    const { id } = await services.request('/api/sessions', { cwd });
+    assert.ok(id, 'stock Chat must open against the production profile');
+    const { notifications } = await services.request(`/api/sessions/${encodeURIComponent(id)}/notifications?${new URLSearchParams({ cwd })}`);
+    return notifications;
+  };
+  const nativeConfig = join(agentDir, 'mcp-adapter.json');
+  const mcpReceipt = join(home, 'mcp-stdio.jsonl');
+  const mcpFixture = fileURLToPath(new URL('../../pi-mcp-extension-server.mjs', import.meta.url));
+  writeFileSync(nativeConfig, JSON.stringify({
+    mcpServers: { smoke: { command: process.execPath, args: [mcpFixture, mcpReceipt], lifecycle: 'keep-alive' } },
+    settings: { deferWithMissingMetadata: false },
+  }));
+  services = createPiWebServices(options);
+  await services.start();
+  await checkReady({ adapterRegistration });
+  const notifications = await startAndReadNotifications();
+  assert.ok(!notifications.some(({ message }) => message.startsWith('MCP config handoff skipped:')),
+    'stock Chat must not warn about MCP selection for the managed profile');
+  assert.equal(json(nativeConfig).settings.requestTimeoutMs, 360_000,
+    'opening stock Chat must prepare the native adapter config');
+  // Observe the real stdio handshake and tool catalogue request without a model call.
+  const mcpDeadline = Date.now() + 10_000;
+  const listedTools = () => existsSync(mcpReceipt) && read(mcpReceipt).includes('"method":"tools/list"');
+  while (!listedTools() && Date.now() < mcpDeadline) await delay(50);
+  assert.ok(listedTools(), 'the selected adapter must query tools from the synthetic MCP server');
+  await closeAndCheckReaping();
+
+  // A restored registration at the exact bundled path could be a user choice.
+  const productionSettings = json(settingsPath);
+  writeFileSync(settingsPath, JSON.stringify({ ...productionSettings, packages: [...productionSettings.packages, bundledMcpManager] }));
+  rmSync(join(runtimeDir, 'data'), { recursive: true, force: true });
+  const beforeConfig = read(nativeConfig);
+  services = createPiWebServices(options);
+  await services.start();
+  await checkReady({ preexistingManager: true, adapterRegistration });
+  const ambiguousNotifications = await startAndReadNotifications();
+  assert.ok(ambiguousNotifications.some(({ message, severity }) => severity === 'warning'
+    && message.startsWith('MCP config handoff skipped: client selection is ambiguous or unknown')),
+    'a preexisting competing Manager must still warn in an actual stock Chat session');
+  assert.equal(read(nativeConfig), beforeConfig, 'ambiguous selection must preserve the managed adapter config');
   await closeAndCheckReaping();
   console.log(JSON.stringify({ result: 'PI_WEB_SERVICES_SMOKE_OK', piWebVersion, piVersion }));
 } finally {

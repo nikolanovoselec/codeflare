@@ -1026,6 +1026,9 @@ jobs:
             --mount "type=bind,src=$GITHUB_WORKSPACE/preseed/agents/pi/node_modules,dst=/opt/codeflare/npm-tools/node_modules,readonly" \
             --mount "type=bind,src=$GITHUB_WORKSPACE/preseed/npm-tools/package.json,dst=/opt/codeflare/npm-tools/package.json,readonly" \
             --mount "type=bind,src=$GITHUB_WORKSPACE/scripts/ci,dst=/qualification/scripts/ci,readonly" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/entrypoint.sh,dst=/qualification/entrypoint.sh,readonly" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/preseed/agents/pi/extensions/00-mcp-adapter-config.ts,dst=/qualification/00-mcp-adapter-config.ts,readonly" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/host/__fixtures__/pi-mcp-extension-server.mjs,dst=/qualification/pi-mcp-extension-server.mjs,readonly" \
             --mount "type=bind,src=$GITHUB_WORKSPACE/image/pi-web/node_modules/ws,dst=/qualification/host/node_modules/ws,readonly" \
             --mount "type=bind,src=$host_dist,dst=/qualification/host/dist,readonly" \
             "$node_image" sh -euc '

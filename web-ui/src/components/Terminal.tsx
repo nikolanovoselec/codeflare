@@ -39,8 +39,11 @@ const TerminalInstance: Component<TerminalProps> = (props) => {
   } = useTerminal(props);
 
   // Host prewarm may finish before this browser has attached to the PTY.
-  const connectingTerminal = () => initProgress()?.stage === 'ready' && connectionState() !== 'connected'
-    ? retryMessage() || 'Connecting Terminal' : undefined;
+  const connectingTerminal = () => {
+    if (initProgress()?.stage !== 'ready' || connectionState() === 'connected') return undefined;
+    const message = retryMessage();
+    return !message || message === 'Connecting...' ? 'Connecting Terminal' : message;
+  };
 
   // Once connected the first time, never show the overlay again.
   // This enables transparent reconnection without a flash of "Connecting...".

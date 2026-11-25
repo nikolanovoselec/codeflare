@@ -373,6 +373,7 @@ export default function (pi) {
       const batch = [attachment(first), attachment(second)];
       const oversized = [...batch, attachment(Buffer.from('!'))];
       await upload(413, oversized);
+      await upload(400, Array.from({ length: 17 }, () => attachment(Buffer.from('small'))));
       // Stay below the decoded limit but exceed the bounded JSON envelope.
       await upload(413, [attachment(Buffer.from('small'))], { folder: 'a'.repeat(14 * 1024 * 1024) });
       await upload(400, [batch[0], { ...batch[1], data: '!' }]);

@@ -85,7 +85,12 @@ const Layout: Component<LayoutProps> = (props) => {
   const [isStoragePanelOpen, setIsStoragePanelOpen] = createSignal(false);
   const [showTilingOverlay, setShowTilingOverlay] = createSignal(false);
   const [viewState, setViewState] = createSignal<ViewState>('dashboard');
-  const [chatStartSid, setChatStartSid] = createSignal<string>();
+  const [startupSurface, setStartupSurface] = createSignal<{ id: string; surface: PiSurface; stoppedGeneration?: number }>();
+  const selectStartupSurface = (session: SessionWithStatus, surface?: PiSurface) => {
+    const selection = surface ? { id: session.id, surface, stoppedGeneration: session.status === 'stopped' ? session.generation : undefined } : undefined;
+    setStartupSurface(selection);
+    return () => setStartupSurface(current => current === selection ? undefined : current);
+  };
   const [retainedChat, setRetainedChat] = createSignal<{ id: string; generation: number }>();
   const [retainedTerminal, setRetainedTerminal] = createSignal<{ pane: VisibleTerminalPane; generation: number }>();
   const clearRetainedTerminal = () => {
@@ -117,6 +122,9 @@ const Layout: Component<LayoutProps> = (props) => {
         && session.status === 'running' && session.lifecycle !== 'stopping' && isPiWebSession(session));
     }
     const session = sessionStore.getActiveSession();
+    const startup = startupSurface();
+    if (startup?.id === session?.id && startup?.stoppedGeneration !== undefined
+      && (session?.generation ?? 0) <= startup.stoppedGeneration) return undefined;
     if (terminalWorkspaceStore.getActiveWorkspace().kind !== 'multiview'
       && session && SESSION_ID_RE.test(session.id) && isPiWebSession(session) && session.lifecycle !== 'stopping'
       && (session.status === 'running' || session.status === 'unreachable' || session.status === 'starting'
@@ -187,7 +195,11 @@ const Layout: Component<LayoutProps> = (props) => {
       handoff?.select(intent.target);
     }
   });
-  const awaitingChatStart = () => !!chatStartSid() && chatStartSid() === sessionStore.activeSessionId;
+  const selectedStartupSurface = () => {
+    const selection = startupSurface();
+    return selection?.id === sessionStore.activeSessionId ? selection?.surface : undefined;
+  };
+  const awaitingChatStart = () => selectedStartupSurface() === 'chat';
   const terminalIdForSession = (session: Pick<SessionWithStatus, 'id' | 'terminalMode'>) =>
     resolveTerminalMode(session.terminalMode) === 'herdr'
       ? '1'
@@ -295,11 +307,12 @@ const Layout: Component<LayoutProps> = (props) => {
     const displayed = displayedPi().surface;
     if (displayed) return displayed === 'chat' || !!status?.startupQuestion || (preparePiWebPanel() && chatStartupFailed());
     if (status) return status.surface !== 'terminal' && !(status.phase === 'failed' && status.target === 'terminal' && status.surface === null);
+    if (selectedStartupSurface() === 'terminal') return false;
     return awaitingChatStart() || (!!piWeb() && piWebSession()?.status === 'running'
       && (!piWeb()?.unavailable() || !!piWeb()?.mutation() || !!piWeb()?.canRetry()));
   });
   createEffect(() => {
-    if (awaitingChatStart() && piWebStatus()?.surface) setChatStartSid(undefined);
+    if (selectedStartupSurface() && piWebStatus()?.surface) setStartupSurface(undefined);
   });
   const piWebProblem = () => piWeb()?.mutationError()
     ?? (piWeb()?.unavailable() && (piWebStatus() || awaitingChatStart()) ? 'Could not read the current Pi surface.' : undefined);
@@ -826,7 +839,8 @@ const Layout: Component<LayoutProps> = (props) => {
     const eligible = modeAvailable() && isPiWebSession(session);
     const preferredSurface = eligible ? sessionStore.preferences.defaultPiSurface : undefined;
     const surface = eligible ? options.surface ?? (shouldStart ? preferredSurface : undefined) : undefined;
-    setChatStartSid(shouldStart && surface === 'chat' ? id : undefined);
+    if (!shouldStart && startupSurface()?.id !== id) setStartupSurface(undefined);
+    const clearStartup = shouldStart ? selectStartupSurface(session, surface) : undefined;
     const parkedPane = parkedTerminalPane();
     const warmReturn = parkedPane?.sessionId === id
       || (retainedChat()?.id === id && retainedChat()?.generation === session.generation);
@@ -838,7 +852,8 @@ const Layout: Component<LayoutProps> = (props) => {
     });
     if (updateHistory) writeSessionHistoryPath(id, 'push');
     if (shouldStart) {
-      void (surface ? sessionStore.startSession(id, surface) : sessionStore.startSession(id)).catch(() => {});
+      void (surface ? sessionStore.startSession(id, surface) : sessionStore.startSession(id))
+        .then(outcome => { if (outcome === 'cancelled') clearStartup?.(); }, () => clearStartup?.());
     } else if (surface && session.status === 'running') {
       const handoff = piWeb();
       if (handoff) handoff.select(surface);
@@ -869,7 +884,7 @@ const Layout: Component<LayoutProps> = (props) => {
     const session = sessionStore.sessions.find((candidate) => candidate.id === id);
     if (!session) return;
     const surface = modeAvailable() && isPiWebSession(session) ? selectedSurface ?? sessionStore.preferences.defaultPiSurface : undefined;
-    setChatStartSid(surface === 'chat' ? id : undefined);
+    const clearStartup = selectStartupSurface(session, surface);
 
     if (session.workspace === 'vscode') {
       keepDashboardOwnership('push');
@@ -880,10 +895,10 @@ const Layout: Component<LayoutProps> = (props) => {
       writeSessionHistoryPath(id, 'push');
     }
     try {
-      if (surface) await sessionStore.startSession(id, surface);
-      else await sessionStore.startSession(id);
+      const outcome = await (surface ? sessionStore.startSession(id, surface) : sessionStore.startSession(id));
+      if (outcome === 'cancelled') clearStartup();
     } catch (err) {
-      if (surface === 'chat') setChatStartSid(current => current === id ? undefined : current);
+      clearStartup();
       logger.error('Failed to start session:', err);
     }
   };
@@ -891,7 +906,11 @@ const Layout: Component<LayoutProps> = (props) => {
   const handleStopSession = async (id: string) => {
     if (retainedChat()?.id === id) setRetainedChat(undefined);
     if (retainedTerminal()?.pane.sessionId === id) clearRetainedTerminal();
-    await sessionStore.stopSession(id);
+    await batch(() => {
+      const stop = sessionStore.stopSession(id);
+      setStartupSurface(current => current?.id === id ? undefined : current);
+      return stop;
+    });
   };
 
   const handleDeleteSession = async (id: string) => {
@@ -909,7 +928,7 @@ const Layout: Component<LayoutProps> = (props) => {
     if (!session) return;
     const initialSurface = modeAvailable() && isPiWebSession(session)
       ? surface ?? sessionStore.preferences.defaultPiSurface : undefined;
-    setChatStartSid(initialSurface === 'chat' ? session.id : undefined);
+    const clearStartup = selectStartupSurface(session, initialSurface);
 
     if (session.workspace === 'vscode') {
       keepDashboardOwnership('push');
@@ -924,10 +943,10 @@ const Layout: Component<LayoutProps> = (props) => {
       sessionStore.updatePreferences({ lastAgentType: agentType });
     }
     try {
-      if (initialSurface) await sessionStore.startSession(session.id, initialSurface);
-      else await sessionStore.startSession(session.id);
+      const outcome = await (initialSurface ? sessionStore.startSession(session.id, initialSurface) : sessionStore.startSession(session.id));
+      if (outcome === 'cancelled') clearStartup();
     } catch (error) {
-      if (initialSurface === 'chat') setChatStartSid(current => current === session.id ? undefined : current);
+      clearStartup();
       throw error;
     }
   };

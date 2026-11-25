@@ -181,6 +181,7 @@ describe('Terminal Component', () => {
     vi.clearAllMocks();
     // Default mock return values
     vi.mocked(terminalStore.getConnectionState).mockReturnValue('disconnected');
+    vi.mocked(terminalStore.getRetryMessage).mockReturnValue(null);
     vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
     vi.mocked(sessionStore.getInitProgressForSession).mockReturnValue(null);
     mockTerminalInstance._core = {};
@@ -408,6 +409,7 @@ describe('Terminal Component', () => {
       vi.mocked(sessionStore.getInitProgressForSession).mockReturnValue({ stage: 'ready' } as any);
       const [connection, setConnection] = createSignal<TerminalConnectionState>('connecting');
       vi.mocked(terminalStore.getConnectionState).mockImplementation(connection);
+      vi.mocked(terminalStore.getRetryMessage).mockImplementation(() => connection() === 'connecting' ? 'Connecting...' : null);
       mockTerminalInstance._core = {
         _bufferService: { scrollLines: vi.fn() },
         _viewport: { scrollToLine: vi.fn(() => { throw new TypeError('Viewport dimensions are unavailable'); }) },

@@ -344,6 +344,55 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     delete (window as any).__headerProps;
   });
 
+  it('keeps the Code startup pane mounted while the first surface status is pending', async () => {
+    navigationRendering.realTerminalArea = true;
+    const id = 'abcdef0123456789';
+    mockPreferences = { defaultPiSurface: 'terminal' };
+    mockSessions = [createMockSession({ id, agentType: 'pi', workspace: 'terminal', terminalMode: 'classic', status: 'stopped', generation: 1 })];
+    const [running, setRunning] = createSignal(false);
+    let confirmSurface!: (response: Response) => void;
+    const hostStatus = new Promise<Response>(resolve => { confirmSurface = resolve; });
+    const fetchStatus = vi.fn(async (url: string) => {
+      if (url === `/api/pi-web/${id}/_switch?generation=2`) return hostStatus;
+      if (url === `/api/pi-web/${id}/_switch?generation=1`) {
+        return Response.json({ phase: 'active', surface: 'chat', chatUrl: `/api/pi-web/${id}/g/1/?session=previous&view=chat` });
+      }
+      return Response.json({});
+    });
+    vi.stubGlobal('fetch', fetchStatus);
+    vi.mocked(sessionStore.isSessionInitializing).mockImplementation(running);
+    vi.mocked(sessionStore.getInitProgressForSession).mockReturnValue({ stage: 'ready', progress: 100, message: 'Container ready' });
+    vi.mocked(sessionStore.startSession).mockImplementationOnce(async () => {
+      mockSessions = [{ ...mockSessions[0], status: 'starting' }];
+      setRunning(true);
+      bumpSessionStoreVersion();
+    });
+    try {
+      render(() => <Layout />);
+      fireEvent.click(await screen.findByRole('button', { name: 'Return to session' }));
+      expect(await screen.findByTestId('startup-progress')).toBeVisible();
+      expect(screen.queryByTitle('Pi Chat')).not.toBeInTheDocument();
+      expect(fetchStatus.mock.calls.map(([url]) => url)).not.toContain(`/api/pi-web/${id}/_switch?generation=1`);
+      mockSessions = [{ ...mockSessions[0], generation: 2 }];
+      bumpSessionStoreVersion();
+      const pane = screen.getByTestId('startup-progress');
+      mockSessions = [{ ...mockSessions[0], status: 'running' }];
+      bumpSessionStoreVersion();
+      expect(screen.getByTestId('startup-progress')).toBe(pane);
+      expect(screen.queryByText('Loading Chat')).not.toBeInTheDocument();
+      const mode = screen.getByRole('button', { name: 'Workspace mode: Code — Terminal' });
+      expect(mode).toBeDisabled();
+      confirmSurface(Response.json({ phase: 'active', surface: 'terminal' }));
+      await waitFor(() => expect(mode).toBeEnabled());
+      expect(screen.getByTestId('startup-progress')).toBe(pane);
+    } finally {
+      cleanup();
+      vi.unstubAllGlobals();
+      vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
+      vi.mocked(sessionStore.getInitProgressForSession).mockReturnValue(null);
+    }
+  });
+
   it('REQ-GITHUB-320: shows restore progress on the Dashboard and dismisses a partial outcome', () => {
     mockSessions = [createMockSession({ name: 'Payments workspace' })];
     mockRepositoryNotices = { sess1: { status: 'restoring' } };
