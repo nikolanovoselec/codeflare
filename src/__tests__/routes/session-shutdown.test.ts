@@ -956,9 +956,21 @@ it('REQ-SESSION-043: retains a saved failed Delete after exit and advances the q
   expect(await f.session(a).hermesWriterSettled(f.owner, { sessionId: a, generation: 1 })).toBe(false);
   expect((await f.remove(a)).status).toBe(409);
   const observed = (await repository.getSession(f.owner, a))!;
+  expect((await f.app().request(f.path(a))).status).toBe(200);
+
+  const resumed = await repository.start(f.owner, a, stamp, observed.lifecycleGeneration, observed.shutdown);
+  const generation = observed.lifecycleGeneration + 1;
+  expect(resumed).toMatchObject({ lifecycleGeneration: generation, lifecycleState: 'starting' });
+  expect(await repository.claimStop(f.owner, a, 'resumed-stop', stamp, generation)).not.toBeNull();
+  expect(await repository.confirmStopped(f.owner, a, generation, 'resumed-stop', stamp)).toBe(true);
+  expect((await f.batch())[a]).toMatchObject({ status: 'stopped', generation });
+  expect((await f.batch())[a]?.shutdownPhase).toBeUndefined();
+
   const attempt = await f.app().request(`${f.path(a)}?discardMemory=${observed.lifecycleGeneration}:${observed.responseRevision}`, { method: 'DELETE' });
   expect(attempt.status).toBe(409);
-  expect((await f.app().request(f.path(a))).status).toBe(200);
+  expect((await f.batch())[a]).toMatchObject({ status: 'stopped', generation });
+  expect((await f.remove(a)).status).toBe(200);
+  expect((await f.batch())[a]).toBeUndefined();
 });
 
 it('REQ-SESSION-043: Kill during inference retains the session, rejects a late receipt and allows the next writer only after exit', async () => {

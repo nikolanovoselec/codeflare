@@ -243,6 +243,9 @@ app.patch('/:id', async (c) => {
  * Delete a session
  */
 app.delete('/:id', sessionDeleteRateLimiter, async (c) => {
+  if (c.req.query('discardMemory') !== undefined) {
+    return c.json({ error: 'Memory discard is not supported' }, 409);
+  }
   const reqLogger = logger.child({ requestId: c.get('requestId') });
   const bucketName = c.get('bucketName');
   const sessionId = c.req.param('id');
