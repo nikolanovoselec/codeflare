@@ -105,7 +105,7 @@ vi.mock('../../stores/terminal', () => ({
 vi.mock('../../stores/session', () => ({
   sessionStore: {
     isSessionInitializing: vi.fn(),
-    hasStartupTerminalInstance: (id: string) => sessionStore.isSessionInitializing(id),
+    hasStartupTerminalInstance: vi.fn((id: string) => sessionStore.isSessionInitializing(id)),
     getInitProgressForSession: vi.fn(),
     getTerminalsForSession: vi.fn(() => ({ tabs: [{ id: '1', label: 'Terminal', manual: false }], activeTabId: '1' })),
   },
@@ -469,6 +469,35 @@ describe('Terminal Component', () => {
       container.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
       expect(focusMobileTerminal).toHaveBeenCalledWith(mockTerminalInstance);
+    });
+
+    it('REQ-TERM-043: touch only focuses a terminal after Open', () => {
+      const [ready, setReady] = createSignal<'waiting' | 'withdrawn' | 'open'>('waiting');
+      vi.mocked(sessionStore.isSessionInitializing).mockImplementation(() => ready() === 'waiting');
+      vi.mocked(sessionStore.hasStartupTerminalInstance).mockImplementation(() => ready() !== 'open');
+      vi.mocked(sessionStore.getInitProgressForSession).mockReturnValue({ stage: 'ready', progress: 100, message: 'Ready' });
+      const input = document.createElement('textarea');
+      document.body.append(input);
+      vi.mocked(focusMobileTerminal).mockImplementation(() => { input.focus(); });
+      try {
+        const view = render(() => <Terminal {...defaultProps} onInitComplete={() => setReady('open')} />);
+        const tapPane = () => fireEvent.click(view.container.querySelector('.terminal-container')!);
+        tapPane();
+        expect(input).not.toHaveFocus();
+        setReady('withdrawn');
+        expect(screen.queryByRole('button', { name: 'Open' })).not.toBeInTheDocument();
+        tapPane();
+        expect(input).not.toHaveFocus();
+
+        setReady('waiting');
+        fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+        tapPane();
+        expect(input).toHaveFocus();
+      } finally {
+        input.remove();
+        vi.mocked(focusMobileTerminal).mockReset();
+        vi.mocked(sessionStore.hasStartupTerminalInstance).mockImplementation(id => sessionStore.isSessionInitializing(id));
+      }
     });
 
     it('should set user-select: none on terminal container for mobile', () => {

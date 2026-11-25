@@ -138,7 +138,7 @@ export interface SessionState {
   activeSessionId: string | null;
   loading: boolean;
   error: string | null;
-  initializingSessionIds: Record<string, true | 'ready-withdrawn'>;
+  initializingSessionIds: Record<string, true | { withdrawnGeneration: number }>;
   initProgressBySession: Record<string, SessionInitProgress>;
   terminalsPerSession: Record<string, SessionTerminals>;
   sessionMetrics: Record<string, SessionMetrics>;
@@ -356,31 +356,54 @@ function reconcileMemoryRetry(id: string, session?: SessionWithStatus): void {
   }
 }
 
+type ReadyProjection = Pick<Partial<SessionWithStatus>, 'generation' | 'revision' | 'status' | 'shutdownPhase'>;
+
 /** Call only with a projection that has passed lifecycle ordering. */
-function supersedesReady(id: string, incoming: Pick<Partial<SessionWithStatus>, 'generation' | 'revision' | 'status' | 'shutdownPhase'>): boolean {
+function supersedesReady(id: string, incoming: ReadyProjection): incoming is ReadyProjection & { generation: number } {
   const readyGeneration = state.initProgressBySession[id]?.readyGeneration;
   return readyGeneration !== undefined && incoming.generation !== undefined && incoming.revision !== undefined
     && incoming.generation >= readyGeneration
     && (incoming.status === 'stopping' || incoming.status === 'stopped' || incoming.shutdownPhase !== undefined);
 }
 
-function releaseCompletedReady(id: string): void {
+function releaseCompletedReady(id: string, generation: number): void {
   // Withdraw Open without switching the mounted pane to the post-Open instance.
   setState(produce(s => {
-    s.initializingSessionIds[id] = 'ready-withdrawn';
+    s.initializingSessionIds[id] = { withdrawnGeneration: generation };
     delete s.initProgressBySession[id];
   }));
   clearSessionStartedGuard(id);
 }
 
-function releaseReadyForShutdown(id: string, incoming: BatchStatusResponse['statuses'][string]): void {
-  if (supersedesReady(id, incoming)) releaseCompletedReady(id);
+function releaseReadyForShutdown(id: string, incoming: ReadyProjection): void {
+  if (supersedesReady(id, incoming)) releaseCompletedReady(id, incoming.generation);
+}
+
+function withdrawReadyForShutdownCommand(id: string): void {
+  const generation = state.initProgressBySession[id]?.readyGeneration;
+  if (generation !== undefined) releaseCompletedReady(id, generation);
+  else if (typeof state.initializingSessionIds[id] !== 'object') dismissInitProgressForSession(id);
+}
+
+/** Reconcile only after the ordered status is published, so a confirmed exit can unmount the pane. */
+function reconcileWithdrawnReady(id: string, incoming: ReadyProjection): void {
+  const startup = state.initializingSessionIds[id];
+  if (typeof startup !== 'object' || incoming.generation === undefined || incoming.revision === undefined
+    || incoming.generation < startup.withdrawnGeneration) return;
+  const newer = incoming.generation > startup.withdrawnGeneration;
+  if ((incoming.status === 'stopped' && !isShutdownInProgress(incoming.shutdownPhase))
+    || (newer && incoming.status === 'running' && incoming.shutdownPhase === undefined)) {
+    dismissInitProgressForSession(id);
+  } else if (newer && (incoming.status === 'stopping' || isShutdownInProgress(incoming.shutdownPhase))) {
+    setState('initializingSessionIds', id, { withdrawnGeneration: incoming.generation });
+  }
 }
 
 function applyShutdownFields(index: number, incoming: BatchStatusResponse['statuses'][string]): void {
   const { shutdownPhase, pendingDelete, retryingMemory, snapshotUnavailable } = incoming;
   setState('sessions', index, { shutdownPhase, pendingDelete, retryingMemory, snapshotUnavailable });
   const session = state.sessions[index];
+  reconcileWithdrawnReady(session.id, incoming);
   reconcileMemoryRetry(session.id, session);
 }
 
@@ -465,7 +488,7 @@ async function loadSessions(): Promise<void> {
     const previouslyShuttingDown = new Set(state.sessions.filter(s => isShutdownInProgress(s.shutdownPhase)).map(s => s.id));
     const oldIds = new Set(state.sessions.map(s => s.id));
     const listedIds = new Set(sessions.map(s => s.id));
-    const supersededReadyIds: string[] = [];
+    const readyProjections: typeof sessions = [];
 
     const sessionsWithStatus: SessionWithStatus[] = sessions.map((s) => {
       const local = existingSessions.get(s.id);
@@ -485,7 +508,7 @@ async function loadSessions(): Promise<void> {
       const kill = localKillAttempts.get(s.id);
       const locallyStopping = isLocallyStopping(s.id);
       const releaseReady = !locallyStopping && supersedesReady(s.id, s);
-      if (releaseReady) supersededReadyIds.push(s.id);
+      if (!locallyStopping && (releaseReady || typeof state.initializingSessionIds[s.id] === 'object')) readyProjections.push(s);
       const keepLocalStatus = local && (local.status === 'initializing'
         || (kill && kill.generation === s.generation && (listedStatus !== 'stopped' || isShutdownInProgress(s.shutdownPhase)))
         || locallyStopping || (isSessionInitializing(s.id) && !releaseReady));
@@ -505,7 +528,6 @@ async function loadSessions(): Promise<void> {
     acceptedCatalogRevision = getSessionCatalogRevision();
     sessionMissCounters.clear();
     batch(() => {
-      for (const id of supersededReadyIds) releaseCompletedReady(id);
       setState(s => {
         // Publish the replacement and its cache together before the status batch arrives.
         let sessionMetrics = s.sessionMetrics;
@@ -518,6 +540,10 @@ async function loadSessions(): Promise<void> {
         }
         return { sessions: sessionsWithStatus, sessionMetrics, loading: false };
       });
+      for (const s of readyProjections) {
+        releaseReadyForShutdown(s.id, s);
+        reconcileWithdrawnReady(s.id, s);
+      }
     });
     for (const session of state.sessions) {
       reconcileKillGeneration(session.id);
@@ -721,7 +747,7 @@ function removeConfirmedSession(id: string): void {
       if (s.activeSessionId === id) {
         s.activeSessionId = null;
       }
-      if (s.initializingSessionIds[id] === 'ready-withdrawn' || s.initProgressBySession[id]?.readyGeneration !== undefined) {
+      if (typeof s.initializingSessionIds[id] === 'object' || s.initProgressBySession[id]?.readyGeneration !== undefined) {
         clearSessionStartedGuard(id);
         delete s.initializingSessionIds[id];
         delete s.initProgressBySession[id];
@@ -967,12 +993,7 @@ async function stopSession(id: string): Promise<void> {
       startupCleanup();
       startupCleanups.delete(id);
     }
-    setState(
-      produce((s) => {
-        delete s.initializingSessionIds[id];
-        delete s.initProgressBySession[id];
-      })
-    );
+    withdrawReadyForShutdownCommand(id);
     localStopAttempts.add(id);
     if (localKillAttempts.has(id)) supersededStopAttempts.add(id);
     updateSessionStatus(id, 'stopping');
@@ -1003,6 +1024,7 @@ async function stopSession(id: string): Promise<void> {
           if (confirmed) {
             updateSessionStatus(id, 'stopped');
             terminalStore.disposeSession(id);
+            if (typeof state.initializingSessionIds[id] === 'object') dismissInitProgressForSession(id);
           } else if (confirmed === false) {
             setState('error', 'Stop could not be confirmed. Refresh status or retry stopping.');
           }
@@ -1086,10 +1108,7 @@ function killSession(id: string): Promise<void> {
   if (localStopAttempts.has(id)) supersededStopAttempts.add(id);
   startupCleanups.get(id)?.();
   startupCleanups.delete(id);
-  setState(produce((s) => {
-    if (s.initializingSessionIds[id] !== 'ready-withdrawn') delete s.initializingSessionIds[id];
-    delete s.initProgressBySession[id];
-  }));
+  withdrawReadyForShutdownCommand(id);
   // This is local command intent, not exit evidence. Existing ordered status
   // polling remains responsible for confirming stopped and disposing transport.
   updateSessionStatus(id, 'stopping');

@@ -2007,7 +2007,7 @@ describe('Session Store', () => {
       } finally { cleanup(); }
     });
 
-    it.each(['phase-less poll', 'queued poll', 'newer-generation queued poll', 'catalog', 'newer-generation catalog', 'omissions'] as const)('REQ-TERM-043: ordered %s shutdown releases a pending Ready screen', async read => {
+    it.each(['phase-less poll', 'queued poll', 'newer-generation queued poll', 'Kill before withdrawal', 'Retry Stop after withdrawal', 'replacement poll', 'replacement catalog', 'catalog', 'newer-generation catalog', 'omissions'] as const)('REQ-TERM-043: ordered %s shutdown releases a pending Ready screen', async read => {
       const session = { id: `ready-shutdown-${read}`, name: 'Ready shutdown', workspace: 'terminal' as const,
         createdAt: '2026-01-01', lastAccessedAt: '2026-01-01',
         lifecycle: 'stopped' as const, status: 'stopped' as const, generation: 6, revision: 1 };
@@ -2058,7 +2058,7 @@ describe('Session Store', () => {
         expect(current()).toMatchObject({ status: 'stopped', generation, revision: 4 });
       } else {
         const generation = read === 'newer-generation queued poll' ? 8 : 7;
-        const shutdown = read === 'phase-less poll'
+        const shutdown = read === 'phase-less poll' || read === 'Retry Stop after withdrawal'
           ? { status: 'stopping' as const, lifecycle: 'stopping' as const }
           : { status: 'running' as const, lifecycle: 'running' as const, shutdownPhase: 'queued' as const };
         terminalLifecycle.ownedSessionIds.add(session.id);
@@ -2079,22 +2079,45 @@ describe('Session Store', () => {
             expect(pane).toHaveStyle({ visibility: 'hidden' });
             expect(terminalLifecycle.ownedSessionIds.has(session.id)).toBe(true);
           };
-          await observe({ ...shutdown, generation, revision: 3 });
-          expect(current()).toMatchObject({ ...shutdown, generation });
-          expectPreserved();
+          if (read !== 'Kill before withdrawal') {
+            await observe({ ...shutdown, generation, revision: 3 });
+            expect(current()).toMatchObject({ ...shutdown, generation });
+            expectPreserved();
+          }
 
-          if (read === 'phase-less poll') {
-            let rejectKill!: (err: Error) => void;
-            vi.mocked(api.killSession).mockReturnValueOnce(new Promise((_resolve, reject) => { rejectKill = reject; }));
-            const killing = sessionStore.killSession(session.id);
+          if (read === 'phase-less poll' || read === 'Kill before withdrawal' || read === 'Retry Stop after withdrawal') {
+            const command = read === 'Retry Stop after withdrawal' ? 'stopSession' : 'killSession';
+            let rejectCommand!: (err: Error) => void;
+            vi.mocked(api[command]).mockImplementationOnce(() => new Promise<never>((_, reject) => { rejectCommand = reject; }));
+            const pending = sessionStore[command](session.id);
             try {
               expectPreserved();
             } finally {
-              rejectKill(new Error('Kill request failed'));
-              await killing;
+              rejectCommand(new Error('Shutdown command failed'));
+              await pending;
             }
-            expect(sessionStore.error).toBe('Kill request failed');
+            expect(sessionStore.error).toBe('Shutdown command failed');
             expectPreserved();
+          }
+
+          if (read === 'replacement poll' || read === 'replacement catalog') {
+            // The observer can miss confirmed exit altogether. A newer shutdown
+            // is still hidden, and live evidence must be newer than that shutdown.
+            await observe({ ...shutdown, generation: 8, revision: 4 });
+            expectPreserved();
+            const replacement = { status: 'running', lifecycle: 'running', generation: 9, revision: 5 } as const;
+            if (read === 'replacement catalog') {
+              mockGetSessions.mockResolvedValue([{ ...session, ...replacement }]);
+              await sessionStore.loadSessions(); // Companion batch still reports generation 8.
+            } else {
+              await observe(replacement);
+            }
+            expect(current()).toMatchObject(replacement);
+            const visiblePane = view.container.querySelector('.terminal-container');
+            expect(visiblePane).not.toBe(pane);
+            expect(visiblePane).toBeVisible();
+            expect(screen.queryByRole('button', { name: 'Open' })).not.toBeInTheDocument();
+            return;
           }
 
           await observe({ status: 'stopped', lifecycle: 'stopped', generation, revision: 4 });
