@@ -63,6 +63,8 @@ The native adapter is the sole managed MCP owner in default/basic and advanced P
 
 Exact managed exclusions for the Review handlers or `hermes-memory-runtime.ts` are unrelated to MCP ownership, including when native Hermes replaces its Codeflare wrapper. They do not block an otherwise uniquely selected MCP client; lookalike paths, wildcards and genuinely ambiguous client selections still fail closed.
 
+When startup package reconciliation succeeds, it removes the exact image-bundled Pi Web MCP Manager registration from restored settings before Pi loads. It leaves package files, MCP JSON, and unrelated registrations untouched. ([REQ-AGENT-217](../../sdd/spec/mcp.md#req-agent-217-lossless-pi-mcp-adapter-migration)) <!-- @impl: entrypoint.sh::configure_pi_packages_and_review_inventory -->
+
 Migration preserves unrelated server definitions, including stdio, and recoverable originals. It leaves existing OAuth stores untouched and does not import grants. A valid native destination remains authoritative; selected supported legacy entries may be imported. Conflicting custom definitions, unsafe expressions and failed preparation fail closed. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::preparePiMcpAdapterConfig -->
 
 Only successful native handoff excludes obsolete root `mcp.json` from later baseline/bisync; initial restore and failed preparation retain its eligibility. <!-- @impl: entrypoint.sh::configure_pi_mcp_adapter --> Do not delete bucket content or create a second client to bypass a migration failure. ([REQ-AGENT-217](../../sdd/spec/mcp.md#req-agent-217-lossless-pi-mcp-adapter-migration))
