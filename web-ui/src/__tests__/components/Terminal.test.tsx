@@ -251,8 +251,17 @@ describe('Terminal Component', () => {
       await vi.advanceTimersByTimeAsync(0);
       expect(pane).not.toBeInTheDocument();
       expect(prepared.readyState).toBe(WebSocket.CLOSED);
-      expect(forTab(sessions[1].id, '1')).toHaveLength(1);
-      expect(forTab(sessions[1].id, '1')[0].readyState).toBe(WebSocket.OPEN);
+      const currentSockets = forTab(sessions[1].id, '1');
+      expect(currentSockets).toHaveLength(1);
+      const [current] = currentSockets;
+      expect(current.readyState).toBe(WebSocket.OPEN);
+
+      setSession({ ...sessions[1], generation: sessions[1].generation + 1 });
+      await vi.advanceTimersByTimeAsync(0);
+      const nextSockets = forTab(sessions[1].id, '1');
+      expect(nextSockets).toHaveLength(2);
+      expect(current.readyState).toBe(WebSocket.CLOSED);
+      expect(nextSockets[1].readyState).toBe(WebSocket.OPEN);
     } finally {
       cleanup();
       transport.disposeAll();
