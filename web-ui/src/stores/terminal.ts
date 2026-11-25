@@ -731,6 +731,7 @@ function disposeSession(sessionId: string): void {
   cleanupFitAddonsByPrefix(prefix);
   cleanupMapByPrefix(abortControllers, prefix, (controller) => controller.abort());
   cleanupMapByPrefix(connectionOwners, prefix);
+  cleanupMapByPrefix(foregroundTraffic, prefix);
   cleanupMapByPrefix(inputDisposables, prefix, (disposable) => disposable.dispose());
   cleanupOutputByPrefix(prefix);
   for (const key of [...herdrKeys]) {

@@ -1,4 +1,4 @@
-import { Component, For, Show, createEffect, createMemo, createRenderEffect, Setter, type JSX } from 'solid-js';
+import { Component, For, Show, createEffect, createMemo, createRenderEffect, untrack, Setter, type JSX } from 'solid-js';
 import type { PiWorkspaceModeBinding } from './PiWorkspaceMode';
 import Terminal from './Terminal';
 import TerminalTabs from './TerminalTabs';
@@ -235,46 +235,49 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
         <FloatingTerminalButtons showTerminal={showNativeTerminal()} />
 
         {/* Tiled terminal view - when tiling is enabled */}
-        <Show when={mountNativeTerminal() && !isMultiViewWorkspace() && !isHerdrSession() && activeTiling()?.enabled && activeTerminalSession() && activeTerminals()}>
-          {/* Single InitProgress overlay for tiled mode (instead of per-terminal) */}
-          <Show when={isActiveSessionInitializing()}>
-            <div class="terminal-init-overlay">
-              <InitProgress
-                sessionName={activeSession()?.name || 'Terminal'}
-                progress={sessionStore.getInitProgressForSession(activeSessionId()!)}
-                onOpen={() => props.onOpenSessionById(activeSessionId()!)}
-              />
-            </div>
-          </Show>
-          <TiledTerminalContainer
-            sessionId={activeTerminalSession()!.id}
-            terminals={activeTerminals()!.tabs}
-            tabOrder={activeTabOrder() || []}
-            layout={activeTiling()!.layout}
-            activeTabId={activeTerminals()!.activeTabId}
-            onTileClick={props.onTileClick}
-            renderTerminal={(tabId, _slotIndex) => {
-              const session = activeTerminalSession();
-              if (!session) return null;
-              return (
-                <Terminal
-                  sessionId={session.id}
-                  terminalId={tabId}
-                  sessionName={session.name}
-                  terminalMode={resolveTerminalMode(session.terminalMode)}
-                  active={nativeInteractive()}
-                  visible={showNativeTerminal()}
-                  focused={nativeInteractive() && tabId === activeTerminals()!.activeTabId}
-                  connect={nativeConnect(tabId)}
-                  onHandoffAttached={props.codeAttachment?.terminalId === tabId ? props.codeAttachment.onAttached : undefined}
-                  alwaysObserveResize={nativeInteractive()}
-                  hideInitProgress={true}
-                  onError={props.onTerminalError}
-                  onInitComplete={() => props.onOpenSessionById(session.id)}
+        <Show when={mountNativeTerminal() && !isMultiViewWorkspace() && !isHerdrSession() && activeTiling()?.enabled && activeTerminals() && activeTerminalSession()
+          && `${activeTerminalSession()!.id}:${activeTerminalSession()!.generation ?? ''}`} keyed>
+          {() => <>
+            {/* Single InitProgress overlay for tiled mode (instead of per-terminal) */}
+            <Show when={isActiveSessionInitializing()}>
+              <div class="terminal-init-overlay">
+                <InitProgress
+                  sessionName={activeSession()?.name || 'Terminal'}
+                  progress={sessionStore.getInitProgressForSession(activeSessionId()!)}
+                  onOpen={() => props.onOpenSessionById(activeSessionId()!)}
                 />
-              );
-            }}
-          />
+              </div>
+            </Show>
+            <TiledTerminalContainer
+              sessionId={activeTerminalSession()!.id}
+              terminals={activeTerminals()!.tabs}
+              tabOrder={activeTabOrder() || []}
+              layout={activeTiling()!.layout}
+              activeTabId={activeTerminals()!.activeTabId}
+              onTileClick={props.onTileClick}
+              renderTerminal={(tabId, _slotIndex) => {
+                const session = untrack(activeTerminalSession);
+                if (!session) return null;
+                return (
+                  <Terminal
+                    sessionId={session.id}
+                    terminalId={tabId}
+                    sessionName={activeTerminalSession()?.name || session.name}
+                    terminalMode={resolveTerminalMode(activeTerminalSession()?.terminalMode ?? session.terminalMode)}
+                    active={nativeInteractive()}
+                    visible={showNativeTerminal()}
+                    focused={nativeInteractive() && tabId === activeTerminals()!.activeTabId}
+                    connect={nativeConnect(tabId)}
+                    onHandoffAttached={props.codeAttachment?.terminalId === tabId ? props.codeAttachment.onAttached : undefined}
+                    alwaysObserveResize={nativeInteractive()}
+                    hideInitProgress={true}
+                    onError={props.onTerminalError}
+                    onInitComplete={() => props.onOpenSessionById(session.id)}
+                  />
+                );
+              }}
+            />
+          </>}
         </Show>
 
         {/* MultiView session grid - each pane is one existing session, not a nested tab set. */}

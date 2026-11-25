@@ -928,7 +928,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 6. Explicit Terminal re-entry opens the exact saved transcript after the previous writer exits. If interrupted, the shell stays selected and re-entry is retryable only after the unused launch is safely revoked. <!-- @impl: host/src/pi-web-runtime.ts::rearmSelectedTerminal --> <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-273: a safely revoked native re-entry leaves Terminal selected) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#quit-and-reopen-native-pi -->
 7. Returning from Chat after an ordinary quit resumes the exact transcript only when a fresh launcher is ready in the original Terminal pane. <!-- @impl: host/src/pi-web-runtime.ts::waitingWrapper --> <!-- @manual: documentation/lanes/terminal-and-ide.md#quit-and-reopen-native-pi -->
 
-**Constraints:** An eligible waiting switch exposes Cancel switch in the workspace mode menu, subject to [REQ-AGENT-272](#req-agent-272-pi-chat-and-terminal-transcript-handoff). <!-- @impl: web-ui/src/components/PiWorkspaceMode.tsx::PiWorkspaceMode --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (cancels a waiting switch from the mode menu without replacing the Chat frame) --> [REQ-AGENT-280](#req-agent-280-attachment-gated-workspace-reveal) owns destination display readiness.
+**Constraints:** [REQ-AGENT-280](#req-agent-280-attachment-gated-workspace-reveal) owns destination display readiness.
 
 **Priority:** P1
 
@@ -949,6 +949,8 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 **Acceptance Criteria:**
 
 1. During a successful handoff, retain the outgoing view until Code connects or Vibe clears the stock loading gate. Native startup questions and Chat load recovery can reveal Vibe early. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps Vibe visible after Host confirms Code until its terminal attaches) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps the repository restore notice visible across Classic Chat and Terminal switches) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time -->
+2. On Code reveal, focus moves to the prepared destination pane, including when that pane replaces an off-grid selection. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps Vibe visible after Host confirms Code until its terminal attaches) -->
+3. During an eligible waiting switch, the workspace mode menu offers Cancel switch. <!-- @impl: web-ui/src/components/PiWorkspaceMode.tsx::PiWorkspaceMode --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (cancels a waiting switch from the mode menu without replacing the Chat frame) -->
 
 **Constraints:** [REQ-TERM-011](terminal.md#req-term-011-visible-terminal-panes-own-websocket-connections) limits hidden terminal attachment.
 
@@ -956,7 +958,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Dependencies:** [REQ-AGENT-273](#req-agent-273-pi-handoff-continuity)
 
-**Verification:** Manual: [Switch one writer at a time](../../documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time)
+**Verification:** Automated: [Workspace handoff](../../web-ui/src/__tests__/components/Layout.test.tsx); Manual: [Switch one writer at a time](../../documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time)
 
 **Status:** Planned
 

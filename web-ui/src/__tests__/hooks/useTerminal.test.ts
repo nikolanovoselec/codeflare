@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createRoot, createSignal } from 'solid-js';
+import { createEffect, createRoot, createSignal } from 'solid-js';
 
 // Mock all heavy dependencies before importing the hook
 const mockFit = vi.fn();
@@ -244,6 +244,62 @@ describe('useTerminal hook', () => {
   afterEach(() => {
     document.body.removeChild(containerEl);
     vi.restoreAllMocks();
+  });
+
+  it('reveals a prepared Code attachment without a hidden or duplicate initial resize', async () => {
+    const { terminalStore: transport, sendInputToTerminal } = await vi.importActual<typeof import('../../stores/terminal')>('../../stores/terminal');
+    const methods = ['connect', 'getConnectionState', 'claimResizeAuthority', 'clearPendingResizeAuthority',
+      'resize', 'disposeLocalTerminal'] as const;
+    const previous = Object.fromEntries(methods.map(key => [key, terminalStore[key]]));
+    Object.assign(terminalStore, Object.fromEntries(methods.map(key => [key, transport[key]])));
+    const OriginalWebSocket = globalThis.WebSocket;
+    const sent: string[] = [];
+    // Defer normal layout refits; inspect only the frames emitted by open and reveal.
+    vi.mocked(window.requestAnimationFrame).mockImplementation(() => 0);
+    vi.useFakeTimers();
+    vi.stubGlobal('WebSocket', class extends OriginalWebSocket {
+      send(data: string) { sent.push(data); }
+    });
+    const sessionId = 'abcdef0123456789';
+    const [revealed, reveal] = createSignal(false);
+    let acceptedHiddenInput: boolean | undefined;
+    let dispose: (() => void) | undefined;
+    try {
+      createRoot(cleanup => {
+        dispose = cleanup;
+        const props = {
+          ...defaultProps,
+          sessionId,
+          connect: true,
+          get active() { return revealed(); },
+          onHandoffAttached: () => reveal(true),
+        };
+        const pane = useTerminal(props);
+        pane.containerRef(containerEl);
+        createEffect(() => {
+          if (pane.connectionState() !== 'connected' || revealed()) return;
+          acceptedHiddenInput = sendInputToTerminal(props.sessionId, props.terminalId, 'hidden input');
+          transport.claimResizeAuthority(props.sessionId, props.terminalId);
+          transport.resize(props.sessionId, props.terminalId, 40, 12);
+          props.onHandoffAttached();
+        });
+      });
+      expect(sent).toEqual([]);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(revealed()).toBe(true);
+      expect(acceptedHiddenInput).toBe(false);
+      expect(sent).toEqual([
+        JSON.stringify({ type: 'focus' }), JSON.stringify({ type: 'resize', cols: 80, rows: 24 }),
+      ]);
+      expect(sendInputToTerminal(sessionId, defaultProps.terminalId, 'visible input')).toBe(true);
+      expect(sent[sent.length - 1]).toBe('visible input');
+    } finally {
+      dispose?.();
+      transport.disposeAll();
+      Object.assign(terminalStore, previous);
+      vi.stubGlobal('WebSocket', OriginalWebSocket);
+      vi.useRealTimers();
+    }
   });
 
   describe('lifecycle', () => {

@@ -85,7 +85,8 @@ In **Vibe**, Dashboard **New Session** starts Pi Chat directly. Returning to Das
 - Switch during streaming, a queued follow-up, and a pending question. Expect **Entering Vibe mode...** or **Entering Code mode...** in the destination option. Verify automatic native Abort and rejection of fresh prompts.
 - For [REQ-AGENT-280](../../sdd/spec/agents.md#req-agent-280-attachment-gated-workspace-reveal), keep the outgoing view until Code connects or Vibe clears the stock loader. A native startup question can appear early.
 - During Code-to-Vibe handoff, fail the first destination frame navigation. Verify Vibe reveals **Reload Chat** before normal readiness, then clear the failure and reload the same conversation without a new handoff.
-- Use **Cancel switch** in the mode menu before Abort commits and verify the running turn survives. Repeat after commitment: the action is no longer available, and the committed stop cannot be undone.
+- If a controlled admitted request holds the switch in `waiting`, choose **Cancel switch** from the mode menu and verify the turn survives. After Abort commits, the action is unavailable and cannot undo the stop.
+- If `waiting` cannot be held in the browser, record the cancellation check as unexercised. The [Host test](../../host/__tests__/pi-web-handoff.test.js) controls Abort commitment; the [Layout test](../../web-ui/src/__tests__/components/Layout.test.tsx) separately verifies the waiting menu action.
 - Repeat with an input hook held before streaming. Neither an idle-looking status nor an Abort acknowledgment can transfer ownership while the hook is active.
 - Verify saved history appears without automatic prompt or queue replay. Text recovered by Abort returns to Terminal as an editable, unsent draft.
 

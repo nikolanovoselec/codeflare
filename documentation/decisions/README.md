@@ -2587,7 +2587,7 @@ Short-lived GitHub App tokens cap the exfiltration value there.
 
 - Dashboard status and storage polling are no longer coupled to terminal side effects.
 - Hidden running sessions do not mount new terminals, reconnect, resize, forward input, or run URL detection. The exceptions are one previously connected inert Dashboard pane and one hidden, input-disabled attachment for the current Host-confirmed Code handoff under [REQ-TERM-011](../../sdd/spec/terminal.md#req-term-011-visible-terminal-panes-own-websocket-connections). <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea -->
-- Browser visibility return reconnects visible Terminal panes when Code is displayed, or the one preparing Code destination behind Vibe when the Host has confirmed the handoff. It does not reconnect on Dashboard. <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
+- On visibility return, only registered disconnected or connecting sockets retry: visible Code panes or the one preparing Code destination after Host confirmation. Healthy sockets stay open, and Dashboard never reconnects. <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
 - `MultiView #1` can compose existing running or initializing sessions without quota, storage, lifecycle, or terminal-route changes. <!-- @impl: web-ui/src/stores/terminal-workspace.ts::createOrUpdateMultiView -->
 - A shared `TerminalGrid` renders tiled terminal surfaces for both per-session tab tiling and MultiView, so repeated layout structure stays centralized. <!-- @impl: web-ui/src/components/TerminalGrid.tsx::TerminalGrid -->
 - The host terminal server assigns resize authority to the focused WebSocket so stale clients cannot shrink a shared PTY. <!-- @impl: host/src/session.ts::claimResizeAuthority -->
