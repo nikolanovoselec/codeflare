@@ -67,7 +67,7 @@ In **Vibe**, Dashboard **New Session** starts Pi Chat directly. Returning to Das
 - On a disposable account with no saved surface preference, start a stopped Classic Pi session from its card without choosing a mode.
 - Save **Vibe**, then set **VS Code** as the default workspace. Confirm the mode picker is hidden and restart the same stopped Classic Pi session, not a new VS Code session.
 - In both runs, verify **Loading Chat** never appears and **Open** reveals the already-mounted Terminal.
-- The [Layout regression](../../web-ui/src/__tests__/components/Layout.test.tsx) delays the first Host status to check pane identity for [REQ-TERM-043 AC6](../../sdd/spec/terminal.md#req-term-043-visible-terminal-readiness-gating).
+- The [Layout regression](../../web-ui/src/__tests__/components/Layout.test.tsx) checks that the startup UI stays mounted while the first Host status is pending ([REQ-TERM-043 AC6](../../sdd/spec/terminal.md#req-term-043-visible-terminal-readiness-gating)). It uses a mock Terminal and does not track sockets.
 - On Chat-first Start and Resume, verify the stock frame loads behind the startup overlay. Once the Host confirms Chat and five seconds have passed since the stock loader disappeared, **Open** becomes available on a best-effort basis.
 - After **Open** appears, wait over 25 seconds before clicking it. Verify it reveals the same frame without starting native Pi.
 - For each run below, configure an authorized synthetic repository as a restore target and ensure its checkout is absent locally.
