@@ -48,7 +48,7 @@ vi.mock('../../components/Terminal', async () => {
       }
     });
     return <Show when={sessionStore.isSessionInitializing(props.sessionId)}
-      fallback={<div data-testid={mockTilingForSession?.enabled ? `workspace-content-${props.terminalId}` : "workspace-content"} data-connect={String(props.connect)}>Workspace</div>}>
+      fallback={<div data-testid={mockTilingForSession?.enabled ? `workspace-content-${props.terminalId}` : "workspace-content"} data-connect={String(props.connect)} data-focused={String(props.focused)}>Workspace</div>}>
       <div data-testid="startup-progress">
         {sessionStore.sessions.find(session => session.id === props.sessionId)?.status === 'running' ? 'Ready to open' : 'Starting'}
         <button onClick={props.onInitComplete}>Open workspace</button>
@@ -211,7 +211,7 @@ vi.mock('../../stores/session', () => ({
     setEnterpriseMode: vi.fn(),
     setSaasMode: vi.fn(),
     setAllowedAgents: vi.fn(),
-    getTerminalsForSession: vi.fn(() => mockTerminalsForSession),
+    getTerminalsForSession: vi.fn(() => { readSessionStoreVersion(); return mockTerminalsForSession; }),
     initializeTerminalsForSession: vi.fn(),
     addTerminalTab: vi.fn(),
     removeTerminalTab: vi.fn(),
@@ -643,6 +643,10 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     mockTerminalsForSession = { tabs: [{ id: '1' }, { id: '2' }, { id: '3' }], activeTabId: '3' };
     mockTilingForSession = { enabled: true, layout: '2-split' };
     mockTabOrder = ['1', '2', '3'];
+    vi.mocked(sessionStore.setActiveTerminalTab).mockImplementation((_id, tab) => {
+      mockTerminalsForSession = { ...mockTerminalsForSession, activeTabId: tab };
+      bumpSessionStoreVersion();
+    });
     window.history.replaceState(null, '', `/app/session/${id}`);
     let requestId: string | undefined;
     vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
@@ -666,14 +670,17 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       try { document.dispatchEvent(new Event('visibilitychange')); } finally { visible.mockRestore(); }
       expect(reconnectOnVisibilityReturn).toHaveBeenCalledWith(undefined, [`${id}:1`]);
       expect(pane).not.toBeVisible();
+      expect(pane).toHaveAttribute('data-focused', 'false');
       expect(source).toBeVisible();
       expect(screen.getByRole('button', { name: 'Code — Terminal' })).toContainElement(screen.getByText('Entering Code mode...'));
       setConnection('connected');
       await waitFor(() => expect(pane).toBeVisible());
+      expect(pane).toHaveAttribute('data-focused', 'true');
       expect(screen.queryByTitle('Pi Chat')).not.toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Workspace mode: Code — Terminal' })).toBeVisible();
     } finally {
       cleanup();
+      vi.mocked(sessionStore.setActiveTerminalTab).mockReset();
       vi.unstubAllGlobals();
       vi.mocked(terminalStore.getConnectionState).mockReturnValue('disconnected');
     }

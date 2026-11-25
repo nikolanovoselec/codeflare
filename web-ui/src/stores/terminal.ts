@@ -109,6 +109,8 @@ const [state, setState] = createStore<{
 // External storage for WebSocket and Terminal instances (keyed by sessionId:terminalId)
 const connections = new Map<string, WebSocket>();
 let parkedKey: string | undefined;
+const foregroundTraffic = new Map<string, () => boolean>();
+const maySendTerminalTraffic = (key: string) => parkedKey !== key && (foregroundTraffic.get(key)?.() ?? true);
 
 /** Keep one already-open socket for Dashboard return without foreground interaction. */
 function setParked(sessionId: string, terminalId: string, parked: boolean): void {
@@ -215,11 +217,13 @@ function connect(
   manual?: boolean,
   processLabels = true,
   herdr = false,
+  allowTraffic?: () => boolean,
 ): () => void {
   const key = makeKey(sessionId, terminalId);
 
   // Close existing connection if any
   disconnect(sessionId, terminalId);
+  if (allowTraffic) foregroundTraffic.set(key, allowTraffic);
   if (herdr) herdrKeys.add(key);
   else herdrKeys.delete(key);
   if (manual) manualKeys.add(key);
@@ -308,6 +312,7 @@ function connect(
       clearConnectTimer(key);
       logger.debug(`[Terminal ${key}] WebSocket opened`);
       currentAttempt = 0; // REQ-TERM-020 AC3: reset backoff on successful open
+      const foregroundAtOpen = maySendTerminalTraffic(key);
       setConnectionState(sessionId, terminalId, 'connected');
       setRetryMessage(sessionId, terminalId, null);
 
@@ -322,7 +327,7 @@ function connect(
       // Set up terminal input handler on successful connection
       // Send RAW data directly to PTY (no JSON wrapping)
       const inputDisposable = terminal.onData((data) => {
-        if (ws.readyState === WebSocket.OPEN && parkedKey !== key) {
+        if (ws.readyState === WebSocket.OPEN && ownsAttempt() && maySendTerminalTraffic(key)) {
           ws.send(data);  // Raw terminal input
         }
       });
@@ -331,7 +336,7 @@ function connect(
       inputDisposables.set(key, inputDisposable);
       logger.debug(`[Terminal ${key}] Created new input handler`);
 
-      if (parkedKey !== key && pendingFocusClaims.has(key)) {
+      if (foregroundAtOpen && maySendTerminalTraffic(key) && pendingFocusClaims.has(key)) {
         ws.send(JSON.stringify({ type: 'focus' }));
         pendingFocusClaims.delete(key);
       }
@@ -341,7 +346,7 @@ function connect(
       // causing garbled/duplicated text until user manually resizes window
       const cols = terminal.cols;
       const rows = terminal.rows;
-      if (parkedKey !== key && cols > 0 && rows > 0) {
+      if (foregroundAtOpen && maySendTerminalTraffic(key) && cols > 0 && rows > 0) {
         ws.send(JSON.stringify({ type: 'resize', cols, rows }));
         logger.debug(`[Terminal ${key}] Sent initial resize: ${cols}x${rows}`);
       }
@@ -568,6 +573,7 @@ function disconnect(sessionId: string, terminalId: string): void {
   }
 
   connectionOwners.delete(key);
+  foregroundTraffic.delete(key);
 
   // Clear any pending retry
   const timeout = retryTimeouts.get(key);
@@ -630,7 +636,7 @@ function confirmAgentEventDisplay(
 
 function claimResizeAuthority(sessionId: string, terminalId: string): void {
   const key = makeKey(sessionId, terminalId);
-  if (parkedKey === key) return;
+  if (!maySendTerminalTraffic(key)) return;
   desiredFocusClaims.add(key);
   const ws = connections.get(key);
   if (ws?.readyState === WebSocket.OPEN) {
@@ -650,7 +656,7 @@ function clearPendingResizeAuthority(sessionId: string, terminalId: string): voi
 // Send resize event to terminal
 function resize(sessionId: string, terminalId: string, cols: number, rows: number): void {
   const key = makeKey(sessionId, terminalId);
-  if (parkedKey === key) return;
+  if (!maySendTerminalTraffic(key)) return;
   const ws = connections.get(key);
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: 'resize', cols, rows }));
@@ -789,6 +795,7 @@ function disposeAll(): void {
   }
   abortControllers.clear();
   connectionOwners.clear();
+  foregroundTraffic.clear();
   pendingFocusClaims.clear();
   desiredFocusClaims.clear();
 
@@ -815,14 +822,15 @@ function reconnect(sessionId: string, terminalId: string, onError?: (error: stri
   // Close existing connection and reconnect
   const herdr = herdrKeys.has(key);
   const manual = manualKeys.has(key);
+  const allowTraffic = foregroundTraffic.get(key);
   disconnect(sessionId, terminalId);
-  return connect(sessionId, terminalId, terminal, onError, manual, !herdr, herdr);
+  return connect(sessionId, terminalId, terminal, onError, manual, !herdr, herdr, allowTraffic);
 }
 
 // Send input text to a terminal's WebSocket connection
 export function sendInputToTerminal(sessionId: string, terminalId: string, text: string): boolean {
   const key = makeKey(sessionId, terminalId);
-  if (parkedKey === key) return false;
+  if (!maySendTerminalTraffic(key)) return false;
   const ws = connections.get(key);
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(text);

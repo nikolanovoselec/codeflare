@@ -928,7 +928,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 6. Explicit Terminal re-entry opens the exact saved transcript after the previous writer exits. If interrupted, the shell stays selected and re-entry is retryable only after the unused launch is safely revoked. <!-- @impl: host/src/pi-web-runtime.ts::rearmSelectedTerminal --> <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-273: a safely revoked native re-entry leaves Terminal selected) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#quit-and-reopen-native-pi -->
 7. Returning from Chat after an ordinary quit resumes the exact transcript only when a fresh launcher is ready in the original Terminal pane. <!-- @impl: host/src/pi-web-runtime.ts::waitingWrapper --> <!-- @manual: documentation/lanes/terminal-and-ide.md#quit-and-reopen-native-pi -->
 
-**Constraints:** [REQ-AGENT-280](#req-agent-280-attachment-gated-workspace-reveal) owns destination display readiness.
+**Constraints:** An eligible waiting switch exposes Cancel switch in the workspace mode menu, subject to [REQ-AGENT-272](#req-agent-272-pi-chat-and-terminal-transcript-handoff). <!-- @impl: web-ui/src/components/PiWorkspaceMode.tsx::PiWorkspaceMode --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (cancels a waiting switch from the mode menu without replacing the Chat frame) --> [REQ-AGENT-280](#req-agent-280-attachment-gated-workspace-reveal) owns destination display readiness.
 
 **Priority:** P1
 

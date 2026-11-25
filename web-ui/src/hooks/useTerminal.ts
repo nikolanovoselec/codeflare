@@ -1,4 +1,4 @@
-import { onMount, onCleanup, createEffect, createSignal, createMemo } from 'solid-js';
+import { onMount, onCleanup, createEffect, createSignal, createMemo, untrack } from 'solid-js';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
@@ -39,6 +39,7 @@ export interface UseTerminalOptions {
   onActivate?: () => void;
   onError?: (error: string) => void;
   onInitComplete?: () => void;
+  onHandoffAttached?: () => void;
 }
 
 interface UseTerminalResult {
@@ -672,6 +673,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
         !isHerdr() && tab?.manual === true,
         !isHerdr(),
         isHerdr(),
+        ...(untrack(() => props.onHandoffAttached) ? [() => isVisible() && props.active] as const : [] as const),
       );
     }
   });

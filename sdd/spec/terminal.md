@@ -536,7 +536,7 @@ None.
 4. Leaving the visible set disposes local panes without stopping their PTYs, except one connected untiled Classic or single Herdr pane retained by Dashboard. <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (retains one mounted Terminal pane on Dashboard and discards it on %s) --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::canConnect --> <!-- @impl: web-ui/src/stores/terminal.ts::disposeLocalTerminal --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (reconnectBackoffMs)) / REQ-TERM-004 (WebSocket lifecycle: connect, attach, detach, close-codes 4503/1013) / REQ-TERM-008 (flushWriteBuffer batches xterm writes for performance)) -->
 5. Changing session or generation, stopping the session, or leaving the document discards the retained pane. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (retains one mounted Terminal pane on Dashboard and discards it on %s) -->
 6. Session indicators distinguish container-running state from visible-terminal-connected state. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::dotVariant --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (SessionStatCard) -->
-7. A Host-confirmed Code handoff may attach one rendered destination pane in the current session and generation before reveal, without hidden input or resize. Other hidden panes do not attach. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps Vibe visible after Host confirms Code until its terminal attaches) -->
+7. A Host-confirmed Code handoff may attach one rendered destination pane in the current session and generation before reveal, without hidden input or resize. Other hidden panes do not attach. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps Vibe visible after Host confirms Code until its terminal attaches) --> <!-- @impl: web-ui/src/stores/terminal.ts::connect --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (suppresses hidden Code input, focus and resize on the wire, including after reconnect) -->
 
 **Constraints:**
 
@@ -833,13 +833,13 @@ None.
 
 ### REQ-TERM-016: Terminal Pane Reconnect and Resize Authority
 
-**Intent:** When a visible terminal pane returns to view or a focused pane reconnects, it reconnects only the panes visible in the current workspace, claims resize authority before sending dimensions, and a stale connection owner can never dispose the newer WebSocket for the same visible terminal. Connection ownership by visibility is defined in [REQ-TERM-011](#req-term-011-visible-terminal-panes-own-websocket-connections).
+**Intent:** When a visible terminal pane returns to view or a focused pane reconnects, it reconnects within the current workspace, claims resize authority before sending dimensions, and a stale connection owner can never dispose the newer WebSocket for the same visible terminal. Connection ownership by visibility is defined in [REQ-TERM-011](#req-term-011-visible-terminal-panes-own-websocket-connections).
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Browser visibility return reconnects only panes or tiled tabs that are visible in the current workspace. <!-- @impl: web-ui/src/components/Layout.tsx::visibleTerminalKeys --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-TERM-011: reconnects only visible tiled slots after visibility return) -->
+1. Browser visibility return reconnects only visible panes in the current workspace or the single confirmed Code destination allowed by REQ-TERM-011. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-TERM-011: reconnects only visible tiled slots after visibility return) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps Vibe visible after Host confirms Code until its terminal attaches) -->
 2. A focused visible terminal claims resize authority before sending dimensions, including retry reconnects that remain focused; Herdr owns focus and resizing among inner panes. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal.ts::claimResizeAuthority --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-011 / REQ-TERM-030 AC3: changes focus without reconnecting the terminal) --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-011 / REQ-TERM-016 AC2: resends focused resize authority after a retry reconnect opens) -->
 3. Cleanup from a stale connection owner cannot dispose the newer WebSocket or input handler for the same visible terminal. <!-- @impl: web-ui/src/stores/terminal.ts::connect --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-012: stale cleanup from an older connection cannot close a newer connection for the same terminal) -->
 4. A resize frame is emitted only for a visible, connected terminal, carrying its current fitted dimensions. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal.ts::resize --> <!-- @test: host/__tests__/session-resize-authority.test.js (REQ-TERM-016: accepts resize frames only from the foreground WebSocket owner) -->
@@ -849,7 +849,7 @@ None.
 
 **Constraints:**
 
-- Hidden terminal preservation cannot be used as an instant-switching optimization if it opens a WebSocket.
+- The only hidden reconnect exception is the one rendered destination of the Host-confirmed Code handoff in the current session and generation.
 - Dashboard status must remain a polling/storage concern and must not depend on terminal component side effects.
 
 **Priority:** P0

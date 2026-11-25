@@ -30,6 +30,8 @@ The persisted per-session terminal stamp is immutable. Classic owns Codeflare ta
 
 Dashboard opens no terminal sockets, but can retain one already-connected untiled Classic or single Herdr pane without allowing hidden input, resize, or reconnect. Single-session Classic exposes its active tabs or tiles, Herdr one surface, and MultiView one outer surface per member. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> Leaving the visible set disposes non-retained panes without killing their PTYs. Focus handoff does not remount/reconnect; focused visible pane claims resize authority before publishing fitted dimensions. Stale cleanup cannot close a newer owner; losing focus before open clears pending resize authority. Herdr visibility return forces current-pane repaint with same-size resize even if dimensions did not change. [REQ-TERM-011](../../sdd/spec/terminal.md#req-term-011-visible-terminal-panes-own-websocket-connections), [REQ-TERM-016](../../sdd/spec/terminal.md#req-term-016-terminal-pane-reconnect-and-resize-authority), [REQ-TERM-017](../../sdd/spec/terminal.md#req-term-017-multiview-pane-focus-and-input-routing).
 
+A Host-confirmed Vibe-to-Code handoff may attach or reconnect only one rendered destination pane in the current session and generation. Until reveal, it sends no input, focus, or resize frames. See the [tiled handoff regression](../../web-ui/src/__tests__/components/Layout.test.tsx). <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/src/stores/terminal.ts::connect -->
+
 At `mounting` the visible pane initiates one attachment lifecycle; it does not bypass public endpoint readiness. The endpoint returns retryable 1013 before the terminal service is ready and does not assign a PTY. See [REQ-TERM-046](../../sdd/spec/terminal.md#req-term-046-visible-terminal-startup-connection) for mounting behavior; it does not establish endpoint authority.
 
 The store publishes Ready only after confirming the completion still belongs to the current Start. <!-- @impl: web-ui/src/stores/session.ts::startSession --> The single-pane Terminal keeps showing startup progress until that pane’s browser socket is connected. Focus and display await OPEN, which reveals and focuses the same mounted pane without reconnecting it. Foreign panes are unchanged. [REQ-TERM-043](../../sdd/spec/terminal.md#req-term-043-visible-terminal-readiness-gating) owns OPEN display and focus.
@@ -81,8 +83,9 @@ In **Vibe**, Dashboard **New Session** starts Pi Chat directly. Returning to Das
 - Record matching identities as equality results. Do not record actual transcript IDs, paths, or content.
 - Start Chat-first and switch after prewarm orphan expiry without previously opening Terminal. The healthy primary is still available without counting as user activity. A secondary Classic Pi tab owns a different conversation.
 - Switch during streaming, a queued follow-up, and a pending question. Expect **Entering Vibe mode...** or **Entering Code mode...** in the destination option. Verify automatic native Abort and rejection of fresh prompts.
-- For [REQ-AGENT-280](../../sdd/spec/agents.md#req-agent-280-attachment-gated-workspace-reveal), keep the outgoing view until Code connects or Vibe clears the stock loader. A native startup question can appear early. For a failed frame, use **Reload Chat** as described above.
-- Verify **Cancel switch** in the mode menu only before Abort is committed.
+- For [REQ-AGENT-280](../../sdd/spec/agents.md#req-agent-280-attachment-gated-workspace-reveal), keep the outgoing view until Code connects or Vibe clears the stock loader. A native startup question can appear early.
+- During Code-to-Vibe handoff, fail the first destination frame navigation. Verify Vibe reveals **Reload Chat** before normal readiness, then clear the failure and reload the same conversation without a new handoff.
+- Use **Cancel switch** in the mode menu before Abort commits and verify the running turn survives. Repeat after commitment: the action is no longer available, and the committed stop cannot be undone.
 - Repeat with an input hook held before streaming. Neither an idle-looking status nor an Abort acknowledgment can transfer ownership while the hook is active.
 - Verify saved history appears without automatic prompt or queue replay. Text recovered by Abort returns to Terminal as an editable, unsent draft.
 
@@ -110,7 +113,7 @@ In **Vibe**, Dashboard **New Session** starts Pi Chat directly. Returning to Das
 - In the ready Chat composer, use **Save to …** with synthetic attachments totaling 10 MB (10,000,000 bytes). Verify that the files land in the selected workspace folder.
 - Repeat with a batch one byte larger, then with 17 small attachments. Confirm that neither rejected batch saves any files.
 - Verify Chat and Files remain available and Info, Updates, MCP Manager, Tasks, and Relays are absent from stock navigation. This does not verify MCP configuration.
-- The pinned stock app requires its Terminal plugin and adds Sessions on phones; managed plugin settings do not hide those entries.
+- Pinned stock Pi Web [requires Terminal](https://github.com/jmfederico/pi-web/blob/09d6e5fbb342f22f9abb32d18e83a2953ebd01d3/docs/config.md#pi-web-plugin-config-and-recovery) and [adds Sessions on phones](https://github.com/jmfederico/pi-web/blob/09d6e5fbb342f22f9abb32d18e83a2953ebd01d3/src/client/src/components/PiWebApp.ts#L4461-L4481); managed plugin settings do not hide those entries.
 - Recovering an already-pending question after refresh is not required. If Chat startup fails, retry the same transcript only after the previous attempt is confirmed closed.
 
 Workspace attachments survive Stop and Resume only with [full Workspace Sync](storage-and-sync.md#rclone-sync-modes-req-stor-003) and a successful sync. For independent persistence, use **Dashboard → Storage → Uploads**, then **Sync now** to read the files in `~/Uploads` in the running session.

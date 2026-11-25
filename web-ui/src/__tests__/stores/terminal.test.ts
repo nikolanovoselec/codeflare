@@ -202,6 +202,42 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
 
+    it('suppresses hidden Code input, focus and resize on the wire, including after reconnect', async () => {
+      const terminal = createMockTerminal();
+      let input: (data: string) => void = () => {};
+      vi.mocked(terminal.onData).mockImplementation(listener => {
+        input = listener;
+        return { dispose() {} };
+      });
+      let revealed = false;
+      const sent = vi.fn();
+      const OriginalWebSocket = globalThis.WebSocket;
+      vi.stubGlobal('WebSocket', class extends OriginalWebSocket {
+        send(data: string) { sent(data); }
+      });
+      try {
+        terminalStore.connect(sessionId, terminalId, terminal, undefined, false, true, false, () => revealed);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(sent).not.toHaveBeenCalled();
+        terminalStore.reconnect(sessionId, terminalId);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(terminalStore.getConnectionState(sessionId, terminalId)).toBe('connected');
+        input('hidden input');
+        expect(sendInputToTerminal(sessionId, terminalId, 'hidden command')).toBe(false);
+        terminalStore.claimResizeAuthority(sessionId, terminalId);
+        terminalStore.resize(sessionId, terminalId, 120, 40);
+        expect(sent).not.toHaveBeenCalled();
+
+        revealed = true;
+        terminalStore.claimResizeAuthority(sessionId, terminalId);
+        terminalStore.resize(sessionId, terminalId, 120, 40);
+        input('visible input');
+        expect(sent.mock.calls.flat()).toEqual([
+          JSON.stringify({ type: 'focus' }), JSON.stringify({ type: 'resize', cols: 120, rows: 40 }), 'visible input',
+        ]);
+      } finally { vi.stubGlobal('WebSocket', OriginalWebSocket); }
+    });
+
     it('should dispose existing input handler before creating new one', async () => {
       const terminal = createMockTerminal();
       const listeners = new Set<(data: string) => void>();

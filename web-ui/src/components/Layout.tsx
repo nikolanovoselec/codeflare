@@ -232,7 +232,14 @@ const Layout: Component<LayoutProps> = (props) => {
     const attempt = codeAttachment();
     return attempt && {
       terminalId: attempt.terminalId,
-      onAttached: () => { if (codeAttachment() === attempt) setAttachedCode(attempt); },
+      onAttached: () => {
+        if (codeAttachment() !== attempt) return;
+        batch(() => {
+          const session = piWebSession();
+          if (session && terminalIdForSession(session) !== attempt.terminalId) handleTileClick(attempt.terminalId);
+          setAttachedCode(attempt);
+        });
+      },
     };
   });
   // Rendering and writer admission are separate: keep the previous view until
