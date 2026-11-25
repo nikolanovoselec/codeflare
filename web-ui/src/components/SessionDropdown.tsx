@@ -64,12 +64,17 @@ const SessionDropdown: Component<SessionDropdownProps> = (props) => {
     props.sessions.filter(canSelectForMultiView)
   );
 
-  const showMultiViewRow = createMemo(() => selectingMultiView()
-    || (Boolean(props.multiView) && (props.multiView?.capacity ?? 0) >= 2 && liveSessions().length >= 2));
   const multiViewDisabled = createMemo(() => !props.multiView || props.multiView.capacity < 2);
+  const showMultiViewRow = createMemo(() => !multiViewDisabled() && (selectingMultiView() || liveSessions().length >= 2));
   const liveSelection = createMemo(() => selectedMultiViewIds().filter(id => liveSessions().some(s => s.id === id)));
   const canLaunchMultiView = createMemo(() => !multiViewDisabled() && liveSelection().length >= 2);
   createEffect(() => {
+    if (multiViewDisabled() && selectingMultiView()) {
+      setSelectingMultiView(false);
+      setSelectedMultiViewIds([]);
+      setLimitHit(false);
+      return;
+    }
     const selection = liveSelection();
     if (selection.length < selectedMultiViewIds().length) {
       setSelectedMultiViewIds(selection);

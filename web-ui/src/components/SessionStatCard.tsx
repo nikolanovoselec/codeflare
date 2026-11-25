@@ -31,6 +31,9 @@ const statusPulses: Record<SessionStatus, boolean> = {
   error: false,
 };
 
+// The runtime normally samples once per minute. Allow one card clock tick for delivery.
+const METRICS_FRESHNESS_MS = 75_000;
+
 const shutdownLabels: Record<ShutdownPhase, string> = {
   queued: 'Memory consolidation pending...',
   saving: 'Shutting down. Saving session files',
@@ -59,12 +62,6 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
   const memoryNotMerged = () => phase() === 'memory-not-merged';
   const metrics = createMemo(() => (phase() === 'queued' && props.session.status === 'stopped')
     ? undefined : sessionStore.getMetricsForSession(props.session.id));
-  const metricsNotice = () => {
-    const readings = metrics();
-    if (![readings?.cpu, readings?.mem, readings?.hdd].some(value => value && value !== '...')) return 'Metrics unavailable';
-    const lifecycle = props.session.lifecycle ?? props.session.status;
-    return lifecycle !== 'running' ? 'Last known metrics' : undefined;
-  };
   const wsState = () => {
     const terminalId = resolveTerminalMode(props.session.terminalMode) === 'herdr'
       ? '1'
@@ -121,6 +118,15 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
   const [timerTick, setTimerTick] = createSignal(0);
   const timerInterval = setInterval(() => setTimerTick(t => t + 1), 15_000);
   onCleanup(() => clearInterval(timerInterval));
+
+  const metricsNotice = () => {
+    timerTick();
+    const readings = metrics();
+    if (![readings?.cpu, readings?.mem, readings?.hdd].some(value => value && value !== '...')) return 'Metrics unavailable';
+    const lifecycle = props.session.lifecycle ?? props.session.status;
+    const age = Date.now() - Date.parse(readings?.updatedAt ?? '');
+    return lifecycle === 'running' && age >= 0 && age <= METRICS_FRESHNESS_MS ? undefined : 'Last known metrics';
+  };
 
   const timerInfo = createMemo(() => {
     timerTick(); // subscribe to tick

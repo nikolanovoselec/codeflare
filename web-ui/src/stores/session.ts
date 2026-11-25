@@ -88,6 +88,7 @@ export interface SessionMetrics {
   cpu?: string;
   mem?: string;
   hdd?: string;
+  updatedAt?: string;
 }
 
 type BatchStatusResponse = Awaited<ReturnType<typeof api.getBatchSessionStatus>>;
@@ -100,7 +101,7 @@ type MemoryRetryAttempt = { token: symbol; generation?: number; revision?: numbe
 export function applyMetricsUpdate(
   sessionMetrics: Record<string, SessionMetrics>,
   sessionId: string,
-  metrics: { cpu?: string; mem?: string; hdd?: string; syncStatus?: string },
+  metrics: NonNullable<BatchStatusResponse['statuses'][string]['metrics']>,
 ): void {
   sessionMetrics[sessionId] = {
     bucketName: sessionMetrics[sessionId]?.bucketName || '...',
@@ -108,6 +109,7 @@ export function applyMetricsUpdate(
     cpu: metrics.cpu || '...',
     mem: metrics.mem || '...',
     hdd: metrics.hdd || '...',
+    updatedAt: metrics.updatedAt,
   };
 }
 

@@ -645,7 +645,10 @@ None.
 
 **Constraints:**
 
-- Sessions that are stopped or in active shutdown are not selectable. A session entering shutdown releases its slot; the user can still cancel selection. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-TERM-013: queued shutdown frees a selected slot and leaves Cancel available) -->
+- Sessions that are stopped or in active shutdown are not selectable. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-TERM-013: queued shutdown frees a selected slot and leaves Cancel available) -->
+- A selected session entering shutdown releases its slot. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-TERM-013: queued shutdown frees a selected slot and leaves Cancel available) -->
+- The user can cancel selection if fewer than two eligible sessions remain. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-TERM-013: queued shutdown frees a selected slot and leaves Cancel available) -->
+- If the viewport can no longer support MultiView, exit selection without launching. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-TERM-013: resizing to phone exits selection without launching) -->
 - Resume for unmerged memory is unavailable while choosing MultiView panes. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.shutdown.test.tsx (REQ-TERM-013: recovery Resume is disabled while selecting MultiView panes) -->
 - Capacity decisions must come from a shared viewport-capacity helper.
 

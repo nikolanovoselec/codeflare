@@ -18,7 +18,7 @@ const stamp = '2026-11-23T10:00:00.000Z';
 type Phase = 'queued' | 'saving' | 'consolidating' | 'finishing' | 'memory-not-merged';
 type Lifecycle = 'running' | 'stopping' | 'stopped';
 type Projection = { status: Lifecycle; lifecycle: Lifecycle; generation: number; revision: number;
-  shutdownPhase?: Phase; pendingDelete?: boolean; snapshotUnavailable?: boolean; metrics?: { cpu: string; mem: string; hdd: string } };
+  shutdownPhase?: Phase; pendingDelete?: boolean; snapshotUnavailable?: boolean; metrics?: { cpu: string; mem: string; hdd: string; updatedAt?: string } };
 let catalog: Projection | undefined;
 let polled: Projection | undefined;
 let operations: string[];
@@ -50,6 +50,16 @@ function renderDashboard() {
 const card = () => within(screen.getByTestId(`session-stat-card-${id}`));
 const retry = () => card().getByRole('button', { name: 'Retry memory consolidation' });
 const resume = () => card().getByRole('button', { name: 'Resume session' });
+
+async function awaitCommand(name: 'deleteSession' | 'retryMemoryConsolidation', submit: () => void) {
+  const command = vi.spyOn(sessionStore, name);
+  try {
+    submit();
+    await command.mock.results[0]?.value;
+  } finally {
+    command.mockRestore();
+  }
+}
 const accepted = (shutdownPhase: Phase, pendingDelete = false) =>
   Response.json({ id, success: true, shutdownPhase, pendingDelete }, { status: 202 });
 
@@ -161,6 +171,32 @@ it('REQ-SESSION-043: an accepted Delete removes the card after a newer live read
   expect(screen.queryByText(name)).not.toBeInTheDocument();
 });
 
+it('REQ-SESSION-043: accepted Delete resumes fast confirmation after the tab was hidden', async () => {
+  vi.useFakeTimers();
+  let visible = true;
+  const visibility = vi.spyOn(document, 'visibilityState', 'get').mockImplementation(() => visible ? 'visible' : 'hidden');
+  try {
+    project('running', 10);
+    await sessionStore.loadSessions();
+    renderDashboard();
+    sessionStore.startSessionListPolling();
+    visible = false;
+    document.dispatchEvent(new Event('visibilitychange'));
+    await sessionStore.deleteSession(id);
+    catalog = polled = undefined;
+    await vi.advanceTimersByTimeAsync(SESSION_POLL_STABLE_MS);
+    expect(card().getByText(name)).toBeVisible();
+    visible = true;
+    document.dispatchEvent(new Event('visibilitychange'));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(card().getByText(name)).toBeVisible();
+    await vi.advanceTimersByTimeAsync(2 * SESSION_POLL_TRANSITION_MS);
+    expect(screen.queryByText(name)).not.toBeInTheDocument();
+  } finally {
+    visibility.mockRestore();
+  }
+});
+
 it('REQ-SESSION-043: a failed Delete without a shutdown phase returns to idle polling', async () => {
   vi.useFakeTimers();
   project('running', 10);
@@ -194,18 +230,24 @@ it('REQ-SESSION-043: refresh called after Delete acceptance does not join a pre-
 });
 
 it('REQ-SESSION-043: distinguishes current readings, last-known readings and unavailable shutdown metrics', async () => {
-  const metrics = { cpu: '7%', mem: '1.2G', hdd: '3.1G' };
+  vi.useFakeTimers();
+  const metrics = { cpu: '7%', mem: '1.2G', hdd: '3.1G', updatedAt: new Date().toISOString() };
   project('stopping', 10, 'consolidating');
   polled = { ...polled!, lifecycle: 'running', metrics };
   await sessionStore.loadSessions();
   renderDashboard();
   expect(card().getByText('7%')).toBeVisible();
   expect(card().queryByText('Last known metrics')).not.toBeInTheDocument();
-  polled = { ...polled, lifecycle: 'stopping', revision: 11, shutdownPhase: 'finishing' };
+  await vi.advanceTimersByTimeAsync(2 * SESSION_POLL_STABLE_MS);
+  expect(card().getByText('Last known metrics')).toBeVisible();
+  polled = { ...polled, revision: 11, metrics: { ...metrics, updatedAt: new Date().toISOString() } };
+  await sessionStore.refreshSessionStatuses();
+  expect(card().queryByText('Last known metrics')).not.toBeInTheDocument();
+  polled = { ...polled, lifecycle: 'stopping', revision: 12, shutdownPhase: 'finishing' };
   await sessionStore.refreshSessionStatuses();
   expect(card().getByText('Last known metrics')).toBeVisible();
   expect(card().getByText('7%')).toBeVisible();
-  polled = { ...polled, lifecycle: 'stopped', status: 'stopped', revision: 12, shutdownPhase: 'queued', metrics: undefined };
+  polled = { ...polled, lifecycle: 'stopped', status: 'stopped', revision: 13, shutdownPhase: 'queued', metrics: undefined };
   await sessionStore.refreshSessionStatuses();
   expect(card().getByText('Metrics unavailable')).toBeVisible();
   expect(card().queryByText('7%')).not.toBeInTheDocument();
@@ -232,8 +274,8 @@ it('REQ-SESSION-043: reports eviction after queued Retry and leaves Resume avail
   project('stopped', 10, 'memory-not-merged', true);
   await sessionStore.loadSessions();
   renderDashboard();
-  fireEvent.click(retry());
-  await waitFor(() => expect(operations).toContain(`POST ${sessionPath}/retry-memory-consolidation`));
+  await awaitCommand('retryMemoryConsolidation', () => fireEvent.click(retry()));
+  expect(operations).toContain(`POST ${sessionPath}/retry-memory-consolidation`);
   polled = { status: 'stopped', lifecycle: 'stopped', revision: 12, generation: 7,
     shutdownPhase: 'memory-not-merged', pendingDelete: true, snapshotUnavailable: true };
   await sessionStore.refreshSessionStatuses();
@@ -327,8 +369,8 @@ it('REQ-SESSION-043: an accepted Delete retains the card through merge failure a
   renderDashboard();
   fireEvent.click(card().getByRole('button', { name: 'Session actions' }));
   fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Are you sure?' }));
-  await waitFor(() => expect(operations).toEqual([`DELETE ${sessionPath}`]));
+  await awaitCommand('deleteSession', () => fireEvent.click(screen.getByRole('button', { name: 'Are you sure?' })));
+  expect(operations).toEqual([`DELETE ${sessionPath}`]);
   project('running', 11, 'queued', true);
   await sessionStore.refreshSessionStatuses();
   expect(card().getByText('Memory consolidation pending...')).toBeVisible();
@@ -336,8 +378,8 @@ it('REQ-SESSION-043: an accepted Delete retains the card through merge failure a
   await sessionStore.refreshSessionStatuses();
   expect(card().getByText('Stopped · memory not merged')).toBeVisible();
   expect(card().getByText(/deletion (?:did not complete|is pending)|not deleted/i)).toBeVisible();
-  fireEvent.click(retry());
-  await waitFor(() => expect(operations).toEqual([`DELETE ${sessionPath}`, `POST ${sessionPath}/retry-memory-consolidation`]));
+  await awaitCommand('retryMemoryConsolidation', () => fireEvent.click(retry()));
+  expect(operations).toEqual([`DELETE ${sessionPath}`, `POST ${sessionPath}/retry-memory-consolidation`]);
   project('stopping', 13, 'finishing', true);
   await sessionStore.refreshSessionStatuses();
   expect(card().getByText(/finishing/i)).toBeVisible();
@@ -355,8 +397,8 @@ it('REQ-SESSION-043: a settled Stop clears recovery controls and rejects older m
   project('stopped', 10, 'memory-not-merged');
   await sessionStore.loadSessions();
   renderDashboard();
-  fireEvent.click(retry());
-  await waitFor(() => expect(operations).toEqual([`POST ${sessionPath}/retry-memory-consolidation`]));
+  await awaitCommand('retryMemoryConsolidation', () => fireEvent.click(retry()));
+  expect(operations).toEqual([`POST ${sessionPath}/retry-memory-consolidation`]);
   project('stopping', 11, 'finishing');
   await sessionStore.refreshSessionStatuses();
   expect(card().getByText(/finishing/i)).toBeVisible();

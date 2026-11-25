@@ -529,6 +529,21 @@ describe('SessionDropdown', () => {
       expect(screen.getByTestId('session-card-s3')).toHaveAttribute('data-selecting', 'false');
     });
 
+    it('REQ-TERM-013: resizing to phone exits selection without launching', () => {
+      const [capacity, setCapacity] = createSignal(2);
+      const launch = vi.fn();
+      render(() => <SessionDropdown {...defaultProps} multiView={{ capacity: capacity(), existing: null,
+        onLaunch: launch, onOpen: vi.fn(), onClose: vi.fn() }} />);
+      fireEvent.click(screen.getByRole('button', { name: 'Launch MultiView' }));
+      fireEvent.click(screen.getByTestId('session-card-s3'));
+      expect(screen.getByTestId('session-card-s3')).toHaveAttribute('data-selected', 'true');
+      setCapacity(0);
+      expect(screen.queryByRole('button', { name: /MultiView/ })).not.toBeInTheDocument();
+      setCapacity(2);
+      expect(screen.getByTestId('session-card-s3')).toHaveAttribute('data-selected', 'false');
+      expect(launch).not.toHaveBeenCalled();
+    });
+
     it('REQ-TERM-013: hides the MultiView action on mobile', () => {
       const onLaunchMultiView = vi.fn();
       render(() => (

@@ -52,7 +52,7 @@ type AuthExpiredSetter = (expired: boolean) => void;
 type MetricsUpdater = (
   sessionMetrics: Record<string, SessionMetrics>,
   sessionId: string,
-  metrics: { cpu?: string; mem?: string; hdd?: string; syncStatus?: string },
+  metrics: NonNullable<Awaited<ReturnType<typeof api.getBatchSessionStatus>>['statuses'][string]['metrics']>,
 ) => void;
 
 let getState: StateGetter;
@@ -139,21 +139,19 @@ export function resetStartupGuards(): void {
 
 export const sessionMissCounters = new Map<string, number>();
 const REMOVAL_THRESHOLD = 3;
-const acceptedDeletes = new Map<string, { generation?: number; fastUntil: number }>();
+const acceptedDeletes = new Map<string, { generation?: number }>();
 
 export function noteAcceptedDelete(id: string, generation: number | undefined): void {
-  acceptedDeletes.set(id, { generation, fastUntil: Date.now() + REMOVAL_THRESHOLD * SESSION_POLL_TRANSITION_MS });
+  acceptedDeletes.set(id, { generation });
   sessionMissCounters.delete(id);
 }
 
-function acceptedDeleteFor(session: SessionWithStatus) {
-  const accepted = acceptedDeletes.get(session.id);
-  if (accepted?.generation === session.generation) return accepted;
-  acceptedDeletes.delete(session.id);
-}
-
 export function hasAcceptedDelete(session: SessionWithStatus): boolean {
-  return acceptedDeleteFor(session) !== undefined;
+  const accepted = acceptedDeletes.get(session.id);
+  if (!accepted) return false;
+  if (accepted.generation === session.generation) return true;
+  acceptedDeletes.delete(session.id);
+  return false;
 }
 
 export function clearAcceptedDelete(id: string): void {
@@ -391,7 +389,7 @@ function transitioning(): boolean {
   const state = getState();
   return state.sessions.some((session) => session.status === 'initializing' || session.status === 'starting'
     || session.status === 'unreachable' || session.status === 'stopping' || isShutdownInProgress(session.shutdownPhase)
-    || ((acceptedDeleteFor(session)?.fastUntil ?? -1) >= Date.now()))
+    || (hasAcceptedDelete(session) && !sessionStatusUnavailable()))
     || state.managedReleaseStatus === 'upgrading'
     || state.bucketMigrating
     || state.bucketMigrationPending;
