@@ -1112,7 +1112,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 **Constraints:**
 
 - Before Chat attaches, the supervisor dismisses newly provisioned MCP Manager only when the managed adapter selection is unambiguous and preexisting entries and filters are unchanged. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices -->
-- [REQ-AGENT-217](mcp.md#req-agent-217-lossless-pi-mcp-adapter-migration) owns reconciliation of restored MCP registrations.
+- [REQ-AGENT-281](mcp.md#req-agent-281-bundled-mcp-manager-registration-retirement) owns reconciliation of restored MCP registrations.
 
 **Priority:** P1
 

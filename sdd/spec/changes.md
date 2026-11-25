@@ -13,7 +13,7 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 - The [session menu](agents.md#req-agent-276-vibe-and-code-workspace-preference) keeps lifecycle actions but leaves mode choice to the header. [Handoffs](agents.md#req-agent-280-attachment-gated-workspace-reveal) prepare the destination before revealing it. Switching to tiled Code keeps the prepared terminal connection open through reveal.
 - [Stock Chat](agents.md#req-agent-274-stock-pi-chat-controls) defaults to Pi Web Classic without overriding saved themes.
 - [Classic Pi starts in Terminal](agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff) when no mode is selected, including when settings hide the mode picker.
-- [Managed Pi startup](mcp.md#req-agent-217-lossless-pi-mcp-adapter-migration) retires the bundled Pi Web MCP Manager registration on restore so the managed adapter can own MCP.
+- [Managed Pi startup](mcp.md#req-agent-281-bundled-mcp-manager-registration-retirement) retires the bundled Pi Web MCP Manager registration on restore so the managed adapter can own MCP.
 
 ## 2026-11-24: Open Pi Chat during repository restore
 

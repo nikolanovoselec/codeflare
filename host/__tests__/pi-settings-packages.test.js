@@ -445,7 +445,7 @@ it('REQ-AGENT-069 / REQ-AGENT-217: restored managed MCP registrations converge t
   assert.deepEqual(first.customPreference, initial.customPreference);
 });
 
-it('REQ-AGENT-217: startup retires the exact bundled Pi Web MCP Manager registration', () => {
+it('REQ-AGENT-281: startup retires the exact bundled Pi Web MCP Manager registration', () => {
   const bundled = '/opt/codeflare/pi-web/node_modules/@jmfederico/pi-web/dist/pi-packages/mcp-manager';
   const custom = { source: './tools/mcp-manager', extensions: ['keep.ts'] };
   for (const registration of [bundled, { source: bundled, extensions: ['index.ts'] }]) {

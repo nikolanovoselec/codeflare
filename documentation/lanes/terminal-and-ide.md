@@ -128,7 +128,7 @@ The [packaged Host handoff smoke](../../scripts/ci/smoke-pi-web-host-handoff.mjs
 
 The [stock supervisor smoke](../../scripts/ci/smoke-pi-web-services.mjs) checks disabled plugins and runs [package reconciliation](mcp.md#client-configuration-and-migration) on a restored profile fixture before opening stock Chat. It verifies adapter preparation, no handoff warning, and a catalog request to a synthetic MCP server. It does not run full container startup or invoke an MCP tool.
 
-In a separate case with both clients registered, the supervisor preserves the existing Manager. The Pi config handoff extension reports ambiguity without changing the adapter config.
+The [supervisor-only smoke case](../../scripts/ci/smoke-pi-web-services.mjs) re-adds the bundled Manager after reconciliation and starts the supervisor without reconciling again. The supervisor preserves the registration, and the Pi config handoff extension reports ambiguity without changing the adapter config.
 
 In the disposable workspace only, load the following as `handoff-fixture.ts` in the Pi agent’s `extensions` directory before opening Chat. It uses the same startup confirmation as the [packaged stock smoke](../../scripts/ci/smoke-pi-web-handoff.mjs) and adds the ready-state trigger. Start with both marker files absent; remove the fixture and marker files afterwards.
 
