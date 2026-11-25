@@ -133,7 +133,7 @@ const Header: Component<HeaderProps> = (props) => {
   });
 
   return (
-    <header ref={headerRef} class="header animate-fadeInUp" classList={{ 'header-with-center-slot': !!props.workspaceMode }} data-header-fits={headerFits()}>
+    <header ref={headerRef} class="header animate-fadeInUp" classList={{ 'header-with-workspace-mode': !!props.workspaceMode }} data-header-fits={headerFits()}>
       <div classList={{ 'header-navigation': !!props.workspaceMode, 'header-navigation--contents': !props.workspaceMode }}>
       {/* Logo */}
       <div
@@ -170,7 +170,6 @@ const Header: Component<HeaderProps> = (props) => {
       {/* Spacer for flex layout */}
       <div class="header-spacer" />
 
-      <Show when={props.workspaceMode}>{mode => <PiWorkspaceMode {...mode()} fitContainer />}</Show>
 
       {/* Right side - User menu, settings, and dashboard */}
       <div class="header-actions" ref={actionsRef}>
@@ -216,6 +215,7 @@ const Header: Component<HeaderProps> = (props) => {
           )}
         </Show>
 
+        <Show when={props.workspaceMode}>{mode => <PiWorkspaceMode {...mode()} fitContainer />}</Show>
         {/* The account menu is available in every mode. Enterprise keeps the
             read-only Usage action while self-service billing, onboarding, and
             logout remain suppressed. */}

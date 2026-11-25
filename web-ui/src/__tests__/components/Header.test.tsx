@@ -395,6 +395,17 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
     });
   });
 
+  it('places the labeled desktop mode dropdown immediately before Profile', () => {
+    render(() => <Header {...defaultSessionProps} workspaceMode={{ value: 'terminal', onSelect: () => {} }} />);
+    const trigger = screen.getByRole('button', { name: 'Workspace mode: Code — Terminal' });
+    expect(trigger).toHaveTextContent('Code · Terminal');
+    const profile = screen.getByTestId('header-user-menu');
+    const toolbarButtons = within(profile.closest('.header-actions') as HTMLElement).getAllByRole('button');
+    expect(toolbarButtons[toolbarButtons.indexOf(profile) - 1]).toBe(trigger);
+    fireEvent.click(trigger);
+    expect(screen.getByRole('button', { name: 'Vibe — Chat' })).toBeVisible();
+  });
+
   it('moves VS Code, Operators, then Vault into Profile and restores them in reverse order', async () => {
     isMobileMock.value = true;
     sessionStoreState.enterpriseMode = true;

@@ -8,21 +8,18 @@ const name = 'Vibe — Chat';
 const code = 'Code — Terminal';
 
 describe('Pi workspace mode selector', () => {
-  it.each(['segments', 'text', 'icon'] as const)('offers the same exclusive choices in %s form', async presentation => {
+  it.each(['text', 'icon'] as const)('offers the same exclusive choices in %s form', async presentation => {
     const [value, change] = createSignal<PiSurface>('chat');
     render(() => <PiWorkspaceMode presentation={presentation} value={value()} onSelect={change} />);
-    if (presentation !== 'segments') await fireEvent.click(screen.getByRole('button', { name: `Workspace mode: ${name}` }));
+    await fireEvent.click(screen.getByRole('button', { name: `Workspace mode: ${name}` }));
     expect(screen.getByRole('button', { name })).toHaveAttribute('aria-pressed', 'true');
     await fireEvent.click(screen.getByRole('button', { name: code }));
-    if (presentation === 'segments') expect(screen.getByRole('button', { name: code })).toHaveAttribute('aria-pressed', 'true');
-    else {
-      const trigger = screen.getByRole('button', { name: `Workspace mode: ${code}` });
-      expect(trigger).toHaveAttribute('aria-expanded', 'false');
-      expect(trigger).toHaveFocus();
-    }
+    const trigger = screen.getByRole('button', { name: `Workspace mode: ${code}` });
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    expect(trigger).toHaveFocus();
   });
 
-  it('compacts a desktop selector when its header narrows and restores the segments when it expands', () => {
+  it('compacts a desktop selector when its header narrows and restores the labeled dropdown when it expands', () => {
     let width = 800;
     let resize: () => void = () => {};
     const clientWidth = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(() => width);
@@ -35,16 +32,15 @@ describe('Pi workspace mode selector', () => {
     });
     try {
       render(() => <header><span>Codeflare</span><div class="header-spacer" />
-        <PiWorkspaceMode fitContainer presentation="segments" value="chat" onSelect={() => {}} /><span>Profile</span>
+        <div class="header-actions"><PiWorkspaceMode fitContainer value="chat" onSelect={() => {}} /><span>Profile</span></div>
       </header>);
-      expect(screen.getByRole('group', { name: 'Workspace mode' })).toBeVisible();
+      expect(screen.getByRole('button', { name: `Workspace mode: ${name}` })).toHaveTextContent('Vibe · Chat');
       width = 320;
       resize();
-      expect(screen.getByRole('button', { name: `Workspace mode: ${name}` })).toBeVisible();
-      expect(screen.queryByRole('group', { name: 'Workspace mode' })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: `Workspace mode: ${name}` })).not.toHaveTextContent('Vibe · Chat');
       width = 800;
       resize();
-      expect(screen.getByRole('group', { name: 'Workspace mode' })).toBeVisible();
+      expect(screen.getByRole('button', { name: `Workspace mode: ${name}` })).toHaveTextContent('Vibe · Chat');
     } finally {
       cleanup();
       clientWidth.mockRestore();

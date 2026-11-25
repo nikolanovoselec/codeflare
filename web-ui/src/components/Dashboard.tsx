@@ -86,6 +86,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
   const [browsersOpen, setBrowsersOpen] = createSignal(false);
   let browserPull: HTMLButtonElement | undefined;
   const browsersClosed = () => vibe() && !browsersOpen();
+  const compactProfile = () => viewport() === 'mobile' || browsersClosed();
   const browsersId = createUniqueId();
   const browserLabel = () => githubStore.enabled ? 'GitHub & Storage' : 'Storage';
   const pullIcon = () => viewport() === 'mobile'
@@ -400,14 +401,14 @@ const Dashboard: Component<DashboardProps> = (props) => {
           <KittScanner />
 
         {/* Integrated Header */}
-        <div class="dashboard-panel-header" classList={{ 'header-with-center-slot': !!props.workspaceMode }} ref={dashboardHeader}>
+        <div class="dashboard-panel-header" classList={{ 'header-with-workspace-mode': !!props.workspaceMode }} ref={dashboardHeader}>
           <div class="header-logo" classList={{ 'header-navigation': !!props.workspaceMode }}>
             <Icon path={mdiXml} size={22} class="header-logo-icon" />
             <ScrambleText text="Codeflare" class="header-logo-text header-logo-text--scramble" />
           </div>
           <div class="header-spacer" />
-          <Show when={props.workspaceMode}>{mode => <PiWorkspaceMode {...mode()} fitContainer />}</Show>
           <div class="header-actions" ref={headerActions}>
+            <Show when={props.workspaceMode}>{mode => <PiWorkspaceMode {...mode()} fitContainer />}</Show>
             {/* The account menu is available in every mode. Enterprise keeps the
                 read-only Usage action while self-service billing, onboarding, and
                 logout remain suppressed. */}
@@ -415,8 +416,9 @@ const Dashboard: Component<DashboardProps> = (props) => {
               <button
                 type="button"
                 ref={userBtnRef}
-                class="header-user-menu" classList={{ 'session-switcher--mobile': viewport() === 'mobile' }}
+                class="header-user-menu" classList={{ 'session-switcher--mobile': compactProfile() }}
                 data-testid="header-user-menu"
+                aria-label={compactProfile() ? 'User menu' : undefined}
                 title="User menu"
                 onClick={() => {
                   if (!showUserMenu() && userBtnRef) {
@@ -429,7 +431,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                 <Show when={props.userName && gravatarOk()} fallback={<Icon path={mdiShieldAccount} size={24} class="header-user-avatar" />}>
                   <img src={getGravatarUrl(props.userName!, 48)} alt="Avatar" class="header-user-avatar-img" width={24} height={24} />
                 </Show>
-                <Show when={props.userName}>
+                <Show when={props.userName && !compactProfile()}>
                   <span class="header-user-name">{props.userName}</span>
                 </Show>
               </button>
@@ -705,7 +707,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
             <button ref={browserPull} type="button" class="icon-button dashboard-panel-pull" aria-expanded={browsersOpen()} aria-controls={browsersId}
               aria-label={`${browsersOpen() ? 'Hide' : 'Show'} ${browserLabel()}`}
               onClick={() => setBrowsersOpen(value => !value)}>
-              <Icon path={pullIcon()} size={18} aria-hidden="true" />
+              <Icon path={pullIcon()} size={14} aria-hidden="true" />
             </button>
           </Show>
 

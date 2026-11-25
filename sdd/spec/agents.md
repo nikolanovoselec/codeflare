@@ -1004,7 +1004,8 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Acceptance Criteria:**
 
-1. If the narrow workspace-mode header still cannot fit after optional actions overflow into Profile, the remaining utilities wrap to a second row without shrinking 44px touch targets. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @impl: web-ui/src/styles/header.css::.header-with-center-slot --> <!-- @manual: documentation/lanes/terminal-and-ide.md#workspace-header-acceptance -->
+1. If the narrow workspace-mode header still cannot fit after optional actions overflow into Profile, the remaining utilities wrap to a second row without shrinking 44px touch targets. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @impl: web-ui/src/styles/header.css::.header-with-workspace-mode --> <!-- @manual: documentation/lanes/terminal-and-ide.md#workspace-header-acceptance -->
+2. The Dashboard and workspace mode dropdown sits immediately before Profile. It shows a text label when space permits on desktop and tablet, and uses an icon on phones or in a cramped header. <!-- @impl: web-ui/src/components/PiWorkspaceMode.tsx::PiWorkspaceMode --> <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (places the labeled desktop mode dropdown immediately before Profile) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (places the labeled desktop mode dropdown immediately before Profile) --> <!-- @test: web-ui/src/__tests__/components/PiWorkspaceMode.test.tsx (compacts a desktop selector when its header narrows and restores the labeled dropdown when it expands) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#workspace-header-acceptance -->
 
 **Constraints:** None.
 
@@ -1012,7 +1013,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Dependencies:** [REQ-AGENT-276](#req-agent-276-vibe-and-code-workspace-preference)
 
-**Verification:** Manual: [Workspace header acceptance](../../documentation/lanes/terminal-and-ide.md#workspace-header-acceptance)
+**Verification:** Automated: [Header](../../web-ui/src/__tests__/components/Header.test.tsx), [Dashboard](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [Mode dropdown](../../web-ui/src/__tests__/components/PiWorkspaceMode.test.tsx); Manual: [Workspace header acceptance](../../documentation/lanes/terminal-and-ide.md#workspace-header-acceptance)
 
 **Status:** Planned
 

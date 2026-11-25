@@ -28,7 +28,7 @@ vi.mock('../../components/Dashboard', async importOriginal => {
   const ActualDashboard = (await importOriginal<typeof import('../../components/Dashboard')>()).default;
   return { default: (props: any) => navigationRendering.realDashboard ? <ActualDashboard {...props} /> : <section aria-label="Session dashboard">
     <span>{props.userName}</span>
-    <Show when={props.workspaceMode}>{mode => <PiWorkspaceMode {...mode()} presentation="segments" />}</Show>
+    <Show when={props.workspaceMode}>{mode => <PiWorkspaceMode {...mode()} presentation="text" />}</Show>
     <For each={props.sessions}>{session => <span>{session.name}</span>}</For>
     <button onClick={() => props.onStartSession('abcdef0123456789')}>Start session</button>
     <button onClick={() => props.onOpenSessionById('abcdef0123456789')}>Return to session</button>
@@ -62,7 +62,7 @@ vi.mock('../../components/Header', async importOriginal => {
     return (
       <header data-testid="header">
         <button onClick={props.onLogoClick}>Dashboard</button>
-        <Show when={props.workspaceMode}>{mode => <PiWorkspaceMode {...mode()} presentation="segments" />}</Show>
+        <Show when={props.workspaceMode}>{mode => <PiWorkspaceMode {...mode()} presentation="text" />}</Show>
       </header>
     );
   } };
@@ -408,7 +408,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     navigationRendering.realTerminalArea = true;
     mockPreferences = preferences;
     render(() => <Layout />);
-    expect(screen.queryByRole('group', { name: 'Workspace mode' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Workspace mode:/ })).not.toBeInTheDocument();
   });
 
   it.each([{ herdrEnabled: true }, { defaultWorkspace: 'vscode' }])('hides the running workspace mode selector with settings %j', async preferences => {
@@ -420,7 +420,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     render(() => <Layout />);
     const header = await screen.findByTestId('header');
     expect(within(header).getByRole('button', { name: 'Dashboard' })).toBeVisible();
-    expect(within(header).queryByRole('group', { name: 'Workspace mode' })).not.toBeInTheDocument();
+    expect(within(header).queryByRole('button', { name: /^Workspace mode:/ })).not.toBeInTheDocument();
   });
 
   it.each(['Start', 'Open'])('keeps saved preferences and workspace kind after an explicit one-off %s', async action => {
@@ -485,8 +485,9 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       mockPreferences = { ...mockPreferences, ...preferences };
       bumpSessionStoreVersion();
     });
-    fireEvent.click(await screen.findByRole('button', { name: 'Vibe — Chat' }));
-    expect(await screen.findByRole('button', { name: 'Vibe — Chat', pressed: true })).toBeVisible();
+    fireEvent.click(await screen.findByRole('button', { name: 'Workspace mode: Code — Terminal' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Vibe — Chat' }));
+    expect(await screen.findByRole('button', { name: 'Workspace mode: Vibe — Chat' })).toBeVisible();
     expect(screen.getByRole('region', { name: 'Session dashboard' })).toBeVisible();
     expect(sessionStore.startSession).not.toHaveBeenCalled();
   });
@@ -608,10 +609,16 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       render(() => <Layout />);
       await screen.findByTitle('Pi Chat');
       const notice = screen.getByText('Restoring repositories…');
+      const vibe = screen.getByRole('button', { name: 'Workspace mode: Vibe — Chat' });
+      await waitFor(() => expect(vibe).toBeEnabled());
+      fireEvent.click(vibe);
       fireEvent.click(screen.getByRole('button', { name: 'Code — Terminal' }));
       await waitFor(() => expect(screen.queryByTitle('Pi Chat')).not.toBeInTheDocument());
       expect(notice).toBeVisible();
-      fireEvent.click(await screen.findByRole('button', { name: 'Vibe — Chat' }));
+      const code = await screen.findByRole('button', { name: 'Workspace mode: Code — Terminal' });
+      await waitFor(() => expect(code).toBeEnabled());
+      fireEvent.click(code);
+      fireEvent.click(screen.getByRole('button', { name: 'Vibe — Chat' }));
       await screen.findByTitle('Pi Chat');
       expect(notice).toBeVisible();
       const { sessionStore } = await import('../../stores/session');

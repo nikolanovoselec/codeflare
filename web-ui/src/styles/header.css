@@ -539,33 +539,27 @@
 }
 @media (prefers-reduced-motion: reduce) { .operator-activity-panel { animation: none; } }
 
-/* Shared header slots: use balanced wings only when the center control fits. */
+/* Keep a full icon slot between navigation and utilities. */
 .header-navigation--contents { display: contents; }
 .header-navigation { display: flex; align-items: center; gap: var(--space-4); width: max-content; }
-.header-with-center-slot:has(> [data-header-center="centered"]) {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-}
-.header-with-center-slot:has(> [data-header-center="centered"]) > .header-spacer { display: none; }
-.header-with-center-slot:has(> [data-header-center="centered"]) > .header-actions { justify-self: end; }
+.header-with-workspace-mode > .header-spacer { min-width: calc(44px - 2 * var(--space-4)); }
 @media (max-width: 640px) {
-  .header-with-center-slot > .header-spacer { min-width: calc(44px - 2 * var(--space-4)); }
-  .header-with-center-slot .header-logo--clickable { margin-inline: 0; }
+  .header-with-workspace-mode .header-logo--clickable { margin-inline: 0; }
   .header .session-switcher--mobile,
   .dashboard-panel-header .session-switcher--mobile { flex-shrink: 0; padding: 0; }
 }
 
 @media (max-width: 440px) {
-  .header.header-with-center-slot { padding-inline: var(--space-1); column-gap: 2px; }
-  .header.header-with-center-slot > .header-navigation,
-  .header.header-with-center-slot > .header-actions { column-gap: 2px; }
-  .header.header-with-center-slot > .header-spacer { min-width: calc(44px - 2 * 2px); }
-  .header.header-with-center-slot[data-header-fits="false"] {
+  .header.header-with-workspace-mode { padding-inline: var(--space-1); column-gap: 2px; }
+  .header.header-with-workspace-mode > .header-navigation,
+  .header.header-with-workspace-mode > .header-actions { column-gap: 2px; }
+  .header.header-with-workspace-mode > .header-spacer { min-width: calc(44px - 2 * 2px); }
+  .header.header-with-workspace-mode[data-header-fits="false"] {
     flex-wrap: wrap;
     height: auto;
     row-gap: var(--space-1);
   }
-  .header.header-with-center-slot[data-header-fits="false"] > .header-actions {
+  .header.header-with-workspace-mode[data-header-fits="false"] > .header-actions {
     flex-basis: 100%;
     justify-content: flex-end;
   }

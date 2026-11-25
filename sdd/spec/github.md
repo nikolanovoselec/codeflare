@@ -562,6 +562,8 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 3. Escape from within the drawer closes it and returns focus to its control. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (closes the Vibe drawer from a focused browser and returns focus to the pull) -->
 4. Vibe GitHub Details reports only account-owned public, private and total repository counts from an authenticated profile that supplies them. <!-- @impl: src/routes/github.ts::app --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: src/__tests__/routes/github.test.ts (returns only account-owned totals from the authenticated profile) -->
 5. When counts are unavailable, GitHub Details still identifies the connected account. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (keeps the connected GitHub account visible when owned totals are unavailable in Vibe) -->
+6. While the Vibe browsers are collapsed, Dashboard Profile is icon-only and does not display the account email. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (hides the desktop Profile email while the Vibe columns are collapsed) -->
+7. The drawer grip is slim and flush, 150px long on the right edge on desktop and tablet or along the bottom on mobile, with a 44px cross-axis hit target. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-pull --> <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
 
 **Constraints:** Code mode retains standard panel allocation. <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (keeps the existing browser controls without a drawer pull in Code mode) -->
 
@@ -569,7 +571,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Dependencies:** [REQ-GITHUB-012](#req-github-012-responsive-github-and-storage-panel-allocation)
 
-**Verification:** Automated: [Dashboard component tests](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [GitHub route tests](../../src/__tests__/routes/github.test.ts)
+**Verification:** Automated: [Dashboard component tests](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [GitHub route tests](../../src/__tests__/routes/github.test.ts); Manual: [Vibe drawer acceptance](../../documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance)
 
 **Status:** Planned
 

@@ -504,6 +504,17 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     }
   });
 
+  it('places the labeled desktop mode dropdown immediately before Profile', () => {
+    render(() => <Dashboard {...defaultProps} workspaceMode={{ value: 'terminal', onSelect: () => {} }} />);
+    const trigger = screen.getByRole('button', { name: 'Workspace mode: Code — Terminal' });
+    expect(trigger).toHaveTextContent('Code · Terminal');
+    const profile = screen.getByTestId('header-user-menu');
+    const toolbarButtons = within(profile.closest('.header-actions') as HTMLElement).getAllByRole('button');
+    expect(toolbarButtons[toolbarButtons.indexOf(profile) - 1]).toBe(trigger);
+    fireEvent.click(trigger);
+    expect(screen.getByRole('button', { name: 'Vibe — Chat' })).toBeVisible();
+  });
+
   it('moves Dashboard Operators into Profile when its measured header is compact', async () => {
     (sessionStore as any)._setEnterpriseMode(true);
     let width = 300;
@@ -566,6 +577,21 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(browsers).toHaveAttribute('inert');
     expect(github).not.toBeVisible();
     expect(storage).not.toBeVisible();
+  });
+
+  it('hides the desktop Profile email while the Vibe columns are collapsed', () => {
+    const email = 'fixture@example.com';
+    render(() => <Dashboard {...defaultProps} userName={email} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
+    const profile = screen.getByRole('button', { name: 'User menu' });
+    const pull = screen.getByRole('button', { name: 'Show Storage' });
+    expect(within(profile).queryByText(email)).not.toBeInTheDocument();
+    fireEvent.click(profile);
+    expect(screen.getByTestId('header-user-dropdown')).toBeVisible();
+    fireEvent.click(screen.getByTestId('header-user-dropdown-overlay'));
+    fireEvent.click(pull);
+    expect(within(profile).getByText(email)).toBeVisible();
+    fireEvent.click(pull);
+    expect(within(profile).queryByText(email)).not.toBeInTheDocument();
   });
 
   it('closes the Vibe drawer from a focused browser and returns focus to the pull', () => {
