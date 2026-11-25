@@ -73,8 +73,15 @@ describe('REQ-SESSION-031: complete D1 session authority', () => {
     expect(await db.prepare('SELECT id, state FROM session_cutover').first()).toEqual({ id: 1, state: 'pending' });
 
     const indexes = await db.prepare("PRAGMA index_list('runtime_sessions')").all<{ name: string; partial: number }>();
-    const named = indexes.results.filter(({ name, partial }) =>
-      !name.startsWith('sqlite_autoindex') && !(name === 'runtime_sessions_shutdown_order' && partial === 1));
+    const shutdownIndex = 'runtime_sessions_shutdown_order';
+    expect(indexes.results.find(({ name }) => name === shutdownIndex)).toMatchObject({ partial: 1 });
+    const shutdownColumns = await db.prepare(`PRAGMA index_info('${shutdownIndex}')`).all<{ name: string }>();
+    expect(shutdownColumns.results.map(({ name }) => name)).toEqual(['owner_key', 'shutdown_order']);
+    const shutdownDefinition = await db.prepare('SELECT sql FROM sqlite_schema WHERE type = ? AND name = ?')
+      .bind('index', shutdownIndex).first<{ sql: string }>();
+    expect(shutdownDefinition?.sql).toMatch(/\bWHERE\s+shutdown_order\s+IS\s+NOT\s+NULL\s*$/i);
+
+    const named = indexes.results.filter(({ name }) => !name.startsWith('sqlite_autoindex') && name !== shutdownIndex);
     expect(named).toHaveLength(1);
     const columns = await db.prepare(`PRAGMA index_info('${named[0]?.name}')`).all<{ name: string }>();
     expect(columns.results.map(({ name }) => name)).toEqual(['owner_key', 'last_accessed_at', 'session_id']);

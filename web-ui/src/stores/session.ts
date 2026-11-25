@@ -471,8 +471,17 @@ async function loadSessions(): Promise<void> {
     invalidateSessionStatusReads();
     acceptedCatalogRevision = getSessionCatalogRevision();
     sessionMissCounters.clear();
-    setState('sessions', sessionsWithStatus);
-    setState('loading', false);
+    setState(produce(s => {
+      for (const { id, generation } of sessionsWithStatus) {
+        const cached = s.sessionMetrics[id];
+        if (cached && generation !== undefined && cached.generation !== generation) {
+          // The catalog can expose a replacement before its status batch arrives.
+          delete s.sessionMetrics[id];
+        }
+      }
+      s.sessions = sessionsWithStatus;
+      s.loading = false;
+    }));
     for (const session of state.sessions) {
       reconcileKillGeneration(session.id);
       reconcileMemoryRetry(session.id, session);
