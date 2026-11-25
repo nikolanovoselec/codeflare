@@ -142,6 +142,8 @@ A successful Start returns the acknowledged `generation`; `starting` means the D
 
 `POST /api/sessions` and `POST /api/container/start?sessionId=…` accept optional `surface: "chat" | "terminal"` only for eligible Classic Pi Terminal sessions. Herdr Start and creation use their ordinary paths without `surface`. Explicit creation resolves the Terminal workspace server-side; the regular default still applies without the field. Start binds the surface to the launch's generation, not a stored workspace selector. Use the handoff routes for an already running session. <!-- @impl: src/routes/session/crud.ts::app.post --> <!-- @impl: src/routes/container/lifecycle.ts::app.post -->
 
+Start accepts an empty request body. Without `surface`, eligible Classic Pi sessions start in Terminal. Malformed nonempty JSON returns `400 VALIDATION_ERROR` before Start claims the session.
+
 Under [REQ-AGENT-272](../../sdd/spec/agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff), controls require the authenticated owner and current running generation. Mutations require the same origin and session CSRF protection. <!-- @impl: src/routes/pi-web.ts::handlePiWebRequest -->
 
 | Method | Path | Auth | Implements | Description |

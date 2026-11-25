@@ -12,6 +12,7 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 - The [mode dropdown](agents.md#req-agent-278-narrow-workspace-header-fallback) sits beside Profile; the [collapsed Vibe Dashboard](github.md#req-github-321-vibe-dashboard-browser-disclosure) shows icon-only Profile and a slimmer 150px drawer grip.
 - The [session menu](agents.md#req-agent-276-vibe-and-code-workspace-preference) keeps lifecycle actions but leaves mode choice to the header. [Handoffs](agents.md#req-agent-280-attachment-gated-workspace-reveal) prepare the destination before revealing it. Switching to tiled Code keeps the prepared terminal connection open through reveal.
 - [Stock Chat](agents.md#req-agent-274-stock-pi-chat-controls) defaults to Pi Web Classic without overriding saved themes.
+- [Classic Pi starts in Terminal](agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff) when no mode is selected, including when settings hide the mode picker.
 
 ## 2026-11-24: Open Pi Chat during repository restore
 
