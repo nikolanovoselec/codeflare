@@ -188,6 +188,8 @@ In Vibe, the [GitHub and Storage drawer](../../sdd/spec/github.md#req-github-321
 
 ### Workspace header acceptance
 
+[REQ-AGENT-278](../../sdd/spec/agents.md#req-agent-278-narrow-workspace-header-fallback) covers the second-row fallback.
+
 Use an authorized running Enterprise workspace with the mode selector, VS Code, Vault, and the sleep countdown visible.
 
 Narrow the viewport and verify VS Code, then Operators, then Vault enter Profile as needed. Open Profile and check each moved action remains reachable. See [Operators](../../sdd/spec/operators.md#req-operator-040-owned-activity-control-presentation) and [Vault](../../sdd/spec/vault.md#req-vault-033-vault-button-availability-and-opening).

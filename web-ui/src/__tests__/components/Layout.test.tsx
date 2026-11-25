@@ -15,7 +15,7 @@ vi.mock('../../api/client', async importOriginal => ({
 }));
 vi.mock('../../api/mcp-portals', () => ({ getMcpPortalStatuses: async () => [] }));
 
-const navigationRendering = vi.hoisted(() => ({ realTerminalArea: false, realSettingsPanel: false, realDashboard: false }));
+const navigationRendering = vi.hoisted(() => ({ realTerminalArea: false, realSettingsPanel: false, realDashboard: false, realHeader: false }));
 const cloudflare = vi.hoisted(() => ({ getStatus: vi.fn(), selectAccount: vi.fn() }));
 vi.mock('../../api/cloudflare', () => ({
   getCloudflareStatus: cloudflare.getStatus,
@@ -32,7 +32,9 @@ vi.mock('../../components/Dashboard', async importOriginal => {
     <For each={props.sessions}>{session => <span>{session.name}</span>}</For>
     <button onClick={() => props.onStartSession('abcdef0123456789')}>Start session</button>
     <button onClick={() => props.onOpenSessionById('abcdef0123456789')}>Return to session</button>
-    <button onClick={() => props.onOpenSessionById('abcdef0123456789', 'terminal')}>Open in Terminal</button>
+    <button onClick={() => props.onOpenSessionById('abcdef0123456789', 'terminal')}>
+      {props.sessions[0]?.status === 'stopped' ? 'Start in Terminal' : 'Open in Terminal'}
+    </button>
     <button onClick={() => props.onStopSession('abcdef0123456789')}>Stop retained session</button>
     <button onClick={() => props.onOpenSessionById('fedcba9876543210')}>Open another session</button>
   </section> };
@@ -53,8 +55,10 @@ vi.mock('../../components/FloatingTerminalButtons', () => ({ default: () => <div
 
 // Existing isolated tests keep their lightweight child; navigation regressions
 // opt into the actual TerminalArea to exercise its dashboard render boundary.
-vi.mock('../../components/Header', () => ({
-  default: (props: any) => {
+vi.mock('../../components/Header', async importOriginal => {
+  const ActualHeader = (await importOriginal<typeof import('../../components/Header')>()).default;
+  return { default: (props: any) => {
+    if (navigationRendering.realHeader) return <ActualHeader {...props} />;
     // Store props on window for inspection in tests (CF-075 vault gating).
     (window as any).__headerProps = props;
     return (
@@ -63,8 +67,8 @@ vi.mock('../../components/Header', () => ({
         <Show when={props.workspaceMode}>{mode => <PiWorkspaceMode {...mode()} presentation="segments" />}</Show>
       </header>
     );
-  }
-}));
+  } };
+});
 
 vi.mock('../../components/TerminalArea', async () => {
   const ActualTerminalArea = (await vi.importActual<typeof import('../../components/TerminalArea')>('../../components/TerminalArea')).default;
@@ -235,6 +239,7 @@ vi.mock('../../stores/terminal', () => ({
 vi.mock('../../stores/terminal-workspace', () => ({
   terminalWorkspaceStore: {
     reconcileMultiView: vi.fn(() => null),
+    getMultiViewCapacity: () => 0,
     getActiveWorkspace: vi.fn(() => mockActiveWorkspace),
     getVisiblePanes: vi.fn(() => {
       readSessionStoreVersion();
@@ -302,6 +307,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     navigationRendering.realTerminalArea = false;
     navigationRendering.realSettingsPanel = false;
     navigationRendering.realDashboard = false;
+    navigationRendering.realHeader = false;
     mockMigrationHalt = null;
     retryMigration.mockReset();
     mockSessions = [];
@@ -419,31 +425,54 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     expect(within(header).queryByRole('group', { name: 'Workspace mode' })).not.toBeInTheDocument();
   });
 
-  it('keeps the saved mode and workspace kind after an explicit one-off Open', async () => {
+  it.each(['Start', 'Open'])('keeps saved preferences and workspace kind after an explicit one-off %s', async action => {
     navigationRendering.realTerminalArea = true;
     mockPreferences = { defaultPiSurface: 'chat', defaultWorkspace: 'terminal' };
     const id = 'abcdef0123456789';
-    mockSessions = [createMockSession({ id, agentType: 'pi', workspace: 'terminal', generation: 7 })];
-    vi.mocked(sessionStore.updatePreferences).mockImplementationOnce(async preferences => {
+    mockSessions = [createMockSession({ id, agentType: 'pi', workspace: 'terminal', generation: 7,
+      status: action === 'Start' ? 'stopped' : 'running' })];
+    if (action === 'Start') vi.mocked(sessionStore.startSession).mockImplementationOnce(async () => {
+      mockSessions = [{ ...mockSessions[0], status: 'initializing' }];
+      bumpSessionStoreVersion();
+    });
+    vi.mocked(sessionStore.updatePreferences).mockImplementation(async preferences => {
       mockPreferences = { ...mockPreferences, ...preferences };
       bumpSessionStoreVersion();
     });
-    const prefix = `/api/pi-web/${id}/`;
+    const path = `/api/pi-web/${id}/_switch`;
+    const handoffs: unknown[] = [];
+    const unexpectedWrites: string[] = [];
     let surface: 'chat' | 'terminal' = 'chat';
-    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
-      if (url !== `${prefix}_switch?generation=7` && url !== `${prefix}_switch`) return Response.json({});
-      if (init?.method === 'POST') surface = 'terminal';
-      return Response.json({ phase: 'complete', surface, chatUrl: `${prefix}g/7/?session=saved-pi&view=chat` });
+    vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+      const method = init?.method ?? (input instanceof Request ? input.method : 'GET');
+      const url = new URL(input instanceof Request ? input.url : input, window.location.origin);
+      if (url.pathname === path) {
+        if (method === 'POST') {
+          const { target } = JSON.parse(String(init?.body));
+          handoffs.push(target);
+          if (target === 'terminal') surface = target;
+        }
+        return Response.json({ phase: 'complete', surface, ...(surface === 'chat' && {
+          chatUrl: `/api/pi-web/${id}/g/7/?session=saved-pi&view=chat`,
+        }) });
+      }
+      if (method !== 'GET' && /^\/api\/(sessions|preferences)(?:\/|$)/.test(url.pathname)) {
+        unexpectedWrites.push(`${method} ${url.pathname}`);
+        return Response.json({}, { status: 400 });
+      }
+      return Response.json({});
     });
     try {
       render(() => <Layout />);
-      fireEvent.click(await screen.findByRole('button', { name: 'Open in Terminal' }));
+      fireEvent.click(await screen.findByRole('button', { name: `${action} in Terminal` }));
+      if (action === 'Open') await waitFor(() => expect(handoffs).toEqual(['terminal']));
+      else expect(sessionStore.startSession).toHaveBeenCalledWith(id, 'terminal');
       expect(await screen.findByTestId('workspace-content')).toBeVisible();
       fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
       expect(await screen.findByRole('button', { name: 'Vibe — Chat', pressed: true })).toBeVisible();
       expect(sessionStore.preferences.defaultWorkspace).toBe('terminal');
-      expect(sessionStore.sessions.find(row => row.id === id)?.workspace).toBe('terminal');
-    } finally { cleanup(); vi.unstubAllGlobals(); }
+      expect(unexpectedWrites).toEqual([]);
+    } finally { cleanup(); vi.unstubAllGlobals(); vi.mocked(sessionStore.updatePreferences).mockReset(); }
   });
 
   it('saves the mode from Dashboard without selecting a session', async () => {
@@ -2116,7 +2145,8 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       await waitFor(() => expect(returned).toBeEnabled());
     });
 
-    it('opens an explicitly created workspace while a Vibe launch is pending', async () => {
+    it('opens an explicitly created workspace from the picker while Vibe is pending', async () => {
+      navigationRendering.realHeader = true;
       const sessions = [
         createMockSession({ id: 'abcdef0123456789', status: 'initializing', workspace: 'terminal', agentType: 'pi' }),
         createMockSession({ id: 'fedcba9876543210', status: 'initializing', workspace: 'terminal', agentType: 'bash' }),
@@ -2137,8 +2167,10 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       const pending = (window as any).__terminalAreaProps.onCreateSession('Vibe', 'pi', undefined, 'chat', true);
       try {
         await waitFor(() => expect(window.location.pathname).toBe(`/app/session/${sessions[0].id}`));
-        await (window as any).__headerProps.onCreateSession('Explicit Bash', 'bash');
-        expect(window.location.pathname).toBe(`/app/session/${sessions[1].id}`);
+        fireEvent.click(await screen.findByTestId('session-switcher'));
+        fireEvent.click(screen.getByRole('button', { name: 'New Session' }));
+        fireEvent.click(await screen.findByTestId('csd-agent-bash'));
+        await waitFor(() => expect(window.location.pathname).toBe(`/app/session/${sessions[1].id}`));
       } finally { finish(); await pending; }
     });
 

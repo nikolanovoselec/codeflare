@@ -599,8 +599,7 @@ async function createSessionWithClone(repo: string, agentType?: AgentType): Prom
   if (agentType) {
     void updateUserPreferences({ lastAgentType: agentType });
   }
-  await startSession(session.id);
-  return session;
+  return await startSession(session.id) === 'cancelled' ? null : session;
 }
 
 async function renameSession(id: string, name: string): Promise<void> {
@@ -734,7 +733,7 @@ function watchRepositoryRestore(id: string, generation: number, initial: Reposit
   update(initial);
 }
 
-function startSession(id: string, surface?: PiSurface): Promise<void> {
+function startSession(id: string, surface?: PiSurface): Promise<void | 'cancelled'> {
   dismissRepositoryRestore(id);
   const session = state.sessions.find((candidate) => candidate.id === id);
   const retryEditorTimeout = session?.workspace === 'vscode' && session.editorReadyError === true;
@@ -840,7 +839,7 @@ function startSession(id: string, surface?: PiSurface): Promise<void> {
       pending = false;
       cleanup();
       // Cancellation settles the caller without publishing Ready or a startup error.
-      resolve();
+      resolve('cancelled');
     });
   });
 }

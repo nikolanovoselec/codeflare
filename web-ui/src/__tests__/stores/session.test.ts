@@ -1494,6 +1494,24 @@ describe('Session Store', () => {
       expect(sessionStore.getTerminalsForSession('clone-editor')).toBeNull();
     });
 
+    it('does not report a successful repository launch when Stop cancels Start', async () => {
+      const id = 'cancelled-clone';
+      mockCreateSession.mockResolvedValue({ id, name: 'hello', workspace: 'vscode',
+        generation: 7, revision: 10, createdAt: '2026-01-01T00:00:00Z', lastAccessedAt: '2026-01-01T00:00:00Z' });
+      vi.mocked(api.startSession).mockReturnValueOnce(() => {});
+      mockStopSession.mockResolvedValue(undefined);
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {
+        [id]: { status: 'stopped', generation: 7, revision: 11 },
+      }, maxSessions: 3 });
+
+      const creating = sessionStore.createSessionWithClone('octocat/hello');
+      await vi.waitFor(() => expect(sessionStore.isSessionInitializing(id)).toBe(true));
+      const stopping = sessionStore.stopSession(id);
+      await vi.advanceTimersByTimeAsync(STOP_POLL_INTERVAL_MS);
+      await stopping;
+      await expect(creating).resolves.toBeNull();
+    });
+
     it('keeps cloned historical sessions on the existing Terminal activation path', async () => {
       mockGetSessions.mockResolvedValue([]);
       await sessionStore.loadSessions();
@@ -1609,12 +1627,12 @@ describe('Session Store', () => {
         'session-1': { status: 'stopped', generation: stopGeneration, revision: 11 },
       }, maxSessions: 3 });
       let settled = false;
-      const starting = sessionStore.startSession('session-1', 'chat').then(() => { settled = true; });
+      const starting = sessionStore.startSession('session-1', 'chat').then(result => { settled = true; return result; });
       const stopping = sessionStore.stopSession('session-1');
       await vi.advanceTimersByTimeAsync(STOP_POLL_INTERVAL_MS);
       await stopping;
       expect(settled).toBe(true);
-      await starting;
+      await expect(starting).resolves.toBe('cancelled');
       lateReady(stopGeneration);
       expect(sessionStore.sessions[0]).toMatchObject({ status: 'stopped' });
       expect(sessionStore.getInitProgressForSession('session-1')).toBeNull();
