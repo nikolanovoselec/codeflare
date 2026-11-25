@@ -344,10 +344,14 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     delete (window as any).__headerProps;
   });
 
-  it('keeps the Code startup pane mounted while the first surface status is pending', async () => {
+  it.each([
+    ['terminal', 'Return to session'],
+    [undefined, 'Return to session'],
+    ['chat', 'Open in Terminal'],
+  ] as const)('keeps the Code startup pane mounted while the first surface status is pending (default: %s, action: %s)', async (defaultPiSurface, action) => {
     navigationRendering.realTerminalArea = true;
     const id = 'abcdef0123456789';
-    mockPreferences = { defaultPiSurface: 'terminal' };
+    mockPreferences = { defaultPiSurface };
     mockSessions = [createMockSession({ id, agentType: 'pi', workspace: 'terminal', terminalMode: 'classic', status: 'stopped', generation: 1 })];
     const [running, setRunning] = createSignal(false);
     let confirmSurface!: (response: Response) => void;
@@ -369,7 +373,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     });
     try {
       render(() => <Layout />);
-      fireEvent.click(await screen.findByRole('button', { name: 'Return to session' }));
+      fireEvent.click(await screen.findByRole('button', { name: action }));
       expect(await screen.findByTestId('startup-progress')).toBeVisible();
       expect(screen.queryByTitle('Pi Chat')).not.toBeInTheDocument();
       expect(fetchStatus.mock.calls.map(([url]) => url)).not.toContain(`/api/pi-web/${id}/_switch?generation=1`);
@@ -380,10 +384,9 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       bumpSessionStoreVersion();
       expect(screen.getByTestId('startup-progress')).toBe(pane);
       expect(screen.queryByText('Loading Chat')).not.toBeInTheDocument();
-      const mode = screen.getByRole('button', { name: 'Workspace mode: Code — Terminal' });
-      expect(mode).toBeDisabled();
+      expect(screen.getByRole('button', { name: /^Workspace mode:/ })).toBeDisabled();
       confirmSurface(Response.json({ phase: 'active', surface: 'terminal' }));
-      await waitFor(() => expect(mode).toBeEnabled());
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Workspace mode: Code — Terminal' })).toBeEnabled());
       expect(screen.getByTestId('startup-progress')).toBe(pane);
     } finally {
       cleanup();

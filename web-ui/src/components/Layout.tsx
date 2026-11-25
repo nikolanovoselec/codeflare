@@ -840,7 +840,7 @@ const Layout: Component<LayoutProps> = (props) => {
     const preferredSurface = eligible ? sessionStore.preferences.defaultPiSurface : undefined;
     const surface = eligible ? options.surface ?? (shouldStart ? preferredSurface : undefined) : undefined;
     if (!shouldStart && startupSurface()?.id !== id) setStartupSurface(undefined);
-    const clearStartup = shouldStart ? selectStartupSurface(session, surface) : undefined;
+    const clearStartup = shouldStart ? selectStartupSurface(session, eligible ? surface ?? 'terminal' : undefined) : undefined;
     const parkedPane = parkedTerminalPane();
     const warmReturn = parkedPane?.sessionId === id
       || (retainedChat()?.id === id && retainedChat()?.generation === session.generation);
@@ -883,8 +883,9 @@ const Layout: Component<LayoutProps> = (props) => {
   const handleStartSession = async (id: string, selectedSurface?: PiSurface) => {
     const session = sessionStore.sessions.find((candidate) => candidate.id === id);
     if (!session) return;
-    const surface = modeAvailable() && isPiWebSession(session) ? selectedSurface ?? sessionStore.preferences.defaultPiSurface : undefined;
-    const clearStartup = selectStartupSurface(session, surface);
+    const eligible = modeAvailable() && isPiWebSession(session);
+    const surface = eligible ? selectedSurface ?? sessionStore.preferences.defaultPiSurface : undefined;
+    const clearStartup = selectStartupSurface(session, eligible ? surface ?? 'terminal' : undefined);
 
     if (session.workspace === 'vscode') {
       keepDashboardOwnership('push');
@@ -926,9 +927,9 @@ const Layout: Component<LayoutProps> = (props) => {
       ? await sessionStore.createSession(name, agentType, tabConfig, undefined, surface)
       : await sessionStore.createSession(name, agentType, tabConfig);
     if (!session) return;
-    const initialSurface = modeAvailable() && isPiWebSession(session)
-      ? surface ?? sessionStore.preferences.defaultPiSurface : undefined;
-    const clearStartup = selectStartupSurface(session, initialSurface);
+    const eligible = modeAvailable() && isPiWebSession(session);
+    const initialSurface = eligible ? surface ?? sessionStore.preferences.defaultPiSurface : undefined;
+    const clearStartup = selectStartupSurface(session, eligible ? initialSurface ?? 'terminal' : undefined);
 
     if (session.workspace === 'vscode') {
       keepDashboardOwnership('push');

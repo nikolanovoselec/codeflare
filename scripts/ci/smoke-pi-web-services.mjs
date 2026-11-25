@@ -215,7 +215,10 @@ try {
   const productionSettings = json(settingsPath);
   writeFileSync(settingsPath, JSON.stringify({ ...productionSettings, packages: [...productionSettings.packages, bundledMcpManager] }));
   rmSync(join(runtimeDir, 'data'), { recursive: true, force: true });
-  const beforeConfig = read(nativeConfig);
+  const unpreparedConfig = json(nativeConfig);
+  delete unpreparedConfig.settings.requestTimeoutMs;
+  const beforeConfig = JSON.stringify(unpreparedConfig);
+  writeFileSync(nativeConfig, beforeConfig);
   services = createPiWebServices(options);
   await services.start();
   await checkReady({ preexistingManager: true, adapterRegistration });
