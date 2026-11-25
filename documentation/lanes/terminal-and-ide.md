@@ -60,11 +60,14 @@ Herdr image settings manage mobile layout, mouse capture, browser-owned clipboar
 
 In **Vibe**, Dashboard **New Session** starts Pi Chat directly. Returning to Dashboard does not unlock another direct launch until the first Start settles or you stop it. Existing creation limits still apply. See [REQ-AGENT-279](../../sdd/spec/agents.md#req-agent-279-direct-vibe-session-launch).
 
-- Choose Vibe or Code in the header before starting or opening from a Dashboard card. The card menu retains lifecycle actions but has no Chat or Terminal override ([REQ-AGENT-276](../../sdd/spec/agents.md#req-agent-276-vibe-and-code-workspace-preference), AC5).
+- When the picker is available, choose Vibe or Code in the header before using a Dashboard card. The card menu retains lifecycle actions but has no Chat or Terminal override ([REQ-AGENT-276](../../sdd/spec/agents.md#req-agent-276-vibe-and-code-workspace-preference), AC5).
 - For [REQ-TERM-049](../../sdd/spec/terminal.md#req-term-049-shared-workspace-startup-progress), check that **Syncing workspace** stays active through verification, then advances to **Preparing environment**.
 - While waiting for Open, Vibe shows **Loading Chat** with elapsed seconds and Code shows **Connecting Terminal**. Only when Open is available does the final step say **Ready to open**.
 - In Standard and Pro where available, start Chat-first and Terminal-first in Classic. Send a synthetic message, Stop normally, then resume in the other surface. Only the selected primary opens the saved conversation.
-- On a disposable account with no saved surface preference, start a stopped Classic Pi session from its card without choosing a mode. Verify startup stays in Code without flashing **Loading Chat**, and **Open** reveals the already-mounted Terminal. The [Layout regression](../../web-ui/src/__tests__/components/Layout.test.tsx) delays the first Host status to check pane identity for [REQ-TERM-043 AC6](../../sdd/spec/terminal.md#req-term-043-visible-terminal-readiness-gating).
+- On a disposable account with no saved surface preference, start a stopped Classic Pi session from its card without choosing a mode.
+- Repeat with **VS Code** as the default workspace. Confirm the mode picker is hidden and restart the same stopped Classic Pi session, not a new VS Code session.
+- In both runs, verify **Loading Chat** never appears and **Open** reveals the already-mounted Terminal.
+- The [Layout regression](../../web-ui/src/__tests__/components/Layout.test.tsx) delays the first Host status to check pane identity for [REQ-TERM-043 AC6](../../sdd/spec/terminal.md#req-term-043-visible-terminal-readiness-gating).
 - On Chat-first Start and Resume, verify the stock frame loads behind the startup overlay. Once the Host confirms Chat and five seconds have passed since the stock loader disappeared, **Open** becomes available on a best-effort basis.
 - After **Open** appears, wait over 25 seconds before clicking it. Verify it reveals the same frame without starting native Pi.
 - For each run below, configure an authorized synthetic repository as a restore target and ensure its checkout is absent locally.

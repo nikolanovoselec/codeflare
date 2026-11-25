@@ -356,9 +356,16 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     mockPreferences = { defaultPiSurface, ...settings };
     const hiddenPicker = 'defaultWorkspace' in settings;
     const creating = action === 'Create session';
-    const session = createMockSession({ id, agentType: 'pi', workspace: 'terminal', terminalMode: 'classic', status: 'stopped', generation: creating ? 0 : 1 }) as SessionWithStatus;
+    navigationRendering.realDashboard = creating;
+    const priorGeneration = creating ? 0 : 1;
+    const generation = priorGeneration + 1;
+    const session = createMockSession({ id, agentType: 'pi', workspace: 'terminal', terminalMode: 'classic', status: 'stopped', generation: priorGeneration }) as SessionWithStatus;
     mockSessions = creating ? [] : [session];
-    if (creating) vi.mocked(sessionStore.createSession).mockImplementationOnce(async () => {
+    const createSession = vi.mocked(sessionStore.createSession);
+    const startSession = vi.mocked(sessionStore.startSession);
+    const originalCreate = createSession.getMockImplementation();
+    const originalStart = startSession.getMockImplementation();
+    if (creating) createSession.mockImplementation(async () => {
       mockSessions = [session];
       bumpSessionStoreVersion();
       return session;
@@ -367,8 +374,8 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     let confirmSurface!: (response: Response) => void;
     const hostStatus = new Promise<Response>(resolve => { confirmSurface = resolve; });
     const fetchStatus = vi.fn(async (url: string) => {
-      if (url === `/api/pi-web/${id}/_switch?generation=2`) return hostStatus;
-      if (url === `/api/pi-web/${id}/_switch?generation=1`) {
+      if (url === `/api/pi-web/${id}/_switch?generation=${generation}`) return hostStatus;
+      if (!creating && url === `/api/pi-web/${id}/_switch?generation=${priorGeneration}`) {
         return Response.json({ phase: 'active', surface: 'chat', chatUrl: `/api/pi-web/${id}/g/1/?session=previous&view=chat` });
       }
       return Response.json({});
@@ -376,19 +383,21 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     vi.stubGlobal('fetch', fetchStatus);
     vi.mocked(sessionStore.isSessionInitializing).mockImplementation(running);
     vi.mocked(sessionStore.getInitProgressForSession).mockReturnValue({ stage: 'ready', progress: 100, message: 'Container ready' });
-    vi.mocked(sessionStore.startSession).mockImplementationOnce(async () => {
+    startSession.mockImplementation(async () => {
       mockSessions = [{ ...mockSessions[0], status: 'starting' }];
       setRunning(true);
       bumpSessionStoreVersion();
     });
     try {
       render(() => <Layout />);
-      if (creating) await (window as any).__headerProps.onCreateSession('New Session', 'pi');
-      else fireEvent.click(await screen.findByRole('button', { name: action }));
+      if (creating) {
+        fireEvent.click(await screen.findByRole('button', { name: 'Create new session' }));
+        fireEvent.click(await screen.findByTestId('csd-agent-pi'));
+      } else fireEvent.click(await screen.findByRole('button', { name: action }));
       expect(await screen.findByTestId('startup-progress')).toBeVisible();
       expect(screen.queryByTitle('Pi Chat')).not.toBeInTheDocument();
-      expect(fetchStatus.mock.calls.map(([url]) => url)).not.toContain(`/api/pi-web/${id}/_switch?generation=1`);
-      mockSessions = [{ ...mockSessions[0], generation: 2 }];
+      expect(fetchStatus.mock.calls.map(([url]) => url)).not.toContain(`/api/pi-web/${id}/_switch?generation=${priorGeneration}`);
+      mockSessions = [{ ...mockSessions[0], generation }];
       bumpSessionStoreVersion();
       const pane = screen.getByTestId('startup-progress');
       mockSessions = [{ ...mockSessions[0], status: 'running' }];
@@ -408,6 +417,12 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     } finally {
       cleanup();
       vi.unstubAllGlobals();
+      if (creating) {
+        if (originalCreate) createSession.mockImplementation(originalCreate);
+        else createSession.mockReset();
+      }
+      if (originalStart) startSession.mockImplementation(originalStart);
+      else startSession.mockReset();
       vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
       vi.mocked(sessionStore.getInitProgressForSession).mockReturnValue(null);
     }
