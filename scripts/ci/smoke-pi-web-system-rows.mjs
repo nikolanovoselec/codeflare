@@ -107,7 +107,7 @@ try {
   browser = spawn(process.env.CI_CHROMIUM_EXECUTABLE, [
     '--headless', '--no-sandbox', '--disable-background-networking', '--no-first-run',
     `--user-data-dir=${profile}`, `http://127.0.0.1:${server.address().port}/`,
-  ], { stdio: ['ignore', 'ignore', 'pipe'] });
+  ], { detached: true, stdio: ['ignore', 'ignore', 'pipe'] });
   browser.stderr.on('data', chunk => { stderr = (stderr + chunk).slice(-2400); });
   browserClosed = new Promise(resolve => browser.once('close', (code, signal) => resolve({ code, signal })));
   const result = await Promise.race([
@@ -124,8 +124,26 @@ try {
   console.log('Stock Chat hides standalone and grouped SYSTEM rows without hiding ordinary messages');
 } finally {
   clearTimeout(deadline);
-  if (browser && browser.exitCode === null && browser.signalCode === null) browser.kill('SIGKILL');
-  await browserClosed;
+  if (browser?.pid) {
+    try { process.kill(-browser.pid, 'SIGKILL'); }
+    catch (error) {
+      if (error.code !== 'ESRCH') {
+        process.exitCode = 1;
+        console.error('Unable to terminate Chromium process group:', error.code);
+      }
+    }
+    let cleanupDeadline;
+    try {
+      await Promise.race([
+        browserClosed,
+        new Promise(resolve => { cleanupDeadline = setTimeout(resolve, 2000); }),
+      ]);
+    } finally {
+      clearTimeout(cleanupDeadline);
+      browser.stderr.destroy();
+      browser.unref();
+    }
+  }
   server.close();
   await rm(profile, { recursive: true, force: true });
 }

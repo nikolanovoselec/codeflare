@@ -1599,12 +1599,30 @@ describe('Session Store', () => {
       }
       setCloneAttempt(repo, { phase: 'failed', sessionId: id });
       mockGetSessions.mockResolvedValue([{ ...session, lifecycle: 'running', generation: 2, revision: 3 }]);
-      mockGetBatchSessionStatus.mockResolvedValue({ statuses: { [id]: { status: 'stopped', generation: 2, revision: 4 } } });
+      const newerStopped = { statuses: { [id]: { status: 'stopped', generation: 2, revision: 4 } } };
+      let finishPaired!: (value: typeof newerStopped) => void;
+      const paired = new Promise<typeof newerStopped>(resolve => { finishPaired = resolve; });
+      mockGetBatchSessionStatus.mockResolvedValue(newerStopped);
+      if (priorKill) mockGetBatchSessionStatus.mockReturnValueOnce(paired).mockResolvedValueOnce({
+        statuses: { [id]: { status: 'stopped', generation: 2, revision: 3 } },
+      });
+      const loading = sessionStore.loadSessions();
       try {
-        await sessionStore.loadSessions();
+        if (priorKill) {
+          await vi.waitFor(() => expect(sessionStore.sessions.find(row => row.id === id)).toMatchObject({ status: 'running', generation: 2 }));
+          terminalLifecycle.ownedSessionIds.add(id);
+          await sessionStore.refreshSessionStatuses();
+          expect(terminalLifecycle.ownedSessionIds.has(id)).toBe(true);
+          expect(sessionStore.sessions.find(row => row.id === id)?.status).toBe('running');
+          expect(cloneAttempt(repo)?.sessionId).toBe(id);
+        }
+        finishPaired(newerStopped);
+        await loading;
         expect(sessionStore.sessions.find(session => session.id === id)?.status).toBe('stopped');
         expect(cloneAttempt(repo)?.sessionId).toBe(id);
       } finally {
+        finishPaired(newerStopped);
+        await loading;
         setCloneAttempt(repo);
       }
     });

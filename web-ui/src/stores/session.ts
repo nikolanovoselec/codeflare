@@ -215,7 +215,7 @@ registerR2ReadinessDeps({
 
 // ── Core session helpers ────────────────────────────────────────────────────
 
-function updateSessionStatus(id: string, status: SessionStatus, deferRunningEffects = false): void {
+function updateSessionStatus(id: string, status: SessionStatus, deferCloneRetirement = false): void {
   const index = state.sessions.findIndex((sess) => sess.id === id);
   if (index !== -1) {
     if (status === 'stopped') {
@@ -226,8 +226,8 @@ function updateSessionStatus(id: string, status: SessionStatus, deferRunningEffe
       status = 'stopping';
     }
     setState('sessions', index, 'status', status);
-    if (status === 'running' && !deferRunningEffects) {
-      forgetCloneAttempt(id, true);
+    if (status === 'running') {
+      if (!deferCloneRetirement) forgetCloneAttempt(id, true);
       markSessionStarted(id);
     }
     if (status === 'stopped' || status === 'stopping') clearSessionStartedGuard(id);
@@ -327,14 +327,14 @@ function releaseKillAttempt(id: string): void {
   if (localKillAttempts.delete(id)) setTerminationRevision(value => value + 1);
 }
 
-function reconcileKillGeneration(id: string, deferRunningEffects = false): boolean {
+function reconcileKillGeneration(id: string, deferCloneRetirement = false): boolean {
   const attempt = localKillAttempts.get(id);
   const session = state.sessions.find((candidate) => candidate.id === id);
   if (!attempt || !session) return false;
   if (session.generation !== attempt.generation) {
     // A command for the old runtime must not pin a replacement as stopping.
     releaseKillAttempt(id);
-    if (session.lifecycle) updateSessionStatus(id, session.lifecycle, deferRunningEffects);
+    if (session.lifecycle) updateSessionStatus(id, session.lifecycle, deferCloneRetirement);
     return session.lifecycle === 'running';
   } else if (session.status === 'stopped') {
     releaseKillAttempt(id);
@@ -443,9 +443,11 @@ async function loadSessions(): Promise<void> {
     sessionMissCounters.clear();
     setState('sessions', sessionsWithStatus);
     setState('loading', false);
-    const provisionalRunning = new Set<string>();
+    const provisionalRunning = new Map<string, { generation: number; revision: number }>();
     for (const session of state.sessions) {
-      if (reconcileKillGeneration(session.id, true)) provisionalRunning.add(session.id);
+      if (reconcileKillGeneration(session.id, true) && session.generation !== undefined && session.revision !== undefined) {
+        provisionalRunning.set(session.id, { generation: session.generation, revision: session.revision });
+      }
     }
     // REQ-VAULT-034 AC2: sweep orphan legacy SilverBullet markers only after
     // an authoritative session-list fetch succeeds. Dashboard mount can
@@ -526,7 +528,13 @@ async function loadSessions(): Promise<void> {
         }
         continue;
       }
-      if (batchStatus.status === 'stopped' && currentStatus !== 'stopping'
+      // The independent poll still sees startup protection. Only this catalog's
+      // paired, strictly newer Stopped revision may supersede its provisional Running.
+      const provisional = provisionalRunning.get(session.id);
+      const pairedStopWins = provisional !== undefined && current !== undefined && current.generation === provisional.generation
+        && current.revision === provisional.revision && batchStatus.generation === provisional.generation
+        && batchStatus.revision !== undefined && batchStatus.revision > provisional.revision;
+      if (batchStatus.status === 'stopped' && currentStatus !== 'stopping' && !pairedStopWins
         && (batchStatus.generation === undefined || batchStatus.revision === undefined || isWithinStartupGuard(session.id))
         && shouldRetainNegativeKv(session.id)) continue;
 
@@ -555,10 +563,7 @@ async function loadSessions(): Promise<void> {
     if (thisGen !== loadSessionsGeneration) return;
     for (const session of state.sessions) {
       reconcileKillGeneration(session.id);
-      if (session.status === 'running') {
-        forgetCloneAttempt(session.id, true);
-        if (provisionalRunning.has(session.id)) markSessionStarted(session.id);
-      }
+      if (session.status === 'running') forgetCloneAttempt(session.id, true);
       if (existingStatuses.get(session.id) === 'stopping' && session.status === 'stopped') {
         terminalStore.disposeSession(session.id);
       }
