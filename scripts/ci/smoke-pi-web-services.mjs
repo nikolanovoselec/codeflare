@@ -263,6 +263,27 @@ async function verifyIntentionalShutdownIsQuiet() {
   }
 }
 
+async function verifyRestoredBundledWorkflows(settingsPath, firstSources) {
+  // Restore the bundled registration with a fresh provisioning ledger.
+  rmSync(join(runtimeDir, 'data'), { recursive: true, force: true });
+  const beforeWorkflowsRestore = json(settingsPath);
+  const bundledWorkflows = join(bundled, 'workflows');
+  const workflowsManifest = join(bundledWorkflows, 'package.json');
+  const shippedWorkflows = read(workflowsManifest);
+  writeFileSync(settingsPath, JSON.stringify({ ...beforeWorkflowsRestore,
+    packages: [...beforeWorkflowsRestore.packages, bundledWorkflows] }));
+  services = createPiWebServices(options);
+  await services.start();
+  assert.deepEqual(await checkReady(), firstSources, 'dismiss bundled Workflows without changing unrelated registrations');
+  assert.deepEqual(json(settingsPath), beforeWorkflowsRestore, 'preserve the rest of the restored settings');
+  assert.equal(read(workflowsManifest), shippedWorkflows, 'preserve the shipped Workflows package');
+  const { id } = await services.request('/api/sessions', { cwd });
+  assert.ok(id);
+  const commands = await services.request(`/api/sessions/${encodeURIComponent(id)}/commands?${new URLSearchParams({ cwd })}`);
+  assert.ok(!commands.some(({ name }) => name === 'worktree'), 'a real stock Chat session must not offer /worktree');
+  await closeAndCheckReaping();
+}
+
 try {
   for (const dir of [cwd, runtimeDir, agentDir, localWorkflows]) mkdirSync(dir, { recursive: true, mode: 0o700 });
   writeFileSync(join(localWorkflows, 'package.json'), JSON.stringify({ name: 'smoke-user-workflows', version: '1.0.0' }));
@@ -286,23 +307,7 @@ try {
   assert.deepEqual(json(settingsPath).extensions, managedExtensions, 'preserve the restored non-client exclusions');
   await closeAndCheckReaping();
 
-  // Reboot with a restored registration of the exact bundled Workflows package.
-  const beforeWorkflowsRestore = json(settingsPath);
-  const bundledWorkflows = join(bundled, 'workflows');
-  const workflowsManifest = join(bundledWorkflows, 'package.json');
-  const shippedWorkflows = read(workflowsManifest);
-  writeFileSync(settingsPath, JSON.stringify({ ...beforeWorkflowsRestore,
-    packages: [...beforeWorkflowsRestore.packages, bundledWorkflows] }));
-  services = createPiWebServices(options);
-  await services.start();
-  assert.deepEqual(await checkReady(), firstSources, 'dismiss bundled Workflows without changing unrelated registrations');
-  assert.deepEqual(json(settingsPath), beforeWorkflowsRestore, 'preserve the rest of the restored settings');
-  assert.equal(read(workflowsManifest), shippedWorkflows, 'preserve the shipped Workflows package');
-  const { id } = await services.request('/api/sessions', { cwd });
-  assert.ok(id);
-  const commands = await services.request(`/api/sessions/${encodeURIComponent(id)}/commands?${new URLSearchParams({ cwd })}`);
-  assert.ok(!commands.some(({ name }) => name === 'worktree'), 'a real stock Chat session must not offer /worktree');
-  await closeAndCheckReaping();
+  await verifyRestoredBundledWorkflows(settingsPath, firstSources);
 
   await verifyPackageListFailureDiagnostic();
   await verifyPackageListFailureDiagnostic(true);

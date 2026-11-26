@@ -208,11 +208,13 @@ export function createPiWebServices(options: {
     mark('package-list');
     const packages = await bootRequest<{ packages: { source: string; scope: string }[] }>('/api/pi-packages');
     const userSources = new Set(packages.packages.filter(row => row.scope === 'user').map(row => row.source));
+    let expectedPackages = before;
     // A restored registration of this exact bundled source must not block Chat.
     if (userSources.has(workflows)) {
       mark('workflows-removal');
       const removed = await bootRequest<{ removed: boolean }>('/api/pi-packages/remove', { scope: 'user', source: workflows });
       if (!removed.removed) throw new Error('Bundled Workflows could not be dismissed');
+      expectedPackages = before.filter(item => sourceOf(item) !== workflows);
     }
     // Disabling the panel doesn't disable the bundled Pi extension. Dismiss
     // only the newly provisioned source when the managed adapter is registered.
@@ -222,7 +224,7 @@ export function createPiWebServices(options: {
       // Stock can normalize any configured copy to the bundled path. If any
       // prior entry (including filters) changed, absence before boot is not proof.
       const remaining = Array.isArray(after.packages) ? after.packages.filter(item => sourceOf(item) !== mcpManager) : [];
-      const preserved = before.every(item => {
+      const preserved = expectedPackages.every(item => {
         const index = remaining.findIndex(candidate => isDeepStrictEqual(candidate, item));
         if (index === -1) return false;
         remaining.splice(index, 1);
