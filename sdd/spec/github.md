@@ -775,7 +775,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 1. After counts settle unavailable, GitHub Details shows up to three loaded accessible repositories with valid update timestamps, newest first. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-321: shows the three latest loaded repository shortcuts and launches Chat only on the explicit action) -->
 2. A repository link opens that repository on GitHub without starting a session. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-321: shows the three latest loaded repository shortcuts and launches Chat only on the explicit action) -->
-3. **Start Chat** creates a Vibe Chat session and requests the selected repository’s default-branch clone. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-GITHUB-327: Start Chat creates a Vibe session with the selected clone target) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
+3. **Start Chat** starts Vibe Chat without waiting for cloning; a successful clone checks out the selected repository’s default branch. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-GITHUB-327: Start Chat creates a Vibe session with the selected clone target) --> <!-- @test: web-ui/src/__tests__/stores/session-create-wire.test.ts (REQ-GITHUB-327 AC3: POST /api/sessions sends the selected clone repo and Chat surface) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
 
 **Constraints:** Shortcuts reuse the loaded list without fetching repositories or inferring an owned count.
 
@@ -783,6 +783,8 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Dependencies:** [REQ-GITHUB-321](#req-github-321-vibe-dashboard-browser-disclosure), [REQ-GITHUB-004](#req-github-004-clone-a-repository-into-a-session)
 
-**Verification:** Automated: [Dashboard](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [Layout](../../web-ui/src/__tests__/components/Layout.test.tsx); Manual: [Vibe drawer and clone acceptance](../../documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance)
+**Verification:** Automated: [Dashboard](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [Layout](../../web-ui/src/__tests__/components/Layout.test.tsx), [Session creation request](../../web-ui/src/__tests__/stores/session-create-wire.test.ts); Manual: [Vibe drawer and clone acceptance](../../documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance)
 
 **Status:** Planned
+
+---

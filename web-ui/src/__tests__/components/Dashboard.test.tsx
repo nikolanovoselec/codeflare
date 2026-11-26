@@ -714,11 +714,13 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
   it('REQ-GITHUB-321: shows the three latest loaded repository shortcuts and launches Chat only on the explicit action', async () => {
     (githubStore as any)._setEnabled(true);
     (githubStore as any)._setLogin('octocat');
-    const requests = vi.spyOn(globalThis, 'fetch').mockImplementation(async url => {
-      if (url === '/api/github/owned-repo-counts') {
+    const requestUrl = (input: RequestInfo | URL) => new URL(input instanceof Request ? input.url : input, window.location.href);
+    const requests = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      const { pathname, search } = requestUrl(input);
+      if (pathname === '/api/github/owned-repo-counts' && !search) {
         return Response.json({ counts: null });
       }
-      throw new Error(`Unexpected request: ${url}`);
+      throw new Error(`Unexpected request: ${pathname}${search}`);
     });
     const repos: GithubRepo[] = [
       { name: 'older', full_name: 'octocat/older', owner: 'octocat', private: false, visibility: 'public', default_branch: 'main', updated_at: '2025-12-01T00:00:00Z' },
@@ -753,8 +755,9 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
       finally { document.removeEventListener('click', preventNavigation); }
       expect(defaultProps.onCreateSession).not.toHaveBeenCalled();
       // The existing verified count read is allowed; repo shortcuts add no GitHub API reads.
-      const githubRequests = requests.mock.calls.map(([url]) => url)
-        .filter(url => typeof url === 'string' && url.startsWith('/api/github/'));
+      const githubRequests = requests.mock.calls.map(([input]) => requestUrl(input))
+        .filter(({ pathname }) => pathname.startsWith('/api/github/'))
+        .map(({ pathname, search }) => pathname + search);
       expect(githubRequests).toEqual(['/api/github/owned-repo-counts']);
 
       fireEvent.click(actions[0]);

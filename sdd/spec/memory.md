@@ -103,7 +103,7 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 1. Capture reads each runtime's durable resume transcript, never volatile memory, so reload and resume retain full history; an empty resolved transcript skips capture instead of writing a placeholder. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (creates work on the twentieth real prompt and emits a model follow-up without private spawn) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-015 AC1: an empty durable transcript never captures volatile agent_end history) -->
 2. Pi capture triggers are inert inside subagent child sessions — sessions whose header carries a parent-session pointer (review monitors, CI monitors, capture/extract subagents themselves) — so a background task's transcript never receives an injected capture follow-up as its visible output. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::isChildSession --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (keeps all handlers inert in child sessions) -->
 3. After root-session reload or resume, Pi reconstructs each active capture's launch, reminder, running, failure, and success state from the durable root transcript; a bounded turn-limit completion qualifies only with the job's post-commit artifacts, and unrelated or superseded results never count. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionTranscriptFacts --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (correlates exact public calls and reconstructs running, failed, and successful state) -->
-4. Due memory, Vault and transcript-maintenance jobs share one model follow-up that triggers a turn and includes a job/delivery summary and bounded request JSON exactly matching durable metadata. New launches and retries stay in the durable transcript but do not appear in Chat or Terminal; existing entries and other custom messages are unchanged. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-015 AC4: exposes identical extraction items to the model and durable metadata) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-015 AC6: advances one delivery attempt after each failed exact call) --> <!-- @test: host/__tests__/pi-capture-turn-boundary.test.js (REQ-MEM-015 AC3: frozen capture dispatch and correlated finalization progress without settlement or duplicate queued launches) --> <!-- @test: host/__tests__/pi-shared-transcript-trim.test.js (REQ-MEM-015 AC3: memory Vault and trim share one extraction launch and queued-boundary deduplication) -->
+4. Due memory, Vault and transcript-maintenance jobs share one model follow-up that triggers a turn and includes a job/delivery summary and bounded request JSON exactly matching durable metadata. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-015 AC4: exposes identical extraction items to the model and durable metadata) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-015 AC6: advances one delivery attempt after each failed exact call) --> <!-- @test: host/__tests__/pi-capture-turn-boundary.test.js (REQ-MEM-015 AC3: frozen capture dispatch and correlated finalization progress without settlement or duplicate queued launches) --> <!-- @test: host/__tests__/pi-shared-transcript-trim.test.js (REQ-MEM-015 AC3: memory Vault and trim share one extraction launch and queued-boundary deduplication) -->
 5. An emitted request remains pending without duplicate reminders or replacement requests until an exact public call occurs. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionTranscriptFacts --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionDue --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-015 AC5: keeps an emitted request pending until an exact public call) --> <!-- @test: host/__tests__/pi-capture-turn-boundary.test.js (REQ-MEM-015 AC3: frozen capture dispatch and correlated finalization progress without settlement or duplicate queued launches) --> <!-- @test: host/__tests__/pi-transcript-agent.test.js (REQ-MEM-030 AC6: delivered unlaunched and altered running work remain pending without fresh requests) -->
 6. Each failed exact call advances at most one of six delivery attempts. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionTranscriptFacts --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionDue --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-015 AC6: advances one delivery attempt after each failed exact call) -->
 7. Six failed exact calls emit one visible structured terminal notice identifying failed jobs and advertised retry opportunities. A Vault edit may make a later eligible cadence or resume check productive; the edit itself does not trigger that check. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-015 AC7: identifies the failed job and next automatic opportunity) --> <!-- @test: host/__tests__/pi-transcript-agent.test.js (REQ-MEM-015 AC7: six failed trim calls emit one shared terminal notice without replacement request spam) -->
@@ -1215,6 +1215,28 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 **Dependencies:** [REQ-MEM-035](#req-mem-035-durable-pi-facts-with-disposable-local-search), [REQ-MEM-019](#req-mem-019-post-compaction-recall-of-recent-session-extracts)
 
 **Verification:** Automated: [pi-hermes-memory.test.js](../../host/__tests__/pi-hermes-memory.test.js), [pi-hermes-native.test.js](../../host/__tests__/pi-hermes-native.test.js), [agent-seed-core.test.js](../../host/__tests__/agent-seed-core.test.js); Manual: [Native policy-only recall acceptance](../../documentation/lanes/vault.md#native-policy-only-recall-acceptance)
+
+**Status:** Implemented
+
+---
+
+### REQ-MEM-044: Hide background extraction requests
+
+**Intent:** Keep routine extraction payloads out of the visible conversation.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. New extraction launches and retries stay in the durable transcript without appearing in Chat or Terminal. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-015 AC4: exposes identical extraction items to the model and durable metadata) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-015 AC6: advances one delivery attempt after each failed exact call) -->
+
+**Constraints:** Existing transcript entries and other custom messages are unchanged.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-MEM-015](#req-mem-015-pi-extraction-transcript-visibility-and-child-session-guard)
+
+**Verification:** Automated: [Extraction delivery](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts)
 
 **Status:** Implemented
 

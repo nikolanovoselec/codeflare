@@ -6893,8 +6893,8 @@ The former REQ-AGENT-191 Goal visibility and REQ-AGENT-248 `goal_wait` exclusion
 
 1. Every startup writes `midRunUpdates: false` to the global Pi Subagents configuration for new and restored homes, preserving other valid preferences. <!-- @impl: entrypoint.sh::configure_pi_subagent_defaults --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-216: startup disables subagent mid-run updates for new and restored homes without changing other preferences) -->
 2. Invalid configuration remains unchanged; startup warns without disclosing configuration contents. <!-- @impl: entrypoint.sh::configure_pi_subagent_defaults --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-216: invalid subagent preferences are preserved without exposing their contents) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-216 AC2: unsafe filesystem entries are preserved with a sanitized startup warning) -->
-
 3. Routine successful completions stay in model context and history without appearing in Chat or Terminal. Actionable notices and unsuccessful outcomes remain visible. <!-- @impl: scripts/patch-pi-subagents-notifications.mjs::patchPiSubagentsNotifications --> <!-- @test: host/__tests__/pi-subagents-notifications.test.js (REQ-AGENT-053: queued parent follow-ups cannot starve completion past the next safe turn) --> <!-- @test: host/__tests__/pi-subagents-notifications.test.js (#57: actionable completion nudges retain visibility and their payloads) -->
+
 **Constraints:**
 
 - Native completion results and parent questions remain available.

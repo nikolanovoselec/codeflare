@@ -119,10 +119,13 @@ In **Vibe**, Dashboard **New Session** starts Pi Chat directly. Returning to Das
 
 #### Check desktop and mobile layout
 
+Use these checks for [REQ-AGENT-272](../../sdd/spec/agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff).
+
 - With Vibe Chat open, compare the outer iframe and the single Codeflare session header. Their left and right edges match, the header sits immediately above the frame, and the pair is centered in the workspace.
 - After subtracting the header height, allow 1440 × 900 CSS px and expect an 800 × 720 frame at rest. Repeat with 900 × 1600 CSS px and expect 720 × 1200. Together these exercise the percentage and both caps.
-- On phones, verify the header and frame fill the available width and the frame uses the space below the header with no outer gutter, border, or rounding.
-- In other narrow or short views, expect 12 px gutters plus safe-area insets, subject to the size caps.
+- At 640 CSS px viewport width, verify the header and frame fill the width and Chat fills the remaining height with no outer gutter, border, or rounding. At 641 px, verify the phone override no longer applies.
+- Above the phone breakpoint, compare workspace widths of 760 and 761 CSS px at a height above 480 px. Expect 12 px gutters plus safe-area insets at 760 px and proportional sizing at 761 px.
+- With workspace width above 760 px, compare workspace heights of 480 and 481 CSS px. Expect gutters at 480 px and proportional sizing at 481 px. Both cases retain the size caps.
 - In the narrower header, verify Profile overflow actions and keyboard focus remain usable. Select Code and verify focus returns to the same mode trigger once Code attaches.
 - Confirm the composer and controls stay reachable without a second page scrollbar at rest, with the mobile keyboard open, and with browser zoom.
 - Confirm the regular Dashboard, startup, and Code/Terminal layouts are unchanged. On returning to the same running Chat from Dashboard, confirm it reappears in the panel without reloading.
@@ -261,11 +264,11 @@ In both Vibe and Code, measure the **+ New Session** button on desktop, tablet, 
 
 Use an authorized account with GitHub enabled and select **Vibe**. Check [drawer disclosure](../../sdd/spec/github.md#req-github-321-vibe-dashboard-browser-disclosure) and [responsive layout](../../sdd/spec/github.md#req-github-323-responsive-vibe-dashboard-layout). On desktop and tablet, open the drawer and verify GitHub stacks above Storage beside the summary. Close it and verify that, with room to spare, the card is 390 CSS px wide, the full Codeflare label is readable, and GitHub Details sits directly above Storage Usage when present.
 
-With a connected account, verify that clicking `@username` opens the profile in a new tab. For the repository fallback, use an authorized fixture with a settled owned-counts response of `{"counts":null}` and at least four loaded, accessible repositories with distinct, known `updated_at` values. Confirm the loading notice is gone and no verified count is shown; a pending request or a verified public-only count does not qualify.
+With a connected account, verify that clicking `@username` opens the profile in a new tab. For [Vibe repository shortcuts](../../sdd/spec/github.md#req-github-327-vibe-repository-shortcuts), use an authorized fixture with a settled owned-counts response of `{"counts":null}` and at least four loaded, accessible repositories with distinct, known `updated_at` values. Confirm the loading notice is gone and no verified count is shown; a pending request or a verified public-only count does not qualify.
 
 Use an input list not already in newest-first order. For example, load four test repos with `updated_at` values `2025-12-01T00:00:00Z`, `2026-01-01T00:00:00Z`, `2026-03-01T00:00:00Z`, and `2026-02-01T00:00:00Z`, in that order. Verify **Recently updated** shows exactly the March, February, and January repos in that order, excluding December. Open a repo link and verify the intended GitHub page opens in a new tab without launching a session.
 
-With separate authorization to start and clone into a disposable Vibe workspace, click **Start Chat** for one shortcut. Verify a new Vibe Chat opens. In its workspace, check that the expected clone directory is the root of a Git checkout and its `origin` matches the selected `owner/repo`. A selected repo or a clone request alone does not pass. Record any case without the required fixture or authorization as unexercised.
+With separate authorization, use a disposable Vibe workspace and a repository with a known default branch and a distinguishable nondefault branch. Click **Start Chat** and verify a new Vibe Chat opens. After restore, check that the clone directory is the Git checkout root, its `origin` matches the selected `owner/repo`, and its checked-out branch matches the known default. A selected repo or a clone request alone does not pass. Record any case without the required fixture or authorization as unexercised.
 
 On mobile, test below 600 CSS px and again from 600 through 640 CSS px. Verify only one browser is visible. Flip in each direction using the keyboard. Verify the incoming face animates, focus moves to its flip control, and Tab cannot enter the inactive face. Escape closes the drawer and returns focus to its grip. Verify the closed browsers cannot receive focus.
 
