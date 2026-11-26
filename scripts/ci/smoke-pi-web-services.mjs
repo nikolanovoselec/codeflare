@@ -119,19 +119,23 @@ async function closeAndCheckReaping() {
   assert.deepEqual(children(), []);
 }
 
-async function verifyPackageListFailureDiagnostic() {
+async function verifyPackageListFailureDiagnostic(shutdownOverlaps = false) {
   services = createPiWebServices(options);
   const originalFetch = globalThis.fetch;
   const originalWarn = console.warn;
   const diagnostics = [];
   let pids = [];
   let childrenAtWarning;
+  let closing;
   globalThis.fetch = async (url, ...args) => {
     if (String(url) !== `http://127.0.0.1:${PI_WEB_PORT}/api/pi-packages`) return originalFetch(url, ...args);
     const health = await services.request('/api/sessiond/health');
     assert.equal(health.activeSessions, 0);
     pids = children();
-    return new Response('private fixture body must not be logged', { status: 503 });
+    const body = shutdownOverlaps ? new ReadableStream({
+      cancel() { closing = services.close(); },
+    }) : 'private fixture body must not be logged';
+    return new Response(body, { status: 503 });
   };
   console.warn = (...args) => {
     const line = args.join(' ');
@@ -141,7 +145,12 @@ async function verifyPackageListFailureDiagnostic() {
   try {
     await assert.rejects(services.start(), /private API returned 503/);
     assert.equal(pids.length, 2);
-    assert.deepEqual(childrenAtWarning, pids, 'report the failure before reaping stock children');
+    if (shutdownOverlaps) {
+      assert.ok(closing, 'begin shutdown while handling the independent HTTP failure');
+      await closing;
+    } else {
+      assert.deepEqual(childrenAtWarning, pids, 'report the failure before reaping stock children');
+    }
     assert.deepEqual(children(), [], 'failed start must reap both stock children');
     assert.deepEqual(listeners(), [], 'failed start must release the gateway');
   } finally {
@@ -154,7 +163,12 @@ async function verifyPackageListFailureDiagnostic() {
   assert.equal(records.length, 1);
   const { elapsedMs, ...record } = JSON.parse(records[0].slice('[pi-web] service boot failed '.length));
   assert.ok(Number.isFinite(elapsedMs) && elapsedMs >= 0);
-  assert.deepEqual(record, { operation: 'package-list', httpStatus: 503 });
+  if (shutdownOverlaps) {
+    assert.equal(record.operation, 'package-list');
+    assert.equal(record.httpStatus, 503);
+  } else {
+    assert.deepEqual(record, { operation: 'package-list', httpStatus: 503 });
+  }
 }
 
 async function verifyChildExitDiagnostic() {
@@ -189,7 +203,9 @@ async function verifyChildExitDiagnostic() {
   assert.equal(records.length, 1);
   const { elapsedMs, ...record } = JSON.parse(records[0].slice(prefix.length));
   assert.ok(Number.isFinite(elapsedMs) && elapsedMs >= 0);
-  assert.deepEqual(record, { operation: 'service-health', role: 'sessiond', signal: 'SIGKILL' });
+  const { httpStatus, ...childFailure } = record;
+  assert.deepEqual(childFailure, { operation: 'service-health', role: 'sessiond', signal: 'SIGKILL' });
+  assert.ok(httpStatus === undefined || (Number.isInteger(httpStatus) && httpStatus >= 100 && httpStatus <= 599));
 }
 
 async function verifyIntentionalShutdownIsQuiet() {
@@ -243,6 +259,7 @@ try {
   await closeAndCheckReaping();
 
   await verifyPackageListFailureDiagnostic();
+  await verifyPackageListFailureDiagnostic(true);
   await verifyChildExitDiagnostic();
   await verifyIntentionalShutdownIsQuiet();
 

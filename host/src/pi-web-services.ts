@@ -17,6 +17,8 @@ const origin = `http://127.0.0.1:${PI_WEB_PORT}`;
 const bootErrnos = new Set(['EACCES', 'EADDRINUSE', 'EEXIST', 'EISDIR', 'ENOENT', 'ENOSPC', 'ENOTDIR', 'EPERM', 'EROFS']);
 const bootSignals = new Set(['SIGABRT', 'SIGILL', 'SIGKILL', 'SIGSEGV', 'SIGTERM']);
 
+class StockBootCancelled extends Error {}
+
 class StockApiError extends Error {
   constructor(readonly status: number) {
     super(`Stock pi-web private API returned ${status}`);
@@ -69,6 +71,7 @@ export function createPiWebServices(options: {
       if (await check()) return;
       await sleep(200);
     }
+    if (shuttingDown) throw new StockBootCancelled('Stock pi-web startup did not settle');
     throw new Error('Stock pi-web startup did not settle');
   }
 
@@ -104,7 +107,7 @@ export function createPiWebServices(options: {
     const mark = (operation: string) => { diagnostic.operation = operation; };
     mark('profile-restore');
     await until(options.profileRestored, 120_000);
-    if (shuttingDown) throw new Error('Container is stopping');
+    if (shuttingDown) throw new StockBootCancelled('Container is stopping');
     // The stock daemon provisions packages before the gateway becomes healthy.
     // Reject a known port conflict before that startup can modify the profile.
     mark('port-probe');
@@ -115,7 +118,7 @@ export function createPiWebServices(options: {
         probe.close(error => error ? reject(error) : resolve());
       });
     });
-    if (shuttingDown) throw new Error('Container is stopping');
+    if (shuttingDown) throw new StockBootCancelled('Container is stopping');
     mark('sdk-check');
     const piPackage = managedPiPackage();
     mark('profile-settings');
@@ -240,7 +243,7 @@ export function createPiWebServices(options: {
         const startedAt = performance.now();
         const diagnostic: { operation: string; healthHttpStatus?: number } = { operation: 'profile-restore' };
         starting = boot(diagnostic).catch(async (error: unknown) => {
-          if (!shuttingDown) {
+          if (!(error instanceof StockBootCancelled)) {
             const stopped = processes.find(({ child, running, spawnErrno }) =>
               !running || spawnErrno !== undefined || child.exitCode !== null || child.signalCode !== null);
             const errno = (error as NodeJS.ErrnoException | undefined)?.code ?? stopped?.spawnErrno;
