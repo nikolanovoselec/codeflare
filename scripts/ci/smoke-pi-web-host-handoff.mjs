@@ -552,11 +552,6 @@ export default function (pi) {
         text(messages(readFileSync(path, 'utf8')).at(-1)?.content) === reply);
       assert.deepEqual(calls, [seed]);
     }
-    if (retryOnly) {
-      // Start the retry cases with a real, idle Chat writer and its saved reply.
-      await qualifyRetry([seed]);
-      return;
-    }
     const saved = readFileSync(path, 'utf8');
     const requestId = randomUUID();
     assert.equal((await prompt(held, ambiguous ? 503 : 200)).accepted, ambiguous ? undefined : true);
@@ -685,7 +680,7 @@ export default function (pi) {
           current.terminalTicket !== previousTicket && current;
       });
       const retryId = randomUUID();
-      await reopenTerminal(cwd, nextTicket, reopened ?? chat(), readSwitch, async stdin => {
+      await reopenTerminal(cwd, nextTicket, reopened, readSwitch, async stdin => {
         stdin.write(`\x1b[200~${handled}\x1b[201~\r`);
         await until('native input hook entered', () => existsSync(nativeParked));
         await api('/_switch', 202, { generation, requestId: retryId, target: 'chat' });
