@@ -684,7 +684,7 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
     const allowedNames = ['read', 'graphify_query'];
     for (const workflowToolPolicy of [
       { kind: 'automatic', allowedNames, resolved: true },
-      { kind: 'explicit', desiredNames: allowedNames, allowedNames, resolved: true },
+      { kind: 'explicit', desiredNames: [...allowedNames, 'bash'], allowedNames, resolved: true },
     ]) {
       pi.setActiveTools(['read', 'bash', 'edit', 'goal_progress']);
       handlers.get('before_agent_start')({}, {
