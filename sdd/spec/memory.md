@@ -1236,8 +1236,8 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 
 **Dependencies:** [REQ-MEM-015](#req-mem-015-pi-extraction-transcript-visibility-and-child-session-guard)
 
-**Verification:** Manual: [Chat and Terminal visibility](../../documentation/lanes/vault.md#verify-extraction-visibility-in-chat-and-terminal). Retry visibility in both clients remains unverified: there is no supported disposable retry fixture.
+**Verification:** Manual: [Chat and Terminal visibility](../../documentation/lanes/vault.md#verify-extraction-visibility-in-chat-and-terminal)
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
