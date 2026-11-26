@@ -1,9 +1,10 @@
 import { Component, Show, For, onMount, onCleanup, createSignal, createMemo, createEffect, createRenderEffect, createUniqueId, createResource } from 'solid-js';
 import PiWorkspaceMode, { type PiWorkspaceModeBinding } from './PiWorkspaceMode';
 import ConnectCard from './github/ConnectCard';
+import ClonePicker from './github/ClonePicker';
 import '../styles/github-panel.css';
 import { Portal } from 'solid-js/web';
-import { mdiXml, mdiCogOutline, mdiShieldAccount, mdiAccountOutline, mdiRocketLaunchOutline, mdiChartBar, mdiLogout, mdiFlipVertical, mdiReflectHorizontal, mdiGithub, mdiChevronDoubleRight, mdiChevronDoubleLeft, mdiChevronDoubleUp, mdiChevronDoubleDown } from '@mdi/js';
+import { mdiXml, mdiCogOutline, mdiShieldAccount, mdiAccountOutline, mdiRocketLaunchOutline, mdiChartBar, mdiLogout, mdiFlipVertical, mdiReflectHorizontal, mdiGithub, mdiSourceRepository, mdiChevronDoubleRight, mdiChevronDoubleLeft, mdiChevronDoubleUp, mdiChevronDoubleDown } from '@mdi/js';
 import Icon from './Icon';
 import IconButton from './ui/IconButton';
 import type { SessionWithStatus, AgentType, TabConfig, PiSurface } from '../types';
@@ -15,6 +16,7 @@ import { getGravatarUrl, gravatarExists } from '../lib/gravatar';
 import SessionStatCard from './SessionStatCard';
 import SessionContextMenu from './SessionContextMenu';
 import StatCards from './StatCards';
+import { StatCard, StatCardMetric } from './StatCard';
 import StorageBrowser from './StorageBrowser';
 import GitHubPanel from './github/GitHubPanel';
 import FilePreview from './FilePreview';
@@ -29,7 +31,8 @@ import { terminalWorkspaceStore } from '../stores/terminal-workspace';
 import { createTerminalViewportClass } from '../lib/mobile';
 import { measureHeaderActions, measureProfileMenu } from '../lib/header-fit';
 import { githubStore } from '../stores/github';
-import { getGithubOwnedRepoCounts } from '../api/github';
+import { getGithubOwnedRepoCounts, type GithubRepo } from '../api/github';
+import { formatRepoAge } from '../lib/format';
 import { consumeGithubConnectReturn } from '../lib/github-connect-return';
 import { getBrowserTimezone, syncBrowserTimezone } from '../lib/timezone-sync';
 import { MULTIVIEW_ICON } from '../lib/terminal-config';
@@ -86,11 +89,25 @@ const Dashboard: Component<DashboardProps> = (props) => {
     return result && result.login === countAccount() && !ownedRepoCounts.loading ? result.counts : undefined;
   };
   const countsLoading = () => !!countAccount() && ownedRepoCounts.loading;
+  const runningCloneTargets = () => sessionStore.sessions.some(session => session.status === 'running');
+  const [repoClonePicker, setRepoClonePicker] = createSignal<{ repo: GithubRepo; anchor: HTMLButtonElement }>();
+  const knownEmptyRepos = () => githubStore.page > 0 && !githubStore.loading && !githubStore.error
+    && !githubStore.hasMore && githubStore.repos.length === 0;
+  const visibleRepoCounts = () => {
+    const counts = countsForAccount();
+    return knownEmptyRepos() && !Object.values(counts ?? {}).some(value => value != null && value > 0) ? undefined : counts;
+  };
   const recentRepos = createMemo(() => githubStore.repos
     .map(repo => ({ repo, updated: Date.parse(repo.updated_at) }))
     .filter(item => Number.isFinite(item.updated))
     .sort((a, b) => b.updated - a.updated)
     .slice(0, 3).map(({ repo }) => repo));
+  createEffect(() => {
+    const selected = repoClonePicker();
+    if (selected && (!vibe() || !githubStore.connected || visibleRepoCounts() || !recentRepos().includes(selected.repo))) {
+      setRepoClonePicker(undefined);
+    }
+  });
   const [browsersOpen, setBrowsersOpen] = createSignal(false);
   let browserPull: HTMLButtonElement | undefined;
   let dashboard: HTMLDivElement | undefined;
@@ -736,33 +753,48 @@ const Dashboard: Component<DashboardProps> = (props) => {
                   <div class="github-return-error" role="status">{message()}</div>
                 )}</Show>
                 <Show when={githubStore.enabled}>
-                  <div class="stat-card">
-                    <Show when={githubStore.connected} fallback={<ConnectCard compact />}>
-                      <div class="stat-card__header">
-                        <Icon path={mdiGithub} size={14} class="stat-card__icon" aria-hidden="true" />
-                        <Show when={githubStore.login} fallback={<span class="stat-card__title type-section-header">GitHub</span>}>
-                          {login => (
-                            <a class="stat-card__title type-section-header dashboard-github-card__link"
-                              href={`https://github.com/${encodeURIComponent(login())}`} target="_blank" rel="noopener noreferrer">@{login()}</a>
-                          )}
-                        </Show>
-                      </div>
-                      <Show when={countsForAccount()} fallback={
+                  <Show when={githubStore.connected} fallback={<div class="stat-card"><ConnectCard compact /></div>}>
+                    <StatCard icon={mdiGithub} title={
+                      <Show when={githubStore.login} fallback={<span class="stat-card__title type-section-header">GitHub</span>}>
+                        {login => (
+                          <a class="stat-card__title type-section-header dashboard-github-card__link"
+                            href={`https://github.com/${encodeURIComponent(login())}`} target="_blank" rel="noopener noreferrer">@{login()}</a>
+                        )}
+                      </Show>
+                    }>
+                      <Show when={visibleRepoCounts()} fallback={
                         <Show when={!countsLoading()} fallback={<span class="type-hint" role="status">Loading owned repository counts…</span>}>
-                          <Show when={recentRepos().length > 0}>
+                          <Show when={recentRepos().length > 0} fallback={
+                            <Show when={knownEmptyRepos()}>
+                              <div class="dashboard-github-card__empty">
+                                <span>NOTHING TO SHOW.</span>
+                                <span>GO BUILD SOMETHING.</span>
+                              </div>
+                            </Show>
+                          }>
                             <div class="stat-card__metrics">
-                              <span class="stat-card__metric-label">Recently updated</span>
                               <For each={recentRepos()}>{repo => (
-                                <div class="dashboard-github-card__repo">
-                                  <a class="dashboard-github-card__link" href={`https://github.com/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}`}
-                                    target="_blank" rel="noopener noreferrer">{repo.full_name}</a>
-                                  <button type="button" class="dashboard-github-card__start" aria-label={`Start Chat with ${repo.full_name}`}
-                                    disabled={sessionCreateDisabled() || sessionStore.preseedUpgradeFailed || sessionStore.isAtSessionLimit()}
-                                    onClick={async () => {
+                                <StatCardMetric label={
+                                  <a class="stat-card__metric-label dashboard-github-card__repo" href={`https://github.com/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}`}
+                                    target="_blank" rel="noopener noreferrer">
+                                    <Icon path={mdiSourceRepository} size={12} aria-hidden="true" />
+                                    <span>{repo.full_name}</span>
+                                  </a>
+                                } value={
+                                  <button type="button" class="stat-card__metric-value dashboard-github-card__age"
+                                    title="Clone into a session" aria-label={`Clone into a session: ${repo.full_name}`}
+                                    aria-haspopup={runningCloneTargets() ? 'dialog' : undefined}
+                                    aria-expanded={runningCloneTargets() ? repoClonePicker()?.repo.full_name === repo.full_name : undefined}
+                                    disabled={!runningCloneTargets() && (sessionCreateDisabled() || sessionStore.preseedUpgradeFailed || sessionStore.isAtSessionLimit())}
+                                    onClick={async event => {
+                                      if (runningCloneTargets()) {
+                                        setRepoClonePicker({ repo, anchor: event.currentTarget });
+                                        return;
+                                      }
                                       try { await props.onCreateSession('pi', undefined, 'chat', true, repo.full_name); }
                                       catch { /* The session store reports launch errors. */ }
-                                    }}>Start Chat</button>
-                                </div>
+                                    }}>{formatRepoAge(repo.updated_at)}</button>
+                                } />
                               )}</For>
                             </div>
                           </Show>
@@ -775,16 +807,22 @@ const Dashboard: Component<DashboardProps> = (props) => {
                             { label: 'Repos', value: counts().total },
                           ]}>{row => (
                             <Show when={row.value != null}>
-                              <div class="stat-card__metric">
-                                <span class="stat-card__metric-label">{row.label}</span>
-                                <span class="stat-card__metric-value">{row.value}</span>
-                              </div>
+                              <StatCardMetric label={<span class="stat-card__metric-label">{row.label}</span>}
+                                value={<span class="stat-card__metric-value">{row.value}</span>} />
                             </Show>
                           )}</For>
                         </div>
                       )}</Show>
-                    </Show>
-                  </div>
+                      <Show when={repoClonePicker()} keyed>{({ repo, anchor }) => (
+                        <Portal>
+                          <ClonePicker repo={repo} anchorRef={anchor} onClose={() => {
+                            setRepoClonePicker(undefined);
+                            if (anchor.isConnected) anchor.focus();
+                          }} />
+                        </Portal>
+                      )}</Show>
+                    </StatCard>
+                  </Show>
                 </Show>
               </section>
             </Show>

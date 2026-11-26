@@ -2,3 +2,9 @@
 :host(status-bar[slot="status"]) .bar > span.context + span:nth-child(4) {
   display: none;
 }
+
+/* Hide stock SYSTEM transcript rows, not the dialog or the underlying entries. */
+:host(chat-view) article.msg.system,
+:host(chat-view) section.group-msg.system {
+  display: none;
+}

@@ -1180,6 +1180,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 1. In a fresh browser, the stock navigation pins Chat and Files only on both desktop and phone. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
 2. Reopening Chat preserves previously saved browser navigation choices. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions --> <!-- @impl: web-ui/src/components/PiWebChat.tsx::StockChatFrame --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (seeds stock navigation only when no browser preference exists (%s)) -->
 3. The stock Chat footer shows token and context usage without the USD display. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+4. Chat hides SYSTEM transcript rows from both live and saved history without changing the saved transcript. <!-- @manual: documentation/lanes/terminal-and-ide.md#verify-system-rows-are-hidden-in-chat -->
 
 **Constraints:** No stock Pi Web patch or change to the required Terminal plugin.
 
@@ -1187,7 +1188,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Dependencies:** [REQ-AGENT-274](#req-agent-274-stock-pi-chat-controls)
 
-**Verification:** Manual: [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout), [Stock controls](../../documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions)
+**Verification:** Manual: [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout), [Stock controls](../../documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions), [SYSTEM row visibility](../../documentation/lanes/terminal-and-ide.md#verify-system-rows-are-hidden-in-chat)
 
 **Status:** Planned
 

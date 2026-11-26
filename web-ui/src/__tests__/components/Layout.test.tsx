@@ -2507,7 +2507,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       } finally { finish(); await pending; }
     });
 
-    it('REQ-GITHUB-327: Start Chat creates a Vibe session with the selected clone target', async () => {
+    it('REQ-GITHUB-327: the age control starts a fresh Vibe session with the selected clone target', async () => {
       navigationRendering.realTerminalArea = true;
       navigationRendering.realDashboard = true;
       mockPreferences = { defaultPiSurface: 'chat' };
@@ -2529,7 +2529,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       });
       try {
         render(() => <Layout />);
-        const shortcut = await screen.findByRole('button', { name: 'Start Chat with team/newest' });
+        const shortcut = await screen.findByRole('button', { name: 'Clone into a session: team/newest' });
         vi.mocked(sessionStore.createSession).mockResolvedValueOnce(createMockSession({ id, status: 'stopped', agentType: 'pi', workspace: 'terminal' }) as SessionWithStatus);
         vi.mocked(sessionStore.startSession).mockResolvedValueOnce(undefined);
         fireEvent.click(shortcut);

@@ -4,6 +4,7 @@ import { mdiSourceBranch } from '@mdi/js';
 import Icon from '../Icon';
 import type { GithubRepo } from '../../api/github';
 import ClonePicker from './ClonePicker';
+import { formatRepoAge } from '../../lib/format';
 
 interface RepoRowProps {
   repo: GithubRepo;
@@ -18,19 +19,6 @@ const RepoRow: Component<RepoRowProps> = (props) => {
 
   const isPrivate = () => props.repo.private;
   const visibilityLabel = () => props.repo.visibility || (isPrivate() ? 'private' : 'public');
-
-  const updatedLabel = () => {
-    const t = Date.parse(props.repo.updated_at);
-    if (Number.isNaN(t)) return props.repo.updated_at;
-    const diffMs = Date.now() - t;
-    const day = 86_400_000;
-    if (diffMs < day) return 'today';
-    const days = Math.floor(diffMs / day);
-    if (days < 30) return `${days}d ago`;
-    const months = Math.floor(days / 30);
-    if (months < 12) return `${months}mo ago`;
-    return `${Math.floor(months / 12)}y ago`;
-  };
 
   return (
     <div
@@ -63,7 +51,7 @@ const RepoRow: Component<RepoRowProps> = (props) => {
         {visibilityLabel()}
       </span>
       <span class="github-repo-updated" title={props.repo.updated_at}>
-        {updatedLabel()}
+        {formatRepoAge(props.repo.updated_at)}
       </span>
       <button
         type="button"

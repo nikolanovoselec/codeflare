@@ -10,7 +10,7 @@
 // Do not mount real profiles, caches or credentials. Restarting this container is not a fresh placement.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
+import { cpSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 
 const read = path => readFileSync(path, 'utf8');
@@ -30,7 +30,28 @@ assert.deepEqual(read('/proc/net/dev').trim().split('\n').slice(2).map(line => l
 const { createPiWebServices, managedPiPackage, PI_WEB_PORT } = await import('/app/host/dist/pi-web-services.js');
 const webRoot = '/opt/codeflare/pi-web';
 const webName = '@jmfederico/pi-web';
-const webVersion = json(join(webRoot, 'node_modules', webName, 'package.json')).version;
+const manifestPath = join(webRoot, 'node_modules', webName, 'package.json');
+let webVersion;
+try {
+  webVersion = json(manifestPath).version;
+} catch (error) {
+  if (error?.code === 'EACCES') {
+    const credentials = read('/proc/self/status').split('\n')
+      .filter(line => /^(Uid|Gid|Groups|CapEff|NoNewPrivs):/.test(line));
+    let path = '/';
+    const components = manifestPath.split('/').filter(Boolean).map(component => {
+      path = join(path, component);
+      try {
+        const { uid, gid, mode } = lstatSync(path);
+        return { path, uid, gid, mode: mode.toString(8) };
+      } catch (cause) {
+        return { path, code: cause.code };
+      }
+    });
+    console.error(JSON.stringify({ diagnostic: 'pi-web-manifest-permissions', credentials, components }));
+  }
+  throw error;
+}
 const lock = json(join(webRoot, 'package-lock.json')).packages;
 assert.equal(webVersion, lock[''].dependencies[webName]);
 assert.equal(webVersion, lock[`node_modules/${webName}`].version);

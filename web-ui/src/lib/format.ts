@@ -30,6 +30,21 @@ export function formatRelativeTime(date: Date | undefined): string {
   return `${month} ${day}, ${date.getFullYear()}`;
 }
 
+/** Compact GitHub repository age, shared by the browser and Dashboard. */
+export function formatRepoAge(updatedAt: string): string {
+  const timestamp = Date.parse(updatedAt);
+  if (Number.isNaN(timestamp)) return updatedAt;
+  const minutes = Math.floor((Date.now() - timestamp) / 60_000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  const months = Math.floor(days / 30);
+  return months < 12 ? `${months}mo ago` : `${Math.floor(months / 12)}y ago`;
+}
+
 /**
  * Format a duration in seconds to a human-readable string.
  * 0 → "0s", 59 → "59s", 60 → "1m", 3600 → "1h 0m", 7260 → "2h 1m"

@@ -22,10 +22,10 @@ export function selectHostGroup(group, directory = HOST_TESTS) {
   for (const [index, name] of files.entries()) {
     // Keep the native modulo-five owners, including the persistence file's
     // index in the baseline, and move only the measured whole files.
-    // Run 45873296064: review enforcement and Herdr launcher weighed down shards 4 and 3.
+    // Move the OpenVSCode suite off the slowest Host leg in run 45879732842.
     const owner = name === 'entrypoint-rclone-filters.test.js' ? 6
       : name === 'enforce-review-spawn.test.js' ? 2
-      : name === 'herdr-launcher.test.js' ? 5
+      : ['herdr-launcher.test.js', 'entrypoint-openvscode.test.js'].includes(name) ? 5
       : name === 'pi-lockstep.test.js' ? 1 : index % 5 + 1;
     groups[owner - 1].push(name);
   }

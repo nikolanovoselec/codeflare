@@ -1185,7 +1185,7 @@ jobs:
             '
 
       - name: Qualify the real stock MCP extension and public client
-        if: matrix.lane == 'services'
+        if: matrix.lane == 'handoff-retry'
         run: node scripts/qualify-pi-mcp.mjs
 
   host-tests:

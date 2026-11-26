@@ -24,6 +24,11 @@
   border-color: var(--color-border-default);
 }
 
+/* Keep the same footprint when a card shows fewer than three metric rows. */
+.stat-card--three-metrics {
+  min-block-size: calc(32px + var(--space-2) + 2 * var(--space-3) + 6 * var(--space-1) + 4.2 * var(--text-xs));
+}
+
 /* Card header: icon + title */
 .stat-card__header {
   display: flex;

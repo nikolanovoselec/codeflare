@@ -117,6 +117,12 @@ In **Vibe**, Dashboard **New Session** starts Pi Chat directly. Returning to Das
 - Use the [packaged Host handoff smoke](../../scripts/ci/smoke-pi-web-host-handoff.mjs) for the rapid-return race. It keeps the retiring registration live, then checks that the grant is unchanged and the attempt remains retryable. A manual timing attempt does not replace this check.
 - The [packaged launcher smoke](../../scripts/ci/smoke-pi-web-launchers.mjs) interrupts a pending launch, verifies a late claim cannot use the revoked grant, and reopens the transcript with a fresh invocation. It also verifies that a claim which won first prevents replacement.
 
+#### Verify SYSTEM rows are hidden in Chat
+
+Open a disposable saved conversation containing a SYSTEM row and ordinary user and assistant replies. Verify that Chat hides the entire SYSTEM row, not just its heading, while the ordinary replies remain visible.
+
+Trigger a live SYSTEM-row message in the same fixture and repeat the check after reload. Confirm the saved entries were not removed. Verify that an independent native question dialog still opens and can be answered. Record any unexercised case separately.
+
 #### Check desktop and mobile layout
 
 Use these checks for [REQ-AGENT-272](../../sdd/spec/agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff).
@@ -266,9 +272,13 @@ Use an authorized account with GitHub enabled and select **Vibe**. Check [drawer
 
 With a connected account, verify that clicking `@username` opens the profile in a new tab. For [Vibe repository shortcuts](../../sdd/spec/github.md#req-github-327-vibe-repository-shortcuts), use an authorized fixture with a settled owned-counts response of `{"counts":null}` and at least four loaded, accessible repositories with distinct, known `updated_at` values. Confirm the loading notice is gone and no verified count is shown; a pending request or a verified public-only count does not qualify.
 
-Use an input list not already in newest-first order. For example, load four test repos with `updated_at` values `2025-12-01T00:00:00Z`, `2026-01-01T00:00:00Z`, `2026-03-01T00:00:00Z`, and `2026-02-01T00:00:00Z`, in that order. Verify **Recently updated** shows exactly the March, February, and January repos in that order, excluding December. Open a repo link and verify the intended GitHub page opens in a new tab without launching a session.
+Use an input list not already in newest-first order. For example, load four test repos with `updated_at` values `2025-12-01T00:00:00Z`, `2026-01-01T00:00:00Z`, `2026-03-01T00:00:00Z`, and `2026-02-01T00:00:00Z`, in that order. Verify the card shows exactly the March, February, and January repos in that order, excluding December. Verify the repository icon and age-only labels. Open a repo link and verify the intended GitHub page opens in a new tab without launching a session.
 
-With separate authorization, use a disposable Vibe workspace and a repository with a known default branch and a distinguishable nondefault branch. Click **Start Chat**, then **Open**. While **Restoring repositories…** is still visible for that clone, verify the Chat composer accepts a harmless prompt. If the clone finishes before this can be observed, mark the ordering check unexercised.
+With separate authorization, use a disposable Vibe workspace and a repository with a known default branch and a distinguishable nondefault branch. With no running session, hover an age label for **Clone into a session**, then click it and choose **Open**. While **Restoring repositories…** is still visible for that clone, verify the Chat composer accepts a harmless prompt. If the clone finishes before this can be observed, mark the ordering check unexercised.
+
+With a disposable session running, click the age label and verify the Clone picker offers that session and a new session. Exercise both paths in separate runs; check that the clone notice and resulting checkout belong to the selected target.
+
+Compare the GitHub and Storage card bounds in the same viewport. Then use a successfully loaded empty list with no positive owned count. The bounds stay the same and the black labels read **NOTHING TO SHOW.** and **GO BUILD SOMETHING.** on two lines.
 
 After restore, check that the clone directory is the Git checkout root, its `origin` matches the selected `owner/repo`, and its checked-out branch matches the known default. A selected repo or a clone request alone does not pass. Record any case without the required fixture or authorization as unexercised.
 

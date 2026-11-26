@@ -96,7 +96,7 @@ describe('host test inventory', () => {
       if (name === PERSISTENCE) continue;
       // Node v26.8.2 runner.js: index % shard.total === shard.index - 1.
       const owner = name === 'enforce-review-spawn.test.js' ? 2
-        : name === 'herdr-launcher.test.js' ? 5
+        : ['herdr-launcher.test.js', 'entrypoint-openvscode.test.js'].includes(name) ? 5
         : name === 'pi-lockstep.test.js' ? 1 : index % 5 + 1;
       assert.ok(groups[owner - 1].includes(name), `${name} belongs to group ${owner}`);
     }

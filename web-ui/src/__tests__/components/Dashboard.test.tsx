@@ -65,6 +65,8 @@ vi.mock('../../components/github/GitHubPanel', () => ({
   )
 }));
 
+const initialRepoPage = vi.hoisted(() => ({ page: 0, hasMore: false, loading: false, error: null as string | null }));
+
 // Controllable GitHub enablement for the right-column face logic. `enabled` is a real
 // reactive signal so a test can flip it DURING mount (e.g. from inside loadStatus) and
 // watch the GitHub face appear — proving the deadlock fix end-to-end, not just the call.
@@ -74,6 +76,7 @@ vi.mock('../../stores/github', async () => {
   const [login, setLogin] = createSignal<string>();
   const [source, setSource] = createSignal<'app' | 'oauth'>('oauth');
   const [repos, setRepos] = createSignal<GithubRepo[]>([]);
+  const [repoPage, setRepoPage] = createSignal(initialRepoPage);
   return {
     githubStore: {
       get enabled() { return enabled(); },
@@ -81,7 +84,15 @@ vi.mock('../../stores/github', async () => {
       get login() { return login(); },
       get source() { return login() ? source() : undefined; },
       get repos() { return repos(); },
-      _setEnabled: (v: boolean) => { setEnabled(v); if (!v) { setLogin(undefined); setSource('oauth'); setRepos([]); } },
+      get page() { return repoPage().page; },
+      get hasMore() { return repoPage().hasMore; },
+      get loading() { return repoPage().loading; },
+      get error() { return repoPage().error; },
+      _setEnabled: (v: boolean) => {
+        setEnabled(v);
+        if (!v) { setLogin(undefined); setSource('oauth'); setRepos([]); setRepoPage(initialRepoPage); }
+      },
+      _setRepoPage: setRepoPage,
       _setSource: setSource,
       _setLogin: setLogin,
       _setRepos: setRepos,
@@ -124,6 +135,7 @@ vi.mock('../../components/SessionLimitPopup', () => ({
 
 vi.mock('../../stores/session', async () => {
   const { createSignal } = await vi.importActual<typeof import('solid-js')>('solid-js');
+  const [sessions, setSessions] = createSignal<SessionWithStatus[]>([]);
   const [r2Ready, setR2Ready] = createSignal(true);
   const [statusUnavailable, setStatusUnavailable] = createSignal(false);
   availabilityMock.set = setStatusUnavailable;
@@ -141,7 +153,9 @@ vi.mock('../../stores/session', async () => {
   let defaultWorkspace: 'terminal' | 'vscode' | undefined;
   return {
     sessionStore: {
-      get sessions() { return []; },
+      get sessions() { return sessions(); },
+      _setSessions: setSessions,
+      cloneRepositoryIntoSession: vi.fn().mockResolvedValue({ outcome: 'cloned', path: '/home/user/workspace/newest' }),
       get maxSessions() { return _maxSessions; },
       get r2Ready() { return r2Ready(); },
       get statusUnavailable() { return statusUnavailable(); },
@@ -262,6 +276,18 @@ vi.mock('../../stores/terminal-workspace', () => ({
   },
 }));
 
+const githubFixture = githubStore as typeof githubStore & {
+  _setRepos: (repos: GithubRepo[]) => void;
+  _setRepoPage: (page: typeof initialRepoPage) => void;
+};
+const { _setSessions: setStoreSessions } = sessionStore as typeof sessionStore & {
+  _setSessions: (sessions: SessionWithStatus[]) => void;
+};
+const newestRepo: GithubRepo = {
+  name: 'newest', full_name: 'team/newest', owner: 'team', private: true,
+  visibility: 'private', default_branch: 'trunk', updated_at: '2026-03-04T11:48:00Z',
+};
+
 const mockSessions: SessionWithStatus[] = [
   { id: 'sess1', name: 'Test Session 1', createdAt: '2024-01-15T10:00:00Z', lastAccessedAt: '2024-01-15T12:00:00Z', status: 'running' },
   { id: 'sess2', name: 'Test Session 2', createdAt: '2024-01-14T10:00:00Z', lastAccessedAt: '2024-01-14T12:00:00Z', status: 'stopped' },
@@ -337,6 +363,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     (sessionStore as any)._setSessionMode('advanced');
     (sessionStore as any)._setHerdrEnabled(false);
     (sessionStore as any)._setDefaultWorkspace();
+    setStoreSessions([]);
     showRealCreateDialog = false;
     (sessionStore as any)._setManagedReleaseStatus(null);
     (sessionStore as any)._setManagedReleaseProgress(null);
@@ -675,6 +702,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
   it('REQ-GITHUB-321: shows verified private, public and total repository counts in Vibe', async () => {
     (githubStore as any)._setEnabled(true);
     (githubStore as any)._setLogin('octocat');
+    githubFixture._setRepoPage({ ...initialRepoPage, page: 1 });
     const counts = vi.spyOn(githubApi, 'getGithubOwnedRepoCounts').mockResolvedValue({
       login: 'Octocat', counts: { private: 8, public: 3, total: 11 },
     });
@@ -685,6 +713,8 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
         const name = await details.findByText(label, { exact: true });
         expect(within(name.parentElement!).getByText(value, { exact: true })).toBeVisible();
       }
+      expect(details.queryByText('NOTHING TO SHOW.')).not.toBeInTheDocument();
+      expect(details.queryByText('GO BUILD SOMETHING.')).not.toBeInTheDocument();
     } finally { counts.mockRestore(); }
   });
 
@@ -711,9 +741,10 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     } finally { counts.mockRestore(); }
   });
 
-  it('REQ-GITHUB-321: shows the three latest loaded repository shortcuts and launches Chat only on the explicit action', async () => {
+  it('REQ-GITHUB-327: shows the three latest valid repository shortcuts with their relative ages and no Start Chat action', async () => {
     (githubStore as any)._setEnabled(true);
     (githubStore as any)._setLogin('octocat');
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-03-04T12:00:00Z'));
     const requestUrl = (input: RequestInfo | URL) => new URL(input instanceof Request ? input.url : input, window.location.href);
     const countsUrl = new URL('/api/github/owned-repo-counts', window.location.origin).href;
     const requests = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
@@ -721,47 +752,106 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
       if (url.href === countsUrl) return Response.json({ counts: null });
       throw new Error(`Unexpected request: ${url.pathname}${url.search}`);
     });
-    const repos: GithubRepo[] = [
-      { name: 'older', full_name: 'octocat/older', owner: 'octocat', private: false, visibility: 'public', default_branch: 'main', updated_at: '2025-12-01T00:00:00Z' },
-      { name: 'oldest', full_name: 'octocat/oldest', owner: 'octocat', private: false, visibility: 'public', default_branch: 'main', updated_at: '2026-01-01T00:00:00Z' },
-      { name: 'newest', full_name: 'team/newest', owner: 'team', private: true, visibility: 'private', default_branch: 'trunk', updated_at: '2026-03-01T00:00:00Z' },
-      { name: 'second', full_name: 'octocat/second', owner: 'octocat', private: true, visibility: 'private', default_branch: 'main', updated_at: '2026-02-01T00:00:00Z' },
-    ];
+    const repo = (name: string, updated_at: string): GithubRepo => ({
+      ...newestRepo, name, owner: 'octocat', full_name: `octocat/${name}`, updated_at,
+    });
     try {
       render(() => <Dashboard {...defaultProps} userName={undefined} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
       const details = within(screen.getByRole('region', { name: 'GitHub Details' }));
       await waitFor(() => expect(details.queryByText(/loading owned repository counts/i)).not.toBeInTheDocument());
-      expect(details.queryByRole('button', { name: /^Start Chat with / })).not.toBeInTheDocument();
-      (githubStore as typeof githubStore & { _setRepos: (repos: GithubRepo[]) => void })._setRepos(repos);
+      githubFixture._setRepos([
+        repo('older', '2026-02-28T12:00:00Z'), repo('third', '2026-03-01T12:00:00Z'), newestRepo,
+        repo('invalid', 'not a date'), repo('second', '2026-03-04T07:00:00Z'),
+      ]);
 
-      const actions = details.getAllByRole('button', { name: /^Start Chat with / });
-      expect(actions).toHaveLength(3);
-      expect(actions[0]).toHaveAccessibleName('Start Chat with team/newest');
-      expect(actions[1]).toHaveAccessibleName('Start Chat with octocat/second');
-      expect(actions[2]).toHaveAccessibleName('Start Chat with octocat/oldest');
-      const newest = details.getByRole('link', { name: /(?:team\/)?newest/ });
-      const second = details.getByRole('link', { name: /(?:octocat\/)?second/ });
-      expect(newest).toHaveAttribute('href', 'https://github.com/team/newest');
-      expect(newest).toHaveAttribute('target', '_blank');
-      expect(second).toHaveAttribute('href', 'https://github.com/octocat/second');
-      expect(second).toHaveAttribute('target', '_blank');
-      expect(details.queryByRole('link', { name: /older/ })).not.toBeInTheDocument();
+      const links = details.getAllByRole('link', { name: /\// });
+      expect(links.map(link => link.textContent)).toEqual(['team/newest', 'octocat/second', 'octocat/third']);
+      for (const [index, name, age] of [[0, 'team/newest', '12m ago'], [1, 'octocat/second', '5h ago'], [2, 'octocat/third', '3d ago']] as const) {
+        expect(links[index]).toHaveAttribute('href', `https://github.com/${name}`);
+        expect(links[index]).toHaveAttribute('target', '_blank');
+        const label = `Clone into a session: ${name}`;
+        const action = details.getByRole('button', { name: label });
+        expect(action).toHaveAttribute('aria-label', label);
+        expect(action).toHaveAttribute('title', 'Clone into a session');
+        expect(action).toHaveTextContent(age);
+      }
+      expect(details.queryByRole('button', { name: /Start Chat/i })).not.toBeInTheDocument();
+      expect(details.queryByText(/Start Chat/i)).not.toBeInTheDocument();
 
       // Suppress test-environment navigation, but let a click bubble to any card handler.
       const preventNavigation = (event: Event) => event.preventDefault();
       document.addEventListener('click', preventNavigation, { once: true });
-      try { fireEvent.click(newest); }
+      try { fireEvent.click(links[0]); }
       finally { document.removeEventListener('click', preventNavigation); }
       expect(defaultProps.onCreateSession).not.toHaveBeenCalled();
+      expect(screen.queryByRole('dialog', { name: 'Clone repository' })).not.toBeInTheDocument();
       // The existing verified count read is allowed; repo shortcuts add no GitHub API reads.
       const githubRequests = requests.mock.calls.map(([input]) => requestUrl(input))
         .filter(({ pathname }) => pathname.startsWith('/api/github/'))
         .map(({ href }) => href);
       expect(githubRequests).toEqual([countsUrl]);
+    } finally { requests.mockRestore(); clock.mockRestore(); }
+  });
 
-      fireEvent.click(actions[0]);
+  it('REQ-GITHUB-327: the age action starts a Vibe session with the repository when no session is running', async () => {
+    (githubStore as any)._setEnabled(true);
+    (githubStore as any)._setLogin('octocat');
+    githubFixture._setRepos([newestRepo]);
+    const stopped = mockSessions.filter(session => session.status === 'stopped');
+    setStoreSessions(stopped);
+    const counts = vi.spyOn(githubApi, 'getGithubOwnedRepoCounts').mockResolvedValue({ counts: null });
+    try {
+      render(() => <Dashboard {...defaultProps} sessions={stopped} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
+      const details = within(screen.getByRole('region', { name: 'GitHub Details' }));
+      fireEvent.click(await details.findByRole('button', { name: 'Clone into a session: team/newest' }));
       expect(defaultProps.onCreateSession).toHaveBeenCalledWith('pi', undefined, 'chat', true, 'team/newest');
-    } finally { requests.mockRestore(); }
+      expect(screen.queryByRole('dialog', { name: 'Clone repository' })).not.toBeInTheDocument();
+    } finally { counts.mockRestore(); }
+  });
+
+  it('REQ-GITHUB-327: the age action offers live and new sessions and clones into the selected live session', async () => {
+    (githubStore as any)._setEnabled(true);
+    (githubStore as any)._setLogin('octocat');
+    githubFixture._setRepos([newestRepo]);
+    setStoreSessions(mockSessions);
+    const counts = vi.spyOn(githubApi, 'getGithubOwnedRepoCounts').mockResolvedValue({ counts: null });
+    try {
+      render(() => <Dashboard {...defaultProps} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
+      const details = within(screen.getByRole('region', { name: 'GitHub Details' }));
+      fireEvent.click(await details.findByRole('button', { name: 'Clone into a session: team/newest' }));
+      const picker = within(await screen.findByRole('dialog', { name: 'Clone repository' }));
+      expect(picker.getByText('Clone into a running session')).toBeVisible();
+      expect(picker.getByText('Clone into a new session')).toBeVisible();
+      expect(picker.getByRole('button', { name: /^Pi\b/ })).toBeEnabled();
+      expect(picker.queryByRole('button', { name: /^Test Session 2\b/ })).not.toBeInTheDocument();
+      fireEvent.click(picker.getByRole('button', { name: /^Test Session 1\b/ }));
+      expect(sessionStore.cloneRepositoryIntoSession).toHaveBeenCalledWith({ repo: 'team/newest', sessionId: 'sess1' });
+      expect(screen.queryByRole('dialog', { name: 'Clone repository' })).not.toBeInTheDocument();
+      expect(defaultProps.onCreateSession).not.toHaveBeenCalled();
+    } finally { counts.mockRestore(); }
+  });
+
+  it.each([
+    initialRepoPage,
+    { ...initialRepoPage, page: 1, loading: true },
+    { ...initialRepoPage, page: 1, error: 'GitHub returned a server error' },
+    { ...initialRepoPage, page: 1, hasMore: true },
+  ])('REQ-GITHUB-327: only a settled empty repository list shows both empty-state lines (%#)', async page => {
+    (githubStore as any)._setEnabled(true);
+    (githubStore as any)._setLogin('octocat');
+    githubFixture._setRepoPage(page);
+    const counts = vi.spyOn(githubApi, 'getGithubOwnedRepoCounts').mockResolvedValue({ counts: null });
+    try {
+      render(() => <Dashboard {...defaultProps} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
+      const details = within(screen.getByRole('region', { name: 'GitHub Details' }));
+      await waitFor(() => expect(details.queryByText(/loading owned repository counts/i)).not.toBeInTheDocument());
+      expect(details.queryByText('NOTHING TO SHOW.')).not.toBeInTheDocument();
+      expect(details.queryByText('GO BUILD SOMETHING.')).not.toBeInTheDocument();
+
+      githubFixture._setRepoPage({ ...initialRepoPage, page: 1 });
+      expect(details.getByText('NOTHING TO SHOW.', { exact: true })).toBeVisible();
+      expect(details.getByText('GO BUILD SOMETHING.', { exact: true })).toBeVisible();
+    } finally { counts.mockRestore(); }
   });
 
   it('announces a GitHub authorization failure while the Vibe drawer stays closed', async () => {
