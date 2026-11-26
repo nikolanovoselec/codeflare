@@ -65,6 +65,7 @@ In **Vibe**, Dashboard **New Session** starts Pi Chat directly. Returning to Das
 - When the picker is available, choose Vibe or Code in the header before using a Dashboard card. The card menu retains lifecycle actions but has no Chat or Terminal override ([REQ-AGENT-276](../../sdd/spec/agents.md#req-agent-276-vibe-and-code-workspace-preference), AC5).
 - For [REQ-TERM-049](../../sdd/spec/terminal.md#req-term-049-shared-workspace-startup-progress), check that **Syncing workspace** stays active through verification, then advances to **Preparing environment**.
 - While waiting for Open, Vibe shows **Loading Chat** with the same one-decimal elapsed timer as the other startup steps and a loading icon that spins with default motion.
+- With a non-green accent, check that the active **Loading Chat** row uses the theme accent and turns green at **Ready to open**.
 - Repeat with reduced motion enabled: the timer still advances, but the icon does not spin.
 - Code shows **Connecting Terminal**. Only when Open is available does the final step say **Ready to open**.
 - In Standard and Pro where available, start Chat-first and Terminal-first in Classic. Send a synthetic message, Stop normally, then resume in the other surface. Only the selected primary opens the saved conversation.

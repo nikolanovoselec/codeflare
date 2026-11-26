@@ -171,6 +171,7 @@ const InitProgressComponent: Component<InitProgressProps> = (props) => {
               <li
                 class={`init-progress-stage init-progress-stage--${status()}`}
                 data-stage={stage.key}
+                data-loading-chat={stage.key === 'ready' && preparingChat() ? '' : undefined}
                 data-testid={`init-progress-step-${index()}`}
               >
                 <div class="init-progress-stage-row">
