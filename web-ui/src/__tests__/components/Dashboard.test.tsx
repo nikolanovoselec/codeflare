@@ -822,7 +822,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
       const picker = within(await screen.findByRole('dialog', { name: 'Clone repository' }));
       expect(picker.getByText('Clone into a running session')).toBeVisible();
       expect(picker.getByText('Clone into a new session')).toBeVisible();
-      expect(picker.getByRole('button', { name: /^Pi\b/ })).toBeEnabled();
+      expect(picker.getByRole('button', { name: /^Pi\s*Minimal, extensible coding harness$/ })).toBeEnabled();
       expect(picker.queryByRole('button', { name: /^Test Session 2\b/ })).not.toBeInTheDocument();
       fireEvent.click(picker.getByRole('button', { name: /^Test Session 1\b/ }));
       expect(sessionStore.cloneRepositoryIntoSession).toHaveBeenCalledWith({ repo: 'team/newest', sessionId: 'sess1' });
@@ -917,6 +917,11 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
       const publicLabel = await details.findByText('Public repos', { exact: true });
       expect(within(publicLabel.parentElement!).getByText('0', { exact: true })).toBeVisible();
       expect(details.queryByText(/^(?:Private repos|Repos|Unavailable)$/)).not.toBeInTheDocument();
+
+      githubFixture._setRepoPage({ ...initialRepoPage, page: 1 });
+      expect(details.getByText('NOTHING TO SHOW.')).toBeVisible();
+      expect(details.getByText('GO BUILD SOMETHING.')).toBeVisible();
+      expect(details.queryByText('Public repos', { exact: true })).not.toBeInTheDocument();
     } finally { counts.mockRestore(); }
   });
 

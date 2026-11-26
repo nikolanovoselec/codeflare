@@ -119,9 +119,9 @@ In **Vibe**, Dashboard **New Session** starts Pi Chat directly. Returning to Das
 
 #### Verify SYSTEM rows are hidden in Chat
 
-Open a disposable saved conversation containing a SYSTEM row and ordinary user and assistant replies. Verify that Chat hides the entire SYSTEM row, not just its heading, while the ordinary replies remain visible.
+For [REQ-AGENT-282](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults), the [stock browser fixture](../../scripts/ci/smoke-pi-web-system-rows.mjs) checks both SYSTEM row shapes and ordinary user and assistant rows. It does not test durable storage or a live producer.
 
-Trigger a live SYSTEM-row message in the same fixture and repeat the check after reload. Confirm the saved entries were not removed. Verify that an independent native question dialog still opens and can be answered. Record any unexercised case separately.
+For hosted acceptance, use a disposable conversation with a known, non-sensitive SYSTEM marker and ordinary replies. Check the marker by reading the exact saved transcript JSONL before opening Chat and again after closing and reopening it; match the same entry, not just the transcript line count. Do not edit the file or open a second writer. If a supported live trigger is available in that disposable session, observe the live Chat and confirm the new entry in the saved JSONL. In both cases ordinary replies must remain visible and the entire SYSTEM row must be hidden. Use [native questions](#check-stale-frames-and-native-questions) to verify an independent dialog can still open and be answered. Mark saved or live cases without a repeatable source as unexercised.
 
 #### Check desktop and mobile layout
 
@@ -278,7 +278,7 @@ With separate authorization, use a disposable Vibe workspace and a repository wi
 
 With a disposable session running, click the age label and verify the Clone picker offers that session and a new session. Exercise both paths in separate runs; check that the clone notice and resulting checkout belong to the selected target.
 
-Compare the GitHub and Storage card bounds in the same viewport. Then use a successfully loaded empty list with no positive owned count. The bounds stay the same and the black labels read **NOTHING TO SHOW.** and **GO BUILD SOMETHING.** on two lines.
+Compare the GitHub and Storage card bounds, surface color, border, corner radius, and padding in the same viewport, using Storage Usage as the reference. Repeat the comparison with a successfully loaded empty list and no positive owned count. The black labels then read **NOTHING TO SHOW.** and **GO BUILD SOMETHING.** on two lines.
 
 After restore, check that the clone directory is the Git checkout root, its `origin` matches the selected `owner/repo`, and its checked-out branch matches the known default. A selected repo or a clone request alone does not pass. Record any case without the required fixture or authorization as unexercised.
 

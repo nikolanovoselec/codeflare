@@ -163,6 +163,18 @@ describe('ClonePicker', () => {
     expect(mockCreateSessionWithClone.mock.calls[0][1]).toBe('pi');
   });
 
+  it('recovers its choices after the new session fails to start', async () => {
+    mockCreateSessionWithClone.mockRejectedValueOnce(new Error('Startup failed'));
+    renderPicker();
+    const pi = screen.getByRole('button', { name: /^Pi\s*Minimal, extensible coding harness$/ });
+    fireEvent.click(pi);
+    expect(pi).toBeDisabled();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Clone failed. Please try again.');
+    expect(pi).toBeEnabled();
+    fireEvent.click(pi);
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+
   it('closes after a successful new-session clone (navigation already happened)', async () => {
     const onClose = vi.fn();
     renderPicker(onClose);

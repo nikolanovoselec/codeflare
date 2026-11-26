@@ -793,7 +793,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                                       }
                                       try { await props.onCreateSession('pi', undefined, 'chat', true, repo.full_name); }
                                       catch { /* The session store reports launch errors. */ }
-                                    }}>{formatRepoAge(repo.updated_at)}</button>
+                                    }}>{formatRepoAge(repo.updated_at, 'compact')}</button>
                                 } />
                               )}</For>
                             </div>
@@ -815,10 +815,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                       )}</Show>
                       <Show when={repoClonePicker()} keyed>{({ repo, anchor }) => (
                         <Portal>
-                          <ClonePicker repo={repo} anchorRef={anchor} onClose={() => {
-                            setRepoClonePicker(undefined);
-                            if (anchor.isConnected) anchor.focus();
-                          }} />
+                          <ClonePicker repo={repo} anchorRef={anchor} onClose={() => setRepoClonePicker(undefined)} />
                         </Portal>
                       )}</Show>
                     </StatCard>

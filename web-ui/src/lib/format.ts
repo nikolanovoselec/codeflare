@@ -30,16 +30,18 @@ export function formatRelativeTime(date: Date | undefined): string {
   return `${month} ${day}, ${date.getFullYear()}`;
 }
 
-/** Compact GitHub repository age, shared by the browser and Dashboard. */
-export function formatRepoAge(updatedAt: string): string {
+/** Relative repository age; Dashboard shortcuts use finer units for the first day. */
+export function formatRepoAge(updatedAt: string, style: 'browser' | 'compact'): string {
   const timestamp = Date.parse(updatedAt);
   if (Number.isNaN(timestamp)) return updatedAt;
   const minutes = Math.floor((Date.now() - timestamp) / 60_000);
-  if (minutes < 1) return 'just now';
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
+  if (minutes < 24 * 60) {
+    if (style === 'browser') return 'today';
+    if (minutes < 1) return 'just now';
+    if (minutes < 60) return `${minutes}m ago`;
+    return `${Math.floor(minutes / 60)}h ago`;
+  }
+  const days = Math.floor(minutes / (24 * 60));
   if (days < 30) return `${days}d ago`;
   const months = Math.floor(days / 30);
   return months < 12 ? `${months}mo ago` : `${Math.floor(months / 12)}y ago`;

@@ -51,7 +51,7 @@ const RepoRow: Component<RepoRowProps> = (props) => {
         {visibilityLabel()}
       </span>
       <span class="github-repo-updated" title={props.repo.updated_at}>
-        {formatRepoAge(props.repo.updated_at)}
+        {formatRepoAge(props.repo.updated_at, 'browser')}
       </span>
       <button
         type="button"

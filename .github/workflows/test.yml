@@ -1144,6 +1144,13 @@ jobs:
               esac
             '
 
+      - name: Verify SYSTEM row visibility in stock Pi Web
+        if: matrix.lane == 'services'
+        run: |
+          set -euo pipefail
+          CI_CHROMIUM_EXECUTABLE="$(command -v google-chrome)" \
+            node scripts/ci/smoke-pi-web-system-rows.mjs
+
       - name: Verify native Pi and stock pi-web transcript interoperability
         if: matrix.lane == 'services'
         env:

@@ -15,6 +15,9 @@ vi.mock('../../stores/session', () => ({
     get enterpriseMode() {
       return false;
     },
+    get allowedAgents() {
+      return ['pi', 'bash'];
+    },
     get preferences() {
       return { lastAgentType: undefined };
     },
@@ -49,6 +52,31 @@ describe('RepoRow Clone button', () => {
 
   afterEach(() => {
     cleanup();
+  });
+
+  it('keeps a recent update labeled today in the repository browser', () => {
+    const updated_at = new Date(Date.now() - 2 * 60 * 60_000).toISOString();
+    render(() => <RepoRow repo={{ ...REPO, updated_at }} />);
+    expect(screen.getByText('today', { exact: true })).toBeVisible();
+  });
+
+  it('keeps keyboard focus in the clone dialog and returns it on Escape', () => {
+    render(() => <RepoRow repo={REPO} />);
+    const trigger = screen.getByRole('button', { name: /clone/i });
+    trigger.focus();
+    fireEvent.click(trigger, { detail: 0 });
+    const dialog = screen.getByRole('dialog');
+    const options = Array.from(dialog.querySelectorAll('button:not([disabled])'));
+    const first = options[0]!;
+    const last = options.at(-1)!;
+    expect(first).toHaveFocus();
+    expect(fireEvent.keyDown(first, { key: 'Tab', shiftKey: true })).toBe(false);
+    expect(last).toHaveFocus();
+    expect(fireEvent.keyDown(last, { key: 'Tab' })).toBe(false);
+    expect(first).toHaveFocus();
+    fireEvent.keyDown(first, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
   });
 
   it('renders an enabled Clone button carrying repo + branch data', () => {

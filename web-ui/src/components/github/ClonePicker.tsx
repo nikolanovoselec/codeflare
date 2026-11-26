@@ -69,18 +69,34 @@ const ClonePicker: Component<ClonePickerProps> = (props) => {
     }
   };
 
+  const choices = () => Array.from(dialogRef?.querySelectorAll<HTMLButtonElement>('button:enabled') ?? []);
   const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === 'Escape') props.onClose();
+    if (!dialogRef || e.defaultPrevented) return;
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      props.onClose();
+    } else if (e.key === 'Tab') {
+      const options = choices();
+      const first = options[0];
+      const last = options.at(-1);
+      const active = document.activeElement;
+      if (!active || !options.includes(active as HTMLButtonElement) || active === (e.shiftKey ? first : last)) {
+        e.preventDefault();
+        (e.shiftKey ? last ?? dialogRef : first ?? dialogRef).focus();
+      }
+    }
   };
 
   onMount(() => {
     document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('keydown', handleKeyDown, true);
+    (choices()[0] ?? dialogRef)?.focus();
   });
 
   onCleanup(() => {
     document.removeEventListener('mousedown', handleClickOutside);
-    document.removeEventListener('keydown', handleKeyDown);
+    document.removeEventListener('keydown', handleKeyDown, true);
+    if (props.anchorRef?.isConnected) props.anchorRef.focus();
   });
 
   // Clone into an existing running session. ref is omitted (backend defaults to
@@ -98,7 +114,8 @@ const ClonePicker: Component<ClonePickerProps> = (props) => {
   const handleCloneIntoNewSession = async (agentType: AgentType) => {
     if (busy()) return;
     setState({ phase: 'busy' });
-    const session = await sessionStore.createSessionWithClone(props.repo.full_name, agentType);
+    // The store owns startup error reporting; also release the picker on rejection.
+    const session = await sessionStore.createSessionWithClone(props.repo.full_name, agentType).catch(() => undefined);
     if (session) {
       props.onClose();
     } else {
@@ -115,7 +132,9 @@ const ClonePicker: Component<ClonePickerProps> = (props) => {
         data-testid="clone-picker"
         data-repo={props.repo.full_name}
         role="dialog"
+        aria-modal="true"
         aria-label="Clone repository"
+        tabIndex={-1}
         style={{
           top: `${position().top}px`,
           left: `${position().left}px`,
