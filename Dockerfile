@@ -271,6 +271,8 @@ RUN apt-get -o Acquire::Retries=0 update && apt-get -o Acquire::Retries=0 upgrad
     slirp4netns \
     iptables \
     # REQ-SEC-011: require fixed Debian security builds and invalidate stale apt layers.
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' librsvg2-2)" ge '2.54.7+dfsg-1~deb12u2' \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' librsvg2-bin)" ge '2.54.7+dfsg-1~deb12u2' \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libbrotli1)" ge '1.0.9-2+deb12u1' \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libpcre2-8-0)" ge '10.42-1+deb12u2' \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libexpat1)" ge '2.5.0-1+deb12u5' \
