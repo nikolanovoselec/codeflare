@@ -286,10 +286,18 @@ try {
   assert.deepEqual(json(settingsPath).extensions, managedExtensions, 'preserve the restored non-client exclusions');
   await closeAndCheckReaping();
 
-  // Reboot the supervisor with the same profile and stock data directory.
+  // Reboot with a restored registration of the exact bundled Workflows package.
+  const beforeWorkflowsRestore = json(settingsPath);
+  const bundledWorkflows = join(bundled, 'workflows');
+  const workflowsManifest = join(bundledWorkflows, 'package.json');
+  const shippedWorkflows = read(workflowsManifest);
+  writeFileSync(settingsPath, JSON.stringify({ ...beforeWorkflowsRestore,
+    packages: [...beforeWorkflowsRestore.packages, bundledWorkflows] }));
   services = createPiWebServices(options);
   await services.start();
-  assert.deepEqual(await checkReady(), firstSources, 'managed profile keeps its sole MCP client across restart');
+  assert.deepEqual(await checkReady(), firstSources, 'dismiss bundled Workflows without changing unrelated registrations');
+  assert.deepEqual(json(settingsPath), beforeWorkflowsRestore, 'preserve the rest of the restored settings');
+  assert.equal(read(workflowsManifest), shippedWorkflows, 'preserve the shipped Workflows package');
   const { id } = await services.request('/api/sessions', { cwd });
   assert.ok(id);
   const commands = await services.request(`/api/sessions/${encodeURIComponent(id)}/commands?${new URLSearchParams({ cwd })}`);

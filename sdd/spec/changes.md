@@ -4,6 +4,10 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-26: Chat startup with restored profiles
+
+- [Pi Chat](agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff) dismisses the exact restored bundled Workflows registration instead of failing startup. Git and worktree controls remain unavailable in Chat.
+
 ## 2026-11-25: Vibe and Code workspace modes
 
 - [Workspace modes](agents.md#req-agent-276-vibe-and-code-workspace-preference) persist the surface choice. [Chat preload](agents.md#req-agent-275-classic-pi-chat-startup) and [warm return](agents.md#req-agent-277-retained-chat-on-dashboard-return) reveal the already-mounted surface.

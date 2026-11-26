@@ -144,7 +144,6 @@ export function createPiWebServices(options: {
     const settings = existsSync(settingsPath) ? readSettings() : {};
     const before = Array.isArray(settings.packages) ? settings.packages : [];
     const sourceOf = (item: unknown) => typeof item === 'object' && item !== null && 'source' in item ? item.source : item;
-    const workflowsRegistered = before.some(item => sourceOf(item) === workflows);
     // These exact companion exclusions do not disable either MCP client.
     const managedExclusions = ['-builtin:mcp', ...['review-enforcement.ts', 'operator-review-remote.ts',
       'mcp-portal-oauth.ts', 'hermes-memory-runtime.ts'].flatMap(name => {
@@ -209,9 +208,8 @@ export function createPiWebServices(options: {
     mark('package-list');
     const packages = await bootRequest<{ packages: { source: string; scope: string }[] }>('/api/pi-packages');
     const userSources = new Set(packages.packages.filter(row => row.scope === 'user').map(row => row.source));
+    // A restored registration of this exact bundled source must not block Chat.
     if (userSources.has(workflows)) {
-      mark('workflows-policy');
-      if (workflowsRegistered) throw new Error('Existing Workflows registration prevents Git-free Chat');
       mark('workflows-removal');
       const removed = await bootRequest<{ removed: boolean }>('/api/pi-packages/remove', { scope: 'user', source: workflows });
       if (!removed.removed) throw new Error('Bundled Workflows could not be dismissed');
