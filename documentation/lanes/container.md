@@ -240,7 +240,7 @@ On successful service boot, `[pi-web] service boot timing` reports cumulative mi
 
 On successful writer confirmation, `[pi-web] Chat open timing` separates service wait, project/workspace setup, URL to admission, and admission to writer confirmation ([REQ-AGENT-283 AC6](../../sdd/spec/agents.md#req-agent-283-initial-chat-service-recovery)). Admission means the Host accepts the first qualifying startup request, not that the browser loaded the iframe. <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime -->
 
-Without observed admission, the last two durations are null, not zero. The packaged smoke verifies the admitted case only. <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime -->
+Without observed admission, the last two durations are null, not zero. The [packaged smoke timing checks](../../scripts/ci/smoke-pi-web-host-handoff.mjs#L414-L422) verify the admitted case only. <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime -->
 
 Pi-enabled images [prewarm stock Pi Web](../../sdd/spec/agents.md#req-agent-284-pi-web-image-prewarm) offline using the installed package and a disposable profile. During build verification, both stock services restart with cache writes disabled. The build checks that Node accepts both cached entrypoints and that no conversation opens. Normal runtime launches do not disable cache writes. <!-- @impl: image/pi-web/warm-compile-cache.mjs::verifyBakedCache -->
 

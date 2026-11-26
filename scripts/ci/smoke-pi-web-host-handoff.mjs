@@ -171,7 +171,17 @@ async function qualify(ambiguous) {
   const occupiedGateway = createServer((_req, res) => res.writeHead(503).end());
   const startupLogs = [];
   const info = console.info;
+  let packageListHoldMs;
   console.info = (...args) => { startupLogs.push(args.join(' ')); info(...args); };
+  globalThis.fetch = async (input, init) => {
+    const response = await nativeFetch(input, init);
+    if (String(input) === `${stock}/api/pi-packages` && response.ok && packageListHoldMs === undefined) {
+      const holdStartedAt = performance.now();
+      await delay(300);
+      packageListHoldMs = performance.now() - holdStartedAt;
+    }
+    return response;
+  };
   try {
     mkdirSync(cwd);
     mkdirSync(extensions, { recursive: true });
@@ -386,6 +396,7 @@ export default function (pi) {
     const afterWriter = performance.now();
     await boot;
     console.info = info;
+    globalThis.fetch = nativeFetch;
     const timings = (name, fields) => {
       const prefix = `[pi-web] ${name} `;
       const rows = startupLogs.filter(line => line.startsWith(prefix));
@@ -397,6 +408,9 @@ export default function (pi) {
     };
     const services = timings('service boot timing', ['launchMs', 'healthyMs', 'listedMs', 'readyMs']);
     assert.ok(services.launchMs <= services.healthyMs && services.healthyMs <= services.listedMs && services.listedMs <= services.readyMs);
+    assert.ok(packageListHoldMs > 0, 'hold the stock package-list response during service boot');
+    assert.ok(services.listedMs - services.healthyMs >= Math.floor(packageListHoldMs),
+      'the package-list milestone, not pair health, must include the controlled response wait');
     const chatTiming = timings('Chat open timing', ['serviceWaitMs', 'projectWorkspaceMs', 'frameAdmissionMs', 'writerReceiptMs']);
     if (!ambiguous) {
       const within = (elapsedMs, lower, upper, phase) => {

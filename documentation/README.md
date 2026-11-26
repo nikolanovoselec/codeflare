@@ -74,7 +74,7 @@ Each specification domain has an explicit documentation owner. Shared lanes cove
 
 | Specification domain | Documentation owner(s) |
 |---|---|
-| [Agents](../sdd/spec/agents.md) | [Agent Environment](lanes/preseed.md) |
+| [Agents](../sdd/spec/agents.md) | [Agent Environment](lanes/preseed.md), [Sessions & Runtime](lanes/container.md) |
 | [Authentication](../sdd/spec/authentication.md) | [Identity & Access](lanes/authentication.md), [Security](lanes/security.md) |
 | [Browser IDE](../sdd/spec/browser-ide.md) | [Terminal & IDE](lanes/terminal-and-ide.md), [Browser IDE agents](../openvscode/README.md) |
 | [Browser Run](../sdd/spec/browser-run.md) | [API Reference](lanes/api-reference.md), [Agent Environment](lanes/preseed.md), [Configuration](lanes/configuration.md) |
