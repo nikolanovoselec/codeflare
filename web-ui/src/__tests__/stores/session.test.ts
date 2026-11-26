@@ -1584,11 +1584,12 @@ describe('Session Store', () => {
       expect(cloneAttempt(repo)).toBeUndefined();
     });
 
-    it.each([false, true])('preserves recovery when batch Stopped supersedes catalog Running (prior Kill: %s)', async priorKill => {
+    it.each(['no Kill', 'independent poll', 'overlapping loads'] as const)('preserves recovery when batch Stopped supersedes catalog Running (%s)', async scenario => {
+      const priorKill = scenario !== 'no Kill';
       // The real startup guard requires a nonzero timestamp.
       vi.setSystemTime(new Date('2026-01-01T00:00:01Z'));
-      const id = 'stopped-clone';
-      const repo = 'octocat/stopped-recovery';
+      const id = `stopped-clone-${scenario.replace(/ /g, '-')}`;
+      const repo = `octocat/${id}`;
       const session = { id, name: 'stopped-recovery', status: 'running' as const,
         createdAt: '2026-01-01T00:00:00Z', lastAccessedAt: '2026-01-01T00:00:00Z' };
       if (priorKill) {
@@ -1603,17 +1604,26 @@ describe('Session Store', () => {
       let finishPaired!: (value: typeof newerStopped) => void;
       const paired = new Promise<typeof newerStopped>(resolve => { finishPaired = resolve; });
       mockGetBatchSessionStatus.mockResolvedValue(newerStopped);
-      if (priorKill) mockGetBatchSessionStatus.mockReturnValueOnce(paired).mockResolvedValueOnce({
+      if (priorKill) mockGetBatchSessionStatus.mockReturnValueOnce(paired);
+      if (scenario === 'independent poll') mockGetBatchSessionStatus.mockResolvedValueOnce({
         statuses: { [id]: { status: 'stopped', generation: 2, revision: 3 } },
       });
       const loading = sessionStore.loadSessions();
       try {
         if (priorKill) {
           await vi.waitFor(() => expect(sessionStore.sessions.find(row => row.id === id)).toMatchObject({ status: 'running', generation: 2 }));
+        }
+        if (scenario === 'independent poll') {
           terminalLifecycle.ownedSessionIds.add(id);
           await sessionStore.refreshSessionStatuses();
           expect(terminalLifecycle.ownedSessionIds.has(id)).toBe(true);
           expect(sessionStore.sessions.find(row => row.id === id)?.status).toBe('running');
+          expect(cloneAttempt(repo)?.sessionId).toBe(id);
+        }
+        if (scenario === 'overlapping loads') {
+          // The first load is still awaiting its batch. The second load sees no old Kill.
+          await sessionStore.loadSessions();
+          expect(sessionStore.sessions.find(row => row.id === id)?.status).toBe('stopped');
           expect(cloneAttempt(repo)?.sessionId).toBe(id);
         }
         finishPaired(newerStopped);

@@ -376,6 +376,8 @@ function getActiveSession(): SessionWithStatus | undefined {
 const startupCleanups = new Map<string, () => void>();
 
 let loadSessionsGeneration = 0;
+// A superseded catalog load leaves its provisional replacement for the winning load.
+const provisionalRunning = new Map<string, { generation: number; revision: number }>();
 
 async function loadSessions(): Promise<void> {
   const thisGen = ++loadSessionsGeneration;
@@ -443,7 +445,11 @@ async function loadSessions(): Promise<void> {
     sessionMissCounters.clear();
     setState('sessions', sessionsWithStatus);
     setState('loading', false);
-    const provisionalRunning = new Map<string, { generation: number; revision: number }>();
+    for (const [id, provisional] of provisionalRunning) {
+      const current = sessionsWithStatus.find(session => session.id === id);
+      if (current?.status !== 'running' || current.generation !== provisional.generation
+        || current.revision !== provisional.revision) provisionalRunning.delete(id);
+    }
     for (const session of state.sessions) {
       if (reconcileKillGeneration(session.id, true) && session.generation !== undefined && session.revision !== undefined) {
         provisionalRunning.set(session.id, { generation: session.generation, revision: session.revision });
@@ -561,6 +567,7 @@ async function loadSessions(): Promise<void> {
     // Resolve list and batch order before disposing a previously stopping
     // transport: a newer running batch must retain the surviving connection.
     if (thisGen !== loadSessionsGeneration) return;
+    provisionalRunning.clear();
     for (const session of state.sessions) {
       reconcileKillGeneration(session.id);
       if (session.status === 'running') forgetCloneAttempt(session.id, true);

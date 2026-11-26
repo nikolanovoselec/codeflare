@@ -162,7 +162,7 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 
 **Acceptance Criteria:**
 
-1. The host tracks one last-input timestamp shared by Terminal, Browser IDE, and Chat input. <!-- @impl: host/src/activity-tracker.ts::createActivityTracker --> <!-- @impl: host/src/vscode-proxy.ts::bridgeVscodeClientMessages --> <!-- @test: host/__tests__/openvscode-proxy.test.js (REQ-IDE-004: advances the idle policy lastInputAt for every client-to-server frame) --> <!-- @impl: host/src/server.ts --> <!-- @manual: documentation/lanes/container.md#shared-input-clock-acceptance -->
+1. The host tracks one last-input timestamp shared by Terminal, Browser IDE, and Chat input. <!-- @impl: host/src/activity-tracker.ts::createActivityTracker --> <!-- @impl: host/src/vscode-proxy.ts::bridgeVscodeClientMessages --> <!-- @test: host/__tests__/openvscode-proxy.test.js (REQ-IDE-004: advances the idle policy lastInputAt for every client-to-server frame) --> <!-- @impl: host/src/server.ts::createServerState --> <!-- @impl: host/src/server.ts::piWeb --> <!-- @impl: host/src/server.ts::server --> <!-- @manual: documentation/lanes/container.md#shared-input-clock-acceptance -->
 2. User-input classification uses a whitelist: printable characters, control keys, arrow keys, function keys, Alt+key, and mouse clicks count as input. <!-- @impl: host/src/session.ts::containsUserInput --> <!-- @impl: host/src/session.ts::write --> <!-- @test: host/__tests__/session-wire-protocol.test.js (forwards ${name} unchanged and advances real lastInputAt) -->
 3. Terminal protocol responses (cursor-position reports, OSC color queries, mouse movement, device-attribute reports) do not count as input. <!-- @impl: host/src/session.ts::containsUserInput --> <!-- @test: host/__tests__/session-wire-protocol.test.js (handles ${name} PTY bytes without changing real lastInputAt) -->
 4. Only 7-bit CPR (two nonempty decimal fields), OSC 10/11/12 (BEL/ESC-free payload; BEL or ESC-backslash terminator), and DA1 (CSI `?`, zero or more digits/semicolons, `c`) are stripped before PTY writes. DA2 and focus reports remain forwarded non-input; classification is separate. <!-- @impl: host/src/session.ts::stripTerminalResponses --> <!-- @impl: host/src/session.ts::write --> <!-- @test: host/__tests__/session-wire-protocol.test.js (filters mixed ${name} while advancing real lastInputAt) -->
@@ -177,7 +177,7 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 
 **Dependencies:** None.
 
-**Verification:** Automated: [openvscode-proxy.test.js](../../host/__tests__/openvscode-proxy.test.js), [session-wire-protocol.test.js](../../host/__tests__/session-wire-protocol.test.js), [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts), [Chat activity smoke](../../scripts/ci/smoke-pi-web-host-handoff.mjs); Manual: [Session policy and preference record acceptance](../../documentation/lanes/container.md#session-policy-and-preference-record-acceptance)
+**Verification:** Automated: [openvscode-proxy.test.js](../../host/__tests__/openvscode-proxy.test.js), [session-wire-protocol.test.js](../../host/__tests__/session-wire-protocol.test.js), [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts), [Chat activity smoke](../../scripts/ci/smoke-pi-web-host-handoff.mjs); Manual: [Shared input clock acceptance](../../documentation/lanes/container.md#shared-input-clock-acceptance)
 
 **Status:** Implemented
 
