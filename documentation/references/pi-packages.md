@@ -125,7 +125,7 @@ Startup normalizes valid `~/.pi/agent/pi-goal.json` settings without changing pr
 
 The configured interval paces automatic continuations, not manual resume. Goal blocks after five stalled automatic runs or 25 minutes in the current stall window, whichever comes first. Accepted, evidenced advancement resets that window. Expiry aborts only matching in-flight Goal work. The blocker tool cannot replace actual attempts with a model claim. [Continuation safety](../../sdd/spec/agents.md#req-agent-273-managed-goal-continuation-safety)
 
-Resuming a paused or blocked Goal resets the stall window. Waking a still-active waiting Goal preserves its existing window and deadline. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchProgressSafety -->
+Resuming a paused or blocked Goal resets the stall window. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchProgressSafety --> Waking a still-active waiting Goal preserves its existing window and deadline. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchProgressRuntime -->
 
 One compact footer shows state and displays accumulated duration only while active. Goal and Plan cannot start over one another. [Managed Goal](../../sdd/spec/agents.md#req-agent-272-managed-goal-alongside-todo-loop)
 

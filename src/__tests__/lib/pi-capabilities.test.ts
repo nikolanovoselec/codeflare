@@ -681,24 +681,20 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
       },
     };
     registerInitialToolFilter(pi, () => 'always');
-    const ctx = {
-      sessionManager: {
-        getBranch: () => [{
-          type: 'custom',
-          customType: 'plan-mode-state',
-          data: {
-            enabled: true,
-            workflowToolPolicy: { kind: 'automatic', allowedNames: ['read', 'graphify_query'], resolved: true },
-          },
-        }],
-      },
-    };
-
-    handlers.get('before_agent_start')?.({}, ctx);
-
-    expect(pi.getActiveTools()).toEqual([
-      'read', 'graphify_query', 'plan_mode_question', 'plan_mode_complete',
-    ]);
+    const allowedNames = ['read', 'graphify_query'];
+    for (const workflowToolPolicy of [
+      { kind: 'automatic', allowedNames, resolved: true },
+      { kind: 'explicit', desiredNames: allowedNames, allowedNames, resolved: true },
+    ]) {
+      pi.setActiveTools(['read', 'bash', 'edit', 'goal_progress']);
+      handlers.get('before_agent_start')({}, {
+        sessionManager: { getBranch: () => [{ type: 'custom', customType: 'plan-mode-state',
+          data: { enabled: true, workflowToolPolicy } }] },
+      });
+      expect(pi.getActiveTools(), workflowToolPolicy.kind).toEqual([
+        'read', 'graphify_query', 'plan_mode_question', 'plan_mode_complete',
+      ]);
+    }
   });
 
   it('REQ-AGENT-158: a malformed restored Plan policy keeps only bootstrap tools', () => {
