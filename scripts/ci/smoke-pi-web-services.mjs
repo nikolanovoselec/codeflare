@@ -208,23 +208,35 @@ async function verifyChildExitDiagnostic() {
   assert.ok(httpStatus === undefined || (Number.isInteger(httpStatus) && httpStatus >= 100 && httpStatus <= 599));
 }
 
-async function verifyPendingBootRequestCancellation() {
+async function verifyPendingBootRequestCancellation(duringBody = false) {
   services = createPiWebServices(options);
   const originalFetch = globalThis.fetch;
   const originalWarn = console.warn;
   const diagnostics = [];
   let cancelled = false;
-  globalThis.fetch = async (url, init) => {
-    if (String(url) !== `http://127.0.0.1:${PI_WEB_PORT}/api/sessiond/health`) return originalFetch(url, init);
+  const path = duringBody ? '/api/pi-packages' : '/api/sessiond/health';
+  const cancelRequest = async (signal) => {
     await services.close();
-    cancelled = init.signal.aborted;
+    cancelled = signal.aborted;
+  };
+  globalThis.fetch = async (url, init) => {
+    if (String(url) !== `http://127.0.0.1:${PI_WEB_PORT}${path}`) return originalFetch(url, init);
+    if (duringBody) {
+      return new Response(new ReadableStream({
+        async pull(controller) {
+          await cancelRequest(init.signal);
+          controller.error(new DOMException('Fixture body aborted', 'AbortError'));
+        },
+      }, { highWaterMark: 0 })); // Hold the body until the supervisor reads it.
+    }
+    await cancelRequest(init.signal);
     init.signal.throwIfAborted();
     throw new TypeError('Fixture connection closed');
   };
   console.warn = (...args) => diagnostics.push(args.join(' '));
   try {
     await assert.rejects(services.start(), /Container is stopping/);
-    assert.ok(cancelled, 'shutdown must abort the pending private health request');
+    assert.ok(cancelled, `shutdown must abort the pending ${path} request`);
     assert.deepEqual(children(), []);
     assert.ok(!diagnostics.some(line => line.startsWith('[pi-web] service boot failed ')));
   } finally {
@@ -289,6 +301,7 @@ try {
   await verifyChildExitDiagnostic();
   await verifyIntentionalShutdownIsQuiet();
   await verifyPendingBootRequestCancellation();
+  await verifyPendingBootRequestCancellation(true);
 
   // Model a restored profile with a preexisting registration. The same path
   // can be an explicit user choice, so startup must leave it alone.
