@@ -208,6 +208,32 @@ async function verifyChildExitDiagnostic() {
   assert.ok(httpStatus === undefined || (Number.isInteger(httpStatus) && httpStatus >= 100 && httpStatus <= 599));
 }
 
+async function verifyPendingBootRequestCancellation() {
+  services = createPiWebServices(options);
+  const originalFetch = globalThis.fetch;
+  const originalWarn = console.warn;
+  const diagnostics = [];
+  let cancelled = false;
+  globalThis.fetch = async (url, init) => {
+    if (String(url) !== `http://127.0.0.1:${PI_WEB_PORT}/api/sessiond/health`) return originalFetch(url, init);
+    await services.close();
+    cancelled = init.signal.aborted;
+    init.signal.throwIfAborted();
+    throw new TypeError('Fixture connection closed');
+  };
+  console.warn = (...args) => diagnostics.push(args.join(' '));
+  try {
+    await assert.rejects(services.start(), /Container is stopping/);
+    assert.ok(cancelled, 'shutdown must abort the pending private health request');
+    assert.deepEqual(children(), []);
+    assert.ok(!diagnostics.some(line => line.startsWith('[pi-web] service boot failed ')));
+  } finally {
+    globalThis.fetch = originalFetch;
+    console.warn = originalWarn;
+    await services.close();
+  }
+}
+
 async function verifyIntentionalShutdownIsQuiet() {
   services = createPiWebServices({ ...options, profileRestored: () => false });
   const originalWarn = console.warn;
@@ -262,6 +288,7 @@ try {
   await verifyPackageListFailureDiagnostic(true);
   await verifyChildExitDiagnostic();
   await verifyIntentionalShutdownIsQuiet();
+  await verifyPendingBootRequestCancellation();
 
   // Model a restored profile with a preexisting registration. The same path
   // can be an explicit user choice, so startup must leave it alone.

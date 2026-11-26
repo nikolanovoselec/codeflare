@@ -1037,6 +1037,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 2. An already-occupied Chat gateway rejects startup without changing the restored Pi profile. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (verifyOccupiedGatewayPreservesProfile) -->
 
 3. Before cleanup, a failed stock service boot records the preparation operation, elapsed time and available bounded failure codes in Host logs. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @test: scripts/ci/smoke-pi-web-services.mjs (verifyPackageListFailureDiagnostic) -->
+4. Shutdown-caused boot cancellation does not emit a boot-failure warning. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @test: scripts/ci/smoke-pi-web-services.mjs (verifyPendingBootRequestCancellation) -->
 
 **Constraints:** The previous attempt must be confirmed closed before retry. Do not log raw errors, child output, profile data or response bodies.
 

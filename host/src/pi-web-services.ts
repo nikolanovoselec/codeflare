@@ -51,18 +51,25 @@ export function createPiWebServices(options: {
   let closing: Promise<void> | undefined;
   let processes: Array<{ child: ChildProcess; role: string; spawnErrno?: string; stopped: Promise<void>; running: boolean }> = [];
   let shuttingDown = false;
+  const bootShutdown = new AbortController();
 
-  async function request<T>(path: string, body?: object): Promise<T> {
+  async function request<T>(path: string, body?: object, startupSignal?: AbortSignal): Promise<T> {
+    const timeout = AbortSignal.timeout(15_000);
+    const signal = startupSignal ? AbortSignal.any([startupSignal, timeout]) : timeout;
     const response = await fetch(`${origin}${path}`, {
-      signal: AbortSignal.timeout(15_000),
+      signal,
       redirect: 'error',
       ...(body !== undefined && { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: origin }, body: JSON.stringify(body) }),
     });
+    const wasShutdownAbort = (error: unknown) => signal.reason instanceof StockBootCancelled
+      && (error === signal.reason || (error instanceof DOMException && error.name === 'AbortError'));
     if (!response.ok) {
-      await response.body?.cancel();
+      try { await response.body?.cancel(); }
+      catch (error) { if (!wasShutdownAbort(error)) throw error; }
       throw new StockApiError(response.status);
     }
-    return response.json() as Promise<T>;
+    try { return await response.json() as T; }
+    catch (error) { throw wasShutdownAbort(error) ? signal.reason : error; }
   }
 
   async function until(check: () => boolean | Promise<boolean>, ms: number): Promise<void> {
@@ -105,6 +112,7 @@ export function createPiWebServices(options: {
 
   async function boot(diagnostic: { operation: string; healthHttpStatus?: number }): Promise<void> {
     const mark = (operation: string) => { diagnostic.operation = operation; };
+    const bootRequest = <T>(path: string, body?: object) => request<T>(path, body, bootShutdown.signal);
     mark('profile-restore');
     await until(options.profileRestored, 120_000);
     if (shuttingDown) throw new StockBootCancelled('Container is stopping');
@@ -191,20 +199,21 @@ export function createPiWebServices(options: {
     mark('service-health');
     await until(async () => {
       if (processes.some(process => !process.running)) throw new Error('Stock pi-web process exited');
-      try { return (await request<{ ok: boolean }>('/api/sessiond/health')).ok; }
+      try { return (await bootRequest<{ ok: boolean }>('/api/sessiond/health')).ok; }
       catch (error) {
+        if (error instanceof StockBootCancelled) throw error;
         diagnostic.healthHttpStatus = error instanceof StockApiError ? error.status : undefined;
         return false;
       }
     }, 30_000);
     mark('package-list');
-    const packages = await request<{ packages: { source: string; scope: string }[] }>('/api/pi-packages');
+    const packages = await bootRequest<{ packages: { source: string; scope: string }[] }>('/api/pi-packages');
     const userSources = new Set(packages.packages.filter(row => row.scope === 'user').map(row => row.source));
     if (userSources.has(workflows)) {
       mark('workflows-policy');
       if (workflowsRegistered) throw new Error('Existing Workflows registration prevents Git-free Chat');
       mark('workflows-removal');
-      const removed = await request<{ removed: boolean }>('/api/pi-packages/remove', { scope: 'user', source: workflows });
+      const removed = await bootRequest<{ removed: boolean }>('/api/pi-packages/remove', { scope: 'user', source: workflows });
       if (!removed.removed) throw new Error('Bundled Workflows could not be dismissed');
     }
     // Disabling the panel doesn't disable the bundled Pi extension. Dismiss
@@ -223,7 +232,7 @@ export function createPiWebServices(options: {
       });
       if (preserved && isDeepStrictEqual(after.extensions, settings.extensions)) {
         mark('mcp-removal');
-        const removed = await request<{ removed: boolean }>('/api/pi-packages/remove', { scope: 'user', source: mcpManager });
+        const removed = await bootRequest<{ removed: boolean }>('/api/pi-packages/remove', { scope: 'user', source: mcpManager });
         if (!removed.removed) throw new Error('Bundled MCP Manager could not be dismissed');
       }
     }
@@ -270,6 +279,7 @@ export function createPiWebServices(options: {
     },
     close() {
       shuttingDown = true;
+      bootShutdown.abort(new StockBootCancelled('Container is stopping'));
       closing ??= stopProcesses();
       return closing;
     },
