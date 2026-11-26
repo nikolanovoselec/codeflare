@@ -793,8 +793,9 @@ function startSession(id: string, surface?: PiSurface): Promise<void | 'cancelle
         }
         startupCleanups.delete(id);
         batch(() => {
-          // Chat status needs the generation confirmed by Ready, not a later catalog poll.
-          if (surface === 'chat' && revision !== undefined && generation > (current.generation ?? 0)) {
+          // Ready can advance Chat's projection even if a poll already saw this generation.
+          if (surface === 'chat' && revision !== undefined && (generation > (current.generation ?? 0)
+            || (generation === current.generation && (current.revision === undefined || revision > current.revision)))) {
             setState('sessions', index, { generation, lifecycle: 'running', revision });
           }
           updateSessionStatus(id, 'running');

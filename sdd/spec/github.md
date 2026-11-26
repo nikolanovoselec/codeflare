@@ -557,6 +557,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 2. Flip controls appear only in the mobile layout. Desktop and tablet show both browsers without flip controls. <!-- @manual: GitHub workspace manual acceptance in documentation/lanes/terminal-and-ide.md; observe control visibility across split and single-face layouts. --> <!-- @impl: web-ui/src/components/Dashboard.tsx::flipBrowsers --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-010: keeps both Code browsers without flip controls on %s) -->
 3. If GitHub is disabled, R2 storage is the sole right-column face. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-010: forces the storage face active when GitHub is disabled so the empty GitHub panel cannot cover R2) -->
 4. In Code, when GitHub is enabled, the storage panel carries a matching header. The flip-back control appears only on mobile. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-010: defaults to the GitHub face and offers the storage back-button when GitHub is enabled) -->
+5. In mobile Code, flipping either way moves keyboard focus to the incoming panel’s flip control. <!-- @impl: web-ui/src/components/Dashboard.tsx::flipTo --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-010: flips GitHub <-> storage when enabled and the flip controls are used) -->
 
 **Constraints:**
 

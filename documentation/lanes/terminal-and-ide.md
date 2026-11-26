@@ -276,7 +276,7 @@ In the installed mobile app, pull up at the bottom to open and down at the top t
 Reuse the protected Integration viewport checks in [REQ-GITHUB-012](../../sdd/spec/github.md#req-github-012-responsive-github-and-storage-panel-allocation) and the [Integration checklist](deployment.md#integration-acceptance-checklist), with an authorized connected test account. Record browser/device/version and viewport; these are methods, not executed results.
 
 - Select **Code**. At desktop/tablet sizes, confirm the stacked panels stay anchored, repository overflow scrolls and every fetched repository remains reachable.
-  - On mobile, confirm the header controls flip between GitHub and Storage. Repeat with reduced motion and confirm an instant swap.
+  - In mobile Code, activate each flip control by keyboard. Confirm focus lands on the incoming panel’s flip control in both directions. Repeat with reduced motion and confirm an instant swap.
   - With production styles on desktop and tablet, shorten each viewport until the right column is under 600 CSS px. Verify both browsers remain visible without flip controls.
 - On a supported touch device, tap the search toggle: observe the actual OS keyboard opening and the input remaining visible above it while typing.
   - Hide search and confirm the filter clears; reopen and verify every repository is reachable by scrolling. DOM focus and mocked scroll calls alone do not establish keyboard or rendered geometry outcomes.

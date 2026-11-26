@@ -2054,6 +2054,38 @@ describe('Session Store', () => {
       } finally { cleanup(); }
     });
 
+    it('advances Chat Ready past an older revision for the same generation', async () => {
+      const id = 'abcdef0123456789';
+      mockGetSessions.mockResolvedValue([{
+        id, name: 'Pi', workspace: 'terminal', agentType: 'pi', terminalMode: 'classic',
+        status: 'stopped', lifecycle: 'stopped', generation: 6, revision: 10,
+        createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      }]);
+      await sessionStore.loadSessions();
+      let deliverReady!: () => void;
+      vi.mocked(api.startSession).mockImplementation((_id, onProgress, onComplete) => {
+        deliverReady = () => {
+          onProgress({ stage: 'ready', progress: 100, message: 'Container ready' });
+          onComplete(7, 12);
+        };
+        return () => {};
+      });
+      const starting = sessionStore.startSession(id, 'chat');
+      const observed = { statuses: {
+        [id]: { status: 'starting', lifecycle: 'starting', generation: 7, revision: 11, ptyActive: false },
+      } };
+      const session = () => sessionStore.sessions.find(row => row.id === id);
+      mockGetBatchSessionStatus.mockResolvedValueOnce(observed);
+      await sessionStore.refreshSessionStatuses();
+      expect(session()).toMatchObject({ lifecycle: 'starting', generation: 7, revision: 11 });
+      deliverReady();
+      await starting;
+      sessionStore.dismissInitProgressForSession(id);
+      mockGetBatchSessionStatus.mockResolvedValueOnce(observed);
+      await sessionStore.refreshSessionStatuses();
+      expect(session()).toMatchObject({ status: 'running', lifecycle: 'running', generation: 7, revision: 12 });
+    });
+
     it('confirms Stop immediately after Chat Ready without a batch refresh', async () => {
       vi.useFakeTimers();
       const id = 'abcdef0123456789';
