@@ -1205,18 +1205,21 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(right.getAttribute('data-face')).toBe('github');
   });
 
-  it('REQ-GITHUB-010: flips GitHub <-> storage when enabled and the flip controls are used', () => {
+  it('REQ-GITHUB-010: flips GitHub <-> storage when enabled and the flip controls are used', async () => {
     viewportMock.setViewport?.('mobile');
     (githubStore as any)._setEnabled(true);
     render(() => <Dashboard {...defaultProps} />);
 
     const right = screen.getByTestId('dashboard-panel-right');
-    // Flip to storage from the GitHub panel header control.
-    fireEvent.click(screen.getByTestId('gh-stub-flip'));
+    const showStorage = screen.getByTestId('gh-stub-flip');
+    showStorage.focus();
+    fireEvent.click(showStorage, { detail: 0 });
     expect(right.getAttribute('data-face')).toBe('storage');
-    // Flip back to GitHub from the storage back-button.
-    fireEvent.click(screen.getByTestId('storage-flip-btn'));
+    const showGitHub = screen.getByTestId('storage-flip-btn');
+    await waitFor(() => expect(showGitHub).toHaveFocus());
+    fireEvent.click(showGitHub, { detail: 0 });
     expect(right.getAttribute('data-face')).toBe('github');
+    await waitFor(() => expect(showStorage).toHaveFocus());
   });
 
   it('REQ-GITHUB-010: wires the re-measure observers on the column box + row mutations, never watching the max-height (style) it writes (loop-free observer config)', () => {

@@ -2006,7 +2006,7 @@ describe('Session Store', () => {
       const ready = { stage: 'ready', progress: 100, message: 'Container ready' } as const;
       let deliverReady!: () => void;
       vi.mocked(api.startSession).mockImplementation((_id, onProgress, onComplete) => {
-        deliverReady = () => { onProgress(ready); onComplete(7); };
+        deliverReady = () => { onProgress(ready); onComplete(7, 12); };
         return () => {};
       });
       const starting = sessionStore.startSession(id, surface);
@@ -2039,7 +2039,7 @@ describe('Session Store', () => {
         if (surface === 'chat') {
           const confirmed = () => sessionStore.sessions.find(session => session.id === id);
           expect(confirmed()).toMatchObject({ generation: 7, lifecycle: 'running' });
-          expect(confirmed()?.revision).toBeUndefined();
+          expect(confirmed()?.revision).toBe(12);
           expect(getPiWebStatus).toHaveBeenCalledWith(id, 7, expect.any(AbortSignal));
           mockGetBatchSessionStatus.mockResolvedValueOnce({ statuses: {
             [id]: { status: 'stopped', lifecycle: 'stopped', generation: 6, revision: 9, ptyActive: false },
@@ -2052,6 +2052,37 @@ describe('Session Store', () => {
         expect(screen.queryByTestId('init-progress')).not.toBeInTheDocument();
         expect(sessionStore.sessions.find(session => session.id === id)?.status).toBe('running');
       } finally { cleanup(); }
+    });
+
+    it('confirms Stop immediately after Chat Ready without a batch refresh', async () => {
+      vi.useFakeTimers();
+      const id = 'abcdef0123456789';
+      try {
+        mockGetSessions.mockResolvedValue([{
+          id, name: 'Pi', workspace: 'terminal', agentType: 'pi', terminalMode: 'classic',
+          status: 'stopped', lifecycle: 'stopped', generation: 6, revision: 10,
+          createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+        }]);
+        await sessionStore.loadSessions();
+        vi.mocked(api.startSession).mockImplementation((_id, onProgress, onComplete) => {
+          queueMicrotask(() => {
+            onProgress({ stage: 'ready', progress: 100, message: 'Container ready' });
+            onComplete(7, 12);
+          });
+          return () => {};
+        });
+        await sessionStore.startSession(id, 'chat');
+        mockStopSession.mockResolvedValue(undefined);
+        mockGetBatchSessionStatus.mockResolvedValue({ statuses: {
+          [id]: { status: 'stopped', lifecycle: 'stopped', generation: 7, revision: 13, ptyActive: false },
+        } });
+        const stopping = sessionStore.stopSession(id);
+        await vi.advanceTimersByTimeAsync(STOP_POLL_INTERVAL_MS);
+        expect(sessionStore.sessions.find(session => session.id === id)).toMatchObject({
+          status: 'stopped', generation: 7, revision: 13,
+        });
+        await stopping;
+      } finally { sessionStore.stopAllPolling(); vi.useRealTimers(); }
     });
 
     it('REQ-GITHUB-320: enables Open while restoration runs and shows its later partial outcome', async () => {

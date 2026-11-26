@@ -292,11 +292,12 @@ describe('InitProgress Component', () => {
         expect(screen.getByText('3.1s')).toBeVisible();
         vi.advanceTimersByTime(60);
         setOpenReady(true);
-        expect(screen.getByText('Loading Chat', { selector: '.init-progress-stage-label' })).toBeVisible();
+        const row = screen.getByText('Loading Chat', { selector: '.init-progress-stage-label' }).closest('li');
+        expect(row).toBeVisible();
         expect(screen.getByRole('button', { name: 'Open' })).toBeVisible();
-        expect(screen.getByTestId('init-progress-step-5-time')).toHaveTextContent('3.2s');
+        expect(row).toHaveTextContent('3.2s');
         vi.advanceTimersByTime(2000);
-        expect(screen.getByTestId('init-progress-step-5-time')).toHaveTextContent('3.2s');
+        expect(row).toHaveTextContent('3.2s');
       } finally { cleanup(); vi.useRealTimers(); }
     });
 

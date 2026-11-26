@@ -275,9 +275,9 @@ const Dashboard: Component<DashboardProps> = (props) => {
   const flipBrowsers = () => viewport() === 'mobile';
   const flipTo = (face: 'github' | 'storage') => {
     setPanelFace(face);
-    if (!vibe() || !flipBrowsers()) return;
+    if (!flipBrowsers()) return;
     queueMicrotask(() => {
-      if (browsersClosed() || !vibe() || !flipBrowsers() || effectiveFace() !== face) return;
+      if (browsersClosed() || !flipBrowsers() || effectiveFace() !== face) return;
       const destination = face === 'github' ? githubFaceRef : storageFaceRef;
       destination?.querySelector<HTMLButtonElement>('.github-flip-btn, .panel-flip-back-btn')?.focus();
     });

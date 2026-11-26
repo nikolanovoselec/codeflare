@@ -780,7 +780,7 @@ function startSession(id: string, surface?: PiSurface): Promise<void | 'cancelle
           })
         );
       },
-      (generation) => {
+      (generation, revision) => {
         if (!pending) return;
         pending = false;
         const index = state.sessions.findIndex((session) => session.id === id);
@@ -794,8 +794,8 @@ function startSession(id: string, surface?: PiSurface): Promise<void | 'cancelle
         startupCleanups.delete(id);
         batch(() => {
           // Chat status needs the generation confirmed by Ready, not a later catalog poll.
-          if (surface === 'chat' && generation > (current.generation ?? 0)) {
-            setState('sessions', index, { generation, lifecycle: 'running', revision: undefined });
+          if (surface === 'chat' && revision !== undefined && generation > (current.generation ?? 0)) {
+            setState('sessions', index, { generation, lifecycle: 'running', revision });
           }
           updateSessionStatus(id, 'running');
         });

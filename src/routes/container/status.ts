@@ -167,6 +167,7 @@ app.get('/startup-status', async (c) => {
   const response: {
     stage: StartupStage;
     generation?: number;
+    revision?: number;
     progress: number;
     message: string;
     details: {
@@ -200,10 +201,11 @@ app.get('/startup-status', async (c) => {
     const sessionWorkspace = resolveSessionWorkspace(session?.workspace);
     response.generation = session?.lifecycleGeneration;
     const ownsReady = async () => {
-      if (session?.lifecycleState !== 'running') return false;
+      if (session?.lifecycleState !== 'running') return undefined;
       const current = await repository.getSession(bucketName, sessionId);
-      return current?.lifecycleGeneration === session.lifecycleGeneration
-        && current.lifecycleState === 'running' && !current.terminationIntentId;
+      if (current?.lifecycleGeneration !== session.lifecycleGeneration
+        || current.lifecycleState !== 'running' || current.terminationIntentId) return undefined;
+      return current;
     };
     const awaitStartClaim = () => c.json({ ...response, stage: 'starting' as const, progress: 20,
       message: 'Waiting for the current start...', details: { ...response.details, editorReady: false } });
@@ -355,7 +357,9 @@ app.get('/startup-status', async (c) => {
     if (terminalServerReady) {
       if (healthData.prewarmReady !== false) {
         // A healthy port isn't evidence that it belongs to this Start claim.
-        if (!await ownsReady()) return awaitStartClaim();
+        const confirmed = await ownsReady();
+        if (!confirmed) return awaitStartClaim();
+        response.revision = confirmed.responseRevision;
         return c.json(buildReadyResponse(response, syncStatus, healthData, cStatus));
       }
 

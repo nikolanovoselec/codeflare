@@ -565,7 +565,7 @@ None.
 2. Vibe shows Loading Chat with the standard one-decimal elapsed counter while it waits for its Open gate, then retains Loading Chat and its final duration. <!-- @impl: web-ui/src/components/InitProgress.tsx::InitProgressComponent --> <!-- @test: web-ui/src/__tests__/components/InitProgress.test.tsx (counts elapsed Chat preparation without showing Ready or Open prematurely) -->
 3. The loading hero spins during Loading Chat unless reduced motion is requested. <!-- @impl: web-ui/src/components/InitProgress.tsx::InitProgressComponent --> <!-- @manual: documentation/lanes/terminal-and-ide.md#choose-the-starting-writer -->
 4. The Loading Chat label and icon use the active theme accent styling and switch to success styling when Open becomes available. <!-- @impl: web-ui/src/styles/init-progress.css::.init-progress-stage--active --> <!-- @manual: documentation/lanes/terminal-and-ide.md#choose-the-starting-writer -->
-5. A matching Ready response for a Chat start supplies the runtime generation for Chat status observation without waiting for the next session-list poll. <!-- @impl: web-ui/src/stores/session.ts::startSession --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-TERM-043: matching Ready keeps Open available for surface %s) -->
+5. A matching Ready response for a Chat start supplies the runtime generation and revision for Chat status observation without waiting for the next session-list poll. <!-- @impl: web-ui/src/stores/session.ts::startSession --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-TERM-043: matching Ready keeps Open available for surface %s) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (confirms Stop immediately after Chat Ready without a batch refresh) -->
 
 **Constraints:** None.
 
@@ -573,7 +573,7 @@ None.
 
 **Dependencies:** None.
 
-**Verification:** Automated: [Startup progress](../../web-ui/src/__tests__/components/InitProgress.test.tsx); Manual: [Choose the starting writer](../../documentation/lanes/terminal-and-ide.md#choose-the-starting-writer)
+**Verification:** Automated: [Startup progress](../../web-ui/src/__tests__/components/InitProgress.test.tsx), [Chat startup lifecycle](../../web-ui/src/__tests__/stores/session.test.ts); Manual: [Choose the starting writer](../../documentation/lanes/terminal-and-ide.md#choose-the-starting-writer)
 
 **Status:** Planned
 

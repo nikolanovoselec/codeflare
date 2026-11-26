@@ -363,6 +363,7 @@ export interface InitProgress {
 export interface StartupStatusResponse {
   stage: InitStage;
   confirmedStopped?: true;
+  revision?: number;
   generation?: number;
   progress: number;
   message: string;

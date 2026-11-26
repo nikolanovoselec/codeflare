@@ -608,7 +608,7 @@ describe('API Client', () => {
         ok: true,
         status: 200,
         text: () => Promise.resolve(JSON.stringify({
-          stage: 'ready', generation: 7,
+          stage: 'ready', generation: 7, revision: 12,
           progress: 100,
           message: 'Container ready',
           details: {
@@ -655,7 +655,7 @@ describe('API Client', () => {
       );
 
       // Should have called onComplete
-      expect(onComplete).toHaveBeenCalled();
+      expect(onComplete).toHaveBeenCalledWith(7, 12);
       expect(onError).not.toHaveBeenCalled();
 
       cleanup();

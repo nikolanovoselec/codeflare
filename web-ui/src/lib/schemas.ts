@@ -289,6 +289,7 @@ export const InitStageSchema = z.enum(['creating', 'starting', 'syncing', 'mount
 export const StartupStatusResponseSchema = z.object({
   stage: InitStageSchema,
   confirmedStopped: z.literal(true).optional(),
+  revision: z.number().int().nonnegative().optional(),
   generation: z.number().int().nonnegative().optional(),
   progress: z.number(),
   message: z.string(),

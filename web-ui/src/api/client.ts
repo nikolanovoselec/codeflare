@@ -443,7 +443,7 @@ export async function getStartupStatus(sessionId: string): Promise<StartupStatus
 export function startSession(
   id: string,
   onProgress: (progress: InitProgress) => void,
-  onComplete: (generation: number) => void,
+  onComplete: (generation: number, revision?: number) => void,
   onError: (error: string, code?: string) => void,
   options: { retryEditorTimeout?: boolean; surface?: PiSurface } = {},
 ): () => void {
@@ -544,7 +544,7 @@ export function startSession(
 
         if (status.stage === 'ready' && generation !== undefined) {
           cancel();
-          onComplete(generation);
+          onComplete(generation, status.revision);
         } else if (status.stage === 'error') {
           const isPriorEditorTimeout = ignorePriorEditorTimeout
             && status.error === 'VS Code did not become ready. Retry starting the session.';

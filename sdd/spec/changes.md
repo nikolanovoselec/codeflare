@@ -4,6 +4,11 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-26: Chat startup and Dashboard refinements
+
+- [Loading Chat](terminal.md#req-term-049-shared-workspace-startup-progress) keeps its label and final duration when Open appears.
+- [GitHub and Storage](github.md#req-github-010-mobile-github-and-storage-face-switching) flip only on mobile. [New Session padding](github.md#req-github-323-responsive-vibe-dashboard-layout) is half the button height in both modes.
+
 ## 2026-11-26: Chat startup with restored profiles
 
 - [Pi Chat](agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff) dismisses the exact restored bundled Workflows registration instead of failing startup. Git and worktree controls remain unavailable in Chat.
