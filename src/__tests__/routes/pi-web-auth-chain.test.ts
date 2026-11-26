@@ -3,6 +3,7 @@ import type { DurableObject as NativeDurableObject } from 'cloudflare:workers';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CSRF_COOKIE_NAME, CSRF_HEADER_NAME, WS_RATE_LIMIT_MAX_CONNECTIONS } from '../../lib/constants';
 import { SESSION_JWT_AUD, signSessionJWT } from '../../lib/session-jwt';
+import { setLogLevel } from '../../lib/logger';
 import { handlePiWebRequest } from '../../routes/pi-web';
 import type { Env, Session } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
@@ -43,6 +44,7 @@ describe('Pi web Worker proxy (REQ-AGENT-272 AC5)', () => {
   let liveNativeStub: DurableObjectStub | undefined;
   let ordinary: boolean;
   let authorityDelayMs: number;
+  let upstreamStatus: number;
 
   function putSession(fields: Partial<StoredSession> = {}, owner = OWNER) {
     kv._set(`session:${owner}:${SID}`, {
@@ -59,6 +61,7 @@ describe('Pi web Worker proxy (REQ-AGENT-272 AC5)', () => {
     liveNativeStub = undefined;
     ordinary = true;
     authorityDelayMs = 0;
+    upstreamStatus = 200;
     for (const email of [OWNER_EMAIL, OTHER_EMAIL]) {
       kv._set(`user:${email}`, { addedBy: 'test', role: 'user', accessTier: 'standard', subscriptionTier: 'standard' });
     }
@@ -84,7 +87,7 @@ describe('Pi web Worker proxy (REQ-AGENT-272 AC5)', () => {
         forwardExisting: async (request: Request) => {
           if (new URL(request.url).pathname === '/health') return Response.json({ status: 'healthy', terminalServiceReady: true });
           push('http', name, request);
-          return new Response('pi-web private port');
+          return new Response('pi-web private port', { status: upstreamStatus });
         },
         fetch: async (request: Request) => {
           push(request.headers.get('Upgrade')?.toLowerCase() === 'websocket' ? 'native' : 'wake', name, request);
@@ -158,6 +161,7 @@ describe('Pi web Worker proxy (REQ-AGENT-272 AC5)', () => {
     const log = vi.spyOn(console, 'log').mockImplementation((output: string) => {
       if (output.includes('Pi Web proxy timing')) logs.push(JSON.parse(output));
     });
+    setLogLevel('info');
     try {
       authorityDelayMs = 50;
       const response = await handlePiWebRequest(request(`${APP}${QUERY}`), env);
@@ -172,6 +176,40 @@ describe('Pi web Worker proxy (REQ-AGENT-272 AC5)', () => {
         authorityMs: expect.any(Number), forwardMs: expect.any(Number) });
       expect(logs[0].data?.authorityMs).toBeGreaterThanOrEqual(49);
     } finally {
+      setLogLevel('silent');
+      log.mockRestore();
+    }
+  });
+
+  it('samples successful stock GETs but does not time non-success responses', async () => {
+    const records: { data: { kind: string } }[] = [];
+    const log = vi.spyOn(console, 'log').mockImplementation((output: string) => {
+      if (output.includes('Pi Web proxy timing')) records.push(JSON.parse(output));
+    });
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0);
+    const asset = `${APP}assets/main.js`;
+    setLogLevel('info');
+    try {
+      const sampled = await handlePiWebRequest(request(asset), env);
+      expect(sampled.status).toBe(200);
+      expect(sampled.headers.get('Cache-Control')).toBe('no-store');
+      expect(sampled.headers.has('Server-Timing')).toBe(false);
+      expect(records.map(record => record.data.kind)).toEqual(['asset']);
+
+      random.mockReturnValue(0.99);
+      expect((await handlePiWebRequest(request(asset), env)).status).toBe(200);
+      expect(records).toHaveLength(1);
+
+      random.mockReturnValue(0);
+      upstreamStatus = 503;
+      const unavailable = await handlePiWebRequest(request(APP), env);
+      expect(unavailable.status).toBe(503);
+      expect(unavailable.headers.get('Cache-Control')).toBe('no-store');
+      expect(unavailable.headers.has('Server-Timing')).toBe(false);
+      expect(records).toHaveLength(1);
+    } finally {
+      setLogLevel('silent');
+      random.mockRestore();
       log.mockRestore();
     }
   });

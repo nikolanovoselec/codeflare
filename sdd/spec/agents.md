@@ -1040,7 +1040,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 4. Shutdown cancels in-flight stock service startup requests, including response-body reads, without emitting a boot-failure warning for the cancellation. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @test: scripts/ci/smoke-pi-web-services.mjs (verifyPendingBootRequestCancellation) -->
 5. On successful stock service boot, Host logs cumulative elapsed milliseconds to child launch, pair health, package listing, and service readiness. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualify) -->
 6. On successful Chat writer confirmation, Host logs elapsed milliseconds for service wait, project/workspace setup, URL publication to first qualifying startup request admission, and admission to writer confirmation. Without observed admission, the last two durations are null, not zero. <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualify) -->
-7. For successful authorized stock Chat reads, Worker timing logs separate authentication, session eligibility, authority verification, and forwarding to response headers. Records contain only request category and durations. <!-- @impl: src/routes/pi-web.ts::handlePiWebRequest --> <!-- @test: src/__tests__/routes/pi-web-auth-chain.test.ts (reports bounded proxy timings only for a successful authorized document) -->
+7. When info logging is enabled, Worker timing logs cover successful authorized stock Chat document GETs and sample other successful stock GETs. Timing data contains only request category and separate durations for authentication, session eligibility, authority verification, and forwarding to response headers. <!-- @impl: src/routes/pi-web.ts::handlePiWebRequest --> <!-- @test: src/__tests__/routes/pi-web-auth-chain.test.ts (reports bounded proxy timings only for a successful authorized document) --> <!-- @test: src/__tests__/routes/pi-web-auth-chain.test.ts (samples successful stock GETs but does not time non-success responses) -->
 
 **Constraints:** The previous attempt must be confirmed closed before retry. Do not log raw errors, child output, profile data or response bodies.
 
@@ -1048,7 +1048,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Dependencies:** [REQ-AGENT-275](#req-agent-275-classic-pi-chat-startup)
 
-**Verification:** Automated: [Handoff coordinator](../../host/__tests__/pi-web-handoff.test.js), [Packaged Host handoff](../../scripts/ci/smoke-pi-web-host-handoff.mjs), [Stock service smoke](../../scripts/ci/smoke-pi-web-services.mjs)
+**Verification:** Automated: [Handoff coordinator](../../host/__tests__/pi-web-handoff.test.js), [Packaged Host handoff](../../scripts/ci/smoke-pi-web-host-handoff.mjs), [Stock service smoke](../../scripts/ci/smoke-pi-web-services.mjs), [Worker proxy](../../src/__tests__/routes/pi-web-auth-chain.test.ts)
 
 **Status:** Planned
 
