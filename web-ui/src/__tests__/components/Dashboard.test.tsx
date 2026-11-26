@@ -767,11 +767,13 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
         repo('older', '2026-02-28T12:00:00Z'), repo('third', '2026-03-01T12:00:00Z'), newestRepo,
         repo('invalid', 'not a date'), repo('second', '2026-03-04T07:00:00Z'),
       ]);
-      expect(details.queryByRole('link', { name: /\// })).not.toBeInTheDocument();
+      const repoLinks = () => details.getAllByRole('link').filter(link => link !== details.getByRole('link', { name: '@octocat' }));
+      expect(repoLinks()).toHaveLength(0);
       settleCounts(Response.json({ counts: null }));
 
-      const links = await details.findAllByRole('link', { name: /\// });
-      expect(links.map(link => link.textContent)).toEqual(['team/newest', 'octocat/second', 'octocat/third']);
+      await details.findByRole('link', { name: 'newest', exact: true });
+      const links = repoLinks();
+      expect(links.map(link => link.textContent)).toEqual(['newest', 'second', 'third']);
       for (const [index, name, age] of [[0, 'team/newest', '12m ago'], [1, 'octocat/second', '5h ago'], [2, 'octocat/third', '3d ago']] as const) {
         expect(links[index]).toHaveAttribute('href', `https://github.com/${name}`);
         expect(links[index]).toHaveAttribute('target', '_blank');

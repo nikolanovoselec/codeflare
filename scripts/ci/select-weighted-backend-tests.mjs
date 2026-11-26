@@ -52,6 +52,19 @@ export function selectBackendGroup(group, weightDocument = JSON.parse(readFileSy
   const nodeFiles = new Set(NODE_SUITE_FILES);
   const files = collectTests(join(ROOT, 'src')).filter((file) => !nodeFiles.has(file));
   const groups = assignWeightedFiles(files, weightDocument.weights, count, weightDocument.fileOverheadMs);
+  // Runs 45899555552 and 45900111651 put both of shard 8's longest files
+  // together. Move the smaller workload to a leg with headroom without
+  // reshuffling the rest of the matrix or changing coverage.
+  if (count === 11) {
+    const file = 'src/__tests__/operators/application-execution.test.ts';
+    const source = groups[7];
+    const position = source.indexOf(file);
+    if (position !== -1 && source.includes('src/__tests__/operators/dispatcher-production-capacity.test.ts')) {
+      source.splice(position, 1);
+      groups[0].push(file);
+      groups[0].sort();
+    }
+  }
   if (groups[index - 1].length === 0) throw new Error(`weighted backend group ${group} is empty`);
   return groups[index - 1];
 }

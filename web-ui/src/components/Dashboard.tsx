@@ -778,7 +778,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                                   <a class="stat-card__metric-label dashboard-github-card__repo" href={`https://github.com/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}`}
                                     target="_blank" rel="noopener noreferrer">
                                     <Icon path={mdiSourceRepository} size={12} aria-hidden="true" />
-                                    <span>{repo.full_name}</span>
+                                    <span>{repo.name}</span>
                                   </a>
                                 } value={
                                   <button type="button" class="stat-card__metric-value dashboard-github-card__age"
