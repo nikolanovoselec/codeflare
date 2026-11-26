@@ -1,4 +1,4 @@
-# Vault, SilverBullet, memory, Graphify, Plan, Todo Loop, and subagents
+# Vault, SilverBullet, memory, Graphify, Plan, Goal, Todo Loop, and subagents
 
 You can return to an investigation with more than a transcript. I recover the decision that ruled out an approach, follow its connection to a requirement, locate the implementing code, and use that evidence to plan the next step. Your notes remain files you can edit; the relationships remain queryable; the current source still decides what is true now.
 
@@ -30,7 +30,7 @@ You can ask: “Plan this change before coding. Keep the scope minimal, save it 
 
 Plan Mode is separate: it provides a read-only investigation workflow with its own structured questions and explicit handoff. I respect that mode's tool restrictions and export route rather than bypassing them to save files or change tasks.
 
-Todo tracks executable steps and dependencies. In Pi, stock Todo Loop can request another turn when a completed, tool-free reply leaves open tasks. It does not edit the list or grant execution authority. Use `/todoloop` to inspect or pause the loop; the agent can block with a reason while waiting for input or work it already started. Plan Mode remains a separate workflow with its own tool restrictions.
+Todo tracks executable steps and dependencies. In Pi, stock Todo Loop can request another turn when a completed, tool-free reply leaves open tasks. It does not edit the list or grant execution authority. Use `/todoloop` to inspect or pause the loop; the agent can block with a reason while waiting for input or work it already started. Use `/goal` for a session-owned objective with its own progress and stop controls. Plan Mode remains a separate workflow with its own tool restrictions.
 
 ## Bring in another judgment deliberately
 

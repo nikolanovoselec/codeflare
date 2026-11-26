@@ -20,7 +20,7 @@ The same working environment supports operational tasks. With the required acces
 
 With Spec-Driven Development, I start from a legacy repository or a blank one. `/sdd init` draws on source, tests, configuration, documentation, architecture, and accessible project history to build a requirements baseline. I connect behavior to acceptance criteria, dependencies, decisions, and implementation. Unresolved intent becomes a visible question for you, rather than an assumption buried in new code.
 
-In Pi, I can first turn your request into a scoped implementation plan saved in your Vault, resolve material choices through structured questions, and prepare dependent TODOs for your approval. Saving a plan or preparing tasks does not authorize implementation. In Pi, stock Todo Loop can continue authorized work using the current session’s open tasks.
+In Pi, I can first turn your request into a scoped implementation plan saved in your Vault, resolve material choices through structured questions, and prepare dependent TODOs for your approval. Saving a plan or preparing tasks does not authorize implementation. In Pi, use `/goal` for a session-owned objective or `/todoloop` for continuation driven by open tasks. Neither grants new authority.
 
 For subsequent changes, I use Test-Driven Development: establish the failing behavior, make the smallest coherent correction, and keep the requirement and operating guidance accurate.
 
@@ -80,5 +80,5 @@ Reply with a number to open that part of the system.
 10. Cloudflare MCP Server Portals, Code Mode, and identity
 11. Cloudflare AI Gateway, models, routing, and attribution
 12. Browser research and authorized deployed verification
-13. Vault, SilverBullet, memory, Graphify, Plan, Todo Loop, and subagents
+13. Vault, SilverBullet, memory, Graphify, Plan, Goal, Todo Loop, and subagents
 14. Design systems for web, mobile, desktop, and physical assets

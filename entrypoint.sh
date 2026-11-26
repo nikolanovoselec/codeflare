@@ -3174,6 +3174,103 @@ try {
 NODE
 }
 
+configure_pi_goal_defaults() {
+    local goal_config="$USER_HOME/.pi/agent/pi-goal.json"
+    PI_GOAL_STARTUP_CONFIG="$goal_config" node --input-type=commonjs <<'NODE'
+const { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } = require('node:fs');
+const { dirname } = require('node:path');
+
+const settingsPath = process.env.PI_GOAL_STARTUP_CONFIG;
+const hasOwn = (value, key) => Object.hasOwn(value, key);
+const ownRecord = (value) =>
+  value !== null && typeof value === 'object' && !Array.isArray(value) ? value : undefined;
+const validContinuationLimit = (value) =>
+  value === null || (typeof value === 'number' && Number.isSafeInteger(value) && value > 0);
+
+function validSettings(value) {
+  if (!ownRecord(value)) return false;
+  if (
+    hasOwn(value, 'toolVisibility') &&
+    value.toolVisibility !== 'always' &&
+    value.toolVisibility !== 'after-first-goal'
+  ) return false;
+
+  if (hasOwn(value, 'experimental')) {
+    const experimental = ownRecord(value.experimental);
+    if (!experimental || (hasOwn(experimental, 'goals') && typeof experimental.goals !== 'boolean')) {
+      return false;
+    }
+  }
+  if (hasOwn(value, 'rpc')) {
+    const rpc = ownRecord(value.rpc);
+    if (!rpc || (hasOwn(rpc, 'enabled') && typeof rpc.enabled !== 'boolean')) return false;
+  }
+  if (hasOwn(value, 'continuationLimits')) {
+    const limits = ownRecord(value.continuationLimits);
+    if (!limits) return false;
+    if (hasOwn(limits, 'automaticTurns') && !validContinuationLimit(limits.automaticTurns)) {
+      return false;
+    }
+    if (hasOwn(limits, 'noProgressTurns') && !validContinuationLimit(limits.noProgressTurns)) {
+      return false;
+    }
+    if (
+      hasOwn(limits, 'minIntervalMs') &&
+      !(typeof limits.minIntervalMs === 'number' &&
+        Number.isSafeInteger(limits.minIntervalMs) &&
+        limits.minIntervalMs >= 0)
+    ) return false;
+  }
+  return true;
+} // validSettings
+
+function configure() {
+  let settings = {};
+  try {
+    settings = JSON.parse(readFileSync(settingsPath, 'utf8'));
+  } catch (error) {
+    if (error && error.code === 'ENOENT') {
+      settings = {};
+    } else {
+      return;
+    }
+  }
+  if (!validSettings(settings)) return;
+
+  const limits = ownRecord(settings.continuationLimits) ?? {};
+  const missingVisibility = !hasOwn(settings, 'toolVisibility');
+  const missingAutomaticTurns = !hasOwn(limits, 'automaticTurns');
+  const needsMinInterval = limits.minIntervalMs !== 300_000;
+  const needsStallLimit = limits.noProgressTurns !== 5;
+  if (!missingVisibility && !missingAutomaticTurns && !needsMinInterval && !needsStallLimit) return;
+
+  const nextLimits = {
+    ...limits,
+    ...(missingAutomaticTurns ? { automaticTurns: null } : {}),
+    noProgressTurns: 5,
+    minIntervalMs: 300_000,
+  };
+  const nextSettings = {
+    ...settings,
+    ...(missingVisibility ? { toolVisibility: 'after-first-goal' } : {}),
+    continuationLimits: nextLimits,
+  };
+
+  mkdirSync(dirname(settingsPath), { recursive: true });
+  const temporaryPath = `${settingsPath}.${process.pid}.tmp`;
+  try {
+    writeFileSync(temporaryPath, `${JSON.stringify(nextSettings, null, 2)}\n`, { flag: 'wx' });
+    renameSync(temporaryPath, settingsPath);
+  } finally {
+    rmSync(temporaryPath, { force: true });
+  }
+  console.log('[entrypoint] Pi Goal startup defaults configured');
+} // configure
+
+configure();
+NODE
+}
+
 configure_pi_plan_mode() {
     local plan_config="$USER_HOME/.pi/agent/pi-plan-mode.json"
     PI_PLAN_MODE_STARTUP_CONFIG="$plan_config" node --input-type=commonjs <<'NODE'
@@ -3665,6 +3762,7 @@ const required = [
   'npm:pi-smart-compact@10.8.1',
   // The Advanced-only Codeflare adapter owns foreground initialization.
   { source: 'npm:pi-hermes-memory@0.11.0', extensions: [] },
+  'npm:@narumitw/pi-goal@0.55.5',
   'npm:@narumitw/pi-plan-mode@0.60.1',
   // The managed terminal adapter initializes the native UI once.
   { source: 'npm:pi-open-tui@0.4.6', extensions: [] },
@@ -3678,7 +3776,7 @@ const defaultPackages = [
 // Migration: hard-remove retired managed packages from existing settings.
 // Retire managed registrations without deleting user files.
 // Unlike disabled packages these are dropped and never re-added, so upgrades load cleanly.
-const removedPackageIds = new Set(['npm:@gaodes/pi-graphify', 'npm:pi-goal-list-loop-audit', 'npm:@narumitw/pi-goal', 'npm:pi-caveman', 'npm:@narumitw/pi-usage', 'npm:pi-mcp-extension']);
+const removedPackageIds = new Set(['npm:@gaodes/pi-graphify', 'npm:pi-goal-list-loop-audit', 'npm:pi-caveman', 'npm:@narumitw/pi-usage', 'npm:pi-mcp-extension']);
 function sourceOf(entry) {
   if (typeof entry === 'string') return entry;
   return entry && typeof entry.source === 'string' ? entry.source : undefined;
@@ -4023,7 +4121,8 @@ NODE
 # package.json but no installed packages. Copying the image cache prevents Pi
 # from running a slow npm install on first launch.
 # Dependency warm-up remains non-fatal: aborting before the init-complete flag
-# leaves the terminal server gated in "warming up" forever.
+# leaves the terminal server gated in "warming up" forever. Goal and Plan Mode
+# keep that established degradation policy.
 # Pi Subagents: disable the upstream notify_parent / <subagent-update> channel.
 # Completion results and ask_parent remain available; only mid-run chatter is off.
 # Apply after home restore and before Pi loads its extensions, on EVERY startup:
@@ -4107,6 +4206,7 @@ NODE
 }
 configure_pi_open_tui || echo "[entrypoint] WARNING: Open TUI configuration could not be applied; existing preferences preserved"
 configure_pi_subagent_defaults || echo "[entrypoint] WARNING: Pi subagent update defaults could not be applied; existing preferences preserved"
+configure_pi_goal_defaults || echo "[entrypoint] WARNING: Pi Goal default configuration failed; continuing startup"
 configure_pi_plan_mode || echo "[entrypoint] WARNING: Pi Plan Mode configuration failed; continuing startup"
 warm_pi_npm_dependencies || echo "[entrypoint] WARNING: Pi dependency warm-up failed; continuing startup"
 configure_pi_smart_compact_defaults || echo "[entrypoint] WARNING: Smart Compact defaults unavailable; continuing startup"

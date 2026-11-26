@@ -508,6 +508,31 @@ describe('REQ-AGENT-096: native Hermes tool discovery and activation', () => {
   });
 });
 
+it('REQ-AGENT-248: Goal wait is undiscoverable and exact activation reports the policy block', async () => {
+  const fixture = discoveryFixture({
+    active: ['read'],
+    tools: [
+      { name: 'read', description: 'Read files' },
+      { name: 'goal_wait', description: 'Wait for Goal progress' },
+      { name: 'todo_loop_block', description: 'Wait for Todo Loop progress' },
+    ],
+  });
+  toolExposureFinalizer(fixture.pi);
+  expect(identities(await fixture.search('tool:goal_wait'))).not.toContain('tool:goal_wait');
+  await expect(fixture.capability.execute('wait', { name: 'goal_wait' }))
+    .rejects.toThrow('goal_wait is disabled by Codeflare policy.');
+  expect(fixture.pi.getActiveTools()).toEqual(['read']);
+  await fixture.capability.execute('block', { name: 'todo_loop_block' });
+  expect(fixture.pi.getActiveTools()).toEqual(['read', 'todo_loop_block']);
+  expect(await fixture.handlers.get('tool_call')({ toolName: 'goal_wait' }, {})).toContainEqual({
+    block: true,
+    reason: 'goal_wait is disabled by Codeflare policy.',
+  });
+  expect(await fixture.handlers.get('tool_call')({ toolName: 'todo_loop_block' }, {})).not.toContainEqual(
+    expect.objectContaining({ block: true }),
+  );
+});
+
 describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
   it('REQ-AGENT-096 AC4: enabled foreground context tools stay deferred until exact capability activation', async () => {
     const tools = [

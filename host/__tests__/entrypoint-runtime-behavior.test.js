@@ -284,6 +284,111 @@ describe('entrypoint production helpers', () => {
     assert.equal(readFileSync(settingsPath, 'utf8'), restored);
   });
 
+  it('REQ-AGENT-272: creates every Codeflare-owned Goal startup default when config is absent', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'pi-goal-settings-'));
+    const configPath = join(fixture, '.pi/agent/pi-goal.json');
+    const conflictingPath = join(fixture, 'legacy/pi-goal.json');
+    const env = { USER_HOME: fixture, PI_GOAL_CONFIG_FILE: conflictingPath };
+
+    const result = runStartupInvocation('configure_pi_goal_defaults', env);
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), {
+      toolVisibility: 'after-first-goal',
+      continuationLimits: { automaticTurns: null, noProgressTurns: 5, minIntervalMs: 300_000 },
+    });
+    assert.equal(existsSync(conflictingPath), false);
+  });
+
+  it('REQ-AGENT-272: enforces five-minute pacing while preserving unrelated preferences', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'pi-goal-settings-merge-'));
+    const configPath = join(fixture, '.pi/agent/pi-goal.json');
+    const env = { USER_HOME: fixture };
+    mkdirSync(dirname(configPath), { recursive: true });
+    writeFileSync(configPath, JSON.stringify({
+      toolVisibility: 'always',
+      continuationLimits: {
+        automaticTurns: null,
+        noProgressTurns: 8,
+        customLimit: 'keep',
+      },
+      rpc: { enabled: true, customTransport: 'keep' },
+      unknownRoot: { enabled: null },
+    }));
+
+    const explicit = runStartupInvocation('configure_pi_goal_defaults', env);
+    assert.equal(explicit.status, 0, explicit.stderr);
+    assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), {
+      toolVisibility: 'always',
+      continuationLimits: {
+        automaticTurns: null,
+        noProgressTurns: 5,
+        customLimit: 'keep',
+        minIntervalMs: 300_000,
+      },
+      rpc: { enabled: true, customTransport: 'keep' },
+      unknownRoot: { enabled: null },
+    });
+
+    writeFileSync(configPath, JSON.stringify({
+      continuationLimits: { minIntervalMs: 0 },
+      rpc: { enabled: false },
+      unknownRoot: 'keep',
+    }));
+    const missing = runStartupInvocation('configure_pi_goal_defaults', env);
+    assert.equal(missing.status, 0, missing.stderr);
+    assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), {
+      toolVisibility: 'after-first-goal',
+      continuationLimits: { minIntervalMs: 300_000, automaticTurns: null, noProgressTurns: 5 },
+      rpc: { enabled: false },
+      unknownRoot: 'keep',
+    });
+  });
+
+  it('REQ-AGENT-272: repairs disabled or legacy stall safety even when cadence is already correct', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'pi-goal-stall-migration-'));
+    const configPath = join(fixture, '.pi/agent/pi-goal.json');
+    mkdirSync(dirname(configPath), { recursive: true });
+    try {
+      for (const noProgressTurns of [undefined, null, 3, 8]) {
+        for (const automaticTurns of [null, 2]) {
+          const original = {
+            toolVisibility: 'always', rpc: { enabled: true }, custom: { preserve: 'owned' },
+            continuationLimits: { automaticTurns, ...(noProgressTurns === undefined ? {} : { noProgressTurns }),
+              minIntervalMs: 300_000, custom: 'keep' },
+          };
+          writeFileSync(configPath, JSON.stringify(original));
+          const first = runStartupInvocation('configure_pi_goal_defaults', { USER_HOME: fixture });
+          assert.equal(first.status, 0, first.stderr);
+          const expected = { ...original, continuationLimits: { ...original.continuationLimits, noProgressTurns: 5 } };
+          assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), expected);
+          const repeated = runStartupInvocation('configure_pi_goal_defaults', { USER_HOME: fixture });
+          assert.equal(repeated.status, 0, repeated.stderr);
+          assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), expected);
+        }
+      }
+    } finally { rmSync(fixture, { recursive: true, force: true }); }
+  });
+
+  it('REQ-AGENT-272: preserves malformed Goal config byte-for-byte', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'pi-goal-settings-malformed-'));
+    const configPath = join(fixture, '.pi/agent/pi-goal.json');
+    const env = { USER_HOME: fixture };
+    mkdirSync(dirname(configPath), { recursive: true });
+
+    for (const malformed of [
+      '{"toolVisibility":"always",\n',
+      '{"toolVisibility":"always","continuationLimits":null}\n',
+      '{"continuationLimits":{"noProgressTurns":"5"}}\n',
+      '{"continuationLimits":{"noProgressTurns":0}}\n',
+      '{"continuationLimits":{"automaticTurns":0}}\n',
+    ]) {
+      writeFileSync(configPath, malformed);
+      const result = runStartupInvocation('configure_pi_goal_defaults', env);
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(readFileSync(configPath, 'utf8'), malformed);
+    }
+  });
+
   it('REQ-AGENT-152 AC5/AC6: overwrites Plan Mode settings with the Codeflare policy on every start', () => {
     const fixture = mkdtempSync(join(tmpdir(), 'pi-plan-mode-settings-'));
     const configPath = join(fixture, '.pi/agent/pi-plan-mode.json');
