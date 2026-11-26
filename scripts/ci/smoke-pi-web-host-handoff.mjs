@@ -9,6 +9,7 @@ import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { basename, dirname, join } from 'node:path';
 import { Readable } from 'node:stream';
 import { setTimeout as delay } from 'node:timers/promises';
+import { createActivityTracker } from '../../host/dist/activity-tracker.js';
 import { createPiWebProxy } from '../../host/dist/pi-web-proxy.js';
 import { createPiWebRuntime } from '../../host/dist/pi-web-runtime.js';
 import { PI_WEB_PORT } from '../../host/dist/pi-web-services.js';
@@ -155,7 +156,9 @@ async function qualify(ambiguous) {
   let profileRestored = false;
   const runtime = createPiWebRuntime({ sessionId, generation, initialSurface: 'chat', terminalMode: 'classic',
     cwd, home, runtimeDir, profileRestored: () => profileRestored, cloneRestored: () => false });
-  const proxy = createPiWebProxy({ sessionId, runtime, recordInput() {} });
+  const activity = createActivityTracker();
+  const lastInput = () => activity.getActivityInfo(null).lastInputAt;
+  const proxy = createPiWebProxy({ sessionId, runtime, recordInput: activity.recordInput });
   let refuseFirstFrame = exerciseStartupWaits;
   const server = createServer((req, res) => {
     if (refuseFirstFrame && req.method === 'GET' && req.url?.startsWith(`${appPrefix}/?`)) {
@@ -213,12 +216,16 @@ async function qualify(ambiguous) {
     // still registers and writes all native ownership evidence itself.
     const commandReceipt = join(home, 'slash-command-receipt');
     writeFileSync(join(extensions, 'held-input.ts'), `
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, renameSync, writeFileSync } from 'node:fs';
 import { setTimeout as delay } from 'node:timers/promises';
 export default function (pi) {
   pi.registerCommand('codeflare-fixture', {
     description: 'Record a harmless fixture argument',
-    handler: async (args, ctx) => writeFileSync(${JSON.stringify(commandReceipt)}, JSON.stringify({ args, id: ctx.sessionManager.getSessionId() })),
+    handler: async (args, ctx) => {
+      const receipt = ${JSON.stringify(commandReceipt)};
+      writeFileSync(receipt + '.tmp', JSON.stringify({ args, id: ctx.sessionManager.getSessionId(), cwd: ctx.cwd }));
+      renameSync(receipt + '.tmp', receipt);
+    },
   });
   pi.on('session_start', async (_event, ctx) => {
     if (${!exerciseStartupWaits} || ctx.mode !== 'rpc' || existsSync(${JSON.stringify(startupQuestionSeen)})) return;
@@ -522,14 +529,19 @@ export default function (pi) {
     const command = (status, text, bodyCwd = cwd, route = ref) =>
       api(`${route}/commands/run`, status, { cwd: bodyCwd, text });
     if (!ambiguous && !retryOnly) {
+      const beforeCommand = lastInput();
+      await until('clock advances past prior input', () => Date.now() > (beforeCommand ?? 0));
       await command(409, '/codeflare-fixture wrong-session', cwd, `${ref}-wrong`);
       await command(400, '/codeflare-fixture wrong-workspace', `${cwd}/other`);
       await command(409, ' /clone ');
       await command(409, '/fork');
+      assert.equal((await command(200, '/codeflare-unknown-fixture-command')).type, 'unsupported');
+      assert.equal(lastInput(), beforeCommand, 'rejected and unsupported commands are not user input');
       assert.equal(existsSync(commandReceipt), false);
       assert.equal((await command(200, '/codeflare-fixture hello there')).type, 'done');
+      assert.ok((lastInput() ?? 0) > (beforeCommand ?? 0), 'accepted command advances the idle input clock');
       await until('Pi extension processes scoped slash command', () => existsSync(commandReceipt));
-      assert.deepEqual(JSON.parse(readFileSync(commandReceipt, 'utf8')), { args: 'hello there', id });
+      assert.deepEqual(JSON.parse(readFileSync(commandReceipt, 'utf8')), { args: 'hello there', id, cwd });
       const first = Buffer.alloc(6_000_000, 0x31);
       const second = Buffer.alloc(4_000_000, 0x32);
       const batch = [attachment(first), attachment(second)];
@@ -608,7 +620,9 @@ export default function (pi) {
     assert.equal((await health()).activeSessions, 1);
     assert.deepEqual(calls, [seed], 'the parked request has not reached the model');
     await prompt('New prompt after the switch fence', 409);
+    const beforeFencedCommand = lastInput();
     await command(409, '/codeflare-fixture fenced');
+    assert.equal(lastInput(), beforeFencedCommand);
     await upload(409, [attachment(Buffer.from('fenced'))], { folder: 'fenced-attachment' });
     assert.equal(existsSync(join(cwd, 'fenced-attachment')), false);
 

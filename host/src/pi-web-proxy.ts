@@ -154,6 +154,7 @@ export function createPiWebProxy(options: { sessionId: string; runtime: PiWebRun
     let upstreamSettled = false;
     try {
       let body: string | undefined;
+      let commandName: string | undefined;
       if (!read) {
         let data: Record<string, unknown>;
         if (endpoint === 'attachments') {
@@ -185,8 +186,8 @@ export function createPiWebProxy(options: { sessionId: string; runtime: PiWebRun
             send(res, 400, { error: 'Chat command text is required' }); return;
           }
           // These stock commands create another transcript outside the bound session.
-          const [command] = data.text.trim().replace(/^\//, '').split(/\s+/, 1);
-          if (command === 'clone' || command === 'fork') {
+          [commandName] = data.text.trim().replace(/^\//, '').split(/\s+/, 1);
+          if (commandName === 'clone' || commandName === 'fork') {
             send(res, 409, { error: 'Command would leave the active Chat conversation' }); return;
           }
         }
@@ -235,6 +236,18 @@ export function createPiWebProxy(options: { sessionId: string; runtime: PiWebRun
         upstreamSettled = true;
         options.recordInput();
         send(res, status, acknowledgment, headers);
+        return;
+      }
+      // /tree is a read-only result and may carry a large tree snapshot.
+      if (ok && endpoint === 'commands/run' && commandName !== 'tree') {
+        const resultBody = await readJson(result);
+        if (!resultBody || typeof resultBody !== 'object' || !('type' in resultBody)
+          || (resultBody.type !== 'done' && resultBody.type !== 'unsupported')) {
+          throw new Error('Unconfirmed stock Chat command result');
+        }
+        upstreamSettled = true;
+        if (resultBody.type === 'done') options.recordInput();
+        send(res, status, resultBody, headers);
         return;
       }
       upstreamSettled = true;

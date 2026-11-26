@@ -56,6 +56,7 @@ vi.mock('../../api/client', () => ({
   getStartupStatus: vi.fn(),
   startSession: vi.fn(),
   stopSession: vi.fn(),
+  killSession: vi.fn().mockResolvedValue(undefined),
   getPreferences: vi.fn().mockResolvedValue({}),
   updatePreferences: vi.fn().mockResolvedValue({}),
   getR2Status: vi.fn().mockResolvedValue({ ready: false }),
@@ -1583,12 +1584,19 @@ describe('Session Store', () => {
       expect(cloneAttempt(repo)).toBeUndefined();
     });
 
-    it('preserves recovery when batch Stopped supersedes catalog Running', async () => {
+    it.each([false, true])('preserves recovery when batch Stopped supersedes catalog Running (prior Kill: %s)', async priorKill => {
       const id = 'stopped-clone';
       const repo = 'octocat/stopped-recovery';
+      const session = { id, name: 'stopped-recovery', status: 'running' as const,
+        createdAt: '2026-01-01T00:00:00Z', lastAccessedAt: '2026-01-01T00:00:00Z' };
+      if (priorKill) {
+        mockGetSessions.mockResolvedValue([{ ...session, generation: 1, revision: 2 }]);
+        await sessionStore.loadSessions();
+        await sessionStore.killSession(id);
+        expect(sessionStore.sessions.find(row => row.id === id)?.status).toBe('stopping');
+      }
       setCloneAttempt(repo, { phase: 'failed', sessionId: id });
-      mockGetSessions.mockResolvedValue([{ id, name: 'stopped-recovery', status: 'running',
-        generation: 2, revision: 3, createdAt: '2026-01-01T00:00:00Z', lastAccessedAt: '2026-01-01T00:00:00Z' }]);
+      mockGetSessions.mockResolvedValue([{ ...session, lifecycle: 'running', generation: 2, revision: 3 }]);
       mockGetBatchSessionStatus.mockResolvedValue({ statuses: { [id]: { status: 'stopped', generation: 2, revision: 4 } } });
       try {
         await sessionStore.loadSessions();

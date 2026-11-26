@@ -215,7 +215,7 @@ registerR2ReadinessDeps({
 
 // ── Core session helpers ────────────────────────────────────────────────────
 
-function updateSessionStatus(id: string, status: SessionStatus): void {
+function updateSessionStatus(id: string, status: SessionStatus, deferCloneRetirement = false): void {
   const index = state.sessions.findIndex((sess) => sess.id === id);
   if (index !== -1) {
     if (status === 'stopped') {
@@ -227,7 +227,7 @@ function updateSessionStatus(id: string, status: SessionStatus): void {
     }
     setState('sessions', index, 'status', status);
     if (status === 'running') {
-      forgetCloneAttempt(id, true);
+      if (!deferCloneRetirement) forgetCloneAttempt(id, true);
       markSessionStarted(id);
     }
     if (status === 'stopped' || status === 'stopping') clearSessionStartedGuard(id);
@@ -327,14 +327,14 @@ function releaseKillAttempt(id: string): void {
   if (localKillAttempts.delete(id)) setTerminationRevision(value => value + 1);
 }
 
-function reconcileKillGeneration(id: string): void {
+function reconcileKillGeneration(id: string, deferCloneRetirement = false): void {
   const attempt = localKillAttempts.get(id);
   const session = state.sessions.find((candidate) => candidate.id === id);
   if (!attempt || !session) return;
   if (session.generation !== attempt.generation) {
     // A command for the old runtime must not pin a replacement as stopping.
     releaseKillAttempt(id);
-    if (session.lifecycle) updateSessionStatus(id, session.lifecycle);
+    if (session.lifecycle) updateSessionStatus(id, session.lifecycle, deferCloneRetirement);
   } else if (session.status === 'stopped') {
     releaseKillAttempt(id);
   }
@@ -441,7 +441,7 @@ async function loadSessions(): Promise<void> {
     sessionMissCounters.clear();
     setState('sessions', sessionsWithStatus);
     setState('loading', false);
-    for (const session of state.sessions) reconcileKillGeneration(session.id);
+    for (const session of state.sessions) reconcileKillGeneration(session.id, true);
     // REQ-VAULT-034 AC2: sweep orphan legacy SilverBullet markers only after
     // an authoritative session-list fetch succeeds. Dashboard mount can
     // see the initial empty store before loadSessions resolves; sweeping

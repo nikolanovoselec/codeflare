@@ -1118,7 +1118,7 @@ jobs:
           # Transpile, do not bundle: production relative .js imports remain usable by other smoke modules.
           host_dist=$(mktemp -d "$RUNNER_TEMP/pi-web-host.XXXXXXXX")
           chmod 0755 "$host_dist" # Readable by the container without DAC override.
-          node_modules/.bin/esbuild host/src/pi-web-handoff.ts host/src/pi-web-proxy.ts \
+          node_modules/.bin/esbuild host/src/activity-tracker.ts host/src/pi-web-handoff.ts host/src/pi-web-proxy.ts \
             host/src/pi-web-runtime.ts host/src/pi-web-services.ts \
             --format=esm --target=es2022 --outdir="$host_dist"
           docker run --rm --init --network=none --cap-drop=ALL --security-opt=no-new-privileges \
