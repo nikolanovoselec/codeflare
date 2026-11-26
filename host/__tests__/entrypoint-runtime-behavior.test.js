@@ -344,6 +344,34 @@ describe('entrypoint production helpers', () => {
     });
   });
 
+  it('REQ-AGENT-272 AC3: treats five minutes as a floor and preserves explicit retry preferences', (t) => {
+    const fixture = mkdtempSync(join(tmpdir(), 'pi-goal-interval-floor-'));
+    t.after(() => rmSync(fixture, { recursive: true, force: true }));
+    const configPath = join(fixture, '.pi/agent/pi-goal.json');
+    mkdirSync(dirname(configPath), { recursive: true });
+    const env = { USER_HOME: fixture };
+
+    for (const [minIntervalMs, expectedInterval, retryUsageLimits] of [
+      [299_999, 300_000, false],
+      [600_000, 600_000, true],
+    ]) {
+      writeFileSync(configPath, JSON.stringify({ retryUsageLimits, continuationLimits: { minIntervalMs } }));
+      const result = runStartupInvocation('configure_pi_goal_defaults', env);
+      assert.equal(result.status, 0, result.stderr);
+      const expected = {
+        retryUsageLimits,
+        toolVisibility: 'after-first-goal',
+        continuationLimits: { minIntervalMs: expectedInterval, automaticTurns: null, noProgressTurns: 5 },
+      };
+      assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), expected);
+      const bytes = JSON.stringify(expected) + '\n';
+      writeFileSync(configPath, bytes);
+      const repeated = runStartupInvocation('configure_pi_goal_defaults', env);
+      assert.equal(repeated.status, 0, repeated.stderr);
+      assert.equal(readFileSync(configPath, 'utf8'), bytes);
+    }
+  });
+
   it('REQ-AGENT-272: repairs disabled or legacy stall safety even when cadence is already correct', () => {
     const fixture = mkdtempSync(join(tmpdir(), 'pi-goal-stall-migration-'));
     const configPath = join(fixture, '.pi/agent/pi-goal.json');
@@ -381,6 +409,9 @@ describe('entrypoint production helpers', () => {
       '{"continuationLimits":{"noProgressTurns":"5"}}\n',
       '{"continuationLimits":{"noProgressTurns":0}}\n',
       '{"continuationLimits":{"automaticTurns":0}}\n',
+      '{"retryUsageLimits":"true"}\n',
+      '{"retryUsageLimits":0}\n',
+      '{"retryUsageLimits":null}\n',
     ]) {
       writeFileSync(configPath, malformed);
       const result = runStartupInvocation('configure_pi_goal_defaults', env);

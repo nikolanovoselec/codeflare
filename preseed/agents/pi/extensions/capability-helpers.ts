@@ -152,20 +152,12 @@ export function registerInitialToolFilter(
   const alwaysVisible = goalToolVisibility() === "always";
   const goalTools = () => registeredTools(pi, [...initialActiveTools(pi), ...GOAL_TERMINAL_TOOLS]);
   const applyOwnedTools = (ctx: SessionContext): boolean => {
-    const goalStatus = latestGoalStatus(ctx);
-    if (goalStatus === "active") {
-      pi.setActiveTools(goalTools());
-      return true;
-    }
     const planTools = activePlanTools(pi, ctx);
     if (planTools) {
-      pi.setActiveTools(registeredTools(pi, [
-        ...planTools,
-        ...(alwaysVisible ? GOAL_TERMINAL_TOOLS : []),
-      ]));
+      pi.setActiveTools(planTools);
       return true;
     }
-    if (alwaysVisible || goalStatus !== undefined) {
+    if (alwaysVisible || latestGoalStatus(ctx) !== undefined) {
       pi.setActiveTools(goalTools());
       return true;
     }

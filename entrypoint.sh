@@ -3296,6 +3296,7 @@ function validSettings(value) {
     value.toolVisibility !== 'always' &&
     value.toolVisibility !== 'after-first-goal'
   ) return false;
+  if (hasOwn(value, 'retryUsageLimits') && typeof value.retryUsageLimits !== 'boolean') return false;
 
   if (hasOwn(value, 'experimental')) {
     const experimental = ownRecord(value.experimental);
@@ -3342,7 +3343,8 @@ function configure() {
   const limits = ownRecord(settings.continuationLimits) ?? {};
   const missingVisibility = !hasOwn(settings, 'toolVisibility');
   const missingAutomaticTurns = !hasOwn(limits, 'automaticTurns');
-  const needsMinInterval = limits.minIntervalMs !== 300_000;
+  const minIntervalMs = Math.max(300_000, limits.minIntervalMs ?? 0);
+  const needsMinInterval = limits.minIntervalMs !== minIntervalMs;
   const needsStallLimit = limits.noProgressTurns !== 5;
   if (!missingVisibility && !missingAutomaticTurns && !needsMinInterval && !needsStallLimit) return;
 
@@ -3350,7 +3352,7 @@ function configure() {
     ...limits,
     ...(missingAutomaticTurns ? { automaticTurns: null } : {}),
     noProgressTurns: 5,
-    minIntervalMs: 300_000,
+    minIntervalMs,
   };
   const nextSettings = {
     ...settings,

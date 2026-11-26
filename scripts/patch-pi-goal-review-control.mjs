@@ -41,12 +41,12 @@ const REVIEWED_05415 = {
   'src/persistence.ts': ['fc4a213f97c9396fcdfa9123266c4095d092e64bdc96f5e45322e471614bd47c', '569a15d883edc43f65caf4e2cc4c2aad35c849f0929366d6c693c0ed0d203306'],
   'src/prompts.ts': ['9aec92ac4d8319dd1086a072271c75be8f638a0692fd8a03d10fda4b9337c88c', '8595c4a6aee3b485504f6c0d0ab51091d669fc6bfd9ff89ba94c251934ef2231', 'f32fec7ff2b06897024610b420064f007191732c7f7559a79212ced6063f1f93'],
   'src/run-protocol.ts': ['05a387d77f28502eca06213460fdb375614d784741a306b7e66a7fff9bd3bba3'],
-  'src/runtime.ts': ['4dbb2be140a035241265724ebb91401a08417f4d8abed2e58973bf8baa72f706', '3c44ff728961ab627b334a32ce847cfdfefa6125763e9839680df63d2eee1ea0', '86c40489e8c4b0dd8ddf1e04fd7ca02efc9b7056aa11f0173035a8483ef613bb'],
+  'src/runtime.ts': ['4dbb2be140a035241265724ebb91401a08417f4d8abed2e58973bf8baa72f706', '3c44ff728961ab627b334a32ce847cfdfefa6125763e9839680df63d2eee1ea0', '6db3aa25ced0e7f59be5a96b1764bfd216ee79f73210bfa44721924ec52d5324'],
   'src/safety.ts': ['e12c9fb224286697b4424c976a5c159c2a2bdca70feb34e756b208f92182b8e8', 'd08d3a99ac0b4e4e0c87c5c81eb30ea5df832632078a6ab6283aeb01a3a6ff5d', 'bbc3cf5eb62de385a45ba305234714ecaa6dc45388c4a5850c15f4afcc54934a'],
   'src/settings-ui.ts': ['a0482ed1fb6bf15a00a251ea576419248e9ae81fbae485145ae78a62798127d5'],
   'src/settings.ts': ['0a16915b084ffc1ec69e3884fe29e8ab2edb3675e5d87f8ccff67e386c3bd4b9', 'e2fafa65a07b40a8c7fbd46fcf95c3177ecd16afaa961443dbdd69d312689ba4', 'b849014f307cafca8195ecbaafd95c2c075226542b9c86a4a025214aa06210e3'],
   'src/tool-policy.ts': ['c0aec081211be439d6dd8ee752240989697e6178673540d7212d1708ba15c627', '863ad95d1d4b5891fbc7b9756be89a4f366027b44e7c46b7c6929f72ef3f5ee0', '6b64f8dea9b2d03119371b3e27352837f97239fa028938447cfb4198e3ec2665'],
-  'src/tools.ts': ['97a365b184c80d78444719fd90ab1ccec69ba54675b0d679feccdd36ade99feb', '5cef58223a88445689fb1a83dbae4635677ea54f99daf5afb010563012c2c21b'],
+  'src/tools.ts': ['97a365b184c80d78444719fd90ab1ccec69ba54675b0d679feccdd36ade99feb', '0b3a6d03446208caddf4ac659693a1eac91b0546459f6ce4c516252e5b240641'],
   'src/wait.ts': ['5ab36f8be3270aa9cb34c36cb77c0b696453e4e378f756b159b5274d45711347'],
   'src/workflow-mutex.ts': ['46b8103f49e48092d95d00b5e0877041537c7ee41453689def457c4addbc15d3'],
 };
@@ -71,12 +71,12 @@ const REVIEWED_0550 = {
   'src/persistence.ts': ['a8133d3e0c045bc1f1e7e92e0f1a39d29354a0544929bbf087e6bd87599289eb', '7534d0c683a977707c11e47ab6c65fada16026160f50eb5507f4a82c7bf8de89'],
   'src/prompts.ts': ['9aec92ac4d8319dd1086a072271c75be8f638a0692fd8a03d10fda4b9337c88c', 'f32fec7ff2b06897024610b420064f007191732c7f7559a79212ced6063f1f93'],
   'src/run-protocol.ts': ['05a387d77f28502eca06213460fdb375614d784741a306b7e66a7fff9bd3bba3'],
-  'src/runtime.ts': ['4209576f004cf53acfd2921e61e3c2bdfc1239de02213e9389162b7ac570e108', '2e218d9fdd50c17b4d944cce87f5c1dd7dd33684e09ae0b09294955f69914572'],
+  'src/runtime.ts': ['4209576f004cf53acfd2921e61e3c2bdfc1239de02213e9389162b7ac570e108', 'e263c7eacfe847d7ac3118e704b53733590b0b4fa02781ec23f5b823e34b3b82'],
   'src/safety.ts': ['e12c9fb224286697b4424c976a5c159c2a2bdca70feb34e756b208f92182b8e8', 'd08d3a99ac0b4e4e0c87c5c81eb30ea5df832632078a6ab6283aeb01a3a6ff5d', 'bbc3cf5eb62de385a45ba305234714ecaa6dc45388c4a5850c15f4afcc54934a'],
   'src/settings-ui.ts': ['f53f1bdd172677f94086e2337f70156fb32b96fdf5575bc990cb514aff6b46ca'],
   'src/settings.ts': ['13f44680f34aa5faf06e7fbb172afbed815d705dc225f57930435a4cb5a54dcd', 'fde069d225410345e89e6ec20ec0bf3a01294a76034f09a395d4823d8f8d8293'],
   'src/tool-policy.ts': ['c0aec081211be439d6dd8ee752240989697e6178673540d7212d1708ba15c627', '6b64f8dea9b2d03119371b3e27352837f97239fa028938447cfb4198e3ec2665'],
-  'src/tools.ts': ['97a365b184c80d78444719fd90ab1ccec69ba54675b0d679feccdd36ade99feb', '5cef58223a88445689fb1a83dbae4635677ea54f99daf5afb010563012c2c21b'],
+  'src/tools.ts': ['97a365b184c80d78444719fd90ab1ccec69ba54675b0d679feccdd36ade99feb', '0b3a6d03446208caddf4ac659693a1eac91b0546459f6ce4c516252e5b240641'],
   'src/usage-limit-recovery.ts': ['a95b9a5855691c155cb645e940386f6842eb5e74e33fd8b4577f03835f0fc88d'],
   'src/usage-reset.ts': ['378fbb2a5ddf5f3c478661b68de93b245a6457b61faf72ce3506ac2664334788'],
   'src/wait.ts': ['49590fa18cfdc14dd456349fc36acdc6fb9020d054ae3dd12f58fc54f1e31406'],
@@ -99,12 +99,12 @@ const REVIEWED_0555 = {
   'src/persistence.ts': ['a8133d3e0c045bc1f1e7e92e0f1a39d29354a0544929bbf087e6bd87599289eb', '7534d0c683a977707c11e47ab6c65fada16026160f50eb5507f4a82c7bf8de89'],
   'src/prompts.ts': ['9aec92ac4d8319dd1086a072271c75be8f638a0692fd8a03d10fda4b9337c88c', 'f32fec7ff2b06897024610b420064f007191732c7f7559a79212ced6063f1f93'],
   'src/run-protocol.ts': ['05a387d77f28502eca06213460fdb375614d784741a306b7e66a7fff9bd3bba3'],
-  'src/runtime.ts': ['e4c63080a85a7059f906ce6342fe2b90eb2826d9afff0accb64b8d080f914fee', '2e218d9fdd50c17b4d944cce87f5c1dd7dd33684e09ae0b09294955f69914572'],
+  'src/runtime.ts': ['e4c63080a85a7059f906ce6342fe2b90eb2826d9afff0accb64b8d080f914fee', 'e263c7eacfe847d7ac3118e704b53733590b0b4fa02781ec23f5b823e34b3b82'],
   'src/safety.ts': ['e12c9fb224286697b4424c976a5c159c2a2bdca70feb34e756b208f92182b8e8', 'bbc3cf5eb62de385a45ba305234714ecaa6dc45388c4a5850c15f4afcc54934a'],
   'src/settings-ui.ts': ['f53f1bdd172677f94086e2337f70156fb32b96fdf5575bc990cb514aff6b46ca'],
   'src/settings.ts': ['13f44680f34aa5faf06e7fbb172afbed815d705dc225f57930435a4cb5a54dcd', 'fde069d225410345e89e6ec20ec0bf3a01294a76034f09a395d4823d8f8d8293'],
   'src/tool-policy.ts': ['c0aec081211be439d6dd8ee752240989697e6178673540d7212d1708ba15c627', '6b64f8dea9b2d03119371b3e27352837f97239fa028938447cfb4198e3ec2665'],
-  'src/tools.ts': ['422711ae483882b7b16c36879a971c3cf1c89806ee8cb0eca54b4ee881c8b3d9', 'eeaf260dcabb4d07da827c886606a1cb1a6fa0cc329aac4e63b2e1f524ad00ce'],
+  'src/tools.ts': ['422711ae483882b7b16c36879a971c3cf1c89806ee8cb0eca54b4ee881c8b3d9', 'ea3f263afbd945b68e2e00b80dedeb2a4eb3eaedc3fac06933ae89d45049cad2'],
   'src/usage-limit-recovery.ts': ['a95b9a5855691c155cb645e940386f6842eb5e74e33fd8b4577f03835f0fc88d'],
   'src/usage-reset.ts': ['378fbb2a5ddf5f3c478661b68de93b245a6457b61faf72ce3506ac2664334788'],
   'src/wait-renderer.ts': ['8b44a833ce2aa00b7d41ab1efad0ec6a56e711c9c7615efc0e5f11cbf5fe6ff7'],
@@ -1059,7 +1059,7 @@ function patchProgressToolPolicy(source) {
 }
 
 function patchProgressTools(source) {
-  if (isCompleteMarkedPatch(source, PROGRESS_MARKER, ['name: "goal_progress",', 'runtime.reportGoalProgress(ctx, params.goal_id, params.state, params.evidence)', 'if (repeatedTurns < 5)', 'minimum: 5,'], 'Goal progress tools')) return source;
+  if (isCompleteMarkedPatch(source, PROGRESS_MARKER, ['name: "goal_progress",', 'runtime.reportGoalProgress(ctx, params.goal_id, params.state, params.evidence)', 'repeatedTurns !== runtime.eligibleBlockerAttempts(blockedGoal.id)', 'minimum: 5,'], 'Goal progress tools')) return source;
   let patched = replaceOnce(source, '\tpi.registerTool(goalCompleteTool);', `\t// ${PROGRESS_MARKER}
 \tpi.registerTool(defineTool({
 \t\tname: "goal_progress",
@@ -1076,11 +1076,14 @@ function patchProgressTools(source) {
 \t\t},
 \t}));
 \tpi.registerTool(goalCompleteTool);`, 'progress tool registration');
-  patched = replaceOnce(patched, 'at least three consecutive Goal turns', 'at least five stalled automatic Goal runs, spaced at least five minutes apart', 'blocker description');
+  patched = replaceOnce(patched, 'at least three consecutive Goal turns', 'four completed stalled automatic Goal runs and is still unresolved in the current automatic run after reporting stalled with goal_progress', 'blocker description');
   patched = replaceOnce(patched, '\t\t\tminimum: 3,', '\t\t\tminimum: 5,', 'blocker schema');
-  patched = replaceOnce(patched, 'Number of separate turns spent trying to resolve this same blocker.', 'Number of stalled automatic Goal runs spent resolving this blocker, at least five minutes apart.', 'blocker attempt guidance');
+  patched = replaceOnce(patched, 'Number of separate turns spent trying to resolve this same blocker.', 'The runtime-verified attempt count: four completed stalled automatic runs plus the current automatic run reported as stalled.', 'blocker attempt guidance');
   patched = replaceOnce(patched, 'if (repeatedTurns < 3) return reject("repeated_turns must be at least 3");',
-    'if (repeatedTurns < 5) return reject("repeated_turns must be at least 5");', 'blocker validation');
+    `if (repeatedTurns < 5) return reject("repeated_turns must be at least 5");
+\t\t\tif (repeatedTurns !== runtime.eligibleBlockerAttempts(blockedGoal.id)) {
+\t\t\t\treturn reject("the current run and completed stall history do not support repeated_turns");
+\t\t\t}`, 'blocker validation');
   return patched;
 }
 
@@ -1089,7 +1092,7 @@ function patchProgressRuntime(source) {
   const beginRun = transactionalAbort
     ? '\tbeginAgentRun(\n\t\tgoalId: string | null | undefined,\n\t\torigin: GoalRunOrigin | undefined,\n\t\tusageLimitRetry?: UsageLimitScope,\n\t) {'
     : '\tbeginAgentRun(goalId: string | null | undefined, origin: GoalRunOrigin | undefined) {';
-  if (isCompleteMarkedPatch(source, PROGRESS_MARKER, ['private agentRunProgress?: "advanced" | "stalled";', 'progress: this.agentRunProgress,', 'this.agentRunGoalId !== goal.id || !this.ownsWorkflow(goal)', 'goal.stalledRuns ?? 0) < 5', 'goal.stalledSince + 1500000', 'this.progressContinuationDelay()', 'goal.waiting) this.restoreGoalWaitTimer(ctx)', 'beginRecoveryRunIfNeeded(ctx: StatusContext)', 'Date.now() < (this.activeGoal.nextAutomaticAt ?? 0)'], 'Goal progress runtime')) return source;
+  if (isCompleteMarkedPatch(source, PROGRESS_MARKER, ['private agentRunProgress?: "advanced" | "stalled";', 'progress: this.agentRunProgress,', 'this.agentRunGoalId !== goal.id || !this.ownsWorkflow(goal)', 'goal.stalledRuns ?? 0) < 5', 'private readonly stallDeadlineTimer = new GoalWaitTimer();', 'this.stallDeadlineTimer.schedule(stalledSince + 1500000', 'eligibleBlockerAttempts(goalId: string)', 'this.progressContinuationDelay()', 'goal.waiting) this.restoreGoalWaitTimer(ctx)', 'beginRecoveryRunIfNeeded(ctx: StatusContext)', 'Date.now() < (this.activeGoal.nextAutomaticAt ?? 0)'], 'Goal progress runtime')) return source;
   let patched = replaceOnce(source, 'import { nextToolFreeRepeatState, resetGoalSafetyEpoch } from "./safety.js";', 'import { resetGoalSafetyEpoch } from "./safety.js";', 'remove output-based progress inference');
   patched = replaceOnce(patched, '\ttoolAttempted: boolean;', '\ttoolAttempted: boolean;\n\tprogress?: "advanced" | "stalled";', 'completed run progress');
   patched = replaceOnce(patched, beginRun, `\tprivate agentRunProgress?: "advanced" | "stalled"; // ${PROGRESS_MARKER}\n\n${beginRun}`, 'run progress state');
@@ -1112,7 +1115,15 @@ function patchProgressRuntime(source) {
 \t\tthis.beginAgentRun(recovery.goalId, recovery.automaticOwner ? "automatic" : "manual"${transactionalAbort ? ', recovery.usageLimitScope' : ''});`, 'paced automatic recovery');
   const progressMethod = patched.match(/\trecordAutomaticRunProgress\([\s\S]*?\n\t\}/g);
   if (progressMethod?.length !== 1) throw new Error('automatic progress method drift');
-  patched = replaceOnce(patched, progressMethod[0], `\treportGoalProgress(ctx: StatusContext, goalId: unknown, state: unknown, evidence: unknown) {
+  patched = replaceOnce(patched, progressMethod[0], `\teligibleBlockerAttempts(goalId: string) {
+\t\tconst goal = this.activeGoal;
+\t\tif (goal?.id !== goalId || !this.ownsWorkflow(goal) || this.agentRunGoalId !== goalId ||
+\t\t\tthis.agentRunOrigin !== "automatic" || this.agentRunProgress !== "stalled" ||
+\t\t\tgoal.waiting || goal.stalledSince === undefined || this.remainingStallTime() <= 0 || goal.stalledRuns !== 4) return undefined;
+\t\treturn goal.stalledRuns + 1;
+\t}
+
+\treportGoalProgress(ctx: StatusContext, goalId: unknown, state: unknown, evidence: unknown) {
 \t\tconst goal = this.activeGoal;
 \t\tif (!goal || goal.status !== "active") return "no active goal";
 \t\tif (typeof goalId !== "string" || goalId !== goal.id) return "goal_id does not match the active goal";
@@ -1131,6 +1142,7 @@ function patchProgressRuntime(source) {
 \t\t\tgoal.stalledSince ??= Date.now();
 \t\t}
 \t\tthis.persistGoal(goal);
+\t\tif (this.activeGoal === goal) this.restoreStallDeadline(ctx);
 \t\treturn undefined;
 \t}
 
@@ -1146,6 +1158,7 @@ function patchProgressRuntime(source) {
 \t\tthis.persistGoal(goal);
 ${transactionalAbort ? '\t\tif (this.activeGoal !== goal || !this.ownsWorkflow(goal)) return true;\n' : ''}\t\tthis.updateStatus(ctx, goal);
 \t\tif (goal.waiting) this.restoreGoalWaitTimer(ctx);
+\t\telse if (this.activeGoal === goal) this.restoreStallDeadline(ctx);
 \t\treturn this.enforceNoProgressLimit(ctx);
 \t}`, 'explicit automatic progress');
   const enforceMethod = patched.match(/\tenforceNoProgressLimit\([\s\S]*?\n\t\}/g);
@@ -1153,45 +1166,77 @@ ${transactionalAbort ? '\t\tif (this.activeGoal !== goal || !this.ownsWorkflow(g
   patched = replaceOnce(patched, enforceMethod[0], `\tenforceNoProgressLimit(ctx: StatusContext, abortTurn = false) {
 \t\tconst goal = this.activeGoal;
 \t\tif (goal?.status !== "active" || !this.ownsWorkflow(goal)) return false;
-\t\tconst expired = goal.stalledSince !== undefined && Date.now() >= goal.stalledSince + ${STALL_WINDOW_MS};
+\t\tconst expired = this.remainingStallTime() <= 0;
 \t\tif (!expired && (goal.stalledRuns ?? 0) < 5) return false;
 \t\tconst reason = expired ? "Goal stalled-window deadline reached (25 minutes)" : "Goal blocked after five stalled automatic runs";
+\t\tconst abortOwnedRun = abortTurn && this.agentRunGoalId === goal.id;
+\t\tconst preserveUnownedRun = expired && this.agentRunGoalId == null && ctx.isIdle?.() === false;
 \t\tconst stopped = this.stopActiveGoal(ctx, { kind: "${transactionalAbort ? 'recovery_ended' : 'retry_exhausted'}", expectedGoalId: goal.id, ${transactionalAbort ? 'status: "blocked", ' : ''}reason });
 \t\tif (!stopped) return false;
-\t\tif (abortTurn) ${transactionalAbort ? 'this.afterSettingsCommit(ctx, goal.id, () => abortCurrentTurn(ctx));' : 'abortCurrentTurn(ctx);'}
+\t\t// Do not let the stopped-Goal guard abort an unrelated run at its next tool call.
+\t\tif (preserveUnownedRun && this.activeGoal === stopped) this.clearStaleGoalToolCallBlock();
+\t\tif (abortOwnedRun) {
+\t\t\tconst abort = () => {
+\t\t\t\tif (this.activeGoal === stopped && this.agentRunGoalId === goal.id) abortCurrentTurn(ctx);
+\t\t\t};
+\t\t\t${transactionalAbort ? 'this.afterSettingsCommit(ctx, goal.id, abort);' : 'abort();'}
+\t\t}
 \t\t${transactionalAbort ? 'this.afterSettingsCommit(ctx, goal.id, () => notifyTerminal(ctx.ui, reason, "warning"));' : 'notifyTerminal(ctx.ui, reason, "warning");'}
 \t\treturn true;
 \t}`, 'owned stall enforcement');
-  // The existing continuation timer owns both spacing and the absolute stall
-  // deadline; there is no additional timer or scheduler.
+  // Keep a deadline even after dispatch consumes its intent. The continuation
+  // scheduler still wakes at the earlier of spacing and the stall deadline.
   const native = patched.includes('scheduleContinuationDispatch(ctx: StatusContext, goalId: string)');
   const delayAnchor = native ? '\t\tlet remainingMs = this.settings.continuationLimits.minIntervalMs;' : '\t\tconst minIntervalMs = this.settings.continuationLimits.minIntervalMs;';
   patched = replaceOnce(patched, delayAnchor, `${native ? '\t\tlet remainingMs' : '\t\tconst minIntervalMs'} = this.progressContinuationDelay();`, 'owned continuation delay');
   if (native) {
     patched = replaceOnce(patched, 'if (this.settings.continuationLimits.minIntervalMs > 0) {', 'if (this.progressContinuationDelay() > 0) {', 'owned dispatch interval gate');
-    patched = replaceOnce(patched, '\t\t\t\tthis.dispatchContinuationIfSettled(ctx, { intervalElapsed: true });', `\t\t\t\tif (this.enforceNoProgressLimit(ctx)) return;
-\t\t\t\t// A backward wall-clock correction must not shorten persisted spacing.
-\t\t\t\tconst remainingInterval = (this.activeGoal.nextAutomaticAt ?? 0) - Date.now();
-\t\t\t\tif (remainingInterval > 0) {
-\t\t\t\t\tremainingMs = remainingInterval;
-\t\t\t\t\tarmTimer();
-\t\t\t\t\treturn;
-\t\t\t\t}
-\t\t\t\tthis.dispatchContinuationIfSettled(ctx, { intervalElapsed: true });`, 'persisted continuation spacing');
+    patched = replaceOnce(patched, '\t\t\t\tremainingMs -= delayMs;', `\t\t\t\tif (this.enforceNoProgressLimit(ctx, true)) return;
+\t\t\t\t// A backward wall-clock correction must preserve both absolute bounds.
+\t\t\t\tremainingMs = Math.min(this.remainingStallTime(), Math.max(remainingMs - delayMs,
+\t\t\t\t\t(this.activeGoal.nextAutomaticAt ?? 0) - Date.now()));`, 'persisted continuation spacing');
   }
-  patched = replaceOnce(patched, '\trestoreGoalWaitTimer(ctx: StatusContext) {', `\tprivate progressContinuationDelay() {
+  patched = replaceOnce(patched, '\tclearGoalWaitTimer() {',
+    '\tclearGoalWaitTimer() {\n\t\tthis.stallDeadlineTimer.clear();', 'stall deadline cleanup');
+  patched = replaceOnce(patched, '\t\tthis.activeGoal = nextGoal;\n\t\tthis.persistGoal(',
+    '\t\tthis.activeGoal = nextGoal;\n\t\tthis.restoreStallDeadline(ctx);\n\t\tthis.persistGoal(', 'preserve stall deadline after leaving wait');
+  patched = replaceOnce(patched, '\trestoreGoalWaitTimer(ctx: StatusContext) {\n\t\tthis.clearGoalWaitTimer();', `\tprivate readonly stallDeadlineTimer = new GoalWaitTimer();
+
+\tprivate restoreStallDeadline(ctx: StatusContext) {
+\t\tthis.stallDeadlineTimer.clear();
 \t\tconst goal = this.activeGoal;
-\t\tconst interval = Math.max(${STALL_INTERVAL_MS}, this.settings.continuationLimits.minIntervalMs,
-\t\t\t(goal?.nextAutomaticAt ?? 0) - Date.now());
-\t\treturn goal?.stalledSince === undefined ? interval
-\t\t\t: Math.max(0, Math.min(interval, goal.stalledSince + ${STALL_WINDOW_MS} - Date.now()));
+\t\tconst stalledSince = goal?.stalledSince;
+\t\tif (!goal || stalledSince === undefined || !this.ownsWorkflow(goal)) return;
+\t\tconst goalId = goal.id;
+\t\tconst generation = this.menuGeneration;
+\t\tthis.stallDeadlineTimer.schedule(stalledSince + ${STALL_WINDOW_MS}, () => {
+\t\t\tconst current = this.activeGoal;
+\t\t\tif (generation !== this.menuGeneration || current?.id !== goalId ||
+\t\t\t\tcurrent.stalledSince !== stalledSince || !this.ownsWorkflow(current)) return;
+\t\t\ttry {
+\t\t\t\tif (this.workflowSession && ctx.sessionManager !== this.workflowSession) return;
+\t\t\t\tthis.enforceNoProgressLimit(ctx, true);
+\t\t\t} catch (error) {
+\t\t\t\tnotifyWhenSessionAlive(ctx, \`Goal stall deadline failed: \${formatError(error)}\`, "error");
+\t\t\t}
+\t\t});
 \t}
 
-\trestoreGoalWaitTimer(ctx: StatusContext) {`, 'continuation deadline delay');
-  patched = replaceOnce(patched, '\t\tconst resumeAt = goal?.status === "active" ? goal.waiting?.resumeAt : undefined;', `\t\tconst waitAt = goal?.status === "active" ? goal.waiting?.resumeAt : undefined;
-\t\tconst deadline = goal?.status === "active" && goal.stalledSince !== undefined ? goal.stalledSince + ${STALL_WINDOW_MS} : undefined;
-\t\tconst resumeAt = goal?.waiting && deadline !== undefined ? Math.min(waitAt ?? deadline, deadline) : waitAt;`, 'quiet wait stall deadline');
-  patched = replaceOnce(patched, '\tdispatchDueGoalWait(ctx: StatusContext) {', '\tdispatchDueGoalWait(ctx: StatusContext) {\n\t\tif (this.enforceNoProgressLimit(ctx)) return false;', 'quiet wait deadline enforcement');
+\tprivate remainingStallTime() {
+\t\tconst stalledSince = this.activeGoal?.stalledSince;
+\t\treturn stalledSince === undefined ? Infinity : stalledSince + ${STALL_WINDOW_MS} - Date.now();
+\t}
+
+\tprivate progressContinuationDelay() {
+\t\tconst interval = Math.max(${STALL_INTERVAL_MS}, this.settings.continuationLimits.minIntervalMs,
+\t\t\t(this.activeGoal?.nextAutomaticAt ?? 0) - Date.now());
+\t\treturn Math.max(0, Math.min(interval, this.remainingStallTime()));
+\t}
+
+\trestoreGoalWaitTimer(ctx: StatusContext) {
+\t\tthis.clearGoalWaitTimer();
+\t\tthis.restoreStallDeadline(ctx);`, 'owned stall deadline timer');
+  patched = replaceOnce(patched, '\tdispatchDueGoalWait(ctx: StatusContext) {', '\tdispatchDueGoalWait(ctx: StatusContext) {\n\t\tif (this.enforceNoProgressLimit(ctx, true)) return false;', 'quiet wait deadline enforcement');
   patched = replaceOnce(patched, '\t\tthis.clearGoalWaitTimer();\n\t\tthis.activeGoal = {\n\t\t\t...goal,\n\t\t\twaiting,', '\t\tthis.clearGoalWaitTimer();\n\t\tthis.activeGoal = {\n\t\t\t...goal,\n\t\t\twaiting,\n\t\t\tstalledSince: goal.stalledSince ?? Date.now(),', 'enter quiet stall window');
   // Native settings rollback also restores wait timers. It must not start a
   // fresh dispatch (and enforce limits again) inside that failed transaction.

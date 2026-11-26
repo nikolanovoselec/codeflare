@@ -4,6 +4,11 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-26: Restore managed Goal alongside stock Todo Loop
+
+- [REQ-AGENT-272](agents.md#req-agent-272-managed-goal-alongside-todo-loop) restores `/goal` in both Pi modes with a compact status footer and bounded automatic continuation, without replacing stock `/todoloop` or taking over an active Plan.
+- [REQ-AGENT-248](agents.md#req-agent-248-managed-goal_wait-exclusion) blocks `goal_wait` without affecting Todo Loop’s `todo_loop_block`.
+
 ## 2026-11-25: Keep session shutdown cards live
 
 - [REQ-SESSION-006](session-lifecycle.md#req-session-006-user-can-stop-restart-and-delete-sessions) returns to the Dashboard immediately on Stop or Delete from the in-session dropdown. [REQ-SESSION-043](session-lifecycle.md#req-session-043-queued-graceful-shutdown-and-memory-recovery) keeps available metrics on both disabled cards and replaces the Dashboard’s sweeping light with two centered, uppercase subtitle labels, one word per padded black row, with reflow for enlarged text.

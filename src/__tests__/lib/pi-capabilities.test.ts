@@ -10,6 +10,7 @@ import capabilityHelpersExtension, {
   activateRegisteredTools,
   activationGroup,
   initialActiveTools,
+  registerInitialToolFilter,
   resolveAgentDir,
   searchCapabilities,
   type ToolActivationPi,
@@ -657,9 +658,12 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
     expect(pi.getActiveTools()).toEqual(['read', 'bash', 'edit', 'write', 'capability']);
   });
 
-  it('REQ-AGENT-152/158: preserves only a restored Plan workflow policy plus required helpers', () => {
+  it('REQ-AGENT-152/158: preserves only the restored Plan allowlist and helpers even with Goal visibility set to always', () => {
     const base = fakePi({
       tools: [
+        { name: 'goal_progress', description: 'Report Goal progress' },
+        { name: 'goal_blocked', description: 'Stop a blocked Goal' },
+        { name: 'goal_complete', description: 'Complete a Goal' },
         { name: 'read', description: 'Read files' },
         { name: 'bash', description: 'Run shell commands' },
         { name: 'edit', description: 'Edit files' },
@@ -676,7 +680,7 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
         handlers.set(event, handler);
       },
     };
-    toolExposureFinalizer(pi);
+    registerInitialToolFilter(pi, () => 'always');
     const ctx = {
       sessionManager: {
         getBranch: () => [{

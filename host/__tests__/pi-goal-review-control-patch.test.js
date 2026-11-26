@@ -107,6 +107,7 @@ function createExtensionHarness() {
   const statuses = new Map();
   const entries = [];
   const messages = [];
+  const aborts = [];
   const tools = [
     { name: 'read', description: 'Read files', sourceInfo: { source: 'builtin' } },
     { name: 'bash', description: 'Run bounded commands', sourceInfo: { source: 'builtin' } },
@@ -169,9 +170,11 @@ function createExtensionHarness() {
     sessionManager,
     ui,
     isIdle: () => true,
+    abort: () => aborts.push(Date.now()),
     hasPendingMessages: () => false,
   };
   return {
+    aborts,
     activeTools: () => activeTools,
     api,
     commands,
@@ -428,6 +431,78 @@ for (const version of Object.keys(GOAL_FIXTURES)) {
       await s.begin();
       await s.finish();
       assert.equal(s.state().status, 'active');
+    });
+
+    it('REQ-AGENT-272 AC3: an in-flight automatic run is aborted at the stalled deadline without a lifecycle event', async t => {
+      const s = await createStallScenario(t, version, { minIntervalMs: 1_440_000 });
+      await s.begin();
+      await s.report('stalled');
+      await s.finish();
+      const deadline = s.state().stalledSince + 1_500_000;
+      t.mock.timers.tick(1_440_000);
+      await s.begin();
+      s.harness.ctx.isIdle = () => false;
+      t.mock.timers.tick(59_999);
+      assert.equal(s.state().status, 'active');
+      assert.deepEqual(s.harness.aborts, []);
+      t.mock.timers.tick(1);
+      assert.equal(s.state().status, 'blocked');
+      assert.deepEqual(s.harness.aborts, [deadline]);
+      assert.equal(s.state().toolFreeRepeatCount, 0, 'an interrupted attempt did not complete');
+      await s.finish();
+      t.mock.timers.tick(1_500_000);
+      assert.equal(s.harness.messages.length, 0);
+      assert.deepEqual(s.harness.aborts, [deadline]);
+    });
+
+    it('REQ-AGENT-272 AC3: a backward clock correction rearms at the earlier stall deadline, not the next dispatch', async t => {
+      const s = await createStallScenario(t, version, { minIntervalMs: 1_800_000 });
+      await s.begin();
+      await s.report('stalled');
+      await s.finish();
+      const started = Date.now();
+      // Move wall time independently of the already-armed timeout budget.
+      let wallTime = started + 1_380_000;
+      t.mock.method(Date, 'now', () => wallTime);
+      t.mock.timers.tick(1_500_000);
+      assert.equal(s.state().status, 'active', 'the first wake precedes the absolute deadline');
+      wallTime += 119_999;
+      t.mock.timers.tick(119_999);
+      assert.equal(s.state().status, 'active');
+      wallTime++;
+      t.mock.timers.tick(1);
+      assert.equal(s.state().status, 'blocked');
+      assert.equal(s.harness.messages.length, 0);
+      assert.deepEqual(s.harness.aborts, []);
+    });
+
+    it('REQ-AGENT-272 AC3: a stall expires while an unrelated run is busy without aborting it', async t => {
+      const s = await createStallScenario(t, version);
+      await s.begin();
+      await s.report('stalled');
+      await s.finish();
+      await s.harness.dispatch('before_agent_start', { messageType: 'custom' });
+      await s.harness.dispatch('agent_start');
+      s.harness.ctx.isIdle = () => false;
+      t.mock.timers.tick(1_500_000);
+      assert.equal(s.state().status, 'blocked');
+      assert.equal(s.harness.messages.length, 0);
+      const hook = await s.harness.dispatch('tool_call', { toolName: 'read', input: { path: 'unrelated.txt' } });
+      assert.notEqual(hook?.block, true, 'unrelated work can continue after the Goal stops');
+      assert.deepEqual(s.harness.aborts, []);
+    });
+
+    it('REQ-AGENT-272 AC3: evidenced advancement cancels an existing in-flight stall deadline', async t => {
+      const s = await createStallScenario(t, version);
+      await s.begin();
+      await s.report('stalled');
+      t.mock.timers.tick(1_499_999);
+      await s.report('advanced');
+      s.harness.ctx.isIdle = () => false;
+      t.mock.timers.tick(1);
+      assert.equal(s.state().status, 'active');
+      assert.equal(s.state().stalledSince, undefined);
+      assert.deepEqual(s.harness.aborts, []);
     });
 
     it('REQ-AGENT-236 AC3: late non-goal notification cannot defer the stalled deadline behind persisted spacing', async t => {
@@ -727,14 +802,14 @@ for (const version of Object.keys(GOAL_FIXTURES)) {
       });
     }
 
-    it('REQ-AGENT-111/129: terminal blocker tool rejects the retired three-turn and four-turn contracts', async t => {
+    it('REQ-AGENT-111/129: terminal blocker tool rejects retired and unearned attempt counts', async t => {
       const s = await createStallScenario(t, version);
       await s.begin();
       const blocked = s.tool('goal_blocked');
       // Intentional public tool protocol: five is the minimum documented claim.
       assert.equal(blocked.parameters.properties.repeated_turns.minimum, 5);
       assert.doesNotMatch(blocked.description, /three consecutive/i);
-      for (const repeated_turns of [3, 4]) {
+      for (const repeated_turns of [3, 4, 5, 50]) {
         const before = structuredClone(s.state());
         const result = await blocked.execute('blocked', { goal_id: before.id, repeated_turns,
           reason: 'External prerequisite must be completed.', evidence: 'Service still reports pending.' },
@@ -744,6 +819,43 @@ for (const version of Object.keys(GOAL_FIXTURES)) {
         assert.deepEqual(s.state(), before);
       }
     });
+
+    for (const origin of ['manual', 'automatic']) {
+      it(`REQ-AGENT-272 AC3/AC4: blocker requires four completed stalls and an evidenced automatic fifth (${origin})`, async t => {
+        const s = await createStallScenario(t, version);
+        const block = repeated_turns => s.tool('goal_blocked').execute('blocked', { goal_id: s.state().id, repeated_turns,
+          reason: 'External prerequisite must be completed.', evidence: 'Service still reports pending.' },
+        undefined, undefined, s.harness.ctx);
+        const rejected = async (count = 5) => {
+          const before = structuredClone(s.state());
+          const result = await block(count);
+          assert.match(result.content[0].text, /rejected/i);
+          assert.notEqual(result.terminate, true);
+          assert.deepEqual(s.state(), before);
+        };
+        await s.begin();
+        await s.report('advanced');
+        await s.finish();
+        for (let index = 0; index < 4; index++) {
+          await s.next();
+          await s.finish();
+        }
+        assert.equal(s.state().stalledRuns, 4);
+        if (origin === 'automatic') await s.next();
+        else await s.begin('Manually check objective');
+        await rejected();
+        await s.report('stalled');
+        if (origin === 'manual') {
+          await rejected();
+        } else {
+          await rejected(50);
+          const result = await block(5);
+          assert.equal(result.terminate, true);
+          assert.equal(result.details.repeated_turns, 5);
+          assert.equal(s.state().status, 'blocked');
+        }
+      });
+    }
 
     it('REQ-AGENT-111/178: progress rejects an owned run whose workflow session has been replaced', async t => {
       const root = prepareGoal(t, version);

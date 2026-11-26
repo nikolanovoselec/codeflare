@@ -250,6 +250,7 @@ const piPackage = JSON.parse(
 const NPM_ROOT = '/opt/codeflare/pi-agent/npm/node_modules';
 const WARMED_NPM_ENTRYPOINTS = [
   { variable: 'todo_loop', package: '@dumbmice/pi-todo-loop', entrypoint: 'src/index.ts' },
+  { variable: 'goal', package: '@narumitw/pi-goal', entrypoint: 'src/index.ts' },
   { variable: 'open_tui', package: 'pi-open-tui', entrypoint: 'extensions/open-tui/index.ts' },
   { variable: 'evaluate', package: 'pi-evaluate', entrypoint: 'extensions/evaluate.ts' },
   { variable: 'codex_fast', package: '@calesennett/pi-codex-fast', entrypoint: 'extensions/codex-fast.ts' },
@@ -364,6 +365,16 @@ describe('REQ-AGENT-111/REQ-AGENT-056/REQ-AGENT-133/REQ-AGENT-152/REQ-AGENT-210:
     try {
       assert.notEqual(fixture.result.status, 0);
       assert.match(fixture.result.stderr, /jiti cache artifact is missing at .*extensions-local/);
+    } finally { rmSync(fixture.directory, { recursive: true, force: true }); }
+  });
+
+  it('REQ-AGENT-272 AC2: rejects a missing managed Goal startup cache', () => {
+    const fixture = runImageWarmFixture('@narumitw/pi-goal');
+    try {
+      const source = join(fixture.imageRoot, 'pi-agent/npm/node_modules/@narumitw/pi-goal/src/index.ts');
+      const artifact = resolveCachePath(source, join(fixture.imageRoot, 'jiti-warm-tmp/jiti'));
+      assert.notEqual(fixture.result.status, 0);
+      assert.equal(fixture.result.stderr, `jiti cache artifact is missing at ${artifact}\n`);
     } finally { rmSync(fixture.directory, { recursive: true, force: true }); }
   });
 
