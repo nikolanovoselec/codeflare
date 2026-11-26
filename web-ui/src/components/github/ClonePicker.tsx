@@ -1,5 +1,5 @@
 import { Component, For, Show, createSignal, createEffect, createMemo, onMount, onCleanup } from 'solid-js';
-import { mdiSourceBranch, mdiAlertCircleOutline } from '@mdi/js';
+import { mdiSourceBranch, mdiAlertCircleOutline, mdiClose } from '@mdi/js';
 import Icon from '../Icon';
 import type { AgentType } from '../../types';
 import type { GithubRepo } from '../../api/github';
@@ -25,8 +25,11 @@ const GAP = 8;
 // session (created with the repo, opened via the dashboard new-session path).
 const ClonePicker: Component<ClonePickerProps> = (props) => {
   let dialogRef: HTMLDivElement | undefined;
+  let closeButton: HTMLButtonElement | undefined;
+  let disposed = false;
   const [position, setPosition] = createSignal<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 320 });
   const [state, setState] = createSignal<CloneState>({ phase: 'idle' });
+  const [retrySessionId, setRetrySessionId] = createSignal<string>();
 
   const runningSessions = createMemo(() =>
     sessionStore.sessions.filter((s) => s.status === 'running'),
@@ -78,7 +81,7 @@ const ClonePicker: Component<ClonePickerProps> = (props) => {
     } else if (e.key === 'Tab') {
       const options = choices();
       const first = options[0];
-      const last = options.at(-1);
+      const last = options[options.length - 1];
       const active = document.activeElement;
       if (!active || !options.includes(active as HTMLButtonElement) || active === (e.shiftKey ? first : last)) {
         e.preventDefault();
@@ -90,10 +93,11 @@ const ClonePicker: Component<ClonePickerProps> = (props) => {
   onMount(() => {
     document.addEventListener('mousedown', handleClickOutside);
     document.addEventListener('keydown', handleKeyDown, true);
-    (choices()[0] ?? dialogRef)?.focus();
+    (choices().find(button => button !== closeButton) ?? closeButton)?.focus();
   });
 
   onCleanup(() => {
+    disposed = true;
     document.removeEventListener('mousedown', handleClickOutside);
     document.removeEventListener('keydown', handleKeyDown, true);
     if (props.anchorRef?.isConnected) props.anchorRef.focus();
@@ -113,14 +117,26 @@ const ClonePicker: Component<ClonePickerProps> = (props) => {
   // starts on the dashboard. On success the picker closes.
   const handleCloneIntoNewSession = async (agentType: AgentType) => {
     if (busy()) return;
+    closeButton?.focus();
     setState({ phase: 'busy' });
-    // The store owns startup error reporting; also release the picker on rejection.
-    const session = await sessionStore.createSessionWithClone(props.repo.full_name, agentType).catch(() => undefined);
-    if (session) {
+    const result = await sessionStore.createSessionWithClone(props.repo.full_name, agentType);
+    if (disposed) return;
+    if (result?.started) {
       props.onClose();
     } else {
+      setRetrySessionId(result?.sessionId);
       setState({ phase: 'failed' });
     }
+  };
+
+  const retryStart = async (id: string) => {
+    if (busy()) return;
+    closeButton?.focus();
+    setState({ phase: 'busy' });
+    const started = await sessionStore.startSession(id).then(result => result !== 'cancelled', () => false);
+    if (disposed) return;
+    if (started) props.onClose();
+    else setState({ phase: 'failed' });
   };
 
   return (
@@ -144,6 +160,10 @@ const ClonePicker: Component<ClonePickerProps> = (props) => {
         <div class="clone-picker-branch" data-testid="clone-picker-branch">
           <Icon path={mdiSourceBranch} size={14} class="clone-picker-branch-icon" />
           <span class="clone-picker-branch-name">{props.repo.default_branch}</span>
+          <button ref={closeButton} type="button" class="header-icon-button clone-picker-close"
+            aria-label="Close clone picker" onClick={props.onClose}>
+            <Icon path={mdiClose} size={16} />
+          </button>
         </div>
 
         <Show when={state().phase === 'failed'}>
@@ -174,10 +194,15 @@ const ClonePicker: Component<ClonePickerProps> = (props) => {
           <div class="clone-picker-separator" data-testid="clone-picker-separator" role="separator" />
         </Show>
 
-        <ClonePickerNewSession
-          disabled={busy()}
-          onSelect={(agentType) => void handleCloneIntoNewSession(agentType)}
-        />
+        <Show when={retrySessionId()} fallback={
+          <ClonePickerNewSession
+            disabled={busy()}
+            onSelect={(agentType) => void handleCloneIntoNewSession(agentType)}
+          />
+        }>{id => (
+          <button type="button" class="clone-picker-option-btn" disabled={busy()}
+            onClick={() => void retryStart(id())}>Retry Start</button>
+        )}</Show>
       </div>
     </>
   );

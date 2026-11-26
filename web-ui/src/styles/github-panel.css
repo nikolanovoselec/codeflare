@@ -372,6 +372,11 @@
   color: var(--color-text-muted);
 }
 
+.clone-picker-close {
+  margin-inline-start: auto;
+  flex-shrink: 0;
+}
+
 .clone-picker-branch-icon {
   flex-shrink: 0;
   color: var(--color-text-muted);

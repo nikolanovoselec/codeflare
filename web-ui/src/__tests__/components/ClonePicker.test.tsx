@@ -20,6 +20,7 @@ const sessionStoreState = vi.hoisted(() => ({
   allowedAgents: null as string[] | null,
 }));
 const mockCreateSessionWithClone = vi.hoisted(() => vi.fn());
+const mockStartSession = vi.hoisted(() => vi.fn());
 
 vi.mock('../../stores/session', () => ({
   sessionStore: {
@@ -36,6 +37,7 @@ vi.mock('../../stores/session', () => ({
       return { lastAgentType: undefined };
     },
     createSessionWithClone: (...args: unknown[]) => mockCreateSessionWithClone(...args),
+    startSession: (...args: unknown[]) => mockStartSession(...args),
     cloneRepositoryIntoSession: (...args: unknown[]) => mockCloneIntoSession(...args),
   },
 }));
@@ -75,7 +77,8 @@ describe('ClonePicker', () => {
     sessionStoreState.enterpriseMode = false;
     sessionStoreState.allowedAgents = ['claude-code', 'codex', 'copilot', 'antigravity', 'opencode', 'pi', 'bash'];
     mockCloneIntoSession.mockResolvedValue({ outcome: 'cloned', path: '/home/user/workspace/hello' });
-    mockCreateSessionWithClone.mockResolvedValue({ id: 's-new', name: '', status: 'stopped' });
+    mockCreateSessionWithClone.mockResolvedValue({ sessionId: 's-new', started: true });
+    mockStartSession.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -163,16 +166,37 @@ describe('ClonePicker', () => {
     expect(mockCreateSessionWithClone.mock.calls[0][1]).toBe('pi');
   });
 
-  it('recovers its choices after the new session fails to start', async () => {
-    mockCreateSessionWithClone.mockRejectedValueOnce(new Error('Startup failed'));
+  it('retries Start on the saved session rather than creating another session', async () => {
+    mockCreateSessionWithClone.mockResolvedValueOnce({ sessionId: 's-new', started: false });
+    mockStartSession.mockRejectedValueOnce(new Error('Startup failed again'));
     renderPicker();
+    fireEvent.click(screen.getByRole('button', { name: /^Pi\s*Minimal, extensible coding harness$/ }));
+    const retry = await screen.findByRole('button', { name: 'Retry Start' });
+    fireEvent.click(retry);
+    await waitFor(() => expect(retry).toBeEnabled());
+    fireEvent.click(retry);
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(mockStartSession.mock.calls).toEqual([['s-new'], ['s-new']]);
+    expect(mockCreateSessionWithClone).toHaveBeenCalledTimes(1);
+  });
+
+  it('focuses Close and allows dismissal while Start is pending', async () => {
+    let finish!: (value: unknown) => void;
+    const pending = new Promise(resolve => { finish = resolve; });
+    mockCreateSessionWithClone.mockReturnValueOnce(pending);
+    const onClose = vi.fn();
+    renderPicker(onClose);
     const pi = screen.getByRole('button', { name: /^Pi\s*Minimal, extensible coding harness$/ });
+    pi.focus();
     fireEvent.click(pi);
     expect(pi).toBeDisabled();
-    expect(await screen.findByRole('alert')).toHaveTextContent('Clone failed. Please try again.');
-    expect(pi).toBeEnabled();
-    fireEvent.click(pi);
-    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    const close = screen.getByRole('button', { name: 'Close clone picker' });
+    expect(close).toHaveFocus();
+    fireEvent.click(close);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    finish({ sessionId: 's-new', started: true });
+    await pending;
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it('closes after a successful new-session clone (navigation already happened)', async () => {
@@ -212,10 +236,10 @@ describe('ClonePicker', () => {
     expect(agentBtn.disabled).toBe(true);
     expect((screen.getByTestId('clone-picker-session-row') as HTMLButtonElement).disabled).toBe(true);
     // The session store returns no successful launch after Stop cancels Start.
-    resolveCreate(null);
+    resolveCreate({ sessionId: 's-new', started: false });
     expect(await screen.findByRole('alert')).toHaveTextContent('Clone failed. Please try again.');
     expect(screen.getByRole('dialog', { name: 'Clone repository' })).toBeVisible();
-    expect(agentBtn).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Retry Start' })).toBeEnabled();
   });
 
   it('withholds new-session agent choices until /api/user hydrates', () => {

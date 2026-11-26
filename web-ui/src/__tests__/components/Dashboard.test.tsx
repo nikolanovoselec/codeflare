@@ -747,9 +747,11 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-03-04T12:00:00Z'));
     const requestUrl = (input: RequestInfo | URL) => new URL(input instanceof Request ? input.url : input, window.location.href);
     const countsUrl = new URL('/api/github/owned-repo-counts', window.location.origin).href;
+    let settleCounts!: (response: Response) => void;
+    const pendingCounts = new Promise<Response>(resolve => { settleCounts = resolve; });
     const requests = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
       const url = requestUrl(input);
-      if (url.href === countsUrl) return Response.json({ counts: null });
+      if (url.href === countsUrl) return pendingCounts;
       throw new Error(`Unexpected request: ${url.pathname}${url.search}`);
     });
     const repo = (name: string, updated_at: string): GithubRepo => ({
@@ -758,13 +760,17 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     try {
       render(() => <Dashboard {...defaultProps} userName={undefined} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
       const details = within(screen.getByRole('region', { name: 'GitHub Details' }));
-      await waitFor(() => expect(details.queryByText(/loading owned repository counts/i)).not.toBeInTheDocument());
+      githubFixture._setRepoPage({ ...initialRepoPage, page: 1 });
+      expect(await details.findByText(/loading owned repository counts/i)).toBeVisible();
+      expect(details.queryByText('NOTHING TO SHOW.')).not.toBeInTheDocument();
       githubFixture._setRepos([
         repo('older', '2026-02-28T12:00:00Z'), repo('third', '2026-03-01T12:00:00Z'), newestRepo,
         repo('invalid', 'not a date'), repo('second', '2026-03-04T07:00:00Z'),
       ]);
+      expect(details.queryByRole('link', { name: /\// })).not.toBeInTheDocument();
+      settleCounts(Response.json({ counts: null }));
 
-      const links = details.getAllByRole('link', { name: /\// });
+      const links = await details.findAllByRole('link', { name: /\// });
       expect(links.map(link => link.textContent)).toEqual(['team/newest', 'octocat/second', 'octocat/third']);
       for (const [index, name, age] of [[0, 'team/newest', '12m ago'], [1, 'octocat/second', '5h ago'], [2, 'octocat/third', '3d ago']] as const) {
         expect(links[index]).toHaveAttribute('href', `https://github.com/${name}`);
@@ -823,8 +829,8 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
       expect(picker.getByText('Clone into a running session')).toBeVisible();
       expect(picker.getByText('Clone into a new session')).toBeVisible();
       expect(picker.getByRole('button', { name: /^Pi\s*Minimal, extensible coding harness$/ })).toBeEnabled();
-      expect(picker.queryByRole('button', { name: /^Test Session 2\b/ })).not.toBeInTheDocument();
-      fireEvent.click(picker.getByRole('button', { name: /^Test Session 1\b/ }));
+      expect(picker.queryByRole('button', { name: /^Test Session 2/ })).not.toBeInTheDocument();
+      fireEvent.click(picker.getByRole('button', { name: /^Test Session 1\s*Running session$/ }));
       expect(sessionStore.cloneRepositoryIntoSession).toHaveBeenCalledWith({ repo: 'team/newest', sessionId: 'sess1' });
       expect(screen.queryByRole('dialog', { name: 'Clone repository' })).not.toBeInTheDocument();
       expect(defaultProps.onCreateSession).not.toHaveBeenCalled();

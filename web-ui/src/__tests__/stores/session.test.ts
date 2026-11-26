@@ -1516,7 +1516,39 @@ describe('Session Store', () => {
       const stopping = sessionStore.stopSession(id);
       await vi.advanceTimersByTimeAsync(STOP_POLL_INTERVAL_MS);
       await stopping;
-      await expect(creating).resolves.toBeNull();
+      await expect(creating).resolves.toEqual({ sessionId: id, started: false });
+    });
+
+    it('retains the clone session ID after Start fails and can start that same session', async () => {
+      await sessionStore.loadSessions();
+      const id = 'failed-clone';
+      mockCreateSession.mockResolvedValue({ id, name: 'hello', workspace: 'vscode',
+        createdAt: '2026-01-01T00:00:00Z', lastAccessedAt: '2026-01-01T00:00:00Z' });
+      let failStart!: () => void;
+      let completeStart!: () => void;
+      vi.mocked(api.startSession)
+        .mockImplementationOnce((_id, _progress, _complete, onError) => {
+          failStart = () => onError('Startup failed');
+          return () => {};
+        })
+        .mockImplementationOnce((_id, _progress, onComplete) => {
+          completeStart = () => onComplete(2);
+          return () => {};
+        });
+
+      const creating = sessionStore.createSessionWithClone('octocat/hello');
+      await vi.waitFor(() => expect(failStart).toBeDefined());
+      failStart();
+      const result = await creating;
+      expect(result).toEqual({ sessionId: id, started: false });
+      expect(sessionStore.sessions.find(session => session.id === id)?.status).toBe('error');
+      const retry = sessionStore.startSession(result!.sessionId);
+      await vi.waitFor(() => expect(completeStart).toBeDefined());
+      completeStart();
+      await retry;
+      expect(sessionStore.sessions.filter(session => session.name === 'hello')).toEqual([
+        expect.objectContaining({ id, status: 'running' }),
+      ]);
     });
 
     it('keeps cloned historical sessions on the existing Terminal activation path', async () => {

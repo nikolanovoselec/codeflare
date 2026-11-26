@@ -585,8 +585,9 @@ async function createSession(name: string, agentType?: AgentType, tabConfig?: Ta
 // Create a new session that clones `repo` at container start, then route it by
 // its server-selected workspace: historical/Terminal sessions keep activation,
 // while VS Code sessions start without taking terminal ownership. `ref` is omitted
-// so the backend clones the repo's default branch. Returns null on create failure.
-async function createSessionWithClone(repo: string, agentType?: AgentType): Promise<SessionWithStatus | null> {
+// so the backend clones the repo's default branch. Return the saved ID even
+// when Start fails or is cancelled so a retry does not create another session.
+async function createSessionWithClone(repo: string, agentType?: AgentType): Promise<{ sessionId: string; started: boolean } | null> {
   // Name the session after the repo (owner/name -> name). An empty name would be
   // rejected by the backend (name is min(1) when present; only OMISSION falls
   // back to "Terminal"), and the repo name is a more useful label anyway.
@@ -599,7 +600,8 @@ async function createSessionWithClone(repo: string, agentType?: AgentType): Prom
   if (agentType) {
     void updateUserPreferences({ lastAgentType: agentType });
   }
-  return await startSession(session.id) === 'cancelled' ? null : session;
+  const started = await startSession(session.id).then(result => result !== 'cancelled', () => false);
+  return { sessionId: session.id, started };
 }
 
 async function renameSession(id: string, name: string): Promise<void> {

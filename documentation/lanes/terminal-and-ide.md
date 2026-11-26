@@ -121,7 +121,9 @@ In **Vibe**, Dashboard **New Session** starts Pi Chat directly. Returning to Das
 
 For [REQ-AGENT-282](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults), the [stock browser fixture](../../scripts/ci/smoke-pi-web-system-rows.mjs) checks both SYSTEM row shapes and ordinary user and assistant rows. It does not test durable storage or a live producer.
 
-For hosted acceptance, use a disposable conversation with a known, non-sensitive SYSTEM marker and ordinary replies. Check the marker by reading the exact saved transcript JSONL before opening Chat and again after closing and reopening it; match the same entry, not just the transcript line count. Do not edit the file or open a second writer. If a supported live trigger is available in that disposable session, observe the live Chat and confirm the new entry in the saved JSONL. In both cases ordinary replies must remain visible and the entire SYSTEM row must be hidden. Use [native questions](#check-stale-frames-and-native-questions) to verify an independent dialog can still open and be answered. Mark saved or live cases without a repeatable source as unexercised.
+- **Saved history:** Use a disposable conversation with a known, non-sensitive SYSTEM marker and ordinary replies. Read the saved transcript JSONL, then reload the page and reopen that same conversation. In DevTools, verify that the new Chat frame successfully requests a fresh snapshot for that session; a retained frame does not qualify. Re-read the JSONL and match the same entry, not just the line count. Do not edit the transcript or open a second writer.
+- **Live event:** If a supported live trigger is available in that disposable session, observe Chat when it fires and confirm the new entry in the saved JSONL. In both tests, ordinary replies must remain visible and the entire SYSTEM row must be hidden. Mark a case unexercised if its source or the fresh load cannot be verified.
+- **Native dialog:** Use [native questions](#check-stale-frames-and-native-questions) to verify that an independent dialog can still open and be answered.
 
 #### Check desktop and mobile layout
 

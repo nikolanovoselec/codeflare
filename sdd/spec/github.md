@@ -69,7 +69,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 1. Connection-status inspection reports connection state, connected account login and credential source without exposing the token. <!-- @impl: src/routes/github.ts::app --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-002: reports connected with login + source when a token exists) -->
 2. The server fetches repository pages with the stored token, including accessible personal and organization repositories. The client filters loaded pages only; clear a zero-match filter to reveal Load more. The token never reaches the browser. <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-002 AC2: lists accessible organization repositories across provider pages) --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (REQ-GITHUB-002 AC2: clearing zero matches restores Load more and appends organization rows inside the same panel) --> <!-- @impl: src/routes/github.ts::REPOS_PER_PAGE --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-002: proxies the user repos with the stored token and never returns the token) -->
 3. GitHub and Storage share the dashboard's right-column panel area under [REQ-GITHUB-012](#req-github-012-responsive-github-and-storage-panel-allocation). The backend and no-tier dashboard gates belong to [REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise). <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-002 AC5: flips one GitHub/storage face at a time on mobile) -->
-4. Not-connected shows a Connect GitHub action; connected shows the account, refresh, Disconnect, and searchable repo list. Controls must follow the [shared primitive contract](../../documentation/lanes/terminal-and-ide.md#github-and-storage-workspace). <!-- @impl: web-ui/src/components/github/ConnectedHeader.tsx::ConnectedHeader --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (GitHubPanel Component) -->
+4. Not-connected shows a Connect GitHub action; connected shows the account, refresh, Disconnect, and searchable repo list. Browser rows label updates under one day old `today`. <!-- @impl: web-ui/src/components/github/RepoRow.tsx::RepoRow --> <!-- @test: web-ui/src/__tests__/components/RepoRow.test.tsx (keeps a recent update labeled today in the repository browser) --> Controls must follow the [shared primitive contract](../../documentation/lanes/terminal-and-ide.md#github-and-storage-workspace). <!-- @impl: web-ui/src/components/github/ConnectedHeader.tsx::ConnectedHeader --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (GitHubPanel Component) -->
 5. In the narrow Code Dashboard, the panel shows one flippable GitHub or storage face at a time. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-002 AC5: flips one GitHub/storage face at a time on mobile) -->
 6. The owner/login label and each repo name link to GitHub in a new tab; repo-name clicks do not trigger clone. <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (repo name links to the repo on GitHub in a new tab) --> <!-- @manual -->
 7. Dashboard returns reuse loaded repositories and search. The first page refreshes quietly at most once per five minutes on return, never replacing accumulated pages. Manual reload and connection changes bypass the window. <!-- @impl: web-ui/src/stores/github.ts::loadStatus --> <!-- @test: web-ui/src/__tests__/stores/github.test.ts (REQ-GITHUB-002 AC7: reuses fresh repositories and quietly refreshes stale results without clearing search) --> <!-- @test: web-ui/src/__tests__/stores/github.test.ts (REQ-GITHUB-002 AC7: preserves loaded pages until manual reload or account change) -->
@@ -153,15 +153,16 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 ---
 
-### REQ-GITHUB-322: Cancelled clone launch feedback
+### REQ-GITHUB-322: Clone launch recovery
 
-**Intent:** Explain a cancelled new-session launch in the open clone picker.
+**Intent:** Explain an incomplete new-session launch and let the user start the saved session.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
 1. When a new-session Start cancelled by Stop settles, the clone picker shows failure without closing if it is still open. <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (disables controls while launching and keeps the picker open after a cancelled repository launch) -->
+2. After a saved clone session fails to start, **Retry Start** starts that session without creating another. <!-- @impl: web-ui/src/stores/session.ts::createSessionWithClone --> <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (retries Start on the saved session rather than creating another session) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (retains the clone session ID after Start fails and can start that same session) -->
 
 **Constraints:** None.
 
@@ -172,6 +173,29 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 **Verification:** Automated: [ClonePicker.test.tsx](../../web-ui/src/__tests__/components/ClonePicker.test.tsx)
 
 **Status:** Implemented
+
+---
+
+### REQ-GITHUB-328: Clone picker focus and dismissal
+
+**Intent:** Keep the shared Clone picker operable without a pointer.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Opening the picker moves focus inside. Tab and Shift+Tab stay inside; Escape or Close dismisses it and returns focus to the trigger if still present. <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @test: web-ui/src/__tests__/components/RepoRow.test.tsx (keeps keyboard focus in the clone dialog and returns it on Escape) -->
+2. While Start is pending, focus moves to Close, which remains usable. <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (focuses Close and allows dismissal while Start is pending) -->
+
+**Constraints:** None.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-GITHUB-004](#req-github-004-clone-a-repository-into-a-session)
+
+**Verification:** Automated: [RepoRow](../../web-ui/src/__tests__/components/RepoRow.test.tsx), [ClonePicker](../../web-ui/src/__tests__/components/ClonePicker.test.tsx)
+
+**Status:** Planned
 
 ---
 
@@ -584,7 +608,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 1. Vibe starts with the GitHub and Storage browsers hidden and unavailable to keyboard navigation. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (discloses the existing GitHub and Storage browsers together in Vibe on %s) -->
 2. One labeled grip opens and closes the browsers. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (discloses the existing GitHub and Storage browsers together in Vibe on %s) -->
 3. Escape from within the drawer closes it and returns focus to its control. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (closes the Vibe drawer from a focused browser and returns focus to the pull) -->
-4. Vibe GitHub Details reports account-owned counts from the matching authenticated profile. When the profile omits the private count, show only the public count. If the loaded repository list is confirmed empty and no verified count is positive, show the empty notice instead. <!-- @impl: src/routes/github.ts::app --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: src/__tests__/routes/github.test.ts (returns only account-owned totals from the authenticated profile) --> <!-- @test: src/__tests__/routes/github.test.ts (returns public counts without inventing private totals for GitHub App profiles) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (shows authoritative owned totals for a connected GitHub App account) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-321: shows a verified public zero and omits unknown private and total counts) -->
+4. Vibe GitHub Details reports account-owned counts from the matching authenticated profile. When the profile omits the private count, show only the public count. Use the [empty-list exception](#req-github-327-vibe-repository-shortcuts) once its conditions are met. <!-- @impl: src/routes/github.ts::app --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: src/__tests__/routes/github.test.ts (returns only account-owned totals from the authenticated profile) --> <!-- @test: src/__tests__/routes/github.test.ts (returns public counts without inventing private totals for GitHub App profiles) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (shows authoritative owned totals for a connected GitHub App account) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-321: shows a verified public zero and omits unknown private and total counts) -->
 5. Vibe GitHub Details opens the connected `@username` profile in a new tab. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-321: shows the connected account and external profile without verified counts (%#)) -->
 6. Opening or closing the Vibe browsers leaves Profile icon-only and the email inside its menu. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (shows the Profile email only at the top of the open Dashboard menu in %s) -->
 7. On desktop and tablet, a transparent double-chevron control sits on the summary’s right edge when closed and the browsers’ far right edge when open. It points right when closed and left when open, with a slow horizontal bounce unless reduced motion is enabled. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-pull --> <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
@@ -778,7 +802,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 3. With no running session, the repository age control creates a fresh Vibe Chat session with that repository selected for cloning. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-GITHUB-327: the age control starts a fresh Vibe session with the selected clone target) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
 4. With running sessions, the age control opens the existing Clone picker for a live target or a new session. <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-327: the age action offers live and new sessions and clones into the selected live session) -->
 5. A successful fresh shortcut clone checks out the selected repository’s default branch. <!-- @impl: entrypoint.sh::restore_startup_repositories --> <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
-6. When the loaded repository list is confirmed empty and no verified count is positive, show **NOTHING TO SHOW.** and **GO BUILD SOMETHING.** on two lines instead of a zero count. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-327: only a settled empty repository list shows both empty-state lines (%#)) -->
+6. When counts settle, the loaded repository list is confirmed empty, and no verified count is positive, show **NOTHING TO SHOW.** and **GO BUILD SOMETHING.** on two lines instead of a zero count. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-327: only a settled empty repository list shows both empty-state lines (%#)) -->
 7. Connected GitHub Details keeps the Storage Usage card’s dimensions and styling for repository and empty states. <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
 
 **Constraints:**

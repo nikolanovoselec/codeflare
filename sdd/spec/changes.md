@@ -9,6 +9,7 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 - [Loading Chat](terminal.md#req-term-049-shared-workspace-startup-progress) keeps its label and final duration when Open appears.
 - [Open Vibe Chat](agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff) centers the existing session header directly above the same-width outer Chat frame. Both use the full available width on phones.
 - [Vibe GitHub Details](github.md#req-github-321-vibe-dashboard-browser-disclosure) links the account profile and, when owned counts are unavailable, offers up to three [recently updated repo shortcuts](github.md#req-github-327-vibe-repository-shortcuts) with an age control for cloning into a session. A confirmed empty list uses a two-line notice.
+- The shared [Clone picker](github.md#req-github-328-clone-picker-focus-and-dismissal) keeps keyboard focus inside and offers Close during startup. [Retry Start](github.md#req-github-322-clone-launch-recovery) reuses the saved session.
 - [Stock Chat](agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults) hides SYSTEM transcript rows without changing saved history.
 - [Background extraction](memory.md#req-mem-044-hide-background-extraction-requests) keeps launch payloads out of the visible conversation without changing model delivery.
 - [GitHub and Storage](github.md#req-github-010-mobile-github-and-storage-face-switching) flip only on mobile. [New Session padding](github.md#req-github-323-responsive-vibe-dashboard-layout) is half the button height in both modes.
