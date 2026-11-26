@@ -176,6 +176,16 @@ html, body {
   color: var(--color-text-secondary);
 }
 
+.repository-restore-notice__repos {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-block-size: min(10rem, 20dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  pointer-events: auto;
+}
+
 .repository-restore-notice button {
   flex: 0 0 44px;
   min-block-size: 44px;

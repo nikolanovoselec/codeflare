@@ -558,6 +558,7 @@ it('REQ-GITHUB-320 AC2: health withholds workspace inventory during the actual r
   // inventory requests after restore read its remote and current branch.
   writeFileSync(join(fake.bin, 'git'), `#!/usr/bin/env bash
 if [ "$1" = clone ]; then
+  case "\${@: -1}" in */missing) exit 7 ;; esac
   mkdir -p "\${@: -1}"
   printf 'restore-peer-blocked\\n' >&2
   while [ ! -f '${release}' ]; do sleep 0.02; done
@@ -571,7 +572,7 @@ fi
   const saved = { ...process.env };
   Object.assign(process.env, { CONTAINER_AUTH_TOKEN: 'clone-test-token', USER_WORKSPACE: workspace,
     PATH: `${fake.bin}:${saved.PATH ?? ''}`, CODEFLARE_CLONE_RESTORE_FLAG_FILE: flag,
-    GIT_CLONE_TARGETS: 'octo/repo', GITHUB_HOST: 'github.com' });
+    GIT_CLONE_TARGETS: 'octo/repo#trunk octo/missing', GITHUB_HOST: 'github.com' });
   delete process.env.CODEFLARE_OPERATOR_SESSION;
   delete process.env.GIT_CLONE_REPO;
   const child = spawn('bash', ['-c', extractStartupCloneBlock()], { env: { ...process.env }, detached: true });
@@ -615,7 +616,8 @@ fi
     assert.equal(code, 0, stderr);
     const complete = await health(port);
     assert.equal(complete.status, 200);
-    assert.equal(complete.body.repositoryRestore, 'complete');
+    assert.equal(complete.body.repositoryRestore, 'issues');
+    assert.deepEqual(complete.body.repositoryRestoreRepos, ['octo/repo', 'octo/missing']);
     assert.deepEqual(complete.body.workspaceRepos, [{ repo: 'octo/repo', ref: 'trunk' }]);
   });
 });

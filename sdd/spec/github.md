@@ -317,7 +317,6 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 - Already-present targets remain untouched. Inventory is withheld until the startup restore loop ends. <!-- @impl: entrypoint.sh::restore_startup_repositories --> <!-- @impl: host/src/metrics.ts::isWorkspaceInventoryReady --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-320 AC2: health withholds workspace inventory during the actual restore loop and publishes it after completion) -->
 - Missing detail or a missing/older generation consumes the retry budget. A matching confirmed stop or error, a replacement generation, lost local ownership, or exhaustion ends tracking without proving success. <!-- @impl: web-ui/src/stores/session.ts::watchRepositoryRestore --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-GITHUB-320: enables Open while restoration runs and shows its later partial outcome) -->
-- Resume notices list the available repository names from the restore targets, or show the session name if names are unavailable. <!-- @impl: src/routes/container/status.ts::app --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-GITHUB-320: lists repositories instead of the session name when available) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-GITHUB-320: shows restore progress on the Dashboard and dismisses a partial outcome) -->
 - Clone outcome and dismissal rules are defined in [REQ-GITHUB-319 AC5–7](#req-github-319-repository-panel-clone-handoff).
 
 **Priority:** P1
@@ -327,6 +326,28 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 **Verification:** Automated: [git-clone.test.js](../../host/__tests__/git-clone.test.js), [container-status.test.ts](../../src/__tests__/routes/container-status.test.ts), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx), [ClonePicker.test.tsx](../../web-ui/src/__tests__/components/ClonePicker.test.tsx); Manual: [Repository restore notice](../../documentation/lanes/terminal-and-ide.md#repository-restore-notice)
 
 **Status:** Implemented
+
+---
+
+### REQ-GITHUB-326: Repository names in resume notices
+
+**Intent:** Identify the repositories associated with the current restore notice.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The resume notice lists repository names from the observed launch’s restore targets when available; otherwise it shows the session name. <!-- @impl: host/src/metrics.ts::getRepositoryRestoreRepos --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-320 AC2: health withholds workspace inventory during the actual restore loop and publishes it after completion) --> <!-- @impl: src/routes/container/status.ts::app --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-GITHUB-320: lists repositories instead of the session name when available) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-GITHUB-320: shows restore progress on the Dashboard and dismisses a partial outcome) --> <!-- @test: src/__tests__/routes/container-status.test.ts (REQ-GITHUB-320: Ready carries a nonblocking repository restore state and repository names) --> <!-- @test: web-ui/src/__tests__/api/client.test.ts (should trigger container start and send initial progress) -->
+
+**Constraints:** The list is not a per-repository outcome. Manual clone notices and restore timing are unchanged.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-GITHUB-320](#req-github-320-nonblocking-terminal-repository-restore-notice)
+
+**Verification:** Automated: [Host restore](../../host/__tests__/git-clone.test.js), [Startup status](../../src/__tests__/routes/container-status.test.ts), [Start client](../../web-ui/src/__tests__/api/client.test.ts), [Layout](../../web-ui/src/__tests__/components/Layout.test.tsx); Manual: [Repository restore notice](../../documentation/lanes/terminal-and-ide.md#repository-restore-notice)
+
+**Status:** Planned
 
 ---
 

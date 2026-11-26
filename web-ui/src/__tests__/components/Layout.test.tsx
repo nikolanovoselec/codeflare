@@ -438,6 +438,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     const notice = within(screen.getByRole('region', { name: 'Activity notifications' }));
     expect(notice.getByText('octocat/api')).toBeInTheDocument();
     expect(notice.getByText('octocat/docs')).toBeInTheDocument();
+    expect(notice.getByRole('list', { name: 'Repositories' })).toHaveAttribute('tabindex', '0');
     expect(notice.queryByText('Payments workspace')).toBeNull();
   });
 

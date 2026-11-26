@@ -150,15 +150,16 @@ describe('Container Status Routes', () => {
     it('REQ-GITHUB-320: Ready carries a nonblocking repository restore state and repository names', async () => {
       mockKV._set('session:test-bucket:abcdef1234567890abcdef12', {
         id: 'abcdef1234567890abcdef12', name: 'Session', status: 'running', lifecycleGeneration: 1,
-        clone: { repo: 'octocat/primary', ref: 'main' }, clones: [{ repo: 'octocat/second', ref: 'feature/docs' }],
+        clone: { repo: 'octocat/primary', ref: 'main' }, clones: [{ repo: 'octocat/primary' }],
       });
       const app = createStatusApp();
       testState.container!.getState.mockResolvedValue({ status: 'running' });
       testState.container!.fetch.mockImplementation(async (request: Request) => new Response(JSON.stringify(
-        request.url.endsWith('/sessions') ? [] : { syncStatus: 'success', prewarmReady: true, repositoryRestore: 'restoring' },
+        request.url.endsWith('/sessions') ? [] : { syncStatus: 'success', prewarmReady: true, repositoryRestore: 'issues',
+          repositoryRestoreRepos: ['octocat/primary', 'octocat/second'] },
       )));
       const response = await app.request(`/container/startup-status${sessionQuery}`);
-      expect(await response.json()).toMatchObject({ stage: 'ready', details: { repositoryRestore: 'restoring',
+      expect(await response.json()).toMatchObject({ stage: 'ready', details: { repositoryRestore: 'issues',
         repositoryRestoreRepos: ['octocat/primary', 'octocat/second'] } });
     });
 

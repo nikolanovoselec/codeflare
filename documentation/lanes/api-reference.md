@@ -138,6 +138,8 @@ Session creation may reject the enterprise agent allowlist or SaaS storage quota
 
 A successful Start returns the acknowledged `generation`; `starting` means the DO owns the asynchronous launch, not that ports are ready. `/startup-status` returns the observed `generation` on ordinary responses when a row was read; a handler-level `error` response can omit it. A D1-confirmed stop always includes it. <!-- @impl: src/routes/container/status.ts::app --> Only `ready` for the acknowledged generation completes that Start in the browser. SDK startup failure does not establish stopped. See [Troubleshooting](troubleshooting.md#container-start-is-rejected-or-returns-to-stopped).
 
+Startup status may include `details.repositoryRestoreRepos`, a list of `owner/repo` names from the launch’s restore targets. It can be omitted and does not report per-repository outcomes. See [REQ-GITHUB-326](../../sdd/spec/github.md#req-github-326-repository-names-in-resume-notices). <!-- @impl: src/routes/container/status.ts::app -->
+
 ## Pi Chat handoff
 
 `POST /api/sessions` and `POST /api/container/start?sessionId=…` accept optional `surface: "chat" | "terminal"` only for eligible Classic Pi Terminal sessions. Herdr Start and creation use their ordinary paths without `surface`. Explicit creation resolves the Terminal workspace server-side; the regular default still applies without the field. Start binds the surface to the launch's generation, not a stored workspace selector. Use the handoff routes for an already running session. <!-- @impl: src/routes/session/crud.ts::app.post --> <!-- @impl: src/routes/container/lifecycle.ts::app.post -->

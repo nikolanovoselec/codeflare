@@ -620,6 +620,8 @@ describe('API Client', () => {
             containerStatus: 'running',
             syncStatus: 'success',
             terminalServerOk: true,
+            repositoryRestore: 'restoring',
+            repositoryRestoreRepos: ['octocat/primary', 'octocat/second'],
           },
         })),
       });
@@ -648,6 +650,7 @@ describe('API Client', () => {
         expect.objectContaining({
           stage: 'ready',
           progress: 100,
+          repositoryRestoreRepos: ['octocat/primary', 'octocat/second'],
         })
       );
 

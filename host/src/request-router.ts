@@ -16,7 +16,7 @@ import type { PiWebProxy } from './pi-web-proxy.js';
 import { ownerInference, OperatorInferenceRefusal, type OperatorInferenceOwner,
   type OperatorInferenceOwnerResolver } from './operator-inference.js';
 import { emitRaw, type RawLogContext } from './operator-raw-logging.js';
-import { getSyncStatus, getSystemMetrics, collectWorkspaceRepos, isWorkspaceInventoryReady, getRepositoryRestoreStatus } from './metrics.js';
+import { getSyncStatus, getSystemMetrics, collectWorkspaceRepos, isWorkspaceInventoryReady, getRepositoryRestoreStatus, getRepositoryRestoreRepos } from './metrics.js';
 import { evaluateFinalSync } from './final-sync.js';
 import type { PiMemoryShutdown } from './pi-memory-shutdown.js';
 import { AGENT_EVENT_LIMITS, type AgentEventDrainResult, type AgentEventKind } from './agent-events.js';
@@ -500,6 +500,7 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
         : undefined;
       const { prewarmReady, initFlagObserved, terminalServiceReady, editorReady, editorReadyTimedOut, startupPolicyError } = deps.readiness();
 
+      const repositoryRestore = getRepositoryRestoreStatus();
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(
         JSON.stringify({
@@ -515,7 +516,8 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
           editorReady,
           editorReadyTimedOut,
           startupPolicyError,
-          repositoryRestore: getRepositoryRestoreStatus(),
+          repositoryRestore,
+          ...(repositoryRestore ? { repositoryRestoreRepos: getRepositoryRestoreRepos() } : {}),
           cpu: sysMetrics.cpu,
           mem: sysMetrics.mem,
           hdd: sysMetrics.hdd,

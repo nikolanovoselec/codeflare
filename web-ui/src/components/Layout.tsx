@@ -1208,7 +1208,9 @@ const Layout: Component<LayoutProps> = (props) => {
                           : status() === 'restoring' ? 'Restoring repositories…'
                             : status() === 'complete' ? 'Repositories restored' : 'Some repositories weren’t restored'}</strong>
                         <Show when={!notice()?.repo && notice()?.repos?.length} fallback={<div class="repository-restore-notice__session">{name()}</div>}>
-                          <For each={notice()?.repos}>{repo => <div class="repository-restore-notice__session">{repo}</div>}</For>
+                          <ul class="repository-restore-notice__repos repository-restore-notice__session" role="list" aria-label="Repositories" tabIndex={0}>
+                            <For each={notice()?.repos}>{repo => <li>{repo}</li>}</For>
+                          </ul>
                         </Show>
                         <Show when={notice()?.repo}>{repo => <div class="repository-restore-notice__session">{repo()}</div>}</Show>
                       </div>
