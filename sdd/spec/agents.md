@@ -889,7 +889,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 4. Chat is centered and occupies 80% of its available desktop area on each axis, capped at 800px wide and 1200px tall. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 5. Only the authenticated owner using the current eligible generation reaches that generation’s Chat transport. <!-- @impl: src/routes/pi-web.ts::handlePiWebRequest --> <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @test: src/__tests__/routes/pi-web-auth-chain.test.ts (REQ-AGENT-272 AC5: submits, reads, and cancels only the owned generation’s exact handoff request) --> <!-- @test: src/__tests__/container/terminal-ws-relay.test.ts (REQ-AGENT-272 AC5: reconnect after Pi web’s private process exits cannot start a new generation) --> <!-- @test: src/__tests__/routes/pi-web-auth-chain.test.ts (REQ-AGENT-272 AC5: stale stock prompts and reconnects cannot attach to a replacement writer) -->
 6. Cancel switch can preserve the current turn only before Abort is committed. <!-- @impl: host/src/pi-web-handoff.ts::createPiWebHandoff --> <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-272 AC6: cancellation before abort keeps the turn; after abort it cannot undo the stop) --> <!-- @test: host/__tests__/pi-web-native-stop.test.js (REQ-AGENT-272 AC3+AC6: stopping fences the terminal and aborts the admitted pre-stream turn before release) -->
-7. Chat opens even when the restored profile contains the bundled Pi Web Workflows registration. Chat does not expose Git or worktree controls at any point in the session. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @test: scripts/ci/smoke-pi-web-services.mjs (verifyRestoredBundledWorkflows) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#pi-chat-handoff-acceptance -->
+7. Chat opens even when the restored profile contains the bundled Pi Web Workflows registration. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @test: scripts/ci/smoke-pi-web-services.mjs (verifyRestoredBundledWorkflows) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#pi-chat-handoff-acceptance -->
 
 **Constraints:**
 
@@ -1203,6 +1203,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Constraints:**
 
+- Chat does not expose Git or worktree controls at any point in the session. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @test: scripts/ci/smoke-pi-web-services.mjs (verifyRestoredBundledWorkflows) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
 - Before Chat attaches, the supervisor dismisses newly provisioned MCP Manager only when the managed adapter selection is unambiguous and preexisting entries and filters are unchanged, except for the exact bundled Workflows registration successfully dismissed under [REQ-AGENT-272 AC7](#req-agent-272-pi-chat-and-terminal-transcript-handoff). <!-- @impl: host/src/pi-web-services.ts::createPiWebServices -->
 - [REQ-AGENT-281](mcp.md#req-agent-281-bundled-mcp-manager-registration-retirement) owns reconciliation of restored MCP registrations.
 
