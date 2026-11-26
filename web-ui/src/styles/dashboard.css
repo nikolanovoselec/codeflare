@@ -235,6 +235,11 @@
   outline-offset: 2px;
 }
 
+@keyframes dashboard-multiview-breathe {
+  0%, 100% { opacity: 0.72; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.08); }
+}
+
 @keyframes dashboard-pull-bounce-x {
   50% { transform: translateX(-4px); }
 }
@@ -465,6 +470,7 @@
     position: absolute;
     inset-inline-start: 100%;
     inset-block-start: 50%;
+    block-size: 150px;
     translate: 0 -50%;
   }
 }
