@@ -42,6 +42,7 @@ describe('Pi web Worker proxy (REQ-AGENT-272 AC5)', () => {
   let ingress: Ingress[];
   let liveNativeStub: DurableObjectStub | undefined;
   let ordinary: boolean;
+  let authorityDelayMs: number;
 
   function putSession(fields: Partial<StoredSession> = {}, owner = OWNER) {
     kv._set(`session:${owner}:${SID}`, {
@@ -57,6 +58,7 @@ describe('Pi web Worker proxy (REQ-AGENT-272 AC5)', () => {
     ingress = [];
     liveNativeStub = undefined;
     ordinary = true;
+    authorityDelayMs = 0;
     for (const email of [OWNER_EMAIL, OTHER_EMAIL]) {
       kv._set(`user:${email}`, { addedBy: 'test', role: 'user', accessTier: 'standard', subscriptionTier: 'standard' });
     }
@@ -74,6 +76,7 @@ describe('Pi web Worker proxy (REQ-AGENT-272 AC5)', () => {
       getByName: (name: string) => ({
         getPersonalPiSession: async () => {
           if (!ordinary) throw new Error('Ordinary session authority unavailable');
+          if (authorityDelayMs) await new Promise(resolve => setTimeout(resolve, authorityDelayMs));
           return { generation: GENERATION, groups: [] };
         },
         getState: async () => ({ status: 'running' }),
@@ -148,6 +151,29 @@ describe('Pi web Worker proxy (REQ-AGENT-272 AC5)', () => {
       expect(forwarded.headers.get(header)).toBeNull();
     }
     expect(await kv.get(`session:${OWNER}:${SID}`, 'json')).toMatchObject({ lifecycleGeneration: GENERATION, lastAccessedAt: LAST_ACCESS });
+  });
+
+  it('reports bounded proxy timings only for a successful authorized document', async () => {
+    const logs: { message: string; data?: Record<string, unknown> }[] = [];
+    const log = vi.spyOn(console, 'log').mockImplementation((output: string) => {
+      if (output.includes('Pi Web proxy timing')) logs.push(JSON.parse(output));
+    });
+    try {
+      authorityDelayMs = 50;
+      const response = await handlePiWebRequest(request(`${APP}${QUERY}`), env);
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe('pi-web private port');
+      expect(response.headers.get('Cache-Control')).toBe('no-store');
+      expect(response.headers.has('Server-Timing')).toBe(false);
+      ordinary = false;
+      expect((await handlePiWebRequest(request(APP), env)).ok).toBe(false);
+      expect(logs).toHaveLength(1);
+      expect(logs[0].data).toEqual({ kind: 'document', authMs: expect.any(Number), eligibilityMs: expect.any(Number),
+        authorityMs: expect.any(Number), forwardMs: expect.any(Number) });
+      expect(logs[0].data?.authorityMs).toBeGreaterThanOrEqual(49);
+    } finally {
+      log.mockRestore();
+    }
   });
 
   it('REQ-AGENT-272 AC5: submits, reads, and cancels only the owned generation’s exact handoff request', async () => {

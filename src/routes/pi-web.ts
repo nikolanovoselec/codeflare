@@ -110,10 +110,12 @@ export async function handlePiWebRequest(request: Request, env: Env): Promise<Re
   }
 
   try {
+    const startedAt = performance.now();
     // The stock app does not set Codeflare's request marker. Synthesize it
     // only after exact Origin validation, preserving any submitted CSRF token.
     const authenticatedRequest = maybeSynthesizeCsrfHeader(request, origin !== null);
     const { user, bucketName } = await authenticateRequest(authenticatedRequest, env);
+    const authenticatedAt = performance.now();
     if (isSessionOidcMode(env) && !isEnterpriseMode(env)
       && !isActiveTier(getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd, env))) {
       return Response.json({ error: 'Access denied' }, { status: 403 });
@@ -155,7 +157,9 @@ export async function handlePiWebRequest(request: Request, env: Env): Promise<Re
     }
 
     const container = getContainer(env.CONTAINER, getContainerId(bucketName, sessionId));
+    const authorityStartedAt = performance.now();
     const ordinary = await getPersonalPiSession(container, { bucket: bucketName, sessionId, email: user.email }, true);
+    const authorityCheckedAt = performance.now();
     if (ordinary.generation !== generation) return Response.json({ error: 'Pi web generation changed' }, { status: 409 });
 
     if (upgrade && env.STRESS_TEST_MODE !== 'active') {
@@ -171,8 +175,27 @@ export async function handlePiWebRequest(request: Request, env: Env): Promise<Re
       ? new Request(url, { method: request.method, headers, body: controlBody, redirect: 'manual', signal: request.signal })
       : new Request(authenticatedRequest, { headers, redirect: 'manual' });
     // 101 responses require native Stub.fetch rather than DO RPC serialization.
+    const forwardStartedAt = performance.now();
     const response = upgrade ? await container.fetch(forwarded) : await forwardExisting(container, forwarded);
-    return scopedResponse(response, url, control ? prefix : piWebAppPrefix(sessionId, generation));
+    const headersReceivedAt = performance.now();
+    const appPrefix = piWebAppPrefix(sessionId, generation);
+    const scoped = scopedResponse(response, url, control ? prefix : appPrefix);
+    if (!control && !upgrade && request.method === 'GET' && scoped.ok) {
+      const appPath = url.pathname.slice(appPrefix.length);
+      const kind = !appPath ? 'document' : appPath.endsWith('/transcript-snapshot') ? 'snapshot'
+        : appPath.startsWith('assets/') ? 'asset' : 'metadata';
+      // Always measure navigation; sample the higher-volume stock subrequests.
+      if (kind === 'document' || Math.random() < 0.25) {
+        logger.info('Pi Web proxy timing', {
+          kind,
+          authMs: Math.round(authenticatedAt - startedAt),
+          eligibilityMs: Math.round(authorityStartedAt - authenticatedAt),
+          authorityMs: Math.round(authorityCheckedAt - authorityStartedAt),
+          forwardMs: Math.round(headersReceivedAt - forwardStartedAt),
+        });
+      }
+    }
+    return scoped;
   } catch (error) {
     if (error instanceof AppError) return Response.json(error.toJSON(), { status: error.statusCode });
     logger.warn('Pi web proxy unavailable');
