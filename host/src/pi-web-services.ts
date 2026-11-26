@@ -14,6 +14,15 @@ const extension = `${installRoot}/handoff-extension.ts`;
 export const PI_WEB_PORT = 8504;
 const origin = `http://127.0.0.1:${PI_WEB_PORT}`;
 
+const bootErrnos = new Set(['EACCES', 'EADDRINUSE', 'EEXIST', 'EISDIR', 'ENOENT', 'ENOSPC', 'ENOTDIR', 'EPERM', 'EROFS']);
+const bootSignals = new Set(['SIGABRT', 'SIGILL', 'SIGKILL', 'SIGSEGV', 'SIGTERM']);
+
+class StockApiError extends Error {
+  constructor(readonly status: number) {
+    super(`Stock pi-web private API returned ${status}`);
+  }
+}
+
 export function managedPiPackage(): string {
   const piPath = realpathSync('/usr/local/bin/pi');
   const piPackage = dirname(dirname(dirname(piPath)));
@@ -38,7 +47,7 @@ export function createPiWebServices(options: {
 }): PiWebServices {
   let starting: Promise<void> | undefined;
   let closing: Promise<void> | undefined;
-  let processes: Array<{ child: ChildProcess; stopped: Promise<void>; running: boolean }> = [];
+  let processes: Array<{ child: ChildProcess; role: string; spawnErrno?: string; stopped: Promise<void>; running: boolean }> = [];
   let shuttingDown = false;
 
   async function request<T>(path: string, body?: object): Promise<T> {
@@ -49,7 +58,7 @@ export function createPiWebServices(options: {
     });
     if (!response.ok) {
       await response.body?.cancel();
-      throw new Error(`Stock pi-web private API returned ${response.status}`);
+      throw new StockApiError(response.status);
     }
     return response.json() as Promise<T>;
   }
@@ -69,8 +78,11 @@ export function createPiWebServices(options: {
     });
     if (child.stderr) options.observeBuildStderr?.(name, child.stderr);
     let resolve!: () => void;
-    const state = { child, running: true, stopped: new Promise<void>(done => { resolve = done; }) };
-    child.on('error', () => { /* An error is not exit; close also follows failed spawn. */ });
+    const state: (typeof processes)[number] = { child, role: name === 'pi-web-sessiond.sh' ? 'sessiond' : 'gateway',
+      running: true, stopped: new Promise<void>(done => { resolve = done; }) };
+    child.on('error', (error: NodeJS.ErrnoException) => {
+      if (error.code && bootErrnos.has(error.code)) state.spawnErrno = error.code;
+    });
     child.once('close', () => { state.running = false; resolve(); });
     processes.push(state);
   }
@@ -88,11 +100,14 @@ export function createPiWebServices(options: {
     if (processes === retiring) processes = [];
   }
 
-  async function boot(): Promise<void> {
+  async function boot(diagnostic: { operation: string; healthHttpStatus?: number }): Promise<void> {
+    const mark = (operation: string) => { diagnostic.operation = operation; };
+    mark('profile-restore');
     await until(options.profileRestored, 120_000);
     if (shuttingDown) throw new Error('Container is stopping');
     // The stock daemon provisions packages before the gateway becomes healthy.
     // Reject a known port conflict before that startup can modify the profile.
+    mark('port-probe');
     await new Promise<void>((resolve, reject) => {
       const probe = createServer();
       probe.once('error', reject);
@@ -101,7 +116,9 @@ export function createPiWebServices(options: {
       });
     });
     if (shuttingDown) throw new Error('Container is stopping');
+    mark('sdk-check');
     const piPackage = managedPiPackage();
+    mark('profile-settings');
     const home = process.env.HOME ?? '/home/user';
     const agentDir = join(home, '.pi/agent');
     const extensionLink = join(agentDir, 'extensions/codeflare-web-handoff.ts');
@@ -128,6 +145,7 @@ export function createPiWebServices(options: {
       && before.every(item => typeof sourceOf(item) === 'string')
       && before.some(item => typeof item === 'string' && (
         /^npm:pi-mcp-adapter@\d+\.\d+\.\d+$/.test(item) || item === join(piPackage, '..', '..', 'pi-mcp-adapter')));
+    mark('runtime-config');
     mkdirSync(options.runtimeDir, { recursive: true, mode: 0o700 });
     const defaultsPath = join(options.runtimeDir, 'defaults.json');
     writeFileSync(defaultsPath, JSON.stringify({
@@ -163,23 +181,33 @@ export function createPiWebServices(options: {
     };
     // No private container credential or parent authority in agent child env.
     delete env.CONTAINER_AUTH_TOKEN;
+    mark('sessiond-launch');
     launch('pi-web-sessiond.sh', env);
+    mark('gateway-launch');
     launch('pi-web-server.sh', env);
+    mark('service-health');
     await until(async () => {
       if (processes.some(process => !process.running)) throw new Error('Stock pi-web process exited');
       try { return (await request<{ ok: boolean }>('/api/sessiond/health')).ok; }
-      catch { return false; }
+      catch (error) {
+        diagnostic.healthHttpStatus = error instanceof StockApiError ? error.status : undefined;
+        return false;
+      }
     }, 30_000);
+    mark('package-list');
     const packages = await request<{ packages: { source: string; scope: string }[] }>('/api/pi-packages');
     const userSources = new Set(packages.packages.filter(row => row.scope === 'user').map(row => row.source));
     if (userSources.has(workflows)) {
+      mark('workflows-policy');
       if (workflowsRegistered) throw new Error('Existing Workflows registration prevents Git-free Chat');
+      mark('workflows-removal');
       const removed = await request<{ removed: boolean }>('/api/pi-packages/remove', { scope: 'user', source: workflows });
       if (!removed.removed) throw new Error('Bundled Workflows could not be dismissed');
     }
     // Disabling the panel doesn't disable the bundled Pi extension. Dismiss
     // only the newly provisioned source when the managed adapter is registered.
     if (adapterSelected && !before.some(item => sourceOf(item) === mcpManager) && userSources.has(mcpManager)) {
+      mark('mcp-settings');
       const after = readSettings();
       // Stock can normalize any configured copy to the bundled path. If any
       // prior entry (including filters) changed, absence before boot is not proof.
@@ -191,6 +219,7 @@ export function createPiWebServices(options: {
         return true;
       });
       if (preserved && isDeepStrictEqual(after.extensions, settings.extensions)) {
+        mark('mcp-removal');
         const removed = await request<{ removed: boolean }>('/api/pi-packages/remove', { scope: 'user', source: mcpManager });
         if (!removed.removed) throw new Error('Bundled MCP Manager could not be dismissed');
       }
@@ -207,11 +236,27 @@ export function createPiWebServices(options: {
         await stopProcesses();
         starting = undefined;
       }
-      starting ??= boot().catch(async (error: unknown) => {
-        await stopProcesses();
-        starting = undefined;
-        throw error;
-      });
+      if (!starting) {
+        const startedAt = performance.now();
+        const diagnostic: { operation: string; healthHttpStatus?: number } = { operation: 'profile-restore' };
+        starting = boot(diagnostic).catch(async (error: unknown) => {
+          const stopped = processes.find(({ child, running, spawnErrno }) =>
+            !running || spawnErrno !== undefined || child.exitCode !== null || child.signalCode !== null);
+          const errno = (error as NodeJS.ErrnoException | undefined)?.code ?? stopped?.spawnErrno;
+          const signal = stopped?.child.signalCode;
+          console.warn(`[pi-web] service boot failed ${JSON.stringify({
+            operation: diagnostic.operation, elapsedMs: Math.round(performance.now() - startedAt),
+            errno: errno && bootErrnos.has(errno) ? errno : undefined,
+            role: stopped?.role, exitCode: stopped?.child.exitCode ?? undefined,
+            signal: signal && bootSignals.has(signal) ? signal : undefined,
+            httpStatus: error instanceof StockApiError ? error.status
+              : diagnostic.operation === 'service-health' ? diagnostic.healthHttpStatus : undefined,
+          })}`);
+          await stopProcesses();
+          starting = undefined;
+          throw error;
+        });
+      }
       return starting;
     },
     async reset() {

@@ -119,6 +119,38 @@ async function closeAndCheckReaping() {
   assert.deepEqual(children(), []);
 }
 
+async function verifyPackageListFailureDiagnostic() {
+  services = createPiWebServices(options);
+  const originalFetch = globalThis.fetch;
+  const originalWarn = console.warn;
+  const diagnostics = [];
+  let pids = [];
+  globalThis.fetch = async (url, ...args) => {
+    if (String(url) !== `http://127.0.0.1:${PI_WEB_PORT}/api/pi-packages`) return originalFetch(url, ...args);
+    const health = await services.request('/api/sessiond/health');
+    assert.equal(health.activeSessions, 0);
+    pids = children();
+    return new Response('private fixture body must not be logged', { status: 503 });
+  };
+  console.warn = (...args) => diagnostics.push(args.join(' '));
+  try {
+    await assert.rejects(services.start(), /private API returned 503/);
+    assert.equal(pids.length, 2);
+    assert.deepEqual(children(), [], 'failed start must reap both stock children');
+    assert.deepEqual(listeners(), [], 'failed start must release the gateway');
+  } finally {
+    globalThis.fetch = originalFetch;
+    console.warn = originalWarn;
+    await services.close();
+  }
+  assert.ok(diagnostics.every(line => !line.includes('private fixture body must not be logged')));
+  const records = diagnostics.filter(line => line.startsWith('[pi-web] service boot failed '));
+  assert.equal(records.length, 1);
+  const { elapsedMs, ...record } = JSON.parse(records[0].slice('[pi-web] service boot failed '.length));
+  assert.ok(Number.isFinite(elapsedMs) && elapsedMs >= 0);
+  assert.deepEqual(record, { operation: 'package-list', httpStatus: 503 });
+}
+
 try {
   for (const dir of [cwd, runtimeDir, agentDir, localWorkflows]) mkdirSync(dir, { recursive: true, mode: 0o700 });
   writeFileSync(join(localWorkflows, 'package.json'), JSON.stringify({ name: 'smoke-user-workflows', version: '1.0.0' }));
@@ -151,6 +183,8 @@ try {
   const commands = await services.request(`/api/sessions/${encodeURIComponent(id)}/commands?${new URLSearchParams({ cwd })}`);
   assert.ok(!commands.some(({ name }) => name === 'worktree'), 'a real stock Chat session must not offer /worktree');
   await closeAndCheckReaping();
+
+  await verifyPackageListFailureDiagnostic();
 
   // Model a restored profile with a preexisting registration. The same path
   // can be an explicit user choice, so startup must leave it alone.

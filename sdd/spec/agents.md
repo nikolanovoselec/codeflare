@@ -1036,13 +1036,15 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 1. After a recoverable initial Chat service failure, explicit retry opens the same bound transcript without starting a second writer. <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime --> <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-272: timeout of the initial Chat writer exposes only the verified same-transcript retry) -->
 2. An already-occupied Chat gateway rejects startup without changing the restored Pi profile. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (verifyOccupiedGatewayPreservesProfile) -->
 
-**Constraints:** The previous attempt must be confirmed closed before retry.
+3. Before cleanup, a failed stock service boot records the preparation operation, elapsed time and available bounded failure codes in Host logs. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @test: scripts/ci/smoke-pi-web-services.mjs (verifyPackageListFailureDiagnostic) -->
+
+**Constraints:** The previous attempt must be confirmed closed before retry. Do not log raw errors, child output, profile data or response bodies.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-275](#req-agent-275-classic-pi-chat-startup)
 
-**Verification:** Automated: [Handoff coordinator](../../host/__tests__/pi-web-handoff.test.js), [Packaged Host handoff](../../scripts/ci/smoke-pi-web-host-handoff.mjs)
+**Verification:** Automated: [Handoff coordinator](../../host/__tests__/pi-web-handoff.test.js), [Packaged Host handoff](../../scripts/ci/smoke-pi-web-host-handoff.mjs), [Stock service smoke](../../scripts/ci/smoke-pi-web-services.mjs)
 
 **Status:** Planned
 
