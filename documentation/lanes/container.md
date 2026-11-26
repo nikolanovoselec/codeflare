@@ -242,9 +242,9 @@ On successful writer confirmation, `[pi-web] Chat open timing` separates service
 
 Without observed admission, the last two durations are null, not zero. The [packaged smoke timing checks](../../scripts/ci/smoke-pi-web-host-handoff.mjs#L414-L422) verify the admitted case only. <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime -->
 
-The Worker’s `Pi Web proxy timing` log ([REQ-AGENT-283 AC7](../../sdd/spec/agents.md#req-agent-283-initial-chat-service-recovery)) separates authentication, session eligibility, authority RPC, and forwarding to response headers.
+The Worker’s `Pi Web proxy timing` log separates authentication, session eligibility, authority RPC, and forwarding to response headers. Timing data contains only fixed categories and rounded milliseconds ([REQ-AGENT-283 Constraints](../../sdd/spec/agents.md#req-agent-283-initial-chat-service-recovery)). <!-- @impl: src/routes/pi-web.ts::handlePiWebRequest -->
 
-When `info` logging is enabled, successful stock document GETs are logged and other successful stock GETs are sampled. Timing data contains only fixed categories and rounded milliseconds. <!-- @impl: src/routes/pi-web.ts::handlePiWebRequest -->
+When `info` logging is enabled, successful stock document GETs are logged and other successful stock GETs are sampled ([REQ-AGENT-283 AC7](../../sdd/spec/agents.md#req-agent-283-initial-chat-service-recovery)). <!-- @impl: src/routes/pi-web.ts::handlePiWebRequest -->
 
 Pi-enabled images [prewarm stock Pi Web](../../sdd/spec/agents.md#req-agent-284-pi-web-image-prewarm) offline using the installed package and a disposable profile. During build verification, both stock services restart with cache writes disabled. The build checks that Node accepts both cached entrypoints and that no conversation opens. Normal runtime launches do not disable cache writes. <!-- @impl: image/pi-web/warm-compile-cache.mjs::verifyBakedCache -->
 
