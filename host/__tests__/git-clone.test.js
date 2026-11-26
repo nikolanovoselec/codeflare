@@ -609,6 +609,7 @@ fi
     const pending = await health(port);
     assert.equal(pending.status, 200);
     assert.equal(pending.body.repositoryRestore, 'restoring');
+    assert.deepEqual(pending.body.repositoryRestoreRepos, ['octo/repo', 'octo/missing']);
     assert.equal(Object.hasOwn(pending.body, 'workspaceRepos'), false);
     assert.equal(existsSync(flag), false);
     writeFileSync(release, 'continue');

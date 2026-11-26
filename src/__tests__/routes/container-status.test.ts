@@ -147,7 +147,7 @@ describe('Container Status Routes', () => {
         error: startupPolicyError === 'failed' ? 'Managed file policy could not be verified.' : 'Managed file policy verification timed out.' });
     });
 
-    it('REQ-GITHUB-320: Ready carries a nonblocking repository restore state and repository names', async () => {
+    it.each(['restoring', 'issues'] as const)('REQ-GITHUB-320: Ready carries a nonblocking repository restore state and repository names (%s)', async repositoryRestore => {
       mockKV._set('session:test-bucket:abcdef1234567890abcdef12', {
         id: 'abcdef1234567890abcdef12', name: 'Session', status: 'running', lifecycleGeneration: 1,
         clone: { repo: 'octocat/primary', ref: 'main' }, clones: [{ repo: 'octocat/primary' }],
@@ -155,11 +155,11 @@ describe('Container Status Routes', () => {
       const app = createStatusApp();
       testState.container!.getState.mockResolvedValue({ status: 'running' });
       testState.container!.fetch.mockImplementation(async (request: Request) => new Response(JSON.stringify(
-        request.url.endsWith('/sessions') ? [] : { syncStatus: 'success', prewarmReady: true, repositoryRestore: 'issues',
+        request.url.endsWith('/sessions') ? [] : { syncStatus: 'success', prewarmReady: true, repositoryRestore,
           repositoryRestoreRepos: ['octocat/primary', 'octocat/second'] },
       )));
       const response = await app.request(`/container/startup-status${sessionQuery}`);
-      expect(await response.json()).toMatchObject({ stage: 'ready', details: { repositoryRestore: 'issues',
+      expect(await response.json()).toMatchObject({ stage: 'ready', details: { repositoryRestore,
         repositoryRestoreRepos: ['octocat/primary', 'octocat/second'] } });
     });
 
