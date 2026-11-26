@@ -196,6 +196,14 @@
 }
 
 .dashboard-github-card__age:not(:disabled) { cursor: pointer; }
+.dashboard-github-card__age:not(:disabled):is(:hover, :focus-visible) {
+  background: var(--color-accent-muted);
+  color: var(--color-accent);
+}
+.dashboard-github-card__age:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
 .dashboard-github-card__age:disabled { opacity: 0.5; }
 
 .dashboard-github-card__empty {

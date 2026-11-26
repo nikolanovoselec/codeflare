@@ -1059,8 +1059,11 @@ COPY --from=builder /opt/codeflare/pi-web /opt/codeflare/pi-web
 COPY --chmod=0555 image/pi-web/codeflare-chrome/ /opt/codeflare/pi-web/codeflare-chrome/
 COPY --chmod=0555 image/pi-web/codeflare-pi /usr/local/bin/codeflare-terminal-writer
 COPY --chmod=0444 image/pi-web/native-preflight.mjs image/pi-web/warm-compile-cache.mjs scripts/ci/smoke-pi-web-handoff.mjs /opt/codeflare/pi-web/
+# The read-only file COPY above also sets the destination directory mode.
+# Restore directory traversal without changing any installed file's permissions.
 # Bake the installed stock services at their runtime paths, without a user profile or writer.
-RUN --network=none if node /opt/codeflare/scripts/coding-agent-selection.mjs has "$CODEFLARE_CODING_AGENTS" pi; then \
+RUN --network=none chmod 0755 /opt/codeflare/pi-web && \
+    if node /opt/codeflare/scripts/coding-agent-selection.mjs has "$CODEFLARE_CODING_AGENTS" pi; then \
       node /opt/codeflare/pi-web/warm-compile-cache.mjs; \
     fi
 

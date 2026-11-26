@@ -166,24 +166,40 @@ async function currentReview(
   ciEvent?: ReviewBoundaryEvent,
   command?: string,
   createdPr?: CreatedPrTarget,
-): Promise<CurrentReview | undefined> {
+): Promise<CurrentReview | typeof PR_LOOKUP_FAILED | undefined> {
   const file = rootSessionFile(ctx);
   const root = findGitRoot(repo);
   if (!file || !root || !reviewEnabled(root)) return undefined;
   const branch = await (dependencies.queryBranch ?? queryBranch)(root);
+  if (!branch) return undefined;
   const head = await (dependencies.queryHead ?? queryHead)(root, "HEAD");
-  const repositoryIdentity = await (dependencies.queryRepository ?? queryRepository)(root);
-  if (!branch || !head || !repositoryIdentity) return undefined;
+  const sleep = dependencies.sleep ?? defaultSleep;
+  const lookupRepository = dependencies.queryRepository ?? queryRepository;
+  let repositoryIdentity = await lookupRepository(root);
+  if (!repositoryIdentity && ciEvent) {
+    await sleep(250);
+    repositoryIdentity = await lookupRepository(root);
+  }
+  const unrelatedPush = ciEvent === "push" && command && !exposureTargetsCheckedOutBranch(command, {
+    branch, pr: 0, repository: repositoryIdentity?.repository ?? "",
+  });
+  if (!head || !repositoryIdentity) return unrelatedPush ? undefined : PR_LOOKUP_FAILED;
   if (createdPr && (repositoryIdentity.gitHost !== createdPr.gitHost
     || repositoryIdentity.repository !== createdPr.repository)) return undefined;
   const delays = ciEvent
     ? dependencies.headRetryDelaysMs ?? [0, 1_000, 3_000, 5_000, 10_000, 15_000]
     : [0];
-  const sleep = dependencies.sleep ?? defaultSleep;
+  let lookupFailed = false;
   for (const delay of delays) {
     if (delay > 0) await sleep(delay);
     const pr = await dependencies.queryPr(root, createdPr?.url ?? branch);
-    if (pr === PR_LOOKUP_FAILED) return undefined;
+    if (pr === PR_LOOKUP_FAILED) {
+      if (unrelatedPush) return undefined;
+      if (!ciEvent || lookupFailed) return PR_LOOKUP_FAILED;
+      lookupFailed = true;
+      continue;
+    }
+    lookupFailed = false;
     if (!isEnforcedPr(pr) || pr.headRefName !== branch) return undefined;
     if (createdPr && pr.number !== createdPr.number) return undefined;
     if (ciEvent && command && !exposureTargetsCheckedOutBranch(command, {
@@ -210,7 +226,7 @@ async function currentReview(
       },
     };
   }
-  return undefined;
+  return lookupFailed ? PR_LOOKUP_FAILED : undefined;
 }
 
 type ClassifiedBoundary = {
@@ -507,6 +523,7 @@ type ActiveRound = {
   ciEvent?: ReviewBoundaryEvent;
   ignoreAgentEnds: number;
   triageCorrectionDelivered: boolean;
+  fixBlockedReason?: string;
   launchRejectionsDelivered: Set<string>;
 };
 
@@ -579,8 +596,15 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     const epoch = generation;
     const current = () => isCurrent() && generation === epoch;
     if (!current()) return;
+    const reportLaunchBlocked = () => {
+      if (!ciEvent) return;
+      pi.appendEntry("pr-boundary-launch-blocked", { boundaryToolUseId, event: ciEvent, reason: "PR verification unavailable" });
+      ctx.ui?.notify("PR review plan not sent: PR verification unavailable. Once GitHub is reachable, reopen the checkout and use Launch review; no new push is needed.", "warning");
+    };
     const review = await currentReview(ctx, dependencies, repo, ciEvent, command, createdPr);
-    if (!current() || !review) return;
+    if (!current()) return;
+    if (review === PR_LOOKUP_FAILED) return reportLaunchBlocked();
+    if (!review) return;
     if (readCompletion(review.identity).status === "complete") return;
     if (activeRound && sameIdentity(activeRound.identity, review.identity)) return;
     const key = JSON.stringify([review.file, review.identity.gitHost, review.identity.repository, review.identity.pr,
@@ -602,7 +626,9 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       }
       if (!current()) return;
       const refreshed = await currentReview(ctx, dependencies, review.repo, ciEvent, command, review.createdPr);
-      if (!current() || !refreshed || !sameIdentity(refreshed.identity, review.identity)) return;
+      if (!current()) return;
+      if (refreshed === PR_LOOKUP_FAILED) return reportLaunchBlocked();
+      if (!refreshed || !sameIdentity(refreshed.identity, review.identity)) return;
       if (readCompletion(refreshed.identity).status === "complete") return;
       if (decision === MARK_COMPLETE) {
         writeCompletion(refreshed.identity);
@@ -805,16 +831,38 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       }
       return;
     }
-    const refreshed = await currentReview(ctx, dependencies, round.repo, undefined, undefined, round.createdPr);
+    const reportFixBlocked = (reason: string) => {
+      if (round.fixBlockedReason === reason) return;
+      round.fixBlockedReason = reason;
+      pi.appendEntry("pr-boundary-fix-blocked", { head: round.identity.head, boundaryToolUseId: round.boundaryToolUseId, reason });
+      ctx.ui?.notify(`PR #${round.pr.number} FIX not sent: ${reason}.`, "warning");
+    };
+    const refresh = () => currentReview(ctx, dependencies, round.repo, undefined, undefined, round.createdPr);
+    let refreshed = await refresh();
     if (activeRound !== round) return;
+    if (refreshed === PR_LOOKUP_FAILED) {
+      await (dependencies.sleep ?? defaultSleep)(250);
+      if (activeRound !== round) return;
+      refreshed = await refresh();
+      if (activeRound !== round) return;
+      if (refreshed === PR_LOOKUP_FAILED) {
+        reportFixBlocked("PR identity verification unavailable");
+        return;
+      }
+    }
     if (!refreshed || !sameIdentity(refreshed.identity, round.identity)) {
       clearRound();
+      reportFixBlocked("PR identity changed or is no longer eligible");
       return;
     }
     try {
       writeCompletion(round.identity);
-      if (readCompletion(round.identity).status !== "complete") return;
+      if (readCompletion(round.identity).status !== "complete") {
+        reportFixBlocked("could not save and verify review completion");
+        return;
+      }
     } catch {
+      reportFixBlocked("could not save and verify review completion");
       return;
     }
     activeRound = undefined;

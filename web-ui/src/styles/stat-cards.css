@@ -19,7 +19,7 @@
   transition: all 150ms ease;
 }
 
-.stat-card:hover {
+.stat-card:hover:where(:not(:has(.dashboard-github-card__age:hover))) {
   background: var(--color-bg-muted);
   border-color: var(--color-border-default);
 }

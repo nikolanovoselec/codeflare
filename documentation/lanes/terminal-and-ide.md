@@ -280,6 +280,8 @@ With a connected account, verify that clicking `@username` opens the profile in 
 
 Use an input list not already in newest-first order. For example, load four test repos with `updated_at` values `2025-12-01T00:00:00Z`, `2026-01-01T00:00:00Z`, `2026-03-01T00:00:00Z`, and `2026-02-01T00:00:00Z`, in that order. Verify the card shows exactly the March, February, and January repos in that order, excluding December. Verify the repository icon, repo-name-only links, and age-only controls. Open a repo link and verify the intended GitHub page opens in a new tab without launching a session.
 
+Hover the GitHub card outside the age pills and verify that the card highlights. Move onto an enabled age pill: the pill highlights and the card returns to its normal surface and border. Move back onto the card to verify the card highlight returns. Tab to the pill and verify it has a visible focus outline.
+
 With separate authorization, use a disposable Vibe workspace and a repository with a known default branch and a distinguishable nondefault branch. With no running session, hover an age label for **Clone into a session**, then click it and choose **Open**. While **Restoring repositories…** is still visible for that clone, verify the Chat composer accepts a harmless prompt. If the clone finishes before this can be observed, mark the ordering check unexercised.
 
 With a disposable session running, click the age label and verify the Clone picker offers that session and a new session. Exercise both paths in separate runs; check that the clone notice and resulting checkout belong to the selected target.

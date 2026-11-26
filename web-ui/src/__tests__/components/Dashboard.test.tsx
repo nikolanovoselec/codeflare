@@ -771,7 +771,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
       expect(repoLinks()).toHaveLength(0);
       settleCounts(Response.json({ counts: null }));
 
-      await details.findByRole('link', { name: 'newest', exact: true });
+      await details.findByRole('link', { name: 'newest' });
       const links = repoLinks();
       expect(links.map(link => link.textContent)).toEqual(['newest', 'second', 'third']);
       for (const [index, name, age] of [[0, 'team/newest', '12m ago'], [1, 'octocat/second', '5h ago'], [2, 'octocat/third', '3d ago']] as const) {
