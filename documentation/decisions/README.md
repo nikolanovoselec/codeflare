@@ -2765,7 +2765,7 @@ own-account R2 (the `.r2.cloudflarestorage.com` suffix requires the leading dot,
 
 **Category:** Architecture, Security
 
-**Status:** Partially superseded by [REQ-BROWSER-008](../../sdd/spec/browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container) for browser-token injection and [AD143](#ad143-strict-r2-interception-signs-only-with-the-bound-users-scoped-credential) for R2 signer authority. Accepted 2026-06-27; R2 re-signing, WebSocket bridging, props-based strict state, the own-account exemption, and the [AD85](#ad85-controller-mediated-cloudflare-gateway-egress-as-a-mandatory-web-boundary-wizard-toggled-default-off) fail-closed boundary remain active.
+**Status:** Partially superseded by [REQ-BROWSER-008](../../sdd/spec/browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container) for browser-token injection and [AD143](#ad143-strict-r2-interception-signs-only-with-the-bound-users-scoped-credential) for R2 signer authority. Accepted 2026-06-27; R2 re-signing, WebSocket bridging, props-based strict state, the own-account exemption, and the [AD85](#ad85-controller-mediated-cloudflare-gateway-egress-as-a-mandatory-web-boundary-wizard-toggled-default-off) fail-closed boundary remain active. The SSE-C header-preservation clause below is historical: [REQ-ENTERPRISE-026](../../sdd/spec/security.md#req-enterprise-026-strict-r2-interception-preserves-user-bucket-authority) defines current trusted-header replacement when SSE-C applies and the verified-empty Hermes exception.
 
 **Context:** AD86 narrowed strict egress to direct-internet traffic and added an account-scoped exemption, but its first deploy left three problems on `enterprise-integration`:
 
