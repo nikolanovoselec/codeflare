@@ -327,7 +327,7 @@ The image-wide CVE-2026-111181 (body-parser) exception, renewed November 2, expi
 
 The required runtime security floors are `libpcre2-8-0` at `10.42-1+deb12u2`, `libde265-0` at `1.0.11-1+deb12u3`, `libevent-core-2.1-7` at `2.1.12-stable-8+deb12u1`, and `libgit2-1.5` at `1.5.1+ds-1+deb12u2`. A runtime below any floor fails before image push under [REQ-SEC-011](../../sdd/spec/security.md#req-sec-011-container-image-scanned-for-cves-before-deploy).
 
-The image also requires `librsvg2-2` and `librsvg2-bin` at `2.54.7+dfsg-1~deb12u2` or newer to address CVE-2026-96889. The scan remains required before publication.
+The image also requires `librsvg2-2` and `librsvg2-bin` at `2.54.7+dfsg-1~deb12u2` or newer to address CVE-2026-96889. The scan remains required before publication ([REQ-SEC-011 AC3](../../sdd/spec/security.md#req-sec-011-container-image-scanned-for-cves-before-deploy)).
 
 The executable validator then accepts only its separately listed exact vulnerability/package/path/PURL tuples and fails on unexpected, missing, duplicate, or drifted identities. Dated scan occurrences belong to CI evidence rather than current policy. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult -->
 
