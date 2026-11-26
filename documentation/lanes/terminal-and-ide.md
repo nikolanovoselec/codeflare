@@ -262,11 +262,11 @@ Repeat with `prefers-reduced-motion: reduce`: the drawer opens and closes withou
 
 With the browsers open and closed, verify Profile stays icon-only and the email appears at the top of its open menu. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard -->
 
-On desktop and tablet, verify the transparent double chevron sits at the summary’s right edge when closed and the browsers’ far right edge when open. It points left when closed and right when open, and bounces slowly sideways.
+On desktop and tablet, verify the transparent double chevron sits at the summary’s right edge when closed and the browsers’ far right edge when open. It points left when closed and right when open, and bounces slowly sideways. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-pull -->
 
 In both states, verify the transparent hit area is 44 × 150 CSS px and that clicking inside it but outside the icon toggles the drawer. Only the chevron is visible, with no peeking trim. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-pull -->
 
-For [mobile Vibe disclosure](../../sdd/spec/github.md#req-github-325-mobile-vibe-browser-disclosure-gestures), verify the white double chevron on a transparent background below the column points down when closed and up when open, with a slow vertical bounce. Tap it in both states. Repeat on all sizes with reduced motion; the bounce stops.
+For [mobile Vibe disclosure](../../sdd/spec/github.md#req-github-325-mobile-vibe-browser-disclosure-gestures), verify the white double chevron on a transparent background below the column points down when closed and up when open, with a slow vertical bounce. Tap it in both states. Repeat on all sizes with reduced motion; the bounce stops. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-pull -->
 
 In the installed mobile app, pull up at the bottom to open and down at the top to close. Verify scrolling away from those edges, horizontal swipes, a two-finger pull at an eligible edge, and a closed-panel pull down do not toggle the panel or intercept ordinary refresh.
 
