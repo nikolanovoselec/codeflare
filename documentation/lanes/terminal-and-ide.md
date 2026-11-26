@@ -262,11 +262,9 @@ Repeat with `prefers-reduced-motion: reduce`: the drawer opens and closes withou
 
 With the browsers open and closed, verify Profile stays icon-only and the email appears at the top of its open menu. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard -->
 
-On desktop and tablet, only the grip protrudes. It moves from the summary’s right edge to the browsers’ far right edge. The desktop and tablet chevrons point outward to open and inward to close.
+On desktop and tablet, verify a transparent double chevron on the right, with no peeking trim. It points left when closed and right when open, and bounces slowly sideways. Check the 44 CSS px hit target in both states. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-pull -->
 
-Measure the visible grip at 150px along the desktop and tablet edge. Separately, verify the transparent hit area extends to 44px across the grip and that clicking outside the painted grip but inside the hit area still toggles the drawer. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-pull -->
-
-For [mobile Vibe disclosure](../../sdd/spec/github.md#req-github-325-mobile-vibe-browser-disclosure-gestures), verify only a title-sized white chevron shows below the Dashboard column, with no visible background or peeking trim. It breathes, points down when closed, and points up when open. Tap it in both states and repeat with reduced motion; the animation stops.
+For [mobile Vibe disclosure](../../sdd/spec/github.md#req-github-325-mobile-vibe-browser-disclosure-gestures), verify the transparent double chevron below the column points down when closed and up when open, with a slow vertical bounce. Tap it in both states. Repeat on all sizes with reduced motion; the bounce stops.
 
 In the installed mobile app, pull up at the bottom to open and down at the top to close. Verify scrolling away from those edges, horizontal swipes, a two-finger pull at an eligible edge, and a closed-panel pull down do not toggle the panel or intercept ordinary refresh.
 

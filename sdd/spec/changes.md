@@ -8,6 +8,8 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 - [Pi Chat](agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff) dismisses the exact restored bundled Workflows registration instead of failing startup. Git and worktree controls remain unavailable in Chat.
 
+- The [Vibe drawer](github.md#req-github-321-vibe-dashboard-browser-disclosure) uses transparent double chevrons with vertical motion on mobile and horizontal motion on wider screens. Reduced motion disables the bounce.
+
 ## 2026-11-25: Vibe and Code workspace modes
 
 - [Workspace modes](agents.md#req-agent-276-vibe-and-code-workspace-preference) persist the surface choice. [Chat preload](agents.md#req-agent-275-classic-pi-chat-startup) and [warm return](agents.md#req-agent-277-retained-chat-on-dashboard-return) reveal the already-mounted surface.

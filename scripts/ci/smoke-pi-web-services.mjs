@@ -1,6 +1,7 @@
 // Non-deploy CI only: this requires the isolated Node image and locked mounts in test.yml.
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import childProcess, { execFileSync } from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
 import { once } from 'node:events';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
@@ -55,6 +56,33 @@ const bundledMcpManager = join(bundled, 'mcp-manager');
 let restored = false;
 const options = { runtimeDir, cwd, profileRestored: () => restored };
 let services = createPiWebServices(options);
+
+async function verifyStartupWithoutDaemonMarker() {
+  const spawn = childProcess.spawn;
+  const info = console.info;
+  const records = [];
+  const prefix = '[pi-web] service boot timing ';
+  try {
+    childProcess.spawn = (command, args, options) => spawn(command, args,
+      command === join(webPackage, 'dist/bin/pi-web-sessiond.sh') && Array.isArray(options?.stdio)
+        ? { ...options, stdio: [options.stdio[0], 'ignore', options.stdio[2]] } : options);
+    syncBuiltinESMExports();
+    console.info = (...args) => {
+      if (typeof args[0] === 'string' && args[0].startsWith(prefix)) records.push(JSON.parse(args[0].slice(prefix.length)));
+      info(...args);
+    };
+    await services.start();
+    assert.equal((await services.request('/api/sessiond/health')).ok, true);
+    assert.equal(records.length, 1);
+    const { sessiondListenMs, gatewayListenMs, readyMs } = records[0];
+    assert.equal(sessiondListenMs, null);
+    assert.ok(Number.isSafeInteger(gatewayListenMs) && gatewayListenMs > 0 && gatewayListenMs <= readyMs);
+  } finally {
+    console.info = info;
+    childProcess.spawn = spawn;
+    syncBuiltinESMExports();
+  }
+}
 
 async function checkReady({ preexistingManager = false, adapterRegistration = managedAdapter } = {}) {
   assert.ok(services.running());
@@ -326,7 +354,7 @@ try {
   rmSync(join(runtimeDir, 'data'), { recursive: true, force: true });
   writeFileSync(settingsPath, JSON.stringify({ ...savedSettings, packages: [...savedSettings.packages, userManager] }));
   services = createPiWebServices(options);
-  await services.start();
+  await verifyStartupWithoutDaemonMarker();
   await checkReady({ preexistingManager: true });
   await closeAndCheckReaping();
 

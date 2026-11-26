@@ -3,7 +3,7 @@ import PiWorkspaceMode, { type PiWorkspaceModeBinding } from './PiWorkspaceMode'
 import ConnectCard from './github/ConnectCard';
 import '../styles/github-panel.css';
 import { Portal } from 'solid-js/web';
-import { mdiXml, mdiCogOutline, mdiShieldAccount, mdiAccountOutline, mdiRocketLaunchOutline, mdiChartBar, mdiLogout, mdiFlipVertical, mdiReflectHorizontal, mdiGithub, mdiChevronDoubleRight, mdiChevronDoubleLeft, mdiChevronUp, mdiChevronDown } from '@mdi/js';
+import { mdiXml, mdiCogOutline, mdiShieldAccount, mdiAccountOutline, mdiRocketLaunchOutline, mdiChartBar, mdiLogout, mdiFlipVertical, mdiReflectHorizontal, mdiGithub, mdiChevronDoubleRight, mdiChevronDoubleLeft, mdiChevronDoubleUp, mdiChevronDoubleDown } from '@mdi/js';
 import Icon from './Icon';
 import IconButton from './ui/IconButton';
 import type { SessionWithStatus, AgentType, TabConfig, PiSurface } from '../types';
@@ -90,8 +90,8 @@ const Dashboard: Component<DashboardProps> = (props) => {
   const browsersId = createUniqueId();
   const browserLabel = () => githubStore.enabled ? 'GitHub & Storage' : 'Storage';
   const pullIcon = () => viewport() === 'mobile'
-    ? browsersOpen() ? mdiChevronUp : mdiChevronDown
-    : browsersOpen() ? mdiChevronDoubleLeft : mdiChevronDoubleRight;
+    ? browsersOpen() ? mdiChevronDoubleUp : mdiChevronDoubleDown
+    : browsersOpen() ? mdiChevronDoubleRight : mdiChevronDoubleLeft;
   createEffect(() => { if (!vibe()) setBrowsersOpen(false); });
 
   onMount(() => createEffect(() => {
@@ -772,7 +772,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
             <button ref={browserPull} type="button" class="icon-button dashboard-panel-pull" aria-expanded={browsersOpen()} aria-controls={browsersId}
               aria-label={`${browsersOpen() ? 'Hide' : 'Show'} ${browserLabel()}`}
               onClick={() => setBrowsersOpen(value => !value)}>
-              <Icon path={pullIcon()} size={14} aria-hidden="true" />
+              <Icon path={pullIcon()} size={24} aria-hidden="true" />
             </button>
           </Show>
 
