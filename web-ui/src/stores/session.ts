@@ -7,6 +7,7 @@ import { upgradeAgentConfigs } from '../api/storage';
 import { cloneIntoSession, type CloneIntoSessionResult } from '../api/github';
 import type { ManagedReleaseProgress } from '../api/client';
 import { terminalStore } from './terminal';
+import { cloneAttempt, forgetCloneAttempt, setCloneAttempt } from './clone-attempts';
 import { logger } from '../lib/logger';
 import { applyOrderedProjection, type BackendLifecycle } from '../lib/session-presentation';
 import { cleanupSessionVaultCache, sweepOrphanVaultCaches } from '../lib/vault-cache';
@@ -225,7 +226,10 @@ function updateSessionStatus(id: string, status: SessionStatus): void {
       status = 'stopping';
     }
     setState('sessions', index, 'status', status);
-    if (status === 'running') markSessionStarted(id);
+    if (status === 'running') {
+      forgetCloneAttempt(id, true);
+      markSessionStarted(id);
+    }
     if (status === 'stopped' || status === 'stopping') clearSessionStartedGuard(id);
   }
 }
@@ -316,6 +320,7 @@ function applyManagedReleaseBatch(
 // A local Stop owns its own confirmation poll; persisted stopping does not.
 const localStopAttempts = new Set<string>();
 const supersededStopAttempts = new Set<string>();
+const [stopCompletion, setStopCompletion] = createSignal(0);
 // Keep successful commands deduplicated until authoritative polling confirms exit.
 const localKillAttempts = new Map<string, { request: Promise<void> | null; generation?: number }>();
 
@@ -594,6 +599,8 @@ async function createSessionWithClone(repo: string, agentType?: AgentType): Prom
   const name = repo.split('/')[1] || repo;
   const session = await createSession(name, agentType, undefined, { repo });
   if (!session) return null;
+  const attempt = cloneAttempt(repo);
+  if (attempt?.phase === 'creating') setCloneAttempt(repo, { ...attempt, sessionId: session.id });
   if (session.workspace !== 'vscode') {
     setActiveSession(session.id);
   }
@@ -604,10 +611,16 @@ async function createSessionWithClone(repo: string, agentType?: AgentType): Prom
   return { sessionId: session.id, started };
 }
 
-// A retry must not take over the cleanup slot while Stop or Kill owns it.
-async function retryCloneStart(id: string): Promise<boolean> {
+// Retry may not take over cleanup while Stop or Kill owns confirmation.
+function canRetryCloneStart(id: string): boolean {
+  // Stop publishes its final status before releasing local ownership.
+  stopCompletion();
   const status = state.sessions.find(session => session.id === id)?.status;
-  if ((status !== 'stopped' && status !== 'error') || localStopAttempts.has(id) || localKillAttempts.has(id)) return false;
+  return (status === 'stopped' || status === 'error') && !isLocallyStopping(id) && !localKillAttempts.has(id);
+}
+
+async function retryCloneStart(id: string): Promise<boolean> {
+  if (!canRetryCloneStart(id)) return false;
   return startSession(id).then(result => result !== 'cancelled', () => false);
 }
 
@@ -634,6 +647,7 @@ async function deleteSession(id: string): Promise<void> {
       startupCleanups.delete(id);
     }
     await api.deleteSession(id);
+    forgetCloneAttempt(id);
     invalidateSessionStatusReads();
     localKillAttempts.delete(id);
     sessionMissCounters.delete(id);
@@ -977,6 +991,7 @@ async function stopSession(id: string): Promise<void> {
   } finally {
     localStopAttempts.delete(id);
     supersededStopAttempts.delete(id);
+    setStopCompletion(value => value + 1);
   }
 }
 
@@ -1088,6 +1103,7 @@ export const sessionStore = {
   loadSessions,
   createSession,
   createSessionWithClone,
+  canRetryCloneStart,
   retryCloneStart,
   renameSession,
   deleteSession,

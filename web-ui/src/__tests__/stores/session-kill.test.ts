@@ -95,6 +95,11 @@ describe('REQ-SESSION-038: session KILL through the public store and HTTP bounda
       if (method !== 'GET') mutations.push({ method, path: url });
       if (url === killPath && method === 'POST') return replyToKill();
       if (url === stopPath && method === 'POST') return replyToStop();
+      if (url === `/api/container/start?sessionId=${target}` && method === 'POST') return Response.json({ generation: 5 });
+      if (url === `/api/container/startup-status?sessionId=${target}` && method === 'GET') {
+        return Response.json({ stage: 'ready', generation: 5, revision: 13, progress: 100, message: 'Ready',
+          details: { bucketName: 'test', container: 'test', path: '/workspace' } });
+      }
       if (url === '/api/sessions/batch-status' && method === 'GET') return replyToStatus();
       if (url === '/api/sessions/ancillary-status' && method === 'GET') return Response.json({ maxSessions: 3 });
       if (url === '/api/sessions' && method === 'GET') {
@@ -224,6 +229,28 @@ describe('REQ-SESSION-038: session KILL through the public store and HTTP bounda
       ]);
     },
   );
+
+  it('retries the saved session after confirmed Kill supersedes a hung Stop', async () => {
+    const stopReply = deferred<Response>();
+    replyToStop = () => stopReply.promise;
+    const stopping = sessionStore.stopSession(target);
+    try {
+      await killSession(target);
+      expect(await sessionStore.retryCloneStart(target)).toBe(false);
+      expect(mutations).toEqual([
+        { method: 'POST', path: stopPath },
+        { method: 'POST', path: killPath },
+      ]);
+      project(target, 'stopped', 12);
+      await sessionStore.refreshSessionStatuses();
+      expect(await sessionStore.retryCloneStart(target)).toBe(true);
+      expect(row(target)?.status).toBe('running');
+      expect(mutations.slice(2)).toEqual([{ method: 'POST', path: `/api/container/start?sessionId=${target}` }]);
+    } finally {
+      stopReply.resolve(new Response(null, { status: 204 }));
+      await stopping;
+    }
+  });
 
   it('REQ-SESSION-006 AC7 / TERM-045 AC6: 4503 cannot short-circuit local KILL confirmation', async () => {
     const originalTabs = tabs(target);

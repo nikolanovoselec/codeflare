@@ -162,8 +162,8 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 **Acceptance Criteria:**
 
 1. When a new-session Start cancelled by Stop settles, the clone picker shows failure without closing if it is still open. <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (disables controls while launching and keeps the picker open after a cancelled repository launch) -->
-2. After a saved clone session fails to start, **Retry Start** starts that session without creating another. Retry stays unavailable until any pending Stop is confirmed. <!-- @impl: web-ui/src/stores/session.ts::createSessionWithClone --> <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (retries Start on the saved session rather than creating another session) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (retains the clone session ID after Start fails and can start that same session) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (does not report a successful repository launch when Stop cancels Start) -->
-3. Reopening the picker for the same repository retains its pending Start or the failed session available for retry. <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (focuses Close and preserves the pending launch across dismissal and reopen) -->
+2. After a saved clone session fails to start, **Retry Start** starts that session without creating another. Retry stays unavailable while Stop or Kill owns confirmation, or while the session is absent from the list. <!-- @impl: web-ui/src/stores/session.ts::retryCloneStart --> <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (retries Start on the saved session rather than creating another session) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (retains the clone session ID after Start fails and can start that same session) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (does not report a successful repository launch when Stop cancels Start) --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (disables controls while launching and keeps the picker open after a cancelled repository launch) --> <!-- @test: web-ui/src/__tests__/stores/session-kill.test.ts (retries the saved session after confirmed Kill supersedes a hung Stop) -->
+3. Reopening the picker for the same repository retains its pending Start or the failed session available for retry. <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (focuses Close and preserves the pending launch across dismissal and reopen) --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (keeps a failed Start that settles while closed, even across catalog omissions) -->
 
 **Constraints:** None.
 
@@ -171,7 +171,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Dependencies:** [REQ-GITHUB-004](#req-github-004-clone-a-repository-into-a-session)
 
-**Verification:** Automated: [ClonePicker.test.tsx](../../web-ui/src/__tests__/components/ClonePicker.test.tsx), [session store](../../web-ui/src/__tests__/stores/session.test.ts)
+**Verification:** Automated: [ClonePicker.test.tsx](../../web-ui/src/__tests__/components/ClonePicker.test.tsx), [session store](../../web-ui/src/__tests__/stores/session.test.ts), [Kill confirmation](../../web-ui/src/__tests__/stores/session-kill.test.ts)
 
 **Status:** Implemented
 
@@ -196,7 +196,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Verification:** Automated: [RepoRow](../../web-ui/src/__tests__/components/RepoRow.test.tsx), [ClonePicker](../../web-ui/src/__tests__/components/ClonePicker.test.tsx)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -588,7 +588,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Verification:** Automated: [RepoRow](../../web-ui/src/__tests__/components/RepoRow.test.tsx)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
