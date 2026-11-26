@@ -448,7 +448,11 @@ async function loadSessions(): Promise<void> {
     for (const [id, provisional] of provisionalRunning) {
       const current = sessionsWithStatus.find(session => session.id === id);
       if (current?.status !== 'running' || current.generation !== provisional.generation
-        || current.revision !== provisional.revision) provisionalRunning.delete(id);
+        || current.revision === undefined || current.revision < provisional.revision) {
+        provisionalRunning.delete(id);
+      } else if (current.revision > provisional.revision) {
+        provisionalRunning.set(id, { ...provisional, revision: current.revision });
+      }
     }
     for (const session of state.sessions) {
       if (reconcileKillGeneration(session.id, true) && session.generation !== undefined && session.revision !== undefined) {

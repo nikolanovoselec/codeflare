@@ -1621,9 +1621,18 @@ describe('Session Store', () => {
           expect(cloneAttempt(repo)?.sessionId).toBe(id);
         }
         if (scenario === 'overlapping loads') {
-          // The first load is still awaiting its batch. The second load sees no old Kill.
-          await sessionStore.loadSessions();
-          expect(sessionStore.sessions.find(row => row.id === id)?.status).toBe('stopped');
+          // The first load still awaits its batch; the next catalog advances Running.
+          mockGetSessions.mockResolvedValue([{ ...session, lifecycle: 'running', generation: 2, revision: 4 }]);
+          let finishSecond!: (value: typeof newerStopped) => void;
+          mockGetBatchSessionStatus.mockReturnValueOnce(new Promise<typeof newerStopped>(resolve => { finishSecond = resolve; }));
+          const secondLoad = sessionStore.loadSessions();
+          try {
+            await vi.waitFor(() => expect(sessionStore.sessions.find(row => row.id === id)).toMatchObject({ status: 'running', generation: 2, revision: 4 }));
+          } finally {
+            finishSecond({ statuses: { [id]: { status: 'stopped', generation: 2, revision: 5 } } });
+            await secondLoad;
+          }
+          expect(sessionStore.sessions.find(row => row.id === id)).toMatchObject({ status: 'stopped', generation: 2, revision: 5 });
           expect(cloneAttempt(repo)?.sessionId).toBe(id);
         }
         finishPaired(newerStopped);

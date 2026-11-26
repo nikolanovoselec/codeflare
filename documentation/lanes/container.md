@@ -319,13 +319,13 @@ For [SESSION-004/005/016/017](../../sdd/spec/session-lifecycle.md), inspect exis
 
 #### Shared input clock acceptance
 
-For REQ-SESSION-005 AC1 and AC5, use existing authorized captures from a disposable Integration session with matching revision, owner, and generation. For each surface, correlate an authorized observation of classified Terminal input, a client-to-server IDE frame, or an accepted harmless Chat command with an advance of the same Host `lastInputAt`. Compare successive observations, not an open connection or the browser countdown.
+For [REQ-SESSION-005 AC1 and AC5](../../sdd/spec/session-lifecycle.md#req-session-005-input-based-idle-detection), use existing authorized captures from a disposable Integration session with matching revision, owner, and generation. For each surface, correlate an authorized observation of classified Terminal input, a client-to-server IDE frame, or an accepted harmless Chat command with an advance of the same Host `lastInputAt`. Compare successive observations, not an open connection or the browser countdown.
 
-Match `lastInputAt` from an authorized Host `/activity` observation to both `observedInputAt` and `referenceTime` in an existing `collectMetrics: idle policy decision` record with enforceable timing. Ordinary healthy ticks may have no record. Do not change policy or provoke a stop to create one.
+Host `/activity` is an independent sample, not the request metrics reads. Use existing capture metadata to tie it and the `collectMetrics: idle policy decision` record to the same session, Durable Object, and bounded generation window; the decision record itself does not include generation. Then match `lastInputAt` to `observedInputAt` and `referenceTime` in a record with enforceable timing. Ordinary healthy ticks may have no record. Do not change policy or provoke a stop to create one.
 
 Successful read-only `/tree`, output-only traffic, and reconnects without qualifying input or client-to-server IDE frames must leave the clock unchanged. Keep input bodies and credentials out of the capture.
 
-The [packaged Chat smoke](../../scripts/ci/smoke-pi-web-host-handoff.mjs) checks command classification against an isolated Host tracker, not the deployed clock or idle enforcement. Mark hosted verification unexercised if the authorized request, Host timestamp, or corresponding metrics decision cannot be observed.
+The [packaged Chat smoke](../../scripts/ci/smoke-pi-web-host-handoff.mjs) checks command classification against an isolated Host tracker, not the deployed clock or idle enforcement. Mark hosted verification unexercised if the authorized request, Host timestamp, corresponding metrics decision, or same-runtime association cannot be established.
 
 ### Managed curation startup boundary
 
