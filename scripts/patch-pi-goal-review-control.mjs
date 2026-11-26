@@ -35,13 +35,13 @@ const REVIEWED_05415 = {
   'src/goal-contract.ts': ['8add9c3b4715b09c79962e1aefe0279a9a83fabf3e4a998cef2fff2bc2f29d15'],
   'src/goal.ts': ['edfc9affd3b7b9492f31fea833a67590a97b51a94a68cf39e95908424cf4db3e', '12c9c560d54c1d455ecb69547454b356d2f3386acbe5c63920668e7f6bc8fbd0'],
   'src/index.ts': ['6ab0c01a44bf7bb78010c9d55713edbacb5a1bfbaa10d558835f906d589b6082'],
-  'src/lifecycle.ts': ['e758af48b13dd7688bbc6adb9a2881f6cc0d7c34b702eb37b894d22d79b10a23', '9c820876c4ef5dc29a0b0eedb99bbbd0e8adf844548e2846eab05f2f46edb0b2', '8ccb922618033df613ecb8607262f4bf270292d0b4ff200d7df63d1cd8d08cd8'],
+  'src/lifecycle.ts': ['e758af48b13dd7688bbc6adb9a2881f6cc0d7c34b702eb37b894d22d79b10a23', '9c820876c4ef5dc29a0b0eedb99bbbd0e8adf844548e2846eab05f2f46edb0b2', '72ae68a836a1a3dd4fe4dd0ff5f7ab68f50c12559db40c54e1105b8ca3487775'],
   'src/markers.ts': ['cfd25799640ac51230c7f11740cb7d8dd955d7ef7c461e0d3ca9286a7968d837'],
   'src/menu.ts': ['5a64f4eb6c1bc1d2cc02956df30b3f5eeaf9cedafaf7265704c1c958758fede4'],
   'src/persistence.ts': ['fc4a213f97c9396fcdfa9123266c4095d092e64bdc96f5e45322e471614bd47c', '569a15d883edc43f65caf4e2cc4c2aad35c849f0929366d6c693c0ed0d203306'],
   'src/prompts.ts': ['9aec92ac4d8319dd1086a072271c75be8f638a0692fd8a03d10fda4b9337c88c', '8595c4a6aee3b485504f6c0d0ab51091d669fc6bfd9ff89ba94c251934ef2231', 'f32fec7ff2b06897024610b420064f007191732c7f7559a79212ced6063f1f93'],
   'src/run-protocol.ts': ['05a387d77f28502eca06213460fdb375614d784741a306b7e66a7fff9bd3bba3'],
-  'src/runtime.ts': ['4dbb2be140a035241265724ebb91401a08417f4d8abed2e58973bf8baa72f706', '3c44ff728961ab627b334a32ce847cfdfefa6125763e9839680df63d2eee1ea0', '6db3aa25ced0e7f59be5a96b1764bfd216ee79f73210bfa44721924ec52d5324'],
+  'src/runtime.ts': ['4dbb2be140a035241265724ebb91401a08417f4d8abed2e58973bf8baa72f706', '3c44ff728961ab627b334a32ce847cfdfefa6125763e9839680df63d2eee1ea0', 'd44d63c727808637e29a33ca71f671db58a4d7b98088f07b2bc16abbe6ba6b5a'],
   'src/safety.ts': ['e12c9fb224286697b4424c976a5c159c2a2bdca70feb34e756b208f92182b8e8', 'd08d3a99ac0b4e4e0c87c5c81eb30ea5df832632078a6ab6283aeb01a3a6ff5d', 'bbc3cf5eb62de385a45ba305234714ecaa6dc45388c4a5850c15f4afcc54934a'],
   'src/settings-ui.ts': ['a0482ed1fb6bf15a00a251ea576419248e9ae81fbae485145ae78a62798127d5'],
   'src/settings.ts': ['0a16915b084ffc1ec69e3884fe29e8ab2edb3675e5d87f8ccff67e386c3bd4b9', 'e2fafa65a07b40a8c7fbd46fcf95c3177ecd16afaa961443dbdd69d312689ba4', 'b849014f307cafca8195ecbaafd95c2c075226542b9c86a4a025214aa06210e3'],
@@ -65,13 +65,13 @@ const REVIEWED_0550 = {
   'src/goal-contract.ts': ['8add9c3b4715b09c79962e1aefe0279a9a83fabf3e4a998cef2fff2bc2f29d15'],
   'src/goal.ts': ['edfc9affd3b7b9492f31fea833a67590a97b51a94a68cf39e95908424cf4db3e', '12c9c560d54c1d455ecb69547454b356d2f3386acbe5c63920668e7f6bc8fbd0'],
   'src/index.ts': ['6ab0c01a44bf7bb78010c9d55713edbacb5a1bfbaa10d558835f906d589b6082'],
-  'src/lifecycle.ts': ['08ed365de82a77c273713849d8bef29b1618d09fb60c04f81b954dd49dce860e', 'a6e25ee943ad7b877aa31cae4f92390e95428f0a002df116859abdae0d6012b9'],
+  'src/lifecycle.ts': ['08ed365de82a77c273713849d8bef29b1618d09fb60c04f81b954dd49dce860e', 'e170fde691f062566f93b72eb80e604c23c367b4a7325b13f933b791d6f92c84'],
   'src/markers.ts': ['cfd25799640ac51230c7f11740cb7d8dd955d7ef7c461e0d3ca9286a7968d837'],
   'src/menu.ts': ['5a64f4eb6c1bc1d2cc02956df30b3f5eeaf9cedafaf7265704c1c958758fede4'],
   'src/persistence.ts': ['a8133d3e0c045bc1f1e7e92e0f1a39d29354a0544929bbf087e6bd87599289eb', '7534d0c683a977707c11e47ab6c65fada16026160f50eb5507f4a82c7bf8de89'],
   'src/prompts.ts': ['9aec92ac4d8319dd1086a072271c75be8f638a0692fd8a03d10fda4b9337c88c', 'f32fec7ff2b06897024610b420064f007191732c7f7559a79212ced6063f1f93'],
   'src/run-protocol.ts': ['05a387d77f28502eca06213460fdb375614d784741a306b7e66a7fff9bd3bba3'],
-  'src/runtime.ts': ['4209576f004cf53acfd2921e61e3c2bdfc1239de02213e9389162b7ac570e108', 'e263c7eacfe847d7ac3118e704b53733590b0b4fa02781ec23f5b823e34b3b82'],
+  'src/runtime.ts': ['4209576f004cf53acfd2921e61e3c2bdfc1239de02213e9389162b7ac570e108', 'b46a295b738e0c64149632a31e537326830be30ad444fc33ff5f3bdb135ab87a'],
   'src/safety.ts': ['e12c9fb224286697b4424c976a5c159c2a2bdca70feb34e756b208f92182b8e8', 'd08d3a99ac0b4e4e0c87c5c81eb30ea5df832632078a6ab6283aeb01a3a6ff5d', 'bbc3cf5eb62de385a45ba305234714ecaa6dc45388c4a5850c15f4afcc54934a'],
   'src/settings-ui.ts': ['f53f1bdd172677f94086e2337f70156fb32b96fdf5575bc990cb514aff6b46ca'],
   'src/settings.ts': ['13f44680f34aa5faf06e7fbb172afbed815d705dc225f57930435a4cb5a54dcd', 'fde069d225410345e89e6ec20ec0bf3a01294a76034f09a395d4823d8f8d8293'],
@@ -93,13 +93,13 @@ const REVIEWED_0555 = {
   'src/goal-contract.ts': ['8add9c3b4715b09c79962e1aefe0279a9a83fabf3e4a998cef2fff2bc2f29d15'],
   'src/goal.ts': ['edfc9affd3b7b9492f31fea833a67590a97b51a94a68cf39e95908424cf4db3e', '12c9c560d54c1d455ecb69547454b356d2f3386acbe5c63920668e7f6bc8fbd0'],
   'src/index.ts': ['6ab0c01a44bf7bb78010c9d55713edbacb5a1bfbaa10d558835f906d589b6082'],
-  'src/lifecycle.ts': ['08ed365de82a77c273713849d8bef29b1618d09fb60c04f81b954dd49dce860e', 'a6e25ee943ad7b877aa31cae4f92390e95428f0a002df116859abdae0d6012b9'],
+  'src/lifecycle.ts': ['08ed365de82a77c273713849d8bef29b1618d09fb60c04f81b954dd49dce860e', 'e170fde691f062566f93b72eb80e604c23c367b4a7325b13f933b791d6f92c84'],
   'src/markers.ts': ['cfd25799640ac51230c7f11740cb7d8dd955d7ef7c461e0d3ca9286a7968d837'],
   'src/menu.ts': ['5a64f4eb6c1bc1d2cc02956df30b3f5eeaf9cedafaf7265704c1c958758fede4'],
   'src/persistence.ts': ['a8133d3e0c045bc1f1e7e92e0f1a39d29354a0544929bbf087e6bd87599289eb', '7534d0c683a977707c11e47ab6c65fada16026160f50eb5507f4a82c7bf8de89'],
   'src/prompts.ts': ['9aec92ac4d8319dd1086a072271c75be8f638a0692fd8a03d10fda4b9337c88c', 'f32fec7ff2b06897024610b420064f007191732c7f7559a79212ced6063f1f93'],
   'src/run-protocol.ts': ['05a387d77f28502eca06213460fdb375614d784741a306b7e66a7fff9bd3bba3'],
-  'src/runtime.ts': ['e4c63080a85a7059f906ce6342fe2b90eb2826d9afff0accb64b8d080f914fee', 'e263c7eacfe847d7ac3118e704b53733590b0b4fa02781ec23f5b823e34b3b82'],
+  'src/runtime.ts': ['e4c63080a85a7059f906ce6342fe2b90eb2826d9afff0accb64b8d080f914fee', 'b46a295b738e0c64149632a31e537326830be30ad444fc33ff5f3bdb135ab87a'],
   'src/safety.ts': ['e12c9fb224286697b4424c976a5c159c2a2bdca70feb34e756b208f92182b8e8', 'bbc3cf5eb62de385a45ba305234714ecaa6dc45388c4a5850c15f4afcc54934a'],
   'src/settings-ui.ts': ['f53f1bdd172677f94086e2337f70156fb32b96fdf5575bc990cb514aff6b46ca'],
   'src/settings.ts': ['13f44680f34aa5faf06e7fbb172afbed815d705dc225f57930435a4cb5a54dcd', 'fde069d225410345e89e6ec20ec0bf3a01294a76034f09a395d4823d8f8d8293'],
@@ -1092,13 +1092,14 @@ function patchProgressRuntime(source) {
   const beginRun = transactionalAbort
     ? '\tbeginAgentRun(\n\t\tgoalId: string | null | undefined,\n\t\torigin: GoalRunOrigin | undefined,\n\t\tusageLimitRetry?: UsageLimitScope,\n\t) {'
     : '\tbeginAgentRun(goalId: string | null | undefined, origin: GoalRunOrigin | undefined) {';
-  if (isCompleteMarkedPatch(source, PROGRESS_MARKER, ['private agentRunProgress?: "advanced" | "stalled";', 'progress: this.agentRunProgress,', 'this.agentRunGoalId !== goal.id || !this.ownsWorkflow(goal)', 'goal.stalledRuns ?? 0) < 5', 'private readonly stallDeadlineTimer = new GoalWaitTimer();', 'this.stallDeadlineTimer.schedule(stalledSince + 1500000', 'eligibleBlockerAttempts(goalId: string)', 'this.progressContinuationDelay()', 'goal.waiting) this.restoreGoalWaitTimer(ctx)', 'beginRecoveryRunIfNeeded(ctx: StatusContext)', 'Date.now() < (this.activeGoal.nextAutomaticAt ?? 0)'], 'Goal progress runtime')) return source;
+  if (isCompleteMarkedPatch(source, PROGRESS_MARKER, ['private agentRunProgress?: "advanced" | "stalled";', 'progress: this.agentRunProgress,', 'this.agentRunGoalId !== goal.id || !this.ownsWorkflow(goal)', 'goal.stalledRuns ?? 0) < 5', 'private readonly stallDeadlineTimer = new GoalWaitTimer();', 'this.stallDeadlineTimer.schedule(stalledSince + 1500000', 'eligibleBlockerAttempts(goalId: string)', 'this.progressContinuationDelay()', 'goal.waiting) this.restoreGoalWaitTimer(ctx)', 'beginRecoveryRunIfNeeded(ctx: StatusContext)', 'Date.now() < (this.activeGoal.nextAutomaticAt ?? 0)', 'const recoveryInFlight =', 'this.unrelatedCustomRun = false;'], 'Goal progress runtime')) return source;
   let patched = replaceOnce(source, 'import { nextToolFreeRepeatState, resetGoalSafetyEpoch } from "./safety.js";', 'import { resetGoalSafetyEpoch } from "./safety.js";', 'remove output-based progress inference');
   patched = replaceOnce(patched, '\ttoolAttempted: boolean;', '\ttoolAttempted: boolean;\n\tprogress?: "advanced" | "stalled";', 'completed run progress');
-  patched = replaceOnce(patched, beginRun, `\tprivate agentRunProgress?: "advanced" | "stalled"; // ${PROGRESS_MARKER}\n\n${beginRun}`, 'run progress state');
+  patched = replaceOnce(patched, beginRun, `\tprivate agentRunProgress?: "advanced" | "stalled"; // ${PROGRESS_MARKER}\n\tunrelatedCustomRun = false;\n\n${beginRun}`, 'run progress state');
   patched = replaceOnce(patched, '\t\t\ttoolAttempted: this.agentRunToolAttempted,', '\t\t\ttoolAttempted: this.agentRunToolAttempted,\n\t\t\tprogress: this.agentRunProgress,', 'completed run report');
   patched = replaceOnce(patched, '\tclearAgentRun() {', '\tclearAgentRun() {\n\t\tthis.agentRunProgress = undefined;', 'clear run report');
   patched = replaceOnce(patched, '\t\tthis.agentRunGoalId = goalId;', '\t\tthis.agentRunProgress = undefined;\n\t\tthis.agentRunGoalId = goalId;', 'begin run report');
+  patched = replaceOnce(patched, '\tclearSettledSafetyTracking() {', '\tclearSettledSafetyTracking() {\n\t\tthis.unrelatedCustomRun = false;', 'clear custom trigger ownership after settled');
   patched = replaceOnce(patched, '\tbeginRecoveryRunIfNeeded() {', '\tbeginRecoveryRunIfNeeded(ctx: StatusContext) {', 'recovery pacing context');
   patched = replaceOnce(patched, '\t\tthis.beginAgentRun(recovery.goalId, recovery.automaticOwner ? "automatic" : "manual");', `\t\tif (recovery.automaticOwner && this.activeGoal.status === "active" && this.ownsWorkflow(this.activeGoal)) {
 \t\t\tif (this.enforceNoProgressLimit(ctx, true)) return;
@@ -1169,15 +1170,22 @@ ${transactionalAbort ? '\t\tif (this.activeGoal !== goal || !this.ownsWorkflow(g
 \t\tconst expired = this.remainingStallTime() <= 0;
 \t\tif (!expired && (goal.stalledRuns ?? 0) < 5) return false;
 \t\tconst reason = expired ? "Goal stalled-window deadline reached (25 minutes)" : "Goal blocked after five stalled automatic runs";
-\t\tconst abortOwnedRun = abortTurn && this.agentRunGoalId === goal.id;
-\t\tconst preserveUnownedRun = expired && this.agentRunGoalId == null && ctx.isIdle?.() === false;
+\t\t// Pi remains busy after agent_end clears the run ID and throughout native
+\t\t// retry backoff. Capture ownership before stopping clears goalRecovery.
+\t\tconst recoveryInFlight = this.agentRunGoalId === undefined && ctx.isIdle?.() === false &&
+\t\t\tthis.goalRecovery?.goalId === goal.id${transactionalAbort ? ' && this.goalRecovery.kind !== "provider_error"' : ''};
+\t\tconst ownsInFlightRun = () => !this.unrelatedCustomRun && (this.agentRunGoalId === goal.id ||
+\t\t\t(recoveryInFlight && this.agentRunGoalId === undefined && ctx.isIdle?.() === false));
+\t\tconst abortOwnedRun = abortTurn && ownsInFlightRun();
+\t\tconst preserveUnownedRun = expired && ctx.isIdle?.() === false &&
+\t\t\t(this.unrelatedCustomRun || (this.agentRunGoalId == null && !recoveryInFlight));
 \t\tconst stopped = this.stopActiveGoal(ctx, { kind: "${transactionalAbort ? 'recovery_ended' : 'retry_exhausted'}", expectedGoalId: goal.id, ${transactionalAbort ? 'status: "blocked", ' : ''}reason });
 \t\tif (!stopped) return false;
 \t\t// Do not let the stopped-Goal guard abort an unrelated run at its next tool call.
 \t\tif (preserveUnownedRun && this.activeGoal === stopped) this.clearStaleGoalToolCallBlock();
 \t\tif (abortOwnedRun) {
 \t\t\tconst abort = () => {
-\t\t\t\tif (this.activeGoal === stopped && this.agentRunGoalId === goal.id) abortCurrentTurn(ctx);
+\t\t\t\tif (this.activeGoal === stopped && ownsInFlightRun()) abortCurrentTurn(ctx);
 \t\t\t};
 \t\t\t${transactionalAbort ? 'this.afterSettingsCommit(ctx, goal.id, abort);' : 'abort();'}
 \t\t}
@@ -1260,13 +1268,19 @@ ${restoreContinuation}
 
 function patchProgressLifecycle(source) {
   const usageRecovery = source.includes('const continuationGoalId = continuation?.goalId;');
-  if (isCompleteMarkedPatch(source, PROGRESS_MARKER, ['if (run.goalId === undefined) return;', 'runtime.recordAutomaticRunProgress(ctx, goalId, run.progress, run.origin === "automatic")', 'if (runtime.enforceNoProgressLimit(ctx, true)) return;', 'runtime.beginRecoveryRunIfNeeded(_ctx);'], 'Goal progress lifecycle')) return source;
+  if (isCompleteMarkedPatch(source, PROGRESS_MARKER, ['if (run.goalId === undefined) return;', 'runtime.recordAutomaticRunProgress(ctx, goalId, run.progress, run.origin === "automatic")', 'if (runtime.enforceNoProgressLimit(ctx, true)) return;', 'runtime.beginRecoveryRunIfNeeded(_ctx);', 'runtime.unrelatedCustomRun = event.messageType === "custom"'], 'Goal progress lifecycle')) return source;
   let patched = replaceOnce(source, 'import { hasAssistantToolCall } from "./safety.js";\n', '', 'remove attempted-tool progress inference');
   patched = replaceOnce(patched, '\t\tconst run = runtime.finishAgentRun();', `\t\tconst run = runtime.finishAgentRun(); // ${PROGRESS_MARKER}
 \t\tif (run.goalId === undefined) return;`, 'completed owned run fence');
   // Ordinary user/extension notifications and context recovery are not resume.
   patched = replaceOnce(patched, '\t\truntime.resetActiveSafetyEpoch(ctx);', '\t\t// Only explicit Goal resume/edit resets the safety epoch.', 'input safety reset removal');
   patched = replaceOnce(patched, '\t\tif (resetSafetyEpoch && activeGoalId) runtime.resetActiveSafetyEpoch(ctx);', '\t\t// A non-Goal notification never resets stalled progress.', 'notification safety reset removal');
+  patched = replaceOnce(patched, '\t\tif (!sessionActive || event.messageType === "custom") return;', `\t\tif (!sessionActive) return;
+\t\t// Track the Pi run, not message_start notifications injected into other runs.
+\t\t// This classification survives agent_end and Pi's native retries.
+\t\truntime.unrelatedCustomRun = event.messageType === "custom" &&
+\t\t\tevent.message.customType !== GOAL_CONTRACT_MESSAGE_TYPE && !runtime.isActiveBudgetWrapUpMessage(event.message);
+\t\tif (event.messageType === "custom") return;`, 'custom trigger deadline ownership');
   const legacyProgress = patched.match(/\t\tif \(\n\t\t\trun.origin === "automatic" &&\n\t\t\truntime.recordAutomaticRunProgress\([\s\S]*?\n\t\t\}/g);
   if (legacyProgress?.length !== 1) throw new Error('lifecycle progress classification drift');
   patched = replaceOnce(patched, legacyProgress[0], '', 'remove tool/text progress inference');

@@ -55,7 +55,7 @@ export const defineMenu = (definition) => definition;
 export const defineTool = (definition) => definition;
 export const getMarkdownTheme = () => ({});
 export const isContextOverflow = (message) => message.errorMessage === 'input exceeds the context window';
-export const isRetryableAssistantError = () => false;
+export const isRetryableAssistantError = (message) => message.errorMessage === '503 Service Unavailable';
 export const runMenu = async () => ({ kind: "cancel" });
 export const stripTerminalSequences = (value) => value;
 // Fixture inputs contain no terminal controls; UI sanitation is an
@@ -455,6 +455,29 @@ for (const version of Object.keys(GOAL_FIXTURES)) {
       assert.deepEqual(s.harness.aborts, [deadline]);
     });
 
+    it('REQ-AGENT-272 AC5: the stalled deadline aborts an owned provider retry in backoff', async t => {
+      const s = await createStallScenario(t, version, { minIntervalMs: 1_440_000 });
+      await s.begin();
+      await s.report('stalled');
+      await s.finish();
+      const deadline = s.state().stalledSince + 1_500_000;
+      t.mock.timers.tick(1_440_000);
+      await s.begin();
+      s.harness.ctx.isIdle = () => false;
+      t.mock.timers.tick(59_999);
+      // Pi stays busy between the retryable agent_end and the next agent_start.
+      await s.finish('Provider unavailable.', 1, '503 Service Unavailable', false);
+      assert.equal(s.state().status, 'active');
+      assert.deepEqual(s.harness.aborts, []);
+      t.mock.timers.tick(1);
+      assert.equal(s.state().status, 'blocked');
+      assert.deepEqual(s.harness.aborts, [deadline]);
+      s.harness.ctx.isIdle = () => true;
+      await s.harness.dispatch('agent_settled', { aborted: true });
+      t.mock.timers.tick(1_500_000);
+      assert.equal(s.harness.messages.length, 0, 'settling the aborted retry does not queue Goal work');
+    });
+
     it('REQ-AGENT-272 AC3: a backward clock correction rearms at the earlier stall deadline, not the next dispatch', async t => {
       const s = await createStallScenario(t, version, { minIntervalMs: 1_800_000 });
       await s.begin();
@@ -476,21 +499,30 @@ for (const version of Object.keys(GOAL_FIXTURES)) {
       assert.deepEqual(s.harness.aborts, []);
     });
 
-    it('REQ-AGENT-272 AC3: a stall expires while an unrelated run is busy without aborting it', async t => {
-      const s = await createStallScenario(t, version);
-      await s.begin();
-      await s.report('stalled');
-      await s.finish();
-      await s.harness.dispatch('before_agent_start', { messageType: 'custom' });
-      await s.harness.dispatch('agent_start');
-      s.harness.ctx.isIdle = () => false;
-      t.mock.timers.tick(1_500_000);
-      assert.equal(s.state().status, 'blocked');
-      assert.equal(s.harness.messages.length, 0);
-      const hook = await s.harness.dispatch('tool_call', { toolName: 'read', input: { path: 'unrelated.txt' } });
-      assert.notEqual(hook?.block, true, 'unrelated work can continue after the Goal stops');
-      assert.deepEqual(s.harness.aborts, []);
-    });
+    for (const retry of [false, true]) {
+      it(retry ? 'REQ-AGENT-272 AC5: the stalled deadline leaves an unrelated custom provider retry alone'
+        : 'REQ-AGENT-272 AC3: a stall expires while an unrelated run is busy without aborting it', async t => {
+        const s = await createStallScenario(t, version, { minIntervalMs: 1_800_000 });
+        await s.begin();
+        await s.report('stalled');
+        await s.finish();
+        t.mock.timers.tick(1_499_999);
+        const message = { role: 'custom', customType: 'external-notification', content: 'External notification', display: true };
+        s.harness.ctx.isIdle = () => false;
+        await s.harness.dispatch('before_agent_start', { messageType: 'custom', message, systemPrompt: '' });
+        await s.harness.dispatch('agent_start');
+        await s.harness.dispatch('message_start', { message });
+        if (retry) await s.finish('Provider unavailable.', 1, '503 Service Unavailable', false);
+        t.mock.timers.tick(1);
+        assert.equal(s.state().status, 'blocked');
+        assert.equal(s.harness.messages.length, 0);
+        assert.deepEqual(s.harness.aborts, [], 'the deadline does not abort unrelated work');
+        if (retry) await s.harness.dispatch('agent_start');
+        const hook = await s.harness.dispatch('tool_call', { toolName: 'read', input: { path: 'unrelated.txt' } });
+        assert.notEqual(hook?.block, true, 'unrelated work can continue after the Goal stops');
+        assert.deepEqual(s.harness.aborts, []);
+      });
+    }
 
     it('REQ-AGENT-272 AC3: evidenced advancement cancels an existing in-flight stall deadline', async t => {
       const s = await createStallScenario(t, version);

@@ -702,15 +702,17 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
   });
 
   it('REQ-AGENT-158: a malformed restored Plan policy keeps only bootstrap tools', () => {
-    const base = fakePi({ tools: ['read', 'bash', 'edit', 'write', 'capability', 'graphify_query', 'plan_mode_complete']
-      .map(name => ({ name, description: name })) });
+    const base = fakePi({ tools: ['read', 'bash', 'edit', 'write', 'capability', 'graphify_query', 'plan_mode_complete',
+      'goal_progress', 'goal_complete', 'goal_blocked'].map(name => ({ name, description: name })) });
     const handlers = new EventRegistry();
-    toolExposureFinalizer({ ...base, on: (name, handler) => handlers.set(name, handler) });
-    handlers.get('before_agent_start')?.({}, {
-      sessionManager: { getBranch: () => [{ type: 'custom', customType: 'plan-mode-state',
-        data: { enabled: true, workflowToolPolicy: { allowedNames: ['read', 42], resolved: true } } }] },
-    });
-    expect(base.getActiveTools()).toEqual(['read', 'bash', 'edit', 'write', 'capability']);
+    registerInitialToolFilter({ ...base, on: (name, handler) => handlers.set(name, handler) }, () => 'always');
+    for (const workflowToolPolicy of [undefined, { allowedNames: ['read', 42], resolved: true }]) {
+      handlers.get('before_agent_start')?.({}, {
+        sessionManager: { getBranch: () => [{ type: 'custom', customType: 'plan-mode-state',
+          data: { enabled: true, workflowToolPolicy } }] },
+      });
+      expect(base.getActiveTools()).toEqual(['read', 'bash', 'edit', 'write', 'capability']);
+    }
   });
 
   it('searches registered inactive tools by name and description', () => {

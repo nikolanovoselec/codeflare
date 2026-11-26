@@ -6,8 +6,8 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 ## 2026-11-26: Restore managed Goal alongside stock Todo Loop
 
-- [REQ-AGENT-272](agents.md#req-agent-272-managed-goal-alongside-todo-loop) restores `/goal` in both Pi modes with a compact status footer and bounded automatic continuation, without replacing stock `/todoloop` or taking over an active Plan.
-- [REQ-AGENT-248](agents.md#req-agent-248-managed-goal_wait-exclusion) blocks `goal_wait` without affecting Todo Loop’s `todo_loop_block`.
+- **Release:** [Managed Goal](agents.md#req-agent-272-managed-goal-alongside-todo-loop) restores `/goal` in both Pi modes alongside stock `/todoloop`, with a compact footer and bounded automatic continuation. Goal cannot take over an active Plan.
+- **Follow-up:** Goal startup preserves [valid intervals longer than five minutes](agents.md#req-agent-272-managed-goal-alongside-todo-loop). [Stall expiry](agents.md#req-agent-273-managed-goal-continuation-safety) stops only matching in-flight Goal work, and the blocker requires runtime-backed attempts. [Plan exposure](agents.md#req-agent-158-bounded-initial-pi-tool-exposure) excludes Goal tools, falling back to bootstrap tools if the restored Plan policy is missing or malformed.
 
 ## 2026-11-25: Keep session shutdown cards live
 

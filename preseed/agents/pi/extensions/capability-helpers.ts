@@ -139,9 +139,9 @@ function activePlanTools(pi: ToolActivationPi, ctx: SessionContext): string[] | 
     return undefined;
   }
   const policy = Reflect.get(latest.data, "workflowToolPolicy");
-  if (!policy || typeof policy !== "object") return undefined;
+  if (!policy || typeof policy !== "object") return initialActiveTools(pi);
   const allowedNames = Reflect.get(policy, "allowedNames");
-  if (!Array.isArray(allowedNames) || allowedNames.some((name) => typeof name !== "string")) return undefined;
+  if (!Array.isArray(allowedNames) || allowedNames.some((name) => typeof name !== "string")) return initialActiveTools(pi);
   return registeredTools(pi, [...allowedNames, ...PLAN_HELPER_TOOLS]);
 }
 

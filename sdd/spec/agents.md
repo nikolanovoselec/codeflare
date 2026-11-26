@@ -406,8 +406,6 @@ These compatibility anchors resolve dated changelog references to retired review
 <a id="req-agent-111-native-goal-workflow-in-pi-sessions"></a>
 <a id="req-agent-178-goal-and-plan-session-ownership"></a>
 <a id="req-agent-129-goal-continuation-settings-policy"></a>
-<a id="req-agent-130-goal-continuation-runtime-pacing"></a>
-<a id="req-agent-236-goal-stalled-work-bound"></a>
 
 ### REQ-AGENT-272: Managed Goal alongside Todo Loop
 
@@ -419,19 +417,51 @@ These compatibility anchors resolve dated changelog references to retired review
 
 1. Both Pi modes register one managed Goal alongside the existing stock Todo Loop registration. <!-- @impl: entrypoint.sh::required --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-111 / REQ-AGENT-272: loads stock Todo Loop and managed Goal once in both Pi modes) -->
 2. The image warms the installed, transformed Goal extension and verifies reuse in a fresh process; missing Goal cache fails the build. <!-- @impl: Dockerfile::goal_hit --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-272 AC2: rejects a missing managed Goal startup cache) --> <!-- @manual: Agent packaged-runtime acceptance -->
-3. Startup defaults missing preferences to Goal tools after the first Goal and unlimited automatic turns. It preserves valid explicit preferences, normalizes the stalled-run limit to five, and sets a five-minute interval floor without shortening longer intervals. Malformed settings stay unchanged. <!-- @impl: entrypoint.sh::configure_pi_goal_defaults --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-272: creates every Codeflare-owned Goal startup default when config is absent) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-272: enforces five-minute pacing while preserving unrelated preferences) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-272 AC3: treats five minutes as a floor and preserves explicit retry preferences) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-272: repairs disabled or legacy stall safety even when cadence is already correct) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-272: preserves malformed Goal config byte-for-byte) -->
-4. The compact Goal footer reports the state and shows accumulated duration only while active. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::preparePiGoalSources --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC7: publishes concise Goal status without changing accounting or continuation details) --> <!-- @manual: Agent packaged-runtime acceptance -->
-5. Automatic Goal continuations respect the configured interval, with a five-minute floor. Goal blocks after five stalled automatic runs or 25 minutes stalled, whichever comes first, even with no automatic attempts. On expiry, only the matching in-flight Goal run is aborted. A model-reported count cannot substitute for runtime-recorded attempts. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::preparePiGoalSources --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC2: full preparation respects a configured interval above five minutes and caps stalls at the deadline) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111/129/178: fifth paraphrased stalled automatic run blocks, cancels queued work and releases workflow) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111/129: manual stalled report starts a 25-minute deadline without inventing automatic attempts) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-272 AC3: an in-flight automatic run is aborted at the stalled deadline without a lifecycle event) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-272 AC3: a stall expires while an unrelated run is busy without aborting it) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111/129: terminal blocker tool rejects retired and unearned attempt counts) -->
-6. Progress and completion may change only the current Goal in its owned run; stale or unrelated calls cannot change it. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::preparePiGoalSources --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111/178: progress rejects an owned run whose workflow session has been replaced) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111/178: progress rejects empty, oversized, invalid, stale, inactive and non-owned reports without mutation) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-272: the prepared entrypoint lazily exposes Goal tools and shares session ownership with Plan) --> <!-- @manual: Agent packaged-runtime acceptance -->
+3. Startup defaults missing preferences to Goal tools after the first Goal and unlimited automatic turns. For valid settings, it preserves other preferences, normalizes the stalled-run limit to five, and sets a five-minute interval floor without shortening longer intervals. <!-- @impl: entrypoint.sh::configure_pi_goal_defaults --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-272: creates every Codeflare-owned Goal startup default when config is absent) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-272: enforces five-minute pacing while preserving unrelated preferences) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-272 AC3: treats five minutes as a floor and preserves explicit retry preferences) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-272: repairs disabled or legacy stall safety even when cadence is already correct) -->
+4. Startup leaves malformed Goal settings byte-for-byte unchanged. <!-- @impl: entrypoint.sh::configure_pi_goal_defaults --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-272: preserves malformed Goal config byte-for-byte) -->
+5. The compact Goal footer reports the state and shows accumulated duration only while active. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::preparePiGoalSources --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC7: publishes concise Goal status without changing accounting or continuation details) --> <!-- @manual: Agent packaged-runtime acceptance -->
+6. Progress and completion may change only the current Goal in its owned run; stale or unrelated calls cannot change it. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::preparePiGoalSources --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111/178: progress rejects an owned run whose workflow session has been replaced) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111/178: progress rejects empty, oversized, invalid, stale, inactive and non-owned reports without mutation) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-272: the prepared entrypoint lazily exposes Goal tools and shares session ownership with Plan) -->
 7. Starting Goal while Plan owns the session, or starting Plan while Goal owns it, is refused without replacing the incumbent workflow. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::preparePiGoalSources --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-272: the prepared entrypoint lazily exposes Goal tools and shares session ownership with Plan) -->
 
-**Constraints:** Goal stays exact-pinned and integrity-locked. Shadow pin upgrades must pass the source transform before opening the update PR. Todo Loop must not inherit Goal settings or source transforms. Startup normalization preserves prior Goal session history.
+**Constraints:**
+
+- Goal stays exact-pinned and integrity-locked.
+- Shadow pin upgrades must pass the source transform before opening the update PR.
+- Todo Loop does not inherit Goal settings or source transforms.
+- Startup normalization preserves prior Goal session history.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-111](#req-agent-111-native-todo-loop-workflow-in-pi-sessions), [REQ-AGENT-248](#req-agent-248-managed-goal_wait-exclusion)
 
 **Verification:** Automated: [Pi package assembly](../../host/__tests__/pi-settings-packages.test.js), [Pi warm cache](../../host/__tests__/pi-lockstep.test.js), [Goal startup defaults](../../host/__tests__/entrypoint-runtime-behavior.test.js), [Prepared Goal runtime](../../host/__tests__/pi-goal-review-control-patch.test.js); Manual: [Agent packaged-runtime acceptance](../../documentation/lanes/container.md#agent-packaged-runtime-acceptance)
+
+**Status:** Implemented
+
+---
+
+<a id="req-agent-130-goal-continuation-runtime-pacing"></a>
+<a id="req-agent-236-goal-stalled-work-bound"></a>
+
+### REQ-AGENT-273: Managed Goal continuation safety
+
+**Intent:** Pace automatic Goal work and stop stalled work without interrupting unrelated runs.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Automatic Goal continuations respect the configured interval, with a five-minute floor. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchProgressRuntime --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC2: full preparation respects a configured interval above five minutes and caps stalls at the deadline) -->
+2. Goal blocks after five stalled automatic runs or 25 minutes stalled, whichever comes first, even with no automatic attempts. On expiry, only the matching in-flight Goal run is aborted. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchProgressRuntime --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC2: full preparation respects a configured interval above five minutes and caps stalls at the deadline) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111/129/178: fifth paraphrased stalled automatic run blocks, cancels queued work and releases workflow) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111/129: manual stalled report starts a 25-minute deadline without inventing automatic attempts) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-272 AC3: an in-flight automatic run is aborted at the stalled deadline without a lifecycle event) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-272 AC3: a stall expires while an unrelated run is busy without aborting it) -->
+3. The blocker accepts only a runtime-verified count of five: four completed automatic stalls plus a stalled report from the current owned automatic run. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchProgressTools --> <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchProgressRuntime --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111/129: terminal blocker tool rejects retired and unearned attempt counts) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-272 AC3/AC4: blocker requires four completed stalls and an evidenced automatic fifth (${origin})) -->
+
+**Constraints:** None.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-272](#req-agent-272-managed-goal-alongside-todo-loop)
+
+**Verification:** Automated: [Prepared Goal runtime](../../host/__tests__/pi-goal-review-control-patch.test.js)
 
 **Status:** Implemented
 
@@ -4552,7 +4582,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Capability search excludes `goal_wait`. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::isToolDisabledByPolicy --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-248: Goal wait is undiscoverable and exact activation reports the policy block) -->
+1. Capability search excludes `goal_wait`. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::searchCapabilities --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-248: Goal wait is undiscoverable and exact activation reports the policy block) -->
 2. Exact activation of `goal_wait` reports a policy denial and leaves active tools unchanged. <!-- @impl: preseed/agents/pi/extensions/capability.ts::capabilityExtension --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-248: Goal wait is undiscoverable and exact activation reports the policy block) -->
 3. `todo_loop_block` remains activatable. <!-- @impl: preseed/agents/pi/extensions/capability.ts::capabilityExtension --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-248: Goal wait is undiscoverable and exact activation reports the policy block) -->
 
@@ -6153,7 +6183,7 @@ None.
 3. Exact capability activation adds the requested eligible registered tool for the next model step without removing current tools; activating `subagent` also activates `get_subagent_result` and `steer_subagent` when registered. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::activationGroup --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::activateRegisteredTools --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-158 AC3: treats subagent and its controls as one additive activation group) -->
 4. A new user prompt restores bootstrap exposure while tools activated inside the current agent loop remain available for their next provider step. <!-- @impl: preseed/agents/pi/extensions/zz-tool-exposure-finalizer.ts::finalizeToolExposure --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-096: registered Pi tool discovery and activation) -->
 5. Provider-boundary diagnostics report registered and initially active tool names and serialized schemas separately, and real runtime measurement rejects an invalid initial active set without imposing a fixed tool-token threshold. <!-- @impl: scripts/measure-pi-runtime-context.mjs::main --> <!-- @impl: scripts/measure-pi-runtime-context.mjs::validateInitialToolExposure --> <!-- @impl: scripts/verify-pi-prompt.mjs::verifyPiProjection --> <!-- @manual -->
-6. An active Plan workflow exposes only its persisted allowed tools plus `plan_mode_question` and `plan_mode_complete`, even when Goal tools are set to `always`. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::activePlanTools --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-152/158: preserves only the restored Plan allowlist and helpers even with Goal visibility set to always) --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-158: a malformed restored Plan policy keeps only bootstrap tools) -->
+6. Regardless of Goal visibility, an enabled Plan exposes only its persisted allowed tools plus `plan_mode_question` and `plan_mode_complete`. A missing or malformed restored policy exposes only bootstrap tools. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::activePlanTools --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-152/158: preserves only the restored Plan allowlist and helpers even with Goal visibility set to always) --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-158: a malformed restored Plan policy keeps only bootstrap tools) -->
 7. A child session also retains upstream-registered `ask_parent` and `notify_parent` protocol tools without granting ordinary tools absent from its allowlist. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::initialActiveTools --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-158: preserves registered child protocol without granting ordinary tools) -->
 
 **Constraints:**
