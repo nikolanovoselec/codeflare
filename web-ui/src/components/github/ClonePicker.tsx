@@ -13,9 +13,19 @@ interface ClonePickerProps {
   anchorRef?: HTMLElement;
 }
 
-// New-session creation keeps local progress/errors; live clone outcomes use
-// the shared notification after the picker closes.
-type CloneState = { phase: 'idle' | 'busy' | 'failed' };
+// New-session attempts survive closing either picker entry point.
+// Live clones keep using the shared outcome notification.
+type CloneAttempt = { phase: 'busy'; sessionId?: string } | { phase: 'failed'; sessionId: string };
+const [cloneAttempts, setCloneAttempts] = createSignal<ReadonlyMap<string, CloneAttempt>>(new Map());
+
+function setCloneAttempt(repo: string, attempt?: CloneAttempt) {
+  setCloneAttempts(previous => {
+    const next = new Map(previous);
+    if (attempt) next.set(repo, attempt);
+    else next.delete(repo);
+    return next;
+  });
+}
 
 const DIALOG_ESTIMATED_HEIGHT = 380;
 const GAP = 8;
@@ -28,14 +38,25 @@ const ClonePicker: Component<ClonePickerProps> = (props) => {
   let closeButton: HTMLButtonElement | undefined;
   let disposed = false;
   const [position, setPosition] = createSignal<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 320 });
-  const [state, setState] = createSignal<CloneState>({ phase: 'idle' });
-  const [retrySessionId, setRetrySessionId] = createSignal<string>();
+  const [createFailed, setCreateFailed] = createSignal(false);
+  const attempt = () => cloneAttempts().get(props.repo.full_name);
+  const retrySessionId = () => attempt()?.sessionId;
+  const retryAllowed = (id: string) => {
+    const status = sessionStore.sessions.find(session => session.id === id)?.status;
+    return status === 'stopped' || status === 'error';
+  };
+  createEffect(() => {
+    const current = attempt();
+    if (current?.phase !== 'failed') return;
+    const session = sessionStore.sessions.find(item => item.id === current.sessionId);
+    if (!session || session.status === 'running') setCloneAttempt(props.repo.full_name);
+  });
 
   const runningSessions = createMemo(() =>
     sessionStore.sessions.filter((s) => s.status === 'running'),
   );
 
-  const busy = () => state().phase === 'busy';
+  const busy = () => attempt()?.phase === 'busy';
 
   const updatePosition = () => {
     if (!props.anchorRef) return;
@@ -107,7 +128,6 @@ const ClonePicker: Component<ClonePickerProps> = (props) => {
   // the repo's default branch).
   const handleCloneIntoSession = (sessionId: string) => {
     if (busy()) return;
-    setState({ phase: 'busy' });
     void sessionStore.cloneRepositoryIntoSession({ repo: props.repo.full_name, sessionId });
     props.onClose();
   };
@@ -117,26 +137,26 @@ const ClonePicker: Component<ClonePickerProps> = (props) => {
   // starts on the dashboard. On success the picker closes.
   const handleCloneIntoNewSession = async (agentType: AgentType) => {
     if (busy()) return;
+    const repo = props.repo.full_name;
     closeButton?.focus();
-    setState({ phase: 'busy' });
-    const result = await sessionStore.createSessionWithClone(props.repo.full_name, agentType);
+    setCreateFailed(false);
+    setCloneAttempt(repo, { phase: 'busy' });
+    const result = await sessionStore.createSessionWithClone(repo, agentType);
+    if (result && !result.started) setCloneAttempt(repo, { phase: 'failed', sessionId: result.sessionId });
+    else setCloneAttempt(repo);
     if (disposed) return;
-    if (result?.started) {
-      props.onClose();
-    } else {
-      setRetrySessionId(result?.sessionId);
-      setState({ phase: 'failed' });
-    }
+    if (result?.started) props.onClose();
+    else if (!result) setCreateFailed(true);
   };
 
   const retryStart = async (id: string) => {
-    if (busy()) return;
+    if (busy() || !retryAllowed(id)) return;
+    const repo = props.repo.full_name;
     closeButton?.focus();
-    setState({ phase: 'busy' });
-    const started = await sessionStore.startSession(id).then(result => result !== 'cancelled', () => false);
-    if (disposed) return;
-    if (started) props.onClose();
-    else setState({ phase: 'failed' });
+    setCloneAttempt(repo, { phase: 'busy', sessionId: id });
+    const started = await sessionStore.retryCloneStart(id);
+    setCloneAttempt(repo, started ? undefined : { phase: 'failed', sessionId: id });
+    if (started && !disposed) props.onClose();
   };
 
   return (
@@ -166,7 +186,10 @@ const ClonePicker: Component<ClonePickerProps> = (props) => {
           </button>
         </div>
 
-        <Show when={state().phase === 'failed'}>
+        <Show when={busy()}>
+          <p class="clone-picker-group-header" role="status">Starting session…</p>
+        </Show>
+        <Show when={createFailed() || attempt()?.phase === 'failed'}>
           <div class="clone-picker-result clone-picker-result--failed" data-testid="clone-picker-result-failed" role="alert">
             <Icon path={mdiAlertCircleOutline} size={16} />
             <span class="clone-picker-result-text">Clone failed. Please try again.</span>
@@ -200,7 +223,7 @@ const ClonePicker: Component<ClonePickerProps> = (props) => {
             onSelect={(agentType) => void handleCloneIntoNewSession(agentType)}
           />
         }>{id => (
-          <button type="button" class="clone-picker-option-btn" disabled={busy()}
+          <button type="button" class="clone-picker-option-btn" disabled={busy() || !retryAllowed(id())}
             onClick={() => void retryStart(id())}>Retry Start</button>
         )}</Show>
       </div>

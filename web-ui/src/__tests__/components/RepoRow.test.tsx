@@ -79,6 +79,10 @@ describe('RepoRow Clone button', () => {
     fireEvent.keyDown(close, { key: 'Escape' });
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole('button', { name: 'Close clone picker' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
   });
 
   it('renders an enabled Clone button carrying repo + branch data', () => {

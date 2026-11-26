@@ -69,7 +69,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 1. Connection-status inspection reports connection state, connected account login and credential source without exposing the token. <!-- @impl: src/routes/github.ts::app --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-002: reports connected with login + source when a token exists) -->
 2. The server fetches repository pages with the stored token, including accessible personal and organization repositories. The client filters loaded pages only; clear a zero-match filter to reveal Load more. The token never reaches the browser. <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-002 AC2: lists accessible organization repositories across provider pages) --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (REQ-GITHUB-002 AC2: clearing zero matches restores Load more and appends organization rows inside the same panel) --> <!-- @impl: src/routes/github.ts::REPOS_PER_PAGE --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-002: proxies the user repos with the stored token and never returns the token) -->
 3. GitHub and Storage share the dashboard's right-column panel area under [REQ-GITHUB-012](#req-github-012-responsive-github-and-storage-panel-allocation). The backend and no-tier dashboard gates belong to [REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise). <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-002 AC5: flips one GitHub/storage face at a time on mobile) -->
-4. Not-connected shows a Connect GitHub action; connected shows the account, refresh, Disconnect, and searchable repo list. Browser rows label updates under one day old `today`. <!-- @impl: web-ui/src/components/github/RepoRow.tsx::RepoRow --> <!-- @test: web-ui/src/__tests__/components/RepoRow.test.tsx (keeps a recent update labeled today in the repository browser) --> Controls must follow the [shared primitive contract](../../documentation/lanes/terminal-and-ide.md#github-and-storage-workspace). <!-- @impl: web-ui/src/components/github/ConnectedHeader.tsx::ConnectedHeader --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (GitHubPanel Component) -->
+4. Not-connected shows a Connect GitHub action; connected shows the account, refresh, Disconnect, and searchable repo list. Controls must follow the [shared primitive contract](../../documentation/lanes/terminal-and-ide.md#github-and-storage-workspace). <!-- @impl: web-ui/src/components/github/ConnectedHeader.tsx::ConnectedHeader --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (GitHubPanel Component) -->
 5. In the narrow Code Dashboard, the panel shows one flippable GitHub or storage face at a time. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-002 AC5: flips one GitHub/storage face at a time on mobile) -->
 6. The owner/login label and each repo name link to GitHub in a new tab; repo-name clicks do not trigger clone. <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (repo name links to the repo on GitHub in a new tab) --> <!-- @manual -->
 7. Dashboard returns reuse loaded repositories and search. The first page refreshes quietly at most once per five minutes on return, never replacing accumulated pages. Manual reload and connection changes bypass the window. <!-- @impl: web-ui/src/stores/github.ts::loadStatus --> <!-- @test: web-ui/src/__tests__/stores/github.test.ts (REQ-GITHUB-002 AC7: reuses fresh repositories and quietly refreshes stale results without clearing search) --> <!-- @test: web-ui/src/__tests__/stores/github.test.ts (REQ-GITHUB-002 AC7: preserves loaded pages until manual reload or account change) -->
@@ -162,7 +162,8 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 **Acceptance Criteria:**
 
 1. When a new-session Start cancelled by Stop settles, the clone picker shows failure without closing if it is still open. <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (disables controls while launching and keeps the picker open after a cancelled repository launch) -->
-2. After a saved clone session fails to start, **Retry Start** starts that session without creating another. <!-- @impl: web-ui/src/stores/session.ts::createSessionWithClone --> <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (retries Start on the saved session rather than creating another session) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (retains the clone session ID after Start fails and can start that same session) -->
+2. After a saved clone session fails to start, **Retry Start** starts that session without creating another. Retry stays unavailable until any pending Stop is confirmed. <!-- @impl: web-ui/src/stores/session.ts::createSessionWithClone --> <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (retries Start on the saved session rather than creating another session) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (retains the clone session ID after Start fails and can start that same session) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (does not report a successful repository launch when Stop cancels Start) -->
+3. Reopening the picker for the same repository retains its pending Start or the failed session available for retry. <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (focuses Close and preserves the pending launch across dismissal and reopen) -->
 
 **Constraints:** None.
 
@@ -170,7 +171,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Dependencies:** [REQ-GITHUB-004](#req-github-004-clone-a-repository-into-a-session)
 
-**Verification:** Automated: [ClonePicker.test.tsx](../../web-ui/src/__tests__/components/ClonePicker.test.tsx)
+**Verification:** Automated: [ClonePicker.test.tsx](../../web-ui/src/__tests__/components/ClonePicker.test.tsx), [session store](../../web-ui/src/__tests__/stores/session.test.ts)
 
 **Status:** Implemented
 
@@ -185,7 +186,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 **Acceptance Criteria:**
 
 1. Opening the picker moves focus inside. Tab and Shift+Tab stay inside; Escape or Close dismisses it and returns focus to the trigger if still present. <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @test: web-ui/src/__tests__/components/RepoRow.test.tsx (keeps keyboard focus in the clone dialog and returns it on Escape) -->
-2. While Start is pending, focus moves to Close, which remains usable. <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (focuses Close and allows dismissal while Start is pending) -->
+2. While Start is pending, focus moves to Close, which remains usable. <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (focuses Close and preserves the pending launch across dismissal and reopen) -->
 
 **Constraints:** None.
 
@@ -566,6 +567,28 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 **Verification:** Automated: [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [GitHubPanel.test.tsx](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx); Manual: [GitHub workspace acceptance](../../documentation/lanes/terminal-and-ide.md#github-workspace-manual-acceptance)
 
 **Status:** Implemented
+
+---
+
+### REQ-GITHUB-329: Recent update label in repository browser
+
+**Intent:** Summarize recent repository updates in the browser list.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Browser rows label updates under one day old `today`. <!-- @impl: web-ui/src/components/github/RepoRow.tsx::RepoRow --> <!-- @test: web-ui/src/__tests__/components/RepoRow.test.tsx (keeps a recent update labeled today in the repository browser) -->
+
+**Constraints:** Applies to browser rows, not Vibe shortcuts.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-GITHUB-002](#req-github-002-github-panel-and-repository-listing)
+
+**Verification:** Automated: [RepoRow](../../web-ui/src/__tests__/components/RepoRow.test.tsx)
+
+**Status:** Planned
 
 ---
 

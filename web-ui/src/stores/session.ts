@@ -604,6 +604,13 @@ async function createSessionWithClone(repo: string, agentType?: AgentType): Prom
   return { sessionId: session.id, started };
 }
 
+// A retry must not take over the cleanup slot while Stop or Kill owns it.
+async function retryCloneStart(id: string): Promise<boolean> {
+  const status = state.sessions.find(session => session.id === id)?.status;
+  if ((status !== 'stopped' && status !== 'error') || localStopAttempts.has(id) || localKillAttempts.has(id)) return false;
+  return startSession(id).then(result => result !== 'cancelled', () => false);
+}
+
 async function renameSession(id: string, name: string): Promise<void> {
   try {
     // REQ-SESSION-027 AC2: the Worker sanitizes the requested name, so show the
@@ -1081,6 +1088,7 @@ export const sessionStore = {
   loadSessions,
   createSession,
   createSessionWithClone,
+  retryCloneStart,
   renameSession,
   deleteSession,
   startSession,

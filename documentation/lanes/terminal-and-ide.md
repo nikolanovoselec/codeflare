@@ -121,8 +121,11 @@ In **Vibe**, Dashboard **New Session** starts Pi Chat directly. Returning to Das
 
 For [REQ-AGENT-282](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults), the [stock browser fixture](../../scripts/ci/smoke-pi-web-system-rows.mjs) checks both SYSTEM row shapes and ordinary user and assistant rows. It does not test durable storage or a live producer.
 
-- **Saved history:** Use a disposable conversation with a known, non-sensitive SYSTEM marker and ordinary replies. Read the saved transcript JSONL, then reload the page and reopen that same conversation. In DevTools, verify that the new Chat frame successfully requests a fresh snapshot for that session; a retained frame does not qualify. Re-read the JSONL and match the same entry, not just the line count. Do not edit the transcript or open a second writer.
-- **Live event:** If a supported live trigger is available in that disposable session, observe Chat when it fires and confirm the new entry in the saved JSONL. In both tests, ordinary replies must remain visible and the entire SYSTEM row must be hidden. Mark a case unexercised if its source or the fresh load cannot be verified.
+- **Saved history:** Read the JSONL of a disposable conversation with a known, non-sensitive SYSTEM marker and ordinary replies. Do not edit the transcript or open a second writer.
+- Reload the page and reopen the same conversation. In DevTools, match the marker in the fresh `transcript-snapshot` response for that session. Revealing a retained frame does not qualify.
+- Read the JSONL again to confirm the same entry remains. Compare the entry, not the line count.
+- **Live event:** If there is a supported trigger in that disposable session, confirm the new marker arrives in Chat's network response or event and is also present in the saved JSONL.
+- In both cases, ordinary replies must remain visible and the entire SYSTEM row must be hidden. Mark cases unexercised if you cannot verify delivery or the required fresh load.
 - **Native dialog:** Use [native questions](#check-stale-frames-and-native-questions) to verify that an independent dialog can still open and be answered.
 
 #### Check desktop and mobile layout

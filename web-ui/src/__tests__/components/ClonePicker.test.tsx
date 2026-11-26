@@ -20,7 +20,7 @@ const sessionStoreState = vi.hoisted(() => ({
   allowedAgents: null as string[] | null,
 }));
 const mockCreateSessionWithClone = vi.hoisted(() => vi.fn());
-const mockStartSession = vi.hoisted(() => vi.fn());
+const mockRetryCloneStart = vi.hoisted(() => vi.fn());
 
 vi.mock('../../stores/session', () => ({
   sessionStore: {
@@ -37,7 +37,7 @@ vi.mock('../../stores/session', () => ({
       return { lastAgentType: undefined };
     },
     createSessionWithClone: (...args: unknown[]) => mockCreateSessionWithClone(...args),
-    startSession: (...args: unknown[]) => mockStartSession(...args),
+    retryCloneStart: (...args: unknown[]) => mockRetryCloneStart(...args),
     cloneRepositoryIntoSession: (...args: unknown[]) => mockCloneIntoSession(...args),
   },
 }));
@@ -78,7 +78,7 @@ describe('ClonePicker', () => {
     sessionStoreState.allowedAgents = ['claude-code', 'codex', 'copilot', 'antigravity', 'opencode', 'pi', 'bash'];
     mockCloneIntoSession.mockResolvedValue({ outcome: 'cloned', path: '/home/user/workspace/hello' });
     mockCreateSessionWithClone.mockResolvedValue({ sessionId: 's-new', started: true });
-    mockStartSession.mockResolvedValue(undefined);
+    mockRetryCloneStart.mockResolvedValue(true);
   });
 
   afterEach(() => {
@@ -167,8 +167,9 @@ describe('ClonePicker', () => {
   });
 
   it('retries Start on the saved session rather than creating another session', async () => {
+    sessionStoreState.sessions = [{ id: 's-new', name: 'hello', status: 'error' }];
     mockCreateSessionWithClone.mockResolvedValueOnce({ sessionId: 's-new', started: false });
-    mockStartSession.mockRejectedValueOnce(new Error('Startup failed again'));
+    mockRetryCloneStart.mockResolvedValueOnce(false);
     renderPicker();
     fireEvent.click(screen.getByRole('button', { name: /^Pi\s*Minimal, extensible coding harness$/ }));
     const retry = await screen.findByRole('button', { name: 'Retry Start' });
@@ -176,11 +177,12 @@ describe('ClonePicker', () => {
     await waitFor(() => expect(retry).toBeEnabled());
     fireEvent.click(retry);
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
-    expect(mockStartSession.mock.calls).toEqual([['s-new'], ['s-new']]);
+    expect(mockRetryCloneStart.mock.calls).toEqual([['s-new'], ['s-new']]);
     expect(mockCreateSessionWithClone).toHaveBeenCalledTimes(1);
   });
 
-  it('focuses Close and allows dismissal while Start is pending', async () => {
+  it('focuses Close and preserves the pending launch across dismissal and reopen', async () => {
+    sessionStoreState.sessions = [{ id: 's-new', name: 'hello', status: 'error' }];
     let finish!: (value: unknown) => void;
     const pending = new Promise(resolve => { finish = resolve; });
     mockCreateSessionWithClone.mockReturnValueOnce(pending);
@@ -194,9 +196,16 @@ describe('ClonePicker', () => {
     expect(close).toHaveFocus();
     fireEvent.click(close);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    finish({ sessionId: 's-new', started: true });
+    renderPicker();
+    expect(screen.getByRole('status')).toHaveTextContent('Starting session…');
+    expect(screen.getByTestId('clone-picker-agent-pi')).toBeDisabled();
+    finish({ sessionId: 's-new', started: false });
     await pending;
     expect(onClose).toHaveBeenCalledTimes(1);
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry Start' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(mockRetryCloneStart).toHaveBeenCalledWith('s-new');
+    expect(mockCreateSessionWithClone).toHaveBeenCalledTimes(1);
   });
 
   it('closes after a successful new-session clone (navigation already happened)', async () => {
@@ -225,7 +234,7 @@ describe('ClonePicker', () => {
   });
 
   it('disables controls while launching and keeps the picker open after a cancelled repository launch', async () => {
-    sessionStoreState.sessions = [{ id: 's1', name: 'Pi #1', status: 'running' }];
+    sessionStoreState.sessions = [{ id: 's1', name: 'Pi #1', status: 'running' }, { id: 's-new', name: 'hello', status: 'stopped' }];
     let resolveCreate!: (value: unknown) => void;
     mockCreateSessionWithClone.mockReturnValueOnce(new Promise(resolve => { resolveCreate = resolve; }));
     renderPicker();
@@ -239,7 +248,10 @@ describe('ClonePicker', () => {
     resolveCreate({ sessionId: 's-new', started: false });
     expect(await screen.findByRole('alert')).toHaveTextContent('Clone failed. Please try again.');
     expect(screen.getByRole('dialog', { name: 'Clone repository' })).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Retry Start' })).toBeEnabled();
+    const retry = screen.getByRole('button', { name: 'Retry Start' });
+    expect(retry).toBeEnabled();
+    fireEvent.click(retry);
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 
   it('withholds new-session agent choices until /api/user hydrates', () => {

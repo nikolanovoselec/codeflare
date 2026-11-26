@@ -1505,7 +1505,12 @@ describe('Session Store', () => {
       const id = 'cancelled-clone';
       mockCreateSession.mockResolvedValue({ id, name: 'hello', workspace: 'vscode',
         generation: 7, revision: 10, createdAt: '2026-01-01T00:00:00Z', lastAccessedAt: '2026-01-01T00:00:00Z' });
-      vi.mocked(api.startSession).mockReturnValueOnce(() => {});
+      let completeRetry!: () => void;
+      vi.mocked(api.startSession).mockReturnValueOnce(() => {})
+        .mockImplementationOnce((_id, _progress, onComplete) => {
+          completeRetry = () => onComplete(8);
+          return () => {};
+        });
       mockStopSession.mockResolvedValue(undefined);
       mockGetBatchSessionStatus.mockResolvedValue({ statuses: {
         [id]: { status: 'stopped', generation: 7, revision: 11 },
@@ -1514,9 +1519,18 @@ describe('Session Store', () => {
       const creating = sessionStore.createSessionWithClone('octocat/hello');
       await vi.waitFor(() => expect(sessionStore.isSessionInitializing(id)).toBe(true));
       const stopping = sessionStore.stopSession(id);
+      await expect(creating).resolves.toEqual({ sessionId: id, started: false });
+      await expect(sessionStore.retryCloneStart(id)).resolves.toBe(false);
+      expect(api.startSession).toHaveBeenCalledTimes(1);
       await vi.advanceTimersByTimeAsync(STOP_POLL_INTERVAL_MS);
       await stopping;
-      await expect(creating).resolves.toEqual({ sessionId: id, started: false });
+      expect(sessionStore.sessions.find(session => session.id === id)?.status).toBe('stopped');
+      const retry = sessionStore.retryCloneStart(id);
+      completeRetry();
+      await expect(retry).resolves.toBe(true);
+      expect(sessionStore.sessions.filter(session => session.id === id)).toEqual([
+        expect.objectContaining({ status: 'running' }),
+      ]);
     });
 
     it('retains the clone session ID after Start fails and can start that same session', async () => {
@@ -1542,7 +1556,7 @@ describe('Session Store', () => {
       const result = await creating;
       expect(result).toEqual({ sessionId: id, started: false });
       expect(sessionStore.sessions.find(session => session.id === id)?.status).toBe('error');
-      const retry = sessionStore.startSession(result!.sessionId);
+      const retry = sessionStore.retryCloneStart(result!.sessionId);
       await vi.waitFor(() => expect(completeStart).toBeDefined());
       completeStart();
       await retry;
