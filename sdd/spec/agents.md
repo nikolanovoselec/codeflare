@@ -886,15 +886,16 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 1. Explicit surface choice determines which writer starts or resumes Pi in a Classic Terminal workspace. Without a surface choice, Classic starts in Terminal, including when the Start body is empty. <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (REQ-AGENT-272 AC1: forwards $terminalMode $surface with Start body $body) --> <!-- @test: src/__tests__/routes/session-workspace.test.ts (REQ-AGENT-272 AC1: explicit Chat cannot override Herdr mode; ordinary Pi creation still works) --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: src/routes/container/lifecycle.ts::app --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-272 AC1: a fresh Chat-first Classic boot does not create a CLI conversation) --> <!-- @test: host/__tests__/prewarm-orphan-expiry.test.js (REQ-AGENT-272 AC1: Classic Terminal starts after profile restore while cloning continues) -->
 2. Classic switches to the same conversation and branch, including an empty conversation, only after the previous writer closes. A failed transfer keeps the binding; if a destination may have obtained write access, another writer cannot start until ownership is resolved. <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-273: a possibly consumed native re-entry remains fenced) --> <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-272: an unconfirmed Chat startup retirement cannot dispatch another writer) --> <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime --> <!-- @impl: host/src/pi-web-handoff.ts::createPiWebHandoff --> <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-272 AC2: an empty conversation switches without another prompt) --> <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-272 AC2: an ambiguous launch rejects new owners until the original launch is resolved) --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-272 AC2: a configured secondary Classic Pi never receives the primary conversation) --> <!-- @test: host/__tests__/prewarm-orphan-expiry.test.js (REQ-AGENT-272 AC2: idle ${mode} primary remains available for a Chat-to-Terminal switch after orphan expiry) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time -->
 3. Switching surfaces blocks new prompts and automatically stops current execution without waiting for a normal reply. <!-- @impl: host/src/pi-web-handoff.ts::createPiWebHandoff --> <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-272 AC3: ${source} requests abort before ${target} may open the saved conversation) -->
-4. Open Vibe Chat centers the existing session header and the outer Chat frame as one panel, with the header immediately above and exactly as wide as the frame. Desktop sizing uses 80% of the available width and 80% of the height left after the header, capped at 800px wide and 1200px tall for the frame. Phones use the full available width. The panel layout does not apply to Dashboard, Code, Terminal or startup, and does not replace the header or reload the frame when Chat is revealed. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/src/styles/pi-web-chat.css::.layout-workspace--chat --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (groups the existing header with the same Chat frame only after Open) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps Vibe visible after Host confirms Code until its terminal attaches) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (reuses the open Chat frame on Dashboard return and discards it on %s) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+4. Open Vibe Chat centers the same-width session header immediately above its outer Chat frame. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/src/styles/pi-web-chat.css::.layout-workspace--chat --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 5. Only the authenticated owner using the current eligible generation reaches that generation’s Chat transport. <!-- @impl: src/routes/pi-web.ts::handlePiWebRequest --> <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @test: src/__tests__/routes/pi-web-auth-chain.test.ts (REQ-AGENT-272 AC5: submits, reads, and cancels only the owned generation’s exact handoff request) --> <!-- @test: src/__tests__/container/terminal-ws-relay.test.ts (REQ-AGENT-272 AC5: reconnect after Pi web’s private process exits cannot start a new generation) --> <!-- @test: src/__tests__/routes/pi-web-auth-chain.test.ts (REQ-AGENT-272 AC5: stale stock prompts and reconnects cannot attach to a replacement writer) -->
 6. Cancel switch can preserve the current turn only before Abort is committed. <!-- @impl: host/src/pi-web-handoff.ts::createPiWebHandoff --> <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-272 AC6: cancellation before abort keeps the turn; after abort it cannot undo the stop) --> <!-- @test: host/__tests__/pi-web-native-stop.test.js (REQ-AGENT-272 AC3+AC6: stopping fences the terminal and aborts the admitted pre-stream turn before release) -->
 7. Chat opens even when the restored profile contains the bundled Pi Web Workflows registration. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @test: scripts/ci/smoke-pi-web-services.mjs (verifyRestoredBundledWorkflows) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#pi-chat-handoff-acceptance -->
 
 **Constraints:**
 
-- Outside phones, narrow or short views retain gutters. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
-- On phones, Chat fills its available area without a border or rounding. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+- On desktop, the open Chat panel uses 80% of available width and the frame uses 80% of height left after the header, capped at 800px wide and 1200px tall. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+- Outside phones, views up to 760px wide or 480px tall use 12px plus safe-area gutters instead of proportional sizing, retaining the same caps. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+- On phones, the header spans the available width and Chat fills its remaining area without a border or rounding. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 - The composer stays operable, including with the mobile keyboard or browser zoom. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 - Pi Chat handoff is available only in Classic Terminal workspaces. <!-- @impl: src/container/pi-web.ts::isPiWebEligible --> <!-- @test: src/__tests__/container/session-stop.test.ts (REQ-AGENT-272 AC1: the DO refuses a handoff Start with $stored stored and $requested requested) --> <!-- @test: host/__tests__/repository-restore-order.test.js (REQ-TERM-033 AC2: real host prewarm waits for restored snapshot bytes and the init flag) -->
 - Malformed nonempty JSON is rejected before Start claims the session. <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (rejects malformed nonempty Start JSON before claiming the session) -->
@@ -988,6 +989,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 **Constraints:**
 
 - Chat-first service preparation follows profile restore and never opens a writer.
+- Only revealed Vibe Chat uses the grouped panel; Open retains the existing header and frame. Dashboard, startup, Code, and Terminal retain their own layouts. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (groups the existing header with the same Chat frame only after Open) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps Vibe visible after Host confirms Code until its terminal attaches) -->
 - The stock-loader gate is best effort, not proof of live synchronization.
 - [REQ-TERM-049](terminal.md#req-term-049-shared-workspace-startup-progress) owns startup status copy.
 - [REQ-GITHUB-320](github.md#req-github-320-nonblocking-terminal-repository-restore-notice) owns restore outcome reporting and notice lifecycle.
@@ -3506,7 +3508,7 @@ None.
 
 **Constraints:**
 
-- Native Pi task transcripts remain ordinary Pi history, not Codeflare review state. Routine successful completion payloads stay in model context and history but are not displayed. Completion notices with a question, refusal, workspace notice, or unannounced update remain visible. <!-- @impl: scripts/patch-pi-subagents-notifications.mjs::patchPiSubagentsNotifications --> <!-- @test: host/__tests__/pi-subagents-notifications.test.js (#57: actionable completion nudges retain visibility and their payloads) -->
+- Native Pi task transcripts remain ordinary Pi history, not Codeflare review state.
 
 **Priority:** P1
 
@@ -6883,7 +6885,7 @@ The former REQ-AGENT-191 Goal visibility and REQ-AGENT-248 `goal_wait` exclusion
 
 ### REQ-AGENT-216: Quiet Pi Subagent Defaults
 
-**Intent:** Workspace startup disables unsolicited Pi subagent mid-run messages without discarding unrelated preferences.
+**Intent:** Workspace startup reduces unsolicited Pi subagent messages without discarding preferences or hiding actionable outcomes.
 
 **Applies To:** User
 
@@ -6892,6 +6894,7 @@ The former REQ-AGENT-191 Goal visibility and REQ-AGENT-248 `goal_wait` exclusion
 1. Every startup writes `midRunUpdates: false` to the global Pi Subagents configuration for new and restored homes, preserving other valid preferences. <!-- @impl: entrypoint.sh::configure_pi_subagent_defaults --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-216: startup disables subagent mid-run updates for new and restored homes without changing other preferences) -->
 2. Invalid configuration remains unchanged; startup warns without disclosing configuration contents. <!-- @impl: entrypoint.sh::configure_pi_subagent_defaults --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-216: invalid subagent preferences are preserved without exposing their contents) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-216 AC2: unsafe filesystem entries are preserved with a sanitized startup warning) -->
 
+3. Routine successful completions stay in model context and history without appearing in Chat or Terminal. Actionable notices and unsuccessful outcomes remain visible. <!-- @impl: scripts/patch-pi-subagents-notifications.mjs::patchPiSubagentsNotifications --> <!-- @test: host/__tests__/pi-subagents-notifications.test.js (REQ-AGENT-053: queued parent follow-ups cannot starve completion past the next safe turn) --> <!-- @test: host/__tests__/pi-subagents-notifications.test.js (#57: actionable completion nudges retain visibility and their payloads) -->
 **Constraints:**
 
 - Native completion results and parent questions remain available.
@@ -6901,7 +6904,7 @@ The former REQ-AGENT-191 Goal visibility and REQ-AGENT-248 `goal_wait` exclusion
 
 **Dependencies:** None.
 
-**Verification:** Automated: [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js)
+**Verification:** Automated: [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js), [native subagent notifications](../../host/__tests__/pi-subagents-notifications.test.js)
 
 **Status:** Implemented
 

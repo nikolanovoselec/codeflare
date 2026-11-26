@@ -2507,15 +2507,41 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       } finally { finish(); await pending; }
     });
 
-    it('REQ-GITHUB-321: creates and starts a Vibe repo shortcut as Chat with the requested clone', async () => {
+    it('REQ-GITHUB-327: Start Chat creates a Vibe session with the selected clone target', async () => {
+      navigationRendering.realTerminalArea = true;
+      navigationRendering.realDashboard = true;
       mockPreferences = { defaultPiSurface: 'chat' };
       const id = 'abcdef0123456789';
-      vi.mocked(sessionStore.createSession).mockResolvedValue(createMockSession({ id, status: 'stopped', agentType: 'pi', workspace: 'terminal' }) as SessionWithStatus);
-      vi.mocked(sessionStore.startSession).mockResolvedValue(undefined);
-      render(() => <Layout />);
-      await (window as any).__terminalAreaProps.onCreateSession('newest', 'pi', undefined, 'chat', true, 'team/newest');
-      expect(sessionStore.createSession).toHaveBeenCalledWith('newest', 'pi', undefined, { repo: 'team/newest' }, 'chat');
-      expect(sessionStore.startSession).toHaveBeenCalledWith(id, 'chat');
+      const { _resetForTests: resetGithub } = await import('../../stores/github');
+      resetGithub();
+      vi.stubGlobal('fetch', async (url: string) => {
+        if (url === '/api/github/status') {
+          return Response.json({ enabled: true, connected: true, login: 'octocat', source: 'app' });
+        }
+        if (url === '/api/github/owned-repo-counts') return Response.json({ counts: null });
+        if (url === '/api/github/repos?page=1') {
+          return Response.json({ repos: [{
+            name: 'newest', full_name: 'team/newest', owner: 'team', private: true,
+            visibility: 'private', default_branch: 'main', updated_at: '2026-03-01T00:00:00Z',
+          }], page: 1, hasMore: false });
+        }
+        return Response.json({});
+      });
+      try {
+        render(() => <Layout />);
+        const shortcut = await screen.findByRole('button', { name: 'Start Chat with team/newest' });
+        vi.mocked(sessionStore.createSession).mockResolvedValueOnce(createMockSession({ id, status: 'stopped', agentType: 'pi', workspace: 'terminal' }) as SessionWithStatus);
+        vi.mocked(sessionStore.startSession).mockResolvedValueOnce(undefined);
+        fireEvent.click(shortcut);
+        await waitFor(() => {
+          expect(sessionStore.createSession).toHaveBeenCalledWith('newest', 'pi', undefined, { repo: 'team/newest' }, 'chat');
+          expect(sessionStore.startSession).toHaveBeenCalledWith(id, 'chat');
+        });
+      } finally {
+        cleanup();
+        resetGithub();
+        vi.unstubAllGlobals();
+      }
     });
 
     it('preserves the last explicitly chosen agent when Vibe launches Pi', async () => {

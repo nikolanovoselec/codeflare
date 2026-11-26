@@ -585,7 +585,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 2. One labeled grip opens and closes the browsers. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (discloses the existing GitHub and Storage browsers together in Vibe on %s) -->
 3. Escape from within the drawer closes it and returns focus to its control. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (closes the Vibe drawer from a focused browser and returns focus to the pull) -->
 4. Vibe GitHub Details reports account-owned counts from the matching authenticated profile. When the profile omits the private count, show only the public count. <!-- @impl: src/routes/github.ts::app --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: src/__tests__/routes/github.test.ts (returns only account-owned totals from the authenticated profile) --> <!-- @test: src/__tests__/routes/github.test.ts (returns public counts without inventing private totals for GitHub App profiles) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (shows authoritative owned totals for a connected GitHub App account) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-321: shows a verified public zero and omits unknown private and total counts) -->
-5. Vibe GitHub Details links the connected `@username` to the GitHub profile in a new tab. Without verified counts, it can show up to three recently updated accessible repositories from the loaded list; their links open GitHub, and **Start Chat** creates a Vibe session with that repo cloned. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-321: shows the connected account and external profile without verified counts (%#)) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-321: shows the three latest loaded repository shortcuts and launches Chat only on the explicit action) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-GITHUB-321: creates and starts a Vibe repo shortcut as Chat with the requested clone) -->
+5. Vibe GitHub Details opens the connected `@username` profile in a new tab. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-321: shows the connected account and external profile without verified counts (%#)) -->
 6. Opening or closing the Vibe browsers leaves Profile icon-only and the email inside its menu. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (shows the Profile email only at the top of the open Dashboard menu in %s) -->
 7. On desktop and tablet, a transparent double-chevron control sits on the summary’s right edge when closed and the browsers’ far right edge when open. It points right when closed and left when open, with a slow horizontal bounce unless reduced motion is enabled. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-pull --> <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
 
@@ -764,3 +764,25 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 **Status:** Implemented
 
 ---
+
+### REQ-GITHUB-327: Vibe repository shortcuts
+
+**Intent:** Keep GitHub Details useful when owned repository counts are unavailable.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. After counts settle unavailable, GitHub Details shows up to three loaded accessible repositories with valid update timestamps, newest first. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-321: shows the three latest loaded repository shortcuts and launches Chat only on the explicit action) -->
+2. A repository link opens that repository on GitHub without starting a session. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-321: shows the three latest loaded repository shortcuts and launches Chat only on the explicit action) -->
+3. **Start Chat** creates a Vibe Chat session and requests the selected repository’s default-branch clone. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-GITHUB-327: Start Chat creates a Vibe session with the selected clone target) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
+
+**Constraints:** Shortcuts reuse the loaded list without fetching repositories or inferring an owned count.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-GITHUB-321](#req-github-321-vibe-dashboard-browser-disclosure), [REQ-GITHUB-004](#req-github-004-clone-a-repository-into-a-session)
+
+**Verification:** Automated: [Dashboard](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [Layout](../../web-ui/src/__tests__/components/Layout.test.tsx); Manual: [Vibe drawer and clone acceptance](../../documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance)
+
+**Status:** Planned

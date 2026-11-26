@@ -8,7 +8,7 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 - [Loading Chat](terminal.md#req-term-049-shared-workspace-startup-progress) keeps its label and final duration when Open appears.
 - [Open Vibe Chat](agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff) centers the existing session header directly above the same-width outer Chat frame. Both use the full available width on phones.
-- [Vibe GitHub Details](github.md#req-github-321-vibe-dashboard-browser-disclosure) links the account profile and, when owned counts are unavailable, offers up to three recently updated repo shortcuts with separate **Start Chat** actions.
+- [Vibe repository shortcuts](github.md#req-github-327-vibe-repository-shortcuts) links the account profile and, when owned counts are unavailable, offers up to three recently updated repo shortcuts with separate **Start Chat** actions.
 - [Background extraction](memory.md#req-mem-015-pi-extraction-transcript-visibility-and-child-session-guard) keeps launch payloads out of the visible conversation without changing model delivery.
 - [GitHub and Storage](github.md#req-github-010-mobile-github-and-storage-face-switching) flip only on mobile. [New Session padding](github.md#req-github-323-responsive-vibe-dashboard-layout) is half the button height in both modes.
 

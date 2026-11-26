@@ -165,7 +165,6 @@
   min-height: 0;
 }
 
-.dashboard-panel-right[data-layout="flip"] .panel-flip-back-btn,
 .dashboard-github-card__repo {
   display: flex;
   align-items: center;
@@ -196,6 +195,7 @@
 .dashboard-github-card__start:not(:disabled) { cursor: pointer; }
 .dashboard-github-card__start:disabled { opacity: 0.5; }
 
+.dashboard-panel-right[data-layout="flip"] .panel-flip-back-btn,
 .dashboard-panel-right[data-layout="flip"] .github-flip-btn {
   display: flex;
 }

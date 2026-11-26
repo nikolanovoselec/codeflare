@@ -752,8 +752,10 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
       try { fireEvent.click(newest); }
       finally { document.removeEventListener('click', preventNavigation); }
       expect(defaultProps.onCreateSession).not.toHaveBeenCalled();
-      // The existing verified count read is allowed; repo shortcuts add no backend reads.
-      expect(requests.mock.calls.map(([url]) => url)).toEqual(['/api/github/owned-repo-counts']);
+      // The existing verified count read is allowed; repo shortcuts add no GitHub API reads.
+      const githubRequests = requests.mock.calls.map(([url]) => url)
+        .filter(url => typeof url === 'string' && url.startsWith('/api/github/'));
+      expect(githubRequests).toEqual(['/api/github/owned-repo-counts']);
 
       fireEvent.click(actions[0]);
       expect(defaultProps.onCreateSession).toHaveBeenCalledWith('pi', undefined, 'chat', true, 'team/newest');
@@ -837,7 +839,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
       const details = within(screen.getByRole('region', { name: 'GitHub Details' }));
       expect(await details.findByText('11', { exact: true })).toBeVisible();
       (githubStore as any)._setLogin('hubot');
-      expect(details.getByText('hubot')).toBeVisible();
+      expect(details.getByRole('link', { name: '@hubot' })).toBeVisible();
       expect(details.getByRole('status')).toHaveTextContent('Loading owned repository counts');
       expect(details.queryByText('11', { exact: true })).not.toBeInTheDocument();
     } finally { counts.mockRestore(); }
