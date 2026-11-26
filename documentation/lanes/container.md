@@ -232,7 +232,7 @@ The [adapter fixture](../../host/__tests__/operator-pi.test.js#L114-L133) proves
 
 ### Stock pi-web and the native Pi writer
 
-For a Chat boot failure before the frame appears, look for `[pi-web] service boot failed` in Host logs. The record names the failed preparation operation and elapsed time, with safe failure codes when available. It does not include the restored profile, process output, or private API bodies. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices -->
+For a stock Pi Web service boot failure ([REQ-AGENT-283 AC3](../../sdd/spec/agents.md#req-agent-283-initial-chat-service-recovery)), look for `[pi-web] service boot failed` in Host logs. The record names the failed preparation operation and elapsed time, with safe failure codes when available. It does not include the restored profile, process output, or private API bodies. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices -->
 
 Pi-enabled images [prewarm stock Pi Web](../../sdd/spec/agents.md#req-agent-284-pi-web-image-prewarm) offline using the installed package and a disposable profile. During build verification, both stock services restart with cache writes disabled. The build checks that Node accepts both cached entrypoints and that no conversation opens. Normal runtime launches do not disable cache writes. <!-- @impl: image/pi-web/warm-compile-cache.mjs::verifyBakedCache -->
 

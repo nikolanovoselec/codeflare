@@ -240,18 +240,20 @@ export function createPiWebServices(options: {
         const startedAt = performance.now();
         const diagnostic: { operation: string; healthHttpStatus?: number } = { operation: 'profile-restore' };
         starting = boot(diagnostic).catch(async (error: unknown) => {
-          const stopped = processes.find(({ child, running, spawnErrno }) =>
-            !running || spawnErrno !== undefined || child.exitCode !== null || child.signalCode !== null);
-          const errno = (error as NodeJS.ErrnoException | undefined)?.code ?? stopped?.spawnErrno;
-          const signal = stopped?.child.signalCode;
-          console.warn(`[pi-web] service boot failed ${JSON.stringify({
-            operation: diagnostic.operation, elapsedMs: Math.round(performance.now() - startedAt),
-            errno: errno && bootErrnos.has(errno) ? errno : undefined,
-            role: stopped?.role, exitCode: stopped?.child.exitCode ?? undefined,
-            signal: signal && bootSignals.has(signal) ? signal : undefined,
-            httpStatus: error instanceof StockApiError ? error.status
-              : diagnostic.operation === 'service-health' ? diagnostic.healthHttpStatus : undefined,
-          })}`);
+          if (!shuttingDown) {
+            const stopped = processes.find(({ child, running, spawnErrno }) =>
+              !running || spawnErrno !== undefined || child.exitCode !== null || child.signalCode !== null);
+            const errno = (error as NodeJS.ErrnoException | undefined)?.code ?? stopped?.spawnErrno;
+            const signal = stopped?.child.signalCode;
+            console.warn(`[pi-web] service boot failed ${JSON.stringify({
+              operation: diagnostic.operation, elapsedMs: Math.round(performance.now() - startedAt),
+              errno: errno && bootErrnos.has(errno) ? errno : undefined,
+              role: stopped?.role, exitCode: stopped?.child.exitCode ?? undefined,
+              signal: signal && bootSignals.has(signal) ? signal : undefined,
+              httpStatus: error instanceof StockApiError ? error.status
+                : diagnostic.operation === 'service-health' ? diagnostic.healthHttpStatus : undefined,
+            })}`);
+          }
           await stopProcesses();
           starting = undefined;
           throw error;

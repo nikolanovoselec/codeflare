@@ -125,6 +125,7 @@ async function verifyPackageListFailureDiagnostic() {
   const originalWarn = console.warn;
   const diagnostics = [];
   let pids = [];
+  let childrenAtWarning;
   globalThis.fetch = async (url, ...args) => {
     if (String(url) !== `http://127.0.0.1:${PI_WEB_PORT}/api/pi-packages`) return originalFetch(url, ...args);
     const health = await services.request('/api/sessiond/health');
@@ -132,10 +133,15 @@ async function verifyPackageListFailureDiagnostic() {
     pids = children();
     return new Response('private fixture body must not be logged', { status: 503 });
   };
-  console.warn = (...args) => diagnostics.push(args.join(' '));
+  console.warn = (...args) => {
+    const line = args.join(' ');
+    diagnostics.push(line);
+    if (line.startsWith('[pi-web] service boot failed ')) childrenAtWarning = children();
+  };
   try {
     await assert.rejects(services.start(), /private API returned 503/);
     assert.equal(pids.length, 2);
+    assert.deepEqual(childrenAtWarning, pids, 'report the failure before reaping stock children');
     assert.deepEqual(children(), [], 'failed start must reap both stock children');
     assert.deepEqual(listeners(), [], 'failed start must release the gateway');
   } finally {
@@ -149,6 +155,58 @@ async function verifyPackageListFailureDiagnostic() {
   const { elapsedMs, ...record } = JSON.parse(records[0].slice('[pi-web] service boot failed '.length));
   assert.ok(Number.isFinite(elapsedMs) && elapsedMs >= 0);
   assert.deepEqual(record, { operation: 'package-list', httpStatus: 503 });
+}
+
+async function verifyChildExitDiagnostic() {
+  services = createPiWebServices(options);
+  const originalFetch = globalThis.fetch;
+  const originalWarn = console.warn;
+  const diagnostics = [];
+  let stoppedDaemon = false;
+  globalThis.fetch = async (url, ...args) => {
+    const response = await originalFetch(url, ...args);
+    if (String(url) !== `http://127.0.0.1:${PI_WEB_PORT}/api/sessiond/health` || !response.ok || stoppedDaemon) return response;
+    if (!(await response.clone().json()).ok) return response;
+    const daemon = children().find(pid => read(`/proc/${pid}/cmdline`).split('\0').some(arg => arg.endsWith('/server/sessiond.js')));
+    assert.ok(daemon, 'find the isolated stock daemon by its entrypoint');
+    process.kill(daemon, 'SIGKILL');
+    stoppedDaemon = true;
+    await response.body?.cancel();
+    return Response.json({ ok: false });
+  };
+  console.warn = (...args) => diagnostics.push(args.join(' '));
+  try {
+    await assert.rejects(services.start(), /Stock pi-web process exited/);
+    assert.ok(stoppedDaemon);
+    assert.deepEqual(children(), []);
+  } finally {
+    globalThis.fetch = originalFetch;
+    console.warn = originalWarn;
+    await services.close();
+  }
+  const prefix = '[pi-web] service boot failed ';
+  const records = diagnostics.filter(line => line.startsWith(prefix));
+  assert.equal(records.length, 1);
+  const { elapsedMs, ...record } = JSON.parse(records[0].slice(prefix.length));
+  assert.ok(Number.isFinite(elapsedMs) && elapsedMs >= 0);
+  assert.deepEqual(record, { operation: 'service-health', role: 'sessiond', signal: 'SIGKILL' });
+}
+
+async function verifyIntentionalShutdownIsQuiet() {
+  services = createPiWebServices({ ...options, profileRestored: () => false });
+  const originalWarn = console.warn;
+  const diagnostics = [];
+  console.warn = (...args) => diagnostics.push(args.join(' '));
+  try {
+    const rejected = assert.rejects(services.start(), /startup did not settle/);
+    await services.close();
+    await rejected;
+    assert.deepEqual(children(), []);
+    assert.ok(!diagnostics.some(line => line.startsWith('[pi-web] service boot failed ')));
+  } finally {
+    console.warn = originalWarn;
+    await services.close();
+  }
 }
 
 try {
@@ -185,6 +243,8 @@ try {
   await closeAndCheckReaping();
 
   await verifyPackageListFailureDiagnostic();
+  await verifyChildExitDiagnostic();
+  await verifyIntentionalShutdownIsQuiet();
 
   // Model a restored profile with a preexisting registration. The same path
   // can be an explicit user choice, so startup must leave it alone.

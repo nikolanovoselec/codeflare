@@ -226,7 +226,6 @@ export default function (pi) {
       await once(occupiedGateway, 'listening');
     }
     const restoreTime = performance.now();
-    profileRestored = true;
     let failedBinding;
     async function verifyOccupiedGatewayPreservesProfile() {
       const failed = await until('failed initial service boot', async () => {
@@ -240,10 +239,27 @@ export default function (pi) {
       return failed.requestId;
     }
     if (ambiguous) {
-      const requestId = await verifyOccupiedGatewayPreservesProfile();
+      const warnings = [];
+      const warn = console.warn;
+      let requestId;
+      console.warn = (...args) => warnings.push(args.join(' '));
+      try {
+        profileRestored = true;
+        requestId = await verifyOccupiedGatewayPreservesProfile();
+      } finally {
+        console.warn = warn;
+      }
+      const prefix = '[pi-web] service boot failed ';
+      const records = warnings.filter(line => line.startsWith(prefix));
+      assert.equal(records.length, 1);
+      const { elapsedMs, ...record } = JSON.parse(records[0].slice(prefix.length));
+      assert.ok(Number.isFinite(elapsedMs) && elapsedMs >= 0);
+      assert.deepEqual(record, { operation: 'port-probe', errno: 'EADDRINUSE' });
       failedBinding = identity(runtime.binding);
       await close(occupiedGateway);
       await api('/_switch', 202, { generation, requestId, target: 'chat' });
+    } else {
+      profileRestored = true;
     }
     const chatUrl = await until('Chat deep link', async () => {
       const state = await readSwitch();
