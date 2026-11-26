@@ -91,7 +91,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
   const browserLabel = () => githubStore.enabled ? 'GitHub & Storage' : 'Storage';
   const pullIcon = () => viewport() === 'mobile'
     ? browsersOpen() ? mdiChevronDoubleUp : mdiChevronDoubleDown
-    : browsersOpen() ? mdiChevronDoubleRight : mdiChevronDoubleLeft;
+    : browsersOpen() ? mdiChevronDoubleLeft : mdiChevronDoubleRight;
   createEffect(() => { if (!vibe()) setBrowsersOpen(false); });
 
   onMount(() => createEffect(() => {

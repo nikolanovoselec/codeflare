@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor, within } from '@solidjs/testing-library';
 import { createRoot, createSignal } from 'solid-js';
-import { mdiReflectHorizontal, mdiViewCompactOutline, mdiXml } from '@mdi/js';
+import { mdiChevronDoubleLeft, mdiChevronDoubleRight, mdiReflectHorizontal, mdiViewCompactOutline, mdiXml } from '@mdi/js';
 import Dashboard from '../../components/Dashboard';
 import { createMigrationRetry, MigrationRetryNotice } from '../../components/MigrationRetryNotice';
 import { sessionStore } from '../../stores/session';
@@ -546,6 +546,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     const github = screen.getByTestId('github-panel-stub');
     const storage = screen.getByTestId('storage-browser');
     expect(pull).toHaveAttribute('aria-expanded', 'false');
+    expect(pull.querySelector('svg path')).toHaveAttribute('d', mdiChevronDoubleRight);
     expect(pull).toHaveAttribute('aria-controls', browsers.id);
     expect(browsers).toHaveAttribute('inert');
     expect(github).not.toBeVisible();
@@ -554,6 +555,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     fireEvent.click(pull);
     expect(screen.getByRole('button', { name: 'Hide GitHub & Storage' })).toBe(pull);
     expect(pull).toHaveAttribute('aria-expanded', 'true');
+    expect(pull.querySelector('svg path')).toHaveAttribute('d', mdiChevronDoubleLeft);
     expect(browsers).not.toHaveAttribute('inert');
     expect(github).toBeVisible();
     expect(storage).toBeVisible();

@@ -262,7 +262,7 @@ Repeat with `prefers-reduced-motion: reduce`: the drawer opens and closes withou
 
 With the browsers open and closed, verify Profile stays icon-only and the email appears at the top of its open menu. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard -->
 
-On desktop and tablet, verify the transparent double chevron sits at the summary’s right edge when closed and the browsers’ far right edge when open. It points left when closed and right when open, and bounces slowly sideways. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-pull -->
+On desktop and tablet, verify the transparent double chevron sits at the summary’s right edge when closed and the browsers’ far right edge when open. It points right when closed and left when open, and bounces slowly sideways. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-pull -->
 
 In both states, verify the transparent hit area is 44 × 150 CSS px and that clicking inside it but outside the icon toggles the drawer. Only the chevron is visible, with no peeking trim. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-pull -->
 
