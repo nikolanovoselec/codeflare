@@ -211,10 +211,15 @@ async function qualify(ambiguous) {
     } } }));
     // Only public Pi hooks are added; the image-owned handoff extension
     // still registers and writes all native ownership evidence itself.
+    const commandReceipt = join(home, 'slash-command-receipt');
     writeFileSync(join(extensions, 'held-input.ts'), `
 import { existsSync, writeFileSync } from 'node:fs';
 import { setTimeout as delay } from 'node:timers/promises';
 export default function (pi) {
+  pi.registerCommand('codeflare-fixture', {
+    description: 'Record a harmless fixture argument',
+    handler: async (args, ctx) => writeFileSync(${JSON.stringify(commandReceipt)}, JSON.stringify({ args, id: ctx.sessionManager.getSessionId() })),
+  });
   pi.on('session_start', async (_event, ctx) => {
     if (${!exerciseStartupWaits} || ctx.mode !== 'rpc' || existsSync(${JSON.stringify(startupQuestionSeen)})) return;
     writeFileSync(${JSON.stringify(startupQuestionSeen)}, 'waiting');
@@ -514,7 +519,17 @@ export default function (pi) {
     const uploadFolder = 'attachment-smoke';
     const upload = (status, attachments, overrides = {}, route = ref) => api(`${route}/attachments`, status,
       { cwd, folder: uploadFolder, attachments, ...overrides });
+    const command = (status, text, bodyCwd = cwd, route = ref) =>
+      api(`${route}/commands/run`, status, { cwd: bodyCwd, text });
     if (!ambiguous && !retryOnly) {
+      await command(409, '/codeflare-fixture wrong-session', cwd, `${ref}-wrong`);
+      await command(400, '/codeflare-fixture wrong-workspace', `${cwd}/other`);
+      await command(409, ' /clone ');
+      await command(409, '/fork');
+      assert.equal(existsSync(commandReceipt), false);
+      assert.equal((await command(200, '/codeflare-fixture hello there')).type, 'done');
+      await until('Pi extension processes scoped slash command', () => existsSync(commandReceipt));
+      assert.deepEqual(JSON.parse(readFileSync(commandReceipt, 'utf8')), { args: 'hello there', id });
       const first = Buffer.alloc(6_000_000, 0x31);
       const second = Buffer.alloc(4_000_000, 0x32);
       const batch = [attachment(first), attachment(second)];
@@ -593,6 +608,7 @@ export default function (pi) {
     assert.equal((await health()).activeSessions, 1);
     assert.deepEqual(calls, [seed], 'the parked request has not reached the model');
     await prompt('New prompt after the switch fence', 409);
+    await command(409, '/codeflare-fixture fenced');
     await upload(409, [attachment(Buffer.from('fenced'))], { folder: 'fenced-attachment' });
     assert.equal(existsSync(join(cwd, 'fenced-attachment')), false);
 

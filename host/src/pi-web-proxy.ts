@@ -12,7 +12,7 @@ const maxAttachmentBody = 14 * 1024 * 1024; // Base64 plus bounded JSON metadata
 class BodyTooLarge extends Error {}
 const requestIdPattern = /^[a-f0-9-]{36}$/i;
 const settlers = new Set(['abort', 'ask/submit', 'ask/cancel', 'dialogs/answer', 'dialogs/cancel', 'commands/respond']);
-const sessionMutations = new Set(['prompt', ...settlers, 'queue/message', 'queue/clear', 'unread', 'unread/acknowledge',
+const sessionMutations = new Set(['prompt', 'commands/run', ...settlers, 'queue/message', 'queue/clear', 'unread', 'unread/acknowledge',
   'warnings/dismiss', 'notifications/dismiss', 'notifications/dismiss-all', 'model', 'model/cycle',
   'models/enabled', 'models/scope', 'defaults', 'thinking-level', 'thinking-level/cycle', 'tree/navigate', 'attachments']);
 
@@ -179,6 +179,16 @@ export function createPiWebProxy(options: { sessionId: string; runtime: PiWebRun
           }
         } else if (data.cwd !== runtime.cwd) {
           send(res, 400, { error: 'Workspace does not match the Chat conversation' }); return;
+        }
+        if (endpoint === 'commands/run') {
+          if (typeof data.text !== 'string' || !data.text.trim()) {
+            send(res, 400, { error: 'Chat command text is required' }); return;
+          }
+          // These stock commands create another transcript outside the bound session.
+          const [command] = data.text.trim().replace(/^\//, '').split(/\s+/, 1);
+          if (command === 'clone' || command === 'fork') {
+            send(res, 409, { error: 'Command would leave the active Chat conversation' }); return;
+          }
         }
         body = JSON.stringify(data);
       }

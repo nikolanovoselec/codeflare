@@ -1194,6 +1194,29 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 ---
 
+### REQ-AGENT-285: Scoped slash commands in Pi Chat
+
+**Intent:** Run installed Pi slash commands in the active Chat conversation.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Chat runs a registered slash command with its arguments in the bound conversation and workspace. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (Pi extension processes scoped slash command) -->
+2. A different conversation or workspace, a releasing Chat writer, and the stock Clone and Fork commands cannot start command work through the bound Chat. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (Pi extension processes scoped slash command) -->
+
+**Constraints:** Stock Pi retains command dispatch; no alternate writer or session creation route.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-AGENT-274](#req-agent-274-stock-pi-chat-controls), [REQ-AGENT-272](#req-agent-272-pi-chat-and-terminal-transcript-handoff)
+
+**Verification:** Automated: [Packaged Host handoff smoke](../../scripts/ci/smoke-pi-web-host-handoff.mjs)
+
+**Status:** Implemented
+
+---
+
 ### REQ-AGENT-274: Stock Pi Chat controls
 
 **Intent:** Retain native Pi interactions in the stock browser app.

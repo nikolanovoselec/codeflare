@@ -223,13 +223,15 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 1. Dashboard and session-dropdown actions offer non-deleting Retry Stop for persisted `stopping` and Stop for `unreachable`. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-SESSION-035: offers non-deleting Stop recovery for a persisted %s dashboard session) --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-SESSION-035: offers non-deleting Stop recovery for a persisted %s session) -->
 2. An active local Stop attempt suppresses duplicate submissions; failure or polling cancellation releases the attempt so a retained session can retry. <!-- @impl: web-ui/src/stores/session.ts::stopSession --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-035: suppresses duplicate local Stop submissions until the first attempt finishes) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-035: a failed Stop leaves retry available and retry completes the same session) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-006: a failed Delete during Stop polling leaves Retry Stop usable) -->
 
+3. After Kill confirms exit and a replacement starts, the superseded Stop cannot block another Stop, confirm its exit, or clear its pending attempt. <!-- @impl: web-ui/src/stores/session.ts::stopSession --> <!-- @test: web-ui/src/__tests__/stores/session-kill.test.ts (stops the replacement while the superseded Stop response is pending) -->
+
 **Constraints:** Existing final agent-event drain, final sync, teardown ceilings and storage durability remain unchanged.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-SESSION-006](#req-session-006-user-can-start-stop-restart-and-delete-sessions), [REQ-SESSION-001](#req-session-001-session-creation-with-complete-d1-record), [REQ-SESSION-002](#req-session-002-one-container-per-session-isolation)
 
-**Verification:** Automated: [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [SessionDropdown.test.tsx](../../web-ui/src/__tests__/components/SessionDropdown.test.tsx), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts)
+**Verification:** Automated: [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [SessionDropdown.test.tsx](../../web-ui/src/__tests__/components/SessionDropdown.test.tsx), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts), [session-kill.test.ts](../../web-ui/src/__tests__/stores/session-kill.test.ts)
 
 **Status:** Implemented
 

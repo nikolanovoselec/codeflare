@@ -1583,6 +1583,42 @@ describe('Session Store', () => {
       expect(cloneAttempt(repo)).toBeUndefined();
     });
 
+    it('preserves recovery when batch Stopped supersedes catalog Running', async () => {
+      const id = 'stopped-clone';
+      const repo = 'octocat/stopped-recovery';
+      setCloneAttempt(repo, { phase: 'failed', sessionId: id });
+      mockGetSessions.mockResolvedValue([{ id, name: 'stopped-recovery', status: 'running',
+        generation: 2, revision: 3, createdAt: '2026-01-01T00:00:00Z', lastAccessedAt: '2026-01-01T00:00:00Z' }]);
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: { [id]: { status: 'stopped', generation: 2, revision: 4 } } });
+      try {
+        await sessionStore.loadSessions();
+        expect(sessionStore.sessions.find(session => session.id === id)?.status).toBe('stopped');
+        expect(cloneAttempt(repo)?.sessionId).toBe(id);
+      } finally {
+        setCloneAttempt(repo);
+      }
+    });
+
+    it('clears the saved pending clone when Delete settles before Start', async () => {
+      const id = 'pending-clone-delete';
+      const repo = 'octocat/pending-delete';
+      mockCreateSession.mockResolvedValue({ id, name: 'pending-delete', workspace: 'vscode',
+        createdAt: '2026-01-01T00:00:00Z', lastAccessedAt: '2026-01-01T00:00:00Z' });
+      mockDeleteSession.mockResolvedValueOnce(undefined);
+      vi.mocked(api.startSession).mockReturnValueOnce(() => {});
+      setCloneAttempt(repo, { phase: 'creating', ticket: Symbol() });
+      try {
+        const creating = sessionStore.createSessionWithClone(repo);
+        await vi.waitFor(() => expect(sessionStore.isSessionInitializing(id)).toBe(true));
+        await sessionStore.deleteSession(id);
+        await expect(creating).resolves.toEqual({ sessionId: id, started: false });
+        expect(sessionStore.sessions.some(session => session.id === id)).toBe(false);
+        expect(cloneAttempt(repo)).toBeUndefined();
+      } finally {
+        setCloneAttempt(repo);
+      }
+    });
+
     it('retires recovery only after Delete succeeds', async () => {
       const id = 'deleted-clone';
       const repo = 'octocat/delete-recovery';

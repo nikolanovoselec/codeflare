@@ -441,10 +441,7 @@ async function loadSessions(): Promise<void> {
     sessionMissCounters.clear();
     setState('sessions', sessionsWithStatus);
     setState('loading', false);
-    for (const session of state.sessions) {
-      reconcileKillGeneration(session.id);
-      if (session.status === 'running') forgetCloneAttempt(session.id, true);
-    }
+    for (const session of state.sessions) reconcileKillGeneration(session.id);
     // REQ-VAULT-034 AC2: sweep orphan legacy SilverBullet markers only after
     // an authoritative session-list fetch succeeds. Dashboard mount can
     // see the initial empty store before loadSessions resolves; sweeping
@@ -553,6 +550,7 @@ async function loadSessions(): Promise<void> {
     if (thisGen !== loadSessionsGeneration) return;
     for (const session of state.sessions) {
       reconcileKillGeneration(session.id);
+      if (session.status === 'running') forgetCloneAttempt(session.id, true);
       if (existingStatuses.get(session.id) === 'stopping' && session.status === 'stopped') {
         terminalStore.disposeSession(session.id);
       }
