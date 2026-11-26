@@ -478,6 +478,24 @@ for (const version of Object.keys(GOAL_FIXTURES)) {
       assert.equal(s.harness.messages.length, 0, 'settling the aborted retry does not queue Goal work');
     });
 
+    it('REQ-AGENT-273 AC2: retryable agent_end at the stall deadline aborts before native retry', async t => {
+      const s = await createStallScenario(t, version, { minIntervalMs: 1_440_000 });
+      await s.begin();
+      await s.report('stalled');
+      await s.finish();
+      const deadline = s.state().stalledSince + 1_500_000;
+      t.mock.timers.tick(1_440_000);
+      await s.begin();
+      s.harness.ctx.isIdle = () => false;
+      t.mock.timers.setTime(deadline); // Advance wall time without running the deadline callback.
+      assert.equal(s.state().status, 'active');
+      await s.finish('Provider unavailable.', 1, '503 Service Unavailable', false);
+      assert.equal(s.state().status, 'blocked');
+      assert.deepEqual(s.harness.aborts, [deadline], 'abort before the agent_end hook returns to Pi');
+      const hook = await s.harness.dispatch('tool_call', { toolName: 'read', input: { path: 'stale.txt' } });
+      assert.equal(hook?.block, true, 'still reject stale tool calls from the stopped Goal');
+    });
+
     it('REQ-AGENT-272 AC3: a backward clock correction rearms at the earlier stall deadline, not the next dispatch', async t => {
       const s = await createStallScenario(t, version, { minIntervalMs: 1_800_000 });
       await s.begin();
@@ -523,6 +541,30 @@ for (const version of Object.keys(GOAL_FIXTURES)) {
         assert.deepEqual(s.harness.aborts, []);
       });
     }
+
+    it('REQ-AGENT-273 AC2: a queued Goal prompt takes over a custom-triggered run before stall expiry', async t => {
+      const s = await createStallScenario(t, version);
+      await s.begin();
+      await s.finish();
+      const message = { role: 'custom', customType: 'external-notification', content: 'External notification', display: true };
+      s.harness.ctx.isIdle = () => false;
+      await s.harness.dispatch('before_agent_start', { messageType: 'custom', message, systemPrompt: '' });
+      await s.harness.dispatch('agent_start');
+      await s.harness.dispatch('message_start', { message });
+      s.harness.ctx.ui.confirm = async () => true;
+      await s.harness.commands.get('goal').handler('Finish the replacement objective', s.harness.ctx);
+      const queued = s.harness.messages.shift();
+      assert.equal(queued?.options.deliverAs, 'followUp');
+      await s.harness.dispatch('input', { source: 'extension', text: queued.content, streamingBehavior: 'followUp' });
+      await s.harness.dispatch('message_start', { message: { role: 'user', content: queued.content } });
+      await s.report('stalled');
+      const deadline = Date.now() + 1_500_000;
+      t.mock.timers.tick(1_500_000);
+      assert.equal(s.state().status, 'blocked');
+      assert.deepEqual(s.harness.aborts, [deadline], 'the run now belongs to the Goal');
+      const hook = await s.harness.dispatch('tool_call', { toolName: 'read', input: { path: 'stale.txt' } });
+      assert.equal(hook?.block, true, 'still reject stale tool calls from the stopped Goal');
+    });
 
     it('REQ-AGENT-272 AC3: evidenced advancement cancels an existing in-flight stall deadline', async t => {
       const s = await createStallScenario(t, version);

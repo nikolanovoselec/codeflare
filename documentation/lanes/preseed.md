@@ -1685,7 +1685,7 @@ The [captured migration baseline](https://github.com/nikolanovoselec/codeflare/b
 
 Use the existing measure-pi-runtime-context.mjs, measure-seed-tokens.mjs, verify-pi-prompt.mjs, pi-prompt-contract.mjs and pi-prompt-rule-ledger.json procedures and receipts. These are existing local faux-provider/resource-loading methods, not authorization to materialize or run SDKs now. Separate registered schemas from controlled prompt and initially active tools. Do not alter limits, remove retained policy categories, move text into schemas to hide cost, or add an arbitrary tool-token threshold. Signed managed delivery and live provider acceptance remain separately owned.
 
-For an ordinary prompt without workflow exceptions, only registered `read`, `bash`, `edit`, `write`, and `capability` tools are eligible for initial exposure.
+For an ordinary prompt without workflow exceptions, only registered `read`, `bash`, `edit`, `write`, and `capability` tools are eligible for initial exposure ([REQ-AGENT-158 AC1](../../sdd/spec/agents.md#req-agent-158-bounded-initial-pi-tool-exposure)).
 
 | Contract | Action | Required observation |
 |---|---|---|

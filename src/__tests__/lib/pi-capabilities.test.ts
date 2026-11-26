@@ -688,7 +688,7 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
           customType: 'plan-mode-state',
           data: {
             enabled: true,
-            workflowToolPolicy: { allowedNames: ['read', 'graphify_query'], resolved: true },
+            workflowToolPolicy: { kind: 'automatic', allowedNames: ['read', 'graphify_query'], resolved: true },
           },
         }],
       },
@@ -706,7 +706,15 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
       'goal_progress', 'goal_complete', 'goal_blocked'].map(name => ({ name, description: name })) });
     const handlers = new EventRegistry();
     registerInitialToolFilter({ ...base, on: (name, handler) => handlers.set(name, handler) }, () => 'always');
-    for (const workflowToolPolicy of [undefined, { allowedNames: ['read', 42], resolved: true }]) {
+    for (const workflowToolPolicy of [
+      undefined,
+      { kind: 'automatic', allowedNames: ['read', 42], resolved: true },
+      { allowedNames: ['graphify_query'], resolved: true },
+      { kind: 'other', allowedNames: ['graphify_query'], resolved: true },
+      { kind: 'automatic', allowedNames: ['graphify_query'], resolved: 'yes' },
+      { kind: 'explicit', allowedNames: ['graphify_query'], resolved: true },
+      { kind: 'explicit', desiredNames: [42], allowedNames: ['graphify_query'], resolved: true },
+    ]) {
       handlers.get('before_agent_start')?.({}, {
         sessionManager: { getBranch: () => [{ type: 'custom', customType: 'plan-mode-state',
           data: { enabled: true, workflowToolPolicy } }] },

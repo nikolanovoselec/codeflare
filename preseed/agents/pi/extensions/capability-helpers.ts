@@ -139,9 +139,15 @@ function activePlanTools(pi: ToolActivationPi, ctx: SessionContext): string[] | 
     return undefined;
   }
   const policy = Reflect.get(latest.data, "workflowToolPolicy");
-  if (!policy || typeof policy !== "object") return initialActiveTools(pi);
+  if (!policy || typeof policy !== "object" || Array.isArray(policy)) return initialActiveTools(pi);
+  const kind = Reflect.get(policy, "kind");
   const allowedNames = Reflect.get(policy, "allowedNames");
-  if (!Array.isArray(allowedNames) || allowedNames.some((name) => typeof name !== "string")) return initialActiveTools(pi);
+  if ((kind !== "automatic" && kind !== "explicit") || typeof Reflect.get(policy, "resolved") !== "boolean"
+    || !Array.isArray(allowedNames) || !allowedNames.every((name) => typeof name === "string")) return initialActiveTools(pi);
+  if (kind === "explicit") {
+    const desiredNames = Reflect.get(policy, "desiredNames");
+    if (!Array.isArray(desiredNames) || !desiredNames.every((name) => typeof name === "string")) return initialActiveTools(pi);
+  }
   return registeredTools(pi, [...allowedNames, ...PLAN_HELPER_TOOLS]);
 }
 
