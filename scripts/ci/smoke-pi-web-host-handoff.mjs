@@ -578,6 +578,12 @@ export default function (pi) {
       await until('normal saved Chat reply', async () => await writer() === 'idle' &&
         text(messages(readFileSync(path, 'utf8')).at(-1)?.content) === reply);
       assert.deepEqual(calls, [seed]);
+      if (!retryOnly) {
+        const beforeTree = lastInput();
+        await until('clock advances past Tree baseline', () => Date.now() > (beforeTree ?? 0));
+        assert.equal((await command(200, '/tree')).type, 'tree');
+        assert.equal(lastInput(), beforeTree, 'read-only Tree does not advance the idle input clock');
+      }
     }
     const saved = readFileSync(path, 'utf8');
     const requestId = randomUUID();

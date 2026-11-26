@@ -1202,8 +1202,10 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Acceptance Criteria:**
 
-1. Chat runs a registered slash command with its arguments in the bound conversation and workspace. Successful work updates idle activity; rejected or unsupported commands do not. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualify) -->
+1. Chat runs a registered slash command with its arguments in the bound conversation and workspace. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualify) -->
 2. A different conversation or workspace, a releasing Chat writer, and the stock Clone and Fork commands cannot start command work through the bound Chat. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualify) -->
+
+3. A successful command updates idle activity. Rejected or unsupported commands and read-only `/tree` do not. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualify) -->
 
 **Constraints:** Stock Pi retains command dispatch; no alternate writer or session creation route.
 

@@ -156,17 +156,17 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 
 ### REQ-SESSION-005: Input-based idle detection
 
-**Intent:** Idle detection uses classified terminal input and client-to-server Browser IDE frames, not connection presence or server output.
+**Intent:** Idle detection uses classified Terminal, Browser IDE, and Chat input, not connection presence or server output.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The host tracks one last-input timestamp shared by terminal input and client-to-server Browser IDE frames. <!-- @impl: host/src/activity-tracker.ts::createActivityTracker --> <!-- @impl: host/src/vscode-proxy.ts::bridgeVscodeClientMessages --> <!-- @test: host/__tests__/openvscode-proxy.test.js (REQ-IDE-004: advances the idle policy lastInputAt for every client-to-server frame) -->
+1. The host tracks one last-input timestamp shared by Terminal, Browser IDE, and Chat input. <!-- @impl: host/src/activity-tracker.ts::createActivityTracker --> <!-- @impl: host/src/vscode-proxy.ts::bridgeVscodeClientMessages --> <!-- @test: host/__tests__/openvscode-proxy.test.js (REQ-IDE-004: advances the idle policy lastInputAt for every client-to-server frame) -->
 2. User-input classification uses a whitelist: printable characters, control keys, arrow keys, function keys, Alt+key, and mouse clicks count as input. <!-- @impl: host/src/session.ts::containsUserInput --> <!-- @impl: host/src/session.ts::write --> <!-- @test: host/__tests__/session-wire-protocol.test.js (forwards ${name} unchanged and advances real lastInputAt) -->
 3. Terminal protocol responses (cursor-position reports, OSC color queries, mouse movement, device-attribute reports) do not count as input. <!-- @impl: host/src/session.ts::containsUserInput --> <!-- @test: host/__tests__/session-wire-protocol.test.js (handles ${name} PTY bytes without changing real lastInputAt) -->
 4. Only 7-bit CPR (two nonempty decimal fields), OSC 10/11/12 (BEL/ESC-free payload; BEL or ESC-backslash terminator), and DA1 (CSI `?`, zero or more digits/semicolons, `c`) are stripped before PTY writes. DA2 and focus reports remain forwarded non-input; classification is separate. <!-- @impl: host/src/session.ts::stripTerminalResponses --> <!-- @impl: host/src/session.ts::write --> <!-- @test: host/__tests__/session-wire-protocol.test.js (filters mixed ${name} while advancing real lastInputAt) -->
-5. Idle detection reads the authoritative host timestamp, which advances only for classified terminal input or client-to-server Browser IDE frames; background process and server-to-client output cannot reset it. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: host/src/vscode-proxy.ts::bridgeVscodeClientMessages --> <!-- @manual -->
+5. Idle detection reads the authoritative host timestamp, which advances for classified Terminal input, client-to-server Browser IDE frames, and accepted Chat input. Background processes and server output cannot reset it. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualify) --> <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: host/src/vscode-proxy.ts::bridgeVscodeClientMessages --> <!-- @manual -->
 
 **Constraints:**
 
@@ -177,7 +177,7 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 
 **Dependencies:** None.
 
-**Verification:** Automated: [openvscode-proxy.test.js](../../host/__tests__/openvscode-proxy.test.js), [session-wire-protocol.test.js](../../host/__tests__/session-wire-protocol.test.js), [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts); Manual: [Session policy and preference record acceptance](../../documentation/lanes/container.md#session-policy-and-preference-record-acceptance)
+**Verification:** Automated: [openvscode-proxy.test.js](../../host/__tests__/openvscode-proxy.test.js), [session-wire-protocol.test.js](../../host/__tests__/session-wire-protocol.test.js), [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts), [Chat activity smoke](../../scripts/ci/smoke-pi-web-host-handoff.mjs); Manual: [Session policy and preference record acceptance](../../documentation/lanes/container.md#session-policy-and-preference-record-acceptance)
 
 **Status:** Implemented
 

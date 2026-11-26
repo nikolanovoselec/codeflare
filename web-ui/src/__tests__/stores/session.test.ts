@@ -1585,6 +1585,8 @@ describe('Session Store', () => {
     });
 
     it.each([false, true])('preserves recovery when batch Stopped supersedes catalog Running (prior Kill: %s)', async priorKill => {
+      // The real startup guard requires a nonzero timestamp.
+      vi.setSystemTime(new Date('2026-01-01T00:00:01Z'));
       const id = 'stopped-clone';
       const repo = 'octocat/stopped-recovery';
       const session = { id, name: 'stopped-recovery', status: 'running' as const,

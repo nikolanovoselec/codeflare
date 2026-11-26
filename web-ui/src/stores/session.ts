@@ -215,7 +215,7 @@ registerR2ReadinessDeps({
 
 // ── Core session helpers ────────────────────────────────────────────────────
 
-function updateSessionStatus(id: string, status: SessionStatus, deferCloneRetirement = false): void {
+function updateSessionStatus(id: string, status: SessionStatus, deferRunningEffects = false): void {
   const index = state.sessions.findIndex((sess) => sess.id === id);
   if (index !== -1) {
     if (status === 'stopped') {
@@ -226,8 +226,8 @@ function updateSessionStatus(id: string, status: SessionStatus, deferCloneRetire
       status = 'stopping';
     }
     setState('sessions', index, 'status', status);
-    if (status === 'running') {
-      if (!deferCloneRetirement) forgetCloneAttempt(id, true);
+    if (status === 'running' && !deferRunningEffects) {
+      forgetCloneAttempt(id, true);
       markSessionStarted(id);
     }
     if (status === 'stopped' || status === 'stopping') clearSessionStartedGuard(id);
@@ -327,17 +327,19 @@ function releaseKillAttempt(id: string): void {
   if (localKillAttempts.delete(id)) setTerminationRevision(value => value + 1);
 }
 
-function reconcileKillGeneration(id: string, deferCloneRetirement = false): void {
+function reconcileKillGeneration(id: string, deferRunningEffects = false): boolean {
   const attempt = localKillAttempts.get(id);
   const session = state.sessions.find((candidate) => candidate.id === id);
-  if (!attempt || !session) return;
+  if (!attempt || !session) return false;
   if (session.generation !== attempt.generation) {
     // A command for the old runtime must not pin a replacement as stopping.
     releaseKillAttempt(id);
-    if (session.lifecycle) updateSessionStatus(id, session.lifecycle, deferCloneRetirement);
+    if (session.lifecycle) updateSessionStatus(id, session.lifecycle, deferRunningEffects);
+    return session.lifecycle === 'running';
   } else if (session.status === 'stopped') {
     releaseKillAttempt(id);
   }
+  return false;
 }
 
 function isLocallyStopping(id: string): boolean {
@@ -441,7 +443,10 @@ async function loadSessions(): Promise<void> {
     sessionMissCounters.clear();
     setState('sessions', sessionsWithStatus);
     setState('loading', false);
-    for (const session of state.sessions) reconcileKillGeneration(session.id, true);
+    const provisionalRunning = new Set<string>();
+    for (const session of state.sessions) {
+      if (reconcileKillGeneration(session.id, true)) provisionalRunning.add(session.id);
+    }
     // REQ-VAULT-034 AC2: sweep orphan legacy SilverBullet markers only after
     // an authoritative session-list fetch succeeds. Dashboard mount can
     // see the initial empty store before loadSessions resolves; sweeping
@@ -550,7 +555,10 @@ async function loadSessions(): Promise<void> {
     if (thisGen !== loadSessionsGeneration) return;
     for (const session of state.sessions) {
       reconcileKillGeneration(session.id);
-      if (session.status === 'running') forgetCloneAttempt(session.id, true);
+      if (session.status === 'running') {
+        forgetCloneAttempt(session.id, true);
+        if (provisionalRunning.has(session.id)) markSessionStarted(session.id);
+      }
       if (existingStatuses.get(session.id) === 'stopping' && session.status === 'stopped') {
         terminalStore.disposeSession(session.id);
       }
