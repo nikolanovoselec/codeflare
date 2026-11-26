@@ -111,6 +111,8 @@ export function createPiWebServices(options: {
   }
 
   async function boot(diagnostic: { operation: string; healthHttpStatus?: number }): Promise<void> {
+    const startedAt = performance.now();
+    const elapsed = () => Math.round(performance.now() - startedAt);
     const mark = (operation: string) => { diagnostic.operation = operation; };
     const bootRequest = <T>(path: string, body?: object) => request<T>(path, body, bootShutdown.signal);
     mark('profile-restore');
@@ -195,6 +197,7 @@ export function createPiWebServices(options: {
     launch('pi-web-sessiond.sh', env);
     mark('gateway-launch');
     launch('pi-web-server.sh', env);
+    const launchMs = elapsed();
     mark('service-health');
     await until(async () => {
       if (processes.some(process => !process.running)) throw new Error('Stock pi-web process exited');
@@ -205,8 +208,10 @@ export function createPiWebServices(options: {
         return false;
       }
     }, 30_000);
+    const healthyMs = elapsed();
     mark('package-list');
     const packages = await bootRequest<{ packages: { source: string; scope: string }[] }>('/api/pi-packages');
+    const listedMs = elapsed();
     const userSources = new Set(packages.packages.filter(row => row.scope === 'user').map(row => row.source));
     let expectedPackages = before;
     // A restored registration of this exact bundled source must not block Chat.
@@ -236,6 +241,7 @@ export function createPiWebServices(options: {
         if (!removed.removed) throw new Error('Bundled MCP Manager could not be dismissed');
       }
     }
+    console.info(`[pi-web] service boot timing ${JSON.stringify({ launchMs, healthyMs, listedMs, readyMs: elapsed() })}`);
   }
 
   return {

@@ -169,6 +169,9 @@ async function qualify(ambiguous) {
   });
   let startupEvents;
   const occupiedGateway = createServer((_req, res) => res.writeHead(503).end());
+  const startupLogs = [];
+  const info = console.info;
+  console.info = (...args) => { startupLogs.push(args.join(' ')); info(...args); };
   try {
     mkdirSync(cwd);
     mkdirSync(extensions, { recursive: true });
@@ -373,6 +376,19 @@ export default function (pi) {
     assert.equal((await firstSnapshot).status.sessionId, id);
     await until('image-managed Chat writer ready', () => runtime.ready);
     await boot;
+    console.info = info;
+    const timings = (name, fields) => {
+      const prefix = `[pi-web] ${name} `;
+      const rows = startupLogs.filter(line => line.startsWith(prefix));
+      assert.equal(rows.length >= 1, true, `record ${name}`);
+      const record = JSON.parse(rows.at(-1).slice(prefix.length));
+      assert.deepEqual(Object.keys(record).sort(), [...fields].sort(), 'timing record contains only bounded milestones');
+      for (const key of fields) assert.ok(Number.isSafeInteger(record[key]) && record[key] >= 0, key);
+      return record;
+    };
+    const services = timings('service boot timing', ['launchMs', 'healthyMs', 'listedMs', 'readyMs']);
+    assert.ok(services.launchMs <= services.healthyMs && services.healthyMs <= services.listedMs && services.listedMs <= services.readyMs);
+    timings('Chat open timing', ['serviceWaitMs', 'projectWorkspaceMs', 'frameAdmissionMs', 'writerReceiptMs']);
     assert.notEqual((await readSwitch()).startupQuestion, true);
     const source = chat();
     assert.deepEqual(identity(source), { id, cwd, path });
@@ -685,6 +701,7 @@ export default function (pi) {
     startupEvents?.terminate();
     globalThis.fetch = nativeFetch;
     http.request = nativeHttpRequest;
+    console.info = info;
     writeFileSync(resume, '');
     writeFileSync(nativeResume, '');
     await Promise.all([proxy.close(), close(server), close(modelServer), close(occupiedGateway)]);

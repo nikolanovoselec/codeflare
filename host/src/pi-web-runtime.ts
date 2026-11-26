@@ -70,6 +70,7 @@ export function createPiWebRuntime(options: {
   let chatUrl: string | undefined;
   let chatStartup: AbortController | undefined;
   let chatAttachDeadline: number | undefined;
+  let chatAttachedAt: number | undefined;
   let chatReady = false;
   let chatCatalog: string | undefined;
   let preparedChatServices: Promise<void> | undefined;
@@ -196,8 +197,10 @@ export function createPiWebRuntime(options: {
   }
 
   async function openChat(ref: PiTranscript): Promise<boolean> {
+    const startedAt = performance.now();
     chatStartup = new AbortController();
     chatAttachDeadline = undefined;
+    chatAttachedAt = undefined;
     const requestId = handoff.status().requestId;
     let questionPauseStarted: number | undefined;
     let questionAllowance = STARTUP_QUESTION_ALLOWANCE_MS;
@@ -206,6 +209,7 @@ export function createPiWebRuntime(options: {
       const preparation = preparedChatServices;
       preparedChatServices = undefined;
       await (preparation ?? services.start());
+      const servicesReadyAt = performance.now();
       startupStage = 'project and workspace setup';
       let project = (await services.request<Array<{ path: string; id: string }>>('/api/projects')).find(row => row.path === cwd);
       project ??= await services.request('/api/projects', { path: cwd });
@@ -217,6 +221,7 @@ export function createPiWebRuntime(options: {
       save(ref);
       chatCatalog = `/api/plugin-catalog/projects/${encodeURIComponent(project.id)}/workspaces/${encodeURIComponent(workspace.id)}/sessions/${encodeURIComponent(ref.id)}`;
       chatUrl = `/api/pi-web/${sessionId}/g/${generation}/?${new URLSearchParams({ project: project.id, workspace: workspace.id, session: ref.id, view: 'chat' })}`;
+      const urlPublishedAt = performance.now();
       startupStage = 'writer attachment';
       // The Ready screen may wait indefinitely for Open. Start the writer
       // confirmation budget only when the scoped browser frame attaches.
@@ -242,7 +247,15 @@ export function createPiWebRuntime(options: {
         }
         return writerConfirmed ? true : undefined;
       }, chatStartup.signal);
+      const writerConfirmedAt = performance.now();
       chatReady = true;
+      const attachedAt = chatAttachedAt;
+      console.info(`[pi-web] Chat open timing ${JSON.stringify({
+        serviceWaitMs: Math.round(servicesReadyAt - startedAt),
+        projectWorkspaceMs: Math.round(urlPublishedAt - servicesReadyAt),
+        frameAdmissionMs: attachedAt === undefined ? null : Math.round(attachedAt - urlPublishedAt),
+        writerReceiptMs: attachedAt === undefined ? null : Math.round(writerConfirmedAt - attachedAt),
+      })}`);
       return true;
     } catch (error) {
       if (!chatStartup.signal.aborted) {
@@ -492,7 +505,10 @@ export function createPiWebRuntime(options: {
     get generation() { return generation; },
     get legacyHerdr() { return legacyHerdr; },
     get cwd() { return cwd; },
-    beginChatAttachment() { chatAttachDeadline ??= Date.now() + CHAT_ATTACH_TIMEOUT_MS; },
+    beginChatAttachment() {
+      chatAttachedAt ??= performance.now();
+      chatAttachDeadline ??= Date.now() + CHAT_ATTACH_TIMEOUT_MS;
+    },
     markWebRequestUnconfirmed() { webRequestUnconfirmed = true; },
     status() {
       const state = handoff.status();
