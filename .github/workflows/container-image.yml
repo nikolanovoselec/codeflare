@@ -479,6 +479,22 @@ jobs:
             fi
           '
 
+      - name: Profile packaged Pi Web startup offline
+        if: steps.reuse.outputs.reused != 'true' && inputs.environment == 'enterprise integration' && contains(steps.hash.outputs.coding_agents, 'pi')
+        continue-on-error: true # Diagnostic only; the existing image qualification remains binding.
+        env:
+          IMAGE: ${{ steps.docker-build.outputs.local_ref }}
+        run: |
+          set -euo pipefail
+          image_id=$(docker image inspect "$IMAGE" --format '{{.Id}}')
+          [[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]]
+          docker run --rm --init --pull=never --network=none --read-only --no-healthcheck \
+            --cap-drop=ALL --security-opt=no-new-privileges \
+            --tmpfs /home/user:rw,mode=0700,size=64m --tmpfs /tmp:rw,mode=1777,size=256m \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/scripts/ci/diagnose-pi-web-startup.mjs,dst=/probe.mjs,readonly" \
+            --entrypoint /usr/bin/timeout "$image_id" -k 10s 5m /usr/bin/env -i \
+            PATH=/usr/local/bin:/usr/bin:/bin /usr/local/bin/node /probe.mjs
+
       - name: Verify image-baked TypeScript syntax parser
         if: steps.reuse.outputs.reused != 'true'
         env:

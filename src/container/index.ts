@@ -33,9 +33,9 @@ import { Container } from '@cloudflare/containers';
 import { captureRawValue } from '../../host/src/operator-raw-logging';
 import { DispatcherSdkStorageError, handleDispatcherSdkCredentials, type DispatcherSdkCredentialResult, type SdkStorageScope, type SdkCredentialAuthority } from '../operators/dispatcher-sdk-storage';
 import { PiSurfaceSchema, type Env, type ManagedResourcePolicy, type PiSurface, type SessionWorkspace, type TabConfig, type TerminalMode } from '../types';
-import { isPiWebEligible, isPiWebPath, matchesPiWebGeneration, PI_WEB_GENERATION_HEADER, piWebSessionId } from './pi-web';
+import { isPiWebEligible, isPiWebPath, matchesPiWebGeneration, PI_WEB_GENERATION_HEADER, piWebAppPrefix, piWebSessionId } from './pi-web';
 import type { PiDefaultSource } from '../lib/personal-pi-policy';
-import type { OperatorLoggingContext } from '../lib/container-helpers';
+import type { OperatorLoggingContext, PiWebReadAuthority } from '../lib/container-helpers';
 import { getR2Config } from '../lib/r2-config';
 import { createHash } from 'node:crypto';
 import { AGENTS_SEEDED_CONFIGS } from '../lib/agent-seed.generated';
@@ -1107,8 +1107,41 @@ export class container extends Container<Env> implements ContainerEnvState {
     return storedGeneration === generation && shutdown == null && stillOwned();
   }
 
+  /** Parent-only passive app dispatch. The two authority checks still bracket I/O. */
+  async forwardPiWebRead(request: Request, authority: PiWebReadAuthority): Promise<Response> {
+    const url = new URL(request.url);
+    if (typeof authority?.bucket !== 'string' || typeof authority.sessionId !== 'string'
+      || typeof authority.email !== 'string' || !authority.email || !Number.isSafeInteger(authority.generation) || authority.generation < 1
+      || piWebSessionId(url.pathname) !== authority.sessionId
+      || !url.pathname.startsWith(piWebAppPrefix(authority.sessionId, authority.generation))
+      || request.headers.get(PI_WEB_GENERATION_HEADER) !== String(authority.generation)
+      || (request.method !== 'GET' && request.method !== 'HEAD') || request.headers.has('Upgrade')) {
+      return Response.json({ error: 'Invalid Pi web app read' }, { status: 400 });
+    }
+    const epoch = this._teardownEpoch;
+    const stillOwned = () => this._bucketName === authority.bucket && this._sessionId === authority.sessionId
+      && this._userEmail?.toLowerCase() === authority.email.toLowerCase() && this._teardownEpoch === epoch
+      && !this._operatorContainerProfile && !this._operatorPolicy && !this._shutdownStartedAt
+      && !this.sessionStopInFlight && !this.sessionKillInFlight;
+    try {
+      const ordinary = await getPersonalPiSession(this.interceptionHost, authority, true);
+      if (ordinary.generation !== authority.generation || !stillOwned()) {
+        return Response.json({ error: 'Pi web generation changed' }, { status: 409 });
+      }
+    } catch (error) {
+      if (error instanceof AppError) return Response.json(error.toJSON(), { status: error.statusCode });
+      throw error;
+    }
+    return this.forwardExistingPort(request, undefined, stillOwned);
+  }
+
   /** Low-level port forwarding cannot start a replacement or trust stale SDK state. */
   async forwardExisting(request: Request, loggingContext?: OperatorLoggingContext): Promise<Response> {
+    return this.forwardExistingPort(request, loggingContext);
+  }
+
+  private async forwardExistingPort(request: Request, loggingContext?: OperatorLoggingContext,
+    stillOwned?: () => boolean): Promise<Response> {
     const token = await this.ctx.storage.get<string>('containerAuthToken');
     if (!this.ctx.container || !token) return new Response('Existing container unavailable', { status: 503 });
     try {
@@ -1116,7 +1149,7 @@ export class container extends Container<Env> implements ContainerEnvState {
       // query, method and upgrade headers, but never forward its HTTPS origin.
       const url = new URL(request.url);
       const piWeb = isPiWebPath(url.pathname);
-      if (piWeb && !await this.admitsPiWeb(url, request.headers)) {
+      if (piWeb && (!await this.admitsPiWeb(url, request.headers) || (stillOwned && !stillOwned()))) {
         return Response.json({ error: 'Pi web lifecycle no longer authorized' }, { status: 409 });
       }
       const privateUrl = new URL('http://container');

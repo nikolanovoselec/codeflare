@@ -317,6 +317,11 @@ const Layout: Component<LayoutProps> = (props) => {
   createEffect(() => {
     if (selectedStartupSurface() && piWebStatus()?.surface) setStartupSurface(undefined);
   });
+  const showOpenChatPanel = createMemo(() => {
+    const id = piWebSid();
+    return !!id && showTerminal() && showPiWebPanel() && displayedPi().surface === 'chat'
+      && !!shownChatStatus().frame && !sessionStore.isSessionInitializing(id);
+  });
   const piWebProblem = () => piWeb()?.mutationError()
     ?? (piWeb()?.unavailable() && (piWebStatus() || awaitingChatStart()) ? 'Could not read the current Pi surface.' : undefined);
   const canCancelPiWeb = () => !!piWebStatus()?.requestId && piWeb()?.mutation() !== 'cancel';
@@ -928,10 +933,11 @@ const Layout: Component<LayoutProps> = (props) => {
   };
 
   const [launchingVibe, setLaunchingVibe] = createSignal(false);
-  const createAndStartSession = async (name: string, agentType?: AgentType, tabConfig?: TabConfig[], selectedSurface?: PiSurface, implicitAgent = false) => {
+  const createAndStartSession = async (name: string, agentType?: AgentType, tabConfig?: TabConfig[], selectedSurface?: PiSurface, implicitAgent = false, repo?: string) => {
     const surface = modeAvailable() ? selectedSurface : undefined;
+    if (repo && surface !== 'chat') return;
     const session = surface
-      ? await sessionStore.createSession(name, agentType, tabConfig, undefined, surface)
+      ? await sessionStore.createSession(name, agentType, tabConfig, repo ? { repo } : undefined, surface)
       : await sessionStore.createSession(name, agentType, tabConfig);
     if (!session) return;
     const eligible = modeAvailable() && isPiWebSession(session);
@@ -959,10 +965,10 @@ const Layout: Component<LayoutProps> = (props) => {
     }
   };
 
-  const handleCreateSession: typeof createAndStartSession = async (name, agent, tabs, surface, implicitAgent) => {
+  const handleCreateSession: typeof createAndStartSession = async (name, agent, tabs, surface, implicitAgent, repo) => {
     if (implicitAgent && launchingVibe()) return;
     if (implicitAgent) setLaunchingVibe(true);
-    try { await createAndStartSession(name, agent, tabs, surface, implicitAgent); }
+    try { await createAndStartSession(name, agent, tabs, surface, implicitAgent, repo); }
     finally { if (implicitAgent) setLaunchingVibe(false); }
   };
 
@@ -1153,135 +1159,138 @@ const Layout: Component<LayoutProps> = (props) => {
         </div>
       </Show>
 
-      {/* Header - only shown when not on dashboard */}
-      <Show when={!showDashboard()}>
-        <Header
-          userName={props.userName}
-          onSettingsClick={handleSettingsClick}
-          onStoragePanelToggle={handleStoragePanelToggle}
-          onVaultOpen={sessionStore.activeSessionId && sessionStore.preferences.sessionMode === 'advanced'
-            ? handleVaultOpen
-            : undefined}
-          onVscodeOpen={sessionStore.activeSessionId
-            && sessionStore.preferences.sessionMode === 'advanced'
-            && sessionStore.getActiveSession()?.status === 'running'
-            ? handleVscodeOpen
-            : undefined}
-          workspaceMode={sessionWorkspaceMode()}
-          vaultReady={vaultReady()}
-          vaultStatus={vaultButtonStatus()}
-          onLogoClick={showDashboard() ? undefined : handleOpenDashboard}
-          sessions={sessionStore.sessions}
-          activeSessionId={sessionStore.activeSessionId}
-          onSelectSession={handleSelectSession}
-          onStopSession={handleStopSession}
-          onDeleteSession={handleDeleteSession}
-          onCreateSession={handleCreateSession}
-          onOpenMultiView={handleOpenMultiView}
-          onCloseMultiView={handleCloseMultiView}
-        />
-      </Show>
+      <div class="layout-workspace" classList={{ 'layout-workspace--chat': showOpenChatPanel() }}
+        role={showOpenChatPanel() ? 'group' : undefined} aria-label={showOpenChatPanel() ? 'Vibe Chat' : undefined}>
+        {/* Header - only shown when not on dashboard */}
+        <Show when={!showDashboard()}>
+          <Header
+            userName={props.userName}
+            onSettingsClick={handleSettingsClick}
+            onStoragePanelToggle={handleStoragePanelToggle}
+            onVaultOpen={sessionStore.activeSessionId && sessionStore.preferences.sessionMode === 'advanced'
+              ? handleVaultOpen
+              : undefined}
+            onVscodeOpen={sessionStore.activeSessionId
+              && sessionStore.preferences.sessionMode === 'advanced'
+              && sessionStore.getActiveSession()?.status === 'running'
+              ? handleVscodeOpen
+              : undefined}
+            workspaceMode={sessionWorkspaceMode()}
+            vaultReady={vaultReady()}
+            vaultStatus={vaultButtonStatus()}
+            onLogoClick={showDashboard() ? undefined : handleOpenDashboard}
+            sessions={sessionStore.sessions}
+            activeSessionId={sessionStore.activeSessionId}
+            onSelectSession={handleSelectSession}
+            onStopSession={handleStopSession}
+            onDeleteSession={handleDeleteSession}
+            onCreateSession={handleCreateSession}
+            onOpenMultiView={handleOpenMultiView}
+            onCloseMultiView={handleCloseMultiView}
+          />
+        </Show>
 
-      {/* Middle section - main content */}
-      <div class="layout-middle">
-        {/* Main content */}
-        <TerminalArea
-          workspaceMode={dashboardWorkspaceMode()}
-          launchingVibe={launchingVibe()}
-          migrationRetry={migrationRetry}
-          repositoryRestoreNotices={
-            <section class="repository-restore-notices" aria-label="Activity notifications">
-              <MigrationRetryNotice retry={migrationRetry} />
-              <For each={Object.keys(sessionStore.repositoryRestoreNotices ?? {})}>{id => {
-                const notice = () => sessionStore.repositoryRestoreNotices[id];
-                const status = () => notice()?.status;
-                const name = () => sessionStore.sessions.find(session => session.id === id)?.name;
-                return (
-                  <Show when={status() && name()}>
-                    <div class="repository-restore-notice">
-                      <div role="status" aria-atomic="true">
-                        <strong>{notice()?.repo
-                          ? status() === 'restoring' ? 'Cloning repository…'
-                            : notice()?.outcome === 'exists' ? 'Repository folder already exists'
-                            : notice()?.outcome === 'tracking-unconfirmed' ? 'Repository cloned; automatic restore not confirmed'
-                            : status() === 'complete' ? 'Repository cloned' : 'Repository clone failed'
-                          : status() === 'restoring' ? 'Restoring repositories…'
-                            : status() === 'complete' ? 'Repositories restored' : 'Some repositories weren’t restored'}</strong>
-                        <Show when={!notice()?.repo && notice()?.repos?.length} fallback={<div class="repository-restore-notice__session">{name()}</div>}>
-                          <ul class="repository-restore-notice__repos repository-restore-notice__session" role="list" aria-label="Repositories" tabIndex={0}>
-                            <For each={notice()?.repos}>{repo => <li>{repo}</li>}</For>
-                          </ul>
-                        </Show>
-                        <Show when={notice()?.repo}>{repo => <div class="repository-restore-notice__session">{repo()}</div>}</Show>
+        {/* Middle section - main content */}
+        <div class="layout-middle">
+          {/* Main content */}
+          <TerminalArea
+            workspaceMode={dashboardWorkspaceMode()}
+            launchingVibe={launchingVibe()}
+            migrationRetry={migrationRetry}
+            repositoryRestoreNotices={
+              <section class="repository-restore-notices" aria-label="Activity notifications">
+                <MigrationRetryNotice retry={migrationRetry} />
+                <For each={Object.keys(sessionStore.repositoryRestoreNotices ?? {})}>{id => {
+                  const notice = () => sessionStore.repositoryRestoreNotices[id];
+                  const status = () => notice()?.status;
+                  const name = () => sessionStore.sessions.find(session => session.id === id)?.name;
+                  return (
+                    <Show when={status() && name()}>
+                      <div class="repository-restore-notice">
+                        <div role="status" aria-atomic="true">
+                          <strong>{notice()?.repo
+                            ? status() === 'restoring' ? 'Cloning repository…'
+                              : notice()?.outcome === 'exists' ? 'Repository folder already exists'
+                              : notice()?.outcome === 'tracking-unconfirmed' ? 'Repository cloned; automatic restore not confirmed'
+                              : status() === 'complete' ? 'Repository cloned' : 'Repository clone failed'
+                            : status() === 'restoring' ? 'Restoring repositories…'
+                              : status() === 'complete' ? 'Repositories restored' : 'Some repositories weren’t restored'}</strong>
+                          <Show when={!notice()?.repo && notice()?.repos?.length} fallback={<div class="repository-restore-notice__session">{name()}</div>}>
+                            <ul class="repository-restore-notice__repos repository-restore-notice__session" role="list" aria-label="Repositories" tabIndex={0}>
+                              <For each={notice()?.repos}>{repo => <li>{repo}</li>}</For>
+                            </ul>
+                          </Show>
+                          <Show when={notice()?.repo}>{repo => <div class="repository-restore-notice__session">{repo()}</div>}</Show>
+                        </div>
+                        <button type="button" aria-label={notice()?.repo ? 'Dismiss repository clone notification' : 'Dismiss repository restore notification'}
+                          onClick={() => sessionStore.dismissRepositoryRestore(id)}>
+                          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="m6 6 12 12M18 6 6 18" />
+                          </svg>
+                        </button>
                       </div>
-                      <button type="button" aria-label={notice()?.repo ? 'Dismiss repository clone notification' : 'Dismiss repository restore notification'}
-                        onClick={() => sessionStore.dismissRepositoryRestore(id)}>
-                        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2">
-                          <path d="m6 6 12 12M18 6 6 18" />
-                        </svg>
-                      </button>
-                    </div>
+                    </Show>
+                  );
+                }}</For>
+              </section>
+            }
+            showTerminal={showTerminal()}
+            showPiWebPanel={showPiWebPanel()}
+            preparePiWebPanel={preparePiWebPanel()}
+            prepareNativeTerminal={prepareNativeTerminal()}
+            codeAttachment={prepareNativeTerminal() ? prepareCodeAttachment() : undefined}
+            handoffPending={!!handoffTarget()}
+            piWebTerminalConnect={handoffTarget() ? piWebStatus()?.surface === 'terminal' : undefined}
+            piWebOpenReady={chatStartupReady() && piWebStatus()?.surface === 'chat' && !piWebStatus()?.startupQuestion}
+            piWebShowDuringStartup={chatStartupFailed() || !!piWebStatus()?.startupQuestion
+              || piWebStatus()?.phase === 'failed' || piWebStatus()?.phase === 'uncertain'}
+            retainPiWebPanel={!showTerminal() && !!retainedChat() && piWebStatus()?.surface === 'chat'}
+            parkedTerminalPane={!showTerminal() ? parkedTerminalPane() : undefined}
+            piWebTerminalStatus={
+              <PiWebSwitchControls progressInMenu={modeAvailable()} phase={piWebStatus()?.phase} target={piWebSwitchingTarget() ?? piWebStatus()?.target}
+                switching={!!piWebSwitchingTarget()} problem={piWebProblem()} canCancel={canCancelPiWeb()}
+                onCancel={cancelPiWeb} onRetry={retryPiWeb()} />
+            }
+            piWebPanel={
+              <Show when={shownChatStatus().frame} keyed fallback={
+                <div class="pi-web-chat">
+                  <PiWebSwitchControls progressInMenu={modeAvailable()} phase={piWebStatus()?.phase} target={piWebSwitchingTarget() ?? piWebStatus()?.target}
+                    switching={!!piWebSwitchingTarget()} problem={piWebProblem()} canCancel={canCancelPiWeb()}
+                    onCancel={cancelPiWeb} onRetry={retryPiWeb()} />
+                  <Show when={!piWebStatus() && !piWebProblem()}>
+                    <div class="pi-web-chat__space"><p role="status">{awaitingChatStart() ? 'Preparing Chat…' : 'Checking Pi surface…'}</p></div>
                   </Show>
-                );
-              }}</For>
-            </section>
-          }
-          showTerminal={showTerminal()}
-          showPiWebPanel={showPiWebPanel()}
-          preparePiWebPanel={preparePiWebPanel()}
-          prepareNativeTerminal={prepareNativeTerminal()}
-          codeAttachment={prepareNativeTerminal() ? prepareCodeAttachment() : undefined}
-          handoffPending={!!handoffTarget()}
-          piWebTerminalConnect={handoffTarget() ? piWebStatus()?.surface === 'terminal' : undefined}
-          piWebOpenReady={chatStartupReady() && piWebStatus()?.surface === 'chat' && !piWebStatus()?.startupQuestion}
-          piWebShowDuringStartup={chatStartupFailed() || !!piWebStatus()?.startupQuestion
-            || piWebStatus()?.phase === 'failed' || piWebStatus()?.phase === 'uncertain'}
-          retainPiWebPanel={!showTerminal() && !!retainedChat() && piWebStatus()?.surface === 'chat'}
-          parkedTerminalPane={!showTerminal() ? parkedTerminalPane() : undefined}
-          piWebTerminalStatus={
-            <PiWebSwitchControls progressInMenu={modeAvailable()} phase={piWebStatus()?.phase} target={piWebSwitchingTarget() ?? piWebStatus()?.target}
-              switching={!!piWebSwitchingTarget()} problem={piWebProblem()} canCancel={canCancelPiWeb()}
-              onCancel={cancelPiWeb} onRetry={retryPiWeb()} />
-          }
-          piWebPanel={
-            <Show when={shownChatStatus().frame} keyed fallback={
-              <div class="pi-web-chat">
-                <PiWebSwitchControls progressInMenu={modeAvailable()} phase={piWebStatus()?.phase} target={piWebSwitchingTarget() ?? piWebStatus()?.target}
-                  switching={!!piWebSwitchingTarget()} problem={piWebProblem()} canCancel={canCancelPiWeb()}
-                  onCancel={cancelPiWeb} onRetry={retryPiWeb()} />
-                <Show when={!piWebStatus() && !piWebProblem()}>
-                  <div class="pi-web-chat__space"><p role="status">{awaitingChatStart() ? 'Preparing Chat…' : 'Checking Pi surface…'}</p></div>
-                </Show>
-              </div>
-            }>
-              {frame => <PiWebChat sessionId={piWebSid()!} generation={piWebGeneration()!} status={shownChatStatus().status!}
-                progressInMenu={modeAvailable()} onCancel={cancelPiWeb} onRetry={retryPiWeb()}
-                onStartupReady={ready => reportChatLoad(frame, 'ready', ready)}
-                onStartupFailure={failed => reportChatLoad(frame, 'failed', failed)}
-                problem={piWebProblem()} canCancel={canCancelPiWeb()} switchingTarget={piWebSwitchingTarget()} />}
-            </Show>
-          }
-          showTilingOverlay={showTilingOverlay()}
-          onTilingButtonClick={handleTilingButtonClick}
-          onSelectTilingLayout={handleSelectTilingLayout}
-          onCloseTilingOverlay={handleCloseTilingOverlay}
-          onTileClick={handleTileClick}
-          onOpenSessionById={handleOpenSessionById}
-          onOpenMultiView={handleOpenMultiView}
-          onDashboardSessionSelect={handleDashboardSessionSelect}
-          onCreateSession={handleCreateSession}
-          onStartSession={handleStartSession}
-          onOpenVscodeSession={openVscodeSession}
-          onStopSession={handleStopSession}
-          onDeleteSession={handleDeleteSession}
-          onTerminalError={setTerminalError}
-          error={sessionStore.error || terminalError()}
-          onDismissError={handleDismissError}
-          viewState={viewState()}
-          userName={props.userName}
-          onSettingsClick={handleSettingsClick}
-          enterpriseMode={props.enterpriseMode}
-        />
+                </div>
+              }>
+                {frame => <PiWebChat sessionId={piWebSid()!} generation={piWebGeneration()!} status={shownChatStatus().status!}
+                  progressInMenu={modeAvailable()} onCancel={cancelPiWeb} onRetry={retryPiWeb()}
+                  onStartupReady={ready => reportChatLoad(frame, 'ready', ready)}
+                  onStartupFailure={failed => reportChatLoad(frame, 'failed', failed)}
+                  problem={piWebProblem()} canCancel={canCancelPiWeb()} switchingTarget={piWebSwitchingTarget()} />}
+              </Show>
+            }
+            showTilingOverlay={showTilingOverlay()}
+            onTilingButtonClick={handleTilingButtonClick}
+            onSelectTilingLayout={handleSelectTilingLayout}
+            onCloseTilingOverlay={handleCloseTilingOverlay}
+            onTileClick={handleTileClick}
+            onOpenSessionById={handleOpenSessionById}
+            onOpenMultiView={handleOpenMultiView}
+            onDashboardSessionSelect={handleDashboardSessionSelect}
+            onCreateSession={handleCreateSession}
+            onStartSession={handleStartSession}
+            onOpenVscodeSession={openVscodeSession}
+            onStopSession={handleStopSession}
+            onDeleteSession={handleDeleteSession}
+            onTerminalError={setTerminalError}
+            error={sessionStore.error || terminalError()}
+            onDismissError={handleDismissError}
+            viewState={viewState()}
+            userName={props.userName}
+            onSettingsClick={handleSettingsClick}
+            enterpriseMode={props.enterpriseMode}
+          />
+        </div>
       </div>
 
       {/* Settings Panel - slides in from right */}

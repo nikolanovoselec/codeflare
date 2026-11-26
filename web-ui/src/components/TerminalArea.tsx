@@ -45,7 +45,7 @@ interface TerminalAreaProps {
   onOpenVscodeSession: (id: string) => void;
   onStopSession: (id: string) => void;
   onDeleteSession: (id: string) => void;
-  onCreateSession: (name: string, agentType?: AgentType, tabConfig?: TabConfig[], surface?: PiSurface, implicitAgent?: boolean) => void | Promise<void>;
+  onCreateSession: (name: string, agentType?: AgentType, tabConfig?: TabConfig[], surface?: PiSurface, implicitAgent?: boolean, repo?: string) => void | Promise<void>;
   onTerminalError: Setter<string | null>;
   error: string | null;
   onDismissError: () => void;
@@ -331,7 +331,8 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
           launchingVibe={props.launchingVibe}
           migrationRetry={props.migrationRetry}
           sessions={sessionStore.sessions}
-          onCreateSession={(agentType, tabConfig, surface, implicitAgent) => {
+          onCreateSession={(agentType, tabConfig, surface, implicitAgent, repo) => {
+            if (repo) return props.onCreateSession(repo.split('/')[1] || repo, agentType, tabConfig, surface, implicitAgent, repo);
             const name = generateSessionName(agentType, sessionStore.sessions);
             if (implicitAgent) return props.onCreateSession(name, agentType, tabConfig, surface, true);
             if (surface) return props.onCreateSession(name, agentType, tabConfig, surface);

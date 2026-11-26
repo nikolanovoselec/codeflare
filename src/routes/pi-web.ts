@@ -4,7 +4,7 @@ import { isPiWebEligible, matchesPiWebGeneration, PI_WEB_GENERATION_HEADER, PI_W
 import { authenticateRequest } from '../lib/access';
 import { allowedAgents } from '../lib/agent-allowlist';
 import { WS_RATE_LIMIT_MAX_CONNECTIONS, WS_RATE_LIMIT_TTL_SECONDS, WS_RATE_LIMIT_WINDOW_MS } from '../lib/constants';
-import { forwardExisting, getContainerId, getPersonalPiSession } from '../lib/container-helpers';
+import { forwardExisting, forwardPiWebRead, getContainerId, getPersonalPiSession } from '../lib/container-helpers';
 import { isAllowedOrigin } from '../lib/cors-cache';
 import { AppError } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
@@ -157,10 +157,13 @@ export async function handlePiWebRequest(request: Request, env: Env): Promise<Re
     }
 
     const container = getContainer(env.CONTAINER, getContainerId(bucketName, sessionId));
-    const authorityStartedAt = performance.now();
-    const ordinary = await getPersonalPiSession(container, { bucket: bucketName, sessionId, email: user.email }, true);
-    const authorityCheckedAt = performance.now();
-    if (ordinary.generation !== generation) return Response.json({ error: 'Pi web generation changed' }, { status: 409 });
+    const eligibilityCheckedAt = performance.now();
+    const owner = { bucket: bucketName, sessionId, email: user.email };
+    const appRead = passive && !control && !upgrade;
+    if (!appRead) {
+      const ordinary = await getPersonalPiSession(container, owner, true);
+      if (ordinary.generation !== generation) return Response.json({ error: 'Pi web generation changed' }, { status: 409 });
+    }
 
     if (upgrade && env.STRESS_TEST_MODE !== 'active') {
       const rate = await checkRateLimit({ kv: env.KV, key: `ws-connect:${user.email}`, limit: WS_RATE_LIMIT_MAX_CONNECTIONS,
@@ -175,8 +178,9 @@ export async function handlePiWebRequest(request: Request, env: Env): Promise<Re
       ? new Request(url, { method: request.method, headers, body: controlBody, redirect: 'manual', signal: request.signal })
       : new Request(authenticatedRequest, { headers, redirect: 'manual' });
     // 101 responses require native Stub.fetch rather than DO RPC serialization.
-    const forwardStartedAt = performance.now();
-    const response = upgrade ? await container.fetch(forwarded) : await forwardExisting(container, forwarded);
+    const dispatchStartedAt = performance.now();
+    const response = appRead ? await forwardPiWebRead(container, forwarded, { ...owner, generation })
+      : upgrade ? await container.fetch(forwarded) : await forwardExisting(container, forwarded);
     const headersReceivedAt = performance.now();
     const appPrefix = piWebAppPrefix(sessionId, generation);
     const scoped = scopedResponse(response, url, control ? prefix : appPrefix);
@@ -189,9 +193,8 @@ export async function handlePiWebRequest(request: Request, env: Env): Promise<Re
         logger.info('Pi Web proxy timing', {
           kind,
           authMs: Math.round(authenticatedAt - startedAt),
-          eligibilityMs: Math.round(authorityStartedAt - authenticatedAt),
-          authorityMs: Math.round(authorityCheckedAt - authorityStartedAt),
-          forwardMs: Math.round(headersReceivedAt - forwardStartedAt),
+          eligibilityMs: Math.round(eligibilityCheckedAt - authenticatedAt),
+          dispatchMs: Math.round(headersReceivedAt - dispatchStartedAt),
         });
       }
     }

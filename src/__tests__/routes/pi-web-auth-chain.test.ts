@@ -82,6 +82,14 @@ describe('Pi web Worker proxy (REQ-AGENT-272 AC5)', () => {
           if (authorityDelayMs) await new Promise(resolve => setTimeout(resolve, authorityDelayMs));
           return { generation: GENERATION, groups: [] };
         },
+        forwardPiWebRead: async (request: Request, owner: { bucket: string; sessionId: string; email: string; generation: number }) => {
+          if (!ordinary || owner.bucket !== OWNER || owner.sessionId !== SID || owner.email !== OWNER_EMAIL || owner.generation !== GENERATION) {
+            return Response.json({ error: 'Pi web session is not authorized' }, { status: 403 });
+          }
+          if (authorityDelayMs) await new Promise(resolve => setTimeout(resolve, authorityDelayMs));
+          push('http', name, request);
+          return new Response('pi-web private port', { status: upstreamStatus });
+        },
         getState: async () => ({ status: 'running' }),
         startSession: async () => { throw new Error('Proxy must not start a container'); },
         forwardExisting: async (request: Request) => {
@@ -174,8 +182,8 @@ describe('Pi web Worker proxy (REQ-AGENT-272 AC5)', () => {
       expect((await handlePiWebRequest(request(APP), env)).ok).toBe(false);
       expect(logs).toHaveLength(1);
       expect(logs[0].data).toEqual({ kind: 'document', authMs: expect.any(Number), eligibilityMs: expect.any(Number),
-        authorityMs: expect.any(Number), forwardMs: expect.any(Number) });
-      expect(logs[0].data?.authorityMs).toBeGreaterThanOrEqual(49);
+        dispatchMs: expect.any(Number) });
+      expect(logs[0].data?.dispatchMs).toBeGreaterThanOrEqual(49);
     } finally {
       setLogLevel('silent');
       random.mockRestore();
@@ -198,7 +206,7 @@ describe('Pi web Worker proxy (REQ-AGENT-272 AC5)', () => {
       expect(sampled.headers.has('Server-Timing')).toBe(false);
       expect(records.map(record => record.data)).toEqual([
         { kind: 'asset', authMs: expect.any(Number), eligibilityMs: expect.any(Number),
-          authorityMs: expect.any(Number), forwardMs: expect.any(Number) },
+          dispatchMs: expect.any(Number) },
       ]);
 
       random.mockReturnValue(0.99);

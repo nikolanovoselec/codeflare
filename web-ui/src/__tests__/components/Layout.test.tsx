@@ -661,6 +661,50 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     } finally { vi.mocked(terminalStore.getConnectionState).mockReturnValue('disconnected'); }
   });
 
+  it('groups the existing header with the same Chat frame only after Open', async () => {
+    navigationRendering.realTerminalArea = true;
+    navigationRendering.realHeader = true;
+    const id = 'abcdef0123456789';
+    const [initializing, setInitializing] = createSignal(true);
+    vi.mocked(sessionStore.isSessionInitializing).mockImplementation(initializing);
+    vi.mocked(sessionStore.getInitProgressForSession).mockReturnValue({ stage: 'ready', progress: 100, message: 'Container ready' });
+    vi.mocked(sessionStore.dismissInitProgressForSession).mockImplementation(() => setInitializing(false));
+    mockSessions = [createMockSession({ id, workspace: 'terminal', agentType: 'pi', generation: 7 })];
+    window.history.replaceState(null, '', `/app/session/${id}`);
+    vi.stubGlobal('fetch', async (url: string) => Response.json(url.endsWith('/_switch?generation=7')
+      ? { phase: 'active', surface: 'chat', chatUrl: `/api/pi-web/${id}/g/7/?view=chat` } : {}));
+    try {
+      render(() => <Layout />);
+      const frame = await screen.findByTitle('Pi Chat');
+      if (!(frame instanceof HTMLIFrameElement)) throw new Error('Expected the stock Chat frame');
+      const header = screen.getByRole('banner');
+      expect(frame).not.toBeVisible();
+      expect(screen.queryByRole('group', { name: 'Vibe Chat' })).not.toBeInTheDocument();
+
+      vi.useFakeTimers();
+      const doc = document.implementation.createHTMLDocument();
+      Object.defineProperty(doc, 'URL', { value: frame.src });
+      doc.body.innerHTML = '<pi-web-app></pi-web-app>';
+      Object.defineProperty(frame, 'contentDocument', { value: doc });
+      fireEvent.load(frame);
+      await vi.advanceTimersByTimeAsync(5000);
+      fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+
+      const panel = within(screen.getByRole('group', { name: 'Vibe Chat' }));
+      expect(screen.getAllByRole('banner')).toEqual([header]);
+      expect(panel.getByRole('banner')).toBe(header);
+      expect(panel.getByTitle('Pi Chat')).toBe(frame);
+      expect(frame).toBeVisible();
+    } finally {
+      cleanup();
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+      vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
+      vi.mocked(sessionStore.getInitProgressForSession).mockReturnValue(null);
+      vi.mocked(sessionStore.dismissInitProgressForSession).mockReset();
+    }
+  });
+
   it.each(['generation replacement', 'page exit'])('reuses the open Chat frame on Dashboard return and discards it on %s', async invalidation => {
     navigationRendering.realTerminalArea = true;
     const id = 'abcdef0123456789';
@@ -675,6 +719,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     try {
       render(() => <Layout />);
       const frame = await screen.findByTitle('Pi Chat');
+      expect(within(screen.getByRole('group', { name: 'Vibe Chat' })).getByTitle('Pi Chat')).toBe(frame);
       // A batch-status update for the same launch must not reload the prepared frame.
       mockSessions = [{ ...mockSessions[0], lifecycle: 'running', revision: 2 }];
       bumpSessionStoreVersion();
@@ -682,11 +727,13 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
       expect(frame).toBeInTheDocument();
       expect(frame).not.toBeVisible();
+      expect(screen.queryByRole('group', { name: 'Vibe Chat' })).not.toBeInTheDocument();
       mockPreferences = { defaultPiSurface: 'terminal' };
       bumpSessionStoreVersion();
       fireEvent.click(await screen.findByRole('button', { name: 'Return to session' }));
       expect(screen.getByTitle('Pi Chat')).toBe(frame);
       expect(frame).toBeVisible();
+      expect(within(screen.getByRole('group', { name: 'Vibe Chat' })).getByTitle('Pi Chat')).toBe(frame);
       expect(switches).toEqual([]);
       fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
       if (invalidation === 'page exit') window.dispatchEvent(new Event('pagehide'));
@@ -817,12 +864,16 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect(pane).not.toBeVisible();
       expect(pane).toHaveAttribute('data-focused', 'false');
       expect(source).toBeVisible();
+      expect(within(screen.getByRole('group', { name: 'Vibe Chat' })).getByTitle('Pi Chat')).toBe(source);
       expect(screen.getByRole('button', { name: 'Code Mode' })).toBeDisabled();
       setConnection('connected');
       await waitFor(() => expect(pane).toBeVisible());
       expect(pane).toHaveAttribute('data-focused', 'true');
       expect(screen.queryByTitle('Pi Chat')).not.toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Workspace mode: Code Mode' })).toBeVisible();
+      expect(screen.queryByRole('group', { name: 'Vibe Chat' })).not.toBeInTheDocument();
+      const code = screen.getByRole('button', { name: 'Workspace mode: Code Mode' });
+      expect(code).toBe(vibe);
+      expect(code).toHaveFocus();
     } finally {
       cleanup();
       vi.mocked(sessionStore.setActiveTerminalTab).mockReset();
@@ -2454,6 +2505,17 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
         fireEvent.click(await screen.findByTestId('csd-agent-bash'));
         await waitFor(() => expect(window.location.pathname).toBe(`/app/session/${sessions[1].id}`));
       } finally { finish(); await pending; }
+    });
+
+    it('REQ-GITHUB-321: creates and starts a Vibe repo shortcut as Chat with the requested clone', async () => {
+      mockPreferences = { defaultPiSurface: 'chat' };
+      const id = 'abcdef0123456789';
+      vi.mocked(sessionStore.createSession).mockResolvedValue(createMockSession({ id, status: 'stopped', agentType: 'pi', workspace: 'terminal' }) as SessionWithStatus);
+      vi.mocked(sessionStore.startSession).mockResolvedValue(undefined);
+      render(() => <Layout />);
+      await (window as any).__terminalAreaProps.onCreateSession('newest', 'pi', undefined, 'chat', true, 'team/newest');
+      expect(sessionStore.createSession).toHaveBeenCalledWith('newest', 'pi', undefined, { repo: 'team/newest' }, 'chat');
+      expect(sessionStore.startSession).toHaveBeenCalledWith(id, 'chat');
     });
 
     it('preserves the last explicitly chosen agent when Vibe launches Pi', async () => {

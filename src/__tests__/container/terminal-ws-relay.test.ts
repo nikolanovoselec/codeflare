@@ -71,7 +71,7 @@ type RelayFixture = {
   readonly container: ContainerSide;
   readonly wasStarted: () => boolean;
   readonly lifecycleGeneration: () => unknown;
-  readonly privateRequests: readonly { url: string; authorization: string | null }[];
+  readonly privateRequests: readonly { url: string; method: string; authorization: string | null }[];
   readonly reconnect: () => Promise<Response>;
 };
 
@@ -92,7 +92,9 @@ async function upgrade(options: {
   readonly path: string;
   readonly sdkRunning: boolean;
   readonly port: PortBehaviour;
-  readonly http?: boolean;
+  readonly httpMethod?: 'GET' | 'HEAD';
+  readonly readOwner?: string;
+  readonly beforeReadPort?: (instance: ContainerClass) => void;
 }): Promise<{ response: Response; fixture: Omit<RelayFixture, 'response' | 'client'> }> {
   const persisted = new Map<string, unknown>([['containerAuthToken', CONTAINER_TOKEN], ['lifecycleGeneration', 7]]);
   const mockKV = createMockKV();
@@ -102,6 +104,7 @@ async function upgrade(options: {
     // this process a matching ordinary session and durable runtime identity.
     persisted.set('bucketName', 'test-bucket');
     persisted.set('_sessionId', PI_WEB_SESSION);
+    persisted.set('userEmail', 'owner@example.test');
     mockKV._set(`session:test-bucket:${PI_WEB_SESSION}`, {
       id: PI_WEB_SESSION, status: 'running', lifecycleGeneration: 7, agentType: 'pi', workspace: 'terminal',
     });
@@ -115,15 +118,25 @@ async function upgrade(options: {
   const received: unknown[] = [];
   const closes: { code: number; reason: string }[] = [];
 
-  const privateRequests: { url: string; authorization: string | null }[] = [];
+  const privateRequests: { url: string; method: string; authorization: string | null }[] = [];
   const portFetch = vi.fn(async (input: Request | string, init?: RequestInit): Promise<Response> => {
     const request = typeof input === 'string' ? new Request(input, init) : input;
     if (new URL(request.url).pathname === '/health') {
       return new Response(null, { status: options.port === 'throws' ? 503 : 200 });
     }
-    privateRequests.push({ url: request.url, authorization: request.headers.get('Authorization') });
+    privateRequests.push({ url: request.url, method: request.method, authorization: request.headers.get('Authorization') });
     if (options.port === 'throws') throw new Error('no existing process');
-    if (options.http) return new Response('private app asset');
+    if (options.httpMethod) {
+      const body = request.method === 'HEAD' ? null : new ReadableStream<Uint8Array>({
+        start(controller) {
+          const encoder = new TextEncoder();
+          controller.enqueue(encoder.encode('private app '));
+          controller.enqueue(encoder.encode('asset'));
+          controller.close();
+        },
+      });
+      return new Response(body);
+    }
     const pair = new WebSocketPair();
     containerOwnClientFacingEnd = pair[0];
     containerEnd = pair[1];
@@ -133,9 +146,18 @@ async function upgrade(options: {
     return new Response(null, { status: 101, webSocket: pair[0] });
   });
   let initialized: Promise<void> | undefined;
+  let beforeReadPort: (() => void) | undefined;
   const ctx = {
     storage: {
-      get: vi.fn(async (key: string) => persisted.get(key) ?? null),
+      get: vi.fn(async (key: string) => {
+        if (key === 'containerAuthToken' && beforeReadPort) {
+          const change = beforeReadPort;
+          beforeReadPort = undefined;
+          await Promise.resolve();
+          change();
+        }
+        return persisted.get(key) ?? null;
+      }),
       put: vi.fn(async (key: string, value: unknown) => { persisted.set(key, value); }),
       delete: vi.fn().mockResolvedValue(undefined),
       deleteAll: vi.fn().mockResolvedValue(undefined),
@@ -172,13 +194,19 @@ async function upgrade(options: {
   await runInDurableObject<NativeDurableObject, void>(nativeObjectStub, async nativeInstance => {
     nativeInstance.fetch = async (request: Request) => {
       await initialized;
+      if (options.readOwner !== undefined) {
+        if (options.beforeReadPort) beforeReadPort = () => options.beforeReadPort?.(instance);
+        return instance.forwardPiWebRead(request, { bucket: 'test-bucket', sessionId: PI_WEB_SESSION,
+          email: options.readOwner, generation: 7 });
+      }
       return instance.fetch(request);
     };
   });
   // Each request reuses the same existing-process stand-in, storage and coordinator.
   const reconnect = () => nativeStub.fetch(new Request(`https://codeflare.ch${options.path}?reconnect=a%2Fb`, {
+    method: options.httpMethod ?? 'GET',
     headers: {
-      ...(!options.http && { Upgrade: 'websocket' }),
+      ...(!options.httpMethod && { Upgrade: 'websocket' }),
       ...(piWeb && { 'X-Codeflare-Pi-Generation': '7', 'X-Forwarded-Host': 'codeflare.ch', 'X-Forwarded-Proto': 'https' }),
     },
   }));
@@ -431,20 +459,64 @@ describe('terminal and IDE WebSocket relay owned by the Container Durable Object
       relay.client.send('pi-web browser frame');
       expect(await eventually(() => relay.container.received[0], 'the private socket must receive the frame')).toBe('pi-web browser frame');
       expect(relay.privateRequests).toEqual([{
-        url: `http://container${PI_WEB_WS}?reconnect=a%2Fb`, authorization: `Bearer ${CONTAINER_TOKEN}`,
+        url: `http://container${PI_WEB_WS}?reconnect=a%2Fb`, method: 'GET', authorization: `Bearer ${CONTAINER_TOKEN}`,
       }]);
       expect(relay.wasStarted()).toBe(false);
     }));
 
   it('REQ-AGENT-272 AC5: returns Pi web HTTP responses from the authenticated existing process without starting it', async () => {
     const path = '/api/pi-web/abcdef1234567890/g/7/assets/main.js';
-    const { response, fixture } = await upgrade({ path, sdkRunning: true, port: 'answers-with-socket', http: true });
+    const { response, fixture } = await upgrade({ path, sdkRunning: true, port: 'answers-with-socket', httpMethod: 'GET' });
     expect(response.status).toBe(200);
     expect(await response.text()).toBe('private app asset');
     expect(fixture.privateRequests).toEqual([{
-      url: `http://container${path}?reconnect=a%2Fb`, authorization: `Bearer ${CONTAINER_TOKEN}`,
+      url: `http://container${path}?reconnect=a%2Fb`, method: 'GET', authorization: `Bearer ${CONTAINER_TOKEN}`,
     }]);
     expect(fixture.wasStarted()).toBe(false);
+  });
+
+  it('REQ-AGENT-272 AC5: an owned passive GET preserves the private response body and exact scoped URL', async () => {
+    const path = `/api/pi-web/${PI_WEB_SESSION}/g/7/assets/main.js`;
+    const { response, fixture } = await upgrade({ path, sdkRunning: false, port: 'answers-with-socket',
+      httpMethod: 'GET', readOwner: 'owner@example.test' });
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('private app asset');
+    expect(fixture.privateRequests).toEqual([{
+      url: `http://container${path}?reconnect=a%2Fb`, method: 'GET', authorization: `Bearer ${CONTAINER_TOKEN}`,
+    }]);
+    expect(fixture.wasStarted()).toBe(false);
+    expect(fixture.lifecycleGeneration()).toBe(7);
+  });
+
+  it('REQ-AGENT-272 AC5: forwards a scoped HEAD to the existing Pi web port without a response body', async () => {
+    const path = `/api/pi-web/${PI_WEB_SESSION}/g/7/assets/main.js`;
+    const { response, fixture } = await upgrade({ path, sdkRunning: false, port: 'answers-with-socket',
+      httpMethod: 'HEAD', readOwner: 'owner@example.test' });
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('');
+    expect(fixture.privateRequests).toEqual([{
+      url: `http://container${path}?reconnect=a%2Fb`, method: 'HEAD', authorization: `Bearer ${CONTAINER_TOKEN}`,
+    }]);
+    expect(fixture.wasStarted()).toBe(false);
+    expect(fixture.lifecycleGeneration()).toBe(7);
+  });
+
+  it('REQ-AGENT-272 AC5: a different principal cannot forward a passive Pi web app read', async () => {
+    const { response, fixture } = await upgrade({ path: `/api/pi-web/${PI_WEB_SESSION}/g/7/assets/main.js`,
+      sdkRunning: false, port: 'answers-with-socket', httpMethod: 'GET', readOwner: 'other@example.test' });
+    expect(response.ok).toBe(false);
+    expect(fixture.privateRequests).toEqual([]);
+    expect(fixture.wasStarted()).toBe(false);
+  });
+
+  it('REQ-AGENT-272 AC5: an owner change during an admitted read prevents private delivery', async () => {
+    const { response, fixture } = await upgrade({ path: `/api/pi-web/${PI_WEB_SESSION}/g/7/assets/main.js`,
+      sdkRunning: false, port: 'answers-with-socket', httpMethod: 'GET', readOwner: 'owner@example.test',
+      beforeReadPort: instance => { instance._userEmail = 'other@example.test'; } });
+    expect(response.status).toBe(409);
+    expect(fixture.privateRequests).toEqual([]);
+    expect(fixture.wasStarted()).toBe(false);
+    expect(fixture.lifecycleGeneration()).toBe(7);
   });
 
   it('REQ-AGENT-272 AC5: reconnect after Pi web’s private process exits cannot start a new generation', async () => {

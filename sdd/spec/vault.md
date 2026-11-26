@@ -1020,7 +1020,7 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 <a id="req-vault-027-pi-vault-extraction-has-a-bounded-lifecycle"></a>
 ### REQ-VAULT-027: Pi vault extraction delivery is visible and transactional
 
-**Intent:** Pi must deliver user-curated Vault changes through visible, reload-safe background work without advancing the committed extraction high-water mark until the exact request succeeds.
+**Intent:** Pi must deliver user-curated Vault changes through reload-safe background work that remains visible to the model and durable in the transcript, without advancing the committed extraction high-water mark until the exact request succeeds.
 
 **Applies To:** System
 
@@ -1034,7 +1034,7 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 6. If the stage is missing or corrupt and promotion cannot be confirmed, Pi rescans against the committed manifest and creates a new full-delta request if changes remain. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeVaultSuccess --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (recovers a missing or corrupt successful stage with a new full-delta request) -->
 7. An older completion notification cannot suppress the full-delta follow-up from AC6. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeVaultSuccess --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (recovers a missing or corrupt successful stage with a new full-delta request) -->
 
-**Notes:** Delivery ownership and transaction rationale are documented in [AD102](../../documentation/decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional). Bounded agent execution is documented in [AD103](../../documentation/decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs).
+**Notes:** Routine launch display and visible terminal notices follow [REQ-MEM-015](memory.md#req-mem-015-pi-extraction-transcript-visibility-and-child-session-guard). Delivery ownership and transaction rationale are documented in [AD102](../../documentation/decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional). Bounded agent execution is documented in [AD103](../../documentation/decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs).
 
 **Constraints:**
 

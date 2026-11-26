@@ -166,6 +166,7 @@ test('REQ-AGENT-053: queued parent follow-ups cannot starve completion past the 
   assert.match(messages.at(-1).content, /<task-id>native-result<\/task-id>/);
   assert.match(messages.at(-1).content, /<result>Finished &lt;verified&gt; &amp; ready<\/result>/,
     'native task-notification wire contract carries the escaped result into model context');
+  assert.equal(messages.at(-1).display, false, '#57: the model still receives the hidden completion');
   assert.deepEqual(h.followUps, [{ role: 'user', content: 'Already queued parent request' }]);
   assert.deepEqual(h.sent.map(entry => entry.options), [{ deliverAs: 'steer', triggerTurn: true }],
     'public Pi delivery-mode contract: completion reaches the next request, not the idle queue');
@@ -264,9 +265,41 @@ test('Task118: settled fallback and already-idle completion retain followUp deli
   await h.emit('agent_settled', { aborted: true });
   h.notifications.sendCompletion(record('idle'));
   await h.emit('turn_end');
-  assert.deepEqual(announcements(h.nextModelMessages()), [completion('aborted-run'), completion('idle')]);
+  const messages = h.nextModelMessages();
+  assert.deepEqual(announcements(messages), [completion('aborted-run'), completion('idle')]);
+  assert.deepEqual(messages.map(message => message.display), [false, false], '#57: followUp completions are hidden too');
   assert.deepEqual(h.sent.map(entry => entry.options), [
     { deliverAs: 'followUp', triggerTurn: true }, { deliverAs: 'followUp', triggerTurn: true },
+  ]);
+});
+
+test('#57: actionable completion nudges retain visibility and their payloads', async t => {
+  const h = await host(t);
+  const cases = [
+    ['question', { pendingQuestion: 'Which receipt should I keep?' }, /Which receipt should I keep\?/],
+    ['refused', { resumeRefusal: 'session-released' }, /<status>Done<\/status>/],
+    ['workspace', { workspaceNotice: '\nKept the workspace for inspection.' }, /Kept the workspace for inspection/],
+    ['updates', { runUpdates: ['Remember the original receipt.'] }, /Remember the original receipt/],
+    ['error', { status: 'error', error: 'Access denied' }, /<status>Error: Access denied<\/status>/],
+    ['aborted', { status: 'aborted' }, /<status>Aborted/],
+    ['stopped', { status: 'stopped', stoppedWhileQueued: true }, /Stopped before starting/],
+  ];
+  await h.emit('agent_start');
+  for (const [id, overrides] of cases) h.notifications.sendCompletion(record(id, overrides));
+  await h.toolBatch('tools done');
+  const messages = h.nextModelMessages().slice(1);
+  assert.deepEqual(messages.map(message => [message.details.id, message.display]), cases.map(([id]) => [id, true]));
+  for (const [index, [, , content]] of cases.entries()) assert.match(messages[index].content, content);
+});
+
+test('#57: standalone updates and workspace notices retain visibility', async t => {
+  const h = await host(t);
+  const running = record('running', { status: 'running', runUpdates: ['still relevant'] });
+  h.notifications.sendUpdate(running, 'still relevant');
+  h.notifications.sendWorkspaceNotice(record('workspace'), 'Workspace preserved for inspection');
+  assert.deepEqual(h.sent.map(({ message, options }) => [message.customType, message.display, options]), [
+    ['subagent-update', true, { deliverAs: 'followUp', triggerTurn: true }],
+    ['subagent-workspace-notice', true, { triggerTurn: false }],
   ]);
 });
 

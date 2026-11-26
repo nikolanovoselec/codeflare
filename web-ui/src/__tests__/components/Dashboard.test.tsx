@@ -9,6 +9,7 @@ import { storageStore } from '../../stores/storage';
 import { githubStore } from '../../stores/github';
 import * as storageApi from '../../api/storage';
 import * as githubApi from '../../api/github';
+import type { GithubRepo } from '../../api/github';
 import { ApiError } from '../../api/fetch-helper';
 import * as vaultCache from '../../lib/vault-cache';
 import * as gravatar from '../../lib/gravatar';
@@ -72,15 +73,18 @@ vi.mock('../../stores/github', async () => {
   const [enabled, setEnabled] = createSignal(false);
   const [login, setLogin] = createSignal<string>();
   const [source, setSource] = createSignal<'app' | 'oauth'>('oauth');
+  const [repos, setRepos] = createSignal<GithubRepo[]>([]);
   return {
     githubStore: {
       get enabled() { return enabled(); },
       get connected() { return !!login(); },
       get login() { return login(); },
       get source() { return login() ? source() : undefined; },
-      _setEnabled: (v: boolean) => { setEnabled(v); if (!v) { setLogin(undefined); setSource('oauth'); } },
+      get repos() { return repos(); },
+      _setEnabled: (v: boolean) => { setEnabled(v); if (!v) { setLogin(undefined); setSource('oauth'); setRepos([]); } },
       _setSource: setSource,
       _setLogin: setLogin,
+      _setRepos: setRepos,
       // Dashboard kicks this off on mount to break the enabled-gates-the-panel
       // deadlock (status is loaded outside the gated GitHub panel).
       loadStatus: vi.fn(),
@@ -668,7 +672,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(screen.getByTestId('storage-browser')).toBeInTheDocument();
   });
 
-  it('shows the authenticated account’s private, public and total repository counts in Vibe', async () => {
+  it('REQ-GITHUB-321: shows verified private, public and total repository counts in Vibe', async () => {
     (githubStore as any)._setEnabled(true);
     (githubStore as any)._setLogin('octocat');
     const counts = vi.spyOn(githubApi, 'getGithubOwnedRepoCounts').mockResolvedValue({
@@ -684,18 +688,76 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     } finally { counts.mockRestore(); }
   });
 
-  it('keeps the connected GitHub account visible when owned totals are unavailable in Vibe', async () => {
+  it.each([
+    { counts: null },
+    { login: 'hubot', counts: { public: 1, private: 2, total: 3 } },
+  ])('REQ-GITHUB-321: shows the connected account and external profile without verified counts (%#)', async result => {
     (githubStore as any)._setEnabled(true);
     (githubStore as any)._setLogin('octocat');
-    const counts = vi.spyOn(githubApi, 'getGithubOwnedRepoCounts').mockResolvedValue({ counts: null });
+    const counts = vi.spyOn(githubApi, 'getGithubOwnedRepoCounts').mockResolvedValue(result);
     try {
       render(() => <Dashboard {...defaultProps} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
       const details = within(screen.getByRole('region', { name: 'GitHub Details' }));
-      expect(details.getByText('octocat')).toBeVisible();
-      expect(await details.findByText('Owned repository counts unavailable')).toBeVisible();
+      const profile = await details.findByRole('link', { name: '@octocat' });
+      expect(profile).toBeVisible();
+      expect(details.queryByRole('link', { name: 'View GitHub profile' })).not.toBeInTheDocument();
+      expect(profile).toHaveAttribute('href', 'https://github.com/octocat');
+      expect(profile).toHaveAttribute('target', '_blank');
+      expect(details.queryByText('Connected', { exact: true })).not.toBeInTheDocument();
+      expect(details.queryByRole('button', { name: 'Browse repositories' })).not.toBeInTheDocument();
       expect(details.queryByRole('button', { name: 'Click here to login with GitHub' })).not.toBeInTheDocument();
-      expect(details.queryByText('0')).not.toBeInTheDocument();
+      await waitFor(() => expect(details.queryByText(/loading owned repository counts/i)).not.toBeInTheDocument());
+      expect(details.queryByText(/^(?:Private repos|Public repos|Repos)$/)).not.toBeInTheDocument();
     } finally { counts.mockRestore(); }
+  });
+
+  it('REQ-GITHUB-321: shows the three latest loaded repository shortcuts and launches Chat only on the explicit action', async () => {
+    (githubStore as any)._setEnabled(true);
+    (githubStore as any)._setLogin('octocat');
+    const requests = vi.spyOn(globalThis, 'fetch').mockImplementation(async url => {
+      if (url === '/api/github/owned-repo-counts') {
+        return Response.json({ counts: null });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    const repos: GithubRepo[] = [
+      { name: 'older', full_name: 'octocat/older', owner: 'octocat', private: false, visibility: 'public', default_branch: 'main', updated_at: '2025-12-01T00:00:00Z' },
+      { name: 'oldest', full_name: 'octocat/oldest', owner: 'octocat', private: false, visibility: 'public', default_branch: 'main', updated_at: '2026-01-01T00:00:00Z' },
+      { name: 'newest', full_name: 'team/newest', owner: 'team', private: true, visibility: 'private', default_branch: 'trunk', updated_at: '2026-03-01T00:00:00Z' },
+      { name: 'second', full_name: 'octocat/second', owner: 'octocat', private: true, visibility: 'private', default_branch: 'main', updated_at: '2026-02-01T00:00:00Z' },
+    ];
+    try {
+      render(() => <Dashboard {...defaultProps} userName={undefined} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
+      const details = within(screen.getByRole('region', { name: 'GitHub Details' }));
+      await waitFor(() => expect(details.queryByText(/loading owned repository counts/i)).not.toBeInTheDocument());
+      expect(details.queryByRole('button', { name: /^Start Chat with / })).not.toBeInTheDocument();
+      (githubStore as typeof githubStore & { _setRepos: (repos: GithubRepo[]) => void })._setRepos(repos);
+
+      const actions = details.getAllByRole('button', { name: /^Start Chat with / });
+      expect(actions).toHaveLength(3);
+      expect(actions[0]).toHaveAccessibleName('Start Chat with team/newest');
+      expect(actions[1]).toHaveAccessibleName('Start Chat with octocat/second');
+      expect(actions[2]).toHaveAccessibleName('Start Chat with octocat/oldest');
+      const newest = details.getByRole('link', { name: /(?:team\/)?newest/ });
+      const second = details.getByRole('link', { name: /(?:octocat\/)?second/ });
+      expect(newest).toHaveAttribute('href', 'https://github.com/team/newest');
+      expect(newest).toHaveAttribute('target', '_blank');
+      expect(second).toHaveAttribute('href', 'https://github.com/octocat/second');
+      expect(second).toHaveAttribute('target', '_blank');
+      expect(details.queryByRole('link', { name: /older/ })).not.toBeInTheDocument();
+
+      // Suppress test-environment navigation, but let a click bubble to any card handler.
+      const preventNavigation = (event: Event) => event.preventDefault();
+      document.addEventListener('click', preventNavigation, { once: true });
+      try { fireEvent.click(newest); }
+      finally { document.removeEventListener('click', preventNavigation); }
+      expect(defaultProps.onCreateSession).not.toHaveBeenCalled();
+      // The existing verified count read is allowed; repo shortcuts add no backend reads.
+      expect(requests.mock.calls.map(([url]) => url)).toEqual(['/api/github/owned-repo-counts']);
+
+      fireEvent.click(actions[0]);
+      expect(defaultProps.onCreateSession).toHaveBeenCalledWith('pi', undefined, 'chat', true, 'team/newest');
+    } finally { requests.mockRestore(); }
   });
 
   it('announces a GitHub authorization failure while the Vibe drawer stays closed', async () => {
@@ -749,7 +811,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     } finally { counts.mockRestore(); }
   });
 
-  it('shows the public count and marks missing private and total counts unavailable', async () => {
+  it('REQ-GITHUB-321: shows a verified public zero and omits unknown private and total counts', async () => {
     (githubStore as any)._setEnabled(true);
     (githubStore as any)._setLogin('octocat');
     (githubStore as any)._setSource('app');
@@ -758,8 +820,9 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     try {
       render(() => <Dashboard {...defaultProps} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
       const details = within(screen.getByRole('region', { name: 'GitHub Details' }));
-      expect(await details.findByText('0', { exact: true })).toBeVisible();
-      expect(details.getAllByText('Unavailable', { exact: true })).toHaveLength(2);
+      const publicLabel = await details.findByText('Public repos', { exact: true });
+      expect(within(publicLabel.parentElement!).getByText('0', { exact: true })).toBeVisible();
+      expect(details.queryByText(/^(?:Private repos|Repos|Unavailable)$/)).not.toBeInTheDocument();
     } finally { counts.mockRestore(); }
   });
 

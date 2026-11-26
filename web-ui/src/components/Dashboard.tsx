@@ -42,7 +42,7 @@ interface DashboardProps {
   launchingVibe?: boolean;
   migrationRetry: MigrationRetry;
   sessions: SessionWithStatus[];
-  onCreateSession: (agentType?: AgentType, tabConfig?: TabConfig[], surface?: PiSurface, implicitAgent?: boolean) => void | Promise<void>;
+  onCreateSession: (agentType?: AgentType, tabConfig?: TabConfig[], surface?: PiSurface, implicitAgent?: boolean, repo?: string) => void | Promise<void>;
   onStartSession: (id: string, surface?: PiSurface) => void;
   onOpenVscodeSession: (id: string) => void;
   onOpenSessionById: (id: string, surface?: PiSurface) => void;
@@ -70,6 +70,9 @@ const Dashboard: Component<DashboardProps> = (props) => {
   const vibe = () => props.workspaceMode?.value === 'chat';
   const [githubReturnError, setGithubReturnError] = createSignal<string | null>(null);
   const showGithubDetails = () => vibe() && (githubStore.enabled || !!githubReturnError());
+  const sessionCreateDisabled = () => props.launchingVibe || !sessionStore.r2Ready || isAtUsageQuota()
+    || sessionStore.preseedUpgrading || (sessionStore.managedReleaseStatus === 'upgrading' && !sessionStore.preseedUpgradeFailed)
+    || sessionStore.managedReleaseStatus === 'update_pending' || Boolean(migrationStatus());
   const countAccount = () => vibe() && githubStore.enabled && githubStore.connected
     && (githubStore.source === 'oauth' || githubStore.source === 'app') ? githubStore.login : undefined;
   const [ownedRepoCounts] = createResource(countAccount, async login => {
@@ -82,6 +85,12 @@ const Dashboard: Component<DashboardProps> = (props) => {
     const result = ownedRepoCounts();
     return result && result.login === countAccount() && !ownedRepoCounts.loading ? result.counts : undefined;
   };
+  const countsLoading = () => !!countAccount() && ownedRepoCounts.loading;
+  const recentRepos = createMemo(() => githubStore.repos
+    .map(repo => ({ repo, updated: Date.parse(repo.updated_at) }))
+    .filter(item => Number.isFinite(item.updated))
+    .sort((a, b) => b.updated - a.updated)
+    .slice(0, 3).map(({ repo }) => repo));
   const [browsersOpen, setBrowsersOpen] = createSignal(false);
   let browserPull: HTMLButtonElement | undefined;
   let dashboard: HTMLDivElement | undefined;
@@ -606,7 +615,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                   class={`dashboard-new-session-btn ${sessionStore.isAtSessionLimit() ? 'dashboard-new-session-btn--limited' : ''}`}
                   data-testid="dashboard-new-session"
                   style={managedUpgradeStyle()}
-                  disabled={props.launchingVibe || !sessionStore.r2Ready || isAtUsageQuota() || sessionStore.preseedUpgrading || (sessionStore.managedReleaseStatus === 'upgrading' && !sessionStore.preseedUpgradeFailed) || sessionStore.managedReleaseStatus === 'update_pending' || Boolean(migrationStatus())}
+                  disabled={sessionCreateDisabled()}
                   aria-label={migrationStatus() ?? (sessionStore.managedReleaseStatus === 'update_pending' ? 'Session environment update pending until session stops' : sessionStore.preseedUpgradeFailed && !sessionStore.preseedUpgrading ? 'Retry upgrade' : managedUpgradeAriaLabel() ?? (sessionStore.preseedUpgrading ? 'Updating session environment' : !sessionStore.r2Ready ? 'Waiting for storage setup' : isAtUsageQuota() ? 'Monthly compute quota exceeded' : sessionStore.isAtSessionLimit() ? 'Session limit reached' : 'Create new session'))}
                   onClick={async () => {
                     if (props.launchingVibe) return;
@@ -731,11 +740,33 @@ const Dashboard: Component<DashboardProps> = (props) => {
                     <Show when={githubStore.connected} fallback={<ConnectCard compact />}>
                       <div class="stat-card__header">
                         <Icon path={mdiGithub} size={14} class="stat-card__icon" aria-hidden="true" />
-                        <span class="stat-card__title type-section-header">{githubStore.login ?? 'GitHub connected'}</span>
+                        <Show when={githubStore.login} fallback={<span class="stat-card__title type-section-header">GitHub</span>}>
+                          {login => (
+                            <a class="stat-card__title type-section-header dashboard-github-card__link"
+                              href={`https://github.com/${encodeURIComponent(login())}`} target="_blank" rel="noopener noreferrer">@{login()}</a>
+                          )}
+                        </Show>
                       </div>
                       <Show when={countsForAccount()} fallback={
-                        <span class="type-hint" role="status">{countAccount() && ownedRepoCounts.loading
-                          ? 'Loading owned repository counts…' : 'Owned repository counts unavailable'}</span>
+                        <Show when={!countsLoading()} fallback={<span class="type-hint" role="status">Loading owned repository counts…</span>}>
+                          <Show when={recentRepos().length > 0}>
+                            <div class="stat-card__metrics">
+                              <span class="stat-card__metric-label">Recently updated</span>
+                              <For each={recentRepos()}>{repo => (
+                                <div class="dashboard-github-card__repo">
+                                  <a class="dashboard-github-card__link" href={`https://github.com/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}`}
+                                    target="_blank" rel="noopener noreferrer">{repo.full_name}</a>
+                                  <button type="button" class="dashboard-github-card__start" aria-label={`Start Chat with ${repo.full_name}`}
+                                    disabled={sessionCreateDisabled() || sessionStore.preseedUpgradeFailed || sessionStore.isAtSessionLimit()}
+                                    onClick={async () => {
+                                      try { await props.onCreateSession('pi', undefined, 'chat', true, repo.full_name); }
+                                      catch { /* The session store reports launch errors. */ }
+                                    }}>Start Chat</button>
+                                </div>
+                              )}</For>
+                            </div>
+                          </Show>
+                        </Show>
                       }>{counts => (
                         <div class="stat-card__metrics">
                           <For each={[
@@ -743,10 +774,12 @@ const Dashboard: Component<DashboardProps> = (props) => {
                             { label: 'Public repos', value: counts().public },
                             { label: 'Repos', value: counts().total },
                           ]}>{row => (
-                            <div class="stat-card__metric">
-                              <span class="stat-card__metric-label">{row.label}</span>
-                              <span class="stat-card__metric-value">{row.value ?? 'Unavailable'}</span>
-                            </div>
+                            <Show when={row.value != null}>
+                              <div class="stat-card__metric">
+                                <span class="stat-card__metric-label">{row.label}</span>
+                                <span class="stat-card__metric-value">{row.value}</span>
+                              </div>
+                            </Show>
                           )}</For>
                         </div>
                       )}</Show>
