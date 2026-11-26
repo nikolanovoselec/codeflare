@@ -1,11 +1,11 @@
 // CI only: use the locked stock services and managed CLI in the isolated Node image.
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import childProcess, { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import http, { createServer } from 'node:http';
-import { createRequire } from 'node:module';
+import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { basename, dirname, join } from 'node:path';
 import { Readable } from 'node:stream';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -182,7 +182,20 @@ async function qualify(ambiguous) {
     }
     return response;
   };
+  const nativeSpawn = childProcess.spawn;
+  function restoreSpawn() {
+    if (!ambiguous) return;
+    childProcess.spawn = nativeSpawn;
+    syncBuiltinESMExports();
+  }
   try {
+    if (ambiguous) {
+      // Keep the real listener and private HTTP path; discard only gateway stdout.
+      childProcess.spawn = (command, args, options) => nativeSpawn(command, args,
+        command.endsWith('/@jmfederico/pi-web/dist/bin/pi-web-server.sh') && Array.isArray(options?.stdio)
+          ? { ...options, stdio: [options.stdio[0], 'ignore', options.stdio[2]] } : options);
+      syncBuiltinESMExports();
+    }
     mkdirSync(cwd);
     mkdirSync(extensions, { recursive: true });
     const modelOrigin = await listen(modelServer);
@@ -395,24 +408,32 @@ export default function (pi) {
     await until('image-managed Chat writer ready', () => runtime.ready);
     const afterWriter = performance.now();
     await boot;
+    restoreSpawn();
     console.info = info;
     globalThis.fetch = nativeFetch;
-    const timings = (name, fields) => {
+    const timings = (name, fields, missingField) => {
       const prefix = `[pi-web] ${name} `;
       const rows = startupLogs.filter(line => line.startsWith(prefix));
       assert.equal(rows.length >= 1, true, `record ${name}`);
       const record = JSON.parse(rows.at(-1).slice(prefix.length));
       assert.deepEqual(Object.keys(record).sort(), [...fields].sort(), 'timing record contains only bounded milestones');
-      for (const key of fields) assert.ok(Number.isSafeInteger(record[key]) && record[key] >= 0, key);
+      for (const key of fields) {
+        if (key === missingField) assert.equal(record[key], null, 'discarding the gateway marker must not block startup');
+        else assert.ok(Number.isSafeInteger(record[key]) && record[key] >= 0, key);
+      }
       return record;
     };
-    const services = timings('service boot timing', ['launchMs', 'gatewayListenMs', 'sessiondListenMs', 'healthyMs', 'listedMs', 'readyMs']);
-    assert.ok(services.launchMs <= services.healthyMs && services.healthyMs <= services.listedMs && services.listedMs <= services.readyMs);
-    assert.ok(services.gatewayListenMs > 0 && services.gatewayListenMs <= services.readyMs, 'observe the stock gateway listen marker');
-    assert.ok(services.sessiondListenMs > 0 && services.sessiondListenMs <= services.readyMs, 'observe the stock daemon listen marker');
-    assert.ok(packageListHoldMs > 0, 'hold the stock package-list response during service boot');
-    assert.ok(services.listedMs - services.healthyMs >= Math.floor(packageListHoldMs),
-      'the package-list milestone, not pair health, must include the controlled response wait');
+    function verifyStockListenTimings() {
+      const services = timings('service boot timing', ['launchMs', 'gatewayListenMs', 'sessiondListenMs', 'healthyMs', 'listedMs', 'readyMs'],
+        ambiguous ? 'gatewayListenMs' : undefined);
+      assert.ok(services.launchMs <= services.healthyMs && services.healthyMs <= services.listedMs && services.listedMs <= services.readyMs);
+      if (!ambiguous) assert.ok(services.gatewayListenMs > 0 && services.gatewayListenMs <= services.readyMs, 'observe the stock gateway listen marker');
+      assert.ok(services.sessiondListenMs > 0 && services.sessiondListenMs <= services.readyMs, 'observe the stock daemon listen marker');
+      assert.ok(packageListHoldMs > 0, 'hold the stock package-list response during service boot');
+      assert.ok(services.listedMs - services.healthyMs >= Math.floor(packageListHoldMs),
+        'the package-list milestone, not pair health, must include the controlled response wait');
+    }
+    verifyStockListenTimings();
     const chatTiming = timings('Chat open timing', ['serviceWaitMs', 'projectWorkspaceMs', 'frameAdmissionMs', 'writerReceiptMs']);
     if (!ambiguous) {
       const within = (elapsedMs, lower, upper, phase) => {
@@ -731,6 +752,7 @@ export default function (pi) {
     assert.equal((await health()).activeSessions, 0);
     console.log('PI_WEB_HOST_NATIVE_QUIT_OK');
   } finally {
+    restoreSpawn();
     startupEvents?.terminate();
     globalThis.fetch = nativeFetch;
     http.request = nativeHttpRequest;

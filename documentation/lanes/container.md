@@ -242,7 +242,7 @@ On successful service boot, `[pi-web] service boot timing` reports cumulative mi
 
 On successful writer confirmation, `[pi-web] Chat open timing` separates service wait, project/workspace setup, URL to admission, and admission to writer confirmation ([REQ-AGENT-283 AC6](../../sdd/spec/agents.md#req-agent-283-initial-chat-service-recovery)). Admission means the Host accepts the first qualifying startup request, not that the browser loaded the iframe. <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime -->
 
-Without observed admission, the last two durations are null, not zero. The [packaged smoke timing checks](../../scripts/ci/smoke-pi-web-host-handoff.mjs#L414-L422) verify the admitted case only. <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime -->
+Without observed admission, the last two durations are null, not zero. The [packaged smoke timing checks](../../scripts/ci/smoke-pi-web-host-handoff.mjs#L437-L444) verify the admitted case only. <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime -->
 
 The Worker’s `Pi Web proxy timing` log separates authentication, session eligibility, authority RPC, and forwarding to response headers. Timing data contains only fixed categories and rounded milliseconds ([REQ-AGENT-283 Constraints](../../sdd/spec/agents.md#req-agent-283-initial-chat-service-recovery)). <!-- @impl: src/routes/pi-web.ts::handlePiWebRequest -->
 
