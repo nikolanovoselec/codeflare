@@ -264,14 +264,18 @@ export default function (pi) {
     } else {
       profileRestored = true;
     }
+    let beforeUrl = restoreTime;
     const chatUrl = await until('Chat deep link', async () => {
+      const requestedAt = performance.now();
       const state = await readSwitch();
+      if (!state.chatUrl) beforeUrl = requestedAt;
       if (state.phase === 'failed' || state.phase === 'uncertain') {
         await boot;
         throw new Error(`Chat failed to publish its deep link (${state.phase})`);
       }
       return state.chatUrl;
     }, 35_000);
+    const afterUrl = performance.now();
     const { id, path } = runtime.binding;
     assert.equal((await request(stock, '/api/sessiond/health')).activeSessions, 0, 'service preparation must not acquire a writer');
     if (failedBinding) assert.deepEqual(identity(runtime.binding), failedBinding, 'retry preserves the original transcript');
@@ -293,7 +297,9 @@ export default function (pi) {
       assert.equal(stillWaiting.chatUrl, chatUrl, 'reload can use the same deep link');
       assert.equal((await request(stock, '/api/sessiond/health')).activeSessions, 0);
     }
+    const beforeAdmission = performance.now();
     const app = await nativeFetch(deepLink, { headers: browserHeaders });
+    const afterAdmission = performance.now();
     assert.equal(app.status, 200);
     const entry = (await app.text()).match(/<script[^>]+src="(\.\/assets\/[^"]+\.js)"/);
     assert.ok(entry, 'stock HTML must retain its relative client entry');
@@ -344,6 +350,7 @@ export default function (pi) {
     }
     const firstSnapshot = snapshot(60_000);
     void firstSnapshot.catch(() => {});
+    let beforeWriter;
     if (!ambiguous) {
       await until('original Pi startup question entered', () => existsSync(startupQuestionSeen));
       const question = await until('stock startup status exposes the original question', async () => {
@@ -367,6 +374,7 @@ export default function (pi) {
       await api(`${ref}/prompt`, 409, { cwd, text: 'Do not admit new work during the startup question.' });
       assert.deepEqual(calls, [], 'waiting for a startup answer must not admit a turn');
       assert.equal(owner().terminalTicket, undefined, 'settling a startup question cannot grant a Terminal writer');
+      beforeWriter = performance.now();
       const closed = await api(`${ref}/dialogs/answer`, 200, { cwd, dialogId: question.dialogId, value: true });
       assert.equal(closed.result, 'closed');
       await until('original Pi extension receives the answer', () => existsSync(startupAnswer));
@@ -375,6 +383,7 @@ export default function (pi) {
     }
     assert.equal((await firstSnapshot).status.sessionId, id);
     await until('image-managed Chat writer ready', () => runtime.ready);
+    const afterWriter = performance.now();
     await boot;
     console.info = info;
     const timings = (name, fields) => {
@@ -388,7 +397,15 @@ export default function (pi) {
     };
     const services = timings('service boot timing', ['launchMs', 'healthyMs', 'listedMs', 'readyMs']);
     assert.ok(services.launchMs <= services.healthyMs && services.healthyMs <= services.listedMs && services.listedMs <= services.readyMs);
-    timings('Chat open timing', ['serviceWaitMs', 'projectWorkspaceMs', 'frameAdmissionMs', 'writerReceiptMs']);
+    const chatTiming = timings('Chat open timing', ['serviceWaitMs', 'projectWorkspaceMs', 'frameAdmissionMs', 'writerReceiptMs']);
+    if (!ambiguous) {
+      const within = (elapsedMs, lower, upper, phase) => {
+        assert.ok(elapsedMs >= Math.floor(lower) && elapsedMs <= Math.ceil(upper),
+          `${phase}: ${elapsedMs}ms outside observed interval [${lower}, ${upper}]ms`);
+      };
+      within(chatTiming.frameAdmissionMs, beforeAdmission - afterUrl, afterAdmission - beforeUrl, 'URL to admission');
+      within(chatTiming.writerReceiptMs, beforeWriter - afterAdmission, afterWriter - beforeAdmission, 'admission to writer confirmation');
+    }
     assert.notEqual((await readSwitch()).startupQuestion, true);
     const source = chat();
     assert.deepEqual(identity(source), { id, cwd, path });

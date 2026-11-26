@@ -236,9 +236,11 @@ For a stock Pi Web service boot failure ([REQ-AGENT-283 AC3](../../sdd/spec/agen
 
 Shutdown-caused cancellation does not emit this warning. Other errors that reach the boot failure handler are logged even during shutdown. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices -->
 
-On successful service boot, `[pi-web] service boot timing` reports cumulative milliseconds to child launch, pair health, package listing, and service readiness. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices -->
+On successful service boot, `[pi-web] service boot timing` reports cumulative milliseconds to child launch, pair health, package listing, and service readiness ([REQ-AGENT-283 AC5](../../sdd/spec/agents.md#req-agent-283-initial-chat-service-recovery)). <!-- @impl: host/src/pi-web-services.ts::createPiWebServices -->
 
-On successful writer confirmation, `[pi-web] Chat open timing` separates service wait, project/workspace setup, URL publication to frame admission, and admission to verified writer. The last two durations are null if admission was not observed. <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime -->
+On successful writer confirmation, `[pi-web] Chat open timing` separates service wait, project/workspace setup, URL to admission, and admission to writer confirmation ([REQ-AGENT-283 AC6](../../sdd/spec/agents.md#req-agent-283-initial-chat-service-recovery)). Admission means the Host accepts the first qualifying startup request, not that the browser loaded the iframe. <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime -->
+
+Without observed admission, the last two durations are null, not zero. The packaged smoke verifies the admitted case only. <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime -->
 
 Pi-enabled images [prewarm stock Pi Web](../../sdd/spec/agents.md#req-agent-284-pi-web-image-prewarm) offline using the installed package and a disposable profile. During build verification, both stock services restart with cache writes disabled. The build checks that Node accepts both cached entrypoints and that no conversation opens. Normal runtime launches do not disable cache writes. <!-- @impl: image/pi-web/warm-compile-cache.mjs::verifyBakedCache -->
 

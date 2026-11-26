@@ -1038,6 +1038,8 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 3. Before cleanup, a failed stock service boot records the preparation operation, elapsed time and available bounded failure codes in Host logs. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @test: scripts/ci/smoke-pi-web-services.mjs (verifyPackageListFailureDiagnostic) -->
 4. Shutdown cancels in-flight stock service startup requests, including response-body reads, without emitting a boot-failure warning for the cancellation. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @test: scripts/ci/smoke-pi-web-services.mjs (verifyPendingBootRequestCancellation) -->
+5. On successful stock service boot, Host logs cumulative elapsed milliseconds to child launch, pair health, package listing, and service readiness. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualify) -->
+6. On successful Chat writer confirmation, Host logs elapsed milliseconds for service wait, project/workspace setup, URL publication to first qualifying startup request admission, and admission to writer confirmation. Without observed admission, the last two durations are null, not zero. <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualify) -->
 
 **Constraints:** The previous attempt must be confirmed closed before retry. Do not log raw errors, child output, profile data or response bodies.
 
