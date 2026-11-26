@@ -268,7 +268,9 @@ With a connected account, verify that clicking `@username` opens the profile in 
 
 Use an input list not already in newest-first order. For example, load four test repos with `updated_at` values `2025-12-01T00:00:00Z`, `2026-01-01T00:00:00Z`, `2026-03-01T00:00:00Z`, and `2026-02-01T00:00:00Z`, in that order. Verify **Recently updated** shows exactly the March, February, and January repos in that order, excluding December. Open a repo link and verify the intended GitHub page opens in a new tab without launching a session.
 
-With separate authorization, use a disposable Vibe workspace and a repository with a known default branch and a distinguishable nondefault branch. Click **Start Chat** and verify a new Vibe Chat opens. After restore, check that the clone directory is the Git checkout root, its `origin` matches the selected `owner/repo`, and its checked-out branch matches the known default. A selected repo or a clone request alone does not pass. Record any case without the required fixture or authorization as unexercised.
+With separate authorization, use a disposable Vibe workspace and a repository with a known default branch and a distinguishable nondefault branch. Click **Start Chat**, then **Open**. While **Restoring repositories…** is still visible for that clone, verify the Chat composer accepts a harmless prompt. If the clone finishes before this can be observed, mark the ordering check unexercised.
+
+After restore, check that the clone directory is the Git checkout root, its `origin` matches the selected `owner/repo`, and its checked-out branch matches the known default. A selected repo or a clone request alone does not pass. Record any case without the required fixture or authorization as unexercised.
 
 On mobile, test below 600 CSS px and again from 600 through 640 CSS px. Verify only one browser is visible. Flip in each direction using the keyboard. Verify the incoming face animates, focus moves to its flip control, and Tab cannot enter the inactive face. Escape closes the drawer and returns focus to its grip. Verify the closed browsers cannot receive focus.
 

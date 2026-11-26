@@ -87,12 +87,13 @@ describe('host test inventory', () => {
     }
   });
 
-  it('moves only the two measured files and preserves every other native baseline owner', () => {
+  it('moves only the measured files and preserves every other native baseline owner', () => {
     const expected = runnable().filter(name => !excluded().includes(name)).sort();
     const groups = Array.from({ length: 5 }, (_, i) => selectHostGroup(`${i + 1}/5`));
     for (const [index, name] of expected.entries()) {
       // Node v26.8.2 runner.js: index % shard.total === shard.index - 1.
-      const owner = name === 'enforce-review-spawn.test.js' ? 4
+      const owner = name === 'enforce-review-spawn.test.js' ? 2
+        : name === 'herdr-launcher.test.js' ? 5
         : name === 'pi-lockstep.test.js' ? 1 : index % 5 + 1;
       assert.ok(groups[owner - 1].includes(name), `${name} belongs to group ${owner}`);
     }

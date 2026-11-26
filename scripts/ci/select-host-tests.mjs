@@ -21,9 +21,10 @@ export function selectHostGroup(group, directory = HOST_TESTS) {
   const groups = Array.from({ length: 5 }, () => []);
   for (const [index, name] of files.entries()) {
     // Preserve Node v26.8.2 lib/internal/test_runner/runner.js's native rule:
-    // index % shard.total === shard.index - 1. Override only these two files.
-    // Run 44362862978: review enforcement 37.57s; extension warming 14.02s.
-    const owner = name === 'enforce-review-spawn.test.js' ? 4
+    // index % shard.total === shard.index - 1, except measured hot spots.
+    // Run 45873296064: review enforcement and Herdr launcher weighed down shards 4 and 3.
+    const owner = name === 'enforce-review-spawn.test.js' ? 2
+      : name === 'herdr-launcher.test.js' ? 5
       : name === 'pi-lockstep.test.js' ? 1 : index % 5 + 1;
     groups[owner - 1].push(name);
   }

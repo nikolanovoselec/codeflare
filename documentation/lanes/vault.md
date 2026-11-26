@@ -711,6 +711,12 @@ Pi extraction is driven by `prompts/memory-agent-prompt.md` and `prompts/vault-e
 
 Clients that honor `display: false` hide new routine extraction launches and retries ([REQ-MEM-044](../../sdd/spec/memory.md#req-mem-044-hide-background-extraction-requests)) as well as routine successful native subagent notifications ([REQ-AGENT-216 AC3](../../sdd/spec/agents.md#req-agent-216-quiet-pi-subagent-defaults)). These messages remain in model context and the durable root transcript. Errors, stops, aborts, pending questions, resume refusals, workspace notices, run updates, and extraction GIVEUP remain visible. Existing transcript entries are not rewritten.
 
+#### Verify extraction visibility in Chat and Terminal
+
+In separate disposable Classic Chat and Terminal runs, exercise a due extraction launch. After an exact failed call, repeat for the retry, using the [delivery correlation procedure](troubleshooting.md#pi-memoryvault-extraction-repeats-reminders-reaches-giveup-or-reports-done-without-advancing-state).
+
+For each launch and retry, verify the matching payload is present in the durable root transcript but is not rendered in the conversation. Reload or resume the same transcript and confirm it remains hidden. Keep historical entries unchanged; mark any unobserved client or retry as unexercised.
+
 Each model-facing launch includes a job/delivery summary followed by pretty-printed `<extraction-items-json>` whose request items exactly match durable details metadata. Due memory, Vault and transcript-trim jobs share that one launch; trimming has no separate trigger or follow-up. Its agent calls one local operation and receives compact size/status data, not transcript pages or full ancestry arrays. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages --> Standard JSON `\n` escapes inside `prompt` decode to line breaks when the public call is submitted; terminal wrapping does not alter the value.
 
 Generated memory-capture and Vault-extraction agents and their emitted requests use provider-neutral medium reasoning and Bash-only evidence. Memory capture has ten turns with a reserved final completion turn; Vault extraction has seven ([AD102](../decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional), [AD103](../decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs)).

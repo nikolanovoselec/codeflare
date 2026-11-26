@@ -435,7 +435,7 @@ jobs:
       fail-fast: false
       max-parallel: 13
       matrix:
-        # The twelve completed Workers artifacts from run 41877010056 supply
+        # Recorded Worker file timings in backend-test-weights.json supply
         # collection and execution costs for thirteen longest-first groups.
         # The Node runtime remains separate from this Workers-only population.
         include:
@@ -1005,82 +1005,6 @@ jobs:
         working-directory: preseed/agents/pi
         run: npm ci --ignore-scripts --prefer-offline --no-audit --no-fund
 
-      - name: Install the locked stock pi-web artifact
-        working-directory: image/pi-web
-        run: npm ci --omit=dev --omit=peer --no-audit --no-fund
-
-      - name: Qualify the production Pi Web supervisor and handoff with the locked artifacts
-        run: |
-          set -euo pipefail
-          node_image=$(awk '$1 == "FROM" && NF == 2 && $2 ~ /^mirror[.]gcr[.]io\/library\/node:/ { print $2 }' Dockerfile)
-          [[ "$node_image" =~ ^mirror\.gcr\.io/library/node:[^@[:space:]]+@sha256:[0-9a-f]{64}$ ]]
-          # Transpile, do not bundle: production relative .js imports remain usable by other smoke modules.
-          host_dist=$(mktemp -d "$RUNNER_TEMP/pi-web-host.XXXXXXXX")
-          chmod 0755 "$host_dist" # Readable by the container without DAC override.
-          node_modules/.bin/esbuild host/src/pi-web-handoff.ts host/src/pi-web-proxy.ts \
-            host/src/pi-web-runtime.ts host/src/pi-web-services.ts \
-            --format=esm --target=es2022 --outdir="$host_dist"
-          docker run --rm --init --network=none --cap-drop=ALL --security-opt=no-new-privileges \
-            --env PI_OFFLINE=1 --env PI_SKIP_VERSION_CHECK=1 \
-            --mount "type=bind,src=$GITHUB_WORKSPACE/image/pi-web,dst=/qualification/pi-web,readonly" \
-            --mount "type=bind,src=$GITHUB_WORKSPACE/preseed/agents/pi/node_modules,dst=/opt/codeflare/npm-tools/node_modules,readonly" \
-            --mount "type=bind,src=$GITHUB_WORKSPACE/preseed/npm-tools/package.json,dst=/opt/codeflare/npm-tools/package.json,readonly" \
-            --mount "type=bind,src=$GITHUB_WORKSPACE/scripts/ci,dst=/qualification/scripts/ci,readonly" \
-            --mount "type=bind,src=$GITHUB_WORKSPACE/entrypoint.sh,dst=/qualification/entrypoint.sh,readonly" \
-            --mount "type=bind,src=$GITHUB_WORKSPACE/preseed/agents/pi/extensions/00-mcp-adapter-config.ts,dst=/qualification/00-mcp-adapter-config.ts,readonly" \
-            --mount "type=bind,src=$GITHUB_WORKSPACE/host/__fixtures__/pi-mcp-extension-server.mjs,dst=/qualification/pi-mcp-extension-server.mjs,readonly" \
-            --mount "type=bind,src=$GITHUB_WORKSPACE/image/pi-web/node_modules/ws,dst=/qualification/host/node_modules/ws,readonly" \
-            --mount "type=bind,src=$host_dist,dst=/qualification/host/dist,readonly" \
-            "$node_image" sh -euc '
-              # Exercise file preservation on the disposable container filesystem.
-              mkdir -p /opt/codeflare/pi-web
-              cp -R /qualification/pi-web/. /opt/codeflare/pi-web/
-              ln -s "$(readlink -f /opt/codeflare/npm-tools/node_modules/.bin/pi)" /usr/local/bin/pi
-              node /qualification/scripts/ci/smoke-pi-web-services.mjs
-              exec node /qualification/scripts/ci/smoke-pi-web-host-handoff.mjs
-            '
-
-      - name: Verify native Pi and stock pi-web transcript interoperability
-        env:
-          CODEFLARE_PI_WEB_SMOKE_ROOT: ${{ github.workspace }}/image/pi-web
-          CODEFLARE_PI_WEB_SMOKE_PI_PACKAGE: ${{ github.workspace }}/preseed/agents/pi/node_modules/@earendil-works/pi-coding-agent
-          CODEFLARE_PI_WEB_SMOKE_CLI: ${{ github.workspace }}/preseed/agents/pi/node_modules/.bin/pi
-        run: node scripts/ci/smoke-pi-web-handoff.mjs
-
-      - name: Qualify the shipped Classic Pi launcher
-        run: |
-          set -euo pipefail
-          node_image=$(awk '$1 == "FROM" && NF == 2 && $2 ~ /^mirror[.]gcr[.]io\/library\/node:/ { print $2 }' Dockerfile)
-          [[ "$node_image" =~ ^mirror\.gcr\.io/library/node:[^@[:space:]]+@sha256:[0-9a-f]{64}$ ]]
-          # A disposable test image adds just the shipped launcher's jq dependency.
-          fixture="pi-web-launcher-ci:$GITHUB_RUN_ID"
-          trap 'docker image rm "$fixture" >/dev/null 2>&1 || true' EXIT
-          docker build --build-arg "BASE=$node_image" -t "$fixture" - <<'DOCKERFILE'
-          ARG BASE
-          FROM $BASE
-          RUN apt-get update && apt-get install -y --no-install-recommends jq && rm -rf /var/lib/apt/lists/*
-          DOCKERFILE
-          host_dist=$(mktemp -d "$RUNNER_TEMP/pi-web-launchers.XXXXXXXX")
-          chmod 0755 "$host_dist"
-          node_modules/.bin/esbuild host/src/prewarm-readiness.ts host/src/terminal-mode.ts \
-            host/src/pi-web-handoff.ts host/src/pi-web-runtime.ts host/src/pi-web-services.ts \
-            --format=esm --target=es2022 --outdir="$host_dist"
-          docker run --rm --init --network=none --cap-drop=ALL --security-opt=no-new-privileges \
-            --env PI_OFFLINE=1 --env PI_SKIP_VERSION_CHECK=1 \
-            --mount "type=bind,src=$GITHUB_WORKSPACE/image/pi-web/codeflare-pi,dst=/usr/local/bin/codeflare-terminal-writer,readonly" \
-            --mount "type=bind,src=$GITHUB_WORKSPACE/image/pi-web/handoff-extension.ts,dst=/opt/codeflare/pi-web/handoff-extension.ts,readonly" \
-            --mount "type=bind,src=$GITHUB_WORKSPACE/image/pi-web/native-preflight.mjs,dst=/opt/codeflare/pi-web/native-preflight.mjs,readonly" \
-            --mount "type=bind,src=$GITHUB_WORKSPACE/preseed/agents/pi/node_modules,dst=/opt/codeflare/npm-tools/node_modules,readonly" \
-            --mount "type=bind,src=$GITHUB_WORKSPACE/scripts/ci,dst=/qualification/scripts/ci,readonly" \
-            --mount "type=bind,src=$host_dist,dst=/qualification/host/dist,readonly" \
-            "$fixture" sh -euc '
-              ln -s "$(readlink -f /opt/codeflare/npm-tools/node_modules/.bin/pi)" /usr/local/bin/pi
-              exec node /qualification/scripts/ci/smoke-pi-web-launchers.mjs classic
-            '
-
-      - name: Qualify the real stock MCP extension and public client
-        run: node scripts/qualify-pi-mcp.mjs
-
       - name: Verify pristine Codex backport necessity and request behavior
         run: node --test preseed/agents/pi/test/codex-prompt-cache-patch.test.mjs
 
@@ -1152,6 +1076,119 @@ jobs:
             ${{ runner.temp }}/pi-runtime-context-advanced.json
           retention-days: 14
           if-no-files-found: error
+
+  pi-web:
+    name: Pi Web qualification (${{ matrix.lane }})
+    needs: changes
+    if: >-
+      needs.changes.outputs.full == 'true' ||
+      needs.changes.outputs.pi == 'true'
+    runs-on: ${{ vars.RUNNER || 'ubuntu-24.04' }}
+    timeout-minutes: 7
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [services, handoff]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+
+      - uses: $/.github/actions/install-deps
+        with:
+          key-prefix: root
+
+      - name: Install pristine lock-matched Pi dependencies
+        working-directory: preseed/agents/pi
+        run: npm ci --ignore-scripts --prefer-offline --no-audit --no-fund
+
+      - name: Install the locked stock pi-web artifact
+        working-directory: image/pi-web
+        run: npm ci --omit=dev --omit=peer --no-audit --no-fund
+
+      - name: Qualify the locked Pi Web artifacts
+        env:
+          PI_WEB_LANE: ${{ matrix.lane }}
+        run: |
+          set -euo pipefail
+          node_image=$(awk '$1 == "FROM" && NF == 2 && $2 ~ /^mirror[.]gcr[.]io\/library\/node:/ { print $2 }' Dockerfile)
+          [[ "$node_image" =~ ^mirror\.gcr\.io/library/node:[^@[:space:]]+@sha256:[0-9a-f]{64}$ ]]
+          # Transpile, do not bundle: production relative .js imports remain usable by other smoke modules.
+          host_dist=$(mktemp -d "$RUNNER_TEMP/pi-web-host.XXXXXXXX")
+          chmod 0755 "$host_dist" # Readable by the container without DAC override.
+          node_modules/.bin/esbuild host/src/pi-web-handoff.ts host/src/pi-web-proxy.ts \
+            host/src/pi-web-runtime.ts host/src/pi-web-services.ts \
+            --format=esm --target=es2022 --outdir="$host_dist"
+          docker run --rm --init --network=none --cap-drop=ALL --security-opt=no-new-privileges \
+            --env PI_OFFLINE=1 --env PI_SKIP_VERSION_CHECK=1 --env PI_WEB_LANE \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/image/pi-web,dst=/qualification/pi-web,readonly" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/preseed/agents/pi/node_modules,dst=/opt/codeflare/npm-tools/node_modules,readonly" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/preseed/npm-tools/package.json,dst=/opt/codeflare/npm-tools/package.json,readonly" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/scripts/ci,dst=/qualification/scripts/ci,readonly" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/entrypoint.sh,dst=/qualification/entrypoint.sh,readonly" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/preseed/agents/pi/extensions/00-mcp-adapter-config.ts,dst=/qualification/00-mcp-adapter-config.ts,readonly" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/host/__fixtures__/pi-mcp-extension-server.mjs,dst=/qualification/pi-mcp-extension-server.mjs,readonly" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/image/pi-web/node_modules/ws,dst=/qualification/host/node_modules/ws,readonly" \
+            --mount "type=bind,src=$host_dist,dst=/qualification/host/dist,readonly" \
+            "$node_image" sh -euc '
+              # Exercise file preservation on the disposable container filesystem.
+              mkdir -p /opt/codeflare/pi-web
+              cp -R /qualification/pi-web/. /opt/codeflare/pi-web/
+              ln -s "$(readlink -f /opt/codeflare/npm-tools/node_modules/.bin/pi)" /usr/local/bin/pi
+              case "$PI_WEB_LANE" in
+                services) exec node /qualification/scripts/ci/smoke-pi-web-services.mjs ;;
+                handoff) exec node /qualification/scripts/ci/smoke-pi-web-host-handoff.mjs ;;
+                *) exit 1 ;;
+              esac
+            '
+
+      - name: Verify native Pi and stock pi-web transcript interoperability
+        if: matrix.lane == 'services'
+        env:
+          CODEFLARE_PI_WEB_SMOKE_ROOT: ${{ github.workspace }}/image/pi-web
+          CODEFLARE_PI_WEB_SMOKE_PI_PACKAGE: ${{ github.workspace }}/preseed/agents/pi/node_modules/@earendil-works/pi-coding-agent
+          CODEFLARE_PI_WEB_SMOKE_CLI: ${{ github.workspace }}/preseed/agents/pi/node_modules/.bin/pi
+        run: node scripts/ci/smoke-pi-web-handoff.mjs
+
+      - name: Qualify the shipped Classic Pi launcher
+        if: matrix.lane == 'services'
+        run: |
+          set -euo pipefail
+          node_image=$(awk '$1 == "FROM" && NF == 2 && $2 ~ /^mirror[.]gcr[.]io\/library\/node:/ { print $2 }' Dockerfile)
+          [[ "$node_image" =~ ^mirror\.gcr\.io/library/node:[^@[:space:]]+@sha256:[0-9a-f]{64}$ ]]
+          # A disposable test image adds just the shipped launcher's jq dependency.
+          fixture="pi-web-launcher-ci:$GITHUB_RUN_ID"
+          trap 'docker image rm "$fixture" >/dev/null 2>&1 || true' EXIT
+          docker build --build-arg "BASE=$node_image" -t "$fixture" - <<'DOCKERFILE'
+          ARG BASE
+          FROM $BASE
+          RUN apt-get update && apt-get install -y --no-install-recommends jq && rm -rf /var/lib/apt/lists/*
+          DOCKERFILE
+          host_dist=$(mktemp -d "$RUNNER_TEMP/pi-web-launchers.XXXXXXXX")
+          chmod 0755 "$host_dist"
+          node_modules/.bin/esbuild host/src/prewarm-readiness.ts host/src/terminal-mode.ts \
+            host/src/pi-web-handoff.ts host/src/pi-web-runtime.ts host/src/pi-web-services.ts \
+            --format=esm --target=es2022 --outdir="$host_dist"
+          docker run --rm --init --network=none --cap-drop=ALL --security-opt=no-new-privileges \
+            --env PI_OFFLINE=1 --env PI_SKIP_VERSION_CHECK=1 \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/image/pi-web/codeflare-pi,dst=/usr/local/bin/codeflare-terminal-writer,readonly" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/image/pi-web/handoff-extension.ts,dst=/opt/codeflare/pi-web/handoff-extension.ts,readonly" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/image/pi-web/native-preflight.mjs,dst=/opt/codeflare/pi-web/native-preflight.mjs,readonly" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/preseed/agents/pi/node_modules,dst=/opt/codeflare/npm-tools/node_modules,readonly" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/scripts/ci,dst=/qualification/scripts/ci,readonly" \
+            --mount "type=bind,src=$host_dist,dst=/qualification/host/dist,readonly" \
+            "$fixture" sh -euc '
+              ln -s "$(readlink -f /opt/codeflare/npm-tools/node_modules/.bin/pi)" /usr/local/bin/pi
+              exec node /qualification/scripts/ci/smoke-pi-web-launchers.mjs classic
+            '
+
+      - name: Qualify the real stock MCP extension and public client
+        if: matrix.lane == 'services'
+        run: node scripts/qualify-pi-mcp.mjs
 
   host-tests:
     name: Host tests (${{ matrix.slug }})
@@ -1415,7 +1452,7 @@ jobs:
           rclone version
 
       - name: Select host tests
-        # Preserve the native baseline with two measured whole-file moves.
+        # Preserve the native baseline except for measured whole-file moves.
         # The selector rejects empty groups; host-test-inventory.test.js checks
         # exact coverage, exclusions and unique ownership across all five groups.
         env:
@@ -1670,6 +1707,7 @@ jobs:
       - frontend-build
       - landing-tests
       - pi-prompt
+      - pi-web
       - host-tests
       - browser-run-timeouts
       - browser-ide

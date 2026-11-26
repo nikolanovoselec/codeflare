@@ -427,7 +427,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     const { testWorkflow } = readCacheWorkflowContract();
     const summary = testWorkflow.jobs.summary as { needs?: string[]; steps?: Array<{ name?: string; run?: string; uses?: string }> };
     expect(summary.needs).toEqual(expect.arrayContaining([
-      'backend-tests', 'backend-node-tests', 'frontend-tests', 'host-tests', 'pi-prompt',
+      'backend-tests', 'backend-node-tests', 'frontend-tests', 'host-tests', 'pi-prompt', 'pi-web',
       'coverage-backend', 'coverage-frontend',
     ]));
     const names = summary.steps?.map((step) => step.name) ?? [];
@@ -445,7 +445,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     const { testWorkflow } = readCacheWorkflowContract();
     const directWorkloads = [
       'quality', 'typecheck', 'workflow-audit', 'bundle-size',
-      'backend-tests', 'backend-node-tests', 'frontend-tests', 'landing-tests', 'pi-prompt', 'host-tests', 'browser-ide',
+      'backend-tests', 'backend-node-tests', 'frontend-tests', 'landing-tests', 'pi-prompt', 'pi-web', 'host-tests', 'browser-ide',
     ];
     for (const name of directWorkloads) expect(testWorkflow.jobs[name].needs).toBe('changes');
   });
