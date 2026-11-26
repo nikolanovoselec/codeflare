@@ -406,8 +406,10 @@ export default function (pi) {
       for (const key of fields) assert.ok(Number.isSafeInteger(record[key]) && record[key] >= 0, key);
       return record;
     };
-    const services = timings('service boot timing', ['launchMs', 'healthyMs', 'listedMs', 'readyMs']);
+    const services = timings('service boot timing', ['launchMs', 'gatewayListenMs', 'sessiondListenMs', 'healthyMs', 'listedMs', 'readyMs']);
     assert.ok(services.launchMs <= services.healthyMs && services.healthyMs <= services.listedMs && services.listedMs <= services.readyMs);
+    assert.ok(services.gatewayListenMs > 0 && services.gatewayListenMs <= services.readyMs, 'observe the stock gateway listen marker');
+    assert.ok(services.sessiondListenMs > 0 && services.sessiondListenMs <= services.readyMs, 'observe the stock daemon listen marker');
     assert.ok(packageListHoldMs > 0, 'hold the stock package-list response during service boot');
     assert.ok(services.listedMs - services.healthyMs >= Math.floor(packageListHoldMs),
       'the package-list milestone, not pair health, must include the controlled response wait');

@@ -82,11 +82,30 @@ export function createPiWebServices(options: {
     throw new Error('Stock pi-web startup did not settle');
   }
 
-  function launch(name: string, env: NodeJS.ProcessEnv): void {
+  function launch(name: string, env: NodeJS.ProcessEnv, isListenMarker: (line: string) => boolean, onListen: () => void): void {
     const child = spawn(`${dist}/bin/${name}`, [], {
-      env, cwd: options.cwd, stdio: ['ignore', 'ignore', options.observeBuildStderr ? 'pipe' : 'ignore'],
+      env, cwd: options.cwd, stdio: ['ignore', 'pipe', options.observeBuildStderr ? 'pipe' : 'ignore'],
     });
     if (child.stderr) options.observeBuildStderr?.(name, child.stderr);
+    // Never forward child output. Retain only a bounded partial line until the
+    // first matching stock marker, then drain without inspecting further output.
+    const stdout = child.stdout;
+    let partial: string | undefined = '';
+    const observe = (chunk: string) => {
+      const lines = chunk.split('\n');
+      const last = lines.pop()!;
+      for (const line of lines) {
+        if (partial !== undefined && partial.length + line.length <= 4096 && isListenMarker(partial + line)) {
+          stdout?.off('data', observe);
+          stdout?.resume();
+          onListen();
+          return;
+        }
+        partial = '';
+      }
+      partial = partial !== undefined && partial.length + last.length <= 4096 ? partial + last : undefined;
+    };
+    stdout?.setEncoding('utf8').on('data', observe);
     let resolve!: () => void;
     const state: (typeof processes)[number] = { child, role: name === 'pi-web-sessiond.sh' ? 'sessiond' : 'gateway',
       running: true, stopped: new Promise<void>(done => { resolve = done; }) };
@@ -193,10 +212,17 @@ export function createPiWebServices(options: {
     };
     // No private container credential or parent authority in agent child env.
     delete env.CONTAINER_AUTH_TOKEN;
+    let gatewayListenMs: number | null = null;
+    let sessiondListenMs: number | null = null;
     mark('sessiond-launch');
-    launch('pi-web-sessiond.sh', env);
+    launch('pi-web-sessiond.sh', env, line => {
+      try {
+        const record = JSON.parse(line);
+        return record?.level === 30 && record.msg === `Server listening at ${env.PI_WEB_SESSIOND_SOCKET}`;
+      } catch { return false; }
+    }, () => { sessiondListenMs = elapsed(); });
     mark('gateway-launch');
-    launch('pi-web-server.sh', env);
+    launch('pi-web-server.sh', env, line => line === '  PI WEB is ready', () => { gatewayListenMs = elapsed(); });
     const launchMs = elapsed();
     mark('service-health');
     await until(async () => {
@@ -241,7 +267,7 @@ export function createPiWebServices(options: {
         if (!removed.removed) throw new Error('Bundled MCP Manager could not be dismissed');
       }
     }
-    console.info(`[pi-web] service boot timing ${JSON.stringify({ launchMs, healthyMs, listedMs, readyMs: elapsed() })}`);
+    console.info(`[pi-web] service boot timing ${JSON.stringify({ launchMs, gatewayListenMs, sessiondListenMs, healthyMs, listedMs, readyMs: elapsed() })}`);
   }
 
   return {

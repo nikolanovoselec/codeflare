@@ -236,7 +236,9 @@ For a stock Pi Web service boot failure ([REQ-AGENT-283 AC3](../../sdd/spec/agen
 
 Shutdown-caused cancellation does not emit this warning. Other errors that reach the boot failure handler are logged even during shutdown. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices -->
 
-On successful service boot, `[pi-web] service boot timing` reports cumulative milliseconds to child launch, pair health, package listing, and service readiness ([REQ-AGENT-283 AC5](../../sdd/spec/agents.md#req-agent-283-initial-chat-service-recovery)). <!-- @impl: host/src/pi-web-services.ts::createPiWebServices -->
+On successful service boot, `[pi-web] service boot timing` reports cumulative milliseconds to child launch, observed gateway and daemon listen markers, pair health, package listing, and readiness ([REQ-AGENT-283 AC5](../../sdd/spec/agents.md#req-agent-283-initial-chat-service-recovery)). <!-- @impl: host/src/pi-web-services.ts::createPiWebServices -->
+
+`gatewayListenMs` and `sessiondListenMs` measure when Host received the stock listen markers, not the exact bind times. Missing markers are `null` and do not affect startup. Host does not log child output. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices -->
 
 On successful writer confirmation, `[pi-web] Chat open timing` separates service wait, project/workspace setup, URL to admission, and admission to writer confirmation ([REQ-AGENT-283 AC6](../../sdd/spec/agents.md#req-agent-283-initial-chat-service-recovery)). Admission means the Host accepts the first qualifying startup request, not that the browser loaded the iframe. <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime -->
 
