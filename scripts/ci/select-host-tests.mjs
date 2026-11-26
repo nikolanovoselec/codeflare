@@ -6,8 +6,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const HOST_TESTS = fileURLToPath(new URL('../../host/__tests__', import.meta.url));
 
 export function selectHostGroup(group, directory = HOST_TESTS) {
-  const match = /^([1-5])\/5$/.exec(group ?? '');
-  if (!match) throw new Error('host group must be 1/5 through 5/5');
+  const match = /^([1-6])\/6$/.exec(group ?? '');
+  if (!match) throw new Error('host group must be 1/6 through 6/6');
   const runnable = readdirSync(directory).filter(name => name.endsWith('.test.js')).sort();
   if (runnable.some(name => !/^[A-Za-z0-9._-]+\.test\.js$/.test(name))) {
     throw new Error('host test filename is unsafe for the executable file list');
@@ -18,12 +18,13 @@ export function selectHostGroup(group, directory = HOST_TESTS) {
     if (!runnable.includes(name)) throw new Error(`excluded host test is not runnable: ${name}`);
   }
   const files = runnable.filter(name => !excluded.includes(name));
-  const groups = Array.from({ length: 5 }, () => []);
+  const groups = Array.from({ length: 6 }, () => []);
   for (const [index, name] of files.entries()) {
-    // Preserve Node v26.8.2 lib/internal/test_runner/runner.js's native rule:
-    // index % shard.total === shard.index - 1, except measured hot spots.
+    // Keep the native modulo-five owners, including the persistence file's
+    // index in the baseline, and move only the measured whole files.
     // Run 45873296064: review enforcement and Herdr launcher weighed down shards 4 and 3.
-    const owner = name === 'enforce-review-spawn.test.js' ? 2
+    const owner = name === 'entrypoint-rclone-filters.test.js' ? 6
+      : name === 'enforce-review-spawn.test.js' ? 2
       : name === 'herdr-launcher.test.js' ? 5
       : name === 'pi-lockstep.test.js' ? 1 : index % 5 + 1;
     groups[owner - 1].push(name);

@@ -711,12 +711,6 @@ Pi extraction is driven by `prompts/memory-agent-prompt.md` and `prompts/vault-e
 
 Clients that honor `display: false` hide new routine extraction launches and retries ([REQ-MEM-044](../../sdd/spec/memory.md#req-mem-044-hide-background-extraction-requests)) as well as routine successful native subagent notifications ([REQ-AGENT-216 AC3](../../sdd/spec/agents.md#req-agent-216-quiet-pi-subagent-defaults)). These messages remain in model context and the durable root transcript. Errors, stops, aborts, pending questions, resume refusals, workspace notices, run updates, and extraction GIVEUP remain visible. Existing transcript entries are not rewritten.
 
-#### Verify extraction visibility in Chat and Terminal
-
-In separate disposable Classic Chat and Terminal runs, exercise a due extraction launch. After an exact failed call, repeat for the retry, using the [delivery correlation procedure](troubleshooting.md#pi-memoryvault-extraction-repeats-reminders-reaches-giveup-or-reports-done-without-advancing-state).
-
-For each launch and retry, verify the matching payload is present in the durable root transcript but is not rendered in the conversation. Reload or resume the same transcript and confirm it remains hidden. Keep historical entries unchanged; mark any unobserved client or retry as unexercised.
-
 Each model-facing launch includes a job/delivery summary followed by pretty-printed `<extraction-items-json>` whose request items exactly match durable details metadata. Due memory, Vault and transcript-trim jobs share that one launch; trimming has no separate trigger or follow-up. Its agent calls one local operation and receives compact size/status data, not transcript pages or full ancestry arrays. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages --> Standard JSON `\n` escapes inside `prompt` decode to line breaks when the public call is submitted; terminal wrapping does not alter the value.
 
 Generated memory-capture and Vault-extraction agents and their emitted requests use provider-neutral medium reasoning and Bash-only evidence. Memory capture has ten turns with a reserved final completion turn; Vault extraction has seven ([AD102](../decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional), [AD103](../decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs)).
@@ -744,6 +738,12 @@ For a nonempty Pi request, the post-commit chunk needs a document node for each 
 Both prompt contracts read immutable inputs once, write a request-specific work chunk, and require one 300-second lock spanning cumulative merge and global publication. Pi session capture derives that chunk with the advanced-only `scripts/build-memory-graph.py` asset rather than model-authored graph JSON, keeping semantic IDs deterministic. <!-- @impl: preseed/agents/pi/prompts/memory-agent-prompt.md::flock --> <!-- @impl: preseed/agents/pi/prompts/vault-extract-prompt.md::flock --> <!-- @impl: preseed/agents/pi/scripts/build-memory-graph.py::main -->
 
 Both runtimes' byte-identical merge script normalizes serialized edge tuples after Graphify conversion and writes the cumulative bytes to `vault-graph.json`, then copies them to the sibling `graph.json` that feeds the local visualization; only `vault-graph.json` is read back on the next merge and published as `user_vault`. <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::main --> <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py::main --> Canonical chunks appear only after publication and qualify root finalization; required failure leaves high-water state unchanged. Pi visualization is best effort with a 15-second ceiling. Claude capture publication and user-edit extraction also render best effort, but have no corresponding 15-second wrapper.
+
+#### Verify extraction visibility in Chat and Terminal
+
+For [REQ-MEM-044](../../sdd/spec/memory.md#req-mem-044-hide-background-extraction-requests), use separate authorized disposable Classic Chat and Terminal runs. With capture enabled, trigger a due launch using the configured capture cadence. Confirm the matching payload is retained in the durable root transcript but absent from the conversation, including after reopening that transcript.
+
+A launch-only run does not verify retries. No supported disposable retry setup is documented. Mark retry visibility unexercised unless an exact failed call and subsequent retry can be observed and [correlated](troubleshooting.md#pi-memoryvault-extraction-repeats-reminders-reaches-giveup-or-reports-done-without-advancing-state) in each client. Apply the same rendering and transcript checks to the retry; do not manufacture a failure on a live session.
 
 ### Counter Storage
 

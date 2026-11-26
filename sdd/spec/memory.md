@@ -1228,7 +1228,7 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 
 **Acceptance Criteria:**
 
-1. New extraction launches and retries stay in the durable transcript without appearing in Chat or Terminal. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages --> <!-- @manual: documentation/lanes/vault.md#verify-extraction-visibility-in-chat-and-terminal --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-015 AC6: advances one delivery attempt after each failed exact call) -->
+1. New extraction launches and retries stay in the durable transcript without appearing in Chat or Terminal. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages --> <!-- @manual: documentation/lanes/vault.md#verify-extraction-visibility-in-chat-and-terminal -->
 
 **Constraints:** Existing transcript entries and other custom messages are unchanged.
 
@@ -1236,7 +1236,7 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 
 **Dependencies:** [REQ-MEM-015](#req-mem-015-pi-extraction-transcript-visibility-and-child-session-guard)
 
-**Verification:** Automated: [Extraction delivery](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts); Manual: [Chat and Terminal visibility](../../documentation/lanes/vault.md#verify-extraction-visibility-in-chat-and-terminal)
+**Verification:** Manual: [Chat and Terminal visibility](../../documentation/lanes/vault.md#verify-extraction-visibility-in-chat-and-terminal)
 
 **Status:** Implemented
 

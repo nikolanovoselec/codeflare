@@ -433,29 +433,27 @@ jobs:
     timeout-minutes: 10
     strategy:
       fail-fast: false
-      max-parallel: 13
+      max-parallel: 11
       matrix:
         # Recorded Worker file timings in backend-test-weights.json supply
-        # collection and execution costs for thirteen longest-first groups.
+        # collection and execution costs for eleven longest-first groups.
         # The Node runtime remains separate from this Workers-only population.
         include:
           # Generated seed files are committed and drift-checked in Quality. Running
-          # npm's `test` lifecycle here would regenerate them in all thirteen isolated
+          # npm's `test` lifecycle here would regenerate them in all eleven isolated
           # runners before every weighted group, adding duplicated startup work but
           # no coverage. `test:worker` runs the same Workers suite without that hook.
-          - { balance-group: '1/13', slug: shard-1, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '2/13', slug: shard-2, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '3/13', slug: shard-3, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '4/13', slug: shard-4, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '5/13', slug: shard-5, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '6/13', slug: shard-6, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '7/13', slug: shard-7, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '8/13', slug: shard-8, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '9/13', slug: shard-9, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '10/13', slug: shard-10, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '11/13', slug: shard-11, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '12/13', slug: shard-12, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '13/13', slug: shard-13, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '1/11', slug: shard-1, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '2/11', slug: shard-2, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '3/11', slug: shard-3, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '4/11', slug: shard-4, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '5/11', slug: shard-5, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '6/11', slug: shard-6, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '7/11', slug: shard-7, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '8/11', slug: shard-8, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '9/11', slug: shard-9, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '10/11', slug: shard-10, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '11/11', slug: shard-11, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -794,7 +792,7 @@ jobs:
       - uses: $/.github/actions/merge-coverage
         with:
           artifact-prefix: 'backend-shard'
-          expected-shards: '13'
+          expected-shards: '11'
           slug: backend
           package-root: .
           changed-base: ${{ github.event.pull_request.base.sha }}
@@ -1088,7 +1086,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        lane: [services, handoff]
+        lane: [services, handoff, handoff-retry]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -1141,7 +1139,7 @@ jobs:
               ln -s "$(readlink -f /opt/codeflare/npm-tools/node_modules/.bin/pi)" /usr/local/bin/pi
               case "$PI_WEB_LANE" in
                 services) exec node /qualification/scripts/ci/smoke-pi-web-services.mjs ;;
-                handoff) exec node /qualification/scripts/ci/smoke-pi-web-host-handoff.mjs ;;
+                handoff|handoff-retry) exec node /qualification/scripts/ci/smoke-pi-web-host-handoff.mjs "$PI_WEB_LANE" ;;
                 *) exit 1 ;;
               esac
             '
@@ -1200,17 +1198,18 @@ jobs:
     timeout-minutes: 5
     strategy:
       fail-fast: false
-      max-parallel: 5
+      max-parallel: 6
       matrix:
-        # Run every native partition once in parallel without reducing coverage.
+        # Keep five native-baseline partitions and isolate the persistence file.
         # Overlap independent host setup below to target roughly 200-second CI
         # completion; runner and suite timings still determine actual completion.
         include:
-          - { shards: '1/5', slug: shard-1 }
-          - { shards: '2/5', slug: shard-2 }
-          - { shards: '3/5', slug: shard-3 }
-          - { shards: '4/5', slug: shard-4 }
-          - { shards: '5/5', slug: shard-5 }
+          - { shards: '1/6', slug: shard-1 }
+          - { shards: '2/6', slug: shard-2 }
+          - { shards: '3/6', slug: shard-3 }
+          - { shards: '4/6', slug: shard-4 }
+          - { shards: '5/6', slug: shard-5 }
+          - { shards: '6/6', slug: shard-6 }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -1454,7 +1453,7 @@ jobs:
       - name: Select host tests
         # Preserve the native baseline except for measured whole-file moves.
         # The selector rejects empty groups; host-test-inventory.test.js checks
-        # exact coverage, exclusions and unique ownership across all five groups.
+        # exact coverage, exclusions and unique ownership across all six groups.
         env:
           HOST_GROUP: ${{ matrix.shards }}
         run: |
@@ -1474,11 +1473,16 @@ jobs:
           # Keep the test owner outside worker limits, inside its delegated subtree.
           sudo sh -c 'printf "%s\n" "$1" > "$2/cgroup.procs"' sh "$$" "/sys/fs/cgroup/codeflare-trim-workers/ci-owner"
           persistence='host/__tests__/entrypoint-rclone-filters.test.js'
-          grep -Fxv "$persistence" "$RUNNER_TEMP/host-tests.txt" > "$RUNNER_TEMP/host-tests-regular.txt"
-          xargs -a "$RUNNER_TEMP/host-tests-regular.txt" \
-            node --experimental-test-module-mocks --test --test-force-exit --test-timeout=60000 \
-              --test-reporter=spec --test-reporter-destination=stdout \
-              --test-reporter=junit --test-reporter-destination="$RUNNER_TEMP/host-report-1.xml"
+          awk -v persistence="$persistence" '$0 != persistence' "$RUNNER_TEMP/host-tests.txt" > "$RUNNER_TEMP/host-tests-regular.txt"
+          if [ -s "$RUNNER_TEMP/host-tests-regular.txt" ]; then
+            xargs -a "$RUNNER_TEMP/host-tests-regular.txt" \
+              node --experimental-test-module-mocks --test --test-force-exit --test-timeout=60000 \
+                --test-reporter=spec --test-reporter-destination=stdout \
+                --test-reporter=junit --test-reporter-destination="$RUNNER_TEMP/host-report-1.xml"
+          elif [ "$(cat "$RUNNER_TEMP/host-tests.txt")" != "$persistence" ]; then
+            echo '::error::No regular Host tests selected outside the persistence-only file list.'
+            exit 1
+          fi
 
           # Run the persistence file once, without forced exit. A successful
           # Node exit alone has not guaranteed a complete matrix report.

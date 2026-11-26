@@ -13,6 +13,11 @@ import { createPiWebProxy } from '../../host/dist/pi-web-proxy.js';
 import { createPiWebRuntime } from '../../host/dist/pi-web-runtime.js';
 import { PI_WEB_PORT } from '../../host/dist/pi-web-services.js';
 
+const [, , mode, ...extraArgs] = process.argv;
+assert.ok(extraArgs.length === 0 && (mode === undefined || mode === 'handoff' || mode === 'handoff-retry'),
+  'Usage: node smoke-pi-web-host-handoff.mjs [handoff|handoff-retry]');
+const retryOnly = mode === 'handoff-retry';
+
 const WebSocket = createRequire(new URL('../../host/dist/pi-web-proxy.js', import.meta.url))('ws');
 const stock = `http://127.0.0.1:${PI_WEB_PORT}`;
 const nativeFetch = globalThis.fetch;
@@ -103,6 +108,7 @@ async function reopenTerminal(cwd, owner, released, readSwitch, exercise) {
 }
 
 async function qualify(ambiguous) {
+  const exerciseStartupWaits = !ambiguous && !retryOnly;
   const home = mkdtempSync('/tmp/pi-web-host-handoff-');
   const cwd = join(home, 'workspace');
   const agentDir = join(home, '.pi/agent');
@@ -150,7 +156,7 @@ async function qualify(ambiguous) {
   const runtime = createPiWebRuntime({ sessionId, generation, initialSurface: 'chat', terminalMode: 'classic',
     cwd, home, runtimeDir, profileRestored: () => profileRestored, cloneRestored: () => false });
   const proxy = createPiWebProxy({ sessionId, runtime, recordInput() {} });
-  let refuseFirstFrame = !ambiguous;
+  let refuseFirstFrame = exerciseStartupWaits;
   const server = createServer((req, res) => {
     if (refuseFirstFrame && req.method === 'GET' && req.url?.startsWith(`${appPrefix}/?`)) {
       refuseFirstFrame = false;
@@ -210,7 +216,7 @@ import { existsSync, writeFileSync } from 'node:fs';
 import { setTimeout as delay } from 'node:timers/promises';
 export default function (pi) {
   pi.on('session_start', async (_event, ctx) => {
-    if (${ambiguous} || ctx.mode !== 'rpc' || existsSync(${JSON.stringify(startupQuestionSeen)})) return;
+    if (${!exerciseStartupWaits} || ctx.mode !== 'rpc' || existsSync(${JSON.stringify(startupQuestionSeen)})) return;
     writeFileSync(${JSON.stringify(startupQuestionSeen)}, 'waiting');
     const answer = await ctx.ui.confirm(${JSON.stringify(startupQuestion)}, 'Packaged startup fixture');
     writeFileSync(${JSON.stringify(startupAnswer)}, answer ? 'yes' : 'no');
@@ -310,7 +316,7 @@ export default function (pi) {
     const browserHeaders = {
       'x-forwarded-host': new URL(origin).host, 'x-forwarded-proto': 'http', 'x-codeflare-pi-generation': String(generation),
     };
-    if (!ambiguous) {
+    if (exerciseStartupWaits) {
       // The dashboard can remain on Ready beyond the writer-confirmation budget.
       await delay(26_000);
       const firstFrame = await nativeFetch(deepLink, { headers: browserHeaders });
@@ -361,7 +367,7 @@ export default function (pi) {
       return new WebSocket(eventsUrl, { headers: browserHeaders, handshakeTimeout: 5000 });
     };
     const startupDialogIds = new Set();
-    if (!ambiguous) {
+    if (exerciseStartupWaits) {
       startupEvents = connectEvents();
       startupEvents.on('message', data => {
         const event = JSON.parse(data.toString());
@@ -374,7 +380,7 @@ export default function (pi) {
     const firstSnapshot = snapshot(60_000);
     void firstSnapshot.catch(() => {});
     let beforeWriter;
-    if (!ambiguous) {
+    if (exerciseStartupWaits) {
       await until('original Pi startup question entered', () => existsSync(startupQuestionSeen));
       const question = await until('stock startup status exposes the original question', async () => {
         const status = await api(`${ref}/status?${query}`);
@@ -435,7 +441,7 @@ export default function (pi) {
     }
     verifyStockListenTimings();
     const chatTiming = timings('Chat open timing', ['serviceWaitMs', 'projectWorkspaceMs', 'frameAdmissionMs', 'writerReceiptMs']);
-    if (!ambiguous) {
+    if (exerciseStartupWaits) {
       const within = (elapsedMs, lower, upper, phase) => {
         assert.ok(elapsedMs >= Math.floor(lower) && elapsedMs <= Math.ceil(upper),
           `${phase}: ${elapsedMs}ms outside observed interval [${lower}, ${upper}]ms`);
@@ -508,7 +514,7 @@ export default function (pi) {
     const uploadFolder = 'attachment-smoke';
     const upload = (status, attachments, overrides = {}, route = ref) => api(`${route}/attachments`, status,
       { cwd, folder: uploadFolder, attachments, ...overrides });
-    if (!ambiguous) {
+    if (!ambiguous && !retryOnly) {
       const first = Buffer.alloc(6_000_000, 0x31);
       const second = Buffer.alloc(4_000_000, 0x32);
       const batch = [attachment(first), attachment(second)];
@@ -539,10 +545,17 @@ export default function (pi) {
         assert.equal(hugePrompt.status, 503);
         await hugePrompt.arrayBuffer();
       }
+    }
+    if (!ambiguous) {
       assert.equal((await prompt(seed)).accepted, true);
       await until('normal saved Chat reply', async () => await writer() === 'idle' &&
         text(messages(readFileSync(path, 'utf8')).at(-1)?.content) === reply);
       assert.deepEqual(calls, [seed]);
+    }
+    if (retryOnly) {
+      // Start the retry cases with a real, idle Chat writer and its saved reply.
+      await qualifyRetry([seed]);
+      return;
     }
     const saved = readFileSync(path, 'utf8');
     const requestId = randomUUID();
@@ -662,95 +675,99 @@ export default function (pi) {
     assert.ok(readFileSync(path, 'utf8').startsWith(transcript));
     assert.deepEqual(calls, expectedCalls, 'Chat must not replay the interrupted Terminal turn');
     console.log('PI_WEB_HOST_HANDOFF_OK');
+    if (mode !== 'handoff') await qualifyRetry(expectedCalls, ticket.terminalTicket, reopened);
 
-    await api('/_switch', 202, { generation, requestId: randomUUID(), target: 'terminal' });
-    const nextTicket = await until('second native opening', () => {
-      const current = owner();
-      return current.phase === 'opening' && current.target === 'terminal' && current.terminalTicket !== ticket.terminalTicket && current;
-    });
-    const retryId = randomUUID();
-    await reopenTerminal(cwd, nextTicket, reopened, readSwitch, async stdin => {
-      stdin.write(`\x1b[200~${handled}\x1b[201~\r`);
-      await until('native input hook entered', () => existsSync(nativeParked));
-      await api('/_switch', 202, { generation, requestId: retryId, target: 'chat' });
-      await until('native preflight is fenced', async () => (await readSwitch()).phase === 'stopping');
-      await delay(600);
-      assert.equal((await readSwitch()).phase, 'stopping', 'a held native input cannot pass for idle');
-      assert.notEqual(terminal().released, true);
-      writeFileSync(nativeResume, '');
-      await until('handled input allows the original switch to open Chat', async () => (await readSwitch()).chatUrl);
-    });
-    // Load the frame document but not its client: attachment starts the
-    // deadline, yet no transcript request produces a writer receipt.
-    const retryFrame = await nativeFetch(deepLink, { headers: browserHeaders });
-    assert.equal(retryFrame.status, 200);
-    await retryFrame.arrayBuffer();
-    await until('missing startup receipt reaches a retry-safe outcome', async () => {
-      const state = await readSwitch();
-      return state.phase === 'failed' && state.requestId === retryId && state.surface === null;
-    }, 40_000);
-    await assert.rejects(() => nativeFetch(`${stock}/api/sessiond/health`, { signal: AbortSignal.timeout(2000) }),
-      'the previous stock service must be gone before retry');
-    await api('/_switch', 202, { generation, requestId: retryId, target: 'chat' });
-    await until('same attempt offers Chat again', async () => (await readSwitch()).chatUrl);
-    // An HTTP snapshot does not imply live delivery. Fail just the event
-    // upgrade, then verify that a new snapshot can follow a successful join.
-    refuseSessionEvents = true;
-    const rejectedEvents = connectEvents();
-    await assert.rejects(once(rejectedEvents, 'open', { signal: AbortSignal.timeout(6000) }), /503/);
-    const readBrowserSnapshot = () => api(`/api/machines/local/sessions/${encodeURIComponent(id)}/transcript-snapshot?${query}`);
-    const offlineSnapshot = await readBrowserSnapshot();
-    assert.equal(offlineSnapshot.status.sessionId, id);
-    refuseSessionEvents = false;
-    const liveEvents = connectEvents();
-    try {
-      await once(liveEvents, 'open', { signal: AbortSignal.timeout(6000) });
-      const catchUp = await readBrowserSnapshot();
-      assert.equal(catchUp.status.sessionId, id);
-      assert.ok(catchUp.seq >= offlineSnapshot.seq, 'catch-up must not regress the transcript watermark');
-    } finally { liveEvents.terminate(); }
-    await until('same attempt confirms a single recovered Chat writer', async () => {
-      const state = await readSwitch();
-      return state.phase === 'complete' && state.requestId === retryId && state.surface === 'chat';
-    });
-    assert.equal((await health()).activeSessions, 1);
-    assert.deepEqual(calls, expectedCalls, 'handled input and startup retry never reach the model');
-    console.log('PI_WEB_HOST_CHAT_STARTUP_RETRY_OK');
-
-    const resumeReceipt = chat();
-    // Model the retiring Herdr wrapper independently of its Pi child. The
-    // qualification process keeps this registration live across the rapid return.
-    const wrapperPath = join(runtimeDir, 'wrapper.json');
-    const wrapperStat = readFileSync(`/proc/${process.pid}/stat`, 'utf8');
-    writeFileSync(wrapperPath, JSON.stringify({ generation, pid: process.pid,
-      startTime: wrapperStat.slice(wrapperStat.lastIndexOf(')') + 2).split(' ')[19], pane: 'classic' }));
-    await api('/_switch', 202, { generation, requestId: randomUUID(), target: 'terminal' });
-    const quitTicket = await until('native ticket before ordinary quit', () => {
-      const current = owner();
-      return current.phase === 'opening' && current.target === 'terminal' && current.terminalTicket !== nextTicket.terminalTicket && current;
-    });
-    await reopenTerminal(cwd, quitTicket, resumeReceipt, readSwitch, async (stdin, native) => {
-      stdin.write('\x04');
-      await until('ordinary quit carries exact native evidence', () => {
-        const ended = terminal();
-        return ended.instance === native.instance && ended.ticket === native.ticket && ended.quit === true;
+    async function qualifyRetry(expectedCalls, previousTicket, reopened) {
+      await api('/_switch', 202, { generation, requestId: randomUUID(), target: 'terminal' });
+      const nextTicket = await until('native opening before Chat startup retry', () => {
+        const current = owner();
+        return current.phase === 'opening' && current.target === 'terminal' && current.terminalTicket &&
+          current.terminalTicket !== previousTicket && current;
       });
-    });
-    assert.equal((await readSwitch()).surface, 'terminal', 'ordinary quit does not open Chat by itself');
-    await api('/_switch', 202, { generation, requestId: randomUUID(), target: 'chat' });
-    await until('verified ordinary quit permits Chat to open the exact transcript', async () => (await readSwitch()).chatUrl);
-    assert.equal((await snapshot()).status.sessionId, id);
-    await until('post-quit Chat is the confirmed writer', async () => (await readSwitch()).surface === 'chat');
-    assert.deepEqual(calls, expectedCalls);
-    const rapidReturn = randomUUID();
-    await api('/_switch', 202, { generation, requestId: rapidReturn, target: 'terminal' });
-    await until('rapid return stays retryable while the old wrapper is retiring', async () => {
-      const state = await readSwitch();
-      assert.equal(owner().terminalTicket, quitTicket.terminalTicket, 'retiring wrapper must never receive a grant');
-      return state.phase === 'failed' && state.requestId === rapidReturn;
-    });
-    assert.equal((await health()).activeSessions, 0);
-    console.log('PI_WEB_HOST_NATIVE_QUIT_OK');
+      const retryId = randomUUID();
+      await reopenTerminal(cwd, nextTicket, reopened ?? chat(), readSwitch, async stdin => {
+        stdin.write(`\x1b[200~${handled}\x1b[201~\r`);
+        await until('native input hook entered', () => existsSync(nativeParked));
+        await api('/_switch', 202, { generation, requestId: retryId, target: 'chat' });
+        await until('native preflight is fenced', async () => (await readSwitch()).phase === 'stopping');
+        await delay(600);
+        assert.equal((await readSwitch()).phase, 'stopping', 'a held native input cannot pass for idle');
+        assert.notEqual(terminal().released, true);
+        writeFileSync(nativeResume, '');
+        await until('handled input allows the original switch to open Chat', async () => (await readSwitch()).chatUrl);
+      });
+      // Load the frame document but not its client: attachment starts the
+      // deadline, yet no transcript request produces a writer receipt.
+      const retryFrame = await nativeFetch(deepLink, { headers: browserHeaders });
+      assert.equal(retryFrame.status, 200);
+      await retryFrame.arrayBuffer();
+      await until('missing startup receipt reaches a retry-safe outcome', async () => {
+        const state = await readSwitch();
+        return state.phase === 'failed' && state.requestId === retryId && state.surface === null;
+      }, 40_000);
+      await assert.rejects(() => nativeFetch(`${stock}/api/sessiond/health`, { signal: AbortSignal.timeout(2000) }),
+        'the previous stock service must be gone before retry');
+      await api('/_switch', 202, { generation, requestId: retryId, target: 'chat' });
+      await until('same attempt offers Chat again', async () => (await readSwitch()).chatUrl);
+      // An HTTP snapshot does not imply live delivery. Fail just the event
+      // upgrade, then verify that a new snapshot can follow a successful join.
+      refuseSessionEvents = true;
+      const rejectedEvents = connectEvents();
+      await assert.rejects(once(rejectedEvents, 'open', { signal: AbortSignal.timeout(6000) }), /503/);
+      const readBrowserSnapshot = () => api(`/api/machines/local/sessions/${encodeURIComponent(id)}/transcript-snapshot?${query}`);
+      const offlineSnapshot = await readBrowserSnapshot();
+      assert.equal(offlineSnapshot.status.sessionId, id);
+      refuseSessionEvents = false;
+      const liveEvents = connectEvents();
+      try {
+        await once(liveEvents, 'open', { signal: AbortSignal.timeout(6000) });
+        const catchUp = await readBrowserSnapshot();
+        assert.equal(catchUp.status.sessionId, id);
+        assert.ok(catchUp.seq >= offlineSnapshot.seq, 'catch-up must not regress the transcript watermark');
+      } finally { liveEvents.terminate(); }
+      await until('same attempt confirms a single recovered Chat writer', async () => {
+        const state = await readSwitch();
+        return state.phase === 'complete' && state.requestId === retryId && state.surface === 'chat';
+      });
+      assert.equal((await health()).activeSessions, 1);
+      assert.deepEqual(calls, expectedCalls, 'handled input and startup retry never reach the model');
+      console.log('PI_WEB_HOST_CHAT_STARTUP_RETRY_OK');
+
+      const resumeReceipt = chat();
+      // Model the retiring Herdr wrapper independently of its Pi child. The
+      // qualification process keeps this registration live across the rapid return.
+      const wrapperPath = join(runtimeDir, 'wrapper.json');
+      const wrapperStat = readFileSync(`/proc/${process.pid}/stat`, 'utf8');
+      writeFileSync(wrapperPath, JSON.stringify({ generation, pid: process.pid,
+        startTime: wrapperStat.slice(wrapperStat.lastIndexOf(')') + 2).split(' ')[19], pane: 'classic' }));
+      await api('/_switch', 202, { generation, requestId: randomUUID(), target: 'terminal' });
+      const quitTicket = await until('native ticket before ordinary quit', () => {
+        const current = owner();
+        return current.phase === 'opening' && current.target === 'terminal' && current.terminalTicket !== nextTicket.terminalTicket && current;
+      });
+      await reopenTerminal(cwd, quitTicket, resumeReceipt, readSwitch, async (stdin, native) => {
+        stdin.write('\x04');
+        await until('ordinary quit carries exact native evidence', () => {
+          const ended = terminal();
+          return ended.instance === native.instance && ended.ticket === native.ticket && ended.quit === true;
+        });
+      });
+      assert.equal((await readSwitch()).surface, 'terminal', 'ordinary quit does not open Chat by itself');
+      await api('/_switch', 202, { generation, requestId: randomUUID(), target: 'chat' });
+      await until('verified ordinary quit permits Chat to open the exact transcript', async () => (await readSwitch()).chatUrl);
+      assert.equal((await snapshot()).status.sessionId, id);
+      await until('post-quit Chat is the confirmed writer', async () => (await readSwitch()).surface === 'chat');
+      assert.deepEqual(calls, expectedCalls);
+      const rapidReturn = randomUUID();
+      await api('/_switch', 202, { generation, requestId: rapidReturn, target: 'terminal' });
+      await until('rapid return stays retryable while the old wrapper is retiring', async () => {
+        const state = await readSwitch();
+        assert.equal(owner().terminalTicket, quitTicket.terminalTicket, 'retiring wrapper must never receive a grant');
+        return state.phase === 'failed' && state.requestId === rapidReturn;
+      });
+      assert.equal((await health()).activeSessions, 0);
+      console.log('PI_WEB_HOST_NATIVE_QUIT_OK');
+    }
   } finally {
     restoreSpawn();
     startupEvents?.terminate();
@@ -765,4 +782,4 @@ export default function (pi) {
 }
 
 await qualify(false);
-await qualify(true);
+if (!retryOnly) await qualify(true);
