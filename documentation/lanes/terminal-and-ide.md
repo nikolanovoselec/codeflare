@@ -65,7 +65,7 @@ In **Vibe**, Dashboard **New Session** starts Pi Chat directly. Returning to Das
 - When the picker is available, choose Vibe or Code in the header before using a Dashboard card. The card menu retains lifecycle actions but has no Chat or Terminal override ([REQ-AGENT-276](../../sdd/spec/agents.md#req-agent-276-vibe-and-code-workspace-preference), AC5).
 - For [REQ-TERM-049](../../sdd/spec/terminal.md#req-term-049-shared-workspace-startup-progress), check that **Syncing workspace** stays active through verification, then advances to **Preparing environment**.
 - While waiting for Open, Vibe shows **Loading Chat** with the same one-decimal elapsed timer as the other startup steps and a loading icon that spins with default motion.
-- With a non-green theme accent, check the final startup row, not the subtitle. For **Loading Chat**, expect accent text and a muted-accent icon background. For **Ready to open**, expect success text and a muted-success icon background. Ignore the ellipsis.
+- With a non-green theme accent, check the final startup row, not the subtitle. For **Loading Chat**, expect accent text and a muted-accent icon background. When **Open** appears, the row still says **Loading Chat** with its final elapsed time, success text, and a muted-success icon background.
 - Repeat with reduced motion enabled: the timer still advances, but the icon does not spin.
 - Code shows **Connecting Terminal**. Only when Open is available does the final step say **Ready to open**.
 - In Standard and Pro where available, start Chat-first and Terminal-first in Classic. Send a synthetic message, Stop normally, then resume in the other surface. Only the selected primary opens the saved conversation.
@@ -216,7 +216,7 @@ Notification delivery coordinates event-specific suppression, a single local gra
 
 ## GitHub and Storage workspace
 
-In Code mode, the Dashboard right column shares space between GitHub and Storage: when space permits, GitHub anchors at the top and Storage at the bottom, with adaptive scrollable allocation rather than a fixed repository row limit. Narrow or short viewports collapse to one content-sized, viewport-capped face. GitHub is the default when enabled; header controls flip to Storage and back, recomputing height. Disabled GitHub leaves Storage alone. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @impl: web-ui/src/lib/panel-allocation.ts::decidePanelLayoutMode --> [REQ-GITHUB-009](../../sdd/spec/github.md#req-github-009-github-repository-list-viewport-and-empty-states), [REQ-GITHUB-010](../../sdd/spec/github.md#req-github-010-mobile-github-and-storage-face-switching), [REQ-GITHUB-012](../../sdd/spec/github.md#req-github-012-responsive-github-and-storage-panel-allocation).
+In Code mode, the Dashboard right column shares space between GitHub and Storage: when space permits, GitHub anchors at the top and Storage at the bottom, with adaptive scrollable allocation rather than a fixed repository row limit. Only the mobile layout collapses to one content-sized, viewport-capped face. GitHub is the default when enabled; header controls flip to Storage and back, recomputing height. Disabled GitHub leaves Storage alone. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> [REQ-GITHUB-009](../../sdd/spec/github.md#req-github-009-github-repository-list-viewport-and-empty-states), [REQ-GITHUB-010](../../sdd/spec/github.md#req-github-010-mobile-github-and-storage-face-switching), [REQ-GITHUB-012](../../sdd/spec/github.md#req-github-012-responsive-github-and-storage-panel-allocation).
 
 For [REQ-GITHUB-002](../../sdd/spec/github.md#req-github-002-github-panel-and-repository-listing) AC4, the controls reuse one tested icon-button primitive, `IconButton`. <!-- @impl: web-ui/src/components/github/ConnectedHeader.tsx::ConnectedHeader --> <!-- @impl: web-ui/src/components/ui/IconButton.tsx::IconButton --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (GitHubPanel Component) --> <!-- @test: web-ui/src/__tests__/components/IconButton.test.tsx (IconButton) -->
 
@@ -252,7 +252,7 @@ At 375px, verify Settings is reachable and the groups retain the one-slot gap. C
 
 ### Vibe drawer acceptance
 
-With GitHub Details present, measure the **+ New Session** button and verify its wrapper adds twice that height as bottom padding. Repeat after resizing the viewport. For the error-only case, use an authorized test setup with GitHub disabled and simulate a denied callback by opening `/app/?github=denied` in Vibe. Verify the denial is visible and the normal GitHub card is absent before measuring. If that setup is unavailable, record the case as unexercised.
+In both Vibe and Code, measure the **+ New Session** button on desktop, tablet, and mobile. Verify its wrapper adds half the rendered button height as bottom padding. For the error-only case, use an authorized test setup with GitHub disabled and simulate a denied callback by opening `/app/?github=denied` in Vibe. Verify the denial is visible and the normal GitHub card is absent before measuring. If that setup is unavailable, record the case as unexercised.
 
 Use an authorized account with GitHub enabled and select **Vibe**. Check [drawer disclosure](../../sdd/spec/github.md#req-github-321-vibe-dashboard-browser-disclosure) and [responsive layout](../../sdd/spec/github.md#req-github-323-responsive-vibe-dashboard-layout). On desktop and tablet, open the drawer and verify GitHub stacks above Storage beside the summary. Close it and verify that, with room to spare, the card is 390 CSS px wide, the full Codeflare label is readable, and GitHub Details sits directly above Storage Usage when present.
 
@@ -275,7 +275,7 @@ In the installed mobile app, pull up at the bottom to open and down at the top t
 Reuse the protected Integration viewport checks in [REQ-GITHUB-012](../../sdd/spec/github.md#req-github-012-responsive-github-and-storage-panel-allocation) and the [Integration checklist](deployment.md#integration-acceptance-checklist), with an authorized connected test account. Record browser/device/version and viewport; these are methods, not executed results.
 
 - Select **Code**. At desktop/tablet sizes, confirm the stacked panels stay anchored, repository overflow scrolls and every fetched repository remains reachable.
-  - Resize across the 600px width/height boundaries; in single-face mode confirm the flip control appears and switches faces, while split mode hides it. Repeat with reduced motion enabled and confirm an instant swap.
+  - On mobile, confirm the header controls flip between GitHub and Storage. On desktop and tablet, including a short window, confirm both browsers remain visible without flip controls. Repeat with reduced motion enabled and confirm an instant swap.
 - On a supported touch device, tap the search toggle: observe the actual OS keyboard opening and the input remaining visible above it while typing.
   - Hide search and confirm the filter clears; reopen and verify every repository is reachable by scrolling. DOM focus and mocked scroll calls alone do not establish keyboard or rendered geometry outcomes.
 

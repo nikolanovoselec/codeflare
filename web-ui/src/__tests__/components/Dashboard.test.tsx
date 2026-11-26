@@ -712,7 +712,8 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     } finally { window.history.replaceState(window.history.state, '', previous); }
   });
 
-  it('adds twice the New Session height when GitHub Details only shows a connection error', async () => {
+  it.each(['desktop', 'tablet', 'mobile'] as const)('adds half a New Session button height in both modes on %s', async viewport => {
+    viewportMock.setViewport?.(viewport);
     (githubStore as any)._setEnabled(false);
     const previous = window.location.href;
     window.history.replaceState(window.history.state, '', '/app/?github=denied');
@@ -721,11 +722,14 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
       return this.dataset.testid === 'dashboard-new-session' ? new DOMRect(0, 0, 100, 40) : original.call(this);
     });
     try {
-      render(() => <Dashboard {...defaultProps} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
+      const [mode, setMode] = createSignal<'chat' | 'terminal'>('chat');
+      render(() => <Dashboard {...defaultProps} workspaceMode={{ value: mode(), onSelect: setMode }} />);
       const details = await screen.findByRole('region', { name: 'GitHub Details' });
       expect(within(details).getByRole('status')).toHaveTextContent('GitHub authorization was denied.');
-      const button = screen.getByTestId('dashboard-new-session');
-      expect(getComputedStyle(button.parentElement!).paddingBlockEnd).toBe('80px');
+      const padding = () => getComputedStyle(screen.getByTestId('dashboard-new-session').parentElement!).paddingBlockEnd;
+      expect(padding()).toBe('20px');
+      setMode('terminal');
+      expect(padding()).toBe('20px');
     } finally {
       measure.mockRestore();
       window.history.replaceState(window.history.state, '', previous);
@@ -1161,6 +1165,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
   });
 
   it('REQ-GITHUB-010: defaults to the GitHub face and offers the storage back-button when GitHub is enabled', () => {
+    viewportMock.setViewport?.('mobile');
     (githubStore as any)._setEnabled(true);
     render(() => <Dashboard {...defaultProps} />);
 
@@ -1186,7 +1191,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     // so a plain enabled session still gets the GitHub browser (connect card included).
     expect(right.querySelector('.panel-flip-face--github')).not.toBeNull();
     expect(right.getAttribute('data-face')).toBe('github');
-    expect(screen.getByTestId('storage-flip-btn')).toBeInTheDocument();
+    expect(screen.queryByTestId('storage-flip-btn')).not.toBeInTheDocument();
   });
 
   it('REQ-GITHUB-007: shows the GitHub face for an enterprise session regardless of session mode', () => {
@@ -1201,6 +1206,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
   });
 
   it('REQ-GITHUB-010: flips GitHub <-> storage when enabled and the flip controls are used', () => {
+    viewportMock.setViewport?.('mobile');
     (githubStore as any)._setEnabled(true);
     render(() => <Dashboard {...defaultProps} />);
 
@@ -1461,34 +1467,18 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     }
   });
 
-  it('REQ-GITHUB-010: the split/flip decision uses the VIEWPORT width, not the right-column width (a narrow column on a wide viewport must not flip)', () => {
-    let roCb: () => void = () => {};
-    const RealRO = (globalThis as any).ResizeObserver;
-    const RealRAF = globalThis.requestAnimationFrame;
-    const realInnerWidth = window.innerWidth;
-    class CapRO { constructor(cb: () => void) { roCb = cb; } observe() {} unobserve() {} disconnect() {} }
-    (globalThis as any).ResizeObserver = CapRO;
-    (globalThis as any).requestAnimationFrame = (cb: FrameRequestCallback) => { cb(0); return 0; };
-    (window as any).innerWidth = 1024; // pin a wide viewport, do not rely on the jsdom default
-    try {
-      (githubStore as any)._setEnabled(true);
-      render(() => <Dashboard {...defaultProps} />);
-      const right = screen.getByTestId('dashboard-panel-right') as HTMLElement;
-      // Wide viewport (1024) but a NARROW own column-width and enough height to split.
-      // If the decision (wrongly) used the column width (400 < 600) it would flip;
-      // using window.innerWidth (1024) it must stay split.
-      Object.defineProperty(right, 'clientWidth', { configurable: true, value: 400 });
-      Object.defineProperty(right, 'clientHeight', { configurable: true, value: 800 });
-      roCb();
-      expect(right.getAttribute('data-layout')).not.toBe('flip');
-    } finally {
-      (globalThis as any).ResizeObserver = RealRO;
-      (globalThis as any).requestAnimationFrame = RealRAF;
-      (window as any).innerWidth = realInnerWidth;
-    }
+  it.each(['desktop', 'tablet'] as const)('REQ-GITHUB-010: keeps both Code browsers without flip controls on %s', viewport => {
+    viewportMock.setViewport?.(viewport);
+    (githubStore as any)._setEnabled(true);
+    render(() => <Dashboard {...defaultProps} workspaceMode={{ value: 'terminal', onSelect: () => {} }} />);
+    expect(screen.getByTestId('github-panel-stub')).toBeVisible();
+    expect(screen.getByTestId('storage-browser')).toBeVisible();
+    expect(screen.queryByTestId('gh-stub-flip')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('storage-flip-btn')).not.toBeInTheDocument();
   });
 
   it('REQ-GITHUB-012: sizes each mobile flip face to its own capped content height', () => {
+    viewportMock.setViewport?.('mobile');
     const RealRAF = globalThis.requestAnimationFrame;
     const RealCAF = globalThis.cancelAnimationFrame;
     const origGBCR = HTMLElement.prototype.getBoundingClientRect;

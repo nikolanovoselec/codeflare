@@ -290,11 +290,21 @@ describe('InitProgress Component', () => {
         expect(screen.getByText('0.0s')).toBeVisible();
         vi.advanceTimersByTime(3100);
         expect(screen.getByText('3.1s')).toBeVisible();
+        vi.advanceTimersByTime(60);
         setOpenReady(true);
-        expect(screen.getByText('Ready to open', { selector: '.init-progress-stage-label' })).toBeVisible();
+        expect(screen.getByText('Loading Chat', { selector: '.init-progress-stage-label' })).toBeVisible();
         expect(screen.getByRole('button', { name: 'Open' })).toBeVisible();
-        expect(screen.queryByText('3.1s')).not.toBeInTheDocument();
+        expect(screen.getByTestId('init-progress-step-5-time')).toHaveTextContent('3.2s');
+        vi.advanceTimersByTime(2000);
+        expect(screen.getByTestId('init-progress-step-5-time')).toHaveTextContent('3.2s');
       } finally { cleanup(); vi.useRealTimers(); }
+    });
+
+    it('does not invent a Chat loading phase when Chat is already ready', () => {
+      render(() => <InitProgressComponent sessionName="Pi" openReady={true}
+        progress={{ stage: 'ready', progress: 100, message: 'Container ready' }} />);
+      expect(screen.queryByText('Loading Chat')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Open' })).toBeVisible();
     });
 
     it('shows Connecting Terminal before the attachment is ready to open', () => {

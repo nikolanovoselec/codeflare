@@ -138,8 +138,7 @@
    height) so a short panel shrinks to its content and the taller one absorbs the
    freed space; both-full → 50/50; the column's `justify-content: space-between` drops
    remaining slack between them when both are short (GitHub anchored top, Storage
-   bottom). FLIP (mobile width, or a too-short window via `[data-layout="flip"]`):
-   one face at a time with a flip control. */
+   bottom). FLIP (mobile only): one face at a time with a flip control. */
 .panel-flip-face {
   display: flex;
   flex-direction: column;
@@ -155,7 +154,7 @@
   min-height: 0;
 }
 
-/* JS-driven flip on a too-short (but wide) window: collapse to a single face. */
+/* Use the mobile workspace classification for the browser faces and controls. */
 .dashboard-panel-right[data-layout="flip"] .panel-flip-face {
   display: none;
 }
@@ -512,7 +511,7 @@
 
 /* Through 599px the existing mobile browser rule already animates the flip. */
 @media (599px < width <= 640px) and (prefers-reduced-motion: no-preference) {
-  .dashboard-panel-body--disclosure .dashboard-panel-right[data-layout="flip"] .panel-flip-face[data-active="true"] {
+  .dashboard-panel-right[data-layout="flip"] .panel-flip-face[data-active="true"] {
     transform-origin: top center;
     animation: panel-flip-in 260ms ease;
   }

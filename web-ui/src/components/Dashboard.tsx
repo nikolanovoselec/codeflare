@@ -28,7 +28,6 @@ import { sessionStore, isAtUsageQuota } from '../stores/session';
 import { terminalWorkspaceStore } from '../stores/terminal-workspace';
 import { createTerminalViewportClass } from '../lib/mobile';
 import { measureHeaderActions, measureProfileMenu } from '../lib/header-fit';
-import { decidePanelLayoutMode } from '../lib/panel-allocation';
 import { githubStore } from '../stores/github';
 import { getGithubOwnedRepoCounts } from '../api/github';
 import { consumeGithubConnectReturn } from '../lib/github-connect-return';
@@ -224,8 +223,8 @@ const Dashboard: Component<DashboardProps> = (props) => {
   const [newSessionPadding, setNewSessionPadding] = createSignal(0);
   createEffect(() => {
     const button = newSessionBtnRef();
-    if (!button || !showGithubDetails()) return;
-    const measure = () => setNewSessionPadding(button.getBoundingClientRect().height * 2);
+    if (!button) return;
+    const measure = () => setNewSessionPadding(button.getBoundingClientRect().height / 2);
     measure();
     if (typeof ResizeObserver === 'undefined') return;
     const observer = new ResizeObserver(measure);
@@ -271,10 +270,9 @@ const Dashboard: Component<DashboardProps> = (props) => {
   let rightColRef: HTMLDivElement | undefined;
   let githubFaceRef: HTMLDivElement | undefined;
   let storageFaceRef: HTMLDivElement | undefined;
-  const [layoutMode, setLayoutMode] = createSignal<'split' | 'flip' | null>(null);
   const [githubMaxH, setGithubMaxH] = createSignal<number | null>(null);
   const [storageMaxH, setStorageMaxH] = createSignal<number | null>(null);
-  const flipBrowsers = () => vibe() ? viewport() === 'mobile' : layoutMode() === 'flip';
+  const flipBrowsers = () => viewport() === 'mobile';
   const flipTo = (face: 'github' | 'storage') => {
     setPanelFace(face);
     if (!vibe() || !flipBrowsers()) return;
@@ -330,11 +328,6 @@ const Dashboard: Component<DashboardProps> = (props) => {
   const measureLayout = () => {
     const right = rightColRef;
     if (!right || browsersClosed()) return;
-    // width = VIEWPORT (mobile breakpoint, matches the CSS flip); height = the
-    // column's own box (too-short check). Never the column's measured WIDTH — the
-    // layout caps that small, so it would wrongly flip every tablet/laptop.
-    const mode = decidePanelLayoutMode({ width: window.innerWidth, height: right.clientHeight });
-    setLayoutMode(mode);
     const viewportCap = Math.floor(window.innerHeight * 0.75);
     setFlipViewportCap((previous) => (previous === viewportCap ? previous : viewportCap));
     // A sole Storage face needs no shared geometry. In flip mode, measure both
@@ -586,7 +579,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
             <DashboardCard sessions={props.sessions} />
 
             <div class={`dashboard-new-session-wrapper ${multiViewWorkspace() ? 'dashboard-new-session-wrapper--with-multiview' : ''}`}
-              style={showGithubDetails() ? { 'padding-block-end': `${newSessionPadding()}px` } : undefined}>
+              style={{ 'padding-block-end': `${newSessionPadding()}px` }}>
                 <Portal>
                   <CreateSessionDialog
                     isOpen={showCreateDialog() && props.workspaceMode?.value !== 'chat'}
@@ -806,7 +799,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                 style={useMeasuredSplit() && githubMaxH() != null ? { 'max-height': `${githubMaxH()}px` } : undefined}
               >
                 <GitHubPanel connectReturnError={vibe() ? null : githubReturnError()}
-                  onFlip={!vibe() || flipBrowsers() ? () => flipTo('storage') : undefined} />
+                  onFlip={flipBrowsers() ? () => flipTo('storage') : undefined} />
               </div>
             </Show>
             <div
@@ -819,7 +812,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
               <Show when={githubStore.enabled}>
                 <div class="files-panel-header" data-testid="files-panel-header">
                   <h2 class="files-panel-title" data-testid="files-panel-title">Storage Browser</h2>
-                  <Show when={!vibe() || flipBrowsers()}>
+                  <Show when={flipBrowsers()}>
                     <IconButton
                       icon={mdiFlipVertical}
                       label="Show GitHub"

@@ -1,5 +1,5 @@
 import { createStore, produce } from 'solid-js/store';
-import { createSignal } from 'solid-js';
+import { batch, createSignal } from 'solid-js';
 import type { SessionWithStatus, SessionStatus, InitProgress, RepositoryRestoreStatus, SessionTerminals, AgentType, TabConfig, UserPreferences, PiSurface } from '../types';
 import * as api from '../api/client';
 import { ApiError } from '../api/fetch-helper';
@@ -792,7 +792,13 @@ function startSession(id: string, surface?: PiSurface): Promise<void | 'cancelle
           return;
         }
         startupCleanups.delete(id);
-        updateSessionStatus(id, 'running');
+        batch(() => {
+          // Chat status needs the generation confirmed by Ready, not a later catalog poll.
+          if (surface === 'chat' && generation > (current.generation ?? 0)) {
+            setState('sessions', index, { generation, lifecycle: 'running', revision: undefined });
+          }
+          updateSessionStatus(id, 'running');
+        });
         const repositoryRestore = readyProgress?.repositoryRestore;
         if (current.workspace !== 'vscode' && repositoryRestore) watchRepositoryRestore(id, generation, repositoryRestore, readyProgress?.repositoryRestoreRepos);
         if (index !== -1 && state.sessions[index].workspace === 'vscode') {

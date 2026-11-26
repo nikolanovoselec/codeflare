@@ -51,7 +51,7 @@ const InitProgressComponent: Component<InitProgressProps> = (props) => {
   const preparingChat = () => props.progress?.stage === 'ready' && props.openReady === false;
   const connectingTerminal = () => props.progress?.stage === 'ready' && !!props.connectingTerminal;
   const displayStage = () => props.progress?.stage === 'verifying' ? 'syncing' : props.progress?.stage;
-  const { getElapsedTime, formatTotalTime } = useStageTimings(
+  const { getElapsedTime, completedChatTime, formatTotalTime } = useStageTimings(
     displayStage,
     () => props.progress,
     preparingChat,
@@ -93,7 +93,9 @@ const InitProgressComponent: Component<InitProgressProps> = (props) => {
   const isComplete = () => props.progress?.stage === 'ready' && props.openReady !== false && !connectingTerminal();
   const isError = () => props.progress?.stage === 'error';
   const progressPercent = () => props.progress?.progress ?? 0;
-  const finalLabel = () => isComplete() ? 'Ready to open' : props.openReady !== undefined ? 'Loading Chat' : 'Connecting Terminal';
+  const finalLabel = () => isComplete()
+    ? completedChatTime() !== null ? 'Loading Chat' : 'Ready to open'
+    : props.openReady !== undefined ? 'Loading Chat' : 'Connecting Terminal';
   const statusMessage = () => {
     if (preparingChat()) return 'Loading Chat';
     if (connectingTerminal()) return props.connectingTerminal;

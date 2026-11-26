@@ -50,6 +50,7 @@ import {
 import { createR2Client, getR2Url } from './lib/r2-client';
 import { getR2Config } from './lib/r2-config';
 import { getSseHeaders } from './lib/r2-sse';
+import { HERMES_MARKDOWN, HERMES_SESSION_ROOT } from './lib/hermes-retention';
 import {
   classifyManagedR2Request,
   MANAGED_R2_POLICY_KEY,
@@ -65,6 +66,15 @@ import { prepareJwtStampedRequest, type JwtStampingAuthority, type JwtStampingPo
 
 const logger = createLogger('egress-controller');
 const OPERATOR_SYNC_OPERATION_HEADER = 'x-codeflare-operator-sync-operation';
+const HERMES_EMPTY_READ_HEADER = 'x-codeflare-hermes-empty-read';
+
+function isSessionHermesMarkdown(key: string | null): boolean {
+  if (!key?.startsWith(HERMES_SESSION_ROOT)) return false;
+  const relative = key.slice(HERMES_SESSION_ROOT.length);
+  const slash = relative.indexOf('/');
+  return slash !== -1 && /^[a-z0-9]{8,24}$/.test(relative.slice(0, slash))
+    && HERMES_MARKDOWN.some(file => file === relative.slice(slash + 1));
+}
 
 /** Trusted props the container DO or Activity passes when binding this entrypoint. */
 interface EgressProps extends PersonalPiProps {
@@ -368,13 +378,22 @@ export class EgressController extends WorkerEntrypoint<Env> {
     headers.delete('host');
     headers.delete('content-length');
     headers.delete(OPERATOR_SYNC_OPERATION_HEADER);
+    const head = effectiveRequest.method === 'HEAD';
+    // The restore retry is authenticated with the bound bucket key, but may
+    // read a default-encrypted Markdown object only after verifying it is empty.
+    const emptyHermesRead = ownR2 && !props.operatorPolicy && !!props.bucket
+      && (head || effectiveRequest.method === 'GET') && !headers.has('range')
+      && (!url.search || url.search === (head ? '?x-id=HeadObject' : '?x-id=GetObject'))
+      && headers.get(HERMES_EMPTY_READ_HEADER) === '1'
+      && isSessionHermesMarkdown(operatorR2Path(url, accountId, props.bucket));
+    headers.delete(HERMES_EMPTY_READ_HEADER);
     if (ownR2) {
       for (const name of [
         'x-amz-server-side-encryption-customer-algorithm',
         'x-amz-server-side-encryption-customer-key',
         'x-amz-server-side-encryption-customer-key-md5',
       ]) headers.delete(name);
-      for (const [name, value] of Object.entries(getSseHeaders(this.env, props.r2SseDisabled === true))) {
+      for (const [name, value] of Object.entries(getSseHeaders(this.env, props.r2SseDisabled === true || emptyHermesRead))) {
         headers.set(name, value);
       }
     }
@@ -411,6 +430,16 @@ export class EgressController extends WorkerEntrypoint<Env> {
           redirect: 'manual',
         });
         upstream = await fetch(signed);
+        if (emptyHermesRead && upstream.ok) {
+          const reader = upstream.body?.getReader();
+          try {
+            if (upstream.status !== 200 || upstream.headers.get('content-length') !== '0' || upstream.headers.has('content-range')
+              || (reader && !(await reader.read()).done)) {
+              return jsonError(403, 'HERMES_EMPTY_READ_DENIED', 'Hermes empty object was not verified');
+            }
+          } finally { await reader?.cancel().catch(() => {}); }
+          upstream = new Response(head ? null : new Uint8Array(), { status: 200, headers: upstream.headers });
+        }
         resigned = true;
       } else {
         // Transparent: non-Browser account-scoped CF API → direct (caller auth preserved);

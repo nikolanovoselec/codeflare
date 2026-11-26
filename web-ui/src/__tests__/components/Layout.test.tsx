@@ -675,6 +675,10 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     try {
       render(() => <Layout />);
       const frame = await screen.findByTitle('Pi Chat');
+      // A batch-status update for the same launch must not reload the prepared frame.
+      mockSessions = [{ ...mockSessions[0], lifecycle: 'running', revision: 2 }];
+      bumpSessionStoreVersion();
+      expect(screen.getByTitle('Pi Chat')).toBe(frame);
       fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
       expect(frame).toBeInTheDocument();
       expect(frame).not.toBeVisible();

@@ -128,7 +128,6 @@
     "src/__tests__/lib/mobile-ac-coverage.test.ts": 136,
     "src/__tests__/lib/mobile.test.ts": 258,
     "src/__tests__/lib/osc52.test.ts": 3,
-    "src/__tests__/lib/panel-allocation.test.ts": 3,
     "src/__tests__/lib/schemas.test.ts": 39,
     "src/__tests__/lib/session-path.test.ts": 8,
     "src/__tests__/lib/session-presentation.test.ts": 13,

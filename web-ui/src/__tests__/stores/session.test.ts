@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@solidjs/testing-library';
-import { createComponent, createSignal, Show } from 'solid-js';
+import { createComponent, createMemo, createSignal, Show } from 'solid-js';
+import { createPiWebSurface } from '../../hooks/usePiWebSurface';
+import { getPiWebStatus } from '../../api/pi-web';
 import InitProgress from '../../components/InitProgress';
 import ClonePicker from '../../components/github/ClonePicker';
 
@@ -58,6 +60,11 @@ vi.mock('../../api/client', () => ({
   updatePreferences: vi.fn().mockResolvedValue({}),
   getR2Status: vi.fn().mockResolvedValue({ ready: false }),
   ensureR2Token: vi.fn().mockResolvedValue({ ready: false }),
+}));
+
+vi.mock('../../api/pi-web', async importOriginal => ({
+  ...await importOriginal<typeof import('../../api/pi-web')>(),
+  getPiWebStatus: vi.fn(),
 }));
 
 vi.mock('../../api/storage', () => ({
@@ -2004,20 +2011,42 @@ describe('Session Store', () => {
       });
       const starting = sessionStore.startSession(id, surface);
       try {
-        render(() => createComponent(Show, {
-          keyed: true,
-          get when() { return sessionStore.isSessionInitializing(id); },
-          get children() {
-            return createComponent(InitProgress, {
-              sessionName: 'Terminal',
-              get progress() { return sessionStore.getInitProgressForSession(id); },
-              onOpen: () => sessionStore.dismissInitProgressForSession(id),
+        vi.mocked(getPiWebStatus).mockClear().mockResolvedValue({ phase: 'active', surface: 'chat' });
+        render(() => {
+          if (surface === 'chat') {
+            const generation = createMemo(() => sessionStore.sessions.find(session => session.id === id)?.generation);
+            createMemo(() => {
+              const confirmed = generation();
+              if (confirmed !== undefined && confirmed > 6) return createPiWebSurface(id, confirmed);
             });
-          },
-        }));
+          }
+          return createComponent(Show, {
+            keyed: true,
+            get when() { return sessionStore.isSessionInitializing(id); },
+            get children() {
+              return createComponent(InitProgress, {
+                sessionName: 'Terminal',
+                get progress() { return sessionStore.getInitProgressForSession(id); },
+                onOpen: () => sessionStore.dismissInitProgressForSession(id),
+              });
+            },
+          });
+        });
+        expect(getPiWebStatus).not.toHaveBeenCalled();
         expect(screen.queryByRole('button', { name: 'Open' })).not.toBeInTheDocument();
         deliverReady();
         await starting;
+        if (surface === 'chat') {
+          const confirmed = () => sessionStore.sessions.find(session => session.id === id);
+          expect(confirmed()).toMatchObject({ generation: 7, lifecycle: 'running' });
+          expect(confirmed()?.revision).toBeUndefined();
+          expect(getPiWebStatus).toHaveBeenCalledWith(id, 7, expect.any(AbortSignal));
+          mockGetBatchSessionStatus.mockResolvedValueOnce({ statuses: {
+            [id]: { status: 'stopped', lifecycle: 'stopped', generation: 6, revision: 9, ptyActive: false },
+          } });
+          await sessionStore.refreshSessionStatuses();
+          expect(confirmed()).toMatchObject({ generation: 7, lifecycle: 'running' });
+        }
         expect(screen.getByText('Ready to open', { selector: '.init-progress-stage-label' })).toBeInTheDocument();
         fireEvent.click(screen.getByRole('button', { name: 'Open' }));
         expect(screen.queryByTestId('init-progress')).not.toBeInTheDocument();
@@ -2094,47 +2123,49 @@ describe('Session Store', () => {
 
     it.each([
       ...(['catalog', 'batch', 'catalog-with-batch'] as const).flatMap(source => [
-        { source, generation: 8, lifecycle: 'starting' as const },
-        { source, generation: 7, lifecycle: 'stopping' as const },
+        { source, generation: 8, lifecycle: 'starting' as const, surface: undefined },
+        { source, generation: 7, lifecycle: 'stopping' as const, surface: undefined },
       ]),
-    ])('REQ-SESSION-018 AC4: a late Ready cannot override accepted $lifecycle authority', async ({ generation, lifecycle, source }) => {
-      const editor = { id: `late-ready-${lifecycle}`, name: 'Editor', workspace: 'vscode' as const, editorReady: false,
+      { source: 'batch', generation: 8, lifecycle: 'starting', surface: 'chat' } as const,
+      { source: 'batch', generation: 7, lifecycle: 'stopping', surface: 'chat' } as const,
+    ])('REQ-SESSION-018 AC4: a late Ready cannot override accepted $lifecycle authority', async ({ generation, lifecycle, source, surface }) => {
+      const workspace = { id: `late-ready-${lifecycle}`, name: 'Workspace', workspace: surface === 'chat' ? 'terminal' as const : 'vscode' as const, editorReady: false,
         createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString() };
-      mockGetSessions.mockResolvedValue([{ ...editor, status: 'stopped', lifecycle: 'stopped', generation: 6, revision: 1 }]);
+      mockGetSessions.mockResolvedValue([{ ...workspace, status: 'stopped', lifecycle: 'stopped', generation: 6, revision: 1 }]);
       mockGetBatchSessionStatus.mockResolvedValue({ statuses: {} });
       await sessionStore.loadSessions();
       let complete!: (generation: number) => void;
       vi.mocked(api.startSession).mockImplementation((_id, onProgress, onComplete) => {
         complete = (generation) => {
           onProgress({ stage: 'ready', progress: 100, message: 'Stale ready' });
-          expect(sessionStore.getInitProgressForSession(editor.id)).toBeNull();
+          expect(sessionStore.getInitProgressForSession(workspace.id)).toBeNull();
           onComplete(generation);
         };
         return () => {};
       });
-      const start = sessionStore.startSession(editor.id);
-      const replacement = { ...editor, generation, lifecycle, status: lifecycle, revision: 4 };
+      const start = sessionStore.startSession(workspace.id, surface);
+      const replacement = { ...workspace, generation, lifecycle, status: lifecycle, revision: 4 };
       mockGetSessions.mockResolvedValue([replacement]);
-      const readEditor = () => sessionStore.sessions.find(session => session.id === editor.id);
+      const readWorkspace = () => sessionStore.sessions.find(session => session.id === workspace.id);
       if (source !== 'catalog') {
-        mockGetBatchSessionStatus.mockResolvedValue({ statuses: { [editor.id]: { ...replacement, ptyActive: false } } });
+        mockGetBatchSessionStatus.mockResolvedValue({ statuses: { [workspace.id]: { ...replacement, ptyActive: false } } });
         if (source === 'batch') await sessionStore.refreshSessionStatuses();
         else {
-          mockGetSessions.mockResolvedValueOnce([{ ...editor, status: 'stopped', lifecycle: 'stopped', generation: 6, revision: 1 }]);
+          mockGetSessions.mockResolvedValueOnce([{ ...workspace, status: 'stopped', lifecycle: 'stopped', generation: 6, revision: 1 }]);
           await sessionStore.loadSessions();
         }
-        expect(readEditor()?.status).toBe('initializing');
+        expect(readWorkspace()?.status).toBe('initializing');
       } else {
         await sessionStore.loadSessions();
       }
-      expect(readEditor()).toMatchObject({ generation, lifecycle, revision: 4 });
+      expect(readWorkspace()).toMatchObject({ generation, lifecycle, revision: 4 });
       const staleReady = expect(start).rejects.toThrow('superseded');
       complete(7);
       await staleReady;
       await vi.waitFor(() => expect(sessionStore.loading).toBe(false));
-      expect(readEditor()).toMatchObject({ generation, lifecycle, editorReady: false });
-      expect(sessionStore.isSessionInitializing(editor.id)).toBe(false);
-      expect(sessionStore.getTerminalsForSession(editor.id)).toBeNull();
+      expect(readWorkspace()).toMatchObject({ generation, lifecycle, editorReady: false });
+      expect(sessionStore.isSessionInitializing(workspace.id)).toBe(false);
+      expect(sessionStore.getTerminalsForSession(workspace.id)).toBeNull();
     });
 
     it('REQ-SESSION-017: Error after a lost Start acknowledgement reloads authoritative session state', async () => {
