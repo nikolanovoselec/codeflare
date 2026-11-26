@@ -161,6 +161,7 @@ describe('Pi web Worker proxy (REQ-AGENT-272 AC5)', () => {
     const log = vi.spyOn(console, 'log').mockImplementation((output: string) => {
       if (output.includes('Pi Web proxy timing')) logs.push(JSON.parse(output));
     });
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0.99);
     setLogLevel('info');
     try {
       authorityDelayMs = 50;
@@ -177,12 +178,13 @@ describe('Pi web Worker proxy (REQ-AGENT-272 AC5)', () => {
       expect(logs[0].data?.authorityMs).toBeGreaterThanOrEqual(49);
     } finally {
       setLogLevel('silent');
+      random.mockRestore();
       log.mockRestore();
     }
   });
 
   it('samples successful stock GETs but does not time non-success responses', async () => {
-    const records: { data: { kind: string } }[] = [];
+    const records: { data: Record<string, unknown> }[] = [];
     const log = vi.spyOn(console, 'log').mockImplementation((output: string) => {
       if (output.includes('Pi Web proxy timing')) records.push(JSON.parse(output));
     });
@@ -194,7 +196,10 @@ describe('Pi web Worker proxy (REQ-AGENT-272 AC5)', () => {
       expect(sampled.status).toBe(200);
       expect(sampled.headers.get('Cache-Control')).toBe('no-store');
       expect(sampled.headers.has('Server-Timing')).toBe(false);
-      expect(records.map(record => record.data.kind)).toEqual(['asset']);
+      expect(records.map(record => record.data)).toEqual([
+        { kind: 'asset', authMs: expect.any(Number), eligibilityMs: expect.any(Number),
+          authorityMs: expect.any(Number), forwardMs: expect.any(Number) },
+      ]);
 
       random.mockReturnValue(0.99);
       expect((await handlePiWebRequest(request(asset), env)).status).toBe(200);
