@@ -12,6 +12,7 @@ import {
   fetchWithTimeout,
 } from './shared';
 import { getContainerHealthCB, getContainerSessionsCB } from '../../lib/circuit-breakers';
+import { buildCloneTargets } from '../../lib/clone-targets';
 import { D1SessionRepository } from '../../lib/session-repository';
 
 /** Copy cpu/mem/hdd metrics from health data into the response details object */
@@ -181,6 +182,7 @@ app.get('/startup-status', async (c) => {
       terminalServerOk?: boolean;
       editorReady?: boolean;
       repositoryRestore?: HealthData['repositoryRestore'];
+      repositoryRestoreRepos?: string[];
       cpu?: string;
       mem?: string;
       hdd?: string;
@@ -282,7 +284,11 @@ app.get('/startup-status', async (c) => {
       return c.json(response);
     }
     if (healthData.repositoryRestore === 'pending' || healthData.repositoryRestore === 'restoring' || healthData.repositoryRestore === 'complete'
-      || healthData.repositoryRestore === 'issues') response.details.repositoryRestore = healthData.repositoryRestore;
+      || healthData.repositoryRestore === 'issues') {
+      response.details.repositoryRestore = healthData.repositoryRestore;
+      const targets = buildCloneTargets(session?.clones, session?.clone);
+      if (targets) response.details.repositoryRestoreRepos = targets.split(' ').map(target => target.split('#', 1)[0]);
+    }
 
     // Step 3: Check R2 sync status
     // syncStatus values: "pending", "syncing", "success", "failed", "skipped"

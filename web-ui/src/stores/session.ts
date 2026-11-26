@@ -652,6 +652,7 @@ async function deleteSession(id: string): Promise<void> {
 interface RepositoryRestoreNotice {
   status: Exclude<RepositoryRestoreStatus, 'pending'>;
   repo?: string;
+  repos?: string[];
   outcome?: CloneIntoSessionResult['outcome'];
 }
 
@@ -686,7 +687,8 @@ async function cloneRepositoryIntoSession(args: { repo: string; sessionId: strin
   return result;
 }
 
-function watchRepositoryRestore(id: string, generation: number, initial: RepositoryRestoreStatus): void {
+function watchRepositoryRestore(id: string, generation: number, initial: RepositoryRestoreStatus, initialRepos?: string[]): void {
+  let repos = initialRepos;
   let failures = 0;
   const deadline = Date.now() + 10 * 60_000;
   const ownsObservation = () => {
@@ -695,7 +697,7 @@ function watchRepositoryRestore(id: string, generation: number, initial: Reposit
       && (session.generation === undefined || session.generation <= generation);
   };
   const update = (status: RepositoryRestoreStatus) => {
-    if (status !== 'pending') setRepositoryRestoreNotices(id, { status });
+    if (status !== 'pending') setRepositoryRestoreNotices(id, { status, ...(repos?.length ? { repos } : {}) });
     if (status === 'complete') {
       repositoryRestoreTimers.set(id, setTimeout(() => dismissRepositoryRestore(id), 5_000));
     } else if (status === 'pending' || status === 'restoring') {
@@ -718,6 +720,7 @@ function watchRepositoryRestore(id: string, generation: number, initial: Reposit
             throw new Error('Repository restore status unavailable');
           }
           failures = 0;
+          if (!repos?.length && observation.details.repositoryRestoreRepos?.length) repos = observation.details.repositoryRestoreRepos;
           update(observation.details.repositoryRestore);
         } catch {
           if (!current()) return;
@@ -791,7 +794,7 @@ function startSession(id: string, surface?: PiSurface): Promise<void | 'cancelle
         startupCleanups.delete(id);
         updateSessionStatus(id, 'running');
         const repositoryRestore = readyProgress?.repositoryRestore;
-        if (current.workspace !== 'vscode' && repositoryRestore) watchRepositoryRestore(id, generation, repositoryRestore);
+        if (current.workspace !== 'vscode' && repositoryRestore) watchRepositoryRestore(id, generation, repositoryRestore, readyProgress?.repositoryRestoreRepos);
         if (index !== -1 && state.sessions[index].workspace === 'vscode') {
           setState('sessions', index, 'editorReady', true);
           setState('sessions', index, 'editorReadyError', false);

@@ -147,14 +147,19 @@ describe('Container Status Routes', () => {
         error: startupPolicyError === 'failed' ? 'Managed file policy could not be verified.' : 'Managed file policy verification timed out.' });
     });
 
-    it('REQ-GITHUB-320: Ready carries a nonblocking repository restore state', async () => {
+    it('REQ-GITHUB-320: Ready carries a nonblocking repository restore state and repository names', async () => {
+      mockKV._set('session:test-bucket:abcdef1234567890abcdef12', {
+        id: 'abcdef1234567890abcdef12', name: 'Session', status: 'running', lifecycleGeneration: 1,
+        clone: { repo: 'octocat/primary', ref: 'main' }, clones: [{ repo: 'octocat/second', ref: 'feature/docs' }],
+      });
       const app = createStatusApp();
       testState.container!.getState.mockResolvedValue({ status: 'running' });
       testState.container!.fetch.mockImplementation(async (request: Request) => new Response(JSON.stringify(
         request.url.endsWith('/sessions') ? [] : { syncStatus: 'success', prewarmReady: true, repositoryRestore: 'restoring' },
       )));
       const response = await app.request(`/container/startup-status${sessionQuery}`);
-      expect(await response.json()).toMatchObject({ stage: 'ready', details: { repositoryRestore: 'restoring' } });
+      expect(await response.json()).toMatchObject({ stage: 'ready', details: { repositoryRestore: 'restoring',
+        repositoryRestoreRepos: ['octocat/primary', 'octocat/second'] } });
     });
 
     it('REQ-SESSION-017 AC3: reports a D1-confirmed stop even if the SDK still reports running', async () => {

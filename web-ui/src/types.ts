@@ -351,6 +351,7 @@ export type RepositoryRestoreStatus = 'pending' | 'restoring' | 'complete' | 'is
 
 export interface InitProgress {
   repositoryRestore?: RepositoryRestoreStatus;
+  repositoryRestoreRepos?: string[];
   stage: InitStage;
   progress: number;
   message: string;
@@ -376,6 +377,7 @@ export interface StartupStatusResponse {
     healthServerOk?: boolean;
     terminalServerOk?: boolean;
     repositoryRestore?: RepositoryRestoreStatus;
+    repositoryRestoreRepos?: string[];
     editorReady?: boolean;
     // System metrics from health server
     cpu?: string;

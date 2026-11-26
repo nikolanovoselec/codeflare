@@ -2036,7 +2036,8 @@ describe('Session Store', () => {
         await sessionStore.loadSessions();
         vi.mocked(api.startSession).mockImplementation((_id, onProgress, onComplete) => {
           queueMicrotask(() => {
-            onProgress({ stage: 'ready', progress: 100, message: 'Container ready', repositoryRestore: 'restoring' });
+            onProgress({ stage: 'ready', progress: 100, message: 'Container ready', repositoryRestore: 'restoring',
+              repositoryRestoreRepos: ['octocat/api', 'octocat/docs'] });
             onComplete(7);
           });
           return () => {};
@@ -2047,13 +2048,13 @@ describe('Session Store', () => {
           message: 'Container ready', details: { ...details, repositoryRestore: 'issues' } });
         await sessionStore.startSession(id);
         expect(sessionStore.getInitProgressForSession(id)?.stage).toBe('ready');
-        expect(sessionStore.repositoryRestoreNotices[id]).toEqual({ status: 'restoring' });
+        expect(sessionStore.repositoryRestoreNotices[id]).toEqual({ status: 'restoring', repos: ['octocat/api', 'octocat/docs'] });
         sessionStore.dismissInitProgressForSession(id);
         await vi.advanceTimersByTimeAsync(5_000);
         expect(api.getStartupStatus).toHaveBeenCalledWith(id);
-        expect(sessionStore.repositoryRestoreNotices[id]).toEqual({ status: 'restoring' });
+        expect(sessionStore.repositoryRestoreNotices[id]).toEqual({ status: 'restoring', repos: ['octocat/api', 'octocat/docs'] });
         await vi.advanceTimersByTimeAsync(5_000);
-        expect(sessionStore.repositoryRestoreNotices[id]).toEqual({ status: 'issues' });
+        expect(sessionStore.repositoryRestoreNotices[id]).toEqual({ status: 'issues', repos: ['octocat/api', 'octocat/docs'] });
         sessionStore.dismissRepositoryRestore(id);
         expect(sessionStore.repositoryRestoreNotices[id]).toBeUndefined();
       } finally {

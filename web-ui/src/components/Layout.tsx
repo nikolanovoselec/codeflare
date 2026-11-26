@@ -1207,7 +1207,9 @@ const Layout: Component<LayoutProps> = (props) => {
                             : status() === 'complete' ? 'Repository cloned' : 'Repository clone failed'
                           : status() === 'restoring' ? 'Restoring repositories…'
                             : status() === 'complete' ? 'Repositories restored' : 'Some repositories weren’t restored'}</strong>
-                        <div class="repository-restore-notice__session">{name()}</div>
+                        <Show when={!notice()?.repo && notice()?.repos?.length} fallback={<div class="repository-restore-notice__session">{name()}</div>}>
+                          <For each={notice()?.repos}>{repo => <div class="repository-restore-notice__session">{repo}</div>}</For>
+                        </Show>
                         <Show when={notice()?.repo}>{repo => <div class="repository-restore-notice__session">{repo()}</div>}</Show>
                       </div>
                       <button type="button" aria-label={notice()?.repo ? 'Dismiss repository clone notification' : 'Dismiss repository restore notification'}

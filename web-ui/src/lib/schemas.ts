@@ -303,6 +303,7 @@ export const StartupStatusResponseSchema = z.object({
     healthServerOk: z.boolean().optional(),
     terminalServerOk: z.boolean().optional(),
     repositoryRestore: z.enum(['pending', 'restoring', 'complete', 'issues']).optional(),
+    repositoryRestoreRepos: z.array(z.string().regex(/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/)).max(21).optional().catch(undefined),
     editorReady: z.boolean().optional(),
     cpu: z.string().optional(),
     mem: z.string().optional(),

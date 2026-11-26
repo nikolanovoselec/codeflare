@@ -161,7 +161,7 @@ const vaultPrewarmProof = {
 // Session store mock with controllable state.
 // Module-level variables allow tests to set up specific states before rendering.
 let mockSessions: any[] = [];
-let mockRepositoryNotices: Record<string, { status: 'restoring' | 'complete' | 'issues'; repo?: string; outcome?: 'cloned' | 'exists' | 'failed' | 'tracking-unconfirmed' }> = {};
+let mockRepositoryNotices: Record<string, { status: 'restoring' | 'complete' | 'issues'; repo?: string; repos?: string[]; outcome?: 'cloned' | 'exists' | 'failed' | 'tracking-unconfirmed' }> = {};
 let mockMigrationHalt: string | null = null;
 let mockActiveSessionId: string | null = null;
 let mockPreferences: Record<string, any> = {};
@@ -429,6 +429,16 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
       vi.mocked(sessionStore.getInitProgressForSession).mockReturnValue(null);
     }
+  });
+
+  it('REQ-GITHUB-320: lists repositories instead of the session name when available', () => {
+    mockSessions = [createMockSession({ name: 'Payments workspace' })];
+    mockRepositoryNotices = { sess1: { status: 'restoring', repos: ['octocat/api', 'octocat/docs'] } };
+    render(() => <Layout />);
+    const notice = within(screen.getByRole('region', { name: 'Activity notifications' }));
+    expect(notice.getByText('octocat/api')).toBeInTheDocument();
+    expect(notice.getByText('octocat/docs')).toBeInTheDocument();
+    expect(notice.queryByText('Payments workspace')).toBeNull();
   });
 
   it('REQ-GITHUB-320: shows restore progress on the Dashboard and dismisses a partial outcome', () => {
