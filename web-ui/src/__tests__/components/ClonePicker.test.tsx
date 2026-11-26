@@ -55,6 +55,7 @@ vi.mock('../../components/Icon', () => ({
 
 import { mdiPi } from '@mdi/js';
 import ClonePicker from '../../components/github/ClonePicker';
+import { cloneAttempt, forgetCloneAttempt, setCloneAttempt } from '../../stores/clone-attempts';
 
 const REPO = {
   full_name: 'octocat/hello',
@@ -238,6 +239,25 @@ describe('ClonePicker', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(mockRetryCloneStart).toHaveBeenCalledWith(saved.id);
     expect(mockCreateSessionWithClone).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers new sessions on reopen after deletion despite a late Start result', async () => {
+    let finish!: () => void;
+    const pending = new Promise(resolve => { finish = () => resolve({ sessionId: 's-deleted', started: false }); });
+    mockCreateSessionWithClone.mockImplementationOnce(() => {
+      const attempt = cloneAttempt(REPO.full_name);
+      if (attempt?.phase === 'creating') setCloneAttempt(REPO.full_name, { ...attempt, sessionId: 's-deleted' });
+      return pending;
+    });
+    renderPicker();
+    fireEvent.click(screen.getByTestId('clone-picker-agent-pi'));
+    fireEvent.click(screen.getByRole('button', { name: 'Close clone picker' }));
+    forgetCloneAttempt('s-deleted');
+    finish();
+    await pending;
+    renderPicker();
+    expect(screen.getByTestId('clone-picker-agent-pi')).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Retry Start' })).not.toBeInTheDocument();
   });
 
   it('closes after a successful new-session clone (navigation already happened)', async () => {

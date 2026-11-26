@@ -124,7 +124,7 @@ For [REQ-AGENT-282](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigat
 - **Saved history:** Read the JSONL of a disposable conversation with a known, non-sensitive SYSTEM marker and ordinary replies. Do not edit the transcript or open a second writer.
 - Reload the page and reopen the same conversation. In DevTools, match the marker in the fresh `transcript-snapshot` response for that session. Revealing a retained frame does not qualify.
 - Read the JSONL again to confirm the same entry remains. Compare the entry, not the line count.
-- **Live event:** If there is a supported trigger in that disposable session, confirm the marker reaches the already-open Chat through a live update before reload or reopen. Confirm it separately in the saved JSONL.
+- **Live event:** If there is a supported trigger in that disposable session, use DevTools to match the marker in the already-open frame’s live session payload before reload or reopen. Confirm it separately in JSONL.
 - In both cases, ordinary replies must remain visible and the entire SYSTEM row must be hidden. Mark cases unexercised if you cannot verify delivery or the required fresh load.
 - **Native dialog:** Use [native questions](#check-stale-frames-and-native-questions) to verify that an independent dialog can still open and be answered.
 

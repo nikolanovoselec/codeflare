@@ -1,3 +1,4 @@
+import { createComputed, createRoot } from 'solid-js';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Like session.test.ts, model the mounted runtime through the terminal store's
@@ -34,6 +35,7 @@ type Lifecycle = 'starting' | 'running' | 'unreachable' | 'stopping' | 'stopped'
 type Projection = { status: Lifecycle; lifecycle: Lifecycle; generation: number; revision: number };
 const target = 'killtest01';
 const other = 'otherlive01';
+const restart = 'restart001';
 const killPath = `/api/sessions/${target}/kill`;
 const stopPath = `/api/sessions/${target}/stop`;
 
@@ -54,6 +56,8 @@ describe('REQ-SESSION-038: session KILL through the public store and HTTP bounda
   let replyToKill: () => Promise<Response>;
   let replyToStop: () => Promise<Response>;
   let replyToStatus: () => Promise<Response>;
+  let listedSessionIds: string[];
+  let replyToRestartStop: () => Promise<Response>;
 
   function project(id: string, status: Lifecycle, revision: number) {
     projections[id] = { status, lifecycle: status, generation: 4, revision };
@@ -89,14 +93,17 @@ describe('REQ-SESSION-038: session KILL through the public store and HTTP bounda
 
     // Real client parsing and mutation requests; no mocked client exports or
     // private cleanup spies. Wire assertions below protect command semantics.
-    let listedSessionIds: string[] = [];
+    listedSessionIds = [];
+    replyToRestartStop = async () => new Response(null, { status: 204 });
     vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) => {
       const method = init.method ?? 'GET';
       if (method !== 'GET') mutations.push({ method, path: url });
       if (url === killPath && method === 'POST') return replyToKill();
       if (url === stopPath && method === 'POST') return replyToStop();
-      if (url === `/api/container/start?sessionId=${target}` && method === 'POST') return Response.json({ generation: 5 });
-      if (url === `/api/container/startup-status?sessionId=${target}` && method === 'GET') {
+      if (url === `/api/sessions/${restart}/kill` && method === 'POST') return replyToKill();
+      if (url === `/api/sessions/${restart}/stop` && method === 'POST') return replyToRestartStop();
+      if (url === `/api/container/start?sessionId=${restart}` && method === 'POST') return Response.json({ generation: 5 });
+      if (url === `/api/container/startup-status?sessionId=${restart}` && method === 'GET') {
         return Response.json({ stage: 'ready', generation: 5, revision: 13, progress: 100, message: 'Ready',
           details: { bucketName: 'test', container: 'test', path: '/workspace' } });
       }
@@ -230,25 +237,60 @@ describe('REQ-SESSION-038: session KILL through the public store and HTTP bounda
     },
   );
 
-  it('retries the saved session after confirmed Kill supersedes a hung Stop', async () => {
-    const stopReply = deferred<Response>();
-    replyToStop = () => stopReply.promise;
-    const stopping = sessionStore.stopSession(target);
+  it('stops the replacement while the superseded Stop response is pending', async () => {
+    listedSessionIds.push(restart);
+    project(restart, 'running', 10);
+    await sessionStore.loadSessions();
+    const original = deferred<Response>();
+    const replacement = deferred<Response>();
+    const stopUrl = `/api/sessions/${restart}/stop`;
+    replyToRestartStop = () => mutations.filter(request => request.path === stopUrl).length === 1
+      ? original.promise : replacement.promise;
+    const canRetry: boolean[] = [];
+    const dispose = createRoot(dispose => {
+      createComputed(() => { canRetry.push(sessionStore.canRetryCloneStart(restart)); });
+      return dispose;
+    });
+    const oldStop = sessionStore.stopSession(restart);
+    let newStop: Promise<void> | undefined;
     try {
-      await killSession(target);
-      expect(await sessionStore.retryCloneStart(target)).toBe(false);
+      await killSession(restart);
+      expect(await sessionStore.retryCloneStart(restart)).toBe(false);
       expect(mutations).toEqual([
-        { method: 'POST', path: stopPath },
-        { method: 'POST', path: killPath },
+        { method: 'POST', path: stopUrl },
+        { method: 'POST', path: `/api/sessions/${restart}/kill` },
       ]);
-      project(target, 'stopped', 12);
-      await sessionStore.refreshSessionStatuses();
-      expect(await sessionStore.retryCloneStart(target)).toBe(true);
-      expect(row(target)?.status).toBe('running');
-      expect(mutations.slice(2)).toEqual([{ method: 'POST', path: `/api/container/start?sessionId=${target}` }]);
+      project(restart, 'stopped', 12);
+      replyToStatus = async () => Response.json({ statuses: {} });
+      await sessionStore.loadSessions();
+      expect(canRetry[canRetry.length - 1]).toBe(true);
+      expect(await sessionStore.retryCloneStart(restart)).toBe(true);
+      expect(row(restart)?.status).toBe('running');
+      projections[restart] = { status: 'running', lifecycle: 'running', generation: 5, revision: 13 };
+      await sessionStore.loadSessions();
+      newStop = sessionStore.stopSession(restart);
+      expect(mutations.slice(2)).toEqual([
+        { method: 'POST', path: `/api/container/start?sessionId=${restart}` },
+        { method: 'POST', path: stopUrl },
+      ]);
+      original.resolve(new Response(null, { status: 204 }));
+      await oldStop;
+      expect(row(restart)?.status).toBe('stopping');
+      void sessionStore.stopSession(restart); // must still deduplicate the replacement Stop
+      expect(mutations.filter(request => request.path === stopUrl)).toHaveLength(2);
+      projections[restart] = { status: 'stopped', lifecycle: 'stopped', generation: 5, revision: 14 };
+      replyToStatus = async () => Response.json({ statuses: projections });
+      replacement.resolve(new Response(null, { status: 204 }));
+      await vi.advanceTimersByTimeAsync(STOP_POLL_INTERVAL_MS);
+      await newStop;
+      expect(row(restart)).toMatchObject({ status: 'stopped', generation: 5, revision: 14 });
     } finally {
-      stopReply.resolve(new Response(null, { status: 204 }));
-      await stopping;
+      dispose();
+      original.resolve(new Response(null, { status: 204 }));
+      replacement.resolve(new Response(null, { status: 204 }));
+      await vi.advanceTimersByTimeAsync(0);
+      sessionStore.stopAllPolling();
+      await Promise.all([oldStop, newStop]);
     }
   });
 

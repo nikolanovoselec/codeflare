@@ -219,7 +219,7 @@ function updateSessionStatus(id: string, status: SessionStatus): void {
   const index = state.sessions.findIndex((sess) => sess.id === id);
   if (index !== -1) {
     if (status === 'stopped') {
-      localKillAttempts.delete(id);
+      releaseKillAttempt(id);
     } else if (localKillAttempts.has(id)) {
       // Keep the local termination intent through an older live observation;
       // otherwise the mounted-runtime guard would mask the eventual exit.
@@ -318,11 +318,14 @@ function applyManagedReleaseBatch(
 }
 
 // A local Stop owns its own confirmation poll; persisted stopping does not.
-const localStopAttempts = new Set<string>();
-const supersededStopAttempts = new Set<string>();
-const [stopCompletion, setStopCompletion] = createSignal(0);
+const localStopAttempts = new Map<string, { superseded: boolean }>();
+const [terminationRevision, setTerminationRevision] = createSignal(0);
 // Keep successful commands deduplicated until authoritative polling confirms exit.
 const localKillAttempts = new Map<string, { request: Promise<void> | null; generation?: number }>();
+
+function releaseKillAttempt(id: string): void {
+  if (localKillAttempts.delete(id)) setTerminationRevision(value => value + 1);
+}
 
 function reconcileKillGeneration(id: string): void {
   const attempt = localKillAttempts.get(id);
@@ -330,15 +333,15 @@ function reconcileKillGeneration(id: string): void {
   if (!attempt || !session) return;
   if (session.generation !== attempt.generation) {
     // A command for the old runtime must not pin a replacement as stopping.
-    localKillAttempts.delete(id);
+    releaseKillAttempt(id);
     if (session.lifecycle) updateSessionStatus(id, session.lifecycle);
   } else if (session.status === 'stopped') {
-    localKillAttempts.delete(id);
+    releaseKillAttempt(id);
   }
 }
 
 function isLocallyStopping(id: string): boolean {
-  return localStopAttempts.has(id) && !supersededStopAttempts.has(id);
+  return localStopAttempts.get(id)?.superseded === false;
 }
 
 // Register polling dependencies (extracted to session-polling.ts)
@@ -438,7 +441,10 @@ async function loadSessions(): Promise<void> {
     sessionMissCounters.clear();
     setState('sessions', sessionsWithStatus);
     setState('loading', false);
-    for (const session of state.sessions) reconcileKillGeneration(session.id);
+    for (const session of state.sessions) {
+      reconcileKillGeneration(session.id);
+      if (session.status === 'running') forgetCloneAttempt(session.id, true);
+    }
     // REQ-VAULT-034 AC2: sweep orphan legacy SilverBullet markers only after
     // an authoritative session-list fetch succeeds. Dashboard mount can
     // see the initial empty store before loadSessions resolves; sweeping
@@ -613,8 +619,8 @@ async function createSessionWithClone(repo: string, agentType?: AgentType): Prom
 
 // Retry may not take over cleanup while Stop or Kill owns confirmation.
 function canRetryCloneStart(id: string): boolean {
-  // Stop publishes its final status before releasing local ownership.
-  stopCompletion();
+  // A termination owner can release after the final status is published.
+  terminationRevision();
   const status = state.sessions.find(session => session.id === id)?.status;
   return (status === 'stopped' || status === 'error') && !isLocallyStopping(id) && !localKillAttempts.has(id);
 }
@@ -649,7 +655,7 @@ async function deleteSession(id: string): Promise<void> {
     await api.deleteSession(id);
     forgetCloneAttempt(id);
     invalidateSessionStatusReads();
-    localKillAttempts.delete(id);
+    releaseKillAttempt(id);
     sessionMissCounters.delete(id);
     cleanupTerminalsForSession(id);
     // REQ-VAULT-034 AC1: drop legacy session-scoped SilverBullet localStorage markers.
@@ -879,7 +885,10 @@ function startSession(id: string, surface?: PiSurface): Promise<void | 'cancelle
 
 async function stopSession(id: string): Promise<void> {
   dismissRepositoryRestore(id);
-  if (localStopAttempts.has(id)) return;
+  const previous = localStopAttempts.get(id);
+  if (previous && (!previous.superseded || localKillAttempts.has(id))) return;
+  const attempt = { superseded: localKillAttempts.has(id) };
+  const ownsStop = () => !attempt.superseded && localStopAttempts.get(id) === attempt;
   // A delayed Stop response can only confirm exit for its original runtime.
   const attemptedSession = state.sessions.find((session) => session.id === id);
   const generation = attemptedSession?.generation;
@@ -896,12 +905,11 @@ async function stopSession(id: string): Promise<void> {
         delete s.initProgressBySession[id];
       })
     );
-    localStopAttempts.add(id);
-    if (localKillAttempts.has(id)) supersededStopAttempts.add(id);
+    localStopAttempts.set(id, attempt);
     updateSessionStatus(id, 'stopping');
     await api.stopSession(id);
     // KILL takes confirmation ownership even if this HTTP caller was hung.
-    if (supersededStopAttempts.has(id)) return;
+    if (!ownsStop()) return;
 
     // Poll batch-status until session reaches 'stopped' (sync may still be running)
     const pollForStopped = (): Promise<void> => {
@@ -913,7 +921,7 @@ async function stopSession(id: string): Promise<void> {
         // Undefined confirmation is neutral cancellation, not a failed Stop.
         const finishStopPolling = (confirmed?: boolean) => {
           if (finished) return;
-          if (supersededStopAttempts.has(id)) confirmed = undefined;
+          if (!ownsStop()) confirmed = undefined;
           finished = true;
           clearInterval(interval);
           startupCleanups.delete(id);
@@ -927,7 +935,7 @@ async function stopSession(id: string): Promise<void> {
         };
 
         const interval = setInterval(async () => {
-          if (supersededStopAttempts.has(id)) {
+          if (!ownsStop()) {
             finishStopPolling();
             return;
           }
@@ -985,13 +993,14 @@ async function stopSession(id: string): Promise<void> {
 
     await pollForStopped();
   } catch (err) {
-    if (!supersededStopAttempts.has(id)) {
+    if (ownsStop()) {
       setState('error', err instanceof Error ? err.message : 'Failed to stop session');
     }
   } finally {
-    localStopAttempts.delete(id);
-    supersededStopAttempts.delete(id);
-    setStopCompletion(value => value + 1);
+    if (localStopAttempts.get(id) === attempt) {
+      localStopAttempts.delete(id);
+      setTerminationRevision(value => value + 1);
+    }
   }
 }
 
@@ -1001,7 +1010,8 @@ function killSession(id: string): Promise<void> {
   const pending = localKillAttempts.get(id);
   if (pending?.request) return pending.request;
 
-  if (localStopAttempts.has(id)) supersededStopAttempts.add(id);
+  const stop = localStopAttempts.get(id);
+  if (stop) stop.superseded = true;
   startupCleanups.get(id)?.();
   startupCleanups.delete(id);
   setState(produce((s) => {

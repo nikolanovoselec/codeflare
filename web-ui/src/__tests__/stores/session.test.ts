@@ -79,6 +79,7 @@ vi.mock('../../lib/vault-cache', () => ({
 
 // Import after mocks
 import { sessionStore } from '../../stores/session';
+import { cloneAttempt, setCloneAttempt } from '../../stores/clone-attempts';
 import { applyMetricsUpdate, getUsageState } from '../../stores/session';
 import * as api from '../../api/client';
 import * as storageApi from '../../api/storage';
@@ -1556,6 +1557,13 @@ describe('Session Store', () => {
       const result = await creating;
       expect(result).toEqual({ sessionId: id, started: false });
       expect(sessionStore.sessions.find(session => session.id === id)?.status).toBe('error');
+      await sessionStore.loadSessions();
+      expect(sessionStore.sessions.find(session => session.id === id)).toBeUndefined();
+      await expect(sessionStore.retryCloneStart(id)).resolves.toBe(false);
+      expect(api.startSession).toHaveBeenCalledTimes(1);
+      mockGetSessions.mockResolvedValue([{ id, name: 'hello', workspace: 'vscode',
+        createdAt: '2026-01-01T00:00:00Z', lastAccessedAt: '2026-01-01T00:00:00Z' }]);
+      await sessionStore.loadSessions();
       const retry = sessionStore.retryCloneStart(result!.sessionId);
       await vi.waitFor(() => expect(completeStart).toBeDefined());
       completeStart();
@@ -1563,6 +1571,27 @@ describe('Session Store', () => {
       expect(sessionStore.sessions.filter(session => session.name === 'hello')).toEqual([
         expect.objectContaining({ id, status: 'running' }),
       ]);
+    });
+
+    it('retires recovery when the catalog alone confirms Running', async () => {
+      const id = 'recovered-clone';
+      const repo = 'octocat/catalog-recovery';
+      setCloneAttempt(repo, { phase: 'failed', sessionId: id });
+      mockGetSessions.mockResolvedValue([{ id, name: 'catalog-recovery', status: 'running',
+        generation: 2, revision: 3, createdAt: '2026-01-01T00:00:00Z', lastAccessedAt: '2026-01-01T00:00:00Z' }]);
+      await sessionStore.loadSessions();
+      expect(cloneAttempt(repo)).toBeUndefined();
+    });
+
+    it('retires recovery only after Delete succeeds', async () => {
+      const id = 'deleted-clone';
+      const repo = 'octocat/delete-recovery';
+      setCloneAttempt(repo, { phase: 'failed', sessionId: id });
+      mockDeleteSession.mockRejectedValueOnce(new Error('Delete failed')).mockResolvedValueOnce(undefined);
+      await sessionStore.deleteSession(id);
+      expect(cloneAttempt(repo)?.sessionId).toBe(id);
+      await sessionStore.deleteSession(id);
+      expect(cloneAttempt(repo)).toBeUndefined();
     });
 
     it('keeps cloned historical sessions on the existing Terminal activation path', async () => {
