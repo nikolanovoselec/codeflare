@@ -372,7 +372,6 @@ These compatibility anchors resolve dated changelog references to retired review
 
 ---
 
-<a id="req-agent-111-native-goal-workflow-in-pi-sessions"></a>
 ### REQ-AGENT-111: Native Todo Loop Workflow in Pi Sessions
 
 **Intent:** Pi sessions can continue work on their existing RPIV todo list without cold-transpiling the continuation extension on first use.
@@ -404,12 +403,34 @@ These compatibility anchors resolve dated changelog references to retired review
 
 ---
 
+<a id="req-agent-111-native-goal-workflow-in-pi-sessions"></a>
 <a id="req-agent-178-goal-and-plan-session-ownership"></a>
 <a id="req-agent-129-goal-continuation-settings-policy"></a>
 <a id="req-agent-130-goal-continuation-runtime-pacing"></a>
 <a id="req-agent-236-goal-stalled-work-bound"></a>
 
-The former REQ-AGENT-178, REQ-AGENT-129, REQ-AGENT-130, and REQ-AGENT-236 covered managed Goal/Plan mutual exclusion, Goal settings, continuation pacing, and stalled-work bounds. These Goal-specific contracts are retired, not inherited by [Todo Loop](#req-agent-111-native-todo-loop-workflow-in-pi-sessions). [Plan Mode](#req-agent-152-native-plan-mode-workflow-in-pi-sessions) retains its independent managed policy. Historical requirements remain in Git history.
+### REQ-AGENT-272: Managed Goal alongside Todo Loop
+
+**Intent:** Pi offers session-owned Goals without replacing or reconfiguring the stock Todo Loop.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Both Pi modes register one managed Goal alongside the existing stock Todo Loop registration. <!-- @impl: entrypoint.sh::required --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-111 / REQ-AGENT-272: loads stock Todo Loop and managed Goal once in both Pi modes) -->
+2. The image warms the installed, transformed Goal extension and verifies reuse in a fresh process; missing Goal cache fails the build. <!-- @impl: Dockerfile::goal_hit --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @manual: Agent packaged-runtime acceptance -->
+3. Missing preferences default to Goal tools after first use and unlimited automatic turns. Preserve explicit visibility and turn limits. Enforce five stalled turns and a five-minute minimum continuation interval. <!-- @impl: entrypoint.sh::configure_pi_goal_defaults --> <!-- @impl: scripts/patch-pi-goal-review-control.mjs::preparePiGoalSources --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-272: creates every Codeflare-owned Goal startup default when config is absent) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-272: enforces five-minute pacing while preserving unrelated preferences) -->
+4. Goal reports the state in the footer and shows accumulated duration only while active. Goal progress and completion remain scoped to the current Goal. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::preparePiGoalSources --> <!-- @manual: Agent packaged-runtime acceptance -->
+
+**Constraints:** Goal stays exact-pinned and integrity-locked. Shadow pin upgrades must pass the source transform before opening the update PR. Todo Loop must not inherit Goal settings or source transforms.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-111](#req-agent-111-native-todo-loop-workflow-in-pi-sessions), [REQ-AGENT-248](#req-agent-248-managed-goal_wait-exclusion)
+
+**Verification:** Automated: [Pi package assembly](../../host/__tests__/pi-settings-packages.test.js), [Goal startup defaults](../../host/__tests__/entrypoint-runtime-behavior.test.js); Manual: [Agent packaged-runtime acceptance](../../documentation/lanes/container.md#agent-packaged-runtime-acceptance).
+
+**Status:** Implemented
 
 ---
 
@@ -4519,9 +4540,26 @@ None.
 ---
 
 <a id="req-agent-191-goal-tool-visibility-across-workflows"></a>
-<a id="req-agent-248-managed-goal_wait-exclusion"></a>
 
-The former REQ-AGENT-191 Goal visibility and REQ-AGENT-248 `goal_wait` exclusion are retired. [REQ-AGENT-158](#req-agent-158-bounded-initial-pi-tool-exposure) still owns bootstrap and Plan tool exposure.
+### REQ-AGENT-248: Managed goal_wait exclusion
+
+**Intent:** Goal cannot use its stock wait tool under Codeflare policy. Todo Loop retains its independent wait tool.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Capability search excludes `goal_wait`; exact activation reports a policy denial and leaves active tools unchanged. `todo_loop_block` remains activatable. <!-- @impl: preseed/agents/pi/extensions/capability.ts::capabilityExtension --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::isToolDisabledByPolicy --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-248: Goal wait is undiscoverable and exact activation reports the policy block) -->
+
+**Constraints:** The final tool-call guard rejects `goal_wait` even if a caller directly selects it. <!-- @impl: preseed/agents/pi/extensions/zz-tool-exposure-finalizer.ts::finalizeToolExposure -->
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-158](#req-agent-158-bounded-initial-pi-tool-exposure)
+
+**Verification:** Automated: [Capability policy](../../src/__tests__/lib/pi-capabilities.test.ts).
+
+**Status:** Implemented
 
 ---
 
@@ -5892,7 +5930,7 @@ The former REQ-AGENT-191 Goal visibility and REQ-AGENT-248 `goal_wait` exclusion
 
 **Acceptance Criteria:**
 
-1. Startup removes explicitly retired package identities, including managed Goal, response and Usage, from persisted Pi settings. The known superseded `./local-packages/pi-todo-loop` registration (or its absolute agent-directory equivalent) converges to the single stock npm registration without deleting package files. <!-- @impl: entrypoint.sh::identity --> <!-- @test: host/__tests__/pi-settings-packages.test.js (loads stock Todo Loop once and drops restored managed Goal registrations) --> <!-- @impl: entrypoint.sh::removedPackageIds --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1/AC2: next container boot restores the disabled default after /ctx on while preserving managed and unrelated settings) --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-209 AC1/AC2) -->
+1. Startup removes explicitly retired package identities, including the retired response and Usage, from persisted Pi settings. The known superseded `./local-packages/pi-todo-loop` registration (or its absolute agent-directory equivalent) converges to the single stock npm registration without deleting package files. <!-- @impl: entrypoint.sh::identity --> <!-- @test: host/__tests__/pi-settings-packages.test.js (loads stock Todo Loop once and drops restored managed Goal registrations) --> <!-- @impl: entrypoint.sh::removedPackageIds --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1/AC2: next container boot restores the disabled default after /ctx on while preserving managed and unrelated settings) --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-209 AC1/AC2) -->
 2. Startup preserves unrelated user-added packages, credentials and history during retirement migration. <!-- @impl: entrypoint.sh::removedPackageIds --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-001 AC5 / REQ-AGENT-209: real restored boot migrates packages while preserving user npm metadata and credential/history bytes) -->
 
 **Constraints:** Migration changes only known managed package registrations. It does not read, rewrite, or remove `pi-goal.json`.

@@ -117,6 +117,14 @@ Restored settings can contain the earlier `./packages/pi-smart-compact-10.6.2` r
 
 A compatible image must exist before publishing a curation release requiring a new package. This registration-only repair uses the existing runtime ABI and can publish without a new image, but boot-time prevention requires the corrected image. Source CI and publication do not establish installed or deployed acceptance; see [managed curation ownership and runtime compatibility](../lanes/preseed.md#managed-curation-ownership).
 
+## Goal
+
+Use `/goal` for a session-owned objective and `/todoloop` for continuation driven by open tasks. They are both installed; Todo Loop remains stock and does not read `pi-goal.json`. Do not use both continuation mechanisms to drive the same objective during qualification.
+
+Managed Goal defaults to tools after the first goal and unlimited automatic turns. Existing explicit values for those two preferences are preserved. Codeflare sets the stalled-turn limit to five and the minimum automatic continuation interval to five minutes. The footer shows the Goal state and active duration, and exact activation of `goal_wait` is denied. [Goal requirements](../../sdd/spec/agents.md#req-agent-272-managed-goal-alongside-todo-loop) · [Tool policy](../../sdd/spec/agents.md#req-agent-248-managed-goal_wait-exclusion)
+
+Goal upgrades go through Bump Shadow Pins. The exact locked candidate must pass the Codeflare transform; the image then warms the installed source entrypoint and verifies reuse from a fresh Pi process. <!-- @impl: Dockerfile::goal_hit -->
+
 ## Todo Loop
 
 The image exact-pins stock [`@dumbmice/pi-todo-loop` 0.4.0](https://www.npmjs.com/package/@dumbmice/pi-todo-loop/v/0.4.0) and warms its declared `src/index.ts` entrypoint at the installed path. Both Pi modes register it once, independently of context-mode. It uses the lock-backed Pi-extension shadow-pin path with no Codeflare transform ([REQ-AGENT-111](../../sdd/spec/agents.md#req-agent-111-native-todo-loop-workflow-in-pi-sessions)).
@@ -155,7 +163,7 @@ The [Pi manifest](../../preseed/agents/pi/package.json) and [lockfile](../../pre
 
 Managed `@narumitw/pi-usage` and its `/usage` provider-quota workflow are retired. Startup removes only that exact npm identity from restored string/object package entries; credentials, history and unrelated packages remain untouched ([REQ-AGENT-209](../../sdd/spec/agents.md#req-agent-209-retired-pi-package-migration)). Plan retains its own locked TUI-kit. Open TUI's local token/context/cost display is not equivalent to subscription-quota reporting and does not change Codeflare billing or usage records.
 
-Startup removes explicit retired package registrations, including managed Goal, and replaces only the known superseded local Todo Loop registration with the stock npm entry. `pi-goal.json`, package files, session history, and unrelated user additions are not deleted or migrated. Todo state stays session/transcript scoped; no global task database or retired AD100 source override returns. Subagents' active-resume guard rejects queued/running mutation through the reviewed public accessor; settled/unknown records retain upstream behavior.
+Startup removes explicit retired package registrations, and replaces only the known superseded local Todo Loop registration with the stock npm entry. `pi-goal.json`, package files, session history, and unrelated user additions are not deleted or migrated. Todo state stays session/transcript scoped; no global task database or retired AD100 source override returns. Subagents' active-resume guard rejects queued/running mutation through the reviewed public accessor; settled/unknown records retain upstream behavior.
 
 ## Native terminal qualification
 

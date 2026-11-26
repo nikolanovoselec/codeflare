@@ -115,7 +115,7 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
     assert.ok(sources.includes('npm:some-user-package@1.0.0'), 'unrelated existing packages must be preserved');
   });
 
-  it('loads stock Todo Loop once and drops restored managed Goal registrations', () => {
+  it('REQ-AGENT-111 / REQ-AGENT-272: loads stock Todo Loop and managed Goal once in both Pi modes', () => {
     for (const mode of ['default', 'advanced']) {
       const settings = runAssembly(JSON.stringify({ packages: [
         { source: 'npm:@narumitw/pi-goal@0.55.1', extensions: [] },
@@ -123,7 +123,8 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
       ] }), 2, false, mode);
       const sources = settings.packages.map(sourceOf);
       assert.deepEqual(sources.filter(source => source.includes('pi-todo-loop')), ['npm:@dumbmice/pi-todo-loop@0.4.0']);
-      assert.equal(sources.some(source => /^npm:@narumitw\/pi-goal(?:@|$)/.test(source)), false);
+      assert.deepEqual(settings.packages.filter(entry => /^npm:@narumitw\/pi-goal(?:@|$)/.test(sourceOf(entry))),
+        ['npm:@narumitw/pi-goal@0.55.5']);
       assert.ok(sources.includes('npm:user-addon@1.0.0'));
     }
   });

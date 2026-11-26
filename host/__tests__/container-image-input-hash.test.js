@@ -121,6 +121,7 @@ describe('deployment container image input hash', () => {
       'scripts/patch-context-mode-bundles.mjs',
       'scripts/qualify-context-mode.mjs',
       'scripts/patch-chrome-devtools-timeouts.mjs',
+      'scripts/patch-pi-goal-review-control.mjs',
       'scripts/patch-pi-plan-mode-tool-policy.mjs',
       'scripts/patch-pi-native-model-display.mjs',
       'scripts/patch-pi-codex-prompt-cache.mjs',
@@ -221,10 +222,15 @@ describe('deployment container image input hash', () => {
     const scriptTag = imageHashResult().tag;
     assert.notEqual(scriptTag, selectionCoreTag);
 
+    write('scripts/patch-pi-goal-review-control.mjs', 'Goal policy patch change\n');
+    commit('Goal patch change');
+    const goalPatchTag = imageHashResult().tag;
+    assert.notEqual(goalPatchTag, scriptTag);
+
     write('scripts/patch-pi-plan-mode-tool-policy.mjs', 'Plan Mode policy patch change\n');
     commit('Plan Mode patch change');
     const planPatchTag = imageHashResult().tag;
-    assert.notEqual(planPatchTag, scriptTag);
+    assert.notEqual(planPatchTag, goalPatchTag);
 
     write('scripts/patch-pi-subagents-notifications.mjs', 'Native notification delivery changed\n');
     commit('notification delivery change');

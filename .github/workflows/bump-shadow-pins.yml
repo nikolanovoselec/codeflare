@@ -14,7 +14,7 @@ name: Bump Shadow Pins
 # - uv versioned GitHub archive + authoritative SHA-256 digest
 # - browser-run-mcp: @modelcontextprotocol/sdk manifest + lock pin
 # - pi-extensions: dependencies in preseed/agents/pi/package.json except context-mode
-#   and the Pi runtime agent (the @juicesharp rpiv family, @dumbmice/pi-todo-loop,
+#   and the Pi runtime agent (the @juicesharp rpiv family, @dumbmice/pi-todo-loop, @narumitw/pi-goal,
 #   @narumitw/pi-plan-mode, pi-open-tui, pi-web-access, pi-mcp-adapter, pi-hermes-memory,
 #   @gotgenes/pi-subagents) — each is also a literal install spec in entrypoint.sh
 #   + baked into the seed; context-mode has its dedicated atomic job, and the
@@ -1453,9 +1453,16 @@ jobs:
           }
           NODE
 
-          # Regenerate the Pi preseed and prewarm lockfiles.
+          # Regenerate the Pi preseed and prewarm lockfiles. Reject a Goal bump
+          # before opening its PR if the exact locked candidate no longer
+          # satisfies the reviewed transform anchors.
           node scripts/regenerate-npm-package-lock.mjs preseed/agents/pi
           node scripts/regenerate-npm-package-lock.mjs preseed/npm-tools
+          if [ "$PKG" = '@narumitw/pi-goal' ]; then
+            (cd preseed/agents/pi && npm ci --ignore-scripts --no-audit --no-fund)
+            node scripts/patch-pi-goal-review-control.mjs \
+              "$LAT" preseed/agents/pi/node_modules/@narumitw/pi-goal
+          fi
           if [ "$PKG" = '@narumitw/pi-plan-mode' ]; then
             (cd preseed/agents/pi && npm ci --ignore-scripts --no-audit --no-fund)
             node scripts/patch-pi-plan-mode-tool-policy.mjs \
@@ -1518,7 +1525,7 @@ jobs:
           ## Test plan
           - [ ] CI green
           - [ ] Review the \`$PKG\` CHANGELOG - MAJOR bumps (esp. \`@gotgenes/pi-subagents\`) can change APIs
-          - [ ] For \`@narumitw/pi-plan-mode\`, the locked candidate passed its fail-closed Codeflare source transform before this PR opened
+          - [ ] For \`@narumitw/pi-goal\` or \`@narumitw/pi-plan-mode\`, the locked candidate passed its fail-closed Codeflare source transform before this PR opened
           - [ ] Smoke test on integration: Pi loads all preseed extensions without error
           EOF
           )

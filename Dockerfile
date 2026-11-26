@@ -615,7 +615,7 @@ RUN if node /opt/codeflare/scripts/coding-agent-selection.mjs has "$CODEFLARE_CO
 # would run a slow npm install on first launch (~90s on mobile). Entrypoint
 # symlinks node_modules to this cache (instant, zero-copy).
 COPY preseed/agents/pi/package.json preseed/agents/pi/package-lock.json /opt/codeflare/pi-agent/npm/
-COPY scripts/verify-pi-lockstep.mjs scripts/patch-pi-plan-mode-tool-policy.mjs scripts/patch-pi-native-model-display.mjs scripts/patch-pi-codex-prompt-cache.mjs scripts/patch-pi-subagents-notifications.mjs scripts/patch-rpiv-host-peers.mjs scripts/patch-rpiv-question-timeout.mjs scripts/rpiv-question-timeout.mjs /opt/codeflare/scripts/
+COPY scripts/verify-pi-lockstep.mjs scripts/patch-pi-goal-review-control.mjs scripts/patch-pi-plan-mode-tool-policy.mjs scripts/patch-pi-native-model-display.mjs scripts/patch-pi-codex-prompt-cache.mjs scripts/patch-pi-subagents-notifications.mjs scripts/patch-rpiv-host-peers.mjs scripts/patch-rpiv-question-timeout.mjs scripts/rpiv-question-timeout.mjs /opt/codeflare/scripts/
 # better-sqlite3 / bufferutil / utf-8-validate are native (node-gyp) modules. Their
 # prebuilt-binary fetch is best-effort and falls back to a source compile, which needs
 # make + a C/C++ toolchain. stage-1 ships python3 but not make/gcc/g++ (those live only
@@ -632,6 +632,9 @@ RUN cd /opt/codeflare/pi-agent/npm && \
     apt-get install -y --no-install-recommends make gcc g++ && \
     npm ci --omit=dev --no-audit --no-fund && \
     node /opt/codeflare/scripts/patch-pi-subagents-notifications.mjs ./node_modules/@gotgenes/pi-subagents && \
+    GOAL_VERSION="$(node -p 'require("./package.json").dependencies["@narumitw/pi-goal"]')" && \
+    node /opt/codeflare/scripts/patch-pi-goal-review-control.mjs \
+      "$GOAL_VERSION" ./node_modules/@narumitw/pi-goal && \
     PLAN_MODE_VERSION="$(node -p 'require("./package.json").dependencies["@narumitw/pi-plan-mode"]')" && \
     node /opt/codeflare/scripts/patch-pi-plan-mode-tool-policy.mjs \
       "$PLAN_MODE_VERSION" ./node_modules/@narumitw/pi-plan-mode && \
@@ -926,6 +929,7 @@ RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
     PI_WARM_PACKAGES="$(node -e 'const d=require("/opt/codeflare/pi-agent/npm/package.json").dependencies;process.stdout.write(JSON.stringify({packages:Object.entries(d).map(([n,v])=>n==="pi-open-tui"?{source:`npm:${n}@${v}`,extensions:[]}:`npm:${n}@${v}`)}))')" && \
     printf '%s' "$PI_WARM_PACKAGES" > /home/user/.pi/agent/settings.json && \
     todo_loop_source="/opt/codeflare/pi-agent/npm/node_modules/@dumbmice/pi-todo-loop/src/index.ts" && \
+    goal_source="/opt/codeflare/pi-agent/npm/node_modules/@narumitw/pi-goal/src/index.ts" && \
     plan_source="/opt/codeflare/pi-agent/npm/node_modules/@narumitw/pi-plan-mode/dist/index.ts" && \
     open_tui_source="/opt/codeflare/pi-agent/npm/node_modules/pi-open-tui/extensions/open-tui/index.ts" && \
     evaluate_source="/opt/codeflare/pi-agent/npm/node_modules/pi-evaluate/extensions/evaluate.ts" && \
@@ -940,7 +944,7 @@ RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
     context_source="/opt/codeflare/pi-agent/npm/node_modules/context-mode/pi/index.js" && \
     TMPDIR=/opt/codeflare/jiti-warm-tmp HOME=/home/user PI_CODING_AGENT_DIR=/home/user/.pi/agent PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 \
       node /opt/codeflare/scripts/verify-pi-lockstep.mjs --warm-jiti-entrypoints \
-      /opt/codeflare/pi-agent/npm/node_modules/.bin/pi /opt/codeflare/jiti-warm-tmp/jiti "$todo_loop_source" "$plan_source" "$open_tui_source" "$evaluate_source" "$codex_fast_source" "$subagents_source" "$mcp_source" \
+      /opt/codeflare/pi-agent/npm/node_modules/.bin/pi /opt/codeflare/jiti-warm-tmp/jiti "$todo_loop_source" "$goal_source" "$plan_source" "$open_tui_source" "$evaluate_source" "$codex_fast_source" "$subagents_source" "$mcp_source" \
       "$advisor_source" "$ask_user_source" "$todo_source" "$web_source" "$smart_compact_source" "$context_source" /home/user/.pi/agent/extensions/*.ts \
       --dependencies /home/user/.pi/agent/extensions/transcript-trim/engine.mjs && \
     mv /opt/codeflare/jiti-warm-tmp/jiti /opt/codeflare/jiti-cache && \
@@ -949,6 +953,7 @@ RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
         node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$ext" /opt/codeflare/jiti-cache || exit 1; \
     done && \
     todo_loop_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$todo_loop_source" /opt/codeflare/jiti-cache)" && \
+    goal_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$goal_source" /opt/codeflare/jiti-cache)" && \
     plan_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$plan_source" /opt/codeflare/jiti-cache)" && \
     open_tui_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$open_tui_source" /opt/codeflare/jiti-cache)" && \
     evaluate_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$evaluate_source" /opt/codeflare/jiti-cache)" && \

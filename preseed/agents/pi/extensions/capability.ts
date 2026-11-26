@@ -2,6 +2,7 @@ import { Type } from "typebox";
 import {
   activateRegisteredTools,
   activationGroup,
+  isToolDisabledByPolicy,
   searchCapabilities,
   eligibleSkillSnapshot,
   parseCapabilityQuery,
@@ -46,6 +47,7 @@ export function capabilityExtension(pi: ExtensionAPI): void {
         if (!tool) {
           throw new Error(`Unknown tool: ${name}. capability activates registered Pi tools only; read ~/.pi/agent/skills/<name>/SKILL.md to load a skill.`);
         }
+        if (isToolDisabledByPolicy(tool.name)) throw new Error(`${tool.name} is disabled by Codeflare policy.`);
         const added = activateRegisteredTools(pi, activationGroup(tool.name));
         const text = tool.name === "subagent"
           ? `${added.length > 0 ? `Loaded tools: ${added.join(", ")}` : "Subagent tools already active"}. Use get_subagent_result or steer_subagent while an agent is queued or running; resume only a settled retained session.`
