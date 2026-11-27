@@ -9,7 +9,7 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 - On phones, [the Codeflare header stays at the top](agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff) and [Chat refits after a viewport change or return](agents.md#req-agent-287-empty-and-restored-vibe-layout).
 - [Embedded Chat trims redundant controls and empty titles](agents.md#req-agent-289-embedded-chat-chrome), keeps navigation for unpinned Chat or Files, and [hides redundant mobile workspace context](agents.md#req-agent-290-embedded-mobile-workspace-context).
 - [Long Profile emails](authentication.md#req-auth-016-header-user-dropdown) ellipsize at 90% of the viewport without widening the action panel.
-- The [Vibe drawer](github.md#req-github-331-vibe-drawer-motion) opens and closes without moving New Session vertically. An [unusable GitHub connection](github.md#req-github-002-github-panel-and-repository-listing) does not restart Codeflare sign-in.
+- On desktop and tablet, the [Vibe drawer](github.md#req-github-331-vibe-drawer-motion) opens and closes without moving New Session vertically. An [unusable GitHub connection](github.md#req-github-002-github-panel-and-repository-listing) does not restart Codeflare sign-in.
 
 ## 2026-11-27: Pi Chat conversation history and Todo Loop
 

@@ -533,8 +533,8 @@ async function verifyStockTranscriptControls(child, origin) {
   await until('stock refresh failure remains visible', notice, value => value?.visible && value.text.includes('Could not refresh messages.'));
 
   await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: false });
-  const appRoot = "document.querySelector('pi-web-app').shadowRoot";
-  const contextBar = `${appRoot}.querySelector('app-context-bar')`;
+  const appRoot = "document.querySelector('pi-web-app')?.shadowRoot";
+  const contextBar = `${appRoot}?.querySelector('app-context-bar')`;
   const picker = `${contextBar}?.shadowRoot?.querySelector('.context-item:last-child button')`;
   await until('stock mobile session picker', () => page(`!!(${picker})`), Boolean);
   // Provide successive stock session summaries to the same rendered header.
@@ -560,41 +560,62 @@ async function verifyStockTranscriptControls(child, origin) {
   assert.equal((await setSummary({ name: '(no messages)' })).visible, true, 'keep an authored name matching the sentinel even on an empty transcript');
   assert.equal((await setSummary({ name: null })).visible, false, 'return to the hidden sentinel without removing the picker');
   await send('Emulation.setFocusEmulationEnabled', { enabled: true });
-  assert.ok(await page(`(() => { const button = ${picker}; button.focus(); return document.hasFocus() && button.getRootNode().activeElement === button; })()`));
-  await send('Input.dispatchKeyEvent', { type: 'keyDown', ...enter });
-  await send('Input.dispatchKeyEvent', { type: 'keyUp', ...enter });
-  const mobilePlus = `${appRoot}.querySelector('.mobile-navigation-panel app-navigation-panel')?.shadowRoot?.querySelector('session-list')?.shadowRoot?.querySelector('${plus}')`;
-  await until('mobile Sessions via focused picker', () => page(`Boolean((${mobilePlus})?.checkVisibility({ visibilityProperty: true }))`), Boolean);
+  const press = async expression => {
+    assert.ok(await page(`(() => { const button = ${expression}; if (!button?.checkVisibility()) return false; button.focus(); return document.hasFocus() && button.getRootNode().activeElement === button; })()`));
+    // Unlike the custom history-row keydown handler, native buttons need the
+    // Enter character event synthesized by CDP from the keydown text.
+    await send('Input.dispatchKeyEvent', { type: 'keyDown', ...enter, text: '\r', unmodifiedText: '\r' });
+    await send('Input.dispatchKeyEvent', { type: 'keyUp', ...enter });
+  };
+  const openSessions = async () => {
+    await press(picker);
+    const mobilePlus = `${appRoot}?.querySelector('main.navigation-view .mobile-navigation-panel app-navigation-panel')?.shadowRoot?.querySelector('session-list')?.shadowRoot?.querySelector('${plus}')`;
+    await until('mobile Sessions via focused picker', () => page(`({ view: new URL(location.href).searchParams.get('view'), plus: Boolean((${mobilePlus})?.checkVisibility({ visibilityProperty: true })) })`), value => value?.view === 'navigation' && value.plus);
+  };
+  await openSessions();
 
-  const mobileTabs = `${appRoot}.querySelector('app-mobile-main-tabs')?.shadowRoot`;
+  const mobileTabs = `${appRoot}?.querySelector('app-mobile-main-tabs')?.shadowRoot`;
   const hamburger = `${mobileTabs}?.querySelector('.navigation-menu-button')`;
   const files = `${mobileTabs}?.querySelector('[title="Files"]')`;
   const chat = `${mobileTabs}?.querySelector('[title="Chat"]')`;
-  const openMobile = async pinnedIds => {
+  const openMobile = async (pinnedIds, readyTab) => {
     await page(`localStorage.setItem('pi-web:navigation-preferences', ${JSON.stringify(JSON.stringify({ pinnedIds, mobileCollapsed: false }))})`);
     const { loadedAt } = await state();
     await page(`history.replaceState(null, '', ${JSON.stringify(app(bound))})`);
     await send('Page.reload');
-    await until('mobile Chat tabs', () => page(`performance.timeOrigin !== ${loadedAt} && Boolean((${chat})?.checkVisibility())`), Boolean);
+    await until('mobile pinned tab ready', () => page(`performance.timeOrigin !== ${loadedAt} && Boolean((${readyTab})?.checkVisibility())`), Boolean);
   };
-  await openMobile(['chat', 'files:workspace.files']);
+  const filesId = 'files:workspace.files';
+  await openMobile(['chat', filesId], files);
   await until('both tabs available without redundant navigation', () => page(`(() => {
     const button = ${hamburger};
     button?.focus();
-    return Boolean((${files})?.checkVisibility() && button && !button.checkVisibility() && button.getRootNode().activeElement !== button);
+    return Boolean((${chat})?.checkVisibility() && button && !button.checkVisibility() && button.getRootNode().activeElement !== button);
   })()`), Boolean);
-  await openMobile(['chat']);
-  assert.ok(await page(`!(${files}) && Boolean((${hamburger})?.checkVisibility())`), 'saved unpinned Files keeps a stock navigation fallback');
-  const press = async expression => {
-    assert.ok(await page(`(() => { const button = ${expression}; if (!button?.checkVisibility()) return false; button.focus(); return button.getRootNode().activeElement === button; })()`));
-    await send('Input.dispatchKeyEvent', { type: 'keyDown', ...enter });
-    await send('Input.dispatchKeyEvent', { type: 'keyUp', ...enter });
+
+  const viaNavigation = async (label, arrived) => {
+    await until('stock navigation fallback', () => page(`Boolean((${hamburger})?.checkVisibility())`), Boolean);
+    await press(hamburger);
+    const destination = `Array.from(${appRoot}?.querySelector('navigation-dialog')?.shadowRoot?.querySelectorAll('button.destination-button') ?? []).find(button => button.textContent.trim() === ${JSON.stringify(label)})`;
+    await until(label + ' navigation destination', () => page(`Boolean((${destination})?.checkVisibility())`), Boolean);
+    await press(destination);
+    await until(label + ' destination opens', () => page(arrived), Boolean);
   };
-  await press(hamburger);
-  const filesDestination = `Array.from(${appRoot}.querySelector('navigation-dialog')?.shadowRoot?.querySelectorAll('button.destination-button') ?? []).find(button => button.textContent.trim() === 'Files')`;
-  await until('unpinned Files destination', () => page(`Boolean((${filesDestination})?.checkVisibility())`), Boolean);
-  await press(filesDestination);
-  await until('stock Files destination opens', () => page(`new URL(location.href).searchParams.get('tool') === 'files:workspace.files'`), Boolean);
+  const chatSelected = `(${appRoot}?.querySelector('main')?.classList.contains('chat-view') && new URL(location.href).searchParams.get('view') === 'chat')`;
+  const filesSelected = `new URL(location.href).searchParams.get('tool') === '${filesId}'`;
+  await openSessions();
+  assert.ok(await page(`Boolean((${chat})?.checkVisibility() && (${files})?.checkVisibility())`), 'both tabs remain pinned while unpinned Sessions is active');
+  await viaNavigation('Chat', chatSelected);
+
+  await openMobile(['chat'], chat);
+  assert.ok(await page(`!(${files})`), 'saved preference leaves Files unpinned');
+  await viaNavigation('Files', filesSelected);
+
+  await openMobile([filesId], files);
+  assert.ok(await page(`!(${chat})`), 'saved preference leaves Chat unpinned');
+  await press(files);
+  await until('pinned Files tab opens', () => page(filesSelected), Boolean);
+  await viaNavigation('Chat', chatSelected);
 }
 
 const profile = await mkdtemp(join(tmpdir(), 'pi-web-system-rows-'));

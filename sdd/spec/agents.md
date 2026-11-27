@@ -1244,7 +1244,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Acceptance Criteria:**
 
-1. The embedded sidebar hides Projects and its resize divider. <!-- @impl: image/pi-web/codeflare-chrome/browser/footer.css --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+1. The embedded sidebar hides Projects and its resize divider. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 2. The stock machine title and mark are hidden in the sidebar and mobile context header. <!-- @impl: image/pi-web/codeflare-chrome/browser/footer.css --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 3. When Chat and Files are both directly available and the current destination is pinned, the redundant hamburger is hidden and cannot take keyboard focus. Preserve stock navigation when saved pins would otherwise make Chat or Files unreachable. <!-- @impl: image/pi-web/codeflare-chrome/browser/index.js::hideRedundantNavigation --> <!-- @test: scripts/ci/smoke-pi-web-system-rows.mjs (verifyStockTranscriptControls) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 4. The stale-conversation warning is hidden without hiding a failed refresh or disabling background refresh. <!-- @impl: image/pi-web/codeflare-chrome/browser/index.js::hideStaleConversationNotice --> <!-- @test: scripts/ci/smoke-pi-web-system-rows.mjs (verifyStockTranscriptControls) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
@@ -1258,7 +1258,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Dependencies:** [REQ-AGENT-274](#req-agent-274-stock-pi-chat-controls)
 
-**Verification:** Manual: [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout).
+**Verification:** Manual: [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout)
 
 **Status:** Planned
 
@@ -1272,13 +1272,15 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Acceptance Criteria:**
 
-1. On narrow screens, the stock context header hides the project and workspace selectors while leaving Sessions reachable. <!-- @impl: image/pi-web/codeflare-chrome/browser/footer.css --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+1. On narrow screens, the stock context header hides the project and workspace selectors while leaving Sessions reachable. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+
+**Constraints:** None.
 
 **Priority:** P2
 
 **Dependencies:** [REQ-AGENT-289](#req-agent-289-embedded-chat-chrome)
 
-**Verification:** Manual: [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout).
+**Verification:** Manual: [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout)
 
 **Status:** Planned
 
