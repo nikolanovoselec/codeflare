@@ -841,7 +841,8 @@ ln -sf /root/.local/share/uv/tools/graphifyy/bin/graphify /usr/local/bin/graphif
 # surfaces at build time rather than at first user invocation.
 graphify --version
 "$GRAPHIFY_PYTHON" -c "from importlib.util import find_spec; assert find_spec('pip') is None, 'Private Python still ships pip'"
-test -z "$(find "$GRAPHIFY_STDLIB/ensurepip/_bundled" -name 'pip-*.whl' -print -quit)"
+PIP_BOOTSTRAP_WHEEL=$(find "$GRAPHIFY_STDLIB/ensurepip/_bundled" -name 'pip-*.whl' -print -quit)
+test -z "$PIP_BOOTSTRAP_WHEEL"
 uv tool run --from graphifyy python3 -c "import graphify.serve; from importlib.metadata import version; assert version('soupsieve') == '4.1', 'Graphify Soup Sieve security pin differs'" \
   || (echo "[Dockerfile] FATAL: Graphify MCP import or security pin verification failed" >&2 && exit 1)
 
