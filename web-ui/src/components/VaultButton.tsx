@@ -19,6 +19,7 @@ interface VaultButtonProps {
   onOpen: () => void;
   inProfile?: boolean;
   waitingForOtherVault?: boolean;
+  hideTooltip?: boolean;
 }
 
 const VAULT_BUTTON_META: Record<VaultButtonStatus, { title: string; message: string; enabled: boolean }> = {
@@ -101,12 +102,8 @@ const VaultButton: Component<VaultButtonProps> = (props) => {
   // standalone PWA remounts the component — so we gate it on the previous status.
   let prevStatus: VaultButtonStatus | undefined;
   createEffect(() => {
+    if (props.hideTooltip) return;
     const status = props.status;
-    if (props.waitingForOtherVault) {
-      prevStatus = status;
-      setShowMessage(true);
-      return;
-    }
     const justBecameReady = prevStatus === 'preparing' && status === 'armed';
     prevStatus = status;
     if (status === 'preparing') {
@@ -130,7 +127,7 @@ const VaultButton: Component<VaultButtonProps> = (props) => {
         class={props.inProfile ? 'header-user-dropdown-item' : `header-vault-button header-vault-button--${props.status}`}
         data-testid="header-vault-button"
         data-vault-status={props.status}
-        title={meta().title}
+        title={props.hideTooltip ? undefined : meta().title}
         aria-label={meta().title}
         aria-disabled={meta().enabled ? 'false' : 'true'}
         aria-describedby={showMessage() ? messageId : undefined}
@@ -139,7 +136,7 @@ const VaultButton: Component<VaultButtonProps> = (props) => {
         onClick={(event) => {
           if (!meta().enabled) {
             event.preventDefault();
-            setShowMessage(true);
+            if (!props.hideTooltip) setShowMessage(true);
             return;
           }
           setShowMessage(false);

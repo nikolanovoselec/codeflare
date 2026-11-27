@@ -732,7 +732,7 @@ const Layout: Component<LayoutProps> = (props) => {
     // re-prewarm — making every in-session reopen of the green button "re-index" before
     // opening even though the persisted store was healthy: REQ-VAULT-022 AC1.)
     if (intent === 'armed' || untrack(vaultPrewarmBySession)[sid] === 'ready') {
-      if (!anotherVaultPreparing(sid)) openVaultTab(sid);
+      openVaultTab(sid);
       return;
     }
     // Click 1 (available): start the on-demand prewarm; the button breathes accent
@@ -743,10 +743,12 @@ const Layout: Component<LayoutProps> = (props) => {
   const renderDashboardVault = (session: SessionWithStatus) => {
     if (!showsDashboardVault(session)) return;
     const status = () => session.status === 'running' ? vaultButtonStatus(session.id) : 'idle';
+    const waitingForOtherVault = () => status() === 'armed' && anotherVaultPreparing(session.id);
     return <VaultButton
       status={status()}
-      waitingForOtherVault={status() === 'armed' && anotherVaultPreparing(session.id)}
-      onOpen={() => handleVaultOpen(session.id)}
+      hideTooltip
+      waitingForOtherVault={waitingForOtherVault()}
+      onOpen={() => { if (!waitingForOtherVault()) handleVaultOpen(session.id); }}
     />;
   };
 

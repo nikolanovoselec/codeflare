@@ -1826,7 +1826,8 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
         const attempt = frame()!;
         expect(new URL(attempt.src).pathname).toBe(`/api/vault/${first}/.codeflare-bootstrap`);
         expect(available).toHaveAttribute('aria-disabled', 'true');
-        expect(available).toHaveAccessibleDescription(/Preparing your Vault/);
+        expect(available).not.toHaveAttribute('title');
+        expect(a().queryByTestId('header-vault-status')).toBeNull();
         fireEvent.click(available);
         fireEvent.click(other);
         expect(frame()).toBe(attempt);
@@ -1842,9 +1843,10 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
         const secondAttempt = frame()!;
         expect(new URL(secondAttempt.src).pathname).toBe(`/api/vault/${second}/.codeflare-bootstrap`);
         expect(other).toHaveAccessibleName('Preparing your Vault…');
-        expect(armed).toHaveAccessibleDescription(/Wait for the other Vault/);
-        expect(other).toHaveAccessibleDescription(/Preparing your Vault/);
+        expect(armed).toHaveAttribute('aria-disabled', 'true');
         fireEvent.click(armed);
+        expect(a().queryByTestId('header-vault-status')).toBeNull();
+        expect(b().queryByTestId('header-vault-status')).toBeNull();
         expect(open).not.toHaveBeenCalled();
         expect(frame()).toBe(secondAttempt);
 
@@ -1853,16 +1855,25 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
         vi.useFakeTimers();
         proveReady(secondAttempt);
         await vi.advanceTimersByTimeAsync(300_000);
-        expect(b().getByRole('button', { name: 'Retry Vault preparation' })).toBeEnabled();
+        const retry = b().getByRole('button', { name: 'Retry Vault preparation' });
+        expect(retry).toHaveAttribute('aria-disabled', 'false');
         expect(new URL(frame()!.src).pathname).toBe(`/api/vault/${third}/.codeflare-bootstrap`);
+        fireEvent.click(retry);
+        expect(new URL(frame()!.src).pathname).toBe(`/api/vault/${third}/.codeflare-bootstrap`);
+        mockSessions = mockSessions.map(session => session.id === third ? { ...session, status: 'stopping' } : session);
+        bumpSessionStoreVersion();
+        const retryAttempt = frame()!;
+        expect(new URL(retryAttempt.src).pathname).toBe(`/api/vault/${second}/.codeflare-bootstrap`);
+        expect(new URL(retryAttempt.src).searchParams.get('prewarmId')).not.toBe(new URL(secondAttempt.src).searchParams.get('prewarmId'));
 
-        mockSessions = mockSessions.map(session => session.id === second || session.id === third
+        mockSessions = mockSessions.map(session => session.id === second
           ? { ...session, status: 'stopping' } : session);
         bumpSessionStoreVersion();
         expect(frame()).toBeNull();
         expect(b().getByRole('button', { name: 'Vault waiting for this session' })).toHaveAttribute('aria-disabled', 'true');
         expect(b().getByRole('button', { name: 'Session actions' })).toBeEnabled();
         expect(armed).toHaveAccessibleName('Your Vault is ready.');
+        expect(a().queryByTestId('header-vault-status')).toBeNull();
         expect(open).not.toHaveBeenCalled();
         armed.click();
         expect(open).toHaveBeenLastCalledWith(`/api/vault/${first}/.codeflare-bootstrap`, '_blank', 'noopener');

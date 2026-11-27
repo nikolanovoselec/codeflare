@@ -2667,6 +2667,7 @@ Key `vault-session-*-idbs`/`-prewarmed` by the bucket token (like the bucket-sta
 **Consequences:**
 
 - The cold-open `.auth` bounce and the in-session "re-index on every click" are both resolved; a green button opens immediately and identically on mobile/tablet/desktop.
+- Current scope: an armed Dashboard card [waits while another session is preparing](../../sdd/spec/vault.md#req-vault-037-vault-on-vs-code-dashboard-cards). A fresh admitted click still opens synchronously without per-open re-verification.
 - The two changes are COUPLED: opening a green button directly is only safe because the key is retained (no flush race), so they ship together.
 - Forward secrecy is marginally relaxed (the key lives in SW memory until idle-termination — tens of seconds — instead of 5s after close); accepted because the key is re-derivable from `/.vault-key` regardless.
 - The former marker-key divergence and reload-skip residual are superseded by the v3 clean cutover: no persistent readiness marker auto-arms a fresh dashboard load. The residual service-proxy-error `.auth` path remains unpatched because authentication failure is not encryption-key recovery.

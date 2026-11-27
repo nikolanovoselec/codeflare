@@ -1621,7 +1621,7 @@ A full code-server browser editor for an advanced running session. The editor op
 2. A preparing or stopping card without an editor-readiness error has no parent button semantics or tab stop; its menu and timer retain their own availability. Vault remains subject to [REQ-VAULT-037](vault.md#req-vault-037-vault-on-vs-code-dashboard-cards). A card with an editor-readiness error can offer Retry without bypassing Start admission. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (REQ-IDE-054 AC2: ignores a preparing VS Code card without disabling its child controls) --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (REQ-IDE-054 AC2: ignores a stopping VS Code card without disabling its child controls) -->
 3. Activating a ready VS Code card opens the editor. <!-- @impl: web-ui/src/components/Dashboard.tsx::handleSessionSelect --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-IDE-054 AC3: opens from the whole card only after editor readiness) -->
 4. A whole-card selection control is the sole surface for opening the editor and remains separate from Vault, menu, and timer buttons. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (REQ-IDE-054 AC4: keeps whole-card Open control separate from child buttons) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps the renamed card selector and Vault, status, and menu in order (REQ-IDE-054)) -->
-5. Keyboard actions handled by child controls do not activate the card. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (does not activate the card when the kebab handles %p) --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (does not activate the card when the timer handles %p) -->
+5. Keyboard actions handled by child controls do not activate the card. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (does not activate the card when the kebab handles %p) --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (does not activate the card when the timer handles %p) --> <!-- @manual: documentation/lanes/vault.md#vault-control-presentation -->
 6. A stopped card blocked by a preseed upgrade or managed reconciliation has no parent button semantics or tab stop; the blocked card may also disable pointer interaction with descendant controls. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (applies reduced opacity and blocks clicks during %s) -->
 
 **Constraints:**
@@ -1636,8 +1636,6 @@ A full code-server browser editor for an advanced running session. The editor op
 **Verification:** Automated: [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [SessionStatCard.test.tsx](../../web-ui/src/__tests__/components/SessionStatCard.test.tsx), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx); Manual: [Vault control presentation](../../documentation/lanes/vault.md#vault-control-presentation)
 
 **Status:** Implemented
-
----
 
 ---
 
