@@ -85,8 +85,11 @@ try {
     if (!visible(paletteButton)) throw Error(tag + ': the text path to theme settings must remain visible');
     if (tag === 'app-context-bar') {
       const text = paletteButton.getAttribute('aria-label')?.trim();
-      const generated = getComputedStyle(paletteButton, '::after').content;
-      if (!text || !generated.startsWith(JSON.stringify(text))) throw Error('mobile Actions must display its label');
+      const generated = getComputedStyle(paletteButton, '::after');
+      if (!text || !generated.content.startsWith(JSON.stringify(text))
+        || generated.display === 'none' || generated.visibility !== 'visible') {
+        throw Error('mobile Actions must display its label');
+      }
     } else if (!label?.textContent.trim() || !visible(label)) {
       throw Error('narrow desktop Actions must display its label');
     }
