@@ -6,8 +6,8 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 ## 2026-11-27: Pi Chat conversation history and Todo Loop
 
-- [Classic Pi Chat](agents.md#req-agent-274-stock-pi-chat-controls) can create and select conversations in one workspace. Code and Resume reopen the exact active conversation.
-- [Pi transcript retention](storage.md#req-stor-012-main-session-transcript-cleanup) keeps up to thirty main transcripts, including the validated Classic selection.
+- [Classic Pi Chat](agents.md#req-agent-286-classic-chat-conversation-selection) can create and select conversations in one workspace. Code opens the active conversation. After confirmed final persistence, [Resume](session-lifecycle.md#req-session-044-managed-pi-transcript-persistence-on-stop) reopens the exact conversation and branch when retained.
+- [Pi transcript retention](storage.md#req-stor-012-main-session-transcript-cleanup) keeps up to thirty main transcripts.
 - [Todo Loop](agents.md#req-agent-111-native-todo-loop-workflow-in-pi-sessions) starts paused until `/todoloop resume`.
 
 ## 2026-11-27: Repository shortcuts and local review recovery

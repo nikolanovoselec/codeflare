@@ -961,16 +961,38 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 3. The workspace mode menu does not show a cancel action during a waiting switch. <!-- @impl: web-ui/src/components/PiWorkspaceMode.tsx::PiWorkspaceMode --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps the source Chat during a waiting switch without a cancel button) -->
 4. Returning to the same session generation during an unfinished Terminal-to-Chat handoff keeps Code visible until Chat attaches, without requesting another writer. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (restores the matching Chat attachment gate or saved preference after a %s handoff) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time -->
 5. On return to the same session generation before the Host reports the interrupted Terminal-to-Chat handoff, the workspace mode control stays disabled while the original switch request is still outstanding. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (restores the matching Chat attachment gate or saved preference after a %s handoff) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time -->
-6. A ready, empty Chat starts with the composer centered and no history space. Its first visible message expands the grouped panel from the center to its normal limits. Reduced motion skips the animation. <!-- @impl: web-ui/src/components/PiWebChat.tsx::StockChatFrame --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (compacts only ready empty history and expands in place on the first message) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
-7. A restored Chat with populated history opens at full size. <!-- @impl: web-ui/src/components/PiWebChat.tsx::StockChatFrame --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 
-**Constraints:** [REQ-TERM-011](terminal.md#req-term-011-visible-terminal-panes-own-websocket-connections) limits hidden terminal attachment.
+**Constraints:** [REQ-TERM-011](terminal.md#req-term-011-visible-terminal-panes-own-websocket-connections) limits hidden terminal attachment. [REQ-AGENT-287](#req-agent-287-empty-and-restored-vibe-layout) owns Chat panel sizing.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-273](#req-agent-273-pi-handoff-continuity)
 
 **Verification:** Automated: [Workspace handoff](../../web-ui/src/__tests__/components/Layout.test.tsx), [Tiled socket lifetime](../../web-ui/src/__tests__/components/Terminal.test.tsx); Manual: [Switch one writer at a time](../../documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time)
+
+**Status:** Planned
+
+---
+
+### REQ-AGENT-287: Empty and restored Vibe layout
+
+**Intent:** Keep the composer easy to find in a fresh conversation without shrinking a restored conversation.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A ready, empty Chat starts with the composer centered and no history space. <!-- @impl: web-ui/src/components/PiWebChat.tsx::StockChatFrame --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (compacts only ready empty history and expands in place on the first message) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+2. The first visible message expands the grouped panel from its center to its normal limits. Reduced motion skips the animation. <!-- @impl: web-ui/src/components/PiWebChat.tsx::StockChatFrame --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (compacts only ready empty history and expands in place on the first message) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+3. A restored Chat with populated history opens at full size. <!-- @impl: web-ui/src/components/PiWebChat.tsx::StockChatFrame --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+
+**Constraints:** Preserve the responsive panel limits in [REQ-AGENT-272](#req-agent-272-pi-chat-and-terminal-transcript-handoff).
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-280](#req-agent-280-attachment-gated-workspace-reveal)
+
+**Verification:** Automated: [Chat wrapper](../../web-ui/src/__tests__/components/PiWebChat.test.tsx); Manual: [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout).
 
 **Status:** Planned
 
@@ -1281,6 +1303,8 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 4. Chat history lists only retained root transcripts associated with the current Codeflare session. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualifyHistory) -->
 5. Deep links, browser history, programmatic selection, and raw stock creation cannot replace the current writer. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualifyHistory) --> <!-- @test: scripts/ci/smoke-pi-web-system-rows.mjs (verifyStockTranscriptControls) -->
 6. A retired attachment cannot read or write the conversation even after the user selects the same transcript again. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualifyHistory) -->
+
+**Constraints:** Chat history excludes native forks, even when standalone Classic Terminal can resume them.
 
 **Priority:** P1
 

@@ -1131,7 +1131,6 @@ jobs:
             --mount "type=bind,src=$GITHUB_WORKSPACE/preseed/npm-tools/package.json,dst=/opt/codeflare/npm-tools/package.json,readonly" \
             --mount "type=bind,src=$GITHUB_WORKSPACE/scripts/ci,dst=/qualification/scripts/ci,readonly" \
             --mount "type=bind,src=$GITHUB_WORKSPACE/entrypoint.sh,dst=/qualification/entrypoint.sh,readonly" \
-            --mount "type=bind,src=$GITHUB_WORKSPACE/transcript-retention.mjs,dst=/transcript-retention.mjs,readonly" \
             --mount "type=bind,src=$GITHUB_WORKSPACE/preseed/agents/pi/extensions/00-mcp-adapter-config.ts,dst=/qualification/00-mcp-adapter-config.ts,readonly" \
             --mount "type=bind,src=$GITHUB_WORKSPACE/host/__fixtures__/pi-mcp-extension-server.mjs,dst=/qualification/pi-mcp-extension-server.mjs,readonly" \
             --mount "type=bind,src=$GITHUB_WORKSPACE/image/pi-web/node_modules/ws,dst=/qualification/host/node_modules/ws,readonly" \
@@ -1185,7 +1184,6 @@ jobs:
           docker run --rm --init --network=none --cap-drop=ALL --security-opt=no-new-privileges \
             --env PI_OFFLINE=1 --env PI_SKIP_VERSION_CHECK=1 \
             --mount "type=bind,src=$GITHUB_WORKSPACE/image/pi-web/codeflare-pi,dst=/usr/local/bin/codeflare-terminal-writer,readonly" \
-            --mount "type=bind,src=$GITHUB_WORKSPACE/transcript-retention.mjs,dst=/transcript-retention.mjs,readonly" \
             --mount "type=bind,src=$GITHUB_WORKSPACE/image/pi-web/handoff-extension.ts,dst=/opt/codeflare/pi-web/handoff-extension.ts,readonly" \
             --mount "type=bind,src=$GITHUB_WORKSPACE/image/pi-web/native-preflight.mjs,dst=/opt/codeflare/pi-web/native-preflight.mjs,readonly" \
             --mount "type=bind,src=$GITHUB_WORKSPACE/preseed/agents/pi/node_modules,dst=/opt/codeflare/npm-tools/node_modules,readonly" \

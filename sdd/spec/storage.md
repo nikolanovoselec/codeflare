@@ -457,7 +457,6 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 - Adapter paths and native schema checks live in [storage-and-sync.md](../../documentation/lanes/storage-and-sync.md#session-transcript-cleanup); recoverable malformed records retain native ordering, while content heuristics and Codeflare capture/extraction state never classify candidates.
 - Codex retains its existing storage and filtering behavior.
-- The current Classic session’s validated, committed Pi transcript takes one slot within the thirty-file quota; rank the remaining slots normally. Pruning and Classic binding commits share a guard so a pruned target cannot become the committed selection. <!-- @impl: transcript-retention.mjs::withPiRetentionGuard --> <!-- @test: host/__tests__/entrypoint-transcript-cleanup.test.js (REQ-STOR-012 / REQ-AGENT-211 AC6: a Classic rebind at rank thirty cannot commit a transcript pruned by overlapping cleanup) --> <!-- @impl: transcript-retention.mjs::committedClassicPiPath --> <!-- @test: host/__tests__/entrypoint-transcript-cleanup.test.js (REQ-STOR-012: final bisync sees the capped set and fresh Classic Terminal Resume issues the exact committed path) -->
 - Managed Pi history follows the same retention quota; a pruned transcript is not selectable or replaceable on Resume. <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualifyHistory) -->
 
 **Priority:** P1

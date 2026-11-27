@@ -1,7 +1,6 @@
 import { mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import registerClassicSessionBinding, {
@@ -16,11 +15,8 @@ type SessionStart = (event: { reason: string }, ctx: {
   ui: { notify(message: string, level?: string): void };
 }) => void;
 
-const retentionScript = fileURLToPath(new URL('../../../transcript-retention.mjs', import.meta.url));
-
 function sessionFile(home: string, id: string, stamp: string): string {
-  const cwd = join(home, 'workspace');
-  const directory = join(home, '.pi', 'agent', 'sessions', `--${cwd.slice(1).replace(/[/:]/g, '-')}--`);
+  const directory = join(home, '.pi', 'agent', 'sessions', '--home-user-workspace--');
   mkdirSync(directory, { recursive: true });
   const path = join(directory, `${stamp}_${id}.jsonl`);
   writeFileSync(path, `${JSON.stringify({
@@ -40,8 +36,6 @@ function adopt(home: string, path: string, nativeSessionId: string): boolean {
     HOME: home,
     SESSION_ID: 'session12345678',
     CODEFLARE_TERMINAL_MODE: 'classic',
-    CODEFLARE_RUNTIME_ROOT: join(home, 'run'),
-    TRANSCRIPT_RETENTION_SCRIPT: retentionScript,
     TERMINAL_ID: '1',
   });
 }
@@ -57,8 +51,6 @@ function harness(home: string, overrides: Record<string, string> = {}) {
     HOME: home,
     SESSION_ID: 'session12345678',
     CODEFLARE_TERMINAL_MODE: 'classic',
-    CODEFLARE_RUNTIME_ROOT: join(home, 'run'),
-    TRANSCRIPT_RETENTION_SCRIPT: retentionScript,
     TERMINAL_ID: '1',
     ...overrides,
   });

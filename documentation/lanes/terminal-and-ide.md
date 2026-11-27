@@ -114,8 +114,10 @@ For [REQ-AGENT-280 AC4](../../sdd/spec/agents.md#req-agent-280-attachment-gated-
 - In one disposable Classic workspace, use the stock Sessions **+** to create A, B, and C. Give each distinctive text and verify the Codeflare session stays unchanged ([REQ-AGENT-286](../../sdd/spec/agents.md#req-agent-286-classic-chat-conversation-selection)).
 - After writing to C, select B by pointer and verify B’s text. Return to C, focus B’s row with the keyboard, and press Enter or Space. Verify B opens again.
 - With B selected, switch to Code. Verify the terminal shows B’s original text, not C’s ([REQ-AGENT-272 AC2](../../sdd/spec/agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff)).
-- In B, select an earlier branch with a distinct non-sensitive marker, then Stop. After confirming final persistence, Resume in Vibe. Verify B opens on that branch and A and C remain available.
-- Repeat Stop and Resume in Code. Verify B and its selected branch reopen, not the latest leaf ([REQ-SESSION-044 AC2](../../sdd/spec/session-lifecycle.md#req-session-044-managed-pi-transcript-persistence-on-stop)).
+- Before each Stop, select an earlier branch in B with a distinct non-sensitive marker. Apply the [final persistence procedure](storage-and-sync.md#req-stor-005-final-persistence-acceptance) to the binding and transcript.
+- Before each Resume, confirm native preparation and the triggered final drain succeeded. Independently read back the R2 binding and transcript and verify B’s ID and saved branch marker. A Stop response alone does not count.
+- Resume once per surface. Verify both open B at the selected branch, not the latest leaf, and that A and C remain available in Vibe. Mark missing persistence evidence unverified ([REQ-SESSION-044 AC2](../../sdd/spec/session-lifecycle.md#req-session-044-managed-pi-transcript-persistence-on-stop)).
+- The [packaged handoff smoke](../../scripts/ci/smoke-pi-web-host-handoff.mjs) exercises local reopen on the same home, not R2 publication and restore.
 
 #### Return from Profile Usage
 

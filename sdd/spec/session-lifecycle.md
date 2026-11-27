@@ -578,13 +578,15 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 **Acceptance Criteria:**
 
 1. Managed Pi final sync attempts exact writer retirement first. It does not certify transcript preparation without release evidence, even if the upload succeeds. <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (REQ-SESSION-011: upload success does not certify an unconfirmed transcript release) -->
-2. After confirmed preparation and successful final persistence, Resume in either surface opens the exact selected Classic Pi transcript and branch. Stop completion alone does not confirm persistence. <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualifyHistory) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time -->
+2. After confirmed preparation and successful final persistence, Resume in either surface opens the exact selected Classic Pi transcript and branch if retained. Stop completion alone does not confirm persistence. <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime --> <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time -->
+
+**Constraints:** Packaged local reopen checks do not prove R2 publication or restore.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-SESSION-011](#req-session-011-graceful-shutdown-with-final-sync), [REQ-STOR-012](storage.md#req-stor-012-main-session-transcript-cleanup)
 
-**Verification:** Automated: [Final sync endpoint](../../host/__tests__/final-sync-endpoint.test.js), [Packaged handoff](../../scripts/ci/smoke-pi-web-host-handoff.mjs); Manual: [Switch one writer at a time](../../documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time).
+**Verification:** Automated: [Final sync endpoint](../../host/__tests__/final-sync-endpoint.test.js); Manual: [Switch one writer at a time](../../documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time).
 
 **Status:** Planned
 

@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { registerHooks } from 'node:module';
 import { tmpdir } from 'node:os';
-import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 
@@ -25,7 +24,6 @@ async function fixture(t) {
 
   const env = {
     HOME: home, PI_CODING_AGENT_DIR: agentDir, CODEFLARE_RUNTIME_ROOT: home, HERDR_ENV: '0',
-    TRANSCRIPT_RETENTION_SCRIPT: fileURLToPath(new URL('../../transcript-retention.mjs', import.meta.url)),
     CODEFLARE_PI_GENERATION: '7', CODEFLARE_PI_TERMINAL_TICKET: 'terminal-ticket',
     CODEFLARE_PI_TERMINAL_PID: String(process.pid), SESSION_ID: 'fixture123',
   };

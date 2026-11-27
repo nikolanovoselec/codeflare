@@ -13,17 +13,13 @@ import {
   readFileSync,
   rmSync,
   symlinkSync,
-  statSync,
   utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import { once } from 'node:events';
-import { setTimeout as delay } from 'node:timers/promises';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { registerHooks } from 'node:module';
 
 // Isolate unmanaged lifecycle behavior; real policy composition is covered by the rclone matrix.
 const unmanagedPolicyFixture = "prepare_managed_resource_filter() { :; }\npersist_pi_hermes_memory() { :; }\ncompose_rclone_filters() { RCLONE_EFFECTIVE_FILTERS=(\"${RCLONE_FILTERS[@]}\"); }";
@@ -154,90 +150,11 @@ function writePi(root, index, nativeSecond, mtimeSecond, options = {}) {
   return path;
 }
 
-function runRetention(agent, root, { runtimeRoot }) {
+function runRetention(agent, root) {
   return execFileSync(process.execPath, [RETENTION_SCRIPT, agent, root, '10'], {
     encoding: 'utf8',
-    env: shellEnv(runtimeRoot),
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-}
-
-function classicFixture(scratch, options = {}) {
-  const sessionId = 'retention123';
-  const home = scratch.dir;
-  const cwd = join(home, 'workspace');
-  const root = join(home, '.pi/agent/sessions');
-  const sessionDir = join(root, `--${cwd.slice(1).replace(/[/:]/g, '-')}--`);
-  const bindingFile = join(home, '.codeflare/classic/sessions', `cf-${sessionId}`, 'agent-session-id');
-  mkdirSync(dirname(bindingFile), { recursive: true });
-  writeFileSync(bindingFile, `${uuid(0)}\n`);
-  const old = writePi(root, 0, 0, 19_000, { sessionDir, cwd, ...options });
-  const others = Array.from({ length: 33 }, (_, i) => writePi(root, i + 1, i + 1, 20_000 + (33 - i)));
-  return { home, cwd, sessionId, sessionDir, bindingFile, old, others };
-}
-
-function runClassicCleanup(scratch, sessionId, { mode = 'classic', final = false } = {}) {
-  const events = join(scratch.dir, 'outbound-transcripts');
-  const initFlag = join(scratch.runtimeRoot, 'init');
-  const env = shellEnv(scratch.runtimeRoot);
-  if (final) writeFileSync(join(env.SYNC_RUNTIME_DIR, 'bisync-initialized'), '');
-  const shell = `set -e
-USER_HOME="$1"
-SESSION_ID="$2"
-CODEFLARE_TERMINAL_MODE="$3"
-TRANSCRIPT_RETENTION_SCRIPT="$4"
-EVENTS="$5"
-CODEFLARE_INIT_FLAG_FILE="$6"
-CODEFLARE_OPERATOR_SESSION=false
-BISYNC_INIT_PID=
-TERMINAL_PID=
-R2_BUCKET_NAME=test
-RCLONE_CONFIG=/dev/null
-RECOVERY_FILTER_FILE=/dev/null
-${unmanagedPolicyFixture}
-RCLONE_FILTERS=()
-repair_hook_exec_bits() { :; }
-kill_pidfile_subtree() { :; }
-pgrep() { return 1; }
-sleep() { :; } # Only the watchdog uses sleep; its signals are also stubbed.
-kill() { :; }
-rclone() {
-  if [ "$1" = bisync ]; then
-    find "$USER_HOME/.pi/agent/sessions" -type f -name '*.jsonl' > "$EVENTS"
-  fi
-}
-${extractShellFunction('cleanup_agent_transcripts')}
-${extractShellFunction('cleanup_old_transcripts')}
-${extractShellFunction('cleanup_old_pi_transcripts')}
-${extractShellFunction('cleanup_main_transcripts')}
-${final ? ['cleanup_remote_pi_transcript_conflicts', 'record_sync_disk_failure', 'bisync_with_r2', 'shutdown_handler']
-    .map((name) => extractShellFunction(name)).join('\n') : extractShellFunction('release_agent_pty_after_cleanup')}
-${final ? 'shutdown_handler' : 'release_agent_pty_after_cleanup'}
-`;
-  execFileSync('bash', ['-c', shell, 'classic-retention', scratch.dir, sessionId, mode, RETENTION_SCRIPT, events, initFlag], {
-    stdio: ['ignore', 'pipe', 'pipe'], env,
-  });
-  if (final) return readFileSync(events, 'utf8').trimEnd().split('\n').sort();
-  assert.ok(existsSync(initFlag), 'startup releases PTY prewarm');
-}
-
-async function importPiWebRuntime() {
-  // Match the Host's emitted .js imports to their TS sources without a local build.
-  const hostSrc = new URL('../src/', import.meta.url);
-  const runtimeUrl = new URL('pi-web-runtime.ts', hostSrc);
-  const hooks = registerHooks({
-    resolve(specifier, context, next) {
-      if (context.parentURL === runtimeUrl.href) {
-        if (specifier === './pi-web-handoff.js') return next('./pi-web-handoff.ts', context);
-        // Terminal startup uses the real Host binding and ticket, not any stock Chat services.
-        if (specifier === './pi-web-services.js') return { shortCircuit: true, url:
-          'data:text/javascript,export const managedPiPackage = undefined; export const createPiWebServices = () => ({ close: async () => {} });' };
-      }
-      return next(specifier, context);
-    },
-  });
-  try { return await import(runtimeUrl); }
-  finally { hooks.deregister(); }
 }
 
 function transcriptNames(root) {
@@ -482,8 +399,8 @@ bisync_with_r2 ''
         piPaths.push(writePi(pi, i, i, 20_000 + (11 - i)));
       }
 
-      runRetention('claude', claude, scratch);
-      runRetention('pi', pi, scratch);
+      runRetention('claude', claude);
+      runRetention('pi', pi);
 
       assert.deepEqual(claudePaths.filter(existsSync).map((p) => Number(basename(p).slice(24, 36))).sort((a, b) => a - b), [2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
       assert.deepEqual(piPaths.filter(existsSync).map((p) => Number(basename(p).match(/(\d{12})\.jsonl$/)[1])).sort((a, b) => a - b), [2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
@@ -492,21 +409,32 @@ bisync_with_r2 ''
     }
   });
 
-  test('REQ-STOR-012 AC3/AC4: production Pi cleanup keeps up to thirty main transcripts', () => {
+  test('REQ-STOR-012 AC3/AC4: production Pi cleanup keeps the thirty highest-ranked transcripts without reserving a Classic binding slot', () => {
     for (const [count, fallback] of [[20, false], [35, false], [35, true]]) {
       const scratch = makeScratch();
       try {
         const root = join(scratch.dir, '.pi', 'agent', 'sessions');
-        const paths = Array.from({ length: count }, (_, i) =>
-          writePi(root, i, i, 20_000 + count - i, fallback && i === 0 ? { version: 4 } : {}));
+        const sessionId = 'retention123';
+        const cwd = join(scratch.dir, 'workspace');
+        const sessionDir = join(root, `--${cwd.slice(1).replace(/[/:]/g, '-')}--`);
+        const bindingDir = join(scratch.dir, '.codeflare/classic/sessions', `cf-${sessionId}`);
+        const bound = fallback ? count - 1 : 0;
+        mkdirSync(bindingDir, { recursive: true });
+        writeFileSync(join(bindingDir, 'agent-session-id'), `${uuid(bound)}\n`);
+        const paths = Array.from({ length: count }, (_, i) => writePi(root, i, i, 20_000 + count - i, {
+          ...(i === bound && { cwd, sessionDir }),
+          ...(fallback && i === 0 && { version: 4 }),
+        }));
         const shell = `set -e
 USER_HOME="$1"
 TRANSCRIPT_RETENTION_SCRIPT="$2"
+SESSION_ID="$3"
+CODEFLARE_TERMINAL_MODE=classic
 ${extractShellFunction('cleanup_agent_transcripts')}
 ${extractShellFunction('cleanup_old_pi_transcripts')}
 cleanup_old_pi_transcripts
 `;
-        execFileSync('bash', ['-c', shell, 'pi-retention-limit', scratch.dir, RETENTION_SCRIPT], {
+        execFileSync('bash', ['-c', shell, 'pi-retention-limit', scratch.dir, RETENTION_SCRIPT, sessionId], {
           stdio: ['ignore', 'pipe', 'pipe'],
           env: shellEnv(scratch.runtimeRoot),
         });
@@ -514,212 +442,6 @@ cleanup_old_pi_transcripts
       } finally {
         scratch.cleanup();
       }
-    }
-  });
-
-  test('REQ-STOR-012: startup reserves one Pi slot for the committed Classic transcript, preserving native and mtime ranking', async (t) => {
-    for (const version of [3, 2]) {
-      await t.test(`Pi v${version}`, () => {
-        const scratch = makeScratch();
-        try {
-          const { sessionId, old, others } = classicFixture(scratch, { version });
-          const bytes = readFileSync(old);
-          runClassicCleanup(scratch, sessionId);
-          assert.ok(existsSync(old), 'the oldest committed transcript must survive');
-          const ranked = version === 3 ? others.slice(-29) : others.slice(0, 29);
-          assert.deepEqual(others.filter(existsSync), ranked);
-          assert.deepEqual(readFileSync(old), bytes);
-        } finally {
-          scratch.cleanup();
-        }
-      });
-    }
-  });
-
-  test('REQ-STOR-012 / REQ-AGENT-211 AC6: a Classic rebind at rank thirty cannot commit a transcript pruned by overlapping cleanup', async (t) => {
-    const scratch = makeScratch();
-    t.after(scratch.cleanup);
-    const { home, cwd, sessionId, sessionDir, bindingFile, old, others } = classicFixture(scratch);
-    const root = join(home, '.pi/agent/sessions');
-    // Unprotected rank 30. Only 29 ranked slots remain while old is bound.
-    rmSync(others[3]);
-    const target = writePi(root, 4, 4, 19_999, { sessionDir, cwd });
-    const paused = join(scratch.runtimeRoot, 'cleanup-ready');
-    const proceed = join(scratch.runtimeRoot, 'allow-cleanup');
-    const waiting = join(scratch.runtimeRoot, 'rebind-waiting');
-    const pauseUnlink = join(scratch.runtimeRoot, 'pause-unlink.mjs');
-    const observeFlock = join(scratch.runtimeRoot, 'observe-flock.mjs');
-    writeFileSync(pauseUnlink, `
-      import fs from 'node:fs';
-      import { syncBuiltinESMExports } from 'node:module';
-      const unlink = fs.unlinkSync;
-      fs.unlinkSync = path => {
-        if (path === ${JSON.stringify(target)}) {
-          fs.writeFileSync(${JSON.stringify(paused)}, '');
-          const deadline = Date.now() + 4000;
-          while (!fs.existsSync(${JSON.stringify(proceed)})) {
-            if (Date.now() >= deadline) throw new Error('test did not release cleanup');
-            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
-          }
-        }
-        unlink(path);
-      };
-      syncBuiltinESMExports();
-    `);
-    writeFileSync(observeFlock, `
-      import childProcess from 'node:child_process';
-      import { writeFileSync } from 'node:fs';
-      import { syncBuiltinESMExports } from 'node:module';
-      const spawnSync = childProcess.spawnSync;
-      childProcess.spawnSync = (file, ...args) => {
-        if (file.endsWith('flock')) writeFileSync(${JSON.stringify(waiting)}, '');
-        return spawnSync(file, ...args);
-      };
-      syncBuiltinESMExports();
-    `);
-    const env = { ...shellEnv(scratch.runtimeRoot), TRANSCRIPT_RETENTION_SCRIPT: RETENTION_SCRIPT,
-      HOME: home, CODEFLARE_TERMINAL_MODE: 'classic', TERMINAL_ID: '1', SESSION_ID: sessionId };
-    const cleanup = spawn(process.execPath, ['--import', pauseUnlink, RETENTION_SCRIPT, 'pi', root, '30', home, sessionId],
-      { stdio: 'ignore', env });
-    const cleanupDone = once(cleanup, 'close');
-    const until = async (predicate) => {
-      const deadline = Date.now() + 3000;
-      while (!predicate()) {
-        if (Date.now() >= deadline) throw new Error('test did not reach filesystem boundary');
-        await delay(5);
-      }
-    };
-    await until(() => existsSync(paused));
-    const lock = join(scratch.runtimeRoot, 'locks/pi-transcript-retention.lock');
-    const held = existsSync(lock) && spawnSync('flock', ['-n', lock, 'true']).status === 1;
-    const extension = join(home, '.pi/agent/extensions/classic-session-binding.ts');
-    mkdirSync(dirname(extension), { recursive: true });
-    writeFileSync(extension, 'throw new Error("legacy release hook must not be loaded");\n');
-    execFileSync('bash', ['-ec', `${extractShellFunction('install_image_owned_classic_pi_binding')}\ninstall_image_owned_classic_pi_binding`], {
-      env: { ...env, USER_HOME: home, PI_WARM_EXTENSIONS_DIR: join(REPO_ROOT, 'preseed/agents/pi/extensions') },
-    });
-    const writer = spawn(process.execPath, ['--input-type=module', '-e', `
-      const { adoptClassicResumedSession } = await import(${JSON.stringify(extension)}).catch(() => process.exit(2));
-      try {
-        const adopted = adoptClassicResumedSession({ reason: 'resume' }, {
-          sessionManager: { getSessionFile: () => ${JSON.stringify(target)}, getSessionId: () => ${JSON.stringify(uuid(4))} },
-          ui: { notify() {} },
-        });
-        process.exitCode = adopted ? 0 : 1;
-      } catch { process.exitCode = 1; }
-    `], { stdio: 'ignore', env: { ...env, NODE_OPTIONS: `--import=${observeFlock}` } });
-    const writerDone = once(writer, 'close');
-    // A guarded writer reaches real flock; an unguarded one can finish while cleanup is paused.
-    try { await until(() => existsSync(waiting) || writer.exitCode !== null); }
-    finally { writeFileSync(proceed, ''); }
-    assert.deepEqual(await cleanupDone, [0, null]);
-    assert.equal(readFileSync(bindingFile, 'utf8'), `${uuid(0)}\n`, 'the previous selection is still committed');
-    assert.equal(held, true, 'cleanup still owns the kernel guard at deletion');
-    assert.deepEqual(await writerDone, [1, null], 'a disappeared target cannot be committed');
-    assert.equal(existsSync(target), false);
-    assert.deepEqual(others.filter(existsSync), others.slice(-29));
-    assert.equal(existsSync(old), true);
-  });
-
-  test('REQ-STOR-012: an unusable Pi guard skips pruning, without disabling Claude retention', () => {
-    const scratch = makeScratch();
-    try {
-      const { home, sessionId, old, others } = classicFixture(scratch);
-      const claude = join(home, '.claude/projects');
-      const claudeFiles = Array.from({ length: 11 }, (_, i) => writeClaude(claude, i, i, i));
-      const locks = join(scratch.runtimeRoot, 'locks');
-      mkdirSync(locks);
-      symlinkSync(join(scratch.runtimeRoot, 'not-a-lock'), join(locks, 'pi-transcript-retention.lock'));
-      runClassicCleanup(scratch, sessionId);
-      assert.equal(existsSync(old), true);
-      assert.deepEqual(others.filter(existsSync), others);
-      assert.deepEqual(claudeFiles.filter(existsSync), claudeFiles.slice(1));
-    } finally {
-      scratch.cleanup();
-    }
-  });
-
-  test('REQ-STOR-012: final bisync sees the capped set and fresh Classic Terminal Resume issues the exact committed path', async (t) => {
-    const scratch = makeScratch();
-    const env = { CODEFLARE_RUNTIME_ROOT: scratch.runtimeRoot, TRANSCRIPT_RETENTION_SCRIPT: RETENTION_SCRIPT };
-    for (const [key, value] of Object.entries(env)) {
-      const previous = process.env[key];
-      t.after(() => { if (previous === undefined) delete process.env[key]; else process.env[key] = previous; });
-      process.env[key] = value;
-    }
-    try {
-      const { home, cwd, sessionId, old, others } = classicFixture(scratch);
-      const inode = statSync(old).ino;
-      const bytes = readFileSync(old);
-      const outbound = runClassicCleanup(scratch, sessionId, { final: true });
-      const { createPiWebRuntime } = await importPiWebRuntime();
-      const runtimeDir = join(scratch.runtimeRoot, 'pi-web');
-      const generation = 8;
-      const runtime = createPiWebRuntime({ sessionId, generation, initialSurface: 'terminal', terminalMode: 'classic',
-        home, cwd, runtimeDir, profileRestored: () => true, cloneRestored: () => false });
-      await runtime.initialize();
-      const owner = JSON.parse(readFileSync(join(runtimeDir, 'owner.json'), 'utf8'));
-      assert.ok(owner.terminalTicket);
-      assert.deepEqual(owner.binding, { id: uuid(0), cwd, path: old });
-      assert.deepEqual(outbound, [old, ...others.slice(-29)].sort());
-      assert.equal(statSync(old).ino, inode);
-      assert.deepEqual(readFileSync(old), bytes);
-      // No live writer is launched in this test; report an already-quit fixture
-      // so Host can close the watcher using its regular retirement path.
-      writeFileSync(join(runtimeDir, 'terminal.json'), JSON.stringify({ ...owner.binding, generation,
-        ticket: owner.terminalTicket, quit: true, idle: true, pid: process.pid, startTime: 'not-a-live-writer', instance: 'fixture' }));
-      await runtime.close();
-    } finally {
-      scratch.cleanup();
-    }
-  });
-
-  test('REQ-STOR-012: invalid or uncommitted Classic references never take a retention slot', async (t) => {
-    for (const name of ['other session', 'Herdr', 'history only', 'malformed binding', 'binding symlink', 'binding ancestor symlink',
-      'ambiguous transcript', 'header mismatch', 'wrong workspace', 'fork', 'transcript symlink']) {
-      await t.test(name, () => {
-        const scratch = makeScratch();
-        try {
-          const { sessionId, sessionDir, bindingFile, old, others } = classicFixture(scratch, {
-            ...(name === 'wrong workspace' && { cwd: '/another/workspace' }),
-            ...(name === 'header mismatch' && { sessionId: uuid(90) }),
-            ...(name === 'fork' && { parentSession: uuid(91) }),
-          });
-          const bytes = readFileSync(old);
-          const outside = join(scratch.dir, 'outside');
-          if (name === 'history only') {
-            rmSync(bindingFile);
-            writeFileSync(join(dirname(bindingFile), 'pi-chat-history.json'), JSON.stringify([uuid(0)]));
-          } else if (name === 'malformed binding') {
-            writeFileSync(bindingFile, `${uuid(0)}\n${uuid(1)}\n`);
-          } else if (name === 'binding symlink') {
-            rmSync(bindingFile);
-            writeFileSync(outside, `${uuid(0)}\n`);
-            symlinkSync(outside, bindingFile);
-          } else if (name === 'binding ancestor symlink') {
-            rmSync(dirname(bindingFile), { recursive: true });
-            mkdirSync(outside);
-            writeFileSync(join(outside, 'agent-session-id'), `${uuid(0)}\n`);
-            symlinkSync(outside, dirname(bindingFile));
-          } else if (name === 'ambiguous transcript') {
-            const duplicate = join(sessionDir, `duplicate_${uuid(0)}.jsonl`);
-            writeFileSync(duplicate, bytes);
-            setMtime(duplicate, 19_002);
-          } else if (name === 'transcript symlink') {
-            rmSync(old);
-            writeFileSync(outside, bytes);
-            symlinkSync(outside, old);
-          }
-          runClassicCleanup(scratch, name === 'other session' ? 'another123' : sessionId,
-            { mode: name === 'Herdr' ? 'herdr' : 'classic' });
-          const fallback = ['header mismatch', 'fork'].includes(name);
-          assert.deepEqual(others.filter(existsSync), fallback ? others.slice(0, 30) : others.slice(-30));
-          if (name === 'transcript symlink') assert.deepEqual(readFileSync(old), bytes);
-          else assert.equal(existsSync(old), false);
-        } finally {
-          scratch.cleanup();
-        }
-      });
     }
   });
 
@@ -735,7 +457,7 @@ cleanup_old_pi_transcripts
         }));
       }
 
-      const output = runRetention('claude', claude, scratch);
+      const output = runRetention('claude', claude);
 
       assert.match(output, /mode=native/);
       assert.deepEqual(paths.filter(existsSync).map((p) => Number(basename(p).slice(24, 36))).sort((a, b) => a - b), [2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
@@ -760,7 +482,7 @@ cleanup_old_pi_transcripts
       writeFileSync(conflicts[1], canonicalContent);
       symlinkSync(canonical, conflicts[2]);
 
-      const output = runRetention('pi', pi, scratch);
+      const output = runRetention('pi', pi);
 
       assert.match(output, /conflicts=3/);
       for (const path of conflicts) assert.equal(existsSync(path), false, `${path} must be deleted`);
@@ -823,7 +545,7 @@ cleanup_old_pi_transcripts
         const paths = [];
         for (let i = 0; i < 12; i++) paths.push(testCase.write(root, i));
 
-        const output = runRetention(testCase.agent, root, scratch);
+        const output = runRetention(testCase.agent, root);
 
         assert.match(output, /mode=mtime-fallback/, testCase.label);
         assert.deepEqual(paths.filter(existsSync).sort(), paths.slice(2).sort(), testCase.label);
@@ -859,8 +581,8 @@ cleanup_old_pi_transcripts
         writePi(pi, i, i, 60_000 + i);
       }
 
-      runRetention('claude', claude, scratch);
-      runRetention('pi', pi, scratch);
+      runRetention('claude', claude);
+      runRetention('pi', pi);
 
       assert.equal(readFileSync(subagent, 'utf8'), '{not a main transcript}\n');
       assert.equal(readFileSync(task, 'utf8'), '{not a main transcript}\n');
@@ -891,7 +613,7 @@ cleanup_old_pi_transcripts
           paths.push(conflict);
         }
         const contents = paths.map(path => readFileSync(path, 'utf8'));
-        runRetention(agent, join(linkedParent, rootName), scratch);
+        runRetention(agent, join(linkedParent, rootName));
         assert.deepEqual(paths.map(path => existsSync(path) ? readFileSync(path, 'utf8') : null), contents);
       }
     } finally {
@@ -906,7 +628,7 @@ cleanup_old_pi_transcripts
       mkdirSync(claude, { recursive: true });
       for (let i = 0; i < 10; i++) writeFileSync(join(claude, `unknown ${i}.jsonl`), '{future schema}\n');
 
-      const output = runRetention('claude', claude, scratch);
+      const output = runRetention('claude', claude);
 
       assert.equal(transcriptNames(claude).length, 10);
       assert.equal(output, '');
@@ -922,7 +644,7 @@ cleanup_old_pi_transcripts
       const paths = [];
       for (let i = 0; i < 12; i++) paths.push(writeClaude(claude, i, 1, 70_000 + i));
 
-      runRetention('claude', claude, scratch);
+      runRetention('claude', claude);
 
       const expected = [...paths].sort((a, b) => (a === b ? 0 : a > b ? -1 : 1)).slice(0, 10).sort();
       assert.deepEqual(paths.filter(existsSync).sort(), expected);

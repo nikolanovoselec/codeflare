@@ -1,24 +1,18 @@
 #!/usr/bin/env node
 
-import { spawnSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
 import {
   closeSync,
   constants,
   existsSync,
   fstatSync,
   lstatSync,
-  mkdirSync,
   openSync,
   readSync,
   readdirSync,
   realpathSync,
-  renameSync,
-  rmSync,
   unlinkSync,
-  writeFileSync,
 } from 'node:fs';
-import { basename, dirname, join, resolve, sep } from 'node:path';
+import { basename, resolve, sep } from 'node:path';
 
 const CHUNK_BYTES = 64 * 1024;
 const MAX_SCAN_BYTES = 1024 * 1024;
@@ -26,9 +20,6 @@ const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 const CLAUDE_FILENAME = new RegExp(`^(${UUID})\\.jsonl$`, 'i');
 const PI_FILENAME = new RegExp(`_(${UUID})\\.jsonl$`, 'i');
 const RFC3339 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
-const SESSION_ID = /^[a-z0-9]{8,24}$/;
-const PI_NATIVE_ID = /^[a-zA-Z0-9](?:[a-zA-Z0-9_.-]{0,126}[a-zA-Z0-9])?$/;
-const CLASSIC_BINDING_BYTES = 256;
 
 function parseTimestamp(value) {
   if (typeof value !== 'string' || !RFC3339.test(value)) return undefined;
@@ -173,108 +164,6 @@ function parsePiTimestamp(path) {
   return readLatestTimestamp(path);
 }
 
-function readRegularPrefix(path, limit) {
-  const file = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
-  try {
-    if (!fstatSync(file).isFile()) return undefined;
-    const buffer = Buffer.allocUnsafe(limit);
-    return buffer.subarray(0, readSync(file, buffer, 0, limit, 0));
-  } finally {
-    closeSync(file);
-  }
-}
-
-function withPiRetentionGuard(operation) {
-  const directory = resolve(process.env.CODEFLARE_RUNTIME_ROOT || '/run/codeflare', 'locks');
-  mkdirSync(directory, { recursive: true, mode: 0o700 });
-  if (realpathSync(directory) !== directory) throw new Error('Pi retention lock directory is redirected');
-  const fd = openSync(join(directory, 'pi-transcript-retention.lock'),
-    constants.O_RDWR | constants.O_CREAT | constants.O_NOFOLLOW | constants.O_NONBLOCK, 0o600);
-  try {
-    if (!fstatSync(fd).isFile()) throw new Error('Invalid Pi retention lock');
-    // flock locks the inherited open file description. The lock stays held
-    // after flock exits, until this process closes its own descriptor.
-    const result = spawnSync('flock', ['-w', '5', '3'], { stdio: ['ignore', 'ignore', 'ignore', fd] });
-    if (result.status !== 0) throw new Error('Cannot acquire Pi retention guard', { cause: result.error });
-    return operation();
-  } finally {
-    closeSync(fd);
-  }
-}
-
-function classicBindingFile(home, sessionId) {
-  return resolve(home, '.codeflare/classic/sessions', `cf-${sessionId}`, 'agent-session-id');
-}
-
-function piWorkspaceStore(root, cwd) {
-  return join(root, `--${cwd.slice(1).replace(/[/:]/g, '-')}--`);
-}
-
-function exactClassicPiPath(root, cwd, id) {
-  if (!PI_NATIVE_ID.test(id)) return undefined;
-  const sessionDir = piWorkspaceStore(root, cwd);
-  if (realpathSync(sessionDir) !== sessionDir) return undefined;
-  const matches = readdirSync(sessionDir).filter(name => name.endsWith(`_${id}.jsonl`));
-  if (matches.length !== 1 || matches[0].includes('.conflict')) return undefined;
-  const path = join(sessionDir, matches[0]);
-  const prefix = readRegularPrefix(path, CHUNK_BYTES);
-  const end = prefix?.indexOf(0x0a) ?? -1;
-  if (end < 0) return undefined;
-  const header = parseObject(prefix.subarray(0, end));
-  if (header?.type === 'session' && header.id === id && header.cwd === cwd && !Object.hasOwn(header, 'parentSession') &&
-      [1, 2, 3].includes(header.version) && typeof header.timestamp === 'string' && Number.isFinite(Date.parse(header.timestamp))) {
-    return path;
-  }
-  return undefined;
-}
-
-// Use the committed exact workspace-root header, not Chat history or a
-// process-local writer receipt. An I/O error is not evidence of no binding.
-function committedClassicPiPath(root, paths, home, sessionId) {
-  if (!home || !sessionId || !SESSION_ID.test(sessionId)) return undefined;
-  const bindingFile = classicBindingFile(home, sessionId);
-  try {
-    const bindingDir = dirname(bindingFile);
-    if (realpathSync(bindingDir) !== bindingDir) return undefined;
-    const binding = readRegularPrefix(bindingFile, CLASSIC_BINDING_BYTES + 1);
-    if (!binding || binding.length > CLASSIC_BINDING_BYTES) return undefined;
-    const path = exactClassicPiPath(root, resolve(home, 'workspace'), binding.toString('utf8').trim());
-    if (paths.includes(path)) return path;
-  } catch (error) {
-    if (!['ENOENT', 'ENOTDIR', 'ELOOP'].includes(error?.code)) throw error;
-  }
-  return undefined;
-}
-
-function commitClassicPiBinding(home, sessionId, id, target, fresh) {
-  if (!home || !sessionId || !SESSION_ID.test(sessionId) || !id || !PI_NATIVE_ID.test(id) || (!fresh && !target)) {
-    throw new Error('Invalid Classic Pi binding');
-  }
-  withPiRetentionGuard(() => {
-    const root = resolve(home, '.pi/agent/sessions');
-    const cwd = resolve(home, 'workspace');
-    const bindingFile = classicBindingFile(home, sessionId);
-    const bindingDir = dirname(bindingFile);
-    mkdirSync(bindingDir, { recursive: true, mode: 0o700 });
-    if (realpathSync(bindingDir) !== bindingDir) throw new Error('Classic Pi binding directory is redirected');
-    let expectedPath = target;
-    if (fresh) {
-      if (lstatSync(bindingFile, { throwIfNoEntry: false })) throw new Error('Classic Pi binding already exists');
-      const store = piWorkspaceStore(root, cwd);
-      mkdirSync(store, { recursive: true, mode: 0o700 });
-      if (realpathSync(store) !== store) throw new Error('Classic Pi transcript directory is redirected');
-      const timestamp = new Date().toISOString();
-      expectedPath = join(store, `${timestamp.replace(/[:.]/g, '-')}_${id}.jsonl`);
-      writeFileSync(expectedPath, `${JSON.stringify({ type: 'session', version: 3, id, timestamp, cwd })}\n`, { mode: 0o600, flag: 'wx' });
-    }
-    if (exactClassicPiPath(root, cwd, id) !== expectedPath) throw new Error('Saved Pi transcript is unavailable');
-    const temporary = join(bindingDir, `.agent-session-id.${randomUUID()}`);
-    writeFileSync(temporary, `${id}\n`, { mode: 0o600, flag: 'wx' });
-    try { renameSync(temporary, bindingFile); }
-    finally { rmSync(temporary, { force: true }); }
-  });
-}
-
 function compareNewestFirst(left, right) {
   if (left.timestamp !== right.timestamp) return left.timestamp > right.timestamp ? -1 : 1;
   if (left.path === right.path) return 0;
@@ -295,7 +184,9 @@ function mtimeRanking(paths) {
   return ranked.sort(compareNewestFirst);
 }
 
-function retainLatest(agent, paths, keepCount, parseNativeTimestamp, protectedPath) {
+function retainLatest(agent, paths, keepCount, parseNativeTimestamp) {
+  if (paths.length <= keepCount) return;
+
   let mode = 'native';
   const native = [];
   for (const path of paths) {
@@ -313,12 +204,8 @@ function retainLatest(agent, paths, keepCount, parseNativeTimestamp, protectedPa
   }
 
   const ranked = mode === 'native' ? native.sort(compareNewestFirst) : mtimeRanking(paths);
-  // Choose native vs mtime using the whole store as before, then reserve a slot.
-  const toPrune = protectedPath
-    ? ranked.filter(({ path }) => path !== protectedPath).slice(keepCount - 1)
-    : ranked.slice(keepCount);
   let deleted = 0;
-  for (const { path } of toPrune) {
+  for (const { path } of ranked.slice(keepCount)) {
     try {
       const stat = lstatSync(path);
       if (!stat.isFile() || stat.isSymbolicLink()) continue;
@@ -332,7 +219,14 @@ function retainLatest(agent, paths, keepCount, parseNativeTimestamp, protectedPa
   process.stdout.write(`[transcript-cleanup] agent=${agent} mode=${mode} candidates=${paths.length} kept=${Math.min(paths.length, keepCount)} deleted=${deleted}\n`);
 }
 
-function pruneTranscripts(agent, root, keepCount, classicHome, classicSessionId) {
+function main() {
+  const [agent, rootArgument, keepArgument] = process.argv.slice(2);
+  if (agent !== 'claude' && agent !== 'pi') throw new Error(`unsupported transcript agent: ${agent ?? ''}`);
+  const keepCount = Number(keepArgument);
+  if (!Number.isSafeInteger(keepCount) || keepCount < 1) throw new Error(`invalid retention count: ${keepArgument ?? ''}`);
+  if (!rootArgument) throw new Error('transcript root is required');
+
+  const root = resolve(rootArgument);
   // A directory under a symlinked ancestor is still a directory to lstat().
   // Skip redirected stores before either pruning or removing conflict copies.
   try {
@@ -348,28 +242,8 @@ function pruneTranscripts(agent, root, keepCount, classicHome, classicSessionId)
     ? new Set(['subagents', 'tool-results', 'workflows'])
     : new Set(['tasks']);
   if (agent === 'pi') deletePiConflictFiles(root);
-  const paths = discoverTranscripts(root, excluded);
-  if (paths.length <= keepCount) return;
   const parser = agent === 'claude' ? parseClaudeTimestamp : parsePiTimestamp;
-  const protectedPath = agent === 'pi' ? committedClassicPiPath(root, paths, classicHome, classicSessionId) : undefined;
-  retainLatest(agent, paths, keepCount, parser, protectedPath);
-}
-
-function main() {
-  const [command, ...args] = process.argv.slice(2);
-  if (command === 'commit-classic-pi' || command === 'seed-classic-pi') {
-    const [home, sessionId, id, target] = args;
-    commitClassicPiBinding(home, sessionId, id, target, command === 'seed-classic-pi');
-    return;
-  }
-  if (command !== 'claude' && command !== 'pi') throw new Error(`unsupported transcript agent: ${command ?? ''}`);
-  const [rootArgument, keepArgument, classicHome, classicSessionId] = args;
-  const keepCount = Number(keepArgument);
-  if (!Number.isSafeInteger(keepCount) || keepCount < 1) throw new Error(`invalid retention count: ${keepArgument ?? ''}`);
-  if (!rootArgument) throw new Error('transcript root is required');
-  const cleanup = () => pruneTranscripts(command, resolve(rootArgument), keepCount, classicHome, classicSessionId);
-  if (command === 'pi') withPiRetentionGuard(cleanup);
-  else cleanup();
+  retainLatest(agent, discoverTranscripts(root, excluded), keepCount, parser);
 }
 
 main();
