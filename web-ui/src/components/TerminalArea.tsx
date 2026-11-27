@@ -197,7 +197,7 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
           </div>
         </Show>
         <div class="pi-web-chat" classList={{ 'layout-hidden-handoff-pane': !!props.preparePiWebPanel && !chatVisible() }} style={{
-          display: props.showTerminal ? undefined : 'none',
+          display: props.showTerminal && (props.showPiWebPanel || props.preparePiWebPanel) ? undefined : 'none',
           visibility: chatVisible() ? undefined : 'hidden',
         }}
           ref={el => createRenderEffect(() => el.toggleAttribute('inert', !chatVisible() || (!!props.handoffPending && !props.piWebShowDuringStartup)))}>

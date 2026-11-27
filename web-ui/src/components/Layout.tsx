@@ -1,9 +1,10 @@
-import { Component, batch, createSignal, createMemo, createEffect, onMount, onCleanup, For, Show, untrack } from 'solid-js';
+import { Component, batch, createSignal, createMemo, createEffect, createRoot, onMount, onCleanup, For, Show, untrack } from 'solid-js';
 import Header from './Header';
 import TerminalArea from './TerminalArea';
 import PiWebChat from './PiWebChat';
 import PiWebSwitchControls from './PiWebSwitchControls';
 import { createPiWebSurface, isPiWebSwitchPending } from '../hooks/usePiWebSurface';
+import type { PiWebStatus } from '../api/pi-web';
 import { canChoosePiSurface, isPiWebSession } from '../lib/pi-web-session';
 import { createMigrationRetry, MigrationRetryNotice } from './MigrationRetryNotice';
 import SettingsPanel from './SettingsPanel';
@@ -95,7 +96,10 @@ const Layout: Component<LayoutProps> = (props) => {
     setStartupSurface(selection);
     return () => setStartupSurface(current => current === selection ? undefined : current);
   };
-  const [retainedChat, setRetainedChat] = createSignal<{ id: string; generation: number }>();
+  type ChatFrame = { scope: ReturnType<typeof createPiWebSurface>; id: string; generation: number; url: string; requestId?: string };
+  type RetainedChat = { frame: ChatFrame; status: PiWebStatus };
+  const [retainedChats, setRetainedChats] = createSignal<RetainedChat[]>([]);
+  const forgetChat = (id: string) => setRetainedChats(entries => entries.filter(entry => entry.frame.id !== id));
   const [retainedTerminal, setRetainedTerminal] = createSignal<{ pane: VisibleTerminalPane; generation: number }>();
   const clearRetainedTerminal = () => {
     const pane = retainedTerminal()?.pane;
@@ -106,7 +110,7 @@ const Layout: Component<LayoutProps> = (props) => {
   // A logout navigation can place this document in the browser's back/forward cache.
   // Do not carry parked surfaces into that cached document.
   const discardParkedSurfaces = () => batch(() => {
-    setRetainedChat(undefined);
+    setRetainedChats([]);
     clearRetainedTerminal();
   });
   onMount(() => {
@@ -121,7 +125,7 @@ const Layout: Component<LayoutProps> = (props) => {
   const piWebSession = () => {
     if (!showTerminal()) {
       const terminal = retainedTerminal();
-      const retained = retainedChat() ?? (terminal && { id: terminal.pane.sessionId, generation: terminal.generation });
+      const retained = terminal ? { id: terminal.pane.sessionId, generation: terminal.generation } : retainedChats().at(-1)?.frame;
       return retained && sessionStore.sessions.find(session => session.id === retained.id && session.generation === retained.generation
         && session.status === 'running' && session.lifecycle !== 'stopping' && isPiWebSession(session));
     }
@@ -138,24 +142,53 @@ const Layout: Component<LayoutProps> = (props) => {
   // Track identity independently of metrics, PTY readiness and D1 revision churn.
   const piWebSid = createMemo(() => piWebSession()?.id);
   const piWebGeneration = createMemo(() => piWebSession()?.generation);
-  const piWeb = createMemo(() => {
-    const sid = piWebSid();
+  // A parked Chat keeps its read-only status observer until evicted. Retaining
+  // the observer avoids reapplying the Dashboard's default surface on return.
+  const observers = new Map<ChatFrame['scope'], () => void>();
+  const activePi = createMemo((previous?: { id: string; generation: number; scope: ChatFrame['scope'] }) => {
+    const id = piWebSid();
     const generation = piWebGeneration();
-    if (sid && generation !== undefined && generation > 0) return createPiWebSurface(sid, generation);
-    return undefined;
+    if (!id || generation === undefined || generation < 1) return;
+    if (previous?.id === id && previous.generation === generation) return previous;
+    const parked = retainedChats().find(entry => entry.frame.id === id && entry.frame.generation === generation);
+    const scope = parked?.frame.scope ?? createRoot(dispose => {
+      const observer = createPiWebSurface(id, generation);
+      observers.set(observer, dispose);
+      return observer;
+    });
+    return { id, generation, scope };
   });
+  const piWeb = () => activePi()?.scope;
   const piWebStatus = () => piWeb()?.status();
   createEffect(() => {
-    const retained = retainedChat();
-    if (retained && (piWebSid() !== retained.id || piWebGeneration() !== retained.generation
-      || piWebStatus()?.surface !== 'chat')) setRetainedChat(undefined);
+    const entries = retainedChats();
+    const active = showTerminal() ? sessionStore.getActiveSession() : undefined;
+    const valid = entries.filter(({ frame }) => {
+      const status = frame.scope.status();
+      return status?.surface === 'chat' && status.chatUrl === frame.url
+        && (!status.requestId || status.target !== 'chat' || status.requestId === frame.requestId)
+        && sessionStore.sessions.some(session => session.id === frame.id && session.generation === frame.generation
+          && session.status === 'running' && session.lifecycle !== 'stopping' && isPiWebSession(session));
+    });
+    const keep = active && !valid.some(({ frame }) => frame.id === active.id && frame.generation === active.generation)
+      ? valid.slice(-1) : valid;
+    if (keep.length !== entries.length) setRetainedChats(keep);
   });
+  createEffect(() => {
+    const keep = new Set(retainedChats().map(entry => entry.frame.scope));
+    const active = piWeb();
+    if (active) keep.add(active);
+    for (const [scope, dispose] of observers) {
+      if (!keep.has(scope)) { dispose(); observers.delete(scope); }
+    }
+  });
+  onCleanup(() => { for (const dispose of observers.values()) dispose(); observers.clear(); });
   const rememberOpenChat = () => {
     const session = piWebSession();
-    const status = piWebStatus();
-    if (showTerminal() && session?.status === 'running' && session.generation && !sessionStore.isSessionInitializing(session.id)
-      && status?.surface === 'chat' && status.chatUrl) {
-      setRetainedChat({ id: session.id, generation: session.generation });
+    const { frame, status } = shownChatStatus();
+    if (showTerminal() && session?.status === 'running' && frame && status?.surface === 'chat'
+      && piWebStatus()?.surface === 'chat' && !sessionStore.isSessionInitializing(session.id) && !chatStartupFailed()) {
+      setRetainedChats(entries => [...entries.filter(entry => entry.frame.id !== frame.id), { frame, status }].slice(-2));
     }
   };
   const parkedTerminalPane = createMemo(() => {
@@ -224,7 +257,6 @@ const Layout: Component<LayoutProps> = (props) => {
     return (sessionStore.getTabOrder(session.id) ?? []).filter(id => ids.has(id)).slice(0, tiledSlotCount(tiling.layout));
   };
 
-  type ChatFrame = { scope: NonNullable<ReturnType<typeof piWeb>>; url: string; requestId?: string };
   const [chatLoad, setChatLoad] = createSignal<{ frame: ChatFrame; state: 'ready' | 'failed' }>();
   const chatLoadFor = (state: 'ready' | 'failed', requestId?: string) => {
     const load = chatLoad();
@@ -291,20 +323,28 @@ const Layout: Component<LayoutProps> = (props) => {
     || (handoffTarget() === 'chat' && displayedPi().surface === 'terminal' && !!(piWebStatus()?.startupQuestion || chatStartupFailed()));
   const preparePiWebPanel = () => handoffTarget() === 'chat';
   const shownChatStatus = createMemo((previous?: { frame?: ChatFrame; status?: NonNullable<ReturnType<typeof piWebStatus>> }) => {
-    const scope = piWeb();
+    const active = activePi();
+    const scope = active?.scope;
     const status = piWebStatus();
-    if (scope && status?.chatUrl && (status.surface === 'chat' || status.target === 'chat' && status.phase === 'opening')) {
+    if (active && scope && status?.chatUrl && (status.surface === 'chat' || status.target === 'chat' && status.phase === 'opening')) {
       const requestId = status.target === 'chat' && (status.phase === 'opening' || status.phase === 'complete')
         ? status.requestId : undefined;
-      const old = previous?.frame;
+      const old = previous?.frame?.scope === scope ? previous.frame
+        : retainedChats().find(entry => entry.frame.scope === scope)?.frame;
       const frame = old?.scope === scope && old.url === status.chatUrl && (!requestId || requestId === old.requestId)
-        ? old : { scope, url: status.chatUrl, requestId };
+        ? old : { scope, id: active.id, generation: active.generation, url: status.chatUrl, requestId };
       return { frame, status };
     }
     if (previous?.frame?.scope === scope && displayedPi().surface === 'chat' && handoffTarget() === 'terminal') {
       return { frame: previous?.frame, status: previous?.status };
     }
     return {};
+  });
+  const chatFrames = createMemo(() => {
+    const active = shownChatStatus().frame;
+    const parked = retainedChats().map(entry => entry.frame).filter(frame => frame.scope !== active?.scope);
+    // Retain insertion-independent DOM order so changing selection never moves an iframe.
+    return (active ? [...parked.slice(-1), active] : parked).sort((a, b) => a.id.localeCompare(b.id) || a.generation - b.generation);
   });
   const reportChatLoad = (frame: ChatFrame, state: 'ready' | 'failed', value: boolean) => {
     if (shownChatStatus().frame !== frame) return;
@@ -853,7 +893,10 @@ const Layout: Component<LayoutProps> = (props) => {
     if (!session) return;
     const { shouldStart = false, updateHistory = true, explicitVscodeOpen = false } = options;
     setPreferredOpen(undefined);
-    if (!explicitVscodeOpen && (id !== retainedChat()?.id || shouldStart)) setRetainedChat(undefined);
+    if (!explicitVscodeOpen && session.workspace !== 'vscode') {
+      rememberOpenChat();
+      if (shouldStart) forgetChat(id);
+    }
     if (id !== retainedTerminal()?.pane.sessionId || shouldStart || explicitVscodeOpen) clearRetainedTerminal();
 
     if (explicitVscodeOpen) {
@@ -879,7 +922,7 @@ const Layout: Component<LayoutProps> = (props) => {
     const clearStartup = shouldStart ? selectStartupSurface(session, surface) : undefined;
     const parkedPane = parkedTerminalPane();
     const warmReturn = parkedPane?.sessionId === id
-      || (retainedChat()?.id === id && retainedChat()?.generation === session.generation);
+      || retainedChats().some(entry => entry.frame.id === id && entry.frame.generation === session.generation);
     const terminalId = shouldStart ? '1' : parkedPane?.terminalId ?? terminalIdForSession(session);
     batch(() => {
       sessionStore.setActiveSession(id);
@@ -941,7 +984,7 @@ const Layout: Component<LayoutProps> = (props) => {
   };
 
   const handleStopSession = async (id: string) => {
-    if (retainedChat()?.id === id) setRetainedChat(undefined);
+    forgetChat(id);
     if (retainedTerminal()?.pane.sessionId === id) clearRetainedTerminal();
     await batch(() => {
       const stop = sessionStore.stopSession(id);
@@ -951,7 +994,7 @@ const Layout: Component<LayoutProps> = (props) => {
   };
 
   const handleDeleteSession = async (id: string) => {
-    if (retainedChat()?.id === id) setRetainedChat(undefined);
+    forgetChat(id);
     if (retainedTerminal()?.pane.sessionId === id) clearRetainedTerminal();
     await sessionStore.deleteSession(id);
   };
@@ -1269,7 +1312,7 @@ const Layout: Component<LayoutProps> = (props) => {
             piWebOpenReady={chatStartupReady() && piWebStatus()?.surface === 'chat' && !piWebStatus()?.startupQuestion}
             piWebShowDuringStartup={chatStartupFailed() || !!piWebStatus()?.startupQuestion
               || piWebStatus()?.phase === 'failed' || piWebStatus()?.phase === 'uncertain'}
-            retainPiWebPanel={!showTerminal() && !!retainedChat() && piWebStatus()?.surface === 'chat'}
+            retainPiWebPanel={retainedChats().length > 0}
             parkedTerminalPane={!showTerminal() ? parkedTerminalPane() : undefined}
             piWebTerminalStatus={
               <PiWebSwitchControls progressInMenu={modeAvailable()} phase={piWebStatus()?.phase} target={piWebSwitchingTarget() ?? piWebStatus()?.target}
@@ -1277,7 +1320,8 @@ const Layout: Component<LayoutProps> = (props) => {
                 onCancel={cancelPiWeb} onRetry={retryPiWeb()} />
             }
             piWebPanel={
-              <Show when={shownChatStatus().frame} keyed fallback={
+              <>
+              <Show when={!shownChatStatus().frame && showTerminal() && (showPiWebPanel() || preparePiWebPanel())}>
                 <div class="pi-web-chat">
                   <PiWebSwitchControls progressInMenu={modeAvailable()} phase={piWebStatus()?.phase} target={piWebSwitchingTarget() ?? piWebStatus()?.target}
                     switching={!!piWebSwitchingTarget()} problem={piWebProblem()} canCancel={canCancelPiWeb()}
@@ -1286,13 +1330,20 @@ const Layout: Component<LayoutProps> = (props) => {
                     <div class="pi-web-chat__space"><p role="status">{awaitingChatStart() ? 'Preparing Chat…' : 'Checking Pi surface…'}</p></div>
                   </Show>
                 </div>
-              }>
-                {frame => <PiWebChat sessionId={piWebSid()!} generation={piWebGeneration()!} status={shownChatStatus().status!}
-                  progressInMenu={modeAvailable()} onCancel={cancelPiWeb} onRetry={retryPiWeb()}
-                  onStartupReady={ready => reportChatLoad(frame, 'ready', ready)}
-                  onStartupFailure={failed => reportChatLoad(frame, 'failed', failed)}
-                  problem={piWebProblem()} canCancel={canCancelPiWeb()} switchingTarget={piWebSwitchingTarget()} />}
               </Show>
+              <For each={chatFrames()}>{frame => {
+                const selected = () => shownChatStatus().frame === frame;
+                const parked = untrack(() => retainedChats().find(entry => entry.frame === frame)?.status ?? shownChatStatus().status!);
+                return <div class="pi-web-chat" style={{ display: selected() ? undefined : 'none' }}>
+                  <PiWebChat sessionId={frame.id} generation={frame.generation} status={selected() ? shownChatStatus().status! : parked}
+                    progressInMenu={modeAvailable()} onCancel={cancelPiWeb} onRetry={selected() ? retryPiWeb() : undefined}
+                    onStartupReady={ready => reportChatLoad(frame, 'ready', ready)}
+                    onStartupFailure={failed => reportChatLoad(frame, 'failed', failed)}
+                    problem={selected() ? piWebProblem() : undefined} canCancel={selected() && canCancelPiWeb()}
+                    switchingTarget={selected() ? piWebSwitchingTarget() : undefined} />
+                </div>;
+              }}</For>
+              </>
             }
             showTilingOverlay={showTilingOverlay()}
             onTilingButtonClick={handleTilingButtonClick}

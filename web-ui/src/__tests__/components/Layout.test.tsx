@@ -753,6 +753,57 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     } finally { cleanup(); vi.unstubAllGlobals(); }
   });
 
+  it('switches between two running Chats without replacing either frame or requesting a writer', async () => {
+    navigationRendering.realTerminalArea = true;
+    navigationRendering.realHeader = true;
+    const first = 'abcdef0123456789';
+    const second = 'fedcba9876543210';
+    mockSessions = [first, second].map((id, index) => createMockSession({ id, name: `Chat ${index + 1}`, workspace: 'terminal', agentType: 'pi', generation: 7 }));
+    window.history.replaceState(null, '', `/app/session/${first}`);
+    const switches: string[] = [];
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST' && url.includes('/_switch')) switches.push(url);
+      const id = /\/api\/pi-web\/([^/]+)\/_switch\?generation=7$/.exec(url)?.[1];
+      return Response.json(id ? { phase: 'active', surface: 'chat', chatUrl: `/api/pi-web/${id}/g/7/?view=chat` } : {});
+    });
+    const frameFor = (id: string) => screen.queryAllByTitle('Pi Chat').find(frame =>
+      frame.getAttribute('src')?.includes(`/api/pi-web/${id}/g/7/`));
+    const dashboard = () => fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
+    const select = async (name: string) => fireEvent.click(await screen.findByRole('button', { name }));
+    try {
+      render(() => <Layout />);
+      const a = await waitFor(() => { const frame = frameFor(first); expect(frame).toBeVisible(); return frame; });
+      fireEvent.click(screen.getByTestId('session-switcher'));
+      fireEvent.click(within(screen.getByTestId('session-dropdown')).getByRole('button', { name: 'Activate session Chat 2' }));
+      const b = await waitFor(() => { const frame = frameFor(second); expect(frame).toBeVisible(); return frame; });
+      expect(a).toBeInTheDocument();
+      expect(a).not.toBeVisible();
+
+      mockPreferences = { defaultPiSurface: 'terminal' };
+      bumpSessionStoreVersion();
+      dashboard();
+      await select('Return to session');
+      expect(frameFor(first)).toBe(a);
+      expect(a).toBeVisible();
+      expect(b).not.toBeVisible();
+      expect(screen.queryByRole('button', { name: 'Open', exact: true })).not.toBeInTheDocument();
+      dashboard();
+      await select('Open another session');
+      expect(frameFor(second)).toBe(b);
+      expect(b).toBeVisible();
+      expect(screen.queryByRole('button', { name: 'Open', exact: true })).not.toBeInTheDocument();
+      expect(switches).toEqual([]);
+
+      mockSessions = [{ ...mockSessions[0], generation: 8 }, mockSessions[1]];
+      bumpSessionStoreVersion();
+      expect(a).not.toBeInTheDocument();
+      expect(b).toBeVisible();
+      dashboard();
+      window.dispatchEvent(new Event('pagehide'));
+      expect(b).not.toBeInTheDocument();
+    } finally { cleanup(); vi.unstubAllGlobals(); }
+  });
+
   it.each(['workspace', 'Dashboard'] as const)('returns from %s Profile Usage to the same Chat without another writer request', async origin => {
     navigationRendering.realTerminalArea = true;
     navigationRendering.realDashboard = true;

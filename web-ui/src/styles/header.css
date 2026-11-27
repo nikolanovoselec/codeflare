@@ -549,6 +549,12 @@
             margin-inline: var(--space-3);
           }
 
+          .header-user-email > span,
+          .header-user-dropdown-item,
+          .header-user-dropdown--portal .header-user-dropdown-item {
+            font-size: 16px;
+          }
+
           .header-user-email > span {
             max-inline-size: 100%;
           }
@@ -556,7 +562,6 @@
           .header-user-dropdown-item,
           .header-user-dropdown--portal .header-user-dropdown-item {
             padding: 14px 16px;
-            font-size: 16px;
           }
 
         }
