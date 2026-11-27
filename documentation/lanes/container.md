@@ -260,7 +260,7 @@ Classic Chat and Terminal can open after profile restore and switch in either di
 
 The Host fences new work, drains dispatches already admitted, requests a native abort, and verifies settlement before fencing the remaining reads and confirming release. The stock session catalog distinguishes a parked input hook from a settled hosted writer; a transport failure or an abort acknowledgment alone never grants release. A stock web Stop is used only as confirmed idle disposal; native Terminal release requires the exact process exit. The destination receives the same bound transcript, never a copy. Startup failure or unconfirmed release must not result in a second writer. Herdr continues to start and resume natively and is not eligible for Chat. <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime --> <!-- @impl: host/src/pi-web-handoff.ts::createPiWebHandoff -->
 
-Native transcript persistence follows existing R2 and retention policy. The managed session ID is saved in the current Classic binding; the handoff tickets, current writer records and ephemeral stock services are not R2 state. The shared Pi profile remains the managed source for the installed SDK and model routing. [Pi Chat handoff acceptance](terminal-and-ide.md#pi-chat-handoff-acceptance) distinguishes runtime and browser verification from stock transcript interoperability.
+Native transcript persistence follows existing R2 and retention policy. The managed session ID is saved in the current Classic binding. See [Classic Chat history](storage-and-sync.md#session-transcript-cleanup) for membership and restore limits. The handoff tickets, current writer records and ephemeral stock services are not R2 state. The shared Pi profile remains the managed source for the installed SDK and model routing. [Pi Chat handoff acceptance](terminal-and-ide.md#pi-chat-handoff-acceptance) distinguishes runtime and browser verification from stock transcript interoperability.
 
 ### code-server (Browser IDE)
 
@@ -338,6 +338,8 @@ For Immutable or Exclusive startup, PID 1 verifies the restored file policy imme
 ### Teardown orchestration
 
 Deliberate Stop/Delete, idle and quota paths give pending agent events one bounded final attempt, then live authenticated R2 sync, then stop. `destroy()` attempts to persist `shutdownRequested` before clearing operational identity, proceeds even if that write fails, captures the session and bearer for drains, cancels metrics schedules, clears runtime keys and audits final-sync outcome. <!-- @impl: src/container/container-lifecycle.ts::destroy -->
+
+For managed Pi, the Host attempts to retire the writer and prepare the exact selected transcript before triggering the sync. If upload runs but native preparation cannot be confirmed, the final-sync endpoint returns `503` with `reason: pi-transcript-unconfirmed`. An upload does not prove that the selected transcript and branch can be resumed.
 
 Final sync waits for `syncing` strictly newer than the trigger, then a strictly newer terminal record; a prior success alone is not accepted. This is a wall-clock comparison, not a monotonic run ID. A same-tick write, clock change, or `syncing` record overwritten between polls can leave completion unconfirmed even when a transfer ran. Do not infer persistence from the shutdown outcome. <!-- @impl: host/src/final-sync.ts::evaluateFinalSync -->
 

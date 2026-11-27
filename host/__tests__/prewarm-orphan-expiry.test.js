@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -23,8 +23,9 @@ describe('pre-warm orphan expiry', () => {
     let profileRestored = false;
     const runtimeDir = join(home, 'runtime');
     const owner = join(runtimeDir, 'owner.json');
+    const cwd = join(home, 'workspace');
     const runtime = createPiWebRuntime({ sessionId: 'fixture123', generation: 7, initialSurface: 'terminal',
-      terminalMode: 'classic', cwd: join(home, 'workspace'), home, runtimeDir, profileRestored: () => profileRestored, cloneRestored: () => false });
+      terminalMode: 'classic', cwd, home, runtimeDir, profileRestored: () => profileRestored, cloneRestored: () => false });
     const boot = runtime.initialize();
     void boot.catch(() => {});
     try {
@@ -38,10 +39,16 @@ describe('pre-warm orphan expiry', () => {
       assert.equal(grant.surface, 'terminal');
       assert.equal(grant.phase, 'active');
       assert.equal(grant.terminalTicket, 'initial');
+      // No PTY runs in this fixture. Supply ordinary-quit evidence for the
+      // issued ticket so Stop can retire it without waiting for a writer.
+      const id = 'fixture-transcript';
+      const path = join(home, '.pi/agent/sessions', `--${cwd.slice(1).replaceAll('/', '-')}--`, `empty_${id}.jsonl`);
+      writeFileSync(join(runtimeDir, 'terminal.json'), JSON.stringify({ generation: 7, ticket: grant.terminalTicket,
+        pid: process.pid, startTime: '0', instance: 'retired-fixture-writer', id, cwd, path, idle: true, quit: true,
+        header: { type: 'session', version: 3, id, cwd, timestamp: new Date().toISOString() } }));
     } finally {
-      await runtime.close();
-      await boot.catch(() => {});
-      rmSync(home, { recursive: true, force: true });
+      try { await runtime.close(); }
+      finally { rmSync(home, { recursive: true, force: true }); }
     }
   });
   it('REQ-TERM-035 AC5: orphan expiry terminates unbootstrapped Herdr after cleanup', () => {

@@ -109,7 +109,7 @@ describe('Pi web Chat wrapper (REQ-AGENT-272)', () => {
       await Promise.resolve();
       expect(panel.style.maxHeight).toBe('160px');
       Object.assign(chat, { messageTotal: 2, messages: [{ role: 'system' }, { role: 'user' }] });
-      history.insertAdjacentHTML('beforeend', '<article class="user"></article>');
+      history.innerHTML = '<article class="system"></article><article class="user"></article>';
       await Promise.resolve();
       expect(chatFrame()).toBe(frame);
       expect(panel.style.maxHeight).toBe('');

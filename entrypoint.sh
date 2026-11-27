@@ -1324,7 +1324,7 @@ cleanup_agent_transcripts() {
     local KEEP_COUNT="$3"
     local SCRIPT="${TRANSCRIPT_RETENTION_SCRIPT:-/transcript-retention.mjs}"
 
-    node "$SCRIPT" "$AGENT" "$ROOT" "$KEEP_COUNT" 2>&1 | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
+    node "$SCRIPT" "$AGENT" "$ROOT" "$KEEP_COUNT" "${@:4}" 2>&1 | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
 }
 
 cleanup_old_transcripts() {
@@ -1332,7 +1332,11 @@ cleanup_old_transcripts() {
 }
 
 cleanup_old_pi_transcripts() {
-    cleanup_agent_transcripts "pi" "$USER_HOME/.pi/agent/sessions" 30
+    local classic_scope=()
+    if [ "${CODEFLARE_TERMINAL_MODE:-classic}" = classic ] && [ -n "${SESSION_ID:-}" ]; then
+        classic_scope=("$USER_HOME" "$SESSION_ID")
+    fi
+    cleanup_agent_transcripts "pi" "$USER_HOME/.pi/agent/sessions" 30 "${classic_scope[@]}"
 }
 
 cleanup_main_transcripts() {

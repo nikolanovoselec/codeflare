@@ -340,6 +340,29 @@ test('REQ-SESSION-011: ambiguous retirement does not certify transcript preparat
 });
 
 
+test('REQ-AGENT-272 AC2: retry after a failed Chat drain releases the source and opens the original candidate', async () => {
+  const candidate = { ...binding, id: 'second', path: '/workspace/second.jsonl' };
+  let writer = binding;
+  let blocked = true;
+  const handoff = createPiWebHandoff({ generation, initialSurface: 'chat',
+    stopWork: async () => {},
+    waitForIdle: async () => { if (blocked) throw new Error('drain failed'); },
+    release: async () => { const previous = writer; writer = null; return previous; },
+    open: async (_surface, next) => { assert.equal(writer, null); writer = next; return true; },
+  });
+  const requestId = 'retry-drain';
+  const result = await handoff.rebindChat({ generation, requestId }, async () => {
+    assert.equal(writer, null, 'the candidate must not be prepared while the source owns Chat');
+    return candidate;
+  });
+  assert.deepEqual(result, { requestId, target: 'chat', phase: 'failed', surface: 'chat' });
+  assert.equal(writer, binding);
+  blocked = false;
+  const retry = await handoff.switchTo({ generation, requestId, target: 'chat' });
+  assert.deepEqual(retry, { requestId, target: 'chat', phase: 'complete', surface: 'chat' });
+  assert.equal(writer, candidate);
+});
+
 test('REQ-AGENT-272: retry after proven failed attachment opens only that exact candidate', async () => {
   const candidate = { ...binding, id: 'second', path: '/workspace/second.jsonl' };
   let writer = binding;

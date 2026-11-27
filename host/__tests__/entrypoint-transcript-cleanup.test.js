@@ -13,6 +13,7 @@ import {
   readFileSync,
   rmSync,
   symlinkSync,
+  statSync,
   utimesSync,
   writeFileSync,
 } from 'node:fs';
@@ -20,6 +21,7 @@ import { basename, dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { registerHooks } from 'node:module';
 
 // Isolate unmanaged lifecycle behavior; real policy composition is covered by the rclone matrix.
 const unmanagedPolicyFixture = "prepare_managed_resource_filter() { :; }\npersist_pi_hermes_memory() { :; }\ncompose_rclone_filters() { RCLONE_EFFECTIVE_FILTERS=(\"${RCLONE_FILTERS[@]}\"); }";
@@ -134,6 +136,7 @@ function writePi(root, index, nativeSecond, mtimeSecond, options = {}) {
     type: options.type ?? 'session',
     version: options.version ?? 3,
     id: options.sessionId ?? id,
+    cwd: options.cwd,
     timestamp: `2026-08-18T10:00:${String(nativeSecond).padStart(2, '0')}.000Z`,
   };
   if (options.parentSession) header.parentSession = options.parentSession;
@@ -154,6 +157,84 @@ function runRetention(agent, root) {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
   });
+}
+
+function classicFixture(scratch, options = {}) {
+  const sessionId = 'retention123';
+  const home = scratch.dir;
+  const cwd = join(home, 'workspace');
+  const root = join(home, '.pi/agent/sessions');
+  const sessionDir = join(root, `--${cwd.slice(1).replace(/[/:]/g, '-')}--`);
+  const bindingFile = join(home, '.codeflare/classic/sessions', `cf-${sessionId}`, 'agent-session-id');
+  mkdirSync(dirname(bindingFile), { recursive: true });
+  writeFileSync(bindingFile, `${uuid(0)}\n`);
+  const old = writePi(root, 0, 0, 19_000, { sessionDir, cwd, ...options });
+  const others = Array.from({ length: 33 }, (_, i) => writePi(root, i + 1, i + 1, 20_000 + (33 - i)));
+  return { home, cwd, sessionId, sessionDir, bindingFile, old, others };
+}
+
+function runClassicCleanup(scratch, sessionId, { mode = 'classic', final = false } = {}) {
+  const events = join(scratch.dir, 'outbound-transcripts');
+  const initFlag = join(scratch.runtimeRoot, 'init');
+  const env = shellEnv(scratch.runtimeRoot);
+  if (final) writeFileSync(join(env.SYNC_RUNTIME_DIR, 'bisync-initialized'), '');
+  const shell = `set -e
+USER_HOME="$1"
+SESSION_ID="$2"
+CODEFLARE_TERMINAL_MODE="$3"
+TRANSCRIPT_RETENTION_SCRIPT="$4"
+EVENTS="$5"
+CODEFLARE_INIT_FLAG_FILE="$6"
+CODEFLARE_OPERATOR_SESSION=false
+BISYNC_INIT_PID=
+TERMINAL_PID=
+R2_BUCKET_NAME=test
+RCLONE_CONFIG=/dev/null
+RECOVERY_FILTER_FILE=/dev/null
+${unmanagedPolicyFixture}
+RCLONE_FILTERS=()
+repair_hook_exec_bits() { :; }
+kill_pidfile_subtree() { :; }
+pgrep() { return 1; }
+sleep() { :; } # Only the watchdog uses sleep; its signals are also stubbed.
+kill() { :; }
+rclone() {
+  if [ "$1" = bisync ]; then
+    find "$USER_HOME/.pi/agent/sessions" -type f -name '*.jsonl' > "$EVENTS"
+  fi
+}
+${extractShellFunction('cleanup_agent_transcripts')}
+${extractShellFunction('cleanup_old_transcripts')}
+${extractShellFunction('cleanup_old_pi_transcripts')}
+${extractShellFunction('cleanup_main_transcripts')}
+${final ? ['cleanup_remote_pi_transcript_conflicts', 'record_sync_disk_failure', 'bisync_with_r2', 'shutdown_handler']
+    .map((name) => extractShellFunction(name)).join('\n') : extractShellFunction('release_agent_pty_after_cleanup')}
+${final ? 'shutdown_handler' : 'release_agent_pty_after_cleanup'}
+`;
+  execFileSync('bash', ['-c', shell, 'classic-retention', scratch.dir, sessionId, mode, RETENTION_SCRIPT, events, initFlag], {
+    stdio: ['ignore', 'pipe', 'pipe'], env,
+  });
+  if (final) return readFileSync(events, 'utf8').trimEnd().split('\n').sort();
+  assert.ok(existsSync(initFlag), 'startup releases PTY prewarm');
+}
+
+async function importPiWebRuntime() {
+  // Match the Host's emitted .js imports to their TS sources without a local build.
+  const hostSrc = new URL('../src/', import.meta.url);
+  const runtimeUrl = new URL('pi-web-runtime.ts', hostSrc);
+  const hooks = registerHooks({
+    resolve(specifier, context, next) {
+      if (context.parentURL === runtimeUrl.href) {
+        if (specifier === './pi-web-handoff.js') return next('./pi-web-handoff.ts', context);
+        // Terminal startup uses the real Host binding and ticket, not any stock Chat services.
+        if (specifier === './pi-web-services.js') return { shortCircuit: true, url:
+          'data:text/javascript,export const managedPiPackage = undefined; export const createPiWebServices = () => ({ close: async () => {} });' };
+      }
+      return next(specifier, context);
+    },
+  });
+  try { return await import(runtimeUrl); }
+  finally { hooks.deregister(); }
 }
 
 function transcriptNames(root) {
@@ -430,6 +511,103 @@ cleanup_old_pi_transcripts
       } finally {
         scratch.cleanup();
       }
+    }
+  });
+
+  test('REQ-STOR-012: startup reserves one Pi slot for the committed Classic transcript, preserving native and mtime ranking', async (t) => {
+    for (const version of [3, 2]) {
+      await t.test(`Pi v${version}`, () => {
+        const scratch = makeScratch();
+        try {
+          const { sessionId, old, others } = classicFixture(scratch, { version });
+          const bytes = readFileSync(old);
+          runClassicCleanup(scratch, sessionId);
+          assert.ok(existsSync(old), 'the oldest committed transcript must survive');
+          const ranked = version === 3 ? others.slice(-29) : others.slice(0, 29);
+          assert.deepEqual(others.filter(existsSync), ranked);
+          assert.deepEqual(readFileSync(old), bytes);
+        } finally {
+          scratch.cleanup();
+        }
+      });
+    }
+  });
+
+  test('REQ-STOR-012: final bisync sees the capped set and fresh Classic Terminal Resume issues the exact committed path', async () => {
+    const scratch = makeScratch();
+    try {
+      const { home, cwd, sessionId, old, others } = classicFixture(scratch);
+      const inode = statSync(old).ino;
+      const bytes = readFileSync(old);
+      const outbound = runClassicCleanup(scratch, sessionId, { final: true });
+      const { createPiWebRuntime } = await importPiWebRuntime();
+      const runtimeDir = join(scratch.runtimeRoot, 'pi-web');
+      const generation = 8;
+      const runtime = createPiWebRuntime({ sessionId, generation, initialSurface: 'terminal', terminalMode: 'classic',
+        home, cwd, runtimeDir, profileRestored: () => true, cloneRestored: () => false });
+      await runtime.initialize();
+      const owner = JSON.parse(readFileSync(join(runtimeDir, 'owner.json'), 'utf8'));
+      assert.ok(owner.terminalTicket);
+      assert.deepEqual(owner.binding, { id: uuid(0), cwd, path: old });
+      assert.deepEqual(outbound, [old, ...others.slice(-29)].sort());
+      assert.equal(statSync(old).ino, inode);
+      assert.deepEqual(readFileSync(old), bytes);
+      // No live writer is launched in this test; report an already-quit fixture
+      // so Host can close the watcher using its regular retirement path.
+      writeFileSync(join(runtimeDir, 'terminal.json'), JSON.stringify({ ...owner.binding, generation,
+        ticket: owner.terminalTicket, quit: true, idle: true, pid: process.pid, startTime: 'not-a-live-writer', instance: 'fixture' }));
+      await runtime.close();
+    } finally {
+      scratch.cleanup();
+    }
+  });
+
+  test('REQ-STOR-012: invalid or uncommitted Classic references never take a retention slot', async (t) => {
+    for (const name of ['other session', 'Herdr', 'history only', 'malformed binding', 'binding symlink', 'binding ancestor symlink',
+      'ambiguous transcript', 'header mismatch', 'wrong workspace', 'fork', 'transcript symlink']) {
+      await t.test(name, () => {
+        const scratch = makeScratch();
+        try {
+          const { sessionId, sessionDir, bindingFile, old, others } = classicFixture(scratch, {
+            ...(name === 'wrong workspace' && { cwd: '/another/workspace' }),
+            ...(name === 'header mismatch' && { sessionId: uuid(90) }),
+            ...(name === 'fork' && { parentSession: uuid(91) }),
+          });
+          const bytes = readFileSync(old);
+          const outside = join(scratch.dir, 'outside');
+          if (name === 'history only') {
+            rmSync(bindingFile);
+            writeFileSync(join(dirname(bindingFile), 'pi-chat-history.json'), JSON.stringify([uuid(0)]));
+          } else if (name === 'malformed binding') {
+            writeFileSync(bindingFile, `${uuid(0)}\n${uuid(1)}\n`);
+          } else if (name === 'binding symlink') {
+            rmSync(bindingFile);
+            writeFileSync(outside, `${uuid(0)}\n`);
+            symlinkSync(outside, bindingFile);
+          } else if (name === 'binding ancestor symlink') {
+            rmSync(dirname(bindingFile), { recursive: true });
+            mkdirSync(outside);
+            writeFileSync(join(outside, 'agent-session-id'), `${uuid(0)}\n`);
+            symlinkSync(outside, dirname(bindingFile));
+          } else if (name === 'ambiguous transcript') {
+            const duplicate = join(sessionDir, `duplicate_${uuid(0)}.jsonl`);
+            writeFileSync(duplicate, bytes);
+            setMtime(duplicate, 19_002);
+          } else if (name === 'transcript symlink') {
+            rmSync(old);
+            writeFileSync(outside, bytes);
+            symlinkSync(outside, old);
+          }
+          runClassicCleanup(scratch, name === 'other session' ? 'another123' : sessionId,
+            { mode: name === 'Herdr' ? 'herdr' : 'classic' });
+          const fallback = ['header mismatch', 'fork'].includes(name);
+          assert.deepEqual(others.filter(existsSync), fallback ? others.slice(0, 30) : others.slice(-30));
+          if (name === 'transcript symlink') assert.deepEqual(readFileSync(old), bytes);
+          else assert.equal(existsSync(old), false);
+        } finally {
+          scratch.cleanup();
+        }
+      });
     }
   });
 

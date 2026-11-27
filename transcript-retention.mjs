@@ -12,7 +12,7 @@ import {
   realpathSync,
   unlinkSync,
 } from 'node:fs';
-import { basename, resolve, sep } from 'node:path';
+import { basename, dirname, join, resolve, sep } from 'node:path';
 
 const CHUNK_BYTES = 64 * 1024;
 const MAX_SCAN_BYTES = 1024 * 1024;
@@ -20,6 +20,9 @@ const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 const CLAUDE_FILENAME = new RegExp(`^(${UUID})\\.jsonl$`, 'i');
 const PI_FILENAME = new RegExp(`_(${UUID})\\.jsonl$`, 'i');
 const RFC3339 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+const SESSION_ID = /^[a-z0-9]{8,24}$/;
+const PI_NATIVE_ID = /^[a-zA-Z0-9](?:[a-zA-Z0-9_.-]{0,126}[a-zA-Z0-9])?$/;
+const CLASSIC_BINDING_BYTES = 256;
 
 function parseTimestamp(value) {
   if (typeof value !== 'string' || !RFC3339.test(value)) return undefined;
@@ -164,6 +167,51 @@ function parsePiTimestamp(path) {
   return readLatestTimestamp(path);
 }
 
+function readRegularPrefix(path, limit) {
+  const file = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try {
+    if (!fstatSync(file).isFile()) return undefined;
+    const buffer = Buffer.allocUnsafe(limit);
+    return buffer.subarray(0, readSync(file, buffer, 0, limit, 0));
+  } finally {
+    closeSync(file);
+  }
+}
+
+// Match Classic Resume's committed binding and exact workspace-root header,
+// not Chat history membership or a process-local writer receipt.
+function committedClassicPiPath(root, paths, home, sessionId) {
+  if (!home || !sessionId || !SESSION_ID.test(sessionId)) return undefined;
+  const cwd = resolve(home, 'workspace');
+  const bindingFile = resolve(home, '.codeflare/classic/sessions', `cf-${sessionId}`, 'agent-session-id');
+  try {
+    const bindingDir = dirname(bindingFile);
+    if (realpathSync(bindingDir) !== bindingDir) return undefined;
+    const binding = readRegularPrefix(bindingFile, CLASSIC_BINDING_BYTES + 1);
+    if (!binding || binding.length > CLASSIC_BINDING_BYTES) return undefined;
+    const id = binding.toString('utf8').trim();
+    if (!PI_NATIVE_ID.test(id)) return undefined;
+
+    const sessionDir = join(root, `--${cwd.slice(1).replace(/[/:]/g, '-')}--`);
+    if (realpathSync(sessionDir) !== sessionDir) return undefined;
+    const matches = readdirSync(sessionDir).filter(name => name.endsWith(`_${id}.jsonl`));
+    if (matches.length !== 1) return undefined;
+    const path = join(sessionDir, matches[0]);
+    if (!paths.includes(path)) return undefined;
+    const prefix = readRegularPrefix(path, CHUNK_BYTES);
+    const end = prefix?.indexOf(0x0a) ?? -1;
+    if (end < 0) return undefined;
+    const header = parseObject(prefix.subarray(0, end));
+    if (header?.type === 'session' && header.id === id && header.cwd === cwd && !Object.hasOwn(header, 'parentSession') &&
+        [1, 2, 3].includes(header.version) && typeof header.timestamp === 'string' && Number.isFinite(Date.parse(header.timestamp))) {
+      return path;
+    }
+  } catch {
+    // Missing, redirected or unreadable references grant no protection.
+  }
+  return undefined;
+}
+
 function compareNewestFirst(left, right) {
   if (left.timestamp !== right.timestamp) return left.timestamp > right.timestamp ? -1 : 1;
   if (left.path === right.path) return 0;
@@ -184,9 +232,7 @@ function mtimeRanking(paths) {
   return ranked.sort(compareNewestFirst);
 }
 
-function retainLatest(agent, paths, keepCount, parseNativeTimestamp) {
-  if (paths.length <= keepCount) return;
-
+function retainLatest(agent, paths, keepCount, parseNativeTimestamp, protectedPath) {
   let mode = 'native';
   const native = [];
   for (const path of paths) {
@@ -204,8 +250,12 @@ function retainLatest(agent, paths, keepCount, parseNativeTimestamp) {
   }
 
   const ranked = mode === 'native' ? native.sort(compareNewestFirst) : mtimeRanking(paths);
+  // Choose native vs mtime using the whole store as before, then reserve a slot.
+  const toPrune = protectedPath
+    ? ranked.filter(({ path }) => path !== protectedPath).slice(keepCount - 1)
+    : ranked.slice(keepCount);
   let deleted = 0;
-  for (const { path } of ranked.slice(keepCount)) {
+  for (const { path } of toPrune) {
     try {
       const stat = lstatSync(path);
       if (!stat.isFile() || stat.isSymbolicLink()) continue;
@@ -220,7 +270,7 @@ function retainLatest(agent, paths, keepCount, parseNativeTimestamp) {
 }
 
 function main() {
-  const [agent, rootArgument, keepArgument] = process.argv.slice(2);
+  const [agent, rootArgument, keepArgument, classicHome, classicSessionId] = process.argv.slice(2);
   if (agent !== 'claude' && agent !== 'pi') throw new Error(`unsupported transcript agent: ${agent ?? ''}`);
   const keepCount = Number(keepArgument);
   if (!Number.isSafeInteger(keepCount) || keepCount < 1) throw new Error(`invalid retention count: ${keepArgument ?? ''}`);
@@ -242,8 +292,11 @@ function main() {
     ? new Set(['subagents', 'tool-results', 'workflows'])
     : new Set(['tasks']);
   if (agent === 'pi') deletePiConflictFiles(root);
+  const paths = discoverTranscripts(root, excluded);
+  if (paths.length <= keepCount) return;
   const parser = agent === 'claude' ? parseClaudeTimestamp : parsePiTimestamp;
-  retainLatest(agent, discoverTranscripts(root, excluded), keepCount, parser);
+  const protectedPath = agent === 'pi' ? committedClassicPiPath(root, paths, classicHome, classicSessionId) : undefined;
+  retainLatest(agent, paths, keepCount, parser, protectedPath);
 }
 
 main();

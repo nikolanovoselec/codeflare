@@ -349,6 +349,10 @@ export function createPiWebRuntime(options: {
       await services.reset(); // Throws into the coordinator's uncertain state if not confirmed.
       webRequestUnconfirmed = false;
       return false;
+    } finally {
+      // Shutdown must only abort an in-progress attachment, not the startup
+      // of a writer that has since been confirmed and cleanly released.
+      chatStartup = undefined;
     }
   }
 

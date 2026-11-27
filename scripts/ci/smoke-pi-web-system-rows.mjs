@@ -4,11 +4,14 @@ import { spawn } from 'node:child_process';
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { extname, join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 
 const client = new URL('../../image/pi-web/node_modules/@jmfederico/pi-web/dist/client/', import.meta.url);
-const css = await readFile(new URL('../../image/pi-web/codeflare-chrome/browser/footer.css', import.meta.url), 'utf8');
-const palette = await readFile(new URL('../../image/pi-web/codeflare-chrome/browser/graphite.css', import.meta.url), 'utf8');
+const chromePlugin = new URL('../../image/pi-web/codeflare-chrome/browser/', import.meta.url);
+const appHtml = await readFile(new URL('index.html', client));
+const css = await readFile(new URL('footer.css', chromePlugin), 'utf8');
+const palette = await readFile(new URL('graphite.css', chromePlugin), 'utf8');
 const assets = await readdir(new URL('assets/', client));
 const mains = assets.filter(name => /^main-[\w-]+\.js$/.test(name));
 assert.equal(mains.length, 1, 'expected one pinned stock client entry');
@@ -106,6 +109,47 @@ try {
 await fetch('/fixture-result', { method: 'POST', body: result });
 </script></body>`;
 
+// REQ-AGENT-274: boot the actual pinned app and load the production browser
+// plugin through its manifest. Only the gateway data is a fixture; this does
+// not claim a writer was transferred (the packaged Host smoke covers that).
+const generation = 17;
+const attachment = '/api/pi-web/browserfixture/g/17/a/f3bbca20-f953-4113-b03d-3aa71a866b40/';
+const cwd = '/home/user/workspace';
+const [bound, savedPointer, savedKeyboard] = [
+  'a0000000-0000-4000-8000-000000000001',
+  'a0000000-0000-4000-8000-000000000002',
+  'a0000000-0000-4000-8000-000000000003',
+];
+const created = '2026-11-01T00:00:00.000Z';
+const ids = [bound, savedPointer, savedKeyboard];
+const gateway = new Map(Object.entries({
+  'api/config': { config: {}, effectiveConfig: {}, configSources: {}, enforcedSettings: {} },
+  'api/machines': { machines: [{ id: 'local', name: 'Codeflare', kind: 'local', status: 'online', createdAt: created, updatedAt: created }] },
+  'api/machines/local/health': { machineId: 'local', ok: true, status: 'online', checkedAt: created },
+  'api/machines/local/projects': [{ id: 'fixture-project', name: 'Fixture', path: cwd, createdAt: created }],
+  'api/machines/local/projects/fixture-project/workspaces': {
+    status: 'folder', projectId: 'fixture-project', diagnostics: [],
+    workspaces: [{ id: 'fixture-workspace', projectId: 'fixture-project', label: 'Fixture', path: cwd, isMain: true, effectiveConfig: {} }],
+  },
+  'api/machines/local/sessions': ids.map((id, index) => ({
+    id, cwd, path: `/fixture/pi/${id}.jsonl`, name: `Fixture conversation ${index + 1}`,
+    created, modified: created, persisted: true, messageCount: 0, firstMessage: '',
+  })),
+  'pi-web-plugins/manifest.json': {
+    lifecycleVersion: 2, terminalMode: 'recovery-disabled',
+    plugins: [{ id: 'codeflare-chrome', module: './codeflare-chrome/fixture.js', machineSpecific: false }],
+  },
+}));
+// Observe the public selection state from the real plugin context. The wrapper
+// neither supplies a fake selection nor invokes any stock control handler.
+const pluginFixture = `import plugin from './index.js';
+export default { ...plugin, activate(context) {
+  const activated = plugin.activate(context);
+  window.fixtureSelection = context.selection;
+  return activated;
+} };`;
+const mime = { '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2' };
+
 let reportResult;
 const browserResult = new Promise(resolve => { reportResult = resolve; });
 let fixtureLoads = 0;
@@ -131,18 +175,210 @@ const server = createServer(async (req, res) => {
     res.end(fixture);
     return;
   }
-  const name = /^\/assets\/([\w.-]+\.js)$/.exec(req.url)?.[1];
-  if (name && assets.includes(name)) {
+  const pathname = new URL(req.url, 'http://fixture').pathname;
+  const scoped = pathname.startsWith(attachment) ? pathname.slice(attachment.length) : undefined;
+  if (req.method === 'POST' && scoped === '_intent') {
+    req.resume();
+    res.writeHead(202).end();
+    return;
+  }
+  if (req.method === 'GET' && scoped === '') {
+    res.writeHead(200, { 'content-type': 'text/html' }).end(appHtml);
+    return;
+  }
+  if (req.method === 'GET' && gateway.has(scoped)) {
+    res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(gateway.get(scoped)));
+    return;
+  }
+  const snapshot = /^api\/machines\/local\/sessions\/([\w-]+)\/transcript-snapshot$/.exec(scoped)?.[1];
+  if (req.method === 'GET' && ids.includes(snapshot)) {
+    const status = { sessionId: snapshot, persisted: true, isStreaming: false, isCompacting: false, isBashRunning: false,
+      pendingMessageCount: 0, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, cost: 0 };
+    res.writeHead(200, { 'content-type': 'application/json' })
+      .end(JSON.stringify({ page: { messages: [], start: 0, total: 0 }, status, seq: 0, partial: false }));
+    return;
+  }
+  if (scoped === 'pi-web-plugins/codeflare-chrome/fixture.js') {
+    res.writeHead(200, { 'content-type': 'text/javascript' }).end(pluginFixture);
+    return;
+  }
+  const pluginAsset = /^pi-web-plugins\/codeflare-chrome\/(index\.js|transcript-intent\.js|footer\.css)$/.exec(scoped)?.[1];
+  const name = /^assets\/([\w.-]+)$/.exec(scoped ?? pathname.slice(1))?.[1];
+  if (pluginAsset || name && assets.includes(name)) {
     try {
-      const bytes = await readFile(new URL(`assets/${name}`, client));
+      const bytes = await readFile(pluginAsset ? new URL(pluginAsset, chromePlugin) : new URL(`assets/${name}`, client));
       servedModules++;
-      res.setHeader('content-type', 'text/javascript');
-      res.end(bytes);
+      res.writeHead(200, { 'content-type': mime[extname(pluginAsset ?? name)] ?? 'application/octet-stream' }).end(bytes);
       return;
     } catch { res.writeHead(500).end(); return; }
   }
   res.writeHead(404).end();
 });
+// Chromium's private DevTools pipe shares the existing CI browser process and
+// does not expose a debug port. Input.dispatch* produces trusted DOM events.
+function connectDevTools(child, onEvent) {
+  const [input, output] = child.stdio.slice(3);
+  const pending = new Map();
+  let sequence = 0;
+  let buffered = '';
+  output.setEncoding('utf8');
+  output.on('data', chunk => {
+    const messages = (buffered + chunk).split('\0');
+    buffered = messages.pop();
+    for (const message of messages) {
+      const reply = JSON.parse(message);
+      if (reply.method) { onEvent(reply); continue; }
+      const pair = pending.get(reply.id);
+      if (!pair) continue;
+      pending.delete(reply.id);
+      if (reply.error) pair.reject(Error(reply.error.message));
+      else pair.resolve(reply.result);
+    }
+  });
+  return (method, params = {}, sessionId) => new Promise((resolve, reject) => {
+    const id = ++sequence;
+    pending.set(id, { resolve, reject });
+    input.write(JSON.stringify({ id, method, params, sessionId }) + '\0', error => {
+      if (!error) return;
+      pending.delete(id);
+      reject(error);
+    });
+  });
+}
+
+async function verifyStockTranscriptControls(child, origin) {
+  const requests = [];
+  const cdp = connectDevTools(child, ({ method, params }) => {
+    if (method === 'Network.requestWillBeSent') {
+      const { requestId, request: { method, url, postData, headers } } = params;
+      const { pathname } = new URL(url);
+      if (pathname.endsWith('/_intent') || method === 'POST' && /\/api\/(?:machines\/local\/)?sessions$/.test(pathname)) {
+        const contentType = Object.entries(headers).find(([name]) => name.toLowerCase() === 'content-type')?.[1];
+        requests.push({ requestId, request: { method, url, postData, contentType } });
+      }
+    } else if (method === 'Network.responseReceived') {
+      const record = requests.find(({ requestId }) => requestId === params.requestId);
+      if (record) record.status = params.response.status;
+    }
+  });
+  const { targetInfos } = await cdp('Target.getTargets');
+  const target = targetInfos.find(({ type, url }) => type === 'page' && url === `${origin}/`);
+  assert.ok(target, 'the stock rendering fixture must have a Chromium page');
+  const { sessionId } = await cdp('Target.attachToTarget', { targetId: target.targetId, flatten: true });
+  const send = (method, params) => cdp(method, params, sessionId);
+  await send('Page.enable');
+  await send('Network.enable', { maxPostDataSize: 4096 });
+  const page = async expression => {
+    const { result, exceptionDetails } = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
+    if (exceptionDetails) throw Error(exceptionDetails.exception?.description ?? exceptionDetails.text);
+    return result.value;
+  };
+  const until = async (label, read, accepts) => {
+    const expires = Date.now() + 6000;
+    let last;
+    do {
+      try { last = await read(); }
+      catch (error) {
+        if (!/Execution context was destroyed|Cannot find (?:default )?(?:execution )?context/i.test(error.message)) throw error;
+      }
+      if (accepts(last)) return last;
+      await delay(50);
+    } while (Date.now() < expires);
+    throw Error(`${label}: last observed ${JSON.stringify(last)}; requests=${JSON.stringify(requests)}`);
+  };
+  const app = id => `${origin}${attachment}?project=fixture-project&workspace=fixture-workspace&session=${id}&view=chat`;
+  const list = `document.querySelector('pi-web-app')?.shadowRoot?.querySelector('app-navigation-panel')?.shadowRoot
+    ?.querySelector('session-list')?.shadowRoot`;
+  const plus = 'button.start-session-button:not(:disabled)';
+  const row = id => `.action-row[data-session-id="${id}"][data-archived="false"][data-selecting="false"]`;
+  const state = () => page(`(() => {
+    const list = ${list};
+    const selection = window.fixtureSelection?.getSnapshot();
+    return { url: location.href, loadedAt: performance.timeOrigin, workspace: selection?.selectedWorkspace?.path,
+      selected: selection?.selectedSession?.id, current: list?.querySelector('[aria-current="true"][data-session-id]')?.dataset.sessionId,
+      ids: [...(list?.querySelectorAll('.action-row[data-session-id]') ?? [])].map(row => row.dataset.sessionId).sort(),
+      pending: !!list?.querySelector('.pending-session-row'),
+      plus: !!list?.querySelector(${JSON.stringify(plus)})?.checkVisibility({ visibilityProperty: true }) };
+  })()`);
+  const waitCurrent = (label, id, previousLoad) => until(label, state, value => value?.url === app(id)
+    && value.loadedAt !== previousLoad && value.workspace === cwd && value.selected === id && value.current === id && value.plus);
+  const navigate = async id => {
+    const { errorText } = await send('Page.navigate', { url: app(id) });
+    assert.equal(errorText, undefined);
+    await waitCurrent('stock deep link', id);
+  };
+  const reload = async () => {
+    const { loadedAt } = await state();
+    await send('Page.reload');
+    await waitCurrent('stock reload', bound, loadedAt);
+  };
+  const afterRender = () => page('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))');
+  const verifyPassive = async label => {
+    await afterRender();
+    assert.deepEqual(requests, [], `${label} must not send an intent or stock creation request`);
+  };
+
+  await navigate(savedPointer);
+  await verifyPassive('deep link to another conversation');
+  await navigate(bound);
+  await page(`(() => {
+    history.pushState(null, '', ${JSON.stringify(app(savedPointer))});
+    history.pushState(null, '', ${JSON.stringify(app(bound))});
+    history.back();
+  })()`);
+  await waitCurrent('stock Back', savedPointer);
+  await verifyPassive('Back to another conversation');
+  await page('history.forward()');
+  await waitCurrent('stock Forward', bound);
+  await verifyPassive('Forward to the bound conversation');
+  await reload();
+  await verifyPassive('reload');
+
+  async function click(selector) {
+    const point = await page(`(() => {
+      const list = ${list};
+      const control = list?.querySelector(${JSON.stringify(selector)});
+      if (!control?.checkVisibility({ visibilityProperty: true })) return null;
+      control.scrollIntoView({ block: 'nearest' });
+      const rect = control.getBoundingClientRect();
+      const x = rect.left + rect.width / 2, y = rect.top + rect.height / 2;
+      return control.contains(list.elementFromPoint(x, y)) ? { x, y } : null;
+    })()`);
+    assert.ok(point, `stock control must be visible and hit-testable: ${selector}`);
+    await send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point });
+    await send('Input.dispatchMouseEvent', { type: 'mousePressed', button: 'left', buttons: 1, clickCount: 1, ...point });
+    await send('Input.dispatchMouseEvent', { type: 'mouseReleased', button: 'left', buttons: 0, clickCount: 1, ...point });
+  }
+  const expected = [];
+  async function verifyIntent(label, body) {
+    expected.push(body);
+    await until(label, () => requests[expected.length - 1]?.status, status => status !== undefined);
+    await afterRender();
+    assert.deepEqual(requests.map(({ request, status }) => ({ ...request, postData: request.postData && JSON.parse(request.postData), status })),
+      expected.map(postData => ({ method: 'POST', url: `${origin}${attachment}_intent`, postData, contentType: 'application/json', status: 202 })), label);
+    const current = await state();
+    assert.deepEqual({ url: current.url, selected: current.selected, row: current.current, ids: current.ids, pending: current.pending },
+      { url: app(bound), selected: bound, row: bound, ids, pending: false }, `${label} must leave takeover to the parent attachment`);
+  }
+
+  await click(plus);
+  await verifyIntent('trusted pointer on stock +', { generation, cwd, action: 'new' });
+  await reload();
+  await click(row(savedPointer));
+  await verifyIntent('trusted pointer on stock history', { generation, cwd, action: 'select', id: savedPointer });
+  await reload();
+  assert.equal(await page(`(() => {
+    const list = ${list};
+    const control = list?.querySelector(${JSON.stringify(row(savedKeyboard))});
+    control?.focus();
+    return !!control && list.activeElement === control;
+  })()`), true, 'eligible history row must accept focus');
+  const enter = { key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 };
+  await send('Input.dispatchKeyEvent', { type: 'keyDown', ...enter });
+  await send('Input.dispatchKeyEvent', { type: 'keyUp', ...enter });
+  await verifyIntent('trusted Enter on stock history', { generation, cwd, action: 'select', id: savedKeyboard });
+}
+
 const profile = await mkdtemp(join(tmpdir(), 'pi-web-system-rows-'));
 let browser;
 let browserClosed;
@@ -151,24 +387,28 @@ let stderr = '';
 const diagnostics = () => `document loads=${fixtureLoads}, modules served=${servedModules}; Chromium stderr: ${stderr.trim()}`;
 try {
   await new Promise((resolve, reject) => server.once('error', reject).listen(0, '127.0.0.1', resolve));
+  const origin = `http://127.0.0.1:${server.address().port}`;
   browser = spawn(process.env.CI_CHROMIUM_EXECUTABLE, [
     '--headless', '--no-sandbox', '--disable-background-networking', '--no-first-run',
-    `--user-data-dir=${profile}`, `http://127.0.0.1:${server.address().port}/`,
-  ], { detached: true, stdio: ['ignore', 'ignore', 'pipe'] });
+    '--window-size=1440,1000', '--remote-debugging-pipe', `--user-data-dir=${profile}`, `${origin}/`,
+  ], { detached: true, stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'] });
   browser.stderr.on('data', chunk => { stderr = (stderr + chunk).slice(-2400); });
   browserClosed = new Promise(resolve => browser.once('close', (code, signal) => resolve({ code, signal })));
-  const result = await Promise.race([
-    browserResult,
+  await Promise.race([
+    browserResult.then(async result => {
+      assert.equal(result, 'pass', 'stock SYSTEM row fixture');
+      console.log('Stock Chat hides SYSTEM rows and selected header controls and distinguishes user messages');
+      await verifyStockTranscriptControls(browser, origin);
+      console.log('Stock Chat sends scoped transcript intents for trusted + and history activation, never for passive navigation');
+    }),
     browserClosed.then(({ code, signal }) => {
-      throw Error(`Chromium exited before the fixture reported (${code ?? signal}); ${diagnostics()}`);
+      throw Error(`Chromium exited before the fixtures completed (${code ?? signal}); ${diagnostics()}`);
     }),
     new Promise((_, reject) => {
       browser.once('error', reject);
-      deadline = setTimeout(() => reject(Error(`Timed out waiting for stock SYSTEM row fixture; ${diagnostics()}`)), 20_000);
+      deadline = setTimeout(() => reject(Error(`Timed out waiting for stock browser fixtures; ${diagnostics()}`)), 40_000);
     }),
   ]);
-  assert.equal(result, 'pass', 'stock SYSTEM row fixture');
-  console.log('Stock Chat hides SYSTEM rows and selected header controls and distinguishes user messages');
 } finally {
   clearTimeout(deadline);
   if (browser?.pid) {

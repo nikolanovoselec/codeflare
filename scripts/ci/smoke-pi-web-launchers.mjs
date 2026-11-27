@@ -339,6 +339,10 @@ async function qualify(mode) {
       assert.equal(json(ownerPath).terminalTicket, claimed, 'no replacement grant can be issued');
       assert.equal(read(claimPath(claimed)), `${process.pid}\n`, 'Host never overwrites a claimant’s receipt');
       assert.equal(json(reportPath).instance, restarted.native.instance);
+      // This claimed ticket has no writer receipt, so normal Stop must fail closed.
+      const retirement = host.close();
+      host = undefined;
+      await assert.rejects(retirement, { message: 'Could not retire the unconfirmed Pi writer' });
       console.log('PI_WEB_CLASSIC_LAUNCHER_OK');
       return;
     }
@@ -497,12 +501,15 @@ async function qualify(mode) {
     await stopRuntime();
     console.log('PI_WEB_HERDR_LEGACY_RESTORE_OK');
   } finally {
-    if (mode === 'classic') await host?.close();
-    if (pty) {
-      await pty.stop();
-      if (mode === 'herdr') await stopHerdr().catch(error => console.error(`Herdr cleanup: ${error.message}`));
+    try {
+      if (mode === 'classic') await host?.close();
+    } finally {
+      if (pty) {
+        await pty.stop();
+        if (mode === 'herdr') await stopHerdr().catch(error => console.error(`Herdr cleanup: ${error.message}`));
+      }
+      rmSync(home, { recursive: true, force: true });
     }
-    rmSync(home, { recursive: true, force: true });
   }
 }
 

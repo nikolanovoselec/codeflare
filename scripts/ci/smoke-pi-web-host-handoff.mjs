@@ -178,6 +178,8 @@ async function qualify(ambiguous) {
     proxy.upgrade(req, socket, head);
   });
   let startupEvents;
+  let expectUnconfirmedDispatch = false;
+  let qualificationFailure;
   const occupiedGateway = createServer((_req, res) => res.writeHead(503).end());
   const startupLogs = [];
   const info = console.info;
@@ -621,7 +623,7 @@ export default function (pi) {
       assert.notEqual(chat().released, true);
       assert.equal(readFileSync(path, 'utf8'), saved);
       assert.deepEqual(calls, []);
-      console.log('PI_WEB_HOST_AMBIGUOUS_DISPATCH_BLOCKED');
+      expectUnconfirmedDispatch = true;
       return;
     }
 
@@ -799,7 +801,7 @@ export default function (pi) {
       assert.equal(chat().instance, selected.instance);
       assert.equal(chat().released, true, 'graceful Stop proves retirement of the committed writer');
       assert.equal(readFileSync(bindingFile, 'utf8'), `${id}\n`);
-      async function restoredRuntime(surface, nextGeneration, exercise) {
+      async function restoredRuntime(surface, nextGeneration, exercise, expectedCloseError) {
         const nextRoot = join(home, `run-${nextGeneration}`);
         const nextRuntimeDir = join(nextRoot, 'pi-web');
         Object.assign(process.env, { CODEFLARE_RUNTIME_ROOT: nextRoot, CODEFLARE_PI_GENERATION: String(nextGeneration), CODEFLARE_PI_SURFACE: surface });
@@ -815,9 +817,14 @@ export default function (pi) {
         });
         try { await exercise(resumed, get, boot, nextRuntimeDir, resumedProxy); }
         finally {
-          await resumedProxy.close().catch(() => {}); // Test assertions above own the expected verdict.
-          await close(server);
-          Object.assign(process.env, { CODEFLARE_RUNTIME_ROOT: runtimeRoot, CODEFLARE_PI_GENERATION: String(generation), CODEFLARE_PI_SURFACE: 'chat' });
+          try {
+            const retirement = resumedProxy.close();
+            if (expectedCloseError) await assert.rejects(retirement, { message: expectedCloseError });
+            else await retirement;
+          } finally {
+            await close(server);
+            Object.assign(process.env, { CODEFLARE_RUNTIME_ROOT: runtimeRoot, CODEFLARE_PI_GENERATION: String(generation), CODEFLARE_PI_SURFACE: 'chat' });
+          }
         }
       }
       await restoredRuntime('chat', generation + 1, async (resumed, get, boot, _dir, resumedProxy) => {
@@ -857,12 +864,11 @@ export default function (pi) {
       async function verifyUnavailable() {
         const before = readdirSync(dirname(path));
         for (const surface of ['chat', 'terminal']) {
-          await restoredRuntime(surface, failedGeneration++, async (resumed, _get, boot, _dir, resumedProxy) => {
+          await restoredRuntime(surface, failedGeneration++, async (resumed, _get, boot) => {
             await assert.rejects(boot, /Saved Pi transcript/);
             assert.equal(resumed.status().chatUrl, undefined);
             assert.equal(resumed.binding, undefined);
-            await assert.rejects(resumedProxy.close(), /ownership was not confirmed/);
-          });
+          }, 'Classic Pi ownership was not confirmed at shutdown');
         }
         assert.deepEqual(readdirSync(dirname(path)), before, 'Resume cannot seed a replacement');
       }
@@ -966,8 +972,12 @@ export default function (pi) {
         return state.phase === 'failed' && state.requestId === rapidReturn;
       });
       assert.equal((await health()).activeSessions, 0);
+      await proxy.close(); // Both confirmed writers released; the rapid return did not start another.
       console.log('PI_WEB_HOST_NATIVE_QUIT_OK');
     }
+  } catch (error) {
+    qualificationFailure = error;
+    throw error;
   } finally {
     restoreSpawn();
     startupEvents?.terminate();
@@ -977,8 +987,18 @@ export default function (pi) {
     writeFileSync(resume, '');
     writeFileSync(nativeResume, '');
     const retire = proxy.close();
-    await Promise.all([ambiguous ? assert.rejects(retire, /retire/) : retire, close(server), close(modelServer), close(occupiedGateway)]);
-    rmSync(home, { recursive: true, force: true });
+    const retirement = expectUnconfirmedDispatch ? assert.rejects(retire, { message: 'Could not retire the Pi writer' }) : retire;
+    try {
+      await Promise.all([retirement, close(server), close(modelServer), close(occupiedGateway)]).catch(error => {
+        if (qualificationFailure && qualificationFailure !== error) {
+          throw new AggregateError([qualificationFailure, error], 'Host handoff and cleanup both failed');
+        }
+        throw error;
+      });
+      if (expectUnconfirmedDispatch) console.log('PI_WEB_HOST_AMBIGUOUS_DISPATCH_BLOCKED');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   }
 }
 

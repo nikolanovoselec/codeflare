@@ -19,6 +19,7 @@ export interface PiSwitchStatus {
 }
 interface RebindAttempt {
   requestId: string;
+  prepare: () => Promise<PiTranscript>;
   destination?: PiTranscript;
 }
 interface Options {
@@ -89,14 +90,16 @@ export function createPiWebHandoff(options: Options) {
       return status();
     }
     if (candidate && (state.surface !== 'chat' || !permits('chat', 'work'))) throw new Error('Chat is not active');
-    if (!candidate && !retire && state.surface === target && !(restartTerminal && target === 'terminal')) return status();
+    // A failed drain still has a Chat source. Retrying its request is a
+    // rebind, not a request to stay in the already-selected surface.
+    const retry = !retire && state.phase === 'failed' && state.requestId === requestId
+      && rebindAttempt?.requestId === requestId ? rebindAttempt : undefined;
+    const rebind = retry ?? (candidate ? { requestId, prepare: candidate } : undefined);
+    if (!rebind && !retire && state.surface === target && !(restartTerminal && target === 'terminal')) return status();
     if (!state.surface && (state.requestId !== requestId || !released)) throw new Error('Retry the previous Pi switch');
     const source = state.surface;
-    const retry = !source && rebindAttempt?.requestId === requestId ? rebindAttempt : undefined;
-    if (retry && !retry.destination) throw new Error('The requested Pi transcript is unavailable');
-    const rebind: RebindAttempt | undefined = candidate ? { requestId } : undefined;
-    if (rebind) rebindAttempt = rebind;
-    else if (source) rebindAttempt = undefined;
+    if (!source && rebind && !rebind.destination) throw new Error('The requested Pi transcript is unavailable');
+    if (source) rebindAttempt = rebind;
     const abort = new AbortController();
     const attempt = { requestId, target };
     if (source) set({ ...attempt, phase: 'waiting', surface: source });
@@ -143,14 +146,14 @@ export function createPiWebHandoff(options: Options) {
         set({ ...attempt, phase: 'complete', surface: null });
         return status();
       }
-      let transcript = retry?.destination ?? released;
+      let transcript = rebind?.destination ?? released;
       if (!transcript) throw new Error('No Pi transcript was released');
-      if (candidate && rebind) {
+      if (rebind && !rebind.destination) {
         if (retiring) {
           set({ ...attempt, phase: 'failed', surface: null });
           return status();
         }
-        try { transcript = rebind.destination = await candidate(); }
+        try { transcript = rebind.destination = await rebind.prepare(); }
         catch {
           set({ ...attempt, phase: 'failed', surface: null });
           return status();

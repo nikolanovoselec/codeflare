@@ -494,7 +494,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     navigationRendering.realTerminalArea = true;
     const id = 'abcdef0123456789';
     const prefix = `/api/pi-web/${id}/`;
-    const chatUrl = `${prefix}g/7/?session=saved-pi&view=chat`;
+    const chatUrl = `${prefix}g/7/a/00000000-0000-4000-8000-000000000001/?session=saved-pi&view=chat`;
     let surface: string = initial;
     const requested: string[] = [];
     mockPreferences = { defaultPiSurface: preferred, ...settings };
@@ -978,7 +978,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     navigationRendering.realTerminalArea = true;
     const id = 'abcdef0123456789';
     const prefix = `/api/pi-web/${id}/`;
-    const chatUrl = `${prefix}g/7/?session=saved-pi&view=chat`;
+    const chatUrl = `${prefix}g/7/a/00000000-0000-4000-8000-000000000001/?session=saved-pi&view=chat`;
     mockSessions = [createMockSession({ id, workspace: 'terminal', agentType: 'pi', generation: 7 })];
     window.history.replaceState(null, '', `/app/session/${id}`);
     let phase = 'active';
@@ -1006,7 +1006,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     navigationRendering.terminalAutoFocus = true;
     const id = 'abcdef0123456789';
     const prefix = `/api/pi-web/${id}/`;
-    const chatUrl = `${prefix}g/7/?session=saved-pi&view=chat`;
+    const chatUrl = `${prefix}g/7/a/00000000-0000-4000-8000-000000000001/?session=saved-pi&view=chat`;
     const { terminalStore, reconnectOnVisibilityReturn } = await import('../../stores/terminal');
     const [connection, setConnection] = createSignal<'connected' | 'disconnected'>('disconnected');
     const [initializing, setInitializing] = createSignal(false);
@@ -1078,7 +1078,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     navigationRendering.realTerminalArea = true;
     const sessionId = 'abcdef0123456789';
     const prefix = `/api/pi-web/${sessionId}/`;
-    const chatUrl = `${prefix}g/7/?session=saved-pi&view=chat`;
+    const chatUrl = `${prefix}g/7/a/00000000-0000-4000-8000-000000000001/?session=saved-pi&view=chat`;
     let surface = 'chat';
     let requestId: string | undefined;
     const { terminalStore } = await import('../../stores/terminal');
