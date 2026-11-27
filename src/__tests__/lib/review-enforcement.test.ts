@@ -887,6 +887,7 @@ describe('Pi marker-or-dialog review ingress', () => {
     }
     offline = false;
     await app.emit('session_start');
+    expect(app.prompts[0]?.options).toEqual(scenario === 'different created PR' ? ['Mark review complete', 'Launch review'] : ['Launch review']);
     expect(app.sent[0]?.details).toMatchObject({ prNumber: exactTarget ? 99 : 42, head: input.head });
     expect(app.sent[0]?.details?.ciEvent).toBe(scenario === 'unrelated reopen' ? 'push'
       : exactTarget ? 'pr-create' : undefined);

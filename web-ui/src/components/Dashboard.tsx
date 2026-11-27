@@ -216,14 +216,24 @@ const Dashboard: Component<DashboardProps> = (props) => {
     if (!email) { setGravatarOk(false); return; }
     gravatarExists(email, 48).then(setGravatarOk);
   });
+  const [profileEmail, setProfileEmail] = createSignal<HTMLDivElement>();
   const [userMenuPos, setUserMenuPos] = createSignal({ top: 0, right: 0, sheet: false });
   let userBtnRef: HTMLButtonElement | undefined;
   createEffect(() => {
     if (!showUserMenu()) return;
-    const update = () => { if (userBtnRef) setUserMenuPos(measureProfileMenu(userBtnRef, !!props.userName)); };
+    const email = profileEmail();
+    const update = () => {
+      const emailHeight = email ? email.offsetHeight + (Number.parseFloat(getComputedStyle(email.parentElement!).rowGap) || 0) : 0;
+      if (userBtnRef) setUserMenuPos(measureProfileMenu(userBtnRef, emailHeight));
+    };
     update();
     window.addEventListener('resize', update);
-    onCleanup(() => window.removeEventListener('resize', update));
+    const observer = email && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(update) : undefined;
+    if (email) observer?.observe(email);
+    onCleanup(() => {
+      window.removeEventListener('resize', update);
+      observer?.disconnect();
+    });
   });
   let dashboardHeader!: HTMLDivElement;
   let headerActions!: HTMLDivElement;
@@ -539,7 +549,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                     } : undefined}
                   >
                     <Show when={props.userName}>{email => (
-                      <div class="header-user-email"><span>{email()}</span></div>
+                      <div class="header-user-email" ref={setProfileEmail}><span>{email()}</span></div>
                     )}</Show>
                     <div class="header-user-profile-actions" role="group" aria-label="Account actions">
                       <Show when={operatorInProfile()}><div ref={setOperatorProfileMount} /></Show>

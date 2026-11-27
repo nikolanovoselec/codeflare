@@ -7,15 +7,17 @@ const fixed = 6 * 44 + 4 * 8 + 32;
 const actions = { vscode: 52, operators: 52, vault: 52 };
 
 it.each([
-  [900, 460, false],
-  [900, 459, true],
-  [900, 412, true],
-  [390, 800, true],
-  [640.5, 460, false],
-  [640.5, 459, true],
-  [900, 491, true, true],
-  [900, 492, false, true],
-] as const)('chooses Profile placement at viewport %s × %s', (width, height, sheet, hasEmail = false) => {
+  [900, 460, false, 0],
+  [900, 459, true, 0],
+  [900, 412, true, 0],
+  [390, 800, true, 0],
+  [640.5, 460, false, 0],
+  [640.5, 459, true, 0],
+  [900, 491, true, 32],
+  [900, 492, false, 32],
+  [641, 533, true, 74],
+  [641, 534, false, 74],
+] as const)('chooses Profile placement at viewport %s × %s', (width, height, sheet, emailHeight) => {
   const anchor = document.createElement('button');
   anchor.getBoundingClientRect = () => new DOMRect(160, 356, 44, 44);
   const innerWidth = Math.floor(width);
@@ -23,7 +25,7 @@ it.each([
   vi.stubGlobal('innerHeight', height);
   vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(max-width: 640px)' && width <= 640 }));
   try {
-    expect(measureProfileMenu(anchor, hasEmail)).toEqual({ top: 408, right: innerWidth - 204, sheet });
+    expect(measureProfileMenu(anchor, emailHeight)).toEqual({ top: 408, right: innerWidth - 204, sheet });
   } finally {
     vi.unstubAllGlobals();
   }

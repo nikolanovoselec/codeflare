@@ -59,6 +59,7 @@ interface HeaderProps {
  */
 const Header: Component<HeaderProps> = (props) => {
   const [showUserMenu, setShowUserMenu] = createSignal(false);
+  const [profileEmail, setProfileEmail] = createSignal<HTMLDivElement>();
   const [userMenuPos, setUserMenuPos] = createSignal({ top: 0, sheet: false });
   const [gravatarOk, setGravatarOk] = createSignal(false);
   // Probe Gravatar existence once via fetch (no <img onError> console noise).
@@ -72,10 +73,19 @@ const Header: Component<HeaderProps> = (props) => {
   let userButtonRef: HTMLButtonElement | undefined;
   createEffect(() => {
     if (!showUserMenu()) return;
-    const update = () => { if (userMenuRef) setUserMenuPos(measureProfileMenu(userMenuRef, !!props.userName)); };
+    const email = profileEmail();
+    const update = () => {
+      const emailHeight = email ? email.offsetHeight + (Number.parseFloat(getComputedStyle(email.parentElement!).rowGap) || 0) : 0;
+      if (userMenuRef) setUserMenuPos(measureProfileMenu(userMenuRef, emailHeight));
+    };
     update();
     window.addEventListener('resize', update);
-    onCleanup(() => window.removeEventListener('resize', update));
+    const observer = email && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(update) : undefined;
+    if (email) observer?.observe(email);
+    onCleanup(() => {
+      window.removeEventListener('resize', update);
+      observer?.disconnect();
+    });
   });
   const [operatorProfileMount, setOperatorProfileMount] = createSignal<HTMLDivElement>();
   let timerMenuRef: HTMLDivElement | undefined;
@@ -254,7 +264,7 @@ const Header: Component<HeaderProps> = (props) => {
               classList={{ 'header-user-dropdown--sheet': userMenuPos().sheet }}
               style={{ '--profile-menu-top': `${userMenuPos().top}px` }}>
               <Show when={props.userName}>{email => (
-                <div class="header-user-email"><span>{email()}</span></div>
+                <div class="header-user-email" ref={setProfileEmail}><span>{email()}</span></div>
               )}</Show>
               <div class="header-user-profile-actions" role="group" aria-label="Account actions">
                 <Show when={inProfile('vscode') && props.onVscodeOpen}>{onOpen =>

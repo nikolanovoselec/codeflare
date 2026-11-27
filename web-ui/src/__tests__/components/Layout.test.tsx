@@ -16,7 +16,7 @@ vi.mock('../../api/client', async importOriginal => ({
 }));
 vi.mock('../../api/mcp-portals', () => ({ getMcpPortalStatuses: async () => [] }));
 
-const navigationRendering = vi.hoisted(() => ({ realTerminalArea: false, realSettingsPanel: false, realDashboard: false, realHeader: false }));
+const navigationRendering = vi.hoisted(() => ({ realTerminalArea: false, realSettingsPanel: false, realDashboard: false, realHeader: false, terminalAutoFocus: false }));
 const cloudflare = vi.hoisted(() => ({ getStatus: vi.fn(), selectAccount: vi.fn() }));
 vi.mock('../../api/cloudflare', () => ({
   getCloudflareStatus: cloudflare.getStatus,
@@ -41,15 +41,19 @@ vi.mock('../../components/Dashboard', async importOriginal => {
 vi.mock('../../components/Terminal', async () => {
   const { sessionStore } = await import('../../stores/session');
   const { terminalStore } = await import('../../stores/terminal');
-  const { Show, createEffect } = await import('solid-js');
+  const { Show, createEffect, untrack } = await import('solid-js');
   return { default: (props: any) => {
     createEffect(() => {
       if (props.connect && props.onHandoffAttached && terminalStore.getConnectionState(props.sessionId, props.terminalId) === 'connected') {
         props.onHandoffAttached();
       }
     });
+    let input: HTMLTextAreaElement | undefined;
+    createEffect(() => {
+      if (navigationRendering.terminalAutoFocus && props.focused && props.connect && !untrack(() => props.preserveDomFocus?.())) input?.focus();
+    });
     return <Show when={sessionStore.isSessionInitializing(props.sessionId)}
-      fallback={<div data-testid={mockTilingForSession?.enabled ? `workspace-content-${props.terminalId}` : "workspace-content"} data-connect={String(props.connect)} data-focused={String(props.focused)}>Workspace</div>}>
+      fallback={<div data-testid={mockTilingForSession?.enabled ? `workspace-content-${props.terminalId}` : "workspace-content"} data-connect={String(props.connect)} data-focused={String(props.focused)}>Workspace{navigationRendering.terminalAutoFocus && <textarea ref={input} aria-label="Terminal input" />}</div>}>
       <div data-testid="startup-progress">
         {sessionStore.sessions.find(session => session.id === props.sessionId)?.status === 'running' ? 'Ready to open' : 'Starting'}
         <button onClick={props.onInitComplete}>Open workspace</button>
@@ -203,6 +207,7 @@ vi.mock('../../stores/session', () => ({
     stopSession: vi.fn(),
     deleteSession: vi.fn(),
     createSession: vi.fn(),
+    createSessionWithClone: vi.fn(),
     dismissInitProgressForSession: vi.fn(),
     clearError: vi.fn(),
     isSessionInitializing: vi.fn(() => false),
@@ -824,6 +829,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
 
   it('keeps Vibe visible after Host confirms Code until its terminal attaches', async () => {
     navigationRendering.realTerminalArea = true;
+    navigationRendering.terminalAutoFocus = true;
     const id = 'abcdef0123456789';
     const prefix = `/api/pi-web/${id}/`;
     const chatUrl = `${prefix}g/7/?session=saved-pi&view=chat`;
@@ -875,6 +881,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect(code).toBe(vibe);
       expect(code).toHaveFocus();
     } finally {
+      navigationRendering.terminalAutoFocus = false;
       cleanup();
       vi.mocked(sessionStore.setActiveTerminalTab).mockReset();
       vi.unstubAllGlobals();
@@ -2536,9 +2543,56 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
         await waitFor(() => {
           expect(sessionStore.createSession).toHaveBeenCalledWith('newest', 'pi', undefined, { repo: 'team/newest' }, 'chat');
           expect(sessionStore.startSession).toHaveBeenCalledWith(id, 'chat');
+          expect(window.location.pathname).toBe(`/app/session/${id}`);
         });
       } finally {
         cleanup();
+        resetGithub();
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it.each(['age', 'drawer'])('navigates to the new Vibe clone from the %s picker', async entry => {
+      navigationRendering.realTerminalArea = true;
+      navigationRendering.realDashboard = true;
+      mockPreferences = { defaultPiSurface: 'chat' };
+      const id = 'abcdef0123456789';
+      mockSessions = [createMockSession({ id: 'fedcba9876543210', agentType: 'pi', workspace: 'terminal' })];
+      const { _resetForTests: resetGithub } = await import('../../stores/github');
+      const { cloneAttempt, setCloneAttempt } = await import('../../stores/clone-attempts');
+      resetGithub();
+      vi.stubGlobal('fetch', async (url: string) => {
+        if (url === '/api/github/status') return Response.json({ enabled: true, connected: true, login: 'octocat', source: 'app' });
+        if (url === '/api/github/owned-repo-counts') return Response.json({ counts: null });
+        if (url === '/api/github/repos?page=1') return Response.json({ repos: [{
+          name: 'newest', full_name: 'team/newest', owner: 'team', private: true,
+          visibility: 'private', default_branch: 'main', updated_at: '2026-03-01T00:00:00Z',
+        }], page: 1, hasMore: false });
+        if (url === `/api/pi-web/${id}/_switch?generation=7`) return Response.json({
+          phase: 'complete', surface: 'chat', chatUrl: `/api/pi-web/${id}/g/7/?session=saved-pi&view=chat`,
+        });
+        return Response.json({});
+      });
+      vi.mocked(sessionStore.createSessionWithClone).mockImplementationOnce(async (repo, _agent, surface) => {
+        const attempt = cloneAttempt(repo, surface);
+        if (attempt?.phase !== 'creating') throw new Error('Missing clone launch');
+        setCloneAttempt(repo, { ...attempt, sessionId: id }, surface);
+        mockSessions = [...mockSessions, createMockSession({ id, agentType: 'pi', workspace: 'terminal', generation: 7 })];
+        sessionStore.setActiveSession(id);
+        return { sessionId: id, started: true };
+      });
+      try {
+        render(() => <Layout />);
+        if (entry === 'drawer') {
+          fireEvent.click(await screen.findByRole('button', { name: 'Show GitHub & Storage' }));
+          fireEvent.click(await screen.findByRole('button', { name: 'Clone' }));
+        } else fireEvent.click(await screen.findByRole('button', { name: 'Clone into a session: team/newest' }));
+        fireEvent.click(await screen.findByRole('button', { name: /^New Pi session/ }));
+        await waitFor(() => expect(window.location.pathname).toBe(`/app/session/${id}`));
+        expect(await screen.findByTitle('Pi Chat')).toBeInTheDocument();
+      } finally {
+        cleanup();
+        setCloneAttempt('team/newest', undefined, 'chat');
         resetGithub();
         vi.unstubAllGlobals();
       }

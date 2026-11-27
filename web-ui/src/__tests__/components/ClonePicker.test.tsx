@@ -91,9 +91,12 @@ describe('ClonePicker', () => {
   afterEach(() => {
     cleanup();
     setCloneAttempt(REPO.full_name);
+    setCloneAttempt(REPO.full_name, undefined, 'chat');
   });
 
   it('Vibe offers only Pi destinations and never retries a non-Pi Code clone', async () => {
+    sessionStoreState.enterpriseMode = true;
+    sessionStoreState.allowedAgents = ['copilot', 'pi', 'bash'];
     sessionStoreState.sessions = [
       { id: 'pi-running', name: 'Running Pi', status: 'running', agentType: 'pi' },
       { id: 'code-running', name: 'Running Codex', status: 'running', agentType: 'codex' },
@@ -103,9 +106,37 @@ describe('ClonePicker', () => {
     render(() => <ClonePicker repo={REPO} vibeOnly onClose={() => {}} />);
     expect(screen.getByRole('button', { name: /^Running Pi/ })).toBeEnabled();
     expect(screen.queryByRole('button', { name: /^Running Codex|^Retry Start|^Codex/ })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('clone-picker-agent-copilot')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('clone-picker-agent-bash')).not.toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /^New Pi session/ }));
     await waitFor(() => expect(mockCreateSessionWithClone).toHaveBeenCalledWith(REPO.full_name, 'pi', 'chat'));
+  });
+
+  it('preserves the saved Code retry after a successful Vibe clone of the same repository', async () => {
+    sessionStoreState.sessions = [{ id: 'code-saved', name: 'Code clone', status: 'stopped', agentType: 'codex' }];
+    setCloneAttempt(REPO.full_name, { phase: 'failed', sessionId: 'code-saved' });
+    const close = vi.fn();
+    render(() => <ClonePicker repo={REPO} vibeOnly onClose={close} />);
+    fireEvent.click(screen.getByRole('button', { name: /^New Pi session/ }));
+    await waitFor(() => expect(close).toHaveBeenCalled());
+    cleanup();
+    renderPicker();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry Start' }));
+    await waitFor(() => expect(mockRetryCloneStart).toHaveBeenCalledWith('code-saved'));
+  });
+
+  it('retries the original Chat surface from Code after a failed Vibe clone', async () => {
+    sessionStoreState.sessions = [{ id: 'chat-saved', name: 'Vibe clone', status: 'stopped', agentType: 'pi' }];
+    mockCreateSessionWithClone.mockResolvedValueOnce({ sessionId: 'chat-saved', started: false });
+    render(() => <ClonePicker repo={REPO} vibeOnly onClose={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: /^New Pi session/ }));
+    await screen.findByRole('button', { name: 'Retry Start' });
+    cleanup();
+    renderPicker();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry Start' }));
+    await waitFor(() => expect(mockRetryCloneStart).toHaveBeenCalledWith('chat-saved', 'chat'));
+    expect(mockCreateSessionWithClone).toHaveBeenCalledTimes(1);
   });
 
   it('renders the running group before the new-session group through shared option rows', () => {

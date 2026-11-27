@@ -627,8 +627,8 @@ async function createSessionWithClone(repo: string, agentType?: AgentType, surfa
   const name = repo.split('/')[1] || repo;
   const session = await createSession(name, agentType, undefined, { repo }, surface);
   if (!session) return null;
-  const attempt = cloneAttempt(repo);
-  if (attempt?.phase === 'creating') setCloneAttempt(repo, { ...attempt, sessionId: session.id });
+  const attempt = cloneAttempt(repo, surface);
+  if (attempt?.phase === 'creating') setCloneAttempt(repo, { ...attempt, sessionId: session.id }, surface);
   if (session.workspace !== 'vscode') {
     setActiveSession(session.id);
   }
@@ -649,6 +649,7 @@ function canRetryCloneStart(id: string): boolean {
 
 async function retryCloneStart(id: string, surface?: 'chat'): Promise<boolean> {
   if (!canRetryCloneStart(id)) return false;
+  if (surface === 'chat') setActiveSession(id);
   return startSession(id, surface).then(result => result !== 'cancelled', () => false);
 }
 

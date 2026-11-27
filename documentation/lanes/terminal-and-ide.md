@@ -262,9 +262,7 @@ Use an authorized running Enterprise workspace with the mode selector, VS Code, 
 
 Narrow the viewport and verify VS Code, then Operators, then Vault enter Profile as needed. Open Profile and check each moved action remains reachable. See [Operators](../../sdd/spec/operators.md#req-operator-040-owned-activity-control-presentation) and [Vault](../../sdd/spec/vault.md#req-vault-033-vault-button-availability-and-opening).
 
-For [REQ-AUTH-016 AC4](../../sdd/spec/authentication.md#req-auth-016-header-user-dropdown), open Profile in both headers at a width above 640 CSS px. Resize with the menu open. Measure from the bottom edge of the Profile button, not the avatar. With 60px to the viewport bottom, the menu stays anchored below the button (8px gap, 44px available, 8px bottom margin). With 59px, the sheet reaches the viewport bottom, stays on-screen, and is dismissible.
-
-Repeat both the 60px and 59px checks in both headers at a CSS viewport width strictly between 640px and 641px, using browser zoom if needed. Before counting each case, confirm `matchMedia('(640px < width < 641px)').matches` returns `true`. Check the rendered menu position, not just its class.
+For [REQ-AUTH-016 AC4 and AC7](../../sdd/spec/authentication.md#req-auth-016-header-user-dropdown), open Profile in both headers above 640 CSS px. Without email, check the 60px/59px fit boundary below the button. With email, add the rendered label height and gap to that boundary. Use a wrapping address near 640px and resize with the menu open: the full black label stays above the actions without widening their panel, and a short viewport uses the bottom sheet. Repeat above the fractional breakpoint; verify placement visually.
 
 For [REQ-AUTH-016 AC5](../../sdd/spec/authentication.md#req-auth-016-header-user-dropdown), reduce height on desktop and mobile in both headers until the last action starts below the visible menu area. Verify the menu stays inside the viewport and scrolling it reveals the last action fully without scrolling the page. Mark any placement or scrolling case that cannot be reproduced as unverified.
 
@@ -284,7 +282,7 @@ Hover the GitHub card outside the age pills and verify that the card highlights.
 
 With separate authorization, use a disposable Vibe workspace and a repository with a known default branch and a distinguishable nondefault branch. With no running session, hover an age label for **Clone into a session**, then click it and choose **Open**. While **Restoring repositories…** is still visible for that clone, verify the Chat composer accepts a harmless prompt. If the clone finishes before this can be observed, mark the ordering check unexercised.
 
-With disposable Pi and non-Pi sessions running, check that both the Vibe age pill and GitHub Browser Clone offer only eligible Pi sessions and **New Pi session**. Exercise the live and new targets separately. Find the new session on Dashboard, open it in Chat, and confirm the checkout in each selected session. In Code, confirm the browser still offers enabled agents.
+With disposable Pi and non-Pi sessions running, check that both the Vibe age pill and GitHub Browser Clone offer only eligible Pi sessions and **New Pi session**. Exercise the live and new targets separately. Find the new session on Dashboard, open it in Chat, and confirm the checkout in each selected session. In Code, confirm the browser still offers enabled agents. With a failed Code clone saved for that repo, verify Vibe does not offer its retry and returning to Code preserves the saved session. A new Vibe clone must open directly in Chat at its session URL.
 
 Compare the GitHub and Storage card bounds, surface color, border, corner radius, and padding in the same viewport, using Storage Usage as the reference. Repeat the comparison with a successfully loaded empty list and no positive owned count. The black labels then read **NOTHING TO SHOW.** and **GO BUILD SOMETHING.** on two lines.
 

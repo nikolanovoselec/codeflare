@@ -2,14 +2,14 @@ const overflowOrder = ['vscode', 'operators', 'vault'] as const;
 export type OverflowHeaderAction = typeof overflowOrder[number];
 export const HEADER_ICON_SLOT = 44;
 
-export function measureProfileMenu(anchor: HTMLElement, hasEmail = false) {
+export function measureProfileMenu(anchor: HTMLElement, emailHeight = 0) {
   const rect = anchor.getBoundingClientRect();
   const top = rect.bottom + 8;
   const narrow = window.matchMedia?.('(max-width: 640px)').matches ?? window.innerWidth <= 640;
   return {
     top,
     right: window.innerWidth - rect.right,
-    sheet: narrow || window.innerHeight - top - 8 < HEADER_ICON_SLOT + (hasEmail ? 32 : 0),
+    sheet: narrow || window.innerHeight - top - 8 < HEADER_ICON_SLOT + emailHeight,
   };
 }
 

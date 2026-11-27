@@ -11,6 +11,7 @@ import StoragePanel from './StoragePanel';
 import SplashCursor from './SplashCursor';
 import '../styles/layout.css';
 import { sessionStore, getUsageWarningLevel, getDismissedQuotaLevel, setDismissedQuotaLevel } from '../stores/session';
+import { isStartingChatClone } from '../stores/clone-attempts';
 import { storageStore } from '../stores/storage';
 import { terminalStore, reconnectDisconnectedTerminals, reconnectOnVisibilityReturn, scheduleDisconnect, cancelScheduledDisconnect } from '../stores/terminal';
 import { terminalWorkspaceStore } from '../stores/terminal-workspace';
@@ -779,6 +780,13 @@ const Layout: Component<LayoutProps> = (props) => {
     const hasActiveMultiView = terminalWorkspaceStore.getActiveWorkspace().kind === 'multiview';
 
     if ((hasActiveTerminal || hasActiveMultiView) && viewState() === 'dashboard') {
+      if (session && hasActiveTerminal && !hasActiveMultiView && isStartingChatClone(session.id)) {
+        untrack(() => {
+          selectStartupSurface(session, 'chat');
+          openSessionWorkspace(session.id);
+        });
+        return;
+      }
       setViewState('terminal');
       setTimeout(() => terminalStore.triggerLayoutResize(), 50);
     } else if (!hasActiveTerminal && !hasActiveMultiView && viewState() === 'terminal') {

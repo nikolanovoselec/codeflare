@@ -5,7 +5,7 @@ import { isPiWebSession } from '../../lib/pi-web-session';
 import type { AgentType } from '../../types';
 import type { GithubRepo } from '../../api/github';
 import { sessionStore } from '../../stores/session';
-import { cloneAttempt, setCloneAttempt } from '../../stores/clone-attempts';
+import { cloneAttempt, cloneLaunchPending, setCloneAttempt } from '../../stores/clone-attempts';
 import ClonePickerSessionRow from './ClonePickerSessionRow';
 import ClonePickerNewSession from './ClonePickerNewSession';
 
@@ -28,15 +28,11 @@ const ClonePicker: Component<ClonePickerProps> = (props) => {
   let disposed = false;
   const [position, setPosition] = createSignal<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 320 });
   const [createFailed, setCreateFailed] = createSignal(false);
-  const attempt = () => cloneAttempt(props.repo.full_name);
+  const retrySurface = () => props.vibeOnly || (!cloneAttempt(props.repo.full_name) && cloneAttempt(props.repo.full_name, 'chat')) ? 'chat' as const : undefined;
+  const attempt = () => cloneAttempt(props.repo.full_name, retrySurface());
   const retrySessionId = () => {
     const current = attempt();
-    if (!current || current.phase === 'creating') return undefined;
-    if (props.vibeOnly) {
-      const saved = sessionStore.sessions.find(session => session.id === current.sessionId);
-      if (saved ? !isPiWebSession(saved) : current.agentType !== 'pi') return undefined;
-    }
-    return current.sessionId;
+    return current?.phase === 'creating' ? undefined : current?.sessionId;
   };
 
   const runningSessions = createMemo(() =>
@@ -44,7 +40,7 @@ const ClonePicker: Component<ClonePickerProps> = (props) => {
       && (!props.vibeOnly || (s.lifecycle !== 'stopping' && isPiWebSession(s)))),
   );
 
-  const busy = () => attempt()?.phase === 'creating' || attempt()?.phase === 'retrying';
+  const busy = () => cloneLaunchPending(props.repo.full_name);
 
   const updatePosition = () => {
     if (!props.anchorRef) return;
@@ -125,19 +121,19 @@ const ClonePicker: Component<ClonePickerProps> = (props) => {
   // starts on the dashboard. On success the picker closes.
   const handleCloneIntoNewSession = async (agentType: AgentType) => {
     if (busy() || (props.vibeOnly && (agentType !== 'pi' || !sessionStore.allowedAgents?.includes('pi')))) return;
-    const vibe = props.vibeOnly;
+    const surface = props.vibeOnly ? 'chat' : undefined;
     const repo = props.repo.full_name;
     closeButton?.focus();
     setCreateFailed(false);
     const ticket = Symbol();
-    setCloneAttempt(repo, { phase: 'creating', ticket, agentType });
-    const result = await (vibe
+    setCloneAttempt(repo, { phase: 'creating', ticket }, surface);
+    const result = await (surface
       ? sessionStore.createSessionWithClone(repo, 'pi', 'chat')
       : sessionStore.createSessionWithClone(repo, agentType));
-    const current = cloneAttempt(repo);
+    const current = cloneAttempt(repo, surface);
     if (current?.phase !== 'creating' || current.ticket !== ticket) return;
-    if (result && !result.started) setCloneAttempt(repo, { phase: 'failed', sessionId: result.sessionId, agentType });
-    else setCloneAttempt(repo);
+    if (result && !result.started) setCloneAttempt(repo, { phase: 'failed', sessionId: result.sessionId }, surface);
+    else setCloneAttempt(repo, undefined, surface);
     if (disposed) return;
     if (result?.started) props.onClose();
     else if (!result) setCreateFailed(true);
@@ -147,11 +143,12 @@ const ClonePicker: Component<ClonePickerProps> = (props) => {
     if (busy() || retrySessionId() !== id || !sessionStore.canRetryCloneStart(id)) return;
     const repo = props.repo.full_name;
     closeButton?.focus();
-    const retry = { phase: 'retrying', sessionId: id, agentType: attempt()?.agentType } as const;
-    setCloneAttempt(repo, retry);
-    const started = await (props.vibeOnly ? sessionStore.retryCloneStart(id, 'chat') : sessionStore.retryCloneStart(id));
-    if (cloneAttempt(repo) !== retry) return;
-    setCloneAttempt(repo, started ? undefined : { ...retry, phase: 'failed' });
+    const surface = retrySurface();
+    const retry = { phase: 'retrying', sessionId: id } as const;
+    setCloneAttempt(repo, retry, surface);
+    const started = await (surface ? sessionStore.retryCloneStart(id, surface) : sessionStore.retryCloneStart(id));
+    if (cloneAttempt(repo, surface) !== retry) return;
+    setCloneAttempt(repo, started ? undefined : { ...retry, phase: 'failed' }, surface);
     if (started && !disposed) props.onClose();
   };
 
