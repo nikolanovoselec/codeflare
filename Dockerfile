@@ -271,6 +271,10 @@ RUN apt-get -o Acquire::Retries=0 update && apt-get -o Acquire::Retries=0 upgrad
     slirp4netns \
     iptables \
     # REQ-SEC-011: require fixed Debian security builds and invalidate stale apt layers.
+    # CVE-2025-6020: check all four installed binary packages from Debian's PAM source package.
+    && for pkg in libpam-modules libpam-modules-bin libpam-runtime libpam0g; do \
+         dpkg --compare-versions "$(dpkg-query -W -f='${Version}' "$pkg")" ge '1.5.2-6+deb12u3' || exit 1; \
+       done \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' librsvg2-2)" ge '2.54.7+dfsg-1~deb12u2' \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' librsvg2-bin)" ge '2.54.7+dfsg-1~deb12u2' \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libbrotli1)" ge '1.0.9-2+deb12u1' \
@@ -810,9 +814,9 @@ apt-get install -y --no-install-recommends gcc g++ python3-dev
 # CVE-2026-126190: patched Soup Sieve requires a newer 3.11 patch than Bookworm.
 # Keep this interpreter isolated to Graphify; leave the system Python unchanged.
 uv tool install --python 3.11.18 --with "soupsieve==4.1" "graphifyy[mcp,sql,pdf]==$VER"
-# Update pip in this image-owned interpreter, not Bookworm's protected Python.
+# Update packaging tools in this image-owned interpreter, not Bookworm's protected Python.
 GRAPHIFY_PYTHON=$(uv python find --managed-python 3.11.18)
-uv pip install --break-system-packages --python "$GRAPHIFY_PYTHON" "pip==26.3"
+uv pip install --break-system-packages --python "$GRAPHIFY_PYTHON" "pip==26.3" "setuptools==84.2.1"
 apt-get purge -y gcc g++ python3-dev
 apt-get autoremove -y
 rm -rf /var/lib/apt/lists/*
@@ -833,7 +837,7 @@ ln -sf /root/.local/share/uv/tools/graphifyy/bin/graphify /usr/local/bin/graphif
 # A regression in either (e.g. missing tree-sitter wheel, broken entry-point)
 # surfaces at build time rather than at first user invocation.
 graphify --version
-"$GRAPHIFY_PYTHON" -c "from importlib.metadata import version; assert version('pip') == '26.3', 'Managed Python pip security pin differs'"
+"$GRAPHIFY_PYTHON" -c "from importlib.metadata import version; assert (version('pip'), version('setuptools')) == ('26.3', '84.2.1'), 'Managed Python packaging security pins differ'"
 uv tool run --from graphifyy python3 -c "import graphify.serve; from importlib.metadata import version; assert version('soupsieve') == '4.1', 'Graphify Soup Sieve security pin differs'" \
   || (echo "[Dockerfile] FATAL: Graphify MCP import or security pin verification failed" >&2 && exit 1)
 
