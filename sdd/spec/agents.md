@@ -1270,11 +1270,12 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 2. Chat starts in Quiet mode and allows the user to change it. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
 3. Native questions are answerable in the live Chat frame. During startup, the original frame shows the question before Open appears. <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (keeps the standard startup screen until Open reveals Chat, without mounting a native terminal) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
 4. The Chat composer saves attachments to the active conversation’s workspace, up to 16 attachments, 10,000,000 decoded bytes total, and a 14 MiB request body. An over-limit batch writes no files. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
-5. Chat starts with Codeflare selected and active, a dark theme with an 80%-transparent base that distinguishes user messages from agent replies. Existing browser profiles return to the default once; later explicit browser theme choices survive reloads. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @impl: web-ui/src/components/PiWebChat.tsx::StockChatFrame --> <!-- @impl: image/pi-web/codeflare-chrome/browser/graphite.css::--pi-bg = #18181833 --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (lets a fresh browser use the stock gateway theme default) --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (returns a previously saved alternate theme to the gateway default on first open) --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (keeps a later browser theme choice on reopening Chat (%s)) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
-6. The machine name defaults to Codeflare. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
-7. Managed Chat does not expose optional Info, Updates, MCP Manager, Tasks, or Relays panels. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
+5. The machine name defaults to Codeflare. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+6. Managed Chat does not expose optional Info, Updates, MCP Manager, Tasks, or Relays panels. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
 
 **Constraints:**
+
+- [REQ-AGENT-288](#req-agent-288-codeflare-chat-theme) owns the Chat theme.
 
 - [REQ-AGENT-286](#req-agent-286-classic-chat-conversation-selection) owns creating and selecting Chat conversations.
 - Chat does not expose Git or worktree controls at any point in the session. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @test: scripts/ci/smoke-pi-web-services.mjs (verifyRestoredBundledWorkflows) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
@@ -1285,7 +1286,31 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Dependencies:** [REQ-AGENT-272](#req-agent-272-pi-chat-and-terminal-transcript-handoff)
 
-**Verification:** Automated: [Chat browser preferences](../../web-ui/src/__tests__/components/PiWebChat.test.tsx), [Stock gateway smoke](../../scripts/ci/smoke-pi-web-services.mjs); Manual: [Stock controls and native questions](../../documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions), [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout).
+**Verification:** Manual: [Stock controls and native questions](../../documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions), [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout)
+
+**Status:** Planned
+
+---
+
+### REQ-AGENT-288: Codeflare Chat theme
+
+**Intent:** Present Codeflare’s default Chat appearance while preserving later browser choices.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. In a fresh browser, Chat opens with Codeflare selected and active. Its dark, 80%-transparent base distinguishes user messages from agent replies. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @impl: image/pi-web/codeflare-chrome/browser/graphite.css::--pi-bg = #18181833 --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (lets a fresh browser use the stock gateway theme default) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+2. On first open after the change, a browser with a previously saved theme returns to the Codeflare default. <!-- @impl: web-ui/src/components/PiWebChat.tsx::StockChatFrame --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (returns a previously saved alternate theme to the gateway default on first open) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+3. An explicit browser theme choice made after that first open survives reload and reopening Chat. <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (keeps a later browser theme choice on reopening Chat (%s)) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+
+**Constraints:** Use stock Pi Web theme support without locking subsequent theme choices.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-274](#req-agent-274-stock-pi-chat-controls)
+
+**Verification:** Manual: [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout)
 
 **Status:** Planned
 
