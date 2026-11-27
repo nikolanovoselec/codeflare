@@ -85,6 +85,7 @@ describe('REQ-ENTERPRISE-005 AC2: system CA survives Enterprise restore', () => 
 
   for (const [name, earlyUpdate, duringRestore, expectedBundle, lateWarning] of [
     ['keeps a verified store even if a later rebuild is unavailable', true, 'unchanged', 'original', false],
+    ['installs the mounted CA when restricted startup skips the initial restore', false, 'skip', 'original', false],
     ['retries after an early rebuild failure', false, 'unchanged', 'original', false],
     ['rebuilds for a changed certificate', true, 'rotate', 'rotated', false],
     ['rebuilds if the bundle no longer trusts the certificate', true, 'break-bundle', 'original', false],
@@ -106,7 +107,8 @@ describe('REQ-ENTERPRISE-005 AC2: system CA survives Enterprise restore', () => 
           `update_available=${earlyUpdate}; during_restore=${duringRestore}`,
           restore.replaceAll('/etc/cloudflare/certs/cloudflare-containers-ca.crt', '$CF_CA_SRC')
             .replaceAll('/usr/local/share/ca-certificates/cloudflare-containers-ca.crt', '"$installed"'),
-          'run_initial_r2_restore',
+          'unset enterprise_ca_installed_before_restore',
+          'if [ "$during_restore" != skip ]; then run_initial_r2_restore; fi',
           'if [[ "$during_restore" == fail-late || ( "$during_restore" == unchanged && "$update_available" == true ) ]]; then update_available=false; else update_available=true; fi',
           agentTrust.replaceAll('/usr/local/share/ca-certificates/cloudflare-containers-ca.crt', '"$installed"')
             .replaceAll('/etc/ssl/certs/ca-certificates.crt', '$bundle'),

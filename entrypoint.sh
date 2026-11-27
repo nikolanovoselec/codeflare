@@ -4369,7 +4369,7 @@ if [ "${ENTERPRISE_MODE:-}" = "active" ]; then
     # curl/openssl) AND export the Node + Python env hooks (Copilot / Pi / any
     # node|python tooling use their own trust stores).
     if [ -f "$CF_CA_SRC" ]; then
-        if [ "$enterprise_ca_installed_before_restore" = true ] \
+        if [ "${enterprise_ca_installed_before_restore:-false}" = true ] \
             && cmp -s "$CF_CA_SRC" /usr/local/share/ca-certificates/cloudflare-containers-ca.crt \
             && openssl verify -no-CApath -no-CAstore -CAfile /etc/ssl/certs/ca-certificates.crt "$CF_CA_SRC" >/dev/null 2>&1; then
             echo "[entrypoint] Enterprise Mode: Cloudflare containers CA still trusted after R2 restore"
