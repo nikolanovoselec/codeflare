@@ -784,11 +784,7 @@ const Layout: Component<LayoutProps> = (props) => {
 
     if ((hasActiveTerminal || hasActiveMultiView) && viewState() === 'dashboard') {
       if (session && hasActiveTerminal && !hasActiveMultiView && isStartingChatClone(session.id)) {
-        untrack(() => {
-          if (session.status !== 'running') chatCloneRoute = session.id;
-          selectStartupSurface(session, 'chat');
-          openSessionWorkspace(session.id);
-        });
+        untrack(() => openSessionWorkspace(session.id));
         return;
       }
       setViewState('terminal');
@@ -875,7 +871,12 @@ const Layout: Component<LayoutProps> = (props) => {
     const eligible = modeAvailable() && isPiWebSession(session);
     const preferredSurface = eligible ? sessionStore.preferences.defaultPiSurface : undefined;
     const surface = eligible ? options.surface ?? (shouldStart ? preferredSurface : undefined) : undefined;
-    if (!shouldStart && startupSurface()?.id !== id) setStartupSurface(undefined);
+    if (!shouldStart && isStartingChatClone(id)) {
+      if (session.status !== 'running') chatCloneRoute = id;
+      selectStartupSurface(session, 'chat');
+    } else if (!shouldStart && startupSurface()?.id !== id) {
+      setStartupSurface(undefined);
+    }
     const clearStartup = shouldStart ? selectStartupSurface(session, surface) : undefined;
     const parkedPane = parkedTerminalPane();
     const warmReturn = parkedPane?.sessionId === id

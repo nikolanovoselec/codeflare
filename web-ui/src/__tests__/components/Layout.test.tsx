@@ -2552,7 +2552,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       }
     });
 
-    it.each([['age', 'ready'], ['drawer', 'ready'], ['age', 'error'], ['drawer', 'stopped'], ['age', 'newer route']] as const)('navigates to the new Vibe clone from the %s picker (%s)', async (entry, outcome) => {
+    it.each([['age', 'ready'], ['drawer', 'ready'], ['age', 'error'], ['drawer', 'stopped'], ['age', 'newer route'], ['age', 'back then forward']] as const)('navigates to the new Vibe clone from the %s picker (%s)', async (entry, outcome) => {
       navigationRendering.realTerminalArea = true;
       navigationRendering.realDashboard = true;
       mockPreferences = { defaultPiSurface: 'chat' };
@@ -2600,10 +2600,18 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
         expect(await screen.findByText('Preparing Chat…')).toBeInTheDocument();
         const nextPath = '/app/session/fedcba9876543210';
         if (outcome === 'newer route') window.history.pushState(null, '', nextPath);
+        if (outcome === 'back then forward') {
+          window.history.back();
+          expect(await screen.findByTestId('session-stat-card-fedcba9876543210-select')).toBeVisible();
+          expect(window.location.pathname).toBe('/app/');
+          window.history.forward();
+          await waitFor(() => expect(window.location.pathname).toBe(`/app/session/${id}`));
+          expect(await screen.findByText('Preparing Chat…')).toBeInTheDocument();
+        }
         finishStart();
         if (outcome === 'ready') expect(await screen.findByTitle('Pi Chat')).toBeInTheDocument();
         else {
-          await screen.findByRole('button', { name: /^Activate session/ });
+          expect(await screen.findByTestId(`session-stat-card-${id}-select`)).toBeVisible();
           expect(window.location.pathname).toBe(outcome === 'newer route' ? nextPath : '/app/');
         }
       } finally {

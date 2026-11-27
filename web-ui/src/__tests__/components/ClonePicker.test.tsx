@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup, waitFor } from '@solidjs/testing-library';
+import { render, screen, fireEvent, cleanup, waitFor, within } from '@solidjs/testing-library';
 import { createSignal, Show } from 'solid-js';
 
 // ── API mock (hoisted so the vi.mock factory can reference it) ──────────────
@@ -111,6 +111,14 @@ describe('ClonePicker', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /^New Pi session/ }));
     await waitFor(() => expect(mockCreateSessionWithClone).toHaveBeenCalledWith(REPO.full_name, 'pi', 'chat'));
+  });
+
+  it('offers no new Vibe destination when the profile excludes Pi', () => {
+    sessionStoreState.enterpriseMode = true;
+    sessionStoreState.allowedAgents = ['copilot', 'bash'];
+    render(() => <ClonePicker repo={REPO} vibeOnly onClose={() => {}} />);
+    const dialog = screen.getByRole('dialog', { name: 'Clone repository' });
+    expect(within(dialog).getAllByRole('button')).toEqual([within(dialog).getByRole('button', { name: 'Close clone picker' })]);
   });
 
   it('preserves the saved Code retry after a successful Vibe clone of the same repository', async () => {
