@@ -112,7 +112,7 @@ In **Vibe**, Dashboard **New Session** starts Pi Chat directly. Returning to Das
 
 #### Switch between two running Chats
 
-Open two disposable Vibe sessions and wait for both Chats to finish loading. Alternate between them using the session selector and again via Dashboard. After each session has first opened, verify that selecting it shows the original iframe without a startup screen or a new `POST` to `/_switch`. Only the selected Chat should be visible. Stop one session and verify its frame disappears without replacing the other.
+For [REQ-AGENT-277](../../sdd/spec/agents.md#req-agent-277-retained-chat-on-dashboard-return), open two disposable Vibe sessions and wait for both Chats to finish loading. Alternate between them using the session selector and again via Dashboard. After each session has first opened, verify that selecting it shows the original iframe without a startup screen or a new `POST` to `/_switch`. Only the selected Chat should be visible. Stop one session and verify its frame disappears without replacing the other.
 
 #### Quit and reopen native Pi
 
@@ -268,7 +268,7 @@ Narrow the viewport and verify VS Code, then Operators, then Vault enter Profile
 
 For [REQ-AUTH-016 AC4 and AC7](../../sdd/spec/authentication.md#req-auth-016-header-user-dropdown), open Profile in both headers above 640 CSS px. Measure from the Profile button’s bottom edge: without email, 60px anchors the menu and 59px uses the bottom sheet. With email, add the rendered label height and gap to both thresholds. Use a wrapping address near 640px and resize with the menu open: the full black label stays above the actions without widening their panel, and a short viewport uses the bottom sheet. Repeat both threshold cases between 640px and 641px, using browser zoom if needed. Confirm `matchMedia('(640px < width < 641px)').matches` before counting each result. Check the rendered placement, not just the menu class.
 
-At 390 CSS px, open Profile in both headers and compare the email badge and **Usage** action label in DevTools. Their computed font sizes should match, and the full email should remain visible above the actions.
+At 390 CSS px, open Profile in both headers and compare the email badge and **Usage** action label in DevTools ([REQ-AUTH-016 AC8](../../sdd/spec/authentication.md#req-auth-016-header-user-dropdown)). Their computed font sizes should match, and the full email should remain visible above the actions.
 
 With desktop Profile anchored, compare short and long addresses in both headers. Verify the full badge stays inside the viewport without widening the action panel. Shorten the viewport with each menu open and check the badge remains above the actions in the bottom sheet.
 

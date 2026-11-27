@@ -488,6 +488,8 @@ None.
 6. Selecting Usage from Dashboard Profile dismisses the menu so it cannot obstruct Usage. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (returns from %s Profile Usage to the same Chat without another writer request) -->
 7. The open Profile menu displays the complete account email on a black label above the actions without increasing the action panel’s width. <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (shows the Profile email only at the top of the open workspace menu) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (shows the Profile email only at the top of the open Dashboard menu in %s) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#workspace-header-acceptance -->
 
+8. On mobile, the Profile email badge uses the same text size as the account action labels. <!-- @impl: web-ui/src/styles/header.css::.header-user-email --> <!-- @manual: documentation/lanes/terminal-and-ide.md#workspace-header-acceptance -->
+
 **Constraints:**
 
 - Deployment mode controls only the action set; the dropdown interaction and responsive presentation remain shared.

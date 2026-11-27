@@ -1129,11 +1129,12 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 **Acceptance Criteria:**
 
 1. Dashboard can hide and retain an already-open Chat frame for the same running session and generation. Returning reveals the same frame without requesting a new writer. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (reuses the open Chat frame on Dashboard return and discards it on %s) -->
-2. Page exit discards parked frames. Stop, a generation change, or confirmed loss of Chat ownership discards the affected retained frame. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (reuses the open Chat frame on Dashboard return and discards it on %s) -->
+2. Stop, a generation change, or confirmed loss of Chat ownership discards only the affected retained frame. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (switches between two running Chats without replacing either frame or requesting a writer, then handles %s) -->
 
 3. Opening Usage from Profile parks an already-open Chat just like Dashboard. Returning to its running session in the same generation reveals the same frame without requesting a writer. <!-- @impl: web-ui/src/App.tsx::AppContent --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (returns from %s Profile Usage to the same Chat without another writer request) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#return-from-profile-usage -->
 
-4. Alternating between two running, already-open Chats reveals their original frames without the startup screen or another writer request. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (switches between two running Chats without replacing either frame or requesting a writer) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-between-two-running-chats -->
+4. Alternating between two running, already-open Chats reveals their original frames without the startup screen or another writer request. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (switches between two running Chats without replacing either frame or requesting a writer, then handles %s) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-between-two-running-chats -->
+5. Page exit discards all parked Chat frames. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (switches between two running Chats without replacing either frame or requesting a writer, then handles %s) -->
 
 **Constraints:** Keep at most two mounted Chat frames in the workspace; never show both at once.
 
@@ -1141,7 +1142,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Dependencies:** [REQ-AGENT-273](#req-agent-273-pi-handoff-continuity)
 
-**Verification:** Automated: [Layout](../../web-ui/src/__tests__/components/Layout.test.tsx); Manual: [Return from Profile Usage](../../documentation/lanes/terminal-and-ide.md#return-from-profile-usage)
+**Verification:** Automated: [Layout](../../web-ui/src/__tests__/components/Layout.test.tsx); Manual: [Return from Profile Usage](../../documentation/lanes/terminal-and-ide.md#return-from-profile-usage), [Switch between two running Chats](../../documentation/lanes/terminal-and-ide.md#switch-between-two-running-chats)
 
 **Status:** Planned
 

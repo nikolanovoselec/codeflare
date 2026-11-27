@@ -753,7 +753,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     } finally { cleanup(); vi.unstubAllGlobals(); }
   });
 
-  it('switches between two running Chats without replacing either frame or requesting a writer', async () => {
+  it.each(['generation replacement', 'Stop', 'ownership loss', 'page exit'] as const)('switches between two running Chats without replacing either frame or requesting a writer, then handles %s', async invalidation => {
     navigationRendering.realTerminalArea = true;
     navigationRendering.realHeader = true;
     const first = 'abcdef0123456789';
@@ -761,9 +761,11 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     mockSessions = [first, second].map((id, index) => createMockSession({ id, name: `Chat ${index + 1}`, workspace: 'terminal', agentType: 'pi', generation: 7 }));
     window.history.replaceState(null, '', `/app/session/${first}`);
     const switches: string[] = [];
+    let firstOwnsChat = true;
     vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
       if (init?.method === 'POST' && url.includes('/_switch')) switches.push(url);
       const id = /\/api\/pi-web\/([^/]+)\/_switch\?generation=7$/.exec(url)?.[1];
+      if (id === first && !firstOwnsChat) return Response.json({ phase: 'active', surface: 'terminal' });
       return Response.json(id ? { phase: 'active', surface: 'chat', chatUrl: `/api/pi-web/${id}/g/7/?view=chat` } : {});
     });
     const frameFor = (id: string) => screen.queryAllByTitle('Pi Chat').find(frame =>
@@ -786,22 +788,85 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect(frameFor(first)).toBe(a);
       expect(a).toBeVisible();
       expect(b).not.toBeVisible();
-      expect(screen.queryByRole('button', { name: 'Open', exact: true })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^Open$/ })).not.toBeInTheDocument();
       dashboard();
       await select('Open another session');
       expect(frameFor(second)).toBe(b);
       expect(b).toBeVisible();
-      expect(screen.queryByRole('button', { name: 'Open', exact: true })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^Open$/ })).not.toBeInTheDocument();
       expect(switches).toEqual([]);
 
-      mockSessions = [{ ...mockSessions[0], generation: 8 }, mockSessions[1]];
-      bumpSessionStoreVersion();
-      expect(a).not.toBeInTheDocument();
-      expect(b).toBeVisible();
-      dashboard();
-      window.dispatchEvent(new Event('pagehide'));
-      expect(b).not.toBeInTheDocument();
+      if (invalidation === 'page exit') {
+        dashboard();
+        expect(a).toBeInTheDocument();
+        expect(b).toBeInTheDocument();
+        window.dispatchEvent(new Event('pagehide'));
+        expect(a).not.toBeInTheDocument();
+        expect(b).not.toBeInTheDocument();
+      } else {
+        if (invalidation === 'generation replacement') {
+          mockSessions = [{ ...mockSessions[0], generation: 8 }, mockSessions[1]];
+          bumpSessionStoreVersion();
+        } else if (invalidation === 'Stop') {
+          dashboard();
+          await select('Stop retained session');
+          await select('Open another session');
+        } else {
+          firstOwnsChat = false;
+          await waitFor(() => expect(a).not.toBeInTheDocument(), { timeout: 6500 });
+        }
+        expect(a).not.toBeInTheDocument();
+        expect(frameFor(second)).toBe(b);
+        expect(b).toBeVisible();
+      }
     } finally { cleanup(); vi.unstubAllGlobals(); }
+  }, 10000);
+
+  it('waits for Chat attachment when returning to an unfinished Terminal-to-Chat handoff', async () => {
+    navigationRendering.realTerminalArea = true;
+    const first = 'abcdef0123456789';
+    const second = 'fedcba9876543210';
+    mockSessions = [first, second].map(id => createMockSession({ id, workspace: 'terminal', agentType: 'pi', generation: 7 }));
+    window.history.replaceState(null, '', `/app/session/${first}`);
+    let requestId: string | undefined;
+    const switches: string[] = [];
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      const id = /\/api\/pi-web\/([^/]+)\/_switch(?:\?generation=7)?$/.exec(url)?.[1];
+      if (!id) return Response.json({});
+      if (init?.method === 'POST') {
+        switches.push(id);
+        requestId = JSON.parse(String(init.body)).requestId;
+      }
+      if (id === second || !requestId) return Response.json({ phase: 'active', surface: 'terminal' });
+      return Response.json({ phase: 'complete', surface: 'chat', target: 'chat', requestId,
+        chatUrl: `/api/pi-web/${first}/g/7/?view=chat` });
+    });
+    const dashboard = () => fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
+    try {
+      render(() => <Layout />);
+      const code = await screen.findByRole('button', { name: 'Workspace mode: Code Mode' });
+      await waitFor(() => expect(code).toBeEnabled());
+      fireEvent.click(code);
+      fireEvent.click(screen.getByRole('button', { name: 'Vibe Mode' }));
+      expect(await screen.findByTitle('Pi Chat')).not.toBeVisible();
+      dashboard();
+      fireEvent.click(await screen.findByRole('button', { name: 'Open another session' }));
+      expect(await screen.findByRole('button', { name: 'Workspace mode: Code Mode' })).toBeInTheDocument();
+      dashboard();
+      fireEvent.click(await screen.findByRole('button', { name: 'Return to session' }));
+      const frame = await screen.findByTitle('Pi Chat');
+      expect(frame).not.toBeVisible();
+      if (!(frame instanceof HTMLIFrameElement)) throw new Error('Expected the stock Chat frame');
+      vi.useFakeTimers();
+      const doc = document.implementation.createHTMLDocument();
+      Object.defineProperty(doc, 'URL', { value: frame.src });
+      doc.body.innerHTML = '<pi-web-app></pi-web-app>';
+      Object.defineProperty(frame, 'contentDocument', { value: doc });
+      fireEvent.load(frame);
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(frame).toBeVisible();
+      expect(switches).toEqual([first]);
+    } finally { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); }
   });
 
   it.each(['workspace', 'Dashboard'] as const)('returns from %s Profile Usage to the same Chat without another writer request', async origin => {
