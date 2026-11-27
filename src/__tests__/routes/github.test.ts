@@ -259,20 +259,20 @@ describe('REQ-GITHUB-002 / REQ-GITHUB-007: GET /api/github/repos', () => {
       githubRefreshToken: 'old-refresh', githubTokenExpiresAt: Date.now() - 1000 } satisfies DeployKeys);
     const retained: Promise<unknown>[] = [];
     const context = { waitUntil: (work: Promise<unknown>) => { retained.push(work); } } as ExecutionContext;
-    const forwarded: string[] = [];
+    const outboundPaths: string[] = [];
     mockFetch.mockImplementation(async (input: string) => {
       const path = new URL(input).pathname;
+      outboundPaths.push(path);
       if (path === '/login/oauth/access_token') {
         return new Response('{invalid JSON}', { headers: { 'Content-Type': 'application/json' } });
       }
-      forwarded.push(path);
       return ok([]);
     });
     const response = await createTestApp(ENT).request('/api/github/repos', undefined, undefined, context);
     await Promise.all(retained);
     expect(response.status).toBe(409);
     expect(await response.json()).toMatchObject({ code: 'NOT_CONNECTED' });
-    expect(forwarded).toEqual([]);
+    expect(outboundPaths).toEqual(['/login/oauth/access_token']);
   });
 
   it('REQ-GITHUB-002: reports a connection conflict for an expired App connection after switching to OAuth', async () => {
