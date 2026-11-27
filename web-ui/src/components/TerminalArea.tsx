@@ -12,11 +12,12 @@ import Dashboard from './Dashboard';
 import type { MigrationRetry } from './MigrationRetryNotice';
 import { sessionStore } from '../stores/session';
 import { terminalWorkspaceStore } from '../stores/terminal-workspace';
-import { resolveTerminalMode, type TileLayout, type AgentType, type TabConfig, type PiSurface, type VisibleTerminalPane } from '../types';
+import { resolveTerminalMode, type TileLayout, type AgentType, type TabConfig, type PiSurface, type SessionWithStatus, type VisibleTerminalPane } from '../types';
 import { generateSessionName } from '../lib/session-utils';
 
 interface TerminalAreaProps {
   workspaceMode?: PiWorkspaceModeBinding;
+  renderSessionVault?: (session: SessionWithStatus) => JSX.Element;
   launchingVibe?: boolean;
   migrationRetry: MigrationRetry;
   repositoryRestoreNotices?: JSX.Element;
@@ -331,6 +332,7 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
       <Show when={!props.showTerminal}>
         <Dashboard
           workspaceMode={props.workspaceMode}
+          renderSessionVault={props.renderSessionVault}
           launchingVibe={props.launchingVibe}
           migrationRetry={props.migrationRetry}
           sessions={sessionStore.sessions}

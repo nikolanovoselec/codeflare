@@ -1,4 +1,4 @@
-import { Component, batch, createSignal, createMemo, createEffect, createRoot, onMount, onCleanup, For, Show, untrack } from 'solid-js';
+import { Component, batch, createSignal, createMemo, createEffect, createRoot, mapArray, onMount, onCleanup, For, Show, untrack } from 'solid-js';
 import Header from './Header';
 import TerminalArea from './TerminalArea';
 import PiWebChat, { type ChatPanelSize } from './PiWebChat';
@@ -24,7 +24,7 @@ import { VIEW_TRANSITION_DURATION_MS, DASHBOARD_WS_DISCONNECT_DELAY_MS, SESSION_
 import { startVaultReadinessProbe, probeVaultReady } from '../lib/vault-readiness';
 import { DEFAULT_VAULT_PREWARM_TIMEOUT_MS, startVaultPrewarm, type VaultPrewarmStatus } from '../lib/vault-prewarm';
 import { checkVaultKeyRecoverable } from '../lib/vault-local-readiness';
-import type { VaultButtonStatus } from './VaultButton';
+import VaultButton, { type VaultButtonStatus } from './VaultButton';
 import { requestBrowserStoragePersistence } from '../lib/browser-storage-persistence';
 import { dashboardPath, parseSessionPath, sessionPath } from '../lib/session-path';
 import { createBrowserIdeWindowOpener } from '../lib/browser-ide-window';
@@ -501,19 +501,21 @@ const Layout: Component<LayoutProps> = (props) => {
   // breathes green, next click opens). Absent = no pending open.
   const [vaultOpenIntentBySession, setVaultOpenIntentBySession] = createSignal<Record<string, 'preparing' | 'armed'>>({});
   const [vaultPersistenceRequestedBySession, setVaultPersistenceRequestedBySession] = createSignal<Record<string, boolean>>({});
-  // Memoize the running-flag so the effect only re-runs when running-ness
-  // actually flips, not on every metrics/ptyActive churn from session
-  // polling. Without this the probe chain restarts on every status tick.
+  // SilverBullet only runs in advanced mode. Keep the mode gate stable across
+  // unrelated preference updates so card controls retain focus and tooltips.
+  const advancedVaultMode = createMemo(() => sessionStore.preferences.sessionMode === 'advanced');
   const activeRunningSid = createMemo<string | null>(() => {
     const sid = sessionStore.activeSessionId;
-    if (!sid) return null;
-    const s = sessionStore.sessions.find((x) => x.id === sid);
-    // Vault only exists in advanced session mode (matches the vault-button gate
-    // below). In standard mode SilverBullet does not run, so probing
-    // HEAD /api/vault/:sid/ would 502 on a loop - gate the probe on the mode.
-    if (sessionStore.preferences.sessionMode !== 'advanced') return null;
-    return s && s.status === 'running' ? sid : null;
+    if (!sid || !advancedVaultMode()) return null;
+    const session = sessionStore.sessions.find(candidate => candidate.id === sid);
+    return session?.status === 'running' ? sid : null;
   });
+  const showsDashboardVault = (session: SessionWithStatus) =>
+    session.workspace === 'vscode' && advancedVaultMode();
+  const dashboardVaultSids = createMemo(() => showDashboard()
+    ? sessionStore.sessions.filter(session => session.status === 'running' && showsDashboardVault(session)).map(session => session.id)
+    : []);
+
   // In-memory Vault state belongs to the running session, not to whichever view
   // happens to be active. Dashboard navigation and mobile visibility recovery can
   // temporarily clear activeSessionId while the container keeps running; preserve
@@ -533,13 +535,13 @@ const Layout: Component<LayoutProps> = (props) => {
     setVaultPersistenceRequestedBySession((prev) => pruneNonRunningSessionState(prev, runningSessionIds));
   });
 
-  createEffect(() => {
-    const sid = activeRunningSid();
-    if (!sid) return;
-
-    // `untrack` so the latch reads do not subscribe the effect to its own
-    // writes (steady() clears the latch on crash; tracking would spawn a
-    // parallel warmup chain via effect re-run).
+  // Key the probes by session ID, so card updates and metrics polling do not
+  // restart any existing readiness chain.
+  const vaultProbeSessions = mapArray(() => {
+    const active = activeRunningSid();
+    const cards = dashboardVaultSids();
+    return active && !cards.includes(active) ? [active, ...cards] : cards;
+  }, (sid) => {
     const cancel = startVaultReadinessProbe({
       probe: () => probeVaultReady(sid),
       setLatch: () => setVaultReadyBySession((prev) => {
@@ -573,6 +575,8 @@ const Layout: Component<LayoutProps> = (props) => {
     });
     onCleanup(cancel);
   });
+  createEffect(() => { vaultProbeSessions(); });
+
   // Best-effort, once per session: ask the browser to keep the Vault cache from
   // being evicted. Triggered on the first prewarm (click 1), not on idle mount.
   const requestVaultStoragePersistenceOnce = (sid: string) => {
@@ -588,33 +592,43 @@ const Layout: Component<LayoutProps> = (props) => {
     }));
   };
 
-  // On-demand prewarm (REQ-VAULT-018 / REQ-VAULT-020): the bootstrap iframe is
-  // mounted ONLY after the user requests the vault (click 1 -> open-intent
-  // 'preparing'). We never prewarm automatically — that left the user staring at
-  // an empty vault for up to two minutes and forced a manual reload. Re-runs on a
-  // retry-nonce bump (timeout/error) and tears the iframe down once the cycle ends.
+  // The bucket-stable route shares a routing cookie. Run one preparation at a
+  // time; clicks on other cards keep their own pending intent without replacing it.
+  const vaultWorkSid = createMemo(() => {
+    const active = activeRunningSid();
+    if (active) return active;
+    const cards = dashboardVaultSids();
+    if (!cards.length) return undefined;
+    const intent = vaultOpenIntentBySession();
+    const ready = vaultReadyBySession();
+    const prewarm = vaultPrewarmBySession();
+    const requested = Object.keys(intent).filter(sid => cards.includes(sid) && intent[sid] === 'preparing' && ready[sid]);
+    return requested.find(sid => prewarm[sid] === 'prewarming' || prewarm[sid] === 'ready')
+      ?? requested.find(sid => prewarm[sid] !== 'error' && prewarm[sid] !== 'timeout');
+  });
+  const vaultWorkReady = createMemo(() => vaultReadyBySession()[vaultWorkSid() ?? ''] === true);
+  const vaultWorkIntent = createMemo(() => vaultOpenIntentBySession()[vaultWorkSid() ?? '']);
+  const vaultWorkRetry = createMemo(() => vaultPrewarmRetryBySession()[vaultWorkSid() ?? '']);
+  const vaultWorkHasProof = createMemo(() => vaultPrewarmBySession()[vaultWorkSid() ?? ''] === 'ready');
+
+  // On-demand only (REQ-VAULT-018 / REQ-VAULT-020). A retry or a change in
+  // visible workspace tears down the previous iframe before mounting another.
   createEffect(() => {
-    const sid = activeRunningSid();
-    if (!sid || vaultReadyBySession()[sid] !== true) return;
-    if (vaultOpenIntentBySession()[sid] !== 'preparing') return; // wait for click 1
-    const retryNonce = vaultPrewarmRetryBySession()[sid] ?? 0;
-    void retryNonce;
+    const sid = vaultWorkSid();
+    if (!sid || !vaultWorkReady() || vaultWorkIntent() !== 'preparing') return;
+    vaultWorkRetry();
     const current = untrack(vaultPrewarmBySession)[sid];
     if (current === 'ready' || current === 'prewarming') return;
 
     setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: 'prewarming' }));
     requestVaultStoragePersistenceOnce(sid);
 
-    let handle: ReturnType<typeof startVaultPrewarm> = null;
-    const mountPrewarm = () => {
-      handle = startVaultPrewarm({
-        sessionId: sid,
-        timeoutMs: DEFAULT_VAULT_PREWARM_TIMEOUT_MS,
-        onReady: () => setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: 'ready' })),
-        onError: (status) => setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: status })),
-      });
-    };
-    mountPrewarm();
+    const handle = startVaultPrewarm({
+      sessionId: sid,
+      timeoutMs: DEFAULT_VAULT_PREWARM_TIMEOUT_MS,
+      onReady: () => setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: 'ready' })),
+      onError: (status) => setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: status })),
+    });
     onCleanup(() => {
       handle?.cancel();
       setVaultPrewarmBySession((prev) => clearPrewarmingVaultStatus(prev, sid));
@@ -630,8 +644,7 @@ const Layout: Component<LayoutProps> = (props) => {
   // settle-on-return state diverged per-platform and caused the green-forever
   // (mobile) vs never-green (desktop) bugs. "Ready = green, always" has no
   // reload-dependent state, so mobile / tablet / desktop behave identically.
-  const vaultButtonStatus = createMemo<VaultButtonStatus>(() => {
-    const sid = sessionStore.activeSessionId;
+  const vaultButtonStatus = (sid: string | null): VaultButtonStatus => {
     if (!sid || vaultReadyBySession()[sid] !== true) return 'idle';
     const intent = vaultOpenIntentBySession()[sid];
     if (intent === 'armed') return 'armed';
@@ -645,9 +658,9 @@ const Layout: Component<LayoutProps> = (props) => {
     // ready in this dashboard lifetime, including return from the Vault tab.
     if (pw === 'ready') return 'armed';
     return 'available';
-  });
+  };
 
-  const vaultReady = createMemo(() => vaultButtonStatus() === 'armed');
+  const headerVaultStatus = createMemo(() => vaultButtonStatus(sessionStore.activeSessionId));
 
   const clearVaultOpenIntent = (sid: string) =>
     setVaultOpenIntentBySession((prev) => {
@@ -686,8 +699,7 @@ const Layout: Component<LayoutProps> = (props) => {
     }
   };
 
-  const handleVaultOpen = () => {
-    const sid = sessionStore.activeSessionId;
+  const handleVaultOpen = (sid: string | null) => {
     if (!sid || untrack(vaultReadyBySession)[sid] !== true) return;
     const intent = untrack(vaultOpenIntentBySession)[sid];
     // Mid-prepare clicks are no-ops while work is active. A visible timeout or
@@ -695,7 +707,10 @@ const Layout: Component<LayoutProps> = (props) => {
     if (intent === 'preparing') {
       const status = untrack(vaultPrewarmBySession)[sid];
       if (status === 'timeout' || status === 'error') {
-        setVaultPrewarmRetryBySession((prev) => ({ ...prev, [sid]: (prev[sid] ?? 0) + 1 }));
+        batch(() => {
+          setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: 'idle' }));
+          setVaultPrewarmRetryBySession((prev) => ({ ...prev, [sid]: (prev[sid] ?? 0) + 1 }));
+        });
       }
       return;
     }
@@ -719,21 +734,23 @@ const Layout: Component<LayoutProps> = (props) => {
     setVaultOpenIntentBySession((prev) => ({ ...prev, [sid]: 'preparing' }));
   };
 
-  // While 'preparing', poll until the prewarm proof is ready AND the encryption key
-  // is recoverable, then arm (button breathes green, next click opens). The key fetch
-  // short-circuits behind the prewarm proof, so once the proof lands re-fetching
-  // `/.vault-key` each tick also keeps an idle container warm until the open.
+  const renderDashboardVault = (session: SessionWithStatus) => {
+    if (!showsDashboardVault(session)) return;
+    return <VaultButton
+      status={session.status === 'running' ? vaultButtonStatus(session.id) : 'idle'}
+      onOpen={() => handleVaultOpen(session.id)}
+    />;
+  };
+
+  // Once the prewarm proof lands, poll for key recoverability before arming.
   createEffect(() => {
-    const sid = sessionStore.activeSessionId;
-    if (!sid || vaultOpenIntentBySession()[sid] !== 'preparing') return;
-    // Tracked read: re-run (and re-tick immediately) when the prewarm flips to ready,
-    // so arming does not wait for the next poll interval.
-    const prewarmReady = vaultPrewarmBySession()[sid] === 'ready';
+    const sid = vaultWorkSid();
+    if (!sid || vaultWorkIntent() !== 'preparing' || !vaultWorkHasProof()) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const tick = async () => {
       if (cancelled) return;
-      const ready = prewarmReady && (await checkVaultKeyRecoverable(sid));
+      const ready = await checkVaultKeyRecoverable(sid);
       if (cancelled) return;
       if (ready) {
         setVaultOpenIntentBySession((prev) => (prev[sid] === 'preparing' ? { ...prev, [sid]: 'armed' } : prev));
@@ -1304,8 +1321,8 @@ const Layout: Component<LayoutProps> = (props) => {
             userName={props.userName}
             onSettingsClick={handleSettingsClick}
             onStoragePanelToggle={handleStoragePanelToggle}
-            onVaultOpen={sessionStore.activeSessionId && sessionStore.preferences.sessionMode === 'advanced'
-              ? handleVaultOpen
+            onVaultOpen={sessionStore.activeSessionId && advancedVaultMode()
+              ? () => handleVaultOpen(sessionStore.activeSessionId)
               : undefined}
             onVscodeOpen={sessionStore.activeSessionId
               && sessionStore.preferences.sessionMode === 'advanced'
@@ -1313,8 +1330,8 @@ const Layout: Component<LayoutProps> = (props) => {
               ? handleVscodeOpen
               : undefined}
             workspaceMode={sessionWorkspaceMode()}
-            vaultReady={vaultReady()}
-            vaultStatus={vaultButtonStatus()}
+            vaultReady={headerVaultStatus() === 'armed'}
+            vaultStatus={headerVaultStatus()}
             onLogoClick={showDashboard() ? undefined : handleOpenDashboard}
             sessions={sessionStore.sessions}
             activeSessionId={sessionStore.activeSessionId}
@@ -1334,6 +1351,7 @@ const Layout: Component<LayoutProps> = (props) => {
           {/* Main content */}
           <TerminalArea
             workspaceMode={dashboardWorkspaceMode()}
+            renderSessionVault={renderDashboardVault}
             launchingVibe={launchingVibe()}
             migrationRetry={migrationRetry}
             repositoryRestoreNotices={

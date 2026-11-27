@@ -1,5 +1,5 @@
 import { isPiWebSession } from '../lib/pi-web-session';
-import { Component, Show, For, onMount, onCleanup, createSignal, createMemo, createEffect, createRenderEffect, createUniqueId, createResource } from 'solid-js';
+import { Component, Show, For, onMount, onCleanup, createSignal, createMemo, createEffect, createRenderEffect, createUniqueId, createResource, type JSX } from 'solid-js';
 import PiWorkspaceMode, { type PiWorkspaceModeBinding } from './PiWorkspaceMode';
 import ConnectCard from './github/ConnectCard';
 import ClonePicker from './github/ClonePicker';
@@ -43,6 +43,7 @@ import '../styles/dashboard.css';
 
 interface DashboardProps {
   workspaceMode?: PiWorkspaceModeBinding;
+  renderSessionVault?: (session: SessionWithStatus) => JSX.Element;
   launchingVibe?: boolean;
   migrationRetry: MigrationRetry;
   sessions: SessionWithStatus[];
@@ -737,6 +738,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                     {(session) => (
                       <SessionStatCard
                         session={session}
+                        vaultAction={props.renderSessionVault?.(session)}
                         isActive={false}
                         onSelect={() => handleSessionSelect(session)}
                         onStop={() => props.onStopSession(session.id)}

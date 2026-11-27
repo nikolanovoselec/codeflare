@@ -29,11 +29,29 @@
 
 /* Name truncation (font/color via .type-section-header) */
 .session-stat-card__name {
-  flex: 1;
+  flex: 1 1 0;
   min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Keep the Vault control above the whole-card selector. Its 36px width,
+   12px gap and the 8px dot put the centers 34px apart at the default scale. */
+.session-stat-card__vault {
+  position: relative;
+  z-index: 2;
+  flex: none;
+  margin-inline-end: var(--space-1);
+}
+
+.session-stat-card__vault .header-vault-button {
+  width: calc(var(--space-8) + var(--space-1));
+  height: var(--space-8);
+}
+
+.session-stat-card__vault .header-vault-status {
+  pointer-events: none;
 }
 
 /* Status dot */

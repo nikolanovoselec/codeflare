@@ -114,7 +114,7 @@ describe('VaultButton', () => {
     render(() => <VaultButton status="preparing" onOpen={vi.fn()} />);
     // The focus-loss warning appears on its own the moment the button breathes.
     expect(screen.getByTestId('header-vault-status')).toBeInTheDocument();
-    expect(btn().getAttribute('aria-describedby')).toBe('header-vault-button-status');
+    expect(btn()).toHaveAccessibleDescription(/Preparing your Vault/);
   });
 
   it('armed auto-surfaces the ready region on the genuine preparing->armed transition, then auto-hides after 5s while the breathing class stays', () => {

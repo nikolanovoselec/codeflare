@@ -752,6 +752,29 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 ---
 
+### REQ-VAULT-037: Vault on VS Code Dashboard cards
+
+**Intent:** Open a session’s Vault from the Dashboard without opening its editor.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. In Advanced mode, only VS Code session cards show the Vault control. <!-- @impl: web-ui/src/components/Layout.tsx::renderDashboardVault --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (prepares and opens only the selected card’s Vault (REQ-VAULT-018/019/022/036)) -->
+2. The card uses its own running session’s readiness, preparation, and key recovery. The first click prepares Vault; after it turns green, the next click opens Vault in a new tab without selecting the card. <!-- @impl: web-ui/src/components/Layout.tsx::handleVaultOpen --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (prepares and opens only the selected card’s Vault (REQ-VAULT-018/019/022/036)) --> <!-- @manual: documentation/lanes/vault.md#vault-control-presentation -->
+
+**Constraints:** Reuse the header’s on-demand flow; never use another session’s readiness.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-VAULT-022](#req-vault-022-vault-armed-state-open-flow-and-persistence)
+
+**Verification:** Automated: [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx); Manual: [Vault control presentation](../../documentation/lanes/vault.md#vault-control-presentation)
+
+**Status:** Planned
+
+---
+
 ### REQ-VAULT-019: Vault key-recoverable open gate
 
 **Intent:** The Vault button greens only when the encryption key can serve the editor — verified at the cold-path arming poll, before the control turns green — so a green button then opens directly without re-verifying on the click.

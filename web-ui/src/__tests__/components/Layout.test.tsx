@@ -17,6 +17,7 @@ vi.mock('../../api/client', async importOriginal => ({
 vi.mock('../../api/mcp-portals', () => ({ getMcpPortalStatuses: async () => [] }));
 
 const navigationRendering = vi.hoisted(() => ({ realTerminalArea: false, realSettingsPanel: false, realDashboard: false, realHeader: false, terminalAutoFocus: false }));
+const vaultRendering = vi.hoisted(() => ({ realLifecycle: false }));
 const cloudflare = vi.hoisted(() => ({ getStatus: vi.fn(), selectAccount: vi.fn() }));
 vi.mock('../../api/cloudflare', () => ({
   getCloudflareStatus: cloudflare.getStatus,
@@ -124,13 +125,18 @@ const vaultProbeMock = vi.hoisted(() => ({
   cancel: vi.fn(),
 }));
 
-vi.mock('../../lib/vault-readiness', () => ({
-  startVaultReadinessProbe: (opts: any) => {
-    vaultProbeMock.latestOptions = opts;
-    vaultProbeMock.start(opts);
-    return vaultProbeMock.cancel;
-  },
-}));
+vi.mock('../../lib/vault-readiness', async importOriginal => {
+  const actual = await importOriginal<typeof import('../../lib/vault-readiness')>();
+  return {
+    ...actual,
+    startVaultReadinessProbe: (opts: Parameters<typeof actual.startVaultReadinessProbe>[0]) => {
+      if (vaultRendering.realLifecycle) return actual.startVaultReadinessProbe(opts);
+      vaultProbeMock.latestOptions = opts;
+      vaultProbeMock.start(opts);
+      return vaultProbeMock.cancel;
+    },
+  };
+});
 
 const vaultPrewarmMock = vi.hoisted(() => ({
   start: vi.fn(),
@@ -138,14 +144,18 @@ const vaultPrewarmMock = vi.hoisted(() => ({
   cancel: vi.fn(),
 }));
 
-vi.mock('../../lib/vault-prewarm', () => ({
-  DEFAULT_VAULT_PREWARM_TIMEOUT_MS: 300000,
-  startVaultPrewarm: (opts: any) => {
-    vaultPrewarmMock.latestOptions = opts;
-    vaultPrewarmMock.start(opts);
-    return { cancel: vaultPrewarmMock.cancel, prewarmId: 'test-prewarm', iframe: document.createElement('iframe') };
-  },
-}));
+vi.mock('../../lib/vault-prewarm', async importOriginal => {
+  const actual = await importOriginal<typeof import('../../lib/vault-prewarm')>();
+  return {
+    ...actual,
+    startVaultPrewarm: (opts: Parameters<typeof actual.startVaultPrewarm>[0]) => {
+      if (vaultRendering.realLifecycle) return actual.startVaultPrewarm(opts);
+      vaultPrewarmMock.latestOptions = opts;
+      vaultPrewarmMock.start(opts);
+      return { cancel: vaultPrewarmMock.cancel, prewarmId: 'test-prewarm', iframe: document.createElement('iframe') };
+    },
+  };
+});
 
 const vaultLocalReadinessMock = vi.hoisted(() => ({
   keyRecoverable: vi.fn(async (_sessionId?: string) => true),
@@ -323,6 +333,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     navigationRendering.realSettingsPanel = false;
     navigationRendering.realDashboard = false;
     navigationRendering.realHeader = false;
+    vaultRendering.realLifecycle = false;
     mockMigrationHalt = null;
     retryMigration.mockReset();
     mockSessions = [];
@@ -1757,6 +1768,133 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       } finally {
         openSpy.mockRestore();
       }
+    });
+  });
+
+  describe('Vault on VS Code Dashboard cards', () => {
+    it('prepares and opens only the selected card’s Vault (REQ-VAULT-018/019/022/036)', async () => {
+      navigationRendering.realDashboard = navigationRendering.realTerminalArea = vaultRendering.realLifecycle = true;
+      mockPreferences = { sessionMode: 'advanced', defaultWorkspace: 'terminal' };
+      const first = 'abcdef0123456789';
+      const second = 'fedcba9876543210';
+      const terminal = '1234567890abcdef';
+      mockSessions = [
+        createMockSession({ id: first, workspace: 'vscode', editorReady: true }),
+        createMockSession({ id: second, workspace: 'vscode', editorReady: false }),
+        createMockSession({ id: terminal, workspace: 'terminal' }),
+      ];
+      vi.stubGlobal('fetch', async (input: string | URL | Request) => Response.json({
+        vaultReady: [first, second].some(id => input === `/api/vault/${id}/status`),
+      }));
+      let confirmKey!: (recoverable: boolean) => void;
+      vaultLocalReadinessMock.keyRecoverable.mockImplementation(id => id === first
+        ? new Promise(resolve => { confirmKey = resolve; })
+        : Promise.resolve(false));
+      const open = vi.spyOn(window, 'open').mockReturnValue(null);
+      const focus = vi.spyOn(window, 'focus').mockImplementation(() => {});
+      const frame = () => document.querySelector<HTMLIFrameElement>('iframe[title="Vault prewarm"]');
+      const proveReady = (iframe: HTMLIFrameElement) => {
+        const doc = iframe.contentDocument!;
+        doc.open();
+        doc.write(`<base href="${vaultPrewarmProof.scope}">`);
+        doc.close();
+        window.dispatchEvent(new MessageEvent('message', {
+          origin: window.location.origin, source: iframe.contentWindow,
+          data: { source: 'codeflare-vault-prewarm', status: 'ready', proof: vaultPrewarmProof,
+            prewarmId: new URL(iframe.src).searchParams.get('prewarmId') },
+        }));
+      };
+
+      try {
+        render(() => <Layout />);
+        const a = () => within(screen.getByTestId(`session-stat-card-${first}`));
+        const b = () => within(screen.getByTestId(`session-stat-card-${second}`));
+        const waiting = a().getByRole('button', { name: 'Vault waiting for this session' });
+        expect(waiting).toHaveAttribute('aria-disabled', 'true');
+        fireEvent.click(waiting);
+        expect(frame()).toBeNull();
+
+        const available = await a().findByRole('button', { name: 'Open your Vault' });
+        const other = await b().findByRole('button', { name: 'Open your Vault' });
+        expect(within(screen.getByTestId(`session-stat-card-${terminal}`)).queryByRole('button', { name: /Vault/i })).toBeNull();
+        expect(frame()).toBeNull();
+        available.focus();
+        expect(available).toHaveFocus();
+        available.click();
+        const attempt = frame()!;
+        expect(new URL(attempt.src).pathname).toBe(`/api/vault/${first}/.codeflare-bootstrap`);
+        expect(available).toHaveAttribute('aria-disabled', 'true');
+        expect(available).toHaveAccessibleDescription(/Preparing your Vault/);
+        fireEvent.click(available);
+        fireEvent.click(other);
+        expect(frame()).toBe(attempt);
+        expect(open).not.toHaveBeenCalled();
+
+        proveReady(attempt);
+        expect(available).toHaveAccessibleName('Preparing your Vault…');
+        expect(available).toHaveAttribute('aria-disabled', 'true');
+        expect(frame()).toBeNull();
+        expect(open).not.toHaveBeenCalled();
+        confirmKey(true);
+        const armed = await a().findByRole('button', { name: 'Your Vault is ready.' });
+        const secondAttempt = frame()!;
+        expect(new URL(secondAttempt.src).pathname).toBe(`/api/vault/${second}/.codeflare-bootstrap`);
+        expect(other).toHaveAccessibleName('Preparing your Vault…');
+        expect(armed).toHaveAccessibleDescription('Your Vault is ready.');
+        expect(other).toHaveAccessibleDescription(/Preparing your Vault/);
+
+        // Stop the second session while it owns the iframe; it cannot reuse that attempt.
+        mockSessions = [mockSessions[0], { ...mockSessions[1], status: 'stopped' }, mockSessions[2]];
+        bumpSessionStoreVersion();
+        expect(frame()).toBeNull();
+        expect(b().getByRole('button', { name: 'Vault waiting for this session' })).toHaveAttribute('aria-disabled', 'true');
+        expect(open).not.toHaveBeenCalled();
+        armed.click();
+        expect(open).toHaveBeenLastCalledWith(`/api/vault/${first}/.codeflare-bootstrap`, '_blank', 'noopener');
+        expect(screen.getByTestId('dashboard')).toBeVisible();
+        expect(mockActiveSessionId).toBeNull();
+      } finally {
+        cleanup();
+        vi.unstubAllGlobals();
+        open.mockRestore();
+        focus.mockRestore();
+      }
+    });
+
+    it('keeps the renamed card selector and Vault, status, and menu in order (REQ-IDE-054)', async () => {
+      navigationRendering.realDashboard = navigationRendering.realTerminalArea = true;
+      mockPreferences = { sessionMode: 'advanced', defaultWorkspace: 'vscode' };
+      const id = 'abcdef0123456789';
+      const renamed = 'A much longer renamed session — '.repeat(3) + 'last';
+      mockSessions = [createMockSession({ id, name: 'Pi #1', workspace: 'vscode', editorReady: true })];
+      vi.mocked(sessionStore.renameSession).mockImplementationOnce(async (_id, name) => {
+        mockSessions = [{ ...mockSessions[0], name }];
+        bumpSessionStoreVersion();
+      });
+      const open = vi.spyOn(window, 'open').mockReturnValue({ closed: false, focus: () => {} } as Window);
+      try {
+        render(() => <Layout />);
+        const card = () => within(screen.getByTestId(`session-stat-card-${id}`));
+        fireEvent.click(card().getByRole('button', { name: 'Session actions' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
+        const input = screen.getByRole('textbox', { name: 'Session name' });
+        fireEvent.input(input, { target: { value: renamed } });
+        fireEvent.submit(input.closest('form')!);
+        const selector = await card().findByRole('button', { name: `Activate session ${renamed}` });
+        const vault = card().getByRole('button', { name: 'Vault waiting for this session' });
+        const status = card().getByRole('status', { name: 'Session running' });
+        const menu = card().getByRole('button', { name: 'Session actions' });
+        expect(vault.compareDocumentPosition(status) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(status.compareDocumentPosition(menu) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(selector).not.toContainElement(vault);
+        expect(open).not.toHaveBeenCalled();
+        selector.click();
+        expect(open).toHaveBeenLastCalledWith(`/api/vscode/${id}/`, `codeflare-vscode-${id}`);
+
+        mockPreferences = { sessionMode: 'default', defaultWorkspace: 'vscode' };
+        bumpSessionStoreVersion();
+        expect(card().queryByRole('button', { name: /Vault/i })).toBeNull();
+      } finally { open.mockRestore(); }
     });
   });
 

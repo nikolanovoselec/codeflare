@@ -1,4 +1,4 @@
-import { Component, Show, createMemo, createSignal, onCleanup } from 'solid-js';
+import { Component, Show, createMemo, createSignal, onCleanup, type JSX } from 'solid-js';
 import { mdiConsole, mdiChip, mdiMemory, mdiHarddisk, mdiDotsVertical, mdiClockTimeEightOutline } from '@mdi/js';
 import Icon from './Icon';
 import { resolveTerminalMode, type SessionWithStatus, type SessionStatus } from '../types';
@@ -32,6 +32,7 @@ const statusPulses: Record<SessionStatus, boolean> = {
 
 interface SessionStatCardProps {
   session: SessionWithStatus;
+  vaultAction?: JSX.Element;
   isActive: boolean;
   onSelect: () => void;
   onStop: () => void;
@@ -128,6 +129,9 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
           <Icon path={AGENT_ICON_MAP[props.session.agentType || ''] || mdiConsole} size={14} />
         </span>
         <span class="stat-card__title type-section-header session-stat-card__name">{props.session.name}</span>
+        <Show when={props.vaultAction} keyed>{action => (
+          <div class="session-stat-card__vault">{action}</div>
+        )}</Show>
         <span
           class={`session-stat-card__dot session-stat-card__dot--${dotVariant()} ${isPulsing() ? 'session-stat-card__dot--pulse' : ''}`}
           role="status"

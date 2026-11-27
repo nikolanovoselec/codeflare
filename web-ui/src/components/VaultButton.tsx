@@ -1,4 +1,4 @@
-import { Component, Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js';
+import { Component, Show, createEffect, createMemo, createSignal, createUniqueId, onCleanup } from 'solid-js';
 import { mdiChartGantt } from '@mdi/js';
 import Icon from './Icon';
 import type { VaultPrewarmStatus } from '../lib/vault-prewarm';
@@ -66,7 +66,7 @@ const VAULT_BUTTON_META: Record<VaultButtonStatus, { title: string; message: str
 const VaultButton: Component<VaultButtonProps> = (props) => {
   const meta = createMemo(() => VAULT_BUTTON_META[props.status]);
   const [showMessage, setShowMessage] = createSignal(false);
-  const messageId = 'header-vault-button-status';
+  const messageId = `vault-button-status-${createUniqueId()}`;
   let wrapRef: HTMLDivElement | undefined;
 
   createEffect(() => {

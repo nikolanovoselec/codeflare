@@ -932,7 +932,11 @@ AC2: Inspect the extraction's render/copy attempt. After a successful copy, open
 
 ### Vault control presentation
 
-For [REQ-VAULT-022](../../sdd/spec/vault.md#req-vault-022-vault-armed-state-open-flow-and-persistence) AC4, inspect authorized browser observations of the ordinary prepare/open sequence. Verify that accent preparation and green readiness retain their state colors under reduced motion without breathing; on a touch browser, check that sticky hover does not overwrite armed green. Component fixtures establish tooltip timing and state hooks, not rendered color or motion. A missing matching browser observation leaves those presentation checks unverified.
+For [REQ-VAULT-022](../../sdd/spec/vault.md#req-vault-022-vault-armed-state-open-flow-and-persistence) AC4 and [REQ-VAULT-037](../../sdd/spec/vault.md#req-vault-037-vault-on-vs-code-dashboard-cards), inspect authorized browser observations of the ordinary prepare/open sequence in the open-session header and on an Advanced mode VS Code Dashboard card. Verify that accent preparation and green readiness retain their state colors under reduced motion without breathing; on a touch browser, check that sticky hover does not overwrite armed green. The first click on an available card control prepares that session's Vault; further clicks during preparation do not launch it again. Once ready, the next activation opens Vault in a new tab without opening the editor or selecting the session.
+
+For [REQ-IDE-054](../../sdd/spec/browser-ide.md#req-ide-054-browser-ide-card-activation), compare the same VS Code card before and after renaming it to a long name, at desktop and narrow mobile widths. At default scale the Vault icon and status dot centers should be about 34 CSS pixels apart, with the menu still after the dot. Verify that the name visibly ends in an ellipsis and that the controls neither move nor overlap it. Inspect the selector's accessible name for the complete new name. Tab to the Vault button and activate it with Enter or Space; neither gesture should activate the whole card. Check that the menu and the card selector remain usable independently.
+
+Component fixtures establish state, control order and accessible naming, not rendered color, motion, geometry or native keyboard activation. A missing matching browser observation leaves those presentation checks unverified.
 
 <a id="req-vault-032-manual-qualification"></a>
 ### Archive ownership instruction review (REQ-VAULT-032)
