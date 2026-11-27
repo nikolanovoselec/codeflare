@@ -136,7 +136,6 @@ describe('getValidGithubToken', () => {
     mockKV._set(KEY, {
       githubToken: 'gho_fresh',
       githubTokenSource: 'app',
-      githubRefreshToken: 'ghr',
       githubTokenExpiresAt: Date.now() + 3_600_000,
     } satisfies DeployKeys);
     expect(await getValidGithubToken(env(APP_ENV), BUCKET)).toBe('gho_fresh');
