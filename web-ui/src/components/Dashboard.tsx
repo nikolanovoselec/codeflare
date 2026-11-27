@@ -223,7 +223,8 @@ const Dashboard: Component<DashboardProps> = (props) => {
     if (!showUserMenu()) return;
     const email = profileEmail();
     const update = () => {
-      const emailHeight = email ? email.offsetHeight + (Number.parseFloat(getComputedStyle(email.parentElement!).rowGap) || 0) : 0;
+      const emailHeight = email?.parentElement
+        ? email.offsetHeight + (Number.parseFloat(getComputedStyle(email.parentElement).rowGap) || 0) : 0;
       if (userBtnRef) setUserMenuPos(measureProfileMenu(userBtnRef, emailHeight));
     };
     update();
@@ -549,7 +550,10 @@ const Dashboard: Component<DashboardProps> = (props) => {
                     } : undefined}
                   >
                     <Show when={props.userName}>{email => (
-                      <div class="header-user-email" ref={setProfileEmail}><span>{email()}</span></div>
+                      <div class="header-user-email" ref={element => {
+                        setProfileEmail(element);
+                        onCleanup(() => setProfileEmail(current => current === element ? undefined : current));
+                      }}><span>{email()}</span></div>
                     )}</Show>
                     <div class="header-user-profile-actions" role="group" aria-label="Account actions">
                       <Show when={operatorInProfile()}><div ref={setOperatorProfileMount} /></Show>

@@ -75,7 +75,8 @@ const Header: Component<HeaderProps> = (props) => {
     if (!showUserMenu()) return;
     const email = profileEmail();
     const update = () => {
-      const emailHeight = email ? email.offsetHeight + (Number.parseFloat(getComputedStyle(email.parentElement!).rowGap) || 0) : 0;
+      const emailHeight = email?.parentElement
+        ? email.offsetHeight + (Number.parseFloat(getComputedStyle(email.parentElement).rowGap) || 0) : 0;
       if (userMenuRef) setUserMenuPos(measureProfileMenu(userMenuRef, emailHeight));
     };
     update();
@@ -264,7 +265,10 @@ const Header: Component<HeaderProps> = (props) => {
               classList={{ 'header-user-dropdown--sheet': userMenuPos().sheet }}
               style={{ '--profile-menu-top': `${userMenuPos().top}px` }}>
               <Show when={props.userName}>{email => (
-                <div class="header-user-email" ref={setProfileEmail}><span>{email()}</span></div>
+                <div class="header-user-email" ref={element => {
+                  setProfileEmail(element);
+                  onCleanup(() => setProfileEmail(current => current === element ? undefined : current));
+                }}><span>{email()}</span></div>
               )}</Show>
               <div class="header-user-profile-actions" role="group" aria-label="Account actions">
                 <Show when={inProfile('vscode') && props.onVscodeOpen}>{onOpen =>

@@ -168,8 +168,8 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 4. Confirmed deletion clears saved recovery. A late Start result cannot restore it. <!-- @impl: web-ui/src/stores/session.ts::deleteSession --> <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (clears the saved pending clone when Delete settles before Start) --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (offers new sessions on reopen after deletion despite a late Start result) -->
 5. An accepted Running state clears failed recovery. A catalog Running row superseded by newer Stopped status does not. <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (retires recovery when the catalog alone confirms Running) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (preserves recovery when batch Stopped supersedes catalog Running (%s)) -->
 
-6. A Vibe clone does not replace saved Code recovery for the same repository. <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (preserves the saved Code retry after a successful Vibe clone of the same repository) -->
-7. A retry starts the saved session on its originally requested surface, even if the picker is reopened in another mode. <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (retries the original Chat surface from Code after a failed Vibe clone) -->
+6. A Vibe clone does not replace saved Code recovery for the same repository. <!-- @impl: web-ui/src/stores/clone-attempts.ts::setCloneAttempt --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (preserves the saved Code retry after a successful Vibe clone of the same repository) -->
+7. A retry starts the saved session on its originally requested surface, even if the picker is reopened in another mode. <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @impl: web-ui/src/stores/session.ts::retryCloneStart --> <!-- @test: web-ui/src/__tests__/components/GitHubCloneFlow.test.tsx (retries a saved Vibe clone from Code on its original Chat surface) --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (retries the original Chat surface from Code after a failed Vibe clone) -->
 
 **Constraints:** Vibe shows only saved Vibe recovery; Code can also retry a saved Vibe launch when no Code recovery is pending.
 
@@ -851,9 +851,6 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 ---
 
-
----
-
 ### REQ-GITHUB-330: Workspace mode clone destinations
 
 **Intent:** Offer clone destinations that match the active workspace mode.
@@ -862,9 +859,11 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Acceptance Criteria:**
 
-1. Both Vibe clone entry points offer only compatible running Pi sessions. <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (Vibe offers only Pi destinations and never retries a non-Pi Code clone) -->
-2. The Vibe picker offers one new Pi destination when Pi is enabled and starts it in Chat at the session URL. <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (navigates to the new Vibe clone from the %s picker) --> <!-- @test: web-ui/src/__tests__/components/GitHubCloneFlow.test.tsx (Vibe creates and starts a Pi Chat clone without choosing an agent) -->
+1. Both Vibe clone entry points offer only compatible running Pi sessions. <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance --> <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (Vibe offers only Pi destinations and never retries a non-Pi Code clone) -->
+2. The Vibe picker offers one new Pi destination when the authenticated profile enables Pi and starts it in Chat at the session URL. <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (Vibe offers only Pi destinations and never retries a non-Pi Code clone) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (navigates to the new Vibe clone from the %s picker (%s)) --> <!-- @test: web-ui/src/__tests__/components/GitHubCloneFlow.test.tsx (Vibe creates and starts a Pi Chat clone without choosing an agent) -->
 3. Code retains the authenticated profile’s enabled-agent choices for a new clone. <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (renders only the wizard-activated agents delivered by /api/user in enterprise mode) -->
+
+4. A failed or cancelled Vibe clone that returns to Dashboard restores the Dashboard URL only if it still owns the current route. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (navigates to the new Vibe clone from the %s picker (%s)) -->
 
 **Constraints:** Saved launch recovery follows [REQ-GITHUB-322](#req-github-322-clone-launch-recovery).
 
@@ -872,6 +871,8 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Dependencies:** [REQ-GITHUB-004](#req-github-004-clone-a-repository-into-a-session)
 
-**Verification:** Automated: [ClonePicker](../../web-ui/src/__tests__/components/ClonePicker.test.tsx), [GitHub clone flow](../../web-ui/src/__tests__/components/GitHubCloneFlow.test.tsx); Manual: [Vibe drawer acceptance](../../documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance)
+**Verification:** Automated: [ClonePicker](../../web-ui/src/__tests__/components/ClonePicker.test.tsx), [GitHub clone flow](../../web-ui/src/__tests__/components/GitHubCloneFlow.test.tsx), [Layout](../../web-ui/src/__tests__/components/Layout.test.tsx); Manual: [Vibe drawer acceptance](../../documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance)
 
 **Status:** Planned
+
+---

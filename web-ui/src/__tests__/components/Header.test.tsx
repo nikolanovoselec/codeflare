@@ -409,6 +409,17 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
     expect(within(actions).queryByText(email)).not.toBeInTheDocument();
   });
 
+  it('keeps Profile actions reachable when an open menu loses its email', () => {
+    const [email, setEmail] = createSignal<string | undefined>('fixture@example.com');
+    render(() => <Header {...defaultSessionProps} userName={email()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'User menu' }));
+    expect(screen.getByText('fixture@example.com')).toBeVisible();
+    setEmail(undefined);
+    window.dispatchEvent(new Event('resize'));
+    expect(screen.queryByText('fixture@example.com')).not.toBeInTheDocument();
+    expect(within(screen.getByRole('group', { name: 'Account actions' })).getByRole('link', { name: /Usage/ })).toBeVisible();
+  });
+
   it('places the labeled desktop mode dropdown immediately before Profile', () => {
     render(() => <Header {...defaultSessionProps} workspaceMode={{ value: 'terminal', onSelect: () => {} }} />);
     const trigger = screen.getByRole('button', { name: 'Workspace mode: Code Mode' });

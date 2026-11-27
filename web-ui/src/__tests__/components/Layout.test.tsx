@@ -2552,7 +2552,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       }
     });
 
-    it.each(['age', 'drawer'])('navigates to the new Vibe clone from the %s picker', async entry => {
+    it.each([['age', 'ready'], ['drawer', 'ready'], ['age', 'error'], ['drawer', 'stopped'], ['age', 'newer route']] as const)('navigates to the new Vibe clone from the %s picker (%s)', async (entry, outcome) => {
       navigationRendering.realTerminalArea = true;
       navigationRendering.realDashboard = true;
       mockPreferences = { defaultPiSurface: 'chat' };
@@ -2573,13 +2573,21 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
         });
         return Response.json({});
       });
+      let finishStart!: () => void;
+      const pendingStart = new Promise<void>(resolve => { finishStart = resolve; });
       vi.mocked(sessionStore.createSessionWithClone).mockImplementationOnce(async (repo, _agent, surface) => {
         const attempt = cloneAttempt(repo, surface);
         if (attempt?.phase !== 'creating') throw new Error('Missing clone launch');
         setCloneAttempt(repo, { ...attempt, sessionId: id }, surface);
-        mockSessions = [...mockSessions, createMockSession({ id, agentType: 'pi', workspace: 'terminal', generation: 7 })];
+        mockSessions = [...mockSessions, createMockSession({ id, status: 'stopped', agentType: 'pi', workspace: 'terminal' })];
         sessionStore.setActiveSession(id);
-        return { sessionId: id, started: true };
+        mockSessions = mockSessions.map(session => session.id === id ? { ...session, status: 'initializing' } : session);
+        bumpSessionStoreVersion();
+        await pendingStart;
+        const status = outcome === 'ready' ? 'running' : outcome === 'stopped' ? 'stopped' : 'error';
+        mockSessions = mockSessions.map(session => session.id === id ? { ...session, status, generation: 7 } : session);
+        bumpSessionStoreVersion();
+        return { sessionId: id, started: outcome === 'ready' };
       });
       try {
         render(() => <Layout />);
@@ -2589,8 +2597,17 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
         } else fireEvent.click(await screen.findByRole('button', { name: 'Clone into a session: team/newest' }));
         fireEvent.click(await screen.findByRole('button', { name: /^New Pi session/ }));
         await waitFor(() => expect(window.location.pathname).toBe(`/app/session/${id}`));
-        expect(await screen.findByTitle('Pi Chat')).toBeInTheDocument();
+        expect(await screen.findByText('Preparing Chat…')).toBeInTheDocument();
+        const nextPath = '/app/session/fedcba9876543210';
+        if (outcome === 'newer route') window.history.pushState(null, '', nextPath);
+        finishStart();
+        if (outcome === 'ready') expect(await screen.findByTitle('Pi Chat')).toBeInTheDocument();
+        else {
+          await screen.findByRole('button', { name: /^Activate session/ });
+          expect(window.location.pathname).toBe(outcome === 'newer route' ? nextPath : '/app/');
+        }
       } finally {
+        finishStart();
         cleanup();
         setCloneAttempt('team/newest', undefined, 'chat');
         resetGithub();

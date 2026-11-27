@@ -677,6 +677,17 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     }
   });
 
+  it('keeps Dashboard Profile actions reachable after the email is removed', () => {
+    const [email, setEmail] = createSignal<string | undefined>('fixture@example.com');
+    render(() => <Dashboard {...defaultProps} userName={email()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'User menu' }));
+    expect(screen.getByText('fixture@example.com')).toBeVisible();
+    setEmail(undefined);
+    window.dispatchEvent(new Event('resize'));
+    expect(screen.queryByText('fixture@example.com')).not.toBeInTheDocument();
+    expect(within(screen.getByRole('group', { name: 'Account actions' })).getByRole('link', { name: /Usage/ })).toBeVisible();
+  });
+
   it('closes the Vibe drawer from a focused browser and returns focus to the pull', () => {
     (githubStore as any)._setEnabled(true);
     render(() => <Dashboard {...defaultProps} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);

@@ -769,6 +769,8 @@ const Layout: Component<LayoutProps> = (props) => {
     onCleanup(() => document.removeEventListener('visibilitychange', onVisibilityChange));
   }
 
+  let chatCloneRoute: string | undefined;
+
   // Sync viewState with terminal-owned session state. Missing workspace fields
   // are historical Terminal sessions; only explicit `vscode` stays dashboard-owned.
   createEffect(() => {
@@ -778,10 +780,12 @@ const Layout: Component<LayoutProps> = (props) => {
       && (session.status === 'initializing' || sessionStore.isSessionInitializing(session.id)
         || (session.status !== 'error' && isMountedLifecycle(session.status as 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping')));
     const hasActiveMultiView = terminalWorkspaceStore.getActiveWorkspace().kind === 'multiview';
+    if (chatCloneRoute && (session?.id !== chatCloneRoute || session.status === 'running')) chatCloneRoute = undefined;
 
     if ((hasActiveTerminal || hasActiveMultiView) && viewState() === 'dashboard') {
       if (session && hasActiveTerminal && !hasActiveMultiView && isStartingChatClone(session.id)) {
         untrack(() => {
+          if (session.status !== 'running') chatCloneRoute = session.id;
           selectStartupSurface(session, 'chat');
           openSessionWorkspace(session.id);
         });
@@ -790,6 +794,11 @@ const Layout: Component<LayoutProps> = (props) => {
       setViewState('terminal');
       setTimeout(() => terminalStore.triggerLayoutResize(), 50);
     } else if (!hasActiveTerminal && !hasActiveMultiView && viewState() === 'terminal') {
+      if (chatCloneRoute && parseSessionPath(window.location.pathname) === chatCloneRoute) {
+        writeHistoryPath(dashboardPath(), 'replace');
+        setStartupSurface(undefined);
+      }
+      chatCloneRoute = undefined;
       terminalWorkspaceStore.setDashboardWorkspace();
       setViewState('dashboard');
     }
