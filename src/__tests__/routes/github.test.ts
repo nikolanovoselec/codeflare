@@ -254,6 +254,27 @@ describe('REQ-GITHUB-002 / REQ-GITHUB-007: GET /api/github/repos', () => {
     },
   );
 
+  it('REQ-GITHUB-002: rejects malformed App refresh JSON without forwarding a repository request', async () => {
+    mockKV._set(KEY, { githubToken: 'expired', githubTokenSource: 'app', githubLogin: 'octocat',
+      githubRefreshToken: 'old-refresh', githubTokenExpiresAt: Date.now() - 1000 } satisfies DeployKeys);
+    const retained: Promise<unknown>[] = [];
+    const context = { waitUntil: (work: Promise<unknown>) => { retained.push(work); } } as ExecutionContext;
+    const forwarded: string[] = [];
+    mockFetch.mockImplementation(async (input: string) => {
+      const path = new URL(input).pathname;
+      if (path === '/login/oauth/access_token') {
+        return new Response('{invalid JSON}', { headers: { 'Content-Type': 'application/json' } });
+      }
+      forwarded.push(path);
+      return ok([]);
+    });
+    const response = await createTestApp(ENT).request('/api/github/repos', undefined, undefined, context);
+    await Promise.all(retained);
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: 'NOT_CONNECTED' });
+    expect(forwarded).toEqual([]);
+  });
+
   it('REQ-GITHUB-002: reports a connection conflict for an expired App connection after switching to OAuth', async () => {
     const saved = { githubToken: 'expired', githubTokenSource: 'app', githubLogin: 'octocat',
       githubRefreshToken: 'old-refresh', githubTokenExpiresAt: Date.now() - 1000 } satisfies DeployKeys;
