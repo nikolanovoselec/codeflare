@@ -941,7 +941,7 @@ COPY scripts/merge-pi-mcp-portals.mjs /opt/codeflare/merge-pi-mcp-portals.mjs
 #   misses (including dependencies) in a second fresh Pi process. Native JS uses
 #   Node's compile cache; require its native-import trace, not a JITI artifact.
 #   Verify exact local path hashes before deleting the temporary warm home.
-COPY --chmod=0444 image/pi-web/handoff-extension.ts /opt/codeflare/pi-web/
+COPY --chmod=0444 image/pi-web/handoff-extension.ts image/pi-web/classic-session-state.mjs /opt/codeflare/pi-web/
 RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
     ln -s /opt/codeflare/pi-agent/npm /home/user/.pi/agent/npm && \
     cp -r /opt/codeflare/pi-agent/extensions /home/user/.pi/agent/extensions && \

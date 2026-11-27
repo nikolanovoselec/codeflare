@@ -9,13 +9,28 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync, existsSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ENTRYPOINT = resolve(__dirname, '../../entrypoint.sh');
+const CLASSIC_PI_STATE_SCRIPT = resolve(__dirname, '../../image/pi-web/classic-session-state.mjs');
+const PI_TAB = JSON.stringify([{ id: '1', command: 'pi' }]);
+
+function piStore(home, workspace = join(home, 'workspace')) {
+  return join(home, '.pi/agent/sessions', `--${workspace.slice(1).replace(/[\\/:]/g, '-')}--`);
+}
+
+function writeNative(home, id, overrides = {}, name = `2026-09-09T00-00-00-000Z_${id}.jsonl`, store = piStore(home)) {
+  mkdirSync(store, { recursive: true });
+  const path = join(store, name);
+  writeFileSync(path, `${JSON.stringify({
+    type: 'session', version: 3, id, timestamp: '2026-09-09T00:00:00.000Z', cwd: join(home, 'workspace'), ...overrides,
+  })}\n`);
+  return path;
+}
 
 function extractConfigureBody() {
   const src = readFileSync(ENTRYPOINT, 'utf8');
@@ -40,6 +55,7 @@ function runHarness({ tabConfig, env = {}, dir = mkdtempSync(join(tmpdir(), 'tab
   const body = extractConfigureBody();
   const runtimeRoot = join(dir, 'runtime');
   const envLines = [
+    `export CLASSIC_PI_STATE_SCRIPT=${JSON.stringify(CLASSIC_PI_STATE_SCRIPT)}`,
     `export USER_HOME='${dir}'`,
     `export CODEFLARE_RUNTIME_ROOT='${runtimeRoot}'`,
     `export SESSION_ID=${JSON.stringify(env.SESSION_ID ?? 'abc12345')}`,
@@ -97,10 +113,14 @@ function bindingId(dir, sessionId) {
 }
 
 function piSessionHeader(dir, nativeId) {
-  const sessionDir = join(dir, '.pi/agent/sessions', `--${join(dir, 'workspace').slice(1).replaceAll('/', '-')}--`);
+  const sessionDir = piStore(dir);
   const sessionFile = readdirSync(sessionDir).find((name) => name.endsWith(`_${nativeId}.jsonl`));
   assert.ok(sessionFile, `fresh Pi session ${nativeId} must have an empty native transcript`);
   return JSON.parse(readFileSync(join(sessionDir, sessionFile), 'utf8'));
+}
+
+function piSessionPath(dir, id) {
+  return join(piStore(dir), readdirSync(piStore(dir)).find(name => name.endsWith(`_${id}.jsonl`)));
 }
 
 // REQ-TERM-005: Tab 1 auto-starts the configured agent
@@ -207,7 +227,7 @@ describe('entrypoint.sh configure_tab_autostart / REQ-AGENT-003 (Agent CLI auto-
       assert.deepEqual(
         fresh.args,
         command === 'pi'
-          ? ['--session-id', nativeId]
+          ? ['--session', piSessionPath(dir, nativeId)]
           : ['--dangerously-skip-permissions', '--session-id', nativeId],
       );
 
@@ -232,7 +252,7 @@ describe('entrypoint.sh configure_tab_autostart / REQ-AGENT-003 (Agent CLI auto-
       assert.deepEqual(
         resumed.args,
         command === 'pi'
-          ? ['--session-id', nativeId]
+          ? ['--session', piSessionPath(dir, nativeId)]
           : ['--dangerously-skip-permissions', '--resume', nativeId],
       );
     }
@@ -244,19 +264,14 @@ describe('entrypoint.sh configure_tab_autostart / REQ-AGENT-003 (Agent CLI auto-
     const codeflareSessionId = 'namedpi1';
     const nativeId = 'last-active.jsonl';
     const bindingDir = join(dir, '.codeflare/classic/sessions', `cf-${codeflareSessionId}`);
-    const transcriptDir = join(dir, '.pi/agent/sessions', '--home-user-workspace--');
     mkdirSync(bindingDir, { recursive: true });
-    mkdirSync(transcriptDir, { recursive: true });
     writeFileSync(join(bindingDir, 'agent-session-id'), `${nativeId}\n`);
-    writeFileSync(
-      join(transcriptDir, `2026-09-09T00-00-00-000Z_${nativeId}.jsonl`),
-      `${JSON.stringify({ type: 'session', version: 3, id: nativeId, cwd: join(dir, 'workspace') })}\n`,
-    );
+    const path = writeNative(dir, nativeId, { parentSession: '/retained-or-pruned-parent.jsonl' });
 
     const tabConfig = JSON.stringify([{ id: '1', command: 'pi', label: 'Terminal 1' }]);
     const restored = runHarness({ dir, tabConfig, env: { SESSION_ID: codeflareSessionId } });
     assert.equal(restored.result.status, 0, restored.result.stderr);
-    assert.deepEqual(runGeneratedBashrc(dir, 'pi').args, ['--session-id', nativeId]);
+    assert.deepEqual(runGeneratedBashrc(dir, 'pi').args, ['--session', path]);
   });
 
   it('REQ-AGENT-211 AC5: a different Codeflare session starts empty under a different native ID', () => {
@@ -271,7 +286,79 @@ describe('entrypoint.sh configure_tab_autostart / REQ-AGENT-003 (Agent CLI auto-
     const secondId = bindingId(dir, 'sessionb2');
     assert.notEqual(secondId, firstId);
     const fresh = runGeneratedBashrc(dir, 'pi');
-    assert.deepEqual(fresh.args, ['--session-id', secondId]);
+    assert.deepEqual(fresh.args, ['--session', piSessionPath(dir, secondId)]);
+  });
+
+  it('REQ-AGENT-211 AC1+AC2: failed seed leaves no binding and can be retried in the same home', (t) => {
+    const dir = mkdtempSync(join(tmpdir(), 'classic-seed-retry-'));
+    t.after(() => rmSync(dir, { recursive: true, force: true }));
+    mkdirSync(join(dir, 'workspace'));
+    mkdirSync(join(dir, '.pi/agent'), { recursive: true });
+    const blocked = join(dir, '.pi/agent/sessions');
+    writeFileSync(blocked, 'keep this file');
+    const failed = runHarness({ dir, tabConfig: PI_TAB });
+    assert.equal(failed.result.status, 0, failed.result.stderr);
+    assert.throws(() => bindingId(dir, 'abc12345'), { code: 'ENOENT' });
+    const failedLaunch = runGeneratedBashrc(dir, 'pi');
+    assert.deepEqual(failedLaunch.args, []);
+    assert.match(failedLaunch.result.stdout, /unavailable/);
+    assert.equal(readFileSync(blocked, 'utf8'), 'keep this file');
+
+    rmSync(blocked);
+    const retried = runHarness({ dir, tabConfig: PI_TAB });
+    assert.equal(retried.result.status, 0, retried.result.stderr);
+    const id = bindingId(dir, 'abc12345');
+    assert.equal(piSessionHeader(dir, id).id, id);
+    assert.deepEqual(runGeneratedBashrc(dir, 'pi').args, ['--session', piSessionPath(dir, id)]);
+  });
+
+  it('REQ-AGENT-211 AC1: refuses redirected state ancestors before creating files or directories', (t) => {
+    for (const key of ['.codeflare', '.pi/agent/sessions', piStore]) {
+      const dir = mkdtempSync(join(tmpdir(), 'classic-redirect-'));
+      t.after(() => rmSync(dir, { recursive: true, force: true }));
+      mkdirSync(join(dir, 'workspace'));
+      const target = join(dir, 'untouched');
+      mkdirSync(target);
+      const path = typeof key === 'function' ? key(dir) : join(dir, key);
+      mkdirSync(dirname(path), { recursive: true });
+      symlinkSync(target, path);
+      const boot = runHarness({ dir, tabConfig: PI_TAB });
+      assert.equal(boot.result.status, 0, boot.result.stderr);
+      assert.deepEqual(readdirSync(target), []);
+      assert.throws(() => bindingId(dir, 'abc12345'), { code: 'ENOENT' });
+      assert.deepEqual(runGeneratedBashrc(dir, 'pi').args, []);
+    }
+  });
+
+  it('REQ-AGENT-211 AC4: standalone restore reports unavailable without launching a substitute', (t) => {
+    for (const state of ['missing', 'wrong-store', 'wrong-header', 'duplicate', 'symlink', 'removed-after-boot']) {
+      const dir = mkdtempSync(join(tmpdir(), 'classic-unavailable-'));
+      t.after(() => rmSync(dir, { recursive: true, force: true }));
+      mkdirSync(join(dir, 'workspace'));
+      const id = 'selected';
+      const binding = join(dir, '.codeflare/classic/sessions/cf-abc12345/agent-session-id');
+      mkdirSync(dirname(binding), { recursive: true });
+      writeFileSync(binding, `${id}\n`);
+      const substitute = writeNative(dir, 'selected-longer');
+      const misplaced = state === 'wrong-store' || state === 'symlink'
+        ? writeNative(dir, id, {}, undefined, join(dir, '.pi/agent/sessions/--other--')) : undefined;
+      if (state === 'symlink') symlinkSync(misplaced, join(piStore(dir), `alias_${id}.jsonl`));
+      if (state === 'wrong-header') writeNative(dir, id, { cwd: join(dir, 'other') });
+      if (state === 'duplicate') {
+        writeNative(dir, id);
+        writeNative(dir, id, {}, `second_${id}.jsonl`);
+      }
+      const removed = state === 'removed-after-boot' ? writeNative(dir, id) : undefined;
+      const boot = runHarness({ dir, tabConfig: PI_TAB });
+      assert.equal(boot.result.status, 0, boot.result.stderr);
+      if (removed) rmSync(removed);
+      const shell = runGeneratedBashrc(dir, 'pi');
+      assert.equal(shell.result.status, 0, shell.result.stdout);
+      assert.match(shell.result.stdout, /saved Classic agent transcript is unavailable/);
+      assert.equal(existsSync(join(dir, 'agent.log')), false, state);
+      assert.equal(bindingId(dir, 'abc12345'), id);
+      assert.ok(existsSync(substitute));
+    }
   });
 
   it('AC1 dynamic: TAB_CONFIG entries with non-1-6 ids are rejected by the validator (injection guard)', () => {

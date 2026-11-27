@@ -130,21 +130,21 @@ export async function verifyRpivExtensionStartup(nodeModulesRoot, sdkNodeModules
 export async function verifyPiClassicSessionStartup({
   piPath = '/usr/local/bin/pi',
   temporaryRoot = tmpdir(),
+  stateScript = '/opt/codeflare/pi-web/classic-session-state.mjs',
   run = spawnSync,
 } = {}) {
   const home = await mkdtemp(join(temporaryRoot, 'pi-classic-session-'));
   const cwd = join(home, 'workspace');
-  const sessionId = '00000000-0000-4000-8000-000000000211';
-  const timestamp = new Date().toISOString();
-  const encodedCwd = `--${cwd.slice(1).replaceAll('/', '-').replaceAll(':', '-')}--`;
-  const sessionDir = join(home, '.pi', 'agent', 'sessions', encodedCwd);
-  const sessionFile = join(sessionDir, `${timestamp.replaceAll(':', '-').replaceAll('.', '-')}_${sessionId}.jsonl`);
+  const sessionId = 'classic211';
   try {
     await mkdir(cwd, { recursive: true });
-    await mkdir(sessionDir, { recursive: true });
-    await writeFile(sessionFile, `${JSON.stringify({ type: 'session', version: 3, id: sessionId, timestamp, cwd })}\n`);
+    execFileSync(process.execPath, [stateScript, 'prepare', home, sessionId], { timeout: 10_000 });
+    const sessionFile = execFileSync(process.execPath, [stateScript, 'resume', home, sessionId], {
+      encoding: 'utf8', timeout: 10_000,
+    });
+    const { id } = JSON.parse(await readFile(sessionFile, 'utf8'));
 
-    const result = run(piPath, ['--session-id', sessionId, '--print'], {
+    const result = run(piPath, ['--session', sessionFile, '--print'], {
       cwd,
       encoding: 'utf8',
       env: {
@@ -164,7 +164,7 @@ export async function verifyPiClassicSessionStartup({
       /Warning: No project session found with id .*; creating a new session with that id\./,
       'Pi must discover the seeded Classic session without a missing-session warning',
     );
-    return sessionId;
+    return id;
   } finally {
     await rm(home, { recursive: true, force: true });
   }

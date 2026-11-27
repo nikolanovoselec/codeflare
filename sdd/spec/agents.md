@@ -854,10 +854,10 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 1. A new native Classic launch starts one empty conversation under a newly generated UUID. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC1+AC3+AC4: binds fresh and restored Pi and Claude launches to the Codeflare session) -->
 2. Fresh Classic Pi startup does not report that its deliberate new session ID is missing. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-AGENT-211 AC2: complete-image smoke rejects Pi missing-session warnings for a seeded Classic ID) -->
-3. Restoring to native Terminal starts the immutable tab-1 agent with the same UUID. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC1+AC3+AC4: binds fresh and restored Pi and Claude launches to the Codeflare session) --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-AGENT-211 AC3: persists only the current classic agent-session binding) -->
-4. Native restore resumes the synced transcript. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC1+AC3+AC4: binds fresh and restored Pi and Claude launches to the Codeflare session) -->
+3. Restoring a retained conversation to native Terminal starts the immutable tab-1 agent with the same UUID. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC1+AC3+AC4: binds fresh and restored Pi and Claude launches to the Codeflare session) --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-AGENT-211 AC3: persists only the current classic agent-session binding) -->
+4. Native restore resumes the retained synced transcript. If the saved Pi transcript aged out, report it unavailable without opening a substitute. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC1+AC3+AC4: binds fresh and restored Pi and Claude launches to the Codeflare session) -->
 5. A different Codeflare session receives a different native conversation UUID. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC5: a different Codeflare session starts empty under a different native ID) -->
-6. Every successful Classic Pi `/resume` switch atomically replaces that Codeflare session's binding with the selected root transcript ID, including repeated switches. <!-- @impl: preseed/agents/pi/extensions/classic-session-binding.ts::adoptClassicResumedSession --> <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: src/__tests__/lib/pi-classic-session-binding.test.ts (REQ-AGENT-211 AC6: Classic Pi adopts every explicit resumed transcript) --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC6: restarts Classic Pi with its last explicitly resumed named session) -->
+6. Standalone Classic Pi `/resume` atomically adopts an eligible saved workspace transcript, including a valid native fork and repeated selections. <!-- @impl: preseed/agents/pi/extensions/classic-session-binding.ts::adoptClassicResumedSession --> <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: src/__tests__/lib/pi-classic-session-binding.test.ts (REQ-AGENT-211 AC6: Classic Pi adopts every explicit resumed transcript) --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC6: restarts Classic Pi with its last explicitly resumed named session) -->
 
 **Constraints:**
 
@@ -962,7 +962,10 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 4. Returning to the same session generation during an unfinished Terminal-to-Chat handoff keeps Code visible until Chat attaches, without requesting another writer. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (restores the matching Chat attachment gate or saved preference after a %s handoff) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time -->
 5. On return to the same session generation before the Host reports the interrupted Terminal-to-Chat handoff, the workspace mode control stays disabled while the original switch request is still outstanding. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (restores the matching Chat attachment gate or saved preference after a %s handoff) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time -->
 
-**Constraints:** [REQ-TERM-011](terminal.md#req-term-011-visible-terminal-panes-own-websocket-connections) limits hidden terminal attachment. [REQ-AGENT-287](#req-agent-287-empty-and-restored-vibe-layout) owns Chat panel sizing.
+**Constraints:**
+
+- [REQ-TERM-011](terminal.md#req-term-011-visible-terminal-panes-own-websocket-connections) limits hidden terminal attachment.
+- [REQ-AGENT-287](#req-agent-287-empty-and-restored-vibe-layout) owns Chat panel sizing.
 
 **Priority:** P1
 
@@ -992,7 +995,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Dependencies:** [REQ-AGENT-280](#req-agent-280-attachment-gated-workspace-reveal)
 
-**Verification:** Automated: [Chat wrapper](../../web-ui/src/__tests__/components/PiWebChat.test.tsx); Manual: [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout).
+**Verification:** Manual: [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout).
 
 **Status:** Planned
 

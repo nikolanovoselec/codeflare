@@ -116,6 +116,7 @@ For [REQ-AGENT-280 AC4](../../sdd/spec/agents.md#req-agent-280-attachment-gated-
 - With B selected, switch to Code. Verify the terminal shows B’s original text, not C’s ([REQ-AGENT-272 AC2](../../sdd/spec/agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff)).
 - Before each Stop, select an earlier branch in B with a distinct non-sensitive marker. Apply the [final persistence procedure](storage-and-sync.md#req-stor-005-final-persistence-acceptance) to the binding and transcript.
 - Before each Resume, confirm native preparation and the triggered final drain succeeded. Independently read back the R2 binding and transcript and verify B’s ID and saved branch marker. A Stop response alone does not count.
+- For each Resume, use an authorized replacement runtime for the same session and confirm the local binding and transcript are absent before R2 restore. If that precondition or restore cannot be observed, mark restore unverified.
 - Resume once per surface. Verify both open B at the selected branch, not the latest leaf, and that A and C remain available in Vibe. Mark missing persistence evidence unverified ([REQ-SESSION-044 AC2](../../sdd/spec/session-lifecycle.md#req-session-044-managed-pi-transcript-persistence-on-stop)).
 - The [packaged handoff smoke](../../scripts/ci/smoke-pi-web-host-handoff.mjs) exercises local reopen on the same home, not R2 publication and restore.
 

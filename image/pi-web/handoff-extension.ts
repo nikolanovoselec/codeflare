@@ -5,6 +5,7 @@ import {
 import { dirname, join, resolve, sep } from "node:path";
 import { CustomEditor, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { EditorComponent, TUI } from "@earendil-works/pi-tui";
+import { writeClassicPiBinding } from "./classic-session-state.mjs";
 
 // REQ-AGENT-272: this reports native evidence, not ownership. Host admits work,
 // closes stock sessiond sessions and verifies the terminal process really exited.
@@ -192,11 +193,15 @@ export default function (pi: ExtensionAPI) {
 
 	function persistBinding(binding: Binding) {
 		if (!/^[a-z0-9]{8,24}$/.test(sessionId) || savedId === binding.id) return;
-		// Verification reads the native header from disk, not just the filename.
-		const fd = openSync(binding.path, "r");
-		try { verifyDiskHeader(fd, fstatSync(fd).size, binding); } finally { closeSync(fd); }
-		mkdirSync(bindingDir, { recursive: true, mode: 0o700 });
-		atomicWrite(join(bindingDir, "agent-session-id"), binding.id + "\n");
+		if (mode === "classic") {
+			writeClassicPiBinding(home, sessionId, binding.id, binding.path, { rootOnly: true });
+		} else {
+			// Verification reads the native header from disk, not just the filename.
+			const fd = openSync(binding.path, "r");
+			try { verifyDiskHeader(fd, fstatSync(fd).size, binding); } finally { closeSync(fd); }
+			mkdirSync(bindingDir, { recursive: true, mode: 0o700 });
+			atomicWrite(join(bindingDir, "agent-session-id"), binding.id + "\n");
+		}
 		savedId = binding.id;
 	}
 

@@ -2507,7 +2507,7 @@ configure_tab_autostart() {
     local classic_agent_kind="" classic_agent_state="" classic_agent_id="" classic_agent_launch=""
     local managed_pi_primary=0
     local classic_binding_dir classic_binding_file classic_binding_tmp configured_primary
-    local classic_pi_cwd classic_pi_session_dir classic_pi_session_file classic_pi_session_tmp classic_pi_timestamp
+    local classic_pi_state_script="${CLASSIC_PI_STATE_SCRIPT:-/opt/codeflare/pi-web/classic-session-state.mjs}"
 
     # A Classic session owns one native Pi/Claude conversation UUID. The UUID is
     # created only after initial restore and is scoped by the immutable Codeflare
@@ -2538,23 +2538,24 @@ configure_tab_autostart() {
             fi
         fi
 
-        if [ -n "$classic_agent_kind" ]; then
+        if [ "$classic_agent_kind" = pi ]; then
+            # The empty native file must exist before its ID is published.
+            if ! node "$classic_pi_state_script" prepare "$USER_HOME" "$SESSION_ID"; then
+                echo "[entrypoint] WARNING: could not prepare the Classic Pi transcript" >&2
+            fi
+            # Resolve again in the PTY: retention may have removed the saved
+            # transcript since bootstrap. Pass an exact path, never an ID prefix
+            # or an option that asks native Pi to create a missing conversation.
+            printf -v classic_agent_launch 'if classic_pi_path=$(node %q resume %q %q) && [ -f "$classic_pi_path" ]; then pi --session "$classic_pi_path"; else printf "%%s\\n" "Codeflare: saved Classic agent transcript is unavailable; start or resume it manually." >&2; fi' \
+                "$classic_pi_state_script" "$USER_HOME" "$SESSION_ID"
+        elif [ "$classic_agent_kind" = claude ]; then
             classic_binding_dir="$USER_HOME/.codeflare/classic/sessions/cf-$SESSION_ID"
             classic_binding_file="$classic_binding_dir/agent-session-id"
             if [ -f "$classic_binding_file" ]; then
                 classic_agent_id=$(cat "$classic_binding_file" 2>/dev/null || true)
-                if { [ "$classic_agent_kind" = "pi" ] \
-                        && [[ "$classic_agent_id" =~ ^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$ ]]; } \
-                    || { [ "$classic_agent_kind" = "claude" ] \
-                        && [[ "$classic_agent_id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]]; }; then
-                    if { [ "$classic_agent_kind" = "pi" ] \
-                            && find "$USER_HOME/.pi/agent/sessions" -type f -name "*_${classic_agent_id}.jsonl" -print -quit 2>/dev/null | grep -q .; } \
-                        || { [ "$classic_agent_kind" = "claude" ] \
-                            && find "$USER_HOME/.claude/projects" -type f -name "${classic_agent_id}.jsonl" -print -quit 2>/dev/null | grep -q .; }; then
-                        classic_agent_state="resume"
-                    else
-                        classic_agent_state="unavailable"
-                    fi
+                if [[ "$classic_agent_id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] \
+                    && find "$USER_HOME/.claude/projects" -type f -name "${classic_agent_id}.jsonl" -print -quit 2>/dev/null | grep -q .; then
+                    classic_agent_state="resume"
                 else
                     classic_agent_state="unavailable"
                 fi
@@ -2569,35 +2570,10 @@ configure_tab_autostart() {
                     classic_agent_state="fresh"
                 fi
             fi
-
-            if [ "$classic_agent_kind:$classic_agent_state" = "pi:fresh" ]; then
-                # Pi's exact-ID option warns when the requested session does not yet
-                # exist. Seed the empty native v3 header that Pi itself opens so a
-                # deliberately fresh Classic session starts without a false warning.
-                classic_pi_cwd="$USER_HOME/workspace"
-                classic_pi_session_dir="${classic_pi_cwd#/}"
-                classic_pi_session_dir="${classic_pi_session_dir//\//-}"
-                classic_pi_session_dir="${classic_pi_session_dir//:/-}"
-                classic_pi_session_dir="$USER_HOME/.pi/agent/sessions/--${classic_pi_session_dir}--"
-                classic_pi_timestamp=$(date -u +'%Y-%m-%dT%H:%M:%S.%3NZ')
-                classic_pi_session_file="$classic_pi_session_dir/${classic_pi_timestamp//[:.]/-}_${classic_agent_id}.jsonl"
-                install -d -m 0700 "$classic_pi_session_dir"
-                classic_pi_session_tmp=$(mktemp "$classic_pi_session_dir/.session.XXXXXX")
-                jq -cn --arg id "$classic_agent_id" --arg timestamp "$classic_pi_timestamp" --arg cwd "$classic_pi_cwd" \
-                    '{type:"session",version:3,id:$id,timestamp:$timestamp,cwd:$cwd}' > "$classic_pi_session_tmp"
-                chmod 0600 "$classic_pi_session_tmp"
-                mv -f "$classic_pi_session_tmp" "$classic_pi_session_file"
-            fi
-
-            case "$classic_agent_kind:$classic_agent_state" in
-                pi:fresh|pi:resume)
-                    # Evaluate the parent capability in the managed PTY, not now:
-                    # Host issues it only when that terminal is actually spawned.
-                    classic_agent_launch="pi --session-id $classic_agent_id"
-                    ;;
-                claude:fresh) classic_agent_launch="claude --dangerously-skip-permissions --session-id $classic_agent_id" ;;
-                claude:resume) classic_agent_launch="claude --dangerously-skip-permissions --resume $classic_agent_id" ;;
-                *:unavailable) classic_agent_launch="printf '%s\\n' 'Codeflare: saved Classic agent transcript is unavailable; start or resume it manually.' >&2" ;;
+            case "$classic_agent_state" in
+                fresh) classic_agent_launch="claude --dangerously-skip-permissions --session-id $classic_agent_id" ;;
+                resume) classic_agent_launch="claude --dangerously-skip-permissions --resume $classic_agent_id" ;;
+                unavailable) classic_agent_launch="printf '%s\\n' 'Codeflare: saved Classic agent transcript is unavailable; start or resume it manually.' >&2" ;;
             esac
         fi
     fi
