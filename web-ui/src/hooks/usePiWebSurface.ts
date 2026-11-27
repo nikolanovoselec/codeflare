@@ -14,6 +14,7 @@ export function createPiWebSurface(sessionId: string, generation: number) {
   const [mutation, setMutation] = createSignal<'switch' | 'cancel'>();
   const [mutationError, setMutationError] = createSignal<string>();
   const [attempt, setAttempt] = createSignal<{ requestId: string; target: PiSurface }>();
+  const [rejectedSwitchId, setRejectedSwitchId] = createSignal<string>();
   const lifetime = new AbortController();
   let read: AbortController | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -64,6 +65,7 @@ export function createPiWebSurface(sessionId: string, generation: number) {
   const mutate = async (kind: 'switch' | 'cancel', send: (signal: AbortSignal) => Promise<PiWebStatus>) => {
     const ownCommand = ++command;
     const observed = observation;
+    const requestId = attempt()?.requestId;
     const stillCurrent = () => !lifetime.signal.aborted && ownCommand === command;
     setMutation(kind);
     setMutationError(undefined);
@@ -74,7 +76,10 @@ export function createPiWebSurface(sessionId: string, generation: number) {
     } catch (error) {
       if (stillCurrent()) {
         const rejected = error instanceof ApiError && error.status >= 400 && error.status < 500;
-        if (rejected && kind === 'switch') setAttempt(undefined);
+        if (rejected && kind === 'switch') {
+          setRejectedSwitchId(requestId);
+          setAttempt(undefined);
+        }
         setMutationError(kind === 'cancel'
           ? 'Could not cancel the switch.'
           : rejected ? 'The Pi switch was not accepted.' : 'Could not confirm the switch.');
@@ -118,6 +123,7 @@ export function createPiWebSurface(sessionId: string, generation: number) {
     unavailable,
     mutation,
     submittedSwitch: attempt,
+    rejectedSwitchId,
     switchingTarget: () => !mutationError() ? attempt()?.target : undefined,
     mutationError,
     select,

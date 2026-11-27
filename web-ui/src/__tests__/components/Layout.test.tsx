@@ -822,7 +822,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     } finally { cleanup(); vi.unstubAllGlobals(); }
   }, 10000);
 
-  it.each(['acknowledged', 'unacknowledged', 'superseded'] as const)('restores the matching Chat attachment gate or saved preference after a %s handoff', async scenario => {
+  it.each(['acknowledged', 'unacknowledged', 'superseded', 'rejected', 'other tab'] as const)('restores the matching Chat attachment gate or saved preference after a %s handoff', async scenario => {
     navigationRendering.realTerminalArea = true;
     const first = 'abcdef0123456789';
     const second = 'fedcba9876543210';
@@ -830,7 +830,9 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     window.history.replaceState(null, '', `/app/session/${first}`);
     let requestId: string | undefined;
     const switches: string[] = [];
-    let published = scenario !== 'unacknowledged';
+    const unpublished = scenario === 'unacknowledged' || scenario === 'rejected' || scenario === 'other tab';
+    let published = !unpublished;
+    const remoteRequest = crypto.randomUUID();
     let superseded = false;
     let hitsWhileUnpublished = 0;
     mockVisiblePanes = [{ sessionId: first, terminalId: '1' }];
@@ -842,13 +844,16 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       if (init?.method === 'POST') {
         switches.push(id);
         requestId = JSON.parse(String(init.body)).requestId;
-        if (switches.length === 1) await waitForAcknowledgement;
+        if (switches.length === 1) {
+          await waitForAcknowledgement;
+          if (scenario === 'rejected') return Response.json({ error: 'Switch rejected' }, { status: 400 });
+        }
         else { published = true; superseded = false; }
       }
       if (id === first && requestId && !published) hitsWhileUnpublished++;
       if (id === second || !requestId || !published) return Response.json({ phase: 'active', surface: 'terminal' });
       if (superseded) return Response.json({ phase: 'complete', surface: 'terminal', target: 'terminal', requestId: crypto.randomUUID() });
-      return Response.json({ phase: 'complete', surface: 'chat', target: 'chat', requestId,
+      return Response.json({ phase: 'complete', surface: 'chat', target: 'chat', requestId: scenario === 'other tab' ? remoteRequest : requestId,
         chatUrl: `/api/pi-web/${first}/g/7/?view=chat` });
     });
     const dashboard = () => fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
@@ -867,22 +872,37 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       fireEvent.click(await screen.findByRole('button', { name: 'Open another session' }));
       await waitFor(() => expect(mode()).toBeEnabled());
       superseded = scenario === 'superseded';
-      if (scenario !== 'unacknowledged') acknowledge();
+      if (!unpublished) acknowledge();
       dashboard();
-      mockPreferences = { defaultPiSurface: scenario === 'acknowledged' ? 'terminal' : 'chat' };
+      mockPreferences = { defaultPiSurface: scenario === 'acknowledged' || scenario === 'other tab' ? 'terminal' : 'chat' };
       bumpSessionStoreVersion();
-      if (scenario === 'unacknowledged') vi.useFakeTimers();
+      if (unpublished) vi.useFakeTimers();
       const readsBeforeReturn = hitsWhileUnpublished;
       fireEvent.click(screen.getByRole('button', { name: 'Return to session' }));
-      if (scenario === 'unacknowledged') {
+      if (unpublished) {
         await vi.advanceTimersByTimeAsync(0);
         expect(hitsWhileUnpublished).toBeGreaterThan(readsBeforeReturn);
         expect(screen.getByTestId('workspace-content')).toBeVisible();
         expect(screen.queryByTitle('Pi Chat')).not.toBeInTheDocument();
         expect(switches).toEqual([first]);
+        if (scenario === 'rejected') {
+          acknowledge();
+          await vi.advanceTimersByTimeAsync(5000);
+          expect(switches).toEqual([first]);
+          dashboard();
+          fireEvent.click(screen.getByRole('button', { name: 'Return to session' }));
+          await vi.advanceTimersByTimeAsync(0);
+          expect(switches).toEqual([first, first]);
+          return;
+        }
         published = true;
-        acknowledge();
+        if (scenario === 'unacknowledged') acknowledge();
         await vi.advanceTimersByTimeAsync(5000);
+        if (scenario === 'other tab') {
+          expect(screen.getByTitle('Pi Chat')).toBeVisible();
+          expect(switches).toEqual([first]);
+          return;
+        }
       }
       if (scenario === 'superseded') {
         await waitFor(() => expect(switches).toEqual([first, first]));

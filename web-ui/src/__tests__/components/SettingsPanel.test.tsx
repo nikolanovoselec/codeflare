@@ -754,7 +754,7 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
       expect(getComputedStyle(swatch).backgroundColor).toBe('rgb(0, 186, 255)');
       fireEvent.input(screen.getByTestId('accent-color-input'), { target: { value: '#ff0000' } });
       expect(getComputedStyle(swatch).backgroundColor).toBe('rgb(255, 0, 0)');
-      fireEvent.click(screen.getByTestId('accent-color-reset'));
+      fireEvent.click(screen.getByRole('button', { name: 'Reset' }));
       expect(getComputedStyle(swatch).backgroundColor).toBe('rgb(0, 186, 255)');
     });
 

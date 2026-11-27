@@ -99,7 +99,7 @@ const Layout: Component<LayoutProps> = (props) => {
   type ChatFrame = { scope: ReturnType<typeof createPiWebSurface>; id: string; generation: number; url: string; requestId?: string };
   type RetainedChat = { frame: ChatFrame; status: PiWebStatus };
   const [retainedChats, setRetainedChats] = createSignal<RetainedChat[]>([]);
-  const interruptedChat = new Map<string, { generation: number; requestId: string; before?: PiWebStatus }>();
+  const interruptedChat = new Map<string, { generation: number; requestId: string; before?: PiWebStatus; submitting?: ChatFrame['scope'] }>();
   const matchesInterruptedChat = (id: string, generation: number, status: PiWebStatus) => {
     const interrupted = interruptedChat.get(id);
     return interrupted?.generation === generation && interrupted.requestId === status.requestId
@@ -194,6 +194,15 @@ const Layout: Component<LayoutProps> = (props) => {
     const keep = new Set(retainedChats().map(entry => entry.frame.scope));
     const active = piWeb();
     if (active) keep.add(active);
+    for (const [id, entry] of interruptedChat) {
+      const submitting = entry.submitting;
+      if (!submitting) continue;
+      // Keep only the outstanding network command alive across navigation.
+      // Once settled, only the request identity is needed for late publication.
+      if (submitting.rejectedSwitchId() === entry.requestId) interruptedChat.delete(id);
+      else if (submitting.mutation() === 'switch') keep.add(submitting);
+      else entry.submitting = undefined;
+    }
     for (const [scope, dispose] of observers) {
       if (!keep.has(scope)) { dispose(); observers.delete(scope); }
     }
@@ -205,12 +214,14 @@ const Layout: Component<LayoutProps> = (props) => {
     const reported = piWebStatus();
     const displayed = displayedPi().surface;
     if (displayed === 'terminal') {
-      const submitted = piWeb()?.submittedSwitch();
+      const scope = piWeb();
+      const submitted = scope?.submittedSwitch();
       const requestId = submitted?.target === 'chat' ? submitted.requestId
         : reported?.target === 'chat' && (isPiWebSwitchPending(reported) || reported.phase === 'complete')
           ? reported.requestId : undefined;
       if (requestId) interruptedChat.set(session.id, {
         generation: session.generation, requestId,
+        submitting: submitted?.requestId === requestId ? scope : undefined,
         before: submitted?.requestId === requestId && reported?.surface === 'terminal' && reported.requestId !== requestId
           ? reported : undefined,
       });
@@ -258,11 +269,11 @@ const Layout: Component<LayoutProps> = (props) => {
     if (!status) return;
     const interrupted = interruptedChat.get(intent.id);
     const before = interrupted?.generation === intent.generation ? interrupted.before : undefined;
+    setPreferredOpen(undefined);
     // The Host can still report the outgoing writer before publishing the POST.
     // An unchanged status is not evidence that another request superseded ours.
     if (before && status.surface === before.surface && status.phase === before.phase
       && status.requestId === before.requestId && status.target === before.target) return;
-    setPreferredOpen(undefined);
     if (matchesInterruptedChat(intent.id, intent.generation, status)) return;
     interruptedChat.delete(intent.id);
     // Don't restart an existing writer, interrupt another handoff, or replay a failed one.

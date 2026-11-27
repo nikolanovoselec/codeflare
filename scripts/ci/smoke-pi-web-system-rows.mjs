@@ -58,22 +58,28 @@ try {
   if (user.backgroundColor === agent.backgroundColor || !(parseFloat(user.borderInlineStartWidth) > parseFloat(agent.borderInlineStartWidth))) {
     throw Error('Codeflare palette must distinguish user messages from agent replies');
   }
-  for (const [tag, action, navigation] of [
-    ['app-context-bar', 'button.context-action-button:not([data-navigation-trigger])', '[data-navigation-trigger]'],
-    ['app-navigation-panel', 'button.actions-button', 'header machine-switcher'],
+  for (const [tag, action, icon, navigation] of [
+    ['app-context-bar', 'button.context-action-button:not([data-navigation-trigger])', '.context-action-icon', '[data-navigation-trigger]'],
+    ['app-navigation-panel', 'button.actions-button', '.actions-icon', 'header machine-switcher'],
   ]) {
     const bar = document.body.appendChild(document.createElement(tag));
-    bar.onShowActions = () => {};
+    let paletteOpened = false;
+    bar.onShowActions = () => { paletteOpened = true; };
     bar.onShowNavigation = () => {};
     bar.refreshControl = document.createElement('app-refresh-control');
     await bar.updateComplete;
     const scope = bar.shadowRoot;
-    const targets = [scope.querySelector(action), scope.querySelector('app-refresh-control')];
+    const paletteButton = scope.querySelector(action);
+    const targets = [paletteButton?.querySelector(icon), scope.querySelector('app-refresh-control')];
     if (targets.some(node => !node || getComputedStyle(node).display === 'none')) throw Error(tag + ': stock controls missing');
     scope.adoptedStyleSheets = [...scope.adoptedStyleSheets, sheet];
     if (targets.some(node => getComputedStyle(node).display !== 'none')) throw Error(tag + ': stock controls must be hidden');
     const retained = scope.querySelector(navigation);
-    if (!retained || getComputedStyle(retained).display === 'none') throw Error(tag + ': navigation must remain available');
+    const visible = node => node && node.getBoundingClientRect().width > 0 && node.getBoundingClientRect().height > 0;
+    if (!visible(retained)) throw Error(tag + ': navigation must remain available');
+    if (!visible(paletteButton)) throw Error(tag + ': the text path to theme settings must remain visible');
+    paletteButton.click();
+    if (!paletteOpened) throw Error(tag + ': the text action must open the stock palette');
   }
   const live = line('system', 'text', 'fixture live SYSTEM');
   chat.messages = [...messages, live];
