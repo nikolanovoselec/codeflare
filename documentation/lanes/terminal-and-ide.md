@@ -78,11 +78,12 @@ When **VS Code** is the effective workspace, Dashboard **New Session** starts Pi
 - The [Layout regression](../../web-ui/src/__tests__/components/Layout.test.tsx) checks that the startup UI stays mounted while the first Host status is pending ([REQ-TERM-043 AC6](../../sdd/spec/terminal.md#req-term-043-visible-terminal-readiness-gating)). It uses a mock Terminal and does not track sockets.
 - On Chat-first Start and Resume, verify the stock frame loads behind the startup overlay. Once the Host confirms Chat and five seconds have passed since the stock loader disappeared, **Open** becomes available on a best-effort basis.
 - After **Open** appears, wait over 25 seconds before clicking it. Verify it reveals the same frame without starting native Pi.
-- For [REQ-AGENT-291](../../sdd/spec/agents.md#req-agent-291-mobile-focus-on-new-chat-open), start a new empty Vibe session on a physical iPhone (Safari) or Android phone (Chrome), with the keyboard closed.
+- For [REQ-AGENT-291](../../sdd/spec/agents.md#req-agent-291-mobile-focus-on-new-chat-open), start a new empty Vibe session on both a physical iPhone (Safari) and Android phone (Chrome), with the keyboard closed.
 - Tap **Open** once. The OS keyboard should appear and typing should land in the retained stock composer without a second tap. DOM focus or desktop emulation does not verify the OS keyboard.
-- Repeat after waiting at **Open** and after creating a new session with an authorized disposable clone target.
+- On both platforms, repeat after waiting at **Open** and after creating a new session with an authorized disposable clone target. Record missing device coverage separately.
 - Tap startup **Open** after resuming an empty session on a phone, and return separately to a live Chat. Neither should bring up the keyboard without a composer tap.
-- On desktop, activate startup **Open** and confirm it does not claim composer focus. If a native question blocks startup, it should remain answerable without a focus move to the prompt. Record unavailable fixtures as unexercised.
+- On desktop, activate startup **Open** and confirm it does not claim composer focus.
+- On a phone, start a fresh empty Chat that raises a native question. The question should stay answerable without focus moving to the composer or summoning its keyboard. Mark the case unexercised if the fixture is unavailable.
 - For each run below, configure an authorized synthetic repository as a restore target and ensure its checkout is absent locally.
 - Start Chat-first and choose **Open**. While **Restoring repositories…** is visible, verify the Chat composer works, then switch **Chat → Terminal** before waiting for the clone outcome.
 - In a separate Terminal-first run, choose **Open**. While **Restoring repositories…** is visible, verify native Pi accepts a harmless prompt, then switch **Terminal → Chat**.
@@ -362,7 +363,7 @@ For [REQ-GITHUB-330 AC4](../../sdd/spec/github.md#req-github-330-workspace-mode-
 
 Compare the GitHub and Storage card bounds, surface color, border, corner radius, and padding in the same viewport, using Storage Usage as the reference. Repeat the comparison with a successfully loaded empty list and no positive owned count. The black labels then read **NOTHING TO SHOW.** and **GO BUILD SOMETHING.** on two lines. Leave and return to Dashboard and check that both lines still appear once the empty list is confirmed.
 
-For [REQ-GITHUB-332](../../sdd/spec/github.md#req-github-332-vibe-repository-list-recovery), use an authorized browser fixture with unavailable counts and no loaded shortcuts. Return a transient failure on the first list request and an empty success on the next. Stay on Dashboard without reloading or clicking. Verify the centered **CONNECTION TO GITHUB** and **FAILED. RETRYING.** lines give way to the empty copy. Mark this browser check unexercised if the fixture is unavailable.
+For [REQ-GITHUB-332](../../sdd/spec/github.md#req-github-332-vibe-repository-list-recovery), use an authorized browser fixture with unavailable counts and no loaded shortcuts. Return a transient failure on the first list request and an empty success on the next. Stay on Dashboard without reloading or clicking. Verify the centered **CONNECTION TO GITHUB** and **FAILED. RETRYING.** lines give way to the empty copy. Mark this browser check unexercised if the fixture is unavailable. If the card shows the GitHub connection action instead, use it to reconnect; automatic retry has stopped.
 
 After restore, check that the clone directory is the Git checkout root, its `origin` matches the selected `owner/repo`, and its checked-out branch matches the known default. A selected repo or a clone request alone does not pass. Record any case without the required fixture or authorization as unexercised.
 

@@ -44,15 +44,18 @@ function focusStockStartupPrompt(frame: HTMLIFrameElement, doc: Document, src: s
     const app = doc.querySelector<HTMLElement & { isChatVisible?(): boolean; isRenderedModalOpen?(): boolean }>('pi-web-app');
     if (app?.isChatVisible?.() !== true || app.isRenderedModalOpen?.() !== false) return;
     const conversation = app.shadowRoot?.querySelector<HTMLElement & { questionActions?: unknown }>('main.chat-view > conversation-layout');
-    const history = conversation?.querySelector<StockHistory>(':scope > chat-view');
+    if (!conversation) return;
+    const children = Array.from(conversation.children);
+    const history = children.find(child => child.localName === 'chat-view') as StockHistory | undefined;
     if (!history || history.sessionId !== sessionId || history.historyReady !== true || history.messageTotal !== 0
       || history.hasMore !== false || !Array.isArray(history.messages) || history.messages.length !== 0
       || !Array.isArray(history.pendingDialogs) || history.pendingDialogs.length !== 0
-      || !Array.isArray(history.closedDialogs) || history.closedDialogs.length !== 0 || conversation?.questionActions !== undefined) return;
+      || !Array.isArray(history.closedDialogs) || history.closedDialogs.length !== 0 || conversation.questionActions !== undefined) return;
 
-    const composer = conversation?.querySelector<HTMLElement & {
+    const slot = children.find(child => child.slot === 'composer');
+    const composer = Array.from(slot?.children ?? []).find(child => child.localName === 'prompt-editor') as (HTMLElement & {
       sessionId?: string; projectId?: string; workspaceId?: string; disabled?: boolean; focusInput?(): void;
-    }>(':scope > [slot="composer"] > prompt-editor');
+    }) | undefined;
     if (!composer || composer.sessionId !== sessionId || composer.projectId !== projectId || composer.workspaceId !== workspaceId
       || composer.disabled !== false || composer.closest('[inert], [hidden]')) return;
     const editable = composer.shadowRoot?.querySelector('.cm-content[contenteditable="true"]');

@@ -886,8 +886,11 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     (githubStore as any)._setEnabled(true);
     (githubStore as any)._setLogin('octocat');
     const counts = vi.spyOn(githubApi, 'getGithubOwnedRepoCounts').mockResolvedValue({ counts: null });
-    const retry = vi.mocked(githubStore.retryInitialRepos);
-    retry.mockImplementationOnce(async () => {
+    let finishRetry!: () => void;
+    const pendingRetry = new Promise<void>(resolve => { finishRetry = resolve; });
+    vi.mocked(githubStore.retryInitialRepos).mockImplementationOnce(async () => {
+      githubFixture._setRepoPage({ ...initialRepoPage, loading: true });
+      await pendingRetry;
       githubFixture._setRepoPage({ ...initialRepoPage, page: 1 });
     });
     try {
@@ -905,6 +908,10 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
       expect(details.getByText('FAILED. RETRYING.', { exact: true })).toBeVisible();
       expect(details.queryByText('NOTHING TO SHOW.')).not.toBeInTheDocument();
       await vi.advanceTimersByTimeAsync(5000);
+      expect(details.getByText('CONNECTION TO GITHUB', { exact: true })).toBeVisible();
+      expect(details.getByText('FAILED. RETRYING.', { exact: true })).toBeVisible();
+      finishRetry();
+      await vi.advanceTimersByTimeAsync(0);
       expect(details.queryByText('CONNECTION TO GITHUB')).not.toBeInTheDocument();
       expect(details.getByText('NOTHING TO SHOW.', { exact: true })).toBeVisible();
       expect(details.getByText('GO BUILD SOMETHING.', { exact: true })).toBeVisible();
@@ -917,6 +924,17 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
       expect(reopened.getByText('NOTHING TO SHOW.', { exact: true })).toBeVisible();
       expect(reopened.getByText('GO BUILD SOMETHING.', { exact: true })).toBeVisible();
     } finally { vi.useRealTimers(); counts.mockRestore(); }
+  });
+
+  it('REQ-GITHUB-332: shows unavailable for a non-retryable list failure', async () => {
+    (githubStore as any)._setEnabled(true);
+    (githubStore as any)._setLogin('octocat');
+    githubFixture._setRepoPage({ ...initialRepoPage, error: 'Repository listing forbidden' });
+    render(() => <Dashboard {...defaultProps} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
+    const details = within(screen.getByRole('region', { name: 'GitHub Details' }));
+    expect(await details.findByText('Repository shortcuts unavailable.')).toBeVisible();
+    expect(details.queryByText('FAILED. RETRYING.')).not.toBeInTheDocument();
+    expect(details.queryByText('NOTHING TO SHOW.')).not.toBeInTheDocument();
   });
 
   it('REQ-GITHUB-332: offers reconnection instead of retrying a disconnected repository list', async () => {
@@ -1059,17 +1077,20 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     }
   });
 
-  it('REQ-IDE-048: keeps the filtered VS Code picker when Pi is unavailable', () => {
+  it.each([{ agents: ['codex'] as const }, { agents: null }])('REQ-IDE-048: keeps the filtered VS Code picker without verified Pi (%j)', ({ agents }) => {
     showRealCreateDialog = true;
     (sessionStore as any)._setDefaultWorkspace('vscode');
-    (sessionStore as any)._setAllowedAgents(['codex']);
+    (sessionStore as any)._setAllowedAgents(agents ? [...agents] : null);
     try {
       render(() => <Dashboard {...defaultProps} workspaceMode={{ value: 'terminal', onSelect: () => {} }} />);
       fireEvent.click(screen.getByTestId('dashboard-new-session'));
       const picker = within(screen.getByRole('dialog', { name: 'Create new session' }));
-      expect(picker.queryByRole('button', { name: /^Pi\b/ })).not.toBeInTheDocument();
-      fireEvent.click(picker.getByRole('button', { name: /^Codex\b/ }));
-      expect(defaultProps.onCreateSession).toHaveBeenCalledWith('codex', undefined);
+      expect(picker.queryByRole('button', { name: /^Pi/ })).not.toBeInTheDocument();
+      expect(defaultProps.onCreateSession).not.toHaveBeenCalled();
+      if (agents) {
+        fireEvent.click(picker.getByRole('button', { name: /^Codex/ }));
+        expect(defaultProps.onCreateSession).toHaveBeenCalledWith('codex', undefined);
+      } else expect(picker.queryAllByRole('button')).toHaveLength(0);
     } finally { (sessionStore as any)._setAllowedAgents(['pi']); }
   });
 

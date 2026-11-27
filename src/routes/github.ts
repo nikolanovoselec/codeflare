@@ -28,6 +28,8 @@ import {
   getGithubProvider,
   getGithubConnectionStatus,
   getValidGithubToken,
+  resolveGithubToken,
+  GITHUB_REFRESH_UNAVAILABLE,
   disconnectGithub,
   connectStateSecret,
   CONNECT_CALLBACK_PATH,
@@ -147,7 +149,10 @@ app.get('/owned-repo-counts', reposRateLimiter, async (c) => {
 app.get('/repos', reposRateLimiter, async (c) => {
   if (!githubFeatureEnabled(c.env)) return c.json({ error: 'GitHub integration disabled', code: 'GITHUB_DISABLED' }, 403);
 
-  const token = await getValidGithubToken(c.env, c.get('bucketName'), work => c.executionCtx.waitUntil(work));
+  const token = await resolveGithubToken(c.env, c.get('bucketName'), work => c.executionCtx.waitUntil(work));
+  if (token === GITHUB_REFRESH_UNAVAILABLE) {
+    return c.json({ error: 'GitHub token refresh temporarily unavailable.', code: 'GITHUB_REFRESH_UNAVAILABLE' }, 503);
+  }
   // Codeflare authentication already passed; the missing GitHub credential is a connection conflict.
   if (!token) return c.json({ error: 'Connect GitHub to load repositories.', code: 'NOT_CONNECTED' }, 409);
 

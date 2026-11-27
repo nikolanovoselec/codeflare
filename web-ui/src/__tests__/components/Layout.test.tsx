@@ -740,8 +740,8 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
         const id = 'abcdef0123456789';
         const creating = scenario !== 'Resume';
         const generation = creating ? 1 : 2;
-        const session: SessionWithStatus = createMockSession({ id, workspace: 'terminal', terminalMode: 'classic', agentType: 'pi',
-          status: 'stopped', generation: generation - 1 });
+        const session: SessionWithStatus = { ...createMockSession(), id, workspace: 'terminal', terminalMode: 'classic', agentType: 'pi',
+          status: 'stopped', generation: generation - 1 };
         mockPreferences = { defaultPiSurface: 'chat' };
         mockPhone = scenario !== 'desktop';
         mockSessions = creating ? [] : [session];

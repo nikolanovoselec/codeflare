@@ -153,15 +153,28 @@ interface TokenResponse {
   error_description?: string;
 }
 
+class GithubTokenEndpointUnavailable extends Error {}
+
 async function postToken(env: Env, body: Record<string, string>): Promise<TokenResponse> {
-  const res = await fetch(`https://${webHost(env)}/login/oauth/access_token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(10000),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`https://${webHost(env)}/login/oauth/access_token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10000),
+    });
+  } catch {
+    throw new GithubTokenEndpointUnavailable('GitHub token endpoint unavailable');
+  }
+  if (res.status === 429 || res.status >= 500) {
+    throw new GithubTokenEndpointUnavailable(`GitHub token endpoint returned ${res.status}`);
+  }
   if (!res.ok) throw new Error(`GitHub token endpoint returned ${res.status}`);
   const data = (await res.json()) as TokenResponse;
+  if (data.error === 'temporarily_unavailable' || data.error === 'server_error') {
+    throw new GithubTokenEndpointUnavailable('GitHub token endpoint temporarily unavailable');
+  }
   if (data.error || !data.access_token) {
     throw new Error(`GitHub token exchange failed: ${data.error ?? 'no access_token'}`);
   }
@@ -341,7 +354,9 @@ export async function getGithubProvider(env: Env): Promise<GithubOAuthProvider |
 // --- orchestration ---------------------------------------------------------
 
 // Coalesce requests for the same connection within this Worker isolate.
-const appRefreshes = new WeakMap<Env['KV'], Map<string, Promise<string | null>>>();
+export const GITHUB_REFRESH_UNAVAILABLE = Symbol('GitHub refresh unavailable');
+type GithubTokenResolution = string | null | typeof GITHUB_REFRESH_UNAVAILABLE;
+const appRefreshes = new WeakMap<Env['KV'], Map<string, Promise<GithubTokenResolution>>>();
 
 /**
  * Return a currently-valid GitHub access token for the user, refreshing an App token
@@ -349,8 +364,16 @@ const appRefreshes = new WeakMap<Env['KV'], Map<string, Promise<string | null>>>
  * cannot be refreshed — fail closed: never returns a stale token.
  */
 export async function getValidGithubToken(
-  env: Env, bucketName: string, retainRefresh?: (work: Promise<string | null>) => void,
+  env: Env, bucketName: string, retainRefresh?: (work: Promise<unknown>) => void,
 ): Promise<string | null> {
+  const result = await resolveGithubToken(env, bucketName, retainRefresh);
+  return typeof result === 'string' ? result : null;
+}
+
+/** Distinguish temporary refresh outages without admitting expired credentials. */
+export async function resolveGithubToken(
+  env: Env, bucketName: string, retainRefresh?: (work: Promise<unknown>) => void,
+): Promise<GithubTokenResolution> {
   const conn = readConnection(await readDeployKeys(env, bucketName));
   if (!conn) return null;
 
@@ -369,13 +392,13 @@ export async function getValidGithubToken(
   if (pending) {
     let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
-      return await Promise.race([pending, new Promise<null>(resolve => {
-        timeout = setTimeout(() => resolve(null), 15_000);
+      return await Promise.race([pending, new Promise<typeof GITHUB_REFRESH_UNAVAILABLE>(resolve => {
+        timeout = setTimeout(() => resolve(GITHUB_REFRESH_UNAVAILABLE), 15_000);
       })]);
     } finally { clearTimeout(timeout); }
   }
 
-  const refresh = (async () => {
+  const refresh = (async (): Promise<GithubTokenResolution> => {
     try {
       const provider = await getGithubProvider(env);
       if (!provider || provider.source !== 'app') return null;
@@ -387,7 +410,7 @@ export async function getValidGithubToken(
       return refreshed.accessToken;
     } catch (err) {
       logger.warn('GitHub App token refresh failed; failing closed', { err: String(err) });
-      return null;
+      return err instanceof GithubTokenEndpointUnavailable ? GITHUB_REFRESH_UNAVAILABLE : null;
     }
   })();
   // Dashboard and egress callers may join only work retained by its owner.
