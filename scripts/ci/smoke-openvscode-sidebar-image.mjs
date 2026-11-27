@@ -143,6 +143,15 @@ export async function verifyPiClassicSessionStartup({
       encoding: 'utf8', timeout: 10_000,
     });
     const { id } = JSON.parse(await readFile(sessionFile, 'utf8'));
+    const agentDir = join(home, '.pi', 'agent');
+    const provider = 'classic-smoke';
+    const model = 'offline-fixture';
+    // RPC startup needs a model, but get_state does not call it.
+    await writeFile(join(agentDir, 'settings.json'), JSON.stringify({ defaultProvider: provider, defaultModel: model }));
+    await writeFile(join(agentDir, 'models.json'), JSON.stringify({ providers: {
+      [provider]: { api: 'openai-completions', baseUrl: 'http://127.0.0.1:1/v1',
+        apiKey: 'local-fixture-not-a-secret', models: [{ id: model }] },
+    } }));
 
     const result = run(piPath, ['--session', sessionFile, '--mode', 'rpc'], {
       cwd,
@@ -150,7 +159,7 @@ export async function verifyPiClassicSessionStartup({
       env: {
         ...process.env,
         HOME: home,
-        PI_CODING_AGENT_DIR: join(home, '.pi', 'agent'),
+        PI_CODING_AGENT_DIR: agentDir,
         PI_OFFLINE: '1',
         PI_SKIP_VERSION_CHECK: '1',
       },

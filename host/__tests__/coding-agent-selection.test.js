@@ -413,11 +413,19 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
           cwd: join(inspectedHome, 'workspace'),
         },
       );
-      for (const [run, expected] of [
-        [() => ({ status: 1, signal: null, stderr: 'Error: could not open transcript' }), /must exit successfully/],
-        [() => ({ status: 0, signal: null, stdout: '{"type":"response","command":"get_state","success":true,"data":{"sessionId":"different","sessionFile":"/different.jsonl"}}\n' }), /must open the seeded Classic transcript/],
-      ]) {
-        await assert.rejects(verifyPiClassicSessionStartup({ temporaryRoot: root, stateScript, run }), expected);
+      await assert.rejects(verifyPiClassicSessionStartup({
+        temporaryRoot: root, stateScript,
+        run: () => ({ status: 1, signal: null, stderr: 'Error: could not open transcript' }),
+      }), /must exit successfully/);
+      for (const wrongField of ['sessionId', 'sessionFile']) {
+        await assert.rejects(verifyPiClassicSessionStartup({
+          temporaryRoot: root, stateScript,
+          run: (_path, [, sessionFile]) => {
+            const { id: sessionId } = JSON.parse(readFileSync(sessionFile, 'utf8'));
+            const data = { sessionId, sessionFile, [wrongField]: 'wrong' };
+            return { status: 0, signal: null, stdout: JSON.stringify({ type: 'response', command: 'get_state', success: true, data }) + '\n' };
+          },
+        }), /must open the seeded Classic transcript/, `must reject a mismatched ${wrongField} independently`);
       }
     } finally {
       rmSync(root, { recursive: true, force: true });
