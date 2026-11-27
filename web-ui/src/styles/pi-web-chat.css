@@ -104,12 +104,23 @@
 }
 
 @media (max-width: 640px) {
+  .layout-workspace--chat {
+    justify-content: flex-start;
+  }
+
+  .layout-workspace--chat > header {
+    min-block-size: calc(var(--header-height) + env(safe-area-inset-top));
+    padding-block-start: env(safe-area-inset-top);
+  }
+
   .layout-workspace--chat::before,
   .layout-workspace--chat::after {
     content: none;
   }
 
   .layout-workspace--chat > .layout-middle {
+    /* Only the compact frame centers in the space below the header. */
+    margin-block: auto;
     max-block-size: var(--chat-compact-height, 100cqb);
   }
 }

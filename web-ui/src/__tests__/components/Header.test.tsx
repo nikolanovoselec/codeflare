@@ -404,6 +404,7 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
     expect(screen.queryByText(email)).not.toBeInTheDocument();
     fireEvent.click(profile);
     const menu = screen.getByTestId('header-user-dropdown');
+    expect(within(menu).getByTitle(email)).toHaveTextContent(email);
     expect(within(menu).getByText(email)).toBeVisible();
     const actions = within(menu).getByRole('group', { name: 'Account actions' });
     expect(within(actions).queryByText(email)).not.toBeInTheDocument();

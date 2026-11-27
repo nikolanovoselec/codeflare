@@ -508,13 +508,14 @@
   margin-inline-start: calc(-1 * var(--space-1));
 }
 @media (width > 640px) {
-  .dashboard-panel-wrapper--disclosure { transition: max-inline-size var(--transition-base); }
   .dashboard-panel-wrapper--summary {
     max-inline-size: 390px;
   }
-  .dashboard-panel-wrapper--summary .dashboard-panel-left {
-    inline-size: 100%;
-  }
+  .dashboard-panel-wrapper--disclosure .dashboard-panel-left { max-inline-size: 100%; }
+  .dashboard-panel-wrapper--summary .dashboard-panel-left { inline-size: 390px; }
+  /* Keep the card above New Session the same height when its copy reflows. */
+  .dashboard-panel-body--disclosure > .dashboard-panel-left > :is(.tips-card, .welcome-card) { flex: none; }
+  .dashboard-panel-body--disclosure .dashboard-card__text { min-block-size: 2lh; }
   .dashboard-panel-wrapper--disclosure > .dashboard-panel,
   .dashboard-panel-wrapper--disclosure .dashboard-panel-body--disclosure { overflow: visible; }
   .dashboard-panel-wrapper--disclosure .dashboard-panel-body--disclosure {
@@ -524,8 +525,8 @@
   .dashboard-panel-body--disclosure > .dashboard-panel-left { border-end-start-radius: inherit; }
   .dashboard-panel-body--disclosure > .dashboard-panel-right,
   .dashboard-panel-wrapper--summary .dashboard-panel-left { border-end-end-radius: inherit; }
-  .dashboard-panel-wrapper--summary .dashboard-panel-header > .header-logo { flex-shrink: 1; min-inline-size: 0; }
-  .dashboard-panel-wrapper--summary .header-logo-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dashboard-panel-wrapper--disclosure .dashboard-panel-header > .header-logo { flex-shrink: 1; min-inline-size: 0; }
+  .dashboard-panel-wrapper--disclosure .header-logo-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .dashboard-panel-wrapper--disclosure .dashboard-panel-body--disclosure > .dashboard-panel-pull {
     position: absolute;
     inset-inline-start: 100%;
@@ -533,6 +534,14 @@
     block-size: 150px;
     translate: 0 -50%;
   }
+}
+@media (width > 640px) and (prefers-reduced-motion: no-preference) {
+  .dashboard-panel-wrapper--disclosure { transition: max-inline-size 150ms ease-in-out; }
+  .dashboard-panel-wrapper--disclosure .dashboard-panel-left { transition: inline-size 150ms ease-in-out; }
+  .dashboard-panel-body--disclosure > .dashboard-panel-right { transition-timing-function: ease-in-out; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-panel-body--disclosure > .dashboard-panel-right { transition: none; }
 }
 @media (max-width: 640px) {
   .dashboard-panel-wrapper--disclosure { padding-block-end: calc(44px + var(--space-2)); }

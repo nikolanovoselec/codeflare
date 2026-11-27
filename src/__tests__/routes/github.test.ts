@@ -211,16 +211,30 @@ describe('GitHub Details owned repository counts', () => {
 // ─── GET /repos (REQ-GITHUB-002 AC2) ────────────────────────────────────────
 
 describe('REQ-GITHUB-002 / REQ-GITHUB-007: GET /api/github/repos', () => {
-  it('REQ-GITHUB-002: 401s when not connected and never calls GitHub', async () => {
+  it('REQ-GITHUB-002: reports a GitHub connection conflict without calling GitHub when disconnected', async () => {
     const res = await createTestApp(ENT).request('/api/github/repos');
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(409);
     expect((await res.json() as Record<string, unknown>).code).toBe('NOT_CONNECTED');
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it('REQ-GITHUB-007: is reachable in non-enterprise (panel no longer enterprise-gated) — 401 when not connected', async () => {
+  it('REQ-GITHUB-002: reports a connection conflict for an expired App connection after switching to OAuth', async () => {
+    const saved = { githubToken: 'expired', githubTokenSource: 'app', githubLogin: 'octocat',
+      githubRefreshToken: 'old-refresh', githubTokenExpiresAt: Date.now() - 1000 } satisfies DeployKeys;
+    mockKV._set(KEY, saved);
+    const app = createTestApp({ ENTERPRISE_MODE: 'active', OAUTH_CLIENT_ID: 'oauth-id', OAUTH_CLIENT_SECRET: 'oauth-secret' });
+    const status = await app.request('/api/github/status');
+    expect(await status.json()).toMatchObject({ connected: true, source: 'app' });
+    const repos = await app.request('/api/github/repos');
+    expect(repos.status).toBe(409);
+    expect(await repos.json()).toMatchObject({ code: 'NOT_CONNECTED' });
+    expect(mockKV._store.get(KEY)).toBe(JSON.stringify(saved));
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('REQ-GITHUB-007: reports the same connection conflict in non-enterprise', async () => {
     const res = await createTestApp({}).request('/api/github/repos');
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(409);
     expect((await res.json() as Record<string, unknown>).code).toBe('NOT_CONNECTED');
   });
 

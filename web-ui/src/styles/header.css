@@ -313,18 +313,20 @@
         .header-user-email > span {
           flex: none;
           box-sizing: border-box;
-          max-inline-size: 60vw;
+          max-inline-size: 90dvw;
           padding: var(--space-1) var(--space-2);
           background: #000;
           color: #fff;
           font: var(--font-semibold) var(--text-sm) / 1.125 var(--font-mono);
-          white-space: normal;
-          overflow-wrap: anywhere;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
 
         @media (width > 640px) {
           .header-user-dropdown--profile:not(.header-user-dropdown--sheet) .header-user-email > span {
-            max-inline-size: min(60vw, calc(100vw - var(--profile-menu-right) - 8px));
+            /* Shift a wide badge right only after it reaches the left margin. */
+            translate: clamp(0px, calc(100% + var(--profile-menu-right) + 8px - 100dvw), var(--profile-menu-right));
           }
         }
 
@@ -553,10 +555,6 @@
           .header-user-dropdown-item,
           .header-user-dropdown--portal .header-user-dropdown-item {
             font-size: 16px;
-          }
-
-          .header-user-email > span {
-            max-inline-size: 100%;
           }
 
           .header-user-dropdown-item,

@@ -104,10 +104,10 @@ describe('GitHub API client', () => {
       expect(result.hasMore).toBe(true);
     });
 
-    it('throws on 401 NOT_CONNECTED', async () => {
-      mockErrorResponse(401, { code: 'NOT_CONNECTED' });
+    it('preserves the GitHub connection conflict code', async () => {
+      mockErrorResponse(409, { code: 'NOT_CONNECTED' });
 
-      await expect(getGithubRepos(1)).rejects.toThrow();
+      await expect(getGithubRepos(1)).rejects.toMatchObject({ status: 409, code: 'NOT_CONNECTED' });
     });
 
     it('throws on 403 GITHUB_DISABLED', async () => {

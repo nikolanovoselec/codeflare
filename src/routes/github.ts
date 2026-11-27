@@ -148,7 +148,8 @@ app.get('/repos', reposRateLimiter, async (c) => {
   if (!githubFeatureEnabled(c.env)) return c.json({ error: 'GitHub integration disabled', code: 'GITHUB_DISABLED' }, 403);
 
   const token = await getValidGithubToken(c.env, c.get('bucketName'), work => c.executionCtx.waitUntil(work));
-  if (!token) return c.json({ error: 'GitHub not connected', code: 'NOT_CONNECTED' }, 401);
+  // Codeflare authentication already passed; the missing GitHub credential is a connection conflict.
+  if (!token) return c.json({ error: 'Connect GitHub to load repositories.', code: 'NOT_CONNECTED' }, 409);
 
   const page = Math.max(1, Number(c.req.query('page') ?? '1') || 1);
   const apiHost = c.env.GITHUB_API_HOST?.trim() || 'api.github.com';

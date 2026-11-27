@@ -268,7 +268,7 @@ const Header: Component<HeaderProps> = (props) => {
                 <div class="header-user-email" ref={element => {
                   setProfileEmail(element);
                   onCleanup(() => setProfileEmail(current => current === element ? undefined : current));
-                }}><span>{email()}</span></div>
+                }}><span title={email()}>{email()}</span></div>
               )}</Show>
               <div class="header-user-profile-actions" role="group" aria-label="Account actions">
                 <Show when={inProfile('vscode') && props.onVscodeOpen}>{onOpen =>

@@ -1,4 +1,4 @@
-import { Show, createMemo, createSignal, onCleanup, onMount } from 'solid-js';
+import { Show, createEffect, createMemo, createSignal, on, onCleanup, onMount } from 'solid-js';
 import { piWebPrefix, type PiWebStatus } from '../api/pi-web';
 import { disableVirtualKeyboardOverlay } from '../lib/mobile';
 import PiWebSwitchControls from './PiWebSwitchControls';
@@ -20,7 +20,7 @@ interface PiWebChatProps {
   onPanelSize?: (size?: ChatPanelSize) => void;
 }
 
-function StockChatFrame(props: { src: string; onStartupReady?: (ready: boolean) => void; onStartupFailure?: (failed: boolean) => void; onPanelSize?: PiWebChatProps['onPanelSize'] }) {
+function StockChatFrame(props: { src: string; keyboardInset: number; onStartupReady?: (ready: boolean) => void; onStartupFailure?: (failed: boolean) => void; onPanelSize?: PiWebChatProps['onPanelSize'] }) {
   // Pi Web 1.202611.5 prefers a saved browser theme to the gateway default.
   // Return to the Codeflare default once per origin, before the stock frame reads storage.
   try {
@@ -42,6 +42,8 @@ function StockChatFrame(props: { src: string; onStartupReady?: (ready: boolean) 
   let observer: MutationObserver | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let stopCompactWatch: (() => void) | undefined;
+  let sampleCompactHistory: (() => void) | undefined;
+  createEffect(on(() => props.keyboardInset, () => sampleCompactHistory?.()));
   const cancel = () => { observer?.disconnect(); clearTimeout(timer); stopCompactWatch?.(); };
   const [compactHeight, setCompactHeight] = createSignal<number>();
   let expansionTimer: ReturnType<typeof setTimeout> | undefined;
@@ -68,7 +70,7 @@ function StockChatFrame(props: { src: string; onStartupReady?: (ready: boolean) 
     const layout = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(() => sample());
     const stopSampling = () => { clearInterval(sampling); sampling = undefined; };
     const sample = () => {
-      if (!frame.isConnected || frame.contentDocument !== doc) return;
+      if (complete || !frame.isConnected || frame.contentDocument !== doc) return;
       const chat = app.shadowRoot?.querySelector<StockHistory>('main.chat-view > conversation-layout > chat-view') ?? null;
       if (chat !== checkedChat) {
         dom.disconnect();
@@ -94,12 +96,19 @@ function StockChatFrame(props: { src: string; onStartupReady?: (ready: boolean) 
         if (complete) { stopSampling(); dom.disconnect(); layout?.disconnect(); }
         return;
       }
+      // The inset consumes space inside the outer cap. Measuring and capping
+      // again while inset would subtract it repeatedly, eventually clipping Chat.
+      if (props.keyboardInset > 0) {
+        compact();
+        return;
+      }
       const remaining = frame.offsetHeight - chat.offsetHeight;
       if (remaining > 0 && frame.offsetHeight > 0) compact(remaining);
     };
     if (app.shadowRoot) dom.observe(app.shadowRoot, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] });
     layout?.observe(frame);
-    stopCompactWatch = () => { stopSampling(); dom.disconnect(); layout?.disconnect(); };
+    sampleCompactHistory = sample;
+    stopCompactWatch = () => { sampleCompactHistory = undefined; stopSampling(); dom.disconnect(); layout?.disconnect(); };
     sampling = setInterval(() => {
       sample();
       if (++checks >= 50) stopSampling();
@@ -157,12 +166,19 @@ export default function PiWebChat(props: PiWebChatProps) {
     const fitViewport = () => setKeyboardInset(viewport.scale === 1
       ? Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop)
       : 0);
+    // A resumed document may not get a visualViewport event for the new size.
+    const fitOnVisibilityReturn = () => { if (document.visibilityState === 'visible') fitViewport(); };
+    const fitOnPageRestore = (event: PageTransitionEvent) => { if (event.persisted) fitOnVisibilityReturn(); };
     fitViewport();
     viewport.addEventListener('resize', fitViewport);
     viewport.addEventListener('scroll', fitViewport);
+    document.addEventListener('visibilitychange', fitOnVisibilityReturn);
+    window.addEventListener('pageshow', fitOnPageRestore);
     onCleanup(() => {
       viewport.removeEventListener('resize', fitViewport);
       viewport.removeEventListener('scroll', fitViewport);
+      document.removeEventListener('visibilitychange', fitOnVisibilityReturn);
+      window.removeEventListener('pageshow', fitOnPageRestore);
     });
   });
 
@@ -200,7 +216,7 @@ export default function PiWebChat(props: PiWebChatProps) {
       <div class="pi-web-chat__space">
         <Show when={frame()} keyed
           fallback={<p role="status">{props.status.chatUrl ? 'Chat could not be opened.' : 'Preparing Chat…'}</p>}>
-          {source => <StockChatFrame src={source.src} onPanelSize={props.onPanelSize} onStartupReady={props.onStartupReady} onStartupFailure={failed => {
+          {source => <StockChatFrame src={source.src} keyboardInset={keyboardInset()} onPanelSize={props.onPanelSize} onStartupReady={props.onStartupReady} onStartupFailure={failed => {
             setFrameFailed(failed);
             props.onStartupFailure?.(failed);
           }} />}

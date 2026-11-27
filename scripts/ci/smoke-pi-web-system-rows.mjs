@@ -12,6 +12,8 @@ const chromePlugin = new URL('../../image/pi-web/codeflare-chrome/browser/', imp
 const appHtml = await readFile(new URL('index.html', client));
 const css = await readFile(new URL('footer.css', chromePlugin), 'utf8');
 const palette = await readFile(new URL('graphite.css', chromePlugin), 'utf8');
+const workspaceCss = await Promise.all(['layout', 'header', 'pi-web-chat', 'dashboard', 'dashboard-card'].map(file =>
+  readFile(new URL(`../../web-ui/src/styles/${file}.css`, import.meta.url), 'utf8')));
 const assets = await readdir(new URL('assets/', client));
 const mains = assets.filter(name => /^main-[\w-]+\.js$/.test(name));
 assert.equal(mains.length, 1, 'expected one pinned stock client entry');
@@ -77,12 +79,40 @@ try {
     if (!target || getComputedStyle(target).fontSize !== bodySize) throw Error('Chat controls must match the message font size');
   }
   if (!(parseFloat(getComputedStyle(boundary).paddingBlockStart) > 0)) throw Error('Session beginning needs top padding');
+  composer.chatNavigation = document.createElement('button');
+  composer.chatNavigation.textContent = 'Jump to end';
+  composer.canStop = true;
+  await composer.updateComplete;
+  const editor = composer.shadowRoot;
+  const attach = editor.querySelector('[data-composer-action="attach"]');
+  const dimensions = element => [element.getBoundingClientRect().width, element.getBoundingClientRect().height];
+  const verifySize = (target, reference) => {
+    const [width, height] = dimensions(target);
+    const [expectedWidth, expectedHeight] = dimensions(reference);
+    if (!width || !height || width !== expectedWidth || height !== expectedHeight) {
+      throw Error('Attach files must match Send and Stop button and icon sizes: ' + [width, height, expectedWidth, expectedHeight]);
+    }
+  };
+  if (!dimensions(editor.querySelector('.editor-chat-navigation'))[0]) throw Error('stock composer jumps missing');
+  editor.adoptedStyleSheets = [...editor.adoptedStyleSheets, sheet];
+  const jumps = editor.querySelector('.editor-chat-navigation');
+  jumps.querySelector('button').focus();
+  if (dimensions(jumps).some(Boolean) || editor.activeElement === jumps.querySelector('button')) throw Error('composer jumps must not render or take focus');
+  for (const selector of ['.send-button', '.stop-button']) {
+    const action = editor.querySelector(selector);
+    verifySize(attach, action);
+    verifySize(attach.querySelector('svg'), action.querySelector('svg'));
+  }
   for (const [tag, action, navigation] of [
     ['app-context-bar', 'button.context-action-button:not([data-navigation-trigger])', '[data-navigation-trigger]'],
-    ['app-navigation-panel', 'button.actions-button', 'header machine-switcher'],
+    ['app-navigation-panel', 'button.actions-button', 'header .panel-toggle'],
   ]) {
     const bar = document.body.appendChild(document.createElement(tag));
-    if (tag === 'app-navigation-panel') bar.style.inlineSize = '320px';
+    if (tag === 'app-navigation-panel') {
+      bar.style.inlineSize = '320px';
+      bar.onTogglePanel = () => {};
+      bar.canStartSession = true;
+    }
     bar.onShowActions = () => {};
     bar.onShowNavigation = () => {};
     bar.refreshControl = document.createElement('app-refresh-control');
@@ -94,13 +124,118 @@ try {
     scope.adoptedStyleSheets = [...scope.adoptedStyleSheets, sheet];
     if (targets.some(visible)) throw Error(tag + ': Actions and Refresh must be completely hidden');
     if (!visible(scope.querySelector(navigation))) throw Error(tag + ': navigation must remain available');
+    const hidden = tag === 'app-navigation-panel'
+      ? [...scope.querySelectorAll('header machine-switcher, project-list, navigation-section-resize-handle')]
+      : [...scope.querySelectorAll('.context-item')].slice(0, -1);
+    if (!hidden.length || hidden.some(visible)) throw Error(tag + ': redundant workspace identity and project controls must be hidden');
+    const sessions = tag === 'app-navigation-panel'
+      ? scope.querySelector('session-list')
+      : scope.querySelector('.context-item:last-child button');
+    await sessions?.updateComplete;
+    if (!visible(sessions) || tag === 'app-navigation-panel' && !visible(sessions.shadowRoot.querySelector('.start-session-button:not(:disabled)'))) {
+      throw Error(tag + ': Sessions and its available + control must remain visible');
+    }
   }
+  const tabs = document.body.appendChild(document.createElement('app-mobile-main-tabs'));
+  tabs.tabs = [{ id: 'chat', label: 'Chat' }, { id: 'files:workspace.files', label: 'Files' }];
+  tabs.onShowNavigation = () => {};
+  await tabs.updateComplete;
+  const tabsRoot = tabs.shadowRoot;
+  const hamburger = tabsRoot.querySelector('.navigation-menu-button');
+  if (!dimensions(hamburger)[0]) throw Error('stock hamburger missing');
+  tabsRoot.adoptedStyleSheets = [...tabsRoot.adoptedStyleSheets, sheet];
+  hamburger.focus();
+  if (dimensions(hamburger).some(Boolean) || tabsRoot.activeElement === hamburger) throw Error('hamburger must not render or take focus');
+  for (const title of ['Chat', 'Files']) if (!dimensions(tabsRoot.querySelector('[title="' + title + '"]'))[0]) throw Error(title + ' tab must remain visible');
   const live = line('system', 'text', 'fixture live SYSTEM');
   chat.messages = [...messages, live];
   await chat.updateComplete;
   check('article.msg.system', false);
   if (root.querySelectorAll('article.msg.system').length !== 2 || !chat.messages.includes(live)) {
     throw Error('the live SYSTEM entry did not render as a hidden row');
+  }
+  // Use the real workspace styles with the outer header and Chat shell boxes.
+  const layoutCss = ${JSON.stringify(workspaceCss.join('\n')).replaceAll('<', '\\u003c')};
+  for (const width of [390, 640, 641, 1024, 1440]) {
+    const viewport = document.createElement('iframe');
+    viewport.style.cssText = 'position:fixed;left:-3000px;top:0;border:0;width:' + width + 'px;height:844px';
+    viewport.srcdoc = '<!doctype html><style>:root{--header-height:48px}' + layoutCss + '</style>' +
+      '<div class="layout"><div class="layout-workspace layout-workspace--chat"><header class="header">Codeflare</header>' +
+      '<div class="layout-middle" style="--chat-compact-height:200px"><iframe class="pi-web-chat__frame" title="Pi Chat"></iframe></div></div></div>';
+    await new Promise(resolve => {
+      viewport.addEventListener('load', resolve, { once: true });
+      document.body.appendChild(viewport);
+    });
+    const doc = viewport.contentDocument;
+    const header = doc.querySelector('header');
+    const middle = doc.querySelector('.layout-middle');
+    const frame = doc.querySelector('.pi-web-chat__frame');
+    const compactHeader = header.getBoundingClientRect();
+    const compactFrame = frame.getBoundingClientRect();
+    middle.style.removeProperty('--chat-compact-height');
+    const fullHeader = header.getBoundingClientRect();
+    const fullFrame = frame.getBoundingClientRect();
+    const aligned = (head, chat) => head.left === chat.left && head.right === chat.right;
+    if (!aligned(compactHeader, compactFrame) || !aligned(fullHeader, fullFrame) || compactFrame.height !== 200 || fullFrame.height <= compactFrame.height) {
+      throw Error(width + ': expected aligned compact and full Chat sizing');
+    }
+    if (width <= 640) {
+      if (compactHeader.top !== 0 || fullHeader.top !== 0 || fullFrame.width !== width || fullFrame.top !== fullHeader.bottom || fullFrame.bottom !== 844
+        || Math.abs(compactFrame.top - (844 + compactHeader.bottom - compactFrame.height) / 2) > 1) {
+        throw Error(width + ': mobile header must stay at the top while compact Chat centers in the space below');
+      }
+    } else if ([ [compactHeader, compactFrame], [fullHeader, fullFrame] ].some(([head, chat]) =>
+      head.top <= 0 || head.bottom !== chat.top || Math.abs(head.top + chat.bottom - 844) > 1)) {
+      throw Error(width + ': above the phone breakpoint the header must stay with the centered frame');
+    }
+    // The shared Profile component styles must clip only the email, not grow its menu.
+    const profile = doc.createElement('div');
+    profile.className = 'header-user-dropdown header-user-dropdown--profile header-user-dropdown--portal' +
+      (width <= 640 ? ' header-user-dropdown--sheet' : '');
+    profile.style.cssText = '--space-1:4px;--space-2:8px;--space-3:12px;--text-sm:13px;--font-semibold:600;--font-mono:monospace;animation:none';
+    if (width > 640) profile.style.cssText += ';width:155px;right:25vw;--profile-menu-right:' + width / 4 + 'px';
+    profile.innerHTML = '<div class="header-user-email"><span>a@example.test</span></div><div class="header-user-profile-actions"><button>Usage</button></div>';
+    doc.body.appendChild(profile);
+    const label = profile.querySelector('span');
+    const win = viewport.contentWindow;
+    const menuWidth = profile.getBoundingClientRect().width;
+    if (label.scrollWidth > label.clientWidth) throw Error(width + ': a short Profile email must fit');
+    const longEmail = 'x'.repeat(300) + '@example.test';
+    label.textContent = longEmail;
+    const badge = label.getBoundingClientRect();
+    if (Math.abs(badge.width - width * 0.9) > 1 || badge.left < 0 || badge.right > width + 1 ||
+        label.scrollWidth <= label.clientWidth || win.getComputedStyle(label).textOverflow !== 'ellipsis' ||
+        profile.getBoundingClientRect().width !== menuWidth || label.textContent !== longEmail) {
+      throw Error(width + ': a long Profile email must ellipsize in the viewport without widening the menu or losing its full text');
+    }
+    if (width === 1024 || width === 1440) {
+      const dashboard = doc.createElement('div');
+      dashboard.className = 'dashboard-container';
+      dashboard.style.cssText = 'position:fixed;inset:0;--dashboard-panel-margin:12px;--dashboard-max-width:840px;--dashboard-left-width:340px;--transition-base:150ms ease;--space-4:16px;animation:none';
+      dashboard.innerHTML = '<div class="dashboard-panel-wrapper dashboard-panel-wrapper--disclosure dashboard-panel-wrapper--summary"><div class="dashboard-panel"><div class="dashboard-panel-header">Codeflare</div><div class="dashboard-panel-body dashboard-panel-body--disclosure"><div class="dashboard-panel-left"><div class="tips-card"><div class="dashboard-card__text">Open a pull request and get reviewers to check your changes in parallel.</div></div><div class="dashboard-new-session-wrapper"><button class="dashboard-new-session-btn">+ New Session</button></div></div><div class="dashboard-panel-right" hidden>Storage</div></div></div></div>';
+      doc.body.appendChild(dashboard);
+      const wrapper = dashboard.querySelector('.dashboard-panel-wrapper');
+      const side = dashboard.querySelector('.dashboard-panel-right');
+      const button = dashboard.querySelector('.dashboard-new-session-btn');
+      const top = button.getBoundingClientRect().top;
+      const closedWidth = wrapper.getBoundingClientRect().width;
+      for (const expanding of [true, false]) {
+        wrapper.classList.toggle('dashboard-panel-wrapper--summary', !expanding);
+        side.hidden = !expanding;
+        const start = performance.now();
+        do {
+          await new Promise(resolve => requestAnimationFrame(resolve));
+          if (Math.abs(button.getBoundingClientRect().top - top) > 1) {
+            throw Error(width + ': New Session moved vertically while ' + (expanding ? 'opening' : 'closing') + ' the side panel');
+          }
+        } while (performance.now() - start < 250);
+        if (expanding ? wrapper.getBoundingClientRect().width <= closedWidth || !dimensions(side)[0]
+          : Math.abs(wrapper.getBoundingClientRect().width - closedWidth) > 1 || dimensions(side).some(Boolean)) {
+          throw Error(width + ': unexpected settled side-panel layout');
+        }
+      }
+    }
+    viewport.remove();
   }
   result = 'pass';
 } catch (error) {
@@ -377,6 +512,49 @@ async function verifyStockTranscriptControls(child, origin) {
   await send('Input.dispatchKeyEvent', { type: 'keyDown', ...enter });
   await send('Input.dispatchKeyEvent', { type: 'keyUp', ...enter });
   await verifyIntent('trusted Enter on stock history', { generation, cwd, action: 'select', id: savedKeyboard });
+
+  const noticeSelector = "document.querySelector('pi-web-app').shadowRoot.querySelector('conversation-sync-notice')";
+  // Drive the real pinned notice through its two warning states without a live upstream.
+  await page(`(() => { ${noticeSelector}.state = 'stale'; })()`);
+  const notice = () => page(`(() => {
+    const warning = ${noticeSelector}?.shadowRoot?.querySelector('[role="status"]');
+    return { text: warning?.textContent?.trim(), visible: !!warning?.getClientRects().length };
+  })()`);
+  await until('stock stale notice rendered but hidden', notice, value => value?.text?.includes('Chat may be out of date.') && !value.visible);
+  await page(`(() => { ${noticeSelector}.state = 'interrupted'; })()`);
+  await until('stock refresh failure remains visible', notice, value => value?.visible && value.text.includes('Could not refresh messages.'));
+
+  await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: false });
+  const appRoot = "document.querySelector('pi-web-app').shadowRoot";
+  const contextBar = `${appRoot}.querySelector('app-context-bar')`;
+  const picker = `${contextBar}?.shadowRoot?.querySelector('.context-item:last-child button')`;
+  await until('stock mobile session picker', () => page(`!!(${picker})`), Boolean);
+  // Provide successive stock session summaries to the same rendered header.
+  const setSummary = overrides => page(`(async () => {
+    const bar = ${contextBar};
+    bar.session = { ...bar.session, ...${JSON.stringify(overrides)} };
+    await bar.updateComplete;
+    const button = ${picker};
+    const title = button.querySelector('.context-value');
+    button.focus();
+    return { title: title.textContent, visible: !!title.getClientRects().length,
+      focusable: button === bar.shadowRoot.activeElement, label: button.getAttribute('aria-label') };
+  })()`);
+  const hidden = await setSummary({ name: null, firstMessage: '(no messages)', messageCount: 0 });
+  assert.equal(hidden.title, '(no messages)', 'stock sentinel should still be present in the stock markup');
+  assert.equal(hidden.visible, false, 'hide the visible empty-session title');
+  assert.ok(hidden.focusable && hidden.label?.includes('(no messages)'), 'keep the stock picker and accessible label');
+  const sent = await setSummary({ firstMessage: 'First sent message', messageCount: 1 });
+  assert.equal(sent.title, 'First sent message');
+  assert.equal(sent.visible, true, 'show the real title once it is available');
+  assert.equal((await setSummary({ firstMessage: '(no messages)' })).visible, true, 'keep genuine first-message text matching the sentinel');
+  assert.equal((await setSummary({ messageCount: 0 })).visible, false, 'hide the sentinel even when only the summary count changes');
+  assert.equal((await setSummary({ name: '(no messages)' })).visible, true, 'keep an authored name matching the sentinel even on an empty transcript');
+  assert.equal((await setSummary({ name: null })).visible, false, 'return to the hidden sentinel without removing the picker');
+  await send('Input.dispatchKeyEvent', { type: 'keyDown', ...enter });
+  await send('Input.dispatchKeyEvent', { type: 'keyUp', ...enter });
+  const mobilePlus = `${appRoot}.querySelector('app-navigation-panel')?.shadowRoot?.querySelector('session-list')?.shadowRoot?.querySelector('${plus}')`;
+  await until('mobile Sessions via focused picker', () => page(`Boolean((${mobilePlus})?.getClientRects().length)`), Boolean);
 }
 
 const profile = await mkdtemp(join(tmpdir(), 'pi-web-system-rows-'));
@@ -397,7 +575,7 @@ try {
   await Promise.race([
     browserResult.then(async result => {
       assert.equal(result, 'pass', 'stock SYSTEM row fixture');
-      console.log('Stock Chat hides SYSTEM rows and selected header controls and distinguishes user messages');
+      console.log('Stock Chat hides selected transcript, navigation and composer controls and keeps the remaining controls usable');
       await verifyStockTranscriptControls(browser, origin);
       console.log('Stock Chat sends scoped transcript intents for trusted + and history activation, never for passive navigation');
     }),

@@ -665,6 +665,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
       expect(screen.queryByText(email)).not.toBeInTheDocument();
       fireEvent.click(profile);
       const menu = screen.getByTestId('header-user-dropdown');
+      expect(within(menu).getByTitle(email)).toHaveTextContent(email);
       expect(within(menu).getByText(email)).toBeVisible();
       const actions = within(menu).getByRole('group', { name: 'Account actions' });
       expect(within(actions).queryByText(email)).not.toBeInTheDocument();

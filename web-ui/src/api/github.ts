@@ -52,7 +52,7 @@ export function getGithubOwnedRepoCounts() {
   return githubFetch('/github/owned-repo-counts', {}, OwnedRepoCountsSchema);
 }
 
-// GET /api/github/repos?page=N — 401 NOT_CONNECTED / 403 GITHUB_DISABLED
+// GET /api/github/repos?page=N — 409 NOT_CONNECTED / 403 GITHUB_DISABLED
 // surface as ApiError (with .code) via baseFetch.
 export async function getGithubRepos(page: number): Promise<GithubReposResponse> {
   return githubFetch(`/github/repos?page=${page}`, {}, GithubReposResponseSchema);

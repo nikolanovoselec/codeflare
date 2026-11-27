@@ -888,7 +888,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 1. Explicit surface choice determines which writer starts or resumes Pi in a Classic Terminal workspace. Without a surface choice, Classic starts in Terminal, including when the Start body is empty. <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (REQ-AGENT-272 AC1: forwards $terminalMode $surface with Start body $body) --> <!-- @test: src/__tests__/routes/session-workspace.test.ts (REQ-AGENT-272 AC1: explicit Chat cannot override Herdr mode; ordinary Pi creation still works) --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: src/routes/container/lifecycle.ts::app --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-272 AC1: a fresh Chat-first Classic boot does not create a CLI conversation) --> <!-- @test: host/__tests__/prewarm-orphan-expiry.test.js (REQ-AGENT-272 AC1: Classic Terminal starts after profile restore while cloning continues) -->
 2. Classic switches to the same conversation and branch, including an empty conversation, only after the previous writer closes. A failed transfer keeps the binding; if a destination may have obtained write access, another writer cannot start until ownership is resolved. <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-273: a possibly consumed native re-entry remains fenced) --> <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-272: an unconfirmed Chat startup retirement cannot dispatch another writer) --> <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime --> <!-- @impl: host/src/pi-web-handoff.ts::createPiWebHandoff --> <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-272 AC2: an empty conversation switches without another prompt) --> <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-272 AC2: an ambiguous launch rejects new owners until the original launch is resolved) --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-272 AC2: a configured secondary Classic Pi never receives the primary conversation) --> <!-- @test: host/__tests__/prewarm-orphan-expiry.test.js (REQ-AGENT-272 AC2: idle ${mode} primary remains available for a Chat-to-Terminal switch after orphan expiry) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time -->
 3. Switching surfaces blocks new prompts and automatically stops current execution without waiting for a normal reply. <!-- @impl: host/src/pi-web-handoff.ts::createPiWebHandoff --> <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-272 AC3: ${source} requests abort before ${target} may open the saved conversation) -->
-4. Open Vibe Chat centers the same-width session header immediately above its outer Chat frame. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/src/styles/pi-web-chat.css::.layout-workspace--chat --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+4. Above the phone breakpoint, open Vibe Chat centers the same-width session header immediately above its outer Chat frame. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/src/styles/pi-web-chat.css::.layout-workspace--chat --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 5. Only the authenticated owner using the current eligible generation reaches that generation’s Chat transport. <!-- @impl: src/routes/pi-web.ts::handlePiWebRequest --> <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @test: src/__tests__/routes/pi-web-auth-chain.test.ts (REQ-AGENT-272 AC5: submits, reads, and cancels only the owned generation’s exact handoff request) --> <!-- @test: src/__tests__/container/terminal-ws-relay.test.ts (REQ-AGENT-272 AC5: reconnect after Pi web’s private process exits cannot start a new generation) --> <!-- @test: src/__tests__/routes/pi-web-auth-chain.test.ts (REQ-AGENT-272 AC5: stale stock prompts and reconnects cannot attach to a replacement writer) -->
 6. Cancel switch can preserve the current turn only before Abort is committed. <!-- @impl: host/src/pi-web-handoff.ts::createPiWebHandoff --> <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-272 AC6: cancellation before abort keeps the turn; after abort it cannot undo the stop) --> <!-- @test: host/__tests__/pi-web-native-stop.test.js (REQ-AGENT-272 AC3+AC6: stopping fences the terminal and aborts the admitted pre-stream turn before release) -->
 7. Chat opens even when the restored profile contains the bundled Pi Web Workflows registration. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @test: scripts/ci/smoke-pi-web-services.mjs (verifyRestoredBundledWorkflows) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#pi-chat-handoff-acceptance -->
@@ -897,7 +897,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 - On desktop, the open Chat panel uses 80% of available width and the frame uses 80% of height left after the header, capped at 800px wide and 1200px tall. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 - Outside phones, views up to 760px wide or 480px tall use 12px plus safe-area gutters instead of proportional sizing, retaining the same caps. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
-- On phones, the header spans the available width and Chat fills its remaining area without a border or rounding. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+- On phones, the single header spans the screen at the top, respecting the safe area. Full-size Chat fills the remaining area without a border or rounding. <!-- @impl: web-ui/src/styles/pi-web-chat.css::.layout-workspace--chat --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 - The composer stays operable, including with the mobile keyboard or browser zoom. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 - Pi Chat handoff is available only in Classic Terminal workspaces. <!-- @impl: src/container/pi-web.ts::isPiWebEligible --> <!-- @test: src/__tests__/container/session-stop.test.ts (REQ-AGENT-272 AC1: the DO refuses a handoff Start with $stored stored and $requested requested) --> <!-- @test: host/__tests__/repository-restore-order.test.js (REQ-TERM-033 AC2: real host prewarm waits for restored snapshot bytes and the init flag) -->
 - Malformed nonempty JSON is rejected before Start claims the session. <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (rejects malformed nonempty Start JSON before claiming the session) -->
@@ -986,8 +986,11 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 **Acceptance Criteria:**
 
 1. A ready, empty Chat starts with the composer centered and no history space. <!-- @impl: web-ui/src/components/PiWebChat.tsx::StockChatFrame --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (compacts only ready empty history and expands in place on the first message) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
-2. The first visible message expands the grouped panel from its center to its normal limits. Reduced motion skips the animation. <!-- @impl: web-ui/src/components/PiWebChat.tsx::StockChatFrame --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (compacts only ready empty history and expands in place on the first message) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+2. The first visible message expands Chat from its center to its normal limits. Reduced motion skips the animation. <!-- @impl: web-ui/src/components/PiWebChat.tsx::StockChatFrame --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (compacts only ready empty history and expands in place on the first message) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 3. A restored Chat with populated history opens at full size. <!-- @impl: web-ui/src/components/PiWebChat.tsx::StockChatFrame --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+4. On phones, compact Chat centers in the space below the top-edge session header. Expanding Chat does not move that header. <!-- @impl: web-ui/src/styles/pi-web-chat.css::.layout-workspace--chat --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+5. On phones, the keyboard inset does not collapse the empty Chat composer. <!-- @impl: web-ui/src/components/PiWebChat.tsx::StockChatFrame --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (keeps an empty Chat usable when the visual viewport shrinks) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+6. Returning to a live Chat after screen lock refits the existing frame to the visible viewport without reopening the conversation. <!-- @impl: web-ui/src/components/PiWebChat.tsx::PiWebChat --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (refits the existing Chat frame on %s without a viewport resize event) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 
 **Constraints:** Preserve the responsive panel limits in [REQ-AGENT-272](#req-agent-272-pi-chat-and-terminal-transcript-handoff).
 
@@ -1228,6 +1231,34 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 **Dependencies:** [REQ-AGENT-274](#req-agent-274-stock-pi-chat-controls)
 
 **Verification:** Manual: [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout), [Stock controls](../../documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions), [SYSTEM row visibility](../../documentation/lanes/terminal-and-ide.md#verify-system-rows-are-hidden-in-chat)
+
+**Status:** Planned
+
+---
+
+### REQ-AGENT-289: Embedded Chat chrome
+
+**Intent:** Keep only the controls needed in a Codeflare workspace.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The embedded sidebar hides Projects and its resize divider. On narrow screens, the context header hides the project and workspace selectors. <!-- @impl: image/pi-web/codeflare-chrome/browser/footer.css --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+2. The stock machine title and mark are hidden in the sidebar and mobile context header. <!-- @impl: image/pi-web/codeflare-chrome/browser/footer.css --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+3. The hamburger beside Files is hidden and cannot take keyboard focus. <!-- @impl: image/pi-web/codeflare-chrome/browser/footer.css --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+4. The stale-conversation warning is hidden without hiding a failed refresh or disabling background refresh. <!-- @impl: image/pi-web/codeflare-chrome/browser/index.js::hideStaleConversationNotice --> <!-- @test: scripts/ci/smoke-pi-web-system-rows.mjs (verifyStockTranscriptControls) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+5. The composer’s Jump to top and Jump to end controls are hidden and cannot take keyboard focus. <!-- @impl: image/pi-web/codeflare-chrome/browser/footer.css --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+6. Attach files matches Send and Stop in both button and icon size. <!-- @impl: image/pi-web/codeflare-chrome/browser/footer.css --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+7. The embedded header hides only the empty-session `(no messages)` title. The Sessions picker and its accessible label remain available, and real titles appear when stock provides them, even when the text equals the placeholder. <!-- @impl: image/pi-web/codeflare-chrome/browser/index.js::hideEmptySessionTitle --> <!-- @test: scripts/ci/smoke-pi-web-system-rows.mjs (verifyStockTranscriptControls) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+
+**Constraints:** Chat, Files, Sessions, New session, and the sidebar toggle remain available. No change to stock Pi Web, writer admission, or transcript persistence.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-AGENT-274](#req-agent-274-stock-pi-chat-controls)
+
+**Verification:** Manual: [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout); Supplemental: [Pinned stock browser fixture](../../scripts/ci/smoke-pi-web-system-rows.mjs).
 
 **Status:** Planned
 

@@ -153,6 +153,69 @@ describe('Pi web Chat wrapper (REQ-AGENT-272)', () => {
     } finally { vi.useRealTimers(); }
   });
 
+  it('keeps an empty Chat usable when the visual viewport shrinks', () => {
+    const viewport = Object.assign(new EventTarget(), { height: window.innerHeight, offsetTop: 0, scale: 1 });
+    vi.stubGlobal('visualViewport', viewport);
+    try {
+      const [height, setHeight] = createSignal<number>();
+      render(() => <div style={{ 'max-height': height() === undefined ? undefined : `${height()}px` }} data-testid="chat-panel">
+        <PiWebChat sessionId={SESSION_ID} generation={GENERATION} status={active} onCancel={() => {}}
+          onPanelSize={size => setHeight(size?.compactHeight)} />
+      </div>);
+      const panel = screen.getByTestId('chat-panel');
+      const frame = chatFrame();
+      const region = screen.getByRole('region', { name: 'Pi Chat' });
+      const doc = document.implementation.createHTMLDocument();
+      Object.defineProperty(doc, 'URL', { value: frame.src });
+      const app = doc.body.appendChild(doc.createElement('pi-web-app'));
+      const shell = app.attachShadow({ mode: 'open' });
+      shell.innerHTML = '<main class="chat-view"><conversation-layout><chat-view></chat-view></conversation-layout></main>';
+      const chat = Object.assign(shell.querySelector('chat-view')!, { historyReady: true, messageTotal: 0, messages: [] });
+      // Model only the relevant flex geometry: the keyboard margin takes space
+      // inside the outer cap, and only the stock history can flex down to zero.
+      Object.defineProperty(frame, 'offsetHeight', { get: () => Math.max(0,
+        parseFloat(panel.style.maxHeight || '560') - parseFloat(region.style.marginBlockEnd)) });
+      Object.defineProperty(chat, 'offsetHeight', { get: () => Math.max(0, frame.offsetHeight - 160) });
+      Object.defineProperty(frame, 'contentDocument', { value: doc });
+      fireEvent.load(frame);
+      expect(panel.style.maxHeight).toBe('160px');
+
+      viewport.height -= 260;
+      viewport.dispatchEvent(new Event('resize'));
+      expect(frame.offsetHeight).toBeGreaterThanOrEqual(160);
+
+      viewport.height = window.innerHeight;
+      viewport.dispatchEvent(new Event('resize'));
+      expect(panel.style.maxHeight).toBe('160px');
+      expect(chatFrame()).toBe(frame);
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it.each(['visibilitychange', 'pageshow'] as const)('refits the existing Chat frame on %s without a viewport resize event', event => {
+    const viewport = Object.assign(new EventTarget(), { height: window.innerHeight - 260, offsetTop: 0, scale: 1 });
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+    vi.stubGlobal('visualViewport', viewport);
+    try {
+      render(() => <PiWebChat sessionId={SESSION_ID} generation={GENERATION} status={active} onCancel={() => {}} />);
+      const frame = chatFrame();
+      const region = screen.getByRole('region', { name: 'Pi Chat' });
+      expect(region.style.marginBlockEnd).toBe('260px');
+      if (event === 'visibilitychange') {
+        visibility.mockReturnValue('hidden');
+        document.dispatchEvent(new Event(event));
+      }
+      viewport.height = window.innerHeight;
+      visibility.mockReturnValue('visible');
+      if (event === 'visibilitychange') document.dispatchEvent(new Event(event));
+      else window.dispatchEvent(new PageTransitionEvent(event, { persisted: true }));
+      expect(region.style.marginBlockEnd).toBe('0px');
+      expect(chatFrame()).toBe(frame);
+    } finally {
+      visibility.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('starts the grace period when stock Chat already removed the loader before load', async () => {
     vi.useFakeTimers();
     try {

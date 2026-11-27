@@ -19,3 +19,38 @@
 :host(app-context-bar) .context-actions:not(:has(> [data-navigation-trigger])) {
   display: none;
 }
+
+/* v1.202611.5 has one machine and one project in the embedded workspace.
+   The final context item is always the independently usable Sessions picker. */
+:host(app-navigation-panel) header > machine-switcher,
+:host(app-navigation-panel) .navigation-sections > project-list,
+:host(app-navigation-panel) .navigation-sections > project-list + navigation-section-resize-handle,
+:host(app-context-bar) .context-items > .context-item:not(:last-child),
+:host(app-mobile-main-tabs) .navigation-menu-button[data-navigation-trigger] {
+  display: none;
+}
+
+:host(app-context-bar[data-codeflare-empty-session]) .context-item:last-child .context-value,
+:host(pi-web-app) conversation-sync-notice[data-codeflare-stale],
+:host(prompt-editor) .editor-chat-navigation,
+:host(chat-view) .chat-jumps {
+  display: none;
+}
+
+/* Match the native primary composer toolbar (44px controls, 18px glyphs). */
+:host(prompt-editor) .editor-attach {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+}
+
+:host(prompt-editor) .editor-attach .prompt-action-icon {
+  width: 18px;
+  height: 18px;
+}
+
+/* A taller attach control must not cover the stock compaction/shell label. */
+:host(prompt-editor) .mode-hint {
+  inset-inline-end: 52px;
+}

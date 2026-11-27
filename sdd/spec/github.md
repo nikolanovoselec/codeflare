@@ -77,6 +77,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 **Constraints:**
 
 - `/repos` and `/connect` are rate-limited; repo responses never include the token.
+- If a signed-in user has no usable GitHub credential, repository listing reports a GitHub connection error without redirecting the Dashboard to Codeflare sign-in. <!-- @impl: src/routes/github.ts::app --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-002: reports a connection conflict for an expired App connection after switching to OAuth) --> <!-- @test: web-ui/src/__tests__/api/fetch-helper-401-redirect.test.ts (REQ-GITHUB-002: reports the GitHub connection error without navigating away from the Dashboard) -->
 - The panel is available in every mode and renders whenever GitHub is enabled — there is no session-tier gate; it is the default right-column face on every session (connected or not); See [REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise).
 
 **Priority:** P1
@@ -677,6 +678,28 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 **Dependencies:** [REQ-GITHUB-321](#req-github-321-vibe-dashboard-browser-disclosure)
 
 **Verification:** Automated: [Dashboard component tests](../../web-ui/src/__tests__/components/Dashboard.test.tsx); Manual: [Vibe drawer acceptance](../../documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance)
+
+**Status:** Planned
+
+---
+
+### REQ-GITHUB-331: Vibe drawer motion
+
+**Intent:** Keep the New Session control steady as the Vibe browser drawer moves.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. On desktop and tablet, closing the Vibe browser drawer reverses the opening motion, without a vertical jump of New Session in either direction. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-wrapper--disclosure --> <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
+
+**Constraints:** Reduced motion skips the transition. <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
+
+**Priority:** P2
+
+**Dependencies:** [REQ-GITHUB-323](#req-github-323-responsive-vibe-dashboard-layout)
+
+**Verification:** Manual: [Vibe drawer acceptance](../../documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance).
 
 **Status:** Planned
 
