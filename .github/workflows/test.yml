@@ -433,27 +433,29 @@ jobs:
     timeout-minutes: 10
     strategy:
       fail-fast: false
-      max-parallel: 11
+      max-parallel: 13
       matrix:
         # Recorded Worker file timings in backend-test-weights.json supply
-        # collection and execution costs for eleven longest-first groups.
+        # collection and execution costs for thirteen longest-first groups.
         # The Node runtime remains separate from this Workers-only population.
         include:
           # Generated seed files are committed and drift-checked in Quality. Running
           # npm's `test` lifecycle here would regenerate them in all eleven isolated
           # runners before every weighted group, adding duplicated startup work but
           # no coverage. `test:worker` runs the same Workers suite without that hook.
-          - { balance-group: '1/11', slug: shard-1, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '2/11', slug: shard-2, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '3/11', slug: shard-3, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '4/11', slug: shard-4, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '5/11', slug: shard-5, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '6/11', slug: shard-6, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '7/11', slug: shard-7, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '8/11', slug: shard-8, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '9/11', slug: shard-9, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '10/11', slug: shard-10, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '11/11', slug: shard-11, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '1/13', slug: shard-1, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '2/13', slug: shard-2, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '3/13', slug: shard-3, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '4/13', slug: shard-4, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '5/13', slug: shard-5, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '6/13', slug: shard-6, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '7/13', slug: shard-7, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '8/13', slug: shard-8, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '9/13', slug: shard-9, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '10/13', slug: shard-10, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '11/13', slug: shard-11, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '12/13', slug: shard-12, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '13/13', slug: shard-13, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -792,7 +794,7 @@ jobs:
       - uses: $/.github/actions/merge-coverage
         with:
           artifact-prefix: 'backend-shard'
-          expected-shards: '11'
+          expected-shards: '13'
           slug: backend
           package-root: .
           changed-base: ${{ github.event.pull_request.base.sha }}

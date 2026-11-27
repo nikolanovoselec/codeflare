@@ -511,7 +511,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     };
     const backendLegs = backend.strategy.matrix.include;
     const workerGroups = backendLegs.map((leg) => leg['balance-group']);
-    expect(workerGroups).toEqual(Array.from({ length: 11 }, (_, index) => `${index + 1}/11`));
+    expect(workerGroups).toEqual(Array.from({ length: 13 }, (_, index) => `${index + 1}/13`));
     expect(backendLegs.every((leg) => leg.script === 'test:worker' && leg['pre-run'] === '' && leg.coverage === 'true')).toBe(true);
     const groups = workerGroups.map((group) => {
       const selected = spawnSync(process.execPath, [WEIGHTED_SELECTOR, group], {
