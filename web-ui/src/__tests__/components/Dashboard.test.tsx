@@ -990,6 +990,38 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     }
   });
 
+  it('sizes the Recent Sessions preview from the first four rendered cards', () => {
+    (githubStore as any)._setEnabled(false);
+    const cards = [48, 72, 60, 80];
+    const sessions = cards.map((_, i) => ({ ...mockSessions[0]!, id: `preview-${i}` }));
+    const [visible, setVisible] = createSignal(sessions.slice(0, 3));
+    const resize = new EventTarget();
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(private callback: () => void) {}
+      observe() { resize.addEventListener('resize', this.callback); }
+      disconnect() { resize.removeEventListener('resize', this.callback); }
+    });
+    const original = HTMLElement.prototype.getBoundingClientRect;
+    const measure = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      const index = Number(this.dataset.testid?.split('session-card-preview-')[1]);
+      return Number.isInteger(index) ? new DOMRect(0, cards.slice(0, index).reduce((sum, height) => sum + height + 8, 0), 200, cards[index]!) : original.call(this);
+    });
+    try {
+      render(() => <Dashboard {...defaultProps} sessions={visible()} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
+      const list = screen.getByTestId('session-card-preview-0').parentElement!;
+      const previewHeight = () => list.style.getPropertyValue('--dashboard-session-limit');
+      expect(previewHeight()).toBe('');
+      setVisible(sessions);
+      expect(previewHeight()).toBe('228px');
+      cards[1] = 92;
+      cards[3] = 100;
+      resize.dispatchEvent(new Event('resize'));
+      expect(previewHeight()).toBe('254px');
+      fireEvent.click(screen.getByRole('button', { name: 'Show Storage' }));
+      expect(previewHeight()).toBe('');
+    } finally { measure.mockRestore(); vi.unstubAllGlobals(); }
+  });
+
   it('shows authoritative owned totals for a connected GitHub App account', async () => {
     (githubStore as any)._setEnabled(true);
     (githubStore as any)._setLogin('octocat');

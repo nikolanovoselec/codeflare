@@ -37,6 +37,10 @@
   display: none;
 }
 
+:host(prompt-editor) .markdown-editor:focus-within {
+  outline-color: var(--codeflare-prompt-focus, var(--pi-accent));
+}
+
 /* Match the native primary composer toolbar (44px controls, 18px glyphs). */
 :host(prompt-editor) .editor-attach {
   width: 44px;

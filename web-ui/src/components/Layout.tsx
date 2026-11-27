@@ -453,6 +453,11 @@ const Layout: Component<LayoutProps> = (props) => {
     return !!id && showTerminal() && showPiWebPanel() && displayedPi().surface === 'chat'
       && !!shownChatStatus().frame && !sessionStore.isSessionInitializing(id);
   });
+  const [chatKeyboardFit, setChatKeyboardFit] = createSignal<{ frame: ChatFrame; inset: number }>();
+  const visibleChatKeyboardInset = () => {
+    const fit = chatKeyboardFit();
+    return fit && showOpenChatPanel() && fit.frame === shownChatStatus().frame ? fit.inset : 0;
+  };
   const piWebProblem = () => piWeb()?.mutationError()
     ?? (piWeb()?.unavailable() && (piWebStatus() || awaitingChatStart()) ? 'Could not read the current Pi surface.' : undefined);
   const canCancelPiWeb = () => !!piWebStatus()?.requestId && piWeb()?.mutation() !== 'cancel';
@@ -1367,6 +1372,8 @@ const Layout: Component<LayoutProps> = (props) => {
       </Show>
 
       <div class="layout-workspace" classList={{ 'layout-workspace--chat': showOpenChatPanel() }}
+        data-chat-keyboard={visibleChatKeyboardInset() > 0 ? 'open' : undefined}
+        style={{ '--chat-keyboard-inset': `${visibleChatKeyboardInset()}px` }}
         role={showOpenChatPanel() ? 'group' : undefined} aria-label={showOpenChatPanel() ? 'Vibe Chat' : undefined}>
         {/* Header - only shown when not on dashboard */}
         <Show when={!showDashboard()}>
@@ -1482,6 +1489,8 @@ const Layout: Component<LayoutProps> = (props) => {
                   <PiWebChat sessionId={frame.id} generation={frame.generation} status={selected() ? shownChatStatus().status! : parked}
                     progressInMenu={modeAvailable()} onCancel={cancelPiWeb} onRetry={selected() ? retryPiWeb() : undefined}
                     onPanelSize={size => reportChatPanelSize(frame, size)}
+                    fitTabletKeyboard={selected() && showOpenChatPanel()}
+                    onKeyboardInset={inset => { if (selected()) setChatKeyboardFit(inset > 0 ? { frame, inset } : undefined); }}
                     onStartupReady={(ready, focus) => reportChatLoad(frame, 'ready', ready, focus)}
                     onStartupFailure={failed => reportChatLoad(frame, 'failed', failed)}
                     problem={selected() ? piWebProblem() : undefined} canCancel={selected() && canCancelPiWeb()}

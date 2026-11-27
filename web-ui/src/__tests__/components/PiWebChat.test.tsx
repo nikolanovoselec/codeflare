@@ -87,6 +87,30 @@ describe('Pi web Chat wrapper (REQ-AGENT-272)', () => {
     } finally { localStorage.removeItem(key); }
   });
 
+  it('updates the retained Stock Chat document when the shell accent changes', async () => {
+    const style = document.documentElement.style;
+    const original = style.getPropertyValue('--color-accent');
+    try {
+      style.setProperty('--color-accent', 'rgb(0, 186, 255)');
+      render(() => <PiWebChat sessionId={SESSION_ID} generation={GENERATION} status={active} onCancel={() => {}} />);
+      const frame = chatFrame();
+      const doc = document.implementation.createHTMLDocument();
+      Object.defineProperty(doc, 'URL', { value: frame.src });
+      doc.body.appendChild(doc.createElement('pi-web-app'));
+      Object.defineProperty(frame, 'contentDocument', { value: doc });
+      fireEvent.load(frame);
+      expect(doc.documentElement.style.getPropertyValue('--codeflare-prompt-focus')).toBe('rgb(0, 186, 255)');
+      style.setProperty('--color-accent', 'rgb(255, 120, 0)');
+      await Promise.resolve();
+      expect(doc.documentElement.style.getPropertyValue('--codeflare-prompt-focus')).toBe('rgb(255, 120, 0)');
+      expect(chatFrame()).toBe(frame);
+      expect(frame.contentDocument).toBe(doc);
+    } finally {
+      if (original) style.setProperty('--color-accent', original);
+      else style.removeProperty('--color-accent');
+    }
+  });
+
   it('waits five seconds after the stock loader disappears, not after iframe load', async () => {
     vi.useFakeTimers();
     try {
@@ -129,13 +153,39 @@ describe('Pi web Chat wrapper (REQ-AGENT-272)', () => {
       shell.innerHTML = '<main class="chat-view"><conversation-layout><chat-view></chat-view></conversation-layout></main>';
       const chat = Object.assign(shell.querySelector('chat-view')!, { historyReady: false, messageTotal: 0, messages: [], pendingDialogs: [] });
       const history = chat.attachShadow({ mode: 'open' });
-      Object.defineProperty(chat, 'offsetHeight', { value: 400 });
+      let historyHeight = 400;
+      let controlsMeasurable = true;
+      const conversation = chat.parentElement!;
+      for (const [slot, size] of [['composer', 100], ['status', 20]] as const) {
+        const control = conversation.appendChild(doc.createElement('div'));
+        control.slot = slot;
+        Object.defineProperty(control, 'offsetHeight', { get: () => controlsMeasurable ? size : 0 });
+      }
+      Object.defineProperty(chat, 'offsetHeight', { get: () => historyHeight });
       Object.defineProperty(frame, 'offsetHeight', { value: 560 });
       Object.defineProperty(frame, 'contentDocument', { value: doc });
       fireEvent.load(frame);
       expect(panel.style.maxHeight).toBe('');
       chat.historyReady = true;
       await vi.advanceTimersByTimeAsync(200);
+      expect(panel.style.maxHeight).toBe('160px');
+
+      // A foreground relayout briefly reports history almost as tall as the frame.
+      // That cannot be a usable cap: it would clip even the existing composer.
+      historyHeight = 559;
+      history.appendChild(doc.createElement('div'));
+      await Promise.resolve();
+      expect(panel.style.maxHeight).toBe('');
+      expect(chatFrame()).toBe(frame);
+      expect(screen.queryByRole('button', { name: 'Reload Chat' })).not.toBeInTheDocument();
+      historyHeight = 400;
+      controlsMeasurable = false;
+      history.replaceChildren();
+      await Promise.resolve();
+      expect(panel.style.maxHeight).toBe('');
+      controlsMeasurable = true;
+      history.appendChild(doc.createElement('div'));
+      await Promise.resolve();
       expect(panel.style.maxHeight).toBe('160px');
       Object.assign(chat, { pendingDialogs: [{}] });
       history.innerHTML = '<div role="dialog"></div>';
@@ -151,6 +201,30 @@ describe('Pi web Chat wrapper (REQ-AGENT-272)', () => {
       expect(chatFrame()).toBe(frame);
       expect(panel.style.maxHeight).toBe('');
     } finally { vi.useRealTimers(); }
+  });
+
+  it('fits tablet Chat outside the frame through keyboard open, close and reopen', () => {
+    const viewport = Object.assign(new EventTarget(), { height: window.innerHeight, offsetTop: 0, scale: 1 });
+    vi.stubGlobal('visualViewport', viewport);
+    vi.stubGlobal('matchMedia', () => Object.assign(new EventTarget(), { matches: true }));
+    try {
+      const [inset, setInset] = createSignal(0);
+      render(() => <div aria-label="Workspace" role="group" style={{ 'padding-block-end': `${inset()}px` }}>
+        <PiWebChat sessionId={SESSION_ID} generation={GENERATION} status={active} onCancel={() => {}}
+          fitTabletKeyboard onKeyboardInset={setInset} />
+      </div>);
+      const workspace = screen.getByRole('group', { name: 'Workspace' });
+      const frame = chatFrame();
+      const url = frame.src;
+      for (const loss of [300, 0, 240, 0]) {
+        viewport.height = window.innerHeight - loss;
+        viewport.dispatchEvent(new Event('resize'));
+        expect(workspace.style.paddingBlockEnd).toBe(`${loss}px`);
+        expect(screen.getByRole('region', { name: 'Pi Chat' }).style.marginBlockEnd).toBe('0px');
+        expect(chatFrame()).toBe(frame);
+        expect(frame.src).toBe(url);
+      }
+    } finally { vi.unstubAllGlobals(); }
   });
 
   it('keeps an empty Chat usable when the visual viewport shrinks', () => {
@@ -171,6 +245,11 @@ describe('Pi web Chat wrapper (REQ-AGENT-272)', () => {
       const shell = app.attachShadow({ mode: 'open' });
       shell.innerHTML = '<main class="chat-view"><conversation-layout><chat-view></chat-view></conversation-layout></main>';
       const chat = Object.assign(shell.querySelector('chat-view')!, { historyReady: true, messageTotal: 0, messages: [] });
+      for (const [slot, height] of [['composer', 100], ['status', 20]] as const) {
+        const control = chat.parentElement!.appendChild(doc.createElement('div'));
+        control.slot = slot;
+        Object.defineProperty(control, 'offsetHeight', { value: height });
+      }
       // Model only the relevant flex geometry: the keyboard margin takes space
       // inside the outer cap, and only the stock history can flex down to zero.
       Object.defineProperty(frame, 'offsetHeight', { get: () => Math.max(0,

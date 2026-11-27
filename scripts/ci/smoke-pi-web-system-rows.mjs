@@ -95,6 +95,19 @@ try {
   };
   if (!dimensions(editor.querySelector('.editor-chat-navigation'))[0]) throw Error('stock composer jumps missing');
   editor.adoptedStyleSheets = [...editor.adoptedStyleSheets, sheet];
+  const prompt = editor.querySelector('.markdown-editor');
+  const restingBorder = getComputedStyle(prompt).borderColor;
+  composer.focusInput();
+  for (const accent of ['rgb(0, 186, 255)', 'rgb(255, 120, 0)']) {
+    document.documentElement.style.setProperty('--codeflare-prompt-focus', accent);
+    const style = getComputedStyle(prompt);
+    if (style.outlineColor !== accent || style.outlineStyle === 'none' || parseFloat(style.outlineWidth) <= 0) {
+      throw Error('The focused prompt must have a visible outline in the current Codeflare accent');
+    }
+  }
+  editor.activeElement?.blur();
+  if (getComputedStyle(prompt).borderColor !== restingBorder) throw Error('The unfocused prompt border must remain unchanged');
+  document.documentElement.style.removeProperty('--codeflare-prompt-focus');
   const jumps = editor.querySelector('.editor-chat-navigation');
   jumps.querySelector('button').focus();
   if (dimensions(jumps).some(Boolean) || editor.activeElement === jumps.querySelector('button')) throw Error('composer jumps must not render or take focus');
@@ -184,6 +197,41 @@ try {
       head.top <= 0 || head.bottom !== chat.top || Math.abs(head.top + chat.bottom - 844) > 1)) {
       throw Error(width + ': above the phone breakpoint the header must stay with the centered frame');
     }
+    if (width === 1024) {
+      const workspace = middle.parentElement;
+      workspace.style.setProperty('--chat-keyboard-inset', '30px');
+      workspace.setAttribute('data-chat-keyboard', 'open');
+      const midwayTop = header.getBoundingClientRect().top;
+      if (midwayTop <= fullHeader.top / 2 || midwayTop >= fullHeader.top) {
+        throw Error('Tablet Chat must move progressively as the keyboard begins opening');
+      }
+      workspace.style.setProperty('--chat-keyboard-inset', '360px');
+      const fittedHeader = header.getBoundingClientRect();
+      const fittedFrame = frame.getBoundingClientRect();
+      if (Math.abs(fittedHeader.top - fullHeader.top / 2) > 1 || fittedHeader.bottom !== fittedFrame.top ||
+        !aligned(fittedHeader, fittedFrame) || Math.abs(fittedFrame.bottom - 484) > 1) {
+        throw Error('Tablet Chat must halve its top gutter and fill the area above the keyboard');
+      }
+      workspace.style.setProperty('--chat-keyboard-inset', '30px');
+      if (header.getBoundingClientRect().top !== midwayTop) throw Error('Tablet Chat must reverse without a stale fit');
+      workspace.removeAttribute('data-chat-keyboard');
+      workspace.style.removeProperty('--chat-keyboard-inset');
+      if (frame !== doc.querySelector('.pi-web-chat__frame') || frame.getBoundingClientRect().bottom !== fullFrame.bottom) {
+        throw Error('Closing the tablet keyboard must restore the same Chat frame and geometry');
+      }
+      viewport.style.height = '1848px';
+      const cappedFrame = frame.getBoundingClientRect();
+      const cappedTop = header.getBoundingClientRect().top;
+      workspace.style.setProperty('--chat-keyboard-inset', '300px');
+      workspace.setAttribute('data-chat-keyboard', 'open');
+      if (cappedFrame.height !== 1200 || frame.getBoundingClientRect().height !== 1200 ||
+        Math.abs(header.getBoundingClientRect().top - cappedTop / 2) > 1) {
+        throw Error('Tablet keyboard fit must halve the actual gutter even when the frame height cap binds');
+      }
+      workspace.removeAttribute('data-chat-keyboard');
+      workspace.style.removeProperty('--chat-keyboard-inset');
+      viewport.style.height = '844px';
+    }
     // The shared Profile component styles must clip only the email, not grow its menu.
     const profile = doc.createElement('div');
     profile.className = 'header-user-dropdown header-user-dropdown--profile header-user-dropdown--portal' +
@@ -203,6 +251,30 @@ try {
         label.scrollWidth <= label.clientWidth || win.getComputedStyle(label).textOverflow !== 'ellipsis' ||
         profile.getBoundingClientRect().width !== menuWidth || label.textContent !== longEmail) {
       throw Error(width + ': a long Profile email must ellipsize in the viewport without widening the menu or losing its full text');
+    }
+    if (width === 390 || width === 1024) {
+      const constrained = doc.createElement('div');
+      constrained.className = 'dashboard-container';
+      constrained.style.cssText = 'position:fixed;inset:0;height:350px;--dashboard-panel-margin:12px;--dashboard-left-width:340px;--dashboard-max-width:840px;--space-4:16px;--space-3:12px;--space-2:8px;animation:none';
+      constrained.innerHTML = '<div class="dashboard-panel-wrapper dashboard-panel-wrapper--summary"><div class="dashboard-panel"><div class="dashboard-panel-body dashboard-panel-body--disclosure"><div class="dashboard-panel-left"><div style="height:100px;flex:none">Tips</div><div class="dashboard-sessions-section"><div>Recent Sessions</div><div class="dashboard-session-list" style="--dashboard-session-limit:189px"></div></div><section style="height:240px;flex:none">GitHub and Storage</section></div></div></div></div>';
+      doc.body.appendChild(constrained);
+      const column = constrained.querySelector('.dashboard-panel-left');
+      const list = constrained.querySelector('.dashboard-session-list');
+      for (let i = 0; i < 3; i++) list.insertAdjacentHTML('beforeend', '<button style="height:50px;flex:none">Session</button>');
+      if (list.scrollHeight !== list.clientHeight || list.clientHeight !== 166 || column.scrollHeight <= column.clientHeight) {
+        throw Error(width + ': three full cards must fit without inner scrolling; summaries must be reachable by scrolling the column');
+      }
+      list.insertAdjacentHTML('beforeend', '<button style="height:50px;flex:none">Fourth session</button>');
+      list.insertAdjacentHTML('beforeend', '<button style="height:50px;flex:none">Fifth session</button>');
+      const fourth = list.children[3].getBoundingClientRect();
+      if (Math.abs(list.getBoundingClientRect().bottom - fourth.top - fourth.height * 0.3) > 1) {
+        throw Error(width + ': at rest the list must show three cards plus 30% of the fourth');
+      }
+      list.scrollTop = list.scrollHeight;
+      if (list.lastElementChild.getBoundingClientRect().bottom > list.getBoundingClientRect().bottom + 1) {
+        throw Error(width + ': the last card must be reachable by scrolling Recent Sessions');
+      }
+      constrained.remove();
     }
     if (width === 1024 || width === 1440) {
       const dashboard = doc.createElement('div');

@@ -91,7 +91,7 @@ export default function PiWorkspaceMode(props: PiWorkspaceModeBinding & { presen
   };
   const select = (value: PiSurface) => {
     if (value !== props.value) props.onSelect(value);
-    if (props.pendingTarget) trigger?.focus();
+    if (props.pendingTarget) popup?.focus();
     else if (open()) close();
   };
 
@@ -127,7 +127,7 @@ export default function PiWorkspaceMode(props: PiWorkspaceModeBinding & { presen
               queueMicrotask(() => {
                 if (element.isConnected) element.querySelector<HTMLButtonElement>('button[aria-pressed="true"]')?.focus();
               });
-            }} class="header-user-dropdown header-user-dropdown--portal" data-workspace-mode-focus role="group" aria-label="Workspace mode options"
+            }} class="header-user-dropdown header-user-dropdown--portal" data-workspace-mode-focus role="group" aria-label="Workspace mode options" tabindex={-1}
               style={window.innerWidth > 640 && position() ? { top: `${position()!.top}px`, right: `${position()!.right}px` } : undefined}
               onKeyDown={event => {
                 if (event.key === 'Escape') { event.stopPropagation(); close(); }

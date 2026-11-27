@@ -476,6 +476,20 @@
 .dashboard-panel-body--disclosure > .dashboard-panel-right[hidden] { display: none; }
 .dashboard-panel-body--disclosure .dashboard-stats-section + .dashboard-stats-section { margin-block-start: 0; }
 
+/* Scroll the summary column before taking any space from Recent Sessions. */
+.dashboard-panel-wrapper--summary .dashboard-panel-left > :is(.dashboard-sessions-section, .dashboard-stats-section) {
+  flex: none;
+}
+
+.dashboard-panel-wrapper--summary .dashboard-session-list {
+  flex: 0 0 auto;
+  max-block-size: var(--dashboard-session-limit, none);
+}
+
+.dashboard-panel-wrapper--summary .dashboard-session-list > * {
+  flex-shrink: 0;
+}
+
 @supports (transition-behavior: allow-discrete) {
   .dashboard-panel-body--disclosure > .dashboard-panel-right {
     transition: translate var(--transition-base), opacity var(--transition-base), display var(--transition-base) allow-discrete;

@@ -186,7 +186,7 @@ describe('Pi web Worker proxy (REQ-AGENT-272 AC5)', () => {
     setLogLevel('info');
     try {
       authorityDelayMs = 50;
-      const response = await handlePiWebRequest(request(`${APP}${QUERY}`), env);
+      const response = await handlePiWebRequest(request(`${APP}a/${ATTEMPT}/${QUERY}`), env);
       expect(response.status).toBe(200);
       expect(await response.text()).toBe('pi-web private port');
       expect(response.headers.get('Cache-Control')).toBe('no-store');
@@ -210,7 +210,7 @@ describe('Pi web Worker proxy (REQ-AGENT-272 AC5)', () => {
       if (output.includes('Pi Web proxy timing')) records.push(JSON.parse(output));
     });
     const random = vi.spyOn(Math, 'random').mockReturnValue(0);
-    const asset = `${APP}assets/main.js`;
+    const asset = `${APP}a/${ATTEMPT}/assets/main.js`;
     setLogLevel('info');
     try {
       const sampled = await handlePiWebRequest(request(asset), env);

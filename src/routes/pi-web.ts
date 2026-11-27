@@ -191,7 +191,7 @@ export async function handlePiWebRequest(request: Request, env: Env): Promise<Re
     const appPrefix = piWebAppPrefix(sessionId, generation);
     const scoped = scopedResponse(response, url, control ? prefix : appPrefix);
     if (!control && !upgrade && request.method === 'GET' && scoped.ok) {
-      const appPath = url.pathname.slice(appPrefix.length);
+      const appPath = url.pathname.slice(appPrefix.length).replace(/^a\/[a-f0-9-]{36}\//, '');
       const kind = !appPath ? 'document' : appPath.endsWith('/transcript-snapshot') ? 'snapshot'
         : appPath.startsWith('assets/') ? 'asset' : 'metadata';
       // Always measure navigation; sample the higher-volume stock subrequests.

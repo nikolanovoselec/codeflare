@@ -18,6 +18,8 @@ interface PiWebChatProps {
   onStartupReady?: (ready: boolean, focusPrompt?: () => void) => void;
   onStartupFailure?: (failed: boolean) => void;
   onPanelSize?: (size?: ChatPanelSize) => void;
+  onKeyboardInset?: (inset: number) => void;
+  fitTabletKeyboard?: boolean;
 }
 
 type StockHistory = HTMLElement & {
@@ -88,7 +90,8 @@ function StockChatFrame(props: { src: string; keyboardInset: number; onStartupRe
   let stopCompactWatch: (() => void) | undefined;
   let sampleCompactHistory: (() => void) | undefined;
   createEffect(on(() => props.keyboardInset, () => sampleCompactHistory?.()));
-  const cancel = () => { observer?.disconnect(); clearTimeout(timer); stopCompactWatch?.(); };
+  let accentObserver: MutationObserver | undefined;
+  const cancel = () => { observer?.disconnect(); accentObserver?.disconnect(); clearTimeout(timer); stopCompactWatch?.(); };
   const [compactHeight, setCompactHeight] = createSignal<number>();
   let expansionTimer: ReturnType<typeof setTimeout> | undefined;
   const compact = (height?: number, animate = false) => {
@@ -103,6 +106,9 @@ function StockChatFrame(props: { src: string; keyboardInset: number; onStartupRe
     // Pi Web 1.202611.5 does not reflect historyReady on the DOM. Observe
     // rendered changes and sample only until the selected history is known.
     let checkedChat: StockHistory | null | undefined;
+    const controls = (chat: StockHistory | null) => Array.from(chat?.parentElement?.children ?? [])
+      .filter((part): part is HTMLElement => part instanceof (doc.defaultView?.HTMLElement ?? HTMLElement)
+        && (part.slot === 'composer' || part.slot === 'status'));
     let complete = false;
     let checks = 0;
     let sampling: ReturnType<typeof setInterval> | undefined;
@@ -118,8 +124,7 @@ function StockChatFrame(props: { src: string; keyboardInset: number; onStartupRe
         if (chat?.shadowRoot) dom.observe(chat.shadowRoot, { subtree: true, childList: true });
         layout?.disconnect();
         layout?.observe(frame);
-        const conversation = chat?.parentElement;
-        for (const part of conversation?.querySelectorAll(':scope > [slot="composer"], :scope > [slot="status"]') ?? []) layout?.observe(part);
+        for (const part of controls(chat)) layout?.observe(part);
         checkedChat = chat;
       }
       if (doc.documentElement.hasAttribute('data-pi-web-loading') || !chat?.historyReady
@@ -143,7 +148,11 @@ function StockChatFrame(props: { src: string; keyboardInset: number; onStartupRe
         return;
       }
       const remaining = frame.offsetHeight - chat.offsetHeight;
-      if (remaining > 0 && frame.offsetHeight > 0) compact(remaining);
+      const parts = controls(chat);
+      const composerHeight = parts.find(part => part.slot === 'composer')?.offsetHeight ?? 0;
+      const statusHeight = parts.find(part => part.slot === 'status')?.offsetHeight ?? 0;
+      // Don't cap a pane whose controls are unmeasurable or wouldn't fit.
+      compact(composerHeight > 0 && statusHeight > 0 && remaining >= composerHeight + statusHeight ? remaining : undefined);
     };
     if (app.shadowRoot) dom.observe(app.shadowRoot, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] });
     layout?.observe(frame);
@@ -171,6 +180,14 @@ function StockChatFrame(props: { src: string; keyboardInset: number; onStartupRe
       return;
     }
     firstDocument ??= doc;
+    const shell = document.documentElement;
+    const updatePromptAccent = () => {
+      if (frame.contentDocument !== doc) return;
+      doc.documentElement.style.setProperty('--codeflare-prompt-focus', getComputedStyle(shell).getPropertyValue('--color-accent').trim());
+    };
+    updatePromptAccent();
+    accentObserver = new MutationObserver(updatePromptAccent);
+    accentObserver.observe(shell, { attributes: true, attributeFilter: ['style'] });
     props.onStartupFailure?.(false);
     if (props.onPanelSize) watchCompactHistory(frame, doc, app);
     if (!props.onStartupReady) return;
@@ -201,10 +218,18 @@ function StockChatFrame(props: { src: string; keyboardInset: number; onStartupRe
 
 export default function PiWebChat(props: PiWebChatProps) {
   const [keyboardInset, setKeyboardInset] = createSignal(0);
+  const [tablet, setTablet] = createSignal(false);
+  const fitWorkspace = () => tablet() && props.fitTabletKeyboard;
+  createEffect(() => props.onKeyboardInset?.(fitWorkspace() ? keyboardInset() : 0));
   const [frameRevision, setFrameRevision] = createSignal(0);
   const [frameFailed, setFrameFailed] = createSignal(false);
   onMount(() => {
     disableVirtualKeyboardOverlay();
+    const media = window.matchMedia?.('(width > 640px) and (pointer: coarse)');
+    const updateTablet = () => setTablet(media?.matches ?? false);
+    updateTablet();
+    media?.addEventListener?.('change', updateTablet);
+    onCleanup(() => media?.removeEventListener?.('change', updateTablet));
     const viewport = window.visualViewport;
     if (!viewport) return;
     // Keyboard resizing often affects only the top-level visual viewport, not
@@ -250,7 +275,7 @@ export default function PiWebChat(props: PiWebChatProps) {
   });
 
   return (
-    <section class="pi-web-chat" aria-label="Pi Chat" style={{ 'margin-block-end': `${keyboardInset()}px` }}>
+    <section class="pi-web-chat" aria-label="Pi Chat" style={{ 'margin-block-end': `${fitWorkspace() ? 0 : keyboardInset()}px` }}>
       <Show when={frameUrl() && frameFailed()}>
         <div class="pi-web-controls">
           <button type="button" class="pi-web-action" onClick={() => setFrameRevision(value => value + 1)}>Reload Chat</button>

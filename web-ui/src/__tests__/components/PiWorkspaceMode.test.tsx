@@ -113,6 +113,7 @@ describe('Pi workspace mode selector', () => {
     expect(screen.getByRole('button', { name })).toHaveAttribute('aria-pressed', 'true');
     const destination = screen.getByRole('button', { name: code });
     expect(destination).toBeDisabled();
+    expect(screen.getByRole('group', { name: 'Workspace mode options' })).toHaveFocus();
     expect(screen.getByRole('button', { name })).toHaveTextContent(/^Vibe Mode$/);
     expect(destination).not.toHaveTextContent('Current');
     expect(destination).not.toHaveTextContent('Entering Code mode...');

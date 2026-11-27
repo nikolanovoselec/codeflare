@@ -1648,8 +1648,8 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Acceptance Criteria:**
 
-1. When present, Vault precedes the status dot and menu, about 34 CSS pixels center-to-center from the dot at default scale. <!-- @manual: documentation/lanes/vault.md#vault-control-presentation -->
-2. A long renamed title ends in an ellipsis without shifting or overlapping the controls. <!-- @manual: documentation/lanes/vault.md#vault-control-presentation -->
+1. When present, Vault precedes the status dot and menu, about 34 CSS pixels center-to-center from the dot at default scale. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @impl: web-ui/src/styles/session-stat-card.css::.session-stat-card__vault .header-vault-button --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps the renamed card selector and Vault, status, and menu in order (REQ-IDE-054)) --> <!-- @manual: documentation/lanes/vault.md#vault-control-presentation -->
+2. A long renamed title ends in an ellipsis without shifting or overlapping the controls. <!-- @impl: web-ui/src/styles/session-stat-card.css::.session-stat-card__name --> <!-- @manual: documentation/lanes/vault.md#vault-control-presentation -->
 3. The card selector exposes the complete accessible session name. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps the renamed card selector and Vault, status, and menu in order (REQ-IDE-054)) -->
 
 **Constraints:** None.

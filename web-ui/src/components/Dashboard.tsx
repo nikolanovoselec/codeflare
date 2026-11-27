@@ -282,6 +282,25 @@ const Dashboard: Component<DashboardProps> = (props) => {
     observer.observe(button, { box: 'border-box' });
     onCleanup(() => observer.disconnect());
   });
+  const [sessionList, setSessionList] = createSignal<HTMLDivElement>();
+  const [sessionListLimit, setSessionListLimit] = createSignal<number>();
+  createEffect(() => {
+    const list = sessionList();
+    const sessions = props.sessions;
+    if (!list || !browsersClosed() || sessions.length < 4) {
+      setSessionListLimit(undefined);
+      return;
+    }
+    const measure = () => {
+      const first = list.firstElementChild?.getBoundingClientRect();
+      const fourth = list.children[3]?.getBoundingClientRect();
+      setSessionListLimit(first && fourth?.height ? fourth.top - first.top + fourth.height * 0.3 : undefined);
+    };
+    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measure);
+    for (const card of Array.from(list.children).slice(0, 4)) observer?.observe(card, { box: 'border-box' });
+    measure();
+    onCleanup(() => observer?.disconnect());
+  });
   const managedUpgradePercent = createMemo(() => {
     const progress = sessionStore.managedReleaseProgress;
     if (!progress) return 0;
@@ -745,7 +764,8 @@ const Dashboard: Component<DashboardProps> = (props) => {
             <Show when={props.sessions.length > 0}>
               <div class="dashboard-sessions-section">
                 <div class="dashboard-section-divider"><span>Recent Sessions</span></div>
-                <div class="dashboard-session-list">
+                <div ref={setSessionList} class="dashboard-session-list"
+                  style={{ '--dashboard-session-limit': sessionListLimit() === undefined ? undefined : `${sessionListLimit()}px` }}>
                   <For each={props.sessions}>
                     {(session) => (
                       <SessionStatCard

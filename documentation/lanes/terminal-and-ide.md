@@ -87,7 +87,7 @@ When **VS Code** is the effective workspace, Dashboard **New Session** starts Pi
 - For each run below, configure an authorized synthetic repository as a restore target and ensure its checkout is absent locally.
 - Start Chat-first and choose **Open**. While **Restoring repositories…** is visible, verify the Chat composer works, then switch **Chat → Terminal** before waiting for the clone outcome.
 - In a separate Terminal-first run, choose **Open**. While **Restoring repositories…** is visible, verify native Pi accepts a harmless prompt, then switch **Terminal → Chat**.
-- For each direction, record notice transitions as they happen; a success notice clears after five seconds. Confirm the destination answers a harmless prompt while the restore notice remains visible through the switch. <!-- @impl: web-ui/src/stores/session.ts::watchRepositoryRestore = 5_000 -->
+- For each direction, record notice transitions as they happen; a success notice clears after five seconds. Confirm the destination answers a harmless prompt while the restore notice remains visible through the switch. <!-- @impl: web-ui/src/stores/session.ts::watchRepositoryRestore -->
 - Mark only that direction unexercised if you observe a restore outcome before the reply. A notice disappearing while restore is still active is a failure, not evidence of completion.
 - If the destination replies first, keep observing. Record **Repositories restored**, **Some repositories weren’t restored**, or no observed outcome. Disappearance alone proves neither outcome. See [REQ-GITHUB-320 AC2–3](../../sdd/spec/github.md#req-github-320-nonblocking-terminal-repository-restore-notice). <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
 - In a disposable browser check, block the first Chat frame navigation before it reaches the Host. Clear the block and choose **Reload Chat**. Verify the same conversation opens without a second handoff.
@@ -204,7 +204,13 @@ Use these checks for [REQ-AGENT-272](../../sdd/spec/agents.md#req-agent-272-pi-c
 
 The [Chat wrapper tests](../../web-ui/src/__tests__/components/PiWebChat.test.tsx) check that fresh browsers have no stored override, previously saved overrides are cleared on first open, and later values survive wrapper remount. They supplement the browser checks; they do not verify the stock picker or rendered theme.
 
+#### Check tablet Chat keyboard fit
+
+For [REQ-AGENT-292](../../sdd/spec/agents.md#req-agent-292-tablet-chat-keyboard-fit), use Samsung Browser on a physical tablet with empty and populated Vibe Chat. Open the keyboard while the prompt is focused: the header stays attached, the top gutter halves without losing safe-area clearance, and the visible history gains room above the keyboard. Close and reopen quickly; check that the frame does not jump, reload, lose the draft, or change the transcript. Repeat with reduced motion and mark any unavailable device case unexercised.
+
 #### Check accent preferences
+
+Focus the Vibe prompt and check that its outline matches the active Codeflare accent. Change the accent without reopening Chat, then focus and blur the prompt: the outline uses the new accent and the unfocused border stays unchanged.
 
 For [REQ-AGENT-019 AC3](../../sdd/spec/agents.md#req-agent-019-branded-settings-ui), confirm the fresh-browser accent is `#00BAFF`. Save a custom accent and reload to verify it persists. Choose **Reset** in Appearance and confirm the accent returns to `#00BAFF`.
 
@@ -380,6 +386,12 @@ In both states, verify the transparent hit area is 44 × 150 CSS px and that cli
 For [mobile Vibe disclosure](../../sdd/spec/github.md#req-github-325-mobile-vibe-browser-disclosure-gestures), verify the white double chevron on a transparent background below the column points down when closed and up when open, with a slow vertical bounce. Tap it in both states. Repeat on all sizes with reduced motion; the bounce stops. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-pull -->
 
 In the installed mobile app, pull up at the bottom to open and down at the top to close. Verify scrolling away from those edges, horizontal swipes, a two-finger pull at an eligible edge, and a closed-panel pull down do not toggle the panel or intercept ordinary refresh.
+
+### Recent Sessions acceptance
+
+For [REQ-GITHUB-334](../../sdd/spec/github.md#req-github-334-recent-sessions-in-the-vibe-summary), check the closed Vibe summary on a tablet and in a short desktop viewport. With up to three sessions, verify that each card retains its full height and the column scrolls to GitHub and Storage below the cards. With four or more, start at the top of Recent Sessions and confirm that three full cards plus the top 30% of the fourth are visible within the list. Scroll the list by touch and keyboard to reach the last card. Open the browser drawer and check that its layout is unchanged; confirm the Code Dashboard layout is unchanged too.
+
+The Chromium fixture exercises the scroll layout with synthetic cards and a preset cap. The live check covers the Dashboard’s measurement of actual cards and touch and keyboard scrolling.
 
 ### GitHub workspace manual acceptance
 

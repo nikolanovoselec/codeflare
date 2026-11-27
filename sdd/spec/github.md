@@ -584,7 +584,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 1. A connected account with zero repositories shows the repository-panel empty state. <!-- @impl: web-ui/src/components/github/RepoList.tsx::RepoList --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (REQ-GITHUB-009: shows the no-repositories empty state only when the account has no repos) -->
 2. Search with no matching repositories shows the search-empty state. <!-- @impl: web-ui/src/components/github/RepoList.tsx::RepoList --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (REQ-GITHUB-009: keeps search-empty results distinct from the no-repositories empty state) -->
 3. The repo list renders every fetched repository inside a scroll container. <!-- @impl: web-ui/src/components/github/RepoList.tsx::RepoList --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (REQ-GITHUB-009: renders every repo inside the scroll container (the row cap is a CSS viewport, not truncation)) -->
-4. The repo list flexes to the height its panel is allotted by the adaptive GitHub/Storage split and scrolls the overflow, rather than capping at a fixed per-breakpoint row count. <!-- @manual: GitHub workspace manual acceptance in documentation/lanes/terminal-and-ide.md; observe rendered allocation and scrolling. --> <!-- @impl: web-ui/src/styles/github-panel.css::.github-repo-rows --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard -->
+4. The repo list flexes to the height its panel is allotted by the adaptive GitHub/Storage split and scrolls the overflow, rather than capping at a fixed per-breakpoint row count. <!-- @manual: documentation/lanes/terminal-and-ide.md#github-panel-geometry-acceptance --> <!-- @impl: web-ui/src/styles/github-panel.css::.github-repo-rows --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard -->
 
 **Constraints:**
 
@@ -631,7 +631,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 **Acceptance Criteria:**
 
 1. In mobile Code, GitHub is the default right-column face and the header flip control swaps to the R2 storage browser (and back) in place whenever GitHub is enabled. <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel --> <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-010: flips GitHub <-> storage when enabled and the flip controls are used) -->
-2. Flip controls appear only in the mobile layout. Desktop and tablet show both browsers without flip controls. <!-- @manual: GitHub workspace manual acceptance in documentation/lanes/terminal-and-ide.md; observe control visibility across split and single-face layouts. --> <!-- @impl: web-ui/src/components/Dashboard.tsx::flipBrowsers --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-010: keeps both Code browsers without flip controls on %s) -->
+2. Flip controls appear only in the mobile layout. Desktop and tablet show both browsers without flip controls. <!-- @manual: documentation/lanes/terminal-and-ide.md#github-workspace-manual-acceptance --> <!-- @impl: web-ui/src/components/Dashboard.tsx::flipBrowsers --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-010: keeps both Code browsers without flip controls on %s) -->
 3. If GitHub is disabled, R2 storage is the sole right-column face. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-010: forces the storage face active when GitHub is disabled so the empty GitHub panel cannot cover R2) -->
 4. In Code, when GitHub is enabled, the storage panel carries a matching header. The flip-back control appears only on mobile. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-010: defaults to the GitHub face and offers the storage back-button when GitHub is enabled) -->
 5. In mobile Code, flipping either way moves keyboard focus to the incoming panel’s flip control. <!-- @impl: web-ui/src/components/Dashboard.tsx::flipTo --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-010: flips GitHub <-> storage when enabled and the flip controls are used) -->
@@ -701,6 +701,30 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 **Dependencies:** [REQ-GITHUB-321](#req-github-321-vibe-dashboard-browser-disclosure)
 
 **Verification:** Automated: [Dashboard component tests](../../web-ui/src/__tests__/components/Dashboard.test.tsx); Manual: [Vibe drawer acceptance](../../documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance)
+
+**Status:** Planned
+
+---
+
+### REQ-GITHUB-334: Recent Sessions in the Vibe summary
+
+**Intent:** Keep session cards usable without letting a long list dominate the Dashboard.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. In the closed Vibe summary, the column scrolls to GitHub and Storage below Recent Sessions instead of squeezing the cards. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-wrapper--summary .dashboard-panel-left > :is(.dashboard-sessions-section, .dashboard-stats-section) --> <!-- @test: scripts/ci/smoke-pi-web-system-rows.mjs (three full cards must fit without inner scrolling) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#recent-sessions-acceptance -->
+2. Up to three session cards render at full height without an inner scrollbar. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-wrapper--summary .dashboard-session-list --> <!-- @test: scripts/ci/smoke-pi-web-system-rows.mjs (three full cards must fit without inner scrolling) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#recent-sessions-acceptance -->
+3. With four or more cards, the list initially shows three complete cards and the top 30% of the fourth. Scroll within the list to reach later cards. <!-- @impl: web-ui/src/components/Dashboard.tsx::setSessionListLimit --> <!-- @test: scripts/ci/smoke-pi-web-system-rows.mjs (at rest the list must show three cards plus 30% of the fourth) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (sizes the Recent Sessions preview from the first four rendered cards) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#recent-sessions-acceptance -->
+
+**Constraints:** Preserve the open drawer and Code Dashboard layouts.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-GITHUB-323](#req-github-323-responsive-vibe-dashboard-layout)
+
+**Verification:** Automated: [Dashboard tests](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [Chromium stock Chat and Dashboard fixture](../../scripts/ci/smoke-pi-web-system-rows.mjs); Manual: [Recent Sessions acceptance](../../documentation/lanes/terminal-and-ide.md#recent-sessions-acceptance)
 
 **Status:** Planned
 
