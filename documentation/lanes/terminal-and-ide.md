@@ -100,7 +100,8 @@ For [REQ-AGENT-280 AC4](../../sdd/spec/agents.md#req-agent-280-attachment-gated-
 
 - **Acknowledged:** Switch Code to Vibe. Observe the original request in Host status while Code is still visible, then leave and save Code as the Dashboard default. On return, verify Code stays visible until Chat attaches.
 - **Unpublished:** Initiate the switch, leave before publication, and keep Vibe saved. The first Host status after return must still report Code. Verify Code stays visible and only the original switch POST is sent, both before and after publication.
-- Confirm in Network that the original POST is still pending when you try to open the mode menu. Verify the control is disabled, no menu opens, and no second POST is sent. If already settled, mark [AC5](../../sdd/spec/agents.md#req-agent-280-attachment-gated-workspace-reveal) unexercised.
+- For [AC5](../../sdd/spec/agents.md#req-agent-280-attachment-gated-workspace-reveal), confirm in Network that the original POST is still pending and the latest Host status still shows Code without reporting the handoff. If either condition is missing when testing the menu, mark AC5 unexercised.
+- With both conditions met, attempt to open the mode menu. Verify the control stays disabled, no menu opens, and no second POST is sent.
 - For the acknowledged case, also require exactly one POST. If Chat attached before return, or the outgoing status was not observed in the unpublished case, mark that case unexercised. The Layout regression controls publication timing deterministically.
 
 - During Code-to-Vibe handoff, fail the first destination frame navigation. Verify Vibe reveals **Reload Chat** before normal readiness, then clear the failure and reload the same conversation without a new handoff.
