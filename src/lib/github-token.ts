@@ -171,7 +171,14 @@ async function postToken(env: Env, body: Record<string, string>): Promise<TokenR
     throw new GithubTokenEndpointUnavailable(`GitHub token endpoint returned ${res.status}`);
   }
   if (!res.ok) throw new Error(`GitHub token endpoint returned ${res.status}`);
-  const data = (await res.json()) as TokenResponse;
+  let data: TokenResponse;
+  try {
+    data = (await res.json()) as TokenResponse;
+  } catch (err) {
+    // Invalid JSON is not a transport interruption.
+    if (err instanceof SyntaxError) throw err;
+    throw new GithubTokenEndpointUnavailable('GitHub token response body unavailable');
+  }
   if (data.error === 'temporarily_unavailable' || data.error === 'server_error') {
     throw new GithubTokenEndpointUnavailable('GitHub token endpoint temporarily unavailable');
   }

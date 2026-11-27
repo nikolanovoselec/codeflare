@@ -218,23 +218,41 @@ describe('REQ-GITHUB-002 / REQ-GITHUB-007: GET /api/github/repos', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it('REQ-GITHUB-002: retries repositories after a transient App token refresh failure', async () => {
-    mockKV._set(KEY, { githubToken: 'expired', githubTokenSource: 'app', githubLogin: 'octocat',
-      githubRefreshToken: 'old-refresh', githubTokenExpiresAt: Date.now() - 1000 } satisfies DeployKeys);
-    const app = createTestApp(ENT);
-    const retained: Promise<unknown>[] = [];
-    const context = { waitUntil: (work: Promise<unknown>) => { retained.push(work); } } as ExecutionContext;
-    mockFetch.mockResolvedValueOnce(new Response(null, { status: 503 }));
-    const unavailable = await app.request('/api/github/repos', undefined, undefined, context);
-    expect(unavailable.status).toBe(503);
-    expect(await unavailable.json()).toMatchObject({ code: 'GITHUB_REFRESH_UNAVAILABLE' });
-    mockFetch.mockResolvedValueOnce(ok({ access_token: 'fresh', refresh_token: 'next', expires_in: 3600 }))
-      .mockResolvedValueOnce(ok([]));
-    const recovered = await app.request('/api/github/repos', undefined, undefined, context);
-    expect(recovered.status).toBe(200);
-    expect(await recovered.json()).toMatchObject({ repos: [], page: 1, hasMore: false });
-    await Promise.all(retained);
-  });
+  it.each(['503 response', 'interrupted response body'] as const)(
+    'REQ-GITHUB-002: retries repositories after a transient App token refresh failure (%s)', async failure => {
+      mockKV._set(KEY, { githubToken: 'expired', githubTokenSource: 'app', githubLogin: 'octocat',
+        githubRefreshToken: 'old-refresh', githubTokenExpiresAt: Date.now() - 1000 } satisfies DeployKeys);
+      const app = createTestApp(ENT);
+      const retained: Promise<unknown>[] = [];
+      const context = { waitUntil: (work: Promise<unknown>) => { retained.push(work); } } as ExecutionContext;
+      let refreshAvailable = false;
+      const forwardedAuthorization: (string | null)[] = [];
+      mockFetch.mockImplementation(async (input: string, init: RequestInit) => {
+        const path = new URL(input).pathname;
+        if (path === '/login/oauth/access_token') {
+          if (refreshAvailable) return ok({ access_token: 'fresh', refresh_token: 'next', expires_in: 3600 });
+          return failure === '503 response' ? new Response(null, { status: 503 }) : new Response(new ReadableStream({
+            pull(controller) { controller.error(new TypeError('Connection dropped after headers')); },
+          }), { headers: { 'Content-Type': 'application/json' } });
+        }
+        if (path !== '/user/repos') throw new Error(`Unexpected fixture path ${path}`);
+        const authorization = new Headers(init.headers).get('Authorization');
+        forwardedAuthorization.push(authorization);
+        return authorization === 'Bearer fresh' ? ok([]) : new Response(null, { status: 401 });
+      });
+      const unavailable = await app.request('/api/github/repos', undefined, undefined, context);
+      expect(unavailable.status).toBe(503);
+      expect(await unavailable.json()).toMatchObject({ code: 'GITHUB_REFRESH_UNAVAILABLE' });
+      expect(forwardedAuthorization).toEqual([]);
+
+      refreshAvailable = true;
+      const recovered = await app.request('/api/github/repos', undefined, undefined, context);
+      expect(recovered.status).toBe(200);
+      expect(await recovered.json()).toMatchObject({ repos: [], page: 1, hasMore: false });
+      expect(forwardedAuthorization).toEqual(['Bearer fresh']);
+      await Promise.all(retained);
+    },
+  );
 
   it('REQ-GITHUB-002: reports a connection conflict for an expired App connection after switching to OAuth', async () => {
     const saved = { githubToken: 'expired', githubTokenSource: 'app', githubLogin: 'octocat',
