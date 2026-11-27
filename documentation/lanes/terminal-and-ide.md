@@ -169,8 +169,8 @@ Use these checks for [REQ-AGENT-272](../../sdd/spec/agents.md#req-agent-272-pi-c
 - In a fresh browser, verify the machine name is **Codeflare** ([REQ-AGENT-274 AC5](../../sdd/spec/agents.md#req-agent-274-stock-pi-chat-controls)).
 - In stock Appearance, verify **Codeflare** is selected in **Theme** and shown as the current theme ([REQ-AGENT-288 AC1](../../sdd/spec/agents.md#req-agent-288-codeflare-chat-theme)).
 - In a browser that saved a different theme with **Use in this browser** before the change, reload Codeflare and open Chat. Verify **Codeflare** is selected and active on this first open ([REQ-AGENT-288 AC2](../../sdd/spec/agents.md#req-agent-288-codeflare-chat-theme)).
-- With Codeflare active, use DevTools to verify `pi-web-app` inside the Chat iframe has a background alpha of 0.2 and the outer gradient shows through ([REQ-AGENT-288 AC4](../../sdd/spec/agents.md#req-agent-288-codeflare-chat-theme)).
-- With Codeflare still active, verify user messages have a tint and stronger leading border without fading text ([REQ-AGENT-288 AC4](../../sdd/spec/agents.md#req-agent-288-codeflare-chat-theme)).
+- With Codeflare active, verify the computed `pi-web-app` background inside the Chat iframe is `rgba(24, 24, 24, 0.2)` or equivalent. Confirm the outer gradient shows through ([REQ-AGENT-288 AC4](../../sdd/spec/agents.md#req-agent-288-codeflare-chat-theme)).
+- With Codeflare still active, verify user messages have a tint and stronger leading border without fading text ([REQ-AGENT-288 AC5](../../sdd/spec/agents.md#req-agent-288-codeflare-chat-theme)).
 - On desktop and mobile, verify the stock Refresh and Actions controls are absent, including their keyboard focus stops. Confirm navigation is still usable ([REQ-AGENT-282 AC5](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults)).
 - With Codeflare active, verify the session-start summary and count, composer and placeholder, model label, and footer token and context counters match the normal message font size ([REQ-AGENT-282 AC6](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults)).
 - Verify the session-start summary has top padding and the controls remain usable ([REQ-AGENT-282 AC7](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults)).
@@ -179,6 +179,8 @@ Use these checks for [REQ-AGENT-272](../../sdd/spec/agents.md#req-agent-272-pi-c
 - Open Files and return before sending a message; confirm Files gets the full panel. An early native question or a failed load must remain reachable without typing a message.
 - Save a different theme with **Use in this browser**, reload Codeflare, and reopen Chat. Verify the new choice is still selected and active ([REQ-AGENT-288 AC3](../../sdd/spec/agents.md#req-agent-288-codeflare-chat-theme)).
 - With the alternate theme saved after the first open, repeat the [failed frame navigation check](#switch-one-writer-at-a-time) and verify **Reload Chat** still opens the same conversation. Confirm navigation stays available ([REQ-AGENT-282 AC5](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults)).
+
+The [Chat wrapper tests](../../web-ui/src/__tests__/components/PiWebChat.test.tsx) check that fresh browsers have no stored override, previously saved overrides are cleared on first open, and later values survive wrapper remount. They supplement the browser checks; they do not verify the stock picker or rendered theme.
 
 #### Check accent preferences
 

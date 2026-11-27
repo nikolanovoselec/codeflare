@@ -1300,10 +1300,11 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Acceptance Criteria:**
 
-1. In a fresh browser, Chat opens with Codeflare selected and active. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (lets a fresh browser use the stock gateway theme default) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
-2. On first open after the change, a browser with a previously saved theme returns to the Codeflare default. <!-- @impl: web-ui/src/components/PiWebChat.tsx::StockChatFrame --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (returns a previously saved alternate theme to the gateway default on first open) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
-3. An explicit browser theme choice made after that first open survives reload and reopening Chat. <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (keeps a later browser theme choice on reopening Chat (%s)) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
-4. The active Codeflare theme has a dark, 80%-transparent base and visually distinguishes user messages from agent replies. <!-- @impl: image/pi-web/codeflare-chrome/browser/graphite.css::--pi-bg = #18181833 --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+1. In a fresh browser, Chat opens with Codeflare selected and active. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+2. On first open after the change, a browser with a previously saved theme returns to the Codeflare default. <!-- @impl: web-ui/src/components/PiWebChat.tsx::StockChatFrame --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+3. An explicit browser theme choice made after that first open survives reload and reopening Chat. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+4. The active Codeflare theme has a dark, 80%-transparent base. <!-- @impl: image/pi-web/codeflare-chrome/browser/graphite.css::--pi-bg = #18181833 --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+5. The active Codeflare theme visually distinguishes user messages from agent replies. <!-- @impl: image/pi-web/codeflare-chrome/browser/graphite.css::--pi-chat-user-bg = #00baff30 --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 
 **Constraints:** Use stock Pi Web theme support without locking subsequent theme choices.
 
