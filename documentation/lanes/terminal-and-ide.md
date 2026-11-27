@@ -266,7 +266,7 @@ For [REQ-AUTH-016 AC4 and AC7](../../sdd/spec/authentication.md#req-auth-016-hea
 
 With desktop Profile anchored, compare short and long addresses in both headers. Verify the full badge stays inside the viewport without widening the action panel. Shorten the viewport with each menu open and check the badge remains above the actions in the bottom sheet.
 
-For the centered Chat edge case, start at 780 CSS px. Measure the badge’s left edge with the previous `60vw` width cap temporarily applied in DevTools. If it isn’t negative, adjust the viewport or address while keeping the menu anchored, or mark the edge case unverified. Restore the deployed rule and repeat the visibility and action-width checks.
+For the centered Chat edge case, start at 780 CSS px. In DevTools, select `.header-user-email > span` and disable only the anchored-desktop `max-inline-size: min(60vw, …)` declaration, leaving the base `60vw` cap active. Measure the span’s left edge. If it isn’t negative, adjust the viewport or address while keeping the menu anchored, or mark the edge case unverified. Re-enable the declaration and repeat the visibility and action-width checks at the same viewport and address.
 
 For [REQ-AUTH-016 AC5](../../sdd/spec/authentication.md#req-auth-016-header-user-dropdown), reduce height on desktop and mobile in both headers until the last action starts below the visible menu area. Verify the menu stays inside the viewport and scrolling it reveals the last action fully without scrolling the page. Mark any placement or scrolling case that cannot be reproduced as unverified.
 
