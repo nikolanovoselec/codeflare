@@ -268,6 +268,8 @@ With desktop Profile anchored, compare short and long addresses in both headers.
 
 For the centered Chat edge case, start at 780 CSS px. In DevTools, select `.header-user-email > span` and disable only the anchored-desktop `max-inline-size: min(60vw, …)` declaration, leaving the base `60vw` cap active. Measure the span’s left edge. If it isn’t negative, adjust the viewport or address while keeping the menu anchored, or mark the edge case unverified. Re-enable the declaration and repeat the visibility and action-width checks at the same viewport and address.
 
+The menu must be anchored in both measurements. If either uses a bottom sheet, increase viewport height without changing width or address and repeat both measurements, or mark the edge case unverified.
+
 For [REQ-AUTH-016 AC5](../../sdd/spec/authentication.md#req-auth-016-header-user-dropdown), reduce height on desktop and mobile in both headers until the last action starts below the visible menu area. Verify the menu stays inside the viewport and scrolling it reveals the last action fully without scrolling the page. Mark any placement or scrolling case that cannot be reproduced as unverified.
 
 At 375px, verify Settings is reachable and the groups retain the one-slot gap. Continue narrowing after overflow is exhausted until the utilities move to a second row. Verify every remaining action is reachable and each icon target measures 44 × 44 CSS px. Mark wrapping unverified if the fallback never appears.
