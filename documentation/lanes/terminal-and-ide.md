@@ -99,7 +99,7 @@ In **Vibe**, Dashboard **New Session** starts Pi Chat directly. Returning to Das
 For [REQ-AGENT-280 AC4](../../sdd/spec/agents.md#req-agent-280-attachment-gated-workspace-reveal), capture Network traffic and return to the same running generation before Chat attaches:
 
 - **Acknowledged:** Switch Code to Vibe. Observe the original request in Host status while Code is still visible, then leave and save Code as the Dashboard default. On return, verify Code stays visible until Chat attaches.
-- **Unpublished:** Initiate the switch, leave before publication, and keep Vibe saved. The first Host status after return must show Code without reporting the handoff.
+- **Unpublished:** Initiate the switch, leave before publication, and keep Vibe saved. The first Host status after return must show Code without reporting the handoff. Verify Code is visible in the browser before publication, even if AC5 is unexercised.
   1. For [AC5](../../sdd/spec/agents.md#req-agent-280-attachment-gated-workspace-reveal), confirm in Network that the original POST is still pending and the latest Host status still shows Code without reporting the handoff. If either condition is missing when testing the menu, mark AC5 unexercised.
   2. Before publication, attempt to open the mode menu. Verify the control stays disabled, no menu opens, and no second POST is sent.
   3. After the Host reports the handoff, verify Code stays visible until Chat attaches and only the original switch POST was sent.
