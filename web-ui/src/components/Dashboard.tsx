@@ -74,7 +74,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
   const [panelFace, setPanelFace] = createSignal<'github' | 'storage'>('github');
   const vibe = () => props.workspaceMode?.value === 'chat';
   const directPiLaunch = () => vibe() || (sessionStore.preferences.sessionMode === 'advanced'
-    && sessionStore.preferences.defaultWorkspace === 'vscode');
+    && sessionStore.preferences.defaultWorkspace === 'vscode' && sessionStore.allowedAgents?.includes('pi') === true);
   const [githubReturnError, setGithubReturnError] = createSignal<string | null>(null);
   const showGithubDetails = () => vibe() && (githubStore.enabled || !!githubReturnError());
   const sessionCreateDisabled = () => props.launchingVibe || !sessionStore.r2Ready || isAtUsageQuota()
@@ -97,10 +97,10 @@ const Dashboard: Component<DashboardProps> = (props) => {
   const [repoClonePicker, setRepoClonePicker] = createSignal<{ repo: GithubRepo; anchor: HTMLButtonElement }>();
   const [retryingRepos, setRetryingRepos] = createSignal(false);
   createEffect(() => {
-    if (!vibe() || !githubStore.connected || !githubStore.error || githubStore.loading || retryingRepos()) return;
+    if (!vibe() || !githubStore.canRetryInitialRepos || retryingRepos()) return;
     const timer = setTimeout(async () => {
       setRetryingRepos(true);
-      try { await githubStore.loadRepos(); }
+      try { await githubStore.retryInitialRepos(); }
       finally { setRetryingRepos(false); }
     }, 5000);
     onCleanup(() => clearTimeout(timer));
@@ -787,7 +787,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                   <div class="github-return-error" role="status">{message()}</div>
                 )}</Show>
                 <Show when={githubStore.enabled}>
-                  <Show when={githubStore.connected} fallback={<div class="stat-card"><ConnectCard compact /></div>}>
+                  <Show when={githubStore.connected && githubStore.repoErrorCode !== 'NOT_CONNECTED'} fallback={<div class="stat-card"><ConnectCard compact /></div>}>
                     <StatCard icon={mdiGithub} title={
                       <Show when={githubStore.login} fallback={<span class="stat-card__title type-section-header">GitHub</span>}>
                         {login => (
@@ -800,8 +800,8 @@ const Dashboard: Component<DashboardProps> = (props) => {
                         <Show when={!countsLoading() || knownEmptyRepos() || githubStore.error || retryingRepos()} fallback={<span class="type-hint" role="status">Loading owned repository counts…</span>}>
                           <Show when={recentRepos().length > 0} fallback={
                             <Show when={knownEmptyRepos()} fallback={
-                              <Show when={githubStore.error || retryingRepos()} fallback={
-                                <span class="type-hint" role="status">{githubStore.loading || githubStore.page === 0 ? 'Loading repositories…' : 'Repository shortcuts unavailable.'}</span>
+                              <Show when={githubStore.canRetryInitialRepos || retryingRepos()} fallback={
+                                <span class="type-hint" role="status">{githubStore.loading || (githubStore.page === 0 && !githubStore.error) ? 'Loading repositories…' : 'Repository shortcuts unavailable.'}</span>
                               }>
                                 <div class="dashboard-github-card__empty" role="status">
                                   <span>CONNECTION TO GITHUB</span>

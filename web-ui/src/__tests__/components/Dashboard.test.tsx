@@ -13,7 +13,7 @@ import type { GithubRepo } from '../../api/github';
 import { ApiError } from '../../api/fetch-helper';
 import * as vaultCache from '../../lib/vault-cache';
 import * as gravatar from '../../lib/gravatar';
-import type { SessionWithStatus } from '../../types';
+import type { AgentType, SessionWithStatus } from '../../types';
 
 const availabilityMock = vi.hoisted(() => ({
   set: undefined as undefined | ((unavailable: boolean) => void),
@@ -65,7 +65,7 @@ vi.mock('../../components/github/GitHubPanel', () => ({
   )
 }));
 
-const initialRepoPage = vi.hoisted(() => ({ page: 0, hasMore: false, loading: false, error: null as string | null }));
+const initialRepoPage = vi.hoisted(() => ({ page: 0, hasMore: false, loading: false, error: null as string | null, canRetryInitialRepos: false, repoErrorCode: undefined as string | undefined }));
 
 // Controllable GitHub enablement for the right-column face logic. `enabled` is a real
 // reactive signal so a test can flip it DURING mount (e.g. from inside loadStatus) and
@@ -88,6 +88,8 @@ vi.mock('../../stores/github', async () => {
       get hasMore() { return repoPage().hasMore; },
       get loading() { return repoPage().loading; },
       get error() { return repoPage().error; },
+      get canRetryInitialRepos() { return repoPage().canRetryInitialRepos; },
+      get repoErrorCode() { return repoPage().repoErrorCode; },
       _setEnabled: (v: boolean) => {
         setEnabled(v);
         if (!v) { setLogin(undefined); setSource('oauth'); setRepos([]); setRepoPage(initialRepoPage); }
@@ -99,7 +101,7 @@ vi.mock('../../stores/github', async () => {
       // Dashboard kicks this off on mount to break the enabled-gates-the-panel
       // deadlock (status is loaded outside the gated GitHub panel).
       loadStatus: vi.fn(),
-      loadRepos: vi.fn(async () => {}),
+      retryInitialRepos: vi.fn(async () => {}),
     },
   };
 });
@@ -152,6 +154,7 @@ vi.mock('../../stores/session', async () => {
   let _sessionMode = 'advanced';
   let _herdrEnabled = false;
   let defaultWorkspace: 'terminal' | 'vscode' | undefined;
+  let agents: AgentType[] | null = ['pi'];
   return {
     sessionStore: {
       get sessions() { return sessions(); },
@@ -173,7 +176,8 @@ vi.mock('../../stores/session', async () => {
       get managedReleaseProgress() { return _managedReleaseProgress; },
       get enterpriseMode() { return _enterpriseMode; },
       get preferences() { return { sessionMode: _sessionMode, herdrEnabled: _herdrEnabled, defaultWorkspace }; },
-      allowedAgents: ['pi'],
+      get allowedAgents() { return agents; },
+      _setAllowedAgents: (value: AgentType[] | null) => { agents = value; },
       isAtSessionLimit: () => _isAtLimit,
       startR2Polling: vi.fn(),
       updatePreferences: vi.fn().mockResolvedValue(undefined),
@@ -774,7 +778,6 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     try {
       render(() => <Dashboard {...defaultProps} userName={undefined} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
       const details = within(screen.getByRole('region', { name: 'GitHub Details' }));
-      githubFixture._setRepoPage({ ...initialRepoPage, page: 1 });
       expect(await details.findByText(/loading owned repository counts/i)).toBeVisible();
       expect(details.queryByText('NOTHING TO SHOW.')).not.toBeInTheDocument();
       githubFixture._setRepos([
@@ -883,7 +886,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     (githubStore as any)._setEnabled(true);
     (githubStore as any)._setLogin('octocat');
     const counts = vi.spyOn(githubApi, 'getGithubOwnedRepoCounts').mockResolvedValue({ counts: null });
-    const retry = vi.mocked(githubStore.loadRepos);
+    const retry = vi.mocked(githubStore.retryInitialRepos);
     retry.mockImplementationOnce(async () => {
       githubFixture._setRepoPage({ ...initialRepoPage, page: 1 });
     });
@@ -894,7 +897,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
       firstVisit.unmount();
 
       vi.useFakeTimers();
-      githubFixture._setRepoPage({ ...initialRepoPage, error: 'GitHub returned a server error' });
+      githubFixture._setRepoPage({ ...initialRepoPage, error: 'GitHub returned a server error', canRetryInitialRepos: true });
       const returnVisit = render(() => <Dashboard {...defaultProps} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
       const details = within(screen.getByRole('region', { name: 'GitHub Details' }));
       await vi.advanceTimersByTimeAsync(0);
@@ -914,6 +917,21 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
       expect(reopened.getByText('NOTHING TO SHOW.', { exact: true })).toBeVisible();
       expect(reopened.getByText('GO BUILD SOMETHING.', { exact: true })).toBeVisible();
     } finally { vi.useRealTimers(); counts.mockRestore(); }
+  });
+
+  it('REQ-GITHUB-332: offers reconnection instead of retrying a disconnected repository list', async () => {
+    vi.useFakeTimers();
+    (githubStore as any)._setEnabled(true);
+    (githubStore as any)._setLogin('octocat');
+    githubFixture._setRepoPage({ ...initialRepoPage, error: 'GitHub is not connected', repoErrorCode: 'NOT_CONNECTED' });
+    try {
+      render(() => <Dashboard {...defaultProps} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
+      const details = within(screen.getByRole('region', { name: 'GitHub Details' }));
+      expect(details.getByRole('button', { name: 'Click here to login with GitHub' })).toBeVisible();
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(details.queryByText('FAILED. RETRYING.')).not.toBeInTheDocument();
+      expect(details.getByRole('button', { name: 'Click here to login with GitHub' })).toBeVisible();
+    } finally { vi.useRealTimers(); }
   });
 
   it('announces a GitHub authorization failure while the Vibe drawer stays closed', async () => {
@@ -1039,6 +1057,20 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     } finally {
       (sessionStore as any)._setTestLimit(false);
     }
+  });
+
+  it('REQ-IDE-048: keeps the filtered VS Code picker when Pi is unavailable', () => {
+    showRealCreateDialog = true;
+    (sessionStore as any)._setDefaultWorkspace('vscode');
+    (sessionStore as any)._setAllowedAgents(['codex']);
+    try {
+      render(() => <Dashboard {...defaultProps} workspaceMode={{ value: 'terminal', onSelect: () => {} }} />);
+      fireEvent.click(screen.getByTestId('dashboard-new-session'));
+      const picker = within(screen.getByRole('dialog', { name: 'Create new session' }));
+      expect(picker.queryByRole('button', { name: /^Pi\b/ })).not.toBeInTheDocument();
+      fireEvent.click(picker.getByRole('button', { name: /^Codex\b/ }));
+      expect(defaultProps.onCreateSession).toHaveBeenCalledWith('codex', undefined);
+    } finally { (sessionStore as any)._setAllowedAgents(['pi']); }
   });
 
   // === Initialization Tests ===

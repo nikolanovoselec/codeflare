@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ApiError } from '../../api/fetch-helper';
 import { getGithubRepos, getGithubStatus } from '../../api/github';
 import type { GithubRepo } from '../../api/github';
 import { _resetForTests, githubStore } from '../../stores/github';
@@ -49,6 +50,42 @@ describe('Dashboard GitHub listing freshness', () => {
     expect(githubStore.repos.map(row => row.full_name)).toEqual(['owner/old']);
     await githubStore.loadRepos();
     expect(githubStore.repos.map(row => row.full_name)).toEqual(['owner/reloaded']);
+  });
+
+  it('REQ-GITHUB-332: retries a transient first-page failure to a confirmed empty list', async () => {
+    repos.mockRejectedValueOnce(new ApiError('GitHub unavailable', 503, 'Service Unavailable'))
+      .mockResolvedValueOnce({ repos: [], page: 1, hasMore: false });
+    await githubStore.loadStatus();
+    expect(githubStore.canRetryInitialRepos).toBe(true);
+    await githubStore.retryInitialRepos();
+    expect(githubStore.page).toBe(1);
+    expect(githubStore.repos).toEqual([]);
+    expect(githubStore.error).toBeNull();
+    expect(githubStore.canRetryInitialRepos).toBe(false);
+  });
+
+  it('REQ-GITHUB-332: preserves reconnect-required status without retrying the list', async () => {
+    repos.mockRejectedValueOnce(Object.assign(new ApiError('GitHub is not connected', 409, 'Conflict'), { code: 'NOT_CONNECTED' }))
+      .mockResolvedValueOnce({ repos: [repo('owner/should-not-load')], page: 1, hasMore: false });
+    await githubStore.loadStatus();
+    await githubStore.retryInitialRepos();
+    await vi.advanceTimersByTimeAsync(300_000);
+    await githubStore.loadStatus();
+    expect(githubStore.repoErrorCode).toBe('NOT_CONNECTED');
+    expect(githubStore.repos).toEqual([]);
+  });
+
+  it('REQ-GITHUB-332: a failed continuation keeps already loaded pages on automatic retry', async () => {
+    repos.mockResolvedValueOnce({ repos: [repo('owner/first')], page: 1, hasMore: true })
+      .mockResolvedValueOnce({ repos: [repo('owner/second')], page: 2, hasMore: true })
+      .mockRejectedValueOnce(new Error('GitHub unavailable'))
+      .mockResolvedValueOnce({ repos: [repo('owner/replaced')], page: 1, hasMore: false });
+    await githubStore.loadStatus();
+    await githubStore.loadMore();
+    await githubStore.loadMore();
+    await githubStore.retryInitialRepos();
+    expect(githubStore.repos.map(row => row.full_name)).toEqual(['owner/first', 'owner/second']);
+    expect(githubStore.error).toBe('GitHub unavailable');
   });
 
   it('REQ-GITHUB-002 AC7: preserves loaded pages until manual reload or account change', async () => {

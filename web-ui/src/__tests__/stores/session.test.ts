@@ -1473,6 +1473,7 @@ describe('Session Store', () => {
   describe('createSessionWithClone', () => {
     it.each(['confirmed', 'failed then retried', 'left then returned', 'different generation', 'already running'] as const)(
       'REQ-AGENT-275: only the original successful clone launch can authorize focus (%s)', async scenario => {
+        await sessionStore.loadSessions();
         const id = 'abcdef0123456789';
         const repo = 'octocat/hello';
         mockCreateSession.mockResolvedValue({ id, name: 'hello', workspace: 'terminal', agentType: 'pi',
@@ -1512,7 +1513,12 @@ describe('Session Store', () => {
             sessionStore.dismissInitProgressForSession(id);
           }
           expect(sessionStore.freshChatStart).toBeUndefined();
-        } finally { setCloneAttempt(repo, undefined, 'chat'); }
+        } finally {
+          setCloneAttempt(repo, undefined, 'chat');
+          sessionStore.dismissInitProgressForSession(id);
+          sessionStore._resetStartupGuards();
+          await sessionStore.loadSessions();
+        }
       },
     );
     it('REQ-IDE-048 AC2: starts a cloned VS Code session without activating terminal ownership', async () => {

@@ -740,7 +740,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
         const id = 'abcdef0123456789';
         const creating = scenario !== 'Resume';
         const generation = creating ? 1 : 2;
-        const session = createMockSession({ id, workspace: 'terminal', terminalMode: 'classic', agentType: 'pi',
+        const session: SessionWithStatus = createMockSession({ id, workspace: 'terminal', terminalMode: 'classic', agentType: 'pi',
           status: 'stopped', generation: generation - 1 });
         mockPreferences = { defaultPiSurface: 'chat' };
         mockPhone = scenario !== 'desktop';
@@ -779,6 +779,11 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
           if (!(frame instanceof HTMLIFrameElement) || !frame.contentDocument) throw new Error('Expected the stock Chat frame');
           const src = frame.src;
           const stockDocument = (doc: Document) => {
+            if (!doc.body) {
+              doc.open();
+              doc.write('<!doctype html><html><body></body></html>');
+              doc.close();
+            }
             Object.defineProperty(doc, 'URL', { value: src });
             const app = doc.body.appendChild(Object.assign(doc.createElement('pi-web-app'), {
               isRenderedModalOpen: () => scenario === 'stock modal', isChatVisible: () => true,

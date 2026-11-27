@@ -859,7 +859,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Constraints:**
 
-- Shortcuts reuse the loaded list without fetching repositories or inferring an owned count. If counts and shortcuts are unavailable, distinguish loading from failure. On list failure, show **CONNECTION TO GITHUB** and **FAILED. RETRYING.** in the same two-line style and retry automatically while the Vibe Dashboard is open.
+- Shortcuts reuse the loaded list without fetching repositories or inferring an owned count.
 - The age control is labeled **Clone into a session**; a successful fresh shortcut clone checks out the default branch. <!-- @impl: entrypoint.sh::restore_startup_repositories --> <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
 - Links show only the repository name while using the owner-qualified name for the tooltip and accessible name. <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-327: shows the three latest valid repository shortcuts with their relative ages and no Start Chat action) -->
 - Connected GitHub Details keeps the Storage Usage card’s dimensions and styling for repository and empty states. <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
@@ -869,6 +869,30 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 **Dependencies:** [REQ-GITHUB-321](#req-github-321-vibe-dashboard-browser-disclosure), [REQ-GITHUB-004](#req-github-004-clone-a-repository-into-a-session), [REQ-AGENT-275](agents.md#req-agent-275-classic-pi-chat-startup)
 
 **Verification:** Automated: [Dashboard](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [Layout](../../web-ui/src/__tests__/components/Layout.test.tsx); Manual: [Vibe drawer and clone acceptance](../../documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance)
+
+**Status:** Planned
+
+---
+
+### REQ-GITHUB-332: Vibe repository list recovery
+
+**Intent:** Explain list failures without presenting them as empty accounts.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. With no counts or shortcuts to show, the connected card shows loading while the list is pending. For a transient initial-list failure, it shows **CONNECTION TO GITHUB** and **FAILED. RETRYING.** on two centered lines in the empty-card style. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-327: retries an unavailable list after Dashboard return and restores both empty lines) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
+2. While Vibe Dashboard is open, transient initial-list failures retry automatically. A failed continuation does not reset already loaded pages. <!-- @impl: web-ui/src/stores/github.ts::retryInitialRepos --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-327: retries an unavailable list after Dashboard return and restores both empty lines) --> <!-- @test: web-ui/src/__tests__/stores/github.test.ts (REQ-GITHUB-332: a failed continuation keeps already loaded pages on automatic retry) -->
+3. A list response requiring reconnection offers the existing GitHub connection action and stops automatic list retry. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-332: offers reconnection instead of retrying a disconnected repository list) --> <!-- @test: web-ui/src/__tests__/stores/github.test.ts (REQ-GITHUB-332: preserves reconnect-required status without retrying the list) -->
+
+**Constraints:** Never infer an empty account from a failed or pending request.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-GITHUB-327](#req-github-327-vibe-repository-shortcuts)
+
+**Verification:** Automated: [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [github.test.ts](../../web-ui/src/__tests__/stores/github.test.ts); Manual: [Vibe drawer and clone acceptance](../../documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance)
 
 **Status:** Planned
 
