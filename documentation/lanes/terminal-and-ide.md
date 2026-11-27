@@ -96,6 +96,7 @@ In **Vibe**, Dashboard **New Session** starts Pi Chat directly. Returning to Das
 - With a screen reader, verify the pending destination is announced once without reading the scrambled characters.
 - During the switch, verify automatic native Abort and rejection of fresh prompts.
 - For [REQ-AGENT-280](../../sdd/spec/agents.md#req-agent-280-attachment-gated-workspace-reveal), keep the outgoing view until Code connects or Vibe clears the stock loader. A native startup question can appear early.
+- Start a Code-to-Vibe handoff, open another session, then return to the original running generation before Chat attaches. For the same handoff, verify Code stays visible until Chat is ready and no second `POST` to `/_switch` occurs ([REQ-AGENT-280 AC4](../../sdd/spec/agents.md#req-agent-280-attachment-gated-workspace-reveal)).
 - During Code-to-Vibe handoff, fail the first destination frame navigation. Verify Vibe reveals **Reload Chat** before normal readiness, then clear the failure and reload the same conversation without a new handoff.
 - The workspace mode menu does not offer browser cancellation.
 - The [Host test](../../host/__tests__/pi-web-handoff.test.js) holds the request before Abort and verifies whether the turn survives ([REQ-AGENT-272](../../sdd/spec/agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff) AC6).
@@ -268,7 +269,7 @@ Narrow the viewport and verify VS Code, then Operators, then Vault enter Profile
 
 For [REQ-AUTH-016 AC4 and AC7](../../sdd/spec/authentication.md#req-auth-016-header-user-dropdown), open Profile in both headers above 640 CSS px. Measure from the Profile button’s bottom edge: without email, 60px anchors the menu and 59px uses the bottom sheet. With email, add the rendered label height and gap to both thresholds. Use a wrapping address near 640px and resize with the menu open: the full black label stays above the actions without widening their panel, and a short viewport uses the bottom sheet. Repeat both threshold cases between 640px and 641px, using browser zoom if needed. Confirm `matchMedia('(640px < width < 641px)').matches` before counting each result. Check the rendered placement, not just the menu class.
 
-At 390 CSS px, open Profile in both headers and compare the email badge and **Usage** action label in DevTools ([REQ-AUTH-016 AC8](../../sdd/spec/authentication.md#req-auth-016-header-user-dropdown)). Their computed font sizes should match, and the full email should remain visible above the actions.
+At 390 CSS px, open Profile in both headers and compare the email badge and **Usage** action label in DevTools ([REQ-AUTH-027](../../sdd/spec/authentication.md#req-auth-027-mobile-profile-email-typography)). Their computed font sizes should match, and the full email should remain visible above the actions.
 
 With desktop Profile anchored, compare short and long addresses in both headers. Verify the full badge stays inside the viewport without widening the action panel. Shorten the viewport with each menu open and check the badge remains above the actions in the bottom sheet.
 

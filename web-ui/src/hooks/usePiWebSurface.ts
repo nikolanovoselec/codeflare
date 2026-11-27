@@ -117,6 +117,7 @@ export function createPiWebSurface(sessionId: string, generation: number) {
     status,
     unavailable,
     mutation,
+    submittedSwitch: attempt,
     switchingTarget: () => !mutationError() ? attempt()?.target : undefined,
     mutationError,
     select,

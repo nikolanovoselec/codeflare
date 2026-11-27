@@ -822,7 +822,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     } finally { cleanup(); vi.unstubAllGlobals(); }
   }, 10000);
 
-  it('waits for Chat attachment when returning to an unfinished Terminal-to-Chat handoff', async () => {
+  it.each(['acknowledged', 'unacknowledged', 'superseded'] as const)('restores the matching Chat attachment gate or saved preference after a %s handoff', async scenario => {
     navigationRendering.realTerminalArea = true;
     const first = 'abcdef0123456789';
     const second = 'fedcba9876543210';
@@ -830,30 +830,50 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     window.history.replaceState(null, '', `/app/session/${first}`);
     let requestId: string | undefined;
     const switches: string[] = [];
+    let published = scenario !== 'unacknowledged';
+    let superseded = false;
+    let acknowledge!: () => void;
+    const waitForAcknowledgement = new Promise<void>(resolve => { acknowledge = resolve; });
     vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
       const id = /\/api\/pi-web\/([^/]+)\/_switch(?:\?generation=7)?$/.exec(url)?.[1];
       if (!id) return Response.json({});
       if (init?.method === 'POST') {
         switches.push(id);
         requestId = JSON.parse(String(init.body)).requestId;
+        if (switches.length === 1) await waitForAcknowledgement;
+        else { published = true; superseded = false; }
       }
-      if (id === second || !requestId) return Response.json({ phase: 'active', surface: 'terminal' });
+      if (id === second || !requestId || !published) return Response.json({ phase: 'active', surface: 'terminal' });
+      if (superseded) return Response.json({ phase: 'complete', surface: 'terminal', target: 'terminal', requestId: crypto.randomUUID() });
       return Response.json({ phase: 'complete', surface: 'chat', target: 'chat', requestId,
         chatUrl: `/api/pi-web/${first}/g/7/?view=chat` });
     });
     const dashboard = () => fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
     try {
       render(() => <Layout />);
-      const code = await screen.findByRole('button', { name: 'Workspace mode: Code Mode' });
-      await waitFor(() => expect(code).toBeEnabled());
-      fireEvent.click(code);
-      fireEvent.click(screen.getByRole('button', { name: 'Vibe Mode' }));
-      expect(await screen.findByTitle('Pi Chat')).not.toBeVisible();
+      const mode = () => within(screen.getByRole('banner')).getByRole('button', { name: 'Workspace mode: Code Mode' });
+      await waitFor(() => expect(mode()).toBeEnabled());
+      fireEvent.click(mode());
+      fireEvent.click(await screen.findByRole('button', { name: 'Vibe Mode' }));
+      expect(switches).toEqual([first]);
+      if (published) {
+        acknowledge();
+        expect(await screen.findByTitle('Pi Chat')).not.toBeVisible();
+      } else expect(screen.queryByTitle('Pi Chat')).not.toBeInTheDocument();
       dashboard();
       fireEvent.click(await screen.findByRole('button', { name: 'Open another session' }));
-      expect(await screen.findByRole('button', { name: 'Workspace mode: Code Mode' })).toBeInTheDocument();
+      await waitFor(() => expect(mode()).toBeEnabled());
+      published = true;
+      superseded = scenario === 'superseded';
+      acknowledge();
       dashboard();
+      mockPreferences = { defaultPiSurface: superseded ? 'chat' : 'terminal' };
+      bumpSessionStoreVersion();
       fireEvent.click(await screen.findByRole('button', { name: 'Return to session' }));
+      if (scenario === 'superseded') {
+        await waitFor(() => expect(switches).toEqual([first, first]));
+        return;
+      }
       const frame = await screen.findByTitle('Pi Chat');
       expect(frame).not.toBeVisible();
       if (!(frame instanceof HTMLIFrameElement)) throw new Error('Expected the stock Chat frame');
@@ -866,7 +886,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       await vi.advanceTimersByTimeAsync(5000);
       expect(frame).toBeVisible();
       expect(switches).toEqual([first]);
-    } finally { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); }
+    } finally { acknowledge(); cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); }
   });
 
   it.each(['workspace', 'Dashboard'] as const)('returns from %s Profile Usage to the same Chat without another writer request', async origin => {

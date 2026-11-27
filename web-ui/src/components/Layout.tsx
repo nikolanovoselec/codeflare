@@ -100,6 +100,11 @@ const Layout: Component<LayoutProps> = (props) => {
   type RetainedChat = { frame: ChatFrame; status: PiWebStatus };
   const [retainedChats, setRetainedChats] = createSignal<RetainedChat[]>([]);
   const interruptedChat = new Map<string, { generation: number; requestId: string }>();
+  const matchesInterruptedChat = (id: string, generation: number, status: PiWebStatus) => {
+    const interrupted = interruptedChat.get(id);
+    return interrupted?.generation === generation && interrupted.requestId === status.requestId
+      && status.target === 'chat' && (isPiWebSwitchPending(status) || status.phase === 'complete');
+  };
   const forgetChat = (id: string) => {
     interruptedChat.delete(id);
     setRetainedChats(entries => entries.filter(entry => entry.frame.id !== id));
@@ -199,9 +204,12 @@ const Layout: Component<LayoutProps> = (props) => {
     if (!showTerminal() || session?.status !== 'running' || !session.generation) return;
     const reported = piWebStatus();
     const displayed = displayedPi().surface;
-    if (displayed === 'terminal' && reported?.target === 'chat' && reported.requestId
-      && (isPiWebSwitchPending(reported) || reported.phase === 'complete')) {
-      interruptedChat.set(session.id, { generation: session.generation, requestId: reported.requestId });
+    if (displayed === 'terminal') {
+      const submitted = piWeb()?.submittedSwitch();
+      const requestId = submitted?.target === 'chat' ? submitted.requestId
+        : reported?.target === 'chat' && (isPiWebSwitchPending(reported) || reported.phase === 'complete')
+          ? reported.requestId : undefined;
+      if (requestId) interruptedChat.set(session.id, { generation: session.generation, requestId });
     }
     const { frame, status } = shownChatStatus();
     if (displayed === 'chat' && frame && status?.surface === 'chat' && reported?.surface === 'chat'
@@ -245,6 +253,8 @@ const Layout: Component<LayoutProps> = (props) => {
     const status = handoff?.status();
     if (!status) return;
     setPreferredOpen(undefined);
+    if (matchesInterruptedChat(intent.id, intent.generation, status)) return;
+    interruptedChat.delete(intent.id);
     // Don't restart an existing writer, interrupt another handoff, or replay a failed one.
     if ((status.phase === 'active' || status.phase === 'complete') && status.surface && status.surface !== intent.target) {
       handoff?.select(intent.target);
@@ -320,9 +330,7 @@ const Layout: Component<LayoutProps> = (props) => {
     const scope = piWeb();
     const status = scope?.status();
     const active = activePi();
-    const interrupted = active && interruptedChat.get(active.id);
-    const resumePreparingChat = interrupted?.generation === active?.generation
-      && interrupted?.requestId === status?.requestId && status?.target === 'chat';
+    const resumePreparingChat = active && status && matchesInterruptedChat(active.id, active.generation, status);
     const last = (previous?.scope === scope ? previous?.surface : undefined)
       ?? (resumePreparingChat ? 'terminal' : undefined);
     if (!scope || !status) return { scope, surface: last };
@@ -946,7 +954,6 @@ const Layout: Component<LayoutProps> = (props) => {
     const clearStartup = shouldStart ? selectStartupSurface(session, surface) : undefined;
     const parkedPane = parkedTerminalPane();
     const warmReturn = parkedPane?.sessionId === id
-      || (session.generation !== undefined && interruptedChat.get(id)?.generation === session.generation)
       || retainedChats().some(entry => entry.frame.id === id && entry.frame.generation === session.generation);
     const terminalId = shouldStart ? '1' : parkedPane?.terminalId ?? terminalIdForSession(session);
     batch(() => {
