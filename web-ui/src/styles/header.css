@@ -312,6 +312,7 @@
 
         .header-user-email > span {
           flex: none;
+          box-sizing: border-box;
           max-inline-size: 60vw;
           padding: var(--space-1) var(--space-2);
           background: #000;
@@ -319,6 +320,12 @@
           font: var(--font-semibold) var(--text-sm) / 1.125 var(--font-mono);
           white-space: normal;
           overflow-wrap: anywhere;
+        }
+
+        @media (width > 640px) {
+          .header-user-dropdown--profile:not(.header-user-dropdown--sheet) .header-user-email > span {
+            max-inline-size: min(60vw, calc(100vw - var(--profile-menu-right) - 8px));
+          }
         }
 
         .header-vault-button-wrap {

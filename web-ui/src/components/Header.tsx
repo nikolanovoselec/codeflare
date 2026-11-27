@@ -60,7 +60,7 @@ interface HeaderProps {
 const Header: Component<HeaderProps> = (props) => {
   const [showUserMenu, setShowUserMenu] = createSignal(false);
   const [profileEmail, setProfileEmail] = createSignal<HTMLDivElement>();
-  const [userMenuPos, setUserMenuPos] = createSignal({ top: 0, sheet: false });
+  const [userMenuPos, setUserMenuPos] = createSignal({ top: 0, right: 0, sheet: false });
   const [gravatarOk, setGravatarOk] = createSignal(false);
   // Probe Gravatar existence once via fetch (no <img onError> console noise).
   createEffect(() => {
@@ -263,7 +263,7 @@ const Header: Component<HeaderProps> = (props) => {
           <Show when={showUserMenu()}>
             <div class="header-user-dropdown header-user-dropdown--profile" data-testid="header-user-dropdown"
               classList={{ 'header-user-dropdown--sheet': userMenuPos().sheet }}
-              style={{ '--profile-menu-top': `${userMenuPos().top}px` }}>
+              style={{ '--profile-menu-top': `${userMenuPos().top}px`, '--profile-menu-right': `${userMenuPos().right}px` }}>
               <Show when={props.userName}>{email => (
                 <div class="header-user-email" ref={element => {
                   setProfileEmail(element);

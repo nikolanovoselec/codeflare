@@ -50,7 +50,9 @@ vi.mock('../../components/Terminal', async () => {
     });
     let input: HTMLTextAreaElement | undefined;
     createEffect(() => {
-      if (navigationRendering.terminalAutoFocus && props.focused && props.connect && !untrack(() => props.preserveDomFocus?.())) input?.focus();
+      if (navigationRendering.terminalAutoFocus && props.focused && props.connect
+        && !sessionStore.isSessionInitializing(props.sessionId)
+        && !untrack(() => props.preserveDomFocus?.())) input?.focus();
     });
     return <Show when={sessionStore.isSessionInitializing(props.sessionId)}
       fallback={<div data-testid={mockTilingForSession?.enabled ? `workspace-content-${props.terminalId}` : "workspace-content"} data-connect={String(props.connect)} data-focused={String(props.focused)}>Workspace{navigationRendering.terminalAutoFocus && <textarea ref={input} aria-label="Terminal input" />}</div>}>
@@ -835,7 +837,9 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     const chatUrl = `${prefix}g/7/?session=saved-pi&view=chat`;
     const { terminalStore, reconnectOnVisibilityReturn } = await import('../../stores/terminal');
     const [connection, setConnection] = createSignal<'connected' | 'disconnected'>('disconnected');
+    const [initializing, setInitializing] = createSignal(false);
     vi.mocked(terminalStore.getConnectionState).mockImplementation(connection);
+    vi.mocked(sessionStore.isSessionInitializing).mockImplementation(initializing);
     mockSessions = [createMockSession({ id, workspace: 'terminal', agentType: 'pi', generation: 7 })];
     mockVisiblePanes = [{ sessionId: id, terminalId: '3' }];
     mockTerminalsForSession = { tabs: [{ id: '1' }, { id: '2' }, { id: '3' }], activeTabId: '3' };
@@ -880,9 +884,18 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       const code = screen.getByRole('button', { name: 'Workspace mode: Code Mode' });
       expect(code).toBe(vibe);
       expect(code).toHaveFocus();
+      // Initialization is a dependency of the real terminal autofocus effect.
+      setInitializing(true);
+      expect(screen.queryByTestId('workspace-content-1')).not.toBeInTheDocument();
+      setInitializing(false);
+      const input = within(await screen.findByTestId('workspace-content-1')).getByRole('textbox', { name: 'Terminal input' });
+      expect(code).toHaveFocus();
+      input.focus();
+      expect(input).toHaveFocus();
     } finally {
       navigationRendering.terminalAutoFocus = false;
       cleanup();
+      vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
       vi.mocked(sessionStore.setActiveTerminalTab).mockReset();
       vi.unstubAllGlobals();
       vi.mocked(terminalStore.getConnectionState).mockReturnValue('disconnected');

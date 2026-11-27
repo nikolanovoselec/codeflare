@@ -79,6 +79,50 @@ function extractCopilotLimitBlock() {
   return entrypoint.slice(start, end + '    fi\n'.length);
 }
 
+describe('REQ-ENTERPRISE-005 AC2: system CA survives Enterprise restore', () => {
+  const restore = entrypoint.slice(entrypoint.indexOf('run_initial_r2_restore() {'), entrypoint.indexOf('\nrun_post_restore_startup() {'));
+  const agentTrust = entrypoint.slice(entrypoint.indexOf('    # --- TLS: trust the Cloudflare containers CA'), entrypoint.indexOf('    # Managed Pi cleanup:'));
+
+  for (const [name, earlyUpdate, duringRestore, expectedBundle, lateWarning] of [
+    ['keeps a verified store even if a later rebuild is unavailable', true, 'unchanged', 'original', false],
+    ['retries after an early rebuild failure', false, 'unchanged', 'original', false],
+    ['rebuilds for a changed certificate', true, 'rotate', 'rotated', false],
+    ['rebuilds if the bundle no longer trusts the certificate', true, 'break-bundle', 'original', false],
+    ['warns if a necessary late rebuild fails', false, 'fail-late', '', true],
+  ]) {
+    it(name, () => {
+      const home = mkdtempSync(join(tmpdir(), 'enterprise-store-'));
+      try {
+        const script = [
+          'set -euo pipefail',
+          'CF_CA_SRC="$USER_HOME/source.crt"; installed="$USER_HOME/installed.crt"; bundle="$USER_HOME/bundle.crt"',
+          'printf original > "$CF_CA_SRC"; : > "$bundle"',
+          'RCLONE_CONFIG_RESULT=0; USER_WORKSPACE="$USER_HOME/workspace"',
+          'validate_coding_agent_selection() { :; }; lay_down_agent_seed_preseed() { :; }; update_sync_status() { :; }',
+          'update-ca-certificates() { [ "$update_available" = true ] && command cp "$installed" "$bundle"; }',
+          'openssl() { [ "$1 $2 $3 $4" = "verify -no-CApath -no-CAstore -CAfile" ] && cmp -s "$5" "$6"; }',
+          'export_enterprise_ca_environment() { export NODE_EXTRA_CA_CERTS="$CF_CA_SRC"; }',
+          'initial_sync_from_r2() { case "$during_restore" in rotate) printf rotated > "$CF_CA_SRC";; break-bundle) : > "$bundle";; esac; }',
+          `update_available=${earlyUpdate}; during_restore=${duringRestore}`,
+          restore.replaceAll('/etc/cloudflare/certs/cloudflare-containers-ca.crt', '$CF_CA_SRC')
+            .replaceAll('/usr/local/share/ca-certificates/cloudflare-containers-ca.crt', '"$installed"'),
+          'run_initial_r2_restore',
+          'if [[ "$during_restore" == fail-late || ( "$during_restore" == unchanged && "$update_available" == true ) ]]; then update_available=false; else update_available=true; fi',
+          agentTrust.replaceAll('/usr/local/share/ca-certificates/cloudflare-containers-ca.crt', '"$installed"')
+            .replaceAll('/etc/ssl/certs/ca-certificates.crt', '$bundle'),
+          'test "$NODE_EXTRA_CA_CERTS" = "$CF_CA_SRC"; printf "bundle=%s\\n" "$(cat "$bundle")"',
+        ].join('\n');
+        const result = spawnSync('bash', ['-c', script], { env: { ...process.env, USER_HOME: home, ENTERPRISE_MODE: 'active' }, encoding: 'utf8' });
+        assert.equal(result.status, 0, result.stderr);
+        assert.equal(result.stdout.split('\n').find(line => line.startsWith('bundle=')), `bundle=${expectedBundle}`);
+        assert.equal(result.stdout.includes('LLM interception TLS may fail'), lateWarning);
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    });
+  }
+});
+
 describe('REQ-ENTERPRISE-005 AC2: terminal server CA inheritance', () => {
   for (const [name, mode, mounted, expected] of [
     ['Enterprise with mounted CA', 'active', true, true],

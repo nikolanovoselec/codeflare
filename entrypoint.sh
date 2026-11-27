@@ -3134,6 +3134,7 @@ restore_operator_attachments() {
 # Note: Claude Code consent is pre-accepted via bypassPermissionsModeAccepted in .claude.json.
 
 run_initial_r2_restore() {
+    enterprise_ca_installed_before_restore=false
     # Validate explicit deployment selection before any restore or baseline can
     # reintroduce disabled-agent content.
     validate_coding_agent_selection || return 1
@@ -3142,13 +3143,14 @@ run_initial_r2_restore() {
         # TLS-terminated by the platform with the Cloudflare containers CA. Install that CA
         # into the system trust store BEFORE the initial R2 sync forks, so rclone (Go; reads
         # the system bundle at handshake) trusts the intercepted connection. Without this the
-        # first sync ("Syncing…") fails the TLS handshake. The enterprise CA block later in
-        # this script re-installs it idempotently and additionally wires the agent env/.bashrc.
+        # first sync ("Syncing…") fails the TLS handshake. The later Enterprise block
+        # verifies the trust store and wires the agent env/.bashrc.
         if [ "${ENTERPRISE_MODE:-}" = "active" ]; then
             _CF_CA_SRC="/etc/cloudflare/certs/cloudflare-containers-ca.crt"
             if [ -f "$_CF_CA_SRC" ]; then
                 cp "$_CF_CA_SRC" /usr/local/share/ca-certificates/cloudflare-containers-ca.crt 2>/dev/null \
                     && update-ca-certificates >/dev/null 2>&1 \
+                    && enterprise_ca_installed_before_restore=true \
                     && echo "[entrypoint] Enterprise Mode: containers CA installed before R2 sync (rclone trusts intercepted TLS)" \
                     || echo "[entrypoint] WARNING: could not install containers CA before R2 sync; strict-egress sync may fail TLS"
             fi
@@ -4367,10 +4369,16 @@ if [ "${ENTERPRISE_MODE:-}" = "active" ]; then
     # curl/openssl) AND export the Node + Python env hooks (Copilot / Pi / any
     # node|python tooling use their own trust stores).
     if [ -f "$CF_CA_SRC" ]; then
-        cp "$CF_CA_SRC" /usr/local/share/ca-certificates/cloudflare-containers-ca.crt 2>/dev/null \
-            && update-ca-certificates >/dev/null 2>&1 \
-            && echo "[entrypoint] Enterprise Mode: Cloudflare containers CA installed into system trust store" \
-            || echo "[entrypoint] WARNING: could not install Cloudflare containers CA; LLM interception TLS may fail"
+        if [ "$enterprise_ca_installed_before_restore" = true ] \
+            && cmp -s "$CF_CA_SRC" /usr/local/share/ca-certificates/cloudflare-containers-ca.crt \
+            && openssl verify -no-CApath -no-CAstore -CAfile /etc/ssl/certs/ca-certificates.crt "$CF_CA_SRC" >/dev/null 2>&1; then
+            echo "[entrypoint] Enterprise Mode: Cloudflare containers CA still trusted after R2 restore"
+        else
+            cp "$CF_CA_SRC" /usr/local/share/ca-certificates/cloudflare-containers-ca.crt 2>/dev/null \
+                && update-ca-certificates >/dev/null 2>&1 \
+                && echo "[entrypoint] Enterprise Mode: Cloudflare containers CA installed into system trust store" \
+                || echo "[entrypoint] WARNING: could not install Cloudflare containers CA; LLM interception TLS may fail"
+        fi
         export_enterprise_ca_environment
 
         # Keep the login-shell exports after restore and before any blocking

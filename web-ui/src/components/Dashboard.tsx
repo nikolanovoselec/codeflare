@@ -546,7 +546,8 @@ const Dashboard: Component<DashboardProps> = (props) => {
                     onClick={(e) => e.stopPropagation()}
                     classList={{ 'header-user-dropdown--sheet': userMenuPos().sheet }}
                     style={!userMenuPos().sheet ? {
-                      top: `${userMenuPos().top}px`, right: `${userMenuPos().right}px`, '--profile-menu-top': `${userMenuPos().top}px`,
+                      top: `${userMenuPos().top}px`, right: `${userMenuPos().right}px`,
+                      '--profile-menu-top': `${userMenuPos().top}px`, '--profile-menu-right': `${userMenuPos().right}px`,
                     } : undefined}
                   >
                     <Show when={props.userName}>{email => (
