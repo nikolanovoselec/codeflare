@@ -36,7 +36,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 1. `Connect GitHub` starts the selected provider's authorization flow in link mode. <!-- @impl: src/routes/github.ts::app --> <!-- @test: src/__tests__/routes/github.test.ts (redirects to the provider authorize URL with a signed state + connect callback) -->
 2. Token storage uses configured at-rest encryption or the accepted [AD32](../../documentation/decisions/README.md#ad32-encryption_key-is-optional) plaintext JSON fallback. <!-- @impl: src/lib/github-token.ts::storeGithubConnection --> <!-- @impl: src/lib/kv-crypto.ts::encryptAndStore --> <!-- @test: src/__tests__/lib/github-token.test.ts (encrypts the token at rest when ENCRYPTION_KEY is set, and round-trips on read) -->
 3. The stored token is never returned to the browser. <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-002: reports connected with login + source when a token exists) --> <!-- @impl: src/lib/github-token.ts::storeGithubConnection --> <!-- @test: src/__tests__/lib/github-token.test.ts (github-token storage & status) -->
-4. A GitHub App token without a recorded expiry is used without renewal. When an expiry is recorded, renewal starts within the skew window using the refresh token. If renewal is unavailable, resolution **fails closed** and never returns the expiring or expired token. <!-- @impl: src/lib/github-token.ts::resolveGithubToken --> <!-- @impl: src/lib/github-token.ts::getValidGithubToken --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-002: proxies the user repos with the stored token and never returns the token) --> <!-- @test: src/__tests__/lib/github-token.test.ts (returns a fresh App token without refreshing) --> <!-- @test: src/__tests__/lib/github-token.test.ts (refreshes a near-expiry App token, persists the rotated token+expiry, preserves login) --> <!-- @test: src/__tests__/lib/github-token.test.ts (fails closed (null) when an expired App token has no refresh token) --> <!-- @test: src/__tests__/lib/github-token.test.ts (fails closed (null) when the refresh call fails — never returns the stale token) -->
+4. A GitHub App token with a recorded expiry needs refresh metadata only once renewal is due. Within the renewal window, the resolver renews the token or **fails closed** without returning the expiring or expired token. <!-- @impl: src/lib/github-token.ts::resolveGithubToken --> <!-- @impl: src/lib/github-token.ts::getValidGithubToken --> <!-- @test: src/__tests__/lib/github-token.test.ts (returns a fresh App token without refreshing) --> <!-- @test: src/__tests__/lib/github-token.test.ts (refreshes a near-expiry App token, persists the rotated token+expiry, preserves login) --> <!-- @test: src/__tests__/lib/github-token.test.ts (fails closed (null) when an expired App token has no refresh token) --> <!-- @test: src/__tests__/lib/github-token.test.ts (fails closed (null) when the refresh call fails — never returns the stale token) -->
 5. In every mode, prefer Setup KV's selected App or OAuth provider; only unavailable or incomplete Setup permits deploy-env fallback, preferring GitHub App over OAuth App. With neither source supplying a usable provider, the integration is unavailable. <!-- @impl: src/lib/github-token.ts::getGithubProvider --> <!-- @impl: src/lib/github-token.ts::getProviderFromKv --> <!-- @test: src/__tests__/lib/github-token.test.ts (getGithubProvider) -->
 6. Outside Enterprise, a manually pasted fine-grained deploy PAT coexists as source `'pat'` and never goes to App/OAuth refresh or revoke endpoints. In Enterprise, [REQ-ENTERPRISE-306](security.md#req-enterprise-306-enterprise-direct-deploy-credential-boundary) governs direct denial and preserves both managed GitHub connections. <!-- @impl: src/routes/deploy-keys.ts::app --> <!-- @test: src/__tests__/lib/github-token.test.ts (getValidGithubToken) -->
 7. The link callback exchanges the code and saves the token and its source in the existing deploy-credential record, not a second record. <!-- @impl: src/lib/github-token.ts::connectGithub --> <!-- @test: src/__tests__/routes/github-auth.test.ts (connects when the state is bound to the session bucket) --> <!-- @test: src/__tests__/lib/github-token.test.ts (App exchange stores token + refresh + expiry + login) --> <!-- @test: src/__tests__/lib/github-token.test.ts (OAuth exchange stores a long-lived token with no refresh/expiry) -->
@@ -53,6 +53,28 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 **Dependencies:** [REQ-AUTH-002](authentication.md#req-auth-002-saas-mode-uses-direct-github-oauth), [CON-GH-001](constraints.md#con-gh-001-github-token-encrypted-at-rest-and-never-returned-to-the-browser), [CON-GH-002](constraints.md#con-gh-002-the-real-github-token-never-enters-the-enterprise-container)
 
 **Verification:** Automated: [github-token.test.ts](../../src/__tests__/lib/github-token.test.ts), [github.test.ts](../../src/__tests__/routes/github.test.ts), [github-auth.test.ts](../../src/__tests__/routes/github-auth.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-GITHUB-333: GitHub App tokens without recorded expiry
+
+**Intent:** Keep stored GitHub App credentials usable when no expiry was supplied.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A GitHub App token without a recorded expiry is used without renewal. <!-- @impl: src/lib/github-token.ts::resolveGithubToken --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-002: proxies the user repos with the stored token and never returns the token) -->
+
+**Constraints:** None.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage)
+
+**Verification:** Automated: [github.test.ts](../../src/__tests__/routes/github.test.ts)
 
 **Status:** Implemented
 
