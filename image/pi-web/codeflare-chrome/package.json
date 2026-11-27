@@ -3,6 +3,11 @@
   "private": true,
   "type": "module",
   "piWeb": {
-    "plugins": [{ "id": "codeflare-chrome", "browserRoot": "browser", "module": "browser/index.js", "machineSpecific": false }]
+    "plugins": [{ "id": "codeflare-chrome", "browserRoot": "browser", "module": "browser/index.js", "machineSpecific": false, "themes": [{
+      "id": "graphite",
+      "name": "Codeflare Graphite",
+      "colorScheme": "dark",
+      "stylesheets": [{ "id": "palette", "path": "graphite.css" }]
+    }] }]
   }
 }

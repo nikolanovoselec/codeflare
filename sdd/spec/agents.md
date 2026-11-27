@@ -1186,6 +1186,8 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 3. The stock Chat footer shows token and context usage without the USD display. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 4. Chat hides SYSTEM transcript rows from both live and saved history without changing the saved transcript. <!-- @manual: documentation/lanes/terminal-and-ide.md#verify-system-rows-are-hidden-in-chat -->
 
+5. Embedded Chat hides the stock Refresh and Actions buttons on desktop and mobile without hiding navigation or the failure-only Reload Chat action. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+
 **Constraints:** No stock Pi Web patch or change to the required Terminal plugin.
 
 **Priority:** P1
@@ -1235,7 +1237,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 2. Chat starts in Quiet mode and allows the user to change it. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
 3. Native questions are answerable in the live Chat frame. During startup, the original frame shows the question before Open appears. <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (keeps the standard startup screen until Open reveals Chat, without mounting a native terminal) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
 4. The Chat composer saves attachments to the active conversation’s workspace, up to 16 attachments, 10,000,000 decoded bytes total, and a 14 MiB request body. An over-limit batch writes no files. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
-5. Chat defaults to Pi Web Classic without overriding a saved theme. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+5. Chat defaults to Codeflare Graphite, a dark theme with an 80%-transparent base that distinguishes user messages from agent replies, without overriding a saved theme. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 
 6. The machine name defaults to Codeflare. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 7. Managed Chat does not expose optional Info, Updates, MCP Manager, Tasks, or Relays panels. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
@@ -1854,7 +1856,7 @@ None.
 
 1. Settings panel uses accordion groups (appearance, session, deploy, LLM, admin). <!-- @impl: web-ui/src/components/SettingsPanel.tsx::ACCORDION_SUBTITLES --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (SettingsPanel Component / REQ-AGENT-019 (branded settings UI)) -->
 2. Provider rows with SVG brand icons and inline expansion. <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (renders OpenAI and Gemini provider rows after saved-key loading succeeds) --> <!-- @manual -->
-3. Appearance section with accent color picker. <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (SettingsPanel Component / REQ-AGENT-019 (branded settings UI)) --> <!-- @manual -->
+3. Appearance offers an accent picker that defaults to cyan (#00BAFF) and preserves a saved custom color. <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (shows the cyan default accent swatch when no accent is saved or after reset) --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (SettingsPanel Component / REQ-AGENT-019 (branded settings UI)) --> <!-- @manual -->
 4. Session section with a session-mode toggle and a sleep-timeout select; agent type is chosen at session creation, not here. <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (SettingsPanel Component / REQ-AGENT-019 (branded settings UI)) --> <!-- @manual -->
 
 **Constraints:**

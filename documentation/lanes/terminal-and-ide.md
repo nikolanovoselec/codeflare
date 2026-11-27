@@ -96,7 +96,7 @@ In **Vibe**, Dashboard **New Session** starts Pi Chat directly. Returning to Das
 - With a screen reader, verify the pending destination is announced once without reading the scrambled characters.
 - During the switch, verify automatic native Abort and rejection of fresh prompts.
 - For [REQ-AGENT-280](../../sdd/spec/agents.md#req-agent-280-attachment-gated-workspace-reveal), keep the outgoing view until Code connects or Vibe clears the stock loader. A native startup question can appear early.
-- Start a Code-to-Vibe handoff, open another session, then return to the original running generation before Chat attaches. For the same handoff, verify Code stays visible until Chat is ready and no second `POST` to `/_switch` occurs ([REQ-AGENT-280 AC4](../../sdd/spec/agents.md#req-agent-280-attachment-gated-workspace-reveal)).
+- Save Code as the default and start recording Network requests before triggering a Code-to-Vibe handoff. If selecting Vibe to start the switch also changes the saved default, restore Code from Dashboard before returning. Open another session, then return to the original running generation before Chat attaches. Verify Code stays visible until Chat is ready and that exactly one switch `POST` was sent for the original session and generation. If Chat attaches before the return, mark the case unexercised ([REQ-AGENT-280 AC4](../../sdd/spec/agents.md#req-agent-280-attachment-gated-workspace-reveal)).
 - During Code-to-Vibe handoff, fail the first destination frame navigation. Verify Vibe reveals **Reload Chat** before normal readiness, then clear the failure and reload the same conversation without a new handoff.
 - The workspace mode menu does not offer browser cancellation.
 - The [Host test](../../host/__tests__/pi-web-handoff.test.js) holds the request before Abort and verifies whether the turn survives ([REQ-AGENT-272](../../sdd/spec/agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff) AC6).
@@ -148,7 +148,8 @@ Use these checks for [REQ-AGENT-272](../../sdd/spec/agents.md#req-agent-272-pi-c
 - Confirm the regular Dashboard, startup, and Code/Terminal layouts are unchanged. On returning to the same running Chat from Dashboard, confirm it reappears in the panel without reloading.
 - For [REQ-AGENT-282 AC3](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults), verify token and context usage remain visible without a USD amount.
 - On a disposable session, queue a harmless message during a turn and verify the nonzero queued count remains visible. Repeat the footer check with a different stock theme.
-- In a fresh browser context, verify the machine name defaults to **Codeflare** and the theme is **Pi Web Classic**. Save a different theme, then reopen Chat in that browser and verify the choice was preserved.
+- In a fresh browser context, verify the machine name defaults to **Codeflare**, the accent is `#00BAFF`, and Chat uses **Codeflare Graphite**. Check that Codeflare’s gradient shows through, text stays opaque, and user messages have a tinted background and a stronger leading border than agent replies. Save another Pi Web theme and a custom Codeflare accent, then reopen Chat and verify both choices persist. In Appearance, reset the accent and verify it returns to `#00BAFF`.
+- On desktop and mobile, including installed-app mode when available, verify stock **Refresh** and **Actions** are absent while navigation remains. Repeat after selecting a different stock theme; this must not hide Codeflare’s failure-only **Reload Chat**.
 
 #### Check stale frames and native questions
 

@@ -99,7 +99,7 @@ const Layout: Component<LayoutProps> = (props) => {
   type ChatFrame = { scope: ReturnType<typeof createPiWebSurface>; id: string; generation: number; url: string; requestId?: string };
   type RetainedChat = { frame: ChatFrame; status: PiWebStatus };
   const [retainedChats, setRetainedChats] = createSignal<RetainedChat[]>([]);
-  const interruptedChat = new Map<string, { generation: number; requestId: string }>();
+  const interruptedChat = new Map<string, { generation: number; requestId: string; before?: PiWebStatus }>();
   const matchesInterruptedChat = (id: string, generation: number, status: PiWebStatus) => {
     const interrupted = interruptedChat.get(id);
     return interrupted?.generation === generation && interrupted.requestId === status.requestId
@@ -209,7 +209,11 @@ const Layout: Component<LayoutProps> = (props) => {
       const requestId = submitted?.target === 'chat' ? submitted.requestId
         : reported?.target === 'chat' && (isPiWebSwitchPending(reported) || reported.phase === 'complete')
           ? reported.requestId : undefined;
-      if (requestId) interruptedChat.set(session.id, { generation: session.generation, requestId });
+      if (requestId) interruptedChat.set(session.id, {
+        generation: session.generation, requestId,
+        before: submitted?.requestId === requestId && reported?.surface === 'terminal' && reported.requestId !== requestId
+          ? reported : undefined,
+      });
     }
     const { frame, status } = shownChatStatus();
     if (displayed === 'chat' && frame && status?.surface === 'chat' && reported?.surface === 'chat'
@@ -252,6 +256,12 @@ const Layout: Component<LayoutProps> = (props) => {
     }
     const status = handoff?.status();
     if (!status) return;
+    const interrupted = interruptedChat.get(intent.id);
+    const before = interrupted?.generation === intent.generation ? interrupted.before : undefined;
+    // The Host can still report the outgoing writer before publishing the POST.
+    // An unchanged status is not evidence that another request superseded ours.
+    if (before && status.surface === before.surface && status.phase === before.phase
+      && status.requestId === before.requestId && status.target === before.target) return;
     setPreferredOpen(undefined);
     if (matchesInterruptedChat(intent.id, intent.generation, status)) return;
     interruptedChat.delete(intent.id);

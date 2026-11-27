@@ -747,6 +747,17 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
   });
 
   describe('LocalStorage Persistence', () => {
+    it('shows the cyan default accent swatch when no accent is saved or after reset', () => {
+      localStorageMock.getItem.mockReturnValue(null);
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      const swatch = screen.getByTestId('accent-color-swatch');
+      expect(getComputedStyle(swatch).backgroundColor).toBe('rgb(0, 186, 255)');
+      fireEvent.input(screen.getByTestId('accent-color-input'), { target: { value: '#ff0000' } });
+      expect(getComputedStyle(swatch).backgroundColor).toBe('rgb(255, 0, 0)');
+      fireEvent.click(screen.getByTestId('accent-color-reset'));
+      expect(getComputedStyle(swatch).backgroundColor).toBe('rgb(0, 186, 255)');
+    });
+
     it('should save settings to localStorage when accent color changes', () => {
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
 

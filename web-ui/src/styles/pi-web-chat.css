@@ -28,7 +28,7 @@
   block-size: min(80%, 1200px);
   border: 1px solid var(--color-border-default);
   border-radius: var(--radius-lg);
-  background: var(--color-bg-elevated);
+  background: transparent;
 }
 
 @container (max-width: 760px) or (max-height: 480px) {

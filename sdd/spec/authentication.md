@@ -520,7 +520,7 @@ None.
 
 **Verification:** Manual: [Workspace header acceptance](../../documentation/lanes/terminal-and-ide.md#workspace-header-acceptance)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 

@@ -8,6 +8,7 @@ import { join } from 'node:path';
 
 const client = new URL('../../image/pi-web/node_modules/@jmfederico/pi-web/dist/client/', import.meta.url);
 const css = await readFile(new URL('../../image/pi-web/codeflare-chrome/browser/footer.css', import.meta.url), 'utf8');
+const palette = await readFile(new URL('../../image/pi-web/codeflare-chrome/browser/graphite.css', import.meta.url), 'utf8');
 const assets = await readdir(new URL('assets/', client));
 const mains = assets.filter(name => /^main-[\w-]+\.js$/.test(name));
 assert.equal(mains.length, 1, 'expected one pinned stock client entry');
@@ -45,6 +46,35 @@ try {
   check('section.group-msg.system', false);
   check('article.msg.user', true);
   check('article.msg.assistant', true);
+  const theme = new CSSStyleSheet();
+  theme.replaceSync(${JSON.stringify(palette).replaceAll('<', '\\u003c')});
+  document.adoptedStyleSheets = [...document.adoptedStyleSheets, theme];
+  root.adoptedStyleSheets = [...root.adoptedStyleSheets, theme];
+  const surface = document.body.appendChild(document.createElement('div'));
+  surface.style.backgroundColor = 'var(--pi-bg)';
+  if (getComputedStyle(surface).backgroundColor !== 'rgba(24, 24, 24, 0.2)') throw Error('Graphite base must be 80% transparent');
+  const user = getComputedStyle(root.querySelector('article.msg.user'));
+  const agent = getComputedStyle(root.querySelector('article.msg.assistant'));
+  if (user.backgroundColor === agent.backgroundColor || !(parseFloat(user.borderInlineStartWidth) > parseFloat(agent.borderInlineStartWidth))) {
+    throw Error('Codeflare palette must distinguish user messages from agent replies');
+  }
+  for (const [tag, action, navigation] of [
+    ['app-context-bar', 'button.context-action-button:not([data-navigation-trigger])', '[data-navigation-trigger]'],
+    ['app-navigation-panel', 'button.actions-button', 'header machine-switcher'],
+  ]) {
+    const bar = document.body.appendChild(document.createElement(tag));
+    bar.onShowActions = () => {};
+    bar.onShowNavigation = () => {};
+    bar.refreshControl = document.createElement('app-refresh-control');
+    await bar.updateComplete;
+    const scope = bar.shadowRoot;
+    const targets = [scope.querySelector(action), scope.querySelector('app-refresh-control')];
+    if (targets.some(node => !node || getComputedStyle(node).display === 'none')) throw Error(tag + ': stock controls missing');
+    scope.adoptedStyleSheets = [...scope.adoptedStyleSheets, sheet];
+    if (targets.some(node => getComputedStyle(node).display !== 'none')) throw Error(tag + ': stock controls must be hidden');
+    const retained = scope.querySelector(navigation);
+    if (!retained || getComputedStyle(retained).display === 'none') throw Error(tag + ': navigation must remain available');
+  }
   const live = line('system', 'text', 'fixture live SYSTEM');
   chat.messages = [...messages, live];
   await chat.updateComplete;
@@ -121,7 +151,7 @@ try {
     }),
   ]);
   assert.equal(result, 'pass', 'stock SYSTEM row fixture');
-  console.log('Stock Chat hides standalone and grouped SYSTEM rows without hiding ordinary messages');
+  console.log('Stock Chat hides SYSTEM rows and selected header controls and distinguishes user messages');
 } finally {
   clearTimeout(deadline);
   if (browser?.pid) {

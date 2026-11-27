@@ -8,3 +8,16 @@
 :host(chat-view) section.group-msg.system {
   display: none;
 }
+
+/* Stock mobile context bar and desktop navigation header; keep navigation triggers. */
+:host(app-context-bar) .context-actions > app-refresh-control,
+:host(app-context-bar) .context-actions > button.context-action-button:not([data-navigation-trigger]),
+:host(app-navigation-panel) .header-actions > app-refresh-control,
+:host(app-navigation-panel) .header-actions > button.actions-button {
+  display: none;
+}
+
+:host(app-context-bar) .context-actions:not(:has(> [data-navigation-trigger])),
+:host(app-navigation-panel) .header-actions {
+  display: none;
+}

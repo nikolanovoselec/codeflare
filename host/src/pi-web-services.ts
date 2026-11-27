@@ -182,7 +182,7 @@ export function createPiWebServices(options: {
     writeFileSync(defaultsPath, JSON.stringify({
       installationName: 'Codeflare',
       quietMode: true,
-      defaultTheme: { themeId: 'themes:classic', auto: false },
+      defaultTheme: { themeId: 'codeflare-chrome:graphite', auto: false },
     }), { mode: 0o600 });
     const dataDir = join(options.runtimeDir, 'data');
     const pluginDir = join(dataDir, 'plugins');

@@ -832,6 +832,8 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     const switches: string[] = [];
     let published = scenario !== 'unacknowledged';
     let superseded = false;
+    let hitsWhileUnpublished = 0;
+    mockVisiblePanes = [{ sessionId: first, terminalId: '1' }];
     let acknowledge!: () => void;
     const waitForAcknowledgement = new Promise<void>(resolve => { acknowledge = resolve; });
     vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
@@ -843,6 +845,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
         if (switches.length === 1) await waitForAcknowledgement;
         else { published = true; superseded = false; }
       }
+      if (id === first && requestId && !published) hitsWhileUnpublished++;
       if (id === second || !requestId || !published) return Response.json({ phase: 'active', surface: 'terminal' });
       if (superseded) return Response.json({ phase: 'complete', surface: 'terminal', target: 'terminal', requestId: crypto.randomUUID() });
       return Response.json({ phase: 'complete', surface: 'chat', target: 'chat', requestId,
@@ -863,21 +866,32 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       dashboard();
       fireEvent.click(await screen.findByRole('button', { name: 'Open another session' }));
       await waitFor(() => expect(mode()).toBeEnabled());
-      published = true;
       superseded = scenario === 'superseded';
-      acknowledge();
+      if (scenario !== 'unacknowledged') acknowledge();
       dashboard();
-      mockPreferences = { defaultPiSurface: superseded ? 'chat' : 'terminal' };
+      mockPreferences = { defaultPiSurface: scenario === 'acknowledged' ? 'terminal' : 'chat' };
       bumpSessionStoreVersion();
-      fireEvent.click(await screen.findByRole('button', { name: 'Return to session' }));
+      if (scenario === 'unacknowledged') vi.useFakeTimers();
+      const readsBeforeReturn = hitsWhileUnpublished;
+      fireEvent.click(screen.getByRole('button', { name: 'Return to session' }));
+      if (scenario === 'unacknowledged') {
+        await vi.advanceTimersByTimeAsync(0);
+        expect(hitsWhileUnpublished).toBeGreaterThan(readsBeforeReturn);
+        expect(screen.getByTestId('workspace-content')).toBeVisible();
+        expect(screen.queryByTitle('Pi Chat')).not.toBeInTheDocument();
+        expect(switches).toEqual([first]);
+        published = true;
+        acknowledge();
+        await vi.advanceTimersByTimeAsync(5000);
+      }
       if (scenario === 'superseded') {
         await waitFor(() => expect(switches).toEqual([first, first]));
         return;
       }
-      const frame = await screen.findByTitle('Pi Chat');
+      const frame = scenario === 'unacknowledged' ? screen.getByTitle('Pi Chat') : await screen.findByTitle('Pi Chat');
       expect(frame).not.toBeVisible();
       if (!(frame instanceof HTMLIFrameElement)) throw new Error('Expected the stock Chat frame');
-      vi.useFakeTimers();
+      if (scenario !== 'unacknowledged') vi.useFakeTimers();
       const doc = document.implementation.createHTMLDocument();
       Object.defineProperty(doc, 'URL', { value: frame.src });
       doc.body.innerHTML = '<pi-web-app></pi-web-app>';
