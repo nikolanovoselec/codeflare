@@ -559,7 +559,8 @@ export default function (pi) {
       await upload(413, oversized);
       await upload(400, Array.from({ length: 17 }, () => attachment(Buffer.from('small'))));
       // Stay below the decoded limit but exceed the bounded JSON envelope.
-      await upload(413, [attachment(Buffer.from('small'))], { folder: 'a'.repeat(14 * 1024 * 1024) });
+      await upload(413, [attachment(Buffer.from('small'))], { padding: 'a'.repeat(14 * 1024 * 1024) });
+      assert.equal(existsSync(join(cwd, uploadFolder)), false, 'oversized request body leaves the requested folder untouched');
       await upload(400, [batch[0], { ...batch[1], data: '!' }]);
       await upload(400, [batch[0]], { cwd: dirname(cwd) });
       await upload(409, [batch[0]], {}, '/api/sessions/another-conversation');
