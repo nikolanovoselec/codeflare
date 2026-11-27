@@ -18,6 +18,7 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { test } from 'node:test';
 import { pathToFileURL } from 'node:url';
 
 const ROOT = '/opt/codeflare/openvscode';
@@ -505,11 +506,14 @@ async function main() {
   });
   const claudeVersion = agentVersions['claude-code'];
   const piVersion = agentVersions.pi;
-  const piClassicSessionId = piVersion
-    ? await verifyPiClassicSessionStartup({ piPath: CODING_AGENT_COMMANDS.pi.path })
-    : null;
+  let piClassicSessionId = null;
   const rpivExtensionStartup = piVersion ? [] : null;
   if (piVersion) {
+    await test('packaged Pi opens the exact seeded Classic transcript', async () => {
+      piClassicSessionId = await verifyPiClassicSessionStartup({ piPath: CODING_AGENT_COMMANDS.pi.path });
+    });
+    // node:test reports failures without rejecting the awaited test promise.
+    assert.ok(piClassicSessionId, 'Packaged Classic Pi startup check failed');
     for (const root of [NPM_TOOLS_NODE_MODULES, PI_NPM_NODE_MODULES]) {
       rpivExtensionStartup.push(await verifyRpivExtensionStartup(PI_NPM_NODE_MODULES, root));
     }
