@@ -23,7 +23,7 @@ function chatFrame(): HTMLIFrameElement {
   return frame;
 }
 
-describe('stock Chat theme startup (REQ-AGENT-274 AC5)', () => {
+describe('stock Chat theme startup (REQ-AGENT-288 AC1–3)', () => {
   // Pi Web 1.202611.5 reads this browser preference before applying its gateway default.
   const themeKey = 'pi-web-app-theme';
   const alternate = JSON.stringify({ themeId: 'themes:pi-web-light', auto: true });
