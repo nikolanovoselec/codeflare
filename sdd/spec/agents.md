@@ -1305,7 +1305,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Dependencies:** [REQ-AGENT-275](#req-agent-275-classic-pi-chat-startup)
 
-**Verification:** Automated: [Startup focus guards](../../web-ui/src/__tests__/components/Layout.test.tsx); Manual: [Choose the starting writer](../../documentation/lanes/terminal-and-ide.md#choose-the-starting-writer)
+**Verification:** Manual: [Choose the starting writer](../../documentation/lanes/terminal-and-ide.md#choose-the-starting-writer)
 
 **Status:** Planned
 
@@ -1364,7 +1364,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Dependencies:** [REQ-AGENT-272](#req-agent-272-pi-chat-and-terminal-transcript-handoff)
 
-**Verification:** Automated: [14 MiB attachment request-body limit](../../scripts/ci/smoke-pi-web-host-handoff.mjs); Manual: [Stock controls, composer attachments, and native questions](../../documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions), [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout)
+**Verification:** Manual: [Stock controls, composer attachments, and native questions](../../documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions), [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout)
 
 **Status:** Planned
 

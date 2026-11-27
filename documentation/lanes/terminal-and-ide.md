@@ -83,6 +83,7 @@ When **VS Code** is the effective workspace, Dashboard **New Session** starts Pi
 - On both platforms, repeat after waiting at **Open** and after creating a new session with an authorized disposable clone target. Record missing device coverage separately.
 - Tap startup **Open** after resuming an empty session on a phone, and return separately to a live Chat. Neither should bring up the keyboard without a composer tap.
 - On desktop, activate startup **Open** and confirm it does not claim composer focus.
+- The [Layout suite](../../web-ui/src/__tests__/components/Layout.test.tsx) separately checks that keyboard activation and unknown or populated history do not trigger startup composer focus. It does not verify the phone’s OS keyboard.
 - On a phone, use the [native-question fixture](#check-stale-frames-and-native-questions) with a fresh empty Chat if applicable. Start with the OS keyboard closed. While **Open** is unavailable, verify the question is answerable, the composer does not take focus, and the keyboard stays closed. Mark unavailable fixtures unexercised.
 - For each run below, configure an authorized synthetic repository as a restore target and ensure its checkout is absent locally.
 - Start Chat-first and choose **Open**. While **Restoring repositories…** is visible, verify the Chat composer works, then switch **Chat → Terminal** before waiting for the clone outcome.
@@ -206,7 +207,7 @@ The [Chat wrapper tests](../../web-ui/src/__tests__/components/PiWebChat.test.ts
 
 #### Check tablet Chat keyboard fit
 
-For [REQ-AGENT-292](../../sdd/spec/agents.md#req-agent-292-tablet-chat-keyboard-fit), use Samsung Browser on a physical tablet. Record the keyboard-closed frame bounds, then focus the prompt. With the keyboard open, verify that the header stays attached and the top gutter halves without losing safe-area clearance. In empty Chat, verify the composer and status remain reachable without adding blank history when compact sizing fits. In populated Chat, verify that history uses the available space up to the frame height cap.
+For [REQ-AGENT-292](../../sdd/spec/agents.md#req-agent-292-tablet-chat-keyboard-fit), use Samsung Browser on a physical tablet. Record the keyboard-closed frame bounds, then focus the prompt. With the keyboard open, verify that the header stays attached and the top gutter halves without losing safe-area clearance. In empty Chat, verify the composer and status remain reachable without adding blank history when compact sizing fits. Repeat in a more constrained tablet viewport, such as split-screen with the keyboard open. If compact sizing cannot fit the controls, verify that Chat uses normal keyboard-fit sizing and keeps the composer and status reachable. If the device cannot reproduce this case, mark it unexercised. In populated Chat, verify that history uses the available space up to the frame height cap.
 
 Dismiss the keyboard and compare the frame bounds to the starting size. Check that the same composer remains focused, then reopen the keyboard and verify the draft and transcript are unchanged. Check for jumps or reloads during both transitions. Repeat with reduced motion: Chat should follow the keyboard’s viewport changes without its own eased sizing transition or continued settling after the viewport stops changing. Mark unavailable device cases unexercised.
 
