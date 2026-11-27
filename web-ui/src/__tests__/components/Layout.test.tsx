@@ -867,6 +867,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       if (published) {
         acknowledge();
         expect(await screen.findByTitle('Pi Chat')).not.toBeVisible();
+        expect(screen.getByTestId('workspace-content')).toBeVisible();
       } else expect(screen.queryByTitle('Pi Chat')).not.toBeInTheDocument();
       dashboard();
       fireEvent.click(await screen.findByRole('button', { name: 'Open another session' }));
@@ -884,11 +885,16 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
         expect(hitsWhileUnpublished).toBeGreaterThan(readsBeforeReturn);
         expect(screen.getByTestId('workspace-content')).toBeVisible();
         expect(screen.queryByTitle('Pi Chat')).not.toBeInTheDocument();
+        const pendingMode = mode();
+        expect(pendingMode).toBeDisabled();
+        fireEvent.click(pendingMode);
+        expect(screen.queryByRole('button', { name: 'Vibe Mode' })).not.toBeInTheDocument();
         expect(switches).toEqual([first]);
         if (scenario === 'rejected') {
           acknowledge();
           await vi.advanceTimersByTimeAsync(5000);
           expect(switches).toEqual([first]);
+          expect(mode()).toBeEnabled();
           dashboard();
           fireEvent.click(screen.getByRole('button', { name: 'Return to session' }));
           await vi.advanceTimersByTimeAsync(0);
@@ -898,20 +904,16 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
         published = true;
         if (scenario === 'unacknowledged') acknowledge();
         await vi.advanceTimersByTimeAsync(5000);
-        if (scenario === 'other tab') {
-          expect(screen.getByTitle('Pi Chat')).toBeVisible();
-          expect(switches).toEqual([first]);
-          return;
-        }
       }
       if (scenario === 'superseded') {
         await waitFor(() => expect(switches).toEqual([first, first]));
         return;
       }
-      const frame = scenario === 'unacknowledged' ? screen.getByTitle('Pi Chat') : await screen.findByTitle('Pi Chat');
+      const frame = unpublished ? screen.getByTitle('Pi Chat') : await screen.findByTitle('Pi Chat');
       expect(frame).not.toBeVisible();
+      expect(screen.getByTestId('workspace-content')).toBeVisible();
       if (!(frame instanceof HTMLIFrameElement)) throw new Error('Expected the stock Chat frame');
-      if (scenario !== 'unacknowledged') vi.useFakeTimers();
+      if (!unpublished) vi.useFakeTimers();
       const doc = document.implementation.createHTMLDocument();
       Object.defineProperty(doc, 'URL', { value: frame.src });
       doc.body.innerHTML = '<pi-web-app></pi-web-app>';

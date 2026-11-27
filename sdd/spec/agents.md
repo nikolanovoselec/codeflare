@@ -1186,7 +1186,8 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 3. The stock Chat footer shows token and context usage without the USD display. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 4. Chat hides SYSTEM transcript rows from both live and saved history without changing the saved transcript. <!-- @manual: documentation/lanes/terminal-and-ide.md#verify-system-rows-are-hidden-in-chat -->
 
-5. Embedded Chat hides the stock Refresh and lightning icons on desktop and mobile. Navigation, text access to the native Actions palette, and failure-only Reload Chat remain available. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+5. Embedded Chat hides the stock Refresh and lightning icons on desktop and mobile without hiding navigation or failure-only Reload Chat. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+6. A visible text control opens the native Actions palette on desktop and mobile. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 
 **Constraints:** No stock Pi Web patch or change to the required Terminal plugin.
 
@@ -1237,7 +1238,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 2. Chat starts in Quiet mode and allows the user to change it. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
 3. Native questions are answerable in the live Chat frame. During startup, the original frame shows the question before Open appears. <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (keeps the standard startup screen until Open reveals Chat, without mounting a native terminal) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
 4. The Chat composer saves attachments to the active conversation’s workspace, up to 16 attachments, 10,000,000 decoded bytes total, and a 14 MiB request body. An over-limit batch writes no files. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
-5. Chat defaults to Codeflare Graphite, a dark theme with an 80%-transparent base that distinguishes user messages from agent replies, without overriding a saved theme. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @impl: image/pi-web/codeflare-chrome/browser/graphite.css::--pi-bg --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+5. Chat defaults to Codeflare Graphite, a dark theme with an 80%-transparent base that distinguishes user messages from agent replies, without overriding a saved theme. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @impl: image/pi-web/codeflare-chrome/browser/graphite.css::--pi-bg = #18181833 --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 
 6. The machine name defaults to Codeflare. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 7. Managed Chat does not expose optional Info, Updates, MCP Manager, Tasks, or Relays panels. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->

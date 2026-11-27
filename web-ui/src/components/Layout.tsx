@@ -434,8 +434,13 @@ const Layout: Component<LayoutProps> = (props) => {
   const saveMode = (target: PiSurface) => {
     if (modeAvailable()) void sessionStore.updatePreferences({ defaultPiSurface: target });
   };
-  const canSwitchMode = () => piWebSession()?.status === 'running' && !!piWebStatus()?.surface
-    && !handoffTarget() && !isPiWebSwitchPending(piWebStatus()) && !piWeb()?.mutation() && !retryPiWeb();
+  const canSwitchMode = () => {
+    const session = piWebSession();
+    if (session?.status !== 'running' || !piWebStatus()?.surface) return false;
+    const interrupted = interruptedChat.get(session.id);
+    const submitting = interrupted && interrupted.generation === session.generation && interrupted.submitting?.mutation() === 'switch';
+    return !submitting && !handoffTarget() && !isPiWebSwitchPending(piWebStatus()) && !piWeb()?.mutation() && !retryPiWeb();
+  };
   const dashboardWorkspaceMode = () => modeAvailable()
     ? { value: sessionStore.preferences.defaultPiSurface ?? 'terminal' as const, onSelect: saveMode }
     : undefined;

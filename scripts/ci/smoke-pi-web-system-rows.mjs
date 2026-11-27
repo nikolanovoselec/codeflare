@@ -63,6 +63,7 @@ try {
     ['app-navigation-panel', 'button.actions-button', '.actions-icon', 'header machine-switcher'],
   ]) {
     const bar = document.body.appendChild(document.createElement(tag));
+    if (tag === 'app-navigation-panel') bar.style.inlineSize = '320px';
     let paletteOpened = false;
     bar.onShowActions = () => { paletteOpened = true; };
     bar.onShowNavigation = () => {};
@@ -72,12 +73,23 @@ try {
     const paletteButton = scope.querySelector(action);
     const targets = [paletteButton?.querySelector(icon), scope.querySelector('app-refresh-control')];
     if (targets.some(node => !node || getComputedStyle(node).display === 'none')) throw Error(tag + ': stock controls missing');
+    const label = paletteButton.querySelector('.actions-label');
+    if (tag === 'app-navigation-panel' && (!label || getComputedStyle(label).display !== 'none')) {
+      throw Error('stock navigation panel must exercise its narrow layout');
+    }
     scope.adoptedStyleSheets = [...scope.adoptedStyleSheets, sheet];
     if (targets.some(node => getComputedStyle(node).display !== 'none')) throw Error(tag + ': stock controls must be hidden');
     const retained = scope.querySelector(navigation);
     const visible = node => node && node.getBoundingClientRect().width > 0 && node.getBoundingClientRect().height > 0;
     if (!visible(retained)) throw Error(tag + ': navigation must remain available');
     if (!visible(paletteButton)) throw Error(tag + ': the text path to theme settings must remain visible');
+    if (tag === 'app-context-bar') {
+      const text = paletteButton.getAttribute('aria-label')?.trim();
+      const generated = getComputedStyle(paletteButton, '::after').content;
+      if (!text || !generated.startsWith(JSON.stringify(text))) throw Error('mobile Actions must display its label');
+    } else if (!label?.textContent.trim() || !visible(label)) {
+      throw Error('narrow desktop Actions must display its label');
+    }
     paletteButton.click();
     if (!paletteOpened) throw Error(tag + ': the text action must open the stock palette');
   }

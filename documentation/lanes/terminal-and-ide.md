@@ -98,8 +98,8 @@ In **Vibe**, Dashboard **New Session** starts Pi Chat directly. Returning to Das
 - For [REQ-AGENT-280](../../sdd/spec/agents.md#req-agent-280-attachment-gated-workspace-reveal), keep the outgoing view until Code connects or Vibe clears the stock loader. A native startup question can appear early.
 For [REQ-AGENT-280 AC4](../../sdd/spec/agents.md#req-agent-280-attachment-gated-workspace-reveal), capture Network traffic and return to the same running generation before Chat attaches:
 
-- **Acknowledged:** Switch Code to Vibe, leave, then save Code as the Dashboard default. On return, verify the Host reports the original handoff and that Code remains visible until Chat attaches.
-- **Unpublished:** Leave Vibe saved. The first Host status after return must still report the outgoing Code state. Verify Code stays visible and exactly one switch POST occurs for the original session and generation, both before and after publication.
+- **Acknowledged:** Switch Code to Vibe. Observe the original request in Host status while Code is still visible, then leave and save Code as the Dashboard default. On return, verify Code stays visible until Chat attaches.
+- **Unpublished:** Initiate the switch, leave before publication, and keep Vibe saved. The first Host status after return must still report Code. Verify Code stays visible and only the original switch POST is sent, both before and after publication.
 - For the acknowledged case, also require exactly one POST. If Chat attached before return, or the outgoing status was not observed in the unpublished case, mark that case unexercised. The Layout regression controls publication timing deterministically.
 
 - During Code-to-Vibe handoff, fail the first destination frame navigation. Verify Vibe reveals **Reload Chat** before normal readiness, then clear the failure and reload the same conversation without a new handoff.
@@ -155,7 +155,8 @@ Use these checks for [REQ-AGENT-272](../../sdd/spec/agents.md#req-agent-272-pi-c
 - On a disposable session, queue a harmless message during a turn and verify the nonzero queued count remains visible. Repeat the footer check with a different stock theme.
 - In a fresh browser context, verify the machine name is **Codeflare** and the default theme is **Codeflare Graphite** ([REQ-AGENT-274 AC5–6](../../sdd/spec/agents.md#req-agent-274-stock-pi-chat-controls)).
 - In DevTools, check the computed background of `pi-web-app` inside the Chat iframe: its alpha must be 0.2. Confirm the outer gradient shows through and user messages have a tint and stronger leading border without fading text.
-- On desktop and mobile, including installed-app mode when available, verify Refresh and lightning icons are absent. Tap the text Actions control to open the native theme picker. Select another theme and reopen Chat to confirm that it persists.
+- On desktop and mobile, including installed-app mode when available, verify Refresh and lightning icons are absent. Open the text **Actions** control and choose the theme picker from the palette.
+- Select another theme and reopen Chat to confirm that it persists.
 - With the alternate theme, repeat the [failed frame navigation check](#switch-one-writer-at-a-time) and verify **Reload Chat** still opens the same conversation. Confirm navigation stays available ([REQ-AGENT-282 AC5](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults)).
 
 #### Check accent preferences
