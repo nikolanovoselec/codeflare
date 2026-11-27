@@ -1297,7 +1297,8 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 **Acceptance Criteria:**
 
 1. A phone touch tap on startup **Open** for a newly created, confirmed-empty Chat focuses the stock prompt in the revealed frame during that tap. <!-- @impl: web-ui/src/components/Layout.tsx::handleChatStartupOpen --> <!-- @impl: web-ui/src/components/PiWebChat.tsx::focusStockStartupPrompt --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (opens the retained Chat in place: %s) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#choose-the-starting-writer -->
-2. Resume, surface switching, desktop or keyboard activation, unknown or populated history, and blocking stock UI do not trigger this focus behavior. <!-- @impl: web-ui/src/components/Layout.tsx::handleChatStartupOpen --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (opens the retained Chat in place: %s) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-AGENT-275: only the original successful clone launch can authorize focus (%s)) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#choose-the-starting-writer -->
+2. Resume, surface switching, desktop activation, and blocking stock UI do not trigger this focus behavior. <!-- @impl: web-ui/src/components/Layout.tsx::handleChatStartupOpen --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (opens the retained Chat in place: %s) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-AGENT-275: only the original successful clone launch can authorize focus (%s)) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#choose-the-starting-writer -->
+3. Keyboard activation of startup **Open**, or startup **Open** with unknown or populated history, does not focus the composer. <!-- @impl: web-ui/src/components/Layout.tsx::handleChatStartupOpen --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (opens the retained Chat in place: %s) -->
 
 **Constraints:** Preserve the retained frame and native dialogs. No delayed focus attempt.
 
@@ -1305,7 +1306,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Dependencies:** [REQ-AGENT-275](#req-agent-275-classic-pi-chat-startup)
 
-**Verification:** Manual: [Choose the starting writer](../../documentation/lanes/terminal-and-ide.md#choose-the-starting-writer)
+**Verification:** Automated: [Startup focus guards](../../web-ui/src/__tests__/components/Layout.test.tsx); Manual: [Choose the starting writer](../../documentation/lanes/terminal-and-ide.md#choose-the-starting-writer)
 
 **Status:** Planned
 
@@ -1347,9 +1348,10 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 1. Chat retains Files and `@` references for workspace files. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
 2. Chat starts in Quiet mode and allows the user to change it. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
 3. Native questions are answerable in the live Chat frame. During startup, the original frame shows the question before Open appears. <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (keeps the standard startup screen until Open reveals Chat, without mounting a native terminal) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
-4. The Chat composer saves attachments to the active conversation’s workspace, up to 16 attachments, 10,000,000 decoded bytes total, and a 14 MiB request body. An over-limit batch writes no files. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualify) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
+4. The Chat composer saves attachments to the active conversation’s workspace, up to 16 attachments and 10,000,000 decoded bytes total. An over-limit batch writes no files. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualify) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
 5. The machine name defaults to Codeflare. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 6. Managed Chat does not expose optional Info, Updates, MCP Manager, Tasks, or Relays panels. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
+7. Attachment requests above 14 MiB are rejected without writing any files. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualify) -->
 
 **Constraints:**
 
@@ -1364,7 +1366,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Dependencies:** [REQ-AGENT-272](#req-agent-272-pi-chat-and-terminal-transcript-handoff)
 
-**Verification:** Manual: [Stock controls, composer attachments, and native questions](../../documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions), [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout)
+**Verification:** Automated: [14 MiB attachment request-body limit](../../scripts/ci/smoke-pi-web-host-handoff.mjs); Manual: [Stock controls, composer attachments, and native questions](../../documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions), [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout)
 
 **Status:** Planned
 
