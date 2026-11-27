@@ -276,3 +276,87 @@ test('REQ-AGENT-273: a possibly consumed native re-entry remains fenced', async 
   assert.equal(f.handoff.admit('chat', 'work'), undefined);
   assert.equal(f.writer, 'terminal');
 });
+
+test('REQ-AGENT-272: a rejected candidate cannot reopen or replace the committed transcript', async () => {
+  let writer = binding;
+  const handoff = createPiWebHandoff({ generation, initialSurface: 'chat',
+    stopWork: async () => {}, waitForIdle: async () => {},
+    release: async () => { writer = null; return binding; },
+    open: async (_surface, transcript) => { writer = transcript; return true; },
+  });
+  const requestId = 'missing-candidate';
+  const result = await handoff.rebindChat({ generation, requestId }, async () => { throw new Error('missing'); });
+  assert.equal(result.phase, 'failed');
+  assert.equal(writer, null);
+  await assert.rejects(handoff.switchTo({ generation, requestId, target: 'chat' }), /unavailable/);
+  assert.equal(writer, null, 'an explicit retry cannot substitute the previous or a new transcript');
+  await handoff.retire('stop');
+});
+
+test('REQ-AGENT-272/274: explicit Chat selection releases first and Stop joins the exact transfer', async () => {
+  const next = { ...binding, id: 'second', path: '/workspace/second.jsonl' };
+  let writer = binding;
+  let finishOpen;
+  const handoff = createPiWebHandoff({ generation, initialSurface: 'chat',
+    stopWork: async () => assert.ok(writer), waitForIdle: async () => {},
+    release: async () => { const previous = writer; writer = null; return previous; },
+    async open(surface, destination) {
+      assert.equal(surface, 'chat');
+      assert.equal(writer, null);
+      writer = destination;
+      await new Promise(resolve => { finishOpen = resolve; });
+      return true;
+    },
+  });
+  const finishWork = handoff.admit('chat', 'work');
+  const selection = handoff.rebindChat({ generation, requestId: 'explicit' }, async () => {
+    assert.equal(writer, null);
+    return next;
+  });
+  assert.equal(handoff.admit('chat', 'work'), undefined);
+  await assert.rejects(handoff.rebindChat({ generation, requestId: 'other' }, async () => binding));
+  finishWork();
+  await waitForPhase(handoff, 'opening');
+  assert.equal(writer, next);
+  assert.equal(handoff.admit('chat', 'work'), undefined);
+  const retired = handoff.retire('stop');
+  await assert.rejects(handoff.switchTo({ generation, requestId: 'late', target: 'terminal' }));
+  finishOpen();
+  await selection;
+  await retired;
+  assert.equal(writer, null);
+  assert.equal(handoff.admit('chat', 'read'), undefined);
+});
+
+test('REQ-SESSION-011: ambiguous retirement does not certify transcript preparation', async () => {
+  const handoff = createPiWebHandoff({ generation, initialSurface: 'chat',
+    stopWork: async () => {}, waitForIdle: async () => {},
+    release: async () => { throw new Error('unconfirmed release'); },
+    open: async () => { throw new Error('Stop must not open a writer'); },
+  });
+  await assert.rejects(handoff.retire('stop'), /retire/);
+  assert.equal(handoff.admit('chat', 'work'), undefined);
+  await assert.rejects(handoff.switchTo({ generation, requestId: 'late', target: 'terminal' }));
+});
+
+
+test('REQ-AGENT-272: retry after proven failed attachment opens only that exact candidate', async () => {
+  const candidate = { ...binding, id: 'second', path: '/workspace/second.jsonl' };
+  let writer = binding;
+  let available = false;
+  const handoff = createPiWebHandoff({ generation, initialSurface: 'chat',
+    stopWork: async () => {}, waitForIdle: async () => {},
+    release: async () => { writer = null; return binding; },
+    open: async (_surface, next) => {
+      if (!available) return false;
+      writer = next;
+      return true;
+    },
+  });
+  const requestId = 'exact-candidate';
+  assert.equal((await handoff.rebindChat({ generation, requestId }, async () => candidate)).phase, 'failed');
+  assert.equal(writer, null);
+  available = true;
+  await handoff.switchTo({ generation, requestId, target: 'chat' });
+  assert.equal(writer, candidate);
+});

@@ -16,7 +16,7 @@ The authoritative inventory is [`preseed/agents/pi/package.json`](../../preseed/
 | `@juicesharp/rpiv-advisor` | Explicit-current-user advisor workflow |
 | `@juicesharp/rpiv-ask-user-question` | Questionnaire and stable notifier channel |
 | `@juicesharp/rpiv-todo` | Session-scoped task state |
-| `@dumbmice/pi-todo-loop` | Stock RPIV todo continuation, `/todoloop`, and `todo_loop_block` |
+| `@dumbmice/pi-todo-loop` | Opt-in RPIV todo continuation, `/todoloop`, and `todo_loop_block` |
 | `@narumitw/pi-plan-mode` | Native Plan and registered-tool policy transform |
 | `@calesennett/pi-codex-fast` | Native Fast/Ultrafast controls for supported OpenAI models |
 | `pi-open-tui` | Native terminal header, footer, prompt editor and `/open-tui` settings |
@@ -119,11 +119,13 @@ A compatible image must exist before publishing a curation release requiring a n
 
 ## Todo Loop
 
-The image exact-pins stock [`@dumbmice/pi-todo-loop` 0.4.0](https://www.npmjs.com/package/@dumbmice/pi-todo-loop/v/0.4.0) and warms its declared `src/index.ts` entrypoint at the installed path. Both Pi modes register it once, independently of context-mode. It uses the lock-backed Pi-extension shadow-pin path with no Codeflare transform ([REQ-AGENT-111](../../sdd/spec/agents.md#req-agent-111-native-todo-loop-workflow-in-pi-sessions)).
+Both Pi modes register the exact-pinned [`@dumbmice/pi-todo-loop` 0.4.0](https://www.npmjs.com/package/@dumbmice/pi-todo-loop/v/0.4.0) once, independently of context-mode. Each new or reopened Pi session, including Pi Web Chat, starts paused. Run `/todoloop resume` in that session to allow automatic continuation; starting Pi again or reloading does not carry the opt-in forward ([REQ-AGENT-111](../../sdd/spec/agents.md#req-agent-111-native-todo-loop-workflow-in-pi-sessions)).
+
+The image installs the integrity-locked package, changes only the initial pause flag, and then warms its declared `src/index.ts` at the installed path. The transform refuses any other version, entrypoint, or source revision. A future pin bump must review or retire the transform before building the image. <!-- @impl: scripts/patch-pi-todo-loop-default-pause.mjs::patchTodoLoopDefaultPause -->
 
 Todo Loop reads the current session branch's RPIV `todo` state. After a completed, tool-free reply with open tasks, the loop can request another turn. It neither edits tasks nor grants authority; saving a plan or staging tasks does not authorize execution. The agent updates tasks through `todo` and uses `todo_loop_block` with a reason when it needs the user or is waiting on work it already started. The wait clears on the next user message or when a later turn uses a tool again. These tools use ordinary optional-tool activation in Codeflare. See [`package/src/index.ts` (`turn_end` and block handling) in the pinned 0.4.0 archive](https://registry.npmjs.org/@dumbmice/pi-todo-loop/-/pi-todo-loop-0.4.0.tgz).
 
-Use `/todoloop` to see open tasks, the effective continuation limit, and why the loop stopped. `/todoloop pause` pauses this session until resume or restart; `/todoloop resume` lifts the user pause without clearing a pending block. `/todoloop reset` clears the current count and pending block without changing the task list. The stock extension reads `maxRounds` from `~/.pi/agent/todo-loop.json` as a per-message continuation cap when set; the stock default is uncapped. A `todo-loop-off` file in `~/.pi/agent/` or the working directory’s `.pi/` disables the loop. Stock settings apply; the retired Goal pacing and stalled-work policy do not carry over. See [`package/src/index.ts` (`todoloop` command and settings) in the pinned 0.4.0 archive](https://registry.npmjs.org/@dumbmice/pi-todo-loop/-/pi-todo-loop-0.4.0.tgz).
+Use `/todoloop` to see open tasks, the effective continuation limit, and why the loop stopped. `/todoloop pause` stops automatic continuation; `/todoloop resume` lifts the pause without clearing a pending block. `/todoloop reset` clears the current count and pending block without unpausing or changing the task list. The stock extension reads `maxRounds` from `~/.pi/agent/todo-loop.json` as a per-message continuation cap when set; the stock default is uncapped. A `todo-loop-off` file in `~/.pi/agent/` or the working directory’s `.pi/` disables the loop. Stock settings apply; the retired Goal pacing and stalled-work policy do not carry over. See [`package/src/index.ts` (`todoloop` command and settings) in the pinned 0.4.0 archive](https://registry.npmjs.org/@dumbmice/pi-todo-loop/-/pi-todo-loop-0.4.0.tgz).
 
 <a id="goal-and-plan-transforms"></a>
 ## Plan Mode transform
@@ -155,7 +157,7 @@ The [Pi manifest](../../preseed/agents/pi/package.json) and [lockfile](../../pre
 
 Managed `@narumitw/pi-usage` and its `/usage` provider-quota workflow are retired. Startup removes only that exact npm identity from restored string/object package entries; credentials, history and unrelated packages remain untouched ([REQ-AGENT-209](../../sdd/spec/agents.md#req-agent-209-retired-pi-package-migration)). Plan retains its own locked TUI-kit. Open TUI's local token/context/cost display is not equivalent to subscription-quota reporting and does not change Codeflare billing or usage records.
 
-Startup removes explicit retired package registrations, including managed Goal, and replaces only the known superseded local Todo Loop registration with the stock npm entry. `pi-goal.json`, package files, session history, and unrelated user additions are not deleted or migrated. Todo state stays session/transcript scoped; no global task database or retired AD100 source override returns. Subagents' active-resume guard rejects queued/running mutation through the reviewed public accessor; settled/unknown records retain upstream behavior.
+Startup removes explicit retired package registrations, including managed Goal, and replaces only the known superseded local Todo Loop registration with the managed npm entry. `pi-goal.json`, package files, session history, and unrelated user additions are not deleted or migrated. Todo state stays session/transcript scoped; no global task database or retired AD100 source override returns. Subagents' active-resume guard rejects queued/running mutation through the reviewed public accessor; settled/unknown records retain upstream behavior.
 
 ## Native terminal qualification
 

@@ -62,13 +62,19 @@ export function createPiWebProxy(options: { sessionId: string; runtime: PiWebRun
   const appPrefix = `${prefix}g/${runtime.generation}/`;
   const wss = new WebSocketServer({ noServer: true, maxPayload: maxBody });
   let closed = false;
+  const sockets = new Set<WebSocket>();
+  runtime.onRevokeAttachment(() => {
+    for (const socket of sockets) socket.terminate();
+    for (const client of wss.clients) client.terminate();
+  });
 
   function route(req: IncomingMessage): URL | undefined {
     const raw = req.url;
     if (closed || req.headers['x-codeflare-pi-generation'] !== String(runtime.generation) || !raw?.startsWith(prefix)) return;
     const control = raw.slice(prefix.length).split('?')[0];
+    const scoped = runtime.attachment && `${appPrefix}a/${runtime.attachment}/`;
     const target = control === '_switch' || control === '_cancel' ? raw.slice(prefix.length)
-      : raw.startsWith(appPrefix) ? raw.slice(appPrefix.length) : undefined;
+      : scoped && raw.startsWith(scoped) ? raw.slice(scoped.length) : undefined;
     if (target === undefined) return;
     const path = target.split('?')[0];
     if (path.startsWith('/') || /%2f|%5c|%2e|[\\\x00-\x20\x7f]|(?:^|\/)\.{1,2}(?:\/|$)/i.test(path)) return;
@@ -92,10 +98,13 @@ export function createPiWebProxy(options: { sessionId: string; runtime: PiWebRun
   const browserPath = (pathname: string) => pathname.replace(/^\/api\/machines\/local(?=\/)/, '/api');
 
   function isScoped(path: string, url: URL): boolean {
-    if (/^\/api\/machines\/[^/]+\//.test(path)) return false;
+    if (/^\/api\/machines\/[^/]+\//.test(path) || path === '/api/sessions/') return false;
     if (url.searchParams.has('cwd') && (url.searchParams.getAll('cwd').length !== 1 || url.searchParams.get('cwd') !== runtime.cwd)) return false;
     const matched = /^\/api\/sessions\/([^/]+)(?:\/|$)/.exec(path);
-    return !matched || matched[1] === 'events' || matched[1] === runtime.binding?.id;
+    if (matched && (matched[1] !== runtime.binding?.id && !(matched[1] === 'events' && path === '/api/sessions/events'))) return false;
+    // Catalog discovery must not disclose an unrelated workspace or past row.
+    const catalog = /^(\/api\/plugin-catalog\/projects\/[^/]+\/workspaces\/[^/]+\/sessions)(?:\/([^/]+))?\/?$/.exec(path);
+    return !catalog || path === runtime.catalogPath || path === catalog[1] && runtime.catalogPath?.startsWith(`${catalog[1]}/`) === true;
   }
 
   async function control(req: IncomingMessage, res: ServerResponse, path: string, url: URL): Promise<void> {
@@ -136,6 +145,25 @@ export function createPiWebProxy(options: { sessionId: string; runtime: PiWebRun
       if (req.url?.startsWith(appPrefix)) { send(res, 409, { error: 'Pi workspace unavailable' }); return; }
       try { await control(req, res, path, url); }
       catch { send(res, 400, { error: 'Invalid Pi handoff request' }); }
+      return;
+    }
+    if (path === '/_intent') {
+      if (req.method !== 'POST' || url.search || !runtime.attachment || req.headers.origin !== origin) {
+        send(res, 405, { error: 'Unsupported Chat intent' }); return;
+      }
+      const attachment = runtime.attachment;
+      try {
+        const data = await jsonBody(req, 4096);
+        const { generation, cwd, action, id } = data;
+        if (generation !== runtime.generation || cwd !== runtime.cwd) {
+          send(res, 409, { error: 'Workspace does not match the Chat attachment' }); return;
+        }
+        if (action === 'new' && Object.keys(data).length === 3) await runtime.chatIntent(attachment, { action });
+        else if (action === 'select' && typeof id === 'string' && Object.keys(data).length === 4) {
+          await runtime.chatIntent(attachment, { action, id });
+        } else { send(res, 400, { error: 'Invalid Chat intent' }); return; }
+        send(res, 202, { accepted: true });
+      } catch { send(res, 409, { error: 'Chat conversation is unavailable' }); }
       return;
     }
     const read = req.method === 'GET' || req.method === 'HEAD';
@@ -252,9 +280,12 @@ export function createPiWebProxy(options: { sessionId: string; runtime: PiWebRun
       }
       upstreamSettled = true;
       if (ok && endpoint && settlers.has(endpoint)) options.recordInput();
-      if (ok && read && path === '/api/sessions' && req.method !== 'HEAD') {
+      const catalog = runtime.catalogPath;
+      if (ok && read && req.method !== 'HEAD' && (path === '/api/sessions' || catalog && path === catalog.slice(0, catalog.lastIndexOf('/')))) {
         const rows = await readJson(result);
-        send(res, status, Array.isArray(rows) ? rows.filter(row => row?.id === runtime.binding?.id && row?.cwd === runtime.cwd) : [], headers);
+        const filtered = Array.isArray(rows) ? rows.filter(row => path === '/api/sessions' ? runtime.eligibleRow(row)
+          : row?.cwd === runtime.cwd && row?.archived === false && runtime.hasSavedMember(row.id)) : [];
+        send(res, status, filtered, headers);
         return;
       }
       res.writeHead(status, headers);
@@ -285,34 +316,64 @@ export function createPiWebProxy(options: { sessionId: string; runtime: PiWebRun
       socket.end('HTTP/1.1 409 Conflict\r\nConnection: close\r\n\r\n'); return;
     }
     const startup = runtime.chatStartupSignal;
+    const attachment = runtime.attachment;
+    const global = path === '/api/events' || path === '/api/sessions/events';
+    const current = () => !closed && attachment === runtime.attachment && !startup?.aborted && runtime.handoff.permits('chat', 'read');
     const upstream = new URL(`ws://${hostname}:${PI_WEB_PORT}`);
     upstream.pathname = url.pathname;
     upstream.search = url.search;
     const ws = new WebSocket(upstream, { headers: { Host: new URL(origin).host, Origin: origin }, handshakeTimeout: 5000, maxPayload: 8 * maxBody });
+    sockets.add(ws);
+    let upgraded = false;
+    ws.once('close', () => { sockets.delete(ws); if (!upgraded) socket.destroy(); });
     socket.once('close', () => ws.terminate());
     ws.once('error', () => socket.destroy());
     ws.once('open', () => {
-      if (socket.destroyed || startup?.aborted || !runtime.handoff.permits('chat', 'read')) { ws.terminate(); socket.destroy(); return; }
+      if (socket.destroyed || !current()) { ws.terminate(); socket.destroy(); return; }
       wss.handleUpgrade(req, socket, head, client => {
+        upgraded = true;
         client.on('error', () => ws.terminate());
         client.on('close', () => ws.terminate());
         ws.on('close', () => client.close());
         ws.on('message', (frame, binary) => {
-          if (startup?.aborted || !runtime.handoff.permits('chat', 'read') || client.bufferedAmount > 8 * maxBody) {
+          if (!current() || client.bufferedAmount > 8 * maxBody) {
             client.close(); ws.close(); return;
           }
-          client.send(frame, { binary });
+          if (!global || isBoundGlobalEvent(frame.toString(), runtime.binding?.id, runtime.cwd)) client.send(frame, { binary });
         });
       });
     });
   }
 
+  let closing: Promise<void> | undefined;
   return { handle, upgrade, close() {
-    closed = true;
-    for (const client of wss.clients) client.terminate();
-    wss.close();
-    return runtime.close();
+    closing ??= runtime.close().finally(() => {
+      closed = true;
+      wss.close();
+    });
+    return closing;
   } };
+}
+
+// Pinned stock global event shapes. Per-session streams stay receive-only and
+// are already scoped by the exact URL. Unknown broadcast shapes fail closed.
+function isBoundGlobalEvent(raw: string, id: string | undefined, cwd: string): boolean {
+  if (!id) return false;
+  try {
+    const event = JSON.parse(raw);
+    switch (event?.type) {
+      case 'status.update': return event.status?.sessionId === id;
+      case 'activity.update':
+      case 'session.startup': return event.activity?.sessionId === id;
+      case 'session.name': return event.sessionId === id;
+      case 'session.created': return event.session?.id === id && event.session.cwd === cwd;
+      case 'notifications.summary': return event.summary?.sessionId === id && event.summary.cwd === cwd;
+      case 'sessions.unread': return event.sessionId === id && event.cwd === cwd;
+      case 'models.changed':
+      case 'machine.status': return true;
+      default: return false;
+    }
+  } catch { return false; }
 }
 
 export type PiWebProxy = ReturnType<typeof createPiWebProxy>;

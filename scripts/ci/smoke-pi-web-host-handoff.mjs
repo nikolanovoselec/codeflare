@@ -93,7 +93,7 @@ async function reopenTerminal(cwd, owner, released, readSwitch, exercise) {
   try {
     await until('native TUI opens the exact saved branch', async () => {
       if (cli.exitCode !== null) throw new Error('native Pi exited before opening');
-      return (await readSwitch()).phase === 'complete' && output.includes(reply);
+      return ['active', 'complete'].includes((await readSwitch()).phase) && existsSync(terminalPath) && output.includes(reply);
     });
     const terminal = json(terminalPath);
     assert.deepEqual(identity(terminal), owner.binding);
@@ -159,9 +159,10 @@ async function qualify(ambiguous) {
   const activity = createActivityTracker();
   const lastInput = () => activity.getActivityInfo(null).lastInputAt;
   const proxy = createPiWebProxy({ sessionId, runtime, recordInput: activity.recordInput });
+  let activeApp = appPrefix;
   let refuseFirstFrame = exerciseStartupWaits;
   const server = createServer((req, res) => {
-    if (refuseFirstFrame && req.method === 'GET' && req.url?.startsWith(`${appPrefix}/?`)) {
+    if (refuseFirstFrame && req.method === 'GET' && req.url?.startsWith(`${activeApp}/?`)) {
       refuseFirstFrame = false;
       res.writeHead(503).end();
       return;
@@ -170,7 +171,7 @@ async function qualify(ambiguous) {
   });
   let refuseSessionEvents = false;
   server.on('upgrade', (req, socket, head) => {
-    if (refuseSessionEvents && req.url?.startsWith(`${appPrefix}/api/machines/local/sessions/`)) {
+    if (refuseSessionEvents && req.url?.startsWith(`${activeApp}/api/machines/local/sessions/`)) {
       socket.end('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
       return;
     }
@@ -247,12 +248,16 @@ export default function (pi) {
 }
 `);
     const origin = await listen(server);
-    const api = (path, expected, body, timeoutMs) => request(origin, (path.startsWith('/_') ? prefix : appPrefix) + path, expected, body, {
+    const api = (path, expected, body, timeoutMs) => request(origin, (path.startsWith('/_switch') || path.startsWith('/_cancel') ? prefix : activeApp) + path, expected, body, {
       'x-forwarded-host': new URL(origin).host, 'x-forwarded-proto': 'http', 'x-codeflare-pi-generation': String(generation),
     }, timeoutMs);
     const boot = runtime.initialize();
     void boot.catch(() => {});
-    const readSwitch = () => api(`/_switch?generation=${generation}`);
+    const readSwitch = async () => {
+      const state = await api(`/_switch?generation=${generation}`);
+      if (state.chatUrl) activeApp = new URL(state.chatUrl, origin).pathname.slice(0, -1);
+      return state;
+    };
     assert.equal((await readSwitch()).chatUrl, undefined, 'do not expose Chat before profile restore');
     assert.equal(runtime.binding, undefined, 'do not bind a transcript before profile restore');
     const preRestoreHealth = await nativeFetch(`${stock}/api/sessiond/health`, { signal: AbortSignal.timeout(1000) }).catch(() => null);
@@ -322,7 +327,7 @@ export default function (pi) {
     if (failedBinding) assert.deepEqual(identity(runtime.binding), failedBinding, 'retry preserves the original transcript');
     else console.log(`Chat-first profile release to deep link: ${Math.round(performance.now() - restoreTime)} ms`);
     const deepLink = new URL(chatUrl, origin);
-    assert.equal(deepLink.pathname, `${appPrefix}/`);
+    assert.match(deepLink.pathname.slice(appPrefix.length), /^\/a\/[a-f0-9-]{36}\/$/);
     const params = deepLink.searchParams;
     assert.equal(params.get('session'), id);
     const browserHeaders = {
@@ -351,10 +356,13 @@ export default function (pi) {
     const manifest = await api('/pi-web-plugins/manifest.json');
     const chromePlugin = manifest.plugins.find(({ id }) => id === 'codeflare-chrome');
     assert.ok(chromePlugin, 'scoped Chat exposes the presentation plugin');
-    const pluginUrl = new URL(`${appPrefix}${chromePlugin.module}`, origin);
+    const pluginUrl = new URL(`${activeApp}${chromePlugin.module}`, origin);
     const pluginModule = await nativeFetch(pluginUrl, { headers: browserHeaders });
     assert.equal(pluginModule.status, 200);
     await pluginModule.arrayBuffer();
+    const intentModule = await nativeFetch(new URL('./transcript-intent.js', pluginUrl), { headers: browserHeaders });
+    assert.equal(intentModule.status, 200, 'the scoped frame can load its attachment intent adapter');
+    await intentModule.arrayBuffer();
     const footerSheet = await nativeFetch(new URL('./footer.css', pluginUrl), { headers: browserHeaders });
     assert.equal(footerSheet.status, 200, 'module-relative stylesheet is served through the generation scope');
     assert.match(footerSheet.headers.get('Content-Type') ?? '', /text\/css/);
@@ -374,7 +382,7 @@ export default function (pi) {
     const naming = '/opt/codeflare/pi-web/node_modules/@jmfederico/pi-web/dist/pi-packages/session-naming';
     assert.equal((await request(stock, '/api/pi-packages/remove', 200, { scope: 'user', source: naming })).removed, true);
     const connectEvents = () => {
-      const eventsUrl = new URL(`${appPrefix}/api/machines/local/sessions/${encodeURIComponent(id)}/events?${query}`, origin);
+      const eventsUrl = new URL(`${activeApp}/api/machines/local/sessions/${encodeURIComponent(id)}/events?${query}`, origin);
       eventsUrl.protocol = 'ws:';
       return new WebSocket(eventsUrl, { headers: browserHeaders, handshakeTimeout: 5000 });
     };
@@ -515,7 +523,7 @@ export default function (pi) {
         return upstream;
       };
     }
-    const preview = await nativeFetch(`${origin}${appPrefix}/api/projects`, { headers: browserHeaders });
+    const preview = await nativeFetch(`${origin}${activeApp}/api/projects`, { headers: browserHeaders });
     assert.equal(preview.status, 200);
     assert.deepEqual(preview.headers.get('Content-Security-Policy')?.split(',').map(policy => policy.trim()),
       ["default-src 'none'", 'sandbox']);
@@ -561,7 +569,7 @@ export default function (pi) {
         assert.deepEqual(readFileSync(join(cwd, file)), [first, second][index]);
       }
       // The existing non-upload reader can close the socket on overflow.
-      const hugePrompt = await nativeFetch(`${origin}${appPrefix}${ref}/prompt`, {
+      const hugePrompt = await nativeFetch(`${origin}${activeApp}${ref}/prompt`, {
         method: 'POST', headers: { ...browserHeaders, Origin: origin, 'Content-Type': 'application/json' },
         body: JSON.stringify({ cwd, text: 'x'.repeat(1024 * 1024) }), signal: AbortSignal.timeout(8000),
       }).catch(error => {
@@ -677,7 +685,9 @@ export default function (pi) {
         assert.ok(!['failed', 'uncertain'].includes(state.phase), `Terminal → Chat switch: ${state.phase}`);
         return state.chatUrl && state;
       }, 20_000);
-      assert.deepEqual([opening.phase, opening.requestId, opening.chatUrl], ['opening', returnId, chatUrl]);
+      assert.deepEqual([opening.phase, opening.requestId], ['opening', returnId]);
+      assert.notEqual(opening.chatUrl, chatUrl);
+      assert.equal(new URL(opening.chatUrl, origin).searchParams.get('session'), id);
       assert.notEqual(processAtChatOpen, undefined, 'observe the first Host Chat open request');
       const fields = processAtChatOpen.slice(processAtChatOpen.lastIndexOf(')') + 2).split(' ');
       assert.ok(fields[0] === 'Z' || fields[19] !== native.startTime, 'the exact CLI must exit before Host opens Chat');
@@ -707,6 +717,165 @@ export default function (pi) {
     assert.deepEqual(calls, expectedCalls, 'Chat must not replay the interrupted Terminal turn');
     console.log('PI_WEB_HOST_HANDOFF_OK');
     if (mode !== 'handoff') await qualifyRetry(expectedCalls, ticket.terminalTicket, reopened);
+    else await qualifyHistory();
+
+    async function qualifyHistory() {
+      const original = activeApp;
+      const staleEvents = connectEvents();
+      await once(staleEvents, 'open', { signal: AbortSignal.timeout(6000) });
+      const revoked = once(staleEvents, 'close', { signal: AbortSignal.timeout(20_000) });
+      const newIntent = { action: 'new', generation, cwd };
+      const selectIntent = targetId => ({ action: 'select', generation, cwd, id: targetId });
+      const stale = (app, suffix, body) => request(origin, app + suffix, 409, body, browserHeaders);
+      // A same-cwd native transcript from another Codeflare session is not a member.
+      const foreignId = randomUUID();
+      const foreign = join(dirname(path), `${basename(path).slice(0, -id.length - '.jsonl'.length)}${foreignId}.jsonl`);
+      const header = JSON.parse(readFileSync(path, 'utf8').split('\n')[0]);
+      writeFileSync(foreign, `${JSON.stringify({ ...header, id: foreignId })}\n`, { flag: 'wx' });
+      assert.ok((await request(stock, `/api/sessions?${query}`)).some(row => row.id === foreignId));
+      assert.ok(!(await api(`/api/sessions?${query}`)).some(row => row.id === foreignId));
+      // Unknown history and raw stock creation must not retire the source.
+      await api('/_intent', 409, selectIntent(foreignId));
+      await api('/_intent', 409, { ...newIntent, cwd: '/wrong' });
+      await api('/api/machines/local/sessions', 409, { cwd, startupToken: randomUUID() });
+      assert.equal((await readSwitch()).surface, 'chat');
+      assert.equal((await health()).activeSessions, 1);
+      rmSync(startupQuestionSeen, { force: true });
+      rmSync(startupAnswer, { force: true });
+      await api('/_intent', 202, newIntent);
+      await revoked;
+      const opening = await until('explicit new Chat offers a different attachment', async () => {
+        const state = await readSwitch();
+        return state.phase === 'opening' && state.chatUrl && state;
+      });
+      assert.equal((await health()).activeSessions, 0, 'release precedes new writer attachment');
+      const newId = new URL(opening.chatUrl, origin).searchParams.get('session');
+      assert.notEqual(newId, id);
+      const next = `/api/sessions/${newId}`;
+      await stale(original, `${ref}/prompt`, { cwd, text: 'stale prompt' });
+      await stale(original, '/_intent', newIntent);
+      await api(`${ref}/transcript-snapshot?${query}`, 409);
+      const fresh = api(`${next}/transcript-snapshot?${query}`, 200, undefined, 20_000);
+      void fresh.catch(() => {});
+      const newQuestion = await until('new transcript keeps native startup question', async () => {
+        const status = await api(`${next}/status?${query}`);
+        return status.pendingDialogs?.find(dialog => dialog.title === startupQuestion);
+      });
+      await until('Host identifies the new native startup question', async () => (await readSwitch()).startupQuestion === true);
+      await api(`${next}/prompt`, 409, { cwd, text: 'Do not pass the unsettled startup fence' });
+      assert.equal((await api(`${next}/dialogs/answer`, 200, { cwd, dialogId: newQuestion.dialogId, value: true })).result, 'closed');
+      const empty = await fresh;
+      assert.equal(empty.status.sessionId, newId);
+      assert.deepEqual(empty.page.messages, []);
+      await until('new Chat commit', () => runtime.ready);
+      const bindingFile = join(home, '.codeflare/classic/sessions', `cf-${sessionId}`, 'agent-session-id');
+      assert.equal(readFileSync(bindingFile, 'utf8'), `${newId}\n`);
+      const rows = await api(`/api/sessions?${query}`);
+      assert.deepEqual(rows.map(row => row.id).sort(), [id, newId].sort());
+      const second = activeApp;
+      await api('/_intent', 202, selectIntent(id));
+      await until('saved Chat offers a third attachment', async () => {
+        const state = await readSwitch();
+        return state.phase === 'opening' && state.chatUrl;
+      });
+      assert.notEqual(activeApp, original);
+      assert.notEqual(activeApp, second);
+      assert.equal((await health()).activeSessions, 0);
+      await stale(original, `${ref}/transcript-snapshot?${query}`);
+      const retiredUrl = new URL(`${original}${ref}/events?${query}`, origin);
+      retiredUrl.protocol = 'ws:';
+      const rejectedEvents = new WebSocket(retiredUrl, { headers: browserHeaders, handshakeTimeout: 5000 });
+      await assert.rejects(once(rejectedEvents, 'open', { signal: AbortSignal.timeout(6000) }), /409/);
+      await stale(second, `${ref}/prompt`, { cwd, text: 'stale queued prompt' });
+      const historical = await snapshot();
+      assert.equal(historical.status.sessionId, id);
+      assert.ok(historical.page.messages.some(message => text(message.content) === reply));
+      await until('selected history commits', () => runtime.ready);
+      assert.equal((await health()).activeSessions, 1);
+      assert.equal(readFileSync(bindingFile, 'utf8'), `${id}\n`);
+      assert.deepEqual(calls, expectedCalls, 'neither passive reads nor stale work replay a prompt');
+      const selected = chat();
+      await proxy.close();
+      assert.equal(chat().instance, selected.instance);
+      assert.equal(chat().released, true, 'graceful Stop proves retirement of the committed writer');
+      assert.equal(readFileSync(bindingFile, 'utf8'), `${id}\n`);
+      async function restoredRuntime(surface, nextGeneration, exercise) {
+        const nextRoot = join(home, `run-${nextGeneration}`);
+        const nextRuntimeDir = join(nextRoot, 'pi-web');
+        Object.assign(process.env, { CODEFLARE_RUNTIME_ROOT: nextRoot, CODEFLARE_PI_GENERATION: String(nextGeneration), CODEFLARE_PI_SURFACE: surface });
+        const resumed = createPiWebRuntime({ sessionId, generation: nextGeneration, initialSurface: surface,
+          terminalMode: 'classic', home, cwd, runtimeDir: nextRuntimeDir, profileRestored: () => true, cloneRestored: () => false });
+        const resumedProxy = createPiWebProxy({ sessionId, runtime: resumed, recordInput() {} });
+        const server = createServer((req, res) => void resumedProxy.handle(req, res));
+        const resumedOrigin = await listen(server);
+        const boot = resumed.initialize();
+        void boot.catch(() => {});
+        const get = (url, expected = 200) => request(resumedOrigin, url, expected, undefined, {
+          'x-forwarded-host': new URL(resumedOrigin).host, 'x-forwarded-proto': 'http', 'x-codeflare-pi-generation': String(nextGeneration),
+        });
+        try { await exercise(resumed, get, boot, nextRuntimeDir, resumedProxy); }
+        finally {
+          await resumedProxy.close().catch(() => {}); // Test assertions above own the expected verdict.
+          await close(server);
+          Object.assign(process.env, { CODEFLARE_RUNTIME_ROOT: runtimeRoot, CODEFLARE_PI_GENERATION: String(generation), CODEFLARE_PI_SURFACE: 'chat' });
+        }
+      }
+      await restoredRuntime('chat', generation + 1, async (resumed, get, boot, _dir, resumedProxy) => {
+        const url = await until('fresh generation restores exact Chat deep link', async () => {
+          const state = resumed.status();
+          if (state.phase === 'failed') await boot;
+          return state.chatUrl;
+        });
+        const dest = new URL(url, origin);
+        assert.equal(dest.searchParams.get('session'), id);
+        await get(original + `${ref}/transcript-snapshot?${query}`, 409);
+        const restored = await get(`${dest.pathname.slice(0, -1)}${ref}/transcript-snapshot?${query}`);
+        assert.ok(restored.page.messages.some(message => text(message.content) === reply));
+        await boot;
+        assert.equal(resumed.ready, true);
+        const rows = await get(`${dest.pathname.slice(0, -1)}/api/sessions?${query}`);
+        assert.deepEqual(rows.map(row => row.id).sort(), [id, newId].sort(), 'restored membership is session-scoped');
+        await resumedProxy.close();
+      });
+      await restoredRuntime('terminal', generation + 2, async (resumed, _get, boot, dir, resumedProxy) => {
+        await boot;
+        const ticket = json(join(dir, 'owner.json'));
+        assert.deepEqual(ticket.binding, identity(selected));
+        await reopenTerminal(cwd, ticket, selected, async () => resumed.status(), async () => {
+          await resumedProxy.close();
+          const stopped = json(join(dir, 'terminal.json'));
+          assert.equal(stopped.released, true);
+          assert.deepEqual(identity(stopped), identity(selected));
+        });
+      });
+      assert.deepEqual(calls, expectedCalls, 'Stop and exact Resume on either surface replay no work');
+      // Missing, ambiguous and mismatched exact bindings are unavailable on
+      // either surface, even while the other history member is still on disk.
+      const committed = readFileSync(path, 'utf8');
+      const duplicate = join(dirname(path), `duplicate_${id}.jsonl`);
+      let failedGeneration = generation + 3;
+      async function verifyUnavailable() {
+        const before = readdirSync(dirname(path));
+        for (const surface of ['chat', 'terminal']) {
+          await restoredRuntime(surface, failedGeneration++, async (resumed, _get, boot, _dir, resumedProxy) => {
+            await assert.rejects(boot, /Saved Pi transcript/);
+            assert.equal(resumed.status().chatUrl, undefined);
+            assert.equal(resumed.binding, undefined);
+            await assert.rejects(resumedProxy.close(), /ownership was not confirmed/);
+          });
+        }
+        assert.deepEqual(readdirSync(dirname(path)), before, 'Resume cannot seed a replacement');
+      }
+      writeFileSync(duplicate, committed, { flag: 'wx' });
+      await verifyUnavailable();
+      rmSync(duplicate);
+      writeFileSync(path, `${JSON.stringify({ ...JSON.parse(committed.split('\n')[0]), cwd: '/different-workspace' })}\n`);
+      await verifyUnavailable();
+      rmSync(path);
+      await verifyUnavailable();
+      assert.equal(readFileSync(bindingFile, 'utf8'), `${id}\n`);
+      console.log('PI_WEB_HOST_TRANSCRIPT_HISTORY_OK');
+    }
 
     async function qualifyRetry(expectedCalls, previousTicket, reopened) {
       await api('/_switch', 202, { generation, requestId: randomUUID(), target: 'terminal' });
@@ -729,7 +898,7 @@ export default function (pi) {
       });
       // Load the frame document but not its client: attachment starts the
       // deadline, yet no transcript request produces a writer receipt.
-      const retryFrame = await nativeFetch(deepLink, { headers: browserHeaders });
+      const retryFrame = await nativeFetch(new URL((await readSwitch()).chatUrl, origin), { headers: browserHeaders });
       assert.equal(retryFrame.status, 200);
       await retryFrame.arrayBuffer();
       await until('missing startup receipt reaches a retry-safe outcome', async () => {
@@ -807,7 +976,8 @@ export default function (pi) {
     console.info = info;
     writeFileSync(resume, '');
     writeFileSync(nativeResume, '');
-    await Promise.all([proxy.close(), close(server), close(modelServer), close(occupiedGateway)]);
+    const retire = proxy.close();
+    await Promise.all([ambiguous ? assert.rejects(retire, /retire/) : retire, close(server), close(modelServer), close(occupiedGateway)]);
     rmSync(home, { recursive: true, force: true });
   }
 }

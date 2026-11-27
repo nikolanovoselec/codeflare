@@ -633,12 +633,13 @@ RCLONE_FILTERS_COMMON=(
     --filter "+ /.codeflare/ide-ui-state.json"
     --filter "+ /.codeflare/ide-extensions.json"
     --filter "+ /.codeflare/managed-extensions.json"
-    # Classic persists only the current Codeflare session's native agent UUID;
+    # Classic persists the current session's native binding and Chat membership;
     # the agent-owned transcript follows its existing narrow sync policy.
     --filter "+ /.codeflare/classic/"
     --filter "+ /.codeflare/classic/sessions/"
     --filter "+ /.codeflare/classic/sessions/cf-${SESSION_ID:-unknown}/"
     --filter "+ /.codeflare/classic/sessions/cf-${SESSION_ID:-unknown}/agent-session-id"
+    --filter "+ /.codeflare/classic/sessions/cf-${SESSION_ID:-unknown}/pi-chat-history.json"
     --filter "- .codeflare/classic/**"
     # Herdr's structural snapshot restores workspaces, tabs, panes, layout,
     # cwd, focus, and native agent session references. Pane history and every
@@ -1320,17 +1321,18 @@ establish_bisync_baseline() {
 cleanup_agent_transcripts() {
     local AGENT="$1"
     local ROOT="$2"
+    local KEEP_COUNT="$3"
     local SCRIPT="${TRANSCRIPT_RETENTION_SCRIPT:-/transcript-retention.mjs}"
 
-    node "$SCRIPT" "$AGENT" "$ROOT" 10 2>&1 | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
+    node "$SCRIPT" "$AGENT" "$ROOT" "$KEEP_COUNT" 2>&1 | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
 }
 
 cleanup_old_transcripts() {
-    cleanup_agent_transcripts "claude" "$USER_HOME/.claude/projects"
+    cleanup_agent_transcripts "claude" "$USER_HOME/.claude/projects" 10
 }
 
 cleanup_old_pi_transcripts() {
-    cleanup_agent_transcripts "pi" "$USER_HOME/.pi/agent/sessions"
+    cleanup_agent_transcripts "pi" "$USER_HOME/.pi/agent/sessions" 30
 }
 
 cleanup_main_transcripts() {

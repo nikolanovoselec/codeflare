@@ -408,6 +408,31 @@ bisync_with_r2 ''
     }
   });
 
+  test('REQ-STOR-012 AC3/AC4: production Pi cleanup keeps up to thirty main transcripts', () => {
+    for (const [count, fallback] of [[20, false], [35, false], [35, true]]) {
+      const scratch = makeScratch();
+      try {
+        const root = join(scratch.dir, '.pi', 'agent', 'sessions');
+        const paths = Array.from({ length: count }, (_, i) =>
+          writePi(root, i, i, 20_000 + count - i, fallback && i === 0 ? { version: 4 } : {}));
+        const shell = `set -e
+USER_HOME="$1"
+TRANSCRIPT_RETENTION_SCRIPT="$2"
+${extractShellFunction('cleanup_agent_transcripts')}
+${extractShellFunction('cleanup_old_pi_transcripts')}
+cleanup_old_pi_transcripts
+`;
+        execFileSync('bash', ['-c', shell, 'pi-retention-limit', scratch.dir, RETENTION_SCRIPT], {
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: shellEnv(scratch.runtimeRoot),
+        });
+        assert.deepEqual(paths.filter(existsSync), fallback ? paths.slice(0, 30) : paths.slice(Math.max(0, count - 30)));
+      } finally {
+        scratch.cleanup();
+      }
+    }
+  });
+
   test('AC3: malformed interior and trailing records do not hide a recoverable native timestamp', () => {
     const scratch = makeScratch();
     try {

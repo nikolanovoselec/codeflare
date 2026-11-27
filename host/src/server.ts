@@ -331,10 +331,8 @@ const server = http.createServer(createRequestHandler({
   activityTracker: state.activityTracker,
   log,
   serverStartTime: SERVER_START_TIME,
-  prepareFinalSync: async deadline => {
-    await piWeb?.close();
-    return shutdownPiMemoryOwners('/home/user/.cache/pi-hermes-memory/owners', deadline);
-  },
+  prepareTranscriptSync: piWeb?.close,
+  prepareFinalSync: deadline => shutdownPiMemoryOwners('/home/user/.cache/pi-hermes-memory/owners', deadline),
   readiness: () => ({ prewarmReady, initFlagObserved, terminalServiceReady, editorReady, editorReadyTimedOut, startupPolicyError }),
   silverbullet: SILVERBULLET,
   openvscode: OPENVSCODE,

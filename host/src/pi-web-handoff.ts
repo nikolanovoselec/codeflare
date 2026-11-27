@@ -17,6 +17,10 @@ export interface PiSwitchStatus {
   target?: PiSurface;
   requestId?: string;
 }
+interface RebindAttempt {
+  requestId: string;
+  destination?: PiTranscript;
+}
 interface Options {
   generation: number;
   initialSurface: PiSurface;
@@ -34,6 +38,9 @@ export function createPiWebHandoff(options: Options) {
   let state: PiSwitchStatus = { phase: 'active', surface: options.initialSurface };
   let current: { input: PiSwitchRequest; abort: AbortController; result: Promise<PiSwitchStatus> } | undefined;
   let released: PiTranscript | undefined;
+  let retirement: Promise<void> | undefined;
+  let rebindAttempt: RebindAttempt | undefined;
+  let retiring = false;
   const requests = new Map<Promise<void>, PiWebAdmission>();
 
   const status = (): PiSwitchStatus => ({ ...state });
@@ -44,6 +51,7 @@ export function createPiWebHandoff(options: Options) {
     state = next;
   }
   function permits(surface: PiSurface, kind: PiWebAdmission): boolean {
+    if (retiring && kind === 'work') return false;
     // With the old writer already released, the stock Chat frame can open
     // its exact bound transcript and answer a native startup dialog.
     if (state.phase === 'opening') return surface === 'chat' && state.target === 'chat' && kind !== 'work';
@@ -58,11 +66,13 @@ export function createPiWebHandoff(options: Options) {
     requests.set(pending, kind);
     return () => { requests.delete(pending); done(); };
   }
-  async function switchTo(input: PiSwitchRequest, restartTerminal = false): Promise<PiSwitchStatus> {
+  async function transition(input: PiSwitchRequest, restartTerminal: boolean,
+    candidate?: () => Promise<PiTranscript>, retire = false): Promise<PiSwitchStatus> {
+    if (retiring && !retire) throw new Error('Pi workspace is retiring');
     if (input.generation !== options.generation) throw new Error('Pi workspace generation changed');
     const { requestId, target } = input;
     if (current) {
-      if (current.input.requestId !== requestId || current.input.target !== target) {
+      if (candidate || current.input.requestId !== requestId || current.input.target !== target) {
         throw new Error('Another Pi switch is in progress');
       }
       return current.result;
@@ -78,9 +88,15 @@ export function createPiWebHandoff(options: Options) {
       }
       return status();
     }
-    if (state.surface === target && !(restartTerminal && target === 'terminal')) return status();
+    if (candidate && (state.surface !== 'chat' || !permits('chat', 'work'))) throw new Error('Chat is not active');
+    if (!candidate && !retire && state.surface === target && !(restartTerminal && target === 'terminal')) return status();
     if (!state.surface && (state.requestId !== requestId || !released)) throw new Error('Retry the previous Pi switch');
     const source = state.surface;
+    const retry = !source && rebindAttempt?.requestId === requestId ? rebindAttempt : undefined;
+    if (retry && !retry.destination) throw new Error('The requested Pi transcript is unavailable');
+    const rebind: RebindAttempt | undefined = candidate ? { requestId } : undefined;
+    if (rebind) rebindAttempt = rebind;
+    else if (source) rebindAttempt = undefined;
     const abort = new AbortController();
     const attempt = { requestId, target };
     if (source) set({ ...attempt, phase: 'waiting', surface: source });
@@ -123,8 +139,23 @@ export function createPiWebHandoff(options: Options) {
           if (!released) set({ ...attempt, phase: 'stopping', surface: source });
         } while (!released);
       }
-      const transcript = released;
+      if (retire) {
+        set({ ...attempt, phase: 'complete', surface: null });
+        return status();
+      }
+      let transcript = retry?.destination ?? released;
       if (!transcript) throw new Error('No Pi transcript was released');
+      if (candidate && rebind) {
+        if (retiring) {
+          set({ ...attempt, phase: 'failed', surface: null });
+          return status();
+        }
+        try { transcript = rebind.destination = await candidate(); }
+        catch {
+          set({ ...attempt, phase: 'failed', surface: null });
+          return status();
+        }
+      }
       set({ ...attempt, phase: 'opening', surface: null });
       let opened: boolean;
       try { opened = await options.open(target, transcript); }
@@ -139,15 +170,34 @@ export function createPiWebHandoff(options: Options) {
         released = undefined;
       } else {
         set({ ...attempt, phase: opened ? 'complete' : 'failed', surface: opened ? target : null });
-        if (opened) released = undefined;
+        if (opened) { released = undefined; rebindAttempt = undefined; }
       }
       return status();
     }).finally(() => { current = undefined; });
     current = { input, abort, result };
     return result;
   }
+  function switchTo(input: PiSwitchRequest, restartTerminal = false) {
+    return transition(input, restartTerminal);
+  }
+  function rebindChat(input: Omit<PiSwitchRequest, 'target'>, candidate: () => Promise<PiTranscript>) {
+    return transition({ ...input, target: 'chat' }, false, candidate);
+  }
+  function retire(requestId: string): Promise<void> {
+    retiring = true;
+    retirement ??= (async () => {
+      await current?.result;
+      if (!state.surface) {
+        if (state.phase === 'failed' && released) return;
+        throw new Error('Could not retire the unconfirmed Pi writer');
+      }
+      const result = await transition({ generation: options.generation, target: 'chat', requestId }, false, undefined, true);
+      if (result.phase !== 'complete' || result.surface !== null) throw new Error('Could not retire the Pi writer');
+    })();
+    return retirement;
+  }
   function cancel(input: Pick<PiSwitchRequest, 'generation' | 'requestId'>): boolean {
-    if (input.generation !== options.generation || state.phase !== 'waiting'
+    if (retiring || input.generation !== options.generation || state.phase !== 'waiting'
       || current?.input.requestId !== input.requestId) return false;
     current.abort.abort();
     return true;
@@ -158,5 +208,5 @@ export function createPiWebHandoff(options: Options) {
     set({ phase: 'opening', surface: null, target: 'chat', requestId });
     return switchTo({ generation: options.generation, target: 'chat', requestId });
   }
-  return { status, switchTo, openInitialChat, cancel, permits, admit };
+  return { status, switchTo, rebindChat, retire, openInitialChat, cancel, permits, admit };
 }

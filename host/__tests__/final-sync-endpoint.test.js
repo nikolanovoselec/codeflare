@@ -512,6 +512,27 @@ describe('REQ-MEM-035 AC6: foreground shutdown before authoritative final sync',
       'success must describe the fresh scan after shutdown, not a pre-shutdown run');
   });
 
+  it('REQ-SESSION-011: upload success does not certify an unconfirmed transcript release', async t => {
+    const f = memoryFinalSyncFixture(t);
+    let index = 0;
+    const response = await withRouter({
+      prepareTranscriptSync: async () => { throw new Error('writer release unavailable'); },
+      prepareFinalSync: async () => {
+        writeFileSync(f.prepared, 'memory drained');
+        return { status: 'exited', count: 1 };
+      },
+      finalSync: {
+        now: () => TRIGGER,
+        signalDaemon() { writeFileSync(f.uploaded, readFileSync(f.prepared, 'utf8')); },
+        readStatus: () => ++index === 1 ? { status: 'syncing', ts: TRIGGER + 1 } : { status: 'success', ts: TRIGGER + 2 },
+        async poll() {},
+      },
+    }, postFinalSync);
+    assert.equal(response.status, 503);
+    assert.equal(response.body.reason, 'pi-transcript-unconfirmed');
+    assert.equal(readFileSync(f.uploaded, 'utf8'), 'memory drained');
+  });
+
   for (const outcome of [
     { status: 'timeout', remaining: 1 },
     { status: 'unconfirmed' },

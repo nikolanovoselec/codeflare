@@ -134,6 +134,19 @@ describe('Pi web Worker proxy (REQ-AGENT-272 AC5)', () => {
     });
   }
 
+  it('REQ-AGENT-272/274: only a current owned attachment can submit a valid transcript intent', async () => {
+    const scoped = `${APP}a/${ATTEMPT}/_intent`;
+    const body = { generation: GENERATION, cwd: '/home/user/workspace', action: 'select', id: ATTEMPT };
+    expect((await handlePiWebRequest(request(scoped, { body }), env)).status).toBe(200);
+    expect(ingress).toHaveLength(1);
+    expect(await ingress[0].request.json()).toEqual(body);
+    expect((await handlePiWebRequest(request(scoped, { body: { ...body, generation: GENERATION - 1 } }), env)).status).toBe(409);
+    expect((await handlePiWebRequest(request(scoped, { body: { ...body, id: '../escape' } }), env)).status).toBe(400);
+    expect((await handlePiWebRequest(request(scoped), env)).status).toBe(405);
+    expect((await handlePiWebRequest(request(scoped, { body, headers: { Origin: 'https://other.example' } }), env)).status).toBe(403);
+    expect(ingress).toHaveLength(1);
+  });
+
   it('REQ-AGENT-272 AC5: keeps an owned app fetch passive while preserving the exact scoped path, query, and canonical browser origin', async () => {
     const path = `${APP}assets/main.js${QUERY}`;
     const response = await handlePiWebRequest(request(path, {

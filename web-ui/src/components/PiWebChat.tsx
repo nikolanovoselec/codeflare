@@ -3,6 +3,8 @@ import { piWebPrefix, type PiWebStatus } from '../api/pi-web';
 import { disableVirtualKeyboardOverlay } from '../lib/mobile';
 import PiWebSwitchControls from './PiWebSwitchControls';
 
+export type ChatPanelSize = { compactHeight?: number; expanding?: boolean };
+
 interface PiWebChatProps {
   sessionId: string;
   generation: number;
@@ -15,9 +17,10 @@ interface PiWebChatProps {
   switchingTarget?: PiWebStatus['target'];
   onStartupReady?: (ready: boolean) => void;
   onStartupFailure?: (failed: boolean) => void;
+  onPanelSize?: (size?: ChatPanelSize) => void;
 }
 
-function StockChatFrame(props: { src: string; onStartupReady?: (ready: boolean) => void; onStartupFailure?: (failed: boolean) => void }) {
+function StockChatFrame(props: { src: string; onStartupReady?: (ready: boolean) => void; onStartupFailure?: (failed: boolean) => void; onPanelSize?: PiWebChatProps['onPanelSize'] }) {
   // Seed the pinned stock release's browser preference before its same-origin frame starts.
   // Existing browser choices always win, and storage denial must not block Chat.
   try {
@@ -29,18 +32,87 @@ function StockChatFrame(props: { src: string; onStartupReady?: (ready: boolean) 
 
   let observer: MutationObserver | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const cancel = () => { observer?.disconnect(); clearTimeout(timer); };
-  onCleanup(() => { cancel(); props.onStartupReady?.(false); props.onStartupFailure?.(false); });
+  let stopCompactWatch: (() => void) | undefined;
+  const cancel = () => { observer?.disconnect(); clearTimeout(timer); stopCompactWatch?.(); };
+  const [compactHeight, setCompactHeight] = createSignal<number>();
+  let expansionTimer: ReturnType<typeof setTimeout> | undefined;
+  const compact = (height?: number, animate = false) => {
+    if (height === compactHeight()) return;
+    clearTimeout(expansionTimer);
+    props.onPanelSize?.(height === undefined ? (animate ? { expanding: true } : undefined) : { compactHeight: height });
+    setCompactHeight(height);
+    if (animate) expansionTimer = setTimeout(() => props.onPanelSize?.(), 300);
+  };
+
+  const watchCompactHistory = (frame: HTMLIFrameElement, doc: Document, app: Element) => {
+    // Pi Web 1.202611.5 does not reflect historyReady on the DOM. Observe
+    // rendered changes and sample only until the selected history is known.
+    type StockHistory = HTMLElement & {
+      historyReady?: boolean; messageTotal?: number; messages?: unknown[];
+      pendingDialogs?: unknown[]; closedDialogs?: unknown[];
+    };
+    let checkedChat: StockHistory | null | undefined;
+    let complete = false;
+    let checks = 0;
+    let sampling: ReturnType<typeof setInterval> | undefined;
+    const dom = new MutationObserver(() => sample());
+    const layout = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(() => sample());
+    const stopSampling = () => { clearInterval(sampling); sampling = undefined; };
+    const sample = () => {
+      if (!frame.isConnected || frame.contentDocument !== doc) return;
+      const chat = app.shadowRoot?.querySelector<StockHistory>('main.chat-view > conversation-layout > chat-view') ?? null;
+      if (chat !== checkedChat) {
+        dom.disconnect();
+        if (app.shadowRoot) dom.observe(app.shadowRoot, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] });
+        if (chat?.shadowRoot) dom.observe(chat.shadowRoot, { subtree: true, childList: true });
+        layout?.disconnect();
+        layout?.observe(frame);
+        const conversation = chat?.parentElement;
+        for (const part of conversation?.querySelectorAll(':scope > [slot="composer"], :scope > [slot="status"]') ?? []) layout?.observe(part);
+        checkedChat = chat;
+      }
+      if (doc.documentElement.hasAttribute('data-pi-web-loading') || !chat?.historyReady
+        || !Array.isArray(chat.messages) || typeof chat.messageTotal !== 'number') {
+        compact();
+        return;
+      }
+      stopSampling();
+      const visibleMessage = (message: unknown) => !message || typeof message !== 'object'
+        || !('role' in message) || message.role !== 'system';
+      if (chat.messageTotal > chat.messages.length || chat.messages.some(visibleMessage)) complete = true;
+      if (complete || chat.pendingDialogs?.length || chat.closedDialogs?.length) {
+        compact(undefined, complete);
+        if (complete) { stopSampling(); dom.disconnect(); layout?.disconnect(); }
+        return;
+      }
+      const remaining = frame.offsetHeight - chat.offsetHeight;
+      if (remaining > 0 && frame.offsetHeight > 0) compact(remaining);
+    };
+    if (app.shadowRoot) dom.observe(app.shadowRoot, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] });
+    layout?.observe(frame);
+    stopCompactWatch = () => { stopSampling(); dom.disconnect(); layout?.disconnect(); };
+    sampling = setInterval(() => {
+      sample();
+      if (++checks >= 50) stopSampling();
+    }, 200);
+    sample();
+  };
+  onCleanup(() => { cancel(); clearTimeout(expansionTimer); props.onPanelSize?.(); props.onStartupReady?.(false); props.onStartupFailure?.(false); });
 
   const loaded = (frame: HTMLIFrameElement) => {
     cancel();
     props.onStartupReady?.(false);
+    clearTimeout(expansionTimer);
+    compact();
+    props.onPanelSize?.();
     const doc = frame.contentDocument;
-    if (!doc || new URL(doc.URL).pathname !== new URL(props.src).pathname || !doc.querySelector('pi-web-app')) {
+    const app = doc?.querySelector('pi-web-app');
+    if (!doc || new URL(doc.URL).pathname !== new URL(props.src).pathname || !app) {
       props.onStartupFailure?.(true);
       return;
     }
     props.onStartupFailure?.(false);
+    if (props.onPanelSize) watchCompactHistory(frame, doc, app);
     if (!props.onStartupReady) return;
     const root = doc.documentElement;
     const check = () => {
@@ -90,7 +162,9 @@ export default function PiWebChat(props: PiWebChatProps) {
     if (!chatUrl || (surface !== 'chat' && !(phase === 'opening' && target === 'chat'))) return undefined;
     try {
       const url = new URL(chatUrl, window.location.origin);
-      if (url.origin !== window.location.origin || url.pathname !== `${piWebPrefix(props.sessionId)}g/${props.generation}/`
+      const prefix = `${piWebPrefix(props.sessionId)}g/${props.generation}/`;
+      if (url.origin !== window.location.origin || !url.pathname.startsWith(prefix)
+        || !/^a\/[a-f0-9-]{36}\/$/.test(url.pathname.slice(prefix.length))
         || url.username || url.password) return undefined;
       return url.href;
     } catch {
@@ -117,7 +191,7 @@ export default function PiWebChat(props: PiWebChatProps) {
       <div class="pi-web-chat__space">
         <Show when={frame()} keyed
           fallback={<p role="status">{props.status.chatUrl ? 'Chat could not be opened.' : 'Preparing Chat…'}</p>}>
-          {source => <StockChatFrame src={source.src} onStartupReady={props.onStartupReady} onStartupFailure={failed => {
+          {source => <StockChatFrame src={source.src} onPanelSize={props.onPanelSize} onStartupReady={props.onStartupReady} onStartupFailure={failed => {
             setFrameFailed(failed);
             props.onStartupFailure?.(failed);
           }} />}

@@ -139,6 +139,9 @@ function verdictUnder({ sessionMode, syncMode = 'full', syncPolicyMode = 'includ
     '.codeflare/classic/sessions/cf-abc12345/agent-session-id': '01991fc9-f25d-7000-8000-000000000001',
     '.codeflare/classic/sessions/cf-abc12345/private.json': 'must stay local',
     '.codeflare/classic/sessions/cf-other123/agent-session-id': '01991fc9-f25d-7000-8000-000000000002',
+    '.codeflare/classic/sessions/cf-abc12345/pi-chat-history.json': '["saved-native-id"]',
+    '.codeflare/classic/sessions/cf-other123/pi-chat-history.json': '["other-native-id"]',
+    '.codeflare/herdr/sessions/cf-abc12345/pi-chat-history.json': '["not-classic"]',
     '.codeflare/private-runtime.json': 'must stay local',
     'workspace/repo/graphify-out/g.json': 'repo graph artifact',
     '.cache/rclone/junk': 'ephemeral cache',
@@ -307,6 +310,15 @@ describe('entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2
     assert.equal(v['.codeflare/classic/sessions/cf-abc12345/agent-session-id'], 'INCLUDED');
     assert.equal(v['.codeflare/classic/sessions/cf-abc12345/private.json'], 'EXCLUDED');
     assert.equal(v['.codeflare/classic/sessions/cf-other123/agent-session-id'], 'EXCLUDED');
+  });
+
+  it('REQ-STOR-004: Classic Chat history sync admits only the selected session membership record', () => {
+    for (const sessionMode of ['advanced', 'default']) {
+      const v = verdictUnder({ sessionMode });
+      assert.equal(v['.codeflare/classic/sessions/cf-abc12345/pi-chat-history.json'], 'INCLUDED');
+      assert.equal(v['.codeflare/classic/sessions/cf-other123/pi-chat-history.json'], 'EXCLUDED');
+      assert.equal(v['.codeflare/herdr/sessions/cf-abc12345/pi-chat-history.json'], 'EXCLUDED');
+    }
   });
 
   it('default mode: positively excludes the entire vault tree (REQ-MEM-006 AC1)', () => {

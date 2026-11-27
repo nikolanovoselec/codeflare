@@ -219,7 +219,7 @@ export default function (pi: ExtensionAPI) {
 			ctx.abort();
 			stopRequested = stopping;
 		}
-		const releasing = owner?.phase === "releasing" && owner.target !== undefined && owner.target !== surface && !!owner.requestId;
+		const releasing = owner?.phase === "releasing" && owner.target !== undefined && (!terminal || owner.target !== surface) && !!owner.requestId;
 		let idle = ctx.isIdle() && !ctx.hasPendingMessages() && promptIdle;
 		let leaf = ctx.sessionManager.getLeafId();
 		if (!persisted) {
@@ -364,8 +364,8 @@ export default function (pi: ExtensionAPI) {
 		// that hook can unblock before the next receipt poll.
 		if (terminal) publish();
 	});
-	pi.on("session_before_switch", () => ctx && terminal && frozen() ? { cancel: true } : undefined);
-	pi.on("session_before_fork", () => ctx && terminal && frozen() ? { cancel: true } : undefined);
+	pi.on("session_before_switch", () => ctx && (!terminal || frozen()) ? { cancel: true } : undefined);
+	pi.on("session_before_fork", () => ctx && (!terminal || frozen()) ? { cancel: true } : undefined);
 	pi.on("session_before_tree", () => ctx && terminal && frozen() ? { cancel: true } : undefined);
 	pi.on("session_shutdown", (event) => {
 		if (!ctx) return;

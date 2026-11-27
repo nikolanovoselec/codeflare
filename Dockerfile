@@ -630,7 +630,7 @@ RUN if node /opt/codeflare/scripts/coding-agent-selection.mjs has "$CODEFLARE_CO
 # would run a slow npm install on first launch (~90s on mobile). Entrypoint
 # symlinks node_modules to this cache (instant, zero-copy).
 COPY preseed/agents/pi/package.json preseed/agents/pi/package-lock.json /opt/codeflare/pi-agent/npm/
-COPY scripts/verify-pi-lockstep.mjs scripts/patch-pi-plan-mode-tool-policy.mjs scripts/patch-pi-native-model-display.mjs scripts/patch-pi-codex-prompt-cache.mjs scripts/patch-pi-subagents-notifications.mjs scripts/patch-rpiv-host-peers.mjs scripts/patch-rpiv-question-timeout.mjs scripts/rpiv-question-timeout.mjs /opt/codeflare/scripts/
+COPY scripts/verify-pi-lockstep.mjs scripts/patch-pi-plan-mode-tool-policy.mjs scripts/patch-pi-todo-loop-default-pause.mjs scripts/patch-pi-native-model-display.mjs scripts/patch-pi-codex-prompt-cache.mjs scripts/patch-pi-subagents-notifications.mjs scripts/patch-rpiv-host-peers.mjs scripts/patch-rpiv-question-timeout.mjs scripts/rpiv-question-timeout.mjs /opt/codeflare/scripts/
 # better-sqlite3 / bufferutil / utf-8-validate are native (node-gyp) modules. Their
 # prebuilt-binary fetch is best-effort and falls back to a source compile, which needs
 # make + a C/C++ toolchain. stage-1 ships python3 but not make/gcc/g++ (those live only
@@ -646,6 +646,7 @@ RUN cd /opt/codeflare/pi-agent/npm && \
     apt-get update && \
     apt-get install -y --no-install-recommends make gcc g++ && \
     npm ci --omit=dev --no-audit --no-fund && \
+    node /opt/codeflare/scripts/patch-pi-todo-loop-default-pause.mjs ./node_modules/@dumbmice/pi-todo-loop && \
     node /opt/codeflare/scripts/patch-pi-subagents-notifications.mjs ./node_modules/@gotgenes/pi-subagents && \
     PLAN_MODE_VERSION="$(node -p 'require("./package.json").dependencies["@narumitw/pi-plan-mode"]')" && \
     node /opt/codeflare/scripts/patch-pi-plan-mode-tool-policy.mjs \

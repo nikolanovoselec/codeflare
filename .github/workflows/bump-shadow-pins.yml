@@ -1461,6 +1461,10 @@ jobs:
             node scripts/patch-pi-plan-mode-tool-policy.mjs \
               "$LAT" preseed/agents/pi/node_modules/@narumitw/pi-plan-mode
           fi
+          if [ "$PKG" = '@dumbmice/pi-todo-loop' ]; then
+            (cd preseed/agents/pi && npm ci --ignore-scripts --no-audit --no-fund)
+            node scripts/patch-pi-todo-loop-default-pause.mjs preseed/agents/pi/node_modules/@dumbmice/pi-todo-loop
+          fi
           case "$PKG" in
             @juicesharp/rpiv-advisor|@juicesharp/rpiv-ask-user-question|@juicesharp/rpiv-todo)
               (cd preseed/agents/pi && npm ci --ignore-scripts --no-audit --no-fund)

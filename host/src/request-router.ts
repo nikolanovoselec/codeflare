@@ -105,6 +105,7 @@ export interface RequestRouterDeps {
   drainAgentEvents?: AgentEventDrainer['drainAgentEvents'];
   enqueueAgentEvent?: (kind: AgentEventKind) => boolean;
   /** Quiesce registered foreground memory writers before the authoritative final sync. */
+  prepareTranscriptSync?: () => Promise<void>;
   prepareFinalSync?: (deadline: number) => Promise<PiMemoryShutdown>;
   /** Injectable final-sync I/O keeps endpoint tests deterministic; production uses host I/O below. */
   finalSync?: {
@@ -901,6 +902,9 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
         poll: (delayMs: number) => new Promise<void>((resolve) => setTimeout(resolve, delayMs)),
       };
       const deadline = finalSync.now() + FINAL_SYNC_INTERNAL_TIMEOUT_MS;
+      let transcriptPrepared = true;
+      try { await deps.prepareTranscriptSync?.(); }
+      catch { transcriptPrepared = false; log('warn', 'Managed Pi transcript release incomplete'); }
       let memoryShutdown: PiMemoryShutdown = { status: 'exited', count: 0 };
       try {
         if (deps.prepareFinalSync) memoryShutdown = await deps.prepareFinalSync(deadline);
@@ -937,7 +941,10 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
         const ev = evaluateFinalSync(finalSync.readStatus(), triggerTs, runStartedTs);
         runStartedTs = ev.runStartedTs;
         if (ev.result === 'success') {
-          if (memoryShutdown.status !== 'exited') {
+          if (!transcriptPrepared) {
+            res.writeHead(503, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ synced: false, reason: 'pi-transcript-unconfirmed' }));
+          } else if (memoryShutdown.status !== 'exited') {
             res.writeHead(503, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ synced: false, reason: `pi-shutdown-${memoryShutdown.status}` }));
           } else {

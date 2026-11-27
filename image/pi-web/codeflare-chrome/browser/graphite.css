@@ -62,3 +62,16 @@ html, body {
 :host(chat-view) article.msg.user {
   border-inline-start-width: 4px;
 }
+
+/* Match the pinned stock Chat body size without changing message typography. */
+:host(chat-view) .history-boundary,
+:host(chat-view) .history-boundary small,
+:host(prompt-editor) .markdown-editor .cm-editor,
+:host(prompt-editor) .select-model,
+:host(status-bar) .bar > :is(span:nth-child(-n+2), .context) {
+  font-size: 14px;
+}
+
+:host(chat-view) .history-boundary:not(:has(> .history-load-button)) {
+  padding-block-start: 12px;
+}

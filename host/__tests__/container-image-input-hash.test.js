@@ -72,19 +72,8 @@ describe('deployment container image input hash', () => {
     execFileSync('git', ['config', 'user.email', 'ci@example.invalid'], { cwd: root });
     execFileSync('git', ['config', 'user.name', 'CI'], { cwd: root });
 
-    write('Dockerfile', [
-      'COPY host/package.json host/package-lock.json /app/host/',
-      'COPY host/tsconfig.json /app/host/',
-      'COPY host/src/ /app/host/src/',
-      'COPY entrypoint.sh /entrypoint.sh',
-      'COPY transcript-retention.mjs /transcript-retention.mjs',
-      'COPY scripts/compact-session-captures.mjs /opt/codeflare/scripts/compact-session-captures.mjs',
-      'COPY scripts/rclone-conflict-cleanup.sh scripts/merge-pi-mcp-portals.mjs scripts/qualify-pi-mcp.mjs /opt/codeflare/scripts/',
-      'COPY host/__tests__/pi-mcp-stock.test.js /opt/codeflare/qualification/',
-      'COPY host/__fixtures__/pi-mcp-extension-server.mjs /opt/codeflare/qualification/',
-      'COPY --chmod=0555 scripts/restore-operator-attachments.mjs scripts/materialize-operator-inputs.mjs /opt/codeflare/scripts/',
-      '',
-    ].join('\n'));
+    // The workflow hashes committed blobs; exercise the real COPY inventory in the fixture repo.
+    write('Dockerfile', readFileSync(join(ROOT, 'Dockerfile'), 'utf8'));
     for (const path of [
       '.github/workflows/container-image.yml',
       '.github/workflow-tool-pins.json',
@@ -122,6 +111,7 @@ describe('deployment container image input hash', () => {
       'scripts/qualify-context-mode.mjs',
       'scripts/patch-chrome-devtools-timeouts.mjs',
       'scripts/patch-pi-plan-mode-tool-policy.mjs',
+      'scripts/patch-pi-todo-loop-default-pause.mjs',
       'scripts/patch-pi-native-model-display.mjs',
       'scripts/patch-pi-codex-prompt-cache.mjs',
       'scripts/patch-pi-subagents-notifications.mjs',
@@ -153,8 +143,7 @@ describe('deployment container image input hash', () => {
     commit('fixture');
     const baseline = imageHashResult();
     assert.match(baseline.tag ?? '', /^in-[a-f0-9]{16}$/);
-    assert.equal(baseline.noReuse, '0');
-    assert.equal(imageHashResult(ROOT).noReuse, '0', 'the real Dockerfile must remain fully covered');
+    assert.equal(baseline.noReuse, '0', 'the real Dockerfile must remain fully covered');
     assert.notEqual(
       imageHashResult(root, 'claude-code,codex,pi').tag,
       baseline.tag,
@@ -227,10 +216,15 @@ describe('deployment container image input hash', () => {
     const planPatchTag = imageHashResult().tag;
     assert.notEqual(planPatchTag, scriptTag);
 
+    write('scripts/patch-pi-todo-loop-default-pause.mjs', 'Todo Loop default pause change\n');
+    commit('Todo Loop default pause change');
+    const todoLoopPatchTag = imageHashResult().tag;
+    assert.notEqual(todoLoopPatchTag, planPatchTag, 'changing Todo Loop default pause must invalidate image reuse');
+
     write('scripts/patch-pi-subagents-notifications.mjs', 'Native notification delivery changed\n');
     commit('notification delivery change');
     const notificationPatchTag = imageHashResult().tag;
-    assert.notEqual(notificationPatchTag, planPatchTag, 'changing native delivery must invalidate image reuse');
+    assert.notEqual(notificationPatchTag, todoLoopPatchTag, 'changing native delivery must invalidate image reuse');
 
     write('scripts/patch-rpiv-host-peers.mjs', 'RPIV compatibility correction changed\n');
     commit('RPIV peer correction change');

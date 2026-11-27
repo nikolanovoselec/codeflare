@@ -9,28 +9,13 @@
   display: none;
 }
 
-/* Hide stock Refresh and lightning icons, retaining a text path to the
-   native Actions palette (including its theme picker) on touch screens. */
+/* Remove the stock controls without hiding the navigation trigger. */
 :host(app-context-bar) .context-actions > app-refresh-control,
-:host(app-navigation-panel) .header-actions > app-refresh-control,
-:host(app-context-bar) .context-actions > button:not([data-navigation-trigger]) .context-action-icon,
-:host(app-navigation-panel) .header-actions .actions-icon {
+:host(app-context-bar) .context-actions > button.context-action-button:not([data-navigation-trigger]),
+:host(app-navigation-panel) .header-actions {
   display: none;
 }
 
-:host(app-context-bar) .context-actions > button.context-action-button:not([data-navigation-trigger]) {
-  width: auto;
-  padding-inline: 12px;
-}
-
-:host(app-context-bar) .context-actions > button.context-action-button:not([data-navigation-trigger])::after {
-  content: attr(aria-label) / "";
-}
-
-:host(app-navigation-panel) .header-actions .actions-label {
-  display: inline;
-}
-
-:host(app-navigation-panel) .header-actions .actions-button {
-  padding-inline: 12px;
+:host(app-context-bar) .context-actions:not(:has(> [data-navigation-trigger])) {
+  display: none;
 }

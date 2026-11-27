@@ -20,6 +20,11 @@ const CONTROL_BODY_LIMIT = 4096;
 const SwitchAttempt = z.object({ generation: z.number().int().positive(), requestId: z.uuid() }).strict();
 const SwitchStatus = SwitchAttempt.partial({ requestId: true });
 const StartSwitch = SwitchAttempt.extend({ target: PiSurfaceSchema });
+const IntentBase = z.object({ generation: z.number().int().positive(), cwd: z.string().min(1).max(4096) }).strict();
+const StartIntent = z.discriminatedUnion('action', [
+  IntentBase.extend({ action: z.literal('new') }),
+  IntentBase.extend({ action: z.literal('select'), id: z.string().regex(/^[a-zA-Z0-9](?:[a-zA-Z0-9_.-]{0,126}[a-zA-Z0-9])?$/) }),
+]);
 const FORWARDED_HEADERS = [
   'Accept', 'Accept-Encoding', 'Accept-Language', 'Content-Type', 'Content-Length',
   'Range', 'If-Range', 'If-Match', 'If-None-Match', 'If-Modified-Since', 'If-Unmodified-Since',
@@ -134,7 +139,8 @@ export async function handlePiWebRequest(request: Request, env: Env): Promise<Re
       return Response.json({ error: 'Pi web generation changed' }, { status: 409 });
     }
     let controlBody: Uint8Array<ArrayBuffer> | undefined;
-    const control = path === '_switch' || path === '_cancel';
+    const intent = /^g\/[1-9][0-9]*\/a\/[a-f0-9-]{36}\/_intent$/.test(path);
+    const control = path === '_switch' || path === '_cancel' || intent;
     if (control) {
       if (upgrade || (request.method !== 'POST' && !(request.method === 'GET' && path === '_switch'))) {
         return Response.json({ error: 'Unsupported Pi switch method' }, { status: 405 });
@@ -150,7 +156,7 @@ export async function handlePiWebRequest(request: Request, env: Env): Promise<Re
       } else {
         const { bytes, value } = await readControlBody(authenticatedRequest);
         controlBody = bytes;
-        attempt = (path === '_switch' ? StartSwitch : SwitchAttempt).safeParse(value);
+        attempt = (intent ? StartIntent : path === '_switch' ? StartSwitch : SwitchAttempt).safeParse(value);
       }
       if (!attempt.success) return Response.json({ error: 'Invalid Pi switch request' }, { status: 400 });
       if (attempt.data.generation !== generation) return Response.json({ error: 'Pi web generation changed' }, { status: 409 });

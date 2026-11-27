@@ -23,6 +23,7 @@ try {
   const messages = [line('user', 'text', 'fixture user'), line('assistant', 'text', 'fixture reply'),
     line('system', 'text', 'fixture saved SYSTEM'), line('system', 'thinking', 'fixture grouped SYSTEM')];
   chat.messages = messages;
+  chat.messageTotal = messages.length;
   await chat.updateComplete;
   const root = chat.shadowRoot;
   const group = root.querySelector('details');
@@ -58,43 +59,38 @@ try {
   if (user.backgroundColor === agent.backgroundColor || !(parseFloat(user.borderInlineStartWidth) > parseFloat(agent.borderInlineStartWidth))) {
     throw Error('Codeflare palette must distinguish user messages from agent replies');
   }
-  for (const [tag, action, icon, navigation] of [
-    ['app-context-bar', 'button.context-action-button:not([data-navigation-trigger])', '.context-action-icon', '[data-navigation-trigger]'],
-    ['app-navigation-panel', 'button.actions-button', '.actions-icon', 'header machine-switcher'],
+  const typeStatus = { model: { id: 'fixture-model', provider: 'fixture' }, thinkingLevel: 'off',
+    tokens: { input: 100, output: 30 }, contextUsage: { percent: 5, contextWindow: 2600 }, cost: 0, pendingMessageCount: 0 };
+  const composer = document.body.appendChild(document.createElement('prompt-editor'));
+  const status = document.body.appendChild(document.createElement('status-bar'));
+  composer.status = status.status = typeStatus;
+  await Promise.all([composer.updateComplete, status.updateComplete]);
+  for (const element of [composer, status]) element.shadowRoot.adoptedStyleSheets = [...element.shadowRoot.adoptedStyleSheets, theme];
+  const boundary = root.querySelector('.history-boundary');
+  const bodySize = user.fontSize;
+  for (const target of [boundary.querySelector('span'), boundary.querySelector('small'),
+    composer.shadowRoot.querySelector('.cm-content'), composer.shadowRoot.querySelector('.prompt-placeholder'),
+    composer.shadowRoot.querySelector('.select-model'), ...Array.from(status.shadowRoot.querySelectorAll('.bar > span')).slice(0, 3)]) {
+    if (!target || getComputedStyle(target).fontSize !== bodySize) throw Error('Chat controls must match the message font size');
+  }
+  if (!(parseFloat(getComputedStyle(boundary).paddingBlockStart) > 0)) throw Error('Session beginning needs top padding');
+  for (const [tag, action, navigation] of [
+    ['app-context-bar', 'button.context-action-button:not([data-navigation-trigger])', '[data-navigation-trigger]'],
+    ['app-navigation-panel', 'button.actions-button', 'header machine-switcher'],
   ]) {
     const bar = document.body.appendChild(document.createElement(tag));
     if (tag === 'app-navigation-panel') bar.style.inlineSize = '320px';
-    let paletteOpened = false;
-    bar.onShowActions = () => { paletteOpened = true; };
+    bar.onShowActions = () => {};
     bar.onShowNavigation = () => {};
     bar.refreshControl = document.createElement('app-refresh-control');
     await bar.updateComplete;
     const scope = bar.shadowRoot;
-    const paletteButton = scope.querySelector(action);
-    const targets = [paletteButton?.querySelector(icon), scope.querySelector('app-refresh-control')];
-    if (targets.some(node => !node || getComputedStyle(node).display === 'none')) throw Error(tag + ': stock controls missing');
-    const label = paletteButton.querySelector('.actions-label');
-    if (tag === 'app-navigation-panel' && (!label || getComputedStyle(label).display !== 'none')) {
-      throw Error('stock navigation panel must exercise its narrow layout');
-    }
-    scope.adoptedStyleSheets = [...scope.adoptedStyleSheets, sheet];
-    if (targets.some(node => getComputedStyle(node).display !== 'none')) throw Error(tag + ': stock controls must be hidden');
-    const retained = scope.querySelector(navigation);
+    const targets = [scope.querySelector(action), scope.querySelector('app-refresh-control')];
     const visible = node => node && node.getBoundingClientRect().width > 0 && node.getBoundingClientRect().height > 0;
-    if (!visible(retained)) throw Error(tag + ': navigation must remain available');
-    if (!visible(paletteButton)) throw Error(tag + ': the text path to theme settings must remain visible');
-    if (tag === 'app-context-bar') {
-      const text = paletteButton.getAttribute('aria-label')?.trim();
-      const generated = getComputedStyle(paletteButton, '::after');
-      if (!text || !generated.content.startsWith(JSON.stringify(text))
-        || generated.display === 'none' || generated.visibility !== 'visible') {
-        throw Error('mobile Actions must display its label');
-      }
-    } else if (!label?.textContent.trim() || !visible(label)) {
-      throw Error('narrow desktop Actions must display its label');
-    }
-    paletteButton.click();
-    if (!paletteOpened) throw Error(tag + ': the text action must open the stock palette');
+    if (!targets.every(visible)) throw Error(tag + ': stock controls missing');
+    scope.adoptedStyleSheets = [...scope.adoptedStyleSheets, sheet];
+    if (targets.some(visible)) throw Error(tag + ': Actions and Refresh must be completely hidden');
+    if (!visible(scope.querySelector(navigation))) throw Error(tag + ': navigation must remain available');
   }
   const live = line('system', 'text', 'fixture live SYSTEM');
   chat.messages = [...messages, live];

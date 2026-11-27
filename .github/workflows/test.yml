@@ -229,6 +229,7 @@ jobs:
               - 'scripts/impeccable-launcher.mjs'
               - 'scripts/update-impeccable-skill.mjs'
               - 'scripts/patch-pi-plan-mode-tool-policy.mjs'
+              - 'scripts/patch-pi-todo-loop-default-pause.mjs'
               - 'scripts/patch-pi-native-model-display.mjs'
               - 'scripts/patch-pi-codex-prompt-cache.mjs'
               - 'scripts/update-pi-runtime-artifacts.mjs'

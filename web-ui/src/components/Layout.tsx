@@ -1,7 +1,7 @@
 import { Component, batch, createSignal, createMemo, createEffect, createRoot, onMount, onCleanup, For, Show, untrack } from 'solid-js';
 import Header from './Header';
 import TerminalArea from './TerminalArea';
-import PiWebChat from './PiWebChat';
+import PiWebChat, { type ChatPanelSize } from './PiWebChat';
 import PiWebSwitchControls from './PiWebSwitchControls';
 import { createPiWebSurface, isPiWebSwitchPending } from '../hooks/usePiWebSurface';
 import type { PiWebStatus } from '../api/pi-web';
@@ -416,6 +416,18 @@ const Layout: Component<LayoutProps> = (props) => {
   });
   createEffect(() => {
     if (selectedStartupSurface() && piWebStatus()?.surface) setStartupSurface(undefined);
+  });
+  const [chatPanelSizes, setChatPanelSizes] = createSignal(new Map<ChatFrame, ChatPanelSize>());
+  const activeChatPanelSize = () => {
+    const frame = shownChatStatus().frame;
+    return frame && chatPanelSizes().get(frame);
+  };
+  const reportChatPanelSize = (frame: ChatFrame, size?: ChatPanelSize) => setChatPanelSizes(current => {
+    if (!size && !current.has(frame)) return current;
+    const next = new Map(current);
+    if (size) next.set(frame, size);
+    else next.delete(frame);
+    return next;
   });
   const showOpenChatPanel = createMemo(() => {
     const id = piWebSid();
@@ -1316,7 +1328,9 @@ const Layout: Component<LayoutProps> = (props) => {
         </Show>
 
         {/* Middle section - main content */}
-        <div class="layout-middle">
+        <div class="layout-middle" classList={{ 'layout-middle--chat-expanding': !!activeChatPanelSize()?.expanding }}
+          style={{ '--chat-compact-height': activeChatPanelSize()?.compactHeight === undefined
+            ? undefined : `${activeChatPanelSize()?.compactHeight}px` }}>
           {/* Main content */}
           <TerminalArea
             workspaceMode={dashboardWorkspaceMode()}
@@ -1395,6 +1409,7 @@ const Layout: Component<LayoutProps> = (props) => {
                 return <div class="pi-web-chat" style={{ display: selected() ? undefined : 'none' }}>
                   <PiWebChat sessionId={frame.id} generation={frame.generation} status={selected() ? shownChatStatus().status! : parked}
                     progressInMenu={modeAvailable()} onCancel={cancelPiWeb} onRetry={selected() ? retryPiWeb() : undefined}
+                    onPanelSize={size => reportChatPanelSize(frame, size)}
                     onStartupReady={ready => reportChatLoad(frame, 'ready', ready)}
                     onStartupFailure={failed => reportChatLoad(frame, 'failed', failed)}
                     problem={selected() ? piWebProblem() : undefined} canCancel={selected() && canCancelPiWeb()}

@@ -111,6 +111,8 @@ For [REQ-AGENT-280 AC4](../../sdd/spec/agents.md#req-agent-280-attachment-gated-
 - The [Layout test](../../web-ui/src/__tests__/components/Layout.test.tsx) simulates `waiting` and verifies the source remains mounted without **Cancel switch** in the mode menu ([REQ-AGENT-280](../../sdd/spec/agents.md#req-agent-280-attachment-gated-workspace-reveal) AC3).
 - Repeat with an input hook held before streaming. Neither an idle-looking status nor an Abort acknowledgment can transfer ownership while the hook is active.
 - Verify saved history appears without automatic prompt or queue replay. Text recovered by Abort returns to Terminal as an editable, unsent draft.
+- In one disposable Classic workspace, use the stock Sessions **+** to create conversations A, B, and C and give each distinctive text. Select B from history after writing to C and switch to Code. Verify Code opens B with its original text, not C, and the Codeflare session is unchanged.
+- Stop with B selected. Resume in Vibe and verify B opens while A and C remain available. Repeat Stop and Resume in Code, verifying B opens there as well.
 
 #### Return from Profile Usage
 
@@ -158,8 +160,12 @@ Use these checks for [REQ-AGENT-272](../../sdd/spec/agents.md#req-agent-272-pi-c
 - On a disposable session, queue a harmless message during a turn and verify the nonzero queued count remains visible. Repeat the footer check with a different stock theme.
 - In a fresh browser context, verify the machine name is **Codeflare** and the default theme is **Codeflare Graphite** ([REQ-AGENT-274 AC5–6](../../sdd/spec/agents.md#req-agent-274-stock-pi-chat-controls)).
 - In DevTools, check the computed background of `pi-web-app` inside the Chat iframe: its alpha must be 0.2. Confirm the outer gradient shows through and user messages have a tint and stronger leading border without fading text.
-- On desktop and mobile, including installed-app mode when available, verify Refresh and lightning icons are absent. Activate **Actions** and confirm the native palette opens before choosing the theme picker ([REQ-AGENT-282 AC5–6](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults)).
-- Select another theme and reopen Chat to confirm that it persists.
+- On desktop and mobile, verify the stock Refresh and Actions controls are absent, including their keyboard focus stops. Confirm navigation is still usable ([REQ-AGENT-282 AC5](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults)).
+- In Codeflare Graphite, compare computed font sizes for normal message text, the session-start summary and count, composer and placeholder, model label, and token and context counters. Verify these match, the summary has top padding, and controls remain usable ([REQ-AGENT-282 AC6–7](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults)).
+- Open a fresh Vibe conversation. Once ready, verify the history is zero height, the composer is usable near the workspace center, and the existing header stays immediately above the frame.
+- Send the first message. Verify the panel grows up and down to the normal size without replacing the frame or losing composer focus. A saved populated conversation opens full-size, and reduced motion expands instantly.
+- Open Files and return before sending a message; confirm Files gets the full panel. An early native question or a failed load must remain reachable without typing a message.
+- Reopen Chat in a browser with an alternate saved theme and verify that it persists.
 - With the alternate theme, repeat the [failed frame navigation check](#switch-one-writer-at-a-time) and verify **Reload Chat** still opens the same conversation. Confirm navigation stays available ([REQ-AGENT-282 AC5](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults)).
 
 #### Check accent preferences

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, statSync, watch, writeFileSync } from 'node:fs';
+import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync, renameSync, rmSync, statSync, watch, writeFileSync } from 'node:fs';
 import { basename, join, relative } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
@@ -30,6 +30,13 @@ interface WebStatus {
   persisted: boolean;
 }
 const nativeId = /^[a-zA-Z0-9](?:[a-zA-Z0-9_.-]{0,126}[a-zA-Z0-9])?$/;
+type ChatIntent = { action: 'new' } | { action: 'select'; id: string };
+interface StockRow extends PiTranscript {
+  persisted?: boolean;
+  archived?: boolean;
+  agentSubsession?: boolean;
+  parentSessionPath?: string;
+}
 const CHAT_ATTACH_TIMEOUT_MS = 25_000;
 const STARTUP_QUESTION_ALLOWANCE_MS = 5 * 60_000; // Stock extension-dialog timeout.
 
@@ -43,7 +50,8 @@ function loadJson<T>(path: string): T | undefined {
 function atomicWrite(path: string, data: string): void {
   const temp = `${path}.${randomUUID()}`;
   writeFileSync(temp, data, { mode: 0o600, flag: 'wx' });
-  renameSync(temp, path);
+  try { renameSync(temp, path); }
+  finally { rmSync(temp, { force: true }); }
 }
 function processMatches(receipt: Pick<NativeReceipt, 'pid' | 'startTime'>): boolean {
   try {
@@ -65,7 +73,11 @@ export function createPiWebRuntime(options: {
   const sessionDir = join(home, '.pi/agent/sessions', `--${cwd.slice(1).replace(/[/:]/g, '-')}--`);
   const bindingDir = join(home, '.codeflare', options.terminalMode, 'sessions', `cf-${sessionId}`);
   const bindingFile = join(bindingDir, 'agent-session-id');
+  const historyFile = join(bindingDir, 'pi-chat-history.json');
   let binding: PiTranscript | undefined;
+  let history = new Set<string>();
+  let attachment: string | undefined;
+  let revokeAttachment: (() => void) | undefined;
   let terminalTicket = initialSurface === 'terminal' ? 'initial' : undefined;
   let chatUrl: string | undefined;
   let chatStartup: AbortController | undefined;
@@ -85,6 +97,7 @@ export function createPiWebRuntime(options: {
   let rearmAttemptedFor: string | undefined;
   let rearming: Promise<PiSwitchStatus> | undefined;
   let retiring = false;
+  let startupRetirementUnconfirmed = false;
   let closed = false;
 
   function validate(ref: PiTranscript): void {
@@ -95,6 +108,51 @@ export function createPiWebRuntime(options: {
     if (existsSync(ref.path) && (realpathSync(ref.path) !== ref.path || relative(realpathSync(sessionDir), ref.path).startsWith('..'))) {
       throw new Error('Native Pi transcript path changed');
     }
+  }
+  function exactSaved(id: string): PiTranscript {
+    if (!nativeId.test(id)) throw new Error('Saved Pi transcript is unavailable');
+    const matches = readdirSync(sessionDir).filter(file => file.endsWith(`_${id}.jsonl`));
+    if (matches.length !== 1) throw new Error('Saved Pi transcript is unavailable');
+    const ref = { id, cwd, path: join(sessionDir, matches[0]) };
+    validate(ref);
+    const fd = openSync(ref.path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    try {
+      if (!fstatSync(fd).isFile()) throw new Error('Saved Pi transcript is not a file');
+      const bytes = Buffer.alloc(65536);
+      const count = readSync(fd, bytes, 0, bytes.length, 0);
+      const end = bytes.subarray(0, count).indexOf(10);
+      if (end < 0) throw new Error('Saved Pi transcript has no native header');
+      const header = JSON.parse(bytes.toString('utf8', 0, end));
+      if (header?.type !== 'session' || header.id !== id || header.cwd !== cwd || header.parentSession !== undefined
+        || ![1, 2, 3].includes(header.version) || typeof header.timestamp !== 'string' || !Number.isFinite(Date.parse(header.timestamp))) {
+        throw new Error('Saved Pi transcript header does not match a workspace root');
+      }
+      return ref;
+    } finally { closeSync(fd); }
+  }
+  function savedMember(id: string): PiTranscript | undefined {
+    if (!history.has(id) && binding?.id !== id) return;
+    try { return exactSaved(id); } catch { return; }
+  }
+  function eligibleRow(row: StockRow): boolean {
+    if (row?.cwd !== cwd || row.persisted !== true || row.archived === true || row.agentSubsession === true
+      || row.parentSessionPath !== undefined) return false;
+    return savedMember(row.id)?.path === row.path;
+  }
+  function remember(ref: PiTranscript): void {
+    if (options.terminalMode !== 'classic') return;
+    if (realpathSync(bindingDir) !== bindingDir) throw new Error('Pi history directory changed');
+    const next = new Set([...history].filter(id => savedMember(id)));
+    next.add(ref.id);
+    atomicWrite(historyFile, `${JSON.stringify([...next])}\n`);
+    history = next;
+  }
+  function detachChat(): void {
+    attachment = undefined;
+    revokeAttachment?.();
+    chatUrl = undefined;
+    chatCatalog = undefined;
+    chatReady = false;
   }
   function receipt(surface: PiSurface): NativeReceipt | undefined {
     const value = loadJson<NativeReceipt>(join(runtimeDir, `${surface}.json`));
@@ -108,13 +166,18 @@ export function createPiWebRuntime(options: {
     mkdirSync(runtimeDir, { recursive: true, mode: 0o700 });
     atomicWrite(join(runtimeDir, 'owner.json'), JSON.stringify({ ...status, generation, binding, terminalTicket }));
   }
-  function save(ref: PiTranscript): void {
+  function save(ref: PiTranscript, allowUnpersisted = false): void {
     validate(ref);
-    binding = { id: ref.id, cwd: ref.cwd, path: ref.path };
     if (existsSync(ref.path)) {
       mkdirSync(bindingDir, { recursive: true, mode: 0o700 });
+      if (options.terminalMode === 'classic' && (realpathSync(bindingDir) !== bindingDir || exactSaved(ref.id).path !== ref.path)) {
+        throw new Error('Saved Pi path changed');
+      }
       atomicWrite(bindingFile, `${ref.id}\n`);
+    } else if (!allowUnpersisted) {
+      throw new Error('Expected Pi transcript is unavailable');
     }
+    binding = { id: ref.id, cwd: ref.cwd, path: ref.path };
   }
   async function until<T>(probe: () => T | undefined | Promise<T | undefined>, signal?: AbortSignal, timeout?: number): Promise<T> {
     const expires = timeout === undefined ? Infinity : Date.now() + timeout;
@@ -128,6 +191,7 @@ export function createPiWebRuntime(options: {
     throw new Error('Native Pi writer could not be confirmed');
   }
   const cwdQuery = new URLSearchParams({ cwd });
+  const sessionList = `/api/sessions?${cwdQuery}`;
   const statusPath = (id: string) => `/api/sessions/${encodeURIComponent(id)}/status?${cwdQuery}`;
   const idle = (status: WebStatus) => !status.isStreaming && !status.isCompacting && !status.isBashRunning
     && status.pendingMessageCount === 0 && !status.pendingDialogs?.length;
@@ -198,6 +262,7 @@ export function createPiWebRuntime(options: {
 
   async function openChat(ref: PiTranscript): Promise<boolean> {
     const startedAt = performance.now();
+    const committed = binding;
     chatStartup = new AbortController();
     chatAttachDeadline = undefined;
     chatAttachedAt = undefined;
@@ -218,9 +283,21 @@ export function createPiWebRuntime(options: {
         `/api/projects/${encodeURIComponent(project.id)}/workspaces`);
       const workspace = workspaces.find(row => row.isMain && row.path === cwd);
       if (!workspace) throw new Error('Stock Chat workspace is unavailable');
-      save(ref);
+      if (retiring) throw new Error('Pi workspace is retiring');
+      // A stock row is discovery, not authority. Validate the exact canonical
+      // file and the pinned stock root/nonarchived projection before admission.
+      const rows = (await services.request<StockRow[]>(sessionList)).filter(row => row.id === ref.id);
+      const [row] = rows;
+      if (rows.length !== 1 || row.cwd !== cwd || row.path !== exactSaved(ref.id).path || row.path !== ref.path
+        || !row.persisted || row.archived || row.agentSubsession || row.parentSessionPath !== undefined) {
+        throw new Error('Exact stock Chat transcript is unavailable');
+      }
+      chatStartup.signal.throwIfAborted();
+      binding = ref;
+      publish(handoff.status());
       chatCatalog = `/api/plugin-catalog/projects/${encodeURIComponent(project.id)}/workspaces/${encodeURIComponent(workspace.id)}/sessions/${encodeURIComponent(ref.id)}`;
-      chatUrl = `/api/pi-web/${sessionId}/g/${generation}/?${new URLSearchParams({ project: project.id, workspace: workspace.id, session: ref.id, view: 'chat' })}`;
+      attachment = randomUUID();
+      chatUrl = `/api/pi-web/${sessionId}/g/${generation}/a/${attachment}/?${new URLSearchParams({ project: project.id, workspace: workspace.id, session: ref.id, view: 'chat' })}`;
       const urlPublishedAt = performance.now();
       startupStage = 'writer attachment';
       // The Ready screen may wait indefinitely for Open. Start the writer
@@ -228,7 +305,8 @@ export function createPiWebRuntime(options: {
       await until(() => {
         if (!services.running()) throw new Error('Stock Chat exited during startup');
         const observed = receipt('chat');
-        const writerConfirmed = observed?.id === ref.id && observed.path === ref.path && !observed.released && processMatches(observed);
+        const writerConfirmed = observed?.id === ref.id && observed.path === ref.path && observed.persisted === true
+          && !observed.released && processMatches(observed);
         if (chatAttachDeadline !== undefined) {
           const now = Date.now();
           // Pi's UI notifications are best-effort. A real writer receipt
@@ -248,6 +326,7 @@ export function createPiWebRuntime(options: {
         return writerConfirmed ? true : undefined;
       }, chatStartup.signal);
       const writerConfirmedAt = performance.now();
+      save(ref);
       chatReady = true;
       const attachedAt = chatAttachedAt;
       console.info(`[pi-web] Chat open timing ${JSON.stringify({
@@ -265,9 +344,8 @@ export function createPiWebRuntime(options: {
       chatStartup.abort();
       // Close browser admission before joining both owned processes. No active
       // writer or pending startup dialog can survive a confirmed daemon exit.
-      chatUrl = undefined;
-      chatReady = false;
-      chatCatalog = undefined;
+      detachChat();
+      binding = committed;
       await services.reset(); // Throws into the coordinator's uncertain state if not confirmed.
       webRequestUnconfirmed = false;
       return false;
@@ -304,7 +382,10 @@ export function createPiWebRuntime(options: {
   const handoff = createPiWebHandoff({ generation, initialSurface,
     // The HTTP fence closes now, but do not tell the Chat extension to anchor
     // its branch until all admitted answers and reads have actually drained.
-    onChange: state => publish(state.phase === 'releasing' && state.surface === 'chat' ? { ...state, phase: 'stopping' } : state),
+    onChange: state => {
+      publish(state.phase === 'releasing' && state.surface === 'chat' ? { ...state, phase: 'stopping' } : state);
+      if (state.phase === 'releasing' && state.surface === 'chat') revokeAttachment?.();
+    },
     async stopWork(surface) {
       stopDeadline = Date.now() + (retiring ? 8_000 : 45_000);
       if (surface === 'chat') {
@@ -317,7 +398,7 @@ export function createPiWebRuntime(options: {
           const observed = receipt('terminal');
           return observed && (quitTerminal(observed) || !observed.quit && !observed.released && processMatches(observed)) ? observed : undefined;
         }, undefined, retiring ? 3000 : 20_000);
-        save(source);
+        save(source, source.persisted !== true);
         // The native extension issues Abort on this exact stopping ticket.
         publish(handoff.status());
       }
@@ -338,7 +419,7 @@ export function createPiWebRuntime(options: {
       }, signal, Math.max(0, stopDeadline - Date.now()));
       // The extension must see the exact identity when it anchors the active
       // leaf and signals release readiness for this attempt.
-      save(releaseReceipt);
+      save(releaseReceipt, surface === 'terminal' && releaseReceipt.persisted !== true);
     },
     async release(surface) {
       const source = releaseReceipt;
@@ -359,9 +440,7 @@ export function createPiWebRuntime(options: {
           || (await services.request<{activeSessions: number}>('/api/sessiond/health')).activeSessions !== 0) {
           throw new Error('Chat writer did not release its transcript');
         }
-        chatReady = false;
-        chatUrl = undefined;
-        chatCatalog = undefined;
+        detachChat();
       } else if (!quitTerminal(source)) {
         await until(() => {
           const after = receipt('terminal');
@@ -377,6 +456,7 @@ export function createPiWebRuntime(options: {
         writeFileSync(source.path, `${JSON.stringify(source.header)}\n`, { mode: 0o600, flag: 'wx' });
       }
       save(source);
+      if (!retiring) remember(source);
       return binding!;
     },
     confirmOpen(surface, ref) {
@@ -421,8 +501,13 @@ export function createPiWebRuntime(options: {
   });
 
   function restoredTranscript(): PiTranscript | undefined {
-    if (!existsSync(bindingFile)) return;
+    const metadata = lstatSync(bindingFile, { throwIfNoEntry: false });
+    if (!metadata) return;
+    if (!metadata.isFile() || metadata.size > 256 || realpathSync(bindingDir) !== bindingDir) {
+      throw new Error('Saved Pi binding is not a valid session record');
+    }
     const id = readFileSync(bindingFile, 'utf8').trim();
+    if (options.terminalMode === 'classic') return exactSaved(id);
     if (!nativeId.test(id) || !existsSync(sessionDir)) throw new Error('Saved Pi transcript is unavailable');
     const matches = readdirSync(sessionDir).filter(file => file.endsWith(`_${id}.jsonl`));
     if (matches.length !== 1) throw new Error('Saved Pi transcript is unavailable');
@@ -431,11 +516,33 @@ export function createPiWebRuntime(options: {
     return ref;
   }
 
+  async function chatIntent(expectedAttachment: string, intent: ChatIntent): Promise<void> {
+    if (retiring || options.terminalMode !== 'classic' || expectedAttachment !== attachment || !chatReady
+      || !handoff.permits('chat', 'work')) throw new Error('Chat attachment is not active');
+    const selected = intent.action === 'select' ? savedMember(intent.id) : undefined;
+    if (intent.action === 'select') {
+      if (!selected) throw new Error('Saved Pi conversation is unavailable');
+      if (selected.id === binding?.id) return;
+    }
+    const requestId = randomUUID();
+    let rejected = false;
+    // The coordinator fences synchronously. The originating frame can go
+    // away without cancelling an accepted transaction; the parent observes it.
+    void handoff.rebindChat({ generation, requestId }, async () => selected ?? seedChat()).catch(() => { rejected = true; });
+    await Promise.resolve();
+    if (rejected) throw new Error('Chat selection was not accepted');
+  }
+
   async function close(): Promise<void> {
     try {
       // close() has already fenced new registrations. If a re-entry was
       // accepted, join it before deciding which writer Stop must retire.
       await rearming;
+      if (options.terminalMode === 'classic') {
+        if (bootPhase !== undefined) throw new Error('Classic Pi ownership was not confirmed at shutdown');
+        await handoff.retire(randomUUID());
+        if (startupRetirementUnconfirmed) throw new Error('Could not retire a possibly started Chat writer with transcript evidence');
+      }
       if (options.terminalMode === 'herdr' && !legacyHerdr && bootPhase === undefined) {
         const state = handoff.status();
         if (state.surface === 'terminal') {
@@ -492,6 +599,7 @@ export function createPiWebRuntime(options: {
     } finally {
       closed = true;
       releaseReceipt = undefined;
+      detachChat();
       await services.close();
     }
   }
@@ -499,6 +607,12 @@ export function createPiWebRuntime(options: {
   return {
     handoff,
     get binding() { return binding; },
+    get attachment() { return attachment; },
+    get catalogPath() { return chatCatalog; },
+    onRevokeAttachment(listener: () => void) { revokeAttachment = listener; },
+    eligibleRow,
+    hasSavedMember(id: string) { return !!savedMember(id); },
+    chatIntent,
     get ready() { return chatReady && !closed; },
     get opening() { return chatUrl !== undefined && !chatReady && !closed; },
     get chatStartupSignal() { return chatStartup?.signal; },
@@ -533,6 +647,19 @@ export function createPiWebRuntime(options: {
         }
         if (retiring || closed) return;
         binding = restoredTranscript();
+        if (options.terminalMode === 'classic') {
+          const metadata = lstatSync(historyFile, { throwIfNoEntry: false });
+          if (metadata) {
+            if (!metadata.isFile() || metadata.size > 32768 || realpathSync(bindingDir) !== bindingDir) {
+              throw new Error('Saved Pi history is not a valid session record');
+            }
+            const remembered = loadJson<unknown>(historyFile);
+            if (!Array.isArray(remembered) || !remembered.every(id => typeof id === 'string' && nativeId.test(id))) {
+              throw new Error('Saved Pi history is invalid');
+            }
+            history = new Set(remembered);
+          }
+        }
         if (initialSurface === 'chat') {
           // Stock services start with session spawning disabled. Overlap their
           // boot with fresh header creation, but bind before exposing a writer.
@@ -563,7 +690,10 @@ export function createPiWebRuntime(options: {
     },
     close() {
       retiring = true;
-      if (!chatReady) chatStartup?.abort();
+      if (!chatReady && chatStartup && !chatStartup.signal.aborted) {
+        startupRetirementUnconfirmed = chatAttachDeadline !== undefined;
+        chatStartup.abort();
+      }
       wrapperWatch?.close();
       closing ??= close();
       return closing;

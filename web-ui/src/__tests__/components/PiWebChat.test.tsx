@@ -6,7 +6,8 @@ import PiWebSwitchControls from '../../components/PiWebSwitchControls';
 
 const SESSION_ID = 'abcdef1234567890';
 const GENERATION = 7;
-const SCOPE = `/api/pi-web/${SESSION_ID}/g/${GENERATION}/`;
+const ATTACHMENT = "00000000-0000-4000-8000-000000000001";
+const SCOPE = `/api/pi-web/${SESSION_ID}/g/${GENERATION}/a/${ATTACHMENT}/`;
 const CHAT_URL = `${SCOPE}?project=project-a&workspace=workspace-a&session=native-pi-a&view=chat`;
 const ENTERING_CODE = 'Entering Code mode...';
 const active = { phase: 'active' as const, surface: 'chat' as const, chatUrl: CHAT_URL };
@@ -71,6 +72,47 @@ describe('Pi web Chat wrapper (REQ-AGENT-272)', () => {
       await vi.advanceTimersByTimeAsync(1);
       expect(loaded).toHaveBeenLastCalledWith(true);
       expect(chatFrame()).toBe(frame);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('compacts only ready empty history and expands in place on the first message', async () => {
+    vi.useFakeTimers();
+    try {
+      const [height, setHeight] = createSignal<number>();
+      render(() => <div style={{ 'max-height': height() === undefined ? undefined : `${height()}px` }} data-testid="chat-panel">
+        <PiWebChat sessionId={SESSION_ID} generation={GENERATION} status={active} onCancel={() => {}}
+          onPanelSize={size => setHeight(size?.compactHeight)} />
+      </div>);
+      const panel = screen.getByTestId('chat-panel');
+      const frame = chatFrame();
+      const doc = document.implementation.createHTMLDocument();
+      Object.defineProperty(doc, 'URL', { value: frame.src });
+      doc.body.innerHTML = '<pi-web-app></pi-web-app>';
+      const shell = doc.querySelector('pi-web-app')!.attachShadow({ mode: 'open' });
+      shell.innerHTML = '<main class="chat-view"><conversation-layout><chat-view></chat-view></conversation-layout></main>';
+      const chat = Object.assign(shell.querySelector('chat-view')!, { historyReady: false, messageTotal: 0, messages: [], pendingDialogs: [] });
+      const history = chat.attachShadow({ mode: 'open' });
+      Object.defineProperty(chat, 'offsetHeight', { value: 400 });
+      Object.defineProperty(frame, 'offsetHeight', { value: 560 });
+      Object.defineProperty(frame, 'contentDocument', { value: doc });
+      fireEvent.load(frame);
+      expect(panel.style.maxHeight).toBe('');
+      chat.historyReady = true;
+      await vi.advanceTimersByTimeAsync(200);
+      expect(panel.style.maxHeight).toBe('160px');
+      Object.assign(chat, { pendingDialogs: [{}] });
+      history.innerHTML = '<div role="dialog"></div>';
+      await Promise.resolve();
+      expect(panel.style.maxHeight).toBe('');
+      Object.assign(chat, { pendingDialogs: [], messageTotal: 1, messages: [{ role: 'system' }] });
+      history.innerHTML = '<article class="system"></article>';
+      await Promise.resolve();
+      expect(panel.style.maxHeight).toBe('160px');
+      Object.assign(chat, { messageTotal: 2, messages: [{ role: 'system' }, { role: 'user' }] });
+      history.insertAdjacentHTML('beforeend', '<article class="user"></article>');
+      await Promise.resolve();
+      expect(chatFrame()).toBe(frame);
+      expect(panel.style.maxHeight).toBe('');
     } finally { vi.useRealTimers(); }
   });
 
@@ -201,7 +243,7 @@ it('REQ-AGENT-272 AC5: never mounts an old, foreign, or malformed Chat frame for
     expect(screen.getByText('Chat could not be opened.')).toBeVisible();
   }
   setStatus({ ...active, chatUrl: matching });
-  expect(new URL(chatFrame().src).pathname).toBe(`/api/pi-web/${SESSION_ID}/g/8/`);
+  expect(new URL(chatFrame().src).pathname).toBe(`/api/pi-web/${SESSION_ID}/g/8/a/${ATTACHMENT}/`);
 });
 
 it('offers the existing retry action without presenting an unconfirmed Chat writer', async () => {

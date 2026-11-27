@@ -386,7 +386,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     const fetchStatus = vi.fn(async (url: string) => {
       if (url === `/api/pi-web/${id}/_switch?generation=${generation}`) return hostStatus;
       if (!creating && url === `/api/pi-web/${id}/_switch?generation=${priorGeneration}`) {
-        return Response.json({ phase: 'active', surface: 'chat', chatUrl: `/api/pi-web/${id}/g/1/?session=previous&view=chat` });
+        return Response.json({ phase: 'active', surface: 'chat', chatUrl: `/api/pi-web/${id}/g/1/a/00000000-0000-4000-8000-000000000001/?session=previous&view=chat` });
       }
       return Response.json({});
     });
@@ -565,7 +565,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
           if (target === 'terminal') surface = target;
         }
         return Response.json({ phase: 'complete', surface, ...(surface === 'chat' && {
-          chatUrl: `/api/pi-web/${id}/g/7/?session=saved-pi&view=chat`,
+          chatUrl: `/api/pi-web/${id}/g/7/a/00000000-0000-4000-8000-000000000001/?session=saved-pi&view=chat`,
         }) });
       }
       if (method !== 'GET' && /^\/api\/(sessions|preferences)(?:\/|$)/.test(url.pathname)) {
@@ -679,7 +679,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     mockSessions = [createMockSession({ id, workspace: 'terminal', agentType: 'pi', generation: 7 })];
     window.history.replaceState(null, '', `/app/session/${id}`);
     vi.stubGlobal('fetch', async (url: string) => Response.json(url.endsWith('/_switch?generation=7')
-      ? { phase: 'active', surface: 'chat', chatUrl: `/api/pi-web/${id}/g/7/?view=chat` } : {}));
+      ? { phase: 'active', surface: 'chat', chatUrl: `/api/pi-web/${id}/g/7/a/00000000-0000-4000-8000-000000000001/?view=chat` } : {}));
     try {
       render(() => <Layout />);
       const frame = await screen.findByTitle('Pi Chat');
@@ -721,7 +721,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
       if (init?.method === 'POST' && url.includes('/_switch')) switches.push(url);
       const generation = /_switch\?generation=(7|8)$/.exec(url)?.[1];
-      return generation ? Response.json({ phase: 'active', surface: 'chat', chatUrl: `/api/pi-web/${id}/g/${generation}/?view=chat` }) : Response.json({});
+      return generation ? Response.json({ phase: 'active', surface: 'chat', chatUrl: `/api/pi-web/${id}/g/${generation}/a/00000000-0000-4000-8000-000000000001/?view=chat` }) : Response.json({});
     });
     try {
       render(() => <Layout />);
@@ -766,7 +766,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       if (init?.method === 'POST' && url.includes('/_switch')) switches.push(url);
       const id = /\/api\/pi-web\/([^/]+)\/_switch\?generation=7$/.exec(url)?.[1];
       if (id === first && !firstOwnsChat) return Response.json({ phase: 'active', surface: 'terminal' });
-      return Response.json(id ? { phase: 'active', surface: 'chat', chatUrl: `/api/pi-web/${id}/g/7/?view=chat` } : {});
+      return Response.json(id ? { phase: 'active', surface: 'chat', chatUrl: `/api/pi-web/${id}/g/7/a/00000000-0000-4000-8000-000000000001/?view=chat` } : {});
     });
     const frameFor = (id: string) => screen.queryAllByTitle('Pi Chat').find(frame =>
       frame.getAttribute('src')?.includes(`/api/pi-web/${id}/g/7/`));
@@ -854,7 +854,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       if (id === second || !requestId || !published) return Response.json({ phase: 'active', surface: 'terminal' });
       if (superseded) return Response.json({ phase: 'complete', surface: 'terminal', target: 'terminal', requestId: crypto.randomUUID() });
       return Response.json({ phase: 'complete', surface: 'chat', target: 'chat', requestId: scenario === 'other tab' ? remoteRequest : requestId,
-        chatUrl: `/api/pi-web/${first}/g/7/?view=chat` });
+        chatUrl: `/api/pi-web/${first}/g/7/a/00000000-0000-4000-8000-000000000001/?view=chat` });
     });
     const dashboard = () => fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
     try {
@@ -937,7 +937,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
       if (init?.method === 'POST' && url.includes('/_switch')) switches.push(url);
       return url.endsWith('/_switch?generation=7')
-        ? Response.json({ phase: 'active', surface: 'chat', chatUrl: `/api/pi-web/${id}/g/7/?view=chat` })
+        ? Response.json({ phase: 'active', surface: 'chat', chatUrl: `/api/pi-web/${id}/g/7/a/00000000-0000-4000-8000-000000000001/?view=chat` })
         : Response.json({});
     });
     try {
@@ -1153,7 +1153,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       if (!url.startsWith(`/api/pi-web/${id}/_switch`)) return Response.json({});
       if (init?.method === 'POST') requests.push(url);
       return Response.json({ phase: 'failed', surface: 'chat', target: 'terminal',
-        requestId: 'd00c2f0c-c268-44ad-a23a-384e27941ad1', chatUrl: `/api/pi-web/${id}/g/7/?view=chat` });
+        requestId: 'd00c2f0c-c268-44ad-a23a-384e27941ad1', chatUrl: `/api/pi-web/${id}/g/7/a/00000000-0000-4000-8000-000000000001/?view=chat` });
     });
     try {
       render(() => <Layout />);
@@ -2754,7 +2754,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
           visibility: 'private', default_branch: 'main', updated_at: '2026-03-01T00:00:00Z',
         }], page: 1, hasMore: false });
         if (url === `/api/pi-web/${id}/_switch?generation=7`) return Response.json({
-          phase: 'complete', surface: 'chat', chatUrl: `/api/pi-web/${id}/g/7/?session=saved-pi&view=chat`,
+          phase: 'complete', surface: 'chat', chatUrl: `/api/pi-web/${id}/g/7/a/00000000-0000-4000-8000-000000000001/?session=saved-pi&view=chat`,
         });
         return Response.json({});
       });
