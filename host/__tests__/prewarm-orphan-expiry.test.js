@@ -5,6 +5,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { setTimeout as delay } from 'node:timers/promises';
+import { fileURLToPath } from 'node:url';
 import { handlePrewarmOrphanExpiry } from '../dist/prewarm-readiness.js';
 import { createPiWebHandoff } from '../dist/pi-web-handoff.js';
 import { createPiWebRuntime } from '../dist/pi-web-runtime.js';
@@ -18,8 +19,14 @@ function actions(calls) {
 }
 
 describe('pre-warm orphan expiry', () => {
-  it('REQ-AGENT-272 AC1: Classic Terminal starts after profile restore while cloning continues', { timeout: 3000 }, async () => {
+  it('REQ-AGENT-272 AC1: Classic Terminal starts after profile restore while cloning continues', { timeout: 3000 }, async (t) => {
     const home = mkdtempSync(join(tmpdir(), 'pi-web-clone-ready-'));
+    const env = { CODEFLARE_RUNTIME_ROOT: home, TRANSCRIPT_RETENTION_SCRIPT: fileURLToPath(new URL('../../transcript-retention.mjs', import.meta.url)) };
+    for (const [key, value] of Object.entries(env)) {
+      const previous = process.env[key];
+      t.after(() => { if (previous === undefined) delete process.env[key]; else process.env[key] = previous; });
+      process.env[key] = value;
+    }
     let profileRestored = false;
     const runtimeDir = join(home, 'runtime');
     const owner = join(runtimeDir, 'owner.json');

@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync, renameSync, rmSync, statSync, watch, writeFileSync } from 'node:fs';
 import { basename, join, relative } from 'node:path';
@@ -169,11 +170,13 @@ export function createPiWebRuntime(options: {
   function save(ref: PiTranscript, allowUnpersisted = false): void {
     validate(ref);
     if (existsSync(ref.path)) {
-      mkdirSync(bindingDir, { recursive: true, mode: 0o700 });
-      if (options.terminalMode === 'classic' && (realpathSync(bindingDir) !== bindingDir || exactSaved(ref.id).path !== ref.path)) {
-        throw new Error('Saved Pi path changed');
+      if (options.terminalMode === 'classic') {
+        execFileSync(process.execPath, [process.env.TRANSCRIPT_RETENTION_SCRIPT || '/transcript-retention.mjs',
+          'commit-classic-pi', home, sessionId, ref.id, ref.path], { stdio: 'pipe' });
+      } else {
+        mkdirSync(bindingDir, { recursive: true, mode: 0o700 });
+        atomicWrite(bindingFile, `${ref.id}\n`);
       }
-      atomicWrite(bindingFile, `${ref.id}\n`);
     } else if (!allowUnpersisted) {
       throw new Error('Expected Pi transcript is unavailable');
     }

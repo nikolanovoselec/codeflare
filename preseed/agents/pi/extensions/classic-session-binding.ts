@@ -1,15 +1,8 @@
-import {
-  mkdirSync,
-  realpathSync,
-  renameSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { randomUUID } from "node:crypto";
-import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { execFileSync } from "node:child_process";
+import { isAbsolute } from "node:path";
 
 const CODEFLARE_SESSION_ID = /^[a-z0-9]{8,24}$/;
-const PI_SESSION_ID = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/;
+const PI_SESSION_ID = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9])?$/;
 
 type SessionStartEvent = { reason?: unknown };
 type SessionContext = {
@@ -49,24 +42,11 @@ export function adoptClassicResumedSession(
     || !PI_SESSION_ID.test(nativeSessionId)
   ) return false;
 
-  const sessionRoot = realpathSync(resolve(home, ".pi", "agent", "sessions"));
-  const canonicalSessionFile = realpathSync(sessionFile);
-  const sessionRelative = relative(sessionRoot, canonicalSessionFile);
-  const parts = sessionRelative.split(sep);
-  if (sessionRelative.startsWith(`..${sep}`) || isAbsolute(sessionRelative) || parts.length !== 2) return false;
-  if (!parts[0].startsWith("--") || !parts[0].endsWith("--")) return false;
-  if (!basename(canonicalSessionFile).endsWith(`_${nativeSessionId}.jsonl`)) return false;
-
-  const bindingDirectory = join(home, ".codeflare", "classic", "sessions", `cf-${codeflareSessionId}`);
-  const bindingFile = join(bindingDirectory, "agent-session-id");
-  mkdirSync(bindingDirectory, { recursive: true, mode: 0o700 });
-  const temporary = join(bindingDirectory, `.agent-session-id.${process.pid}.${randomUUID()}`);
-  try {
-    writeFileSync(temporary, `${nativeSessionId}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
-    renameSync(temporary, bindingFile);
-  } finally {
-    rmSync(temporary, { force: true });
-  }
+  execFileSync(process.execPath, [env.TRANSCRIPT_RETENTION_SCRIPT || "/transcript-retention.mjs",
+    "commit-classic-pi", home, codeflareSessionId, nativeSessionId, sessionFile], {
+    env: { ...process.env, CODEFLARE_RUNTIME_ROOT: env.CODEFLARE_RUNTIME_ROOT ?? "/run/codeflare" },
+    stdio: "pipe",
+  });
   return true;
 }
 

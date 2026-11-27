@@ -312,6 +312,14 @@ describe('entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2
     assert.equal(v['.codeflare/classic/sessions/cf-other123/agent-session-id'], 'EXCLUDED');
   });
 
+  it('REQ-STOR-012: R2 cannot replace the image-owned Classic Pi resume hook', () => {
+    const hook = '.pi/agent/extensions/classic-session-binding.ts';
+    const link = `${hook}.rclonelink`;
+    const v = verdictUnder({ sessionMode: 'default', extraFixtures: { [hook]: 'legacy release bytecode', [link]: 'legacy symlink target' } });
+    assert.equal(v[hook], 'EXCLUDED');
+    assert.equal(v[link], 'EXCLUDED');
+  });
+
   it('REQ-STOR-004: Classic Chat history sync admits only the selected session membership record', () => {
     for (const sessionMode of ['advanced', 'default']) {
       const v = verdictUnder({ sessionMode });

@@ -929,13 +929,12 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 **Acceptance Criteria:**
 
 1. While a switch is pending, the destination mode label shuffles using the Dashboard title effect unless reduced motion is requested. Announce the pending destination without adding visible status text or a spinner. <!-- @impl: web-ui/src/components/PiWorkspaceMode.tsx::PiWorkspaceMode --> <!-- @test: web-ui/src/__tests__/components/PiWorkspaceMode.test.tsx (shows pending feedback in the destination option while retaining the current mode) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time -->
-2. Passive refresh or reconnect cannot acquire a writer or wake a stopped container. <!-- @impl: src/routes/pi-web.ts::handlePiWebRequest --> <!-- @impl: host/src/pi-web-handoff.ts::createPiWebHandoff --> <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-272 AC2+AC5: an admitted web request cannot outlive the writer or let a stale tab reopen it) --> <!-- @test: src/__tests__/container/terminal-ws-relay.test.ts (REQ-AGENT-272 AC5: reconnect after Pi web’s private process exits cannot start a new generation) --> A deep link or browser history entry cannot change the bound transcript. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualifyHistory) -->
+2. Passive refresh or reconnect cannot acquire a writer or wake a stopped container. <!-- @impl: src/routes/pi-web.ts::handlePiWebRequest --> <!-- @impl: host/src/pi-web-handoff.ts::createPiWebHandoff --> <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-272 AC2+AC5: an admitted web request cannot outlive the writer or let a stale tab reopen it) --> <!-- @test: src/__tests__/container/terminal-ws-relay.test.ts (REQ-AGENT-272 AC5: reconnect after Pi web’s private process exits cannot start a new generation) -->
 3. The destination opens the saved history without replaying the interrupted prompt or queue. <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-272 AC3: ${source} requests abort before ${target} may open the saved conversation) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time -->
 4. Terminal text recovered by Abort returns as an editable, unsent draft. <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time -->
 5. Ordinary quit returns to a usable shell in the same Terminal pane. <!-- @manual: documentation/lanes/terminal-and-ide.md#quit-and-reopen-native-pi -->
 6. Explicit Terminal re-entry opens the exact saved transcript after the previous writer exits. If interrupted, the shell stays selected and re-entry is retryable only after the unused launch is safely revoked. <!-- @impl: host/src/pi-web-runtime.ts::rearmSelectedTerminal --> <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-273: a safely revoked native re-entry leaves Terminal selected) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#quit-and-reopen-native-pi -->
 7. Returning from Chat after an ordinary quit resumes the exact transcript only when a fresh launcher is ready in the original Terminal pane. <!-- @impl: host/src/pi-web-runtime.ts::waitingWrapper --> <!-- @manual: documentation/lanes/terminal-and-ide.md#quit-and-reopen-native-pi -->
-8. A retired attachment cannot read or write the conversation even after the user selects the same transcript again. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualifyHistory) -->
 
 **Constraints:** [REQ-AGENT-280](#req-agent-280-attachment-gated-workspace-reveal) owns destination display readiness.
 
@@ -962,7 +961,8 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 3. The workspace mode menu does not show a cancel action during a waiting switch. <!-- @impl: web-ui/src/components/PiWorkspaceMode.tsx::PiWorkspaceMode --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps the source Chat during a waiting switch without a cancel button) -->
 4. Returning to the same session generation during an unfinished Terminal-to-Chat handoff keeps Code visible until Chat attaches, without requesting another writer. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (restores the matching Chat attachment gate or saved preference after a %s handoff) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time -->
 5. On return to the same session generation before the Host reports the interrupted Terminal-to-Chat handoff, the workspace mode control stays disabled while the original switch request is still outstanding. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (restores the matching Chat attachment gate or saved preference after a %s handoff) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time -->
-6. A ready, empty Chat starts with the composer centered and no history space. Its first visible message expands the grouped panel from the center to its normal limits. Saved populated Chat starts at full size; reduced motion skips the animation. <!-- @impl: web-ui/src/components/PiWebChat.tsx::StockChatFrame --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (compacts only ready empty history and expands in place on the first message) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+6. A ready, empty Chat starts with the composer centered and no history space. Its first visible message expands the grouped panel from the center to its normal limits. Reduced motion skips the animation. <!-- @impl: web-ui/src/components/PiWebChat.tsx::StockChatFrame --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (compacts only ready empty history and expands in place on the first message) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+7. A restored Chat with populated history opens at full size. <!-- @impl: web-ui/src/components/PiWebChat.tsx::StockChatFrame --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 
 **Constraints:** [REQ-TERM-011](terminal.md#req-term-011-visible-terminal-panes-own-websocket-connections) limits hidden terminal attachment.
 
@@ -1249,13 +1249,10 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 6. The machine name defaults to Codeflare. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 7. Managed Chat does not expose optional Info, Updates, MCP Manager, Tasks, or Relays panels. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
-8. The stock Sessions `+` opens a durable empty conversation in the same running Codeflare session and workspace, without a temporary row. <!-- @impl: image/pi-web/codeflare-chrome/browser/transcript-intent.js::activateTranscriptIntent --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualifyHistory) --> <!-- @test: scripts/ci/smoke-pi-web-system-rows.mjs (verifyStockTranscriptControls) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time -->
-9. A pointer or keyboard activation of an eligible history row selects that exact transcript in the same workspace. The Host releases the previous writer and commits the selection before admitting work. <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime --> <!-- @impl: image/pi-web/codeflare-chrome/browser/transcript-intent.js::activateTranscriptIntent --> <!-- @test: src/__tests__/routes/pi-web-auth-chain.test.ts (REQ-AGENT-272/274: only a current owned attachment can submit a valid transcript intent) --> <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-272/274: explicit Chat selection releases first and Stop joins the exact transfer) --> <!-- @test: scripts/ci/smoke-pi-web-system-rows.mjs (verifyStockTranscriptControls) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time -->
-10. Retrying a Chat conversation change after the outgoing writer fails to drain preserves the original create or select intent. The original writer must release before the candidate is prepared or opened. <!-- @impl: host/src/pi-web-handoff.ts::createPiWebHandoff --> <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-272 AC2: retry after a failed Chat drain releases the source and opens the original candidate) -->
 
 **Constraints:**
 
-- Only retained root transcripts associated with the selected Codeflare session appear as Chat history. Passive and programmatic navigation and raw stock creation cannot replace the writer. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualifyHistory) -->
+- [REQ-AGENT-286](#req-agent-286-classic-chat-conversation-selection) owns creating and selecting Chat conversations.
 - Chat does not expose Git or worktree controls at any point in the session. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @test: scripts/ci/smoke-pi-web-services.mjs (verifyRestoredBundledWorkflows) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
 - Before Chat attaches, the supervisor dismisses newly provisioned MCP Manager only when the managed adapter selection is unambiguous and preexisting entries and filters are unchanged, except for the exact bundled Workflows registration successfully dismissed under [REQ-AGENT-272 AC7](#req-agent-272-pi-chat-and-terminal-transcript-handoff). <!-- @impl: host/src/pi-web-services.ts::createPiWebServices -->
 - [REQ-AGENT-281](mcp.md#req-agent-281-bundled-mcp-manager-registration-retirement) owns reconciliation of restored MCP registrations.
@@ -1265,6 +1262,31 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 **Dependencies:** [REQ-AGENT-272](#req-agent-272-pi-chat-and-terminal-transcript-handoff)
 
 **Verification:** Manual: [Stock controls and native questions](../../documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions), [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout).
+
+**Status:** Planned
+
+---
+
+### REQ-AGENT-286: Classic Chat conversation selection
+
+**Intent:** Change conversations in one running workspace without transferring transcript authority through passive navigation.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The stock Sessions `+` opens a durable empty conversation in the same running Codeflare session and workspace, without a temporary row. <!-- @impl: image/pi-web/codeflare-chrome/browser/transcript-intent.js::activateTranscriptIntent --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualifyHistory) --> <!-- @test: scripts/ci/smoke-pi-web-system-rows.mjs (verifyStockTranscriptControls) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time -->
+2. A pointer or keyboard activation of an eligible history row selects that exact transcript in the same workspace. The Host releases the previous writer and commits the selection before admitting work. <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime --> <!-- @impl: image/pi-web/codeflare-chrome/browser/transcript-intent.js::activateTranscriptIntent --> <!-- @test: src/__tests__/routes/pi-web-auth-chain.test.ts (REQ-AGENT-272/274: only a current owned attachment can submit a valid transcript intent) --> <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-272/274: explicit Chat selection releases first and Stop joins the exact transfer) --> <!-- @test: scripts/ci/smoke-pi-web-system-rows.mjs (verifyStockTranscriptControls) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time -->
+3. Retrying a Chat conversation change after the outgoing writer fails to drain preserves the original create or select intent. The original writer must release before the candidate is prepared or opened. <!-- @impl: host/src/pi-web-handoff.ts::createPiWebHandoff --> <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-272 AC2: retry after a failed Chat drain releases the source and opens the original candidate) -->
+4. Chat history lists only retained root transcripts associated with the current Codeflare session. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualifyHistory) -->
+5. Deep links, browser history, programmatic selection, and raw stock creation cannot replace the current writer. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualifyHistory) --> <!-- @test: scripts/ci/smoke-pi-web-system-rows.mjs (verifyStockTranscriptControls) -->
+6. A retired attachment cannot read or write the conversation even after the user selects the same transcript again. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualifyHistory) -->
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-272](#req-agent-272-pi-chat-and-terminal-transcript-handoff)
+
+**Verification:** Automated: [Stock browser controls](../../scripts/ci/smoke-pi-web-system-rows.mjs), [Packaged handoff](../../scripts/ci/smoke-pi-web-host-handoff.mjs), [Host coordinator](../../host/__tests__/pi-web-handoff.test.js); Manual: [Switch one writer at a time](../../documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time).
 
 **Status:** Planned
 

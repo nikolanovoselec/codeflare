@@ -111,10 +111,11 @@ For [REQ-AGENT-280 AC4](../../sdd/spec/agents.md#req-agent-280-attachment-gated-
 - The [Layout test](../../web-ui/src/__tests__/components/Layout.test.tsx) simulates `waiting` and verifies the source remains mounted without **Cancel switch** in the mode menu ([REQ-AGENT-280](../../sdd/spec/agents.md#req-agent-280-attachment-gated-workspace-reveal) AC3).
 - Repeat with an input hook held before streaming. Neither an idle-looking status nor an Abort acknowledgment can transfer ownership while the hook is active.
 - Verify saved history appears without automatic prompt or queue replay. Text recovered by Abort returns to Terminal as an editable, unsent draft.
-- In one disposable Classic workspace, use the stock Sessions **+** to create A, B, and C. Give each distinctive text and verify the Codeflare session stays unchanged ([REQ-AGENT-274](../../sdd/spec/agents.md#req-agent-274-stock-pi-chat-controls)).
+- In one disposable Classic workspace, use the stock Sessions **+** to create A, B, and C. Give each distinctive text and verify the Codeflare session stays unchanged ([REQ-AGENT-286](../../sdd/spec/agents.md#req-agent-286-classic-chat-conversation-selection)).
 - After writing to C, select B by pointer and verify B’s text. Return to C, focus B’s row with the keyboard, and press Enter or Space. Verify B opens again.
 - With B selected, switch to Code. Verify the terminal shows B’s original text, not C’s ([REQ-AGENT-272 AC2](../../sdd/spec/agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff)).
-- Stop with B selected. Resume in Vibe and verify B opens while A and C remain available. Repeat Stop and Resume in Code, verifying B opens there as well.
+- In B, select an earlier branch with a distinct non-sensitive marker, then Stop. After confirming final persistence, Resume in Vibe. Verify B opens on that branch and A and C remain available.
+- Repeat Stop and Resume in Code. Verify B and its selected branch reopen, not the latest leaf ([REQ-SESSION-044 AC2](../../sdd/spec/session-lifecycle.md#req-session-044-managed-pi-transcript-persistence-on-stop)).
 
 #### Return from Profile Usage
 

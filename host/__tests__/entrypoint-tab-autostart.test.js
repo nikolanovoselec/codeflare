@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ENTRYPOINT = resolve(__dirname, '../../entrypoint.sh');
+const RETENTION_SCRIPT = resolve(__dirname, '../../transcript-retention.mjs');
 
 function extractConfigureBody() {
   const src = readFileSync(ENTRYPOINT, 'utf8');
@@ -42,6 +43,7 @@ function runHarness({ tabConfig, env = {}, dir = mkdtempSync(join(tmpdir(), 'tab
   const envLines = [
     `export USER_HOME='${dir}'`,
     `export CODEFLARE_RUNTIME_ROOT='${runtimeRoot}'`,
+    `export TRANSCRIPT_RETENTION_SCRIPT=${JSON.stringify(RETENTION_SCRIPT)}`,
     `export SESSION_ID=${JSON.stringify(env.SESSION_ID ?? 'abc12345')}`,
     `export CODEFLARE_TERMINAL_MODE=${JSON.stringify(env.CODEFLARE_TERMINAL_MODE ?? 'classic')}`,
     `mkdir -p '${runtimeRoot}/services'`,

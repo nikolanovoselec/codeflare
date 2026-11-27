@@ -759,11 +759,13 @@ export default function (pi) {
       await api(`${ref}/transcript-snapshot?${query}`, 409);
       const fresh = api(`${next}/transcript-snapshot?${query}`, 200, undefined, 20_000);
       void fresh.catch(() => {});
+      // If /status arrives before stock registers the startup session, it
+      // joins the pending open and waits for the dialog this fixture must answer.
+      await until('Host identifies the new native startup question', async () => (await readSwitch()).startupQuestion === true);
       const newQuestion = await until('new transcript keeps native startup question', async () => {
         const status = await api(`${next}/status?${query}`);
         return status.pendingDialogs?.find(dialog => dialog.title === startupQuestion);
       });
-      await until('Host identifies the new native startup question', async () => (await readSwitch()).startupQuestion === true);
       await api(`${next}/prompt`, 409, { cwd, text: 'Do not pass the unsettled startup fence' });
       assert.equal((await api(`${next}/dialogs/answer`, 200, { cwd, dialogId: newQuestion.dialogId, value: true })).result, 'closed');
       const empty = await fresh;

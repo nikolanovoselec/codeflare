@@ -37,6 +37,7 @@ test_globs:
   - "scripts/ci/chrome-devtools-timeouts.test.mjs"
   - "scripts/ci/smoke-pi-web-services.mjs"
   - "scripts/ci/smoke-pi-web-host-handoff.mjs"
+  - "scripts/ci/smoke-pi-web-system-rows.mjs"
   - "image/pi-web/warm-compile-cache.mjs"
   - "scripts/ci/impeccable-engine.py"
   - "scripts/ci/impeccable-engine-source.py"

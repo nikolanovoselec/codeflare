@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
 	closeSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, rmSync, writeFileSync,
@@ -192,11 +193,16 @@ export default function (pi: ExtensionAPI) {
 
 	function persistBinding(binding: Binding) {
 		if (!/^[a-z0-9]{8,24}$/.test(sessionId) || savedId === binding.id) return;
-		// Verification reads the native header from disk, not just the filename.
-		const fd = openSync(binding.path, "r");
-		try { verifyDiskHeader(fd, fstatSync(fd).size, binding); } finally { closeSync(fd); }
-		mkdirSync(bindingDir, { recursive: true, mode: 0o700 });
-		atomicWrite(join(bindingDir, "agent-session-id"), binding.id + "\n");
+		if (mode === "classic") {
+			execFileSync(process.execPath, [process.env.TRANSCRIPT_RETENTION_SCRIPT || "/transcript-retention.mjs",
+				"commit-classic-pi", home, sessionId, binding.id, binding.path], { stdio: "pipe" });
+		} else {
+			// Verification reads the native header from disk, not just the filename.
+			const fd = openSync(binding.path, "r");
+			try { verifyDiskHeader(fd, fstatSync(fd).size, binding); } finally { closeSync(fd); }
+			mkdirSync(bindingDir, { recursive: true, mode: 0o700 });
+			atomicWrite(join(bindingDir, "agent-session-id"), binding.id + "\n");
+		}
 		savedId = binding.id;
 	}
 

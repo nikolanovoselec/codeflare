@@ -656,7 +656,10 @@ RCLONE_FILTERS_COMMON=(
     --filter "+ /.codeflare/review-state/v1/**"
     --filter "- .codeflare/**"
 
-    # Image-only handoff extension discovery link is not user Pi state.
+    # Image-owned Pi binding writers must not be restored from R2, even
+    # when the current signed release still contains the legacy resume hook.
+    --filter "- /.pi/agent/extensions/classic-session-binding.ts"
+    --filter "- /.pi/agent/extensions/classic-session-binding.ts.rclonelink"
     --filter "- /.pi/agent/extensions/codeflare-web-handoff.ts"
     --filter "- /.pi/agent/extensions/codeflare-web-handoff.ts.rclonelink"
 
@@ -2565,32 +2568,23 @@ configure_tab_autostart() {
             else
                 classic_agent_id=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || true)
                 if [[ "$classic_agent_id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]]; then
-                    install -d -m 0700 "$classic_binding_dir"
-                    classic_binding_tmp=$(mktemp "$classic_binding_dir/.agent-session-id.XXXXXX")
-                    printf '%s\n' "$classic_agent_id" > "$classic_binding_tmp"
-                    chmod 0600 "$classic_binding_tmp"
-                    mv -f "$classic_binding_tmp" "$classic_binding_file"
-                    classic_agent_state="fresh"
+                    if [ "$classic_agent_kind" = pi ]; then
+                        # Seed the exact empty Pi header before publishing its binding, under the retention guard.
+                        if node "${TRANSCRIPT_RETENTION_SCRIPT:-/transcript-retention.mjs}" seed-classic-pi \
+                            "$USER_HOME" "$SESSION_ID" "$classic_agent_id"; then
+                            classic_agent_state="fresh"
+                        else
+                            classic_agent_state="unavailable"
+                        fi
+                    else
+                        install -d -m 0700 "$classic_binding_dir"
+                        classic_binding_tmp=$(mktemp "$classic_binding_dir/.agent-session-id.XXXXXX")
+                        printf '%s\n' "$classic_agent_id" > "$classic_binding_tmp"
+                        chmod 0600 "$classic_binding_tmp"
+                        mv -f "$classic_binding_tmp" "$classic_binding_file"
+                        classic_agent_state="fresh"
+                    fi
                 fi
-            fi
-
-            if [ "$classic_agent_kind:$classic_agent_state" = "pi:fresh" ]; then
-                # Pi's exact-ID option warns when the requested session does not yet
-                # exist. Seed the empty native v3 header that Pi itself opens so a
-                # deliberately fresh Classic session starts without a false warning.
-                classic_pi_cwd="$USER_HOME/workspace"
-                classic_pi_session_dir="${classic_pi_cwd#/}"
-                classic_pi_session_dir="${classic_pi_session_dir//\//-}"
-                classic_pi_session_dir="${classic_pi_session_dir//:/-}"
-                classic_pi_session_dir="$USER_HOME/.pi/agent/sessions/--${classic_pi_session_dir}--"
-                classic_pi_timestamp=$(date -u +'%Y-%m-%dT%H:%M:%S.%3NZ')
-                classic_pi_session_file="$classic_pi_session_dir/${classic_pi_timestamp//[:.]/-}_${classic_agent_id}.jsonl"
-                install -d -m 0700 "$classic_pi_session_dir"
-                classic_pi_session_tmp=$(mktemp "$classic_pi_session_dir/.session.XXXXXX")
-                jq -cn --arg id "$classic_agent_id" --arg timestamp "$classic_pi_timestamp" --arg cwd "$classic_pi_cwd" \
-                    '{type:"session",version:3,id:$id,timestamp:$timestamp,cwd:$cwd}' > "$classic_pi_session_tmp"
-                chmod 0600 "$classic_pi_session_tmp"
-                mv -f "$classic_pi_session_tmp" "$classic_pi_session_file"
             fi
 
             case "$classic_agent_kind:$classic_agent_state" in
@@ -3080,6 +3074,32 @@ export_enterprise_ca_environment() {
     export SSL_CERT_FILE="/etc/ssl/certs/ca-certificates.crt"
     export REQUESTS_CA_BUNDLE="/etc/ssl/certs/ca-certificates.crt"
 }
+
+install_image_owned_classic_pi_binding() {
+    local directory="$USER_HOME/.pi/agent/extensions" temporary
+    mkdir -p -- "$directory" || return 1
+    [ "$(realpath -e -- "$directory")" = "$directory" ] || return 1
+    temporary=$(mktemp "$directory/.classic-session-binding.XXXXXX") || return 1
+    if install -m 0600 -- "${PI_WARM_EXTENSIONS_DIR:-/opt/codeflare/pi-agent/extensions}/classic-session-binding.ts" "$temporary" &&
+        mv -fT -- "$temporary" "$directory/classic-session-binding.ts"; then
+        return 0
+    fi
+    rm -f -- "$temporary"
+    return 1
+}
+
+# Install before starting Host: its degraded prewarm timeout can release PTYs
+# before the post-restore extension relay. Bootstrap and regular R2 filters
+# both exclude this hook, so a signed legacy copy cannot reintroduce a writer.
+if [ "${CODEFLARE_OPERATOR_SESSION:-}" != true ]; then
+    validate_coding_agent_selection
+    if coding_agent_is_selected pi; then
+        install_image_owned_classic_pi_binding || {
+            echo "[entrypoint] ERROR: cannot install the guarded Classic Pi binding hook" >&2
+            exit 1
+        }
+    fi
+fi
 
 echo "[entrypoint] Starting terminal server on port 8080..."
 (

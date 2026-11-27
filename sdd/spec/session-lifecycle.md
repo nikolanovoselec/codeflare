@@ -550,8 +550,6 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 5. Total teardown is hard-capped from teardown entry: every awaited teardown stage consumes the same 135s deadline, so storage, sync, stop, or provider stalls cannot extend the operation. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SESSION-011 AC5: an awaited %s stall cannot extend the shared 135-second teardown deadline) --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SESSION-011 AC5: rejects at the entry-to-exit deadline and observes a later forced-destroy rejection) -->
 6. User Stop, Delete, idle timeout and quota eviction apply the same graceful drain before stopping. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-011 AC6 / REQ-SESSION-032 AC1: quota-stop drains final agent events, then final sync, then stop) -->
 7. The SIGTERM trap is retained as a best-effort backstop final sync for paths that bypass the orchestrated drain, but is no longer the primary guarantee (see [REQ-STOR-005](storage.md#req-stor-005-graceful-shutdown-performs-final-sync) for the trap's own constraints). <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 AC4 / REQ-STOR-003 AC6: final, periodic, and baseline bisync preserve the 100-percent deletion policy) -->
-8. Managed Pi final sync attempts exact writer retirement first. It does not certify transcript preparation without release evidence, even if the upload succeeds. <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (REQ-SESSION-011: upload success does not certify an unconfirmed transcript release) --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualifyRetry) -->
-9. Successful graceful Stop prepares the selected Classic Pi transcript and branch for exact Resume in either surface. <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualifyHistory) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time -->
 
 **Constraints:**
 
@@ -568,6 +566,27 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 **Verification:** Automated: [final-sync-endpoint.test.js](../../host/__tests__/final-sync-endpoint.test.js), [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts), [index.test.ts](../../src/__tests__/container/index.test.ts), [entrypoint-shutdown.test.js](../../host/__tests__/entrypoint-shutdown.test.js); Manual: [Final persistence acceptance](../../documentation/lanes/storage-and-sync.md#req-stor-005-final-persistence-acceptance)
 
 **Status:** Implemented
+
+---
+
+### REQ-SESSION-044: Managed Pi transcript persistence on Stop
+
+**Intent:** Reopen the exact persisted conversation after graceful teardown without treating teardown as a save receipt.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Managed Pi final sync attempts exact writer retirement first. It does not certify transcript preparation without release evidence, even if the upload succeeds. <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (REQ-SESSION-011: upload success does not certify an unconfirmed transcript release) -->
+2. After confirmed preparation and successful final persistence, Resume in either surface opens the exact selected Classic Pi transcript and branch. Stop completion alone does not confirm persistence. <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualifyHistory) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time -->
+
+**Priority:** P1
+
+**Dependencies:** [REQ-SESSION-011](#req-session-011-graceful-shutdown-with-final-sync), [REQ-STOR-012](storage.md#req-stor-012-main-session-transcript-cleanup)
+
+**Verification:** Automated: [Final sync endpoint](../../host/__tests__/final-sync-endpoint.test.js), [Packaged handoff](../../scripts/ci/smoke-pi-web-host-handoff.mjs); Manual: [Switch one writer at a time](../../documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time).
+
+**Status:** Planned
 
 ---
 

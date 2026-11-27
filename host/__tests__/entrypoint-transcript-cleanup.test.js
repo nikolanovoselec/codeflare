@@ -19,7 +19,9 @@ import {
 } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { once } from 'node:events';
+import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { registerHooks } from 'node:module';
 
@@ -152,9 +154,10 @@ function writePi(root, index, nativeSecond, mtimeSecond, options = {}) {
   return path;
 }
 
-function runRetention(agent, root) {
+function runRetention(agent, root, { runtimeRoot }) {
   return execFileSync(process.execPath, [RETENTION_SCRIPT, agent, root, '10'], {
     encoding: 'utf8',
+    env: shellEnv(runtimeRoot),
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 }
@@ -479,8 +482,8 @@ bisync_with_r2 ''
         piPaths.push(writePi(pi, i, i, 20_000 + (11 - i)));
       }
 
-      runRetention('claude', claude);
-      runRetention('pi', pi);
+      runRetention('claude', claude, scratch);
+      runRetention('pi', pi, scratch);
 
       assert.deepEqual(claudePaths.filter(existsSync).map((p) => Number(basename(p).slice(24, 36))).sort((a, b) => a - b), [2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
       assert.deepEqual(piPaths.filter(existsSync).map((p) => Number(basename(p).match(/(\d{12})\.jsonl$/)[1])).sort((a, b) => a - b), [2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
@@ -533,8 +536,117 @@ cleanup_old_pi_transcripts
     }
   });
 
-  test('REQ-STOR-012: final bisync sees the capped set and fresh Classic Terminal Resume issues the exact committed path', async () => {
+  test('REQ-STOR-012 / REQ-AGENT-211 AC6: a Classic rebind at rank thirty cannot commit a transcript pruned by overlapping cleanup', async (t) => {
     const scratch = makeScratch();
+    t.after(scratch.cleanup);
+    const { home, cwd, sessionId, sessionDir, bindingFile, old, others } = classicFixture(scratch);
+    const root = join(home, '.pi/agent/sessions');
+    // Unprotected rank 30. Only 29 ranked slots remain while old is bound.
+    rmSync(others[3]);
+    const target = writePi(root, 4, 4, 19_999, { sessionDir, cwd });
+    const paused = join(scratch.runtimeRoot, 'cleanup-ready');
+    const proceed = join(scratch.runtimeRoot, 'allow-cleanup');
+    const waiting = join(scratch.runtimeRoot, 'rebind-waiting');
+    const pauseUnlink = join(scratch.runtimeRoot, 'pause-unlink.mjs');
+    const observeFlock = join(scratch.runtimeRoot, 'observe-flock.mjs');
+    writeFileSync(pauseUnlink, `
+      import fs from 'node:fs';
+      import { syncBuiltinESMExports } from 'node:module';
+      const unlink = fs.unlinkSync;
+      fs.unlinkSync = path => {
+        if (path === ${JSON.stringify(target)}) {
+          fs.writeFileSync(${JSON.stringify(paused)}, '');
+          const deadline = Date.now() + 4000;
+          while (!fs.existsSync(${JSON.stringify(proceed)})) {
+            if (Date.now() >= deadline) throw new Error('test did not release cleanup');
+            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
+          }
+        }
+        unlink(path);
+      };
+      syncBuiltinESMExports();
+    `);
+    writeFileSync(observeFlock, `
+      import childProcess from 'node:child_process';
+      import { writeFileSync } from 'node:fs';
+      import { syncBuiltinESMExports } from 'node:module';
+      const spawnSync = childProcess.spawnSync;
+      childProcess.spawnSync = (file, ...args) => {
+        if (file.endsWith('flock')) writeFileSync(${JSON.stringify(waiting)}, '');
+        return spawnSync(file, ...args);
+      };
+      syncBuiltinESMExports();
+    `);
+    const env = { ...shellEnv(scratch.runtimeRoot), TRANSCRIPT_RETENTION_SCRIPT: RETENTION_SCRIPT,
+      HOME: home, CODEFLARE_TERMINAL_MODE: 'classic', TERMINAL_ID: '1', SESSION_ID: sessionId };
+    const cleanup = spawn(process.execPath, ['--import', pauseUnlink, RETENTION_SCRIPT, 'pi', root, '30', home, sessionId],
+      { stdio: 'ignore', env });
+    const cleanupDone = once(cleanup, 'close');
+    const until = async (predicate) => {
+      const deadline = Date.now() + 3000;
+      while (!predicate()) {
+        if (Date.now() >= deadline) throw new Error('test did not reach filesystem boundary');
+        await delay(5);
+      }
+    };
+    await until(() => existsSync(paused));
+    const lock = join(scratch.runtimeRoot, 'locks/pi-transcript-retention.lock');
+    const held = existsSync(lock) && spawnSync('flock', ['-n', lock, 'true']).status === 1;
+    const extension = join(home, '.pi/agent/extensions/classic-session-binding.ts');
+    mkdirSync(dirname(extension), { recursive: true });
+    writeFileSync(extension, 'throw new Error("legacy release hook must not be loaded");\n');
+    execFileSync('bash', ['-ec', `${extractShellFunction('install_image_owned_classic_pi_binding')}\ninstall_image_owned_classic_pi_binding`], {
+      env: { ...env, USER_HOME: home, PI_WARM_EXTENSIONS_DIR: join(REPO_ROOT, 'preseed/agents/pi/extensions') },
+    });
+    const writer = spawn(process.execPath, ['--input-type=module', '-e', `
+      const { adoptClassicResumedSession } = await import(${JSON.stringify(extension)}).catch(() => process.exit(2));
+      try {
+        const adopted = adoptClassicResumedSession({ reason: 'resume' }, {
+          sessionManager: { getSessionFile: () => ${JSON.stringify(target)}, getSessionId: () => ${JSON.stringify(uuid(4))} },
+          ui: { notify() {} },
+        });
+        process.exitCode = adopted ? 0 : 1;
+      } catch { process.exitCode = 1; }
+    `], { stdio: 'ignore', env: { ...env, NODE_OPTIONS: `--import=${observeFlock}` } });
+    const writerDone = once(writer, 'close');
+    // A guarded writer reaches real flock; an unguarded one can finish while cleanup is paused.
+    try { await until(() => existsSync(waiting) || writer.exitCode !== null); }
+    finally { writeFileSync(proceed, ''); }
+    assert.deepEqual(await cleanupDone, [0, null]);
+    assert.equal(readFileSync(bindingFile, 'utf8'), `${uuid(0)}\n`, 'the previous selection is still committed');
+    assert.equal(held, true, 'cleanup still owns the kernel guard at deletion');
+    assert.deepEqual(await writerDone, [1, null], 'a disappeared target cannot be committed');
+    assert.equal(existsSync(target), false);
+    assert.deepEqual(others.filter(existsSync), others.slice(-29));
+    assert.equal(existsSync(old), true);
+  });
+
+  test('REQ-STOR-012: an unusable Pi guard skips pruning, without disabling Claude retention', () => {
+    const scratch = makeScratch();
+    try {
+      const { home, sessionId, old, others } = classicFixture(scratch);
+      const claude = join(home, '.claude/projects');
+      const claudeFiles = Array.from({ length: 11 }, (_, i) => writeClaude(claude, i, i, i));
+      const locks = join(scratch.runtimeRoot, 'locks');
+      mkdirSync(locks);
+      symlinkSync(join(scratch.runtimeRoot, 'not-a-lock'), join(locks, 'pi-transcript-retention.lock'));
+      runClassicCleanup(scratch, sessionId);
+      assert.equal(existsSync(old), true);
+      assert.deepEqual(others.filter(existsSync), others);
+      assert.deepEqual(claudeFiles.filter(existsSync), claudeFiles.slice(1));
+    } finally {
+      scratch.cleanup();
+    }
+  });
+
+  test('REQ-STOR-012: final bisync sees the capped set and fresh Classic Terminal Resume issues the exact committed path', async (t) => {
+    const scratch = makeScratch();
+    const env = { CODEFLARE_RUNTIME_ROOT: scratch.runtimeRoot, TRANSCRIPT_RETENTION_SCRIPT: RETENTION_SCRIPT };
+    for (const [key, value] of Object.entries(env)) {
+      const previous = process.env[key];
+      t.after(() => { if (previous === undefined) delete process.env[key]; else process.env[key] = previous; });
+      process.env[key] = value;
+    }
     try {
       const { home, cwd, sessionId, old, others } = classicFixture(scratch);
       const inode = statSync(old).ino;
@@ -623,7 +735,7 @@ cleanup_old_pi_transcripts
         }));
       }
 
-      const output = runRetention('claude', claude);
+      const output = runRetention('claude', claude, scratch);
 
       assert.match(output, /mode=native/);
       assert.deepEqual(paths.filter(existsSync).map((p) => Number(basename(p).slice(24, 36))).sort((a, b) => a - b), [2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
@@ -648,7 +760,7 @@ cleanup_old_pi_transcripts
       writeFileSync(conflicts[1], canonicalContent);
       symlinkSync(canonical, conflicts[2]);
 
-      const output = runRetention('pi', pi);
+      const output = runRetention('pi', pi, scratch);
 
       assert.match(output, /conflicts=3/);
       for (const path of conflicts) assert.equal(existsSync(path), false, `${path} must be deleted`);
@@ -711,7 +823,7 @@ cleanup_old_pi_transcripts
         const paths = [];
         for (let i = 0; i < 12; i++) paths.push(testCase.write(root, i));
 
-        const output = runRetention(testCase.agent, root);
+        const output = runRetention(testCase.agent, root, scratch);
 
         assert.match(output, /mode=mtime-fallback/, testCase.label);
         assert.deepEqual(paths.filter(existsSync).sort(), paths.slice(2).sort(), testCase.label);
@@ -747,8 +859,8 @@ cleanup_old_pi_transcripts
         writePi(pi, i, i, 60_000 + i);
       }
 
-      runRetention('claude', claude);
-      runRetention('pi', pi);
+      runRetention('claude', claude, scratch);
+      runRetention('pi', pi, scratch);
 
       assert.equal(readFileSync(subagent, 'utf8'), '{not a main transcript}\n');
       assert.equal(readFileSync(task, 'utf8'), '{not a main transcript}\n');
@@ -779,7 +891,7 @@ cleanup_old_pi_transcripts
           paths.push(conflict);
         }
         const contents = paths.map(path => readFileSync(path, 'utf8'));
-        runRetention(agent, join(linkedParent, rootName));
+        runRetention(agent, join(linkedParent, rootName), scratch);
         assert.deepEqual(paths.map(path => existsSync(path) ? readFileSync(path, 'utf8') : null), contents);
       }
     } finally {
@@ -794,7 +906,7 @@ cleanup_old_pi_transcripts
       mkdirSync(claude, { recursive: true });
       for (let i = 0; i < 10; i++) writeFileSync(join(claude, `unknown ${i}.jsonl`), '{future schema}\n');
 
-      const output = runRetention('claude', claude);
+      const output = runRetention('claude', claude, scratch);
 
       assert.equal(transcriptNames(claude).length, 10);
       assert.equal(output, '');
@@ -810,7 +922,7 @@ cleanup_old_pi_transcripts
       const paths = [];
       for (let i = 0; i < 12; i++) paths.push(writeClaude(claude, i, 1, 70_000 + i));
 
-      runRetention('claude', claude);
+      runRetention('claude', claude, scratch);
 
       const expected = [...paths].sort((a, b) => (a === b ? 0 : a > b ? -1 : 1)).slice(0, 10).sort();
       assert.deepEqual(paths.filter(existsSync).sort(), expected);
