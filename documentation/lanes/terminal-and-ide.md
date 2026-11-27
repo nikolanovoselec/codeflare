@@ -290,7 +290,7 @@ For [saved Code recovery](../../sdd/spec/github.md#req-github-322-clone-launch-r
 
 The [Layout regression](../../web-ui/src/__tests__/components/Layout.test.tsx) holds Start pending in an automated fixture. Its Back → Forward case checks the clone URL and **Preparing Chat…** after Forward, then releases Start as failed and checks `/app/` after settlement. Cancellation is a separate fixture case.
 
-For the newer-route check, change to another known session URL in the same live page without reloading or interrupting the pending Start. Release the failed Start and observe its terminal outcome while staying on the newer URL; then verify that exact URL remains. No hosted fault fixture is established. Mark hosted failure cases unexercised unless an authorized fixture can safely produce and observe settlement without bypassing the route behavior under test.
+For [REQ-GITHUB-330 AC4](../../sdd/spec/github.md#req-github-330-workspace-mode-clone-destinations), the automated newer-route case uses `history.pushState` to change the URL without switching away from the active clone. It then releases Start as failed, waits for that clone’s Dashboard card to become visible, and checks that the newer URL remains. No hosted fault fixture is established. Mark hosted failure cases unexercised unless an authorized fixture can preserve the active clone and observe Start settlement without reloading or switching sessions.
 
 Compare the GitHub and Storage card bounds, surface color, border, corner radius, and padding in the same viewport, using Storage Usage as the reference. Repeat the comparison with a successfully loaded empty list and no positive owned count. The black labels then read **NOTHING TO SHOW.** and **GO BUILD SOMETHING.** on two lines.
 
