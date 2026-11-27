@@ -22,7 +22,7 @@ interface InitProgressProps {
   sessionName: string;
   sessionId?: string;
   progress: InitProgress | null;
-  onOpen?: () => void;
+  onOpen?: (event: MouseEvent) => void;
   openReady?: boolean;
   connectingTerminal?: string;
 }

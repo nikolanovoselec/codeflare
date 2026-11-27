@@ -1286,6 +1286,29 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 ---
 
+### REQ-AGENT-291: Mobile focus on new Chat Open
+
+**Intent:** Let phone users type immediately after opening a new empty Vibe Chat.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A phone touch tap on startup **Open** for a newly created, confirmed-empty Chat focuses the stock prompt in the revealed frame during that tap. <!-- @impl: web-ui/src/components/Layout.tsx::handleChatStartupOpen --> <!-- @impl: web-ui/src/components/PiWebChat.tsx::focusStockStartupPrompt --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-AGENT-275: startup Open and the phone prompt) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#choose-the-starting-writer -->
+2. Resume, surface switching, desktop or keyboard activation, unknown or populated history, and blocking stock UI do not trigger this focus behavior. <!-- @impl: web-ui/src/components/Layout.tsx::handleChatStartupOpen --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-AGENT-275: startup Open and the phone prompt) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-AGENT-275: only the original successful clone launch can authorize focus (%s)) -->
+
+**Constraints:** Preserve the retained frame and native dialogs. No delayed focus attempt.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-AGENT-275](#req-agent-275-classic-pi-chat-startup)
+
+**Verification:** Automated: [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts); Manual: [Choose the starting writer](../../documentation/lanes/terminal-and-ide.md#choose-the-starting-writer)
+
+**Status:** Planned
+
+---
+
 ### REQ-AGENT-285: Scoped slash commands in Pi Chat
 
 **Intent:** Run installed Pi slash commands in the active Chat conversation.

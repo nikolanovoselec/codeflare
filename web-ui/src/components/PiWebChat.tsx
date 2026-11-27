@@ -15,12 +15,53 @@ interface PiWebChatProps {
   canCancel?: boolean;
   progressInMenu?: boolean;
   switchingTarget?: PiWebStatus['target'];
-  onStartupReady?: (ready: boolean) => void;
+  onStartupReady?: (ready: boolean, focusPrompt?: () => void) => void;
   onStartupFailure?: (failed: boolean) => void;
   onPanelSize?: (size?: ChatPanelSize) => void;
 }
 
-function StockChatFrame(props: { src: string; keyboardInset: number; onStartupReady?: (ready: boolean) => void; onStartupFailure?: (failed: boolean) => void; onPanelSize?: PiWebChatProps['onPanelSize'] }) {
+type StockHistory = HTMLElement & {
+  sessionId?: string; historyReady?: boolean; messageTotal?: number; messages?: unknown[]; hasMore?: boolean;
+  pendingDialogs?: unknown[]; closedDialogs?: unknown[];
+};
+
+function focusStockStartupPrompt(frame: HTMLIFrameElement, doc: Document, src: string) {
+  // Optional integration with the pinned Pi Web 1.202611.5 components. A
+  // changed/inaccessible stock UI must not interfere with the normal Open.
+  try {
+    if (!frame.isConnected || frame.closest('[inert]') || getComputedStyle(frame).visibility !== 'visible'
+      || frame.contentDocument !== doc || doc.documentElement.hasAttribute('data-pi-web-loading')) return;
+    const expected = new URL(src);
+    const current = new URL(doc.URL);
+    if (current.origin !== expected.origin || current.pathname !== expected.pathname
+      || ['project', 'workspace', 'session', 'view'].some(key => current.searchParams.get(key) !== expected.searchParams.get(key))
+      || expected.searchParams.get('view') !== 'chat') return;
+    const sessionId = expected.searchParams.get('session');
+    const projectId = expected.searchParams.get('project');
+    const workspaceId = expected.searchParams.get('workspace');
+    if (!sessionId || !projectId || !workspaceId) return;
+
+    const app = doc.querySelector<HTMLElement & { isChatVisible?(): boolean; isRenderedModalOpen?(): boolean }>('pi-web-app');
+    if (app?.isChatVisible?.() !== true || app.isRenderedModalOpen?.() !== false) return;
+    const conversation = app.shadowRoot?.querySelector<HTMLElement & { questionActions?: unknown }>('main.chat-view > conversation-layout');
+    const history = conversation?.querySelector<StockHistory>(':scope > chat-view');
+    if (!history || history.sessionId !== sessionId || history.historyReady !== true || history.messageTotal !== 0
+      || history.hasMore !== false || !Array.isArray(history.messages) || history.messages.length !== 0
+      || !Array.isArray(history.pendingDialogs) || history.pendingDialogs.length !== 0
+      || !Array.isArray(history.closedDialogs) || history.closedDialogs.length !== 0 || conversation?.questionActions !== undefined) return;
+
+    const composer = conversation?.querySelector<HTMLElement & {
+      sessionId?: string; projectId?: string; workspaceId?: string; disabled?: boolean; focusInput?(): void;
+    }>(':scope > [slot="composer"] > prompt-editor');
+    if (!composer || composer.sessionId !== sessionId || composer.projectId !== projectId || composer.workspaceId !== workspaceId
+      || composer.disabled !== false || composer.closest('[inert], [hidden]')) return;
+    const editable = composer.shadowRoot?.querySelector('.cm-content[contenteditable="true"]');
+    if (!editable?.getClientRects().length || doc.defaultView?.getComputedStyle(editable).visibility !== 'visible') return;
+    composer.focusInput?.();
+  } catch { /* The normal Open already revealed Chat. Never retry focus. */ }
+}
+
+function StockChatFrame(props: { src: string; keyboardInset: number; onStartupReady?: PiWebChatProps['onStartupReady']; onStartupFailure?: (failed: boolean) => void; onPanelSize?: PiWebChatProps['onPanelSize'] }) {
   // Pi Web 1.202611.5 prefers a saved browser theme to the gateway default.
   // Return to the Codeflare default once per origin, before the stock frame reads storage.
   try {
@@ -58,10 +99,6 @@ function StockChatFrame(props: { src: string; keyboardInset: number; onStartupRe
   const watchCompactHistory = (frame: HTMLIFrameElement, doc: Document, app: Element) => {
     // Pi Web 1.202611.5 does not reflect historyReady on the DOM. Observe
     // rendered changes and sample only until the selected history is known.
-    type StockHistory = HTMLElement & {
-      historyReady?: boolean; messageTotal?: number; messages?: unknown[];
-      pendingDialogs?: unknown[]; closedDialogs?: unknown[];
-    };
     let checkedChat: StockHistory | null | undefined;
     let complete = false;
     let checks = 0;
@@ -117,6 +154,7 @@ function StockChatFrame(props: { src: string; keyboardInset: number; onStartupRe
   };
   onCleanup(() => { cancel(); clearTimeout(expansionTimer); props.onPanelSize?.(); props.onStartupReady?.(false); props.onStartupFailure?.(false); });
 
+  let firstDocument: Document | undefined;
   const loaded = (frame: HTMLIFrameElement) => {
     cancel();
     props.onStartupReady?.(false);
@@ -129,9 +167,12 @@ function StockChatFrame(props: { src: string; keyboardInset: number; onStartupRe
       props.onStartupFailure?.(true);
       return;
     }
+    firstDocument ??= doc;
     props.onStartupFailure?.(false);
     if (props.onPanelSize) watchCompactHistory(frame, doc, app);
     if (!props.onStartupReady) return;
+    // Publish a handle to this document; only the startup Open gesture calls it.
+    const focusPrompt = () => focusStockStartupPrompt(frame, doc, props.src);
     const root = doc.documentElement;
     const check = () => {
       clearTimeout(timer);
@@ -140,7 +181,9 @@ function StockChatFrame(props: { src: string; keyboardInset: number; onStartupRe
       } else {
         timer = setTimeout(() => {
           if (frame.isConnected && frame.contentDocument === doc && !root.hasAttribute('data-pi-web-loading')) {
-            props.onStartupReady?.(true);
+            if (doc === firstDocument && app.shadowRoot) {
+              props.onStartupReady?.(true, focusPrompt);
+            } else props.onStartupReady?.(true);
           }
         }, 5000);
       }

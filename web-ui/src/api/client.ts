@@ -443,7 +443,7 @@ export async function getStartupStatus(sessionId: string): Promise<StartupStatus
 export function startSession(
   id: string,
   onProgress: (progress: InitProgress) => void,
-  onComplete: (generation: number, revision?: number) => void,
+  onComplete: (generation: number, revision?: number, claimedStart?: boolean) => void,
   onError: (error: string, code?: string) => void,
   options: { retryEditorTimeout?: boolean; surface?: PiSurface } = {},
 ): () => void {
@@ -470,6 +470,7 @@ export function startSession(
   const startPolling = async () => {
     unconfirmedTimer = setTimeout(releaseUnconfirmed, MAX_STARTUP_POLL_ERRORS * STARTUP_POLL_INTERVAL_MS);
     let generation: number | undefined;
+    let claimedStart = false;
     try {
       // Send initial creating stage
       onProgress({
@@ -483,9 +484,11 @@ export function startSession(
       const claim = await fetchApi(`/container/start?sessionId=${id}`, {
         method: 'POST', signal: claimRequest.signal,
         ...(options.surface && { body: JSON.stringify({ surface: options.surface }) }),
-      }, z.object({ generation: z.number().int().nonnegative() }));
+      }, z.object({ generation: z.number().int().nonnegative(), status: z.unknown().optional() }));
       if (cancelled) return;
       generation = claim.generation;
+      // `already_running` can reach Ready without this request owning Start.
+      claimedStart = claim.status === 'starting';
       clearTimeout(unconfirmedTimer);
     } catch (err) {
       if (cancelled) return;
@@ -544,7 +547,7 @@ export function startSession(
 
         if (status.stage === 'ready' && generation !== undefined) {
           cancel();
-          onComplete(generation, status.revision);
+          onComplete(generation, status.revision, claimedStart);
         } else if (status.stage === 'error') {
           const isPriorEditorTimeout = ignorePriorEditorTimeout
             && status.error === 'VS Code did not become ready. Retry starting the session.';

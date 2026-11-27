@@ -32,6 +32,7 @@ vi.mock('../../components/Dashboard', async importOriginal => {
     <span>{props.userName}</span>
     <Show when={props.workspaceMode}>{mode => <PiWorkspaceMode {...mode()} presentation="text" />}</Show>
     <For each={props.sessions}>{session => <span>{session.name}</span>}</For>
+    <button onClick={() => props.onCreateSession('Fresh Pi', 'pi', undefined, 'chat')}>Start fresh Vibe</button>
     <button onClick={() => props.onStartSession('abcdef0123456789')}>Start session</button>
     <button onClick={() => props.onOpenSessionById('abcdef0123456789')}>Return to session</button>
     <button onClick={() => props.onOpenSessionById('abcdef0123456789', 'terminal')}>Open in Terminal</button>
@@ -180,6 +181,8 @@ let mockSessions: any[] = [];
 let mockRepositoryNotices: Record<string, { status: 'restoring' | 'complete' | 'issues'; repo?: string; repos?: string[]; outcome?: 'cloned' | 'exists' | 'failed' | 'tracking-unconfirmed' }> = {};
 let mockMigrationHalt: string | null = null;
 let mockActiveSessionId: string | null = null;
+let mockPhone = false;
+let mockFreshChatStart: { id: string; generation: number } | undefined;
 let mockPreferences: Record<string, any> = {};
 let mockVisiblePanes: Array<{ sessionId: string; terminalId: string }> = [];
 let mockTerminalsForSession: any = null;
@@ -203,6 +206,7 @@ vi.mock('../../stores/session', () => ({
       bumpSessionStoreVersion();
     },
     get activeSessionId() { readSessionStoreVersion(); return mockActiveSessionId; },
+    get freshChatStart() { readSessionStoreVersion(); return mockFreshChatStart; },
     get saasMode() { readSessionStoreVersion(); return mockSaasMode; },
     get error() { return null; },
     get loading() { return false; },
@@ -300,6 +304,8 @@ vi.mock('../../stores/terminal-workspace', () => ({
 let mockIsSamsungBrowser = false;
 vi.mock('../../lib/mobile', async importOriginal => ({
   ...await importOriginal<typeof import('../../lib/mobile')>(),
+  isMobile: () => mockPhone,
+  isTouchDevice: () => mockPhone,
   forceResetKeyboardState: vi.fn(),
   enableVirtualKeyboardOverlay: vi.fn(),
   cleanupDebugOverlay: vi.fn(),
@@ -339,6 +345,8 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     mockSessions = [];
     mockRepositoryNotices = {};
     mockActiveSessionId = null;
+    mockPhone = false;
+    mockFreshChatStart = undefined;
     mockPreferences = {};
     mockVisiblePanes = [];
     mockTerminalsForSession = null;
@@ -721,6 +729,124 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       vi.mocked(sessionStore.getInitProgressForSession).mockReturnValue(null);
       vi.mocked(sessionStore.dismissInitProgressForSession).mockReset();
     }
+  });
+
+  describe('REQ-AGENT-275: startup Open and the phone prompt', () => {
+    it.each(['fresh empty', 'Resume', 'desktop', 'mouse on phone', 'keyboard activation', 'nonempty', 'unknown history',
+      'native question', 'transcript question', 'stock modal', 'activity notice', 'replaced document', 'different conversation',
+      'switched attachment'] as const)(
+      'opens the retained Chat in place: %s', async scenario => {
+        navigationRendering.realTerminalArea = true;
+        const id = 'abcdef0123456789';
+        const creating = scenario !== 'Resume';
+        const generation = creating ? 1 : 2;
+        const session = createMockSession({ id, workspace: 'terminal', terminalMode: 'classic', agentType: 'pi',
+          status: 'stopped', generation: generation - 1 });
+        mockPreferences = { defaultPiSurface: 'chat' };
+        mockPhone = scenario !== 'desktop';
+        mockSessions = creating ? [] : [session];
+        const [initializing, setInitializing] = createSignal(false);
+        vi.mocked(sessionStore.isSessionInitializing).mockImplementation(initializing);
+        vi.mocked(sessionStore.getInitProgressForSession).mockReturnValue({ stage: 'ready', progress: 100, message: 'Container ready' });
+        vi.mocked(sessionStore.dismissInitProgressForSession).mockImplementation(() => setInitializing(false));
+        if (creating) vi.mocked(sessionStore.createSession).mockImplementationOnce(async () => {
+          mockSessions = [session];
+          bumpSessionStoreVersion();
+          return session;
+        });
+        vi.mocked(sessionStore.startSession).mockImplementationOnce(async (_id, _surface, freshChat?: boolean) => {
+          if (freshChat) mockFreshChatStart = { id, generation };
+          mockSessions = [{ ...session, status: 'running', generation }];
+          setInitializing(true);
+          bumpSessionStoreVersion();
+        });
+        let attachment = 1;
+        vi.stubGlobal('fetch', async (url: string) => Response.json(url.endsWith(`/_switch?generation=${generation}`)
+          ? { phase: 'complete', surface: 'chat', target: 'chat', requestId: `00000000-0000-4000-8000-00000000000${attachment + 2}`,
+            chatUrl: `/api/pi-web/${id}/g/${generation}/a/00000000-0000-4000-8000-00000000000${attachment}/?project=p&workspace=w&session=native&view=chat` } : {}));
+        vi.useFakeTimers();
+        try {
+          render(() => <Layout />);
+          fireEvent.click(screen.getByRole('button', { name: creating ? 'Start fresh Vibe' : 'Start session' }));
+          await vi.waitFor(() => expect(screen.getByTitle('Pi Chat')).toBeInTheDocument());
+          if (scenario === 'switched attachment') {
+            const first = screen.getByTitle('Pi Chat');
+            attachment = 2;
+            await vi.advanceTimersByTimeAsync(5000);
+            await vi.waitFor(() => expect(screen.getByTitle('Pi Chat')).not.toBe(first));
+          }
+          const frame = screen.getByTitle('Pi Chat');
+          if (!(frame instanceof HTMLIFrameElement) || !frame.contentDocument) throw new Error('Expected the stock Chat frame');
+          const src = frame.src;
+          const stockDocument = (doc: Document) => {
+            Object.defineProperty(doc, 'URL', { value: src });
+            const app = doc.body.appendChild(Object.assign(doc.createElement('pi-web-app'), {
+              isRenderedModalOpen: () => scenario === 'stock modal', isChatVisible: () => true,
+            }));
+            const root = app.attachShadow({ mode: 'open' });
+            root.innerHTML = '<main class="chat-view"><conversation-layout><chat-view></chat-view>'
+              + '<div slot="composer"><prompt-editor></prompt-editor></div></conversation-layout></main>';
+            Object.assign(root.querySelector('conversation-layout')!, { questionActions: scenario === 'transcript question' ? {} : undefined });
+            Object.assign(root.querySelector('chat-view')!, { sessionId: 'native',
+              historyReady: scenario !== 'unknown history', messageTotal: scenario === 'nonempty' ? 1 : 0,
+              messages: scenario === 'nonempty' ? [{ role: 'system' }] : [], hasMore: false,
+              pendingDialogs: scenario === 'native question' ? [{}] : [], closedDialogs: [] });
+            const editor = root.querySelector('prompt-editor')!;
+            const editorRoot = editor.attachShadow({ mode: 'open' });
+            const input = editorRoot.appendChild(doc.createElement('div'));
+            input.className = 'cm-content';
+            input.setAttribute('contenteditable', 'true');
+            input.tabIndex = 0;
+            Object.defineProperty(input, 'getClientRects', { value: () => [new DOMRect(0, 0, 100, 20)] });
+            if (scenario === 'activity notice') editor.setAttribute('inert', '');
+            // Stand in for the pinned stock focus method; observe actual focus and the reveal at that moment.
+            const focusedWhileVisible: boolean[] = [];
+            Object.assign(editor, { disabled: false, sessionId: scenario === 'different conversation' ? 'other' : 'native',
+              projectId: 'p', workspaceId: 'w', focusInput: () => {
+                focusedWhileVisible.push(!frame.closest('[inert]') && frame.closest('main > .pi-web-chat')?.getAttribute('style')?.includes('visibility: hidden') !== true);
+                input.focus();
+              } });
+            return { doc, editorRoot, input, focusedWhileVisible };
+          };
+          let stock = stockDocument(frame.contentDocument);
+          Object.defineProperty(frame, 'contentDocument', { get: () => stock.doc });
+          expect(frame).not.toBeVisible();
+          fireEvent.load(frame);
+          await vi.advanceTimersByTimeAsync(5000);
+          if (scenario === 'replaced document') {
+            stock = stockDocument(document.implementation.createHTMLDocument());
+            fireEvent.load(frame);
+            await vi.advanceTimersByTimeAsync(5000);
+          }
+          expect(stock.editorRoot.activeElement).toBeNull();
+          const open = screen.getByRole('button', { name: 'Open' });
+          fireEvent(open, new PointerEvent('click', { bubbles: true, composed: true,
+            detail: scenario === 'keyboard activation' ? 0 : 1,
+            pointerType: scenario === 'mouse on phone' || scenario === 'desktop' ? 'mouse' : 'touch' }));
+          if (scenario === 'fresh empty') {
+            expect(stock.editorRoot.activeElement).toBe(stock.input);
+            expect(stock.focusedWhileVisible).toEqual([true]);
+          } else {
+            expect(stock.editorRoot.activeElement).toBeNull();
+            await vi.runOnlyPendingTimersAsync();
+            expect(stock.editorRoot.activeElement).toBeNull();
+            expect(stock.focusedWhileVisible).toEqual([]);
+          }
+          expect(open).not.toBeInTheDocument();
+          expect(screen.getByTitle('Pi Chat')).toBe(frame);
+          expect(frame.contentDocument).toBe(stock.doc);
+          expect(frame.src).toBe(src);
+          expect(frame).toBeVisible();
+        } finally {
+          cleanup();
+          vi.useRealTimers();
+          vi.unstubAllGlobals();
+          vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
+          vi.mocked(sessionStore.getInitProgressForSession).mockReturnValue(null);
+          vi.mocked(sessionStore.dismissInitProgressForSession).mockReset();
+        }
+      },
+    );
   });
 
   it.each(['generation replacement', 'page exit'])('reuses the open Chat frame on Dashboard return and discards it on %s', async invalidation => {

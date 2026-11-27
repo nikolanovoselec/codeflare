@@ -940,7 +940,7 @@ For [REQ-IDE-054 AC5](../../sdd/spec/browser-ide.md#req-ide-054-browser-ide-card
 
 Arm one disposable VS Code card, then start Vault preparation on another. The first stays green and exposes a waiting label; activating it must open no tab. When preparation releases, verify nothing opens automatically. Click again and verify the new tab targets the first card.
 
-Verify Dashboard controls do not show tooltips. If no authorized browser observation reaches a key-recovery timeout and retry, record rendered retry behavior as unverified. The component test exercises a fresh retry.
+With a mouse, hover an enabled Dashboard Vault button. The background highlights without opening Vault or changing an armed icon from green. Verify Dashboard controls do not show tooltips. If no authorized browser observation reaches a key-recovery timeout and retry, record rendered retry behavior as unverified. The component test exercises a fresh retry.
 
 Component fixtures establish state, control order and accessible naming, not rendered color, motion, geometry or native keyboard activation. A missing matching browser observation leaves those presentation checks unverified.
 

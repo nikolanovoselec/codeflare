@@ -99,6 +99,7 @@ vi.mock('../../stores/github', async () => {
       // Dashboard kicks this off on mount to break the enabled-gates-the-panel
       // deadlock (status is loaded outside the gated GitHub panel).
       loadStatus: vi.fn(),
+      loadRepos: vi.fn(async () => {}),
     },
   };
 });
@@ -878,6 +879,43 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     } finally { counts.mockRestore(); }
   });
 
+  it('REQ-GITHUB-327: retries an unavailable list after Dashboard return and restores both empty lines', async () => {
+    (githubStore as any)._setEnabled(true);
+    (githubStore as any)._setLogin('octocat');
+    const counts = vi.spyOn(githubApi, 'getGithubOwnedRepoCounts').mockResolvedValue({ counts: null });
+    const retry = vi.mocked(githubStore.loadRepos);
+    retry.mockImplementationOnce(async () => {
+      githubFixture._setRepoPage({ ...initialRepoPage, page: 1 });
+    });
+    try {
+      githubFixture._setRepoPage({ ...initialRepoPage, loading: true });
+      const firstVisit = render(() => <Dashboard {...defaultProps} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
+      expect(await screen.findByText('Loading repositories…')).toBeVisible();
+      firstVisit.unmount();
+
+      vi.useFakeTimers();
+      githubFixture._setRepoPage({ ...initialRepoPage, error: 'GitHub returned a server error' });
+      const returnVisit = render(() => <Dashboard {...defaultProps} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
+      const details = within(screen.getByRole('region', { name: 'GitHub Details' }));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(details.getByText('CONNECTION TO GITHUB', { exact: true })).toBeVisible();
+      expect(details.getByText('FAILED. RETRYING.', { exact: true })).toBeVisible();
+      expect(details.queryByText('NOTHING TO SHOW.')).not.toBeInTheDocument();
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(details.queryByText('CONNECTION TO GITHUB')).not.toBeInTheDocument();
+      expect(details.getByText('NOTHING TO SHOW.', { exact: true })).toBeVisible();
+      expect(details.getByText('GO BUILD SOMETHING.', { exact: true })).toBeVisible();
+      returnVisit.unmount();
+
+      // The confirmed empty list is still usable while owned counts refresh.
+      counts.mockImplementationOnce(() => new Promise(() => {}));
+      render(() => <Dashboard {...defaultProps} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
+      const reopened = within(screen.getByRole('region', { name: 'GitHub Details' }));
+      expect(reopened.getByText('NOTHING TO SHOW.', { exact: true })).toBeVisible();
+      expect(reopened.getByText('GO BUILD SOMETHING.', { exact: true })).toBeVisible();
+    } finally { vi.useRealTimers(); counts.mockRestore(); }
+  });
+
   it('announces a GitHub authorization failure while the Vibe drawer stays closed', async () => {
     (githubStore as any)._setEnabled(true);
     const previous = window.location.href;
@@ -983,6 +1021,21 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
       expect(screen.queryByRole('dialog', { name: 'Create new session' })).not.toBeInTheDocument();
       if (atLimit) expect(defaultProps.onCreateSession).not.toHaveBeenCalled();
       else expect(defaultProps.onCreateSession).toHaveBeenCalledWith('pi', undefined, 'chat', true);
+    } finally {
+      (sessionStore as any)._setTestLimit(false);
+    }
+  });
+
+  it.each([false, true])('REQ-IDE-048: New Session starts Pi directly in VS Code unless at the session limit (%s)', atLimit => {
+    showRealCreateDialog = true;
+    (sessionStore as any)._setDefaultWorkspace('vscode');
+    (sessionStore as any)._setTestLimit(atLimit, 3);
+    try {
+      render(() => <Dashboard {...defaultProps} workspaceMode={{ value: 'terminal', onSelect: () => {} }} />);
+      fireEvent.click(screen.getByTestId('dashboard-new-session'));
+      expect(screen.queryByRole('dialog', { name: 'Create new session' })).not.toBeInTheDocument();
+      if (atLimit) expect(defaultProps.onCreateSession).not.toHaveBeenCalled();
+      else expect(defaultProps.onCreateSession).toHaveBeenCalledExactlyOnceWith('pi', undefined, undefined, true);
     } finally {
       (sessionStore as any)._setTestLimit(false);
     }

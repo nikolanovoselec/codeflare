@@ -14,6 +14,7 @@ import { sessionStore } from '../stores/session';
 import { terminalWorkspaceStore } from '../stores/terminal-workspace';
 import { resolveTerminalMode, type TileLayout, type AgentType, type TabConfig, type PiSurface, type SessionWithStatus, type VisibleTerminalPane } from '../types';
 import { generateSessionName } from '../lib/session-utils';
+import { isMobile, isTouchDevice } from '../lib/mobile';
 
 interface TerminalAreaProps {
   workspaceMode?: PiWorkspaceModeBinding;
@@ -33,6 +34,7 @@ interface TerminalAreaProps {
   parkedTerminalPane?: VisibleTerminalPane;
   piWebPanel?: JSX.Element;
   piWebOpenReady?: boolean;
+  onOpenChatStartup?: (sessionId: string, phoneTap: boolean) => void;
   piWebShowDuringStartup?: boolean;
   piWebTerminalStatus?: JSX.Element;
   showTilingOverlay: boolean;
@@ -193,7 +195,17 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
               sessionName={activeSession()?.name || 'Terminal'}
               progress={sessionStore.getInitProgressForSession(activeSessionId()!)}
               openReady={props.piWebOpenReady === true}
-              onOpen={() => { if (props.piWebOpenReady) props.onOpenSessionById(activeSessionId()!); }}
+              onOpen={event => {
+                const id = activeSessionId();
+                if (!id || !chatStartupOverlay() || !props.piWebOpenReady) return;
+                // Older touch browsers expose a MouseEvent for a tap. A
+                // keyboard/AT click has no click count; never borrow its focus.
+                const phoneTap = event.detail > 0 && isMobile() && isTouchDevice()
+                  && (!('pointerType' in event) || event.pointerType === 'touch');
+                const openChat = props.onOpenChatStartup;
+                if (openChat) openChat(id, phoneTap);
+                else props.onOpenSessionById(id);
+              }}
             />
           </div>
         </Show>

@@ -655,10 +655,25 @@ describe('API Client', () => {
       );
 
       // Should have called onComplete
-      expect(onComplete).toHaveBeenCalledWith(7, 12);
+      expect(onComplete).toHaveBeenCalledWith(7, 12, false);
       expect(onError).not.toHaveBeenCalled();
 
       cleanup();
+    });
+
+    it.each([['starting', true], ['already_running', false]] as const)('REQ-AGENT-275: reports Ready and whether this request claimed Start (%s)', async (status, claimed) => {
+      mockFetch.mockResolvedValueOnce(Response.json({ generation: 1, status }))
+        .mockResolvedValueOnce(Response.json({ stage: 'ready', generation: 1, revision: 2,
+          progress: 100, message: 'Container ready', details: { container: 'container-abc', bucketName: 'bucket-xyz', path: '/workspace' },
+        }));
+      const ready = vi.fn();
+      const failed = vi.fn();
+      const cancel = startSession('session00123', () => {}, ready, failed, { surface: 'chat' });
+      try {
+        await vi.advanceTimersByTimeAsync(0);
+        expect(ready).toHaveBeenCalledWith(1, 2, claimed);
+        expect(failed).not.toHaveBeenCalled();
+      } finally { cancel(); }
     });
 
     it('should call container start with correct endpoint', async () => {

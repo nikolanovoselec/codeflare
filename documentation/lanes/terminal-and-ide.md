@@ -62,6 +62,8 @@ Herdr image settings manage mobile layout, mouse capture, browser-owned clipboar
 
 In **Vibe**, Dashboard **New Session** starts Pi Chat directly. Returning to Dashboard does not unlock another direct launch until the first Start settles or you stop it. Existing creation limits still apply. See [REQ-AGENT-279](../../sdd/spec/agents.md#req-agent-279-direct-vibe-session-launch).
 
+When **VS Code** is the effective workspace, Dashboard **New Session** starts Pi directly without offering other agents or Bash ([REQ-IDE-048](../../sdd/spec/browser-ide.md#req-ide-048-default-workspace-and-dashboard-owned-vs-code-sessions)).
+
 - When the picker is available, choose Vibe or Code in the header before using a Dashboard card. The card menu retains lifecycle actions but has no Chat or Terminal override ([REQ-AGENT-276](../../sdd/spec/agents.md#req-agent-276-vibe-and-code-workspace-preference), AC5).
 - For [REQ-TERM-049](../../sdd/spec/terminal.md#req-term-049-shared-workspace-startup-progress), check that **Syncing workspace** stays active through verification, then advances to **Preparing environment**.
 - While waiting for Open, Vibe shows **Loading Chat** with the same one-decimal elapsed timer as the other startup steps and a loading icon that spins with default motion.
@@ -76,6 +78,8 @@ In **Vibe**, Dashboard **New Session** starts Pi Chat directly. Returning to Das
 - The [Layout regression](../../web-ui/src/__tests__/components/Layout.test.tsx) checks that the startup UI stays mounted while the first Host status is pending ([REQ-TERM-043 AC6](../../sdd/spec/terminal.md#req-term-043-visible-terminal-readiness-gating)). It uses a mock Terminal and does not track sockets.
 - On Chat-first Start and Resume, verify the stock frame loads behind the startup overlay. Once the Host confirms Chat and five seconds have passed since the stock loader disappeared, **Open** becomes available on a best-effort basis.
 - After **Open** appears, wait over 25 seconds before clicking it. Verify it reveals the same frame without starting native Pi.
+- On a physical iPhone (Safari) and Android phone (Chrome), create a new Vibe session with no conversation history. With the keyboard closed, tap **Open** once, then type without tapping the composer. Pass only if the OS keyboard appears on that first tap and text lands in the unchanged stock composer. Repeat after waiting at **Open** and with a successful new-session clone. DOM focus or desktop emulation does not verify the OS keyboard.
+- Resume an empty stopped Chat, return to a live Chat, and try desktop **Open**. Chat should still open without the startup action claiming composer focus. For a blocking native question, verify the question remains answerable without a focus move to the composer.
 - For each run below, configure an authorized synthetic repository as a restore target and ensure its checkout is absent locally.
 - Start Chat-first and choose **Open**. While **Restoring repositories…** is visible, verify the Chat composer works, then switch **Chat → Terminal** before waiting for the clone outcome.
 - In a separate Terminal-first run, choose **Open**. While **Restoring repositories…** is visible, verify native Pi accepts a harmless prompt, then switch **Terminal → Chat**.
@@ -353,7 +357,7 @@ The [Layout regression](../../web-ui/src/__tests__/components/Layout.test.tsx) h
 
 For [REQ-GITHUB-330 AC4](../../sdd/spec/github.md#req-github-330-workspace-mode-clone-destinations), the automated newer-route case uses `history.pushState` to change the URL without switching away from the active clone. It then releases Start as failed, waits for that clone’s Dashboard card to become visible, and checks that the newer URL remains. No hosted fault fixture is established. Mark hosted failure cases unexercised unless an authorized fixture can preserve the active clone and observe Start settlement without reloading or switching sessions.
 
-Compare the GitHub and Storage card bounds, surface color, border, corner radius, and padding in the same viewport, using Storage Usage as the reference. Repeat the comparison with a successfully loaded empty list and no positive owned count. The black labels then read **NOTHING TO SHOW.** and **GO BUILD SOMETHING.** on two lines.
+Compare the GitHub and Storage card bounds, surface color, border, corner radius, and padding in the same viewport, using Storage Usage as the reference. Repeat the comparison with a successfully loaded empty list and no positive owned count. The black labels then read **NOTHING TO SHOW.** and **GO BUILD SOMETHING.** on two lines. Leave and return to Dashboard and check that both lines still appear once the empty list is confirmed. If the list fails to load and no counts or shortcuts are available, verify **CONNECTION TO GITHUB** and **FAILED. RETRYING.** appear in the same two-line style. Verify a successful automatic retry restores the empty copy when the list is empty.
 
 After restore, check that the clone directory is the Git checkout root, its `origin` matches the selected `owner/repo`, and its checked-out branch matches the known default. A selected repo or a clone request alone does not pass. Record any case without the required fixture or authorization as unexercised.
 

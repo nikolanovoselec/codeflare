@@ -1471,6 +1471,50 @@ describe('Session Store', () => {
   });
 
   describe('createSessionWithClone', () => {
+    it.each(['confirmed', 'failed then retried', 'left then returned', 'different generation', 'already running'] as const)(
+      'REQ-AGENT-275: only the original successful clone launch can authorize focus (%s)', async scenario => {
+        const id = 'abcdef0123456789';
+        const repo = 'octocat/hello';
+        mockCreateSession.mockResolvedValue({ id, name: 'hello', workspace: 'terminal', agentType: 'pi',
+          generation: 0, revision: 0, createdAt: '2026-01-01T00:00:00Z', lastAccessedAt: '2026-01-01T00:00:00Z' });
+        let complete!: (generation: number) => void;
+        let fail!: (message: string) => void;
+        vi.mocked(api.startSession).mockImplementation((_id, progress, onComplete, onError) => {
+          complete = generation => {
+            progress({ stage: 'ready', progress: 100, message: 'Container ready' });
+            onComplete(generation, 2, scenario !== 'already running');
+          };
+          fail = onError;
+          return () => {};
+        });
+        setCloneAttempt(repo, { phase: 'creating', ticket: Symbol() }, 'chat');
+        try {
+          const creating = sessionStore.createSessionWithClone(repo, 'pi', 'chat');
+          await vi.waitFor(() => expect(sessionStore.isSessionInitializing(id)).toBe(true));
+          if (scenario === 'failed then retried') {
+            fail('Startup failed');
+            await expect(creating).resolves.toEqual({ sessionId: id, started: false });
+            setCloneAttempt(repo, { phase: 'retrying', sessionId: id }, 'chat');
+            const retry = sessionStore.retryCloneStart(id, 'chat');
+            complete(1);
+            await expect(retry).resolves.toBe(true);
+          } else {
+            if (scenario === 'left then returned') {
+              sessionStore.setActiveSession(null);
+              sessionStore.setActiveSession(id);
+            }
+            complete(scenario === 'different generation' ? 2 : 1);
+            await expect(creating).resolves.toEqual({ sessionId: id, started: true });
+          }
+          expect(sessionStore.getInitProgressForSession(id)?.stage).toBe('ready');
+          if (scenario === 'confirmed') {
+            expect(sessionStore.freshChatStart).toMatchObject({ id, generation: 1 });
+            sessionStore.dismissInitProgressForSession(id);
+          }
+          expect(sessionStore.freshChatStart).toBeUndefined();
+        } finally { setCloneAttempt(repo, undefined, 'chat'); }
+      },
+    );
     it('REQ-IDE-048 AC2: starts a cloned VS Code session without activating terminal ownership', async () => {
       mockGetSessions.mockResolvedValue([]);
       await sessionStore.loadSessions();

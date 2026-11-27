@@ -73,6 +73,8 @@ const Dashboard: Component<DashboardProps> = (props) => {
   // by CSS, so there is nothing to flip. (REQ-GITHUB-007/010)
   const [panelFace, setPanelFace] = createSignal<'github' | 'storage'>('github');
   const vibe = () => props.workspaceMode?.value === 'chat';
+  const directPiLaunch = () => vibe() || (sessionStore.preferences.sessionMode === 'advanced'
+    && sessionStore.preferences.defaultWorkspace === 'vscode');
   const [githubReturnError, setGithubReturnError] = createSignal<string | null>(null);
   const showGithubDetails = () => vibe() && (githubStore.enabled || !!githubReturnError());
   const sessionCreateDisabled = () => props.launchingVibe || !sessionStore.r2Ready || isAtUsageQuota()
@@ -93,6 +95,16 @@ const Dashboard: Component<DashboardProps> = (props) => {
   const countsLoading = () => !!countAccount() && ownedRepoCounts.loading;
   const runningCloneTargets = () => sessionStore.sessions.some(session => session.status === 'running' && session.lifecycle !== 'stopping' && isPiWebSession(session));
   const [repoClonePicker, setRepoClonePicker] = createSignal<{ repo: GithubRepo; anchor: HTMLButtonElement }>();
+  const [retryingRepos, setRetryingRepos] = createSignal(false);
+  createEffect(() => {
+    if (!vibe() || !githubStore.connected || !githubStore.error || githubStore.loading || retryingRepos()) return;
+    const timer = setTimeout(async () => {
+      setRetryingRepos(true);
+      try { await githubStore.loadRepos(); }
+      finally { setRetryingRepos(false); }
+    }, 5000);
+    onCleanup(() => clearTimeout(timer));
+  });
   const knownEmptyRepos = () => githubStore.page > 0 && !githubStore.loading && !githubStore.error
     && !githubStore.hasMore && githubStore.repos.length === 0;
   const visibleRepoCounts = () => {
@@ -629,7 +641,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
               style={{ 'padding-block-end': `${newSessionPadding()}px` }}>
                 <Portal>
                   <CreateSessionDialog
-                    isOpen={showCreateDialog() && props.workspaceMode?.value !== 'chat'}
+                    isOpen={showCreateDialog() && !directPiLaunch()}
                     onClose={() => setShowCreateDialog(false)}
                     onSelect={(agentType, tabConfig) => {
                       setShowCreateDialog(false);
@@ -663,9 +675,9 @@ const Dashboard: Component<DashboardProps> = (props) => {
                     }
                     if (sessionStore.isAtSessionLimit()) {
                       setShowLimitPopup(!showLimitPopup());
-                    } else if (props.workspaceMode?.value === 'chat') {
+                    } else if (directPiLaunch()) {
                       setShowCreateDialog(false);
-                      try { await props.onCreateSession('pi', undefined, 'chat', true); }
+                      try { await props.onCreateSession('pi', undefined, vibe() ? 'chat' : undefined, true); }
                       catch { /* The session store already reports launch errors. */ }
                     } else {
                       setShowCreateDialog(!showCreateDialog());
@@ -785,9 +797,18 @@ const Dashboard: Component<DashboardProps> = (props) => {
                       </Show>
                     }>
                       <Show when={visibleRepoCounts()} fallback={
-                        <Show when={!countsLoading()} fallback={<span class="type-hint" role="status">Loading owned repository counts…</span>}>
+                        <Show when={!countsLoading() || knownEmptyRepos() || githubStore.error || retryingRepos()} fallback={<span class="type-hint" role="status">Loading owned repository counts…</span>}>
                           <Show when={recentRepos().length > 0} fallback={
-                            <Show when={knownEmptyRepos()}>
+                            <Show when={knownEmptyRepos()} fallback={
+                              <Show when={githubStore.error || retryingRepos()} fallback={
+                                <span class="type-hint" role="status">{githubStore.loading || githubStore.page === 0 ? 'Loading repositories…' : 'Repository shortcuts unavailable.'}</span>
+                              }>
+                                <div class="dashboard-github-card__empty" role="status">
+                                  <span>CONNECTION TO GITHUB</span>
+                                  <span>FAILED. RETRYING.</span>
+                                </div>
+                              </Show>
+                            }>
                               <div class="dashboard-github-card__empty">
                                 <span>NOTHING TO SHOW.</span>
                                 <span>GO BUILD SOMETHING.</span>

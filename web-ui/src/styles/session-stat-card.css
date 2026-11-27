@@ -50,6 +50,12 @@
   height: var(--space-8);
 }
 
+@media (hover: hover) and (pointer: fine) {
+  .session-stat-card__vault .header-vault-button:hover:not([aria-disabled="true"]) {
+    background: var(--color-accent-muted);
+  }
+}
+
 .session-stat-card__vault .header-vault-button--armed[aria-disabled="true"] {
   color: var(--color-success);
   cursor: progress;

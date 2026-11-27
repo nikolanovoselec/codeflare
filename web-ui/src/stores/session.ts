@@ -615,6 +615,12 @@ async function createSession(name: string, agentType?: AgentType, tabConfig?: Ta
   }
 }
 
+// One local launch, never inferred from an empty transcript or a resumed row.
+const [freshChatStart, setFreshChatStart] = createSignal<{ id: string; generation: number }>();
+const clearFreshChatStart = (id: string) => {
+  setFreshChatStart(current => current?.id === id ? undefined : current);
+};
+
 // Create a new session that clones `repo` at container start, then route it by
 // its server-selected workspace: historical/Terminal sessions keep activation,
 // while VS Code sessions start without taking terminal ownership. `ref` is omitted
@@ -625,6 +631,7 @@ async function createSessionWithClone(repo: string, agentType?: AgentType, surfa
   // rejected by the backend (name is min(1) when present; only OMISSION falls
   // back to "Terminal"), and the repo name is a more useful label anyway.
   const name = repo.split('/')[1] || repo;
+  const launch = cloneAttempt(repo, surface);
   const session = await createSession(name, agentType, undefined, { repo }, surface);
   if (!session) return null;
   const attempt = cloneAttempt(repo, surface);
@@ -635,7 +642,9 @@ async function createSessionWithClone(repo: string, agentType?: AgentType, surfa
   if (agentType && !surface) {
     void updateUserPreferences({ lastAgentType: agentType });
   }
-  const started = await startSession(session.id, surface).then(result => result !== 'cancelled', () => false);
+  const freshChat = surface === 'chat' && launch?.phase === 'creating'
+    && attempt?.phase === 'creating' && attempt.ticket === launch.ticket;
+  const started = await startSession(session.id, surface, freshChat).then(result => result !== 'cancelled', () => false);
   return { sessionId: session.id, started };
 }
 
@@ -668,6 +677,7 @@ async function renameSession(id: string, name: string): Promise<void> {
 }
 
 async function deleteSession(id: string): Promise<void> {
+  clearFreshChatStart(id);
   dismissRepositoryRestore(id);
   try {
     const startupCleanup = startupCleanups.get(id);
@@ -788,13 +798,20 @@ function watchRepositoryRestore(id: string, generation: number, initial: Reposit
   update(initial);
 }
 
-function startSession(id: string, surface?: PiSurface): Promise<void | 'cancelled'> {
+function startSession(id: string, surface?: PiSurface, freshChat = false): Promise<void | 'cancelled'> {
   dismissRepositoryRestore(id);
   const session = state.sessions.find((candidate) => candidate.id === id);
   const retryEditorTimeout = session?.workspace === 'vscode' && session.editorReadyError === true;
 
   startupCleanups.get(id)?.();
   startupCleanups.delete(id);
+  // The first D1 launch advances generation zero to one. The Ready receipt
+  // below must confirm that same generation before Open can use this intent.
+  const launch = freshChat && surface === 'chat' && state.activeSessionId === id
+    && session?.status === 'stopped' && session.generation === 0 ? { id, generation: 1 } : undefined;
+  if (launch) setFreshChatStart(launch);
+  else clearFreshChatStart(id);
+  const abandonLaunch = () => setFreshChatStart(current => current === launch ? undefined : current);
   return new Promise((resolve, reject) => {
     let pending = true;
     setState(
@@ -806,6 +823,7 @@ function startSession(id: string, surface?: PiSurface): Promise<void | 'cancelle
     updateSessionStatus(id, 'initializing');
 
     const releaseUnconfirmedStart = (error: string) => {
+      abandonLaunch();
       startupCleanups.delete(id);
       setState(produce((s) => {
         delete s.initializingSessionIds[id];
@@ -832,9 +850,10 @@ function startSession(id: string, surface?: PiSurface): Promise<void | 'cancelle
           })
         );
       },
-      (generation, revision) => {
+      (generation, revision, claimedStart) => {
         if (!pending) return;
         pending = false;
+        if (claimedStart !== true || generation !== launch?.generation || !readyProgress) abandonLaunch();
         const index = state.sessions.findIndex((session) => session.id === id);
         const current = state.sessions[index];
         if (!current || isLocallyStopping(id) || localKillAttempts.has(id)
@@ -870,6 +889,7 @@ function startSession(id: string, surface?: PiSurface): Promise<void | 'cancelle
       (error, code) => {
         if (!pending) return;
         pending = false;
+        abandonLaunch();
         if (code === 'SESSION_START_UNCONFIRMED') {
           releaseUnconfirmedStart(error);
           return;
@@ -899,6 +919,7 @@ function startSession(id: string, surface?: PiSurface): Promise<void | 'cancelle
 
     if (pending) startupCleanups.set(id, () => {
       pending = false;
+      abandonLaunch();
       cleanup();
       // Cancellation settles the caller without publishing Ready or a startup error.
       resolve('cancelled');
@@ -907,6 +928,7 @@ function startSession(id: string, surface?: PiSurface): Promise<void | 'cancelle
 }
 
 async function stopSession(id: string): Promise<void> {
+  clearFreshChatStart(id);
   dismissRepositoryRestore(id);
   const previous = localStopAttempts.get(id);
   if (previous && (!previous.superseded || localKillAttempts.has(id))) return;
@@ -1028,6 +1050,7 @@ async function stopSession(id: string): Promise<void> {
 }
 
 function killSession(id: string): Promise<void> {
+  clearFreshChatStart(id);
   dismissRepositoryRestore(id);
   reconcileKillGeneration(id);
   const pending = localKillAttempts.get(id);
@@ -1058,6 +1081,7 @@ function killSession(id: string): Promise<void> {
 }
 
 function setActiveSession(id: string | null): void {
+  if (id !== state.activeSessionId) setFreshChatStart(undefined);
   setState('activeSessionId', id);
 
   if (id) {
@@ -1073,6 +1097,7 @@ function clearError(): void {
 }
 
 function dismissInitProgressForSession(sessionId: string): void {
+  clearFreshChatStart(sessionId);
   setState(
     produce((s) => {
       delete s.initializingSessionIds[sessionId];
@@ -1086,6 +1111,7 @@ function getInitProgressForSession(sessionId: string): InitProgress | null {
 }
 
 function stopAllPolling(): void {
+  setFreshChatStart(undefined);
   for (const id of new Set([...repositoryRestoreTimers.keys(), ...Object.keys(repositoryRestoreNotices)])) dismissRepositoryRestore(id);
   for (const [sessionId, cleanup] of startupCleanups) {
     cleanup();
@@ -1123,6 +1149,7 @@ export const sessionStore = {
   cloneRepositoryIntoSession,
   get sessions() { return state.sessions; },
   get activeSessionId() { return state.activeSessionId; },
+  get freshChatStart() { return freshChatStart(); },
   get loading() { return state.loading; },
   get error() { return state.error; },
   get statusUnavailable() { return sessionStatusUnavailable(); },
