@@ -381,7 +381,7 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
     }
   });
 
-  it('REQ-AGENT-211 AC2: complete-image smoke rejects Pi missing-session warnings for a seeded Classic ID', async () => {
+  it('REQ-AGENT-211 AC2: complete-image smoke requires Pi to open the exact seeded Classic transcript', async () => {
     const root = mkdtempSync(join(tmpdir(), 'pi-classic-smoke-'));
     const stateScript = join(ROOT, 'image/pi-web/classic-session-state.mjs');
     let inspectedHeader;
@@ -393,10 +393,11 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
       const sessionFile = join(sessionDir, readdirSync(sessionDir)[0]);
       inspectedHeader = JSON.parse(readFileSync(sessionFile, 'utf8'));
       assert.equal(options.cwd, join(options.env.HOME, 'workspace'));
-      assert.deepEqual(args.slice(0, 2), ['--session', sessionFile]);
+      assert.deepEqual(args, ['--session', sessionFile, '--mode', 'rpc']);
+      assert.deepEqual(JSON.parse(options.input), { type: 'get_state' });
       assert.equal(readFileSync(join(inspectedHome, '.codeflare/classic/sessions/cf-classic211/agent-session-id'), 'utf8'),
         `${inspectedHeader.id}\n`);
-      return { status: 1, signal: null, stderr: 'Error: No models available\n' };
+      return { status: 0, signal: null, stdout: JSON.stringify({ type: 'response', command: 'get_state', success: true, data: { sessionId: inspectedHeader.id, sessionFile } }) + '\n' };
     };
 
     try {
@@ -412,19 +413,12 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
           cwd: join(inspectedHome, 'workspace'),
         },
       );
-      await assert.rejects(
-        verifyPiClassicSessionStartup({
-          temporaryRoot: root,
-          piPath: '/agents/pi',
-          stateScript,
-          run: () => ({
-            status: 1,
-            signal: null,
-            stderr: "Warning: No project session found with id '00000000-0000-4000-8000-000000000211'; creating a new session with that id.\n",
-          }),
-        }),
-        /must discover the seeded Classic session without a missing-session warning/,
-      );
+      for (const [run, expected] of [
+        [() => ({ status: 1, signal: null, stderr: 'Error: could not open transcript' }), /must exit successfully/],
+        [() => ({ status: 0, signal: null, stdout: '{"type":"response","command":"get_state","success":true,"data":{"sessionId":"different","sessionFile":"/different.jsonl"}}\n' }), /must open the seeded Classic transcript/],
+      ]) {
+        await assert.rejects(verifyPiClassicSessionStartup({ temporaryRoot: root, stateScript, run }), expected);
+      }
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

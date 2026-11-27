@@ -46,7 +46,10 @@ function readRegularPrefix(path, limit) {
 function exactTranscript(state, id, rootOnly) {
   if (typeof id !== 'string' || !nativeIdPattern.test(id)) throw new Error('Invalid native Pi ID');
   const { cwd, sessionDir } = state;
-  const candidates = readdirSync(sessionDir).filter(name => name.endsWith(`_${id}.jsonl`));
+  const candidates = readdirSync(sessionDir).filter(name => {
+    const separator = name.indexOf('_');
+    return separator > 0 && name.slice(separator + 1) === `${id}.jsonl`;
+  });
   if (candidates.length !== 1 || candidates[0].includes('.conflict')) throw new Error('Classic Pi transcript is not unique');
   const path = join(sessionDir, candidates[0]);
   const bytes = readRegularPrefix(path, 65536);

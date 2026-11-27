@@ -267,6 +267,7 @@ describe('entrypoint.sh configure_tab_autostart / REQ-AGENT-003 (Agent CLI auto-
     mkdirSync(bindingDir, { recursive: true });
     writeFileSync(join(bindingDir, 'agent-session-id'), `${nativeId}\n`);
     const path = writeNative(dir, nativeId, { parentSession: '/retained-or-pruned-parent.jsonl' });
+    writeNative(dir, `older_${nativeId}`);
 
     const tabConfig = JSON.stringify([{ id: '1', command: 'pi', label: 'Terminal 1' }]);
     const restored = runHarness({ dir, tabConfig, env: { SESSION_ID: codeflareSessionId } });

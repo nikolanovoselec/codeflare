@@ -2545,7 +2545,8 @@ configure_tab_autostart() {
             fi
             # Resolve again in the PTY: retention may have removed the saved
             # transcript since bootstrap. Pass an exact path, never an ID prefix
-            # or an option that asks native Pi to create a missing conversation.
+            # or a fuzzy lookup. Native Pi can still create at that path if
+            # the file disappears after this check but before it opens.
             printf -v classic_agent_launch 'if classic_pi_path=$(node %q resume %q %q) && [ -f "$classic_pi_path" ]; then pi --session "$classic_pi_path"; else printf "%%s\\n" "Codeflare: saved Classic agent transcript is unavailable; start or resume it manually." >&2; fi' \
                 "$classic_pi_state_script" "$USER_HOME" "$SESSION_ID"
         elif [ "$classic_agent_kind" = claude ]; then

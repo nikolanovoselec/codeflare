@@ -144,7 +144,7 @@ export async function verifyPiClassicSessionStartup({
     });
     const { id } = JSON.parse(await readFile(sessionFile, 'utf8'));
 
-    const result = run(piPath, ['--session', sessionFile, '--print'], {
+    const result = run(piPath, ['--session', sessionFile, '--mode', 'rpc'], {
       cwd,
       encoding: 'utf8',
       env: {
@@ -154,16 +154,16 @@ export async function verifyPiClassicSessionStartup({
         PI_OFFLINE: '1',
         PI_SKIP_VERSION_CHECK: '1',
       },
-      input: '',
+      input: '{"type":"get_state"}\n',
       timeout: 10_000,
     });
     assert.equal(result.error, undefined, `Pi Classic session smoke must start: ${result.error?.message ?? ''}`);
     assert.equal(result.signal, null, 'Pi Classic session smoke must terminate without a signal');
-    assert.doesNotMatch(
-      result.stderr ?? '',
-      /Warning: No project session found with id .*; creating a new session with that id\./,
-      'Pi must discover the seeded Classic session without a missing-session warning',
-    );
+    assert.equal(result.status, 0, 'Pi Classic session smoke must exit successfully');
+    const response = (result.stdout ?? '').trim().split('\n').filter(Boolean).map(line => JSON.parse(line))
+      .find(event => event.type === 'response' && event.command === 'get_state' && event.success === true);
+    assert.ok(response?.data?.sessionId === id && response.data.sessionFile === sessionFile,
+      'Pi must open the seeded Classic transcript with the expected ID and path');
     return id;
   } finally {
     await rm(home, { recursive: true, force: true });
