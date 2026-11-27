@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { closeSync, existsSync, openSync, readSync, unlinkSync } from "node:fs";
+import { closeSync, existsSync, openSync, readSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type { ExtensionAPI, TurnEndEvent, TurnEndEventResult } from "@earendil-works/pi-coding-agent";
@@ -75,7 +75,7 @@ type ReviewContext = {
   };
 };
 
-type ReviewPi = ToolActivationPi & {
+type ReviewPi = ToolActivationPi & Pick<ExtensionAPI, "appendEntry"> & {
   on(event: "input" | "session_start" | "tool_call" | "tool_execution_start" | "tool_result" | "agent_end" | "agent_settled", handler: (event: any, ctx: ReviewContext) => void | Promise<void>): void;
   on(event: "turn_end", handler: (event: TurnEndEvent, ctx: ReviewContext) => Promise<TurnEndEventResult | undefined>): void;
   sendMessage(
@@ -166,6 +166,7 @@ async function currentReview(
   ciEvent?: ReviewBoundaryEvent,
   command?: string,
   createdPr?: CreatedPrTarget,
+  onCheckout?: (branch: string, head: string) => void,
 ): Promise<CurrentReview | typeof PR_LOOKUP_FAILED | undefined> {
   const file = rootSessionFile(ctx);
   const root = findGitRoot(repo);
@@ -173,6 +174,8 @@ async function currentReview(
   const branch = await (dependencies.queryBranch ?? queryBranch)(root);
   if (!branch) return undefined;
   const head = await (dependencies.queryHead ?? queryHead)(root, "HEAD");
+  if (!head || !fullSha(head)) return PR_LOOKUP_FAILED;
+  onCheckout?.(branch, head);
   const sleep = dependencies.sleep ?? defaultSleep;
   const lookupRepository = dependencies.queryRepository ?? queryRepository;
   let repositoryIdentity = await lookupRepository(root);
@@ -180,10 +183,10 @@ async function currentReview(
     await sleep(250);
     repositoryIdentity = await lookupRepository(root);
   }
-  const unrelatedPush = ciEvent === "push" && command && !exposureTargetsCheckedOutBranch(command, {
-    branch, pr: 0, repository: repositoryIdentity?.repository ?? "",
+  const unrelated = ciEvent && command && !exposureTargetsCheckedOutBranch(command, {
+    branch, repository: repositoryIdentity?.repository,
   });
-  if (!head || !repositoryIdentity) return unrelatedPush ? undefined : PR_LOOKUP_FAILED;
+  if (!repositoryIdentity) return unrelated ? undefined : PR_LOOKUP_FAILED;
   if (createdPr && (repositoryIdentity.gitHost !== createdPr.gitHost
     || repositoryIdentity.repository !== createdPr.repository)) return undefined;
   const delays = ciEvent
@@ -194,7 +197,7 @@ async function currentReview(
     if (delay > 0) await sleep(delay);
     const pr = await dependencies.queryPr(root, createdPr?.url ?? branch);
     if (pr === PR_LOOKUP_FAILED) {
-      if (unrelatedPush) return undefined;
+      if (unrelated) return undefined;
       if (!ciEvent || lookupFailed) return PR_LOOKUP_FAILED;
       lookupFailed = true;
       continue;
@@ -596,21 +599,43 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     const epoch = generation;
     const current = () => isCurrent() && generation === epoch;
     if (!current()) return;
+    let deliveryCheckout: { branch: string; head: string } | undefined;
     const reportLaunchBlocked = () => {
       if (!ciEvent) return;
-      pi.appendEntry("pr-boundary-launch-blocked", { boundaryToolUseId, event: ciEvent, reason: "PR verification unavailable" });
-      ctx.ui?.notify("PR review plan not sent: PR verification unavailable. Once GitHub is reachable, reopen the checkout and use Launch review; no new push is needed.", "warning");
+      if (deliveryCheckout && command) {
+        pi.appendEntry("pr-boundary-launch-blocked", { repo, ...deliveryCheckout, boundaryToolUseId, event: ciEvent, command });
+      }
+      ctx.ui?.notify(deliveryCheckout && command
+        ? "PR review plan not sent: PR verification unavailable. When GitHub is reachable, reopen the same checkout and choose Launch review to recover review and CI."
+        : "PR review plan not sent: PR verification unavailable.", "warning");
     };
-    const review = await currentReview(ctx, dependencies, repo, ciEvent, command, createdPr);
+    const review = await currentReview(ctx, dependencies, repo, ciEvent, command, createdPr,
+      (branch, head) => { deliveryCheckout = { branch, head }; });
     if (!current()) return;
     if (review === PR_LOOKUP_FAILED) return reportLaunchBlocked();
     if (!review) return;
     if (readCompletion(review.identity).status === "complete") return;
     if (activeRound && sameIdentity(activeRound.identity, review.identity)) return;
+    let entries: Record<string, any>[] | undefined;
+    if (!ciEvent && !consentedLaunch) {
+      try { entries = ctx.sessionManager.getBranch?.() ?? liveEntries(ctx); }
+      catch { return; }
+    }
+    const pending = entries && [...entries].reverse().find(entry =>
+        entry.type === "custom" && entry.customType === "pr-boundary-launch-blocked"
+        && entry.data?.repo === review.repo && entry.data?.head === review.identity.head
+        && entry.data?.branch === review.identity.branch);
+    const saved = pending?.data;
+    const recovery = saved && (saved.event === "push" || saved.event === "pr-create")
+      && typeof saved.command === "string" && typeof saved.boundaryToolUseId === "string"
+      && exposureTargetsCheckedOutBranch(saved.command, review.identity) ? saved as {
+        event: ReviewBoundaryEvent; command: string; boundaryToolUseId: string;
+      } : undefined;
     const key = JSON.stringify([review.file, review.identity.gitHost, review.identity.repository, review.identity.pr,
       review.identity.branch, review.identity.base, review.identity.head]);
     if (!ciEvent && dialogsInFlight.has(key)) return;
-    if (!ciEvent) dialogsInFlight.add(key);
+    const consentRequired = !ciEvent;
+    if (consentRequired) dialogsInFlight.add(key);
     try {
       let decision: string | undefined;
       if (ciEvent) {
@@ -620,14 +645,19 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
         const initial = readCompletion(review.identity);
         decision = await ctx.ui.select(
           `Review completion is missing for ${review.repository.split("/").at(-1)}:${review.pr.headRefName}.\nReason: ${statusReason(initial.status)}.`,
-          [MARK_COMPLETE, LAUNCH_REVIEW],
+          recovery ? [LAUNCH_REVIEW] : [MARK_COMPLETE, LAUNCH_REVIEW],
         );
-        if (decision !== MARK_COMPLETE && decision !== LAUNCH_REVIEW) return;
+        if (decision !== LAUNCH_REVIEW && (recovery || decision !== MARK_COMPLETE)) return;
       }
       if (!current()) return;
-      const refreshed = await currentReview(ctx, dependencies, review.repo, ciEvent, command, review.createdPr);
+      const refreshed = await currentReview(ctx, dependencies, review.repo, ciEvent ?? recovery?.event,
+        recovery?.command ?? command, review.createdPr);
       if (!current()) return;
-      if (refreshed === PR_LOOKUP_FAILED) return reportLaunchBlocked();
+      if (refreshed === PR_LOOKUP_FAILED) {
+        if (recovery) ctx.ui?.notify("PR review plan not sent: PR verification unavailable. Try Launch review again once GitHub is reachable.", "warning");
+        else reportLaunchBlocked();
+        return;
+      }
       if (!refreshed || !sameIdentity(refreshed.identity, review.identity)) return;
       if (readCompletion(refreshed.identity).status === "complete") return;
       if (decision === MARK_COMPLETE) {
@@ -642,6 +672,10 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       if (!ciEvent && consentedLaunch) {
         await consentedLaunch(refreshed, ctx);
         return;
+      }
+      if (recovery) {
+        ciEvent = recovery.event;
+        boundaryToolUseId = recovery.boundaryToolUseId;
       }
       const ancestor = latestAncestorCompletion(refreshed.identity, refreshed.repo);
       const ackHead = ancestor?.head;
@@ -693,7 +727,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       });
       activeRound = round;
     } finally {
-      if (generation === epoch) dialogsInFlight.delete(key);
+      if (consentRequired && generation === epoch) dialogsInFlight.delete(key);
     }
   };
 

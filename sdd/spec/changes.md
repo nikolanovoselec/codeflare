@@ -4,6 +4,11 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-27: Repository shortcuts and local review recovery
+
+- [Vibe repository shortcuts](github.md#req-github-327-vibe-repository-shortcuts) show short names with owner-qualified tooltips and accessible labels. The age pill highlights on hover and shows a keyboard focus outline.
+- [Local Pi review](agents.md#req-agent-121-checked-out-branch-boundary-synchronization) reports failed verification and preserves exact-head CI when recovering an undelivered review. [Blocked FIX](agents.md#req-agent-244-exact-round-review-completion) reports why it could not continue.
+
 ## 2026-11-26: Chat startup and Dashboard refinements
 
 - [Loading Chat](terminal.md#req-term-049-shared-workspace-startup-progress) keeps its label and final duration when Open appears.

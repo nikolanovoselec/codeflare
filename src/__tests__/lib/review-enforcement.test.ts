@@ -827,12 +827,14 @@ describe('Pi marker-or-dialog review ingress', () => {
       sleep: async () => undefined,
     });
     await app.emit('tool_result', boundary('git push origin HEAD:feature', 'push-transient'));
-    expect(app.sent.map(message => message.customType)).toEqual(['pr-boundary-launch-plan']);
+    expect(app.sent).toEqual([expect.objectContaining({ customType: 'pr-boundary-launch-plan',
+      details: expect.objectContaining({ head: input.head }) })]);
   });
 
   it('delivers one exact-head plan after transient repository discovery failure', async () => {
     let failed = false;
-    const app = await harness(fixture(), [], {
+    const input = fixture();
+    const app = await harness(input, [], {
       queryRepository: async () => {
         if (!failed) { failed = true; return undefined; }
         return { gitHost: 'github.com', repository: 'owner/repo' };
@@ -840,7 +842,8 @@ describe('Pi marker-or-dialog review ingress', () => {
       sleep: async () => undefined,
     });
     await app.emit('tool_result', boundary('git push origin HEAD:feature', 'push-repo-transient'));
-    expect(app.sent.map(message => message.customType)).toEqual(['pr-boundary-launch-plan']);
+    expect(app.sent).toEqual([expect.objectContaining({ customType: 'pr-boundary-launch-plan',
+      details: expect.objectContaining({ head: input.head }) })]);
   });
 
   it('warns without launching an unverified plan when PR lookups keep failing after push', async () => {
@@ -853,6 +856,14 @@ describe('Pi marker-or-dialog review ingress', () => {
     await app.emit('tool_result', boundary('git push origin HEAD:feature', 'push-unverified'));
     expect(app.sent).toHaveLength(0);
     expect(app.notices).toEqual([expect.stringContaining('PR verification unavailable')]);
+  });
+
+  it('keeps explicit other-repository reopens silent during a PR lookup outage', async () => {
+    const { PR_LOOKUP_FAILED } = await import('../../../preseed/agents/pi/extensions/review-enforcement');
+    const app = await harness(fixture(), [], { queryPr: async () => PR_LOOKUP_FAILED });
+    await app.emit('tool_result', boundary('gh --repo other/repo pr reopen 42', 'reopen-outage'));
+    expect(app.notices).toEqual([]);
+    expect(app.sent).toEqual([]);
   });
 
   it('does not retry an unrelated push while the current PR head is stale', async () => {
@@ -1077,15 +1088,17 @@ describe('Pi marker-or-dialog review ingress', () => {
   });
 
   it.each([
-    'ordinary push', 'variable path push', 'transient lookup', 'unavailable lookup', 'changed head', 'unwritable marker',
+    'ordinary push', 'variable path push', 'recovered delivery', 'transient lookup', 'unavailable lookup', 'changed head', 'unwritable marker',
   ] as const)('stamps completion only after terminal evidence and canonical triage, then emits FIX (%s)', async scenario => {
     const input = fixture();
     const { PR_LOOKUP_FAILED } = await import('../../../preseed/agents/pi/extensions/review-enforcement');
     let settling = false;
     let transient = scenario === 'transient lookup';
-    const app = await harness(input, [], {
+    let deliveryUnavailable = scenario === 'recovered delivery';
+    const app = await harness(input, deliveryUnavailable ? ['Launch review'] : [], {
       sleep: async () => {},
       queryPr: async () => {
+        if (deliveryUnavailable) return PR_LOOKUP_FAILED;
         if (settling && (transient || scenario === 'unavailable lookup')) {
           transient = false;
           return PR_LOOKUP_FAILED;
@@ -1097,6 +1110,12 @@ describe('Pi marker-or-dialog review ingress', () => {
     const commandText = scenario === 'variable path push' ? originalVariablePathPush(input) : 'git push origin feature';
     if (commandText.includes('git -C')) app.ctx.cwd = dirname(input.repo);
     await app.emit('tool_result', boundary(commandText, 'push-1'));
+    if (deliveryUnavailable) {
+      expect(app.notices).toEqual([expect.stringContaining('PR verification unavailable')]);
+      expect(app.sent).toEqual([]);
+      deliveryUnavailable = false;
+      await app.emit('session_start');
+    }
     await app.emit('agent_end');
 
     const plan = app.sent[0]!;
@@ -1114,9 +1133,16 @@ describe('Pi marker-or-dialog review ingress', () => {
         notification(id),
       ];
     });
+    if (scenario === 'recovered delivery') {
+      expect(plan.details).toMatchObject({ head: input.head, ciEvent: 'push' });
+      append(input.sessionFile, ...launches, triage());
+      await app.emit('agent_settled');
+      expect(app.sent.filter(message => message.customType === 'pr-boundary-fix-follow-up')).toEqual([]);
+      expect(readCompletion(input.identity).status).not.toBe('complete');
+    }
     const ciId = 'ci-1';
     append(input.sessionFile,
-      ...launches,
+      ...(scenario === 'recovered delivery' ? [] : launches),
       toolCall(ciId, 'subagent', {
         subagent_type: 'ci-monitor',
         run_in_background: true,

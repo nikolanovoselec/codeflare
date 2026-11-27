@@ -776,7 +776,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                               <For each={recentRepos()}>{repo => (
                                 <StatCardMetric label={
                                   <a class="stat-card__metric-label dashboard-github-card__repo" href={`https://github.com/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}`}
-                                    target="_blank" rel="noopener noreferrer">
+                                    target="_blank" rel="noopener noreferrer" aria-label={repo.full_name} title={repo.full_name}>
                                     <Icon path={mdiSourceRepository} size={12} aria-hidden="true" />
                                     <span>{repo.name}</span>
                                   </a>
