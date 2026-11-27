@@ -600,6 +600,9 @@ async function verifyStockTranscriptControls(child, origin) {
   await press(files);
   await until('Files content visible with both tabs pinned', () => page(filesSelected), Boolean);
   await expectHiddenHamburger('Files active', files);
+  const chatSelected = `(${appRoot}?.querySelector('main')?.classList.contains('chat-view') && new URL(location.href).searchParams.get('view') === 'chat')`;
+  await press(chat);
+  await until('pinned Chat tab opens directly from Files', () => page(chatSelected), Boolean);
 
   const viaNavigation = async (label, arrived) => {
     await until('stock navigation fallback', () => page(`Boolean((${hamburger})?.checkVisibility())`), Boolean);
@@ -609,7 +612,6 @@ async function verifyStockTranscriptControls(child, origin) {
     await press(destination);
     await until(label + ' destination opens', () => page(arrived), Boolean);
   };
-  const chatSelected = `(${appRoot}?.querySelector('main')?.classList.contains('chat-view') && new URL(location.href).searchParams.get('view') === 'chat')`;
   await openSessions();
   assert.ok(await page(`Boolean((${chat})?.checkVisibility() && (${files})?.checkVisibility())`), 'both tabs remain pinned while unpinned Sessions is active');
   await viaNavigation('Chat', chatSelected);
