@@ -225,7 +225,10 @@ describe('REQ-GITHUB-002 / REQ-GITHUB-007: GET /api/github/repos', () => {
     const app = createTestApp({ ENTERPRISE_MODE: 'active', OAUTH_CLIENT_ID: 'oauth-id', OAUTH_CLIENT_SECRET: 'oauth-secret' });
     const status = await app.request('/api/github/status');
     expect(await status.json()).toMatchObject({ connected: true, source: 'app' });
-    const repos = await app.request('/api/github/repos');
+    const retained: Promise<unknown>[] = [];
+    const context = { waitUntil: (work: Promise<unknown>) => { retained.push(work); } } as ExecutionContext;
+    const repos = await app.request('/api/github/repos', undefined, undefined, context);
+    await Promise.all(retained);
     expect(repos.status).toBe(409);
     expect(await repos.json()).toMatchObject({ code: 'NOT_CONNECTED' });
     expect(mockKV._store.get(KEY)).toBe(JSON.stringify(saved));

@@ -26,7 +26,7 @@
 :host(app-navigation-panel) .navigation-sections > project-list,
 :host(app-navigation-panel) .navigation-sections > project-list + navigation-section-resize-handle,
 :host(app-context-bar) .context-items > .context-item:not(:last-child),
-:host(app-mobile-main-tabs) .navigation-menu-button[data-navigation-trigger] {
+:host(app-mobile-main-tabs[data-codeflare-direct-tabs]) .navigation-menu-button[data-navigation-trigger] {
   display: none;
 }
 

@@ -141,11 +141,7 @@ try {
   tabs.onShowNavigation = () => {};
   await tabs.updateComplete;
   const tabsRoot = tabs.shadowRoot;
-  const hamburger = tabsRoot.querySelector('.navigation-menu-button');
-  if (!dimensions(hamburger)[0]) throw Error('stock hamburger missing');
   tabsRoot.adoptedStyleSheets = [...tabsRoot.adoptedStyleSheets, sheet];
-  hamburger.focus();
-  if (dimensions(hamburger).some(Boolean) || tabsRoot.activeElement === hamburger) throw Error('hamburger must not render or take focus');
   for (const title of ['Chat', 'Files']) if (!dimensions(tabsRoot.querySelector('[title="' + title + '"]'))[0]) throw Error(title + ' tab must remain visible');
   const live = line('system', 'text', 'fixture live SYSTEM');
   chat.messages = [...messages, live];
@@ -272,7 +268,10 @@ const gateway = new Map(Object.entries({
   })),
   'pi-web-plugins/manifest.json': {
     lifecycleVersion: 2, terminalMode: 'recovery-disabled',
-    plugins: [{ id: 'codeflare-chrome', module: './codeflare-chrome/fixture.js', machineSpecific: false }],
+    plugins: [
+      { id: 'codeflare-chrome', module: './codeflare-chrome/fixture.js', machineSpecific: false },
+      { id: 'files', module: './files-fixture.js', machineSpecific: false },
+    ],
   },
 }));
 // Observe the public selection state from the real plugin context. The wrapper
@@ -335,6 +334,15 @@ const server = createServer(async (req, res) => {
   }
   if (scoped === 'pi-web-plugins/codeflare-chrome/fixture.js') {
     res.writeHead(200, { 'content-type': 'text/javascript' }).end(pluginFixture);
+    return;
+  }
+  if (scoped === 'pi-web-plugins/files-fixture.js') {
+    // Supply a destination to stock navigation, not a custom navigation control.
+    res.writeHead(200, { 'content-type': 'text/javascript' }).end(`export default {
+      apiVersion: 5, name: 'Fixture Files', activate: ({ html }) => ({ contributions: {
+        workspacePanels: [{ id: 'workspace.files', title: 'Files', render: () => html\`<p>Fixture Files</p>\` }],
+      } }),
+    };`);
     return;
   }
   const pluginAsset = /^pi-web-plugins\/codeflare-chrome\/(index\.js|transcript-intent\.js|footer\.css)$/.exec(scoped)?.[1];
@@ -551,10 +559,42 @@ async function verifyStockTranscriptControls(child, origin) {
   assert.equal((await setSummary({ messageCount: 0 })).visible, false, 'hide the sentinel even when only the summary count changes');
   assert.equal((await setSummary({ name: '(no messages)' })).visible, true, 'keep an authored name matching the sentinel even on an empty transcript');
   assert.equal((await setSummary({ name: null })).visible, false, 'return to the hidden sentinel without removing the picker');
+  await send('Emulation.setFocusEmulationEnabled', { enabled: true });
+  assert.ok(await page(`(() => { const button = ${picker}; button.focus(); return document.hasFocus() && button.getRootNode().activeElement === button; })()`));
   await send('Input.dispatchKeyEvent', { type: 'keyDown', ...enter });
   await send('Input.dispatchKeyEvent', { type: 'keyUp', ...enter });
-  const mobilePlus = `${appRoot}.querySelector('app-navigation-panel')?.shadowRoot?.querySelector('session-list')?.shadowRoot?.querySelector('${plus}')`;
-  await until('mobile Sessions via focused picker', () => page(`Boolean((${mobilePlus})?.getClientRects().length)`), Boolean);
+  const mobilePlus = `${appRoot}.querySelector('.mobile-navigation-panel app-navigation-panel')?.shadowRoot?.querySelector('session-list')?.shadowRoot?.querySelector('${plus}')`;
+  await until('mobile Sessions via focused picker', () => page(`Boolean((${mobilePlus})?.checkVisibility({ visibilityProperty: true }))`), Boolean);
+
+  const mobileTabs = `${appRoot}.querySelector('app-mobile-main-tabs')?.shadowRoot`;
+  const hamburger = `${mobileTabs}?.querySelector('.navigation-menu-button')`;
+  const files = `${mobileTabs}?.querySelector('[title="Files"]')`;
+  const chat = `${mobileTabs}?.querySelector('[title="Chat"]')`;
+  const openMobile = async pinnedIds => {
+    await page(`localStorage.setItem('pi-web:navigation-preferences', ${JSON.stringify(JSON.stringify({ pinnedIds, mobileCollapsed: false }))})`);
+    const { loadedAt } = await state();
+    await page(`history.replaceState(null, '', ${JSON.stringify(app(bound))})`);
+    await send('Page.reload');
+    await until('mobile Chat tabs', () => page(`performance.timeOrigin !== ${loadedAt} && Boolean((${chat})?.checkVisibility())`), Boolean);
+  };
+  await openMobile(['chat', 'files:workspace.files']);
+  await until('both tabs available without redundant navigation', () => page(`(() => {
+    const button = ${hamburger};
+    button?.focus();
+    return Boolean((${files})?.checkVisibility() && button && !button.checkVisibility() && button.getRootNode().activeElement !== button);
+  })()`), Boolean);
+  await openMobile(['chat']);
+  assert.ok(await page(`!(${files}) && Boolean((${hamburger})?.checkVisibility())`), 'saved unpinned Files keeps a stock navigation fallback');
+  const press = async expression => {
+    assert.ok(await page(`(() => { const button = ${expression}; if (!button?.checkVisibility()) return false; button.focus(); return button.getRootNode().activeElement === button; })()`));
+    await send('Input.dispatchKeyEvent', { type: 'keyDown', ...enter });
+    await send('Input.dispatchKeyEvent', { type: 'keyUp', ...enter });
+  };
+  await press(hamburger);
+  const filesDestination = `Array.from(${appRoot}.querySelector('navigation-dialog')?.shadowRoot?.querySelectorAll('button.destination-button') ?? []).find(button => button.textContent.trim() === 'Files')`;
+  await until('unpinned Files destination', () => page(`Boolean((${filesDestination})?.checkVisibility())`), Boolean);
+  await press(filesDestination);
+  await until('stock Files destination opens', () => page(`new URL(location.href).searchParams.get('tool') === 'files:workspace.files'`), Boolean);
 }
 
 const profile = await mkdtemp(join(tmpdir(), 'pi-web-system-rows-'));

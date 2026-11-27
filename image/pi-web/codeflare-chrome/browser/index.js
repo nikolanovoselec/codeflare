@@ -28,32 +28,41 @@ function hideStaleConversationNotice({ lifetimeSignal }) {
 
 // Use the pinned context bar's session summary, not the rendered text alone:
 // an authored name or first message can itself be "(no messages)".
-function hideEmptySessionTitle({ lifetimeSignal }) {
+function hideEmptySessionTitle(context) {
+  markStockControl(context, 'app-context-bar', 'data-codeflare-empty-session', ({ session }) =>
+    session?.messageCount === 0 && !session.name?.trim() && session.firstMessage === '(no messages)');
+}
+
+// Read tab IDs rather than localized labels. Keep the stock fallback for saved
+// pin choices that would otherwise make Chat or Files unreachable.
+function hideRedundantNavigation(context) {
+  markStockControl(context, 'app-mobile-main-tabs', 'data-codeflare-direct-tabs', ({ tabs, controlsOnly, hiddenActiveDestination }) =>
+    !controlsOnly && !hiddenActiveDestination && tabs.some(({ id }) => id === 'chat')
+      && tabs.some(({ id }) => id === 'files:workspace.files'));
+}
+
+function markStockControl({ lifetimeSignal }, selector, attribute, matches) {
   const app = document.querySelector('pi-web-app')?.shadowRoot;
   if (!app) return;
-  let bar;
-  const mark = () => {
-    const session = bar?.session;
-    bar?.toggleAttribute('data-codeflare-empty-session', session?.messageCount === 0
-      && !session.name?.trim() && session.firstMessage === '(no messages)');
-  };
-  // Lit calls hostUpdated even when new summary data leaves the title text unchanged.
+  let host;
+  const mark = () => { if (host) host.toggleAttribute(attribute, matches(host)); };
+  // Lit calls hostUpdated even when changed data leaves the visible text unchanged.
   const controller = { hostUpdated: mark };
   const detach = () => {
-    bar?.removeController?.(controller);
-    bar?.removeAttribute('data-codeflare-empty-session');
+    host?.removeController?.(controller);
+    host?.removeAttribute(attribute);
   };
-  const findBar = () => {
-    const next = app.querySelector('app-context-bar');
-    if (next === bar) return;
+  const findControl = () => {
+    const next = app.querySelector(selector);
+    if (next === host) return;
     detach();
-    bar = next;
-    bar?.addController?.(controller);
+    host = next;
+    host?.addController?.(controller);
     mark();
   };
-  const observer = new MutationObserver(findBar);
+  const observer = new MutationObserver(findControl);
   observer.observe(app, { childList: true, subtree: true });
-  findBar();
+  findControl();
   lifetimeSignal.addEventListener('abort', () => {
     observer.disconnect();
     detach();
@@ -67,6 +76,7 @@ export default {
     activateTranscriptIntent(context);
     hideStaleConversationNotice(context);
     hideEmptySessionTitle(context);
+    hideRedundantNavigation(context);
     return { contributions: {
       stylesheets: [{ id: 'footer', url: new URL('./footer.css', import.meta.url).href }],
     } };
