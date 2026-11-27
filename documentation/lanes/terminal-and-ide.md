@@ -100,7 +100,7 @@ For [REQ-AGENT-280 AC4](../../sdd/spec/agents.md#req-agent-280-attachment-gated-
 
 - **Acknowledged:** Switch Code to Vibe. Observe the original request in Host status while Code is still visible, then leave and save Code as the Dashboard default. On return, verify Code stays visible until Chat attaches.
 - **Unpublished:** Initiate the switch, leave before publication, and keep Vibe saved. The first Host status after return must still report Code. Verify Code stays visible and only the original switch POST is sent, both before and after publication.
-- While that POST is still outstanding, try to open the workspace mode menu. The control stays disabled, the menu does not open, and no second POST is sent ([REQ-AGENT-280 AC5](../../sdd/spec/agents.md#req-agent-280-attachment-gated-workspace-reveal)).
+- Confirm in Network that the original POST is still pending when you try to open the mode menu. Verify the control is disabled, no menu opens, and no second POST is sent. If already settled, mark [AC5](../../sdd/spec/agents.md#req-agent-280-attachment-gated-workspace-reveal) unexercised.
 - For the acknowledged case, also require exactly one POST. If Chat attached before return, or the outgoing status was not observed in the unpublished case, mark that case unexercised. The Layout regression controls publication timing deterministically.
 
 - During Code-to-Vibe handoff, fail the first destination frame navigation. Verify Vibe reveals **Reload Chat** before normal readiness, then clear the failure and reload the same conversation without a new handoff.
@@ -156,7 +156,7 @@ Use these checks for [REQ-AGENT-272](../../sdd/spec/agents.md#req-agent-272-pi-c
 - On a disposable session, queue a harmless message during a turn and verify the nonzero queued count remains visible. Repeat the footer check with a different stock theme.
 - In a fresh browser context, verify the machine name is **Codeflare** and the default theme is **Codeflare Graphite** ([REQ-AGENT-274 AC5–6](../../sdd/spec/agents.md#req-agent-274-stock-pi-chat-controls)).
 - In DevTools, check the computed background of `pi-web-app` inside the Chat iframe: its alpha must be 0.2. Confirm the outer gradient shows through and user messages have a tint and stronger leading border without fading text.
-- On desktop and mobile, including installed-app mode when available, verify Refresh and lightning icons are absent. Open the text **Actions** control and choose the theme picker ([REQ-AGENT-282 AC5–6](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults)).
+- On desktop and mobile, including installed-app mode when available, verify Refresh and lightning icons are absent. Activate **Actions** and confirm the native palette opens before choosing the theme picker ([REQ-AGENT-282 AC5–6](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults)).
 - Select another theme and reopen Chat to confirm that it persists.
 - With the alternate theme, repeat the [failed frame navigation check](#switch-one-writer-at-a-time) and verify **Reload Chat** still opens the same conversation. Confirm navigation stays available ([REQ-AGENT-282 AC5](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults)).
 
