@@ -340,7 +340,7 @@ const server = createServer(async (req, res) => {
     // Supply a destination to stock navigation, not a custom navigation control.
     res.writeHead(200, { 'content-type': 'text/javascript' }).end(`export default {
       apiVersion: 5, name: 'Fixture Files', activate: ({ html }) => ({ contributions: {
-        workspacePanels: [{ id: 'workspace.files', title: 'Files', render: () => html\`<p>Fixture Files</p>\` }],
+        workspacePanels: [{ id: 'workspace.files', title: 'Files', render: () => html\`<p data-fixture-files>Fixture Files</p>\` }],
       } }),
     };`);
     return;
@@ -586,12 +586,20 @@ async function verifyStockTranscriptControls(child, origin) {
     await until('mobile pinned tab ready', () => page(`performance.timeOrigin !== ${loadedAt} && Boolean((${readyTab})?.checkVisibility())`), Boolean);
   };
   const filesId = 'files:workspace.files';
-  await openMobile(['chat', filesId], files);
-  await until('both tabs available without redundant navigation', () => page(`(() => {
+  const filesContent = `${appRoot}?.querySelector('workspace-panel')?.shadowRoot?.querySelector('[data-fixture-files]')`;
+  const filesSelected = `new URL(location.href).searchParams.get('tool') === '${filesId}' && Boolean((${filesContent})?.checkVisibility({ visibilityProperty: true, opacityProperty: true }))`;
+  const expectHiddenHamburger = (label, activeTab) => until(label + ': both tabs available without redundant navigation', () => page(`(() => {
     const button = ${hamburger};
     button?.focus();
-    return Boolean((${chat})?.checkVisibility() && button && !button.checkVisibility() && button.getRootNode().activeElement !== button);
+    return Boolean((${chat})?.checkVisibility() && (${files})?.checkVisibility()
+      && (${activeTab})?.getAttribute('aria-pressed') === 'true'
+      && button && !button.checkVisibility() && button.getRootNode().activeElement !== button);
   })()`), Boolean);
+  await openMobile(['chat', filesId], files);
+  await expectHiddenHamburger('Chat active', chat);
+  await press(files);
+  await until('Files content visible with both tabs pinned', () => page(filesSelected), Boolean);
+  await expectHiddenHamburger('Files active', files);
 
   const viaNavigation = async (label, arrived) => {
     await until('stock navigation fallback', () => page(`Boolean((${hamburger})?.checkVisibility())`), Boolean);
@@ -602,7 +610,6 @@ async function verifyStockTranscriptControls(child, origin) {
     await until(label + ' destination opens', () => page(arrived), Boolean);
   };
   const chatSelected = `(${appRoot}?.querySelector('main')?.classList.contains('chat-view') && new URL(location.href).searchParams.get('view') === 'chat')`;
-  const filesSelected = `new URL(location.href).searchParams.get('tool') === '${filesId}'`;
   await openSessions();
   assert.ok(await page(`Boolean((${chat})?.checkVisibility() && (${files})?.checkVisibility())`), 'both tabs remain pinned while unpinned Sessions is active');
   await viaNavigation('Chat', chatSelected);
