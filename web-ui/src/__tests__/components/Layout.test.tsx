@@ -2040,8 +2040,9 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
         // Click 2 (intent === 'armed'): opens synchronously without re-verification or a second prewarm.
         const prewarmCallsBeforeOpen = vaultPrewarmMock.start.mock.calls.length;
         const keyChecksBeforeOpen = vaultLocalReadinessMock.keyRecoverable.mock.calls.length;
-        (window as any).__headerProps.onVaultOpen();
+        const openResult = (window as any).__headerProps.onVaultOpen();
         expect(openSpy).toHaveBeenCalledWith('/api/vault/sess1/.codeflare-bootstrap', '_blank', 'noopener');
+        await openResult;
         expect(vaultPrewarmMock.start.mock.calls.length).toBe(prewarmCallsBeforeOpen);
         expect(vaultLocalReadinessMock.keyRecoverable.mock.calls.length).toBe(keyChecksBeforeOpen);
       } finally {
