@@ -227,14 +227,15 @@ describe('Pi web Chat wrapper (REQ-AGENT-272)', () => {
     } finally { vi.unstubAllGlobals(); }
   });
 
-  it('keeps an empty Chat usable when the visual viewport shrinks', () => {
+  it.each([false, true])('keeps an empty Chat usable when the visual viewport shrinks (tablet: %s)', tablet => {
     const viewport = Object.assign(new EventTarget(), { height: window.innerHeight, offsetTop: 0, scale: 1 });
     vi.stubGlobal('visualViewport', viewport);
+    vi.stubGlobal('matchMedia', () => Object.assign(new EventTarget(), { matches: tablet }));
     try {
       const [height, setHeight] = createSignal<number>();
       render(() => <div style={{ 'max-height': height() === undefined ? undefined : `${height()}px` }} data-testid="chat-panel">
         <PiWebChat sessionId={SESSION_ID} generation={GENERATION} status={active} onCancel={() => {}}
-          onPanelSize={size => setHeight(size?.compactHeight)} />
+          fitTabletKeyboard={tablet} onPanelSize={size => setHeight(size?.compactHeight)} />
       </div>);
       const panel = screen.getByTestId('chat-panel');
       const frame = chatFrame();
@@ -262,6 +263,7 @@ describe('Pi web Chat wrapper (REQ-AGENT-272)', () => {
       viewport.height -= 260;
       viewport.dispatchEvent(new Event('resize'));
       expect(frame.offsetHeight).toBeGreaterThanOrEqual(160);
+      if (tablet) expect(panel.style.maxHeight).toBe('160px');
 
       viewport.height = window.innerHeight;
       viewport.dispatchEvent(new Event('resize'));

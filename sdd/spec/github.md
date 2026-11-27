@@ -714,9 +714,9 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Acceptance Criteria:**
 
-1. In the closed Vibe summary, the column scrolls to GitHub and Storage below Recent Sessions instead of squeezing the cards. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-wrapper--summary .dashboard-panel-left > :is(.dashboard-sessions-section, .dashboard-stats-section) --> <!-- @test: scripts/ci/smoke-pi-web-system-rows.mjs (three full cards must fit without inner scrolling) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#recent-sessions-acceptance -->
-2. Up to three session cards render at full height without an inner scrollbar. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-wrapper--summary .dashboard-session-list --> <!-- @test: scripts/ci/smoke-pi-web-system-rows.mjs (three full cards must fit without inner scrolling) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#recent-sessions-acceptance -->
-3. With four or more cards, the list initially shows three complete cards and the top 30% of the fourth. Scroll within the list to reach later cards. <!-- @impl: web-ui/src/components/Dashboard.tsx::setSessionListLimit --> <!-- @test: scripts/ci/smoke-pi-web-system-rows.mjs (at rest the list must show three cards plus 30% of the fourth) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (sizes the Recent Sessions preview from the first four rendered cards) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#recent-sessions-acceptance -->
+1. In the closed Vibe summary, the column scrolls to GitHub and Storage below Recent Sessions instead of squeezing the cards. <!-- @manual: documentation/lanes/terminal-and-ide.md#recent-sessions-acceptance -->
+2. Up to three session cards render at full height without an inner scrollbar. <!-- @manual: documentation/lanes/terminal-and-ide.md#recent-sessions-acceptance -->
+3. With four or more cards, the list initially shows three complete cards and the top 30% of the fourth. Scroll within the list to reach later cards. <!-- @impl: web-ui/src/components/Dashboard.tsx::setSessionListLimit --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (sizes the Recent Sessions preview from the first four rendered cards) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#recent-sessions-acceptance -->
 
 **Constraints:** Preserve the open drawer and Code Dashboard layouts.
 
@@ -724,7 +724,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Dependencies:** [REQ-GITHUB-323](#req-github-323-responsive-vibe-dashboard-layout)
 
-**Verification:** Automated: [Dashboard tests](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [Chromium stock Chat and Dashboard fixture](../../scripts/ci/smoke-pi-web-system-rows.mjs); Manual: [Recent Sessions acceptance](../../documentation/lanes/terminal-and-ide.md#recent-sessions-acceptance)
+**Verification:** Manual: [Recent Sessions acceptance](../../documentation/lanes/terminal-and-ide.md#recent-sessions-acceptance)
 
 **Status:** Planned
 

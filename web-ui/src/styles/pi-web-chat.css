@@ -123,7 +123,7 @@
 
 .layout-workspace--chat[data-chat-keyboard='open'] > .layout-middle {
   flex: 1 1 0;
-  max-block-size: min(1200px, 100cqb);
+  max-block-size: var(--chat-compact-height, min(1200px, 100cqb));
 }
 
 @container chat-workspace (max-width: 760px) or (max-height: 480px) {

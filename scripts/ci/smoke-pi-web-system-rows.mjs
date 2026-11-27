@@ -206,6 +206,13 @@ try {
         throw Error('Tablet Chat must move progressively as the keyboard begins opening');
       }
       workspace.style.setProperty('--chat-keyboard-inset', '360px');
+      middle.style.setProperty('--chat-compact-height', '200px');
+      const emptyFrame = frame.getBoundingClientRect();
+      if (emptyFrame.height !== 200 || emptyFrame.bottom > 484) {
+        throw Error('Tablet keyboard fit must preserve usable empty Chat compaction');
+      }
+      // With no valid compact measurement, use the same fit as populated Chat.
+      middle.style.removeProperty('--chat-compact-height');
       const fittedHeader = header.getBoundingClientRect();
       const fittedFrame = frame.getBoundingClientRect();
       if (Math.abs(fittedHeader.top - fullHeader.top / 2) > 1 || fittedHeader.bottom !== fittedFrame.top ||
@@ -260,9 +267,11 @@ try {
       doc.body.appendChild(constrained);
       const column = constrained.querySelector('.dashboard-panel-left');
       const list = constrained.querySelector('.dashboard-session-list');
+      const scroller = width === 390 ? constrained.querySelector('.dashboard-panel-body') : column;
+      const summaries = column.querySelector('section');
       for (let i = 0; i < 3; i++) list.insertAdjacentHTML('beforeend', '<button style="height:50px;flex:none">Session</button>');
-      if (list.scrollHeight !== list.clientHeight || list.clientHeight !== 166 || column.scrollHeight <= column.clientHeight) {
-        throw Error(width + ': three full cards must fit without inner scrolling; summaries must be reachable by scrolling the column');
+      if (list.scrollHeight !== list.clientHeight || list.clientHeight !== 166) {
+        throw Error(width + ': three full cards must fit without inner scrolling');
       }
       list.insertAdjacentHTML('beforeend', '<button style="height:50px;flex:none">Fourth session</button>');
       list.insertAdjacentHTML('beforeend', '<button style="height:50px;flex:none">Fifth session</button>');
@@ -273,6 +282,16 @@ try {
       list.scrollTop = list.scrollHeight;
       if (list.lastElementChild.getBoundingClientRect().bottom > list.getBoundingClientRect().bottom + 1) {
         throw Error(width + ': the last card must be reachable by scrolling Recent Sessions');
+      }
+      const visibleSummaryHeight = () => {
+        const summary = summaries.getBoundingClientRect();
+        const viewport = scroller.getBoundingClientRect();
+        return Math.max(0, Math.min(summary.bottom, viewport.bottom) - Math.max(summary.top, viewport.top));
+      };
+      const beforeScroll = visibleSummaryHeight();
+      scroller.scrollTop = scroller.scrollHeight;
+      if (visibleSummaryHeight() <= beforeScroll || summaries.getBoundingClientRect().bottom > scroller.getBoundingClientRect().bottom + 1) {
+        throw Error(width + ': scrolling the summary must reveal GitHub and Storage');
       }
       constrained.remove();
     }

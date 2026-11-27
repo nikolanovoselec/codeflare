@@ -220,6 +220,7 @@ export default function PiWebChat(props: PiWebChatProps) {
   const [keyboardInset, setKeyboardInset] = createSignal(0);
   const [tablet, setTablet] = createSignal(false);
   const fitWorkspace = () => tablet() && props.fitTabletKeyboard;
+  const innerKeyboardInset = () => fitWorkspace() ? 0 : keyboardInset();
   createEffect(() => props.onKeyboardInset?.(fitWorkspace() ? keyboardInset() : 0));
   const [frameRevision, setFrameRevision] = createSignal(0);
   const [frameFailed, setFrameFailed] = createSignal(false);
@@ -275,7 +276,7 @@ export default function PiWebChat(props: PiWebChatProps) {
   });
 
   return (
-    <section class="pi-web-chat" aria-label="Pi Chat" style={{ 'margin-block-end': `${fitWorkspace() ? 0 : keyboardInset()}px` }}>
+    <section class="pi-web-chat" aria-label="Pi Chat" style={{ 'margin-block-end': `${innerKeyboardInset()}px` }}>
       <Show when={frameUrl() && frameFailed()}>
         <div class="pi-web-controls">
           <button type="button" class="pi-web-action" onClick={() => setFrameRevision(value => value + 1)}>Reload Chat</button>
@@ -287,7 +288,7 @@ export default function PiWebChat(props: PiWebChatProps) {
       <div class="pi-web-chat__space">
         <Show when={frame()} keyed
           fallback={<p role="status">{props.status.chatUrl ? 'Chat could not be opened.' : 'Preparing Chat…'}</p>}>
-          {source => <StockChatFrame src={source.src} keyboardInset={keyboardInset()} onPanelSize={props.onPanelSize} onStartupReady={props.onStartupReady} onStartupFailure={failed => {
+          {source => <StockChatFrame src={source.src} keyboardInset={innerKeyboardInset()} onPanelSize={props.onPanelSize} onStartupReady={props.onStartupReady} onStartupFailure={failed => {
             setFrameFailed(failed);
             props.onStartupFailure?.(failed);
           }} />}

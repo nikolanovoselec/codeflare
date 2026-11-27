@@ -206,11 +206,13 @@ The [Chat wrapper tests](../../web-ui/src/__tests__/components/PiWebChat.test.ts
 
 #### Check tablet Chat keyboard fit
 
-For [REQ-AGENT-292](../../sdd/spec/agents.md#req-agent-292-tablet-chat-keyboard-fit), use Samsung Browser on a physical tablet with empty and populated Vibe Chat. Open the keyboard while the prompt is focused: the header stays attached, the top gutter halves without losing safe-area clearance, and the visible history gains room above the keyboard. Close and reopen quickly; check that the frame does not jump, reload, lose the draft, or change the transcript. Repeat with reduced motion and mark any unavailable device case unexercised.
+For [REQ-AGENT-292](../../sdd/spec/agents.md#req-agent-292-tablet-chat-keyboard-fit), use Samsung Browser on a physical tablet. Record the keyboard-closed frame bounds, then focus the prompt. With the keyboard open, verify that the header stays attached and the top gutter halves without losing safe-area clearance. In empty Chat, verify the composer and status remain reachable without adding blank history when compact sizing fits. In populated Chat, verify that history uses the available space up to the frame height cap.
+
+Dismiss the keyboard and compare the frame bounds to the starting size. Check that the same composer remains focused, then reopen the keyboard and verify the draft and transcript are unchanged. Check for jumps or reloads during both transitions. Repeat with reduced motion and mark unavailable device cases unexercised.
 
 #### Check accent preferences
 
-Focus the Vibe prompt and check that its outline matches the active Codeflare accent. Change the accent without reopening Chat, then focus and blur the prompt: the outline uses the new accent and the unfocused border stays unchanged.
+For [REQ-AGENT-288 AC6](../../sdd/spec/agents.md#req-agent-288-codeflare-chat-theme), focus the Vibe prompt and check that its outline matches the active Codeflare accent. Change the accent without reopening Chat, then focus and blur the prompt: the outline uses the new accent and the unfocused border stays unchanged.
 
 For [REQ-AGENT-019 AC3](../../sdd/spec/agents.md#req-agent-019-branded-settings-ui), confirm the fresh-browser accent is `#00BAFF`. Save a custom accent and reload to verify it persists. Choose **Reset** in Appearance and confirm the accent returns to `#00BAFF`.
 
@@ -389,7 +391,7 @@ In the installed mobile app, pull up at the bottom to open and down at the top t
 
 ### Recent Sessions acceptance
 
-For [REQ-GITHUB-334](../../sdd/spec/github.md#req-github-334-recent-sessions-in-the-vibe-summary), check the closed Vibe summary on a tablet and in a short desktop viewport. With up to three sessions, verify that each card retains its full height and the column scrolls to GitHub and Storage below the cards. With four or more, start at the top of Recent Sessions and confirm that three full cards plus the top 30% of the fourth are visible within the list. Scroll the list by touch and keyboard to reach the last card. Open the browser drawer and check that its layout is unchanged; confirm the Code Dashboard layout is unchanged too.
+For [REQ-GITHUB-334](../../sdd/spec/github.md#req-github-334-recent-sessions-in-the-vibe-summary), check the closed Vibe summary on a tablet and in a short desktop viewport. With up to three sessions, verify that each card retains its full height and the column scrolls to GitHub and Storage below the cards. Try scrolling within Recent Sessions and verify the cards do not scroll independently, even if the browser hides idle scrollbars. With four or more, start at the top of Recent Sessions and confirm that three full cards plus the top 30% of the fourth are visible within the list. Scroll the list by touch and keyboard to reach the last card. Open the browser drawer and check that its layout is unchanged; confirm the Code Dashboard layout is unchanged too.
 
 The Chromium fixture exercises the scroll layout with synthetic cards and a preset cap. The live check covers the Dashboard’s measurement of actual cards and touch and keyboard scrolling.
 

@@ -989,9 +989,8 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 2. The first visible message expands Chat from its center to its normal limits. Reduced motion skips the animation. <!-- @impl: web-ui/src/components/PiWebChat.tsx::StockChatFrame --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (compacts only ready empty history and expands in place on the first message) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 3. A restored Chat with populated history opens at full size. <!-- @impl: web-ui/src/components/PiWebChat.tsx::StockChatFrame --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 4. On phones, compact Chat centers in the space below the top-edge session header. Expanding Chat does not move that header. <!-- @impl: web-ui/src/styles/pi-web-chat.css::.layout-workspace--chat --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
-5. On phones, the keyboard inset does not collapse the empty Chat composer. <!-- @impl: web-ui/src/components/PiWebChat.tsx::StockChatFrame --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (keeps an empty Chat usable when the visual viewport shrinks) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+5. On phones, the keyboard inset does not collapse the empty Chat composer. <!-- @impl: web-ui/src/components/PiWebChat.tsx::StockChatFrame --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (keeps an empty Chat usable when the visual viewport shrinks (tablet: %s)) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 6. Returning to a live Chat after screen lock refits the existing frame to the visible viewport without reopening the conversation. <!-- @impl: web-ui/src/components/PiWebChat.tsx::PiWebChat --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (refits the existing Chat frame on %s without a viewport resize event) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
-
 7. If an empty Chat measurement would clip the composer or status controls, Chat uses its normal size rather than collapsing or reloading. <!-- @impl: web-ui/src/components/PiWebChat.tsx::watchCompactHistory --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (compacts only ready empty history and expands in place on the first message) -->
 
 **Constraints:** Preserve the responsive panel limits in [REQ-AGENT-272](#req-agent-272-pi-chat-and-terminal-transcript-handoff).
@@ -1000,7 +999,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Dependencies:** [REQ-AGENT-280](#req-agent-280-attachment-gated-workspace-reveal)
 
-**Verification:** Manual: [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout)
+**Verification:** Automated: [Chat sizing fallback](../../web-ui/src/__tests__/components/PiWebChat.test.tsx); Manual: [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout)
 
 **Status:** Planned
 
@@ -1248,11 +1247,11 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 **Acceptance Criteria:**
 
 1. The embedded sidebar hides Projects and its resize divider. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
-2. The stock machine title and mark are hidden in the sidebar and mobile context header. <!-- @impl: image/pi-web/codeflare-chrome/browser/footer.css:::host(app-navigation-panel) header > machine-switcher --> <!-- @impl: image/pi-web/codeflare-chrome/browser/footer.css:::host(app-context-bar) .context-items > .context-item:not(:last-child) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+2. The stock machine title and mark are hidden in the sidebar and mobile context header. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 3. When Chat and Files are both directly available and the current destination is pinned, the redundant hamburger is hidden and cannot take keyboard focus. Preserve stock navigation when saved pins would otherwise make Chat or Files unreachable. <!-- @impl: image/pi-web/codeflare-chrome/browser/index.js::hideRedundantNavigation --> <!-- @test: scripts/ci/smoke-pi-web-system-rows.mjs (verifyStockTranscriptControls) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 4. The stale-conversation warning is hidden without hiding a failed refresh or disabling background refresh. <!-- @impl: image/pi-web/codeflare-chrome/browser/index.js::hideStaleConversationNotice --> <!-- @test: scripts/ci/smoke-pi-web-system-rows.mjs (verifyStockTranscriptControls) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
-5. The composer’s Jump to top and Jump to end controls are hidden and cannot take keyboard focus. <!-- @impl: image/pi-web/codeflare-chrome/browser/footer.css:::host(prompt-editor) .editor-chat-navigation --> <!-- @impl: image/pi-web/codeflare-chrome/browser/footer.css:::host(chat-view) .chat-jumps --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
-6. Attach files matches Send and Stop in both button and icon size. <!-- @impl: image/pi-web/codeflare-chrome/browser/footer.css:::host(prompt-editor) .editor-attach .prompt-action-icon --> <!-- @impl: image/pi-web/codeflare-chrome/browser/footer.css:::host(prompt-editor) .editor-attach { --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+5. The composer’s Jump to top and Jump to end controls are hidden and cannot take keyboard focus. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+6. Attach files matches Send and Stop in both button and icon size. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 7. The embedded header hides only the empty-session `(no messages)` title. The Sessions picker and its accessible label remain available, and real titles appear when stock provides them, even when the text equals the placeholder. <!-- @impl: image/pi-web/codeflare-chrome/browser/index.js::hideEmptySessionTitle --> <!-- @test: scripts/ci/smoke-pi-web-system-rows.mjs (verifyStockTranscriptControls) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 
 **Constraints:** Chat, Files, Sessions, New session, and the sidebar toggle remain available. No change to stock Pi Web, writer admission, or transcript persistence.
@@ -1306,7 +1305,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Dependencies:** [REQ-AGENT-275](#req-agent-275-classic-pi-chat-startup)
 
-**Verification:** Automated: [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts); Manual: [Choose the starting writer](../../documentation/lanes/terminal-and-ide.md#choose-the-starting-writer)
+**Verification:** Manual: [Choose the starting writer](../../documentation/lanes/terminal-and-ide.md#choose-the-starting-writer)
 
 **Status:** Planned
 
@@ -1365,7 +1364,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Dependencies:** [REQ-AGENT-272](#req-agent-272-pi-chat-and-terminal-transcript-handoff)
 
-**Verification:** Automated: [Packaged Host handoff smoke](../../scripts/ci/smoke-pi-web-host-handoff.mjs); Manual: [Stock controls and native questions](../../documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions), [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout)
+**Verification:** Manual: [Stock controls and native questions](../../documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions), [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout)
 
 **Status:** Planned
 
@@ -1379,8 +1378,10 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Acceptance Criteria:**
 
-1. With the tablet keyboard open, Chat uses the available height above the keyboard, within its normal height cap, and halves its normal top gutter without cutting into the safe area. <!-- @impl: web-ui/src/styles/pi-web-chat.css::.layout-workspace--chat[data-chat-keyboard='open'] --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-tablet-chat-keyboard-fit -->
-2. Chat follows the keyboard without jitter or snapping and returns to its prior sizing on close, preserving the frame, focus and transcript. Reduced motion applies the fit without added animation. <!-- @impl: web-ui/src/components/Layout.tsx::visibleChatKeyboardInset --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (fits tablet Chat outside the frame through keyboard open, close and reopen) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-tablet-chat-keyboard-fit -->
+1. With the tablet keyboard open, populated Chat uses the available height above the keyboard within its normal cap. The workspace halves its normal top gutter without cutting into the safe area. <!-- @impl: web-ui/src/styles/pi-web-chat.css::.layout-workspace--chat[data-chat-keyboard='open'] --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-tablet-chat-keyboard-fit -->
+2. Chat follows the keyboard without jitter or snapping and returns to its prior sizing on close, preserving the frame, focus and transcript. <!-- @impl: web-ui/src/components/Layout.tsx::visibleChatKeyboardInset --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (fits tablet Chat outside the frame through keyboard open, close and reopen) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-tablet-chat-keyboard-fit -->
+3. With reduced motion enabled, tablet keyboard fit applies without added animation. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-tablet-chat-keyboard-fit -->
+4. Empty Chat retains usable compact sizing when the tablet keyboard opens. <!-- @impl: web-ui/src/components/PiWebChat.tsx::innerKeyboardInset --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (keeps an empty Chat usable when the visual viewport shrinks (tablet: %s)) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-tablet-chat-keyboard-fit -->
 
 **Constraints:** Preserve phone and desktop layout. Do not reserve permanent history space in an empty Chat.
 
@@ -1388,7 +1389,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Dependencies:** [REQ-AGENT-287](#req-agent-287-empty-and-restored-vibe-layout)
 
-**Verification:** Automated: [PiWebChat.test.tsx](../../web-ui/src/__tests__/components/PiWebChat.test.tsx); Manual: [Tablet keyboard fit](../../documentation/lanes/terminal-and-ide.md#check-tablet-chat-keyboard-fit)
+**Verification:** Manual: [Tablet keyboard fit](../../documentation/lanes/terminal-and-ide.md#check-tablet-chat-keyboard-fit)
 
 **Status:** Planned
 
@@ -1408,7 +1409,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 4. The active Codeflare theme has a dark, 80%-transparent base. <!-- @impl: image/pi-web/codeflare-chrome/browser/graphite.css::--pi-bg = #18181833 --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 5. The active Codeflare theme visually distinguishes user messages from agent replies. <!-- @impl: image/pi-web/codeflare-chrome/browser/graphite.css::--pi-chat-user-bg = #00baff30 --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 
-6. In Chat, the focused prompt outline follows the active Codeflare accent, including changes while Chat stays open. The unfocused border is unchanged. <!-- @impl: web-ui/src/components/PiWebChat.tsx::updatePromptAccent --> <!-- @impl: image/pi-web/codeflare-chrome/browser/footer.css:::host(prompt-editor) .markdown-editor:focus-within --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (updates the retained Stock Chat document when the shell accent changes) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-accent-preferences -->
+6. In Chat, the focused prompt outline follows the active Codeflare accent, including changes while Chat stays open. The unfocused border is unchanged. <!-- @impl: web-ui/src/components/PiWebChat.tsx::updatePromptAccent --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (updates the retained Stock Chat document when the shell accent changes) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-accent-preferences -->
 
 **Constraints:** Use stock Pi Web theme support without locking subsequent theme choices.
 
@@ -1416,7 +1417,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Dependencies:** [REQ-AGENT-274](#req-agent-274-stock-pi-chat-controls)
 
-**Verification:** Manual: [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout)
+**Verification:** Manual: [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout), [Prompt focus accent](../../documentation/lanes/terminal-and-ide.md#check-accent-preferences)
 
 **Status:** Planned
 
