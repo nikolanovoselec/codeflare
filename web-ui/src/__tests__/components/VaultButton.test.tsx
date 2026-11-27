@@ -114,7 +114,7 @@ describe('VaultButton', () => {
     render(() => <VaultButton status="preparing" onOpen={vi.fn()} />);
     // The focus-loss warning appears on its own the moment the button breathes.
     expect(screen.getByTestId('header-vault-status')).toBeInTheDocument();
-    expect(btn()).toHaveAccessibleDescription(/Preparing your Vault/);
+    expect(btn()).toHaveAccessibleDescription(/The terminal may briefly stop accepting input/);
   });
 
   it('armed auto-surfaces the ready region on the genuine preparing->armed transition, then auto-hides after 5s while the breathing class stays', () => {
@@ -124,8 +124,10 @@ describe('VaultButton', () => {
       render(() => <VaultButton status={status()} onOpen={vi.fn()} />);
       // Transition preparing -> armed: the ready confirmation surfaces.
       setStatus('armed');
+      expect(screen.getByTestId('header-vault-status')).toHaveTextContent('Your Vault is ready.');
+      vi.advanceTimersByTime(4999);
       expect(screen.getByTestId('header-vault-status')).toBeInTheDocument();
-      vi.advanceTimersByTime(5000);
+      vi.advanceTimersByTime(1);
       expect(screen.queryByTestId('header-vault-status')).not.toBeInTheDocument();
       // The green breathing class is independent of the tooltip and remains.
       expect(btn().classList.contains('header-vault-button--armed')).toBe(true);
