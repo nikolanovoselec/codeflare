@@ -25,6 +25,7 @@ interface TerminalAreaProps {
   preparePiWebPanel?: boolean;
   prepareNativeTerminal?: boolean;
   codeAttachment?: { terminalId: string; onAttached: () => void };
+  preserveDomFocus?: (terminalId: string) => boolean;
   handoffPending?: boolean;
   piWebTerminalConnect?: boolean;
   retainPiWebPanel?: boolean;
@@ -268,6 +269,7 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
                     visible={showNativeTerminal()}
                     focused={nativeInteractive() && tabId === activeTerminals()!.activeTabId}
                     connect={nativeConnect(tabId)}
+                    preserveDomFocus={() => props.preserveDomFocus?.(tabId) ?? false}
                     onHandoffAttached={props.codeAttachment?.terminalId === tabId ? props.codeAttachment.onAttached : undefined}
                     alwaysObserveResize={nativeInteractive()}
                     hideInitProgress={true}
@@ -318,6 +320,7 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
               sessionName={session()?.name || 'Terminal'} terminalMode={resolveTerminalMode(session()?.terminalMode)}
               active={nativeInteractive()} visible={showNativeTerminal()}
               focused={nativeInteractive() && pane.id === focusedPaneId()} connect={nativeConnect(pane.terminalId)}
+              preserveDomFocus={() => props.preserveDomFocus?.(pane.terminalId) ?? false}
               onHandoffAttached={props.codeAttachment?.terminalId === pane.terminalId ? props.codeAttachment.onAttached : undefined}
               onError={props.onTerminalError} onInitComplete={() => props.onOpenSessionById(pane.sessionId)} />
           );

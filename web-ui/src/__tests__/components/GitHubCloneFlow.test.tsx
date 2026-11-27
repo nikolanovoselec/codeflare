@@ -8,40 +8,59 @@ vi.mock('../../stores/terminal', () => ({
     ownsSession: () => false, registerSessionStoppedCallback: vi.fn() },
   registerProcessNameCallback: vi.fn(), sendInputToTerminal: () => false,
 }));
-vi.mock('../../api/client', async original => ({
-  ...await original<typeof import('../../api/client')>(),
-  startSession: (_id: string, _progress: unknown, complete: (generation: number) => void) => {
-    queueMicrotask(() => complete(1));
-    return () => {};
-  },
-}));
-
-import ClonePicker from '../../components/github/ClonePicker';
+import RepoRow from '../../components/github/RepoRow';
 import { sessionStore } from '../../stores/session';
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); sessionStore.setAllowedAgents(null); });
 
 it('REQ-GITHUB-004 AC4: choosing a new-session agent sends the eventual creation request without a ref', async () => {
-  sessionStore.setAllowedAgents(['pi']);
+  await verifyCloneLaunch(false);
+});
+
+it('Vibe creates and starts a Pi Chat clone without choosing an agent', async () => {
+  await verifyCloneLaunch(true);
+});
+
+async function verifyCloneLaunch(vibeOnly: boolean) {
+  sessionStore.setAllowedAgents(['pi', 'codex']);
   sessionStore.setEnterpriseMode(false);
+  const id = vibeOnly ? 'clonevibe123' : 'cloneflow123';
+  const agentType = vibeOnly ? 'pi' : 'codex';
+  const surface = vibeOnly ? { surface: 'chat' } : {};
+  const startUrl = `/api/container/start?sessionId=${id}`;
   const requests: Array<{ url: string; body: unknown }> = [];
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = String(input);
     requests.push({ url, body: init?.body ? JSON.parse(String(init.body)) : undefined });
     if (url === '/api/sessions') return new Response(JSON.stringify({ session: {
-      id: 'cloneflow123', name: 'hello', agentType: 'pi', workspace: 'vscode', terminalMode: 'classic',
+      id, name: 'hello', agentType, workspace: vibeOnly ? 'terminal' : 'vscode', terminalMode: 'classic',
       createdAt: '2026-01-01T00:00:00Z', lastAccessedAt: '2026-01-01T00:00:00Z',
     } }));
-    if (url === '/api/preferences') return new Response(JSON.stringify({ lastAgentType: 'pi' }));
+    if (url === startUrl) return Response.json({ generation: 1 });
+    if (url === `/api/container/startup-status?sessionId=${id}`) return Response.json({
+      stage: 'ready', generation: 1, revision: 1, progress: 100, message: 'Ready',
+      details: { bucketName: 'fixture', container: 'fixture', path: '/workspace' },
+    });
+    if (url === '/api/preferences') return Response.json({ lastAgentType: agentType });
     throw new Error(`Unexpected creation peer: ${url}`);
   });
-  render(() => <ClonePicker repo={{ full_name: 'octocat/hello', name: 'hello', owner: 'octocat',
-    private: false, visibility: 'public', default_branch: 'trunk', updated_at: '2026-01-01T00:00:00Z' }} onClose={() => {}} />);
-  fireEvent.click(screen.getByTestId('clone-picker-agent-pi'));
-  await waitFor(() => expect(sessionStore.sessions.find(session => session.id === 'cloneflow123')?.status).toBe('running'));
+  render(() => <RepoRow vibeOnly={vibeOnly} repo={{ full_name: 'octocat/hello', name: 'hello', owner: 'octocat',
+    private: false, visibility: 'public', default_branch: 'trunk', updated_at: '2026-01-01T00:00:00Z' }} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Clone' }));
+  if (vibeOnly) {
+    expect(screen.queryByTestId('clone-picker-agent-codex')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^New Pi session/ }));
+  } else {
+    expect(screen.getByTestId('clone-picker-agent-pi')).toBeEnabled();
+    fireEvent.click(screen.getByTestId('clone-picker-agent-codex'));
+  }
+  await waitFor(() => expect(sessionStore.sessions.find(session => session.id === id)?.status).toBe('running'));
   expect(requests.filter(request => request.url === '/api/sessions')).toEqual([
-    { url: '/api/sessions', body: { name: 'hello', agentType: 'pi', clone: { repo: 'octocat/hello' } } },
+    { url: '/api/sessions', body: { name: 'hello', agentType, clone: { repo: 'octocat/hello' }, ...surface } },
   ]);
-  expect(sessionStore.sessions.find(session => session.id === 'cloneflow123'))
-    .toMatchObject({ name: 'hello', agentType: 'pi', status: 'running' });
-});
+  expect(requests.filter(request => request.url === startUrl)).toEqual([
+    { url: startUrl, body: vibeOnly ? surface : undefined },
+  ]);
+  expect(sessionStore.sessions.find(session => session.id === id))
+    .toMatchObject({ name: 'hello', agentType, status: 'running' });
+}

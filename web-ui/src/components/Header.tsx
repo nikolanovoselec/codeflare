@@ -72,7 +72,7 @@ const Header: Component<HeaderProps> = (props) => {
   let userButtonRef: HTMLButtonElement | undefined;
   createEffect(() => {
     if (!showUserMenu()) return;
-    const update = () => { if (userMenuRef) setUserMenuPos(measureProfileMenu(userMenuRef)); };
+    const update = () => { if (userMenuRef) setUserMenuPos(measureProfileMenu(userMenuRef, !!props.userName)); };
     update();
     window.addEventListener('resize', update);
     onCleanup(() => window.removeEventListener('resize', update));
@@ -253,54 +253,58 @@ const Header: Component<HeaderProps> = (props) => {
             <div class="header-user-dropdown header-user-dropdown--profile" data-testid="header-user-dropdown"
               classList={{ 'header-user-dropdown--sheet': userMenuPos().sheet }}
               style={{ '--profile-menu-top': `${userMenuPos().top}px` }}>
-              <Show when={props.userName}><div class="header-user-email">{props.userName}</div></Show>
-              <Show when={inProfile('vscode') && props.onVscodeOpen}>{onOpen =>
-                <button type="button" class="header-user-dropdown-item" onClick={() => { setShowUserMenu(false); onOpen()(); }}>
-                  <Icon path={mdiMicrosoftVisualStudioCode} size={20} /><span>Open editor (VS Code)</span>
-                </button>}
-              </Show>
-              <Show when={inProfile('operators')}><div ref={setOperatorProfileMount} /></Show>
-              <Show when={inProfile('vault') && props.onVaultOpen}>{onOpen =>
-                <VaultButton status={props.vaultStatus ?? (props.vaultReady ? 'ready' : 'prewarming')} onOpen={onOpen()} inProfile />}
-              </Show>
-              <Show when={sessionStore.saasMode}>
+              <Show when={props.userName}>{email => (
+                <div class="header-user-email"><span>{email()}</span></div>
+              )}</Show>
+              <div class="header-user-profile-actions" role="group" aria-label="Account actions">
+                <Show when={inProfile('vscode') && props.onVscodeOpen}>{onOpen =>
+                  <button type="button" class="header-user-dropdown-item" onClick={() => { setShowUserMenu(false); onOpen()(); }}>
+                    <Icon path={mdiMicrosoftVisualStudioCode} size={20} /><span>Open editor (VS Code)</span>
+                  </button>}
+                </Show>
+                <Show when={inProfile('operators')}><div ref={setOperatorProfileMount} /></Show>
+                <Show when={inProfile('vault') && props.onVaultOpen}>{onOpen =>
+                  <VaultButton status={props.vaultStatus ?? (props.vaultReady ? 'ready' : 'prewarming')} onOpen={onOpen()} inProfile />}
+                </Show>
+                <Show when={sessionStore.saasMode}>
+                  <a
+                    href="/app/subscribe"
+                    class="header-user-dropdown-item"
+                    data-testid="header-user-dropdown-profile"
+                  >
+                    <Icon path={mdiAccountOutline} size={16} />
+                    <span>Subscription</span>
+                  </a>
+                </Show>
                 <a
-                  href="/app/subscribe"
+                  href="/app/usage"
                   class="header-user-dropdown-item"
-                  data-testid="header-user-dropdown-profile"
+                  data-testid="header-user-dropdown-usage"
                 >
-                  <Icon path={mdiAccountOutline} size={16} />
-                  <span>Subscription</span>
+                  <Icon path={mdiChartBar} size={16} />
+                  <span>Usage</span>
+                  <UsageInlineBadge />
                 </a>
-              </Show>
-              <a
-                href="/app/usage"
-                class="header-user-dropdown-item"
-                data-testid="header-user-dropdown-usage"
-              >
-                <Icon path={mdiChartBar} size={16} />
-                <span>Usage</span>
-                <UsageInlineBadge />
-              </a>
-              <Show when={!sessionStore.enterpriseMode}>
-                <a
-                  href="/app/onboarding"
-                  class="header-user-dropdown-item"
-                  data-testid="header-user-dropdown-onboarding"
-                >
-                  <Icon path={mdiRocketLaunchOutline} size={16} />
-                  <span>Guided Setup</span>
-                </a>
-                <button
-                  type="button"
-                  class="header-user-dropdown-item header-user-dropdown-item--danger"
-                  data-testid="header-user-dropdown-logout"
-                  onClick={() => { window.location.href = '/auth/logout'; }}
-                >
-                  <Icon path={mdiLogout} size={16} />
-                  <span>Logout</span>
-                </button>
-              </Show>
+                <Show when={!sessionStore.enterpriseMode}>
+                  <a
+                    href="/app/onboarding"
+                    class="header-user-dropdown-item"
+                    data-testid="header-user-dropdown-onboarding"
+                  >
+                    <Icon path={mdiRocketLaunchOutline} size={16} />
+                    <span>Guided Setup</span>
+                  </a>
+                  <button
+                    type="button"
+                    class="header-user-dropdown-item header-user-dropdown-item--danger"
+                    data-testid="header-user-dropdown-logout"
+                    onClick={() => { window.location.href = '/auth/logout'; }}
+                  >
+                    <Icon path={mdiLogout} size={16} />
+                    <span>Logout</span>
+                  </button>
+                </Show>
+              </div>
             </div>
           </Show>
         </div>

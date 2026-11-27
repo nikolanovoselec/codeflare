@@ -1,3 +1,4 @@
+import { isPiWebSession } from '../lib/pi-web-session';
 import { Component, Show, For, onMount, onCleanup, createSignal, createMemo, createEffect, createRenderEffect, createUniqueId, createResource } from 'solid-js';
 import PiWorkspaceMode, { type PiWorkspaceModeBinding } from './PiWorkspaceMode';
 import ConnectCard from './github/ConnectCard';
@@ -89,7 +90,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
     return result && result.login === countAccount() && !ownedRepoCounts.loading ? result.counts : undefined;
   };
   const countsLoading = () => !!countAccount() && ownedRepoCounts.loading;
-  const runningCloneTargets = () => sessionStore.sessions.some(session => session.status === 'running');
+  const runningCloneTargets = () => sessionStore.sessions.some(session => session.status === 'running' && session.lifecycle !== 'stopping' && isPiWebSession(session));
   const [repoClonePicker, setRepoClonePicker] = createSignal<{ repo: GithubRepo; anchor: HTMLButtonElement }>();
   const knownEmptyRepos = () => githubStore.page > 0 && !githubStore.loading && !githubStore.error
     && !githubStore.hasMore && githubStore.repos.length === 0;
@@ -219,7 +220,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
   let userBtnRef: HTMLButtonElement | undefined;
   createEffect(() => {
     if (!showUserMenu()) return;
-    const update = () => { if (userBtnRef) setUserMenuPos(measureProfileMenu(userBtnRef)); };
+    const update = () => { if (userBtnRef) setUserMenuPos(measureProfileMenu(userBtnRef, !!props.userName)); };
     update();
     window.addEventListener('resize', update);
     onCleanup(() => window.removeEventListener('resize', update));
@@ -537,47 +538,51 @@ const Dashboard: Component<DashboardProps> = (props) => {
                       top: `${userMenuPos().top}px`, right: `${userMenuPos().right}px`, '--profile-menu-top': `${userMenuPos().top}px`,
                     } : undefined}
                   >
-                    <Show when={props.userName}><div class="header-user-email">{props.userName}</div></Show>
-                    <Show when={operatorInProfile()}><div ref={setOperatorProfileMount} /></Show>
-                    <Show when={sessionStore.saasMode}>
+                    <Show when={props.userName}>{email => (
+                      <div class="header-user-email"><span>{email()}</span></div>
+                    )}</Show>
+                    <div class="header-user-profile-actions" role="group" aria-label="Account actions">
+                      <Show when={operatorInProfile()}><div ref={setOperatorProfileMount} /></Show>
+                      <Show when={sessionStore.saasMode}>
+                        <a
+                          href="/app/subscribe"
+                          class="header-user-dropdown-item"
+                          data-testid="header-user-dropdown-profile"
+                        >
+                          <Icon path={mdiAccountOutline} size={16} />
+                          <span>Subscription</span>
+                        </a>
+                      </Show>
                       <a
-                        href="/app/subscribe"
+                        href="/app/usage"
                         class="header-user-dropdown-item"
-                        data-testid="header-user-dropdown-profile"
+                        data-testid="header-user-dropdown-usage"
+                        onClick={() => setShowUserMenu(false)}
                       >
-                        <Icon path={mdiAccountOutline} size={16} />
-                        <span>Subscription</span>
+                        <Icon path={mdiChartBar} size={16} />
+                        <span>Usage</span>
+                        <UsageInlineBadge />
                       </a>
-                    </Show>
-                    <a
-                      href="/app/usage"
-                      class="header-user-dropdown-item"
-                      data-testid="header-user-dropdown-usage"
-                      onClick={() => setShowUserMenu(false)}
-                    >
-                      <Icon path={mdiChartBar} size={16} />
-                      <span>Usage</span>
-                      <UsageInlineBadge />
-                    </a>
-                    <Show when={!sessionStore.enterpriseMode}>
-                      <a
-                        href="/app/onboarding"
-                        class="header-user-dropdown-item"
-                        data-testid="header-user-dropdown-onboarding"
-                      >
-                        <Icon path={mdiRocketLaunchOutline} size={16} />
-                        <span>Guided Setup</span>
-                      </a>
-                      <button
-                        type="button"
-                        class="header-user-dropdown-item header-user-dropdown-item--danger"
-                        data-testid="header-user-dropdown-logout"
-                        onClick={() => { window.location.href = '/auth/logout'; }}
-                      >
-                        <Icon path={mdiLogout} size={16} />
-                        <span>Logout</span>
-                      </button>
-                    </Show>
+                      <Show when={!sessionStore.enterpriseMode}>
+                        <a
+                          href="/app/onboarding"
+                          class="header-user-dropdown-item"
+                          data-testid="header-user-dropdown-onboarding"
+                        >
+                          <Icon path={mdiRocketLaunchOutline} size={16} />
+                          <span>Guided Setup</span>
+                        </a>
+                        <button
+                          type="button"
+                          class="header-user-dropdown-item header-user-dropdown-item--danger"
+                          data-testid="header-user-dropdown-logout"
+                          onClick={() => { window.location.href = '/auth/logout'; }}
+                        >
+                          <Icon path={mdiLogout} size={16} />
+                          <span>Logout</span>
+                        </button>
+                      </Show>
+                    </div>
                   </div>
                 </div>
               </Show>
@@ -815,7 +820,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                       )}</Show>
                       <Show when={repoClonePicker()} keyed>{({ repo, anchor }) => (
                         <Portal>
-                          <ClonePicker repo={repo} anchorRef={anchor} onClose={() => setRepoClonePicker(undefined)} />
+                          <ClonePicker repo={repo} anchorRef={anchor} vibeOnly onClose={() => setRepoClonePicker(undefined)} />
                         </Portal>
                       )}</Show>
                     </StatCard>
@@ -866,7 +871,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                 ref={githubFaceRef}
                 style={useMeasuredSplit() && githubMaxH() != null ? { 'max-height': `${githubMaxH()}px` } : undefined}
               >
-                <GitHubPanel connectReturnError={vibe() ? null : githubReturnError()}
+                <GitHubPanel vibeOnly={vibe()} connectReturnError={vibe() ? null : githubReturnError()}
                   onFlip={flipBrowsers() ? () => flipTo('storage') : undefined} />
               </div>
             </Show>

@@ -243,6 +243,13 @@ const Layout: Component<LayoutProps> = (props) => {
       ? previous : { scope, requestId: status.requestId, terminalId };
   });
   const [attachedCode, setAttachedCode] = createSignal<NonNullable<ReturnType<typeof codeAttachment>>>();
+  let checkedTerminalFocusFor: ReturnType<typeof codeAttachment>;
+  const preserveModeFocusOnAttach = (terminalId: string) => {
+    const attempt = codeAttachment();
+    if (!attempt || attempt !== attachedCode() || attempt === checkedTerminalFocusFor || attempt.terminalId !== terminalId) return false;
+    checkedTerminalFocusFor = attempt;
+    return !!document.activeElement?.closest('[data-workspace-mode-focus]');
+  };
   const prepareCodeAttachment = createMemo(() => {
     const attempt = codeAttachment();
     return attempt && {
@@ -1239,6 +1246,7 @@ const Layout: Component<LayoutProps> = (props) => {
             preparePiWebPanel={preparePiWebPanel()}
             prepareNativeTerminal={prepareNativeTerminal()}
             codeAttachment={prepareNativeTerminal() ? prepareCodeAttachment() : undefined}
+            preserveDomFocus={preserveModeFocusOnAttach}
             handoffPending={!!handoffTarget()}
             piWebTerminalConnect={handoffTarget() ? piWebStatus()?.surface === 'terminal' : undefined}
             piWebOpenReady={chatStartupReady() && piWebStatus()?.surface === 'chat' && !piWebStatus()?.startupQuestion}

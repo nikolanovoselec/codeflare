@@ -866,6 +866,32 @@ describe('Pi marker-or-dialog review ingress', () => {
     expect(app.sent).toEqual([]);
   });
 
+  it.each(['unrelated reopen', 'different created PR', 'exact created PR', 'no branch PR'] as const)('binds outage recovery to the delivery target (%s)', async scenario => {
+    const { PR_LOOKUP_FAILED } = await import('../../../preseed/agents/pi/extensions/review-enforcement');
+    const input = fixture();
+    let offline = true;
+    const exactTarget = scenario === 'exact created PR' || scenario === 'no branch PR';
+    const app = await harness(input, ['Launch review'], {
+      queryPr: async (_repo: string, target?: string) => {
+        if (offline) return PR_LOOKUP_FAILED;
+        if (exactTarget && target === 'https://github.com/owner/repo/pull/99') return { ...input.pr, number: 99 };
+        return scenario === 'no branch PR' ? undefined : input.pr;
+      },
+    });
+    if (scenario === 'unrelated reopen') {
+      await app.emit('tool_result', boundary('git push origin feature', 'push-blocked'));
+      await app.emit('tool_result', boundary('gh pr reopen 99', 'reopen-blocked'));
+    } else {
+      await app.emit('tool_result', { ...boundary('gh pr create', 'create-blocked'),
+        content: [{ type: 'text', text: 'https://github.com/owner/repo/pull/99' }] });
+    }
+    offline = false;
+    await app.emit('session_start');
+    expect(app.sent[0]?.details).toMatchObject({ prNumber: exactTarget ? 99 : 42, head: input.head });
+    expect(app.sent[0]?.details?.ciEvent).toBe(scenario === 'unrelated reopen' ? 'push'
+      : exactTarget ? 'pr-create' : undefined);
+  });
+
   it('does not retry an unrelated push while the current PR head is stale', async () => {
     const input = fixture();
     const stale = { ...input.pr, headRefOid: input.base };
@@ -1109,6 +1135,7 @@ describe('Pi marker-or-dialog review ingress', () => {
     });
     const commandText = scenario === 'variable path push' ? originalVariablePathPush(input) : 'git push origin feature';
     if (commandText.includes('git -C')) app.ctx.cwd = dirname(input.repo);
+    if (deliveryUnavailable) append(input.sessionFile, toolCall('push-1', 'bash', { command: commandText }), toolResult('push-1', 'bash'));
     await app.emit('tool_result', boundary(commandText, 'push-1'));
     if (deliveryUnavailable) {
       expect(app.notices).toEqual([expect.stringContaining('PR verification unavailable')]);
@@ -1160,7 +1187,7 @@ describe('Pi marker-or-dialog review ingress', () => {
       symlinkSync(input.repo, markerDirectory);
     }
     settling = true;
-    await app.emit('agent_end');
+    if (scenario !== 'recovered delivery') await app.emit('agent_end');
 
     if (scenario === 'unavailable lookup' || scenario === 'changed head' || scenario === 'unwritable marker') {
       await app.emit('agent_settled');
@@ -1174,6 +1201,14 @@ describe('Pi marker-or-dialog review ingress', () => {
         expect(app.sent.map(message => message.customType)).toEqual(['pr-boundary-launch-plan']);
         return;
       }
+    }
+    if (scenario === 'recovered delivery') {
+      const replacement = await harness(input, ['Launch review']);
+      await replacement.emit('session_start');
+      await replacement.emit('agent_end');
+      await replacement.emit('agent_settled');
+      expect(replacement.sent.map(message => message.customType)).toEqual(['pr-boundary-launch-plan']);
+      expect(readCompletion(input.identity, { root }).status).not.toBe('complete');
     }
     await app.emit('agent_settled');
     expect(app.markerAtFix).toEqual(['complete']);

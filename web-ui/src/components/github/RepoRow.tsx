@@ -7,6 +7,7 @@ import ClonePicker from './ClonePicker';
 import { formatRepoAge } from '../../lib/format';
 
 interface RepoRowProps {
+  vibeOnly?: boolean;
   repo: GithubRepo;
 }
 
@@ -70,6 +71,7 @@ const RepoRow: Component<RepoRowProps> = (props) => {
         <Portal>
           <ClonePicker
             repo={props.repo}
+            vibeOnly={props.vibeOnly}
             anchorRef={cloneBtnRef()}
             onClose={() => setPickerOpen(false)}
           />

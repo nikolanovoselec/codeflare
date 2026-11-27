@@ -396,7 +396,7 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
   });
 
   it('shows the Profile email only at the top of the open workspace menu', () => {
-    const email = 'fixture@example.com';
+    const email = 'long.account.address.for.profile.acceptance@example.com';
     render(() => <Header {...defaultSessionProps} userName={email} />);
     const profile = screen.getByRole('button', { name: 'User menu' });
     expect(profile.querySelector('svg, img')).toBeVisible();
@@ -405,7 +405,8 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
     fireEvent.click(profile);
     const menu = screen.getByTestId('header-user-dropdown');
     expect(within(menu).getByText(email)).toBeVisible();
-    expect(menu.firstElementChild).toHaveTextContent(email);
+    const actions = within(menu).getByRole('group', { name: 'Account actions' });
+    expect(within(actions).queryByText(email)).not.toBeInTheDocument();
   });
 
   it('places the labeled desktop mode dropdown immediately before Profile', () => {

@@ -143,6 +143,8 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 - Enterprise egress injection and non-Enterprise human token transport retain the [GitHub credential boundaries](#req-github-006-other-mode-container-transport), including restricted-Operator placeholder isolation.
 - Backend clone transport accepts a supplied ref separately; that capability is not a branch-selection control in the panel.
 
+- Vibe offers only compatible Pi sessions and one new Pi Chat option from either entry point; it does not retry an incompatible Code clone. Code retains its enabled-agent choices. <!-- @test: web-ui/src/__tests__/components/GitHubCloneFlow.test.tsx (Vibe creates and starts a Pi Chat clone without choosing an agent) --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (Vibe offers only Pi destinations and never retries a non-Pi Code clone) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
+
 **Priority:** P1
 
 **Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [REQ-SESSION-001](session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type)
@@ -824,17 +826,17 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 1. Once the owned-count request settles unavailable, GitHub Details shows up to three loaded accessible repositories with valid update timestamps, newest first, with their relative update ages. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-327: shows the three latest valid repository shortcuts with their relative ages and no Start Chat action) -->
 2. A repository link opens that repository on GitHub without starting a session. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-327: shows the three latest valid repository shortcuts with their relative ages and no Start Chat action) -->
-3. With no running session, the repository age control creates a fresh Vibe Chat session with that repository selected for cloning. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-GITHUB-327: the age control starts a fresh Vibe session with the selected clone target) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
-4. With running sessions, the age control opens the existing Clone picker for a live target or a new session. <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-327: the age action offers live and new sessions and clones into the selected live session) -->
-5. A successful fresh shortcut clone checks out the selected repository’s default branch. <!-- @impl: entrypoint.sh::restore_startup_repositories --> <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
+3. With no eligible running Pi session, the repository age control creates a fresh Vibe Chat session with that repository selected for cloning. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-GITHUB-327: the age control starts a fresh Vibe session with the selected clone target) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
+4. With an eligible Pi session running, the age control opens the existing Clone picker. <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-327: the age action offers live and new sessions and clones into the selected live session) -->
+5. Keyboard focus visibly outlines the repository age control. <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
 6. When counts settle, the loaded repository list is confirmed empty, and no verified count is positive, show **NOTHING TO SHOW.** and **GO BUILD SOMETHING.** on two lines instead of a zero count. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-327: only a settled empty repository list shows both empty-state lines (%#)) -->
-7. Hover highlights only the enabled repository age pill, not the surrounding card. Keyboard focus visibly outlines the age control. <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
+7. Hover highlights only the enabled repository age pill, not the surrounding card. <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
 
 **Constraints:**
 
 - Shortcuts reuse the loaded list without fetching repositories or inferring an owned count.
-- The age control is labeled **Clone into a session**.
-- Links show only the repository name. The tooltip and accessible name use the owner-qualified name. <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-327: shows the three latest valid repository shortcuts with their relative ages and no Start Chat action) -->
+- The age control is labeled **Clone into a session**; a successful fresh shortcut clone checks out the default branch. <!-- @impl: entrypoint.sh::restore_startup_repositories --> <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
+- Links show only the repository name while using the owner-qualified name for the tooltip and accessible name. <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-327: shows the three latest valid repository shortcuts with their relative ages and no Start Chat action) -->
 - Connected GitHub Details keeps the Storage Usage card’s dimensions and styling for repository and empty states. <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
 
 **Priority:** P1

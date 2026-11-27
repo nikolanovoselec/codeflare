@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { closeSync, existsSync, openSync, readSync } from "node:fs";
 import { join } from "node:path";
@@ -205,7 +206,7 @@ async function currentReview(
     lookupFailed = false;
     if (!isEnforcedPr(pr) || pr.headRefName !== branch) return undefined;
     if (createdPr && pr.number !== createdPr.number) return undefined;
-    if (ciEvent && command && !exposureTargetsCheckedOutBranch(command, {
+    if (command && !exposureTargetsCheckedOutBranch(command, {
       branch: pr.headRefName,
       pr: pr.number,
       repository: repositoryIdentity.repository,
@@ -602,35 +603,47 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     let deliveryCheckout: { branch: string; head: string } | undefined;
     const reportLaunchBlocked = () => {
       if (!ciEvent) return;
-      if (deliveryCheckout && command) {
-        pi.appendEntry("pr-boundary-launch-blocked", { repo, ...deliveryCheckout, boundaryToolUseId, event: ciEvent, command });
+      const targetCaptured = command && (classifyReviewBoundaryCommand(command).kind !== "pr-create" || createdPr);
+      const recoverable = deliveryCheckout && targetCaptured;
+      if (recoverable) {
+        pi.appendEntry("pr-boundary-launch-blocked", { repo, ...deliveryCheckout, boundaryToolUseId,
+          event: ciEvent, command, createdPrUrl: createdPr?.url });
       }
-      ctx.ui?.notify(deliveryCheckout && command
+      ctx.ui?.notify(recoverable
         ? "PR review plan not sent: PR verification unavailable. When GitHub is reachable, reopen the same checkout and choose Launch review to recover review and CI."
         : "PR review plan not sent: PR verification unavailable.", "warning");
     };
-    const review = await currentReview(ctx, dependencies, repo, ciEvent, command, createdPr,
+    const discovered = await currentReview(ctx, dependencies, repo, ciEvent, command, createdPr,
       (branch, head) => { deliveryCheckout = { branch, head }; });
     if (!current()) return;
-    if (review === PR_LOOKUP_FAILED) return reportLaunchBlocked();
-    if (!review) return;
-    if (readCompletion(review.identity).status === "complete") return;
-    if (activeRound && sameIdentity(activeRound.identity, review.identity)) return;
+    if (discovered === PR_LOOKUP_FAILED && ciEvent) return reportLaunchBlocked();
+    let review = discovered === PR_LOOKUP_FAILED ? undefined : discovered;
     let entries: Record<string, any>[] | undefined;
-    if (!ciEvent && !consentedLaunch) {
+    if (!ciEvent && !consentedLaunch && deliveryCheckout) {
       try { entries = ctx.sessionManager.getBranch?.() ?? liveEntries(ctx); }
       catch { return; }
     }
-    const pending = entries && [...entries].reverse().find(entry =>
-        entry.type === "custom" && entry.customType === "pr-boundary-launch-blocked"
-        && entry.data?.repo === review.repo && entry.data?.head === review.identity.head
-        && entry.data?.branch === review.identity.branch);
-    const saved = pending?.data;
-    const recovery = saved && (saved.event === "push" || saved.event === "pr-create")
-      && typeof saved.command === "string" && typeof saved.boundaryToolUseId === "string"
-      && exposureTargetsCheckedOutBranch(saved.command, review.identity) ? saved as {
-        event: ReviewBoundaryEvent; command: string; boundaryToolUseId: string;
-      } : undefined;
+    let recovery: { event: ReviewBoundaryEvent; command: string; createdPr?: CreatedPrTarget } | undefined;
+    for (const entry of [...(entries ?? [])].reverse()) {
+      const saved = entry.data;
+      if (entry.type !== "custom" || entry.customType !== "pr-boundary-launch-blocked"
+        || saved?.repo !== repo || saved.head !== deliveryCheckout?.head || saved.branch !== deliveryCheckout?.branch
+        || (saved.event !== "push" && saved.event !== "pr-create") || typeof saved.command !== "string") continue;
+      let target: CreatedPrTarget | undefined;
+      if (classifyReviewBoundaryCommand(saved.command).kind === "pr-create") {
+        target = typeof saved.createdPrUrl === "string" ? createdPrTarget(saved.createdPrUrl) : undefined;
+        if (!target) continue;
+        const exact = await currentReview(ctx, dependencies, repo, undefined, saved.command, target);
+        if (!current()) return;
+        if (!exact || exact === PR_LOOKUP_FAILED || exact.identity.head !== saved.head
+          || exact.identity.branch !== saved.branch) continue;
+        review = exact;
+      } else if (!review || !exposureTargetsCheckedOutBranch(saved.command, review.identity)) continue;
+      recovery = { event: saved.event, command: saved.command, createdPr: target };
+      break;
+    }
+    if (!review || readCompletion(review.identity).status === "complete") return;
+    if (activeRound && sameIdentity(activeRound.identity, review.identity)) return;
     const key = JSON.stringify([review.file, review.identity.gitHost, review.identity.repository, review.identity.pr,
       review.identity.branch, review.identity.base, review.identity.head]);
     if (!ciEvent && dialogsInFlight.has(key)) return;
@@ -650,8 +663,8 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
         if (decision !== LAUNCH_REVIEW && (recovery || decision !== MARK_COMPLETE)) return;
       }
       if (!current()) return;
-      const refreshed = await currentReview(ctx, dependencies, review.repo, ciEvent ?? recovery?.event,
-        recovery?.command ?? command, review.createdPr);
+      const refreshed = await currentReview(ctx, dependencies, review.repo, ciEvent,
+        recovery?.command ?? command, recovery?.createdPr ?? review.createdPr);
       if (!current()) return;
       if (refreshed === PR_LOOKUP_FAILED) {
         if (recovery) ctx.ui?.notify("PR review plan not sent: PR verification unavailable. Try Launch review again once GitHub is reachable.", "warning");
@@ -675,7 +688,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       }
       if (recovery) {
         ciEvent = recovery.event;
-        boundaryToolUseId = recovery.boundaryToolUseId;
+        boundaryToolUseId = `recovery:${randomUUID()}`;
       }
       const ancestor = latestAncestorCompletion(refreshed.identity, refreshed.repo);
       const ackHead = ancestor?.head;

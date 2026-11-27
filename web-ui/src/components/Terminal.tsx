@@ -25,6 +25,7 @@ interface TerminalProps {
   onError?: (error: string) => void;
   onInitComplete?: () => void;
   onHandoffAttached?: () => void;
+  preserveDomFocus?: () => boolean;
 }
 
 const TerminalInstance: Component<TerminalProps> = (props) => {

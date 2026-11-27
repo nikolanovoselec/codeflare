@@ -106,7 +106,7 @@ export default function PiWorkspaceMode(props: PiWorkspaceModeBinding & { presen
           {triggerLabel()}
         </span>
       </Show>
-      <button ref={trigger} type="button"
+      <button ref={trigger} type="button" data-workspace-mode-focus
         classList={{ 'session-switcher': true, 'session-switcher--mobile': presentation() === 'icon' }}
         aria-label={`Workspace mode: ${label(current())}`} aria-expanded={open()}
         disabled={triggerDisabled()} onClick={toggle}
@@ -127,7 +127,7 @@ export default function PiWorkspaceMode(props: PiWorkspaceModeBinding & { presen
               queueMicrotask(() => {
                 if (element.isConnected) element.querySelector<HTMLButtonElement>('button[aria-pressed="true"]')?.focus();
               });
-            }} class="header-user-dropdown header-user-dropdown--portal" role="group" aria-label="Workspace mode options"
+            }} class="header-user-dropdown header-user-dropdown--portal" data-workspace-mode-focus role="group" aria-label="Workspace mode options"
               style={window.innerWidth > 640 && position() ? { top: `${position()!.top}px`, right: `${position()!.right}px` } : undefined}
               onKeyDown={event => {
                 if (event.key === 'Escape') { event.stopPropagation(); close(); }

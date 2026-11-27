@@ -1,9 +1,10 @@
 import { createSignal } from 'solid-js';
+import type { AgentType } from '../types';
 
 // In-memory ownership shared by both picker entry points and session deletion.
-type CloneAttempt =
+type CloneAttempt = { agentType?: AgentType } & (
   | { phase: 'creating'; ticket: symbol; sessionId?: string }
-  | { phase: 'retrying' | 'failed'; sessionId: string };
+  | { phase: 'retrying' | 'failed'; sessionId: string });
 const [attempts, setAttempts] = createSignal<ReadonlyMap<string, CloneAttempt>>(new Map());
 
 export function cloneAttempt(repo: string) {

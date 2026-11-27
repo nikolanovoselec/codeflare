@@ -40,6 +40,7 @@ export interface UseTerminalOptions {
   onError?: (error: string) => void;
   onInitComplete?: () => void;
   onHandoffAttached?: () => void;
+  preserveDomFocus?: () => boolean;
 }
 
 interface UseTerminalResult {
@@ -687,7 +688,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     }
     terminalStore.claimResizeAuthority(props.sessionId, props.terminalId);
     terminalStore.startUrlDetection(props.sessionId, props.terminalId);
-    if (!isTouchDevice()) focusedTerm.focus();
+    if (!isTouchDevice() && !untrack(() => props.preserveDomFocus?.())) focusedTerm.focus();
     if (focusedTerm.cols > 0 && focusedTerm.rows > 0) {
       terminalStore.resize(props.sessionId, props.terminalId, focusedTerm.cols, focusedTerm.rows);
     }

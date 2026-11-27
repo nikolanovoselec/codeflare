@@ -620,22 +620,22 @@ async function createSession(name: string, agentType?: AgentType, tabConfig?: Ta
 // while VS Code sessions start without taking terminal ownership. `ref` is omitted
 // so the backend clones the repo's default branch. Return the saved ID even
 // when Start fails or is cancelled so a retry does not create another session.
-async function createSessionWithClone(repo: string, agentType?: AgentType): Promise<{ sessionId: string; started: boolean } | null> {
+async function createSessionWithClone(repo: string, agentType?: AgentType, surface?: 'chat'): Promise<{ sessionId: string; started: boolean } | null> {
   // Name the session after the repo (owner/name -> name). An empty name would be
   // rejected by the backend (name is min(1) when present; only OMISSION falls
   // back to "Terminal"), and the repo name is a more useful label anyway.
   const name = repo.split('/')[1] || repo;
-  const session = await createSession(name, agentType, undefined, { repo });
+  const session = await createSession(name, agentType, undefined, { repo }, surface);
   if (!session) return null;
   const attempt = cloneAttempt(repo);
   if (attempt?.phase === 'creating') setCloneAttempt(repo, { ...attempt, sessionId: session.id });
   if (session.workspace !== 'vscode') {
     setActiveSession(session.id);
   }
-  if (agentType) {
+  if (agentType && !surface) {
     void updateUserPreferences({ lastAgentType: agentType });
   }
-  const started = await startSession(session.id).then(result => result !== 'cancelled', () => false);
+  const started = await startSession(session.id, surface).then(result => result !== 'cancelled', () => false);
   return { sessionId: session.id, started };
 }
 
@@ -647,9 +647,9 @@ function canRetryCloneStart(id: string): boolean {
   return (status === 'stopped' || status === 'error') && !isLocallyStopping(id) && !localKillAttempts.has(id);
 }
 
-async function retryCloneStart(id: string): Promise<boolean> {
+async function retryCloneStart(id: string, surface?: 'chat'): Promise<boolean> {
   if (!canRetryCloneStart(id)) return false;
-  return startSession(id).then(result => result !== 'cancelled', () => false);
+  return startSession(id, surface).then(result => result !== 'cancelled', () => false);
 }
 
 async function renameSession(id: string, name: string): Promise<void> {

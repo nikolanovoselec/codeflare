@@ -1,6 +1,7 @@
 import { Component, For, Show, createSignal, createEffect, createMemo, onMount, onCleanup } from 'solid-js';
 import { mdiSourceBranch, mdiAlertCircleOutline, mdiClose } from '@mdi/js';
 import Icon from '../Icon';
+import { isPiWebSession } from '../../lib/pi-web-session';
 import type { AgentType } from '../../types';
 import type { GithubRepo } from '../../api/github';
 import { sessionStore } from '../../stores/session';
@@ -10,6 +11,7 @@ import ClonePickerNewSession from './ClonePickerNewSession';
 
 interface ClonePickerProps {
   repo: GithubRepo;
+  vibeOnly?: boolean;
   onClose: () => void;
   anchorRef?: HTMLElement;
 }
@@ -29,11 +31,17 @@ const ClonePicker: Component<ClonePickerProps> = (props) => {
   const attempt = () => cloneAttempt(props.repo.full_name);
   const retrySessionId = () => {
     const current = attempt();
-    return current?.phase === 'creating' ? undefined : current?.sessionId;
+    if (!current || current.phase === 'creating') return undefined;
+    if (props.vibeOnly) {
+      const saved = sessionStore.sessions.find(session => session.id === current.sessionId);
+      if (saved ? !isPiWebSession(saved) : current.agentType !== 'pi') return undefined;
+    }
+    return current.sessionId;
   };
 
   const runningSessions = createMemo(() =>
-    sessionStore.sessions.filter((s) => s.status === 'running'),
+    sessionStore.sessions.filter(s => s.status === 'running'
+      && (!props.vibeOnly || (s.lifecycle !== 'stopping' && isPiWebSession(s)))),
   );
 
   const busy = () => attempt()?.phase === 'creating' || attempt()?.phase === 'retrying';
@@ -107,7 +115,7 @@ const ClonePicker: Component<ClonePickerProps> = (props) => {
   // Clone into an existing running session. ref is omitted (backend defaults to
   // the repo's default branch).
   const handleCloneIntoSession = (sessionId: string) => {
-    if (busy()) return;
+    if (busy() || !runningSessions().some(session => session.id === sessionId)) return;
     void sessionStore.cloneRepositoryIntoSession({ repo: props.repo.full_name, sessionId });
     props.onClose();
   };
@@ -116,16 +124,19 @@ const ClonePicker: Component<ClonePickerProps> = (props) => {
   // server-owned: Terminal follows its existing activation path, while VS Code
   // starts on the dashboard. On success the picker closes.
   const handleCloneIntoNewSession = async (agentType: AgentType) => {
-    if (busy()) return;
+    if (busy() || (props.vibeOnly && (agentType !== 'pi' || !sessionStore.allowedAgents?.includes('pi')))) return;
+    const vibe = props.vibeOnly;
     const repo = props.repo.full_name;
     closeButton?.focus();
     setCreateFailed(false);
     const ticket = Symbol();
-    setCloneAttempt(repo, { phase: 'creating', ticket });
-    const result = await sessionStore.createSessionWithClone(repo, agentType);
+    setCloneAttempt(repo, { phase: 'creating', ticket, agentType });
+    const result = await (vibe
+      ? sessionStore.createSessionWithClone(repo, 'pi', 'chat')
+      : sessionStore.createSessionWithClone(repo, agentType));
     const current = cloneAttempt(repo);
     if (current?.phase !== 'creating' || current.ticket !== ticket) return;
-    if (result && !result.started) setCloneAttempt(repo, { phase: 'failed', sessionId: result.sessionId });
+    if (result && !result.started) setCloneAttempt(repo, { phase: 'failed', sessionId: result.sessionId, agentType });
     else setCloneAttempt(repo);
     if (disposed) return;
     if (result?.started) props.onClose();
@@ -133,14 +144,14 @@ const ClonePicker: Component<ClonePickerProps> = (props) => {
   };
 
   const retryStart = async (id: string) => {
-    if (busy() || !sessionStore.canRetryCloneStart(id)) return;
+    if (busy() || retrySessionId() !== id || !sessionStore.canRetryCloneStart(id)) return;
     const repo = props.repo.full_name;
     closeButton?.focus();
-    const retry = { phase: 'retrying', sessionId: id } as const;
+    const retry = { phase: 'retrying', sessionId: id, agentType: attempt()?.agentType } as const;
     setCloneAttempt(repo, retry);
-    const started = await sessionStore.retryCloneStart(id);
+    const started = await (props.vibeOnly ? sessionStore.retryCloneStart(id, 'chat') : sessionStore.retryCloneStart(id));
     if (cloneAttempt(repo) !== retry) return;
-    setCloneAttempt(repo, started ? undefined : { phase: 'failed', sessionId: id });
+    setCloneAttempt(repo, started ? undefined : { ...retry, phase: 'failed' });
     if (started && !disposed) props.onClose();
   };
 
@@ -174,7 +185,7 @@ const ClonePicker: Component<ClonePickerProps> = (props) => {
         <Show when={busy()}>
           <p class="clone-picker-group-header" role="status">Starting session…</p>
         </Show>
-        <Show when={createFailed() || attempt()?.phase === 'failed'}>
+        <Show when={createFailed() || (attempt()?.phase === 'failed' && retrySessionId() !== undefined)}>
           <div class="clone-picker-result clone-picker-result--failed" data-testid="clone-picker-result-failed" role="alert">
             <Icon path={mdiAlertCircleOutline} size={16} />
             <span class="clone-picker-result-text">Clone failed. Please try again.</span>
@@ -204,6 +215,7 @@ const ClonePicker: Component<ClonePickerProps> = (props) => {
 
         <Show when={retrySessionId()} fallback={
           <ClonePickerNewSession
+            vibeOnly={props.vibeOnly}
             disabled={busy()}
             onSelect={(agentType) => void handleCloneIntoNewSession(agentType)}
           />

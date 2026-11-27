@@ -6,7 +6,8 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 ## 2026-11-27: Repository shortcuts and local review recovery
 
-- [Vibe repository shortcuts](github.md#req-github-327-vibe-repository-shortcuts) show short names with owner-qualified tooltips and accessible labels. The age pill highlights on hover and shows a keyboard focus outline.
+- [Vibe repository shortcuts](github.md#req-github-327-vibe-repository-shortcuts) show short names with owner-qualified tooltips and accessible labels. The age pill highlights on hover and shows a keyboard focus outline. Vibe offers only Pi clone destinations; Code retains its enabled agents.
+- The [Profile menu](authentication.md#req-auth-016-header-user-dropdown) shows the full account email above the action panel without widening it.
 - [Local Pi review](agents.md#req-agent-121-checked-out-branch-boundary-synchronization) reports failed verification and preserves exact-head CI when recovering an undelivered review. [Blocked FIX](agents.md#req-agent-244-exact-round-review-completion) reports why it could not continue.
 
 ## 2026-11-26: Chat startup and Dashboard refinements

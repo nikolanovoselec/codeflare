@@ -11,6 +11,7 @@ import IconButton from '../ui/IconButton';
 import '../../styles/github-panel.css';
 
 interface GitHubPanelProps {
+  vibeOnly?: boolean;
   /** When provided, renders a mobile-only flip control in the header that
       swaps this panel for the R2 storage panel. */
   onFlip?: () => void;
@@ -92,7 +93,7 @@ const GitHubPanel: Component<GitHubPanelProps> = (props) => {
           <Show when={searchOpen()}>
             <RepoSearch inputRef={(el) => (searchInput = el)} />
           </Show>
-          <RepoList />
+          <RepoList vibeOnly={props.vibeOnly} />
         </Show>
       </section>
     </Show>

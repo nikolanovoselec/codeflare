@@ -813,6 +813,35 @@ describe('useTerminal hook', () => {
       dispose();
     });
 
+    it('keeps keyboard focus in the header when a handoff terminal becomes active', async () => {
+      vi.mocked(isTouchDevice).mockReturnValue(false);
+      vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
+      const trigger = document.createElement('button');
+      const input = document.createElement('textarea');
+      containerEl.append(trigger, input);
+      trigger.focus();
+      mockFocus.mockImplementation(() => input.focus());
+      const [focused, setFocused] = createSignal(false);
+      let keepHeaderFocus = true;
+      const dispose = createRoot(dispose => {
+        const result = useTerminal({ ...defaultProps, connect: true,
+          get focused() { return focused(); }, preserveDomFocus: () => keepHeaderFocus });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+      try {
+        setFocused(true);
+        await vi.waitFor(() => expect(trigger).toHaveFocus());
+        setFocused(false);
+        keepHeaderFocus = false;
+        setFocused(true);
+        await vi.waitFor(() => expect(input).toHaveFocus());
+      } finally {
+        dispose();
+        mockFocus.mockReset();
+      }
+    });
+
     it('REQ-TERM-011 / REQ-TERM-030 AC3: changes focus without reconnecting the terminal', async () => {
       vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
       const connectCleanup = vi.fn();

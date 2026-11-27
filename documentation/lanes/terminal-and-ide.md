@@ -284,7 +284,7 @@ Hover the GitHub card outside the age pills and verify that the card highlights.
 
 With separate authorization, use a disposable Vibe workspace and a repository with a known default branch and a distinguishable nondefault branch. With no running session, hover an age label for **Clone into a session**, then click it and choose **Open**. While **Restoring repositories…** is still visible for that clone, verify the Chat composer accepts a harmless prompt. If the clone finishes before this can be observed, mark the ordering check unexercised.
 
-With a disposable session running, click the age label and verify the Clone picker offers that session and a new session. Exercise both paths in separate runs; check that the clone notice and resulting checkout belong to the selected target.
+With disposable Pi and non-Pi sessions running, check that both the Vibe age pill and GitHub Browser Clone offer only eligible Pi sessions and **New Pi session**. Exercise the live and new targets separately. Find the new session on Dashboard, open it in Chat, and confirm the checkout in each selected session. In Code, confirm the browser still offers enabled agents.
 
 Compare the GitHub and Storage card bounds, surface color, border, corner radius, and padding in the same viewport, using Storage Usage as the reference. Repeat the comparison with a successfully loaded empty list and no positive owned count. The black labels then read **NOTHING TO SHOW.** and **GO BUILD SOMETHING.** on two lines.
 
@@ -294,7 +294,7 @@ On mobile, test below 600 CSS px and again from 600 through 640 CSS px. Verify o
 
 Repeat with `prefers-reduced-motion: reduce`: the drawer opens and closes without sliding, and the browsers still swap without flip animation. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-body--disclosure -->
 
-With the browsers open and closed, verify Profile stays icon-only and the email appears at the top of its open menu. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard -->
+With the browsers open and closed, verify Profile stays icon-only and the complete email appears on a black label above the open action panel without widening it. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard -->
 
 On desktop and tablet, verify the transparent double chevron sits at the summary’s right edge when closed and the browsers’ far right edge when open. It points right when closed and left when open, and bounces slowly sideways. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-pull -->
 

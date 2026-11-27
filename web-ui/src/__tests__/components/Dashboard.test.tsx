@@ -658,7 +658,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
   });
 
   it.each(['chat', 'terminal'] as const)('shows the Profile email only at the top of the open Dashboard menu in %s', mode => {
-    const email = 'fixture@example.com';
+    const email = 'long.account.address.for.profile.acceptance@example.com';
     render(() => <Dashboard {...defaultProps} userName={email} workspaceMode={{ value: mode, onSelect: () => {} }} />);
     const profile = screen.getByRole('button', { name: 'User menu' });
     const verifyMenu = () => {
@@ -666,7 +666,8 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
       fireEvent.click(profile);
       const menu = screen.getByTestId('header-user-dropdown');
       expect(within(menu).getByText(email)).toBeVisible();
-      expect(menu.firstElementChild).toHaveTextContent(email);
+      const actions = within(menu).getByRole('group', { name: 'Account actions' });
+      expect(within(actions).queryByText(email)).not.toBeInTheDocument();
       fireEvent.click(screen.getByTestId('header-user-dropdown-overlay'));
     };
     verifyMenu();
@@ -803,15 +804,15 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     } finally { requests.mockRestore(); clock.mockRestore(); }
   });
 
-  it('REQ-GITHUB-327: the age action starts a Vibe session with the repository when no session is running', async () => {
+  it('REQ-GITHUB-327: the age action starts a Vibe session with the repository when no Pi session is running', async () => {
     (githubStore as any)._setEnabled(true);
     (githubStore as any)._setLogin('octocat');
     githubFixture._setRepos([newestRepo]);
-    const stopped = mockSessions.filter(session => session.status === 'stopped');
-    setStoreSessions(stopped);
+    const nonPiSessions = mockSessions.map(session => ({ ...session, agentType: 'codex' as const }));
+    setStoreSessions(nonPiSessions);
     const counts = vi.spyOn(githubApi, 'getGithubOwnedRepoCounts').mockResolvedValue({ counts: null });
     try {
-      render(() => <Dashboard {...defaultProps} sessions={stopped} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
+      render(() => <Dashboard {...defaultProps} sessions={nonPiSessions} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
       const details = within(screen.getByRole('region', { name: 'GitHub Details' }));
       fireEvent.click(await details.findByRole('button', { name: 'Clone into a session: team/newest' }));
       expect(defaultProps.onCreateSession).toHaveBeenCalledWith('pi', undefined, 'chat', true, 'team/newest');
@@ -823,7 +824,8 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     (githubStore as any)._setEnabled(true);
     (githubStore as any)._setLogin('octocat');
     githubFixture._setRepos([newestRepo]);
-    setStoreSessions(mockSessions);
+    setStoreSessions([{ ...mockSessions[0]!, agentType: 'pi' },
+      { ...mockSessions[1]!, status: 'running', agentType: 'codex' }]);
     const counts = vi.spyOn(githubApi, 'getGithubOwnedRepoCounts').mockResolvedValue({ counts: null });
     try {
       render(() => <Dashboard {...defaultProps} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
@@ -832,9 +834,9 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
       const picker = within(await screen.findByRole('dialog', { name: 'Clone repository' }));
       expect(picker.getByText('Clone into a running session')).toBeVisible();
       expect(picker.getByText('Clone into a new session')).toBeVisible();
-      expect(picker.getByRole('button', { name: /^Pi\s*Minimal, extensible coding harness$/ })).toBeEnabled();
-      expect(picker.queryByRole('button', { name: /^Test Session 2/ })).not.toBeInTheDocument();
-      fireEvent.click(picker.getByRole('button', { name: /^Test Session 1\s*Running session$/ }));
+      expect(picker.getByRole('button', { name: /^New Pi session/ })).toBeEnabled();
+      expect(picker.queryByRole('button', { name: /^Test Session 2|^Codex/ })).not.toBeInTheDocument();
+      fireEvent.click(picker.getByRole('button', { name: /^Test Session 1\s*Running in Pi$/ }));
       expect(sessionStore.cloneRepositoryIntoSession).toHaveBeenCalledWith({ repo: 'team/newest', sessionId: 'sess1' });
       expect(screen.queryByRole('dialog', { name: 'Clone repository' })).not.toBeInTheDocument();
       expect(defaultProps.onCreateSession).not.toHaveBeenCalled();
