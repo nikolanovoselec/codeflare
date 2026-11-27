@@ -224,7 +224,7 @@ PR classification checks out depth2; push filtering keeps full history. When Git
 - **workflow-audit:** pinned/checksummed zizmor/actionlint over `.github/**` inside required `test`; standalone SARIF is not a bypass (REQ-OPS-021).
 - **impeccable-engine:** pinned-source focused native regressions, one-minute probe timeout, no image build (REQ-OPS-058).
 - **bundle-size:** Wrangler dry-run with container configuration repointed away from Dockerfile; one unambiguous measurement, valid positive budget or explicit opt-out sentinel (REQ-OPS-024).
-- **coverage:** affected-package and full-run global floors plus bounded changed-production-line LCOV floors, backend 80%, frontend 70% (REQ-OPS-022).
+- **coverage:** affected-package and full-run global floors plus bounded changed-production-line LCOV floors, backend 80%, frontend 70% (REQ-OPS-022). Backend coverage merge requires one report from each configured Workers shard. <!-- @impl: .github/workflows/test.yml::coverage-backend -->
 - **summary:** rejects failed or cancelled lanes. Diff-filtered runs permit skipped unaffected lanes; full runs reject unexpected skips, with PR-only Dependency Review exempt. The job reconciles suite evidence and publishes the exact-tree receipt.
 
 PR Dependency Review is dependency-security evidence for that reviewed tree and its main squash result; post-merge checks do not repeat registry-backed audits. Explicit full dispatch retains bounded one-minute fail-closed lockfile-only registry audits. Tool archives cache by OS/architecture/version/checksum and reject restored mismatch before execution ([REQ-OPS-165](../../sdd/spec/operations.md#req-ops-165-cached-external-tool-integrity-and-reuse)).
