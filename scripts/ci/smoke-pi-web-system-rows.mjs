@@ -288,6 +288,9 @@ try {
         const viewport = scroller.getBoundingClientRect();
         return Math.max(0, Math.min(summary.bottom, viewport.bottom) - Math.max(summary.top, viewport.top));
       };
+      if (!['auto', 'scroll'].includes(win.getComputedStyle(scroller).overflowY)) {
+        throw Error(width + ': the summary must allow user scrolling');
+      }
       const beforeScroll = visibleSummaryHeight();
       scroller.scrollTop = scroller.scrollHeight;
       if (visibleSummaryHeight() <= beforeScroll || summaries.getBoundingClientRect().bottom > scroller.getBoundingClientRect().bottom + 1) {

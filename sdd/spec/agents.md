@@ -1305,7 +1305,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Dependencies:** [REQ-AGENT-275](#req-agent-275-classic-pi-chat-startup)
 
-**Verification:** Manual: [Choose the starting writer](../../documentation/lanes/terminal-and-ide.md#choose-the-starting-writer)
+**Verification:** Automated: [Startup focus guards](../../web-ui/src/__tests__/components/Layout.test.tsx); Manual: [Choose the starting writer](../../documentation/lanes/terminal-and-ide.md#choose-the-starting-writer)
 
 **Status:** Planned
 
@@ -1364,7 +1364,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Dependencies:** [REQ-AGENT-272](#req-agent-272-pi-chat-and-terminal-transcript-handoff)
 
-**Verification:** Manual: [Stock controls and native questions](../../documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions), [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout)
+**Verification:** Automated: [14 MiB attachment request-body limit](../../scripts/ci/smoke-pi-web-host-handoff.mjs); Manual: [Stock controls, composer attachments, and native questions](../../documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions), [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout)
 
 **Status:** Planned
 
@@ -1378,10 +1378,11 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Acceptance Criteria:**
 
-1. With the tablet keyboard open, populated Chat uses the available height above the keyboard within its normal cap. The workspace halves its normal top gutter without cutting into the safe area. <!-- @impl: web-ui/src/styles/pi-web-chat.css::.layout-workspace--chat[data-chat-keyboard='open'] --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-tablet-chat-keyboard-fit -->
+1. With the tablet keyboard open, populated Chat uses the available height above the keyboard within its normal cap. <!-- @impl: web-ui/src/styles/pi-web-chat.css::.layout-workspace--chat[data-chat-keyboard='open'] --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-tablet-chat-keyboard-fit -->
 2. Chat follows the keyboard without jitter or snapping and returns to its prior sizing on close, preserving the frame, focus and transcript. <!-- @impl: web-ui/src/components/Layout.tsx::visibleChatKeyboardInset --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (fits tablet Chat outside the frame through keyboard open, close and reopen) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-tablet-chat-keyboard-fit -->
 3. With reduced motion enabled, tablet keyboard fit applies without added animation. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-tablet-chat-keyboard-fit -->
-4. Empty Chat retains usable compact sizing when the tablet keyboard opens. <!-- @impl: web-ui/src/components/PiWebChat.tsx::innerKeyboardInset --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (keeps an empty Chat usable when the visual viewport shrinks (tablet: %s)) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-tablet-chat-keyboard-fit -->
+4. When the tablet keyboard opens, empty Chat retains compact sizing only if the measured composer and status controls fit; otherwise it uses normal keyboard-fit sizing per [REQ-AGENT-287 AC7](#req-agent-287-empty-and-restored-vibe-layout). <!-- @impl: web-ui/src/components/PiWebChat.tsx::innerKeyboardInset --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (keeps an empty Chat usable when the visual viewport shrinks (tablet: %s)) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-tablet-chat-keyboard-fit -->
+5. With the tablet keyboard open, the workspace halves its normal top gutter without cutting into the safe area. <!-- @impl: web-ui/src/styles/pi-web-chat.css::.layout-workspace--chat[data-chat-keyboard='open'] --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-tablet-chat-keyboard-fit -->
 
 **Constraints:** Preserve phone and desktop layout. Do not reserve permanent history space in an empty Chat.
 

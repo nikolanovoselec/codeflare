@@ -208,7 +208,7 @@ The [Chat wrapper tests](../../web-ui/src/__tests__/components/PiWebChat.test.ts
 
 For [REQ-AGENT-292](../../sdd/spec/agents.md#req-agent-292-tablet-chat-keyboard-fit), use Samsung Browser on a physical tablet. Record the keyboard-closed frame bounds, then focus the prompt. With the keyboard open, verify that the header stays attached and the top gutter halves without losing safe-area clearance. In empty Chat, verify the composer and status remain reachable without adding blank history when compact sizing fits. In populated Chat, verify that history uses the available space up to the frame height cap.
 
-Dismiss the keyboard and compare the frame bounds to the starting size. Check that the same composer remains focused, then reopen the keyboard and verify the draft and transcript are unchanged. Check for jumps or reloads during both transitions. Repeat with reduced motion and mark unavailable device cases unexercised.
+Dismiss the keyboard and compare the frame bounds to the starting size. Check that the same composer remains focused, then reopen the keyboard and verify the draft and transcript are unchanged. Check for jumps or reloads during both transitions. Repeat with reduced motion: Chat should follow the keyboard’s viewport changes without its own eased sizing transition or continued settling after the viewport stops changing. Mark unavailable device cases unexercised.
 
 #### Check accent preferences
 
