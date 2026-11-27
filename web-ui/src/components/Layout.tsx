@@ -610,6 +610,12 @@ const Layout: Component<LayoutProps> = (props) => {
   const vaultWorkIntent = createMemo(() => vaultOpenIntentBySession()[vaultWorkSid() ?? '']);
   const vaultWorkRetry = createMemo(() => vaultPrewarmRetryBySession()[vaultWorkSid() ?? '']);
   const vaultWorkHasProof = createMemo(() => vaultPrewarmBySession()[vaultWorkSid() ?? ''] === 'ready');
+  const anotherVaultPreparing = (sid: string) => {
+    const owner = vaultWorkSid();
+    if (!owner || owner === sid || !vaultWorkReady() || vaultWorkIntent() !== 'preparing') return false;
+    const status = vaultPrewarmBySession()[owner];
+    return status !== 'error' && status !== 'timeout';
+  };
 
   // On-demand only (REQ-VAULT-018 / REQ-VAULT-020). A retry or a change in
   // visible workspace tears down the previous iframe before mounting another.
@@ -726,7 +732,7 @@ const Layout: Component<LayoutProps> = (props) => {
     // re-prewarm — making every in-session reopen of the green button "re-index" before
     // opening even though the persisted store was healthy: REQ-VAULT-022 AC1.)
     if (intent === 'armed' || untrack(vaultPrewarmBySession)[sid] === 'ready') {
-      openVaultTab(sid);
+      if (!anotherVaultPreparing(sid)) openVaultTab(sid);
       return;
     }
     // Click 1 (available): start the on-demand prewarm; the button breathes accent
@@ -736,8 +742,10 @@ const Layout: Component<LayoutProps> = (props) => {
 
   const renderDashboardVault = (session: SessionWithStatus) => {
     if (!showsDashboardVault(session)) return;
+    const status = () => session.status === 'running' ? vaultButtonStatus(session.id) : 'idle';
     return <VaultButton
-      status={session.status === 'running' ? vaultButtonStatus(session.id) : 'idle'}
+      status={status()}
+      waitingForOtherVault={status() === 'armed' && anotherVaultPreparing(session.id)}
       onOpen={() => handleVaultOpen(session.id)}
     />;
   };
@@ -758,9 +766,15 @@ const Layout: Component<LayoutProps> = (props) => {
       }
       timer = setTimeout(() => void tick(), VAULT_KEY_POLL_INTERVAL_MS);
     };
+    const deadline = setTimeout(() => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: 'timeout' }));
+    }, DEFAULT_VAULT_PREWARM_TIMEOUT_MS);
     void tick();
     onCleanup(() => {
       cancelled = true;
+      clearTimeout(deadline);
       if (timer) clearTimeout(timer);
     });
   });

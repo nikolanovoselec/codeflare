@@ -8,7 +8,7 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 - On phones, [the Codeflare header stays at the top](agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff) and [Chat refits after a viewport change or return](agents.md#req-agent-287-empty-and-restored-vibe-layout).
 - [Embedded Chat trims redundant controls and empty titles](agents.md#req-agent-289-embedded-chat-chrome), keeps navigation for unpinned Chat or Files, and [hides redundant mobile workspace context](agents.md#req-agent-290-embedded-mobile-workspace-context).
-- Advanced mode [VS Code session cards](browser-ide.md#req-ide-054-browser-ide-card-activation) show Vault before the status dot and menu. Long names truncate without moving the controls. [The first click prepares that session’s Vault](vault.md#req-vault-037-vault-on-vs-code-dashboard-cards); the next click once ready opens it in a new tab.
+- Advanced mode [VS Code session cards](browser-ide.md#req-ide-064-vs-code-dashboard-card-presentation) show Vault before the status dot and menu, with long titles truncated. [Click an available control to request preparation or an armed control to open Vault in a new tab](vault.md#req-vault-037-vault-on-vs-code-dashboard-cards).
 - [Long Profile emails](authentication.md#req-auth-016-header-user-dropdown) ellipsize at 90% of the viewport without widening the action panel.
 - On desktop and tablet, the [Vibe drawer](github.md#req-github-331-vibe-drawer-motion) opens and closes without moving New Session vertically. An [unusable GitHub connection](github.md#req-github-002-github-panel-and-repository-listing) does not restart Codeflare sign-in.
 

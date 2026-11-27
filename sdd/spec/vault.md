@@ -761,7 +761,7 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 **Acceptance Criteria:**
 
 1. In Advanced mode, only VS Code session cards show the Vault control. <!-- @impl: web-ui/src/components/Layout.tsx::renderDashboardVault --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (prepares and opens only the selected card’s Vault (REQ-VAULT-018/019/022/036)) -->
-2. The card uses its own running session’s readiness, preparation, and key recovery. The first click prepares Vault; after it turns green, the next click opens Vault in a new tab without selecting the card. <!-- @impl: web-ui/src/components/Layout.tsx::handleVaultOpen --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (prepares and opens only the selected card’s Vault (REQ-VAULT-018/019/022/036)) --> <!-- @manual: documentation/lanes/vault.md#vault-control-presentation -->
+2. The card uses its own running session’s readiness, preparation, and key recovery. An available control requests preparation; once armed, a click opens Vault in a new tab without selecting the card. If another session is preparing, opening waits for a new click. An expired key-recovery attempt releases preparation and can be retried. <!-- @impl: web-ui/src/components/Layout.tsx::handleVaultOpen --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (prepares and opens only the selected card’s Vault (REQ-VAULT-018/019/022/036)) --> <!-- @manual: documentation/lanes/vault.md#vault-control-presentation -->
 
 **Constraints:** Reuse the header’s on-demand flow; never use another session’s readiness.
 

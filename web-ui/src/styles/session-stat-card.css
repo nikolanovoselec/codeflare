@@ -38,20 +38,42 @@
 
 /* Keep the Vault control above the whole-card selector. Its 36px width,
    12px gap and the 8px dot put the centers 34px apart at the default scale. */
-.session-stat-card__vault {
+.session-stat-card .stat-card__header {
   position: relative;
-  z-index: 2;
+}
+
+.session-stat-card__vault {
   flex: none;
   margin-inline-end: var(--space-1);
 }
 
+.session-stat-card__vault .header-vault-button-wrap {
+  position: static;
+}
+
 .session-stat-card__vault .header-vault-button {
+  position: relative;
+  z-index: 2;
   width: calc(var(--space-8) + var(--space-1));
   height: var(--space-8);
 }
 
+.session-stat-card__vault .header-vault-button--armed[aria-disabled="true"] {
+  color: var(--color-success);
+  cursor: progress;
+  opacity: 1;
+}
+
 .session-stat-card__vault .header-vault-status {
+  box-sizing: border-box;
+  right: auto;
+  inset-inline-end: 0;
+  max-inline-size: min(240px, 100%);
   pointer-events: none;
+}
+
+.session-stat-card__vault .header-vault-status::before {
+  display: none;
 }
 
 /* Status dot */

@@ -1618,12 +1618,11 @@ A full code-server browser editor for an advanced running session. The editor op
 **Acceptance Criteria:**
 
 1. Activating a stopped VS Code card starts that session. <!-- @impl: web-ui/src/components/Dashboard.tsx::handleSessionSelect --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-IDE-049 AC1 / REQ-IDE-054 AC1: starts a stopped VS Code session from the whole card) -->
-2. A preparing or stopping card without an editor-readiness error has no parent button semantics or tab stop; its child controls remain enabled. A card with an editor-readiness error can offer Retry without bypassing Start admission. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (REQ-IDE-054 AC2: ignores a preparing VS Code card without disabling its child controls) --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (REQ-IDE-054 AC2: ignores a stopping VS Code card without disabling its child controls) -->
+2. A preparing or stopping card without an editor-readiness error has no parent button semantics or tab stop; its menu and timer retain their own availability. Vault remains subject to [REQ-VAULT-037](vault.md#req-vault-037-vault-on-vs-code-dashboard-cards). A card with an editor-readiness error can offer Retry without bypassing Start admission. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (REQ-IDE-054 AC2: ignores a preparing VS Code card without disabling its child controls) --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (REQ-IDE-054 AC2: ignores a stopping VS Code card without disabling its child controls) -->
 3. Activating a ready VS Code card opens the editor. <!-- @impl: web-ui/src/components/Dashboard.tsx::handleSessionSelect --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-IDE-054 AC3: opens from the whole card only after editor readiness) -->
-4. A whole-card selection control is the sole surface for opening the editor and remains separate from Vault, menu, and timer buttons. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (REQ-IDE-054 AC4: keeps whole-card Open control separate from child buttons) -->
+4. A whole-card selection control is the sole surface for opening the editor and remains separate from Vault, menu, and timer buttons. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (REQ-IDE-054 AC4: keeps whole-card Open control separate from child buttons) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps the renamed card selector and Vault, status, and menu in order (REQ-IDE-054)) -->
 5. Keyboard actions handled by child controls do not activate the card. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (does not activate the card when the kebab handles %p) --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (does not activate the card when the timer handles %p) -->
 6. A stopped card blocked by a preseed upgrade or managed reconciliation has no parent button semantics or tab stop; the blocked card may also disable pointer interaction with descendant controls. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (applies reduced opacity and blocks clicks during %s) -->
-7. When present, Vault precedes the status dot and session menu, with its center about 34 CSS pixels from the dot at the default scale. A long renamed session title ends in an ellipsis without shifting or overlapping those controls. The whole-card selector retains the full accessible session name. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps the renamed card selector and Vault, status, and menu in order (REQ-IDE-054)) --> <!-- @manual -->
 
 **Constraints:**
 
@@ -1639,6 +1638,30 @@ A full code-server browser editor for an advanced running session. The editor op
 **Status:** Implemented
 
 ---
+
+---
+
+### REQ-IDE-064: VS Code Dashboard card presentation
+
+**Intent:** Keep the card title and actions distinct at narrow widths.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. When present, Vault precedes the status dot and menu, about 34 CSS pixels center-to-center from the dot at default scale. <!-- @manual: documentation/lanes/vault.md#vault-control-presentation -->
+2. A long renamed title ends in an ellipsis without shifting or overlapping the controls. <!-- @manual: documentation/lanes/vault.md#vault-control-presentation -->
+3. The card selector exposes the complete accessible session name. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps the renamed card selector and Vault, status, and menu in order (REQ-IDE-054)) -->
+
+**Constraints:** None.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-IDE-054](#req-ide-054-browser-ide-card-activation)
+
+**Verification:** Automated: [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx); Manual: [Vault control presentation](../../documentation/lanes/vault.md#vault-control-presentation)
+
+**Status:** Planned
 
 ---
 

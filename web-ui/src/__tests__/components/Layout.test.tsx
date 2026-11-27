@@ -1778,13 +1778,15 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       const first = 'abcdef0123456789';
       const second = 'fedcba9876543210';
       const terminal = '1234567890abcdef';
+      const third = '0123456789abcdef';
       mockSessions = [
         createMockSession({ id: first, workspace: 'vscode', editorReady: true }),
         createMockSession({ id: second, workspace: 'vscode', editorReady: false }),
         createMockSession({ id: terminal, workspace: 'terminal' }),
+        createMockSession({ id: third, workspace: 'vscode', editorReady: true }),
       ];
       vi.stubGlobal('fetch', async (input: string | URL | Request) => Response.json({
-        vaultReady: [first, second].some(id => input === `/api/vault/${id}/status`),
+        vaultReady: [first, second, third].some(id => input === `/api/vault/${id}/status`),
       }));
       let confirmKey!: (recoverable: boolean) => void;
       vaultLocalReadinessMock.keyRecoverable.mockImplementation(id => id === first
@@ -1836,18 +1838,31 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
         expect(frame()).toBeNull();
         expect(open).not.toHaveBeenCalled();
         confirmKey(true);
-        const armed = await a().findByRole('button', { name: 'Your Vault is ready.' });
+        const armed = await a().findByRole('button', { name: 'Vault ready; another Vault is preparing' });
         const secondAttempt = frame()!;
         expect(new URL(secondAttempt.src).pathname).toBe(`/api/vault/${second}/.codeflare-bootstrap`);
         expect(other).toHaveAccessibleName('Preparing your Vault…');
-        expect(armed).toHaveAccessibleDescription('Your Vault is ready.');
+        expect(armed).toHaveAccessibleDescription(/Wait for the other Vault/);
         expect(other).toHaveAccessibleDescription(/Preparing your Vault/);
+        fireEvent.click(armed);
+        expect(open).not.toHaveBeenCalled();
+        expect(frame()).toBe(secondAttempt);
 
-        // Stop the second session while it owns the iframe; it cannot reuse that attempt.
-        mockSessions = [mockSessions[0], { ...mockSessions[1], status: 'stopped' }, mockSessions[2]];
+        const thirdCard = within(screen.getByTestId(`session-stat-card-${third}`));
+        fireEvent.click(await thirdCard.findByRole('button', { name: 'Open your Vault' }));
+        vi.useFakeTimers();
+        proveReady(secondAttempt);
+        await vi.advanceTimersByTimeAsync(300_000);
+        expect(b().getByRole('button', { name: 'Retry Vault preparation' })).toBeEnabled();
+        expect(new URL(frame()!.src).pathname).toBe(`/api/vault/${third}/.codeflare-bootstrap`);
+
+        mockSessions = mockSessions.map(session => session.id === second || session.id === third
+          ? { ...session, status: 'stopping' } : session);
         bumpSessionStoreVersion();
         expect(frame()).toBeNull();
         expect(b().getByRole('button', { name: 'Vault waiting for this session' })).toHaveAttribute('aria-disabled', 'true');
+        expect(b().getByRole('button', { name: 'Session actions' })).toBeEnabled();
+        expect(armed).toHaveAccessibleName('Your Vault is ready.');
         expect(open).not.toHaveBeenCalled();
         armed.click();
         expect(open).toHaveBeenLastCalledWith(`/api/vault/${first}/.codeflare-bootstrap`, '_blank', 'noopener');
@@ -1856,6 +1871,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       } finally {
         cleanup();
         vi.unstubAllGlobals();
+        vi.useRealTimers();
         open.mockRestore();
         focus.mockRestore();
       }

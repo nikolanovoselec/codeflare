@@ -18,6 +18,7 @@ interface VaultButtonProps {
   status: VaultButtonStatus;
   onOpen: () => void;
   inProfile?: boolean;
+  waitingForOtherVault?: boolean;
 }
 
 const VAULT_BUTTON_META: Record<VaultButtonStatus, { title: string; message: string; enabled: boolean }> = {
@@ -64,7 +65,11 @@ const VAULT_BUTTON_META: Record<VaultButtonStatus, { title: string; message: str
 };
 
 const VaultButton: Component<VaultButtonProps> = (props) => {
-  const meta = createMemo(() => VAULT_BUTTON_META[props.status]);
+  const meta = createMemo(() => props.waitingForOtherVault ? {
+    title: 'Vault ready; another Vault is preparing',
+    message: 'Wait for the other Vault to finish preparing, then click again to open this Vault.',
+    enabled: false,
+  } : VAULT_BUTTON_META[props.status]);
   const [showMessage, setShowMessage] = createSignal(false);
   const messageId = `vault-button-status-${createUniqueId()}`;
   let wrapRef: HTMLDivElement | undefined;
@@ -97,6 +102,11 @@ const VaultButton: Component<VaultButtonProps> = (props) => {
   let prevStatus: VaultButtonStatus | undefined;
   createEffect(() => {
     const status = props.status;
+    if (props.waitingForOtherVault) {
+      prevStatus = status;
+      setShowMessage(true);
+      return;
+    }
     const justBecameReady = prevStatus === 'preparing' && status === 'armed';
     prevStatus = status;
     if (status === 'preparing') {
