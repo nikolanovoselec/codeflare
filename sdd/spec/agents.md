@@ -1217,9 +1217,9 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 4. Chat hides SYSTEM transcript rows from both live and saved history without changing the saved transcript. <!-- @manual: documentation/lanes/terminal-and-ide.md#verify-system-rows-are-hidden-in-chat -->
 
 5. Embedded Chat hides the stock Refresh and Actions controls on desktop and mobile without hiding navigation or failure-only Reload Chat. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
-6. In Codeflare Graphite, the session-start summary, composer, model label, and footer token and context counters match the regular message body font size. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+6. In the Codeflare theme, the session-start summary, composer, model label, and footer token and context counters match the regular message body font size. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 
-7. In Codeflare Graphite, the beginning-of-session summary has space above it. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+7. In the Codeflare theme, the beginning-of-session summary has space above it. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 
 **Constraints:** No stock Pi Web patch or change to the required Terminal plugin.
 
@@ -1270,8 +1270,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 2. Chat starts in Quiet mode and allows the user to change it. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
 3. Native questions are answerable in the live Chat frame. During startup, the original frame shows the question before Open appears. <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (keeps the standard startup screen until Open reveals Chat, without mounting a native terminal) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
 4. The Chat composer saves attachments to the active conversation’s workspace, up to 16 attachments, 10,000,000 decoded bytes total, and a 14 MiB request body. An over-limit batch writes no files. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
-5. Chat defaults to Codeflare Graphite, a dark theme with an 80%-transparent base that distinguishes user messages from agent replies, without overriding a saved theme. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @impl: image/pi-web/codeflare-chrome/browser/graphite.css::--pi-bg = #18181833 --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
-
+5. Chat starts with Codeflare selected and active, a dark theme with an 80%-transparent base that distinguishes user messages from agent replies. Existing browser profiles return to the default once; later explicit browser theme choices survive reloads. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @impl: web-ui/src/components/PiWebChat.tsx::StockChatFrame --> <!-- @impl: image/pi-web/codeflare-chrome/browser/graphite.css::--pi-bg = #18181833 --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (lets a fresh browser use the stock gateway theme default) --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (returns a previously saved alternate theme to the gateway default on first open) --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (keeps a later browser theme choice on reopening Chat (%s)) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 6. The machine name defaults to Codeflare. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 7. Managed Chat does not expose optional Info, Updates, MCP Manager, Tasks, or Relays panels. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
 
@@ -1286,7 +1285,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Dependencies:** [REQ-AGENT-272](#req-agent-272-pi-chat-and-terminal-transcript-handoff)
 
-**Verification:** Manual: [Stock controls and native questions](../../documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions), [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout).
+**Verification:** Automated: [Chat browser preferences](../../web-ui/src/__tests__/components/PiWebChat.test.tsx), [Stock gateway smoke](../../scripts/ci/smoke-pi-web-services.mjs); Manual: [Stock controls and native questions](../../documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions), [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout).
 
 **Status:** Planned
 

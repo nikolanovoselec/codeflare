@@ -166,15 +166,16 @@ Use these checks for [REQ-AGENT-272](../../sdd/spec/agents.md#req-agent-272-pi-c
 - Confirm the regular Dashboard, startup, and Code/Terminal layouts are unchanged. On returning to the same running Chat from Dashboard, confirm it reappears in the panel without reloading.
 - For [REQ-AGENT-282 AC3](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults), verify token and context usage remain visible without a USD amount.
 - On a disposable session, queue a harmless message during a turn and verify the nonzero queued count remains visible. Repeat the footer check with a different stock theme.
-- In a fresh browser context, verify the machine name is **Codeflare** and the default theme is **Codeflare Graphite** ([REQ-AGENT-274 AC5–6](../../sdd/spec/agents.md#req-agent-274-stock-pi-chat-controls)).
+- In a fresh browser context, open Chat and verify the machine name is **Codeflare**. In stock Appearance, verify **Codeflare** is both selected in **Theme** and shown as the current theme ([REQ-AGENT-274 AC5–6](../../sdd/spec/agents.md#req-agent-274-stock-pi-chat-controls)).
+- In a browser that saved a different theme with **Use in this browser** before the change, reload Codeflare and open Chat. Verify **Codeflare** is selected and active on this first open.
+- Save a different theme with **Use in this browser**, reload Codeflare, and reopen Chat. Verify the new choice is still selected and active.
 - In DevTools, check the computed background of `pi-web-app` inside the Chat iframe: its alpha must be 0.2. Confirm the outer gradient shows through and user messages have a tint and stronger leading border without fading text.
 - On desktop and mobile, verify the stock Refresh and Actions controls are absent, including their keyboard focus stops. Confirm navigation is still usable ([REQ-AGENT-282 AC5](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults)).
-- In Codeflare Graphite, compare computed font sizes for normal message text, the session-start summary and count, composer and placeholder, model label, and token and context counters. Verify these match, the summary has top padding, and controls remain usable ([REQ-AGENT-282 AC6–7](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults)).
+- With the Codeflare theme active, compare computed font sizes for normal message text, the session-start summary and count, composer and placeholder, model label, and token and context counters. Verify these match, the summary has top padding, and controls remain usable ([REQ-AGENT-282 AC6–7](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults)).
 - Open a fresh Vibe conversation. Once ready, verify the history is zero height, the composer is usable near the workspace center, and the existing header stays immediately above the frame.
 - Send the first message. Verify the panel grows up and down to the normal size without replacing the frame or losing composer focus. A saved populated conversation opens full-size, and reduced motion expands instantly.
 - Open Files and return before sending a message; confirm Files gets the full panel. An early native question or a failed load must remain reachable without typing a message.
-- Reopen Chat in a browser with an alternate saved theme and verify that it persists.
-- With the alternate theme, repeat the [failed frame navigation check](#switch-one-writer-at-a-time) and verify **Reload Chat** still opens the same conversation. Confirm navigation stays available ([REQ-AGENT-282 AC5](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults)).
+- With the alternate theme saved after the first open, repeat the [failed frame navigation check](#switch-one-writer-at-a-time) and verify **Reload Chat** still opens the same conversation. Confirm navigation stays available ([REQ-AGENT-282 AC5](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults)).
 
 #### Check accent preferences
 

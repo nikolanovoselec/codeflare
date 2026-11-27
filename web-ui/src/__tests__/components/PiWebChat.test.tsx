@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@solidjs/testing-library';
 import { createSignal } from 'solid-js';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import PiWebChat from '../../components/PiWebChat';
 import PiWebSwitchControls from '../../components/PiWebSwitchControls';
 
@@ -22,6 +22,43 @@ function chatFrame(): HTMLIFrameElement {
   if (!(frame instanceof HTMLIFrameElement)) throw new Error('The stock Chat view needs its own titled frame');
   return frame;
 }
+
+describe('stock Chat theme startup (REQ-AGENT-274 AC5)', () => {
+  // Pi Web 1.202611.5 reads this browser preference before applying its gateway default.
+  const themeKey = 'pi-web-app-theme';
+  const alternate = JSON.stringify({ themeId: 'themes:pi-web-light', auto: true });
+  const openChat = () => render(() => <PiWebChat sessionId={SESSION_ID} generation={GENERATION}
+    status={active} onCancel={() => {}} />);
+
+  beforeEach(() => localStorage.clear());
+  afterEach(() => localStorage.clear());
+
+  it('lets a fresh browser use the stock gateway theme default', () => {
+    openChat();
+    expect(chatFrame()).toBeVisible();
+    expect(localStorage.getItem(themeKey)).toBeNull();
+  });
+
+  it('returns a previously saved alternate theme to the gateway default on first open', () => {
+    localStorage.setItem(themeKey, alternate);
+    openChat();
+    expect(chatFrame()).toBeVisible();
+    expect(localStorage.getItem(themeKey)).toBeNull();
+  });
+
+  it.each([null, alternate])('keeps a later browser theme choice on reopening Chat (%s)', prior => {
+    if (prior !== null) localStorage.setItem(themeKey, prior);
+    const first = openChat();
+    expect(chatFrame()).toBeVisible();
+    expect(localStorage.getItem(themeKey)).toBeNull();
+    // Stock Appearance's "Use in this browser" writes this preference.
+    localStorage.setItem(themeKey, alternate);
+    first.unmount();
+    openChat();
+    expect(chatFrame()).toBeVisible();
+    expect(JSON.parse(localStorage.getItem(themeKey) ?? 'null')).toEqual({ themeId: 'themes:pi-web-light', auto: true });
+  });
+});
 
 describe('Pi web Chat wrapper (REQ-AGENT-272)', () => {
   it('REQ-AGENT-272 AC4: embeds the bound stock Chat deep link in the same-origin Codeflare session scope', () => {

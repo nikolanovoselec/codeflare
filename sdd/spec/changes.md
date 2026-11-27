@@ -10,6 +10,7 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 - [Standalone Classic Pi](agents.md#req-agent-211-classic-agent-transcript-resume) remembers eligible native forks selected with `/resume`. A saved transcript already missing at launch validation is reported unavailable.
 - [Pi transcript retention](storage.md#req-stor-012-main-session-transcript-cleanup) keeps up to thirty main transcripts.
 - [Todo Loop](agents.md#req-agent-111-native-todo-loop-workflow-in-pi-sessions) starts paused until `/todoloop resume`.
+- [Chat’s Codeflare theme](agents.md#req-agent-274-stock-pi-chat-controls) is selected and active on first open, including a one-time return to the default for browsers with a saved theme. Later theme choices in that browser survive reloads.
 
 ## 2026-11-27: Repository shortcuts and local review recovery
 

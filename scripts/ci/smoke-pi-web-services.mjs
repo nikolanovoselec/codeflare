@@ -98,14 +98,15 @@ async function checkReady({ preexistingManager = false, adapterRegistration = ma
   const { effectiveConfig, enforcedSettings } = await services.request('/api/config');
   assert.equal(effectiveConfig.installationName, 'Codeflare');
   assert.deepEqual(effectiveConfig.defaultTheme, { themeId: 'codeflare-chrome:graphite', auto: false },
-    'the stock gateway must advertise Codeflare Graphite as the browser default');
+    'the stock gateway must advertise Codeflare as the browser default');
   assert.equal(enforcedSettings?.['/defaultTheme'], undefined, 'the default must not lock user theme choices');
 
   const themeStartup = await services.request('/api/theme-bootstrap');
-  const graphite = themeStartup.catalog.themes.find(({ id }) => id === 'codeflare-chrome:graphite');
-  assert.ok(graphite && themeStartup.stylesheets.some(({ url, cssText }) =>
-    cssText.length > 0 && graphite.stylesheets.some(sheet => sheet.url === url)),
-    'stock browser bootstrap must deliver the Codeflare Graphite palette');
+  const codeflareTheme = themeStartup.catalog.themes.find(({ id }) => id === 'codeflare-chrome:graphite');
+  assert.equal(codeflareTheme?.name, 'Codeflare', 'the stock theme picker must receive the Codeflare label');
+  assert.ok(codeflareTheme && themeStartup.stylesheets.some(({ url, cssText }) =>
+    cssText.length > 0 && codeflareTheme.stylesheets.some(sheet => sheet.url === url)),
+    'stock browser bootstrap must deliver the Codeflare palette');
   const savedTheme = await services.request('/api/theme?themeId=themes%3Agraphite&auto=false');
   assert.ok(savedTheme.catalog.themes.some(({ id }) => id === 'themes:graphite'),
     'the stock gateway must still serve a browser-selected alternative');

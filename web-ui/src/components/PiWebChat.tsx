@@ -21,8 +21,17 @@ interface PiWebChatProps {
 }
 
 function StockChatFrame(props: { src: string; onStartupReady?: (ready: boolean) => void; onStartupFailure?: (failed: boolean) => void; onPanelSize?: PiWebChatProps['onPanelSize'] }) {
-  // Seed the pinned stock release's browser preference before its same-origin frame starts.
-  // Existing browser choices always win, and storage denial must not block Chat.
+  // Pi Web 1.202611.5 prefers a saved browser theme to the gateway default.
+  // Return to the Codeflare default once per origin, before the stock frame reads storage.
+  try {
+    const migrationKey = 'codeflare:pi-web-default-theme-v1';
+    if (localStorage.getItem(migrationKey) === null) {
+      localStorage.removeItem('pi-web-app-theme');
+      localStorage.setItem(migrationKey, '1');
+    }
+  } catch { /* Stock also tolerates unavailable browser storage. */ }
+
+  // Seed navigation before the same-origin frame starts, preserving existing choices.
   try {
     const key = 'pi-web:navigation-preferences';
     if (localStorage.getItem(key) === null) {
