@@ -34,7 +34,7 @@ Example task: *"e2e test the integration deployment from a mobile device viewpor
 - **Public / deployed URLs only.** Browser Run is remote (Cloudflare's edge), so it **cannot reach `localhost`, private IPs, or container-internal ports** — point it at the deployed preview/integration URL, not a local dev server.
 - Your **own** application under test (or a target you're authorized to drive). This is not for crawling third-party sites — that's the `browser-run` fetch fallback.
 - Prefer non-destructive paths. If a flow mutates state, use disposable/test data and say so.
-- For a Codeflare terminal check, wait for **Ready**, click **Open** on the startup overlay, and focus the terminal input. Submit with `chrome-devtools_type_text` and `submitKey: "Enter"`. Wait for the expected tool result before Stop or Delete; a prompt visible on screen is not proof it ran.
+- For a Codeflare terminal check, if the startup overlay is shown, wait for **Ready** and click **Open**. Once the terminal input is ready, focus it. Submit with `chrome-devtools_type_text` and `submitKey: "Enter"`. Wait for the expected tool result before Stop or Delete; a prompt visible on screen is not proof it ran.
 
 ## Notes
 
