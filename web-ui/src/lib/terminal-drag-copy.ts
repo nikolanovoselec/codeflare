@@ -18,7 +18,8 @@ export function attachTerminalDragCopy(
   let start: (NonNullable<ReturnType<typeof point>> & { id: number; viewport: number }) | undefined;
   const allowed = (event: PointerEvent) => event.isTrusted && event.isPrimary && event.pointerType === 'mouse'
     && event.button === 0 && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey
-    && enabled() && terminal.buffer.active.type === 'alternate';
+    && enabled() && terminal.buffer.active.type === 'alternate'
+    && terminal.modes.mouseTrackingMode !== 'none' && !terminal.options.mouseEventsRequireAlt;
   const down = (event: PointerEvent) => {
     start = undefined;
     const cell = allowed(event) ? point(event) : undefined;
@@ -35,7 +36,7 @@ export function attachTerminalDragCopy(
     if (first.row === last.row && first.col === last.col) return;
     const forward = first.row * first.cols + first.col < last.row * last.cols + last.col;
     const [from, to] = forward ? [first, last] : [last, first];
-    const lines: string[] = [];
+    let text = '';
     for (let row = from.row; row <= to.row; row++) {
       const line = buffer.getLine(row + buffer.viewportY);
       if (!line) return;
@@ -44,9 +45,9 @@ export function attachTerminalDragCopy(
       // Include a whole wide glyph when the pointer lands on its continuation cell.
       if (begin > 0 && line.getCell(begin)?.getWidth() === 0) begin--;
       if (end < terminal.cols && line.getCell(end)?.getWidth() === 0) end++;
-      lines.push(line.translateToString(true, begin, end));
+      if (row > from.row && !line.isWrapped) text += '\n';
+      text += line.translateToString(true, begin, end);
     }
-    const text = lines.join('\n');
     if (text.trim()) write(text);
   };
   screen.addEventListener('pointerdown', down, true);

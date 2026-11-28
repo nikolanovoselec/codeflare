@@ -975,11 +975,12 @@ None.
 4. Visible Herdr panes forward accepted OSC 52 writes to the browser clipboard even when the separate desktop right-click paste setting is disabled, because Herdr copy is an explicit user action. A hidden retained pane consumes the output without writing or replaying it. <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (consumes Herdr clipboard output without writing while the retained pane is hidden) --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-032: writes Herdr OSC 52 copy output even when desktop paste access is disabled) -->
 5. Herdr clipboard-write handling does not apply to Classic sessions. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @manual: In integration, send the same clipboard control sequence to classic and confirm no browser clipboard write occurs. -->
 6. `Ctrl+V` or `Cmd+V` pastes retained rejected clipboard text when available; otherwise it reads the browser clipboard during the key gesture and pastes the result into the active terminal. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (pastes browser clipboard text through xterm on Ctrl+V) -->
-7. An ordinary desktop drag inside the visible Classic Pi fullscreen pane copies the displayed text through the browser clipboard, without changing Pi mouse input or admitting clipboard writes from terminal output. <!-- @impl: web-ui/src/lib/terminal-drag-copy.ts::attachTerminalDragCopy --> <!-- @test: web-ui/src/__tests__/lib/terminal-drag-copy.test.ts (Classic fullscreen browser clipboard) -->
+7. When fullscreen mouse tracking owns selection, an ordinary desktop drag in the visible Classic Pi primary pane copies nonblank displayed text, preserving hard line breaks but not inserting breaks at soft wraps. <!-- @impl: web-ui/src/lib/terminal-drag-copy.ts::attachTerminalDragCopy --> <!-- @test: web-ui/src/__tests__/lib/terminal-drag-copy.test.ts (Classic fullscreen browser clipboard) --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-032 AC7: copies a tracked fullscreen drag only on a visible Classic Pi pane (visible=%s)) -->
 
 **Constraints:**
 
 - OSC 52 accepts only the standard `c` selector, valid base64, valid UTF-8 text, and at most 64 KiB decoded content.
+- Classic drag-to-copy does not consume Pi mouse input or authorize clipboard writes from terminal output.
 - Browser clipboard permission remains authoritative.
 - Clipboard read queries and clipboard content are never logged.
 - No second clipboard service is installed.
@@ -1061,7 +1062,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Interactive Pi defaults to Regular when no renderer is saved. An explicit renderer choice remains effective in Herdr and Classic. <!-- @impl: entrypoint.sh::configure_pi_packages_and_review_inventory --> <!-- @impl: image/herdr/codeflare-herdr-terminal::bootstrap --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-TERM-040: defaults fresh and upgraded Pi profiles to Regular without replacing an explicit choice) -->
+1. Interactive Pi defaults to Regular when no renderer is saved. An explicit renderer choice remains effective in Herdr and Classic. <!-- @impl: entrypoint.sh::configure_pi_packages_and_review_inventory --> <!-- @impl: image/herdr/codeflare-herdr-terminal::bootstrap --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-TERM-040: defaults fresh and upgraded Pi profiles to Regular without replacing an explicit choice) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#req-term-040-manual-qualification -->
 2. Complete Herdr screen updates are presented on the standard output schedule and in arrival order. <!-- @impl: web-ui/src/stores/terminal-output.ts::scheduleWrite --> <!-- @test: web-ui/src/__tests__/stores/herdr-output-delivery.test.ts (delivers every complete frame on schedule and in order) -->
 3. While Pi output continues, Pi's application-owned fullscreen transcript preserves a user-selected historical viewport without mixed rows or a click-to-repair step. <!-- @manual: On Samsung Internet, scroll above bottom during Pi output and confirm the historical viewport remains stable until explicitly moved. -->
 
@@ -1075,7 +1076,7 @@ None.
 
 **Dependencies:** [REQ-TERM-008](#req-term-008-write-batching-at-30fps), [REQ-TERM-021](#req-term-021-synchronized-output-frame-atomicity), [REQ-MOB-017](#req-mob-017-fullscreen-application-touch-scrolling)
 
-**Verification:** Automated: [herdr-launcher.test.js](../../host/__tests__/herdr-launcher.test.js), [herdr-output-delivery.test.ts](../../web-ui/src/__tests__/stores/herdr-output-delivery.test.ts); Manual: [REQ-TERM-040 procedure](../../documentation/lanes/terminal-and-ide.md#req-term-040-manual-qualification)
+**Verification:** Automated: [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js), [herdr-launcher.test.js](../../host/__tests__/herdr-launcher.test.js), [herdr-output-delivery.test.ts](../../web-ui/src/__tests__/stores/herdr-output-delivery.test.ts); Manual: [REQ-TERM-040 procedure](../../documentation/lanes/terminal-and-ide.md#req-term-040-manual-qualification)
 
 **Status:** Implemented
 
@@ -1122,14 +1123,15 @@ None.
 3. A stationary mobile tap on a Herdr link opens it once. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-042 AC3/AC4: opens a touched link without terminal touch side effects) -->
 4. Mobile link activation leaves terminal input, fullscreen history, and keyboard focus unchanged. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-042 AC3/AC4: opens a touched link without terminal touch side effects) -->
 5. A modified non-link hardware click continues to send its Herdr SGR press and release. <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @test: web-ui/src/__tests__/lib/herdr-mouse.test.ts (REQ-TERM-042 AC5: keeps modified non-link clicks in Herdr) -->
-6. Unmatched closing parentheses and following sentence punctuation outside a prose wrapper are excluded from detected URLs and their clickable ranges, and from the destination of explicitly encoded terminal links. <!-- @impl: web-ui/src/lib/terminal-url-delimiters.ts::trimTerminalUrlParentheses --> <!-- @impl: web-ui/src/lib/terminal-link-provider.ts::registerMultiLineLinkProvider --> <!-- @impl: web-ui/src/stores/terminal-url-detection.ts::getLastUrlFromBuffer --> <!-- @test: web-ui/src/__tests__/lib/terminal-link-provider.test.ts (REQ-TERM-042 AC6: opens only the URL and excludes unmatched closing cells in %s) --> <!-- @test: web-ui/src/__tests__/lib/terminal-link-provider.test.ts (REQ-TERM-042 AC6: excludes a wrapped closing parenthesis from controller activation) --> <!-- @test: web-ui/src/__tests__/stores/terminal-url-detection.test.ts (REQ-TERM-042 AC6/AC7: classifies parenthesized $url without changing the destination) --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-042 AC6: confirms and opens a parenthesized OSC 8 target without the closing wrapper) -->
+6. Unmatched closing parentheses and following sentence punctuation outside a prose wrapper are excluded from detected plain-text URLs and their clickable ranges. <!-- @impl: web-ui/src/lib/terminal-url-delimiters.ts::trimTerminalUrlParentheses --> <!-- @impl: web-ui/src/lib/terminal-link-provider.ts::registerMultiLineLinkProvider --> <!-- @impl: web-ui/src/stores/terminal-url-detection.ts::getLastUrlFromBuffer --> <!-- @test: web-ui/src/__tests__/lib/terminal-link-provider.test.ts (REQ-TERM-042 AC6: opens only the URL and excludes unmatched closing cells in %s) --> <!-- @test: web-ui/src/__tests__/lib/terminal-link-provider.test.ts (REQ-TERM-042 AC6: excludes a wrapped closing parenthesis from controller activation) --> <!-- @test: web-ui/src/__tests__/stores/terminal-url-detection.test.ts (REQ-TERM-042 AC6/AC7: classifies parenthesized $url without changing the destination) -->
 7. HTTP(S) links hosted at auth.openai.com are offered through the existing auth-link controls regardless of path. <!-- @impl: web-ui/src/lib/constants.ts::ACTIONABLE_URL_PATTERNS --> <!-- @impl: web-ui/src/stores/terminal-url-detection.ts::isActionableUrl --> <!-- @test: web-ui/src/__tests__/stores/terminal-url-detection.test.ts (REQ-TERM-042 AC6/AC7: classifies parenthesized $url without changing the destination) -->
 
 **Notes:** Automated link, pointer and touch tests do not establish physical-browser acceptance; that observation remains separate under [terminal interaction methods](../../documentation/lanes/terminal-and-ide.md).
 
 **Constraints:**
 
-- The existing terminal link provider owns plain-text links. Explicit terminal links keep their confirmation and accept only HTTP(S) destinations.
+- The existing terminal link provider owns plain-text links.
+- Explicit links retain their original destinations and xterm confirmation.
 - Balanced and percent-encoded parentheses remain URL content.
 - Existing auth-link classifications and user-gesture requirements remain unchanged; the new hostname match excludes lookalike hosts and userinfo substitutions.
 

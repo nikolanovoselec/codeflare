@@ -299,7 +299,7 @@ The restore checks below apply only if Herdr handoff is enabled in a future rele
 
 OAuth shims print URLs rather than opening container browsers. The shared xterm link provider owns detection, reconstruction and browser opening. Classic retains activation; Herdr Ctrl-/Cmd-click and stationary mobile link taps open once without SGR input. Same-cell pointer jitter is allowed; moving cells cancels modified activation. Mobile link taps do not focus input or reset fullscreen history. Modified non-links still reach Herdr. Focused connected pane owns URL detection; cleanup is scoped to that session/terminal, never unscoped on ordinary unmount. <!-- @impl: web-ui/src/lib/terminal-link-provider.ts::registerMultiLineLinkProvider --> [REQ-TERM-015](../../sdd/spec/terminal.md#req-term-015-focused-pane-owns-url-detection), [REQ-TERM-042](../../sdd/spec/terminal.md#req-term-042-browser-terminal-link-activation).
 
-Terminal links exclude unmatched trailing closing parentheses from both the destination and clickable range, preserving balanced and percent-encoded parentheses. The existing desktop and touch auth-link controls also recognize `auth.openai.com` regardless of path. <!-- @impl: web-ui/src/stores/terminal-url-detection.ts::isActionableUrl --> [REQ-TERM-042](../../sdd/spec/terminal.md#req-term-042-browser-terminal-link-activation).
+Detected plain-text links exclude unmatched closing parentheses and sentence punctuation after a prose wrapper from the destination and clickable range. Balanced and percent-encoded parentheses are preserved. Explicit OSC 8 links keep their original target and xterm confirmation. The existing desktop and touch auth-link controls also recognize `auth.openai.com` regardless of path. <!-- @impl: web-ui/src/stores/terminal-url-detection.ts::isActionableUrl --> [REQ-TERM-042](../../sdd/spec/terminal.md#req-term-042-browser-terminal-link-activation).
 
 ### Terminal evidence boundaries
 
@@ -856,10 +856,11 @@ AC6: In Samsung Internet Herdr, tap Pi input and a Herdr control with the keyboa
 AC2/AC4: Inspect the exact image's “Verify packaged Herdr runtime” workflow evidence for pinned-binary `config check` and Help/Settings bindings. In the authorized browser session press Ctrl+B then ?, dismiss Help, then Ctrl+B then s. Pass only when Herdr opens Help and Settings respectively and browser bookmarks do not consume the prefix. Record unsupported OS-reserved combinations as outside browser control, not a promise to override the OS. Classic/unrelated-key handling stays unchanged.
 
 <a id="req-term-040-manual-qualification"></a>
-### Samsung fullscreen history during output (REQ-TERM-040)
+### Pi renderer selection and fullscreen history (REQ-TERM-040)
 
+AC1: In disposable Classic and managed Herdr Code sessions with no saved renderer, open Pi and check that `/settings` reports Regular. Set Fullscreen, stop the session, then resume it and confirm the launched Pi still uses Fullscreen. Record each mode separately; do not count a settings-file inspection as a launch check.
 
-AC3: On Samsung Internet in a fresh Herdr Pi fullscreen session with separately approved ongoing inference/output, scroll above the live bottom and stop touching the screen while output continues. Pass only if the chosen historical viewport remains stable with no mixed rows and without clicking to repair it; explicitly move the viewport afterward. Do not replace this with a Bash line stream: Pi owns this fullscreen transcript. Without an approved output/inference budget this remains blocked.
+AC3: On Samsung Internet, open a Herdr Pi session and explicitly select Fullscreen. With separately approved ongoing inference/output, scroll above the live bottom and stop touching the screen while output continues. Pass only if the chosen historical viewport remains stable with no mixed rows and without clicking to repair it; explicitly move the viewport afterward. Do not replace this with a Bash line stream: Pi owns this fullscreen transcript. Without an approved output/inference budget this remains blocked.
 
 <a id="req-mob-009-manual-qualification"></a>
 ### Chrome visibility-return focus ordering (REQ-MOB-009)
