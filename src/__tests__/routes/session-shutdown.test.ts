@@ -33,6 +33,7 @@ vi.mock('@cloudflare/containers', () => ({
   },
 }));
 
+import { CONTAINER_POLL_BUDGET_MS } from '../../container/container-metrics';
 import { HERMES_MERGE_BUDGET_MS } from '../../container/hermes-shutdown';
 import { acceptShutdown } from '../../container/session-shutdown-queue';
 import { container as SessionContainer } from '../../container/index';
@@ -92,7 +93,7 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
   let publishDelayedAudit: (() => void) | undefined;
   const cleanup = raceMonitor ? { reached: gate<void>(undefined), resume: gate<void>(undefined) } : undefined;
 
-  function processFixture(label: string, initiallyRunning: boolean, hasSnapshot: boolean, directGeneration: boolean) {
+  function processFixture(label: string, initiallyRunning: boolean, hasSnapshot: boolean, directGeneration: boolean, idle: boolean) {
     let running = initiallyRunning;
     // Model exit confirmation independently of the running hint. The fixture
     // uses awaited native destroy as its source of positive exit evidence.
@@ -140,8 +141,12 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
           if (input?.final === true) trace.push(`${label}:final-events`);
           return Response.json({ events: [] });
         }
+        if (idle && path === '/internal/runtime-observation') return Response.json({
+          lastInputAt: Date.now() - 30 * 60_000, observedAt: new Date().toISOString(),
+        });
         if (path === '/internal/final-sync') {
           trace.push(`${label}:save`);
+          if (idle) return Response.json({ synced: true });
           const result = firstSave ? await save.promise : 'saved';
           firstSave = false;
           if (typeof result === 'object') {
@@ -188,7 +193,7 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
         return Response.json({ error: `Unexpected fixture Host path ${path}` }, { status: 404 });
       } }),
     };
-    return { native, monitorExit, directGeneration, get token() { return token; }, save, exit, merge, retryResult, retryDestroy, get mergeRequest() { return mergeRequest; } };
+    return { native, monitorExit, directGeneration, idle, get token() { return token; }, save, exit, merge, retryResult, retryDestroy, get mergeRequest() { return mergeRequest; } };
   }
 
   const idFromName = (name: string) => ({ toString: () => name, equals: (id: DurableObjectId) => id.toString() === name });
@@ -200,6 +205,7 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
         ['bucketName', address.slice(0, first)], ['_sessionId', address.slice(first + 1)],
         ['lifecycleGeneration', 1], ['containerAuthToken', process.token], ['workspaceSyncEnabled', workspaceSyncEnabled],
         ['sessionMode', 'advanced'], ['hermes:direct-layout', true],
+        ...(process.idle ? [['sleepAfter', '15m'] as const] : []),
         ...(process.directGeneration ? [['hermes:direct-generation', 1] as const] : []),
         ...(process.directGeneration && !preRolloutRetry ? [['hermes:writer-generation', 1] as const] : []),
         ['userEmail', 'test@example.com'], ['userGroups', ['shutdown-fixture']],
@@ -316,8 +322,8 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
   const app = (bucketName = owner) => createTestApp({ bucketName, mockKV: envOverrides.KV,
     envOverrides, routes: [{ path: '/api/sessions', handler: lifecycle }, { path: '/api/sessions', handler: crud }] });
   const path = (id: string) => `/api/sessions/${id}`;
-  async function create(id: string, { bucket = owner, running = true, holdMerge = false, hasSnapshot = true, directGeneration = true, personalProviders = true }: {
-    bucket?: string; running?: boolean; holdMerge?: boolean; hasSnapshot?: boolean; directGeneration?: boolean; personalProviders?: boolean;
+  async function create(id: string, { bucket = owner, running = true, holdMerge = false, hasSnapshot = true, directGeneration = true, personalProviders = true, idle = false }: {
+    bucket?: string; running?: boolean; holdMerge?: boolean; hasSnapshot?: boolean; directGeneration?: boolean; personalProviders?: boolean; idle?: boolean;
   } = {}) {
     await envOverrides.KV!.put(getRegimeStateKey(bucket), JSON.stringify({ status: 'ready', regime: 'plain', generation: 1 }));
     await envOverrides.KV!.put('r2token:test@example.com', JSON.stringify({ bucketName: bucket, accessKeyId: 'fixture-key', secretAccessKey: 'fixture-secret' }));
@@ -331,7 +337,7 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
       await repository.start(bucket, id, stamp);
       await repository.project(bucket, id, 1, 0, { lifecycleState: 'running', observedAt: stamp });
     }
-    const process = processFixture(bucket === owner ? id : `other:${id}`, running, hasSnapshot, directGeneration);
+    const process = processFixture(bucket === owner ? id : `other:${id}`, running, hasSnapshot, directGeneration, idle);
     if (!holdMerge) process.merge.release('skipped');
     processes.set(`${bucket}-${id}`, process);
     if (!retained.has(bucket)) retained.set(bucket, {});
@@ -386,6 +392,43 @@ it.each(['graceful', 'idle'] as const)(
     }
   },
 );
+
+it('REQ-SESSION-043: the next metrics tick continues an idle claim that committed after its deadline', async () => {
+  const f = rig();
+  await f.create(a, { idle: true });
+  const claimReached = gate<void>(undefined);
+  const allowCommit = gate<void>(undefined);
+  const committed = gate<boolean>(false);
+  const originalClaim = D1SessionRepository.prototype.claimIdleStop;
+  const hold = vi.spyOn(D1SessionRepository.prototype, 'claimIdleStop').mockImplementationOnce(async function (this: D1SessionRepository, ...args) {
+    claimReached.release();
+    await allowCommit.promise;
+    const won = await originalClaim.apply(this, args);
+    committed.release(won);
+    return won;
+  });
+  const session = f.session(a);
+  const pin = { ownerKey: f.owner, sessionId: a, generation: 1 };
+  try {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const first = session.collectMetrics(pin);
+    await Promise.race([claimReached.promise, first.then(() => { throw new Error('Idle claim never reached D1'); })]);
+    await vi.advanceTimersByTimeAsync(CONTAINER_POLL_BUDGET_MS);
+    await first;
+    expect(f.trace).not.toContain(`${a}:save`);
+    expect(f.trace).not.toContain(`${a}:sigterm`);
+    allowCommit.release();
+    expect(await committed.promise).toBe(true);
+    expect(await repository.getSession(f.owner, a)).toMatchObject({ lifecycleState: 'stopping', terminationGeneration: 1 });
+    vi.useRealTimers();
+    await session.collectMetrics(pin);
+    expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`, `${a}:sigterm`]);
+  } finally {
+    vi.useRealTimers();
+    allowCommit.release();
+    hold.mockRestore();
+  }
+});
 
 it.each([true, false])('REQ-SESSION-043: accepts overlapping Stop/Delete in owner order across client reload without duplicating a generation or blocking another owner (workspace sync %s)', async workspaceSyncEnabled => {
   const f = rig(true, workspaceSyncEnabled);

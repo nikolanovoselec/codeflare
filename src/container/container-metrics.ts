@@ -1144,6 +1144,45 @@ export async function collectMetrics(
     if (retry) await schedule(5);
     return;
   }
+  const idleIntent = `idle-stop-${generation}`;
+  const ownsIdle = (current: D1Session | null): current is D1Session => sameGeneration(current)
+    && current.lifecycleState === 'stopping' && current.terminationGeneration === generation
+    && current.terminationIntentId === idleIntent && !current.boundaryActivityId;
+  const readUnsignaledIdle = async () => {
+    const current = await readCurrent().catch(() => null);
+    return ownsIdle(current) && !current.terminationSignalAcceptedAt;
+  };
+  // Leave time for a bounded drain and ownership checks before the recovery
+  // alarm can take over from an abandoned invocation.
+  const armIdleRecovery = () => schedule(Math.ceil((FINAL_SYNC_BUDGET_MS + 5 * CONTAINER_POLL_BUDGET_MS) / 1000));
+  const continueIdleStop = async () => {
+    try {
+      if (await readUnsignaledIdle()) {
+        await drainAgentEventsBeforeStop(state, ctx, env, CONTAINER_POLL_BUDGET_MS);
+        if (!execution.isCurrent()) return;
+        await drainFinalSync(ctx, FINAL_SYNC_BUDGET_MS, finalSyncLogContext(), execution.isCurrent, readUnsignaledIdle);
+        if (await readUnsignaledIdle() && execution.isCurrent()) {
+          await callbacks.stop('SIGTERM');
+          await raceBudget(repository.recordTerminationSignal(ownerKey, sessionId, generation,
+            idleIntent, new Date().toISOString()), CONTAINER_POLL_BUDGET_MS);
+        }
+      }
+    } finally { await schedule(5); }
+  };
+  if (execution.idleCompetesWithHermes) {
+    // A committed claim remains actionable even if its original acknowledgement
+    // was lost, and no longer depends on a successful Host activity probe.
+    let current: D1Session | null;
+    try { current = await readCurrent(); }
+    catch { await schedule(5); return; }
+    if (ownsIdle(current)) {
+      if (!current.terminationSignalAcceptedAt) {
+        await armIdleRecovery();
+        await continueIdleStop();
+      } else { await schedule(5); }
+      return;
+    }
+  }
   // These existing keys are retry diagnostics only. D1 is re-read before
   // acting on an incident; no deadline or termination authority lives here.
   let incident: D1Session | null = null;
@@ -1358,24 +1397,24 @@ export async function collectMetrics(
       }
       if (canEnforceIdle && idleMs > sleepMs && execution.isCurrent()) {
         const candidate = await readIdleCandidate();
-        const intent = execution.idleCompetesWithHermes ? crypto.randomUUID() : undefined;
-        // The queue's acceptance CAS and this claim exclude one another before
-        // either lane can drain. An uncertain claim never grants native I/O.
-        const admitted = candidate && (!intent || await raceBudget(repository.claimIdleStop(
-          candidate, intent, new Date().toISOString(),
-        ), CONTAINER_POLL_BUDGET_MS).catch(() => false) === true);
-        if (admitted && execution.isCurrent()) {
-          const ownsIdle = intent ? async () => {
-            const current = await readCurrent().catch(() => null);
-            return sameGeneration(current) && current.lifecycleState === 'stopping'
-              && current.terminationGeneration === generation && current.terminationIntentId === intent;
-          } : mayStopForIdle;
+        if (candidate && execution.idleCompetesWithHermes) {
+          // Arm before D1: the claim can commit after this tick loses its reply.
+          await armIdleRecovery();
+          if (!execution.isCurrent()) return;
+          const claimed = await raceBudget(repository.claimIdleStop(candidate, idleIntent,
+            new Date().toISOString()), CONTAINER_POLL_BUDGET_MS).catch(() => null);
+          if (claimed === null) { await schedule(5); return; }
+          if (claimed) {
+            requiredStopInProgress = true;
+            await continueIdleStop();
+            return;
+          }
+        } else if (candidate && execution.isCurrent()) {
           logger.info('collectMetrics: idle exceeded threshold, stopping', { ...finalSyncLogContext(), reason: 'idle', idleMs, sleepMs, idleTimeoutPref, referenceTime });
           await drainAgentEventsBeforeStop(state, ctx, env, CONTAINER_POLL_BUDGET_MS);
           if (!execution.isCurrent()) return;
-          await drainFinalSync(ctx, FINAL_SYNC_BUDGET_MS, finalSyncLogContext(), execution.isCurrent, ownsIdle);
-          if (!execution.isCurrent()) return;
-          if (await ownsIdle()) {
+          await drainFinalSync(ctx, FINAL_SYNC_BUDGET_MS, finalSyncLogContext(), execution.isCurrent, mayStopForIdle);
+          if (await mayStopForIdle() && execution.isCurrent()) {
             requiredStopInProgress = true;
             await callbacks.stop('SIGTERM');
             return;

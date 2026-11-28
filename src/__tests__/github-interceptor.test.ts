@@ -77,40 +77,28 @@ async function connect(token: string, env: Env = makeEnv()): Promise<void> {
   await storeGithubConnection(env, BUCKET, { accessToken: token, source: 'oauth', login: 'octo' });
 }
 
-it('persists an App renewal when the initiating intercepted request disconnects', async () => {
+it('fails closed on interrupted App renewal and retries on a later intercepted request', async () => {
   const env = makeEnv({ GITHUB_APP_CLIENT_ID: 'app-id', GITHUB_APP_CLIENT_SECRET: 'app-secret' });
   await storeGithubConnection(env, BUCKET, { source: 'app', accessToken: 'expired', refreshToken: 'one-use',
     expiresAt: Date.now() - 1000, login: 'octo' });
-  const client = new AbortController();
-  const retained: Promise<unknown>[] = [];
-  const interceptor = new GitHubInterceptor({ props: { user: SESSION_USER, bucket: BUCKET },
-    waitUntil: (work: Promise<unknown>) => { retained.push(work); } } as unknown as ExecutionContext, env);
-  let exchangeStarted!: () => void;
-  let finishExchange!: () => void;
-  const entered = new Promise<void>(resolve => { exchangeStarted = resolve; });
-  const release = new Promise<void>(resolve => { finishExchange = resolve; });
-  let redeemed = false;
+  const upstreamAuthorization: (string | null)[] = [];
+  let interrupted = true;
   vi.mocked(globalThis.fetch).mockImplementation(async input => {
     const request = input instanceof Request ? input : new Request(input);
     if (new URL(request.url).pathname === '/login/oauth/access_token') {
-      if (redeemed) return Response.json({ error: 'bad_refresh_token' });
-      redeemed = true;
-      exchangeStarted();
-      await release;
-      if (client.signal.aborted && !retained.length) throw new DOMException('Client disconnected', 'AbortError');
+      if (interrupted) throw new DOMException('Renewal transport interrupted before redemption', 'AbortError');
       return Response.json({ access_token: 'fresh', refresh_token: 'rotated', expires_in: 3600 });
     }
+    upstreamAuthorization.push(request.headers.get('Authorization'));
     return new Response(null, { status: request.headers.get('Authorization') === 'Bearer fresh' ? 200 : 401 });
   });
+  const interceptor = makeInterceptor(env, { user: SESSION_USER, bucket: BUCKET });
   const url = 'https://api.github.com/user';
-  const initiating = interceptor.fetch(new Request(url, { signal: client.signal }));
-  await entered;
-  client.abort();
-  finishExchange();
-  await initiating;
-  await Promise.all(retained);
-  const next = await interceptor.fetch(new Request(url));
-  expect(next.status).toBe(200);
+  expect((await interceptor.fetch(new Request(url))).status).toBe(401);
+  expect(upstreamAuthorization).toEqual([]);
+  interrupted = false;
+  expect((await interceptor.fetch(new Request(url))).status).toBe(200);
+  expect(upstreamAuthorization).toEqual(['Bearer fresh']);
 });
 
 describe('REQ-OPERATOR-004: GitHub restrictions before credentials', () => {

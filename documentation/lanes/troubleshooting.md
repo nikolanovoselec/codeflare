@@ -421,7 +421,7 @@ See [Storage & Sync - Troubleshooting](storage-and-sync.md#troubleshooting).
 
 ### R2 Bucket Cleanup on User Deletion
 
-Follow the [Authentication offboarding contract](authentication.md#offboarding-handoff) for explicit user removal, ordering and retained retry authority. Setup reconfiguration never invokes this destructive workflow. Ordinary GitHub disconnect is best effort; strict offboarding is not. Provider credentials are in encrypted KV, not R2.
+Follow the [Authentication offboarding contract](authentication.md#offboarding-handoff) for explicit user removal, ordering and retained retry authority. Setup reconfiguration never invokes this destructive workflow. Ordinary GitHub disconnect is best effort; strict offboarding is not. Provider credentials are stored in KV, not R2; encryption applies only when the platform key is configured.
 
 For bucket-specific diagnosis, `cleanupUserData()` reads encrypted `r2token:{email}` through `getAndDecrypt()`; raw `KV.get('json')` fails on the `v1:...` ciphertext prefix when `ENCRYPTION_KEY` is set. Bucket emptying uses worker-level R2 credentials with S3 `ListObjectsV2` + `DeleteObjects`, then Cloudflare API deletion. Deletion gets one attempt if no objects were deleted, or up to three after deleting objects. Only `BucketNotEmpty`/“not empty” responses are retried, with 2-second then 3-second waits, not exponential/general-error retries.
 
