@@ -37,7 +37,7 @@
     "hono": "^4.13.18",
     "ip-address": "10.7.6",
     "protobufjs": "7.6.6",
-    "undici": "8.12.4",
+    "undici": "8.13.1",
     "ws": "8.23.0"
   },
   "private": true
