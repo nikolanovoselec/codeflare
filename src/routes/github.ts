@@ -27,7 +27,7 @@ import { parseJsonBody } from '../lib/request-helpers';
 import {
   getGithubProvider,
   getGithubConnectionStatus,
-  getValidGithubToken,
+  readGithubProfileGrant,
   resolveGithubToken,
   GITHUB_REFRESH_UNAVAILABLE,
   disconnectGithub,
@@ -121,15 +121,13 @@ app.get('/owned-repo-counts', reposRateLimiter, async (c) => {
   const unavailable = () => c.json({ counts: null });
   if (!githubFeatureEnabled(c.env)) return unavailable();
   const bucketName = c.get('bucketName');
-  const connection = await getGithubConnectionStatus(c.env, bucketName);
-  if ((connection.source !== 'oauth' && connection.source !== 'app') || !connection.login) return unavailable();
-  const token = await getValidGithubToken(c.env, bucketName, work => c.executionCtx.waitUntil(work));
-  if (!token) return unavailable();
+  const connection = await readGithubProfileGrant(c.env, bucketName);
+  if (!connection) return unavailable();
   const apiHost = c.env.GITHUB_API_HOST?.trim() || 'api.github.com';
   try {
     const upstream = await fetch(`https://${apiHost}/user`, {
       headers: {
-        Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'User-Agent': 'Codeflare',
+        Authorization: `Bearer ${connection.accessToken}`, Accept: 'application/vnd.github+json', 'User-Agent': 'Codeflare',
       },
       redirect: 'error', signal: AbortSignal.timeout(8_000),
     });
@@ -149,7 +147,7 @@ app.get('/owned-repo-counts', reposRateLimiter, async (c) => {
 app.get('/repos', reposRateLimiter, async (c) => {
   if (!githubFeatureEnabled(c.env)) return c.json({ error: 'GitHub integration disabled', code: 'GITHUB_DISABLED' }, 403);
 
-  const token = await resolveGithubToken(c.env, c.get('bucketName'), work => c.executionCtx.waitUntil(work));
+  const token = await resolveGithubToken(c.env, c.get('bucketName'));
   if (token === GITHUB_REFRESH_UNAVAILABLE) {
     return c.json({ error: 'GitHub token refresh temporarily unavailable.', code: 'GITHUB_REFRESH_UNAVAILABLE' }, 503);
   }

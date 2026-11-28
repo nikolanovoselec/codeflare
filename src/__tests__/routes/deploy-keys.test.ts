@@ -2,9 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Hono } from 'hono';
 import type { Env, DeployKeys } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
-import { deployKeyCiphertext, withDeployKeyOwner } from '../helpers/deploy-key-owner';
-import { readDeployKeys } from '../../lib/deploy-keys';
-import { storeGithubConnection } from '../../lib/github-token';
 import { AppError, AuthError } from '../../lib/error-types';
 
 const mockIdentity = vi.hoisted(() => ({ role: 'user' as 'user' | 'admin' }));
@@ -17,8 +14,7 @@ vi.mock('../../lib/logger', () => ({
   })),
 }));
 
-vi.mock('../../lib/access', async importOriginal => ({
-  ...await importOriginal<typeof import('../../lib/access')>(),
+vi.mock('../../lib/access', () => ({
   authenticateRequest: vi.fn(async () => ({
     user: { email: 'test@example.com', authenticated: true, role: mockIdentity.role },
     bucketName: 'test-bucket',
@@ -35,7 +31,6 @@ import { authenticateRequest } from '../../lib/access';
 // REQ-AGENT-010: Deploy Credential Storage (GitHub PAT, CF API Token)
 describe('Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)', () => {
   let mockKV: ReturnType<typeof createMockKV>;
-  const ownerEnv = () => withDeployKeyOwner({ KV: mockKV } as unknown as Env);
 
   function createTestApp(envOverrides: Partial<Env> = {}) {
     const app = new Hono<{ Bindings: Env }>();
@@ -46,7 +41,7 @@ describe('Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)', () =>
       return c.json({ error: 'Unexpected error' }, 500);
     });
     app.use('*', async (c, next) => {
-      (c.env as any) = withDeployKeyOwner({ KV: mockKV, ...envOverrides } as unknown as Env);
+      (c.env as any) = { KV: mockKV, ...envOverrides };
       return next();
     });
     app.route('/api/deploy-keys', deployKeysRoutes);
@@ -221,7 +216,7 @@ describe('Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)', () =>
         });
         expect(res.status).toBe(401);
         expect(await res.json()).toEqual({ error: 'Authentication required', code: 'AUTH_ERROR' });
-        expect(await readDeployKeys(ownerEnv(), 'test-bucket')).toBeNull();
+        expect(await mockKV.get('deploy-keys:test-bucket', 'json')).toBeNull();
       },
     );
   });
@@ -248,7 +243,7 @@ describe('Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)', () =>
       };
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual(maskedCredentials);
-      expect(await readDeployKeys(ownerEnv(), 'test-bucket')).toEqual({
+      expect(await mockKV.get('deploy-keys:test-bucket', 'json')).toEqual({
         githubToken: 'synthetic-personal-github-token',
         githubTokenSource: 'pat',
         cloudflareApiToken: 'synthetic-personal-cloudflare-token',
@@ -260,7 +255,7 @@ describe('Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)', () =>
       const deleted = await app.request('/api/deploy-keys', { method: 'DELETE' });
       expect(deleted.status).toBe(200);
       expect(await deleted.json()).toEqual({ success: true });
-      expect(await readDeployKeys(ownerEnv(), 'test-bucket')).toBeNull();
+      expect(await mockKV.get('deploy-keys:test-bucket', 'json')).toBeNull();
     },
   );
 
@@ -275,14 +270,14 @@ describe('Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)', () =>
       expect((await request(i % 2 ? 'DELETE' : 'PUT')).status).toBe(200);
     }
     // A denied clear must leave stored credentials intact and must not probe providers.
-    await storeGithubConnection(ownerEnv(), 'test-bucket', { accessToken: 'synthetic-preserved-token', source: 'pat' });
+    mockKV._set('deploy-keys:test-bucket', { githubToken: 'synthetic-preserved-token' });
     const res = await request(method);
     expect(res.status).toBe(429);
     expect(await res.json()).toMatchObject({ code: 'RATE_LIMIT_ERROR' });
     expect(Number(res.headers.get('Retry-After'))).toBeGreaterThan(0);
     expect(res.headers.get('X-RateLimit-Limit')).toBe('20');
     expect(res.headers.get('X-RateLimit-Remaining')).toBe('0');
-    expect(await readDeployKeys(ownerEnv(), 'test-bucket')).toMatchObject({ githubToken: 'synthetic-preserved-token' });
+    expect(JSON.parse(mockKV._store.get('deploy-keys:test-bucket')!)).toMatchObject({ githubToken: 'synthetic-preserved-token' });
     expect((await app.request('/api/deploy-keys')).status).toBe(200);
   });
 
@@ -370,7 +365,7 @@ describe('Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)', () =>
       expect(body.githubToken).toBe('****7890');
 
       // Verify stored in KV
-      const stored = await readDeployKeys(ownerEnv(), 'test-bucket') as DeployKeys;
+      const stored = await mockKV.get('deploy-keys:test-bucket', 'json') as DeployKeys;
       expect(stored.githubToken).toBe('github_pat_test1234567890');
     });
 
@@ -397,7 +392,7 @@ describe('Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)', () =>
       });
       expect(rejected.status).toBe(400);
       expect(await rejected.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
-      expect(await readDeployKeys(ownerEnv(), 'test-bucket')).toEqual({
+      expect(await mockKV.get('deploy-keys:test-bucket', 'json')).toEqual({
         githubToken: 'synthetic-github-valid', githubTokenSource: 'pat',
       });
     });
@@ -528,7 +523,7 @@ describe('Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)', () =>
       });
       expect(res.status).toBe(200);
 
-      const stored = await readDeployKeys(ownerEnv(), 'test-bucket') as DeployKeys;
+      const stored = await mockKV.get('deploy-keys:test-bucket', 'json') as DeployKeys;
       expect(stored.githubToken).toBe('github_pat_new_account_token');
       expect(stored.githubTokenSource).toBe('pat');
       expect(stored.githubLogin).toBeUndefined();
@@ -624,7 +619,7 @@ describe('Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)', () =>
       });
       expect(res.status).toBe(400);
       // The forged ID must not have been persisted.
-      const stored = await readDeployKeys(ownerEnv(), 'test-bucket') as DeployKeys;
+      const stored = await mockKV.get('deploy-keys:test-bucket', 'json') as DeployKeys;
       expect(stored.cloudflareAccountId).toBeUndefined();
     });
 
@@ -658,7 +653,7 @@ describe('Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)', () =>
       expect(res.status).toBe(200);
       const body = await res.json() as Record<string, unknown>;
       expect(body.cloudflareAccountId).toBe('acct-b');
-      expect(await readDeployKeys(ownerEnv(), 'test-bucket')).toEqual({
+      expect(await mockKV.get('deploy-keys:test-bucket', 'json')).toEqual({
         cloudflareApiToken: 'cf-multi', cloudflareAccountId: 'acct-b',
       });
     });
@@ -678,7 +673,7 @@ describe('Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)', () =>
 
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ cloudflareAccountId: null });
-      expect(await readDeployKeys(ownerEnv(), 'test-bucket')).toBeNull();
+      expect(await mockKV.get('deploy-keys:test-bucket', 'json')).toBeNull();
     });
 
     it('rejects unknown fields', async () => {
@@ -707,7 +702,7 @@ describe('Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)', () =>
       expect(res.status).toBe(200);
       const body = await res.json() as Record<string, unknown>;
       expect(body.success).toBe(true);
-      expect(await readDeployKeys(ownerEnv(), 'test-bucket')).toBeNull();
+      expect(await mockKV.get('deploy-keys:test-bucket', 'json')).toBeNull();
     });
   });
 
@@ -730,7 +725,7 @@ describe('Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)', () =>
         return c.json({ error: 'Unexpected error' }, 500);
       });
       app.use('*', async (c, next) => {
-        (c.env as any) = withDeployKeyOwner({ KV: mockKV, ENCRYPTION_KEY: stableBase64Key } as unknown as Env);
+        (c.env as any) = { KV: mockKV, ENCRYPTION_KEY: stableBase64Key };
         return next();
       });
       app.route('/api/deploy-keys', deployKeysRoutes);
@@ -748,7 +743,7 @@ describe('Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)', () =>
         body: JSON.stringify({ githubToken: 'github_pat_encrypted_test' }),
       });
 
-      const rawStored = deployKeyCiphertext(mockKV, 'test-bucket');
+      const rawStored = mockKV._store.get('deploy-keys:test-bucket');
       expect(rawStored).toBeDefined();
       expect(rawStored!.startsWith('v1:')).toBe(true);
       // Ciphertext must not be parseable plaintext JSON.

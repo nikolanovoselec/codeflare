@@ -45,6 +45,8 @@ Revisions are immutable/hash-addressed; referenced revisions cannot be disabled 
 
 After the foreground Pi drains and the final save is confirmed, the Enterprise worker uses the session’s existing model access. It selects the saved native provider/model when Administration permits it; otherwise it uses the configured eligible Gateway default. For Gateway requests, exact-default mode can only narrow the route: a changed or revoked default refuses inference rather than substituting another model. Native authentication failure is not permission to fall back to Gateway. [REQ-ENTERPRISE-100](../../sdd/spec/models-and-routing.md#req-enterprise-100-exact-inference-route-for-hermes-shutdown-merge) <!-- @impl: host/src/hermes-shutdown-inference.ts::runHermesShutdownInference --> <!-- @impl: src/llm-interceptor.ts::LlmInterceptor -->
 
+The Host can verify an unchanged snapshot without a model. See [teardown orchestration](container.md#teardown-orchestration) for what this means for Delete. <!-- @impl: host/src/hermes-shutdown-merge.ts::runHermesShutdownMerge -->
+
 The headless SDK call receives only the merge prompt and data, with no workspace tools or foreground transcript. The shutdown worker sets no new cache policy. Interactive cache hits do not prove cache reuse during shutdown. [REQ-ENTERPRISE-100 AC4](../../sdd/spec/models-and-routing.md#req-enterprise-100-exact-inference-route-for-hermes-shutdown-merge) <!-- @impl: host/src/hermes-shutdown-inference.ts::runHermesShutdownInference -->
 
 #### Shutdown inference route acceptance

@@ -2,19 +2,17 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Hono } from 'hono';
 import type { Env, DeployKeys } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
-import { withDeployKeyOwner } from '../helpers/deploy-key-owner';
-import { readDeployKeys } from '../../lib/deploy-keys';
 import { createMockSessionD1 } from '../helpers/mock-session-d1';
 import { AppError, AuthError } from '../../lib/error-types';
 import { authenticateRequest } from '../../lib/access';
+import { getValidGithubToken } from '../../lib/github-token';
 
 vi.mock('../../lib/logger', () => ({
   createLogger: () => ({ info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() }),
 }));
 
 // authMiddleware authenticates via this; pin a stable identity + bucket.
-vi.mock('../../lib/access', async importOriginal => ({
-  ...await importOriginal<typeof import('../../lib/access')>(),
+vi.mock('../../lib/access', () => ({
   authenticateRequest: vi.fn(async () => ({
     user: { email: 'u@example.com', authenticated: true, role: 'user' },
     bucketName: 'test-bucket',
@@ -34,7 +32,6 @@ vi.mock('@cloudflare/containers', () => ({
 
 import githubRoutes from '../../routes/github';
 import githubAuthRoutes from '../../routes/github-auth';
-import { getValidGithubToken } from '../../lib/github-token';
 import { buildCloneTargets } from '../../lib/clone-targets';
 import { configureContainerDO } from '../../routes/container/lifecycle-init';
 import type { Logger } from '../../lib/logger';
@@ -49,7 +46,6 @@ const ENT: Partial<Env> = {
 };
 
 let mockKV: ReturnType<typeof createMockKV>;
-const readOwnerGrant = () => readDeployKeys(withDeployKeyOwner({ KV: mockKV } as unknown as Env), 'test-bucket');
 let mockD1: D1Database;
 
 function createTestApp(env: Partial<Env>) {
@@ -59,7 +55,7 @@ function createTestApp(env: Partial<Env>) {
     return c.json({ error: 'Unexpected error' }, 500);
   });
   app.use('*', async (c, next) => {
-    (c.env as unknown) = withDeployKeyOwner({ KV: mockKV, USAGE_DB: mockD1, ...env } as unknown as Env);
+    (c.env as unknown) = { KV: mockKV, USAGE_DB: mockD1, ...env };
     return next();
   });
   app.route('/api/github', githubRoutes);
@@ -138,48 +134,27 @@ describe('REQ-GITHUB-002 / REQ-GITHUB-007: GET /api/github/status', () => {
 });
 
 describe('GitHub Details owned repository counts', () => {
-  it.each(['counts', 'token helper'] as const)('serves a waiting App repository request after a refresh starts in %s', async initiator => {
+  it('REQ-GITHUB-324: counts do not renew an expiring App grant; repositories can renew it', async () => {
     mockKV._set(KEY, { githubToken: 'expired', githubTokenSource: 'app', githubLogin: 'octocat',
       githubRefreshToken: 'one-use', githubTokenExpiresAt: Date.now() - 1000 } satisfies DeployKeys);
-    const client = new AbortController();
-    const retained: Promise<unknown>[] = [];
-    const context = { waitUntil: (work: Promise<unknown>) => { retained.push(work); } } as ExecutionContext;
-    let startExchange!: () => void;
-    let finishExchange!: () => void;
-    const exchangeStarted = new Promise<void>(resolve => { startExchange = resolve; });
-    const exchangeFinished = new Promise<void>(resolve => { finishExchange = resolve; });
-    let redeemed = false;
+    const upstream: string[] = [];
     mockFetch.mockImplementation(async (input: string, init: RequestInit) => {
       const path = new URL(input).pathname;
-      if (path === '/login/oauth/access_token') {
-        if (redeemed) return ok({ error: 'bad_refresh_token' });
-        redeemed = true;
-        startExchange();
-        await exchangeFinished;
-        if (client.signal.aborted && retained.length === 0) throw new Error('Initiating request was cancelled');
-        return ok({ access_token: 'fresh', refresh_token: 'next', expires_in: 3600 });
-      }
+      upstream.push(path);
+      if (path === '/login/oauth/access_token') return ok({ access_token: 'fresh', refresh_token: 'next', expires_in: 3600 });
       if (new Headers(init.headers).get('Authorization') !== 'Bearer fresh') return new Response(null, { status: 401 });
       if (path === '/user') return ok({ login: 'octocat', public_repos: 3, owned_private_repos: 2 });
       if (path === '/user/repos') return ok([]);
       throw new Error(`Unexpected fixture path ${path}`);
     });
     const app = createTestApp(ENT);
-    const counts = initiator === 'counts'
-      ? app.request('/api/github/owned-repo-counts', { signal: client.signal }, undefined, context)
-      : getValidGithubToken(withDeployKeyOwner({ KV: mockKV, ...ENT } as Env), 'test-bucket', work => context.waitUntil(work));
-    await exchangeStarted;
-    const repositories = app.request('/api/github/repos', undefined, undefined, context);
-    await new Promise(resolve => setTimeout(resolve, 0));
-    if (initiator === 'counts') client.abort();
-    finishExchange();
-    const [countResponse, repos] = await Promise.all([counts, repositories]);
-    await Promise.all(retained);
-    if (countResponse instanceof Response) {
-      expect(await countResponse.json()).toEqual({ login: 'octocat', counts: { public: 3, private: 2, total: 5 } });
-    } else expect(countResponse).toBe('fresh');
-    expect(repos.status).toBe(200);
-    expect(await repos.json()).toMatchObject({ repos: [] });
+    expect(await (await app.request('/api/github/owned-repo-counts')).json()).toEqual({ counts: null });
+    expect(upstream).toEqual([]);
+    expect((await app.request('/api/github/repos')).status).toBe(200);
+    expect(await (await app.request('/api/github/owned-repo-counts')).json()).toEqual({
+      login: 'octocat', counts: { public: 3, private: 2, total: 5 },
+    });
+    expect(upstream).toEqual(['/login/oauth/access_token', '/user/repos', '/user']);
   });
   it('returns only account-owned totals from the authenticated profile', async () => {
     mockKV._set(KEY, { githubToken: 'test-token', githubTokenSource: 'oauth', githubLogin: 'octocat' } satisfies DeployKeys);
@@ -227,8 +202,6 @@ describe('REQ-GITHUB-002 / REQ-GITHUB-007: GET /api/github/repos', () => {
       mockKV._set(KEY, { githubToken: 'expired', githubTokenSource: 'app', githubLogin: 'octocat',
         githubRefreshToken: 'old-refresh', githubTokenExpiresAt: Date.now() - 1000 } satisfies DeployKeys);
       const app = createTestApp(ENT);
-      const retained: Promise<unknown>[] = [];
-      const context = { waitUntil: (work: Promise<unknown>) => { retained.push(work); } } as ExecutionContext;
       let refreshAvailable = false;
       const forwardedAuthorization: (string | null)[] = [];
       mockFetch.mockImplementation(async (input: string, init: RequestInit) => {
@@ -244,25 +217,22 @@ describe('REQ-GITHUB-002 / REQ-GITHUB-007: GET /api/github/repos', () => {
         forwardedAuthorization.push(authorization);
         return authorization === 'Bearer fresh' ? ok([]) : new Response(null, { status: 401 });
       });
-      const unavailable = await app.request('/api/github/repos', undefined, undefined, context);
+      const unavailable = await app.request('/api/github/repos');
       expect(unavailable.status).toBe(503);
       expect(await unavailable.json()).toMatchObject({ code: 'GITHUB_REFRESH_UNAVAILABLE' });
       expect(forwardedAuthorization).toEqual([]);
 
       refreshAvailable = true;
-      const recovered = await app.request('/api/github/repos', undefined, undefined, context);
+      const recovered = await app.request('/api/github/repos');
       expect(recovered.status).toBe(200);
       expect(await recovered.json()).toMatchObject({ repos: [], page: 1, hasMore: false });
       expect(forwardedAuthorization).toEqual(['Bearer fresh']);
-      await Promise.all(retained);
     },
   );
 
   it('REQ-GITHUB-002: rejects malformed App refresh JSON without forwarding a repository request', async () => {
     mockKV._set(KEY, { githubToken: 'expired', githubTokenSource: 'app', githubLogin: 'octocat',
       githubRefreshToken: 'old-refresh', githubTokenExpiresAt: Date.now() - 1000 } satisfies DeployKeys);
-    const retained: Promise<unknown>[] = [];
-    const context = { waitUntil: (work: Promise<unknown>) => { retained.push(work); } } as ExecutionContext;
     const outboundPaths: string[] = [];
     mockFetch.mockImplementation(async (input: string) => {
       const path = new URL(input).pathname;
@@ -272,8 +242,7 @@ describe('REQ-GITHUB-002 / REQ-GITHUB-007: GET /api/github/repos', () => {
       }
       return ok([]);
     });
-    const response = await createTestApp(ENT).request('/api/github/repos', undefined, undefined, context);
-    await Promise.all(retained);
+    const response = await createTestApp(ENT).request('/api/github/repos');
     expect(response.status).toBe(409);
     expect(await response.json()).toMatchObject({ code: 'NOT_CONNECTED' });
     expect(outboundPaths).toEqual(['/login/oauth/access_token']);
@@ -286,13 +255,10 @@ describe('REQ-GITHUB-002 / REQ-GITHUB-007: GET /api/github/repos', () => {
     const app = createTestApp({ ENTERPRISE_MODE: 'active', OAUTH_CLIENT_ID: 'oauth-id', OAUTH_CLIENT_SECRET: 'oauth-secret' });
     const status = await app.request('/api/github/status');
     expect(await status.json()).toMatchObject({ connected: true, source: 'app' });
-    const retained: Promise<unknown>[] = [];
-    const context = { waitUntil: (work: Promise<unknown>) => { retained.push(work); } } as ExecutionContext;
-    const repos = await app.request('/api/github/repos', undefined, undefined, context);
-    await Promise.all(retained);
+    const repos = await app.request('/api/github/repos');
     expect(repos.status).toBe(409);
     expect(await repos.json()).toMatchObject({ code: 'NOT_CONNECTED' });
-    expect(await readOwnerGrant()).toEqual(saved);
+    expect(mockKV._store.get(KEY)).toBe(JSON.stringify(saved));
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
@@ -399,7 +365,7 @@ describe('POST /api/github/disconnect', () => {
     const res = await createTestApp(ENT).request('/api/github/disconnect', { method: 'POST' });
     expect(res.status).toBe(200);
     expect((await res.json() as Record<string, unknown>).success).toBe(true);
-    expect(await readOwnerGrant()).toBeNull();
+    expect(await mockKV.get(KEY)).toBeNull();
   });
 });
 
@@ -712,12 +678,12 @@ it.each([['default', {}], ['saas', { SAAS_MODE: 'active' }], ['enterprise', ENT]
     expect(connected.status).toBe(302);
     expect(connected.headers.get('location')).toContain('github=connected');
     expect(connected.headers.get('set-cookie')).toBeNull();
-    expect(await getValidGithubToken(withDeployKeyOwner({ KV: mockKV, ...env } as Env), 'test-bucket')).toBe('gho_added_grant');
-    expect(await readOwnerGrant()).toMatchObject({ cloudflareApiToken: 'prior-cloudflare-grant', cloudflareAccountId: 'account',
+    expect(await getValidGithubToken({ KV: mockKV, ...env } as Env, 'test-bucket')).toBe('gho_added_grant');
+    expect(await mockKV.get(KEY, 'json')).toMatchObject({ cloudflareApiToken: 'prior-cloudflare-grant', cloudflareAccountId: 'account',
       githubToken: 'gho_added_grant', githubLogin: 'octo' });
     mockFetch.mockResolvedValueOnce(ok({}));
     const disconnected = await app.request('/api/github/disconnect', { method: 'POST' });
     expect(disconnected.status).toBe(200);
     expect(await disconnected.json()).toEqual({ success: true });
-    expect(await readOwnerGrant()).toEqual({ cloudflareApiToken: 'prior-cloudflare-grant', cloudflareAccountId: 'account' });
+    expect(await mockKV.get(KEY, 'json')).toEqual({ cloudflareApiToken: 'prior-cloudflare-grant', cloudflareAccountId: 'account' });
   });

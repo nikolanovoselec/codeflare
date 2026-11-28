@@ -8,8 +8,8 @@
  * NON-SECRET placeholder GH_TOKEN, so git / `gh` / Copilot's GitHub features run
  * in authed mode but never possess the real credential. Each intercepted request
  * is routed HERE at the platform level: the interceptor strips the placeholder
- * auth, resolves the per-user GitHub token from the bucket owner's deploy-keys
- * record, and stamps the real credential at the github.com boundary in the format
+ * auth, looks up + decrypts the per-user GitHub token from the existing deploy-keys
+ * KV entry, and stamps the real credential at the github.com boundary in the format
  * the target host expects (git Basic vs API Bearer).
  *
  * Security property (no cross-user spoofing): user-scoping comes SOLELY from
@@ -217,7 +217,7 @@ export class GitHubInterceptor extends WorkerEntrypoint<Env> {
 
     let token: string | null;
     try {
-      token = await getValidGithubToken(this.env, bucket, work => this.ctx.waitUntil(work));
+      token = await getValidGithubToken(this.env, bucket);
     } catch (err) {
       console.error('GitHubInterceptor: token lookup failed', {
         error: err instanceof Error ? err.message : String(err),

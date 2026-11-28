@@ -113,7 +113,6 @@ describe('Container Lifecycle Routes', () => {
   function createLifecycleApp(bucketName = 'test-bucket', extraEnv: Partial<Env> = {}) {
     container().stopSession.mockImplementation(createMockSessionStop(mockKV, () => container().destroy()));
     const app = createTestApp({
-      deployKeyOwner: true,
       routes: [{ path: '/container', handler: lifecycleRoutes }],
       mockKV,
       bucketName,
@@ -859,7 +858,6 @@ describe('Container Lifecycle Routes', () => {
 
     it('REQ-SESSION-007 AC4: enterprise uses the non-SaaS stored-user role limit', async () => {
       const app = createTestApp({
-        deployKeyOwner: true,
         routes: [{ path: '/container', handler: lifecycleRoutes }],
         mockKV,
         bucketName: 'test-bucket',
@@ -1004,7 +1002,6 @@ describe('Container Lifecycle Routes', () => {
 
     it('REQ-SESSION-007 AC4: enterprise stored admin gets the role-based admin limit', async () => {
       const app = createTestApp({
-        deployKeyOwner: true,
         routes: [{ path: '/container', handler: lifecycleRoutes }],
         mockKV,
         bucketName: 'test-bucket',
@@ -1056,7 +1053,6 @@ describe('Container Lifecycle Routes', () => {
 
     it('REQ-SESSION-007 AC7: respects MAX_SESSIONS_USER env var override', async () => {
       const app = createTestApp({
-        deployKeyOwner: true,
         routes: [{ path: '/container', handler: lifecycleRoutes }],
         mockKV,
         bucketName: 'test-bucket',
@@ -1095,7 +1091,6 @@ describe('Container Lifecycle Routes', () => {
 
     it('REQ-SESSION-007 AC7: respects MAX_SESSIONS_ADMIN env var override', async () => {
       const app = createTestApp({
-        deployKeyOwner: true,
         routes: [{ path: '/container', handler: lifecycleRoutes }],
         mockKV,
         bucketName: 'test-bucket',
@@ -1126,7 +1121,6 @@ describe('Container Lifecycle Routes', () => {
 
     it('falls back to default when env var is invalid', async () => {
       const app = createTestApp({
-        deployKeyOwner: true,
         routes: [{ path: '/container', handler: lifecycleRoutes }],
         mockKV,
         bucketName: 'test-bucket',
@@ -1166,7 +1160,6 @@ describe('Container Lifecycle Routes', () => {
 
     it('bypasses session limit when STRESS_TEST_MODE is active', async () => {
       const app = createTestApp({
-        deployKeyOwner: true,
         routes: [{ path: '/container', handler: lifecycleRoutes }],
         mockKV,
         bucketName: 'test-bucket',

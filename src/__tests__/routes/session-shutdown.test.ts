@@ -34,6 +34,7 @@ vi.mock('@cloudflare/containers', () => ({
 }));
 
 import { HERMES_MERGE_BUDGET_MS } from '../../container/hermes-shutdown';
+import { acceptShutdown } from '../../container/session-shutdown-queue';
 import { container as SessionContainer } from '../../container/index';
 import lifecycle from '../../routes/session/lifecycle';
 import crud from '../../routes/session/crud';
@@ -363,6 +364,28 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
 const a = 'sessionaaa1';
 const b = 'sessionbbb1';
 const c = 'sessionccc1';
+
+it.each(['graceful', 'idle'] as const)(
+  'REQ-SESSION-043: only the first %s shutdown claim can own the same running generation', async first => {
+    const f = rig();
+    await f.create(a);
+    const observed = await repository.getSession(f.owner, a);
+    if (!observed) throw new Error('Expected a running fixture session');
+    const graceful = () => acceptShutdown(repository, { bucket: f.owner, sessionId: a, generation: 1, delete: true });
+    const idle = () => repository.claimIdleStop(observed, 'idle-test-intent', stamp);
+    if (first === 'graceful') {
+      expect(await graceful()).toMatchObject({ accepted: true });
+      expect(await idle()).toBe(false);
+      expect(await repository.getSession(f.owner, a)).toMatchObject({ lifecycleState: 'running',
+        shutdown: { phase: 'queued', delete: true } });
+    } else {
+      expect(await idle()).toBe(true);
+      expect(await graceful()).toEqual({ accepted: false });
+      expect(await repository.getSession(f.owner, a)).toMatchObject({ lifecycleState: 'stopping',
+        terminationIntentId: 'idle-test-intent', terminationGeneration: 1 });
+    }
+  },
+);
 
 it.each([true, false])('REQ-SESSION-043: accepts overlapping Stop/Delete in owner order across client reload without duplicating a generation or blocking another owner (workspace sync %s)', async workspaceSyncEnabled => {
   const f = rig(true, workspaceSyncEnabled);

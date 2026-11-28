@@ -1808,7 +1808,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 1. Tokens are validated against the provider's own API before being stored, so an invalid or expired token is rejected up front rather than discovered at use time. <!-- @impl: src/routes/deploy-keys.ts::app --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)) -->
 2. Read responses return masked tokens; the full value is never returned to the client. <!-- @impl: src/routes/deploy-keys.ts::app --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)) -->
 3. Users can clear all stored deploy credentials in a single action. <!-- @test: src/__tests__/routes/deploy-keys.test.ts (Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)) --> <!-- @manual -->
-4. Deploy credentials are persisted in durable storage scoped to the user's bucket and are encrypted at rest when platform-level credential encryption is configured. <!-- @impl: src/lib/deploy-key-state.ts::DeployKeyState --> <!-- @test: src/__tests__/lib/github-token.test.ts (encrypts the token at rest when ENCRYPTION_KEY is set, and round-trips on read) -->
+4. Deploy credentials are persisted in durable storage scoped to the user's bucket and are encrypted at rest when platform-level credential encryption is configured. <!-- @impl: src/lib/kv-crypto.ts::encryptAndStore --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)) -->
 5. Non-Enterprise direct credential management discovers Cloudflare accounts from the stored token without manual ID entry, automatically selecting a sole account and returning choices when multiple accounts are accessible. <!-- @impl: src/routes/deploy-keys.ts::app --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (stores Cloudflare token and auto-selects single account) --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (returns account list when multiple Cloudflare accounts) -->
 6. Non-Enterprise direct credential management persists an explicit Cloudflare account choice only after validating it against that token. <!-- @impl: src/routes/deploy-keys.ts::app --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (sets cloudflareAccountId after validating it against the stored token) --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (rejects a cloudflareAccountId not accessible with the stored token) -->
 
@@ -1821,7 +1821,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Dependencies:** [REQ-SEC-004](security.md#req-sec-004-credential-encryption-at-rest-cryptographic-contract)
 
-**Verification:** Automated: [deploy-keys.test.ts](../../src/__tests__/routes/deploy-keys.test.ts), [Deploy credential encryption](../../src/__tests__/lib/github-token.test.ts); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
+**Verification:** Automated: [deploy-keys.test.ts](../../src/__tests__/routes/deploy-keys.test.ts); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
 
 **Status:** Implemented
 
@@ -4083,13 +4083,13 @@ None.
 
 ### REQ-AGENT-235: Cloudflare OAuth storage and exchange compatibility
 
-**Intent:** Cloudflare OAuth preserves shared owner-scoped deploy credentials and its exchange authentication and failure diagnostics.
+**Intent:** Cloudflare OAuth retains existing encrypted deploy-key storage and its token-exchange authentication and failure diagnostics.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Store OAuth credentials in the existing deploy-key fields without overwriting the owner’s GitHub connection. <!-- @impl: src/lib/cloudflare-token.ts::storeCloudflareConnection --> <!-- @impl: src/lib/deploy-key-state.ts::DeployKeyState --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (connects, refreshes, selects and revokes only the owner grant without touching Browser Run or legacy credentials) --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (preserves the GitHub deploy fields when storing a cloudflare connection) -->
+1. Encrypted OAuth credentials reuse the bucket deploy-key fields without a new key. <!-- @impl: src/lib/cloudflare-token.ts::storeCloudflareConnection --> <!-- @impl: src/lib/cloudflare-token.ts::writeDeployKeys --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (connects, refreshes, selects and revokes only the owner grant without touching Browser Run or legacy credentials) --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (preserves the GitHub deploy fields when storing a cloudflare connection) -->
 2. Exchanges use `client_secret_post`. <!-- @impl: src/lib/cloudflare-token.ts::postToken --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (CloudflareOAuthProvider) -->
 3. Exchanges surface Cloudflare `error_description` on failure. <!-- @impl: src/lib/cloudflare-token.ts::postToken --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (CloudflareOAuthProvider) -->
 

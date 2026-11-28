@@ -1,8 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Env, DeployKeys } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
-import { deployKeyCiphertext, withDeployKeyOwner } from '../helpers/deploy-key-owner';
-import { readDeployKeys } from '../../lib/deploy-keys';
 import {
   storeCloudflareConnection,
   clearCloudflareConnection,
@@ -15,7 +13,7 @@ import {
   setCloudflareAccount,
   disconnectCloudflare,
 } from '../../lib/cloudflare-token';
-import { encryptAndStore, getOrImportKey } from '../../lib/kv-crypto';
+import { encryptAndStore, getAndDecrypt, getOrImportKey } from '../../lib/kv-crypto';
 import { SETUP_KEYS } from '../../lib/kv-keys';
 import { CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER } from '../../lib/constants';
 
@@ -32,7 +30,7 @@ const KEY = `deploy-keys:${BUCKET}`;
 let mockKV: ReturnType<typeof createMockKV>;
 
 function env(over: Partial<Env> = {}): Env {
-  return withDeployKeyOwner({ KV: mockKV, ...over } as Env);
+  return { KV: mockKV, ...over } as Env;
 }
 function ok(json: unknown) {
   return { ok: true, status: 200, json: async () => json };
@@ -80,7 +78,7 @@ describe('cloudflare-token storage & status', () => {
 
     await storeCloudflareConnection(env(), BUCKET, { accessToken: 'cf_b', source: 'oauth' });
 
-    const raw = (await readDeployKeys(env(), BUCKET)) as DeployKeys;
+    const raw = (await mockKV.get(KEY, 'json')) as DeployKeys;
     expect(raw.cloudflareApiToken).toBe('cf_b');
     expect(raw.cloudflareTokenSource).toBe('oauth');
     expect(raw.githubToken).toBe('gho');
@@ -98,7 +96,7 @@ describe('cloudflare-token storage & status', () => {
 
     await clearCloudflareConnection(env(), BUCKET);
 
-    const raw = (await readDeployKeys(env(), BUCKET)) as DeployKeys;
+    const raw = (await mockKV.get(KEY, 'json')) as DeployKeys;
     expect(raw.cloudflareApiToken).toBeUndefined();
     expect(raw.cloudflareTokenSource).toBeUndefined();
     expect(raw.cloudflareRefreshToken).toBeUndefined();
@@ -109,7 +107,7 @@ describe('cloudflare-token storage & status', () => {
   it('clearing deletes the entry entirely when no github fields remain', async () => {
     mockKV._set(KEY, { cloudflareApiToken: 'cf', cloudflareTokenSource: 'oauth' } satisfies DeployKeys);
     await clearCloudflareConnection(env(), BUCKET);
-    expect(await readDeployKeys(env(), BUCKET)).toBeNull();
+    expect(await mockKV.get(KEY)).toBeNull();
   });
 });
 
@@ -164,7 +162,7 @@ describe('getValidCloudflareToken', () => {
     expect(body.get('refresh_token')).toBe('cfr_old');
     expect(body.get('client_secret')).toBe('cf-sec');
 
-    const raw = (await readDeployKeys(env(), BUCKET)) as DeployKeys;
+    const raw = (await mockKV.get(KEY, 'json')) as DeployKeys;
     expect(raw.cloudflareApiToken).toBe('cf_new');
     expect(raw.cloudflareRefreshToken).toBe('cfr_new');
     expect(raw.cloudflareTokenExpiresAt).toBe(now + 3_600 * 1000);
@@ -396,7 +394,7 @@ describe('connectCloudflare', () => {
     const res = await connectCloudflare(env(), BUCKET, 'code', 'https://app/cb');
 
     expect(res.accountId).toBe('only-acct');
-    const raw = (await readDeployKeys(env(), BUCKET)) as DeployKeys;
+    const raw = (await mockKV.get(KEY, 'json')) as DeployKeys;
     expect(raw.cloudflareApiToken).toBe('cf_t');
     expect(raw.cloudflareRefreshToken).toBe('cf_r');
     expect(raw.cloudflareTokenExpiresAt).toBe(now + 3_600 * 1000);
@@ -414,7 +412,7 @@ describe('connectCloudflare', () => {
 
     expect(res.accountId).toBeUndefined();
     expect(res.accounts).toHaveLength(2);
-    const raw = (await readDeployKeys(env(), BUCKET)) as DeployKeys;
+    const raw = (await mockKV.get(KEY, 'json')) as DeployKeys;
     expect(raw.cloudflareApiToken).toBe('cf_t');
     expect(raw.cloudflareAccountId ?? null).toBeNull();
   });
@@ -430,7 +428,7 @@ describe('setCloudflareAccount', () => {
     mockFetch.mockResolvedValue(ok({ success: true, result: [{ id: 'a', name: 'A' }] }));
 
     expect(await setCloudflareAccount(env(), BUCKET, 'a')).toBe(true);
-    expect(((await readDeployKeys(env(), BUCKET)) as DeployKeys).cloudflareAccountId).toBe('a');
+    expect(((await mockKV.get(KEY, 'json')) as DeployKeys).cloudflareAccountId).toBe('a');
 
     expect(await setCloudflareAccount(env(), BUCKET, 'nope')).toBe(false);
   });
@@ -453,7 +451,7 @@ describe('setCloudflareAccount', () => {
 
     // accounts fetched with the refreshed token, not the stale one (the bug this fixes)
     expect((mockFetch.mock.calls[1][1] as RequestInit).headers).toMatchObject({ Authorization: 'Bearer cf_new' });
-    const raw = (await readDeployKeys(env(), BUCKET)) as DeployKeys;
+    const raw = (await mockKV.get(KEY, 'json')) as DeployKeys;
     expect(raw.cloudflareAccountId).toBe('a');
     expect(raw.cloudflareApiToken).toBe('cf_new'); // rotated token not clobbered by the account write
   });
@@ -469,7 +467,7 @@ describe('disconnectCloudflare', () => {
 
     const [url] = mockFetch.mock.calls[0];
     expect(String(url)).toBe('https://dash.cloudflare.com/oauth2/revoke');
-    expect(await readDeployKeys(env(), BUCKET)).toBeNull();
+    expect(await mockKV.get(KEY)).toBeNull();
   });
 
   it('revokes the refresh token (whole grant family) when one is stored', async () => {
@@ -485,7 +483,7 @@ describe('disconnectCloudflare', () => {
 
     const body = form((mockFetch.mock.calls[0][1] as RequestInit).body);
     expect(body.get('token')).toBe('cfr_a'); // the refresh token, not the access token
-    expect(await readDeployKeys(env(), BUCKET)).toBeNull();
+    expect(await mockKV.get(KEY)).toBeNull();
   });
 });
 
@@ -511,7 +509,7 @@ describe('Enterprise encrypted Cloudflare owner grants', () => {
     expect(exchange.get('client_secret')).toBe('enterprise-client-secret');
     expect(exchange.get('grant_type')).toBe('authorization_code');
     expect(exchange.get('code')).toBe('owner-code');
-    const ciphertext = deployKeyCiphertext(mockKV, BUCKET)!;
+    const ciphertext = await mockKV.get(KEY) as string;
     expect(ciphertext.startsWith('v1:')).toBe(true);
     expect(ciphertext).not.toContain('owner-access');
     expect(ciphertext).not.toContain('owner-refresh');
@@ -525,7 +523,7 @@ describe('Enterprise encrypted Cloudflare owner grants', () => {
     mockFetch.mockResolvedValue(ok({ success: true, result: [{ id: 'owner-account', name: 'Owner' }] }));
     expect(await setCloudflareAccount(enterprise, BUCKET, 'foreign-account')).toBe(false);
     expect(await setCloudflareAccount(enterprise, BUCKET, 'owner-account')).toBe(true);
-    expect(await readDeployKeys(enterprise, BUCKET)).toMatchObject({
+    expect(await getAndDecrypt<DeployKeys>(enterprise.KV, KEY, key)).toMatchObject({
       cloudflareApiToken: 'rotated-access', cloudflareRefreshToken: 'rotated-refresh',
       cloudflareAccountId: 'owner-account', githubToken: 'retained-github',
     });
@@ -533,7 +531,7 @@ describe('Enterprise encrypted Cloudflare owner grants', () => {
     await disconnectCloudflare(enterprise, BUCKET);
     const revoke = mockFetch.mock.calls.find(([url]) => String(url).endsWith('/oauth2/revoke'))!;
     expect(form((revoke[1] as RequestInit).body).get('token')).toBe('rotated-refresh');
-    expect(await readDeployKeys(enterprise, BUCKET)).toEqual({ githubToken: 'retained-github' });
+    expect(await getAndDecrypt<DeployKeys>(enterprise.KV, KEY, key)).toEqual({ githubToken: 'retained-github' });
     expect(await getCloudflareConnectionStatus(enterprise, BUCKET)).toEqual({ connected: false });
     expect(await mockKV.get('deploy-keys:foreign')).toBe(foreign);
     expect(await mockKV.get(SETUP_KEYS.BROWSER_RENDER_TOKEN)).toBe(browser);
@@ -545,13 +543,13 @@ describe('Enterprise encrypted Cloudflare owner grants', () => {
     const enterprise = env({ ENTERPRISE_MODE: 'active' });
     mockKV._set(KEY, { cloudflareApiToken: 'expired-owner', cloudflareTokenSource: 'oauth',
       cloudflareRefreshToken: 'owner-refresh', cloudflareTokenExpiresAt: Date.now() - 1000 });
-    const before = await readDeployKeys(env(), BUCKET);
+    const before = await mockKV.get(KEY);
     mockFetch.mockResolvedValueOnce({ ok: false, status: 401, json: async () => ({ error: 'invalid_grant' }) });
     expect(await getValidCloudflareToken(enterprise, BUCKET)).toBeNull();
-    expect(await readDeployKeys(env(), BUCKET)).toEqual(before);
+    expect(await mockKV.get(KEY)).toBe(before);
     mockFetch.mockResolvedValueOnce({ ok: false, status: 503 });
     await expect(disconnectCloudflare(enterprise, BUCKET)).rejects.toThrow();
-    expect(await readDeployKeys(env(), BUCKET)).toEqual(before);
+    expect(await mockKV.get(KEY)).toBe(before);
     const [url, options] = mockFetch.mock.calls.at(-1)!;
     expect(String(url)).toBe('https://dash.cloudflare.com/oauth2/revoke');
     expect(form((options as RequestInit).body).get('token')).toBe('owner-refresh');

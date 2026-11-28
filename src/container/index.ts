@@ -28,12 +28,11 @@
  */
 import { parseStoredSyncPolicyMode } from '../lib/sync-policy';
 import { McpPortalState, decryptMcpRecord, mcpRecordContext, type McpFence, type McpPendingInput, type McpCallbackBinding } from '../lib/mcp-portal-state';
-import { DeployKeyState, type DeployKeyFence, type DeployKeyScope } from '../lib/deploy-key-state';
 import { runOwnedUserCleanup, type CleanupResult } from '../lib/user-cleanup';
 import { Container } from '@cloudflare/containers';
 import { captureRawValue } from '../../host/src/operator-raw-logging';
 import { DispatcherSdkStorageError, handleDispatcherSdkCredentials, type DispatcherSdkCredentialResult, type SdkStorageScope, type SdkCredentialAuthority } from '../operators/dispatcher-sdk-storage';
-import { PiSurfaceSchema, type DeployKeys, type Env, type ManagedResourcePolicy, type PiSurface, type SessionWorkspace, type TabConfig, type TerminalMode, type UserPreferences } from '../types';
+import { PiSurfaceSchema, type Env, type ManagedResourcePolicy, type PiSurface, type SessionWorkspace, type TabConfig, type TerminalMode, type UserPreferences } from '../types';
 import { isPiWebEligible, isPiWebPath, matchesPiWebGeneration, PI_WEB_GENERATION_HEADER, piWebAppPrefix, piWebSessionId } from './pi-web';
 import type { PiDefaultSource } from '../lib/personal-pi-policy';
 import { getContainerId, type OperatorLoggingContext, type PiWebReadAuthority } from '../lib/container-helpers';
@@ -1120,19 +1119,6 @@ export class container extends Container<Env> implements ContainerEnvState {
     }
   }
 
-  async readOwnedDeployKeys(owner: string) {
-    await this.verifyMcpOwner(owner);
-    return new DeployKeyState(this.env, this.ctx.storage, owner).read();
-  }
-  async compareOwnedDeployKeys(owner: string, expected: DeployKeyFence, scope: DeployKeyScope, keys: DeployKeys | null) {
-    await this.verifyMcpOwner(owner);
-    return new DeployKeyState(this.env, this.ctx.storage, owner).compare(expected, scope, keys);
-  }
-  async resetOwnedDeployKeys(owner: string) {
-    await this.verifyMcpOwner(owner);
-    await new DeployKeyState(this.env, this.ctx.storage, owner).reset();
-  }
-
   async mcpPortalRead(owner: string, portalName: string) {
     await this.verifyMcpOwner(owner);
     return new McpPortalState(this.ctx.storage).read(portalName);
@@ -1187,7 +1173,6 @@ export class container extends Container<Env> implements ContainerEnvState {
       let operationId: string | undefined;
       const result = await runOwnedUserCleanup(email.trim().toLowerCase(), owner, this.env, async () => {
         operationId = (await state.beginOffboarding()).operationId;
-        return new DeployKeyState(this.env, this.ctx.storage, owner, operationId);
       });
       if (!operationId || !await state.completeOffboarding(operationId)) {
         throw new AppError('user_cleanup_incomplete', 503, 'User cleanup completion could not be confirmed');
@@ -1782,6 +1767,7 @@ export class container extends Container<Env> implements ContainerEnvState {
       }
     }
     await lifecycleCollectMetrics(this.lifecycleHost, pin, { ...execution,
+      idleCompetesWithHermes: await this.canQueueHermesShutdown({ bucket: pin.ownerKey, sessionId: pin.sessionId, generation: pin.generation }),
       onHostResponse: () => this.monitorExistingRuntime(true, pin) });
   }
 

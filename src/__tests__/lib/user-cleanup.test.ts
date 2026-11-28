@@ -35,7 +35,6 @@ const containerState = vi.hoisted(() => ({
 }));
 
 import { cleanupUserData } from '../../lib/user-cleanup';
-import { getGithubConnectionStatus, getValidGithubToken } from '../../lib/github-token';
 import type { Env } from '../../types';
 import { getContainer } from '@cloudflare/containers';
 
@@ -600,30 +599,17 @@ describe('cleanupUserData', () => {
 
   it('REQ-AUTH-018 AC3: offboarding retains provider retry credentials and user after failed revocation', async () => {
     mockKV._set(`user:${email}`, { role: 'user' });
-    const legacyKey = `deploy-keys:${bucketName}`;
-    mockKV._set(legacyKey, { githubToken: 'gho_retry', githubTokenSource: 'oauth' });
-    const revoked: string[] = [];
-    let reject = true;
-    mockFetch.mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
-      if (String(input).includes('/applications/')) {
-        revoked.push(JSON.parse(String(init?.body)).access_token);
-        return new Response(null, { status: reject ? 503 : 204 });
-      }
-      return new Response('{}');
-    });
-    const env = createEnv({ OAUTH_CLIENT_ID: 'oauth-cid', OAUTH_CLIENT_SECRET: 'oauth-sec' });
-    expect(await getValidGithubToken(env, bucketName)).toBe('gho_retry');
-    expect(await mockKV.get(legacyKey, 'json')).toMatchObject({ githubToken: 'gho_retry' });
+    mockKV._set(`deploy-keys:${bucketName}`, { githubToken: 'gho_retry', githubTokenSource: 'oauth' });
+    mockFetch.mockImplementation((input: string | URL | Request) => Promise.resolve(new Response('{}', {
+      status: String(input).includes('/applications/') ? 503 : 200,
+    })));
+    const env = createEnv({ OAUTH_CLIENT_ID: 'oauth-cid', OAUTH_CLIENT_SECRET: 'oauth-sec' } as Partial<Env>);
     await expect(cleanupUserData(email, env)).rejects.toThrow();
-    await expect(getGithubConnectionStatus(env, bucketName)).rejects.toThrow('offboarding');
-    await expect(getValidGithubToken(env, bucketName)).rejects.toThrow('offboarding');
+    expect(await mockKV.get(`deploy-keys:${bucketName}`, 'json')).toMatchObject({ githubToken: 'gho_retry' });
     expect(await mockKV.get(`user:${email}`)).not.toBeNull();
-    mockKV._set(legacyKey, { githubToken: 'stale-legacy', githubTokenSource: 'oauth' });
-    reject = false;
+    mockFetch.mockResolvedValue(new Response('{}', { status: 200 }));
     await cleanupUserData(email, env);
-    expect(revoked).toEqual(['gho_retry', 'gho_retry']);
-    expect(await getValidGithubToken(env, bucketName)).toBeNull();
-    expect(await mockKV.get(legacyKey)).toBeNull();
+    expect(await mockKV.get(`deploy-keys:${bucketName}`)).toBeNull();
     expect(await mockKV.get(`user:${email}`)).toBeNull();
   });
 

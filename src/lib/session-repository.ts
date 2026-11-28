@@ -168,7 +168,7 @@ export class D1SessionRepository implements SessionAuthority {
         ? '(SELECT COALESCE(MAX(q.shutdown_order),0)+1 FROM runtime_sessions q WHERE q.owner_key=?1)'
         : hold ? 'shutdown_order' : 'NULL'}, response_revision=response_revision+1
       WHERE owner_key=?1 AND session_id=?2 AND lifecycle_generation=?3 AND shutdown_json IS ?4
-      ${place ? `AND lifecycle_state='${retry ? 'stopped' : 'running'}' AND termination_intent_id IS NULL` : ''}`)
+      ${place || next?.phase === 'retry-save' ? `AND lifecycle_state='${retry ? 'stopped' : 'running'}' AND termination_intent_id IS NULL` : ''}`)
       .bind(session.ownerKey, session.sessionId, session.lifecycleGeneration,
         session.shutdown ? JSON.stringify(session.shutdown) : null, next ? JSON.stringify(next) : null).run();
     return result.meta.changes === 1;
@@ -266,6 +266,18 @@ export class D1SessionRepository implements SessionAuthority {
         AND unreachable_incident_id=?5 AND unreachable_deadline_ms=?6
         AND lifecycle_reason='recovery_expiry' AND boundary_activity_id IS NULL`)
       .bind(ownerKey, sessionId, generation, intentId, incidentId, deadlineMs).run();
+    return result.meta.changes === 1;
+  }
+
+  /** Compete with queue admission without turning a stale observation into a signal. */
+  async claimIdleStop(session: D1Session, intentId: string, claimedAt: string): Promise<boolean> {
+    const result = await this.db.prepare(`UPDATE runtime_sessions SET lifecycle_state='stopping',
+      termination_intent_id=?3, termination_generation=lifecycle_generation,
+      termination_claimed_at=?4, transitioned_at=?4, response_revision=response_revision+1
+      WHERE owner_key=?1 AND session_id=?2 AND lifecycle_state='running'
+        AND termination_intent_id IS NULL AND boundary_activity_id IS NULL AND lifecycle_generation=?5 AND shutdown_json IS ?6`)
+      .bind(session.ownerKey, session.sessionId, intentId, claimedAt, session.lifecycleGeneration,
+        session.shutdown ? JSON.stringify(session.shutdown) : null).run();
     return result.meta.changes === 1;
   }
 

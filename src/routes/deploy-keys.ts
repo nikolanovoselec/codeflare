@@ -4,13 +4,12 @@
  */
 import { Hono } from 'hono';
 import { z } from 'zod';
-import type { Env } from '../types';
-import { changeDeployKeys, ownedDeployKeys, readDeployKeys } from '../lib/deploy-keys';
-import { withoutGithubConnection } from '../lib/github-token';
-import { withoutCloudflareConnection } from '../lib/cloudflare-token';
+import type { Env, DeployKeys } from '../types';
+import { getDeployKeysKey } from '../lib/kv-keys';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
-import { AppError, ForbiddenError, ValidationError } from '../lib/error-types';
+import { ForbiddenError, ValidationError } from '../lib/error-types';
 import { isEnterpriseMode } from '../lib/subscription';
+import { getAndDecrypt, encryptAndStore, getOrImportKey } from '../lib/kv-crypto';
 import { maskSecret, parseJsonBody } from '../lib/request-helpers';
 import { createRateLimiter } from '../middleware/rate-limit';
 
@@ -92,7 +91,9 @@ const mutationRateLimiter = createRateLimiter({
  */
 app.get('/', async (c) => {
   const bucketName = c.get('bucketName');
-  const stored = await readDeployKeys(c.env, bucketName);
+  const kvKey = getDeployKeysKey(bucketName);
+  const cryptoKey = await getOrImportKey(c.env);
+  const stored = await getAndDecrypt<DeployKeys>(c.env.KV, kvKey, cryptoKey);
 
   return c.json({
     githubToken: maskSecret(stored?.githubToken),
@@ -113,70 +114,92 @@ app.put('/', mutationRateLimiter, async (c) => {
   const bucketName = c.get('bucketName');
   const body = await parseJsonBody(c, UpdateDeployKeysBody);
 
-  const store = ownedDeployKeys(c.env, bucketName);
-  const snapshot = await store.read();
-  const changesGithub = body.githubToken !== undefined;
-  const changesCloudflareToken = body.cloudflareApiToken !== undefined;
-  if (typeof body.githubToken === 'string') await validateGithubToken(body.githubToken);
-  const submittedAccounts = typeof body.cloudflareApiToken === 'string' ? await validateCloudflareToken(body.cloudflareApiToken) : undefined;
-  const cloudflareAccounts = submittedAccounts && submittedAccounts.length > 1 ? submittedAccounts : undefined;
+  const kvKey = getDeployKeysKey(bucketName);
+  const cryptoKey = await getOrImportKey(c.env);
+  const existing = await getAndDecrypt<DeployKeys>(c.env.KV, kvKey, cryptoKey) || {};
+  const updated: DeployKeys = { ...existing };
+  let cloudflareAccounts: CloudflareAccount[] | undefined;
 
-  const scope = changesGithub ? (changesCloudflareToken ? 'both' : 'github')
-    : changesCloudflareToken ? 'cloudflare' : 'cloudflare-account';
-  const result = changesGithub || changesCloudflareToken || body.cloudflareAccountId !== undefined
-    ? await changeDeployKeys(store, scope, async existing => {
-      let updated = { ...existing };
-      if (changesGithub) {
-        // Replacing or clearing a grant drops OAuth/App metadata (including login).
-        updated = withoutGithubConnection(updated) ?? {};
-        if (typeof body.githubToken === 'string') {
-          updated.githubToken = body.githubToken;
-          updated.githubTokenSource = 'pat';
-        }
-      }
-      if (body.cloudflareApiToken === null) {
-        updated = withoutCloudflareConnection(updated) ?? {};
-      } else if (typeof body.cloudflareApiToken === 'string') {
-        delete updated.cloudflareTokenSource;
-        delete updated.cloudflareRefreshToken;
-        delete updated.cloudflareTokenExpiresAt;
-        updated.cloudflareApiToken = body.cloudflareApiToken;
-        if (submittedAccounts?.length === 1) updated.cloudflareAccountId = submittedAccounts[0].id;
-      }
-      if (body.cloudflareAccountId === null) {
-        delete updated.cloudflareAccountId;
-      } else if (typeof body.cloudflareAccountId === 'string') {
-        if (!updated.cloudflareApiToken) throw new ValidationError('Cannot set a Cloudflare account ID without a Cloudflare token');
-        // On a CAS retry, validate against the latest stored token, not a grant
-        // that was replaced while validation was in flight.
-        const accounts = submittedAccounts ?? await validateCloudflareToken(updated.cloudflareApiToken);
-        if (!accounts.some(account => account.id === body.cloudflareAccountId)) {
-          throw new ValidationError('Cloudflare account ID is not accessible with the stored token');
-        }
-        updated.cloudflareAccountId = body.cloudflareAccountId;
-      }
-      return Object.keys(updated).length ? updated : null;
-    }, { snapshot }) : { keys: snapshot.keys };
-  if (!result) throw new AppError('DEPLOY_KEYS_RESET', 409, 'Deploy credentials were reset; retry the update');
-  const updated = result.keys;
+  // GitHub token: null = delete, undefined = no change, string = validate + set.
+  // A manually-pasted token is marked source 'pat'; clearing also drops the
+  // OAuth/App-only fields so a later read/refresh can't act on stale metadata.
+  if (body.githubToken === null) {
+    delete updated.githubToken;
+    delete updated.githubTokenSource;
+    delete updated.githubRefreshToken;
+    delete updated.githubTokenExpiresAt;
+    delete updated.githubLogin;
+  } else if (typeof body.githubToken === 'string') {
+    await validateGithubToken(body.githubToken);
+    updated.githubToken = body.githubToken;
+    updated.githubTokenSource = 'pat';
+    delete updated.githubRefreshToken;
+    delete updated.githubTokenExpiresAt;
+    // Drop a prior OAuth/App login handle: a pasted PAT may be a different
+    // account, and a PAT has no login metadata, so a stale githubLogin would
+    // make /api/github/status report the wrong account.
+    delete updated.githubLogin;
+  }
+
+  // Cloudflare token: null = delete, undefined = no change, string = validate + set
+  if (body.cloudflareApiToken === null) {
+    delete updated.cloudflareApiToken;
+    delete updated.cloudflareAccountId;
+  } else if (typeof body.cloudflareApiToken === 'string') {
+    const accounts = await validateCloudflareToken(body.cloudflareApiToken);
+    updated.cloudflareApiToken = body.cloudflareApiToken;
+    if (accounts.length === 1) {
+      updated.cloudflareAccountId = accounts[0].id;
+    } else if (accounts.length > 1) {
+      cloudflareAccounts = accounts;
+      // Don't auto-set account ID - frontend will send it via cloudflareAccountId field
+    }
+  }
+
+  // Cloudflare account ID: explicit selection (only valid when token is set).
+  // Re-validate the supplied ID against the token's account list so an
+  // arbitrary value can't be stored without proving the token can access it
+  // (avoids SSRF-like probing - REQ-AGENT-010 AC6 / REQ-AGENT-020 AC2).
+  if (body.cloudflareAccountId === null) {
+    delete updated.cloudflareAccountId;
+  } else if (typeof body.cloudflareAccountId === 'string') {
+    if (!updated.cloudflareApiToken) {
+      throw new ValidationError('Cannot set a Cloudflare account ID without a Cloudflare token');
+    }
+    // Reuse the validation already performed above when the token was
+    // co-submitted this request; otherwise validate the stored token now.
+    const accounts = cloudflareAccounts ?? await validateCloudflareToken(updated.cloudflareApiToken);
+    if (!accounts.some((account) => account.id === body.cloudflareAccountId)) {
+      throw new ValidationError('Cloudflare account ID is not accessible with the stored token');
+    }
+    updated.cloudflareAccountId = body.cloudflareAccountId;
+  }
+
+  // If all keys are cleared, remove the KV entry entirely
+  if (!updated.githubToken && !updated.cloudflareApiToken) {
+    await c.env.KV.delete(kvKey);
+  } else {
+    await encryptAndStore(c.env.KV, kvKey, updated, cryptoKey);
+  }
 
   return c.json({
-    githubToken: maskSecret(updated?.githubToken),
-    cloudflareApiToken: maskSecret(updated?.cloudflareApiToken),
+    githubToken: maskSecret(updated.githubToken),
+    cloudflareApiToken: maskSecret(updated.cloudflareApiToken),
     // Emit explicit null on clear so the absence of a value is unambiguous to
     // the client rather than dropped by JSON serialization (REQ-AGENT-029 AC2).
-    cloudflareAccountId: updated?.cloudflareAccountId ?? null,
+    cloudflareAccountId: updated.cloudflareAccountId ?? null,
     ...(cloudflareAccounts && { cloudflareAccounts }),
   });
 });
 
 /**
  * DELETE /api/deploy-keys
- * Remove all deploy credentials and invalidate pending credential writes
+ * Remove all deploy keys from KV
  */
 app.delete('/', mutationRateLimiter, async (c) => {
   const bucketName = c.get('bucketName');
-  await ownedDeployKeys(c.env, bucketName).reset();
+  const kvKey = getDeployKeysKey(bucketName);
+  await c.env.KV.delete(kvKey);
 
   return c.json({ success: true });
 });

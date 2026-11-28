@@ -305,7 +305,7 @@ const llm: InterceptorSpec = {
 
 /**
  * GitHub hosts -> GitHubInterceptor (REQ-GITHUB-003). The interceptor resolves the per-user
- * token from the deploy-key owner keyed by the BOUND session bucket (fixed here, never
+ * token from the deploy-keys KV entry keyed by the BOUND session bucket (fixed here, never
  * read from the request), so the real token never enters the container. Skipped without a
  * bucket (no user to resolve). REQ-ENTERPRISE-016: `strict` is added only when ON so an OFF
  * deploy retains the existing bound `{ user, bucket }` credential scope; ordinary

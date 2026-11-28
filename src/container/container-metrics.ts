@@ -61,6 +61,7 @@ export interface MetricsExecution extends MetricsPin {
   readonly authToken: string | null;
   readonly isCurrent: () => boolean;
   readonly onHostResponse?: () => Promise<void>;
+  readonly idleCompetesWithHermes?: boolean;
   /** Already observed for this generation; absence never triggers a logging lookup. */
   readonly incidentId?: string | null;
 }
@@ -1103,14 +1104,15 @@ export async function collectMetrics(
   };
   const sameGeneration = (session: D1Session | null): session is D1Session =>
     execution.isCurrent() && session?.lifecycleGeneration === generation;
-  const mayStopForIdle = async () => {
+  const readIdleCandidate = async () => {
     const current = await readCurrent().catch(() => null);
-    if (!sameGeneration(current) || current.terminationIntentId) return false;
+    if (!sameGeneration(current) || current.terminationIntentId) return null;
     const job = current.shutdown;
     // A failed save no longer owns a live attempt. Preserve existing idle
     // limits there, but never race an accepted shutdown waiting or in flight.
-    return !job || (job.phase !== 'queued' && (job.phase === 'save-failed' || !terminalFenced(job)));
+    return !job || (job.phase !== 'queued' && (job.phase === 'save-failed' || !terminalFenced(job))) ? current : null;
   };
+  const mayStopForIdle = async () => (await readIdleCandidate()) !== null;
   const schedule = async (delay: number) => {
     if (!execution.isCurrent()) return;
     try { await callbacks.schedule(delay, 'collectMetrics'); }
@@ -1354,16 +1356,30 @@ export async function collectMetrics(
           decision: !canEnforceIdle ? 'timing-unavailable' : idleMs > sleepMs ? 'stop' : 'continue',
         });
       }
-      if (canEnforceIdle && idleMs > sleepMs && execution.isCurrent() && await mayStopForIdle()) {
-        logger.info('collectMetrics: idle exceeded threshold, stopping', { ...finalSyncLogContext(), reason: 'idle', idleMs, sleepMs, idleTimeoutPref, referenceTime });
-        await drainAgentEventsBeforeStop(state, ctx, env, CONTAINER_POLL_BUDGET_MS);
-        if (!execution.isCurrent()) return;
-        await drainFinalSync(ctx, FINAL_SYNC_BUDGET_MS, finalSyncLogContext(), execution.isCurrent, mayStopForIdle);
-        if (!execution.isCurrent()) return;
-        if (await mayStopForIdle()) {
-          requiredStopInProgress = true;
-          await callbacks.stop('SIGTERM');
-          return;
+      if (canEnforceIdle && idleMs > sleepMs && execution.isCurrent()) {
+        const candidate = await readIdleCandidate();
+        const intent = execution.idleCompetesWithHermes ? crypto.randomUUID() : undefined;
+        // The queue's acceptance CAS and this claim exclude one another before
+        // either lane can drain. An uncertain claim never grants native I/O.
+        const admitted = candidate && (!intent || await raceBudget(repository.claimIdleStop(
+          candidate, intent, new Date().toISOString(),
+        ), CONTAINER_POLL_BUDGET_MS).catch(() => false) === true);
+        if (admitted && execution.isCurrent()) {
+          const ownsIdle = intent ? async () => {
+            const current = await readCurrent().catch(() => null);
+            return sameGeneration(current) && current.lifecycleState === 'stopping'
+              && current.terminationGeneration === generation && current.terminationIntentId === intent;
+          } : mayStopForIdle;
+          logger.info('collectMetrics: idle exceeded threshold, stopping', { ...finalSyncLogContext(), reason: 'idle', idleMs, sleepMs, idleTimeoutPref, referenceTime });
+          await drainAgentEventsBeforeStop(state, ctx, env, CONTAINER_POLL_BUDGET_MS);
+          if (!execution.isCurrent()) return;
+          await drainFinalSync(ctx, FINAL_SYNC_BUDGET_MS, finalSyncLogContext(), execution.isCurrent, ownsIdle);
+          if (!execution.isCurrent()) return;
+          if (await ownsIdle()) {
+            requiredStopInProgress = true;
+            await callbacks.stop('SIGTERM');
+            return;
+          }
         }
       }
       if (snapshot.syncStatus === 'failed' || snapshot.syncStatus === 'timeout') {

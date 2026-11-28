@@ -2,7 +2,7 @@
  * REQ-GITHUB-003 / REQ-ENTERPRISE-024: GitHubInterceptor — the security core of enterprise GitHub auth.
  *
  * A WorkerEntrypoint the container DO wires into container egress for the GitHub
- * hosts. It resolves the per-user token from the deploy-key owner (keyed by the
+ * hosts. It resolves the per-user token from the deploy-keys KV entry (keyed by the
  * BOUND per-session bucket, never by anything in the request), strips the container's
  * placeholder auth, and stamps the real credential at the github.com boundary:
  * Basic x-access-token:<token> for git over HTTPS, Bearer <token> for the REST API.
@@ -18,7 +18,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Env } from '../types';
 import { createMockKV } from './helpers/mock-kv';
-import { withDeployKeyOwner } from './helpers/deploy-key-owner';
 import { GitHubInterceptor, interceptedGithubHosts } from '../github-interceptor';
 import { storeGithubConnection } from '../lib/github-token';
 import { LlmInterceptor } from '../llm-interceptor';
@@ -44,7 +43,7 @@ let mockKV: ReturnType<typeof createMockKV>;
 function makeEnv(over: Partial<Env> = {}): Env {
   // No ENCRYPTION_KEY -> kv-crypto plaintext round-trip (encryption-at-rest is
   // covered in github-token.test.ts; here we exercise injection + scoping).
-  return withDeployKeyOwner({ KV: mockKV, ...over } as unknown as Env);
+  return { KV: mockKV, ...over } as unknown as Env;
 }
 
 function makeInterceptor(
